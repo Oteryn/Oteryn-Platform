@@ -1,0 +1,3 @@
+OTERYN-20260725-synology-editorial-redeploy
+
+This bounded marker intentionally triggers the existing Synology image build on pull request and trusted-main push. It carries no runtime configuration or secret.
