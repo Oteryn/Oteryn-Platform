@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Admin;
 
 use App\Cms\Actions\SaveManagedPage;
+use App\Cms\Editorial\EditorialPageKey;
 use App\Cms\Models\ManagedPage;
 use App\Http\Requests\Admin\AdminManagedPageRequest;
 use App\Identity\Models\Identity;
@@ -15,6 +16,7 @@ final class AdminManagedPageController
     {
         return view('admin.pages.index', [
             'pages' => ManagedPage::query()
+                ->whereNotIn('slug', EditorialPageKey::managedPageSlugs())
                 ->orderByDesc('updated_at')
                 ->orderByDesc('id')
                 ->paginate(25),
@@ -45,6 +47,8 @@ final class AdminManagedPageController
 
     public function edit(ManagedPage $managedPage): View
     {
+        abort_if(EditorialPageKey::fromManagedPageSlug($managedPage->slug) !== null, 404);
+
         return view('admin.pages.form', ['page' => $managedPage]);
     }
 
@@ -53,6 +57,8 @@ final class AdminManagedPageController
         ManagedPage $managedPage,
         SaveManagedPage $save,
     ): RedirectResponse {
+        abort_if(EditorialPageKey::fromManagedPageSlug($managedPage->slug) !== null, 404);
+
         $identity = $request->user();
         abort_unless($identity instanceof Identity, 403);
 

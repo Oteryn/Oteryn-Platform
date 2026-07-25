@@ -2,6 +2,7 @@
 
 namespace App\Http\Requests\Admin;
 
+use App\Cms\Editorial\EditorialPageKey;
 use App\Cms\Models\ManagedPage;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
@@ -27,6 +28,7 @@ final class AdminManagedPageRequest extends FormRequest
                 'string',
                 'max:160',
                 'regex:/^[a-z0-9]+(?:-[a-z0-9]+)*$/',
+                Rule::notIn(EditorialPageKey::managedPageSlugs()),
                 Rule::unique('managed_pages', 'slug')->ignore($pageId),
             ],
             'title' => ['required', 'string', 'max:200'],
