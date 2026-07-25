@@ -28,12 +28,12 @@ Deliver a stable Polish and English localization foundation for completed public
 
 ## Acceptance criteria
 
-- [ ] Supported public locales are exactly `en` and `pl`, with an explicit deterministic default and negotiation policy.
-- [ ] Locale-aware public URLs are stable and canonical; legacy non-localized bookmarks follow an intentional tested compatibility policy.
-- [ ] The language switcher preserves equivalent public routes where possible and never fabricates missing translated content.
-- [ ] Missing, incomplete, draft or stale editorial translations are explicit and are not automatically published or silently replaced with another language.
-- [ ] Public navigation, footer, dates, numbers, 404 and unavailable states are localized.
-- [ ] Existing Downloads, Events, Wiki and PublicGameData domain rules remain unchanged.
+- [x] Supported public locales are exactly `en` and `pl`, with an explicit deterministic default and negotiation policy.
+- [x] Locale-aware public URLs are stable and canonical; legacy non-localized bookmarks follow an intentional tested compatibility policy.
+- [x] The language switcher preserves equivalent public routes where possible and never fabricates missing translated content.
+- [x] Missing, incomplete, draft or stale editorial translations are explicit and are not automatically published or silently replaced with another language.
+- [x] Public navigation, footer, dates, numbers, 404 and unavailable states are localized.
+- [x] Existing Downloads, Events, Wiki and PublicGameData domain rules remain unchanged.
 - [ ] Translation-focused feature and representative browser tests pass together with required CI on the exact head.
 
 ## Ownership
@@ -90,8 +90,8 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-07-25T13:43:06Z
-head: 275704190efab3f9500a1951f290fb8af2f1f40e
+updated_at: 2026-07-25T18:13:00Z
+head: 938cf574ce690fe62d453af5e775dbf2e140aabe
 branch: feat/OTERYN-20260725-public-web-localization
 pr: 175
 status: validating
@@ -104,7 +104,7 @@ context_routes:
 owned_paths:
   - localization and public presentation paths listed in Ownership
 proven:
-  - current implementation head is 275704190efab3f9500a1951f290fb8af2f1f40e on PR 175
+  - formatted implementation head before this checkpoint is 938cf574ce690fe62d453af5e775dbf2e140aabe on PR 175
   - supported target locales are exactly en and pl
   - canonical public routes use an explicit locale prefix while legacy non-localized public URLs remain deterministic English compatibility endpoints
   - Events retains its existing locale-specific translation model and localized slugs
@@ -112,16 +112,21 @@ proven:
   - News, managed pages, announcements and client release notes use additive editor-controlled translation records
   - translation states are missing, incomplete, draft, published and stale
   - public Polish editorial reads require a complete published fresh translation and never substitute English source content
-  - open PR 176 owns isolated editorial media paths and does not integrate CMS, Events, Wiki or public localization
-  - repository checkout cannot be cloned in the execution sandbox because DNS resolution is unavailable
+  - PR 176 merged the isolated editorial media library into main without a localization path conflict; PR 175 remains mergeable
   - no secrets or production configuration are involved
   - schema changes are additive and reversible; Canary/login-server schema and session compatibility do not change
   - rollback is the migration down path plus application revert
   - public translation mutation routes retain existing exact content permissions and confirmed MFA
   - authentication, account and administrator routes remain outside the locale-prefixed public namespace
-  - the one-shot transport workflow removed itself and all payload fragments from the final PR diff
+  - the one-shot transport and formatter workflows removed themselves from the final PR diff
   - local syntax validation passed for 62 PHP files, the Playwright scenario, lang/pl.json and translation-key parity
   - local git diff whitespace validation passed
+  - package discovery initially failed because Laravel route name lookups had not been refreshed before localized route cloning
+  - LocalizedPublicRouteRegistrar now refreshes route name lookups before reading source routes
+  - Acceptance run 30168851327 installed application dependencies successfully on implementation head 31c40b2dd37fd7be3e011b38bb2bed98a1bae67d
+  - Agent Governance run 30168851329 and Platform DB Outage run 30168851309 passed on implementation head 31c40b2dd37fd7be3e011b38bb2bed98a1bae67d
+  - CI run 30168851371 passed Composer validation, dependency installation and audit, then failed only the Pint formatting step
+  - one-shot Pint completed and produced canonical formatting commit 938cf574ce690fe62d453af5e775dbf2e140aabe
   - trust boundary affected: public routing and editor-controlled CMS publication only
   - authentication and authorization invariant affected: no new permission; existing exact permission plus confirmed MFA is preserved
   - rollback required: reversible migration and application revert
@@ -130,15 +135,17 @@ derived:
   - the implementation satisfies the no-cross-locale-editorial-fallback architecture without changing completed module domain ownership
   - canonical and compatibility URL behavior can coexist without uncontrolled locale-dependent duplicates because every response emits an explicit canonical URL
 unknown:
-  - required GitHub check results on the exact current head
+  - required GitHub check results on the exact checkpoint-triggered head
 conflicts: []
 first_failure:
-  marker: none
-  evidence: focused local syntax and structural checks pass; GitHub CI is pending
+  marker: CI / Check formatting on 31c40b2dd37fd7be3e011b38bb2bed98a1bae67d
+  evidence: run 30168851371 job 89706362520; Composer validation, install and audit passed before Pint failed; fixed by 938cf574ce690fe62d453af5e775dbf2e140aabe
 rejected_hypotheses:
   - serving English editorial content under Polish URLs is acceptable: conflicts with the explicit truthful-publication requirement
   - automatic source copying can bootstrap Polish records: prohibited by task constraints
   - support.content.manage may edit translations for arbitrary managed pages: controller boundary restricts it to reserved editorial slugs
+  - the public home route is absent: routes/modules/public-portal.php registers the named home route
+  - the withRouting then callback necessarily runs before web route registration: dependency installation reached route registration after moving localization into then; the remaining failure was stale name lookup state
 changed_paths:
   - app/Localization/**
   - app/Cms/Editorial/**
@@ -163,7 +170,7 @@ changed_paths:
 validation:
   - command: repository and open-PR overlap review
     result: PASS
-    evidence: PR 176 excludes consumer integration and does not own localization paths
+    evidence: merged PR 176 does not own localization consumer paths and PR 175 remains mergeable
   - command: PHP syntax validation for implementation files
     result: PASS
     evidence: 62 PHP files passed php -l before commit and again in the one-shot apply workflow
@@ -176,9 +183,24 @@ validation:
   - command: git diff --check
     result: PASS
     evidence: local and one-shot workflow validation
-  - command: required GitHub checks on exact head
+  - command: Laravel package discovery on 31c40b2dd37fd7be3e011b38bb2bed98a1bae67d
+    result: PASS
+    evidence: Acceptance run 30168851327 Install application dependencies step
+  - command: Agent Governance on 31c40b2dd37fd7be3e011b38bb2bed98a1bae67d
+    result: PASS
+    evidence: run 30168851329
+  - command: Platform DB Outage Validation on 31c40b2dd37fd7be3e011b38bb2bed98a1bae67d
+    result: PASS
+    evidence: run 30168851309
+  - command: CI on 31c40b2dd37fd7be3e011b38bb2bed98a1bae67d
+    result: FAIL
+    evidence: run 30168851371 failed Pint after Composer validation, install and audit passed
+  - command: vendor/bin/pint
+    result: PASS
+    evidence: one-shot formatter produced 938cf574ce690fe62d453af5e775dbf2e140aabe and removed its workflow
+  - command: required GitHub checks on exact checkpoint-triggered head
     result: NOT_RUN
-    evidence: task checkpoint commit will trigger the authoritative pull-request workflows
+    evidence: this checkpoint connector commit triggers the authoritative pull-request workflows
 blockers:
   - none
 next_action: Inspect required GitHub checks on the exact head, fix root causes until green, then mark PR 175 ready and squash-merge.
