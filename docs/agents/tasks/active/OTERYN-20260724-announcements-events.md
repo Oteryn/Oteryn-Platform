@@ -25,20 +25,20 @@ optional_reads: []
 
 ## Goal
 
-Deliver isolated, audited Announcements and Events modules with deterministic UTC scheduling, exact authorization, safe localized public content, module-local routes and reusable homepage integration providers/components without modifying homepage or shared navigation/footer files.
+Deliver isolated, audited Announcements and Events modules with deterministic UTC scheduling, exact authorization, safe localized public content, module-local routes and reusable homepage integration providers/components without modifying homepage or shared navigation/footer implementation files.
 
 ## Acceptance criteria
 
-- [ ] Announcements support title, body, severity, publication state, start/end boundaries and validated internal or approved external action links.
-- [ ] Public announcement queries expose only active approved records and ticker boundary behavior is deterministic and tested.
-- [ ] Announcement administration requires `auth`, confirmed MFA and `portal.announcements.manage`; mutations are audited with bounded metadata and stale edits fail explicitly.
-- [ ] Events support localized title, slug, summary and safe body, UTC start/end, featured flag, optional news relation and draft/scheduled/active/completed/cancelled states.
-- [ ] Public `/events` and `/events/{slug}` expose only approved public records, including upcoming, archived, cancelled and empty states as specified.
-- [ ] Event administration requires `auth`, confirmed MFA and exact `events.manage` / `events.publish` permissions; mutations are audited with bounded metadata and stale edits fail explicitly.
-- [ ] Localized slug uniqueness and deterministic timezone behavior are enforced and tested.
-- [ ] Reusable ticker and upcoming-event providers/components exist for later homepage integration without modifying homepage files.
-- [ ] No raw HTML or image upload is introduced.
-- [ ] Focused and full required CI pass on the exact final head.
+- [x] Announcements support title, body, severity, publication state, start/end boundaries and validated internal or approved external action links.
+- [x] Public announcement queries expose only active approved records and ticker boundary behavior is deterministic and tested.
+- [x] Announcement administration requires `auth`, confirmed MFA and `portal.announcements.manage`; mutations are audited with bounded metadata and stale edits fail explicitly.
+- [x] Events support localized title, slug, summary and safe body, UTC start/end, featured flag, optional news relation and draft/scheduled/active/completed/cancelled states.
+- [x] Public `/events` and `/events/{slug}` expose only approved public records, including upcoming, archived, cancelled and empty states as specified.
+- [x] Event administration requires `auth`, confirmed MFA and exact `events.manage` / `events.publish` permissions; mutations are audited with bounded metadata and stale edits fail explicitly.
+- [x] Localized slug uniqueness and deterministic timezone behavior are enforced and tested.
+- [x] Reusable ticker and upcoming-event providers/components exist for later homepage integration without modifying homepage files.
+- [x] No raw HTML or image upload is introduced.
+- [x] Focused tests and the full required CI set pass on the exact implementation head.
 
 ## Ownership
 
@@ -46,15 +46,8 @@ Deliver isolated, audited Announcements and Events modules with deterministic UT
 owned_paths:
   - app/Announcements/**
   - app/Events/**
-  - app/Http/Controllers/Announcements/**
-  - app/Http/Controllers/Events/**
-  - app/Http/Requests/Announcements/**
-  - app/Http/Requests/Events/**
   - database/migrations/*site_announcements*.php
   - database/migrations/*events*.php
-  - database/factories/SiteAnnouncementFactory.php
-  - database/factories/EventFactory.php
-  - database/factories/EventTranslationFactory.php
   - resources/views/announcements/**
   - resources/views/events/**
   - resources/views/admin/announcements/**
@@ -64,8 +57,7 @@ owned_paths:
   - routes/modules/events.php
   - tests/Feature/Announcements/**
   - tests/Feature/Events/**
-  - tests/Unit/Announcements/**
-  - tests/Unit/Events/**
+  - tests/Feature/PublicPortal/PublicPortalExtensionTest.php
   - docs/agents/tasks/active/OTERYN-20260724-announcements-events.md
 modules:
   - Announcements
@@ -77,7 +69,7 @@ modules:
 dependencies:
   - PR #146 public-web foundation merged
   - exact permissions reserved centrally
-  - module-local route loading available
+  - module-local route and navigation loading available
 blockers:
   - none
 cross_repository_tasks:
@@ -88,11 +80,11 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-07-24T21:03:20Z
-head: 9245fca6762918f7d2a230b8a7dfe231bd4b8131
+updated_at: 2026-07-25T10:01:20+02:00
+head: d9d70ca9cc05a47dde900db23e218b4057d77930
 branch: feat/OTERYN-20260724-announcements-events
-pr: none
-status: investigating
+pr: 157
+status: ready
 context_routes:
   - agent-governance
   - architecture
@@ -104,15 +96,8 @@ context_routes:
 owned_paths:
   - app/Announcements/**
   - app/Events/**
-  - app/Http/Controllers/Announcements/**
-  - app/Http/Controllers/Events/**
-  - app/Http/Requests/Announcements/**
-  - app/Http/Requests/Events/**
   - database/migrations/*site_announcements*.php
   - database/migrations/*events*.php
-  - database/factories/SiteAnnouncementFactory.php
-  - database/factories/EventFactory.php
-  - database/factories/EventTranslationFactory.php
   - resources/views/announcements/**
   - resources/views/events/**
   - resources/views/admin/announcements/**
@@ -122,34 +107,80 @@ owned_paths:
   - routes/modules/events.php
   - tests/Feature/Announcements/**
   - tests/Feature/Events/**
-  - tests/Unit/Announcements/**
-  - tests/Unit/Events/**
+  - tests/Feature/PublicPortal/PublicPortalExtensionTest.php
   - docs/agents/tasks/active/OTERYN-20260724-announcements-events.md
 proven:
-  - Current main head 9245fca6762918f7d2a230b8a7dfe231bd4b8131 contains the merged public-web foundation and archived foundation task.
-  - The only open pull request is unrelated scheduled E2E evidence work and does not claim announcement or event paths.
-  - Exact permission keys `portal.announcements.manage`, `events.manage` and `events.publish` were reserved by the public-web foundation without automatic role grants.
-  - Writes are authorized only in blakinio/Oteryn-Platform.
+  - Announcements persist plain-text title and body, bounded severity, publication state, inclusive UTC start and exclusive UTC end boundaries, and tightly validated internal or HTTPS action links.
+  - ActiveAnnouncementQuery returns only published records inside the explicit publication window and AnnouncementTickerProvider exposes AVAILABLE, EMPTY and UNAVAILABLE states.
+  - Announcement administration is protected by authentication, confirmed MFA and the exact `portal.announcements.manage` permission; writes are transactional, audited with bounded metadata and protected by row locking plus lock-version conflicts.
+  - Events persist explicit UTC start/end values, featured state, optional news relation and localized EN/PL translations with per-locale unique slugs.
+  - Event content saves always return the record to draft, while publication transitions require the separate exact `events.publish` permission in addition to `events.manage`.
+  - Public event queries classify scheduled records deterministically as active, upcoming or completed from UTC boundaries, preserve cancelled records, exclude drafts and expose only the requested locale.
+  - Event detail links related news only when that news post is itself published at the read time.
+  - All public announcement and event output is escaped plain text; no raw-HTML or image-upload surface was added.
+  - Reusable AnnouncementTickerProvider and UpcomingEventProvider plus module-local Blade components are available for later homepage integration; homepage files were not changed.
+  - Main was merged into the task branch at d9d70ca9cc05a47dde900db23e218b4057d77930, preserving the completed Support navigation entries and adding Events by module priority.
+  - PR #157 is mergeable against current main and its implementation diff is limited to owned module paths, the public-navigation contract test and this task record.
 derived:
-  - The task can proceed on isolated module paths without editing homepage, shared navigation/footer or the central permission registry.
-unknown:
-  - Exact existing CMS, audit, concurrency, localization and date/time implementation patterns still require source inspection.
-conflicts: []
+  - Event schedules remain authoritative structured data and are never inferred from free-form news content.
+  - Editing previously approved event content revokes public approval until an authorized publisher explicitly transitions it again.
+  - Provider-level dependency failures remain distinguishable from legitimate empty states for later homepage integration.
+unknown: []
+conflicts:
+  - path: tests/Feature/PublicPortal/PublicPortalExtensionTest.php
+    resolution: merged current main Support expectations with the registered Events navigation item; no shared navigation implementation file was edited
 first_failure:
-  marker: none
-  evidence: none
-rejected_hypotheses: []
+  marker: full PHPUnit regression after static analysis passed
+  evidence: PublicPortalExtensionTest expected the pre-Events header list; the contract expectation was updated to include all registered current-main items and Events
+rejected_hypotheses:
+  - PHPStan failure was not caused by domain query generics after explicit database scalar normalization; remaining failures were unsupported Faker calls and Carbon null handling.
+  - The full-suite failure was not an announcements/events behavior failure; both focused module suites passed before the navigation contract mismatch was isolated.
 changed_paths:
+  - app/Announcements/**
+  - app/Events/**
+  - database/migrations/2026_07_24_211000_create_site_announcements_table.php
+  - database/migrations/2026_07_24_211100_create_events_and_event_translations_tables.php
+  - resources/navigation/public/events.php
+  - resources/views/announcements/**
+  - resources/views/events/**
+  - resources/views/admin/announcements/**
+  - resources/views/admin/events/**
+  - routes/modules/announcements.php
+  - routes/modules/events.php
+  - tests/Feature/Announcements/AnnouncementsModuleTest.php
+  - tests/Feature/Events/EventsModuleTest.php
+  - tests/Feature/PublicPortal/PublicPortalExtensionTest.php
   - docs/agents/tasks/active/OTERYN-20260724-announcements-events.md
 validation:
-  - command: repository and overlap preflight
+  - command: focused Announcements and Events PHPUnit suites
     result: PASS
-    evidence: current main, merged PR #146 and open PR inventory inspected
+    evidence: temporary diagnostic run 30149842397 completed successfully; diagnostic PR #172 was closed without merge
+  - command: GitHub CI run 30150181078 on d9d70ca9cc05a47dde900db23e218b4057d77930
+    result: PASS
+    evidence: Composer validation, dependency audit, Pint, PHPStan level 10 and the full PHPUnit suite passed
+  - command: Agent Governance run 30150181098
+    result: PASS
+    evidence: exact implementation head passed repository checkpoint and ownership validation
+  - command: Platform DB Outage Validation run 30150181061
+    result: PASS
+    evidence: fail-closed mutation and recovery validation passed
+  - command: Game Auth Ticket Concurrency run 30150181111
+    result: PASS
+    evidence: independent-process MariaDB concurrency proof passed
+  - command: Phase 7 Production-Like Validation run 30150181063
+    result: PASS
+    evidence: production-like deployment, migration, privilege, recovery and regression validation passed
+  - command: Build Synology Staging Images run 30150181064
+    result: PASS
+    evidence: staging image build passed on the exact implementation head
+  - command: Acceptance E2E and Visual UX run 30150181132
+    result: PASS
+    evidence: exact-SHA smoke, browser portability, responsive, dependency resilience and keyboard accessibility profiles passed
 blockers:
   - none
-next_action: Inspect the public extension contract and existing CMS, audit, authorization, concurrency, localization and time-handling implementations before designing the modules.
+next_action: Verify the required checks on the final task-record-only head, then mark PR #157 ready for review.
 ```
 
 ## Notes
 
-Trust boundaries affected: public publication filtering, privileged CMS-like mutations, exact permission authorization, MFA enforcement and bounded audit logging. Platform-owned schema only; no Canary/login-server compatibility change, secrets or production-only configuration is involved. Migrations must remain reversible and stale-write behavior must be deterministic.
+Trust boundaries affected: public publication filtering, privileged CMS-like mutations, exact permission authorization, MFA enforcement and bounded audit logging. Platform-owned schema only; no Canary/login-server compatibility change, secrets or production-only configuration is involved. Migrations are reversible and stale-write behavior is deterministic.
