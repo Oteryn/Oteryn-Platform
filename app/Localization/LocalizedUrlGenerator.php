@@ -39,10 +39,10 @@ final readonly class LocalizedUrlGenerator
             return new LocalizedPublicUrls(null, []);
         }
 
-        $parameters = $route->parameters();
+        $parameters = $this->stringKeyed($route->parameters());
         unset($parameters['locale']);
 
-        $query = $request->query();
+        $query = $this->stringKeyed($request->query());
         unset($query['lang']);
 
         $currentLocale = app()->getLocale();
@@ -217,5 +217,22 @@ final readonly class LocalizedUrlGenerator
 
         return $url.(str_contains($url, '?') ? '&' : '?')
             .http_build_query($query, '', '&', PHP_QUERY_RFC3986);
+    }
+
+    /**
+     * @param  array<array-key, mixed>  $values
+     * @return array<string, mixed>
+     */
+    private function stringKeyed(array $values): array
+    {
+        $normalized = [];
+
+        foreach ($values as $key => $value) {
+            if (is_string($key)) {
+                $normalized[$key] = $value;
+            }
+        }
+
+        return $normalized;
     }
 }
