@@ -6,6 +6,7 @@ on:
       - feat/OTERYN-20260725-public-web-localization
     paths:
       - .github/workflows/diag-localization-composer.yml
+      - routes/localization.php
 
 permissions:
   contents: read
@@ -49,5 +50,6 @@ jobs:
             /tmp/composer-no-scripts.log
             /tmp/package-discover.log
             /tmp/route-list.log
-          if-no-files-found: error
+            /tmp/pre-localization-routes.json
+          if-no-files-found: warn
           retention-days: 2
