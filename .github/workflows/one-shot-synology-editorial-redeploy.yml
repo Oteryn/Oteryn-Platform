@@ -1,0 +1,191 @@
+name: One-shot Synology Editorial Redeploy
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/one-shot-synology-editorial-redeploy.yml
+      - deploy/synology/.editorial-redeploy-trigger
+
+permissions:
+  actions: write
+  contents: read
+  issues: write
+  packages: read
+
+concurrency:
+  group: synology-staging-editorial-redeploy-one-shot
+  cancel-in-progress: false
+
+env:
+  TRACKING_ISSUE: "173"
+  CANARY_IMAGE_DIGEST: ghcr.io/blakinio/canary@sha256:784e5dbdcc64e311c48c51cd94aa206e2efa1e5eefb2f4ef40170d5aac55031f
+
+jobs:
+  deploy:
+    if: contains(github.event.head_commit.message, '[synology-editorial-redeploy]')
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+
+    steps:
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Wait for exact merge-SHA Platform and Gateway images
+        run: |
+          set -euo pipefail
+          release_tag="sha-${GITHUB_SHA}"
+
+          wait_for_image() {
+            local image="$1"
+            for attempt in $(seq 1 180); do
+              if docker manifest inspect "$image" >/dev/null 2>&1; then
+                echo "Resolved immutable release image: $image"
+                return 0
+              fi
+              echo "Waiting for $image (attempt $attempt/180)"
+              sleep 10
+            done
+            echo "Timed out waiting for image: $image" >&2
+            return 1
+          }
+
+          wait_for_image "ghcr.io/blakinio/oteryn-platform:${release_tag}"
+          wait_for_image "ghcr.io/blakinio/oteryn-game-gateway:${release_tag}"
+          docker manifest inspect "$CANARY_IMAGE_DIGEST" >/dev/null
+          echo "RELEASE_TAG=$release_tag" >> "$GITHUB_ENV"
+
+      - name: Dispatch guarded Synology deployment
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          dispatched_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          gh api \
+            --method POST \
+            "repos/${GITHUB_REPOSITORY}/actions/workflows/deploy-synology-staging.yml/dispatches" \
+            -f ref=main \
+            -f 'inputs[action]=deploy' \
+            -f "inputs[release_tag]=${RELEASE_TAG}" \
+            -f "inputs[canary_image]=${CANARY_IMAGE_DIGEST}" \
+            -f 'inputs[canary_game_bind_address]=192.168.1.2' \
+            -f 'inputs[game_world_id]=1' \
+            -f 'inputs[game_world_slug]=oteryn-staging' \
+            -f 'inputs[game_world_name]=Oteryn Staging' \
+            -f 'inputs[game_world_region]=LAN'
+          echo "DEPLOY_DISPATCHED_AT=$dispatched_at" >> "$GITHUB_ENV"
+
+      - name: Locate deployment run
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          deploy_run_id=""
+          for attempt in $(seq 1 60); do
+            deploy_run_id="$(
+              gh api \
+                "repos/${GITHUB_REPOSITORY}/actions/workflows/deploy-synology-staging.yml/runs?event=workflow_dispatch&branch=main&per_page=20" \
+                --jq ".workflow_runs | map(select(.created_at >= \"${DEPLOY_DISPATCHED_AT}\")) | sort_by(.created_at) | last | .id // empty"
+            )"
+            if [[ -n "$deploy_run_id" ]]; then
+              break
+            fi
+            echo "Waiting for deployment run registration (attempt $attempt/60)"
+            sleep 5
+          done
+          if [[ -z "$deploy_run_id" ]]; then
+            echo "Deployment dispatch was accepted but no run appeared." >&2
+            exit 1
+          fi
+          echo "DEPLOY_RUN_ID=$deploy_run_id" >> "$GITHUB_ENV"
+          echo "DEPLOY_RUN_URL=${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${deploy_run_id}" >> "$GITHUB_ENV"
+
+      - name: Monitor deployment and health checks
+        id: deploy_watch
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh run watch "$DEPLOY_RUN_ID" \
+            --repo "$GITHUB_REPOSITORY" \
+            --exit-status \
+            --interval 10
+
+      - name: Dispatch rollback after failed deployment
+        if: steps.deploy_watch.outcome != 'success'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          rollback_dispatched_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          gh api \
+            --method POST \
+            "repos/${GITHUB_REPOSITORY}/actions/workflows/deploy-synology-staging.yml/dispatches" \
+            -f ref=main \
+            -f 'inputs[action]=rollback' \
+            -f "inputs[release_tag]=${RELEASE_TAG}" \
+            -f "inputs[canary_image]=${CANARY_IMAGE_DIGEST}" \
+            -f 'inputs[canary_game_bind_address]=192.168.1.2' \
+            -f 'inputs[game_world_id]=1' \
+            -f 'inputs[game_world_slug]=oteryn-staging' \
+            -f 'inputs[game_world_name]=Oteryn Staging' \
+            -f 'inputs[game_world_region]=LAN'
+          echo "ROLLBACK_DISPATCHED_AT=$rollback_dispatched_at" >> "$GITHUB_ENV"
+
+      - name: Locate and monitor rollback
+        if: steps.deploy_watch.outcome != 'success'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          rollback_run_id=""
+          for attempt in $(seq 1 60); do
+            rollback_run_id="$(
+              gh api \
+                "repos/${GITHUB_REPOSITORY}/actions/workflows/deploy-synology-staging.yml/runs?event=workflow_dispatch&branch=main&per_page=20" \
+                --jq ".workflow_runs | map(select(.created_at >= \"${ROLLBACK_DISPATCHED_AT}\")) | sort_by(.created_at) | last | .id // empty"
+            )"
+            if [[ -n "$rollback_run_id" ]]; then
+              break
+            fi
+            echo "Waiting for rollback run registration (attempt $attempt/60)"
+            sleep 5
+          done
+          if [[ -z "$rollback_run_id" ]]; then
+            echo "Rollback dispatch was accepted but no run appeared." >&2
+            exit 1
+          fi
+          echo "ROLLBACK_RUN_ID=$rollback_run_id" >> "$GITHUB_ENV"
+          echo "ROLLBACK_RUN_URL=${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${rollback_run_id}" >> "$GITHUB_ENV"
+          gh run watch "$rollback_run_id" \
+            --repo "$GITHUB_REPOSITORY" \
+            --exit-status \
+            --interval 10
+
+      - name: Record successful deployment
+        if: steps.deploy_watch.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh issue comment "$TRACKING_ISSUE" --repo "$GITHUB_REPOSITORY" --body "Synology staging deployment completed successfully.\n\n- release: \`${RELEASE_TAG}\`\n- deployment run: ${DEPLOY_RUN_URL}\n- dispatcher run: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}\n- health checks: passed\n- Platform/Gateway/legacy login: loopback-only\n- Canary game TCP: \`192.168.1.2:7172\`\n- rollback snapshot: retained by the deployment script\n\nNo secrets were emitted."
+          gh issue close "$TRACKING_ISSUE" --repo "$GITHUB_REPOSITORY" --reason completed
+
+      - name: Record failed deployment and rollback
+        if: steps.deploy_watch.outcome != 'success'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh issue comment "$TRACKING_ISSUE" --repo "$GITHUB_REPOSITORY" --body "Synology staging deployment failed and the guarded rollback path was executed.\n\n- attempted release: \`${RELEASE_TAG}\`\n- failed deployment run: ${DEPLOY_RUN_URL}\n- rollback run: ${ROLLBACK_RUN_URL:-registration-failed}\n- dispatcher run: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}\n\nThe issue remains open for root-cause analysis. No secrets were emitted."
+          exit 1
+
+      - name: Log out of GHCR
+        if: always()
+        run: docker logout ghcr.io >/dev/null 2>&1 || true
