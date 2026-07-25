@@ -17,9 +17,10 @@ final readonly class NegotiatePublicLocale
         $locale = $this->negotiator->negotiate($request);
         app()->setLocale($locale);
         URL::defaults(['locale' => $locale]);
-        $request->route()?->setParameter('locale', $locale);
 
         $response = $next($request);
+        abort_unless($response instanceof Response, 500);
+
         $response->headers->set('Content-Language', $locale);
         $response->headers->set('Vary', 'Accept-Language, Cookie', false);
 
