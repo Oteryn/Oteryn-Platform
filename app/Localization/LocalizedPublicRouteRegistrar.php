@@ -75,8 +75,13 @@ final readonly class LocalizedPublicRouteRegistrar
         $this->router->getRoutes()->refreshNameLookups();
 
         foreach ($sourceRoutes as $name => $definition) {
+            $uses = $definition['uses'];
+            if (is_string($uses) && str_ends_with($uses, '@__invoke')) {
+                $uses = substr($uses, 0, -strlen('@__invoke'));
+            }
+
             $route = $this->router
-                ->get('/{locale}'.($definitions[$name] === '' ? '' : $definitions[$name]), $definition['uses'])
+                ->get('/{locale}'.($definitions[$name] === '' ? '' : $definitions[$name]), $uses)
                 ->where('locale', 'en|pl')
                 ->defaults('locale', $this->locales->default())
                 ->middleware(['web', 'public.locale'])
