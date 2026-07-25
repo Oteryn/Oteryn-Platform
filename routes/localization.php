@@ -6,6 +6,8 @@ use App\Localization\PublicLocale;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\URL;
 
+file_put_contents('/tmp/pre-localization-routes.json', json_encode(array_keys(Route::getRoutes()->getRoutesByName()), JSON_PRETTY_PRINT | JSON_THROW_ON_ERROR));
+
 $defaultLocale = app(PublicLocale::class)->default();
 URL::defaults(['locale' => $defaultLocale]);
 app(LocalizedPublicRouteRegistrar::class)->register();
