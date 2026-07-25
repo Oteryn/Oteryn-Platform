@@ -1,17 +1,32 @@
 FROM php:8.5-cli-alpine
 
 RUN apk add --no-cache \
+        freetype \
+        icu-libs \
+        libjpeg-turbo \
+        libpng \
+        libwebp \
+        libzip \
+        oniguruma \
+        unzip \
+    && apk add --no-cache --virtual .build-deps \
+        $PHPIZE_DEPS \
+        freetype-dev \
         icu-dev \
+        libjpeg-turbo-dev \
+        libpng-dev \
+        libwebp-dev \
         libzip-dev \
         oniguruma-dev \
-        unzip \
-    && apk add --no-cache --virtual .build-deps $PHPIZE_DEPS \
-    && docker-php-ext-install -j"$(nproc)" intl mbstring pcntl pdo_mysql zip \
+    && docker-php-ext-configure gd --with-freetype --with-jpeg --with-webp \
+    && docker-php-ext-install -j"$(nproc)" gd intl mbstring pcntl pdo_mysql zip \
     && pecl install redis \
     && docker-php-ext-enable redis \
-    && apk del .build-deps
+    && apk del .build-deps \
+    && php -r 'exit(extension_loaded("gd") && (imagetypes() & IMG_JPG) && (imagetypes() & IMG_PNG) && (imagetypes() & IMG_WEBP) ? 0 : 1);'
 
 COPY --from=composer:2 /usr/bin/composer /usr/local/bin/composer
+COPY deploy/synology/docker/platform-media.ini /usr/local/etc/php/conf.d/zz-oteryn-media.ini
 
 WORKDIR /var/www/html
 
