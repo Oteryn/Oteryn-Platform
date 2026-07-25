@@ -23,10 +23,10 @@ Add the missing repository-specific execution-mode routing policy required by th
 
 ## Acceptance criteria
 
-- [ ] `docs/agents/EXECUTION_MODE_ROUTING.md` defines the supported `CHAT`, `CODEX` and `WORK` modes.
-- [ ] Mode selection, escalation and return rules are deterministic and subordinate to repository allowlists and stop conditions.
-- [ ] The standard routing fields used in task prompts are defined.
-- [ ] The policy forbids using mode selection as authorization or as evidence that execution occurred.
+- [x] `docs/agents/EXECUTION_MODE_ROUTING.md` defines the supported `CHAT`, `CODEX` and `WORK` modes.
+- [x] Mode selection, escalation and return rules are deterministic and subordinate to repository allowlists and stop conditions.
+- [x] The standard routing fields used in task prompts are defined.
+- [x] The policy forbids using mode selection as authorization or as evidence that execution occurred.
 - [ ] Documentation-only validation and required governance checks pass on the exact PR head.
 
 ## Ownership
@@ -52,44 +52,55 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-07-25T19:45:00Z
-head: f6a5086ca1a3d291d0ba70f91d9229f4282d190a
+updated_at: 2026-07-25T20:42:00Z
+head: 6a07658e0fa06a4a63e724d6e12c675302f7f634
 branch: docs/OTERYN-20260725-execution-mode-routing
-pr: none
-status: implementing
+pr: 191
+status: validating
 context_routes:
   - agent-governance
 owned_paths:
   - docs/agents/EXECUTION_MODE_ROUTING.md
   - docs/agents/tasks/active/OTERYN-20260725-execution-mode-routing.md
 proven:
-  - trusted main is f6a5086ca1a3d291d0ba70f91d9229f4282d190a
-  - docs/agents/EXECUTION_MODE_ROUTING.md is absent from trusted main
+  - trusted base main is f6a5086ca1a3d291d0ba70f91d9229f4282d190a
+  - docs/agents/EXECUTION_MODE_ROUTING.md was absent from trusted main
   - repository and organization searches found no existing equivalent document
   - public website programme task requires the missing document before substantive implementation
-  - no open PR owns the selected paths
-  - no write outside blakinio/Oteryn-Platform is authorized or required
+  - no open PR owned the selected paths before this task
+  - execution mode routing now defines CHAT, CODEX and WORK
+  - routing fields, deterministic selection, capability checks, escalation and return rules are documented
+  - repository allowlists, task ownership, security controls and stop conditions remain higher priority than mode selection
+  - mode labels are explicitly not authorization or execution evidence
+  - draft PR 191 owns only the two declared governance paths
+  - no write outside blakinio/Oteryn-Platform occurred
 derived:
-  - a bounded documentation-only governance PR is sufficient to resolve the missing-read blocker
-unknown: []
+  - merging PR 191 will resolve the missing mandatory-read blocker recorded by the public website programme task
+unknown:
+  - exact-head workflow results for the final documentation head
 conflicts: []
 first_failure:
   marker: none
   evidence: none
 rejected_hypotheses:
   - copy an equivalent document from another repository: repository and organization searches returned no result
+  - mode selection can grant otherwise unavailable permissions: contradicted by the new policy and AGENTS.md
 changed_paths:
+  - docs/agents/EXECUTION_MODE_ROUTING.md
   - docs/agents/tasks/active/OTERYN-20260725-execution-mode-routing.md
 validation:
   - command: repository overlap and equivalent-policy search
     result: PASS
     evidence: no matching file or overlapping governance PR found
-  - command: documentation and governance checks
+  - command: focused documentation review against AGENTS.md, CONTEXT_ROUTING.md, BUILD_TEST_MATRIX.md and CONTEXT_HANDOFF.md
+    result: PASS
+    evidence: routing policy is subordinate to existing allowlist, evidence, validation and checkpoint rules
+  - command: exact-head GitHub checks
     result: NOT_RUN
-    evidence: implementation not yet complete
+    evidence: final checkpoint commit will trigger authoritative PR checks
 blockers:
   - none
-next_action: Create docs/agents/EXECUTION_MODE_ROUTING.md with deterministic mode, escalation, return and safety rules.
+next_action: Inspect exact-head checks for PR 191 and fix any governance failure before readiness.
 ```
 
 ## Notes
