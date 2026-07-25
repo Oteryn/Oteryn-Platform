@@ -144,13 +144,19 @@ final class PublicNavigationRegistry
         ];
     }
 
-    /** @param NavigationItem $left @param NavigationItem $right */
+    /**
+     * @param  NavigationItem  $left
+     * @param  NavigationItem  $right
+     */
     private static function compareItems(array $left, array $right): int
     {
         return $left['priority'] <=> $right['priority'];
     }
 
-    /** @param FooterGroup $left @param FooterGroup $right */
+    /**
+     * @param  FooterGroup  $left
+     * @param  FooterGroup  $right
+     */
     private static function compareGroups(array $left, array $right): int
     {
         return $left['priority'] <=> $right['priority'];
