@@ -1,0 +1,62 @@
+name: Diagnostic Localization Full Tests
+
+on:
+  pull_request:
+    branches:
+      - feat/OTERYN-20260725-public-web-localization
+    paths:
+      - .github/workflows/diag-localization-full-tests.yml
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    services:
+      mariadb:
+        image: mariadb:11.8
+        env:
+          MARIADB_ROOT_PASSWORD: oteryn-ci-root-password
+          MARIADB_ROOT_HOST: '%'
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="healthcheck.sh --connect --innodb_initialized"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=20
+    env:
+      CANARY_PROVISIONING_INTEGRATION_HOST: 127.0.0.1
+      CANARY_PROVISIONING_INTEGRATION_PORT: 3306
+      CANARY_PROVISIONING_INTEGRATION_ROOT_PASSWORD: oteryn-ci-root-password
+      CANARY_CHARACTER_CREATE_INTEGRATION_HOST: 127.0.0.1
+      CANARY_CHARACTER_CREATE_INTEGRATION_PORT: 3306
+      CANARY_CHARACTER_CREATE_INTEGRATION_ROOT_PASSWORD: oteryn-ci-root-password
+    steps:
+      - uses: actions/checkout@v7
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.5'
+          coverage: none
+          extensions: pdo_mysql, pcntl, gd
+          tools: composer:v2
+      - name: Install dependencies
+        run: composer install --no-interaction --prefer-dist --no-progress
+      - name: Capture full tests
+        shell: bash
+        run: |
+          set +e
+          composer test > /tmp/full-tests.log 2>&1
+          test_status=$?
+          printf 'full_tests=%s\n' "$test_status" > /tmp/status.txt
+          exit 0
+      - uses: actions/upload-artifact@v4
+        with:
+          name: localization-full-tests-${{ github.run_id }}
+          path: |
+            /tmp/status.txt
+            /tmp/full-tests.log
+          if-no-files-found: error
+          retention-days: 2
