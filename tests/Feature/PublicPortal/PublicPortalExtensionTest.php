@@ -35,7 +35,7 @@ final class PublicPortalExtensionTest extends TestCase
         }
 
         self::assertSame(
-            ['Home', 'News', 'Online', 'Highscores', 'Servers'],
+            ['Home', 'News', 'Online', 'Highscores', 'Servers', 'Events'],
             array_column($navigation->header(), 'label'),
         );
     }
