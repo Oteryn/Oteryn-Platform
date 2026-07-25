@@ -139,10 +139,10 @@ Exact final head:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-07-25T21:40:00Z
-head: 4cab5c0842d678968d893dacf744b47ca31ef67c
+updated_at: 2026-07-25T21:45:00Z
+head: 3a986506c000982a15e9b730856e3492f05c3485
 branch: feat/OTERYN-20260725-public-wiki-read-search
-pr: none
+pr: 194
 status: blocked
 context_routes:
   - agent-governance
@@ -157,10 +157,11 @@ owned_paths:
   - public Wiki read/search paths listed in Ownership
 proven:
   - trusted base main is 4cab5c0842d678968d893dacf744b47ca31ef67c
+  - draft PR 194 owns the declared public Wiki read/search paths
   - PR 190 merged the programme reconciliation and identifies public Wiki read/search as missing
   - PR 158 delivered Wiki persistence, lifecycle services, revisions, optimistic locking, exact permissions and audit but no public routes, rendering or search
   - PR 175 delivered deterministic en/pl public localization, canonical and hreflang foundations
-  - no open pull request currently owns Wiki, localization, public Wiki navigation or Wiki acceptance paths
+  - no competing open pull request owns Wiki, localization, public Wiki navigation or Wiki acceptance paths
   - current Composer dependencies contain no Markdown renderer
   - current Wiki input rules reject obvious raw HTML and dangerous protocols but do not render public output
   - no public or administrator Wiki route module exists on trusted main
@@ -199,7 +200,7 @@ validation:
     evidence: CODEX-capable checkout and execution environment unavailable in this session
 blockers:
   - CODEX-capable writable checkout and local validation environment unavailable
-next_action: Resume this branch in CODEX, verify live main/PR ownership, select the maintained renderer, implement the public Wiki read/search slice and run focused validation before the first runtime commit.
+next_action: Resume PR 194 in CODEX, verify live main/PR ownership, select the maintained renderer, implement the public Wiki read/search slice and run focused validation before the first runtime commit.
 ```
 
 ## Notes
