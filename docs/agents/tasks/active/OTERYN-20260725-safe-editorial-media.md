@@ -39,7 +39,7 @@ Implement an isolated reusable secure editorial raster-image library for later W
 - [x] Upload and deletion operations append bounded non-secret administrator audit events.
 - [x] Referenced media cannot be deleted and database constraints preserve the same invariant.
 - [x] Malicious, malformed, mismatched and over-limit fixtures are covered together with permission, MFA and CSRF regressions.
-- [ ] Required checks pass on the final exact PR head after readiness cleanup.
+- [x] Required checks pass on the final exact PR head after readiness cleanup.
 
 ## Ownership
 
@@ -80,11 +80,11 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-07-25T16:03:00+02:00
-head: dc9c2cd1a41907fe8a158c755998ae4e5ba5aa78
+updated_at: 2026-07-25T19:52:00+02:00
+head: b7819ca671e0a52b62d4b504ef7138cefbefd09f
 branch: feat/OTERYN-20260725-safe-editorial-media
 pr: 176
-status: validating
+status: ready
 context_routes:
   - agent-governance
   - architecture
@@ -108,25 +108,26 @@ proven:
   - media.manage is granted explicitly only to content_editor and platform_admin
   - upload and deletion write bounded non-secret administrator audit events
   - partial storage deletion is restored and database/audit changes roll back
-  - CI run 30160280109 passed codec verification, Composer validation/audit, Pint, PHPStan and the complete test suite on this implementation head
-  - Agent Governance run 30160280104 passed
-  - Acceptance E2E and Visual UX run 30160280090 passed
-  - Phase 7 Production-Like Validation run 30160280113 passed
-  - Platform DB Outage Validation run 30160280095 passed
-  - Game Auth Ticket Concurrency run 30160280130 passed
+  - CI run 30160906504 passed codec verification, Composer validation and audit, Pint, PHPStan and the complete test suite on readiness head b7819ca671e0a52b62d4b504ef7138cefbefd09f
+  - Agent Governance run 30160906499 passed on readiness head b7819ca671e0a52b62d4b504ef7138cefbefd09f
+  - Acceptance E2E and Visual UX run 30160906503 passed on retry of the same readiness head after an initial service-container initialization failure before checkout
+  - Phase 7 Production-Like Validation run 30160906505 passed on readiness head b7819ca671e0a52b62d4b504ef7138cefbefd09f
+  - Platform DB Outage Validation run 30160906493 passed on readiness head b7819ca671e0a52b62d4b504ef7138cefbefd09f
+  - Game Auth Ticket Concurrency run 30160906519 passed on readiness head b7819ca671e0a52b62d4b504ef7138cefbefd09f
+  - Build Synology Staging Images run 30160906507 passed on readiness head b7819ca671e0a52b62d4b504ef7138cefbefd09f
 derived:
   - the reusable boundary can be consumed later through explicit references without transferring consumer lifecycle rules into EditorialMedia
-unknown:
-  - final exact-head results after removing temporary CI diagnostics and updating this checkpoint
+unknown: []
 conflicts: []
 first_failure:
-  marker: none
-  evidence: implementation checks are green; final readiness-only commit remains to be validated
+  marker: acceptance-service-container-initialization
+  evidence: the first attempt of run 30160906503 failed while initializing service containers before checkout; rerunning the same job on the same SHA passed
 rejected_hypotheses:
   - reuse current public disk: it is publicly linked and configured with throw=false
   - add a Wiki-specific upload surface: the requested boundary must remain reusable
   - accept SVG or arbitrary files: prohibited by task and security architecture
   - retain original uploads after validation: decode and re-encode is required to remove metadata and appended payloads
+  - final E2E application regression: the failed attempt never checked out or executed application code and the same job passed on retry without a code change
 changed_paths:
   - .github/workflows/ci.yml
   - app/Admin/AdminPermission.php
@@ -148,12 +149,12 @@ changed_paths:
   - routes/modules/editorial-media.php
   - tests/Feature/EditorialMedia/**
 validation:
-  - command: GitHub required checks on implementation head dc9c2cd1a41907fe8a158c755998ae4e5ba5aa78
+  - command: GitHub required checks on readiness head b7819ca671e0a52b62d4b504ef7138cefbefd09f
     result: PASS
-    evidence: all code, static-analysis, database-outage, E2E, production-like, governance and concurrency checks passed; Synology image build was still queued when readiness cleanup began
+    evidence: all seven workflows passed, including CI, governance, E2E and Visual UX, production-like validation, database outage, concurrency and Synology image build
 blockers:
   - none
-next_action: validate the final exact PR head, mark PR 176 ready and merge
+next_action: mark PR 176 ready for review and squash merge it into main
 ```
 
 ## Notes
