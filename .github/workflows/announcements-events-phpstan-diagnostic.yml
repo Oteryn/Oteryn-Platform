@@ -1,4 +1,4 @@
-name: Announcements Events Focused Diagnostic
+name: Announcements Events Full Test Diagnostic
 
 on:
   pull_request:
@@ -9,8 +9,28 @@ permissions:
   contents: read
 
 jobs:
-  focused-tests:
+  full-tests:
     runs-on: ubuntu-latest
+    services:
+      mariadb:
+        image: mariadb:11.8
+        env:
+          MARIADB_ROOT_PASSWORD: oteryn-ci-root-password
+          MARIADB_ROOT_HOST: "%"
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="healthcheck.sh --connect --innodb_initialized"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=20
+    env:
+      CANARY_PROVISIONING_INTEGRATION_HOST: 127.0.0.1
+      CANARY_PROVISIONING_INTEGRATION_PORT: 3306
+      CANARY_PROVISIONING_INTEGRATION_ROOT_PASSWORD: oteryn-ci-root-password
+      CANARY_CHARACTER_CREATE_INTEGRATION_HOST: 127.0.0.1
+      CANARY_CHARACTER_CREATE_INTEGRATION_PORT: 3306
+      CANARY_CHARACTER_CREATE_INTEGRATION_ROOT_PASSWORD: oteryn-ci-root-password
     steps:
       - name: Fetch pull-request merge quietly
         shell: bash
@@ -25,10 +45,17 @@ jobs:
         with:
           php-version: '8.5'
           coverage: none
+          extensions: pdo_mysql, pcntl
           tools: composer:v2
 
       - name: Install dependencies quietly
         run: composer install --no-interaction --prefer-dist --no-progress --quiet
 
-      - name: Run focused announcements and events tests
-        run: vendor/bin/phpunit --colors=never tests/Feature/Announcements/AnnouncementsModuleTest.php tests/Feature/Events/EventsModuleTest.php
+      - name: Run full test suite and print failures only
+        shell: bash
+        run: |
+          php artisan config:clear --no-ansi >/dev/null
+          if ! php artisan test --colors=never > /tmp/phpunit.log 2>&1; then
+            tail -n 240 /tmp/phpunit.log
+            exit 1
+          fi
