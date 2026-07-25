@@ -10,7 +10,7 @@ final readonly class EditorialContentLocalizer
     public function __construct(private EditorialTranslationResolver $translations) {}
 
     /**
-     * @param array<string, string> $attributeMap translation attribute => source attribute
+     * @param  array<string, string>  $attributeMap  translation attribute => source attribute
      */
     public function localize(Model $source, EditorialContentType $type, string $locale, array $attributeMap): ?Model
     {
