@@ -90,7 +90,7 @@ final readonly class LocalizedUrlGenerator
             ->whereNotNull('published_at')
             ->where('published_at', '<=', now())
             ->first();
-        if ($post === null || ! ($post->updated_at instanceof DateTimeInterface)) {
+        if ($post === null) {
             return null;
         }
 
