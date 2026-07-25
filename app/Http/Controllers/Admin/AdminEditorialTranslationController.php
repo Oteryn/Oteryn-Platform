@@ -27,7 +27,7 @@ final readonly class AdminEditorialTranslationController
             EditorialContentType::NewsPost,
             $newsPost,
             'admin.news.translation.update',
-            route('admin.news.edit', $newsPost),
+            route('admin.news.edit', ['newsPost' => $newsPost]),
         );
     }
 
@@ -36,7 +36,14 @@ final readonly class AdminEditorialTranslationController
         NewsPost $newsPost,
         SaveEditorialTranslation $save,
     ): RedirectResponse {
-        return $this->update($request, EditorialContentType::NewsPost, $newsPost, $save, 'admin.news.translation.edit');
+        return $this->update(
+            $request,
+            EditorialContentType::NewsPost,
+            $newsPost,
+            $save,
+            'admin.news.translation.edit',
+            'newsPost',
+        );
     }
 
     public function editPage(ManagedPage $managedPage): View
@@ -47,7 +54,7 @@ final readonly class AdminEditorialTranslationController
             EditorialContentType::ManagedPage,
             $managedPage,
             'admin.pages.translation.update',
-            route('admin.pages.edit', $managedPage),
+            route('admin.pages.edit', ['managedPage' => $managedPage]),
         );
     }
 
@@ -58,7 +65,14 @@ final readonly class AdminEditorialTranslationController
     ): RedirectResponse {
         $this->assertGenericManagedPage($managedPage);
 
-        return $this->update($request, EditorialContentType::ManagedPage, $managedPage, $save, 'admin.pages.translation.edit');
+        return $this->update(
+            $request,
+            EditorialContentType::ManagedPage,
+            $managedPage,
+            $save,
+            'admin.pages.translation.edit',
+            'managedPage',
+        );
     }
 
     public function editSupport(ManagedPage $managedPage): View
@@ -80,7 +94,14 @@ final readonly class AdminEditorialTranslationController
     ): RedirectResponse {
         $this->assertReservedManagedPage($managedPage);
 
-        return $this->update($request, EditorialContentType::ManagedPage, $managedPage, $save, 'admin.support-content.translation.edit');
+        return $this->update(
+            $request,
+            EditorialContentType::ManagedPage,
+            $managedPage,
+            $save,
+            'admin.support-content.translation.edit',
+            'managedPage',
+        );
     }
 
     public function editAnnouncement(SiteAnnouncement $siteAnnouncement): View
@@ -89,7 +110,7 @@ final readonly class AdminEditorialTranslationController
             EditorialContentType::SiteAnnouncement,
             $siteAnnouncement,
             'admin.announcements.translation.update',
-            route('admin.announcements.edit', $siteAnnouncement),
+            route('admin.announcements.edit', ['siteAnnouncement' => $siteAnnouncement]),
         );
     }
 
@@ -98,7 +119,14 @@ final readonly class AdminEditorialTranslationController
         SiteAnnouncement $siteAnnouncement,
         SaveEditorialTranslation $save,
     ): RedirectResponse {
-        return $this->update($request, EditorialContentType::SiteAnnouncement, $siteAnnouncement, $save, 'admin.announcements.translation.edit');
+        return $this->update(
+            $request,
+            EditorialContentType::SiteAnnouncement,
+            $siteAnnouncement,
+            $save,
+            'admin.announcements.translation.edit',
+            'siteAnnouncement',
+        );
     }
 
     public function editRelease(ClientRelease $clientRelease): View
@@ -107,7 +135,7 @@ final readonly class AdminEditorialTranslationController
             EditorialContentType::ClientRelease,
             $clientRelease,
             'admin.downloads.translation.update',
-            route('admin.downloads.edit', $clientRelease),
+            route('admin.downloads.edit', ['clientRelease' => $clientRelease]),
         );
     }
 
@@ -116,29 +144,41 @@ final readonly class AdminEditorialTranslationController
         ClientRelease $clientRelease,
         SaveEditorialTranslation $save,
     ): RedirectResponse {
-        return $this->update($request, EditorialContentType::ClientRelease, $clientRelease, $save, 'admin.downloads.translation.edit');
+        return $this->update(
+            $request,
+            EditorialContentType::ClientRelease,
+            $clientRelease,
+            $save,
+            'admin.downloads.translation.edit',
+            'clientRelease',
+        );
     }
 
     private function assertGenericManagedPage(ManagedPage $page): void
     {
-        abort_if(EditorialPageKey::fromManagedPageSlug($page->slug) !== null, 404);
+        $slug = $page->getAttribute('slug');
+        abort_unless(is_string($slug), 404);
+        abort_if(EditorialPageKey::fromManagedPageSlug($slug) !== null, 404);
     }
 
     private function assertReservedManagedPage(ManagedPage $page): void
     {
-        abort_if(EditorialPageKey::fromManagedPageSlug($page->slug) === null, 404);
+        $slug = $page->getAttribute('slug');
+        abort_unless(is_string($slug), 404);
+        abort_if(EditorialPageKey::fromManagedPageSlug($slug) === null, 404);
     }
 
     private function edit(EditorialContentType $type, Model $source, string $updateRoute, string $backUrl): View
     {
+        $sourceId = $this->sourceId($source);
         $updatedAt = $source->getAttribute('updated_at');
         abort_unless($updatedAt instanceof DateTimeInterface, 500);
 
         return view('admin.translations.form', [
             'type' => $type,
             'source' => $source,
-            'translation' => $this->translations->find($type, (int) $source->getKey(), 'pl'),
-            'translationState' => $this->translations->state($type, (int) $source->getKey(), $updatedAt, 'pl'),
+            'translation' => $this->translations->find($type, $sourceId, 'pl'),
+            'translationState' => $this->translations->state($type, $sourceId, $updatedAt, 'pl'),
             'updateRoute' => $updateRoute,
             'backUrl' => $backUrl,
         ]);
@@ -150,17 +190,19 @@ final readonly class AdminEditorialTranslationController
         Model $source,
         SaveEditorialTranslation $save,
         string $editRoute,
+        string $routeParameter,
     ): RedirectResponse {
         $actor = $request->user();
         abort_unless($actor instanceof Identity, 403);
 
+        $sourceId = $this->sourceId($source);
         $updatedAt = $source->getAttribute('updated_at');
         abort_unless($updatedAt instanceof DateTimeInterface, 500);
 
         $save->execute(
             $actor,
             $type,
-            (int) $source->getKey(),
+            $sourceId,
             $updatedAt,
             'pl',
             $request->filled('title') ? $request->string('title')->toString() : null,
@@ -170,7 +212,15 @@ final readonly class AdminEditorialTranslationController
         );
 
         return redirect()
-            ->route($editRoute, $source)
+            ->route($editRoute, [$routeParameter => $source])
             ->with('status', 'Polish translation saved.');
+    }
+
+    private function sourceId(Model $source): int
+    {
+        $sourceId = $source->getKey();
+        abort_unless(is_int($sourceId) || (is_string($sourceId) && ctype_digit($sourceId)), 500);
+
+        return (int) $sourceId;
     }
 }
