@@ -28,15 +28,9 @@ final readonly class PublishClientRelease
                 ->orderBy('id')
                 ->lockForUpdate()
                 ->get();
-
-            $storedRelease = null;
-
-            foreach ($channelReleases as $candidate) {
-                if ($candidate->id === $releaseId) {
-                    $storedRelease = $candidate;
-                    break;
-                }
-            }
+            $storedRelease = $channelReleases->first(
+                static fn (ClientRelease $candidate): bool => $candidate->id === $releaseId,
+            );
 
             if (! $storedRelease instanceof ClientRelease) {
                 throw ValidationException::withMessages([
@@ -44,30 +38,34 @@ final readonly class PublishClientRelease
                 ]);
             }
 
-            if ($storedRelease->published_at !== null && ! $makeCurrent) {
-                throw ValidationException::withMessages([
-                    'release' => 'The release is already published.',
-                ]);
+            if ($storedRelease->published_at !== null) {
+                if (! $makeCurrent) {
+                    throw ValidationException::withMessages([
+                        'release' => 'The release is already published.',
+                    ]);
+                }
+
+                if ($storedRelease->is_current) {
+                    throw ValidationException::withMessages([
+                        'release' => 'The release is already the current build for this channel.',
+                    ]);
+                }
             }
 
-            if ($storedRelease->published_at !== null && $storedRelease->is_current && $makeCurrent) {
-                throw ValidationException::withMessages([
-                    'release' => 'The release is already the current build for this channel.',
-                ]);
-            }
-
-            $artifacts = ClientReleaseArtifact::query()
+            $enabledArtifacts = ClientReleaseArtifact::query()
                 ->where('client_release_id', $storedRelease->id)
+                ->where('is_enabled', true)
                 ->orderBy('id')
                 ->lockForUpdate()
                 ->get();
-            $enabledArtifactCount = 0;
 
-            foreach ($artifacts as $artifact) {
-                if (! $artifact->is_enabled) {
-                    continue;
-                }
+            if ($enabledArtifacts->isEmpty()) {
+                throw ValidationException::withMessages([
+                    'artifacts' => 'At least one enabled artifact is required before publication.',
+                ]);
+            }
 
+            foreach ($enabledArtifacts as $artifact) {
                 $reason = $this->artifactUrls->rejectionReason($artifact->artifact_url);
 
                 if ($reason !== null) {
@@ -75,32 +73,29 @@ final readonly class PublishClientRelease
                         'artifacts' => "Artifact {$artifact->filename} {$reason}",
                     ]);
                 }
-
-                $enabledArtifactCount++;
-            }
-
-            if ($enabledArtifactCount === 0) {
-                throw ValidationException::withMessages([
-                    'artifacts' => 'At least one enabled artifact is required before publication.',
-                ]);
             }
 
             $firstPublication = $storedRelease->published_at === null;
+            $publishedAt = $storedRelease->published_at ?? now();
+            $current = $makeCurrent || $storedRelease->is_current;
 
             if ($makeCurrent) {
                 ClientRelease::query()
-                    ->where('channel', $storedRelease->channel)
+                    ->where('channel', $channel)
                     ->where('id', '!=', $storedRelease->id)
                     ->where('is_current', true)
                     ->update(['is_current' => false]);
             }
 
-            if ($storedRelease->published_at === null) {
-                $storedRelease->published_at = now();
-            }
+            DB::table('client_releases')
+                ->where('id', $storedRelease->id)
+                ->update([
+                    'published_at' => $publishedAt,
+                    'is_current' => $current,
+                    'updated_at' => now(),
+                ]);
 
-            $storedRelease->is_current = $makeCurrent || $storedRelease->is_current;
-            $storedRelease->save();
+            $storedRelease->refresh();
 
             $this->audit->record(
                 $actor->id,
@@ -111,7 +106,7 @@ final readonly class PublishClientRelease
                     'version' => $storedRelease->version,
                     'channel' => $storedRelease->channel,
                     'current' => $storedRelease->is_current,
-                    'enabled_artifact_count' => $enabledArtifactCount,
+                    'enabled_artifact_count' => $enabledArtifacts->count(),
                 ],
             );
 
