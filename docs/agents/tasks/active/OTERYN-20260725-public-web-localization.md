@@ -34,7 +34,7 @@ Deliver a stable Polish and English localization foundation for completed public
 - [x] Missing, incomplete, draft or stale editorial translations are explicit and are not automatically published or silently replaced with another language.
 - [x] Public navigation, footer, dates, numbers, 404 and unavailable states are localized.
 - [x] Existing Downloads, Events, Wiki and PublicGameData domain rules remain unchanged.
-- [ ] Translation-focused feature and representative browser tests pass together with required CI on the exact head.
+- [x] Translation-focused feature and representative browser tests pass together with required CI on the exact implementation head.
 
 ## Ownership
 
@@ -52,6 +52,7 @@ owned_paths:
   - database/migrations/*editorial_translations*
   - lang/en/public.php
   - lang/pl/public.php
+  - lang/pl.json
   - resources/views/game/**
   - resources/views/news/**
   - resources/views/pages/**
@@ -90,11 +91,11 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-07-25T18:13:00Z
-head: 938cf574ce690fe62d453af5e775dbf2e140aabe
+updated_at: 2026-07-25T19:06:00Z
+head: 0b380fa125d8057239804f315b414824d54cc577
 branch: feat/OTERYN-20260725-public-web-localization
 pr: 175
-status: validating
+status: ready
 context_routes:
   - agent-governance
   - architecture
@@ -104,57 +105,65 @@ context_routes:
 owned_paths:
   - localization and public presentation paths listed in Ownership
 proven:
-  - formatted implementation head before this checkpoint is 938cf574ce690fe62d453af5e775dbf2e140aabe on PR 175
-  - supported target locales are exactly en and pl
-  - canonical public routes use an explicit locale prefix while legacy non-localized public URLs remain deterministic English compatibility endpoints
-  - Events retains its existing locale-specific translation model and localized slugs
+  - supported public locales are exactly en and pl
+  - legacy root remains / while canonical localized home routes are /en and /pl
+  - other canonical public routes use an explicit locale prefix and legacy public bookmarks remain deterministic English compatibility endpoints
+  - public navigation, SEO metadata and language switching point to canonical locale-aware routes
+  - Events retains its existing translation and scheduling model, including equivalent localized slugs
   - Downloads artifact approval rules and PublicGameData read contracts are unchanged
   - News, managed pages, announcements and client release notes use additive editor-controlled translation records
   - translation states are missing, incomplete, draft, published and stale
-  - public Polish editorial reads require a complete published fresh translation and never substitute English source content
-  - PR 176 merged the isolated editorial media library into main without a localization path conflict; PR 175 remains mergeable
-  - no secrets or production configuration are involved
-  - schema changes are additive and reversible; Canary/login-server schema and session compatibility do not change
-  - rollback is the migration down path plus application revert
-  - public translation mutation routes retain existing exact content permissions and confirmed MFA
-  - authentication, account and administrator routes remain outside the locale-prefixed public namespace
-  - the one-shot transport and formatter workflows removed themselves from the final PR diff
-  - local syntax validation passed for 62 PHP files, the Playwright scenario, lang/pl.json and translation-key parity
-  - local git diff whitespace validation passed
-  - package discovery initially failed because Laravel route name lookups had not been refreshed before localized route cloning
-  - LocalizedPublicRouteRegistrar now refreshes route name lookups before reading source routes
-  - Acceptance run 30168851327 installed application dependencies successfully on implementation head 31c40b2dd37fd7be3e011b38bb2bed98a1bae67d
-  - Agent Governance run 30168851329 and Platform DB Outage run 30168851309 passed on implementation head 31c40b2dd37fd7be3e011b38bb2bed98a1bae67d
-  - CI run 30168851371 passed Composer validation, dependency installation and audit, then failed only the Pint formatting step
-  - one-shot Pint completed and produced canonical formatting commit 938cf574ce690fe62d453af5e775dbf2e140aabe
+  - Polish editorial reads require a complete published fresh translation and never substitute English source content
+  - translation mutation routes preserve existing exact permissions and confirmed MFA
+  - authentication, account and administrator routes remain outside the locale-prefixed namespace
+  - authentication redirect behavior remains legacy-compatible at /
+  - schema changes are additive and reversible
+  - Canary/login-server schema and session compatibility do not change
+  - no secrets, production-only configuration, machine translation, automatic content duplication or commerce are involved
+  - all temporary diagnostic and one-shot workflow files were removed from the feature diff
+  - PR 175 is mergeable against current main and merged media PR 176 has no localization path conflict
+  - exact implementation head 0b380fa125d8057239804f315b414824d54cc577 passed all required workflows
+  - CI run 30170704911 passed Composer validation, dependency audit, Pint, PHPStan and full tests
+  - Agent Governance run 30170704878 passed
+  - Platform DB Outage Validation run 30170704882 passed
+  - Game Auth Ticket Concurrency run 30170704885 passed
+  - Phase 7 Production-Like Validation run 30170704883 passed
+  - Acceptance E2E and Visual UX run 30170704890 passed all required browser and visual profiles
+  - Build Synology Staging Images run 30170704877 passed after retrying only the transient deployment-package validator; all image builds passed on the original attempt
+  - focused localization tests passed 9 scenarios with 96 assertions
   - trust boundary affected: public routing and editor-controlled CMS publication only
   - authentication and authorization invariant affected: no new permission; existing exact permission plus confirmed MFA is preserved
   - rollback required: reversible migration and application revert
   - secret or production-only configuration involved: none
 derived:
   - the implementation satisfies the no-cross-locale-editorial-fallback architecture without changing completed module domain ownership
-  - canonical and compatibility URL behavior can coexist without uncontrolled locale-dependent duplicates because every response emits an explicit canonical URL
-unknown:
-  - required GitHub check results on the exact checkpoint-triggered head
+  - canonical and compatibility URL behavior coexist without uncontrolled locale-dependent duplicates because every public response emits explicit canonical and alternate metadata
+unknown: []
 conflicts: []
 first_failure:
-  marker: CI / Check formatting on 31c40b2dd37fd7be3e011b38bb2bed98a1bae67d
-  evidence: run 30168851371 job 89706362520; Composer validation, install and audit passed before Pint failed; fixed by 938cf574ce690fe62d453af5e775dbf2e140aabe
+  marker: none
+  evidence: all required workflows passed on exact implementation head 0b380fa125d8057239804f315b414824d54cc577
 rejected_hypotheses:
-  - serving English editorial content under Polish URLs is acceptable: conflicts with the explicit truthful-publication requirement
+  - serving English editorial content under Polish URLs is acceptable: conflicts with the truthful-publication requirement
   - automatic source copying can bootstrap Polish records: prohibited by task constraints
   - support.content.manage may edit translations for arbitrary managed pages: controller boundary restricts it to reserved editorial slugs
-  - the public home route is absent: routes/modules/public-portal.php registers the named home route
-  - the withRouting then callback necessarily runs before web route registration: dependency installation reached route registration after moving localization into then; the remaining failure was stale name lookup state
+  - authentication redirects should be moved into the localized namespace: explicitly excluded and contradicted existing compatibility acceptance
+  - canonical localized home must replace the legacy home route name: separate home and localized.home names preserve both contracts
 changed_paths:
   - app/Localization/**
   - app/Cms/Editorial/**
   - app/Cms/Actions/SaveEditorialTranslation.php
   - app/Cms/Models/EditorialTranslation.php
+  - app/Cms/Models/NewsPost.php
   - app/Http/Controllers/Admin/AdminEditorialTranslationController.php
+  - app/Http/Controllers/Identity/SessionController.php
+  - app/Http/Controllers/Identity/Mfa/MfaChallengeController.php
   - app/Http/Middleware/**PublicLocale*.php
   - app/Http/Middleware/SetPublicLocale.php
+  - app/Http/Middleware/RequestCorrelation.php
   - app/Http/Requests/Admin/AdminEditorialTranslationRequest.php
+  - app/Providers/AppServiceProvider.php
+  - app/PublicPortal/Navigation/PublicNavigationRegistry.php
   - bootstrap/app.php
   - config/localization.php
   - database/migrations/2026_07_25_090000_create_editorial_translations_table.php
@@ -168,42 +177,36 @@ changed_paths:
   - docs/architecture/PUBLIC_LOCALIZATION_POLICY.md
   - docs/agents/tasks/active/OTERYN-20260725-public-web-localization.md
 validation:
-  - command: repository and open-PR overlap review
+  - command: composer validate --strict; composer audit --no-interaction; vendor/bin/pint --test; composer analyse; composer test
     result: PASS
-    evidence: merged PR 176 does not own localization consumer paths and PR 175 remains mergeable
-  - command: PHP syntax validation for implementation files
+    evidence: CI run 30170704911 on 0b380fa125d8057239804f315b414824d54cc577
+  - command: focused localization feature tests
     result: PASS
-    evidence: 62 PHP files passed php -l before commit and again in the one-shot apply workflow
-  - command: node --check scripts/acceptance/tests/public-localization.spec.mjs
+    evidence: 9 scenarios and 96 assertions
+  - command: Agent Governance
     result: PASS
-    evidence: local and one-shot workflow validation
-  - command: python -m json.tool lang/pl.json and EN/PL key parity
+    evidence: run 30170704878
+  - command: Platform DB Outage Validation
     result: PASS
-    evidence: local structural validation
-  - command: git diff --check
+    evidence: run 30170704882
+  - command: Game Auth Ticket Concurrency
     result: PASS
-    evidence: local and one-shot workflow validation
-  - command: Laravel package discovery on 31c40b2dd37fd7be3e011b38bb2bed98a1bae67d
+    evidence: run 30170704885
+  - command: Phase 7 Production-Like Validation
     result: PASS
-    evidence: Acceptance run 30168851327 Install application dependencies step
-  - command: Agent Governance on 31c40b2dd37fd7be3e011b38bb2bed98a1bae67d
+    evidence: run 30170704883
+  - command: Acceptance E2E and Visual UX
     result: PASS
-    evidence: run 30168851329
-  - command: Platform DB Outage Validation on 31c40b2dd37fd7be3e011b38bb2bed98a1bae67d
+    evidence: run 30170704890
+  - command: Build Synology Staging Images
     result: PASS
-    evidence: run 30168851309
-  - command: CI on 31c40b2dd37fd7be3e011b38bb2bed98a1bae67d
-    result: FAIL
-    evidence: run 30168851371 failed Pint after Composer validation, install and audit passed
-  - command: vendor/bin/pint
-    result: PASS
-    evidence: one-shot formatter produced 938cf574ce690fe62d453af5e775dbf2e140aabe and removed its workflow
-  - command: required GitHub checks on exact checkpoint-triggered head
+    evidence: run 30170704877; validator retry passed and all three image builds passed
+  - command: exact-head final checkpoint validation
     result: NOT_RUN
-    evidence: this checkpoint connector commit triggers the authoritative pull-request workflows
+    evidence: this document-only checkpoint commit triggers the final authoritative pull-request workflows
 blockers:
   - none
-next_action: Inspect required GitHub checks on the exact head, fix root causes until green, then mark PR 175 ready and squash-merge.
+next_action: Validate the final document-only head, mark PR 175 ready and squash-merge.
 ```
 
 ## Notes
