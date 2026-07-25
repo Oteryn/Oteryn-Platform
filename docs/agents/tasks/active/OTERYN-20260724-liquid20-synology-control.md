@@ -24,11 +24,12 @@ Use the existing `oteryn-staging` self-hosted GitHub Actions runner on Synology 
 ## Acceptance criteria
 
 - [x] A reviewed workflow builds an immutable Liquid20 image from the exact approved Freqtrade commit and publishes it to GHCR.
-- [ ] The workflow deploys acceptance mode only when it will not interrupt an already running collector.
-- [ ] Scheduled monitoring reports container state and aggregate acceptance status without restarting the collector or automatically uploading artifacts.
+- [x] The workflow deploys acceptance mode only when it will not interrupt an already running collector.
+- [x] Scheduled monitoring reports container state and aggregate acceptance status without restarting the collector or automatically uploading artifacts.
 - [ ] A completed run can be copied from the Synology bind mount and uploaded once after an explicit `collect` request.
 - [x] The collector receives no exchange keys, trading credentials, Docker socket, inbound ports or restart policy.
-- [x] The exact workflow has been exercised on the `oteryn-staging` runner and its failure state is recorded in issue `#148`.
+- [x] A full uninterrupted 24-hour attempt completed and retained immutable evidence.
+- [ ] A full uninterrupted 24-hour attempt passes every frozen acceptance gate.
 
 ## Ownership
 
@@ -58,9 +59,9 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-07-24T16:35:00Z
-head: 3e8edcd2873c932973699329ce2cce24b01b819a
-branch: fix/OTERYN-20260724-liquid20-monitor-without-artifact
+updated_at: 2026-07-25T21:20:00Z
+head: 7563ac0fcba737f5ecb2e280f813307d3c1b2cbc
+branch: fix/OTERYN-20260725-liquid20-acceptance-retry
 pr: none
 status: implementing
 context_routes:
@@ -75,52 +76,44 @@ owned_paths:
   - docs/agents/tasks/active/OTERYN-20260724-liquid20-synology-control.md
   - docs/agents/tasks/archive/OTERYN-20260724-liquid20-synology-control.md
 proven:
-  - PR 147 merged the reviewed runner control plane as 52e249d74f462ea17345b0dd1aea89fdd5da3acb after all required checks passed.
-  - PR 149 merged the connector-readable issue 148 status board as 002241849c3009b9003f2887065a3230e9abf753.
-  - PR 150 merged bounded stopped-container diagnostics as c6e3c21c54fb44091abf1a95650ac6c735ed858d.
-  - Issue 148 proves the exact immutable GHCR image was built and launched by workflow run 30107992604.
-  - That launch failed before collection with exit code 1 and diagnostic `mkdir: cannot create directory '/data': Permission denied`.
-  - PR 151 proved explicit user 0:0 did not resolve the Synology bind-write failure.
-  - PR 152 merged removal of Docker's root-filesystem read-only flag as 450ee3b44657a52c8d0f3cd679b1d8b2615bf25f after all exact-head checks passed.
-  - The collector still retains `cap-drop ALL`, `no-new-privileges`, isolated tmpfs, no ports, no Docker socket, no credentials and restart=no.
-  - The user's GitHub Actions storage quota is currently full; automatic hourly artifact upload is therefore not an acceptable monitoring dependency.
-  - The current branch changes hourly schedule behavior from `monitor` to metadata-only `status` and keeps artifact upload behind explicit `collect`.
-  - The current branch extends issue 148 with aggregate acceptance status, failed gate names, coverage counts and per-source metrics without publishing raw events.
+  - PRs 147, 149, 150, 151, 152, 154 and 155 established the reviewed Synology runner control plane, connector-readable status board, bounded diagnostics, metadata-only monitoring and writable evidence volume.
+  - Immutable collector image ghcr.io/blakinio/liquid20-collector:c00a091c5adc67cf75c46db5805e358ffc72fad7 ran uninterrupted for 86400 seconds as run liquid20-20260724T170830Z-1.
+  - Collector execution completed with collector=0 and evidence hashes verified with hashes=0.
+  - Both exchanges observed all 20 frozen symbols.
+  - Bybit produced 771 events with availability 0.998885 and 0.292 disconnects/hour.
+  - Binance produced 1777 events with availability 0.999991 and zero disconnects/hour.
+  - The first full run failed exactly one frozen gate: binance-usdm.maximum_latency_over_threshold_ratio.
+  - The failed run and its final report remain immutable under /volume1/docker/freqtrade-liquidations/data/runs/liquid20-20260724T170830Z-1.
+  - Freqtrade source and the frozen acceptance policy remain unchanged and read-only in this task.
 derived:
-  - Metadata-only hourly checks prevent stale smoke artifacts or a full Actions storage quota from delaying routine status observation.
-  - Full immutable evidence can remain on the NAS and be collected later without weakening or mutating the acceptance result.
-  - A final acceptance decision can be read from issue 148 even while artifact storage is unavailable because the issue publishes only the evaluator's aggregate report.
+  - The single latency-ratio miss may be transient host/network behavior or a reproducible timestamp/collector issue; one unchanged retry is required to distinguish them without weakening policy.
+  - A documentation update under deploy/liquid20 safely triggers bootstrap after merge while preserving the completed failed run.
 unknown:
-  - Whether the post-PR-152 bootstrap has reached the self-hosted runner; issue 148 has not yet recorded a newer workflow run.
-  - Whether removing `--read-only` resolves the Synology data bind behavior; this requires the next trusted-main bootstrap.
-  - Whether the 24-hour immutable run will pass every frozen gate.
+  - Exact Binance latency-over-threshold ratio and distribution are not currently exposed by issue 148.
+  - Whether an unchanged second 24-hour attempt will pass the frozen Binance latency ratio gate.
+  - Whether a repeated failure would require a separately authorized change in the read-only Freqtrade source.
 conflicts: []
 first_failure:
-  marker: synology-data-bind-unwritable
-  evidence: issue 148 records `/data` permission failure for workflow run 30107992604; explicit root did not change the result
+  marker: binance-usdm.maximum_latency_over_threshold_ratio
+  evidence: issue 148 final report for run liquid20-20260724T170830Z-1
 rejected_hypotheses:
-  - Direct assistant access to DSM or the container: no such connection is available; visibility is mediated through GitHub Actions and issue 148.
-  - User identity alone caused the bind failure: rejected because explicit user 0:0 failed identically.
-  - Automatic hourly artifact upload is required for observability: rejected because aggregate status is sufficient and the NAS preserves full evidence.
-  - Publish raw NDJSON or credentials to issue 148: rejected.
+  - Weaken the 5000 ms threshold or 0.01 maximum ratio: prohibited by the frozen acceptance policy.
+  - Change the 20-symbol universe or 24-hour duration: prohibited.
+  - Mutate or delete the failed run: prohibited; evidence remains immutable.
+  - Patch the read-only Freqtrade source from Oteryn while retaining the original collector commit identity: rejected because it would break provenance.
 changed_paths:
-  - .github/workflows/liquid20-synology-control.yml
-  - deploy/liquid20/publish-status.sh
   - deploy/liquid20/README.md
   - docs/agents/tasks/active/OTERYN-20260724-liquid20-synology-control.md
 validation:
-  - command: PR 152 exact-head checks on 2a68b6a7a436ca9897aec65891c556eb08d09d25
-    result: PASS
-    evidence: Liquid20 validation, CI, Phase 7, DB outage and concurrency workflows all passed
-  - command: bash -n deploy/liquid20/publish-status.sh
-    result: PASS
-    evidence: syntax validated before branch update
-  - command: metadata-only monitoring PR checks
+  - command: first 24-hour acceptance run liquid20-20260724T170830Z-1
+    result: FAIL
+    evidence: one frozen Binance latency ratio gate failed; collection and hashes succeeded
+  - command: retry-trigger PR checks
     result: NOT_RUN
     evidence: PR not opened yet
 blockers:
   - none
-next_action: Open and validate the metadata-only monitoring PR, merge it, then wait for the serialized trusted-main bootstrap and read issue 148 for the actual Synology runtime state.
+next_action: Open and validate the unchanged retry PR, merge it, confirm a new run ID is running, then wait for the second full 24-hour evaluator result.
 ```
 
 ## Notes
