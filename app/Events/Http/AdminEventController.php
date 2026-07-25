@@ -200,7 +200,7 @@ final class AdminEventController
     {
         $date = CarbonImmutable::createFromFormat('!Y-m-d\TH:i', $value, 'UTC');
 
-        if ($date === false) {
+        if ($date === null) {
             abort(422, 'The date must be a valid UTC date and time.');
         }
 
