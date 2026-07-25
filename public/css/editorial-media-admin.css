@@ -1,0 +1,14 @@
+.admin-media-preview {
+    display: block;
+    width: 10rem;
+    height: 10rem;
+    object-fit: contain;
+    border-radius: 0.35rem;
+}
+
+.admin-media-digest {
+    display: inline-block;
+    max-width: 24rem;
+    overflow-wrap: anywhere;
+    white-space: normal;
+}
