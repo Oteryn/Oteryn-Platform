@@ -51,6 +51,10 @@ final readonly class LocalizedPublicRouteRegistrar
             }
 
             $action = $source->getAction();
+            if (! is_array($action)) {
+                throw new LogicException(sprintf('Public route [%s] has no supported route action.', $name));
+            }
+
             $uses = $action['uses'] ?? null;
             if (! is_string($uses) && ! is_array($uses) && ! $uses instanceof Closure) {
                 throw new LogicException(sprintf('Public route [%s] has no supported route action.', $name));
@@ -75,7 +79,7 @@ final readonly class LocalizedPublicRouteRegistrar
                 ->get('/{locale}'.($definitions[$name] === '' ? '' : $definitions[$name]), $definition['uses'])
                 ->where('locale', 'en|pl')
                 ->defaults('locale', $this->locales->default())
-                ->middleware('public.locale')
+                ->middleware(['web', 'public.locale'])
                 ->name($name);
 
             foreach ($definition['defaults'] as $key => $value) {
