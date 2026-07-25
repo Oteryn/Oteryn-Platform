@@ -26,6 +26,7 @@ return Application::configure(basePath: dirname(__DIR__))
         health: '/health',
         then: function (): void {
             Route::middleware('api')->group(base_path('routes/internal.php'));
+            require base_path('routes/localization.php');
         },
     )
     ->withMiddleware(function (Middleware $middleware): void {
