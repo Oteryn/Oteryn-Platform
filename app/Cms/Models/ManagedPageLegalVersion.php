@@ -7,24 +7,24 @@ use Illuminate\Support\Carbon;
 
 /**
  * @property int $id
- * @property string $slug
+ * @property int $managed_page_id
+ * @property string $version
+ * @property Carbon $effective_date
  * @property string $title
  * @property string $body
- * @property string|null $legal_version
- * @property Carbon|null $legal_effective_date
- * @property Carbon|null $published_at
+ * @property Carbon $published_at
  */
-final class ManagedPage extends Model
+final class ManagedPageLegalVersion extends Model
 {
     /**
      * @var list<string>
      */
     protected $fillable = [
-        'slug',
+        'managed_page_id',
+        'version',
+        'effective_date',
         'title',
         'body',
-        'legal_version',
-        'legal_effective_date',
         'published_at',
     ];
 
@@ -34,7 +34,7 @@ final class ManagedPage extends Model
     protected function casts(): array
     {
         return [
-            'legal_effective_date' => 'date',
+            'effective_date' => 'date',
             'published_at' => 'datetime',
         ];
     }
