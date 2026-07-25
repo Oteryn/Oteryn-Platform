@@ -10,10 +10,14 @@ return new class extends Migration
     public function up(): void
     {
         DB::transaction(function (): void {
-            $contentEditorRoleId = DB::table('admin_roles')->where('key', 'content_editor')->value('id');
-            $platformAdminRoleId = DB::table('admin_roles')->where('key', 'platform_admin')->value('id');
+            $contentEditorRoleId = $this->integerId(
+                DB::table('admin_roles')->where('key', 'content_editor')->value('id'),
+            );
+            $platformAdminRoleId = $this->integerId(
+                DB::table('admin_roles')->where('key', 'platform_admin')->value('id'),
+            );
 
-            if (! $this->isIntegerCompatible($contentEditorRoleId) || ! $this->isIntegerCompatible($platformAdminRoleId)) {
+            if ($contentEditorRoleId === null || $platformAdminRoleId === null) {
                 throw new RuntimeException('Required administrator roles do not exist.');
             }
 
@@ -27,11 +31,11 @@ return new class extends Migration
 
             DB::table('admin_role_permissions')->insert([
                 [
-                    'role_id' => (int) $contentEditorRoleId,
+                    'role_id' => $contentEditorRoleId,
                     'permission_id' => $permissionId,
                 ],
                 [
-                    'role_id' => (int) $platformAdminRoleId,
+                    'role_id' => $platformAdminRoleId,
                     'permission_id' => $permissionId,
                 ],
             ]);
@@ -41,18 +45,28 @@ return new class extends Migration
     public function down(): void
     {
         DB::transaction(function (): void {
-            $permissionId = DB::table('admin_permissions')->where('key', self::PERMISSION)->value('id');
+            $permissionId = $this->integerId(
+                DB::table('admin_permissions')->where('key', self::PERMISSION)->value('id'),
+            );
 
-            if ($this->isIntegerCompatible($permissionId)) {
-                DB::table('admin_role_permissions')->where('permission_id', (int) $permissionId)->delete();
+            if ($permissionId !== null) {
+                DB::table('admin_role_permissions')->where('permission_id', $permissionId)->delete();
             }
 
             DB::table('admin_permissions')->where('key', self::PERMISSION)->delete();
         }, 3);
     }
 
-    private function isIntegerCompatible(mixed $value): bool
+    private function integerId(mixed $value): ?int
     {
-        return is_int($value) || (is_string($value) && ctype_digit($value));
+        if (is_int($value)) {
+            return $value;
+        }
+
+        if (is_string($value) && ctype_digit($value)) {
+            return (int) $value;
+        }
+
+        return null;
     }
 };

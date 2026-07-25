@@ -56,6 +56,10 @@ final class DeleteEditorialImage
 
                     $bytes = $filesystem->get($object['path']);
 
+                    if (! is_string($bytes)) {
+                        throw new RuntimeException('Editorial image storage could not be read safely; deletion was refused.');
+                    }
+
                     if (
                         strlen($bytes) !== $object['byte_size']
                         || ! hash_equals($object['sha256'], hash('sha256', $bytes))
@@ -170,7 +174,8 @@ final class DeleteEditorialImage
             $restoredBytes = $filesystem->get($path);
 
             if (
-                strlen($restoredBytes) !== strlen($bytes)
+                ! is_string($restoredBytes)
+                || strlen($restoredBytes) !== strlen($bytes)
                 || ! hash_equals(hash('sha256', $bytes), hash('sha256', $restoredBytes))
             ) {
                 throw new RuntimeException(

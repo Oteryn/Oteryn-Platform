@@ -42,9 +42,9 @@ final class EditorialImageProcessor
             $this->reject('The file is not a supported decodable image.');
         }
 
-        $headerMime = $imageInfo['mime'] ?? null;
+        $headerMime = $imageInfo['mime'];
 
-        if (! is_string($headerMime) || $detectedMime !== $format['mime'] || $headerMime !== $format['mime']) {
+        if ($detectedMime !== $format['mime'] || $headerMime !== $format['mime']) {
             $this->reject('The image extension does not match its verified content type.');
         }
 
@@ -240,13 +240,10 @@ final class EditorialImageProcessor
                 imagealphablending($thumbnail, false);
                 imagesavealpha($thumbnail, true);
                 $transparent = imagecolorallocatealpha($thumbnail, 0, 0, 0, 127);
-
-                if ($transparent === false || ! imagefill($thumbnail, 0, 0, $transparent)) {
-                    throw new RuntimeException('Editorial image thumbnail transparency setup failed.');
-                }
+                imagefill($thumbnail, 0, 0, $transparent);
             }
 
-            if (! imagecopyresampled(
+            imagecopyresampled(
                 $thumbnail,
                 $source,
                 0,
@@ -257,9 +254,7 @@ final class EditorialImageProcessor
                 $thumbnailHeight,
                 $width,
                 $height,
-            )) {
-                throw new RuntimeException('Editorial image thumbnail generation failed.');
-            }
+            );
 
             $bytes = $this->encode($thumbnail, $mimeType);
         } finally {
@@ -278,7 +273,7 @@ final class EditorialImageProcessor
         if (
             $detectedMime !== $mimeType
             || $imageInfo === false
-            || ($imageInfo['mime'] ?? null) !== $mimeType
+            || $imageInfo['mime'] !== $mimeType
             || $imageInfo[0] !== $width
             || $imageInfo[1] !== $height
         ) {

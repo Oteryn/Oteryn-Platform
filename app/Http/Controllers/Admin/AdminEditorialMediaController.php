@@ -108,6 +108,10 @@ final class AdminEditorialMediaController
 
         $bytes = $filesystem->get($path);
 
+        if (! is_string($bytes)) {
+            throw new RuntimeException('Editorial image storage could not be read safely.');
+        }
+
         if (strlen($bytes) !== $expectedByteSize || ! hash_equals($expectedSha256, hash('sha256', $bytes))) {
             throw new RuntimeException('Editorial image integrity verification failed.');
         }
