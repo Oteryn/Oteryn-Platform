@@ -45,6 +45,12 @@ Issue `#148` is the durable non-secret status board. Every bootstrap and hourly 
 
 The issue never receives exchange credentials, Oteryn secrets or raw liquidation event data. A bounded, escaped and credential-redacted log tail is shown only for a stopped container to support failure diagnosis. This provides connector-readable visibility without direct DSM or SSH access.
 
+## Acceptance attempts
+
+The first uninterrupted 24-hour attempt, `liquid20-20260724T170830Z-1`, completed collection and evidence hashing successfully. It observed all 20 symbols on both exchanges, but failed exactly one frozen gate: `binance-usdm.maximum_latency_over_threshold_ratio`. All other reported gates passed, including duration, availability, disconnects, parse failures, duplicates, coverage and event volume.
+
+Because the Freqtrade source and acceptance policy are read-only in this control task, the first response is a clean unchanged retry using the same immutable image and frozen policy. This distinguishes a transient host/network latency sample from a reproducible collector implementation issue without weakening any threshold. The failed run remains immutable under the Synology evidence path.
+
 ## Evidence retention
 
 Full immutable evidence stays under:
