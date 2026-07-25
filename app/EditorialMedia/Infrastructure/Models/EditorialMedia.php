@@ -5,6 +5,7 @@ namespace App\EditorialMedia\Infrastructure\Models;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Support\Carbon;
+use LogicException;
 
 /**
  * @property int $id
@@ -18,6 +19,7 @@ use Illuminate\Support\Carbon;
  * @property int $width
  * @property int $height
  * @property int|null $thumbnail_byte_size
+ * @property string|null $thumbnail_sha256
  * @property int|null $thumbnail_width
  * @property int|null $thumbnail_height
  * @property string $sha256
@@ -44,12 +46,48 @@ final class EditorialMedia extends Model
         'width',
         'height',
         'thumbnail_byte_size',
+        'thumbnail_sha256',
         'thumbnail_width',
         'thumbnail_height',
         'sha256',
         'alt_text',
         'uploaded_by_identity_id',
     ];
+
+    protected static function booted(): void
+    {
+        self::creating(function (self $media): void {
+            if ($media->disk !== 'editorial_media') {
+                throw new LogicException('Editorial media must use the dedicated private storage disk.');
+            }
+        });
+
+        self::updating(function (self $media): void {
+            if ($media->isDirty([
+                'disk',
+                'storage_path',
+                'thumbnail_path',
+                'original_name',
+                'mime_type',
+                'extension',
+                'byte_size',
+                'width',
+                'height',
+                'thumbnail_byte_size',
+                'thumbnail_sha256',
+                'thumbnail_width',
+                'thumbnail_height',
+                'sha256',
+                'uploaded_by_identity_id',
+            ])) {
+                throw new LogicException('Editorial media storage and integrity fields are immutable.');
+            }
+        });
+
+        self::deleting(function (self $_media): never {
+            throw new LogicException('Editorial media must be deleted through the safe deletion action.');
+        });
+    }
 
     /**
      * @return HasMany<EditorialMediaReference, $this>
