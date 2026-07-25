@@ -12,6 +12,7 @@ final readonly class ProcessedEditorialImage
         public int $height,
         public string $sha256,
         public ?string $thumbnailBytes,
+        public ?string $thumbnailSha256,
         public ?int $thumbnailWidth,
         public ?int $thumbnailHeight,
     ) {}
