@@ -13,6 +13,8 @@ final readonly class LocalizedPublicRouteRegistrar
 
     public function register(): void
     {
+        $this->router->getRoutes()->refreshNameLookups();
+
         /** @var array<string, string> $definitions */
         $definitions = [
             'home' => '',
