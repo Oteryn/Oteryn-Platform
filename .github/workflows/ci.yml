@@ -67,7 +67,18 @@ jobs:
         run: vendor/bin/pint --test
 
       - name: Run static analysis
-        run: composer analyse
+        shell: bash
+        run: |
+          set -o pipefail
+          composer analyse 2>&1 | tee /tmp/phpstan.log
+
+      - name: Upload static analysis diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: phpstan-diagnostics
+          path: /tmp/phpstan.log
+          retention-days: 1
 
       - name: Run tests
         run: composer test
