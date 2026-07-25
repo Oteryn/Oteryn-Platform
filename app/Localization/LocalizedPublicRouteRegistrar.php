@@ -15,9 +15,12 @@ final readonly class LocalizedPublicRouteRegistrar
     {
         $this->router->getRoutes()->refreshNameLookups();
 
+        $home = $this->requiredRoute('home');
+        $homeUses = $this->routeUses($home, 'home');
+        $home->middleware('public.locale.negotiate');
+
         /** @var array<string, string> $definitions */
         $definitions = [
-            'home' => '',
             'news.index' => '/news',
             'news.show' => '/news/{slug}',
             'pages.show' => '/pages/{slug}',
@@ -45,20 +48,8 @@ final readonly class LocalizedPublicRouteRegistrar
         $sourceRoutes = [];
 
         foreach ($definitions as $name => $uri) {
-            $source = $this->router->getRoutes()->getByName($name);
-            if (! $source instanceof LaravelRoute) {
-                throw new LogicException(sprintf('Required public route [%s] is not registered.', $name));
-            }
-
-            $action = $source->getAction();
-            if (! is_array($action)) {
-                throw new LogicException(sprintf('Public route [%s] has no supported route action.', $name));
-            }
-
-            $uses = $action['uses'] ?? null;
-            if (! is_string($uses) && ! is_array($uses) && ! $uses instanceof Closure) {
-                throw new LogicException(sprintf('Public route [%s] has no supported route action.', $name));
-            }
+            $source = $this->requiredRoute($name);
+            $uses = $this->routeUses($source, $name);
 
             $sourceRoutes[$name] = [
                 'uses' => $uses,
@@ -66,22 +57,28 @@ final readonly class LocalizedPublicRouteRegistrar
                 'wheres' => $source->wheres,
             ];
 
+            $action = $source->getAction();
+            if (! is_array($action)) {
+                throw new LogicException(sprintf('Public route [%s] has no supported route action.', $name));
+            }
+
             $action['as'] = 'legacy.'.$name;
             $source->setAction($action);
             $source->defaults('locale', $this->locales->default());
-            $source->middleware($name === 'home' ? 'public.locale.negotiate' : 'public.locale');
+            $source->middleware('public.locale');
         }
 
         $this->router->getRoutes()->refreshNameLookups();
 
-        foreach ($sourceRoutes as $name => $definition) {
-            $uses = $definition['uses'];
-            if (is_string($uses) && str_ends_with($uses, '@__invoke')) {
-                $uses = substr($uses, 0, -strlen('@__invoke'));
-            }
+        $this->router
+            ->get('/{locale}', $this->normalizeInvokable($homeUses))
+            ->where('locale', 'en|pl')
+            ->middleware(['web', 'public.locale'])
+            ->name('localized.home');
 
+        foreach ($sourceRoutes as $name => $definition) {
             $route = $this->router
-                ->get('/{locale}'.($definitions[$name] === '' ? '' : $definitions[$name]), $uses)
+                ->get('/{locale}'.$definitions[$name], $this->normalizeInvokable($definition['uses']))
                 ->where('locale', 'en|pl')
                 ->defaults('locale', $this->locales->default())
                 ->middleware(['web', 'public.locale'])
@@ -97,5 +94,38 @@ final readonly class LocalizedPublicRouteRegistrar
                 $route->where($definition['wheres']);
             }
         }
+    }
+
+    private function requiredRoute(string $name): LaravelRoute
+    {
+        $route = $this->router->getRoutes()->getByName($name);
+        if (! $route instanceof LaravelRoute) {
+            throw new LogicException(sprintf('Required public route [%s] is not registered.', $name));
+        }
+
+        return $route;
+    }
+
+    /** @return Closure|array<array-key, mixed>|string */
+    private function routeUses(LaravelRoute $route, string $name): Closure|array|string
+    {
+        $action = $route->getAction();
+        $uses = is_array($action) ? ($action['uses'] ?? null) : null;
+        if (! is_string($uses) && ! is_array($uses) && ! $uses instanceof Closure) {
+            throw new LogicException(sprintf('Public route [%s] has no supported route action.', $name));
+        }
+
+        return $uses;
+    }
+
+    /**
+     * @param  Closure|array<array-key, mixed>|string  $uses
+     * @return Closure|array<array-key, mixed>|string
+     */
+    private function normalizeInvokable(Closure|array|string $uses): Closure|array|string
+    {
+        return is_string($uses) && str_ends_with($uses, '@__invoke')
+            ? substr($uses, 0, -strlen('@__invoke'))
+            : $uses;
     }
 }
