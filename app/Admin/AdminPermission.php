@@ -14,6 +14,8 @@ final class AdminPermission
 
     public const MANAGE_PAGES = 'cms.pages.manage';
 
+    public const MANAGE_MEDIA = 'media.manage';
+
     public const PORTAL_ACCESS = 'portal.access';
 
     public const MANAGE_PORTAL_ANNOUNCEMENTS = 'portal.announcements.manage';
@@ -47,6 +49,7 @@ final class AdminPermission
             self::VIEW_AUDIT,
             self::MANAGE_NEWS,
             self::MANAGE_PAGES,
+            self::MANAGE_MEDIA,
             self::PORTAL_ACCESS,
             self::MANAGE_PORTAL_ANNOUNCEMENTS,
             self::MANAGE_PORTAL_SETTINGS,
