@@ -10,7 +10,7 @@ $defaultLocale = app(PublicLocale::class)->default();
 URL::defaults(['locale' => $defaultLocale]);
 app(LocalizedPublicRouteRegistrar::class)->register();
 
-Route::middleware(['auth', 'mfa.confirmed', 'admin.permission:cms.news.manage'])
+Route::middleware(['web', 'auth', 'mfa.confirmed', 'admin.permission:cms.news.manage'])
     ->prefix('admin/news/{newsPost}/translations/pl')
     ->group(function (): void {
         Route::get('/', [AdminEditorialTranslationController::class, 'editNews'])
@@ -19,7 +19,7 @@ Route::middleware(['auth', 'mfa.confirmed', 'admin.permission:cms.news.manage'])
             ->name('admin.news.translation.update');
     });
 
-Route::middleware(['auth', 'mfa.confirmed', 'admin.permission:cms.pages.manage'])
+Route::middleware(['web', 'auth', 'mfa.confirmed', 'admin.permission:cms.pages.manage'])
     ->prefix('admin/pages/{managedPage}/translations/pl')
     ->group(function (): void {
         Route::get('/', [AdminEditorialTranslationController::class, 'editPage'])
@@ -28,7 +28,7 @@ Route::middleware(['auth', 'mfa.confirmed', 'admin.permission:cms.pages.manage']
             ->name('admin.pages.translation.update');
     });
 
-Route::middleware(['auth', 'mfa.confirmed', 'admin.permission:support.content.manage'])
+Route::middleware(['web', 'auth', 'mfa.confirmed', 'admin.permission:support.content.manage'])
     ->prefix('admin/support-content/pages/{managedPage}/translations/pl')
     ->group(function (): void {
         Route::get('/', [AdminEditorialTranslationController::class, 'editSupport'])
@@ -37,7 +37,7 @@ Route::middleware(['auth', 'mfa.confirmed', 'admin.permission:support.content.ma
             ->name('admin.support-content.translation.update');
     });
 
-Route::middleware(['auth', 'mfa.confirmed', 'admin.permission:portal.announcements.manage'])
+Route::middleware(['web', 'auth', 'mfa.confirmed', 'admin.permission:portal.announcements.manage'])
     ->prefix('admin/announcements/{siteAnnouncement}/translations/pl')
     ->group(function (): void {
         Route::get('/', [AdminEditorialTranslationController::class, 'editAnnouncement'])
@@ -46,7 +46,7 @@ Route::middleware(['auth', 'mfa.confirmed', 'admin.permission:portal.announcemen
             ->name('admin.announcements.translation.update');
     });
 
-Route::middleware(['auth', 'mfa.confirmed', 'admin.permission:downloads.manage'])
+Route::middleware(['web', 'auth', 'mfa.confirmed', 'admin.permission:downloads.manage'])
     ->prefix('admin/downloads/{clientRelease}/translations/pl')
     ->group(function (): void {
         Route::get('/', [AdminEditorialTranslationController::class, 'editRelease'])
