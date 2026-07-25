@@ -6,6 +6,7 @@ on:
       - main
     paths:
       - .github/workflows/one-shot-synology-editorial-redeploy.yml
+      - deploy/synology/.editorial-redeploy-trigger
 
 permissions:
   actions: write
@@ -19,7 +20,6 @@ concurrency:
 
 env:
   TRACKING_ISSUE: "173"
-  RELEASE_TAG: sha-96521c71ce166e8eb4f242706b6b5fde2dd8bce2
   CANARY_IMAGE_DIGEST: ghcr.io/blakinio/canary@sha256:784e5dbdcc64e311c48c51cd94aa206e2efa1e5eefb2f4ef40170d5aac55031f
 
 jobs:
@@ -36,9 +36,10 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Verify exact Platform and Gateway images
+      - name: Wait for exact merge-SHA Platform and Gateway images
         run: |
           set -euo pipefail
+          release_tag="sha-${GITHUB_SHA}"
 
           wait_for_image() {
             local image="$1"
@@ -54,9 +55,10 @@ jobs:
             return 1
           }
 
-          wait_for_image "ghcr.io/blakinio/oteryn-platform:${RELEASE_TAG}"
-          wait_for_image "ghcr.io/blakinio/oteryn-game-gateway:${RELEASE_TAG}"
+          wait_for_image "ghcr.io/blakinio/oteryn-platform:${release_tag}"
+          wait_for_image "ghcr.io/blakinio/oteryn-game-gateway:${release_tag}"
           docker manifest inspect "$CANARY_IMAGE_DIGEST" >/dev/null
+          echo "RELEASE_TAG=$release_tag" >> "$GITHUB_ENV"
 
       - name: Dispatch guarded Synology deployment
         env:
