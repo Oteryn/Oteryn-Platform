@@ -29,9 +29,16 @@
             <p>{{ __('public.downloads.unavailable_help') }}</p>
         </div>
     @elseif ($downloadCenter->state === \App\Downloads\DownloadCenterState::EMPTY)
-        @php($platformLabel = $downloadCenter->platform ? ' '.\App\Downloads\DownloadCatalog::platformLabel($downloadCenter->platform) : '')
         <div class="empty-state">
-            <strong>{{ __('public.downloads.empty', ['platform' => $platformLabel]) }}</strong>
+            <strong>
+                @if ($downloadCenter->platform)
+                    {{ __('No current download is available for :platform.', [
+                        'platform' => \App\Downloads\DownloadCatalog::platformLabel($downloadCenter->platform),
+                    ]) }}
+                @else
+                    {{ __('public.downloads.empty', ['platform' => '']) }}
+                @endif
+            </strong>
             <p>{{ __('public.downloads.empty_help') }}</p>
         </div>
     @else
