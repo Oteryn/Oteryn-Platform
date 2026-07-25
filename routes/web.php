@@ -149,3 +149,5 @@ if ($moduleRouteFiles !== false) {
         require $moduleRouteFile;
     }
 }
+
+require __DIR__.'/localization.php';

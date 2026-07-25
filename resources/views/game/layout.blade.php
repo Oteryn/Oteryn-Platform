@@ -4,6 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>@yield('title') · {{ config('app.name') }}</title>
+    @include('game.partials.localized-seo')
     @stack('head')
     <link rel="stylesheet" href="{{ asset('css/app.css') }}">
     <link rel="stylesheet" href="{{ asset('css/portal.css') }}">
@@ -13,7 +14,7 @@
 </head>
 <body class="public-body">
 @inject('publicNavigation', 'App\PublicPortal\Navigation\PublicNavigationRegistry')
-<a class="skip-link" href="#main-content">Skip to content</a>
+<a class="skip-link" href="#main-content">{{ __('public.skip_to_content') }}</a>
 @include('game.partials.public-header', ['headerItems' => $publicNavigation->header()])
 <main id="main-content" class="page-shell @yield('page-class')">
     @yield('content')

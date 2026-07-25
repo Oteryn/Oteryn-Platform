@@ -1,39 +1,40 @@
 @extends('game.layout')
 
-@section('title', 'News')
+@section('title', __('public.news.title'))
 
 @section('content')
+    @inject('localeFormatter', 'App\Localization\LocaleFormatter')
     <div class="page-header">
-        <p class="eyebrow">Updates</p>
-        <h1>News</h1>
-        <p class="muted">Published Oteryn Platform updates.</p>
+        <p class="eyebrow">{{ __('public.news.eyebrow') }}</p>
+        <h1>{{ __('public.news.title') }}</h1>
+        <p class="muted">{{ __('public.news.description') }}</p>
     </div>
 
     @forelse ($posts as $post)
         <article class="card">
-            <p class="eyebrow">Published {{ $post->published_at?->format('Y-m-d H:i') }}</p>
+            <p class="eyebrow">{{ __('public.news.published', ['date' => $post->published_at ? $localeFormatter->dateTime($post->published_at) : '']) }}</p>
             <h2><a href="{{ route('news.show', ['slug' => $post->slug]) }}">{{ $post->title }}</a></h2>
-            <a href="{{ route('news.show', ['slug' => $post->slug]) }}">Read update</a>
+            <a href="{{ route('news.show', ['slug' => $post->slug]) }}">{{ __('public.news.read') }}</a>
         </article>
     @empty
         <div class="empty-state">
-            <strong>No published news yet.</strong>
-            <p>Published Oteryn updates will appear here.</p>
+            <strong>{{ __('public.news.empty') }}</strong>
+            <p>{{ __('public.news.empty_help') }}</p>
         </div>
     @endforelse
 
     @if ($posts->hasPages())
-        <nav class="pagination" aria-label="News pages">
+        <nav class="pagination" aria-label="{{ __('public.news.pages') }}">
             @if ($posts->onFirstPage())
-                <span class="muted">Previous</span>
+                <span class="muted">{{ __('public.pagination.previous') }}</span>
             @else
-                <a href="{{ $posts->previousPageUrl() }}">Previous</a>
+                <a href="{{ $posts->previousPageUrl() }}">{{ __('public.pagination.previous') }}</a>
             @endif
-            <span>Page {{ $posts->currentPage() }} of {{ $posts->lastPage() }}</span>
+            <span>{{ __('public.pagination.page_of', ['current' => $posts->currentPage(), 'last' => $posts->lastPage()]) }}</span>
             @if ($posts->hasMorePages())
-                <a href="{{ $posts->nextPageUrl() }}">Next</a>
+                <a href="{{ $posts->nextPageUrl() }}">{{ __('public.pagination.next') }}</a>
             @else
-                <span class="muted">Next</span>
+                <span class="muted">{{ __('public.pagination.next') }}</span>
             @endif
         </nav>
     @endif

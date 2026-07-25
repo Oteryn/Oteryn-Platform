@@ -5,8 +5,10 @@ namespace App\Cms\Editorial;
 use App\Cms\Models\ManagedPage;
 use DateTimeInterface;
 
-final class EditorialPageQuery
+final readonly class EditorialPageQuery
 {
+    public function __construct(private EditorialContentLocalizer $localizer) {}
+
     public function find(EditorialPageKey $key, ?DateTimeInterface $readTime = null): EditorialPageResult
     {
         $readTime ??= now();
@@ -23,6 +25,17 @@ final class EditorialPageQuery
             return new EditorialPageResult($key, EditorialPageState::Unpublished, null);
         }
 
-        return new EditorialPageResult($key, EditorialPageState::Published, $page);
+        $localized = $this->localizer->localize(
+            $page,
+            EditorialContentType::ManagedPage,
+            app()->getLocale(),
+            ['title' => 'title', 'body' => 'body'],
+        );
+
+        if (! $localized instanceof ManagedPage) {
+            return new EditorialPageResult($key, EditorialPageState::TranslationUnavailable, null);
+        }
+
+        return new EditorialPageResult($key, EditorialPageState::Published, $localized);
     }
 }

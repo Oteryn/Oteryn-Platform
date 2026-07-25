@@ -1,18 +1,19 @@
 @extends('game.layout')
 
-@section('title', 'Download')
+@section('title', __('public.downloads.page_title'))
 
 @section('content')
+    @inject('localeFormatter', 'App\Localization\LocaleFormatter')
     <div class="page-header">
-        <p class="eyebrow">Play Oteryn</p>
-        <h1>Download Center</h1>
-        <p class="muted">Choose a current approved client build for your operating system.</p>
+        <p class="eyebrow">{{ __('public.downloads.eyebrow') }}</p>
+        <h1>{{ __('public.downloads.title') }}</h1>
+        <p class="muted">{{ __('public.downloads.description') }}</p>
     </div>
 
-    <nav class="action-row" aria-label="Filter downloads by operating system">
+    <nav class="action-row" aria-label="{{ __('public.downloads.filter') }}">
         <a class="button {{ $downloadCenter->platform === null ? '' : 'button-secondary' }}"
            href="{{ route('downloads.index') }}"
-           @if($downloadCenter->platform === null) aria-current="page" @endif>All platforms</a>
+           @if($downloadCenter->platform === null) aria-current="page" @endif>{{ __('public.downloads.all_platforms') }}</a>
         @foreach ($platforms as $platform)
             <a class="button {{ $downloadCenter->platform === $platform ? '' : 'button-secondary' }}"
                href="{{ route('downloads.index', ['platform' => $platform]) }}"
@@ -24,39 +25,45 @@
 
     @if ($downloadCenter->state === \App\Downloads\DownloadCenterState::UNAVAILABLE)
         <div class="alert alert-danger" role="status">
-            <strong>Downloads are temporarily unavailable.</strong>
-            <p>The current release metadata or its approved artifact reference cannot be resolved safely. Try again later.</p>
+            <strong>{{ __('public.downloads.unavailable') }}</strong>
+            <p>{{ __('public.downloads.unavailable_help') }}</p>
         </div>
     @elseif ($downloadCenter->state === \App\Downloads\DownloadCenterState::EMPTY)
+        @php($platformLabel = $downloadCenter->platform ? ' '.\App\Downloads\DownloadCatalog::platformLabel($downloadCenter->platform) : '')
         <div class="empty-state">
-            <strong>No current download is available{{ $downloadCenter->platform ? ' for '.\App\Downloads\DownloadCatalog::platformLabel($downloadCenter->platform) : '' }}.</strong>
-            <p>Only published current releases with enabled approved artifacts appear here.</p>
+            <strong>{{ __('public.downloads.empty', ['platform' => $platformLabel]) }}</strong>
+            <p>{{ __('public.downloads.empty_help') }}</p>
         </div>
     @else
         @foreach ($downloadCenter->releases as $release)
             <article class="card">
                 <div class="page-header">
-                    <p class="eyebrow">{{ \App\Downloads\DownloadCatalog::channelLabel($release->channel) }} channel</p>
-                    <h2>Oteryn Client {{ $release->version }}</h2>
+                    <p class="eyebrow">{{ __('public.downloads.channel', ['channel' => \App\Downloads\DownloadCatalog::channelLabel($release->channel)]) }}</p>
+                    <h2>{{ __('public.downloads.client', ['version' => $release->version]) }}</h2>
                     <p class="muted">
-                        Current {{ $release->channel }} build · Published {{ $release->published_at?->format('Y-m-d H:i') }} UTC
+                        {{ __('public.downloads.published', [
+                            'channel' => $release->channel,
+                            'date' => $localeFormatter->dateTime($release->published_at),
+                        ]) }}
                     </p>
                 </div>
 
                 @if ($release->release_notes)
                     <p class="prose-text">{{ $release->release_notes }}</p>
+                @elseif ((bool) $release->getAttribute('release_notes_translation_unavailable'))
+                    <div class="notice" role="status">{{ __('public.downloads.notes_unavailable') }}</div>
                 @endif
 
-                <div class="table-region" tabindex="0" aria-label="Client artifacts, horizontally scrollable on small screens">
+                <div class="table-region" tabindex="0" aria-label="{{ __('public.downloads.artifacts_table') }}">
                     <table>
                         <thead>
                             <tr>
-                                <th scope="col">Platform</th>
-                                <th scope="col">Architecture</th>
-                                <th scope="col">Filename</th>
-                                <th scope="col">Size</th>
+                                <th scope="col">{{ __('public.downloads.platform') }}</th>
+                                <th scope="col">{{ __('public.downloads.architecture') }}</th>
+                                <th scope="col">{{ __('public.downloads.filename') }}</th>
+                                <th scope="col">{{ __('public.downloads.size') }}</th>
                                 <th scope="col">SHA-256</th>
-                                <th scope="col">Action</th>
+                                <th scope="col">{{ __('public.downloads.action') }}</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -65,10 +72,10 @@
                                     <td>{{ \App\Downloads\DownloadCatalog::platformLabel($artifact->platform) }}</td>
                                     <td>{{ \App\Downloads\DownloadCatalog::architectureLabel($artifact->architecture) }}</td>
                                     <td>{{ $artifact->filename }}</td>
-                                    <td>{{ $artifact->formattedSize() }}</td>
+                                    <td>{{ $localeFormatter->bytes($artifact->size_bytes) }}</td>
                                     <td><code>{{ $artifact->sha256 }}</code></td>
                                     <td>
-                                        <a class="button" href="{{ $artifact->artifact_url }}" rel="noopener noreferrer">Download</a>
+                                        <a class="button" href="{{ $artifact->artifact_url }}" rel="noopener noreferrer">{{ __('public.downloads.download') }}</a>
                                     </td>
                                 </tr>
                             @endforeach
@@ -79,8 +86,8 @@
         @endforeach
 
         <div class="card">
-            <h2>Checksum notice</h2>
-            <p class="muted">SHA-256 values are administrator-supplied release metadata. Oteryn Platform does not fetch the artifact and does not claim that it independently verified the checksum.</p>
+            <h2>{{ __('public.downloads.checksum_title') }}</h2>
+            <p class="muted">{{ __('public.downloads.checksum_help') }}</p>
         </div>
     @endif
 @endsection

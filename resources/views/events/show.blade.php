@@ -3,14 +3,15 @@
 @section('title', $event['title'])
 
 @section('content')
+    @inject('localeFormatter', 'App\Localization\LocaleFormatter')
     <article>
         <div class="page-header">
-            <p class="eyebrow">{{ ucfirst($event['status']) }} event</p>
+            <p class="eyebrow">{{ ucfirst($event['status']) }} {{ __('public.events.event') }}</p>
             <h1>{{ $event['title'] }}</h1>
             <p class="muted">
-                {{ $event['starts_at']->format('Y-m-d H:i') }}
+                {{ $localeFormatter->dateTime($event['starts_at']) }}
                 –
-                {{ $event['ends_at']->format('Y-m-d H:i') }} UTC
+                {{ $localeFormatter->dateTime($event['ends_at']) }} UTC
             </p>
             <p>{{ $event['summary'] }}</p>
         </div>
@@ -21,13 +22,13 @@
             @endforeach
         </div>
 
-        @if ($event['news_slug'] !== null && $event['news_title'] !== null)
+        @if (app()->getLocale() === 'en' && $event['news_slug'] !== null && $event['news_title'] !== null)
             <div class="card">
-                <p class="eyebrow">Related update</p>
+                <p class="eyebrow">{{ __('public.events.related_update') }}</p>
                 <a href="{{ route('news.show', ['slug' => $event['news_slug']]) }}">{{ $event['news_title'] }}</a>
             </div>
         @endif
 
-        <p><a href="{{ route('events.index') }}">Back to events</a></p>
+        <p><a href="{{ route('events.index') }}">{{ __('public.events.back') }}</a></p>
     </article>
 @endsection

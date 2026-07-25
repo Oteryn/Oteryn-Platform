@@ -1,53 +1,54 @@
 @extends('game.layout')
 
-@section('title', 'Highscores')
+@section('title', __('public.game.highscores_title'))
 @section('page-class', 'page-shell-wide')
 
 @section('content')
+    @inject('localeFormatter', 'App\Localization\LocaleFormatter')
     <div class="page-header">
-        <p class="eyebrow">Rankings</p>
-        <h1>Level highscores</h1>
-        <p class="muted">Active characters only. Rankings are global across configured channels.</p>
+        <p class="eyebrow">{{ __('public.game.rankings') }}</p>
+        <h1>{{ __('public.game.highscores_title') }}</h1>
+        <p class="muted">{{ __('public.game.highscores_description') }}</p>
     </div>
 
     <div class="card">
-        <div class="table-region" tabindex="0" aria-label="Level highscores table, horizontally scrollable on small screens">
+        <div class="table-region" tabindex="0" aria-label="{{ __('public.game.highscores_table') }}">
             <table class="table-compact">
                 <thead>
                 <tr>
-                    <th scope="col">Rank</th>
-                    <th scope="col">Character</th>
-                    <th scope="col">Level</th>
-                    <th scope="col">Vocation ID</th>
+                    <th scope="col">{{ __('public.game.rank') }}</th>
+                    <th scope="col">{{ __('public.game.character') }}</th>
+                    <th scope="col">{{ __('public.game.level') }}</th>
+                    <th scope="col">{{ __('public.game.vocation_id') }}</th>
                 </tr>
                 </thead>
                 <tbody>
                 @forelse ($players as $player)
                     <tr>
-                        <td>{{ $players->firstItem() + $loop->index }}</td>
+                        <td>{{ $localeFormatter->number(($players->firstItem() ?? 1) + $loop->index) }}</td>
                         <td><a href="{{ route('game.characters.show', ['name' => $player->name]) }}">{{ $player->name }}</a></td>
-                        <td>{{ $player->level }}</td>
-                        <td>{{ $player->vocation }}</td>
+                        <td>{{ $localeFormatter->number($player->level) }}</td>
+                        <td>{{ $localeFormatter->number($player->vocation) }}</td>
                     </tr>
                 @empty
-                    <tr><td colspan="4">No active characters found.</td></tr>
+                    <tr><td colspan="4">{{ __('public.game.no_characters') }}</td></tr>
                 @endforelse
                 </tbody>
             </table>
         </div>
 
         @if ($players->hasPages())
-            <nav class="pagination" aria-label="Highscore pages">
+            <nav class="pagination" aria-label="{{ __('public.game.highscore_pages') }}">
                 @if ($players->onFirstPage())
-                    <span class="muted">Previous</span>
+                    <span class="muted">{{ __('public.pagination.previous') }}</span>
                 @else
-                    <a href="{{ $players->previousPageUrl() }}">Previous</a>
+                    <a href="{{ $players->previousPageUrl() }}">{{ __('public.pagination.previous') }}</a>
                 @endif
-                <span>Page {{ $players->currentPage() }} of {{ $players->lastPage() }}</span>
+                <span>{{ __('public.pagination.page_of', ['current' => $localeFormatter->number($players->currentPage()), 'last' => $localeFormatter->number($players->lastPage())]) }}</span>
                 @if ($players->hasMorePages())
-                    <a href="{{ $players->nextPageUrl() }}">Next</a>
+                    <a href="{{ $players->nextPageUrl() }}">{{ __('public.pagination.next') }}</a>
                 @else
-                    <span class="muted">Next</span>
+                    <span class="muted">{{ __('public.pagination.next') }}</span>
                 @endif
             </nav>
         @endif
