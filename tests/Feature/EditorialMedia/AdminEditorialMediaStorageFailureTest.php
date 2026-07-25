@@ -7,7 +7,6 @@ use App\EditorialMedia\Application\Actions\StoreEditorialImage;
 use App\EditorialMedia\Infrastructure\Models\EditorialMedia;
 use Illuminate\Contracts\Filesystem\Filesystem;
 use Illuminate\Support\Facades\Storage;
-use Mockery;
 use RuntimeException;
 
 final class AdminEditorialMediaStorageFailureTest extends EditorialMediaTestCase
@@ -59,16 +58,36 @@ final class AdminEditorialMediaStorageFailureTest extends EditorialMediaTestCase
             'uploaded_by_identity_id' => $actor->id,
         ]);
 
-        $filesystem = Mockery::mock(Filesystem::class);
-        $filesystem->expects('exists')->twice()->andReturnTrue();
-        $filesystem->expects('get')->with($media->storage_path)->once()->andReturn($originalBytes);
-        $filesystem->expects('get')->with($media->thumbnail_path)->twice()->andReturn($thumbnailBytes);
-        $filesystem->expects('delete')->with($media->thumbnail_path)->once()->ordered()->andReturnTrue();
-        $filesystem->expects('delete')->with($media->storage_path)->once()->ordered()->andReturnFalse();
-        $filesystem->expects('put')
+        $filesystem = $this->createMock(Filesystem::class);
+        $filesystem->expects($this->exactly(2))
+            ->method('exists')
+            ->willReturn(true);
+        $filesystem->expects($this->exactly(3))
+            ->method('get')
+            ->willReturnCallback(static function (string $path) use ($media, $originalBytes, $thumbnailBytes): string {
+                return match ($path) {
+                    $media->storage_path => $originalBytes,
+                    $media->thumbnail_path => $thumbnailBytes,
+                    default => throw new RuntimeException('Unexpected storage read in partial deletion fixture.'),
+                };
+            });
+
+        $deleteCall = 0;
+        $filesystem->expects($this->exactly(2))
+            ->method('delete')
+            ->willReturnCallback(function (string $path) use ($media, &$deleteCall): bool {
+                $deleteCall++;
+                self::assertSame(
+                    $deleteCall === 1 ? $media->thumbnail_path : $media->storage_path,
+                    $path,
+                );
+
+                return $deleteCall === 1;
+            });
+        $filesystem->expects($this->once())
+            ->method('put')
             ->with($media->thumbnail_path, $thumbnailBytes, ['visibility' => 'private'])
-            ->once()
-            ->andReturnTrue();
+            ->willReturn(true);
 
         Storage::shouldReceive('disk')
             ->once()
