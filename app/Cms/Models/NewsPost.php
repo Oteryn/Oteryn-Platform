@@ -11,6 +11,8 @@ use Illuminate\Support\Carbon;
  * @property string $title
  * @property string $body
  * @property Carbon|null $published_at
+ * @property Carbon $created_at
+ * @property Carbon $updated_at
  */
 final class NewsPost extends Model
 {
