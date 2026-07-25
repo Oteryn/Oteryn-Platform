@@ -19,8 +19,8 @@ final class SiteAnnouncementFactory extends Factory
     public function definition(): array
     {
         return [
-            'title' => fake()->sentence(5),
-            'body' => fake()->paragraph(),
+            'title' => 'Scheduled announcement',
+            'body' => 'Scheduled announcement details.',
             'severity' => SiteAnnouncement::SEVERITY_INFO,
             'starts_at' => now()->subHour(),
             'ends_at' => now()->addDay(),
