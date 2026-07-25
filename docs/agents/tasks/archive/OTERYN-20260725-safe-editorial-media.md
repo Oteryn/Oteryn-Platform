@@ -82,10 +82,10 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-07-25T19:58:00+02:00
-head: f073b2e9c802c83e2c13e578023acd32497747d4
+updated_at: 2026-07-25T20:00:00+02:00
+head: 793aba1f69874f0c43d3a2a48260b42033e65f6b
 branch: chore/OTERYN-20260725-safe-editorial-media-cleanup
-pr: none
+pr: 180
 status: validating
 context_routes:
   - agent-governance
@@ -100,7 +100,7 @@ owned_paths:
   - docs/agents/tasks/archive/OTERYN-20260725-safe-editorial-media.md
 proven:
   - PR #176 was squash-merged into main as f073b2e9c802c83e2c13e578023acd32497747d4.
-  - Final PR head 6417b416b474e3fabd384911c82eb7fd05eaecd3 passed all seven workflows: CI, Agent Governance, Acceptance E2E and Visual UX, Phase 7 Production-Like Validation, Platform DB Outage Validation, Game Auth Ticket Concurrency and Build Synology Staging Images.
+  - Final PR #176 head 6417b416b474e3fabd384911c82eb7fd05eaecd3 passed all seven workflows: CI, Agent Governance, Acceptance E2E and Visual UX, Phase 7 Production-Like Validation, Platform DB Outage Validation, Game Auth Ticket Concurrency and Build Synology Staging Images.
   - The implementation is isolated from Wiki, Events and CMS publication logic and changes no Canary or login-server contract.
   - The private editorial_media disk is outside the public storage link and fails closed with throw and report enabled.
   - JPEG, PNG and WebP require matching extension, fileinfo MIME, image header, exact container boundary and successful decode.
@@ -113,13 +113,15 @@ proven:
   - media.manage is granted explicitly only to content_editor and platform_admin.
   - Upload and deletion write bounded non-secret administrator audit events.
   - Partial storage deletion is restored and database/audit changes roll back.
+  - Cleanup PR #180 moves only this task record from active to archive.
 derived:
   - The reusable boundary can be consumed later through explicit references without transferring consumer lifecycle rules into EditorialMedia.
-unknown: []
+unknown:
+  - final exact-head checks for documentation-only cleanup PR #180
 conflicts: []
 first_failure:
   marker: acceptance-service-container-initialization
-  evidence: one E2E attempt failed while initializing service containers before checkout; rerunning the same job on the same SHA passed without a code change
+  evidence: one PR #176 E2E attempt failed while initializing service containers before checkout; rerunning the same job on the same SHA passed without a code change
 rejected_hypotheses:
   - reuse current public disk: it is publicly linked and configured with throw=false
   - add a Wiki-specific upload surface: the requested boundary must remain reusable
@@ -156,7 +158,7 @@ validation:
     evidence: GitHub created main commit f073b2e9c802c83e2c13e578023acd32497747d4
 blockers:
   - none
-next_action: Open and merge the documentation-only cleanup PR that archives this completed task record.
+next_action: Validate documentation-only cleanup PR #180, mark it ready and squash merge it.
 ```
 
 ## Notes
