@@ -39,7 +39,7 @@ Implement an isolated reusable secure editorial raster-image library for later W
 - [x] Upload and deletion operations append bounded non-secret administrator audit events.
 - [x] Referenced media cannot be deleted and database constraints preserve the same invariant.
 - [x] Malicious, malformed, mismatched and over-limit fixtures are covered together with permission, MFA and CSRF regressions.
-- [ ] Required CI passes on the exact current head.
+- [ ] Required checks pass on the final exact PR head after readiness cleanup.
 
 ## Ownership
 
@@ -79,12 +79,12 @@ cross_repository_tasks:
 ## Context checkpoint
 
 ```yaml
-checkpoint_version: 1
-updated_at: 2026-07-25T10:01:00Z
-head: UNKNOWN
+checkpoint_version: 2
+updated_at: 2026-07-25T15:45:00+02:00
+head: dc9c2cd1a41907fe8a158c755998ae4e5ba5aa78
 branch: feat/OTERYN-20260725-safe-editorial-media
 pr: 176
-status: validating
+status: validating_final_readiness
 context_routes:
   - agent-governance
   - architecture
@@ -96,59 +96,17 @@ context_routes:
 owned_paths:
   - paths listed in Ownership
 proven:
-  - PR 176 contains the isolated EditorialMedia schema, processing boundary, administrator library, exact permission, bounded audit and reference-safe deletion
-  - accepted source formats are restricted to JPEG, PNG and WebP with extension, fileinfo MIME, image-header and exact container-boundary agreement
-  - accepted source bytes are decoded and re-encoded through GD before private storage, and source metadata is not retained
-  - the dedicated editorial_media disk is private, outside the public storage symlink and configured to throw and report storage failures
-  - generated storage names use 192 bits of randomness and immutable normalized extensions
-  - consumer references are restricted to cms, events and wiki and database deletion is restricted while references exist
-  - every administrator route requires auth, mfa.confirmed and the exact media.manage permission
-  - content_editor and platform_admin receive media.manage through an explicit reviewed migration; no wildcard authority is introduced
-  - the Platform deployment image and CI now require GD JPEG, PNG and WebP codec support
-  - the branch was synchronized with main commit bd0bd9883e2753c8a385b3297aaed7a1cb2ce429 through GitHub merge commit 30b87ea9f5c7d0d5700309a008e98ce90ff08bfc
-  - EditorialMedia persistence is Platform-owned and does not change Canary or login-server contracts
-derived:
-  - the implementation is isolated and can be consumed later without transferring Wiki, Events or CMS publication rules into the media module
-unknown:
-  - exact required CI result on the checkpoint commit
-conflicts: []
-first_failure:
-  marker: none
-  evidence: exact-head CI has not completed yet
-rejected_hypotheses:
-  - reuse current public disk: it is publicly linked and configured with throw=false
-  - add a Wiki-specific upload surface: the requested boundary must be reusable and consumer integration is out of scope
-  - accept SVG or arbitrary files: prohibited by task and security architecture
-  - retain original uploads after validation: decode and re-encode is required to remove metadata and appended active payloads
-changed_paths:
-  - app/EditorialMedia/**
-  - app/Http/Controllers/Admin/AdminEditorialMediaController.php
-  - app/Http/Requests/Admin/AdminEditorialMediaUploadRequest.php
-  - app/Admin/AdminPermission.php
-  - config/editorial_media.php
-  - config/filesystems.php
-  - database/migrations/2026_07_25_090000_create_editorial_media_tables.php
-  - database/migrations/2026_07_25_090100_add_editorial_media_permission.php
-  - resources/views/admin/media/index.blade.php
-  - resources/views/admin/layout.blade.php
-  - public/css/editorial-media-admin.css
-  - routes/modules/editorial-media.php
-  - tests/Feature/EditorialMedia/AdminEditorialMediaTest.php
-  - .github/workflows/ci.yml
-  - deploy/synology/docker/platform.Dockerfile
-  - deploy/synology/docker/platform-media.ini
-  - docs/architecture/adr/0011-safe-editorial-media-boundary.md
-  - docs/architecture/MODULE_CATALOG.md
-  - docs/agents/tasks/active/OTERYN-20260725-safe-editorial-media.md
-validation:
-  - command: GitHub required checks on synchronized PR 176 head
-    result: NOT_RUN
-    evidence: checkpoint commit is starting the exact-head validation cycle
-blockers:
-  - none
-next_action: inspect exact-head CI and fix every task-owned failure before readiness
-```
-
-## Notes
-
-Trust boundary: authenticated confirmed-MFA administrator upload input to private Platform-owned storage. Authorization invariant: every administrator media route requires the exact `media.manage` permission. Canary/login-server schema and session compatibility do not change. Migrations are additive and reversible. No secret, credential or production-only value is introduced.
+  - the implementation is isolated from Wiki, Events and CMS publication logic and changes no Canary or login-server contract
+  - the private editorial_media disk is outside the public storage link and fails closed with throw and report enabled
+  - JPEG, PNG and WebP require matching extension, fileinfo MIME, image header, exact container boundary and successful decode
+  - accepted images are GD-decoded and re-encoded, removing source metadata and appended payloads
+  - byte, dimension and decoded-pixel limits are enforced before persistence
+  - immutable storage names use 192 bits of randomness and normalized extensions
+  - SHA-256 and dimensions are recorded for originals and generated thumbnails
+  - references are bounded to cms, events and wiki and block deletion in both application and database layers
+  - every administrator route requires auth, mfa.confirmed and exact media.manage authorization
+  - media.manage is granted explicitly only to content_editor and platform_admin
+  - upload and deletion write bounded non-secret administrator audit events
+  - partial storage deletion is restored and database/audit changes roll back
+  - CI run 30160280109 passed codec verification, Composer validation/audit, Pint, PHPStan and the complete test suite on this implementation head
+  - Agent½Ù•É¹…¹”ÉÕ¸€ÌÀÄØÀÈàÀÄÀĞÁ…ÍÍ•(€€´•ÁÑ…¹”É…¹Y¥ÍÕ…°U`ÉÕ¸€ÌÀÄØÀÈàÀÀäÀÁ…ÍÍ•(€€´A¡…Í”€ÜAÉ½‘ÕÑ¥½¸µ1¥­”Y…±¥‘…Ñ¥½¸ÉÕ¸€ÌÀÄØÀÈàÀÄÄÌÁ…ÍÍ•(€€´A±…Ñ™½É´=ÕÑ…”Y…±¥‘…Ñ¥½¸ÉÕ¸€ÌÀÄØÀÈàÀÀäÔÁ…ÍÍ•(€€´…µ”ÕÑ Q¥­•Ğ½¹ÕÉÉ•¹äÉÕ¸€ÌÀÄØÀÈàÀÄÌÀÁ…ÍÍ•)‘•É¥Ù•è(€€´Ñ¡”É•ÕÍ…‰±”‰½Õ¹‘…Éä…¸‰”½¹ÍÕµ•±…Ñ•ÈÑ¡É½Õ •áÁ±¥¥ĞÉ•™•É•¹•Ìİ¥Ñ¡½ÕĞÑÉ…¹Í™•ÉÉ¥¹œ½¹ÍÕµ•È±¥™•å±”ÉÕ±•Ì¥¹Ñ¼‘¥Ñ½É¥…±5•‘¥„)Õ¹­¹½İ¸è(€€´™¥¹…°•á…Ğµ¡•…É•ÍÕ±ÑÌ…™Ñ•ÈÉ•µ½Ù¥¹œÑ•µÁ½É…Éä$‘¥…¹½ÍÑ¥Ì…¹ÕÁ‘…Ñ¥¹œÑ¡¥Ì¡•­Á½¥¹Ğ)½¹™±¥ÑÌèmt)™¥ÉÍÑ}™…¥±ÕÉ”è(€µ…É­•Èè¹½¹”(€•Ù¥‘•¹”è¥µÁ±•µ•¹Ñ…Ñ¥½¸¡•­Ì…É”É••¸ì™¥¹…°É•…‘¥¹•ÍÌµ½¹±ä½µµ¥ĞÉ•µ…¥¹ÌÑ¼‰”Ù…±¥‘…Ñ•)É•©•Ñ•‘}¡åÁ½Ñ¡•Í•Ìè(€€´É•ÕÍ”ÕÉÉ•¹ĞÁÕ‰±¥Œ‘¥Í¬è¥Ğ¥ÌÁÕ‰±¥±ä±¥¹­•…¹½¹™¥ÕÉ•İ¥Ñ Ñ¡É½Üõ™…±Í”(€€´…‘„]¥­¤µÍÁ•¥™¥ŒÕÁ±½…ÍÕÉ™…”èÑ¡”É•ÅÕ•ÍÑ•‰½Õ¹‘…ÉäµÕÍĞÉ•µ…¥¸É•ÕÍ…‰±”(€€´…•ÁĞMY½È…É‰¥ÑÉ…Éä™¥±•ÌèÁÉ½¡¥‰¥Ñ•‰äÑ…Í¬…¹Í•ÕÉ¥Ñä…É¡¥Ñ•ÑÕÉ”(€€´É•Ñ…¥¸½É¥¥¹…°ÕÁ±½…‘Ì…™Ñ•ÈÙ…±¥‘…Ñ¥½¸è‘•½‘”…¹É”µ•¹½‘”¥ÌÉ•ÅÕ¥É•Ñ¼É•µ½Ù”µ•Ñ…‘…Ñ„…¹…ÁÁ•¹‘•Á…å±½…‘Ì)¡…¹•‘}Á…Ñ¡Ìè(€€´€¹¥Ñ¡Õˆ½İ½É­™±½İÌ½¤¹åµ°(€€´…ÁÀ½‘µ¥¸½‘µ¥¹A•Éµ¥ÍÍ¥½¸¹Á¡À(€€´…ÁÀ½‘¥Ñ½É¥…±5•‘¥„¼¨¨(€€´…ÁÀ½!ÑÑÀ½½¹ÑÉ½±±•ÉÌ½‘µ¥¸½‘µ¥¹‘¥Ñ½É¥…±5•‘¥…½¹ÑÉ½±±•È¹Á¡À(€€´…ÁÀ½!ÑÑÀ½I•ÅÕ•ÍÑÌ½‘µ¥¸½‘µ¥¹‘¥Ñ½É¥…±5•‘¥…UÁ±½…‘I•ÅÕ•ÍĞ¹Á¡À(€€´½¹™¥œ½•‘¥Ñ½É¥…±}µ•‘¥„¹Á¡À(€€´½¹™¥œ½™¥±•ÍåÍÑ•µÌ¹Á¡À(€€´‘…Ñ…‰…Í”½µ¥É…Ñ¥½¹Ì¼ÈÀÈÙ|Àİ|ÈÕ|ÀäÀÀÀÁ}É•…Ñ•}•‘¥Ñ½É¥…±}µ•‘¥…}Ñ…‰±•Ì¹Á¡À(€€´‘…Ñ…‰…Í”½µ¥É…Ñ¥½¹Ì¼ÈÀÈÙ|Àİ|ÈÕ|ÀäÀÄÀÁ}…‘‘}•‘¥Ñ½É¥…±}µ•‘¥…}Á•Éµ¥ÍÍ¥½¸¹Á¡À(€€´‘•Á±½ä½Íå¹½±½ä½‘½­•È½Á±…Ñ™½É´µµ•‘¥„¹¥¹¤(€€´‘•Á±½ä½Íå¹½±½ä½‘½­•È½Á±…Ñ™½É´¹½­•É™¥±”(€€´‘½Ì½…•¹ÑÌ½Ñ…Í­Ì½…Ñ¥Ù”½=QIe8´ÈÀÈØÀÜÈÔµÍ…™”µ•‘¥Ñ½É¥…°µµ•‘¥„¹µ(€€´‘½Ì½…É¡¥Ñ•ÑÕÉ”½5=U1}Q1=¹µ(€€´‘½Ì½…É¡¥Ñ•ÑÕÉ”½…‘È¼ÀÀÄÄµÍ…™”µ•‘¥Ñ½É¥…°µµ•‘¥„µ‰½Õ¹‘…Éä¹µ(€€´ÁÕ‰±¥Œ½ÍÌ½•‘¥Ñ½É¥…°µµ•‘¥„µ…‘µ¥¸¹ÍÌ(€€´É•Í½ÕÉ•Ì½Ù¥•İÌ½…‘µ¥¸½±…å½ÕĞ¹‰±…‘”¹Á¡À(€€´É•Í½ÕÉ•Ì½Ù¥•İÌ½…‘µ¥¸½µ•‘¥„½¥¹‘•à¹‰±…‘”¹Á¡À(€€´É½ÕÑ•Ì½µ½‘Õ±•Ì½•‘¥Ñ½É¥…°µµ•‘¥„¹Á¡À(€€´Ñ•ÍÑÌ½•…ÑÕÉ”½‘¥Ñ½É¥…±5•‘¥„¼¨¨)Ù…±¥‘…Ñ¥½¸è(€€´½µµ…¹è¥Ñ!ÕˆÉ•ÅÕ¥É•¡•­Ì½¸¥µÁ±•µ•¹Ñ…Ñ¥½¸¡•…‘ŒåŒÉÅ„ĞÄäÀİ™”á„ÄÔáŒÜÔÔääá…”Ñ”Õ‰„Õ…„Üà(€€€É•ÍÕ±ĞèAML(€€€•Ù¥‘•¹”è…±°½‘”°ÍÑ…Ñ¥Œµ…¹…±åÍ¥Ì°‘…Ñ…‰…Í”µ½ÕÑ…”°É°ÁÉ½‘ÕÑ¥½¸µ±¥­”°½Ù•É¹…¹”…¹½¹ÕÉÉ•¹ä¡•­ÌÁ…ÍÍ•ìMå¹½±½ä¥µ…”‰Õ¥±İ…ÌÍÑ¥±°ÅÕ•Õ•İ¡•¸É•…‘¥¹•ÍÌ±•…¹ÕÀ‰•…¸)‰±½­•ÉÌè(€€´¹½¹”)¹•áÑ}…Ñ¥½¸èÙ…±¥‘…Ñ”Ñ¡”™¥¹…°•á…ĞAH¡•…°µ…É¬AH€ÄÜØÉ•…‘ä…¹µ•É”)€((ŒŒ9½Ñ•Ì()QÉÕÍĞ‰½Õ¹‘…Éäè…ÕÑ¡•¹Ñ¥…Ñ•½¹™¥Éµ•µ5…‘µ¥¹¥ÍÑÉ…Ñ½ÈÕÁ±½…¥¹ÁÕĞÑ¼ÁÉ¥Ù…Ñ”A±…Ñ™½É´µ½İ¹•ÍÑ½É…”¸ÕÑ¡½É¥é…Ñ¥½¸¥¹Ù…É¥…¹Ğè•Ù•Éä…‘µ¥¹¥ÍÑÉ…Ñ½Èµ•‘¥„É½ÕÑ”É•ÅÕ¥É•ÌÑ¡”•á…Ğµ•‘¥„¹µ…¹…•€Á•Éµ¥ÍÍ¥½¸¸…¹…Éä½±½¥¸µÍ•ÉÙ•ÈÍ¡•µ„…¹Í•ÍÍ¥½¸½µÁ…Ñ¥‰¥±¥Ñä‘¼¹½Ğ¡…¹”¸5¥É…Ñ¥½¹Ì…É”…‘‘¥Ñ¥Ù”…¹É•Ù•ÉÍ¥‰±”¸9¼Í•É•Ğ°É•‘•¹Ñ¥…°½ÈÁÉ½‘ÕÑ¥½¸µ½¹±äÙ…±Õ”¥Ì¥¹ÑÉ½‘Õ•¸(
