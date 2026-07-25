@@ -1,12 +1,13 @@
 @extends('game.layout')
 
-@section('title', 'Online characters')
+@section('title', __('public.game.online_title'))
 
 @section('content')
+    @inject('localeFormatter', 'App\Localization\LocaleFormatter')
     <div class="page-header">
-        <p class="eyebrow">Live world</p>
-        <h1>Online characters</h1>
-        <p class="muted">This cluster-wide list includes only fresh ONLINE character leases that have not expired at read time.</p>
+        <p class="eyebrow">{{ __('public.game.live_world') }}</p>
+        <h1>{{ __('public.game.online_title') }}</h1>
+        <p class="muted">{{ __('public.game.online_description') }}</p>
     </div>
 
     <div class="card-grid">
@@ -14,28 +15,28 @@
             <article class="card">
                 <h2><a href="{{ route('game.characters.show', ['name' => $character->name]) }}">{{ $character->name }}</a></h2>
                 <dl>
-                    <dt>Level:</dt><dd>{{ $character->level }}</dd>
-                    <dt>Vocation:</dt><dd>{{ $character->vocation }}</dd>
-                    <dt>Channel:</dt><dd>{{ $character->channel_name }} (ID {{ $character->channel_id }})</dd>
+                    <dt>{{ __('public.game.level') }}:</dt><dd>{{ $localeFormatter->number($character->level) }}</dd>
+                    <dt>{{ __('public.game.vocation') }}:</dt><dd>{{ $localeFormatter->number($character->vocation) }}</dd>
+                    <dt>{{ __('public.game.channel') }}:</dt><dd>{{ $character->channel_name }} ({{ __('public.game.channel_id') }} {{ $localeFormatter->number($character->channel_id) }})</dd>
                 </dl>
             </article>
         @empty
-            <div class="empty-state">No characters are currently online.</div>
+            <div class="empty-state">{{ __('public.game.no_online') }}</div>
         @endforelse
     </div>
 
     @if ($characters->hasPages())
-        <nav class="pagination" aria-label="Online character pages">
+        <nav class="pagination" aria-label="{{ __('public.game.online_pages') }}">
             @if ($characters->onFirstPage())
-                <span class="muted">Previous</span>
+                <span class="muted">{{ __('public.pagination.previous') }}</span>
             @else
-                <a href="{{ $characters->previousPageUrl() }}">Previous</a>
+                <a href="{{ $characters->previousPageUrl() }}">{{ __('public.pagination.previous') }}</a>
             @endif
-            <span>Page {{ $characters->currentPage() }} of {{ $characters->lastPage() }}</span>
+            <span>{{ __('public.pagination.page_of', ['current' => $localeFormatter->number($characters->currentPage()), 'last' => $localeFormatter->number($characters->lastPage())]) }}</span>
             @if ($characters->hasMorePages())
-                <a href="{{ $characters->nextPageUrl() }}">Next</a>
+                <a href="{{ $characters->nextPageUrl() }}">{{ __('public.pagination.next') }}</a>
             @else
-                <span class="muted">Next</span>
+                <span class="muted">{{ __('public.pagination.next') }}</span>
             @endif
         </nav>
     @endif

@@ -37,7 +37,7 @@ final class SessionController
         $sessions->establish($request, $identity);
         $securityEvents->recordIdentityLoginSucceeded($identity->id);
 
-        return redirect()->intended(route('home'));
+        return redirect()->intended('/');
     }
 
     public function destroy(
@@ -53,6 +53,6 @@ final class SessionController
             $securityEvents->recordIdentityLoggedOut($identity->id);
         }
 
-        return redirect()->route('home');
+        return redirect('/');
     }
 }

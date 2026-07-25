@@ -6,7 +6,7 @@
     <div class="page-header">
         <p class="eyebrow">Content · Downloads</p>
         <h1>Client releases</h1>
-        <p class="muted">Manage immutable approved artifact references. Executable uploads are not supported.</p>
+        <p class="muted">Manage immutable approved artifact references and explicit Polish release-note translations. Executable uploads are not supported.</p>
     </div>
 
     <div class="action-row">
@@ -29,7 +29,7 @@
                         <th scope="col">Artifacts</th>
                         <th scope="col">State</th>
                         <th scope="col">Updated</th>
-                        <th scope="col">Action</th>
+                        <th scope="col">Actions</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -50,7 +50,12 @@
                                 @endif
                             </td>
                             <td>{{ $release->updated_at?->format('Y-m-d H:i') }}</td>
-                            <td><a class="button button-secondary" href="{{ route('admin.downloads.edit', $release) }}">Manage</a></td>
+                            <td>
+                                <div class="action-row">
+                                    <a class="button button-secondary" href="{{ route('admin.downloads.edit', $release) }}">Manage English</a>
+                                    <a class="button button-secondary" href="{{ route('admin.downloads.translation.edit', $release) }}">Polish release notes</a>
+                                </div>
+                            </td>
                         </tr>
                     @endforeach
                 </tbody>

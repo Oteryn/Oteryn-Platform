@@ -1,11 +1,14 @@
 <?php
 
+use App\Http\Middleware\DetectPublicLocaleFromPath;
 use App\Http\Middleware\EnsureConfirmedMfa;
 use App\Http\Middleware\EnsureIdentitySessionIsCurrent;
 use App\Http\Middleware\GameAuth\PreventSensitiveGameAuthResponseCaching;
+use App\Http\Middleware\NegotiatePublicLocale;
 use App\Http\Middleware\RequestCorrelation;
 use App\Http\Middleware\RequireAdminPermission;
 use App\Http\Middleware\SecurityHeaders;
+use App\Http\Middleware\SetPublicLocale;
 use App\Http\Middleware\TrustConfiguredProxies;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
@@ -23,10 +26,12 @@ return Application::configure(basePath: dirname(__DIR__))
         health: '/health',
         then: function (): void {
             Route::middleware('api')->group(base_path('routes/internal.php'));
+            require base_path('routes/localization.php');
         },
     )
     ->withMiddleware(function (Middleware $middleware): void {
         $middleware->replace(TrustProxies::class, TrustConfiguredProxies::class);
+        $middleware->append(DetectPublicLocaleFromPath::class);
         $middleware->append(RequestCorrelation::class);
         $middleware->append(PreventSensitiveGameAuthResponseCaching::class);
         $middleware->redirectGuestsTo('/login');
@@ -36,6 +41,8 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->alias([
             'mfa.confirmed' => EnsureConfirmedMfa::class,
             'admin.permission' => RequireAdminPermission::class,
+            'public.locale' => SetPublicLocale::class,
+            'public.locale.negotiate' => NegotiatePublicLocale::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
@@ -46,6 +53,7 @@ return Application::configure(basePath: dirname(__DIR__))
         );
         $exceptions->respond(function (Response $response): Response {
             $request = request();
+            $response->headers->set('Content-Language', app()->getLocale());
 
             return PreventSensitiveGameAuthResponseCaching::appliesTo($request)
                 ? PreventSensitiveGameAuthResponseCaching::apply($response)

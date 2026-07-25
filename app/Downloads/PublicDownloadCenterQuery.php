@@ -2,10 +2,14 @@
 
 namespace App\Downloads;
 
+use App\Cms\Editorial\EditorialContentType;
+use App\Cms\Models\EditorialTranslation;
 use App\Downloads\Models\ClientRelease;
 use App\Downloads\Models\ClientReleaseArtifact;
 use App\Downloads\Security\ArtifactUrlPolicy;
 use App\Downloads\ViewModels\DownloadCenterViewModel;
+use DateTimeInterface;
+use Illuminate\Database\Eloquent\Collection;
 use Throwable;
 
 final readonly class PublicDownloadCenterQuery
@@ -24,6 +28,8 @@ final readonly class PublicDownloadCenterQuery
                 ->orderByDesc('published_at')
                 ->orderByDesc('id')
                 ->get();
+
+            $this->localizeReleaseNotes($releases);
         } catch (Throwable) {
             return new DownloadCenterViewModel(DownloadCenterState::UNAVAILABLE, [], $platform);
         }
@@ -80,5 +86,37 @@ final readonly class PublicDownloadCenterQuery
         }
 
         return new DownloadCenterViewModel(DownloadCenterState::AVAILABLE, $publicReleases, $platform);
+    }
+
+    /** @param Collection<int, ClientRelease> $releases */
+    private function localizeReleaseNotes(Collection $releases): void
+    {
+        if (app()->getLocale() !== 'pl' || $releases->isEmpty()) {
+            return;
+        }
+
+        $translations = EditorialTranslation::query()
+            ->where('content_type', EditorialContentType::ClientRelease->value)
+            ->where('locale', 'pl')
+            ->whereIn('content_id', $releases->modelKeys())
+            ->whereNotNull('body')
+            ->whereNotNull('published_at')
+            ->where('published_at', '<=', now())
+            ->get()
+            ->keyBy('content_id');
+
+        foreach ($releases as $release) {
+            $sourceHadNotes = is_string($release->release_notes) && trim($release->release_notes) !== '';
+            $translation = $translations->get($release->id);
+            $fresh = $translation instanceof EditorialTranslation
+                && $release->updated_at instanceof DateTimeInterface
+                && ! $translation->source_updated_at->lt($release->updated_at);
+
+            $release->setAttribute('release_notes', $fresh ? $translation->body : null);
+            $release->setAttribute(
+                'release_notes_translation_unavailable',
+                $sourceHadNotes && ! $fresh,
+            );
+        }
     }
 }

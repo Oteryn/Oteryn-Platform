@@ -4,34 +4,35 @@
 @section('page-class', 'page-shell-wide')
 
 @section('content')
+    @inject('localeFormatter', 'App\Localization\LocaleFormatter')
     <div class="page-header">
-        <p class="eyebrow">Guild</p>
+        <p class="eyebrow">{{ __('public.game.guild') }}</p>
         <h1>{{ $guild->name }}</h1>
     </div>
 
     <div class="card stat-grid">
-        <div class="stat"><strong>Guild level</strong><br>{{ $guild->level }}</div>
-        <div class="stat"><strong>Points</strong><br>{{ $guild->points }}</div>
-        <div class="stat"><strong>Residence ID</strong><br>{{ $guild->residence }}</div>
-        <div class="stat"><strong>Owner player ID</strong><br>{{ $guild->ownerid }}</div>
+        <div class="stat"><strong>{{ __('public.game.guild_level') }}</strong><br>{{ $localeFormatter->number($guild->level) }}</div>
+        <div class="stat"><strong>{{ __('public.game.points') }}</strong><br>{{ $localeFormatter->number($guild->points) }}</div>
+        <div class="stat"><strong>{{ __('public.game.residence_id') }}</strong><br>{{ $localeFormatter->number($guild->residence) }}</div>
+        <div class="stat"><strong>{{ __('public.game.owner_player_id') }}</strong><br>{{ $localeFormatter->number($guild->ownerid) }}</div>
         @if ($guild->motd !== '')
-            <div class="stat"><strong>Message</strong><br>{{ $guild->motd }}</div>
+            <div class="stat"><strong>{{ __('public.game.message') }}</strong><br>{{ $guild->motd }}</div>
         @endif
     </div>
 
     <section aria-labelledby="guild-members-heading">
         <div class="page-header">
-            <h2 id="guild-members-heading">Members</h2>
+            <h2 id="guild-members-heading">{{ __('public.game.members') }}</h2>
         </div>
         <div class="card">
-            <div class="table-region" tabindex="0" aria-label="Guild members table, horizontally scrollable on small screens">
+            <div class="table-region" tabindex="0" aria-label="{{ __('public.game.guild_members_table') }}">
                 <table>
                     <thead>
                     <tr>
-                        <th scope="col">Character</th>
-                        <th scope="col">Rank</th>
-                        <th scope="col">Nickname</th>
-                        <th scope="col">Level</th>
+                        <th scope="col">{{ __('public.game.character') }}</th>
+                        <th scope="col">{{ __('public.game.rank_name') }}</th>
+                        <th scope="col">{{ __('public.game.nickname') }}</th>
+                        <th scope="col">{{ __('public.game.level') }}</th>
                     </tr>
                     </thead>
                     <tbody>
@@ -40,27 +41,27 @@
                             <td><a href="{{ route('game.characters.show', ['name' => $member->name]) }}">{{ $member->name }}</a></td>
                             <td>{{ $member->rank_name }}</td>
                             <td>{{ $member->nick ?: '—' }}</td>
-                            <td>{{ $member->level }}</td>
+                            <td>{{ $localeFormatter->number($member->level) }}</td>
                         </tr>
                     @empty
-                        <tr><td colspan="4">No active members found.</td></tr>
+                        <tr><td colspan="4">{{ __('public.game.no_members') }}</td></tr>
                     @endforelse
                     </tbody>
                 </table>
             </div>
 
             @if ($members->hasPages())
-                <nav class="pagination" aria-label="Guild member pages">
+                <nav class="pagination" aria-label="{{ __('public.game.guild_member_pages') }}">
                     @if ($members->onFirstPage())
-                        <span class="muted">Previous</span>
+                        <span class="muted">{{ __('public.pagination.previous') }}</span>
                     @else
-                        <a href="{{ $members->previousPageUrl() }}">Previous</a>
+                        <a href="{{ $members->previousPageUrl() }}">{{ __('public.pagination.previous') }}</a>
                     @endif
-                    <span>Page {{ $members->currentPage() }} of {{ $members->lastPage() }}</span>
+                    <span>{{ __('public.pagination.page_of', ['current' => $localeFormatter->number($members->currentPage()), 'last' => $localeFormatter->number($members->lastPage())]) }}</span>
                     @if ($members->hasMorePages())
-                        <a href="{{ $members->nextPageUrl() }}">Next</a>
+                        <a href="{{ $members->nextPageUrl() }}">{{ __('public.pagination.next') }}</a>
                     @else
-                        <span class="muted">Next</span>
+                        <span class="muted">{{ __('public.pagination.next') }}</span>
                     @endif
                 </nav>
             @endif

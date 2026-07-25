@@ -6,7 +6,7 @@
     <div class="page-header">
         <p class="eyebrow">Public portal · Announcements</p>
         <h1>Announcements</h1>
-        <p class="muted">Manage the audited announcement ticker. Public visibility follows published state and UTC start/end boundaries.</p>
+        <p class="muted">Manage the audited announcement ticker and its explicit Polish translations. Public visibility follows published state and UTC start/end boundaries.</p>
     </div>
 
     <div class="action-row">
@@ -37,7 +37,12 @@
                         {{ $announcement->ends_at?->format('Y-m-d H:i') ?? 'No end' }}
                     </td>
                     <td>{{ $announcement->lock_version }}</td>
-                    <td><a href="{{ route('admin.announcements.edit', $announcement) }}">Edit</a></td>
+                    <td>
+                        <div class="action-row">
+                            <a href="{{ route('admin.announcements.edit', $announcement) }}">Edit English</a>
+                            <a href="{{ route('admin.announcements.translation.edit', $announcement) }}">Polish translation</a>
+                        </div>
+                    </td>
                 </tr>
             @empty
                 <tr>

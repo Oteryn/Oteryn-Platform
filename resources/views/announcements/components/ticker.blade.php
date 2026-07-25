@@ -1,7 +1,7 @@
 <section class="card" aria-labelledby="announcement-ticker-title">
     <div class="section-heading">
-        <p class="eyebrow">Important notices</p>
-        <h2 id="announcement-ticker-title">Announcements</h2>
+        <p class="eyebrow">{{ __('public.announcements.notices') }}</p>
+        <h2 id="announcement-ticker-title">{{ __('public.announcements.title') }}</h2>
     </div>
 
     @if ($ticker->state === \App\PublicPortal\PublicContentState::AVAILABLE)
@@ -22,12 +22,12 @@
         </div>
     @elseif ($ticker->state === \App\PublicPortal\PublicContentState::EMPTY)
         <div class="empty-state">
-            <strong>No active announcements.</strong>
-            <p>Important notices will appear here during their approved publication window.</p>
+            <strong>{{ __('public.announcements.empty') }}</strong>
+            <p>{{ __('public.announcements.empty_help') }}</p>
         </div>
     @else
         <div class="alert alert-danger" role="status">
-            Announcement information is temporarily unavailable.
+            {{ __('public.announcements.unavailable') }}
         </div>
     @endif
 </section>

@@ -10,23 +10,19 @@ use Illuminate\Support\Facades\Route;
  */
 final class PublicNavigationRegistry
 {
-    /**
-     * @return list<NavigationItem>
-     */
+    /** @return list<NavigationItem> */
     public function header(): array
     {
         $items = [];
 
         foreach ($this->definitions() as $definition) {
             $header = $definition['header'] ?? [];
-
             if (! is_array($header)) {
                 continue;
             }
 
             foreach ($header as $item) {
                 $normalized = $this->normalizeItem($item);
-
                 if ($normalized !== null) {
                     $items[] = $normalized;
                 }
@@ -38,9 +34,7 @@ final class PublicNavigationRegistry
         return $items;
     }
 
-    /**
-     * @return list<FooterGroup>
-     */
+    /** @return list<FooterGroup> */
     public function footer(): array
     {
         /** @var array<string, FooterGroup> $groups */
@@ -48,7 +42,6 @@ final class PublicNavigationRegistry
 
         foreach ($this->definitions() as $definition) {
             $footer = $definition['footer'] ?? [];
-
             if (! is_array($footer)) {
                 continue;
             }
@@ -68,14 +61,13 @@ final class PublicNavigationRegistry
                 }
 
                 $groups[$key] ??= [
-                    'label' => $label,
+                    'label' => (string) __($label),
                     'priority' => $priority,
                     'items' => [],
                 ];
 
                 foreach ($groupItems as $item) {
                     $normalized = $this->normalizeItem($item);
-
                     if ($normalized !== null) {
                         $groups[$key]['items'][] = $normalized;
                     }
@@ -84,10 +76,8 @@ final class PublicNavigationRegistry
         }
 
         $sortedGroups = [];
-
         foreach ($groups as $group) {
             usort($group['items'], self::compareItems(...));
-
             if ($group['items'] !== []) {
                 $sortedGroups[] = $group;
             }
@@ -98,13 +88,10 @@ final class PublicNavigationRegistry
         return $sortedGroups;
     }
 
-    /**
-     * @return list<array<string, mixed>>
-     */
+    /** @return list<array<string, mixed>> */
     private function definitions(): array
     {
         $files = glob(resource_path('navigation/public/*.php'));
-
         if ($files === false) {
             return [];
         }
@@ -114,21 +101,16 @@ final class PublicNavigationRegistry
 
         foreach ($files as $file) {
             $definition = require $file;
-
-            if (! is_array($definition)) {
-                continue;
+            if (is_array($definition)) {
+                /** @var array<string, mixed> $definition */
+                $definitions[] = $definition;
             }
-
-            /** @var array<string, mixed> $definition */
-            $definitions[] = $definition;
         }
 
         return $definitions;
     }
 
-    /**
-     * @return NavigationItem|null
-     */
+    /** @return NavigationItem|null */
     private function normalizeItem(mixed $item): ?array
     {
         if (! is_array($item)) {
@@ -149,14 +131,21 @@ final class PublicNavigationRegistry
             return null;
         }
 
-        $url = route($route);
+        $urlRoute = $route;
+        $parameters = [];
+        if ($route === 'home' && Route::has('localized.home')) {
+            $urlRoute = 'localized.home';
+            $parameters['locale'] = app()->getLocale();
+            $active = 'home|localized.home';
+        }
 
+        $url = route($urlRoute, $parameters);
         if (is_string($fragment)) {
             $url .= '#'.rawurlencode($fragment);
         }
 
         return [
-            'label' => $label,
+            'label' => (string) __($label),
             'url' => $url,
             'active' => $active,
             'priority' => $priority,

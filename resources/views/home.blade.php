@@ -1,6 +1,6 @@
 @extends('game.layout')
 
-@section('title', 'Home')
+@section('title', __('public.home.title'))
 @section('page-class', 'preview-home-shell production-home-shell')
 
 @push('styles')
@@ -9,6 +9,7 @@
 @endpush
 
 @section('content')
+    @inject('localeFormatter', 'App\Localization\LocaleFormatter')
     <section class="preview-hero" aria-labelledby="home-hero-title">
         <div class="preview-hero-art" aria-hidden="true">
             <img src="{{ asset('images/oteryn-hero-citadel.svg') }}" alt="">
@@ -16,18 +17,18 @@
 
         <div class="preview-hero-content">
             <div class="preview-hero-copy">
-                <p class="preview-kicker">A realm of legends</p>
-                <h1 id="home-hero-title"><span class="preview-sr-only">Oteryn Platform. </span>Answer the call of Oteryn</h1>
-                <p class="preview-hero-lede">Ancient powers stir and new heroes rise. Follow the living world, read its chronicles and begin your own journey through one secure portal.</p>
+                <p class="preview-kicker">{{ __('public.home.kicker') }}</p>
+                <h1 id="home-hero-title"><span class="preview-sr-only">Oteryn Platform. </span>{{ __('public.home.hero_title') }}</h1>
+                <p class="preview-hero-lede">{{ __('public.home.hero_lede') }}</p>
 
                 <div class="preview-hero-actions">
                     @guest
-                        <a class="preview-button preview-button-primary" href="{{ route('identity.register.create') }}">Create account</a>
-                        <a class="preview-button preview-button-secondary" href="{{ route('identity.login.create') }}">Sign in</a>
+                        <a class="preview-button preview-button-primary" href="{{ route('identity.register.create') }}">{{ __('public.account.create') }}</a>
+                        <a class="preview-button preview-button-secondary" href="{{ route('identity.login.create') }}">{{ __('public.account.sign_in') }}</a>
                     @else
-                        <a class="preview-button preview-button-primary" href="{{ route('account.overview') }}">Open account center</a>
+                        <a class="preview-button preview-button-primary" href="{{ route('account.overview') }}">{{ __('public.home.open_account') }}</a>
                     @endguest
-                    <a class="preview-button preview-button-secondary" href="#realm-overview">View the realm</a>
+                    <a class="preview-button preview-button-secondary" href="#realm-overview">{{ __('public.home.view_realm') }}</a>
                 </div>
             </div>
         </div>
@@ -40,14 +41,14 @@
                 <img src="{{ asset('images/oteryn-sigil.svg') }}" alt="">
                 <span></span>
             </div>
-            <h2 id="home-character-search-heading">Find your character</h2>
-            <p class="preview-sr-only">Find a character. Search by exact character name.</p>
+            <h2 id="home-character-search-heading">{{ __('public.home.find_character') }}</h2>
+            <p class="preview-sr-only">{{ __('public.home.search_exact') }}</p>
 
             <form class="preview-search-form" method="GET" action="{{ route('game.characters.search') }}">
-                <label class="preview-sr-only" for="home-character-name">Character name</label>
+                <label class="preview-sr-only" for="home-character-name">{{ __('public.home.character_name') }}</label>
                 <span class="preview-search-icon" aria-hidden="true">⌕</span>
-                <input id="home-character-name" name="name" type="search" value="{{ old('name') }}" maxlength="255" autocomplete="off" placeholder="Enter an exact character name..." required>
-                <button type="submit">Search</button>
+                <input id="home-character-name" name="name" type="search" value="{{ old('name') }}" maxlength="255" autocomplete="off" placeholder="{{ __('public.home.character_placeholder') }}" required>
+                <button type="submit">{{ __('public.home.search') }}</button>
             </form>
 
             @error('name')
@@ -56,124 +57,124 @@
         </div>
     </section>
 
-    <nav class="preview-realm-strip" aria-label="Realm shortcuts">
+    <nav class="preview-realm-strip" aria-label="{{ __('public.home.realm_shortcuts') }}">
         <a href="{{ route('game.online.index') }}">
             <img src="{{ asset('images/oteryn-mark-online.svg') }}" alt="" aria-hidden="true">
-            <span><strong>Online</strong><small>Open the current public list</small></span>
+            <span><strong>{{ __('Online') }}</strong><small>{{ __('public.home.online_hint') }}</small></span>
         </a>
         <a href="{{ route('game.highscores.index') }}">
             <img src="{{ asset('images/oteryn-mark-highscores.svg') }}" alt="" aria-hidden="true">
-            <span><strong>Highscores</strong><small>Browse level rankings</small></span>
+            <span><strong>{{ __('Highscores') }}</strong><small>{{ __('public.home.highscores_hint') }}</small></span>
         </a>
         <a href="{{ route('game.servers.index') }}">
             <img src="{{ asset('images/oteryn-mark-servers.svg') }}" alt="" aria-hidden="true">
-            <span><strong>Servers</strong><small>Inspect configured worlds</small></span>
+            <span><strong>{{ __('Servers') }}</strong><small>{{ __('public.home.servers_hint') }}</small></span>
         </a>
         <a href="{{ route('news.index') }}">
             <img src="{{ asset('images/oteryn-mark-news.svg') }}" alt="" aria-hidden="true">
-            <span><strong>News</strong><small>Read published chronicles</small></span>
+            <span><strong>{{ __('News') }}</strong><small>{{ __('public.home.news_hint') }}</small></span>
         </a>
     </nav>
 
-    <section id="realm-overview" class="production-dashboard" aria-label="Oteryn public portal">
+    <section id="realm-overview" class="production-dashboard" aria-label="{{ __('public.home.portal_label') }}">
         <article class="preview-panel production-world-panel" data-content-state="{{ $homePage->world->state->value }}">
             <header class="preview-panel-heading">
                 <div>
-                    <p class="preview-panel-kicker">World activity</p>
-                    <h2>World status</h2>
+                    <p class="preview-panel-kicker">{{ __('public.home.world_activity') }}</p>
+                    <h2>{{ __('public.home.world_status') }}</h2>
                 </div>
-                <span class="production-state-badge production-state-{{ strtolower($homePage->world->state->value) }}">{{ $homePage->world->state->value }}</span>
+                <span class="production-state-badge production-state-{{ strtolower($homePage->world->state->value) }}">{{ __('public.states.'.strtolower($homePage->world->state->value)) }}</span>
             </header>
 
             @switch($homePage->world->state)
                 @case(\App\PublicPortal\PublicContentState::AVAILABLE)
-                    <p class="production-world-total"><strong>{{ $homePage->world->playersOnline }}</strong> {{ Str::plural('player', $homePage->world->playersOnline ?? 0) }} online</p>
+                    <p class="production-world-total"><strong>{{ trans_choice('public.home.players_online', $homePage->world->playersOnline ?? 0, ['count' => $localeFormatter->number($homePage->world->playersOnline ?? 0)]) }}</strong></p>
                     @break
                 @case(\App\PublicPortal\PublicContentState::EMPTY)
-                    <div class="production-state-message" role="status">No enabled worlds are configured.</div>
+                    <div class="production-state-message" role="status">{{ __('public.home.no_worlds') }}</div>
                     @break
                 @case(\App\PublicPortal\PublicContentState::STALE)
-                    <div class="production-state-message" role="status">World configuration is available, but one or more runtime records are stale or missing. An aggregate online count is intentionally not shown.</div>
+                    <div class="production-state-message" role="status">{{ __('public.home.world_stale') }}</div>
                     @break
                 @case(\App\PublicPortal\PublicContentState::UNAVAILABLE)
-                    <div class="production-state-message" role="status">Live world data is temporarily unavailable. Configured metadata is shown when it could be read.</div>
+                    <div class="production-state-message" role="status">{{ __('public.home.world_unavailable') }}</div>
                     @break
             @endswitch
 
             @if ($homePage->world->channels !== [])
                 <div class="production-world-list">
                     @foreach ($homePage->world->channels as $channel)
-                        <section class="production-world-row" aria-label="{{ $channel->name }} world status">
+                        <section class="production-world-row" aria-label="{{ __('public.home.world_status_label', ['world' => $channel->name]) }}">
                             <div>
                                 <h3>{{ $channel->name }}</h3>
-                                <p>{{ $channel->pvpType }} · Capacity {{ $channel->maxPlayers }}</p>
+                                <p>{{ $channel->pvpType }} · {{ __('public.home.capacity', ['count' => $localeFormatter->number($channel->maxPlayers)]) }}</p>
                             </div>
                             <div class="production-runtime-summary">
                                 @if ($homePage->world->state === \App\PublicPortal\PublicContentState::UNAVAILABLE)
-                                    <strong>Unavailable</strong>
+                                    <strong>{{ __('public.states.unavailable') }}</strong>
                                 @elseif ($channel->runtimeStatus === null)
-                                    <strong>Stale</strong>
+                                    <strong>{{ __('public.states.stale') }}</strong>
                                 @else
                                     <strong>{{ $channel->runtimeStatus }}</strong>
-                                    <span>{{ $channel->playersOnline }} online</span>
+                                    <span>{{ __('public.home.online_count', ['count' => $localeFormatter->number($channel->playersOnline ?? 0)]) }}</span>
                                 @endif
                             </div>
                             @if ($channel->maintenance)
-                                <p class="production-maintenance"><strong>Configured maintenance.</strong>@if ($channel->maintenanceMessage) {{ $channel->maintenanceMessage }}@endif</p>
+                                <p class="production-maintenance"><strong>{{ __('public.home.maintenance') }}</strong>@if ($channel->maintenanceMessage) {{ $channel->maintenanceMessage }}@endif</p>
                             @endif
                         </section>
                     @endforeach
                 </div>
             @endif
 
-            <a class="preview-panel-link" href="{{ route('game.servers.index') }}">View all servers</a>
+            <a class="preview-panel-link" href="{{ route('game.servers.index') }}">{{ __('public.home.view_servers') }}</a>
         </article>
 
         <article class="preview-panel production-news-panel" data-content-state="{{ $homePage->news->state->value }}">
             <header class="preview-panel-heading">
                 <div>
-                    <p class="preview-panel-kicker">Chronicles</p>
-                    <h2>Latest news</h2>
+                    <p class="preview-panel-kicker">{{ __('public.home.chronicles') }}</p>
+                    <h2>{{ __('public.home.latest_news') }}</h2>
                 </div>
-                <span class="production-state-badge production-state-{{ strtolower($homePage->news->state->value) }}">{{ $homePage->news->state->value }}</span>
+                <span class="production-state-badge production-state-{{ strtolower($homePage->news->state->value) }}">{{ __('public.states.'.strtolower($homePage->news->state->value)) }}</span>
             </header>
 
             @if ($homePage->news->state === \App\PublicPortal\PublicContentState::AVAILABLE)
                 <div class="production-news-list">
                     @foreach ($homePage->news->posts as $post)
                         <article>
-                            <p class="production-news-date">{{ $post->published_at?->format('M j, Y') }}</p>
+                            <p class="production-news-date">{{ $post->published_at ? $localeFormatter->date($post->published_at) : '' }}</p>
                             <h3><a href="{{ route('news.show', ['slug' => $post->slug]) }}">{{ $post->title }}</a></h3>
                             <p>{{ Str::limit($post->body, 170) }}</p>
                         </article>
                     @endforeach
                 </div>
             @elseif ($homePage->news->state === \App\PublicPortal\PublicContentState::EMPTY)
-                <div class="production-state-message" role="status">No news has been published yet.</div>
+                <div class="production-state-message" role="status">{{ __('public.home.no_news') }}</div>
             @else
-                <div class="production-state-message" role="status">Published news is temporarily unavailable.</div>
+                <div class="production-state-message" role="status">{{ __('public.home.news_unavailable') }}</div>
             @endif
 
-            <a class="preview-panel-link" href="{{ route('news.index') }}">Read all news</a>
+            <a class="preview-panel-link" href="{{ route('news.index') }}">{{ __('public.home.read_news') }}</a>
         </article>
 
         <article class="preview-panel production-path-panel">
             <header class="preview-panel-heading">
                 <div>
-                    <p class="preview-panel-kicker">Begin your journey</p>
-                    <h2>Your Oteryn path</h2>
+                    <p class="preview-panel-kicker">{{ __('public.home.begin_journey') }}</p>
+                    <h2>{{ __('public.home.your_path') }}</h2>
                 </div>
                 <img src="{{ asset('images/oteryn-sigil.svg') }}" alt="" aria-hidden="true">
             </header>
             <div class="production-path-list">
                 @guest
-                    <a href="{{ route('identity.register.create') }}"><strong>Create an account</strong><span>Establish your secure Platform identity.</span></a>
-                    <a href="{{ route('identity.login.create') }}"><strong>Sign in</strong><span>Return to your account and characters.</span></a>
+                    <a href="{{ route('identity.register.create') }}"><strong>{{ __('public.account.create') }}</strong><span>{{ __('public.home.create_account_help') }}</span></a>
+                    <a href="{{ route('identity.login.create') }}"><strong>{{ __('public.account.sign_in') }}</strong><span>{{ __('public.home.sign_in_help') }}</span></a>
                 @else
-                    <a href="{{ route('account.overview') }}"><strong>Account center</strong><span>Review account readiness and characters.</span></a>
-                    <a href="{{ route('account.characters.create') }}"><strong>Create a character</strong><span>Begin a new adventure through the approved flow.</span></a>
+                    <a href="{{ route('account.overview') }}"><strong>{{ __('public.account.center') }}</strong><span>{{ __('public.home.account_help') }}</span></a>
+                    <a href="{{ route('account.characters.create') }}"><strong>{{ __('public.home.create_character') }}</strong><span>{{ __('public.home.create_character_help') }}</span></a>
                 @endguest
-                <a href="{{ route('game.highscores.index') }}"><strong>Meet the heroes</strong><span>Explore the current public rankings.</span></a>
+                <a href="{{ route('game.highscores.index') }}"><strong>{{ __('public.home.meet_heroes') }}</strong><span>{{ __('public.home.meet_heroes_help') }}</span></a>
             </div>
         </article>
     </section>

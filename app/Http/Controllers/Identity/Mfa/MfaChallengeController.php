@@ -68,6 +68,6 @@ final class MfaChallengeController
         $sessions->establish($request, $identity);
         $securityEvents->recordIdentityLoginSucceeded($identity->id);
 
-        return redirect()->intended(route('home'));
+        return redirect()->intended('/');
     }
 }

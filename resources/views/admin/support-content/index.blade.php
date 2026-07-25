@@ -6,7 +6,7 @@
     <div class="page-header">
         <p class="eyebrow">Content · Typed editorial routes</p>
         <h1>Support, rules and legal content</h1>
-        <p class="muted">Each entry owns one stable public route and one fixed managed-page slug. Generic managed-page administration cannot edit these reserved entries.</p>
+        <p class="muted">Each entry owns one stable public route, one fixed managed-page slug and an explicit Polish translation workflow. Generic managed-page administration cannot edit these reserved entries.</p>
     </div>
 
     <div class="table-region" tabindex="0" aria-label="Typed editorial content table, horizontally scrollable on small screens">
@@ -17,7 +17,7 @@
                     <th scope="col">Required topics</th>
                     <th scope="col">Publication</th>
                     <th scope="col">Legal metadata</th>
-                    <th scope="col">Action</th>
+                    <th scope="col">Actions</th>
                 </tr>
             </thead>
             <tbody>
@@ -48,9 +48,14 @@
                             @endif
                         </td>
                         <td>
-                            <a class="button button-secondary" href="{{ route('admin.support-content.edit', ['editorialPageKey' => $key->value]) }}">
-                                {{ $page === null ? 'Create' : 'Edit' }}
-                            </a>
+                            <div class="action-row">
+                                <a class="button button-secondary" href="{{ route('admin.support-content.edit', ['editorialPageKey' => $key->value]) }}">
+                                    {{ $page === null ? 'Create English' : 'Edit English' }}
+                                </a>
+                                @if ($page !== null)
+                                    <a class="button button-secondary" href="{{ route('admin.support-content.translation.edit', $page) }}">Polish translation</a>
+                                @endif
+                            </div>
                         </td>
                     </tr>
                 @endforeach

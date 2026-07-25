@@ -6,7 +6,7 @@
     <div class="page-header">
         <p class="eyebrow">Content</p>
         <h1>News</h1>
-        <p class="muted">Create and maintain public news posts and their publication state.</p>
+        <p class="muted">Create and maintain public news posts, publication state and explicit Polish translations.</p>
     </div>
 
     <div class="action-row">
@@ -26,7 +26,7 @@
                         <th scope="col">Title</th>
                         <th scope="col">Slug</th>
                         <th scope="col">Publication</th>
-                        <th scope="col">Action</th>
+                        <th scope="col">Actions</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -42,7 +42,12 @@
                                     <span class="badge badge-warning">Draft</span>
                                 @endif
                             </td>
-                            <td><a class="button button-secondary" href="{{ route('admin.news.edit', $post) }}">Edit</a></td>
+                            <td>
+                                <div class="action-row">
+                                    <a class="button button-secondary" href="{{ route('admin.news.edit', $post) }}">Edit English</a>
+                                    <a class="button button-secondary" href="{{ route('admin.news.translation.edit', $post) }}">Polish translation</a>
+                                </div>
+                            </td>
                         </tr>
                     @endforeach
                 </tbody>

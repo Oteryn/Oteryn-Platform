@@ -10,9 +10,12 @@ use App\GameAuth\OAuth\RequirePublicClientPkceS256;
 use App\Identity\Mfa\PendingMfaLogin;
 use App\Identity\Support\CanonicalEmail;
 use Illuminate\Cache\RateLimiting\Limit;
+use Illuminate\Foundation\Events\LocaleUpdated;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Facades\Route;
+use Illuminate\Support\Facades\URL;
 use Illuminate\Support\ServiceProvider;
 use Laravel\Passport\Passport;
 use LogicException;
@@ -27,8 +30,16 @@ class AppServiceProvider extends ServiceProvider
 
     public function boot(): void
     {
+        $this->configureLocalization();
         $this->configureRateLimiters();
         $this->configureNativeOAuth();
+    }
+
+    private function configureLocalization(): void
+    {
+        Event::listen(LocaleUpdated::class, static function (LocaleUpdated $event): void {
+            URL::defaults(['locale' => $event->locale]);
+        });
     }
 
     private function configureNativeOAuth(): void

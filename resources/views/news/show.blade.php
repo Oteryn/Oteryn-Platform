@@ -3,9 +3,10 @@
 @section('title', $post->title)
 
 @section('content')
+    @inject('localeFormatter', 'App\Localization\LocaleFormatter')
     <article>
         <h1>{{ $post->title }}</h1>
-        <p class="muted">Published {{ $post->published_at?->format('Y-m-d H:i') }}</p>
+        <p class="muted">{{ __('public.news.published', ['date' => $post->published_at ? $localeFormatter->dateTime($post->published_at) : '']) }}</p>
 
         <div class="card">
             <p class="prose-text">{{ $post->body }}</p>
