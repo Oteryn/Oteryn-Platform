@@ -113,7 +113,7 @@ changed_paths:
   - app/Http/Requests/Admin/AdminEditorialMediaUploadRequest.php
   - config/editorial_media.php
   - config/filesystems.php
-  - database/migrations/*seditorial_media*
+  - database/migrations/*editorial_media*
   - deploy/synology/docker/platform.Dockerfile
   - deploy/synology/docker/platform-media.ini
   - resources/views/admin/media/**
