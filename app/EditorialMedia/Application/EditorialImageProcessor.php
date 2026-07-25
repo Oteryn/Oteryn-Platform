@@ -240,6 +240,11 @@ final class EditorialImageProcessor
                 imagealphablending($thumbnail, false);
                 imagesavealpha($thumbnail, true);
                 $transparent = imagecolorallocatealpha($thumbnail, 0, 0, 0, 127);
+
+                if (! is_int($transparent)) {
+                    throw new RuntimeException('Editorial image thumbnail alpha allocation failed.');
+                }
+
                 imagefill($thumbnail, 0, 0, $transparent);
             }
 

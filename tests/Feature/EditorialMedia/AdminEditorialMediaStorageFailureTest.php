@@ -60,12 +60,12 @@ final class AdminEditorialMediaStorageFailureTest extends EditorialMediaTestCase
         ]);
 
         $filesystem = Mockery::mock(Filesystem::class);
-        $filesystem->shouldReceive('exists')->twice()->andReturnTrue();
-        $filesystem->shouldReceive('get')->with($media->storage_path)->once()->andReturn($originalBytes);
-        $filesystem->shouldReceive('get')->with($media->thumbnail_path)->twice()->andReturn($thumbnailBytes);
-        $filesystem->shouldReceive('delete')->with($media->thumbnail_path)->once()->ordered()->andReturnTrue();
-        $filesystem->shouldReceive('delete')->with($media->storage_path)->once()->ordered()->andReturnFalse();
-        $filesystem->shouldReceive('put')
+        $filesystem->expects('exists')->twice()->andReturnTrue();
+        $filesystem->expects('get')->with($media->storage_path)->once()->andReturn($originalBytes);
+        $filesystem->expects('get')->with($media->thumbnail_path)->twice()->andReturn($thumbnailBytes);
+        $filesystem->expects('delete')->with($media->thumbnail_path)->once()->ordered()->andReturnTrue();
+        $filesystem->expects('delete')->with($media->storage_path)->once()->ordered()->andReturnFalse();
+        $filesystem->expects('put')
             ->with($media->thumbnail_path, $thumbnailBytes, ['visibility' => 'private'])
             ->once()
             ->andReturnTrue();
