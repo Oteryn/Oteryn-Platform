@@ -51,11 +51,22 @@ jobs:
       - name: Install dependencies quietly
         run: composer install --no-interaction --prefer-dist --no-progress --quiet
 
-      - name: Run full test suite and print failures only
+      - name: Run full test suite into report
+        id: tests
+        continue-on-error: true
         shell: bash
         run: |
           php artisan config:clear --no-ansi >/dev/null
-          if ! php artisan test --colors=never > /tmp/phpunit.log 2>&1; then
-            tail -n 240 /tmp/phpunit.log
-            exit 1
-          fi
+          php artisan test --colors=never > phpunit-diagnostic.log 2>&1
+
+      - name: Upload PHPUnit diagnostic report
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: announcements-events-phpunit-diagnostic
+          path: phpunit-diagnostic.log
+          if-no-files-found: error
+
+      - name: Preserve test failure
+        if: steps.tests.outcome == 'failure'
+        run: exit 1
