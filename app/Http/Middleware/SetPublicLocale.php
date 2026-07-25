@@ -5,6 +5,7 @@ namespace App\Http\Middleware;
 use App\Localization\PublicLocale;
 use Closure;
 use Illuminate\Http\Request;
+use Illuminate\Routing\Route as LaravelRoute;
 use Illuminate\Support\Facades\URL;
 use Symfony\Component\HttpFoundation\Response;
 
@@ -23,7 +24,14 @@ final readonly class SetPublicLocale
         app()->setLocale($locale);
         URL::defaults(['locale' => $locale]);
 
+        $route = $request->route();
+        if ($route instanceof LaravelRoute) {
+            $route->forgetParameter('locale');
+        }
+
         $response = $next($request);
+        abort_unless($response instanceof Response, 500);
+
         $response->headers->set('Content-Language', $locale);
         $this->remember($request, $response, $locale);
 
