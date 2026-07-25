@@ -34,7 +34,11 @@ final readonly class LocalizedUrlGenerator
             return new LocalizedPublicUrls(null, []);
         }
 
-        $canonicalName = str_starts_with($routeName, 'legacy.') ? substr($routeName, 7) : $routeName;
+        $canonicalName = match (true) {
+            $routeName === 'home' => 'localized.home',
+            str_starts_with($routeName, 'legacy.') => substr($routeName, 7),
+            default => $routeName,
+        };
         if (! Route::has($canonicalName)) {
             return new LocalizedPublicUrls(null, []);
         }
