@@ -29,16 +29,16 @@ Implement an isolated production-capable Download Center that publishes approved
 
 ## Acceptance criteria
 
-- [ ] Platform-owned `client_releases` and `client_release_artifacts` persistence supports stable/beta channels, OS/architecture variants, publication and per-channel current state.
-- [ ] Public `/download` identifies current approved builds and shows version, platform, filename, size and SHA-256.
-- [ ] Optional platform filtering, empty state and dependency-unavailable state are explicit.
-- [ ] Draft and non-current unpublished releases are not public.
-- [ ] Administrator list/create/update/publish workflow requires `auth`, `mfa.confirmed` and exact `downloads.manage`.
-- [ ] No executable upload input or Platform URL proxy exists.
-- [ ] Artifact references reject unapproved schemes/hosts including `javascript:` and `data:`.
-- [ ] Administrator mutations are CSRF-protected, validated and recorded with bounded non-secret audit metadata.
-- [ ] No shared route, layout, homepage, central permission registry, Events, Wiki, Support or PublicGameData paths are modified.
-- [ ] Formatting, PHPStan, focused tests, full tests and required CI pass on the exact head.
+- [x] Platform-owned `client_releases` and `client_release_artifacts` persistence supports stable/beta channels, OS/architecture variants, publication and per-channel current state.
+- [x] Public `/download` identifies current approved builds and shows version, platform, filename, size and SHA-256.
+- [x] Optional platform filtering, empty state and dependency-unavailable state are explicit.
+- [x] Draft and non-current unpublished releases are not public.
+- [x] Administrator list/create/update/publish workflow requires `auth`, `mfa.confirmed` and exact `downloads.manage`.
+- [x] No executable upload input or Platform URL proxy exists.
+- [x] Artifact references reject unapproved schemes/hosts including `javascript:` and `data:`.
+- [x] Administrator mutations are CSRF-protected, validated and recorded with bounded non-secret audit metadata.
+- [x] No shared route, layout, homepage, navigation, central permission registry, Events, Wiki, Support or PublicGameData paths are modified.
+- [x] Formatting, PHPStan, focused tests, full tests and required CI pass on the exact implementation head.
 
 ## Ownership
 
@@ -49,8 +49,6 @@ owned_paths:
   - app/Http/Requests/Downloads/**
   - config/downloads.php
   - database/migrations/*client_release*
-  - database/factories/Downloads/**
-  - resources/navigation/public/downloads.php
   - resources/views/downloads/**
   - resources/views/admin/downloads/**
   - routes/modules/downloads.php
@@ -72,11 +70,11 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-07-24T21:07:22Z
-head: 9245fca6762918f7d2a230b8a7dfe231bd4b8131
+updated_at: 2026-07-25T08:15:51Z
+head: e0041f609b0ec156598ce1ecd9ef7713aa534d74
 branch: feat/OTERYN-20260724-download-center
-pr: none
-status: implementing
+pr: 161
+status: complete
 context_routes:
   - agent-governance
   - architecture
@@ -91,8 +89,6 @@ owned_paths:
   - app/Http/Requests/Downloads/**
   - config/downloads.php
   - database/migrations/*client_release*
-  - database/factories/Downloads/**
-  - resources/navigation/public/downloads.php
   - resources/views/downloads/**
   - resources/views/admin/downloads/**
   - routes/modules/downloads.php
@@ -100,34 +96,54 @@ owned_paths:
   - tests/Unit/Downloads/**
   - docs/agents/tasks/active/OTERYN-20260724-download-center.md
 proven:
-  - PR #146 is merged on main and provides module-local routes, navigation contributions and the reserved downloads.manage permission.
-  - routes/web.php loads routes/modules/*.php without requiring a shared route edit.
-  - the public navigation registry loads resources/navigation/public/*.php without requiring shared layout edits.
-  - the reserved downloads.manage permission has no automatic role grant.
-  - the only open PR path overlap is docs-only scheduled E2E evidence and does not overlap Downloads paths.
+  - PR #146 provides module-local route loading and reserves the exact downloads.manage permission without an automatic shared-role grant.
+  - client release and artifact data is Platform-owned and does not require Canary or login-server writes.
+  - the public endpoint exposes direct approved HTTPS references only; no executable upload or artifact proxy endpoint exists.
+  - artifact hosts are exact-match allowlisted and javascript, data, HTTP, user-info, fragment, non-standard port and host-root references fail closed.
+  - publication locks the release channel, revalidates enabled artifacts, updates current state atomically and records bounded audit metadata.
+  - checksums are displayed as supplied release metadata and are not represented as independently verified by Platform.
+  - the final implementation changed only Downloads-owned paths and did not change routes/web.php, shared layouts, homepage, navigation or the central permission registry.
 derived:
-  - Downloads persistence is Platform-owned and requires no Canary or login-server contract.
-  - direct approved HTTPS links avoid executable upload and arbitrary proxy surfaces.
-unknown:
-  - exact final validation and CI result for the implementation head.
+  - operators must configure DOWNLOADS_ALLOWED_ARTIFACT_HOSTS before an artifact can be approved for publication.
+unknown: []
 conflicts: []
 first_failure:
-  marker: local-checkout-unavailable
-  evidence: sandbox DNS could not resolve github.com, so repository inspection and writes use the GitHub connector and local validation is not yet available.
+  marker: resolved
+  evidence: PHPStan redundant publication guards were replaced with explicit nested state guards; an out-of-scope navigation contribution was removed after existing integration tests identified it as the only route-activation regression.
 rejected_hypotheses:
-  - editing routes/web.php or the shared public/admin layouts is unnecessary and prohibited.
+  - editing routes/web.php or shared public/admin layouts is unnecessary and prohibited.
+  - adding a public navigation contribution is outside the declared ownership and is not required for the /download endpoint.
   - granting downloads.manage to an existing shared role bundle is outside this isolated task.
 changed_paths:
+  - app/Downloads/**
+  - app/Http/Controllers/Downloads/**
+  - app/Http/Requests/Downloads/**
+  - config/downloads.php
+  - database/migrations/2026_07_24_211000_create_client_release_tables.php
+  - resources/views/downloads/**
+  - resources/views/admin/downloads/**
+  - routes/modules/downloads.php
+  - tests/Feature/Downloads/**
+  - tests/Unit/Downloads/**
   - docs/agents/tasks/active/OTERYN-20260724-download-center.md
 validation:
-  - command: not-run
-    result: NOT_RUN
-    evidence: implementation not yet complete; local checkout unavailable because sandbox DNS cannot resolve github.com
+  - command: vendor/bin/pint --test
+    result: PASS
+    evidence: CI run 1960, head e0041f609b0ec156598ce1ecd9ef7713aa534d74
+  - command: composer analyse
+    result: PASS
+    evidence: CI run 1960, head e0041f609b0ec156598ce1ecd9ef7713aa534d74
+  - command: composer test
+    result: PASS
+    evidence: CI run 1960, head e0041f609b0ec156598ce1ecd9ef7713aa534d74
+  - command: required GitHub workflows
+    result: PASS
+    evidence: CI, Agent Governance, Platform DB Outage Validation, Phase 7 Production-Like Validation, Game Auth Ticket Concurrency, Build Synology Staging Images and Acceptance E2E and Visual UX succeeded on head e0041f609b0ec156598ce1ecd9ef7713aa534d74
 blockers:
   - none
-next_action: Implement the Downloads persistence, artifact URL policy, public/admin workflows, module routes, views and focused tests on the task branch.
+next_action: Review and merge PR #161.
 ```
 
 ## Notes
 
-The module will store operator-supplied artifact metadata and approved immutable HTTPS references only. It will not fetch artifacts, proxy URLs, upload executables or claim checksum verification.
+The module stores operator-supplied artifact metadata and approved immutable HTTPS references only. It does not fetch artifacts, proxy URLs, upload executables or claim checksum verification.
