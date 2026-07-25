@@ -25,7 +25,7 @@ optional_reads:
 
 ## Goal
 
-Implement an isolated reusable secure editorial raster-image library for later Wiki, Events and CMS consumption without integrating those consumers in this pull request.
+Implement an isolated reusable secure editorial raster-image library for later Wiki, Events and CMS consumption without integrating those consumers in this task.
 
 ## Acceptance criteria
 
@@ -39,7 +39,8 @@ Implement an isolated reusable secure editorial raster-image library for later W
 - [x] Upload and deletion operations append bounded non-secret administrator audit events.
 - [x] Referenced media cannot be deleted and database constraints preserve the same invariant.
 - [x] Malicious, malformed, mismatched and over-limit fixtures are covered together with permission, MFA and CSRF regressions.
-- [x] Required checks pass on the final exact PR head after readiness cleanup.
+- [x] Required checks passed on the final exact PR head.
+- [x] PR #176 was squash-merged into `main`.
 
 ## Ownership
 
@@ -63,6 +64,7 @@ owned_paths:
   - docs/architecture/adr/0011-safe-editorial-media-boundary.md
   - docs/architecture/MODULE_CATALOG.md
   - docs/agents/tasks/active/OTERYN-20260725-safe-editorial-media.md
+  - docs/agents/tasks/archive/OTERYN-20260725-safe-editorial-media.md
 modules:
   - EditorialMedia
   - Admin
@@ -80,11 +82,11 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-07-25T19:52:00+02:00
-head: b7819ca671e0a52b62d4b504ef7138cefbefd09f
-branch: feat/OTERYN-20260725-safe-editorial-media
-pr: 176
-status: ready
+updated_at: 2026-07-25T19:58:00+02:00
+head: f073b2e9c802c83e2c13e578023acd32497747d4
+branch: chore/OTERYN-20260725-safe-editorial-media-cleanup
+pr: none
+status: validating
 context_routes:
   - agent-governance
   - architecture
@@ -94,40 +96,36 @@ context_routes:
   - security
   - testing
 owned_paths:
-  - paths listed in Ownership
+  - docs/agents/tasks/active/OTERYN-20260725-safe-editorial-media.md
+  - docs/agents/tasks/archive/OTERYN-20260725-safe-editorial-media.md
 proven:
-  - the implementation is isolated from Wiki, Events and CMS publication logic and changes no Canary or login-server contract
-  - the private editorial_media disk is outside the public storage link and fails closed with throw and report enabled
-  - JPEG, PNG and WebP require matching extension, fileinfo MIME, image header, exact container boundary and successful decode
-  - accepted images are GD-decoded and re-encoded, removing source metadata and appended payloads
-  - byte, dimension and decoded-pixel limits are enforced before persistence
-  - immutable storage names use 192 bits of randomness and normalized extensions
-  - SHA-256 and dimensions are recorded for originals and generated thumbnails
-  - references are bounded to cms, events and wiki and block deletion in both application and database layers
-  - every administrator route requires auth, mfa.confirmed and exact media.manage authorization
-  - media.manage is granted explicitly only to content_editor and platform_admin
-  - upload and deletion write bounded non-secret administrator audit events
-  - partial storage deletion is restored and database/audit changes roll back
-  - CI run 30160906504 passed codec verification, Composer validation and audit, Pint, PHPStan and the complete test suite on readiness head b7819ca671e0a52b62d4b504ef7138cefbefd09f
-  - Agent Governance run 30160906499 passed on readiness head b7819ca671e0a52b62d4b504ef7138cefbefd09f
-  - Acceptance E2E and Visual UX run 30160906503 passed on retry of the same readiness head after an initial service-container initialization failure before checkout
-  - Phase 7 Production-Like Validation run 30160906505 passed on readiness head b7819ca671e0a52b62d4b504ef7138cefbefd09f
-  - Platform DB Outage Validation run 30160906493 passed on readiness head b7819ca671e0a52b62d4b504ef7138cefbefd09f
-  - Game Auth Ticket Concurrency run 30160906519 passed on readiness head b7819ca671e0a52b62d4b504ef7138cefbefd09f
-  - Build Synology Staging Images run 30160906507 passed on readiness head b7819ca671e0a52b62d4b504ef7138cefbefd09f
+  - PR #176 was squash-merged into main as f073b2e9c802c83e2c13e578023acd32497747d4.
+  - Final PR head 6417b416b474e3fabd384911c82eb7fd05eaecd3 passed all seven workflows: CI, Agent Governance, Acceptance E2E and Visual UX, Phase 7 Production-Like Validation, Platform DB Outage Validation, Game Auth Ticket Concurrency and Build Synology Staging Images.
+  - The implementation is isolated from Wiki, Events and CMS publication logic and changes no Canary or login-server contract.
+  - The private editorial_media disk is outside the public storage link and fails closed with throw and report enabled.
+  - JPEG, PNG and WebP require matching extension, fileinfo MIME, image header, exact container boundary and successful decode.
+  - Accepted images are GD-decoded and re-encoded, removing source metadata and appended payloads.
+  - Byte, dimension and decoded-pixel limits are enforced before persistence.
+  - Immutable storage names use 192 bits of randomness and normalized extensions.
+  - SHA-256 and dimensions are recorded for originals and generated thumbnails.
+  - References are bounded to cms, events and wiki and block deletion in both application and database layers.
+  - Every administrator route requires auth, mfa.confirmed and exact media.manage authorization.
+  - media.manage is granted explicitly only to content_editor and platform_admin.
+  - Upload and deletion write bounded non-secret administrator audit events.
+  - Partial storage deletion is restored and database/audit changes roll back.
 derived:
-  - the reusable boundary can be consumed later through explicit references without transferring consumer lifecycle rules into EditorialMedia
+  - The reusable boundary can be consumed later through explicit references without transferring consumer lifecycle rules into EditorialMedia.
 unknown: []
 conflicts: []
 first_failure:
   marker: acceptance-service-container-initialization
-  evidence: the first attempt of run 30160906503 failed while initializing service containers before checkout; rerunning the same job on the same SHA passed
+  evidence: one E2E attempt failed while initializing service containers before checkout; rerunning the same job on the same SHA passed without a code change
 rejected_hypotheses:
   - reuse current public disk: it is publicly linked and configured with throw=false
   - add a Wiki-specific upload surface: the requested boundary must remain reusable
   - accept SVG or arbitrary files: prohibited by task and security architecture
   - retain original uploads after validation: decode and re-encode is required to remove metadata and appended payloads
-  - final E2E application regression: the failed attempt never checked out or executed application code and the same job passed on retry without a code change
+  - final E2E application regression: the failed attempt never checked out or executed application code and the same job passed on retry
 changed_paths:
   - .github/workflows/ci.yml
   - app/Admin/AdminPermission.php
@@ -141,6 +139,7 @@ changed_paths:
   - deploy/synology/docker/platform-media.ini
   - deploy/synology/docker/platform.Dockerfile
   - docs/agents/tasks/active/OTERYN-20260725-safe-editorial-media.md
+  - docs/agents/tasks/archive/OTERYN-20260725-safe-editorial-media.md
   - docs/architecture/MODULE_CATALOG.md
   - docs/architecture/adr/0011-safe-editorial-media-boundary.md
   - public/css/editorial-media-admin.css
@@ -149,14 +148,17 @@ changed_paths:
   - routes/modules/editorial-media.php
   - tests/Feature/EditorialMedia/**
 validation:
-  - command: GitHub required checks on readiness head b7819ca671e0a52b62d4b504ef7138cefbefd09f
+  - command: GitHub required checks on final PR #176 head 6417b416b474e3fabd384911c82eb7fd05eaecd3
     result: PASS
-    evidence: all seven workflows passed, including CI, governance, E2E and Visual UX, production-like validation, database outage, concurrency and Synology image build
+    evidence: all seven workflows passed before squash merge
+  - command: squash merge PR #176 with expected head 6417b416b474e3fabd384911c82eb7fd05eaecd3
+    result: PASS
+    evidence: GitHub created main commit f073b2e9c802c83e2c13e578023acd32497747d4
 blockers:
   - none
-next_action: mark PR 176 ready for review and squash merge it into main
+next_action: Open and merge the documentation-only cleanup PR that archives this completed task record.
 ```
 
 ## Notes
 
-Trust boundary: authenticated confirmed-MFA administrator upload input to private Platform-owned storage. Authorization invariant: every administrator media route requires the exact `media.manage` permission. Canary/login-server schema and session compatibility do not change. Migrations are additive and reversible. No secret, credential or production-only value is introduced.
+Trust boundary: authenticated confirmed-MFA administrator upload input to private Platform-owned storage. Authorization invariant: every administrator media route requires the exact `media.manage` permission. Canary/login-server schema and session compatibility do not change. Migrations are additive and reversible. No secret, credential or production-only value was introduced.
