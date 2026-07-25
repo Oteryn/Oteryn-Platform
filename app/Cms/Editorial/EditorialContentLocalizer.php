@@ -18,14 +18,18 @@ final readonly class EditorialContentLocalizer
             return $source;
         }
 
+        $sourceId = $source->getKey();
         $updatedAt = $source->getAttribute('updated_at');
-        if (! $updatedAt instanceof DateTimeInterface) {
+        if (
+            (! is_int($sourceId) && ! (is_string($sourceId) && ctype_digit($sourceId)))
+            || ! $updatedAt instanceof DateTimeInterface
+        ) {
             return null;
         }
 
         $translation = $this->translations->published(
             $type,
-            (int) $source->getKey(),
+            (int) $sourceId,
             $updatedAt,
             $locale,
         );
