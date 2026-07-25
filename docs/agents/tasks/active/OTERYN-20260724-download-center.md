@@ -74,7 +74,7 @@ updated_at: 2026-07-25T08:15:51Z
 head: e0041f609b0ec156598ce1ecd9ef7713aa534d74
 branch: feat/OTERYN-20260724-download-center
 pr: 161
-status: complete
+status: ready
 context_routes:
   - agent-governance
   - architecture
