@@ -29,16 +29,16 @@ Implement an isolated reusable secure editorial raster-image library for later W
 
 ## Acceptance criteria
 
-- [ ] Dedicated Platform-owned media and bounded reference records exist.
-- [ ] Only JPEG, PNG and WebP with matching extension, detected MIME and decodable content are accepted.
-- [ ] Uploads enforce byte, dimension and decoded-pixel limits before decode and fail closed when processing or storage is unavailable.
-- [ ] Accepted images are decoded, re-encoded, stripped of metadata, stored under immutable random names and recorded with SHA-256.
-- [ ] Bounded thumbnails are generated only for images larger than the administrator preview boundary.
-- [ ] Alt text is required and bounded.
-- [ ] One exact media-management permission protects the administrator library behind authentication and confirmed MFA.
-- [ ] Upload and deletion operations append bounded non-secret administrator audit events.
-- [ ] Referenced media cannot be deleted and database constraints preserve the same invariant.
-- [ ] Malicious, malformed, mismatched and over-limit fixtures are rejected; permission, MFA and CSRF regressions pass.
+- [x] Dedicated Platform-owned media and bounded reference records exist.
+- [x] Only JPEG, PNG and WebP with matching extension, detected MIME and decodable content are accepted.
+- [x] Uploads enforce byte, dimension and decoded-pixel limits before decode and fail closed when processing or storage is unavailable.
+- [x] Accepted images are decoded, re-encoded, stripped of metadata, stored under immutable random names and recorded with SHA-256.
+- [x] Bounded thumbnails are generated only for images larger than the administrator preview boundary.
+- [x] Alt text is required and bounded.
+- [x] One exact media-management permission protects the administrator library behind authentication and confirmed MFA.
+- [x] Upload and deletion operations append bounded non-secret administrator audit events.
+- [x] Referenced media cannot be deleted and database constraints preserve the same invariant.
+- [x] Malicious, malformed, mismatched and over-limit fixtures are covered together with permission, MFA and CSRF regressions.
 - [ ] Required CI passes on the exact current head.
 
 ## Ownership
@@ -54,11 +54,13 @@ owned_paths:
   - database/migrations/*editorial_media*
   - resources/views/admin/media/**
   - resources/views/admin/layout.blade.php
+  - public/css/editorial-media-admin.css
   - routes/modules/editorial-media.php
   - tests/Feature/EditorialMedia/**
   - .github/workflows/ci.yml
   - deploy/synology/docker/platform.Dockerfile
-  - docs/architecture/adr/0010-safe-editorial-media-boundary.md
+  - deploy/synology/docker/platform-media.ini
+  - docs/architecture/adr/0011-safe-editorial-media-boundary.md
   - docs/architecture/MODULE_CATALOG.md
   - docs/agents/tasks/active/OTERYN-20260725-safe-editorial-media.md
 modules:
@@ -78,11 +80,11 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-07-25T08:44:17Z
-head: 7164edd1308d9f43cfbc20fb37901e66448fe165
+updated_at: 2026-07-25T10:01:00Z
+head: UNKNOWN
 branch: feat/OTERYN-20260725-safe-editorial-media
-pr: none
-status: implementing
+pr: 176
+status: validating
 context_routes:
   - agent-governance
   - architecture
@@ -94,36 +96,57 @@ context_routes:
 owned_paths:
   - paths listed in Ownership
 proven:
-  - main head at task start is 7164edd1308d9f43cfbc20fb37901e66448fe165
-  - no open pull request currently changes the proposed media implementation paths
-  - open localization PR 175 owns routes/web.php and public module paths, so this task will use routes/modules/editorial-media.php
-  - existing privileged routes require auth, mfa.confirmed and an exact admin.permission middleware value
-  - current deployed Platform image lacks the GD extension and current filesystem disks use throw=false
-  - Synology staging persists the complete Platform storage directory through platform_storage
-  - no Composer image-processing dependency is installed
+  - PR 176 contains the isolated EditorialMedia schema, processing boundary, administrator library, exact permission, bounded audit and reference-safe deletion
+  - accepted source formats are restricted to JPEG, PNG and WebP with extension, fileinfo MIME, image-header and exact container-boundary agreement
+  - accepted source bytes are decoded and re-encoded through GD before private storage, and source metadata is not retained
+  - the dedicated editorial_media disk is private, outside the public storage symlink and configured to throw and report storage failures
+  - generated storage names use 192 bits of randomness and immutable normalized extensions
+  - consumer references are restricted to cms, events and wiki and database deletion is restricted while references exist
+  - every administrator route requires auth, mfa.confirmed and the exact media.manage permission
+  - content_editor and platform_admin receive media.manage through an explicit reviewed migration; no wildcard authority is introduced
+  - the Platform deployment image and CI now require GD JPEG, PNG and WebP codec support
+  - the branch was synchronized with main commit bd0bd9883e2753c8a385b3297aaed7a1cb2ce429 through GitHub merge commit 30b87ea9f5c7d0d5700309a008e98ce90ff08bfc
   - EditorialMedia persistence is Platform-owned and does not change Canary or login-server contracts
 derived:
-  - a dedicated private throw-on-error disk plus GD decode and re-encode is the smallest reusable fail-closed boundary
-  - a generic media.manage permission is required because Wiki, Events and CMS are future consumers rather than owners of the library
+  - the implementation is isolated and can be consumed later without transferring Wiki, Events or CMS publication rules into the media module
 unknown:
-  - exact CI result on the implementation head
+  - exact required CI result on the checkpoint commit
 conflicts: []
 first_failure:
-  marker: local-checkout-unavailable
-  evidence: execution sandbox cannot resolve github.com, so validation must be performed by GitHub CI and no local pass will be claimed
+  marker: none
+  evidence: exact-head CI has not completed yet
 rejected_hypotheses:
   - reuse current public disk: it is publicly linked and configured with throw=false
   - add a Wiki-specific upload surface: the requested boundary must be reusable and consumer integration is out of scope
   - accept SVG or arbitrary files: prohibited by task and security architecture
+  - retain original uploads after validation: decode and re-encode is required to remove metadata and appended active payloads
 changed_paths:
+  - app/EditorialMedia/**
+  - app/Http/Controllers/Admin/AdminEditorialMediaController.php
+  - app/Http/Requests/Admin/AdminEditorialMediaUploadRequest.php
+  - app/Admin/AdminPermission.php
+  - config/editorial_media.php
+  - config/filesystems.php
+  - database/migrations/2026_07_25_090000_create_editorial_media_tables.php
+  - database/migrations/2026_07_25_090100_add_editorial_media_permission.php
+  - resources/views/admin/media/index.blade.php
+  - resources/views/admin/layout.blade.php
+  - public/css/editorial-media-admin.css
+  - routes/modules/editorial-media.php
+  - tests/Feature/EditorialMedia/AdminEditorialMediaTest.php
+  - .github/workflows/ci.yml
+  - deploy/synology/docker/platform.Dockerfile
+  - deploy/synology/docker/platform-media.ini
+  - docs/architecture/adr/0011-safe-editorial-media-boundary.md
+  - docs/architecture/MODULE_CATALOG.md
   - docs/agents/tasks/active/OTERYN-20260725-safe-editorial-media.md
 validation:
-  - command: local application validation
-    result: BLOCKED
-    evidence: local checkout unavailable because github.com DNS resolution fails in the execution sandbox
+  - command: GitHub required checks on synchronized PR 176 head
+    result: NOT_RUN
+    evidence: checkpoint commit is starting the exact-head validation cycle
 blockers:
   - none
-next_action: implement the isolated EditorialMedia schema, processing actions, administrator routes and security regression tests
+next_action: inspect exact-head CI and fix every task-owned failure before readiness
 ```
 
 ## Notes
