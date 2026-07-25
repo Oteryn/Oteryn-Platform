@@ -25,11 +25,15 @@ final class RequestCorrelation
         $response->headers->set('X-Request-ID', $requestId);
 
         $route = $request->route();
+        $routeName = $route instanceof Route ? $route->getName() : null;
+        if (is_string($routeName) && str_starts_with($routeName, 'legacy.')) {
+            $routeName = substr($routeName, 7);
+        }
 
         Log::info('http.request.completed', [
             'request_id' => $requestId,
             'method' => $request->getMethod(),
-            'route' => $route instanceof Route ? $route->getName() : null,
+            'route' => $routeName,
             'status' => $response->getStatusCode(),
             'duration_ms' => round((hrtime(true) - $startedAt) / 1_000_000, 3),
         ]);
