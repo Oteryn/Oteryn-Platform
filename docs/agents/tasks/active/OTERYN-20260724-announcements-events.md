@@ -126,9 +126,7 @@ derived:
   - Editing previously approved event content revokes public approval until an authorized publisher explicitly transitions it again.
   - Provider-level dependency failures remain distinguishable from legitimate empty states for later homepage integration.
 unknown: []
-conflicts:
-  - path: tests/Feature/PublicPortal/PublicPortalExtensionTest.php
-    resolution: merged current main Support expectations with the registered Events navigation item; no shared navigation implementation file was edited
+conflicts: []
 first_failure:
   marker: full PHPUnit regression after static analysis passed
   evidence: PublicPortalExtensionTest expected the pre-Events header list; the contract expectation was updated to include all registered current-main items and Events
