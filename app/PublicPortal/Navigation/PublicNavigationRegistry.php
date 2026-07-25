@@ -131,7 +131,15 @@ final class PublicNavigationRegistry
             return null;
         }
 
-        $url = route($route);
+        $urlRoute = $route;
+        $parameters = [];
+        if ($route === 'home' && Route::has('localized.home')) {
+            $urlRoute = 'localized.home';
+            $parameters['locale'] = app()->getLocale();
+            $active = 'home|localized.home';
+        }
+
+        $url = route($urlRoute, $parameters);
         if (is_string($fragment)) {
             $url .= '#'.rawurlencode($fragment);
         }
