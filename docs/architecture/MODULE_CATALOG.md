@@ -16,6 +16,7 @@ This catalog defines module responsibilities and dependency boundaries.
 | Characters | AVAILABLE | Contract-approved web-triggered character operations; currently create | Direct undocumented Canary writes; uncontracted rename/delete |
 | PublicGameData | AVAILABLE | Read models/queries for characters, guilds, highscores, online/status | Privileged mutations |
 | CMS | AVAILABLE | Public content reads and permission-scoped Platform content management | Identity policy, game state, rich/upload surfaces without explicit security controls |
+| Wiki | IMPLEMENTING | Localized Wiki articles, categories, lifecycle, optimistic locking and append-only revisions | Generic CMS pages, public activation before release criteria, arbitrary HTML, media/search without separate reviewed slices |
 | Admin | AVAILABLE | Admin UI, explicit RBAC/policies, privileged Platform use cases | Bypassing domain/application invariants or granting implicit wildcard authority |
 | Audit | AVAILABLE | Security/admin audit primitives, privileged-action audit and bounded admin audit visibility | Secrets, raw credentials, business-rule authorization decisions |
 | Integration | AVAILABLE | Implemented Canary read/write adapters, schema translation, contract enforcement; future login bridge remains separate | Product policy that belongs in domain modules |
@@ -162,6 +163,48 @@ Rich HTML, media uploads and arbitrary plugin/code upload remain out of scope an
 - uploads require explicit MIME/content/size/storage controls;
 - privileged mutation requires explicit Admin/RBAC authorization, confirmed MFA and audit.
 
+## Wiki
+
+### Responsibilities
+
+- language-independent article and category identity;
+- localized article and category content with per-locale slugs;
+- deterministic editorial lifecycle;
+- optimistic locking for concurrent edits;
+- append-only localized revisions and restore-as-new-revision behavior;
+- later public reads, safe Markdown rendering, search, redirects and media through separately reviewed slices.
+
+### Current implementing boundary
+
+The Wiki foundation task provides:
+
+- Platform-owned additive migrations for articles, translations, categories, article-category relations and revisions;
+- exact supported locales `en` and `pl`;
+- unique localized article and category slugs;
+- draft, review, published and archived lifecycle rules;
+- explicit stale-edit failure through monotonic lock versions;
+- content revisions appended on create, update and restore;
+- restore by creating a new revision that references the selected source revision;
+- publication only when complete English and Polish translations exist;
+- exact reserved Wiki permissions with no wildcard and no automatic role grants;
+- bounded administrator audit metadata without complete article bodies;
+- restricted Markdown source persistence with no raw HTML;
+- focused domain, migration, database and authorization tests.
+
+No public Wiki route, navigation contribution, renderer, search service, media upload, comments or player editing is activated by this foundation.
+
+### Invariants
+
+- Wiki persistence is Platform-owned and does not modify Canary/login-server data;
+- missing or unsupported locale fails explicitly;
+- localized slugs are unique by `(locale, slug)`;
+- stale updates never silently overwrite newer content;
+- revisions are append-only through supported application/model paths;
+- privileged application operations use one exact Wiki permission;
+- future HTTP administration must combine `auth`, `mfa.confirmed` and that exact permission;
+- article bodies and category descriptions are excluded from audit metadata;
+- public activation remains a separately reviewed later slice.
+
 ## Admin
 
 ### Responsibilities
@@ -217,6 +260,8 @@ Phase 6 adds:
 - audit events for first-admin bootstrap, role assignment/removal and privileged CMS create/update operations;
 - minimal actor/action/target/non-secret metadata records;
 - bounded 50-row-per-page administrator audit visibility behind `audit.view`, authentication and confirmed MFA.
+
+The Wiki foundation reuses the same recorder for bounded article lifecycle, content/revision and category events. Complete article bodies, complete category descriptions and change-note text are excluded from audit metadata.
 
 Audit storage is not a replacement for infrastructure/application logs and must never contain raw credentials, session/reset tokens or MFA secrets.
 
