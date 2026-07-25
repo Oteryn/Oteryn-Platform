@@ -21,6 +21,9 @@ final readonly class DetectPublicLocaleFromPath
         app()->setLocale($locale);
         URL::defaults(['locale' => $locale]);
 
-        return $next($request);
+        $response = $next($request);
+        abort_unless($response instanceof Response, 500);
+
+        return $response;
     }
 }
