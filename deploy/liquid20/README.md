@@ -61,6 +61,12 @@ An artifact is uploaded only after an explicit `collect` operation. After a succ
 
 The marker is not written into the immutable run directory. A failed upload remains retryable without modifying accepted source evidence.
 
+## Acceptance retry record
+
+The first complete 24-hour run, `liquid20-20260724T170830Z-1`, preserved valid immutable evidence and passed every frozen gate except `binance-usdm.maximum_latency_over_threshold_ratio`. It observed all 20 symbols on both sources, with availability above `0.9988`, zero Binance disconnects and no collector, parser, clock or hash failure.
+
+No implementation defect or infrastructure outage was proven by that isolated latency-ratio failure. The safe response is therefore one unchanged full-duration retry using the same collector commit, symbol universe, schema and frozen acceptance policy. This record intentionally changes no threshold and no collector behavior; merging it only triggers the existing guarded bootstrap for the next independent run.
+
 ## Failure behavior
 
 The workflow fails closed when:
