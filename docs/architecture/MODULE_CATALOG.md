@@ -16,6 +16,7 @@ This catalog defines module responsibilities and dependency boundaries.
 | Characters | AVAILABLE | Contract-approved web-triggered character operations; currently create | Direct undocumented Canary writes; uncontracted rename/delete |
 | PublicGameData | AVAILABLE | Read models/queries for characters, guilds, highscores, online/status | Privileged mutations |
 | CMS | AVAILABLE | Public content reads and permission-scoped Platform content management | Identity policy, game state, rich/upload surfaces without explicit security controls |
+| EditorialMedia | IMPLEMENTING | Private normalized raster-image objects, integrity metadata, bounded consumer references and administrator lifecycle | Public/executable uploads, arbitrary documents, consumer-specific publication rules |
 | Wiki | IMPLEMENTING | Localized Wiki articles, categories, lifecycle, optimistic locking and append-only revisions | Generic CMS pages, public activation before release criteria, arbitrary HTML, media/search without separate reviewed slices |
 | Admin | AVAILABLE | Admin UI, explicit RBAC/policies, privileged Platform use cases | Bypassing domain/application invariants or granting implicit wildcard authority |
 | Audit | AVAILABLE | Security/admin audit primitives, privileged-action audit and bounded admin audit visibility | Secrets, raw credentials, business-rule authorization decisions |
@@ -162,6 +163,41 @@ Rich HTML, media uploads and arbitrary plugin/code upload remain out of scope an
 - rich text, if introduced, requires maintained allowlist sanitization;
 - uploads require explicit MIME/content/size/storage controls;
 - privileged mutation requires explicit Admin/RBAC authorization, confirmed MFA and audit.
+
+## EditorialMedia
+
+### Responsibilities
+
+- secure ingestion and normalization of approved editorial raster images;
+- private immutable object naming and integrity metadata;
+- bounded alternative text and administrator lifecycle;
+- reusable reference tracking for explicitly known editorial consumers.
+
+### Current implementing boundary
+
+The safe editorial media task provides:
+
+- Platform-owned media and reference records;
+- JPEG, PNG and WebP only with extension, fileinfo MIME and image-header agreement;
+- configured byte, dimension and decoded-pixel limits before full decode;
+- GD decode and same-format re-encode, removing source metadata and appended payloads;
+- SHA-256, immutable random private storage names and private administrator serving;
+- thumbnails only for images above the administrator-preview boundary;
+- exact `media.manage` authorization behind authentication and confirmed MFA;
+- bounded upload/deletion audit metadata;
+- known `cms`, `events` and `wiki` reference slots with application locking and database-restricted deletion.
+
+No public media route or Wiki, Events or CMS consumer integration is activated by this slice.
+
+### Invariants
+
+- original untrusted upload bytes are never retained after successful normalization;
+- SVG, active content, executable files, archives and arbitrary documents are never accepted;
+- storage and codec failures fail closed;
+- objects remain outside the public storage symlink;
+- media storage names are server-generated, random and immutable;
+- referenced media cannot be deleted through either the application path or direct database deletion;
+- future consumers own their publication and authorization policy and must use the bounded reference manager.
 
 ## Wiki
 
