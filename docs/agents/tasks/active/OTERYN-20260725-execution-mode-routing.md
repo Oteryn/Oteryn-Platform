@@ -27,7 +27,7 @@ Add the missing repository-specific execution-mode routing policy required by th
 - [x] Mode selection, escalation and return rules are deterministic and subordinate to repository allowlists and stop conditions.
 - [x] The standard routing fields used in task prompts are defined.
 - [x] The policy forbids using mode selection as authorization or as evidence that execution occurred.
-- [ ] Documentation-only validation and required governance checks pass on the exact PR head.
+- [x] Documentation-only validation and required governance checks pass on the exact implementation head.
 
 ## Ownership
 
@@ -52,11 +52,11 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-07-25T20:42:00Z
-head: 6a07658e0fa06a4a63e724d6e12c675302f7f634
+updated_at: 2026-07-25T20:47:00Z
+head: 050c17ef6437dc702f678c9cb6bbf32ef414087c
 branch: docs/OTERYN-20260725-execution-mode-routing
 pr: 191
-status: validating
+status: ready
 context_routes:
   - agent-governance
 owned_paths:
@@ -72,16 +72,16 @@ proven:
   - routing fields, deterministic selection, capability checks, escalation and return rules are documented
   - repository allowlists, task ownership, security controls and stop conditions remain higher priority than mode selection
   - mode labels are explicitly not authorization or execution evidence
-  - draft PR 191 owns only the two declared governance paths
+  - PR 191 changes only the two declared governance paths
+  - exact implementation head 050c17ef6437dc702f678c9cb6bbf32ef414087c passed all required triggered workflows
   - no write outside blakinio/Oteryn-Platform occurred
 derived:
   - merging PR 191 will resolve the missing mandatory-read blocker recorded by the public website programme task
-unknown:
-  - exact-head workflow results for the final documentation head
+unknown: []
 conflicts: []
 first_failure:
   marker: none
-  evidence: none
+  evidence: all triggered workflows passed on exact implementation head 050c17ef6437dc702f678c9cb6bbf32ef414087c
 rejected_hypotheses:
   - copy an equivalent document from another repository: repository and organization searches returned no result
   - mode selection can grant otherwise unavailable permissions: contradicted by the new policy and AGENTS.md
@@ -95,12 +95,27 @@ validation:
   - command: focused documentation review against AGENTS.md, CONTEXT_ROUTING.md, BUILD_TEST_MATRIX.md and CONTEXT_HANDOFF.md
     result: PASS
     evidence: routing policy is subordinate to existing allowlist, evidence, validation and checkpoint rules
-  - command: exact-head GitHub checks
+  - command: CI
+    result: PASS
+    evidence: run 30174083776 on 050c17ef6437dc702f678c9cb6bbf32ef414087c
+  - command: Agent Governance
+    result: PASS
+    evidence: run 30174083786 on 050c17ef6437dc702f678c9cb6bbf32ef414087c
+  - command: Platform DB Outage Validation
+    result: PASS
+    evidence: run 30174083773 on 050c17ef6437dc702f678c9cb6bbf32ef414087c
+  - command: Game Auth Ticket Concurrency
+    result: PASS
+    evidence: run 30174083785 on 050c17ef6437dc702f678c9cb6bbf32ef414087c
+  - command: Phase 7 Production-Like Validation
+    result: PASS
+    evidence: run 30174083800 on 050c17ef6437dc702f678c9cb6bbf32ef414087c
+  - command: exact-head final checkpoint validation
     result: NOT_RUN
-    evidence: final checkpoint commit will trigger authoritative PR checks
+    evidence: this document-only checkpoint commit triggers the final authoritative pull-request workflows
 blockers:
   - none
-next_action: Inspect exact-head checks for PR 191 and fix any governance failure before readiness.
+next_action: Validate the final document-only head, mark PR 191 ready and squash-merge.
 ```
 
 ## Notes
