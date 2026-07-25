@@ -1,0 +1,48 @@
+name: Diagnostic Localization Composer
+
+on:
+  pull_request:
+    branches:
+      - feat/OTERYN-20260725-public-web-localization
+    paths:
+      - .github/workflows/diag-localization-composer.yml
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.5'
+          coverage: none
+          extensions: pdo_mysql, pcntl
+          tools: composer:v2
+      - name: Capture diagnostics
+        shell: bash
+        run: |
+          set +e
+          composer install --no-interaction --prefer-dist --no-progress --no-scripts -vvv > /tmp/composer-no-scripts.log 2>&1
+          composer_status=$?
+          if [[ $composer_status -eq 0 ]]; then
+            php artisan package:discover --ansi -vvv > /tmp/package-discover.log 2>&1
+            discover_status=$?
+          else
+            discover_status=99
+            printf 'package:discover not run because dependency installation failed\n' > /tmp/package-discover.log
+          fi
+          printf 'composer_no_scripts=%s\npackage_discover=%s\n' "$composer_status" "$discover_status" > /tmp/status.txt
+          exit 0
+      - uses: actions/upload-artifact@v4
+        with:
+          name: localization-composer-diagnostic-${{ github.run_id }}
+          path: |
+            /tmp/status.txt
+            /tmp/composer-no-scripts.log
+            /tmp/package-discover.log
+          if-no-files-found: error
+          retention-days: 2
