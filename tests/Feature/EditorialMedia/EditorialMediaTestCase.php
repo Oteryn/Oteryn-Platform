@@ -2,23 +2,16 @@
 
 namespace Tests\Feature\EditorialMedia;
 
-use App\Admin\AdminRoleManager;
-use App\EditorialMedia\Application\Actions\DeleteEditorialImage;
 use App\EditorialMedia\Application\Actions\StoreEditorialImage;
-use App\EditorialMedia\Application\EditorialMediaReferenceManager;
-use App\EditorialMedia\Domain\EditorialMediaConsumer;
 use App\EditorialMedia\Infrastructure\Models\EditorialMedia;
 use App\Identity\Models\Identity;
 use App\Identity\Sessions\WebSessionState;
 use GdImage;
-use Illuminate\Foundation\Http\Middleware\ValidateCsrfToken;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Storage;
-use LogicException;
-use RuntimeException;
 use Tests\TestCase;
 
 abstract class EditorialMediaTestCase extends TestCase
@@ -42,7 +35,6 @@ abstract class EditorialMediaTestCase extends TestCase
             'editorial_media.png_compression' => 6,
         ]);
     }
-
 
     protected function uploadThroughAction(
         Identity $actor,
