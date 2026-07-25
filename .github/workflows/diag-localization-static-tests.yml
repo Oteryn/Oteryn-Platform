@@ -1,0 +1,62 @@
+name: Diagnostic Localization Static and Tests
+
+on:
+  pull_request:
+    branches:
+      - feat/OTERYN-20260725-public-web-localization
+    paths:
+      - .github/workflows/diag-localization-static-tests.yml
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      mariadb:
+        image: mariadb:11.8
+        env:
+          MARIADB_ROOT_PASSWORD: oteryn-diagnostic-root
+          MARIADB_ROOT_HOST: '%'
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="healthcheck.sh --connect --innodb_initialized"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.5'
+          coverage: none
+          extensions: pdo_mysql, pcntl, gd
+          tools: composer:v2
+      - name: Install dependencies
+        run: composer install --no-interaction --prefer-dist --no-progress
+      - name: Capture PHPStan and localization tests
+        shell: bash
+        run: |
+          set +e
+          vendor/bin/phpstan analyse --memory-limit=1G --error-format=json > /tmp/phpstan.json 2> /tmp/phpstan.stderr
+          phpstan_status=$?
+          php artisan test tests/Feature/Localization/PublicLocalizationTest.php > /tmp/localization-tests.log 2>&1
+          test_status=$?
+          vendor/bin/pint --test > /tmp/pint.log 2>&1
+          pint_status=$?
+          printf 'phpstan=%s\nlocalization_tests=%s\npint=%s\n' "$phpstan_status" "$test_status" "$pint_status" > /tmp/status.txt
+          exit 0
+      - uses: actions/upload-artifact@v4
+        with:
+          name: localization-static-tests-${{ github.run_id }}
+          path: |
+            /tmp/status.txt
+            /tmp/phpstan.json
+            /tmp/phpstan.stderr
+            /tmp/localization-tests.log
+            /tmp/pint.log
+          if-no-files-found: error
+          retention-days: 2
