@@ -32,6 +32,7 @@ Extend the existing CMS with typed editorial mappings, published-only public rou
 - [x] Approved Discord, contact and support links are configuration-backed and reject unsafe or unapproved external URLs.
 - [x] No stored ticket submission path, arbitrary HTML, executable upload or media upload is introduced.
 - [x] Focused tests and all required CI pass on the implementation head.
+- [x] PR #159 was squash-merged into `main`.
 
 ## Ownership
 
@@ -59,7 +60,7 @@ owned_paths:
   - tests/Feature/Admin/PublicModulePermissionReservationTest.php
   - tests/Feature/PublicPortal/PublicPortalExtensionTest.php
   - tests/Feature/Support/**
-  - docs/agents/tasks/active/OTERYN-20260724-editorial-support-legal.md
+  - docs/agents/tasks/archive/OTERYN-20260724-editorial-support-legal.md
 modules:
   - CMS
   - Support
@@ -79,9 +80,9 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-07-24T22:30:00Z
-head: 6031cb65fa780c4a5bb24d78f294066a4b73cd13
-branch: feat/OTERYN-20260724-editorial-support-legal
+updated_at: 2026-07-25T09:31:30+02:00
+head: 96521c71ce166e8eb4f242706b6b5fde2dd8bce2
+branch: main
 pr: 159
 status: ready
 context_routes:
@@ -115,11 +116,10 @@ owned_paths:
   - tests/Feature/Admin/PublicModulePermissionReservationTest.php
   - tests/Feature/PublicPortal/PublicPortalExtensionTest.php
   - tests/Feature/Support/**
-  - docs/agents/tasks/active/OTERYN-20260724-editorial-support-legal.md
+  - docs/agents/tasks/archive/OTERYN-20260724-editorial-support-legal.md
 proven:
   - PR #143 and PR #146 are merged and provide the public expansion plan plus deterministic module-local route, navigation and permission integration.
   - Existing managed pages remain the sole editorial persistence boundary; no second CMS was introduced.
-  - No open task or pull request owns CMS managed-page persistence, typed editorial routes or support-content administration.
   - Eight typed routes resolve fixed managed-page keys and return safe distinct 404 states for missing and unpublished content.
   - Draft and future-scheduled title/body content is never passed to public views.
   - Generic managed-page administration and /pages/{slug} reject all reserved editorial slugs.
@@ -131,6 +131,7 @@ proven:
   - Support links are emitted only from validated configuration-backed email or HTTPS allowlisted hosts.
   - Report-a-bug is guidance-only and no support POST route, ticket model, arbitrary HTML field, executable upload or media upload exists.
   - All changed paths avoid routes/web.php, the shared layout, header, footer, homepage, Downloads, Events, Wiki and PublicGameData implementation paths.
+  - PR #159 was squash-merged into main as commit 96521c71ce166e8eb4f242706b6b5fde2dd8bce2.
 derived:
   - Fixed typed mappings reuse managed-page persistence while providing stable primary route contracts.
   - Immutable legal snapshots preserve historical meaning without requiring a parallel legal CMS.
@@ -165,7 +166,7 @@ changed_paths:
   - config/support.php
   - database/migrations/2026_07_24_230000_add_editorial_support_legal_to_managed_pages.php
   - database/migrations/2026_07_24_230100_grant_support_content_permission_to_editor_roles.php
-  - docs/agents/tasks/active/OTERYN-20260724-editorial-support-legal.md
+  - docs/agents/tasks/archive/OTERYN-20260724-editorial-support-legal.md
   - resources/navigation/public/support.php
   - resources/views/admin/support-content/form.blade.php
   - resources/views/admin/support-content/index.blade.php
@@ -177,35 +178,46 @@ changed_paths:
 validation:
   - command: overlap and precondition review against main and open pull requests
     result: PASS
-    evidence: PR #143 and #146 merged; parallel Downloads, Events, Wiki and PublicGameData work does not overlap owned implementation paths
+    evidence: PR #143 and #146 merged; parallel Downloads, Events, Wiki and PublicGameData work did not overlap owned implementation paths
   - command: find /tmp/oteryn_impl -type f -name '*.php' -print0 | xargs -0 -n1 php -l
     result: PASS
     evidence: all staged implementation, route, config, view and test PHP files reported no syntax errors
-  - command: GitHub CI run 30130763747 on cd8a879e40d345a1a60f5c3e20154b39e4e0feb4
+  - command: GitHub CI run 30131176277 on 6b97a8a7069e0cb878921e0854642aabd6bd449e
     result: PASS
     evidence: Composer validation, dependency audit, Pint, PHPStan and full PHPUnit suite passed
-  - command: Agent Governance run 30130763772
+  - command: Agent Governance run 30131176267
     result: PASS
-    evidence: exact implementation head passed repository governance
-  - command: Acceptance E2E and Visual UX run 30130763814
+    evidence: final implementation head passed repository governance
+  - command: Acceptance E2E and Visual UX run 30131176272
     result: PASS
     evidence: exact-SHA smoke, browser portability, responsive, dependency resilience and keyboard accessibility profiles passed; bounded optional profiles were intentionally skipped by workflow policy
-  - command: Platform DB Outage Validation run 30130763805
+  - command: Platform DB Outage Validation run 30131176263
     result: PASS
     evidence: fail-closed mutation and recovery validation passed
-  - command: Game Auth Ticket Concurrency run 30130763790
+  - command: Game Auth Ticket Concurrency run 30131176256
     result: PASS
     evidence: independent-process MariaDB concurrency proof passed
-  - command: Phase 7 Production-Like Validation run 30130763754
+  - command: Phase 7 Production-Like Validation run 30131176251
     result: PASS
     evidence: production-like validation passed
-  - command: Build Synology Staging Images run 30130763757
+  - command: Build Synology Staging Images run 30131176253
     result: PASS
     evidence: staging image build passed
+  - command: squash merge PR #159
+    result: PASS
+    evidence: GitHub merged the current reviewed head into main as 96521c71ce166e8eb4f242706b6b5fde2dd8bce2
 blockers:
   - none
-next_action: Verify required checks on the final record-only head, then mark PR #159 ready for review.
+next_action: No further action is required for this task; future editorial copy population is a separate product and legal approval workflow.
 ```
+
+## Completion
+
+- Completed: 2026-07-25T09:31:30+02:00
+- Pull request: #159
+- Merge method: squash
+- Merge commit: `96521c71ce166e8eb4f242706b6b5fde2dd8bce2`
+- Result: editorial public-content baseline delivered and validated.
 
 ## Notes
 
