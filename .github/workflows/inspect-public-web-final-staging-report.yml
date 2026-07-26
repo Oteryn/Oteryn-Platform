@@ -14,11 +14,11 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Print deployment health failure range
+      - name: Print final health timeout lines
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           DEPLOYMENT_JOB_ID: '89821183195'
         run: |
           set -euo pipefail
           gh api "repos/${GITHUB_REPOSITORY}/actions/jobs/${DEPLOYMENT_JOB_ID}/logs" > deployment.log
-          sed -n '500,570p' deployment.log
+          sed -n '540,575p' deployment.log
