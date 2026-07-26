@@ -36,7 +36,7 @@ Coordinate, implement, validate and close the remaining approved non-commercial 
 ## Acceptance criteria
 
 - [x] Every approved Issue #145 requirement is reconciled against runtime code and exact merged evidence.
-- [ ] Public Wiki, administration, safe rendering, search and approved media integration are complete in English and Polish.
+- [x] Public Wiki, administration, safe rendering, search and approved media integration are complete in English and Polish.
 - [ ] Homepage, navigation, SEO, sitemap, robots, responsive and accessibility closure are complete.
 - [ ] Approved initial Wiki publication content is present without invented gameplay facts.
 - [ ] All required exact-head validation passes.
@@ -59,8 +59,7 @@ modules:
   - Testing
 dependencies:
   - Issue #145
-  - merged PRs #146, #157, #158, #159, #160, #161, #175, #176, #191, #192, #194, #195, #196, #197, #198 and #201
-  - active child PR #199
+  - merged PRs #146, #157, #158, #159, #160, #161, #175, #176, #191, #192, #194, #195, #196, #197, #198, #199, #201, #203 and #204
 blockers:
   - none for programme coordination
 cross_repository_tasks:
@@ -86,8 +85,8 @@ The programme task owns coordination only. Implementation paths must be claimed 
 | Safe Markdown rendering boundary | COMPLETE | PR #194; restricted CommonMark renderer and security regressions | Integrate only approved local media references; do not re-enable remote images. | PR #199 |
 | Wiki administration | COMPLETE | PR #196 / `f512f1e3a9bd567d40ddb09b699291c99a1b65f8` | Preserve auth + confirmed MFA + exact permission and optimistic locking. | none |
 | Wiki search | COMPLETE | PR #194; published-only locale-isolated bounded search | Preserve no-draft-leak and rate-limit behavior. | none |
-| Safe editorial image library foundation | COMPLETE | PR #176; reusable private media boundary | Reuse; do not duplicate storage or upload processing. | PR #199 |
-| Approved media consumer integration | IN PROGRESS | Draft PR #199 / `OTERYN-20260726-wiki-editorial-media-integration` is the authoritative bounded owner | Resolve the recorded design decisions, implement in a writable CODEX-capable checkout and complete exact-head validation. | PR #199 |
+| Safe editorial image library foundation | COMPLETE | PR #176; reusable private media boundary | Preserve; do not duplicate storage or upload processing. | none |
+| Approved media consumer integration | COMPLETE | PR #199 / `f66c9944fd8110014773bd7cb7b58c9f49e45af0`; ADR 0014; transactional current-translation references; verified published-only delivery; signed administrator previews | Preserve the accepted Wiki-only boundary; Events and CMS remain excluded. | none |
 | Canonical and hreflang metadata | PARTIAL | PRs #175 and #194; localized SEO for current public and Wiki routes | Complete shared closure and verify all published content. | homepage-navigation-seo child |
 | Open Graph, sitemap and robots exclusions | MISSING | No complete programme-level sitemap/robots/OG closure evidence | Add metadata, sitemap, exclusions and noindex. | homepage-navigation-seo child |
 | Responsive, keyboard and accessibility closure | PARTIAL | PRs #194 and #196 cover public/admin Wiki; existing acceptance covers prior delivered surfaces | Add media and remaining homepage/SEO closure coverage. | implementation children plus acceptance closure |
@@ -99,10 +98,10 @@ The programme task owns coordination only. Implementation paths must be claimed 
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-07-26T09:35:00Z
-head: 2e2e0e44fb75e96dce4e760eacf569c1e448dbf4
-branch: docs/OTERYN-20260725-public-web-programme-authoritative-wiki-media
-pr: 202
+updated_at: 2026-07-26T12:15:55Z
+head: f66c9944fd8110014773bd7cb7b58c9f49e45af0
+branch: docs/OTERYN-20260726-archive-wiki-editorial-media-integration
+pr: pending
 status: implementing
 context_routes:
   - agent-governance
@@ -119,7 +118,7 @@ context_routes:
 owned_paths:
   - docs/agents/tasks/active/OTERYN-20260725-public-web-programme-closure.md
 proven:
-  - trusted main is 45297ec561075b62c36b7350b878b46cbd7c44fc after merged PR 201
+  - trusted main is f66c9944fd8110014773bd7cb7b58c9f49e45af0 after merged PR 199
   - Issue 145 remains open
   - PR 194 delivered public published-only English and Polish Wiki reads, restricted Markdown rendering and locale-isolated search as 9ed3861cc29dcaf6305c379de2bee5ee5ac923d6
   - PR 196 delivered trusted Wiki administration as f512f1e3a9bd567d40ddb09b699291c99a1b65f8
@@ -131,9 +130,13 @@ proven:
   - no other open implementation PR owns the declared Wiki-to-EditorialMedia paths
   - no write occurred outside blakinio/Oteryn-Platform
   - no production, router, DSM, Internet-exposure or external-repository action occurred
+  - PR 199 delivered the complete accepted Wiki-to-EditorialMedia child and squash-merged as f66c9944fd8110014773bd7cb7b58c9f49e45af0 after every required exact-head check passed
+  - ADR 0014 is accepted and the runtime preserves private storage, exact Wiki permissions, current-reference synchronization, effective-publication delivery authorization and signed administrator previews
+  - live open-pull-request reconciliation after PR 199 found no owner overlapping homepage, shared navigation, SEO, sitemap, robots or Open Graph closure
 derived:
   - public Wiki and Wiki administration remain complete child slices
-  - the Wiki-to-EditorialMedia child is delegated exclusively to PR 199 and the programme task remains coordination-only
+  - the Wiki-to-EditorialMedia child is complete and its implementation paths are released
+  - homepage-navigation-seo is the next independent non-overlapping bounded child
   - staging still requires exact-final-SHA redeployment after all remaining implementation children merge
 unknown:
   - approved source text for gameplay-specific initial Wiki articles
@@ -142,7 +145,7 @@ unknown:
 conflicts: []
 first_failure:
   marker: none
-  evidence: duplicate ownership was detected and resolved by closing PR 200; PR 199 remains the sole owner
+  evidence: the PR 199 browser picker failure was repaired and every required exact-head workflow passed before merge
 rejected_hypotheses:
   - PR 200 is the authoritative media child: live PR state and its closure comment identify PR 199 as the selected owner
   - PR 176 integrated media consumers: its merged scope explicitly excluded consumers
@@ -158,9 +161,12 @@ validation:
   - command: correction pull request creation
     result: PASS
     evidence: PR 202 owns only this programme checkpoint correction
+  - command: Wiki-to-EditorialMedia child lifecycle
+    result: PASS
+    evidence: PR 199 passed required runtime and browser validation and squash-merged as f66c9944fd8110014773bd7cb7b58c9f49e45af0
 blockers:
   - none for programme coordination
-next_action: Track draft PR 199 until its CODEX implementation and exact-head validation complete, then archive the child task and reconcile the next Issue 145 bounded child.
+next_action: Archive the completed PR 199 child, then create the bounded homepage-navigation-seo child task, branch and draft pull request from trusted main.
 ```
 
 ## Notes

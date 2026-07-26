@@ -5,7 +5,6 @@ Convenience index only. Individual active task records, live PRs and Git state a
 ## Active tasks
 
 - `OTERYN-20260725-public-web-programme-closure` — Issue #145 programme coordination; owns only its task record and delegates runtime paths to bounded child tasks.
-- `OTERYN-20260726-wiki-editorial-media-integration` — bounded Wiki consumer integration for existing private EditorialMedia objects, transactional references and published-only public delivery in draft PR #199.
 
 ## Closed acceptance and release-preparation follow-ups
 
@@ -30,6 +29,7 @@ Convenience index only. Individual active task records, live PRs and Git state a
 - PR #196 / `f512f1e3a9bd567d40ddb09b699291c99a1b65f8` — trusted-editor Wiki administration, exact RBAC/MFA lifecycle controls, signed previews, revisions and responsive browser acceptance merged.
 - PR #197 / `a9adbe07317cac0311e9dd5761d45ceb8c7203f5` — Wiki administration task lifecycle archived.
 - PR #198 / `57716094cde335a0e8a661953bd3a5809ec12cb6` — Issue #145 programme checkpoint refreshed after the public and administrator Wiki deliveries.
+- PR #199 / `f66c9944fd8110014773bd7cb7b58c9f49e45af0` — approved private EditorialMedia objects integrated into Wiki editing, transactional references, published-only verified public bytes and signed administrator previews.
 
 ## Current project phase
 
@@ -51,7 +51,7 @@ No staging evidence may be promoted to `PRODUCTION_PROVEN`.
 
 ## Next work
 
-Continue draft PR #199 in a writable CODEX-capable checkout, implement and validate the bounded Wiki-to-EditorialMedia consumer child, then archive it before starting the remaining homepage/navigation/SEO and source-backed Wiki-content closure children.
+Archive the completed Wiki-to-EditorialMedia child, then start the non-overlapping homepage/navigation/SEO closure child before the source-backed Wiki-content closure child.
 
 After the remaining Issue #145 child tasks merge, deploy the exact final trusted `main` SHA to Synology staging through the existing reviewed workflow and record live browser-smoke evidence.
 
