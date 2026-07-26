@@ -122,7 +122,7 @@ final class AdminWikiAdministrationTest extends TestCase
         $this->from(route('admin.wiki.articles.edit', $article))
             ->put(route('admin.wiki.articles.update', $article), $invalidPayload)
             ->assertRedirect(route('admin.wiki.articles.edit', $article))
-            ->assertSessionHasErrors('wiki');
+            ->assertSessionHasErrors('translations.en');
 
         $auditPayload = json_encode(
             DB::table('admin_audit_events')->where('target_type', 'wiki_article')->get()->all(),
@@ -240,7 +240,21 @@ final class AdminWikiAdministrationTest extends TestCase
         );
     }
 
-    /** @param list<int> $categoryIds */
+    /**
+     * @param  list<int>  $categoryIds
+     * @return array{
+     *     content_type: string,
+     *     is_featured: string,
+     *     sort_order: int,
+     *     category_ids: list<int>,
+     *     change_note: string,
+     *     translations: array{
+     *         en: array{title: string, slug: string, summary: string, source_markdown: string},
+     *         pl: array{title: string, slug: string, summary: string, source_markdown: string}
+     *     },
+     *     lock_version?: int
+     * }
+     */
     private function articlePayload(array $categoryIds = []): array
     {
         return [
@@ -266,6 +280,19 @@ final class AdminWikiAdministrationTest extends TestCase
         ];
     }
 
+    /**
+     * @return array{
+     *     key: string,
+     *     parent_id: int|null,
+     *     sort_order: int,
+     *     visible: string,
+     *     translations: array{
+     *         en: array{name: string, slug: string, description: string},
+     *         pl: array{name: string, slug: string, description: string}
+     *     },
+     *     lock_version?: int
+     * }
+     */
     private function categoryPayload(
         string $key = 'getting-started',
         string $name = 'Getting Started',
