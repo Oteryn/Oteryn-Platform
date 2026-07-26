@@ -59,7 +59,8 @@ modules:
   - Testing
 dependencies:
   - Issue #145
-  - merged PRs #146, #157, #158, #159, #160, #161, #175, #176, #191, #192, #194, #195, #196 and #197
+  - merged PRs #146, #157, #158, #159, #160, #161, #175, #176, #191, #192, #194, #195, #196, #197 and #198
+  - active child PR #200
 blockers:
   - none for programme coordination
 cross_repository_tasks:
@@ -82,11 +83,11 @@ The programme task owns coordination only. Implementation paths must be claimed 
 | PL/EN localization foundation | PARTIAL | PRs #175, #194 and #196; localized public Wiki and bilingual administration | Complete remaining shared-shell and closure acceptance. | homepage-navigation-seo and acceptance-closure children |
 | Wiki persistence, lifecycle, revisions, locking, permissions and audit | COMPLETE | PR #158; Wiki foundation services and reversible persistence | Preserve service and concurrency boundaries. | none |
 | Public Wiki routes, categories, articles, breadcrumbs, TOC and related articles | COMPLETE | PR #194 / `9ed3861cc29dcaf6305c379de2bee5ee5ac923d6` | Preserve published-only and locale-freshness constraints. | none |
-| Safe Markdown rendering boundary | COMPLETE | PR #194; restricted CommonMark renderer and security regressions | Integrate only approved local media references; do not re-enable remote images. | wiki-media child |
+| Safe Markdown rendering boundary | COMPLETE | PR #194; restricted CommonMark renderer and security regressions | Integrate only approved local media references; do not re-enable remote images. | PR #200 |
 | Wiki administration | COMPLETE | PR #196 / `f512f1e3a9bd567d40ddb09b699291c99a1b65f8` | Preserve auth + confirmed MFA + exact permission and optimistic locking. | none |
 | Wiki search | COMPLETE | PR #194; published-only locale-isolated bounded search | Preserve no-draft-leak and rate-limit behavior. | none |
-| Safe editorial image library foundation | COMPLETE | PR #176; reusable private media boundary | Reuse; do not duplicate storage or upload processing. | wiki-media child |
-| Approved media consumer integration | MISSING | PR #176 explicitly excluded consumers; Wiki renderer still blocks images | Integrate Wiki article image references with transactional reference tracking and safe public delivery. | wiki-media child |
+| Safe editorial image library foundation | COMPLETE | PR #176; reusable private media boundary | Reuse; do not duplicate storage or upload processing. | PR #200 |
+| Approved media consumer integration | IN PROGRESS | Draft PR #200 / `OTERYN-20260726-wiki-editorial-media` owns the bounded integration paths | Resume in a writable CODEX-capable checkout and complete exact-head validation. | PR #200 |
 | Canonical and hreflang metadata | PARTIAL | PRs #175 and #194; localized SEO for current public and Wiki routes | Complete shared closure and verify all published content. | homepage-navigation-seo child |
 | Open Graph, sitemap and robots exclusions | MISSING | No complete programme-level sitemap/robots/OG closure evidence | Add metadata, sitemap, exclusions and noindex. | homepage-navigation-seo child |
 | Responsive, keyboard and accessibility closure | PARTIAL | PRs #194 and #196 cover public/admin Wiki; existing acceptance covers prior delivered surfaces | Add media and remaining homepage/SEO closure coverage. | implementation children plus acceptance closure |
@@ -98,10 +99,10 @@ The programme task owns coordination only. Implementation paths must be claimed 
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-07-26T09:10:00Z
-head: e0acbf4307e5ddab01ffeebc3e5b5f2cdba30deb
-branch: docs/OTERYN-20260725-public-web-programme-post-wiki
-pr: 198
+updated_at: 2026-07-26T09:23:00Z
+head: 57716094cde335a0e8a661953bd3a5809ec12cb6
+branch: docs/OTERYN-20260725-public-web-programme-start-wiki-media
+pr: none
 status: implementing
 context_routes:
   - agent-governance
@@ -118,49 +119,43 @@ context_routes:
 owned_paths:
   - docs/agents/tasks/active/OTERYN-20260725-public-web-programme-closure.md
 proven:
-  - trusted main is a9adbe07317cac0311e9dd5761d45ceb8c7203f5
+  - trusted main is 57716094cde335a0e8a661953bd3a5809ec12cb6 after merged PR 198
   - Issue 145 remains open
   - PR 194 delivered public published-only English and Polish Wiki reads, restricted Markdown rendering and locale-isolated search as 9ed3861cc29dcaf6305c379de2bee5ee5ac923d6
-  - PR 195 archived the completed public Wiki child as c53e0f2a1a93de9275439aff573e5a713f5621b1
   - PR 196 delivered trusted Wiki administration as f512f1e3a9bd567d40ddb09b699291c99a1b65f8
-  - PR 197 archived the completed Wiki administration child as a9adbe07317cac0311e9dd5761d45ceb8c7203f5
-  - all required workflows passed on the exact final heads of PRs 194 and 196 and on their checkpoint-only heads
-  - Wiki public and administrator routes now reuse the existing lifecycle, revisions, optimistic locking, exact permissions, audit and restricted renderer boundaries
-  - EditorialMedia reserves the WIKI consumer and provides transactional attach/release reference management
-  - PR 198 is the only open programme-checkpoint owner and changes only this task record
-  - no open implementation PR owns Wiki-to-EditorialMedia consumer integration paths
-  - EditorialMedia consumer integration remains absent and public Wiki images remain blocked
+  - EditorialMedia reserves the WIKI consumer and provides locked attach and bounded release operations
+  - draft PR 200 and active task OTERYN-20260726-wiki-editorial-media own the bounded Wiki-to-EditorialMedia integration paths
+  - PR 200 currently contains task and ownership records only and is fail-closed because its execution environment lacks a writable validated checkout
+  - no other open implementation PR owns the declared Wiki-to-EditorialMedia paths
   - no write occurred outside blakinio/Oteryn-Platform
   - no production, router, DSM, Internet-exposure or external-repository action occurred
 derived:
-  - public Wiki and Wiki administration are complete child slices and their implementation paths are released
-  - the next bounded implementation child is Wiki-to-EditorialMedia consumer integration
-  - runtime implementation and validation require a CODEX-capable writable checkout
-  - staging requires exact-final-SHA redeployment after all remaining implementation children merge
+  - public Wiki and Wiki administration remain complete child slices and their implementation paths remain released except for the explicitly claimed media integration paths
+  - the Wiki-to-EditorialMedia child is now delegated and the programme task remains coordination-only
+  - staging still requires exact-final-SHA redeployment after all remaining implementation children merge
 unknown:
   - approved source text for gameplay-specific initial Wiki articles
   - exact current programme-level functional and visual closure record paths
   - whether Events or CMS image consumers are approved beyond Wiki-first integration
 conflicts: []
 first_failure:
-  marker: execution-capability
-  evidence: current sandbox has no mounted writable Oteryn Platform checkout, so runtime implementation, formatter, tests and browser validation cannot be executed locally
+  marker: none
+  evidence: none for programme coordination; the child execution-capability blocker is recorded in PR 200
 rejected_hypotheses:
-  - public Wiki remains missing: PR 194 merged complete published-only reads, rendering and search
-  - Wiki administration remains missing: PR 196 merged the trusted-editor administration surface
+  - Wiki media integration has no owner: draft PR 200 and its active task now own the bounded paths
   - PR 176 integrated media consumers: its merged scope explicitly excluded consumers
 changed_paths:
   - docs/agents/tasks/active/OTERYN-20260725-public-web-programme-closure.md
 validation:
   - command: repository, task, Issue 145 and pull-request reconciliation
     result: PASS
-    evidence: trusted main a9adbe07317cac0311e9dd5761d45ceb8c7203f5, merged PRs 194-197, current active-work index and focused EditorialMedia source inspected through GitHub
-  - command: local implementation and test execution
-    result: BLOCKED
-    evidence: no mounted writable repository checkout in the current sandbox
+    evidence: trusted main 57716094cde335a0e8a661953bd3a5809ec12cb6, merged PR 198, draft PR 200 and current open-PR overlap search
+  - command: programme coordination update
+    result: PASS
+    evidence: Wiki-to-EditorialMedia work is isolated in task OTERYN-20260726-wiki-editorial-media and draft PR 200
 blockers:
-  - current session lacks a writable checkout for runtime child implementation
-next_action: Merge PR 198 after required checks pass, then create the bounded Wiki-to-EditorialMedia child task, branch and draft PR from updated main.
+  - none for programme coordination
+next_action: Track draft PR 200 until its CODEX implementation and exact-head validation complete, then archive the child task and reconcile the next Issue 145 bounded child.
 ```
 
 ## Notes
