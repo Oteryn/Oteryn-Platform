@@ -184,8 +184,7 @@
                 @endif
 
                 @if ($canPublish && $article->status->value !== 'archived')
-                    <form method="POST" action="{{ route('admin.wiki.articles.archive', $article) }}"
-                          onsubmit="return confirm('Archive this Wiki article? It will no longer be public.');">
+                    <form method="POST" action="{{ route('admin.wiki.articles.archive', $article) }}">
                         @csrf
                         <input type="hidden" name="lock_version" value="{{ $article->lock_version }}">
                         <button class="button-secondary" type="submit">Archive</button>
