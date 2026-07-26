@@ -9,6 +9,7 @@
         "php": "^8.5",
         "laravel/framework": "^13.8",
         "laravel/passport": "^13.0",
+        "league/commonmark": "^2.8",
         "pragmarx/google2fa": "^9.0"
     },
     "require-dev": {

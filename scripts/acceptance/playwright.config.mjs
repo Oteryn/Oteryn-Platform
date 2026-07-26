@@ -54,7 +54,7 @@ export default defineConfig({
     },
     {
       name: 'portability-chromium',
-      testMatch: '**/portability-critical.spec.mjs',
+      testMatch: ['**/portability-critical.spec.mjs', '**/public-wiki*.spec.mjs'],
       use: {
         browserName: 'chromium',
         viewport: desktopViewport,
@@ -62,7 +62,7 @@ export default defineConfig({
     },
     {
       name: 'portability-firefox',
-      testMatch: '**/portability-critical.spec.mjs',
+      testMatch: ['**/portability-critical.spec.mjs', '**/public-wiki*.spec.mjs'],
       use: {
         browserName: 'firefox',
         viewport: desktopViewport,
@@ -70,7 +70,7 @@ export default defineConfig({
     },
     {
       name: 'portability-webkit',
-      testMatch: '**/portability-critical.spec.mjs',
+      testMatch: ['**/portability-critical.spec.mjs', '**/public-wiki*.spec.mjs'],
       use: {
         browserName: 'webkit',
         viewport: desktopViewport,
@@ -78,7 +78,7 @@ export default defineConfig({
     },
     {
       name: 'responsive-desktop',
-      testMatch: '**/responsive-critical.spec.mjs',
+      testMatch: ['**/responsive-critical.spec.mjs', '**/public-wiki*.spec.mjs'],
       use: {
         browserName: 'chromium',
         viewport: desktopViewport,
@@ -86,7 +86,7 @@ export default defineConfig({
     },
     {
       name: 'responsive-tablet',
-      testMatch: '**/responsive-critical.spec.mjs',
+      testMatch: ['**/responsive-critical.spec.mjs', '**/public-wiki*.spec.mjs'],
       use: {
         browserName: 'chromium',
         viewport: tabletViewport,
@@ -95,7 +95,7 @@ export default defineConfig({
     },
     {
       name: 'responsive-mobile',
-      testMatch: '**/responsive-critical.spec.mjs',
+      testMatch: ['**/responsive-critical.spec.mjs', '**/public-wiki*.spec.mjs'],
       use: {
         browserName: 'chromium',
         viewport: mobileViewport,

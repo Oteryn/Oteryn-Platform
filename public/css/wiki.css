@@ -1,0 +1,193 @@
+.wiki-page {
+    overflow-wrap: anywhere;
+}
+
+.wiki-page > section,
+.wiki-page .wiki-article-layout {
+    margin-block: clamp(2rem, 5vw, 4rem);
+}
+
+.wiki-hero {
+    display: grid;
+    gap: .75rem;
+}
+
+.wiki-search-form {
+    display: grid;
+    max-width: 48rem;
+    gap: .5rem;
+    margin-top: 1rem;
+}
+
+.wiki-search-controls {
+    display: flex;
+    gap: .75rem;
+}
+
+.wiki-search-controls input {
+    min-width: 0;
+    flex: 1;
+}
+
+.wiki-search-form .muted {
+    margin: 0;
+    font-size: .9rem;
+}
+
+.wiki-breadcrumbs {
+    margin-block: 1.25rem 2rem;
+}
+
+.wiki-breadcrumbs ol {
+    display: flex;
+    flex-wrap: wrap;
+    gap: .35rem;
+    margin: 0;
+    padding: 0;
+    color: var(--text-muted);
+    font-size: .9rem;
+    list-style: none;
+}
+
+.wiki-breadcrumbs li:not(:last-child)::after {
+    margin-left: .35rem;
+    color: var(--border);
+    content: "/";
+}
+
+.wiki-summary {
+    max-width: 52rem;
+    font-size: clamp(1.05rem, 2vw, 1.25rem);
+}
+
+.wiki-category-pills {
+    display: flex;
+    flex-wrap: wrap;
+    gap: .5rem;
+    margin: 1rem 0 0;
+    padding: 0;
+    list-style: none;
+}
+
+.wiki-category-pills a {
+    display: inline-flex;
+    padding: .35rem .65rem;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    text-decoration: none;
+}
+
+.wiki-article-layout {
+    display: grid;
+    grid-template-columns: minmax(13rem, 18rem) minmax(0, 1fr);
+    align-items: start;
+    gap: clamp(1.5rem, 4vw, 3.5rem);
+}
+
+.wiki-toc {
+    position: sticky;
+    top: 1rem;
+    padding: 1rem;
+    border: 1px solid var(--border);
+    border-radius: .5rem;
+    background: rgb(8 11 14 / .72);
+}
+
+.wiki-toc summary {
+    cursor: pointer;
+    color: var(--accent);
+    font-weight: 700;
+}
+
+.wiki-toc ol {
+    display: grid;
+    gap: .45rem;
+    margin: .8rem 0 0;
+    padding-left: 1.2rem;
+}
+
+.wiki-toc-level-3,
+.wiki-toc-level-4 {
+    margin-left: .75rem;
+}
+
+.wiki-markdown {
+    min-width: 0;
+    max-width: 52rem;
+    line-height: 1.75;
+}
+
+.wiki-markdown > :first-child {
+    margin-top: 0;
+}
+
+.wiki-markdown .wiki-heading {
+    scroll-margin-top: 1rem;
+}
+
+.wiki-markdown pre,
+.wiki-markdown code {
+    max-width: 100%;
+}
+
+.wiki-markdown pre {
+    overflow-x: auto;
+    padding: 1rem;
+    border: 1px solid var(--border);
+    border-radius: .4rem;
+    background: #07090b;
+}
+
+.wiki-markdown blockquote {
+    margin-inline: 0;
+    padding-left: 1rem;
+    border-left: .2rem solid var(--accent);
+    color: var(--text-muted);
+}
+
+.wiki-table-scroll {
+    max-width: 100%;
+    overflow-x: auto;
+}
+
+.wiki-table-scroll table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+.wiki-table-scroll th,
+.wiki-table-scroll td {
+    padding: .65rem;
+    border: 1px solid var(--border);
+    text-align: left;
+}
+
+.wiki-image-placeholder {
+    color: var(--text-muted);
+    font-style: italic;
+}
+
+.wiki-page a:focus-visible,
+.wiki-page summary:focus-visible,
+.wiki-page input:focus-visible,
+.wiki-page button:focus-visible {
+    outline: 3px solid var(--accent-hover);
+    outline-offset: 3px;
+}
+
+@media (max-width: 56rem) {
+    .wiki-article-layout {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .wiki-toc {
+        position: static;
+    }
+}
+
+@media (max-width: 36rem) {
+    .wiki-search-controls {
+        align-items: stretch;
+        flex-direction: column;
+    }
+}
