@@ -1,4 +1,4 @@
-name: Inspect MFA QR Failure
+name: Patch MFA QR Web Flow Test
 
 on:
   pull_request:
@@ -6,19 +6,47 @@ on:
       - .github/workflows/inspect-mfa-qr-failure.yml
 
 permissions:
-  actions: read
-  contents: read
+  contents: write
 
 jobs:
-  inspect:
+  patch:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Print focused MFA web-flow failure
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          CI_JOB_ID: 89844130696
+      - uses: actions/checkout@v7
+        with:
+          ref: feat/OTERYN-20260726-mfa-qr-enrollment
+      - name: Replace manual-only enrollment assertion
         run: |
           set -euo pipefail
-          gh api "repos/${GITHUB_REPOSITORY}/actions/jobs/${CI_JOB_ID}/logs" > ci.log
-          sed -n '1150,1195p' ci.log
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('tests/Feature/Identity/Mfa/MfaWebFlowTest.php')
+          text = path.read_text()
+          old = """        $this->get('/mfa')
+              ->assertOk()
+              ->assertHeaderContains('Cache-Control', 'no-store')
+              ->assertSee($identity->two_factor_secret)
+              ->assertSee('otpauth://totp', false);
+          """
+          new = """        $this->get('/mfa')
+              ->assertOk()
+              ->assertHeaderContains('Cache-Control', 'no-store')
+              ->assertSee('Scan with your authenticator app')
+              ->assertSee('data:image/svg+xml;base64,', false)
+              ->assertSee($identity->two_factor_secret)
+              ->assertDontSee('otpauth://totp', false);
+          """
+          if text.count(old) != 1:
+              raise SystemExit('Expected exact MFA assertion block once.')
+          path.write_text(text.replace(old, new))
+          PY
+      - name: Commit focused regression update
+        run: |
+          set -euo pipefail
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add tests/Feature/Identity/Mfa/MfaWebFlowTest.php
+          git commit -m 'test(identity): assert QR-first MFA enrollment'
+          git push origin HEAD:feat/OTERYN-20260726-mfa-qr-enrollment
