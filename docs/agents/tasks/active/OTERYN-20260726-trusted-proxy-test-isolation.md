@@ -49,11 +49,11 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-07-26T11:10:31Z
-head: ef8d0fc2454f59a707e14f39c22d502612677734
+updated_at: 2026-07-26T11:12:35Z
+head: 791884d74f7a9d5fa15b665da95808d5d5f8d33b
 branch: fix/OTERYN-20260726-trusted-proxy-test-isolation
-pr: none
-status: implementing
+pr: 203
+status: validating
 context_routes:
   - testing
   - security
@@ -65,6 +65,7 @@ proven:
   - The full Wiki branch suite first fails at TrustedProxySchemeTest with a localhost HTTP form action while every Wiki integration regression passes
   - No active task or open pull request owns TrustedProxySchemeTest or an overlapping test-isolation repair
   - Laravel Env repository mutation makes the proxy test pass both alone and after PublicSiteShellTest while preserving all original assertions
+  - Draft PR 203 targets blakinio/Oteryn-Platform main from the dedicated repair branch
 derived:
   - The regression must write and clear TRUSTED_PROXIES through Laravel's authoritative Env repository so application bootstrap observes the per-test value regardless of execution order
 unknown:
@@ -96,7 +97,7 @@ validation:
     evidence: no errors
 blockers:
   - none
-next_action: Commit and publish the narrow repair, open its draft PR and run the complete exact-head validation.
+next_action: Publish this checkpoint and run the complete repository validation on the exact PR 203 head.
 ```
 
 ## Notes
