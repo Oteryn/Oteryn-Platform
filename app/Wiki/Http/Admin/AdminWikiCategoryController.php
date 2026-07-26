@@ -13,7 +13,6 @@ use DomainException;
 use Illuminate\Contracts\View\View;
 use Illuminate\Database\Query\JoinClause;
 use Illuminate\Http\RedirectResponse;
-use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
