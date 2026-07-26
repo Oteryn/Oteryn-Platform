@@ -1,2 +1,3 @@
-Issue #145 exact-final-SHA Synology staging closure trigger.
+Issue #145 observable exact-final-SHA Synology staging closure trigger.
+This revision forces exact images for the report-enabled merge SHA.
 Remove after deployment and live-smoke evidence are archived.
