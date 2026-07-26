@@ -76,8 +76,8 @@ cross_repository_tasks: []
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-07-26T17:26:00Z
-head: 9f3c3bee72fd00f6d8ca80ba8a63835cbd4f0d61
+updated_at: 2026-07-26T17:27:00Z
+head: ba902bee5d0c6d067d7729f8179b672dc5b00b44
 branch: ops/OTERYN-20260726-final-staging-observable-report
 pr: 211
 status: implementing
@@ -102,7 +102,7 @@ proven:
   - the report job does not expose identity email, secrets, private storage paths or image bytes
   - the revised inert deploy trigger forces exact Platform and Gateway images for the report-enabled merge SHA
   - no production, router, DSM, Internet-exposure or external-repository action occurred while adding observability
- derived:
+derived:
   - an Issue 145 status comment is the narrowest durable observation channel supported by both GitHub Actions and this connector
   - a fresh exact-SHA deployment is preferable to inferring the unobservable PR 210 post-merge outcome
 unknown:
@@ -131,11 +131,11 @@ validation:
   - command: workflow observation through connector
     result: BLOCKED
     evidence: connector supports PR-associated runs only and returned no runs for the merge SHA
-  - command: PR 211 ownership reconciliation
-    result: PASS
-    evidence: draft PR 211 changes exactly the report-enabled temporary workflow, inert trigger and active task checkpoint
+  - command: initial PR 211 Agent Governance
+    result: FAIL
+    evidence: run 2069 found one leading space before top-level derived; corrected without changing workflow scope
 blockers: []
-next_action: Run exact-head PR 211 validation, correct any failure, then merge with the guarded marker and observe the resulting Issue 145 report.
+next_action: Re-run exact-head PR 211 validation, correct any failure, then merge with the guarded marker and observe the resulting Issue 145 report.
 ```
 
 ## Notes
