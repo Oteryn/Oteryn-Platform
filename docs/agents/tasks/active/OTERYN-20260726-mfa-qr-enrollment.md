@@ -66,8 +66,8 @@ cross_repository_tasks: []
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-07-26T21:46:00Z
-head: 8cb3b71197f48023706351ebe56073f912cb8b8f
+updated_at: 2026-07-26T21:52:00Z
+head: db123faf4a904f51bc4b6711bab166a5f48ecc25
 branch: feat/OTERYN-20260726-mfa-qr-enrollment
 pr: 214
 status: validating
@@ -90,7 +90,7 @@ proven:
   - the MFA web-flow regression now requires the local SVG data URI and scan instructions while forbidding the raw otpauth URI in rendered output
   - the view gives the QR code a fixed white backing surface and responsive maximum width for reliable camera scanning on the dark identity theme
   - PR 213 released all overlapping QR-owned paths and recorded PR 214 as a staging prerequisite
-  - all temporary Composer, formatter, diagnostic and patch workflows completed their bounded jobs and were removed
+  - all temporary Composer, formatter, diagnostic and patch workflows completed their bounded jobs and are being removed before final review
   - repository Pint formatting and static analysis passed on the preceding implementation head
   - docs/agents/ACTIVE_WORK.md was restored to trusted main because the final-staging task already owns that coordination path
   - no production, staging-data, router, DSM, Internet-exposure, Canary/login-server repository or external-repository write occurred
@@ -101,6 +101,13 @@ unknown:
   - exact final validated head and merge SHA
   - scan result on the deployed staging page until PR 214 is merged and deployed
 conflicts: []
+first_failure:
+  marker: outdated-manual-provisioning-web-flow-assertion
+  evidence: CI run 30221309298 passed Composer validation, Pint, static analysis and the QR unit test, then failed only because MfaWebFlowTest still required the raw otpauth provisioning URI to be visible
+rejected_hypotheses:
+  - the local QR library or Composer lockfile is invalid: locked installation, Composer validation, static analysis and the focused renderer unit test passed
+  - the raw otpauth provisioning URI should remain visible: the QR-first design intentionally keeps the secret only in a collapsed manual fallback and does not render the URI as page text
+  - a remote QR provider is needed: inline SVG rendering succeeds locally and avoids disclosing the TOTP secret
 changed_paths:
   - app/Http/Controllers/Identity/Mfa/MfaEnrollmentController.php
   - app/Identity/Mfa/MfaQrCode.php
@@ -126,5 +133,5 @@ validation:
     result: PASS
     evidence: CI run 30221309298 reported Tests Unit Identity MfaQrCodeTest PASS
 blockers: []
-next_action: Run all required exact-head PR 214 checks, resolve any failures, then mark ready and merge before deploying the QR-capable SHA to staging.
+next_action: Remove the final temporary governance-inspection workflow, run all required exact-head PR 214 checks, resolve any failures, then mark ready and merge before deploying the QR-capable SHA to staging.
 ```
