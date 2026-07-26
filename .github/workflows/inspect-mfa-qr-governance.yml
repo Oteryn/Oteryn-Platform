@@ -1,0 +1,25 @@
+name: Inspect MFA QR Governance
+
+on:
+  pull_request:
+    paths:
+      - .github/workflows/inspect-mfa-qr-governance.yml
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: oteryn-staging
+    timeout-minutes: 5
+    steps:
+      - name: Print checkpoint validation error
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          JOB_ID: 89845230445
+        run: |
+          set -euo pipefail
+          gh api "repos/${GITHUB_REPOSITORY}/actions/jobs/${JOB_ID}/logs" > governance.log
+          grep -nE 'ERROR:|Validation failed|invalid|overlap|owned' governance.log | tail -n 80 || true
+          tail -n 80 governance.log
