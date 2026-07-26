@@ -98,8 +98,8 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-07-26T09:40:00Z
-head: 7cd05340643afdf99d83cb0461dd21fbdb3c3a50
+updated_at: 2026-07-26T09:45:00Z
+head: 9f048cf29b93b3c24b1960c5a6d349e659b31d90
 branch: feat/OTERYN-20260726-wiki-editorial-media-integration
 pr: 199
 status: blocked
@@ -115,10 +115,11 @@ context_routes:
 owned_paths:
   - Wiki-to-EditorialMedia integration paths listed in Ownership
 proven:
-  - trusted base main is 45297ec561075b62c36b7350b878b46cbd7c44fc
+  - trusted base main is ef8d0fc2454f59a707e14f39c22d502612677734 after merged PR 202
   - draft PR 199 is the only open implementation owner for the bounded Wiki-to-EditorialMedia consumer scope
   - duplicate PR 200 is closed and contains no runtime implementation
-  - PR 199 includes trusted main through merge commit aa55f44bc0e2ebc594bd966ced40b6e6d005dff3
+  - programme checkpoint now identifies PR 199 as authoritative
+  - PR 199 includes trusted main through merge commit 9f048cf29b93b3c24b1960c5a6d349e659b31d90
   - ADR 0014 accepts canonical Markdown targets of the exact form wiki-media:<positive-decimal-id>
   - ADR 0014 makes bounded contextual Markdown alternative text authoritative and uses EditorialMedia alt_text only as an insertion default
   - ADR 0014 assigns one current-reference row per translation and media using consumer_id translation:<translation-id> and usage body.<media-id>
@@ -162,10 +163,16 @@ changed_paths:
 validation:
   - command: repository, task, pull-request and focused source reconciliation
     result: PASS
-    evidence: trusted main 45297ec561075b62c36b7350b878b46cbd7c44fc, draft PR 199, PRs 176/194/196, ADRs 0011-0014 and current source inspected through GitHub
+    evidence: trusted main ef8d0fc2454f59a707e14f39c22d502612677734, draft PR 199, closed duplicate PR 200, PRs 176/194/196, ADRs 0011-0014 and current source inspected through GitHub
   - command: architecture decision review
     result: PASS
     evidence: ADR 0014 resolves token syntax, alt-text authority, reference identity, revision behavior, public authorization/cache and signed-preview boundaries without schema or permission expansion
+  - command: authoritative programme correction
+    result: PASS
+    evidence: PR 202 merged as ef8d0fc2454f59a707e14f39c22d502612677734 and records PR 199 as sole owner
+  - command: synchronize authoritative child with trusted main
+    result: PASS
+    evidence: merge commit 9f048cf29b93b3c24b1960c5a6d349e659b31d90 includes main ef8d0fc2454f59a707e14f39c22d502612677734
   - command: exact-head workflows before ADR addition
     result: PASS
     evidence: commit 320d45a1dc8edf8f33fd26f5e125217be265c0fb; runs 30196315208, 30196315212, 30196315214, 30196315211 and 30196315215
