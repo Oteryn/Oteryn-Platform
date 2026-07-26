@@ -90,18 +90,18 @@ The programme task owns coordination only. Deployment and closure paths must be 
 | Canonical and hreflang metadata | COMPLETE | PR #206; shared escaped metadata with freshness-aware equivalent alternates | Preserve. | none |
 | Open Graph, sitemap and robots exclusions | COMPLETE | PR #206; bounded OG metadata, fail-closed published-only sitemap and authoritative dynamic robots policy | Preserve. | none |
 | Responsive, keyboard and accessibility closure | COMPLETE | PRs #194, #196, #199, #206 and #208 required browser profiles | Preserve required profiles. | none |
-| Initial approved Wiki content set | COMPLETE | PR #208 / `f8002191f0e5270dc4191227fd01d5e709ee5ab6`; thirteen bilingual source-backed topics and conflict-safe operator provisioning | Archive the completed child lifecycle. | PR #208 archival child |
-| Final Synology staging deployment | PENDING | Final implementation main is `f8002191f0e5270dc4191227fd01d5e709ee5ab6`; no post-PR-208 live staging evidence is recorded | Deploy the exact final trusted main SHA through a reviewed workflow and run live smoke after archival merge. | deployment-closure child |
+| Initial approved Wiki content set | COMPLETE | PR #208 / `f8002191f0e5270dc4191227fd01d5e709ee5ab6`; thirteen bilingual source-backed topics and conflict-safe operator provisioning | Merge documentation-only archival PR #209. | PR #209 |
+| Final Synology staging deployment | PENDING | Final implementation main is `f8002191f0e5270dc4191227fd01d5e709ee5ab6`; no post-PR-208 live staging evidence is recorded | Deploy the exact final trusted main SHA through a reviewed workflow and run live smoke after PR #209 merges. | deployment-closure child |
 | Issue #145 closure | PENDING | All implementation requirements are merged; staging evidence remains outstanding | Close only after exact-SHA staging acceptance and archival reconciliation. | programme closure task |
 
 ## Context checkpoint
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-07-26T16:48:00Z
-head: f8002191f0e5270dc4191227fd01d5e709ee5ab6
+updated_at: 2026-07-26T16:51:00Z
+head: c961947950b2ae3631cc6241c85ce75515eaf2e3
 branch: docs/OTERYN-20260726-archive-source-backed-wiki-content
-pr: archive-pending
+pr: 209
 status: implementing
 context_routes:
   - agent-governance
@@ -125,13 +125,14 @@ proven:
   - PR 208 delivered exactly thirteen bilingual source-backed Wiki launch topics through exact-permission MFA-confirmed conflict-safe operator provisioning
   - PR 208 implementation and ready-checkpoint heads each passed all seven required workflows including cross-browser Acceptance E2E and Visual UX
   - PR 208 had no comments, reviews or unresolved review threads and squash-merged as f8002191f0e5270dc4191227fd01d5e709ee5ab6
-  - the source-backed Wiki-content active task has been moved to its archive path on the documentation-only archival branch
+  - draft PR 209 is the documentation-only owner for PR 208 archival, the active-work index and this programme reconciliation
+  - the source-backed Wiki-content active task has been moved to its archive path on PR 209
   - no open runtime implementation child remains for Issue 145
   - no write occurred outside blakinio/Oteryn-Platform
   - no production, router, DSM, Internet-exposure or external-repository action occurred
 derived:
   - all approved Issue 145 implementation scope is merged
-  - programme completion now requires only the PR 208 archival lifecycle, exact-final-SHA Synology staging deployment, live browser smoke and Issue 145 closure
+  - programme completion now requires only PR 209 merge, exact-final-SHA Synology staging deployment, live browser smoke and Issue 145 closure
 unknown:
   - exact final Synology staging deployment run and resulting live-smoke evidence
   - whether the authoritative game-login bridge is required for launch scope under separate authorization
@@ -156,7 +157,7 @@ validation:
     evidence: every Issue 145 implementation row is COMPLETE; only exact-final-SHA staging and closure remain pending
 blockers:
   - none for documentation-only archival reconciliation
-next_action: Create the documentation-only archival pull request for the completed PR 208 task lifecycle.
+next_action: Validate and merge documentation-only PR 209.
 ```
 
 ## Notes
