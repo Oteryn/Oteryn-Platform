@@ -1,0 +1,59 @@
+name: Wiki Admin Diagnostic
+
+on:
+  pull_request:
+    paths:
+      - 'app/Wiki/**'
+      - 'routes/modules/wiki.php'
+      - 'resources/views/admin/wiki/**'
+      - 'resources/views/admin/layout.blade.php'
+      - 'tests/Feature/Wiki/AdminWikiAdministrationTest.php'
+      - 'scripts/acceptance/**'
+      - '.github/workflows/wiki-admin-diagnostic.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.5'
+          extensions: mbstring, pdo_mysql, gd
+          coverage: none
+      - name: Install dependencies
+        run: composer install --no-interaction --prefer-dist --no-progress
+      - name: Capture diagnostics
+        id: diagnostics
+        shell: bash
+        run: |
+          set +e
+          : > wiki-admin-diagnostic.txt
+          echo '=== PHP syntax ===' >> wiki-admin-diagnostic.txt
+          find app/Wiki/Http/Admin app/Wiki/Application tests/Feature/Wiki -type f -name '*.php' -print0 \
+            | xargs -0 -n1 php -l >> wiki-admin-diagnostic.txt 2>&1
+          syntax_exit=$?
+          echo "syntax_exit=${syntax_exit}" >> wiki-admin-diagnostic.txt
+
+          echo '=== Pint ===' >> wiki-admin-diagnostic.txt
+          vendor/bin/pint --test >> wiki-admin-diagnostic.txt 2>&1
+          pint_exit=$?
+          echo "pint_exit=${pint_exit}" >> wiki-admin-diagnostic.txt
+
+          echo '=== PHPStan ===' >> wiki-admin-diagnostic.txt
+          composer analyse >> wiki-admin-diagnostic.txt 2>&1
+          analyse_exit=$?
+          echo "analyse_exit=${analyse_exit}" >> wiki-admin-diagnostic.txt
+
+          printf 'syntax=%s\npint=%s\nanalyse=%s\n' "$syntax_exit" "$pint_exit" "$analyse_exit" >> "$GITHUB_STEP_SUMMARY"
+          exit 0
+      - name: Upload diagnostics
+        uses: actions/upload-artifact@v6
+        with:
+          name: wiki-admin-diagnostic
+          path: wiki-admin-diagnostic.txt
+          if-no-files-found: error
+          retention-days: 1
