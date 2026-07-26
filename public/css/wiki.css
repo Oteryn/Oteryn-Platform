@@ -167,6 +167,15 @@
     font-style: italic;
 }
 
+.wiki-editorial-image {
+    display: block;
+    width: auto;
+    max-width: 100%;
+    height: auto;
+    margin-block: clamp(1rem, 3vw, 1.75rem);
+    border-radius: .35rem;
+}
+
 .wiki-page a:focus-visible,
 .wiki-page summary:focus-visible,
 .wiki-page input:focus-visible,

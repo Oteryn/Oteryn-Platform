@@ -4,10 +4,12 @@ namespace App\Wiki\Application;
 
 use App\Audit\AdminAuditRecorder;
 use App\Identity\Models\Identity;
+use App\Wiki\Application\Media\WikiMediaReferenceSynchronizer;
 use App\Wiki\Domain\WikiTranslationInput;
 use App\Wiki\Infrastructure\Audit\WikiAuditAction;
 use App\Wiki\Infrastructure\Models\WikiArticle;
 use App\Wiki\Infrastructure\Models\WikiCategory;
+use App\Wiki\Infrastructure\Models\WikiRevision;
 use Illuminate\Support\Facades\DB;
 use InvalidArgumentException;
 
@@ -16,6 +18,7 @@ final readonly class WikiAdminArticleWriter
     public function __construct(
         private WikiArticleService $articles,
         private AdminAuditRecorder $audit,
+        private WikiMediaReferenceSynchronizer $media,
     ) {}
 
     /**
@@ -42,6 +45,7 @@ final readonly class WikiAdminArticleWriter
         ): WikiArticle {
             $article = $this->articles->create($actor, $contentType, $translations, $changeNote);
             $this->applyPresentation($actor, $article, $featured, $sortOrder, $categoryIds);
+            $this->media->synchronize($article);
 
             return $article->refresh();
         }, 3);
@@ -82,6 +86,34 @@ final readonly class WikiAdminArticleWriter
                 $changeNote,
             );
             $this->applyPresentation($actor, $current, $featured, $sortOrder, $categoryIds);
+            $this->media->synchronize($current);
+
+            return $current->refresh();
+        }, 3);
+    }
+
+    public function restoreRevision(
+        Identity $actor,
+        WikiArticle $article,
+        int $expectedVersion,
+        WikiRevision $revision,
+        ?string $changeNote,
+    ): WikiArticle {
+        return DB::transaction(function () use (
+            $actor,
+            $article,
+            $expectedVersion,
+            $revision,
+            $changeNote,
+        ): WikiArticle {
+            $current = $this->articles->restoreRevision(
+                $actor,
+                $article,
+                $expectedVersion,
+                $revision,
+                $changeNote,
+            );
+            $this->media->synchronize($current);
 
             return $current->refresh();
         }, 3);

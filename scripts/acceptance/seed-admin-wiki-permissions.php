@@ -13,6 +13,7 @@ $app = require __DIR__.'/../../bootstrap/app.php';
 $app->make(Kernel::class)->bootstrap();
 
 $email = $argv[1] ?? '';
+$wikiOnly = ($argv[2] ?? '') === '--wiki-only';
 
 if ($email === '') {
     fwrite(STDERR, "Usage: php scripts/acceptance/seed-admin-wiki-permissions.php <email>\n");
@@ -63,7 +64,15 @@ DB::table('identity_admin_roles')->updateOrInsert([
     'role_id' => $roleId,
 ]);
 
+if ($wikiOnly) {
+    DB::table('identity_admin_roles')
+        ->where('identity_id', $identity->id)
+        ->where('role_id', '!=', $roleId)
+        ->delete();
+}
+
 fwrite(STDOUT, json_encode([
     'identity_id' => $identity->id,
     'role_key' => $roleKey,
+    'wiki_only' => $wikiOnly,
 ], JSON_THROW_ON_ERROR)."\n");

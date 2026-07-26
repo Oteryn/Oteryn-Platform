@@ -2,6 +2,10 @@
 
 @section('title', $article === null ? 'Create Wiki article' : 'Edit Wiki article')
 
+@push('head')
+    <script src="{{ asset('js/wiki-admin-media.js') }}" defer></script>
+@endpush
+
 @section('content')
     @php($english = $translations->get('en'))
     @php($polish = $translations->get('pl'))
@@ -32,6 +36,35 @@
             @endforeach
         @endif
     </div>
+
+    <section class="card wiki-media-picker"
+             data-wiki-media-picker
+             data-index-url="{{ route('admin.wiki.media.index') }}">
+        <div class="section-heading">
+            <div>
+                <p class="eyebrow">Approved EditorialMedia</p>
+                <h2>Insert an existing image</h2>
+            </div>
+        </div>
+        <p class="muted">
+            This read-only picker grants no upload or deletion authority. Inserted Markdown uses
+            <code>![Localized alternative text](wiki-media:ID)</code>; review and localize the alternative text in each translation.
+        </p>
+        <div class="wiki-media-search">
+            <div class="form-field">
+                <label for="wiki_media_search">Search approved images</label>
+                <input id="wiki_media_search" type="search" maxlength="100"
+                       placeholder="Alternative text, original display name or numeric ID"
+                       data-wiki-media-search>
+            </div>
+            <button class="button button-secondary" type="button" data-wiki-media-search-button>Search</button>
+        </div>
+        <p class="muted" aria-live="polite" data-wiki-media-status>
+            Loading approved images...
+        </p>
+        <div class="wiki-media-results" data-wiki-media-results></div>
+        <button class="button button-secondary" type="button" data-wiki-media-more hidden>Load more images</button>
+    </section>
 
     <form class="form-stack" method="POST" action="{{ $article === null ? route('admin.wiki.articles.store') : route('admin.wiki.articles.update', $article) }}">
         @csrf

@@ -13,6 +13,7 @@ final readonly class WikiArticlePageViewModel
      */
     public function __construct(
         public int $id,
+        public int $translationId,
         public string $title,
         public string $slug,
         public string $summary,

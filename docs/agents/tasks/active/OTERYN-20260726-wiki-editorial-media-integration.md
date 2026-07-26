@@ -59,22 +59,32 @@ owned_paths:
   - app/EditorialMedia/Application/**Wiki**
   - app/EditorialMedia/Http/Public/**
   - app/Wiki/Application/**Media**
+  - app/Wiki/Application/Rendering/WikiMarkdownRenderer.php
   - app/Wiki/Infrastructure/Rendering/**Media**
+  - app/Wiki/Infrastructure/Rendering/BlockedWikiImageRenderer.php
+  - app/Wiki/Infrastructure/Rendering/CommonMarkWikiRenderer.php
   - app/Wiki/Application/WikiAdminArticleWriter.php
   - app/Wiki/Http/Admin/AdminWikiArticleController.php
+  - app/Wiki/Http/Admin/AdminWikiMediaController.php
+  - app/Wiki/Http/Public/PublicWikiController.php
+  - app/Wiki/Queries/Public/DatabasePublicWikiQuery.php
+  - app/Wiki/ViewModels/Public/WikiArticlePageViewModel.php
   - routes/modules/wiki.php
   - resources/views/admin/wiki/articles/form.blade.php
   - resources/views/admin/wiki/articles/preview.blade.php
   - resources/views/wiki/article.blade.php
   - public/css/wiki-admin.css
   - public/css/wiki.css
+  - public/js/wiki-admin-media.js
   - tests/Feature/EditorialMedia/WikiEditorialMedia*.php
   - tests/Feature/Wiki/WikiEditorialMedia*.php
   - tests/Unit/Wiki/*Media*RendererTest.php
   - scripts/acceptance/seed-admin-wiki-permissions.php
+  - scripts/acceptance/seed-wiki-editorial-media.php
   - scripts/acceptance/seed-public-wiki.php
-  - scripts/acceptance/tests/wiki-editorial-media*.spec.mjs
+  - scripts/acceptance/tests/admin-wiki-editorial-media.spec.mjs
   - scripts/acceptance/playwright.config.mjs
+  - .github/workflows/acceptance-validation.yml
   - docs/architecture/adr/0014-wiki-editorial-media-integration.md
   - docs/agents/ACTIVE_WORK.md
   - docs/agents/tasks/active/OTERYN-20260726-wiki-editorial-media-integration.md
@@ -89,7 +99,7 @@ dependencies:
   - PR #194 public Wiki read/render/search
   - PR #196 Wiki administration
 blockers:
-  - current session lacks a mounted writable checkout for runtime implementation and validation
+  - none
 cross_repository_tasks:
   - none
 ```
@@ -98,11 +108,11 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-07-26T09:45:00Z
-head: 9f048cf29b93b3c24b1960c5a6d349e659b31d90
+updated_at: 2026-07-26T10:54:53Z
+head: 48a79fccb17cb6b0b285f05e5d6778f19191e19d
 branch: feat/OTERYN-20260726-wiki-editorial-media-integration
 pr: 199
-status: blocked
+status: validating
 context_routes:
   - agent-governance
   - architecture
@@ -126,29 +136,39 @@ proven:
   - ADR 0014 excludes historical revisions from deletion-blocking references and requires restore-time revalidation
   - ADR 0014 requires effective published-locale authorization on every public media request and public no-cache revalidation with immutable ETag
   - ADR 0014 keeps draft preview authenticated, confirmed-MFA, exact-permission and short-lived signed
+  - PR 199 has no review comments or review threads
   - EditorialMedia accepts only normalized JPEG, PNG and WebP objects stored on the private editorial_media disk
   - EditorialMedia storage and integrity fields are immutable and safe deletion refuses any referenced object
   - EditorialMediaConsumer reserves the exact WIKI consumer value
   - EditorialMediaReferenceManager validates bounded identifiers and transactionally attaches or releases usage slots
   - current EditorialMedia byte delivery is administrator-only and verifies path, byte size and SHA-256 before responding
-  - current public Wiki renderer replaces every CommonMark image with an inert placeholder
+  - the context-free renderer remains inert while validated translation contexts resolve only exact canonical referenced media
   - public Wiki reads and search expose only effective published locale content and reject stale Polish translations
   - Wiki administration create, update and revision restore already use existing lifecycle, optimistic locking, exact permissions, MFA and audit boundaries
   - no schema, session or compatibility change with Canary or login-server is required by the accepted design
   - the pre-ADR documentation head 320d45a1dc8edf8f33fd26f5e125217be265c0fb passed CI, Agent Governance, Platform DB Outage Validation, Phase 7 Production-Like Validation and Game Auth Ticket Concurrency
-  - the sandbox has no mounted Oteryn checkout and cannot resolve github.com to clone one
+  - media.manage belongs only to content_editor and platform_admin while Wiki permissions remain separately exact and are not wildcard grants
+  - the acceptance Wiki administrator receives exact Wiki permissions without media.manage
   - no external repository, production, router, DSM or Internet-exposure write occurred
+  - exact Wiki editor permissions expose a read-only approved-media picker and verified thumbnails without media.manage, upload or deletion routes
+  - current translation references use consumer_id translation:<translation-id> and usage body.<media-id> exactly as ADR 0014 requires
+  - create, update and restore parse every image node, validate all referenced private-disk media before reference mutation and reconcile current translation references inside the outer article transaction
+  - public delivery joins the referenced translation to the effective publication query and reparses its current source before integrity-checked private-disk delivery
+  - preview media URLs are signed over article, locale, translation and media identifiers and the controller rechecks their current relationship and exact reference
+  - successful public media uses no-cache max-age=0 revalidation while unauthorized and unavailable responses are no-store
 derived:
   - public image authorization depends on an effective published Wiki translation reference rather than media existence alone
   - draft-time reference synchronization reuses the existing reference manager while public delivery independently enforces publication state
   - upload and deletion authority remains under media.manage while Wiki editing uses its existing exact article permission
   - runtime implementation can proceed without a migration, permission grant or cross-repository contract change
-  - a CODEX-capable writable checkout with repository network/dependency access is required for the multi-file implementation, formatter, tests and browser acceptance
-unknown: []
-conflicts: []
+  - responsive, portability and accessibility projects now select the bounded admin Wiki media Playwright scenario by filename
+unknown:
+  - exact final commit SHA and exact-head GitHub CI/browser outcomes remain pending until the validated implementation is committed and pushed
+conflicts:
+  - none
 first_failure:
-  marker: execution-capability
-  evidence: no checkout exists under /mnt/data and `git ls-remote https://github.com/blakinio/Oteryn-Platform.git HEAD` fails with `Could not resolve host: github.com`
+  marker: resolved-invalid-markup-error-key
+  evidence: the first strict-markup feature rerun expected the synchronizer field key for raw HTML, but existing Wiki domain validation correctly rejected it earlier at translations.en; the assertion now preserves that established boundary and the targeted rerun passes
 rejected_hypotheses:
   - expose the private storage disk through public/storage: rejected by ADR 0011 and ADR 0014
   - allow arbitrary remote CommonMark images: rejected by ADR 0012 and ADR 0014
@@ -156,12 +176,20 @@ rejected_hypotheses:
   - keep deletion-blocking references for historical revisions: rejected because non-current content must not create indefinite locks
   - attach media only when publishing: rejected because draft updates and restores require deterministic deletion protection
   - use a positive public cache lifetime: rejected because unpublish and reference removal must take effect on the next request
+  - continue duplicate PR 200: rejected because the user explicitly selected PR 199 and overlapping ownership is prohibited
+  - rely on implicit route binding without a typed model argument: rejected after focused tests proved Laravel leaves the route value as a scalar in that controller shape
 changed_paths:
-  - docs/agents/ACTIVE_WORK.md
+  - app/EditorialMedia Wiki response and public route boundary
+  - app/Wiki media parser, reference, rendering, article-write, preview and public-read boundaries
+  - Wiki admin/public CSS, picker JavaScript and article form
+  - routes/modules/wiki.php
+  - focused PHPUnit and Playwright acceptance coverage
+  - docs/architecture/adr/0014-wiki-editorial-media-integration.md
+  - docs/agents/tasks/active/OTERYN-20260725-public-web-programme-closure.md
   - docs/agents/tasks/active/OTERYN-20260726-wiki-editorial-media-integration.md
   - docs/architecture/adr/0014-wiki-editorial-media-integration.md
 validation:
-  - command: repository, task, pull-request and focused source reconciliation
+  - command: required reads, search_first reconciliation, repository, task and pull-request preflight
     result: PASS
     evidence: trusted main ef8d0fc2454f59a707e14f39c22d502612677734, draft PR 199, closed duplicate PR 200, PRs 176/194/196, ADRs 0011-0014 and current source inspected through GitHub
   - command: architecture decision review
@@ -176,18 +204,33 @@ validation:
   - command: exact-head workflows before ADR addition
     result: PASS
     evidence: commit 320d45a1dc8edf8f33fd26f5e125217be265c0fb; runs 30196315208, 30196315212, 30196315214, 30196315211 and 30196315215
-  - command: locate mounted repository checkout
-    result: BLOCKED
-    evidence: no Oteryn Platform checkout exists under /mnt/data
-  - command: git ls-remote https://github.com/blakinio/Oteryn-Platform.git HEAD
-    result: BLOCKED
-    evidence: container DNS cannot resolve github.com
-  - command: local implementation, formatter, static analysis, feature tests and browser acceptance
-    result: BLOCKED
-    evidence: writable checkout and repository network access are unavailable in the current sandbox
+  - command: composer validate --strict and composer audit --no-interaction
+    result: PASS
+    evidence: composer metadata is valid and no security vulnerability advisories were reported
+  - command: vendor/bin/pint --test
+    result: PASS
+    evidence: all 432 PHP files pass formatting
+  - command: vendor/bin/phpstan analyse --memory-limit=1G
+    result: PASS
+    evidence: all 421 analyzed files pass with no errors after ADR 0014 runtime reconciliation
+  - command: focused Wiki EditorialMedia unit and feature tests
+    result: PASS
+    evidence: 31 tests and 341 assertions pass for strict parsing/rendering, translation-owned reference synchronization, rollback/stale/restore/deletion safety, public/preview authorization, storage integrity and existing Wiki administration/public-read regressions
+  - command: php artisan route:list --path=wiki --except-vendor
+    result: PASS
+    evidence: all 32 legacy, localized public and exact administrator Wiki routes register without collision
+  - command: node --check on picker, Playwright spec and config; git diff --check; checkpoint validator and validator tests
+    result: PASS
+    evidence: syntax, whitespace and governance checks pass
+  - command: composer test
+    result: FAIL
+    evidence: Composer terminated the repository suite at its default 300-second process timeout; the isolated TrustedProxySchemeTest passed 2 tests and 6 assertions immediately afterward
+  - command: exact-head full PHPUnit and browser acceptance
+    result: NOT_RUN
+    evidence: pending the final implementation commit
 blockers:
-  - writable CODEX-capable checkout unavailable in the current session
-next_action: Continue PR 199 in a CODEX-capable writable checkout, implement ADR 0014 with focused failing tests first, and run focused plus required final validation.
+  - none
+next_action: Amend the reconciled implementation commit, record its SHA and run full exact-head validation.
 ```
 
 ## Notes
