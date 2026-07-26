@@ -42,9 +42,13 @@ final readonly class LocalizedPublicRouteRegistrar
             'legal.terms' => '/legal/terms',
             'legal.privacy' => '/legal/privacy',
             'legal.cookies' => '/legal/cookies',
+            'wiki.index' => '/wiki',
+            'wiki.search' => '/wiki/search',
+            'wiki.category' => '/wiki/category/{slug}',
+            'wiki.article' => '/wiki/{slug}',
         ];
 
-        /** @var array<string, array{uses: Closure|array<array-key, mixed>|string, defaults: array<string, mixed>, wheres: array<string, string>}> $sourceRoutes */
+        /** @var array<string, array{uses: Closure|array<array-key, mixed>|string, defaults: array<string, mixed>, wheres: array<string, string>, middleware: array<int, string>}> $sourceRoutes */
         $sourceRoutes = [];
 
         foreach ($definitions as $name => $uri) {
@@ -55,6 +59,7 @@ final readonly class LocalizedPublicRouteRegistrar
                 'uses' => $uses,
                 'defaults' => $source->defaults,
                 'wheres' => $source->wheres,
+                'middleware' => $source->middleware(),
             ];
 
             $action = $source->getAction();
@@ -81,7 +86,7 @@ final readonly class LocalizedPublicRouteRegistrar
                 ->get('/{locale}'.$definitions[$name], $this->normalizeInvokable($definition['uses']))
                 ->where('locale', 'en|pl')
                 ->defaults('locale', $this->locales->default())
-                ->middleware(['web', 'public.locale'])
+                ->middleware([...$definition['middleware'], 'public.locale'])
                 ->name($name);
 
             foreach ($definition['defaults'] as $key => $value) {

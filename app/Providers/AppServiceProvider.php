@@ -9,6 +9,12 @@ use App\Characters\Contracts\CanaryCharacterCreationGateway;
 use App\GameAuth\OAuth\RequirePublicClientPkceS256;
 use App\Identity\Mfa\PendingMfaLogin;
 use App\Identity\Support\CanonicalEmail;
+use App\Wiki\Application\Rendering\WikiMarkdownRenderer;
+use App\Wiki\Application\Search\WikiSearch;
+use App\Wiki\Infrastructure\Rendering\CommonMarkWikiRenderer;
+use App\Wiki\Infrastructure\Search\DatabaseWikiSearch;
+use App\Wiki\Queries\Public\DatabasePublicWikiQuery;
+use App\Wiki\Queries\Public\PublicWikiQuery;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Foundation\Events\LocaleUpdated;
 use Illuminate\Http\Request;
@@ -26,6 +32,9 @@ class AppServiceProvider extends ServiceProvider
     {
         $this->app->bind(CanaryAccountProvisioningGateway::class, CanaryAccountProvisioner::class);
         $this->app->bind(CanaryCharacterCreationGateway::class, CanaryCharacterCreator::class);
+        $this->app->bind(WikiMarkdownRenderer::class, CommonMarkWikiRenderer::class);
+        $this->app->bind(WikiSearch::class, DatabaseWikiSearch::class);
+        $this->app->bind(PublicWikiQuery::class, DatabasePublicWikiQuery::class);
     }
 
     public function boot(): void
@@ -132,6 +141,13 @@ class AppServiceProvider extends ServiceProvider
 
         RateLimiter::for('game-auth-ticket-redeem', function (Request $request): Limit {
             return Limit::perMinute(60)->by($this->bearerSourceKey($request));
+        });
+
+        RateLimiter::for('wiki-search', function (Request $request): Limit {
+            $locale = $request->route('locale', app()->getLocale());
+            $localeKey = is_string($locale) ? $locale : 'unknown';
+
+            return Limit::perMinute(30)->by($localeKey.'|'.($request->ip() ?? 'unknown'));
         });
     }
 

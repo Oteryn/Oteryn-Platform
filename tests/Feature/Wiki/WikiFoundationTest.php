@@ -24,7 +24,6 @@ use Illuminate\Database\QueryException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
-use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\Schema;
 use InvalidArgumentException;
 use LogicException;
@@ -229,7 +228,7 @@ final class WikiFoundationTest extends TestCase
         ]);
     }
 
-    public function test_audit_metadata_is_bounded_and_public_routes_are_not_activated(): void
+    public function test_audit_metadata_is_bounded(): void
     {
         $actor = $this->authorizedIdentity('wiki-audit@example.com', [
             AdminPermission::MANAGE_WIKI_ARTICLES,
@@ -254,9 +253,6 @@ final class WikiFoundationTest extends TestCase
             'locales' => 'en',
         ], json_decode($event->metadata, true, flags: JSON_THROW_ON_ERROR));
 
-        self::assertFalse(Route::has('wiki.index'));
-        self::assertFalse(Route::has('wiki.article.show'));
-        $this->get('/wiki')->assertNotFound();
     }
 
     private function assertWikiTablesExist(): void

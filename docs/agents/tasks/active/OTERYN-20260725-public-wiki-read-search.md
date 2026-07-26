@@ -72,6 +72,7 @@ owned_paths:
   - app/Wiki/ViewModels/Public/**
   - app/Localization/LocalizedPublicRouteRegistrar.php
   - app/Localization/LocalizedPublicUrls.php
+  - app/Localization/LocalizedUrlGenerator.php
   - app/Providers/AppServiceProvider.php
   - routes/modules/wiki.php
   - resources/navigation/public/wiki.php
@@ -80,9 +81,13 @@ owned_paths:
   - lang/en/public.php
   - lang/pl/public.php
   - tests/Feature/Wiki/PublicWiki*.php
+  - tests/Feature/Wiki/WikiFoundationTest.php
+  - tests/Feature/PublicPortal/PublicPortalExtensionTest.php
   - tests/Unit/Wiki/*Renderer*.php
   - tests/Unit/Wiki/*Search*.php
   - scripts/acceptance/tests/public-wiki*.spec.mjs
+  - scripts/acceptance/seed-public-wiki.php
+  - scripts/acceptance/playwright.config.mjs
   - docs/architecture/adr/0012-public-wiki-read-search.md
   - docs/agents/tasks/active/OTERYN-20260725-public-wiki-read-search.md
 modules:
@@ -96,7 +101,7 @@ dependencies:
   - PR #190 public website programme reconciliation
   - Issue #145
 blockers:
-  - CODEX-capable writable checkout and local dependency, migration, test and browser execution are unavailable in the current connector-only session
+  - none
 cross_repository_tasks:
   - none
 ```
@@ -139,11 +144,11 @@ Exact final head:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-07-25T21:45:00Z
-head: 3a986506c000982a15e9b730856e3492f05c3485
+updated_at: 2026-07-26T07:12:00Z
+head: 35afabc1b3a726fab39fd7ae89163d7c891f1130
 branch: feat/OTERYN-20260725-public-wiki-read-search
 pr: 194
-status: blocked
+status: validating
 context_routes:
   - agent-governance
   - architecture
@@ -155,6 +160,11 @@ context_routes:
   - accessibility
 owned_paths:
   - public Wiki read/search paths listed in Ownership
+  - app/Localization/LocalizedUrlGenerator.php
+  - tests/Feature/PublicPortal/PublicPortalExtensionTest.php
+  - tests/Feature/Wiki/WikiFoundationTest.php
+  - scripts/acceptance/playwright.config.mjs
+  - scripts/acceptance/seed-public-wiki.php
 proven:
   - trusted base main is 4cab5c0842d678968d893dacf744b47ca31ef67c
   - draft PR 194 owns the declared public Wiki read/search paths
@@ -162,27 +172,33 @@ proven:
   - PR 158 delivered Wiki persistence, lifecycle services, revisions, optimistic locking, exact permissions and audit but no public routes, rendering or search
   - PR 175 delivered deterministic en/pl public localization, canonical and hreflang foundations
   - no competing open pull request owns Wiki, localization, public Wiki navigation or Wiki acceptance paths
+  - PR 158 is merged; its stale active task record no longer represents concurrent implementation even though it retains historical app/Wiki ownership
   - current Composer dependencies contain no Markdown renderer
   - current Wiki input rules reject obvious raw HTML and dangerous protocols but do not render public output
   - no public or administrator Wiki route module exists on trusted main
   - no write outside blakinio/Oteryn-Platform is required
   - no production, router, DSM, Internet-exposure or external-repository action is authorized
+  - league/commonmark 2.8.3 is maintained, compatible with PHP 8.5 and provides raw-HTML, unsafe-link and parser-complexity controls
   - trust boundary affected: anonymous published-only Wiki reads and editor-controlled source Markdown rendering
   - authentication and authorization invariant affected: no privileged mutation is added; existing exact permissions remain unchanged
   - Canary/login-server schema or session compatibility changes: none
   - rollback required: dependency/application revert and any additive migration rollback
   - secrets or production-only configuration involved: none
+  - league/commonmark is a direct requirement with a Composer-consistent lock hash and the locked 2.8.3 package
+  - public read and search boundaries exclude drafts, review, archive, future publication, hidden categories, missing translations and Polish translations older than English source
+  - localized route cloning preserves source middleware, including the Wiki search rate limiter
+  - deterministic browser acceptance covers Wiki reads, search, TOC, bilingual equivalence, accessibility smoke and horizontal overflow in Chromium, Firefox, WebKit, desktop, tablet and mobile projects
+  - no migration or Canary-owned schema change is required
 derived:
-  - a maintained restricted renderer and explicit public query/search interfaces are required before exposing stored Markdown
+  - league/commonmark 2.8 is the selected renderer; Wiki adds stricter link and no-image renderers on top of its fail-closed configuration
   - public read/search can be delivered independently of administrator UI and media integration
+  - the implementation satisfies the bounded public Wiki slice without expanding privileged mutation or media ownership
 unknown:
-  - exact renderer package selected after current compatibility/security review
-  - whether a schema addition is required for normalized search data or deterministic related-article ordering
-  - exact browser acceptance spec composition after current test inventory is inspected
+  - fresh GitHub browser acceptance result on the implementation head
 conflicts: []
 first_failure:
-  marker: CODEX_CAPABILITY_UNAVAILABLE
-  evidence: current session has GitHub connector writes but no writable checkout, dependency execution, migration runner or browser environment
+  marker: none
+  evidence: renderer alt-text fixture, localized throttle cloning and stale Polish publication gaps were fixed and focused tests now pass
 rejected_hypotheses:
   - expose source Markdown directly: violates safe-rendering and presentation requirements
   - persist and trust arbitrary rendered HTML: violates the restricted rendering boundary
@@ -190,17 +206,57 @@ rejected_hypotheses:
   - implement administrator UI in the same first slice: exceeds the bounded independently reviewable public-read scope
   - duplicate EditorialMedia storage or upload handling: PR 176 already owns the reusable media boundary
 changed_paths:
+  - composer.json
+  - composer.lock
+  - app/Wiki/**
+  - app/Localization/LocalizedPublicRouteRegistrar.php
+  - app/Localization/LocalizedUrlGenerator.php
+  - app/Providers/AppServiceProvider.php
+  - routes/modules/wiki.php
+  - resources/navigation/public/wiki.php
+  - resources/views/wiki/**
+  - public/css/wiki.css
+  - lang/en/public.php
+  - lang/pl/public.php
+  - tests/Feature/Wiki/**
+  - tests/Feature/PublicPortal/PublicPortalExtensionTest.php
+  - tests/Unit/Wiki/CommonMarkWikiRendererTest.php
+  - scripts/acceptance/seed-public-wiki.php
+  - scripts/acceptance/tests/public-wiki-read-search.spec.mjs
+  - scripts/acceptance/playwright.config.mjs
+  - docs/architecture/adr/0012-public-wiki-read-search.md
   - docs/agents/tasks/active/OTERYN-20260725-public-wiki-read-search.md
 validation:
   - command: programme, overlap and foundation reconciliation
     result: PASS
     evidence: trusted main, PR 190, Wiki foundation, localization and open PR state inspected through GitHub
-  - command: local dependency, implementation and runtime validation
-    result: BLOCKED
-    evidence: CODEX-capable checkout and execution environment unavailable in this session
+  - command: git fetch origin main:refs/remotes/origin/main; git rev-list --left-right --count origin/main...HEAD
+    result: PASS
+    evidence: origin/main 4cab5c0842d678968d893dacf744b47ca31ef67c; task head is exactly two task-record commits ahead
+  - command: gh pr list --repo blakinio/Oteryn-Platform --state open --limit 100
+    result: PASS
+    evidence: PRs 116, 182 and 189 touch only E2E/Liquid20 documentation; PR 194 is the only open Wiki/localization implementation owner
+  - command: composer validate --strict; composer audit --no-interaction
+    result: PASS
+    evidence: Composer 2 on PHP 8.5.8 accepted the direct CommonMark requirement and lockfile; no advisories
+  - command: vendor/bin/pint --test
+    result: PASS
+    evidence: all 404 PHP files passed on the current working tree
+  - command: composer analyse
+    result: PASS
+    evidence: clean locked vendor environment on PHP 8.5.8 with pdo_mysql; 393 files, no errors
+  - command: composer test
+    result: PASS
+    evidence: full suite passed on the current working tree under PHP 8.5.8 with required GD/PDO extensions
+  - command: focused public Wiki and compatibility PHPUnit
+    result: PASS
+    evidence: 22 tests, 243 assertions across renderer, read/search, Wiki foundation and PublicPortal navigation
+  - command: node --check; playwright test --list --project=portability-chromium --grep @wiki
+    result: PASS
+    evidence: seed/spec/config syntax valid and the Wiki browser test is discovered by the portability project
 blockers:
-  - CODEX-capable writable checkout and local validation environment unavailable
-next_action: Resume PR 194 in CODEX, verify live main/PR ownership, select the maintained renderer, implement the public Wiki read/search slice and run focused validation before the first runtime commit.
+  - none
+next_action: Commit and push the validated implementation to PR 194, then inspect fresh CI and browser acceptance on the exact head.
 ```
 
 ## Notes

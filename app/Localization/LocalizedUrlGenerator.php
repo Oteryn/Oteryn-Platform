@@ -9,6 +9,7 @@ use App\Cms\Models\ManagedPage;
 use App\Cms\Models\NewsPost;
 use App\Events\Models\Event;
 use App\Events\Models\EventTranslation;
+use App\Wiki\Queries\Public\PublicWikiQuery;
 use DateTimeInterface;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Route as LaravelRoute;
@@ -20,6 +21,7 @@ final readonly class LocalizedUrlGenerator
     public function __construct(
         private PublicLocale $locales,
         private EditorialTranslationResolver $translations,
+        private PublicWikiQuery $wiki,
     ) {}
 
     public function forRequest(Request $request): LocalizedPublicUrls
@@ -73,6 +75,8 @@ final readonly class LocalizedUrlGenerator
                 $routeName === 'news.show' => $this->newsUrl($parameters, $targetLocale),
                 $routeName === 'pages.show' => $this->managedPageUrl($routeName, $parameters, $targetLocale),
                 $routeName === 'events.show' => $this->eventUrl($parameters, $currentLocale, $targetLocale),
+                $routeName === 'wiki.article' => $this->wikiArticleUrl($parameters, $currentLocale, $targetLocale),
+                $routeName === 'wiki.category' => $this->wikiCategoryUrl($parameters, $currentLocale, $targetLocale),
                 $this->isTypedEditorialRoute($routeName) => $this->typedEditorialUrl($routeName, $targetLocale),
                 default => route($routeName, [...$parameters, 'locale' => $targetLocale]),
             };
@@ -189,14 +193,15 @@ final readonly class LocalizedUrlGenerator
     /** @param array<string, mixed> $parameters */
     private function publishedManagedPageUrl(ManagedPage $page, string $routeName, array $parameters, string $targetLocale): ?string
     {
-        if (! ($page->updated_at instanceof DateTimeInterface)) {
+        $updatedAt = $page->getAttribute('updated_at');
+        if (! $updatedAt instanceof DateTimeInterface) {
             return null;
         }
 
         if ($targetLocale !== 'en' && $this->translations->published(
             EditorialContentType::ManagedPage,
             $page->id,
-            $page->updated_at,
+            $updatedAt,
             $targetLocale,
         ) === null) {
             return null;
@@ -210,6 +215,46 @@ final readonly class LocalizedUrlGenerator
         return str_starts_with($routeName, 'editorial.')
             || str_starts_with($routeName, 'support.')
             || str_starts_with($routeName, 'legal.');
+    }
+
+    /** @param array<string, mixed> $parameters */
+    private function wikiArticleUrl(array $parameters, string $currentLocale, string $targetLocale): ?string
+    {
+        $slug = $parameters['slug'] ?? null;
+        if (! is_string($slug)) {
+            return null;
+        }
+
+        $articleId = $this->wiki->publishedArticleId($currentLocale, $slug);
+        if ($articleId === null) {
+            return null;
+        }
+
+        $targetSlug = $this->wiki->equivalentArticleSlug($articleId, $targetLocale);
+
+        return $targetSlug === null
+            ? null
+            : route('wiki.article', ['locale' => $targetLocale, 'slug' => $targetSlug]);
+    }
+
+    /** @param array<string, mixed> $parameters */
+    private function wikiCategoryUrl(array $parameters, string $currentLocale, string $targetLocale): ?string
+    {
+        $slug = $parameters['slug'] ?? null;
+        if (! is_string($slug)) {
+            return null;
+        }
+
+        $categoryId = $this->wiki->visibleCategoryId($currentLocale, $slug);
+        if ($categoryId === null) {
+            return null;
+        }
+
+        $targetSlug = $this->wiki->equivalentCategorySlug($categoryId, $targetLocale);
+
+        return $targetSlug === null
+            ? null
+            : route('wiki.category', ['locale' => $targetLocale, 'slug' => $targetSlug]);
     }
 
     /** @param array<string, mixed> $query */
