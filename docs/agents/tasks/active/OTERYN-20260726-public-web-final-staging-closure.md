@@ -38,8 +38,8 @@ Deploy the exact final Issue #145 trusted-main SHA to the existing Synology stag
 
 - [x] Exact trusted-main Platform and Gateway images are built before every guarded deployment.
 - [x] The repaired deployment recreates the private proxy after Platform and completes healthily.
-- [x] Trusted-main SHA `348f483938fc8358132128fc79d229e38b98045b`, containing QR-first MFA, deployed healthily through run `30223164413`.
-- [ ] The deployed Platform locally renders the TOTP provisioning URI as an inline SVG QR code while the anonymous MFA route remains protected.
+- [x] Trusted-main SHAs containing QR-first MFA deployed healthily through runs `30223164413` and `30223546917`.
+- [ ] The deployment job itself verifies the local inline SVG TOTP QR, deployed view/CSS markers and protected anonymous MFA route.
 - [ ] Exactly one enabled MFA-confirmed Identity with all four exact Wiki permissions is selected internally without logging its email; zero or multiple candidates fail closed.
 - [ ] `wiki:launch-content:install` installs or verifies content version `2026-07-26.1` without overwriting editorial changes.
 - [ ] A real Chromium instance on the Synology host network receives HTTP 200 from the localized homepage, Wiki index, EN/PL launch articles, sitemap and robots surfaces and verifies expected public headings/content.
@@ -55,6 +55,7 @@ owned_paths:
   - .github/workflows/one-shot-mfa-qr-staging-deploy.yml
   - deploy/synology/.public-web-final-staging-trigger
   - deploy/synology/scripts/deploy.sh
+  - deploy/synology/scripts/health-check.sh
   - docs/agents/ACTIVE_WORK.md
   - docs/agents/tasks/active/OTERYN-20260725-public-web-programme-closure.md
   - docs/agents/tasks/active/OTERYN-20260726-public-web-final-staging-closure.md
@@ -74,6 +75,7 @@ dependencies:
   - PR 212 merge b161983c4bf42ba21d00287bfad0418a605dd99c
   - PR 214 merge 671ac9fed05f51cc3989ff0aed2d37c99bc6d933
   - PR 215 merge 348f483938fc8358132128fc79d229e38b98045b
+  - PR 219 merge cb14a5c5209e868b0d99c42f3d1601505d1dd6d7
   - existing Deploy Synology Staging workflow
 blockers: []
 cross_repository_tasks: []
@@ -83,9 +85,9 @@ cross_repository_tasks: []
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-07-27T00:35:00+02:00
-head: 5f7d9a235aec9dc9725fc8d4832273d018f11f47
-branch: fix/OTERYN-20260727-mfa-qr-staging-verifier
+updated_at: 2026-07-27T00:58:00+02:00
+head: ad36ed18b7e0325953afdba323c9f3180035b2d8
+branch: fix/OTERYN-20260727-mfa-qr-inline-healthcheck
 pr: null
 status: implementing
 context_routes:
@@ -101,50 +103,50 @@ context_routes:
 owned_paths:
   - final staging, QR deployment and cleanup paths listed in Ownership
 proven:
-  - PR 212 repaired the stale private-proxy upstream and its deployment completed successfully
-  - the earlier final closure failed closed because staging had zero MFA-confirmed Identities and zero eligible Wiki publishers
-  - PR 214 merged QR-first local SVG TOTP enrollment as 671ac9fed05f51cc3989ff0aed2d37c99bc6d933
-  - PR 215 merged the guarded QR deployment workflow as 348f483938fc8358132128fc79d229e38b98045b after all exact-head checks passed
-  - exact image build run 30223101821 completed successfully
-  - guarded Synology deployment run 30223164413 completed successfully without rollback
-  - exact deployed Platform and Gateway image verification passed in one-shot run 30223101826
-  - QR verification then failed before route/view checks because the verifier called nonexistent renderDataUri instead of the public dataUri method
-  - App Identity Mfa MfaQrCode exposes dataUri(string) and rejects non-TOTP provisioning URIs
-  - the corrected workflow now calls dataUri with the same synthetic non-user TOTP URI
+  - PR 214 merged QR-first local SVG TOTP enrollment and all required checks passed
+  - PR 215 and PR 219 exact images built and deployed successfully without rollback
+  - first verifier failure was an incorrect renderDataUri method name; App Identity Mfa MfaQrCode exposes dataUri
+  - corrected deployment run 30223546917 completed successfully
+  - the corrected follow-on verifier remained queued because the self-hosted runner behaves as a one-job execution boundary
+  - repository runner-status API is unavailable to the GitHub App and no repo-managed runner recovery path exists
+  - deploy.sh already invokes health-check.sh inside the successful deployment job before reporting deployment health
+  - health-check.sh now verifies dataUri with a synthetic non-user TOTP URI, SVG properties, deployed QR view/CSS markers and anonymous `/mfa` HTTP 302
+  - the one-shot no longer creates a second self-hosted job; deployment success includes the inline QR health check
+  - SHA-specific one-shot concurrency prevents the orphaned previous verifier from blocking the new corrected run
   - no production, router, DSM, Internet-exposure or external-repository action occurred
 derived:
-  - the staging runtime is healthy and the observed failure is isolated to the verification harness API name
-  - rerunning exact-SHA deployment with the corrected verifier is required before asking an operator to enroll genuine MFA
+  - inline deployment verification is the correct durable model for a one-job runner
+  - a successful new deployment report is sufficient proof that exact images, standard health checks and QR smoke passed in the same job
   - final Wiki publication remains intentionally fail-closed until exactly one existing enabled account completes genuine MFA
 unknown:
-  - corrected verifier merge SHA and resulting one-shot/deployment run identifiers
+  - inline-health-check merge SHA and resulting one-shot/deployment run identifiers
   - post-deployment confirmed-MFA count
 conflicts: []
 first_failure:
-  marker: qr-verifier-api-name
-  evidence: one-shot run 30223101826 verify job 89849342662 failed with undefined method App Identity Mfa MfaQrCode renderDataUri after exact images and deployment passed
+  marker: follow-on-runner-unavailable
+  evidence: corrected deployment run 30223546917 passed, while one-shot verify job 89850351045 remained queued and a duplicate read-only self-hosted job also remained queued
 rejected_hypotheses:
-  - the exact images failed to build: image run 30223101821 passed
-  - Synology deployment failed: deployment run 30223164413 passed without rollback
-  - QR implementation is absent: the exact deployed image contains PR 214 and the verifier resolved the class before failing on its incorrect method name
+  - exact images or deployment are unhealthy: both corrected image and deployment runs passed
+  - the public QR API is wrong: dataUri is the implemented and unit-tested API
+  - another follow-on job will reliably obtain the runner: two independent follow-on jobs remained queued
   - MFA can be fabricated for closure: genuine confirmation by one existing Identity remains required
-  - a synthetic publisher can install Wiki content: publisher selection remains exact-permission and MFA guarded
 changed_paths:
   - .github/workflows/one-shot-mfa-qr-staging-deploy.yml
   - deploy/synology/.public-web-final-staging-trigger
+  - deploy/synology/scripts/health-check.sh
   - docs/agents/tasks/active/OTERYN-20260726-public-web-final-staging-closure.md
 validation:
-  - command: PR 215 exact-head required checks
+  - command: PR 219 exact-head required checks
     result: PASS
-    evidence: Governance, CI, concurrency, DB outage, Phase 7 and Synology image/package build passed on 7956b9b835ef3eb7167917b34dd0788951320c52
-  - command: first QR staging exact-image deployment
+    evidence: Governance, CI, concurrency, DB outage, Phase 7 and Synology image/package build passed on 53a85e930e5398ecc210fbf9662ba6a5b9f92f93
+  - command: corrected QR staging deployment
     result: PASS
-    evidence: image run 30223101821 and deployment run 30223164413 completed successfully
-  - command: first QR staging bounded verifier
-    result: FAIL
-    evidence: job 89849342662 called nonexistent renderDataUri after exact-image verification passed
+    evidence: exact image run 30223521657 and deployment run 30223546917 completed successfully
+  - command: corrected follow-on QR verifier
+    result: BLOCKED
+    evidence: job 89850351045 remained queued after deployment, consistent with a one-job self-hosted runner boundary
 blockers: []
-next_action: Validate the three-file verifier correction, merge it with marker [mfa-qr-staging], require a sanitized PASS report, then have exactly one existing staging account complete genuine MFA before resuming the guarded final Wiki closure.
+next_action: Validate the four-file inline-health-check change, merge it with marker [mfa-qr-staging], require a sanitized PASS report, then have exactly one existing staging account complete genuine MFA before resuming the guarded final Wiki closure.
 ```
 
 ## Notes
