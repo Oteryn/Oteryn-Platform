@@ -6,25 +6,67 @@ on:
       - .github/workflows/inspect-public-web-final-staging-pass.yml
 
 permissions:
-  actions: read
   contents: read
-  issues: read
 
 jobs:
-  inspect:
-    runs-on: ubuntu-latest
+  inspect-staging-rbac:
+    runs-on: oteryn-staging
     timeout-minutes: 5
     steps:
-      - name: Print sanitized Wiki publication failure
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          LIVE_SMOKE_JOB_ID: 89826340682
+      - name: Inspect sanitized Identity and Wiki RBAC aggregates
         run: |
           set -euo pipefail
-          gh api "repos/${GITHUB_REPOSITORY}/actions/jobs/${LIVE_SMOKE_JOB_ID}/logs" > live-smoke.log
-          echo 'Focused Wiki publication failure excerpt:'
-          grep -nEi 'eligible|publisher|wiki:launch|permission|mfa|expected exactly|exception|error|failed|failure' live-smoke.log \
-            | tail -n 120 \
-            || true
-          echo 'Live-smoke log tail:'
-          tail -n 100 live-smoke.log
+          platform_container="$(docker ps \
+            --filter label=com.docker.compose.project=oteryn-staging \
+            --filter label=com.docker.compose.service=platform \
+            --format '{{.ID}}')"
+          [[ "$(wc -w <<<"$platform_container")" -eq 1 ]]
+
+          docker exec -i "$platform_container" php <<'PHP'
+          <?php
+          require '/var/www/html/vendor/autoload.php';
+          $app = require '/var/www/html/bootstrap/app.php';
+          $app->make(Illuminate\Contracts\Console\Kernel::class)->bootstrap();
+
+          $identities = App\Identity\Models\Identity::query()->orderBy('id')->get();
+          $enabled = $identities->filter(fn ($identity) => $identity->disabled_at === null);
+          $mfaConfirmed = $enabled->filter(fn ($identity) => $identity->hasConfirmedMfa());
+          $authorization = $app->make(App\Wiki\Application\WikiAuthorization::class);
+          $eligible = $mfaConfirmed->filter(function ($identity) use ($authorization): bool {
+              try {
+                  $authorization->assertCanAccess($identity);
+                  $authorization->assertCanManageCategories($identity);
+                  $authorization->assertCanManageArticles($identity);
+                  $authorization->assertCanPublish($identity);
+                  return true;
+              } catch (Throwable) {
+                  return false;
+              }
+          });
+
+          echo json_encode([
+              'identity_total' => $identities->count(),
+              'identity_enabled' => $enabled->count(),
+              'identity_mfa_confirmed' => $mfaConfirmed->count(),
+              'identity_wiki_publisher_eligible' => $eligible->count(),
+              'role_assignment_total' => Illuminate\Support\Facades\DB::table('identity_admin_roles')->count(),
+          ], JSON_THROW_ON_ERROR | JSON_PRETTY_PRINT).PHP_EOL;
+
+          $roles = Illuminate\Support\Facades\DB::table('admin_roles')->orderBy('key')->get(['id', 'key']);
+          foreach ($roles as $role) {
+              $permissions = Illuminate\Support\Facades\DB::table('admin_role_permissions')
+                  ->join('admin_permissions', 'admin_permissions.id', '=', 'admin_role_permissions.permission_id')
+                  ->where('admin_role_permissions.role_id', $role->id)
+                  ->orderBy('admin_permissions.key')
+                  ->pluck('admin_permissions.key')
+                  ->all();
+              $assignmentCount = Illuminate\Support\Facades\DB::table('identity_admin_roles')
+                  ->where('role_id', $role->id)
+                  ->count();
+              echo json_encode([
+                  'role' => $role->key,
+                  'assignment_count' => $assignmentCount,
+                  'permissions' => $permissions,
+              ], JSON_THROW_ON_ERROR).PHP_EOL;
+          }
+          PHP
