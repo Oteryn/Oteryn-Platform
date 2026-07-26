@@ -1,0 +1,57 @@
+name: Prepare MFA QR staging retry
+
+on:
+  push:
+    branches:
+      - chore/OTERYN-20260726-mfa-qr-staging-deploy
+    paths:
+      - .github/workflows/prepare-mfa-qr-staging-retry.yml
+
+permissions:
+  contents: write
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: chore/OTERYN-20260726-mfa-qr-staging-deploy
+
+      - name: Prepare reviewed exact-SHA retry
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          workflow = Path('.github/workflows/one-shot-public-web-final-staging.yml')
+          text = workflow.read_text()
+          needle = "      - deploy/synology/scripts/deploy.sh\n"
+          addition = "      - deploy/synology/.public-web-final-staging-trigger\n"
+          if addition not in text:
+              if text.count(needle) != 1:
+                  raise SystemExit('Expected one deploy.sh path-filter entry.')
+              text = text.replace(needle, needle + addition)
+              workflow.write_text(text)
+
+          trigger = Path('deploy/synology/.public-web-final-staging-trigger')
+          trigger.write_text(
+              'Issue #145 observable exact-SHA Synology staging closure trigger.\n'
+              'This revision deploys the QR-first MFA merge and re-runs the guarded closure.\n'
+              'QR source merge: 671ac9fed05f51cc3989ff0aed2d37c99bc6d933.\n'
+              'Remove after successful deployment evidence and task archival.\n'
+          )
+
+          Path('.github/workflows/prepare-mfa-qr-staging-retry.yml').unlink()
+          PY
+
+      - name: Commit bounded retry preparation
+        run: |
+          set -euo pipefail
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add .github/workflows/one-shot-public-web-final-staging.yml deploy/synology/.public-web-final-staging-trigger
+          git add -u .github/workflows/prepare-mfa-qr-staging-retry.yml
+          git commit -m 'chore(deploy): prepare QR-first MFA staging retry'
+          git push origin HEAD:chore/OTERYN-20260726-mfa-qr-staging-deploy
