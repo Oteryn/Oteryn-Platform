@@ -96,17 +96,26 @@ if (! is_string($svg) || ! str_contains($svg, '<svg') || str_contains($svg, $uri
     exit(32);
 }
 
-echo "MFA QR renderer verified.\n";
+$context = stream_context_create([
+    'http' => [
+        'follow_location' => 0,
+        'ignore_errors' => true,
+        'timeout' => 5,
+    ],
+]);
+$headers = get_headers('http://127.0.0.1:8000/mfa', false, $context);
+$statusLine = is_array($headers) ? ($headers[0] ?? null) : null;
+if (! is_string($statusLine) || preg_match('/^HTTP\/\S+ 302\b/', $statusLine) !== 1) {
+    fwrite(STDERR, "Anonymous MFA settings boundary did not return HTTP 302.\n");
+    exit(33);
+}
+
+echo "MFA QR renderer and protected anonymous route verified.\n";
 PHP
 
 docker exec "$platform_container" grep -q 'Scan with your authenticator app' /var/www/html/resources/views/identity/mfa/settings.blade.php
 docker exec "$platform_container" grep -q 'mfa-qr' /var/www/html/public/css/mfa.css
-anonymous_mfa_status="$(curl --silent --output /dev/null --write-out '%{http_code}' "http://${PLATFORM_BIND_ADDRESS}:${PLATFORM_PORT}/mfa")"
-if [[ "$anonymous_mfa_status" != "302" ]]; then
-    echo "Anonymous MFA settings boundary returned HTTP ${anonymous_mfa_status}; expected 302." >&2
-    exit 1
-fi
-echo "Verified QR-first MFA renderer and protected anonymous MFA boundary."
+echo "Verified QR-first MFA renderer, deployed assets and protected anonymous MFA boundary."
 
 if ! docker run --rm \
     --network "container:${container_ids[canary]}" \
