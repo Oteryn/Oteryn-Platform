@@ -6,6 +6,7 @@
     <meta name="robots" content="noindex,nofollow,noarchive">
     <title>@yield('title') · {{ config('app.name') }}</title>
     <link rel="stylesheet" href="{{ asset('css/app.css') }}">
+    <link rel="stylesheet" href="{{ asset('css/mfa.css') }}">
 </head>
 <body class="identity-body">
 <a class="skip-link" href="#main-content">Skip to content</a>
