@@ -5,6 +5,7 @@ Convenience index only. Individual active task records, live PRs and Git state a
 ## Active tasks
 
 - `OTERYN-20260725-public-web-programme-closure` — Issue #145 programme coordination; owns only its task record and delegates runtime paths to bounded child tasks.
+- `OTERYN-20260726-wiki-editorial-media-integration` — bounded Wiki consumer integration for existing private EditorialMedia objects, transactional references and published-only public delivery; draft PR pending.
 
 ## Closed acceptance and release-preparation follow-ups
 
@@ -27,7 +28,8 @@ Convenience index only. Individual active task records, live PRs and Git state a
 - PR #194 / `9ed3861cc29dcaf6305c379de2bee5ee5ac923d6` — production-capable published-only English/Polish public Wiki reads, restricted Markdown rendering and locale-isolated search merged.
 - PR #195 / `c53e0f2a1a93de9275439aff573e5a713f5621b1` — public Wiki task lifecycle archived.
 - PR #196 / `f512f1e3a9bd567d40ddb09b699291c99a1b65f8` — trusted-editor Wiki administration, exact RBAC/MFA lifecycle controls, signed previews, revisions and responsive browser acceptance merged.
-- PR #197 — documentation-only Wiki administration task archival lifecycle.
+- PR #197 / `a9adbe07317cac0311e9dd5761d45ceb8c7203f5` — Wiki administration task lifecycle archived.
+- PR #198 / `57716094cde335a0e8a661953bd3a5809ec12cb6` — Issue #145 programme checkpoint refreshed after the public and administrator Wiki deliveries.
 
 ## Current project phase
 
@@ -49,7 +51,7 @@ No staging evidence may be promoted to `PRODUCTION_PROVEN`.
 
 ## Next work
 
-Update the Issue #145 programme checkpoint, then start the next bounded child for Wiki-to-EditorialMedia consumer integration without reopening the completed Wiki administration paths.
+Implement and validate the bounded Wiki-to-EditorialMedia consumer child, then archive it before starting the remaining homepage/navigation/SEO and source-backed Wiki-content closure children.
 
 After the remaining Issue #145 child tasks merge, deploy the exact final trusted `main` SHA to Synology staging through the existing reviewed workflow and record live browser-smoke evidence.
 
