@@ -6,23 +6,24 @@ on:
       - .github/workflows/inspect-public-web-final-staging-pass.yml
 
 permissions:
+  actions: read
   contents: read
 
 jobs:
-  inspect-role-grants:
+  inspect-phase7:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: List event permission role-grant migrations
+      - name: Print focused Phase 7 regression failure
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PHASE7_JOB_ID: 89828002567
         run: |
           set -euo pipefail
-          gh api "repos/${GITHUB_REPOSITORY}/contents/database/migrations?ref=main" \
-            --jq '.[] | select(.type == "file") | .path' \
-            | while IFS= read -r path; do
-                content="$(gh api "repos/${GITHUB_REPOSITORY}/contents/${path}?ref=main" --jq .content | base64 -d)"
-                if grep -qE 'events\.manage|events\.publish' <<<"$content"; then
-                  echo "${path}"
-                fi
-              done
+          gh api "repos/${GITHUB_REPOSITORY}/actions/jobs/${PHASE7_JOB_ID}/logs" > phase7.log
+          echo 'Focused regression failure excerpt:'
+          grep -nEi 'FAILURES|FAILED|failure|Error:|Assertion|PublicModulePermissionReservationTest|wiki_permissions|Tests:' phase7.log \
+            | tail -n 160 \
+            || true
+          echo 'Regression-suite tail:'
+          sed -n '/Run exact-SHA critical regression suite/,$p' phase7.log | tail -n 220
