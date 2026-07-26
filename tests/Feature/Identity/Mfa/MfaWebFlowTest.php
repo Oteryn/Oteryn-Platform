@@ -37,8 +37,10 @@ final class MfaWebFlowTest extends TestCase
         $this->get('/mfa')
             ->assertOk()
             ->assertHeaderContains('Cache-Control', 'no-store')
+            ->assertSee('Scan with your authenticator app')
+            ->assertSee('data:image/svg+xml;base64,', false)
             ->assertSee($identity->two_factor_secret)
-            ->assertSee('otpauth://totp', false);
+            ->assertDontSee('otpauth://totp', false);
 
         $google2fa = new Google2FA;
         $timestamp = $google2fa->getTimestamp();

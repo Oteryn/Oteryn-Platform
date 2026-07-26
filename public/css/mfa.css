@@ -1,0 +1,37 @@
+.mfa-qr-panel {
+    display: grid;
+    justify-items: center;
+    gap: .75rem;
+    padding: 1rem;
+    margin-bottom: 1rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    background: var(--bg-subtle);
+    text-align: center;
+}
+
+.mfa-qr-panel > * {
+    margin-bottom: 0;
+}
+
+.mfa-qr-code {
+    display: block;
+    width: min(17.5rem, 100%);
+    height: auto;
+    padding: .75rem;
+    border-radius: var(--radius-sm);
+    background: #fff;
+}
+
+.mfa-manual-setup {
+    margin-bottom: 1rem;
+}
+
+.mfa-manual-setup summary {
+    cursor: pointer;
+    font-weight: 800;
+}
+
+.mfa-manual-setup[open] summary {
+    margin-bottom: .75rem;
+}
