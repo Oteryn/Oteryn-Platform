@@ -7,6 +7,7 @@ on:
     paths:
       - .github/workflows/one-shot-public-web-final-staging.yml
       - deploy/synology/scripts/deploy.sh
+      - database/migrations/2026_07_26_183200_grant_wiki_permissions_to_editor_roles.php
 
 permissions:
   actions: write
@@ -158,6 +159,63 @@ jobs:
           echo "PLATFORM_CONTAINER=$platform_container" >> "$GITHUB_ENV"
           echo "PLATFORM_IMAGE=$actual_platform" >> "$GITHUB_ENV"
           echo "GATEWAY_IMAGE=$actual_gateway" >> "$GITHUB_ENV"
+
+      - name: Bootstrap the first staging administrator when required
+        run: |
+          set -euo pipefail
+          bootstrap_payload="$(docker exec -i "$PLATFORM_CONTAINER" php <<'PHP'
+          <?php
+          require '/var/www/html/vendor/autoload.php';
+          $app = require '/var/www/html/bootstrap/app.php';
+          $app->make(Illuminate\Contracts\Console\Kernel::class)->bootstrap();
+
+          $assignmentCount = Illuminate\Support\Facades\DB::table('identity_admin_roles')->count();
+          if ($assignmentCount > 0) {
+              echo "existing";
+              exit(0);
+          }
+
+          $candidates = App\Identity\Models\Identity::query()
+              ->whereNull('disabled_at')
+              ->orderBy('id')
+              ->get()
+              ->filter(fn (App\Identity\Models\Identity $identity): bool => $identity->hasConfirmedMfa())
+              ->values();
+
+          if ($candidates->count() !== 1) {
+              fwrite(STDERR, 'Expected exactly one enabled MFA-confirmed Identity for first administrator bootstrap; found '.$candidates->count().PHP_EOL);
+              exit(33);
+          }
+
+          echo "bootstrap".PHP_EOL.$candidates->first()->email;
+          PHP
+          )"
+
+          bootstrap_mode="$(sed -n '1p' <<<"$bootstrap_payload")"
+          case "$bootstrap_mode" in
+            existing)
+              echo "Administrator bootstrap already closed by an existing role assignment."
+              ;;
+            bootstrap)
+              publisher_email="$(sed -n '2p' <<<"$bootstrap_payload")"
+              if [[ -z "$publisher_email" ]]; then
+                echo "First-administrator candidate resolution returned an empty value." >&2
+                exit 1
+              fi
+              if ! bootstrap_output="$(docker exec "$PLATFORM_CONTAINER" php artisan admin:bootstrap "$publisher_email" 2>&1)"; then
+                unset publisher_email bootstrap_output
+                echo "Audited first-administrator bootstrap failed." >&2
+                exit 1
+              fi
+              unset publisher_email bootstrap_output
+              echo "Audited one-time first-administrator bootstrap completed."
+              ;;
+            *)
+              echo "Unexpected first-administrator bootstrap state." >&2
+              exit 1
+              ;;
+          esac
+          unset bootstrap_payload bootstrap_mode
 
       - name: Install or verify reviewed Wiki launch content
         run: |
