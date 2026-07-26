@@ -37,7 +37,7 @@ Coordinate, implement, validate and close the remaining approved non-commercial 
 
 - [x] Every approved Issue #145 requirement is reconciled against runtime code and exact merged evidence.
 - [x] Public Wiki, administration, safe rendering, search and approved media integration are complete in English and Polish.
-- [ ] Homepage, navigation, SEO, sitemap, robots, responsive and accessibility closure are complete.
+- [x] Homepage, navigation, SEO, sitemap, robots, responsive and accessibility closure are complete.
 - [ ] Approved initial Wiki publication content is present without invented gameplay facts.
 - [ ] All required exact-head validation passes.
 - [ ] Final trusted `main` is deployed to Synology staging through an existing reviewed workflow and live staging smoke passes.
@@ -59,7 +59,7 @@ modules:
   - Testing
 dependencies:
   - Issue #145
-  - merged PRs #146, #157, #158, #159, #160, #161, #175, #176, #191, #192, #194, #195, #196, #197, #198, #199, #201, #203 and #204
+  - merged PRs #146, #157, #158, #159, #160, #161, #175, #176, #191, #192, #194, #195, #196, #197, #198, #199, #201, #203, #204, #205 and #206
 blockers:
   - none for programme coordination
 cross_repository_tasks:
@@ -72,14 +72,14 @@ The programme task owns coordination only. Implementation paths must be claimed 
 
 | Requirement | Status | Exact evidence | Remaining action | Proposed owning PR |
 |---|---|---|---|---|
-| Production homepage and shared public shell | COMPLETE | PR #146; `HomePageQuery`; `home.blade.php`; shared header/footer | Preserve and extend without duplicating the shell. | homepage-navigation-seo child |
-| Dynamic world summary, published news and explicit runtime states | COMPLETE | PR #146; `HomePageQuery` and `PublicContentState` | Preserve AVAILABLE/EMPTY/STALE/UNAVAILABLE semantics. | homepage-navigation-seo child |
-| Announcements and Events modules | COMPLETE | PR #157; module code, routes and tests | No domain rewrite. | homepage-navigation-seo child |
-| Announcement ticker and upcoming event on homepage | MISSING | Current homepage view model contains only world and news | Compose delivered providers with truthful states and tests. | homepage-navigation-seo child |
-| Download Center | PARTIAL | PR #161; routes, query, views and tests | Add shared navigation/homepage discoverability and closure acceptance. | homepage-navigation-seo child |
-| Server information, beginner guide, support and legal baseline | COMPLETE | PR #159; typed editorial routes, queries and navigation | Preserve publication truth and trusted links. | homepage-navigation-seo child |
-| Guild index | PARTIAL | PR #160; route, query, view and tests | Add shared navigation discoverability and closure acceptance. | homepage-navigation-seo child |
-| PL/EN localization foundation | PARTIAL | PRs #175, #194 and #196; localized public Wiki and bilingual administration | Complete remaining shared-shell and closure acceptance. | homepage-navigation-seo and acceptance-closure children |
+| Production homepage and shared public shell | COMPLETE | PRs #146 and #206; `HomePageQuery`; `home.blade.php`; shared header/footer | Preserve without duplicating the shell. | none |
+| Dynamic world summary, published news and explicit runtime states | COMPLETE | PRs #146 and #206; `HomePageQuery` and `PublicContentState` | Preserve AVAILABLE/EMPTY/STALE/UNAVAILABLE semantics. | none |
+| Announcements and Events modules | COMPLETE | PRs #157 and #206; module code, routes, provider composition and tests | Preserve authoritative providers. | none |
+| Announcement ticker and upcoming event on homepage | COMPLETE | PR #206 / `1d063604a66dd3154f97a6f167377d54131cc516`; existing providers composed with truthful states | Preserve. | none |
+| Download Center | COMPLETE | PRs #161 and #206; routes, query, views, shared navigation and homepage discoverability | Preserve. | none |
+| Server information, beginner guide, support and legal baseline | COMPLETE | PRs #159 and #206; typed editorial routes, queries, navigation and sitemap publication truth | Preserve publication truth and trusted links. | none |
+| Guild index | COMPLETE | PRs #160 and #206; route, query, view, shared navigation and acceptance | Preserve. | none |
+| PL/EN localization foundation | COMPLETE | PRs #175, #194, #196 and #206; localized shell, Wiki, administration, metadata and browser acceptance | Preserve. | none |
 | Wiki persistence, lifecycle, revisions, locking, permissions and audit | COMPLETE | PR #158; Wiki foundation services and reversible persistence | Preserve service and concurrency boundaries. | none |
 | Public Wiki routes, categories, articles, breadcrumbs, TOC and related articles | COMPLETE | PR #194 / `9ed3861cc29dcaf6305c379de2bee5ee5ac923d6` | Preserve published-only and locale-freshness constraints. | none |
 | Safe Markdown rendering boundary | COMPLETE | PR #194; restricted CommonMark renderer and security regressions | Integrate only approved local media references; do not re-enable remote images. | PR #199 |
@@ -87,9 +87,9 @@ The programme task owns coordination only. Implementation paths must be claimed 
 | Wiki search | COMPLETE | PR #194; published-only locale-isolated bounded search | Preserve no-draft-leak and rate-limit behavior. | none |
 | Safe editorial image library foundation | COMPLETE | PR #176; reusable private media boundary | Preserve; do not duplicate storage or upload processing. | none |
 | Approved media consumer integration | COMPLETE | PR #199 / `f66c9944fd8110014773bd7cb7b58c9f49e45af0`; ADR 0014; transactional current-translation references; verified published-only delivery; signed administrator previews | Preserve the accepted Wiki-only boundary; Events and CMS remain excluded. | none |
-| Canonical and hreflang metadata | PARTIAL | PRs #175 and #194; localized SEO for current public and Wiki routes | Complete shared closure and verify all published content. | homepage-navigation-seo child |
-| Open Graph, sitemap and robots exclusions | MISSING | No complete programme-level sitemap/robots/OG closure evidence | Add metadata, sitemap, exclusions and noindex. | homepage-navigation-seo child |
-| Responsive, keyboard and accessibility closure | PARTIAL | PRs #194 and #196 cover public/admin Wiki; existing acceptance covers prior delivered surfaces | Add media and remaining homepage/SEO closure coverage. | implementation children plus acceptance closure |
+| Canonical and hreflang metadata | COMPLETE | PR #206; shared escaped metadata with freshness-aware equivalent alternates | Preserve. | none |
+| Open Graph, sitemap and robots exclusions | COMPLETE | PR #206; bounded OG metadata, fail-closed published-only sitemap and authoritative dynamic robots policy | Preserve. | none |
+| Responsive, keyboard and accessibility closure | COMPLETE | PR #206 exact-head critical acceptance plus prior public/admin Wiki coverage | Preserve required profiles. | none |
 | Initial approved Wiki content set | MISSING | No approved Wiki publication seed exists | Add only source-backed approved content. | wiki-content child |
 | Final Synology staging deployment | BLOCKED | Latest proven staging SHA predates the remaining implementation | Deploy exact final SHA through reviewed workflow and run live smoke after all children merge. | deployment-closure child |
 | Issue #145 closure | MISSING | Issue remains open | Update only from merged evidence and close after staging acceptance. | programme closure PR |
@@ -98,10 +98,10 @@ The programme task owns coordination only. Implementation paths must be claimed 
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-07-26T12:18:53Z
-head: f66c9944fd8110014773bd7cb7b58c9f49e45af0
-branch: docs/OTERYN-20260726-archive-wiki-editorial-media-integration
-pr: 205
+updated_at: 2026-07-26T13:29:00Z
+head: 1d063604a66dd3154f97a6f167377d54131cc516
+branch: docs/OTERYN-20260726-archive-homepage-navigation-seo
+pr: pending archival pull request
 status: implementing
 context_routes:
   - agent-governance
@@ -134,10 +134,12 @@ proven:
   - ADR 0014 is accepted and the runtime preserves private storage, exact Wiki permissions, current-reference synchronization, effective-publication delivery authorization and signed administrator previews
   - live open-pull-request reconciliation after PR 199 found no owner overlapping homepage, shared navigation, SEO, sitemap, robots or Open Graph closure
   - draft PR 205 is the documentation-only archival owner for the completed PR 199 child and this programme reconciliation
+  - PR 206 delivered the complete homepage, navigation, localized metadata, sitemap, robots and remaining responsive/accessibility child and squash-merged as 1d063604a66dd3154f97a6f167377d54131cc516
+  - production-like browser acceptance found and resolved a static robots-file shadow before PR 206 merge
 derived:
   - public Wiki and Wiki administration remain complete child slices
   - the Wiki-to-EditorialMedia child is complete and its implementation paths are released
-  - homepage-navigation-seo is the next independent non-overlapping bounded child
+  - the source-backed initial Wiki-content child is the next independent non-overlapping bounded child
   - staging still requires exact-final-SHA redeployment after all remaining implementation children merge
 unknown:
   - approved source text for gameplay-specific initial Wiki articles
@@ -165,9 +167,12 @@ validation:
   - command: Wiki-to-EditorialMedia child lifecycle
     result: PASS
     evidence: PR 199 passed required runtime and browser validation and squash-merged as f66c9944fd8110014773bd7cb7b58c9f49e45af0
+  - command: homepage-navigation-seo child lifecycle
+    result: PASS
+    evidence: PR 206 passed every exact-head runtime, static, image, governance and critical browser check and squash-merged as 1d063604a66dd3154f97a6f167377d54131cc516
 blockers:
   - none for programme coordination
-next_action: Merge documentation-only PR 205 after required governance checks pass, then create the bounded homepage-navigation-seo child task, branch and draft pull request from trusted main.
+next_action: Merge the homepage-navigation-seo archival pull request, then create the bounded source-backed initial Wiki-content child task, branch and draft pull request from trusted main.
 ```
 
 ## Notes

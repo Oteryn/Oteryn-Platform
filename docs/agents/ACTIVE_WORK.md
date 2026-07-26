@@ -5,7 +5,6 @@ Convenience index only. Individual active task records, live PRs and Git state a
 ## Active tasks
 
 - `OTERYN-20260725-public-web-programme-closure` — Issue #145 programme coordination; owns only its task record and delegates runtime paths to bounded child tasks.
-- `OTERYN-20260726-homepage-navigation-seo` — bounded homepage provider composition, public navigation/localization and SEO/sitemap/robots closure for Issue #145.
 
 ## Closed acceptance and release-preparation follow-ups
 
@@ -31,6 +30,7 @@ Convenience index only. Individual active task records, live PRs and Git state a
 - PR #197 / `a9adbe07317cac0311e9dd5761d45ceb8c7203f5` — Wiki administration task lifecycle archived.
 - PR #198 / `57716094cde335a0e8a661953bd3a5809ec12cb6` — Issue #145 programme checkpoint refreshed after the public and administrator Wiki deliveries.
 - PR #199 / `f66c9944fd8110014773bd7cb7b58c9f49e45af0` — approved private EditorialMedia objects integrated into Wiki editing, transactional references, published-only verified public bytes and signed administrator previews.
+- PR #206 / `1d063604a66dd3154f97a6f167377d54131cc516` — homepage announcement/event composition, Download and guild navigation, escaped localized metadata, published-only sitemap, authoritative robots policy and required browser closure merged.
 
 ## Current project phase
 
@@ -52,7 +52,7 @@ No staging evidence may be promoted to `PRODUCTION_PROVEN`.
 
 ## Next work
 
-Complete the bounded homepage/navigation/SEO child before the source-backed Wiki-content closure child.
+Complete the source-backed Wiki-content closure child without inventing gameplay facts.
 
 After the remaining Issue #145 child tasks merge, deploy the exact final trusted `main` SHA to Synology staging through the existing reviewed workflow and record live browser-smoke evidence.
 
