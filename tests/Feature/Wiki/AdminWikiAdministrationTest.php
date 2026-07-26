@@ -172,7 +172,7 @@ final class AdminWikiAdministrationTest extends TestCase
         ])->assertRedirect();
         $article->refresh();
         self::assertSame('draft', $article->status->value);
-        $this->get(route('wiki.article', ['locale' => 'en', 'slug' => 'installation-guide'))
+        $this->get(route('wiki.article', ['locale' => 'en', 'slug' => 'installation-guide']))
             ->assertNotFound();
     }
 
