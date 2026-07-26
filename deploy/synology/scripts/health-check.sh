@@ -76,6 +76,38 @@ probe_url gateway 8080 /health "Gateway /health"
 probe_url gateway 8080 /ready "Gateway /ready"
 probe_url gateway 8080 /version "Gateway /version"
 
+platform_container="${container_ids[platform]}"
+docker exec -i "$platform_container" php <<'PHP'
+<?php
+require '/var/www/html/vendor/autoload.php';
+
+$renderer = new App\Identity\Mfa\MfaQrCode();
+$uri = 'otpauth://totp/Oteryn%20Staging:test@example.invalid?secret=JBSWY3DPEHPK3PXP&issuer=Oteryn%20Staging';
+$dataUri = $renderer->dataUri($uri);
+
+if (! str_starts_with($dataUri, 'data:image/svg+xml;base64,')) {
+    fwrite(STDERR, "MFA QR renderer did not return an inline SVG data URI.\n");
+    exit(31);
+}
+
+$svg = base64_decode(substr($dataUri, strlen('data:image/svg+xml;base64,')), true);
+if (! is_string($svg) || ! str_contains($svg, '<svg') || str_contains($svg, $uri)) {
+    fwrite(STDERR, "MFA QR renderer output failed the bounded SVG checks.\n");
+    exit(32);
+}
+
+echo "MFA QR renderer verified.\n";
+PHP
+
+docker exec "$platform_container" grep -q 'Scan with your authenticator app' /var/www/html/resources/views/identity/mfa/settings.blade.php
+docker exec "$platform_container" grep -q 'mfa-qr' /var/www/html/public/css/mfa.css
+anonymous_mfa_status="$(curl --silent --output /dev/null --write-out '%{http_code}' "http://${PLATFORM_BIND_ADDRESS}:${PLATFORM_PORT}/mfa")"
+if [[ "$anonymous_mfa_status" != "302" ]]; then
+    echo "Anonymous MFA settings boundary returned HTTP ${anonymous_mfa_status}; expected 302." >&2
+    exit 1
+fi
+echo "Verified QR-first MFA renderer and protected anonymous MFA boundary."
+
 if ! docker run --rm \
     --network "container:${container_ids[canary]}" \
     alpine:3.22 \
@@ -93,4 +125,4 @@ if [[ "$CANARY_GAME_BIND_ADDRESS" != "127.0.0.1" ]]; then
     echo "Verified LAN game endpoint: ${CANARY_GAME_BIND_ADDRESS}:${CANARY_GAME_PORT}"
 fi
 
-echo "Platform, Gateway and Canary staging probes passed."
+echo "Platform, Gateway, Canary and MFA QR staging probes passed."
