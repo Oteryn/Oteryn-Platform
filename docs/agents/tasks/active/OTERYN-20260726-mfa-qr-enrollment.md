@@ -29,10 +29,11 @@ Make local QR scanning the primary authenticator-app enrollment path while retai
 - [ ] Pending MFA enrollment renders a locally generated inline SVG QR code for the existing `otpauth://` provisioning URI.
 - [ ] No MFA secret or provisioning URI is sent to an external QR service.
 - [ ] Google Authenticator and other TOTP apps can scan the QR code and produce a valid six-digit code.
+- [ ] The QR code has a high-contrast background and remains usable on desktop and mobile widths.
 - [ ] Manual key entry remains available as an explicit fallback.
 - [ ] Invalid non-TOTP provisioning URIs fail closed.
 - [ ] Confirmed MFA, disabling MFA and recovery-code behavior remain unchanged.
-- [ ] Focused unit/feature tests, formatter, static analysis, CI and required acceptance pass on the exact head.
+- [ ] Focused tests, formatter, static analysis, CI and required browser acceptance pass on the exact head.
 
 ## Ownership
 
@@ -42,6 +43,8 @@ owned_paths:
   - app/Identity/Mfa/MfaQrCode.php
   - composer.json
   - composer.lock
+  - public/css/mfa.css
+  - resources/views/identity/layout.blade.php
   - resources/views/identity/mfa/settings.blade.php
   - tests/Unit/Identity/MfaQrCodeTest.php
   - docs/agents/ACTIVE_WORK.md
@@ -63,8 +66,8 @@ cross_repository_tasks: []
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-07-26T21:25:00Z
-head: dd932d62b16df29687045615aaeb7d0b2cb2a10c
+updated_at: 2026-07-26T21:27:00Z
+head: 0d70804a236c14a7775c7ec85137071533245923
 branch: feat/OTERYN-20260726-mfa-qr-enrollment
 pr: 214
 status: validating
@@ -73,6 +76,7 @@ context_routes:
   - identity
   - security
   - testing
+  - accessibility
 owned_paths:
   - paths listed in Ownership
 proven:
@@ -83,6 +87,7 @@ proven:
   - the implementation renders a data URI from the existing provisioning URI and keeps manual entry collapsed as fallback
   - invalid non-TOTP provisioning URIs are rejected before rendering
   - the QR renderer has focused unit coverage and does not embed the original otpauth URI as readable SVG text
+  - the view gives the QR code a fixed white backing surface and responsive maximum width for reliable camera scanning on the dark identity theme
   - PR 213 released all overlapping QR-owned paths and recorded PR 214 as a staging prerequisite
   - the temporary Composer workflow generated and validated the lockfile and was removed
   - no production, staging-data, router, DSM, Internet-exposure, Canary/login-server repository or external-repository write occurred
@@ -98,6 +103,8 @@ changed_paths:
   - app/Identity/Mfa/MfaQrCode.php
   - composer.json
   - composer.lock
+  - public/css/mfa.css
+  - resources/views/identity/layout.blade.php
   - resources/views/identity/mfa/settings.blade.php
   - tests/Unit/Identity/MfaQrCodeTest.php
   - docs/agents/ACTIVE_WORK.md
