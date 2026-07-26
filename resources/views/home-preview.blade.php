@@ -1,11 +1,8 @@
 @extends('game.layout')
 
 @section('title', 'Homepage design preview')
+@section('robots', 'noindex,nofollow')
 @section('page-class', 'preview-home-shell')
-
-@push('head')
-    <meta name="robots" content="noindex,nofollow">
-@endpush
 
 @push('styles')
     <link rel="stylesheet" href="{{ asset('css/home-preview.css') }}">

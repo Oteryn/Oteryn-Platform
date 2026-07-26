@@ -1,4 +1,4 @@
-<section class="card" aria-labelledby="announcement-ticker-title">
+<section class="card" data-content-state="{{ $ticker->state->value }}" aria-labelledby="announcement-ticker-title">
     <div class="section-heading">
         <p class="eyebrow">{{ __('public.announcements.notices') }}</p>
         <h2 id="announcement-ticker-title">{{ __('public.announcements.title') }}</h2>

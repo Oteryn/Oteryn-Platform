@@ -9,6 +9,8 @@ return [
         'open_menu' => 'Open navigation',
         'menu' => 'Menu',
         'home' => 'home',
+        'download' => 'Download',
+        'guilds' => 'Guilds',
         'group_links' => ':group links',
     ],
     'account' => [
@@ -32,6 +34,12 @@ return [
     'footer' => [
         'description' => 'Public world information and secure account services.',
         'status' => 'Live game and service data can become temporarily unavailable. The portal does not replace missing data with fabricated values.',
+    ],
+    'seo' => [
+        'site_name' => 'Oteryn Platform',
+        'default_description' => 'Explore :title on Oteryn Platform through published content and truthful public world information.',
+        'og_locale' => 'en_US',
+        'og_alternate_locale' => 'pl_PL',
     ],
     'states' => [
         'available' => 'Available',
@@ -87,6 +95,16 @@ return [
         'create_character_help' => 'Begin a new adventure through the approved flow.',
         'meet_heroes' => 'Meet the heroes',
         'meet_heroes_help' => 'Explore the current public rankings.',
+        'community_updates' => 'Community updates',
+        'discover' => 'Explore Oteryn',
+        'continue_journey' => 'Continue your journey',
+        'continue_journey_help' => 'Every destination below is an active public route with its own truthful availability and publication rules.',
+        'download_help' => 'Choose an approved current client build and verify its published checksum metadata.',
+        'guide_help' => 'Read the published installation and first-login guidance.',
+        'wiki_help' => 'Browse reviewed guides and reference articles.',
+        'events_help' => 'See approved active, upcoming and archived events.',
+        'guilds_help' => 'Discover public guilds through the read-only game-data boundary.',
+        'support_help' => 'Open approved support, security and reporting guidance.',
     ],
     'news' => [
         'title' => 'News',

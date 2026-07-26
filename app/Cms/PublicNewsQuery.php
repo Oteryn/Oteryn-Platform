@@ -49,6 +49,18 @@ final class PublicNewsQuery
             ->first();
     }
 
+    /** @return list<string> */
+    public function publishedSlugs(?DateTimeInterface $readTime = null): array
+    {
+        $readTime ??= now();
+
+        return array_values($this->visibleAt($readTime)
+            ->orderBy('news_posts.slug')
+            ->get(['news_posts.slug'])
+            ->map(static fn (NewsPost $post): string => $post->slug)
+            ->all());
+    }
+
     /** @return Builder<NewsPost> */
     private function visibleAt(DateTimeInterface $readTime): Builder
     {

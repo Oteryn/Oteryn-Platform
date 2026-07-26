@@ -144,6 +144,25 @@ final class DatabasePublicWikiQuery implements PublicWikiQuery
         return $this->nullableInteger($id);
     }
 
+    /** @return array{articles: list<string>, categories: list<string>} */
+    public function sitemapSlugs(string $locale): array
+    {
+        WikiContentRules::assertSupportedLocale($locale);
+
+        return [
+            'articles' => array_values($this->publishedArticles($locale)
+                ->orderBy('wt.slug')
+                ->get(['wt.slug'])
+                ->map(fn (stdClass $row): string => $this->string($row->slug))
+                ->all()),
+            'categories' => array_values($this->visibleCategories($locale)
+                ->orderBy('ct.slug')
+                ->get(['ct.slug'])
+                ->map(fn (stdClass $row): string => $this->string($row->slug))
+                ->all()),
+        ];
+    }
+
     /** @return list<WikiCategoryCard> */
     private function categoryCards(string $locale, ?int $parentId): array
     {

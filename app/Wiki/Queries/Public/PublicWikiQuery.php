@@ -21,4 +21,7 @@ interface PublicWikiQuery
     public function publishedArticleId(string $locale, string $slug): ?int;
 
     public function visibleCategoryId(string $locale, string $slug): ?int;
+
+    /** @return array{articles: list<string>, categories: list<string>} */
+    public function sitemapSlugs(string $locale): array;
 }

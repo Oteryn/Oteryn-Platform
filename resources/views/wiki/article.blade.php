@@ -1,6 +1,8 @@
 @extends('game.layout')
 
 @section('title', $article->title)
+@section('description', $article->summary)
+@section('og-type', 'article')
 @section('page-class', 'wiki-page wiki-article-page')
 
 @push('head')

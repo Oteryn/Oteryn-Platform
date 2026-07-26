@@ -1,6 +1,8 @@
 @extends('game.layout')
 
 @section('title', $event['title'])
+@section('description', $event['summary'])
+@section('og-type', 'article')
 
 @section('content')
     @inject('localeFormatter', 'App\Localization\LocaleFormatter')
