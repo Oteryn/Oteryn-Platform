@@ -21,20 +21,30 @@ jobs:
           set -euo pipefail
           python3 - <<'PY'
           from pathlib import Path
+          import re
 
           path = Path('tests/Feature/Identity/Mfa/MfaWebFlowTest.php')
           text = path.read_text()
-          old = """            ->assertHeaderContains('Cache-Control', 'no-store')
-              ->assertSee($identity->two_factor_secret)
-              ->assertSee('otpauth://totp', false);"""
-          new = """            ->assertHeaderContains('Cache-Control', 'no-store')
-              ->assertSee('Scan with your authenticator app')
-              ->assertSee('data:image/svg+xml;base64,', false)
-              ->assertSee($identity->two_factor_secret)
-              ->assertDontSee('otpauth://totp', false);"""
-          if text.count(old) != 1:
-              raise SystemExit('Expected exact MFA assertion chain once.')
-          path.write_text(text.replace(old, new))
+          pattern = re.compile(
+              r"(?m)^(?P<indent>\s*)->assertHeaderContains\('Cache-Control', 'no-store'\)\n"
+              r"(?P=indent)->assertSee\(\$identity->two_factor_secret\)\n"
+              r"(?P=indent)->assertSee\('otpauth://totp', false\);"
+          )
+
+          def replacement(match: re.Match[str]) -> str:
+              indent = match.group('indent')
+              return "\n".join([
+                  f"{indent}->assertHeaderContains('Cache-Control', 'no-store')",
+                  f"{indent}->assertSee('Scan with your authenticator app')",
+                  f"{indent}->assertSee('data:image/svg+xml;base64,', false)",
+                  f"{indent}->assertSee($identity->two_factor_secret)",
+                  f"{indent}->assertDontSee('otpauth://totp', false);",
+              ])
+
+          updated, count = pattern.subn(replacement, text)
+          if count != 1:
+              raise SystemExit(f'Expected one MFA assertion chain, matched {count}.')
+          path.write_text(updated)
           PY
       - name: Commit focused regression update
         run: |
