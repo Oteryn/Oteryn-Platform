@@ -38,8 +38,8 @@ Coordinate, implement, validate and close the remaining approved non-commercial 
 - [x] Every approved Issue #145 requirement is reconciled against runtime code and exact merged evidence.
 - [x] Public Wiki, administration, safe rendering, search and approved media integration are complete in English and Polish.
 - [x] Homepage, navigation, SEO, sitemap, robots, responsive and accessibility closure are complete.
-- [ ] Approved initial Wiki publication content is present without invented gameplay facts.
-- [ ] All required exact-head validation passes.
+- [x] Approved initial Wiki publication content is present without invented gameplay facts.
+- [x] All implementation-child required exact-head validation passes.
 - [ ] Final trusted `main` is deployed to Synology staging through an existing reviewed workflow and live staging smoke passes.
 - [ ] Issue #145 is updated and closed only after its real completion criteria are satisfied.
 - [ ] All child tasks are archived and no overlapping implementation PR remains.
@@ -59,14 +59,14 @@ modules:
   - Testing
 dependencies:
   - Issue #145
-  - merged PRs #146, #157, #158, #159, #160, #161, #175, #176, #191, #192, #194, #195, #196, #197, #198, #199, #201, #203, #204, #205 and #206
+  - merged PRs #146, #157, #158, #159, #160, #161, #175, #176, #191, #192, #194, #195, #196, #197, #198, #199, #201, #203, #204, #205, #206, #207 and #208
 blockers:
   - none for programme coordination
 cross_repository_tasks:
   - none
 ```
 
-The programme task owns coordination only. Implementation paths must be claimed by bounded child tasks and draft PRs before modification.
+The programme task owns coordination only. Deployment and closure paths must be claimed by a bounded child task and draft PR before modification.
 
 ## Implementation reconciliation
 
@@ -82,26 +82,26 @@ The programme task owns coordination only. Implementation paths must be claimed 
 | PL/EN localization foundation | COMPLETE | PRs #175, #194, #196 and #206; localized shell, Wiki, administration, metadata and browser acceptance | Preserve. | none |
 | Wiki persistence, lifecycle, revisions, locking, permissions and audit | COMPLETE | PR #158; Wiki foundation services and reversible persistence | Preserve service and concurrency boundaries. | none |
 | Public Wiki routes, categories, articles, breadcrumbs, TOC and related articles | COMPLETE | PR #194 / `9ed3861cc29dcaf6305c379de2bee5ee5ac923d6` | Preserve published-only and locale-freshness constraints. | none |
-| Safe Markdown rendering boundary | COMPLETE | PR #194; restricted CommonMark renderer and security regressions | Integrate only approved local media references; do not re-enable remote images. | PR #199 |
+| Safe Markdown rendering boundary | COMPLETE | PRs #194 and #199; restricted CommonMark plus approved local media syntax | Preserve remote-image and raw-HTML rejection. | none |
 | Wiki administration | COMPLETE | PR #196 / `f512f1e3a9bd567d40ddb09b699291c99a1b65f8` | Preserve auth + confirmed MFA + exact permission and optimistic locking. | none |
 | Wiki search | COMPLETE | PR #194; published-only locale-isolated bounded search | Preserve no-draft-leak and rate-limit behavior. | none |
 | Safe editorial image library foundation | COMPLETE | PR #176; reusable private media boundary | Preserve; do not duplicate storage or upload processing. | none |
-| Approved media consumer integration | COMPLETE | PR #199 / `f66c9944fd8110014773bd7cb7b58c9f49e45af0`; ADR 0014; transactional current-translation references; verified published-only delivery; signed administrator previews | Preserve the accepted Wiki-only boundary; Events and CMS remain excluded. | none |
+| Approved media consumer integration | COMPLETE | PR #199 / `f66c9944fd8110014773bd7cb7b58c9f49e45af0`; ADR 0014; transactional references; verified published-only delivery; signed administrator previews | Preserve the accepted Wiki-only boundary; Events and CMS remain excluded. | none |
 | Canonical and hreflang metadata | COMPLETE | PR #206; shared escaped metadata with freshness-aware equivalent alternates | Preserve. | none |
 | Open Graph, sitemap and robots exclusions | COMPLETE | PR #206; bounded OG metadata, fail-closed published-only sitemap and authoritative dynamic robots policy | Preserve. | none |
-| Responsive, keyboard and accessibility closure | COMPLETE | PR #206 exact-head critical acceptance plus prior public/admin Wiki coverage | Preserve required profiles. | none |
-| Initial approved Wiki content set | MISSING | No approved Wiki publication seed exists | Add only source-backed approved content. | wiki-content child |
-| Final Synology staging deployment | BLOCKED | Latest proven staging SHA predates the remaining implementation | Deploy exact final SHA through reviewed workflow and run live smoke after all children merge. | deployment-closure child |
-| Issue #145 closure | MISSING | Issue remains open | Update only from merged evidence and close after staging acceptance. | programme closure PR |
+| Responsive, keyboard and accessibility closure | COMPLETE | PRs #194, #196, #199, #206 and #208 required browser profiles | Preserve required profiles. | none |
+| Initial approved Wiki content set | COMPLETE | PR #208 / `f8002191f0e5270dc4191227fd01d5e709ee5ab6`; thirteen bilingual source-backed topics and conflict-safe operator provisioning | Archive the completed child lifecycle. | PR #208 archival child |
+| Final Synology staging deployment | PENDING | Final implementation main is `f8002191f0e5270dc4191227fd01d5e709ee5ab6`; no post-PR-208 live staging evidence is recorded | Deploy the exact final trusted main SHA through a reviewed workflow and run live smoke after archival merge. | deployment-closure child |
+| Issue #145 closure | PENDING | All implementation requirements are merged; staging evidence remains outstanding | Close only after exact-SHA staging acceptance and archival reconciliation. | programme closure task |
 
 ## Context checkpoint
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-07-26T13:29:30Z
-head: 41d4920e9fbf2cb5ea382be284bc63eeae006a0e
-branch: docs/OTERYN-20260726-archive-homepage-navigation-seo
-pr: 207
+updated_at: 2026-07-26T16:48:00Z
+head: f8002191f0e5270dc4191227fd01d5e709ee5ab6
+branch: docs/OTERYN-20260726-archive-source-backed-wiki-content
+pr: archive-pending
 status: implementing
 context_routes:
   - agent-governance
@@ -118,62 +118,45 @@ context_routes:
 owned_paths:
   - docs/agents/tasks/active/OTERYN-20260725-public-web-programme-closure.md
 proven:
-  - trusted main is f66c9944fd8110014773bd7cb7b58c9f49e45af0 after merged PR 199
+  - trusted main is f8002191f0e5270dc4191227fd01d5e709ee5ab6 after PR 208 squash merge
   - Issue 145 remains open
-  - PR 194 delivered public published-only English and Polish Wiki reads, restricted Markdown rendering and locale-isolated search as 9ed3861cc29dcaf6305c379de2bee5ee5ac923d6
-  - PR 196 delivered trusted Wiki administration as f512f1e3a9bd567d40ddb09b699291c99a1b65f8
-  - EditorialMedia reserves the WIKI consumer and provides locked attach and bounded release operations
-  - draft PR 199 and active task OTERYN-20260726-wiki-editorial-media-integration are the authoritative bounded owner for Wiki-to-EditorialMedia integration
-  - duplicate draft PR 200 was closed without runtime changes after the ownership conflict was detected
-  - PR 199 was synchronized with trusted main through merge commit aa55f44bc0e2ebc594bd966ced40b6e6d005dff3
-  - PR 202 changes only this programme task record to correct the authoritative owner
-  - no other open implementation PR owns the declared Wiki-to-EditorialMedia paths
+  - public Wiki reads, search, administration and EditorialMedia integration are merged through PRs 194, 196 and 199
+  - homepage composition, navigation, localization, metadata, sitemap, robots and shared browser closure are merged through PR 206
+  - PR 208 delivered exactly thirteen bilingual source-backed Wiki launch topics through exact-permission MFA-confirmed conflict-safe operator provisioning
+  - PR 208 implementation and ready-checkpoint heads each passed all seven required workflows including cross-browser Acceptance E2E and Visual UX
+  - PR 208 had no comments, reviews or unresolved review threads and squash-merged as f8002191f0e5270dc4191227fd01d5e709ee5ab6
+  - the source-backed Wiki-content active task has been moved to its archive path on the documentation-only archival branch
+  - no open runtime implementation child remains for Issue 145
   - no write occurred outside blakinio/Oteryn-Platform
   - no production, router, DSM, Internet-exposure or external-repository action occurred
-  - PR 199 delivered the complete accepted Wiki-to-EditorialMedia child and squash-merged as f66c9944fd8110014773bd7cb7b58c9f49e45af0 after every required exact-head check passed
-  - ADR 0014 is accepted and the runtime preserves private storage, exact Wiki permissions, current-reference synchronization, effective-publication delivery authorization and signed administrator previews
-  - live open-pull-request reconciliation after PR 199 found no owner overlapping homepage, shared navigation, SEO, sitemap, robots or Open Graph closure
-  - draft PR 205 is the documentation-only archival owner for the completed PR 199 child and this programme reconciliation
-  - PR 206 delivered the complete homepage, navigation, localized metadata, sitemap, robots and remaining responsive/accessibility child and squash-merged as 1d063604a66dd3154f97a6f167377d54131cc516
-  - production-like browser acceptance found and resolved a static robots-file shadow before PR 206 merge
-  - draft PR 207 is the documentation-only archival owner for the completed PR 206 child and this programme reconciliation
 derived:
-  - public Wiki and Wiki administration remain complete child slices
-  - the Wiki-to-EditorialMedia child is complete and its implementation paths are released
-  - the source-backed initial Wiki-content child is the next independent non-overlapping bounded child
-  - staging still requires exact-final-SHA redeployment after all remaining implementation children merge
+  - all approved Issue 145 implementation scope is merged
+  - programme completion now requires only the PR 208 archival lifecycle, exact-final-SHA Synology staging deployment, live browser smoke and Issue 145 closure
 unknown:
-  - approved source text for gameplay-specific initial Wiki articles
-  - exact current programme-level functional and visual closure record paths
-  - whether Events or CMS image consumers are approved beyond Wiki-first integration
+  - exact final Synology staging deployment run and resulting live-smoke evidence
+  - whether the authoritative game-login bridge is required for launch scope under separate authorization
 conflicts: []
 first_failure:
-  marker: none
-  evidence: the PR 199 browser picker failure was repaired and every required exact-head workflow passed before merge
+  marker: resolved-wiki-launch-content-browser-test-specificity
+  evidence: two over-broad Playwright selectors were corrected without runtime changes and all required exact-head workflows passed before PR 208 merge
 rejected_hypotheses:
-  - PR 200 is the authoritative media child: live PR state and its closure comment identify PR 199 as the selected owner
-  - PR 176 integrated media consumers: its merged scope explicitly excluded consumers
+  - initial Wiki content still requires invented gameplay facts: PR 208 explicitly represents unapproved values as unavailable and traces substantive claims to accepted sources
+  - staging evidence can be inferred from CI or image builds: final live Synology staging deployment and browser smoke remain separate required evidence
 changed_paths:
   - docs/agents/tasks/active/OTERYN-20260725-public-web-programme-closure.md
 validation:
-  - command: repository, task, Issue 145 and pull-request reconciliation
+  - command: source-backed Wiki-content child lifecycle
     result: PASS
-    evidence: trusted main 45297ec561075b62c36b7350b878b46cbd7c44fc, open draft PR 199, closed duplicate PR 200 and current overlap search
-  - command: authoritative child branch synchronization
+    evidence: PR 208 passed focused, complete Wiki and all seven exact-head workflows and squash-merged as f8002191f0e5270dc4191227fd01d5e709ee5ab6
+  - command: PR 208 review reconciliation
     result: PASS
-    evidence: PR 199 branch includes main through merge commit aa55f44bc0e2ebc594bd966ced40b6e6d005dff3
-  - command: correction pull request creation
+    evidence: no comments, reviews, requested changes or unresolved review threads remained before merge
+  - command: programme requirement reconciliation
     result: PASS
-    evidence: PR 202 owns only this programme checkpoint correction
-  - command: Wiki-to-EditorialMedia child lifecycle
-    result: PASS
-    evidence: PR 199 passed required runtime and browser validation and squash-merged as f66c9944fd8110014773bd7cb7b58c9f49e45af0
-  - command: homepage-navigation-seo child lifecycle
-    result: PASS
-    evidence: PR 206 passed every exact-head runtime, static, image, governance and critical browser check and squash-merged as 1d063604a66dd3154f97a6f167377d54131cc516
+    evidence: every Issue 145 implementation row is COMPLETE; only exact-final-SHA staging and closure remain pending
 blockers:
-  - none for programme coordination
-next_action: Verify and merge documentation-only PR 207, then create the bounded source-backed initial Wiki-content child task, branch and draft pull request from trusted main.
+  - none for documentation-only archival reconciliation
+next_action: Create the documentation-only archival pull request for the completed PR 208 task lifecycle.
 ```
 
 ## Notes
