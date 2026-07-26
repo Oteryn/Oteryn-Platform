@@ -98,10 +98,10 @@ The programme task owns coordination only. Implementation paths must be claimed 
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-07-26T09:05:00Z
-head: a9adbe07317cac0311e9dd5761d45ceb8c7203f5
+updated_at: 2026-07-26T09:10:00Z
+head: e0acbf4307e5ddab01ffeebc3e5b5f2cdba30deb
 branch: docs/OTERYN-20260725-public-web-programme-post-wiki
-pr: none
+pr: 198
 status: implementing
 context_routes:
   - agent-governance
@@ -127,7 +127,8 @@ proven:
   - all required workflows passed on the exact final heads of PRs 194 and 196 and on their checkpoint-only heads
   - Wiki public and administrator routes now reuse the existing lifecycle, revisions, optimistic locking, exact permissions, audit and restricted renderer boundaries
   - EditorialMedia reserves the WIKI consumer and provides transactional attach/release reference management
-  - no open PR owns Wiki-to-EditorialMedia consumer integration paths
+  - PR 198 is the only open programme-checkpoint owner and changes only this task record
+  - no open implementation PR owns Wiki-to-EditorialMedia consumer integration paths
   - EditorialMedia consumer integration remains absent and public Wiki images remain blocked
   - no write occurred outside blakinio/Oteryn-Platform
   - no production, router, DSM, Internet-exposure or external-repository action occurred
@@ -159,7 +160,7 @@ validation:
     evidence: no mounted writable repository checkout in the current sandbox
 blockers:
   - current session lacks a writable checkout for runtime child implementation
-next_action: Publish and merge this checkpoint update, then create the bounded Wiki-to-EditorialMedia child task, branch and draft PR from current main.
+next_action: Merge PR 198 after required checks pass, then create the bounded Wiki-to-EditorialMedia child task, branch and draft PR from updated main.
 ```
 
 ## Notes
