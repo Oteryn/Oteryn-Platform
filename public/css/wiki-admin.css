@@ -1,0 +1,132 @@
+.wiki-admin-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 1rem;
+    margin: 1.5rem 0;
+}
+
+.wiki-admin-stat {
+    min-width: 0;
+}
+
+.wiki-admin-stat strong {
+    display: block;
+    margin-top: 0.35rem;
+    font-size: clamp(1.7rem, 4vw, 2.5rem);
+}
+
+.wiki-form-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 1rem;
+}
+
+.wiki-translation-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 1rem;
+    margin: 1.25rem 0;
+}
+
+.wiki-translation-panel {
+    min-width: 0;
+}
+
+.wiki-category-options {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.5rem 1rem;
+    margin: 0.5rem 0 0;
+}
+
+.wiki-category-option {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.55rem;
+    padding: 0.6rem;
+    border: 1px solid var(--border-color, #393939);
+    border-radius: 0.45rem;
+}
+
+.wiki-category-option input {
+    margin-top: 0.2rem;
+}
+
+.wiki-status-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.65rem;
+    align-items: center;
+}
+
+.wiki-preview {
+    max-width: 78rem;
+}
+
+.wiki-preview-layout {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(14rem, 20rem);
+    gap: 2rem;
+    align-items: start;
+}
+
+.wiki-preview-content {
+    min-width: 0;
+    overflow-wrap: anywhere;
+}
+
+.wiki-preview-content table {
+    display: block;
+    max-width: 100%;
+    overflow-x: auto;
+}
+
+.wiki-preview-toc {
+    position: sticky;
+    top: 1rem;
+}
+
+.wiki-preview-toc ol {
+    margin: 0;
+    padding-left: 1.25rem;
+}
+
+.wiki-code-field {
+    min-height: 24rem;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    line-height: 1.5;
+}
+
+.wiki-filter-form {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr)) auto;
+    gap: 0.75rem;
+    align-items: end;
+    margin-bottom: 1rem;
+}
+
+.wiki-inline-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem 1rem;
+    align-items: center;
+}
+
+@media (max-width: 900px) {
+    .wiki-admin-grid,
+    .wiki-form-grid,
+    .wiki-translation-grid,
+    .wiki-preview-layout,
+    .wiki-filter-form {
+        grid-template-columns: 1fr;
+    }
+
+    .wiki-category-options {
+        grid-template-columns: 1fr;
+    }
+
+    .wiki-preview-toc {
+        position: static;
+        order: -1;
+    }
+}
