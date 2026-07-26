@@ -125,10 +125,10 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-07-26T13:29:00Z
-head: 1d063604a66dd3154f97a6f167377d54131cc516
+updated_at: 2026-07-26T13:29:30Z
+head: 41d4920e9fbf2cb5ea382be284bc63eeae006a0e
 branch: docs/OTERYN-20260726-archive-homepage-navigation-seo
-pr: pending archival pull request
+pr: 207
 status: completed
 context_routes:
   - agent-governance
@@ -168,6 +168,7 @@ proven:
   - every required PR 206 check passes on correction head ea5c39cc2f0c39620174d0d4da08e8bd87ed1aaa
   - PR 206 has no review, requested-change or unresolved-thread blocker
   - PR 206 was marked ready and squash-merged to trusted main as 1d063604a66dd3154f97a6f167377d54131cc516 after every required exact-head check passed
+  - draft PR 207 is the documentation-only archival owner
 derived:
   - the task can extend the existing PublicPortal orchestration and navigation registry without new persistence or raw Canary reads
   - one bounded child can close homepage composition, navigation discoverability and their shared SEO/crawl-policy presentation because they converge on the existing public shell
@@ -222,7 +223,7 @@ validation:
     evidence: no reviews, requested changes or unresolved review threads
 blockers:
   - none
-next_action: Merge the documentation-only archival pull request, then begin the next non-overlapping Issue 145 Wiki-content child from trusted main.
+next_action: Verify exact-head PR 207 governance checks, then mark it ready and squash merge before beginning the next Issue 145 Wiki-content child.
 ```
 
 ## Notes

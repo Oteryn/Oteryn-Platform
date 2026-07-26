@@ -98,10 +98,10 @@ The programme task owns coordination only. Implementation paths must be claimed 
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-07-26T13:29:00Z
-head: 1d063604a66dd3154f97a6f167377d54131cc516
+updated_at: 2026-07-26T13:29:30Z
+head: 41d4920e9fbf2cb5ea382be284bc63eeae006a0e
 branch: docs/OTERYN-20260726-archive-homepage-navigation-seo
-pr: pending archival pull request
+pr: 207
 status: implementing
 context_routes:
   - agent-governance
@@ -136,6 +136,7 @@ proven:
   - draft PR 205 is the documentation-only archival owner for the completed PR 199 child and this programme reconciliation
   - PR 206 delivered the complete homepage, navigation, localized metadata, sitemap, robots and remaining responsive/accessibility child and squash-merged as 1d063604a66dd3154f97a6f167377d54131cc516
   - production-like browser acceptance found and resolved a static robots-file shadow before PR 206 merge
+  - draft PR 207 is the documentation-only archival owner for the completed PR 206 child and this programme reconciliation
 derived:
   - public Wiki and Wiki administration remain complete child slices
   - the Wiki-to-EditorialMedia child is complete and its implementation paths are released
@@ -172,7 +173,7 @@ validation:
     evidence: PR 206 passed every exact-head runtime, static, image, governance and critical browser check and squash-merged as 1d063604a66dd3154f97a6f167377d54131cc516
 blockers:
   - none for programme coordination
-next_action: Merge the homepage-navigation-seo archival pull request, then create the bounded source-backed initial Wiki-content child task, branch and draft pull request from trusted main.
+next_action: Verify and merge documentation-only PR 207, then create the bounded source-backed initial Wiki-content child task, branch and draft pull request from trusted main.
 ```
 
 ## Notes
