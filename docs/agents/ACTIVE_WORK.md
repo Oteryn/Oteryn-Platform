@@ -5,6 +5,7 @@ Convenience index only. Individual active task records, live PRs and Git state a
 ## Active tasks
 
 - `OTERYN-20260725-public-web-programme-closure` — Issue #145 programme coordination; owns only its task record and delegates runtime paths to bounded child tasks.
+- `OTERYN-20260726-homepage-navigation-seo` — bounded homepage provider composition, public navigation/localization and SEO/sitemap/robots closure for Issue #145.
 
 ## Closed acceptance and release-preparation follow-ups
 
@@ -51,7 +52,7 @@ No staging evidence may be promoted to `PRODUCTION_PROVEN`.
 
 ## Next work
 
-Archive the completed Wiki-to-EditorialMedia child, then start the non-overlapping homepage/navigation/SEO closure child before the source-backed Wiki-content closure child.
+Complete the bounded homepage/navigation/SEO child before the source-backed Wiki-content closure child.
 
 After the remaining Issue #145 child tasks merge, deploy the exact final trusted `main` SHA to Synology staging through the existing reviewed workflow and record live browser-smoke evidence.
 
