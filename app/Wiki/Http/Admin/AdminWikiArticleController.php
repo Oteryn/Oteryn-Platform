@@ -29,6 +29,7 @@ use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 use InvalidArgumentException;
 use RuntimeException;
+use stdClass;
 use Symfony\Component\HttpKernel\Exception\ConflictHttpException;
 
 final readonly class AdminWikiArticleController
@@ -37,14 +38,14 @@ final readonly class AdminWikiArticleController
 
     public function index(Request $request): View
     {
-        $filters = $request->validate([
+        $filters = $this->validatedArray($request->validate([
             'status' => ['nullable', 'string', Rule::in(array_map(
                 static fn (WikiArticleStatus $status): string => $status->value,
                 WikiArticleStatus::cases(),
             ))],
             'locale' => ['nullable', 'string', Rule::in(WikiLocale::values())],
             'category_id' => ['nullable', 'integer', 'exists:wiki_categories,id'],
-        ]);
+        ]));
         $status = $this->nullableValidatedString($filters, 'status');
         $locale = $this->nullableValidatedString($filters, 'locale');
         $categoryId = $this->nullableValidatedInteger($filters, 'category_id');
@@ -201,9 +202,9 @@ final readonly class AdminWikiArticleController
 
     public function revisions(Request $request, WikiArticle $article): View
     {
-        $validated = $request->validate([
+        $validated = $this->validatedArray($request->validate([
             'locale' => ['nullable', 'string', Rule::in(WikiLocale::values())],
-        ]);
+        ]));
         $locale = $this->nullableValidatedString($validated, 'locale');
         $query = WikiRevision::query()->where('article_id', $article->id);
 
@@ -360,10 +361,6 @@ final readonly class AdminWikiArticleController
     {
         $value = $translation[$field] ?? '';
 
-        if ($value === null) {
-            return '';
-        }
-
         if (! is_string($value)) {
             throw ValidationException::withMessages([
                 "translations.{$locale}.{$field}" => 'Wiki translation fields must be strings.',
@@ -378,10 +375,6 @@ final readonly class AdminWikiArticleController
     {
         $validated = $request->validated();
         $values = $validated['category_ids'] ?? [];
-
-        if ($values === null) {
-            return [];
-        }
 
         if (! is_array($values)) {
             throw ValidationException::withMessages([
@@ -402,7 +395,7 @@ final readonly class AdminWikiArticleController
         return $value === '' ? null : $value;
     }
 
-    /** @return Collection<int, object> */
+    /** @return Collection<int, stdClass> */
     private function categoryOptions(): Collection
     {
         return DB::table('wiki_categories as c')
@@ -427,7 +420,17 @@ final readonly class AdminWikiArticleController
             ->get();
     }
 
-    /** @param array<string, mixed> $validated */
+    /** @return array<array-key, mixed> */
+    private function validatedArray(mixed $validated): array
+    {
+        if (! is_array($validated)) {
+            throw new RuntimeException('Expected Laravel validation to return an array.');
+        }
+
+        return $validated;
+    }
+
+    /** @param array<array-key, mixed> $validated */
     private function nullableValidatedString(array $validated, string $key): ?string
     {
         $value = $validated[$key] ?? null;
@@ -435,7 +438,7 @@ final readonly class AdminWikiArticleController
         return is_string($value) && $value !== '' ? $value : null;
     }
 
-    /** @param array<string, mixed> $validated */
+    /** @param array<array-key, mixed> $validated */
     private function nullableValidatedInteger(array $validated, string $key): ?int
     {
         $value = $validated[$key] ?? null;
