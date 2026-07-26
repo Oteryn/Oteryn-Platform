@@ -10,6 +10,7 @@ on:
 permissions:
   actions: write
   contents: read
+  issues: write
   packages: read
 
 concurrency:
@@ -286,3 +287,47 @@ jobs:
           path: public-web-final-staging-evidence.json
           if-no-files-found: error
           retention-days: 14
+
+  report:
+    if: always()
+    needs:
+      - dispatch
+      - live-smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      DISPATCH_RESULT: ${{ needs.dispatch.result }}
+      LIVE_SMOKE_RESULT: ${{ needs.live-smoke.result }}
+      DEPLOY_RUN_ID: ${{ needs.dispatch.outputs.deploy_run_id }}
+      RELEASE_TAG: ${{ needs.dispatch.outputs.release_tag }}
+    steps:
+      - name: Report sanitized final-staging result to Issue 145
+        run: |
+          set -euo pipefail
+          outcome=FAIL
+          if [[ "$DISPATCH_RESULT" == success && "$LIVE_SMOKE_RESULT" == success ]]; then
+            outcome=PASS
+          fi
+
+          artifact_name="public-web-final-staging-${GITHUB_SHA}"
+          body="$(cat <<EOF
+          <!-- public-web-final-staging:${GITHUB_SHA}:${GITHUB_RUN_ID} -->
+          Final Synology staging closure result: **${outcome}**
+
+          - exact trusted main SHA: \`${GITHUB_SHA}\`
+          - release tag: \`${RELEASE_TAG:-unresolved}\`
+          - one-shot run: \`${GITHUB_RUN_ID}\`
+          - deployment run: \`${DEPLOY_RUN_ID:-unresolved}\`
+          - dispatch result: \`${DISPATCH_RESULT}\`
+          - live Chromium smoke result: \`${LIVE_SMOKE_RESULT}\`
+          - sanitized artifact: \`${artifact_name}\`
+
+          No identity email, secret, private path or image byte was included in this report. A PASS means exact deployed image tags, reviewed Wiki content installation/verification and all six bounded public browser assertions succeeded.
+          EOF
+          )"
+
+          gh api \
+            --method POST \
+            "repos/${GITHUB_REPOSITORY}/issues/145/comments" \
+            -f body="$body"
