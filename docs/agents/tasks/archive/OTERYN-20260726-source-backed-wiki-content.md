@@ -77,10 +77,10 @@ cross_repository_tasks: []
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-07-26T16:46:00Z
-head: f8002191f0e5270dc4191227fd01d5e709ee5ab6
+updated_at: 2026-07-26T16:50:30Z
+head: bc57fb579be8dcee27903d605b5de31f3d4d6a6a
 branch: docs/OTERYN-20260726-archive-source-backed-wiki-content
-pr: archive-pending
+pr: 209
 status: completed
 context_routes:
   - agent-governance
@@ -106,6 +106,7 @@ proven:
   - ready checkpoint head f1a24d9ce8b385e7afd83104ae123832405b3ab5 passed all seven required exact-head workflows
   - PR 208 had no comments, reviews or unresolved review threads
   - PR 208 was marked ready and squash-merged as f8002191f0e5270dc4191227fd01d5e709ee5ab6
+  - draft PR 209 is the documentation-only archival owner and changes only the archive, active-work index and programme checkpoint
   - no production, Canary/login-server, router, DSM or external-repository write occurred
 derived:
   - all approved Issue 145 implementation children are now merged
@@ -153,7 +154,7 @@ validation:
     result: PASS
     evidence: PR 208 squash-merged as f8002191f0e5270dc4191227fd01d5e709ee5ab6
 blockers: []
-next_action: Create and merge the documentation-only archival pull request for the completed PR 208 task lifecycle.
+next_action: Validate and merge documentation-only PR 209.
 ```
 
 ## Notes
