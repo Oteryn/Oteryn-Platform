@@ -42,14 +42,13 @@ Deliver a production-capable trusted-editor Wiki administration surface that reu
 - [x] A short-lived signed, authenticated and MFA-confirmed preview renders unpublished Markdown through the existing restricted renderer.
 - [x] Every privileged route uses `auth`, `mfa.confirmed` and the narrowest exact Wiki permission.
 - [x] Stale edits return an explicit HTTP 409 rather than silently overwriting newer work.
-- [ ] Administrator navigation, validation, authorization, audit, responsive, keyboard and security regressions pass on the exact final head.
+- [x] Administrator navigation, validation, authorization, audit, responsive, keyboard and security regressions pass on the exact implementation head.
 - [x] No EditorialMedia storage/upload implementation, gameplay content, commerce or external-repository write is introduced.
 
 ## Ownership
 
 ```yaml
 owned_paths:
-  - .github/workflows/wiki-admin-diagnostic.yml
   - app/Wiki/Application/WikiAdminArticleWriter.php
   - app/Wiki/Application/WikiAdminCategoryWriter.php
   - app/Wiki/Http/Admin/**
@@ -84,11 +83,11 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-07-26T08:12:00Z
-head: d567c8a8df452e096f1d8c68811be5dc05600039
+updated_at: 2026-07-26T08:45:00Z
+head: fa69e757d20f70a3690899c5444f94459de69c31
 branch: feat/OTERYN-20260726-wiki-administration
 pr: 196
-status: implementing
+status: ready
 context_routes:
   - agent-governance
   - architecture
@@ -102,31 +101,37 @@ owned_paths:
   - Wiki administration paths listed in Ownership
 proven:
   - trusted base main is c53e0f2a1a93de9275439aff573e5a713f5621b1
-  - PR 158 delivered Wiki lifecycle services, revisions, optimistic locking, exact permissions and audit
-  - PR 194 delivered published-only public reads, restricted CommonMark rendering and locale-isolated search
-  - draft PR 196 is the only active Wiki administration implementation owner
-  - administrator routes require auth, mfa.confirmed, wiki.access and the exact nested mutation permission
-  - controllers delegate lifecycle, revisions and category writes to existing Wiki application services
-  - article presentation and category assignment are composed transactionally with bounded audit metadata
-  - preview is temporary-signed, authenticated, MFA-confirmed, permission-checked and rendered by WikiMarkdownRenderer
-  - focused feature and browser acceptance coverage is present on the branch
-  - no external repository write is required
-  - no production, router, DSM or Internet-exposure action is authorized
+  - PR 196 is the only active Wiki administration implementation owner and has no review threads or submitted reviews
+  - trusted editors can manage bilingual articles, categories, lifecycle, signed previews and append-only revision restores through existing Wiki services
+  - administrator routes require auth, mfa.confirmed, wiki.access and the narrowest exact mutation permission
+  - article presentation and category assignment are transactional and audit metadata excludes article bodies
+  - stale article and category writes fail explicitly with HTTP 409
+  - exact implementation head fa69e757d20f70a3690899c5444f94459de69c31 removed the temporary diagnostic workflow
+  - CI run 30195019633 passed on the exact implementation head
+  - Agent Governance run 30195019643 passed on the exact implementation head
+  - Platform DB Outage Validation run 30195019625 passed on the exact implementation head
+  - Game Auth Ticket Concurrency run 30195019628 passed on the exact implementation head
+  - Phase 7 Production-Like Validation run 30195019624 passed on the exact implementation head
+  - Build Synology Staging Images run 30195019627 passed on the exact implementation head
+  - Acceptance E2E and Visual UX run 30195019626 passed responsive, portability, resilience and keyboard profiles on the exact implementation head
+  - trust boundary affected is administrator-only Wiki editorial control; public reads remain published-only
+  - authentication and authorization invariant is auth plus confirmed MFA plus exact deny-by-default Wiki permission
+  - no schema, session or compatibility change with Canary or login-server is introduced
+  - no migration rollback, secret or production-only configuration is involved
+  - no external repository, production, router, DSM or Internet-exposure write occurred
 derived:
-  - the remaining work in this child is exact-head formatting, static-analysis, PHPUnit and browser-workflow remediation
-  - media-consumer integration remains an independent later child task
-unknown:
-  - exact Pint, PHPStan or focused-test fixes pending the uploaded diagnostic artifact
+  - the Wiki administration child acceptance criteria are complete and PR 196 is ready for merge-lifecycle verification
+  - EditorialMedia-to-Wiki integration remains the next independent Issue 145 child after this task is merged and archived
+unknown: []
 conflicts: []
 first_failure:
-  marker: formatting
-  evidence: authoritative CI reaches Pint and fails before static analysis; a temporary artifact-only diagnostic workflow is collecting the formatted patch and focused outputs
+  marker: none
+  evidence: previous Pint, PHPStan and responsive-suite failures were remediated; every required workflow passed on fa69e757d20f70a3690899c5444f94459de69c31
 rejected_hypotheses:
   - combine safe media integration with administration: exceeds a bounded independently reviewable slice
   - create a second Wiki lifecycle implementation in controllers: duplicates the existing audited service boundary
-  - weaken formatting or required CI gates: prohibited by repository governance
+  - weaken formatting, static-analysis or browser gates: exact-head required workflows pass without weakening controls
 changed_paths:
-  - .github/workflows/wiki-admin-diagnostic.yml
   - app/Wiki/Application/WikiAdminArticleWriter.php
   - app/Wiki/Application/WikiAdminCategoryWriter.php
   - app/Wiki/Http/Admin/**
@@ -143,20 +148,23 @@ changed_paths:
   - docs/agents/ACTIVE_WORK.md
   - docs/agents/tasks/active/OTERYN-20260726-wiki-administration.md
 validation:
-  - command: repository, task and pull-request overlap reconciliation
+  - command: vendor/bin/pint --test, composer analyse and composer test
     result: PASS
-    evidence: trusted main, Issue #145, archived public Wiki task and current open PR state inspected through GitHub
-  - command: Agent Governance on implementation head before diagnostic workflow
+    evidence: CI run 30195019633 on fa69e757d20f70a3690899c5444f94459de69c31
+  - command: Acceptance E2E and Visual UX
     result: PASS
-    evidence: run 30193829055
-  - command: authoritative CI
-    result: FAIL
-    evidence: run 30194018387 reached Check formatting and stopped; no later gate is claimed
+    evidence: run 30195019626 on fa69e757d20f70a3690899c5444f94459de69c31
+  - command: Phase 7 Production-Like Validation
+    result: PASS
+    evidence: run 30195019624 on fa69e757d20f70a3690899c5444f94459de69c31
+  - command: Agent Governance, Platform DB Outage Validation, Game Auth Ticket Concurrency and Build Synology Staging Images
+    result: PASS
+    evidence: runs 30195019643, 30195019625, 30195019628 and 30195019627
 blockers:
   - none
-next_action: Read the Wiki Admin Diagnostic artifact, apply the exact Pint patch and remediate PHPStan or focused-test failures without weakening gates.
+next_action: Complete the PR 196 merge lifecycle by verifying the current checkpoint-only head, marking the PR ready, squash-merging it, and archiving this task.
 ```
 
 ## Notes
 
-The temporary diagnostic workflow must be removed before merge. Media references, initial gameplay content, homepage/SEO closure and final Synology deployment remain separate Issue #145 child tasks.
+EditorialMedia references, initial gameplay content, homepage/SEO closure and final Synology deployment remain separate Issue #145 child tasks.
