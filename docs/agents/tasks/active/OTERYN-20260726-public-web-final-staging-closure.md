@@ -58,15 +58,9 @@ owned_paths:
   - deploy/synology/.public-web-final-staging-trigger
   - deploy/synology/scripts/deploy.sh
   - database/migrations/2026_07_26_183200_grant_wiki_permissions_to_editor_roles.php
-  - app/Http/Controllers/Identity/Mfa/MfaEnrollmentController.php
-  - app/Identity/Mfa/MfaQrCode.php
-  - composer.json
-  - composer.lock
-  - resources/views/identity/mfa/settings.blade.php
   - tests/Feature/Admin/PublicModulePermissionReservationTest.php
   - tests/Feature/EditorialMedia/WikiEditorialMediaSecurityTest.php
   - tests/Feature/Wiki/WikiAuthorizationTest.php
-  - tests/Unit/Identity/MfaQrCodeTest.php
   - docs/agents/ACTIVE_WORK.md
   - docs/agents/tasks/active/OTERYN-20260725-public-web-programme-closure.md
   - docs/agents/tasks/active/OTERYN-20260726-public-web-final-staging-closure.md
@@ -77,7 +71,6 @@ modules:
   - PublicPortal
   - Wiki
   - AdminRbac
-  - Identity
   - Testing
   - AgentGovernance
 dependencies:
@@ -87,8 +80,10 @@ dependencies:
   - PR 210 merge a59a815472ab089572b6680a1f5fb4d9adcc3b44
   - PR 211 merge 62dedb894ffc3af55ba10a0717a6a892b87f1370
   - PR 212 merge b161983c4bf42ba21d00287bfad0418a605dd99c
+  - PR 214 QR-first MFA enrollment prerequisite
   - existing Deploy Synology Staging workflow
 blockers:
+  - PR 214 must be validated, merged and deployed to staging
   - exactly one existing enabled staging Identity must complete genuine MFA confirmation
 cross_repository_tasks: []
 ```
@@ -97,8 +92,8 @@ cross_repository_tasks: []
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-07-26T21:14:00Z
-head: 23058bacc18aef7bb8cf4150f098ce00aeb708b8
+updated_at: 2026-07-26T21:23:00Z
+head: 08a0a6ac385ba2baa7c4d93b9bb8615c2d70a166
 branch: chore/OTERYN-20260726-public-web-programme-final-cleanup
 pr: 213
 status: blocked
@@ -108,12 +103,11 @@ context_routes:
   - web-cms
   - database
   - admin-rbac
-  - identity
   - security
   - testing
   - accessibility
 owned_paths:
-  - final staging repair, Wiki RBAC, MFA QR enrollment and later cleanup paths listed in Ownership
+  - final staging repair, Wiki RBAC and later cleanup paths listed in Ownership
 proven:
   - PR 212 exact head 15381fa1b36e859b16c0b584b77cc6443d28f8d9 passed all six required workflows before squash merge
   - PR 212 squash-merged as trusted main b161983c4bf42ba21d00287bfad0418a605dd99c with the guarded final-staging marker
@@ -132,16 +126,14 @@ proven:
   - the guarded one-shot is prepared to call admin:bootstrap only when there are no role assignments and exactly one enabled MFA-confirmed Identity; zero or multiple candidates fail closed
   - the bootstrap candidate email is held only in process memory, is not printed and is unset after the audited command
   - no Identity, MFA confirmation or role assignment is created by migration
-  - PR 213 renders the existing otpauth provisioning URI locally as an inline SVG QR code using endroid/qr-code 6.1.3
-  - the MFA page keeps the manual secret only as a collapsed fallback and does not call a remote QR service
-  - SecurityHeaders already permits self-hosted and data URI images while keeping scripts, connections and other sources restricted to self
-  - the temporary dependency workflow generated and validated composer.json/composer.lock, committed them to the branch and was removed
+  - QR-first MFA enrollment was split into bounded draft PR 214 and all overlapping Identity, Composer and QR-test paths were restored to main in PR 213
+  - the temporary split workflow completed successfully and was removed
   - no production, router, DSM, Internet-exposure or external-repository action occurred
 derived:
   - the reverse-proxy deployment defect is resolved; the remaining closure blocker is genuine administrator identity state, not runtime health
-  - merging or rerunning before one Identity completes MFA would deterministically produce another fail-closed report and must be avoided
+  - merging or rerunning PR 213 before one Identity completes MFA would deterministically produce another fail-closed report and must be avoided
+  - PR 214 must reach staging first so the operator can complete MFA by scanning a locally generated QR code
   - after genuine MFA confirmation, the existing audited bootstrap can create the first platform_admin assignment and the new explicit Wiki role grants can make that Identity eligible for launch-content publication
-  - QR-first enrollment removes unnecessary manual transcription without weakening the existing password, TOTP confirmation, recovery-code or no-store boundaries
 unknown:
   - which existing staging Identity the operator will use for MFA confirmation; identity details must not be logged or stored in the task
   - exact final one-shot/deployment run identifiers until the MFA prerequisite is satisfied and PR 213 is merged
@@ -160,16 +152,10 @@ rejected_hypotheses:
 changed_paths:
   - .github/workflows/one-shot-public-web-final-staging.yml
   - .github/workflows/inspect-public-web-final-staging-pass.yml
-  - app/Http/Controllers/Identity/Mfa/MfaEnrollmentController.php
-  - app/Identity/Mfa/MfaQrCode.php
-  - composer.json
-  - composer.lock
   - database/migrations/2026_07_26_183200_grant_wiki_permissions_to_editor_roles.php
-  - resources/views/identity/mfa/settings.blade.php
   - tests/Feature/Admin/PublicModulePermissionReservationTest.php
   - tests/Feature/EditorialMedia/WikiEditorialMediaSecurityTest.php
   - tests/Feature/Wiki/WikiAuthorizationTest.php
-  - tests/Unit/Identity/MfaQrCodeTest.php
   - docs/agents/tasks/active/OTERYN-20260726-public-web-final-staging-closure.md
 validation:
   - command: PR 212 exact-head required workflows
@@ -184,12 +170,13 @@ validation:
   - command: sanitized staging RBAC inspection
     result: PASS
     evidence: identity_total 2, identity_enabled 2, identity_mfa_confirmed 0, identity_wiki_publisher_eligible 0, role_assignment_total 0
-  - command: Composer QR dependency generation
+  - command: QR ownership split
     result: PASS
-    evidence: workflow run 30220414999 added endroid/qr-code 6.1.3, validated Composer metadata and produced the committed lockfile without a remote QR service
+    evidence: workflow run 30220805419 restored all QR-owned paths to trusted main on PR 213 and its temporary workflow was removed
 blockers:
+  - PR 214 must be validated, merged and deployed to staging
   - exactly one existing enabled staging Identity must complete genuine MFA confirmation through the normal account security flow
-next_action: Complete exact-head PR 213 validation. Then deploy the QR-capable exact SHA only after exactly one existing enabled staging account completes genuine MFA enrollment and confirmation; do not provide the email, OTP, recovery code or MFA secret in GitHub or chat.
+next_action: Validate, merge and deploy PR 214. Then complete MFA enrollment and confirmation on exactly one existing enabled staging account without sharing the email, OTP, recovery code or MFA secret; resume PR 213 only after the sanitized confirmed-MFA count is exactly one.
 ```
 
 ## Notes
