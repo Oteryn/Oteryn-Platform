@@ -99,10 +99,10 @@ The programme task owns coordination only. Implementation paths must be claimed 
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-07-26T09:23:00Z
-head: 57716094cde335a0e8a661953bd3a5809ec12cb6
+updated_at: 2026-07-26T09:25:00Z
+head: 47abc9a7dc1f70eae4657808b0f56bf57bb47bca
 branch: docs/OTERYN-20260725-public-web-programme-start-wiki-media
-pr: none
+pr: 201
 status: implementing
 context_routes:
   - agent-governance
@@ -127,6 +127,7 @@ proven:
   - draft PR 200 and active task OTERYN-20260726-wiki-editorial-media own the bounded Wiki-to-EditorialMedia integration paths
   - PR 200 currently contains task and ownership records only and is fail-closed because its execution environment lacks a writable validated checkout
   - no other open implementation PR owns the declared Wiki-to-EditorialMedia paths
+  - PR 201 changes only this programme task record
   - no write occurred outside blakinio/Oteryn-Platform
   - no production, router, DSM, Internet-exposure or external-repository action occurred
 derived:
