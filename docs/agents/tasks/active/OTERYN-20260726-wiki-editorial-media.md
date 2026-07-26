@@ -87,10 +87,10 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-07-26T09:20:00Z
-head: 57716094cde335a0e8a661953bd3a5809ec12cb6
+updated_at: 2026-07-26T09:22:00Z
+head: 0979a5bdcfb59876e9db19bea40c234978ba57a4
 branch: feat/OTERYN-20260726-wiki-editorial-media
-pr: none
+pr: 200
 status: blocked
 context_routes:
   - agent-governance
@@ -125,7 +125,7 @@ owned_paths:
 proven:
   - trusted main is 57716094cde335a0e8a661953bd3a5809ec12cb6 after merged PR 198
   - Issue 145 remains open and names Wiki-to-EditorialMedia integration as the next bounded implementation child
-  - no open implementation pull request owns the Wiki-to-EditorialMedia integration paths
+  - draft PR 200 is the only open implementation owner for the declared Wiki-to-EditorialMedia integration paths
   - EditorialMedia stores normalized JPEG, PNG and WebP objects on a dedicated private disk with immutable integrity metadata
   - EditorialMediaConsumer already reserves the wiki consumer and EditorialMediaReferenceManager provides locked attach and bounded release operations
   - existing EditorialMedia serving is administrator-only and ADR 0011 requires a separate public consumer serving decision
@@ -151,10 +151,14 @@ rejected_hypotheses:
   - direct public-disk URLs are acceptable: ADR 0011 explicitly rejects the public storage symlink and arbitrary-path exposure
 changed_paths:
   - docs/agents/tasks/active/OTERYN-20260726-wiki-editorial-media.md
+  - docs/agents/ACTIVE_WORK.md
 validation:
   - command: repository, issue, active-task and pull-request overlap reconciliation
     result: PASS
     evidence: main 57716094cde335a0e8a661953bd3a5809ec12cb6, Issue 145 programme checkpoint, PRs 176, 194, 196 and open PR search
+  - command: task branch and draft pull request creation
+    result: PASS
+    evidence: branch feat/OTERYN-20260726-wiki-editorial-media and draft PR 200
   - command: local checkout and runtime validation preflight
     result: BLOCKED
     evidence: sandbox DNS prevented cloning github.com; no writable checkout or installed project dependencies are available
