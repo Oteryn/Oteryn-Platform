@@ -26,6 +26,6 @@ final class MfaQrCode
             roundBlockSizeMode: RoundBlockSizeMode::None,
         );
 
-        return (new SvgWriter())->write($qrCode)->getDataUri();
+        return (new SvgWriter)->write($qrCode)->getDataUri();
     }
 }

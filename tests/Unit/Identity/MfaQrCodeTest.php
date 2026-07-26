@@ -12,7 +12,7 @@ final class MfaQrCodeTest extends TestCase
     #[Test]
     public function it_renders_an_inline_svg_without_an_external_service(): void
     {
-        $dataUri = (new MfaQrCode())->dataUri(
+        $dataUri = (new MfaQrCode)->dataUri(
             'otpauth://totp/Oteryn%20Platform:test%40example.com?secret=JBSWY3DPEHPK3PXP&issuer=Oteryn%20Platform',
         );
 
@@ -30,6 +30,6 @@ final class MfaQrCodeTest extends TestCase
     {
         $this->expectException(InvalidArgumentException::class);
 
-        (new MfaQrCode())->dataUri('https://example.com/not-an-mfa-secret');
+        (new MfaQrCode)->dataUri('https://example.com/not-an-mfa-secret');
     }
 }
