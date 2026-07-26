@@ -8,60 +8,18 @@ on:
 permissions:
   actions: read
   contents: read
-  issues: read
 
 jobs:
   inspect:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Resolve sanitized report and failed deployment evidence
+      - name: Print sanitized deployment failure tail
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          EXPECTED_SHA: 62dedb894ffc3af55ba10a0717a6a892b87f1370
+          DEPLOYMENT_JOB_ID: '89821183195'
         run: |
           set -euo pipefail
-          report="$(
-            gh api --paginate \
-              "repos/${GITHUB_REPOSITORY}/issues/145/comments?per_page=100" \
-              --jq "map(select(.body | contains(\"<!-- public-web-final-staging:${EXPECTED_SHA}:\"))) | last | .body // empty"
-          )"
-
-          if [[ -z "$report" ]]; then
-            echo "No sanitized final-staging report exists for the expected SHA." >&2
-            exit 1
-          fi
-
-          echo 'Sanitized final staging report:'
-          printf '%s\n' "$report"
-
-          grep -Fq 'Final Synology staging closure result: **FAIL**' <<<"$report"
-          grep -Fq "exact trusted main SHA: \`${EXPECTED_SHA}\`" <<<"$report"
-          grep -Fq 'dispatch result: `failure`' <<<"$report"
-          grep -Fq 'live Chromium smoke result: `skipped`' <<<"$report"
-
-          deployment_run_id="$(sed -n 's/.*deployment run: `\([0-9][0-9]*\)`.*/\1/p' <<<"$report")"
-          if [[ -z "$deployment_run_id" ]]; then
-            echo 'Missing numeric deployment run ID.' >&2
-            exit 1
-          fi
-
-          deployment_job_id="$(
-            gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${deployment_run_id}/jobs" \
-              --jq '.jobs | map(select(.name == "deploy")) | first | .id // empty'
-          )"
-          if [[ -z "$deployment_job_id" ]]; then
-            echo 'Missing deployment job ID.' >&2
-            exit 1
-          fi
-
-          gh api "repos/${GITHUB_REPOSITORY}/actions/jobs/${deployment_job_id}/logs" > deployment.log
-
-          echo "Deployment run ID: ${deployment_run_id}"
-          echo "Deployment job ID: ${deployment_job_id}"
-          echo 'Sanitized deployment failure excerpt:'
-          grep -nE '(^|[^A-Za-z])(error|failed|failure|denied|manifest|not found|no space|unhealthy|timeout)([^A-Za-z]|$)|##\[error\]' deployment.log \
-            | tail -n 80 \
-            || true
-          echo 'Deployment log tail:'
-          tail -n 100 deployment.log
+          gh api "repos/${GITHUB_REPOSITORY}/actions/jobs/${DEPLOYMENT_JOB_ID}/logs" > deployment.log
+          echo 'Deployment failure tail:'
+          tail -n 160 deployment.log
