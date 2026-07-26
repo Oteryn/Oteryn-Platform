@@ -59,14 +59,14 @@ modules:
   - Testing
 dependencies:
   - Issue #145
-  - merged PRs #146, #157, #158, #159, #160, #161, #175, #176, #191, #192, #194, #195, #196, #197, #198, #199, #201, #203, #204, #205, #206, #207 and #208
+  - merged PRs #146, #157, #158, #159, #160, #161, #175, #176, #191, #192, #194, #195, #196, #197, #198, #199, #201, #203, #204, #205, #206, #207, #208 and #209
 blockers:
   - none for programme coordination
 cross_repository_tasks:
   - none
 ```
 
-The programme task owns coordination only. Deployment and closure paths must be claimed by a bounded child task and draft PR before modification.
+The programme task owns coordination only. Deployment and closure paths are delegated to `OTERYN-20260726-public-web-final-staging-closure` in draft PR #210.
 
 ## Implementation reconciliation
 
@@ -90,18 +90,18 @@ The programme task owns coordination only. Deployment and closure paths must be 
 | Canonical and hreflang metadata | COMPLETE | PR #206; shared escaped metadata with freshness-aware equivalent alternates | Preserve. | none |
 | Open Graph, sitemap and robots exclusions | COMPLETE | PR #206; bounded OG metadata, fail-closed published-only sitemap and authoritative dynamic robots policy | Preserve. | none |
 | Responsive, keyboard and accessibility closure | COMPLETE | PRs #194, #196, #199, #206 and #208 required browser profiles | Preserve required profiles. | none |
-| Initial approved Wiki content set | COMPLETE | PR #208 / `f8002191f0e5270dc4191227fd01d5e709ee5ab6`; thirteen bilingual source-backed topics and conflict-safe operator provisioning | Merge documentation-only archival PR #209. | PR #209 |
-| Final Synology staging deployment | PENDING | Final implementation main is `f8002191f0e5270dc4191227fd01d5e709ee5ab6`; no post-PR-208 live staging evidence is recorded | Deploy the exact final trusted main SHA through a reviewed workflow and run live smoke after PR #209 merges. | deployment-closure child |
-| Issue #145 closure | PENDING | All implementation requirements are merged; staging evidence remains outstanding | Close only after exact-SHA staging acceptance and archival reconciliation. | programme closure task |
+| Initial approved Wiki content set | COMPLETE | PR #208 / `f8002191f0e5270dc4191227fd01d5e709ee5ab6`; thirteen bilingual source-backed topics and conflict-safe operator provisioning; task archived through PR #209 | Install or verify the exact reviewed package on final staging. | PR #210 |
+| Final Synology staging deployment | IMPLEMENTING | Draft PR #210 / task `OTERYN-20260726-public-web-final-staging-closure`; guarded exact-SHA dispatcher, existing reviewed deploy workflow and live Chromium evidence | Pass exact-head checks, merge with trigger marker and collect deployment/smoke evidence. | PR #210 |
+| Issue #145 closure | PENDING | All implementation requirements and prior child archival lifecycles are merged; staging evidence remains outstanding | Close only after exact-SHA staging acceptance and temporary-trigger cleanup. | programme closure task |
 
 ## Context checkpoint
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-07-26T16:51:00Z
-head: c961947950b2ae3631cc6241c85ce75515eaf2e3
-branch: docs/OTERYN-20260726-archive-source-backed-wiki-content
-pr: 209
+updated_at: 2026-07-26T17:13:00Z
+head: 710c4371dcd411b6ea17c8efa7723dfd490df3bb
+branch: ops/OTERYN-20260726-public-web-final-staging-closure
+pr: 210
 status: implementing
 context_routes:
   - agent-governance
@@ -118,48 +118,43 @@ context_routes:
 owned_paths:
   - docs/agents/tasks/active/OTERYN-20260725-public-web-programme-closure.md
 proven:
-  - trusted main is f8002191f0e5270dc4191227fd01d5e709ee5ab6 after PR 208 squash merge
+  - trusted main is a262996eda36fc9430fe1883ea637ffd2f6ff698 after PR 209 archival merge
   - Issue 145 remains open
-  - public Wiki reads, search, administration and EditorialMedia integration are merged through PRs 194, 196 and 199
-  - homepage composition, navigation, localization, metadata, sitemap, robots and shared browser closure are merged through PR 206
-  - PR 208 delivered exactly thirteen bilingual source-backed Wiki launch topics through exact-permission MFA-confirmed conflict-safe operator provisioning
-  - PR 208 implementation and ready-checkpoint heads each passed all seven required workflows including cross-browser Acceptance E2E and Visual UX
-  - PR 208 had no comments, reviews or unresolved review threads and squash-merged as f8002191f0e5270dc4191227fd01d5e709ee5ab6
-  - draft PR 209 is the documentation-only owner for PR 208 archival, the active-work index and this programme reconciliation
-  - the source-backed Wiki-content active task has been moved to its archive path on PR 209
-  - no open runtime implementation child remains for Issue 145
+  - every approved implementation requirement is merged and every prior implementation child is archived
+  - PR 208 delivered exactly thirteen bilingual source-backed Wiki launch topics and PR 209 archived its lifecycle
+  - draft PR 210 and active task OTERYN-20260726-public-web-final-staging-closure are the only owners for final staging deployment and smoke paths
+  - PR 210 changes exactly the temporary one-shot workflow, inert deploy trigger and three declared coordination records
+  - the one-shot waits for exact merge-SHA images, invokes the existing trusted-main deploy workflow, verifies deployed image tags, resolves one eligible publisher internally and runs pinned Chromium smoke
+  - no other open implementation owner overlaps the declared final-staging paths
   - no write occurred outside blakinio/Oteryn-Platform
   - no production, router, DSM, Internet-exposure or external-repository action occurred
 derived:
-  - all approved Issue 145 implementation scope is merged
-  - programme completion now requires only PR 209 merge, exact-final-SHA Synology staging deployment, live browser smoke and Issue 145 closure
+  - programme completion now depends only on PR 210 validation/merge, successful final-staging evidence, temporary-trigger cleanup, child archival and Issue 145 closure
 unknown:
-  - exact final Synology staging deployment run and resulting live-smoke evidence
-  - whether the authoritative game-login bridge is required for launch scope under separate authorization
+  - whether staging currently contains exactly one eligible Wiki publisher Identity
+  - exact deployment and smoke workflow/run identifiers until PR 210 merges
 conflicts: []
 first_failure:
-  marker: resolved-wiki-launch-content-browser-test-specificity
-  evidence: two over-broad Playwright selectors were corrected without runtime changes and all required exact-head workflows passed before PR 208 merge
+  marker: none
+  evidence: none
 rejected_hypotheses:
-  - initial Wiki content still requires invented gameplay facts: PR 208 explicitly represents unapproved values as unavailable and traces substantive claims to accepted sources
-  - staging evidence can be inferred from CI or image builds: final live Synology staging deployment and browser smoke remain separate required evidence
+  - final staging may deploy an earlier runtime SHA: the one-shot waits for exact merge-SHA Platform and Gateway tags
+  - publisher identity must be hard-coded or logged: the self-hosted job resolves exactly one eligible identity internally and fails closed otherwise
+  - CI image builds prove live staging: exact container-tag checks and Chromium route assertions remain required
 changed_paths:
   - docs/agents/tasks/active/OTERYN-20260725-public-web-programme-closure.md
 validation:
-  - command: source-backed Wiki-content child lifecycle
+  - command: implementation and archival reconciliation
     result: PASS
-    evidence: PR 208 passed focused, complete Wiki and all seven exact-head workflows and squash-merged as f8002191f0e5270dc4191227fd01d5e709ee5ab6
-  - command: PR 208 review reconciliation
+    evidence: PRs 208 and 209 merged as f8002191f0e5270dc4191227fd01d5e709ee5ab6 and a262996eda36fc9430fe1883ea637ffd2f6ff698
+  - command: final-staging ownership reconciliation
     result: PASS
-    evidence: no comments, reviews, requested changes or unresolved review threads remained before merge
-  - command: programme requirement reconciliation
-    result: PASS
-    evidence: every Issue 145 implementation row is COMPLETE; only exact-final-SHA staging and closure remain pending
+    evidence: draft PR 210 is the single bounded owner for the temporary workflow, inert trigger, task and coordination records
 blockers:
-  - none for documentation-only archival reconciliation
-next_action: Validate and merge documentation-only PR 209.
+  - none before pull-request validation
+next_action: Run exact-head PR 210 validation and correct any workflow or governance failure before readiness.
 ```
 
 ## Notes
 
-Commercial scope, Canary/login-server writes, production changes and router/DSM/Internet-exposure changes remain excluded.
+Commercial scope, Canary/login-server repository writes, production changes and router/DSM/Internet-exposure changes remain excluded.
