@@ -16,13 +16,18 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Print focused inline health-check failure
+      - name: Print sanitized workflow status
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          JOB_ID: 89852009913
+          TARGET_SHA: 37eb31d60aa8a47914745cd326aff6b313851dd0
         run: |
           set -euo pipefail
-          gh api "repos/${GITHUB_REPOSITORY}/actions/jobs/${JOB_ID}/logs" > deploy.log
-          grep -nEi 'MFA QR|anonymous MFA|health probe failed|fatal error|undefined method|process completed with exit|expected 302' deploy.log | tail -n 80 || true
-          echo '--- final deployment lines ---'
-          tail -n 120 deploy.log
+          echo '--- MFA QR one-shot ---'
+          gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/one-shot-mfa-qr-staging-deploy.yml/runs?branch=main&per_page=20" \
+            --jq '.workflow_runs[] | select(.head_sha == env.TARGET_SHA) | {id,status,conclusion,run_attempt,created_at,updated_at}'
+          echo '--- exact image build ---'
+          gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/build-synology-staging-images.yml/runs?branch=main&per_page=20" \
+            --jq '.workflow_runs[] | select(.head_sha == env.TARGET_SHA) | {id,status,conclusion,run_attempt,created_at,updated_at}'
+          echo '--- deployment candidates ---'
+          gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/deploy-synology-staging.yml/runs?event=workflow_dispatch&branch=main&per_page=10" \
+            --jq '.workflow_runs[0:5] | map({id,status,conclusion,created_at,updated_at})'
