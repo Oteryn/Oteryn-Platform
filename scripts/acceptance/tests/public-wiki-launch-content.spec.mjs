@@ -54,10 +54,11 @@ test('@wiki-launch reviewed bilingual launch content is discoverable responsive 
   const wikiResponse = await page.goto('/en/wiki');
   expect(wikiResponse?.status()).toBe(200);
   await expect(page.getByRole('heading', { level: 1, name: 'Wiki' })).toBeVisible();
-  await expect(page.getByRole('link', { name: 'Getting Started' })).toBeVisible();
-  await expect(page.getByRole('link', { name: 'Server Information' })).toBeVisible();
-  await expect(page.getByRole('link', { name: 'Game Systems' })).toBeVisible();
-  await expect(page.getByRole('link', { name: 'Support', exact: true })).toBeVisible();
+  const categories = page.getByRole('region', { name: 'Categories' });
+  await expect(categories.getByRole('link', { name: 'Getting Started' })).toBeVisible();
+  await expect(categories.getByRole('link', { name: 'Server Information' })).toBeVisible();
+  await expect(categories.getByRole('link', { name: 'Game Systems' })).toBeVisible();
+  await expect(categories.getByRole('link', { name: 'Support', exact: true })).toBeVisible();
   await expectNoHorizontalOverflow(page);
   await assertAccessibilitySmoke(page);
 
