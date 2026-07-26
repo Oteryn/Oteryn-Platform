@@ -40,7 +40,9 @@ test.setTimeout(120_000);
 test.describe.configure({ retries: 0 });
 
 test.beforeEach(async ({ page }) => {
-  seedLaunchContent();
+  if (process.env.ACCEPTANCE_SEEDED_EXTERNALLY !== '1') {
+    seedLaunchContent();
+  }
   page.__acceptanceDiagnostics = installDiagnostics(page);
 });
 
