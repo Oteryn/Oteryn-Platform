@@ -13,12 +13,17 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v7
       - name: Print explicit role-grant migration precedents
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          echo 'Files granting media/support/public-module permissions:'
-          grep -RIlE "media\.manage|support\.content\.manage|wiki\.publish" database/migrations | sort
-          echo 'Relevant migration excerpts:'
-          grep -RInE "media\.manage|support\.content\.manage|wiki\.access|wiki\.articles\.manage|wiki\.categories\.manage|wiki\.publish|admin_role_permissions" database/migrations \
-            | tail -n 240
+          gh api "repos/${GITHUB_REPOSITORY}/contents/database/migrations?ref=main" \
+            --jq '.[] | select(.type == "file") | .path' \
+            | while IFS= read -r path; do
+                content="$(gh api "repos/${GITHUB_REPOSITORY}/contents/${path}?ref=main" --jq .content | base64 -d)"
+                if grep -qE 'media\.manage|support\.content\.manage|wiki\.publish' <<<"$content"; then
+                  echo "=== ${path} ==="
+                  grep -nCE 8 'media\.manage|support\.content\.manage|wiki\.access|wiki\.articles\.manage|wiki\.categories\.manage|wiki\.publish|admin_role_permissions' <<<"$content" || true
+                fi
+              done
