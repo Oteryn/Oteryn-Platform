@@ -5,7 +5,7 @@ Convenience index only. Individual active task records, live PRs and Git state a
 ## Active tasks
 
 - `OTERYN-20260725-public-web-programme-closure` — Issue #145 programme coordination; owns only its task record and delegates runtime paths to bounded child tasks.
-- `OTERYN-20260726-wiki-editorial-media-integration` — bounded Wiki consumer integration for existing private EditorialMedia objects, transactional references and published-only public delivery; draft PR pending.
+- `OTERYN-20260726-wiki-editorial-media-integration` — bounded Wiki consumer integration for existing private EditorialMedia objects, transactional references and published-only public delivery in draft PR #199.
 
 ## Closed acceptance and release-preparation follow-ups
 
@@ -51,7 +51,7 @@ No staging evidence may be promoted to `PRODUCTION_PROVEN`.
 
 ## Next work
 
-Implement and validate the bounded Wiki-to-EditorialMedia consumer child, then archive it before starting the remaining homepage/navigation/SEO and source-backed Wiki-content closure children.
+Continue draft PR #199 in a writable CODEX-capable checkout, implement and validate the bounded Wiki-to-EditorialMedia consumer child, then archive it before starting the remaining homepage/navigation/SEO and source-backed Wiki-content closure children.
 
 After the remaining Issue #145 child tasks merge, deploy the exact final trusted `main` SHA to Synology staging through the existing reviewed workflow and record live browser-smoke evidence.
 
