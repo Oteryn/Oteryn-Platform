@@ -31,30 +31,15 @@
         </form>
     @elseif (is_string($identity->two_factor_secret))
         <div class="alert alert-warning">
-            <strong>Enrollment is not active yet.</strong> Scan the QR code, then confirm a fresh six-digit code below.
+            <strong>Enrollment is not active yet.</strong> Add the account to your authenticator app, then confirm a fresh six-digit code below.
         </div>
 
-        @if (is_string($qrCodeDataUri))
-            <section class="mfa-qr-panel" aria-labelledby="mfa-qr-heading">
-                <h2 id="mfa-qr-heading">Scan with your authenticator app</h2>
-                <p class="muted">In Google Authenticator, tap the plus button and choose <strong>Scan a QR code</strong>.</p>
-                <img
-                    class="mfa-qr-code"
-                    src="{{ $qrCodeDataUri }}"
-                    width="280"
-                    height="280"
-                    alt="QR code for adding this Oteryn account to an authenticator app"
-                >
-            </section>
-        @endif
-
-        <details class="secure-information mfa-manual-setup">
-            <summary>Cannot scan the QR code?</summary>
-            <div>
-                <p class="muted">Choose manual key entry in your authenticator app and use a time-based key.</p>
-                <p><strong>Manual secret:</strong> <code>{{ $identity->two_factor_secret }}</code></p>
-            </div>
-        </details>
+        <div class="secure-information" aria-labelledby="manual-mfa-heading">
+            <h2 id="manual-mfa-heading">Manual authenticator setup</h2>
+            <p class="muted">Use the manual secret when your authenticator app supports key entry. The provisioning URI is provided for apps that accept URI import.</p>
+            <p><strong>Manual secret:</strong> <code>{{ $identity->two_factor_secret }}</code></p>
+            <p><strong>Provisioning URI:</strong> <code>{{ $provisioningUri }}</code></p>
+        </div>
 
         <form class="form-stack" method="POST" action="{{ route('identity.mfa.confirm') }}">
             @csrf
