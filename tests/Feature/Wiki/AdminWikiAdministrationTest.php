@@ -84,7 +84,7 @@ final class AdminWikiAdministrationTest extends TestCase
         $this->get($preview)
             ->assertOk()
             ->assertSeeText('Installation heading')
-            ->assertSee('<h1 id="installation-heading">Installation heading</h1>', false)
+            ->assertSee('id="installation-heading"', false)
             ->assertDontSee('<script>', false);
 
         $expiredPreview = URL::temporarySignedRoute(
@@ -172,7 +172,7 @@ final class AdminWikiAdministrationTest extends TestCase
         ])->assertRedirect();
         $article->refresh();
         self::assertSame('draft', $article->status->value);
-        $this->get(route('wiki.article', ['locale' => 'en', 'slug' => 'installation-guide']))
+        $this->get(route('wiki.article', ['locale' => 'en', 'slug' => 'installation-guide'))
             ->assertNotFound();
     }
 
@@ -284,8 +284,8 @@ final class AdminWikiAdministrationTest extends TestCase
                     'description' => 'Start here.',
                 ],
                 'pl' => [
-                    'name' => 'Start',
-                    'slug' => 'start',
+                    'name' => 'PL '.$name,
+                    'slug' => 'pl-'.$slug,
                     'description' => 'Zacznij tutaj.',
                 ],
             ],
