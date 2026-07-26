@@ -97,10 +97,10 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-07-26T09:15:00Z
-head: 57716094cde335a0e8a661953bd3a5809ec12cb6
+updated_at: 2026-07-26T09:20:00Z
+head: dc65cf0c33df96ab56e3e185147b5303d7c09d36
 branch: feat/OTERYN-20260726-wiki-editorial-media-integration
-pr: none
+pr: 199
 status: blocked
 context_routes:
   - agent-governance
@@ -115,6 +115,7 @@ owned_paths:
   - Wiki-to-EditorialMedia integration paths listed in Ownership
 proven:
   - trusted base main is 57716094cde335a0e8a661953bd3a5809ec12cb6
+  - draft PR 199 is the only open implementation owner for the bounded Wiki-to-EditorialMedia consumer scope
   - EditorialMedia accepts only normalized JPEG, PNG and WebP objects stored on the private editorial_media disk
   - EditorialMedia storage and integrity fields are immutable and safe deletion refuses any referenced object
   - EditorialMediaConsumer reserves the exact WIKI consumer value
@@ -124,7 +125,6 @@ proven:
   - current public Wiki renderer replaces every CommonMark image with an inert placeholder
   - public Wiki reads and search expose only effective published locale content and reject stale Polish translations
   - Wiki administration create, update and revision restore already use existing lifecycle, optimistic locking, exact permissions, MFA and audit boundaries
-  - no open implementation PR owns Wiki-to-EditorialMedia consumer integration paths
   - no schema, session or compatibility change with Canary or login-server is required by the proven foundation
   - no external repository, production, router, DSM or Internet-exposure write occurred
 derived:
@@ -145,17 +145,18 @@ rejected_hypotheses:
   - allow arbitrary remote CommonMark images: rejected by ADR 0012 and the current fail-closed renderer
   - attach media only when publishing: insufficient because draft updates, restores and deletion protection require deterministic reference tracking
 changed_paths:
+  - docs/agents/ACTIVE_WORK.md
   - docs/agents/tasks/active/OTERYN-20260726-wiki-editorial-media-integration.md
 validation:
   - command: repository, task, pull-request and focused source reconciliation
     result: PASS
-    evidence: trusted main 57716094cde335a0e8a661953bd3a5809ec12cb6, PRs 176/194/196, ADRs 0011/0012, EditorialMedia models/reference manager/routes and current blocked Wiki image renderer inspected through GitHub
+    evidence: trusted main 57716094cde335a0e8a661953bd3a5809ec12cb6, draft PR 199, PRs 176/194/196, ADRs 0011/0012, EditorialMedia models/reference manager/routes and current blocked Wiki image renderer inspected through GitHub
   - command: local implementation, formatter, static analysis, feature tests and browser acceptance
     result: BLOCKED
     evidence: no mounted writable repository checkout in the current sandbox
 blockers:
   - writable CODEX-capable checkout unavailable in the current session
-next_action: Continue in a CODEX-capable writable checkout, resolve the three recorded design unknowns in ADR 0014, implement the bounded Wiki-to-EditorialMedia integration, and run focused plus required final validation.
+next_action: Continue PR 199 in a CODEX-capable writable checkout, resolve the three recorded design unknowns in ADR 0014, implement the bounded Wiki-to-EditorialMedia integration, and run focused plus required final validation.
 ```
 
 ## Notes
