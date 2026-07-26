@@ -33,7 +33,7 @@ Make the existing trusted reverse-proxy regression deterministic when it runs af
 ```yaml
 owned_paths:
   - tests/Feature/Security/TrustedProxySchemeTest.php
-  - docs/agents/tasks/active/OTERYN-20260726-trusted-proxy-test-isolation.md
+  - docs/agents/tasks/archive/OTERYN-20260726-trusted-proxy-test-isolation.md
 modules:
   - testing
   - security
@@ -49,9 +49,9 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-07-26T11:26:20Z
-head: 5dbfb1338e1d952c704cb7b30b3d2c00c1164795
-branch: fix/OTERYN-20260726-trusted-proxy-test-isolation
+updated_at: 2026-07-26T11:30:32Z
+head: 835db2c789699040babad4859051511673123785
+branch: docs/OTERYN-20260726-archive-trusted-proxy-test-isolation
 pr: 203
 status: ready
 context_routes:
@@ -59,13 +59,13 @@ context_routes:
   - security
 owned_paths:
   - tests/Feature/Security/TrustedProxySchemeTest.php
-  - docs/agents/tasks/active/OTERYN-20260726-trusted-proxy-test-isolation.md
+  - docs/agents/tasks/archive/OTERYN-20260726-trusted-proxy-test-isolation.md
 proven:
   - The unchanged main test passes alone but fails after PublicSiteShellTest because Laravel's already-instantiated immutable environment repository does not observe later direct process-global mutation
   - The full Wiki branch suite first fails at TrustedProxySchemeTest with a localhost HTTP form action while every Wiki integration regression passes
   - No active task or open pull request owns TrustedProxySchemeTest or an overlapping test-isolation repair
   - Per-application http.trusted_proxies configuration makes the proxy test pass both alone and after PublicSiteShellTest while preserving all original assertions, including when a local .env already defines the variable
-  - Draft PR 203 targets blakinio/Oteryn-Platform main from the dedicated repair branch
+  - PR 203 targeted blakinio/Oteryn-Platform main from the dedicated repair branch and was squash-merged as 835db2c789699040babad4859051511673123785
 derived:
   - The regression should inject the trusted CIDR at the middleware's per-application configuration boundary instead of mutating process environment state
 unknown: []
@@ -101,11 +101,17 @@ validation:
   - command: GitHub required checks on PR 203 head 5dbfb1338e1d952c704cb7b30b3d2c00c1164795
     result: PASS
     evidence: checkpoint-validation, concurrency-proof, test and both validate jobs pass
+  - command: GitHub required checks on final docs-only PR 203 head 1916c222af239043f0d727a36fd9ab8cbe3ce9fe
+    result: PASS
+    evidence: checkpoint-validation, concurrency-proof, test and both validate jobs pass
+  - command: PR 203 squash merge
+    result: PASS
+    evidence: main commit 835db2c789699040babad4859051511673123785
 blockers:
   - none
-next_action: Publish this ready checkpoint, verify the docs-only final head checks and squash merge PR 203.
+next_action: Publish this completed record in a documentation-only archival PR and merge it after required governance validation passes.
 ```
 
 ## Notes
 
-This prerequisite repair is intentionally separate from Wiki PR #199 because it is an existing test-infrastructure defect on `main`.
+This prerequisite repair was intentionally separate from Wiki PR #199 because it was an existing test-infrastructure defect on `main`.
