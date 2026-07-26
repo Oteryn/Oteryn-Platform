@@ -3,6 +3,7 @@
 namespace Tests\Feature\Security;
 
 use Illuminate\Http\Middleware\TrustProxies;
+use Illuminate\Support\Env;
 use Illuminate\Testing\TestResponse;
 use Symfony\Component\HttpFoundation\Response;
 use Tests\TestCase;
@@ -107,14 +108,11 @@ final class TrustedProxySchemeTest extends TestCase
     private function setTrustedProxiesEnvironment(?string $value): void
     {
         if ($value === null) {
-            putenv('TRUSTED_PROXIES');
-            unset($_ENV['TRUSTED_PROXIES'], $_SERVER['TRUSTED_PROXIES']);
+            Env::getRepository()->clear('TRUSTED_PROXIES');
 
             return;
         }
 
-        putenv('TRUSTED_PROXIES='.$value);
-        $_ENV['TRUSTED_PROXIES'] = $value;
-        $_SERVER['TRUSTED_PROXIES'] = $value;
+        Env::getRepository()->set('TRUSTED_PROXIES', $value);
     }
 }
