@@ -3,7 +3,6 @@
 namespace Tests\Feature\Security;
 
 use Illuminate\Http\Middleware\TrustProxies;
-use Illuminate\Support\Env;
 use Illuminate\Testing\TestResponse;
 use Symfony\Component\HttpFoundation\Response;
 use Tests\TestCase;
@@ -12,18 +11,16 @@ final class TrustedProxySchemeTest extends TestCase
 {
     protected function setUp(): void
     {
-        $this->setTrustedProxiesEnvironment('10.201.3.0/24');
-        TrustProxies::flushState();
-
         parent::setUp();
+
+        config(['http.trusted_proxies' => ['10.201.3.0/24']]);
+        TrustProxies::flushState();
     }
 
     protected function tearDown(): void
     {
-        parent::tearDown();
-
         TrustProxies::flushState();
-        $this->setTrustedProxiesEnvironment(null);
+        parent::tearDown();
     }
 
     public function test_configured_reverse_proxy_generates_external_https_login_action(): void
@@ -103,16 +100,5 @@ final class TrustedProxySchemeTest extends TestCase
                 'X-Forwarded-Proto' => $forwardedProto,
             ])
             ->get('/login');
-    }
-
-    private function setTrustedProxiesEnvironment(?string $value): void
-    {
-        if ($value === null) {
-            Env::getRepository()->clear('TRUSTED_PROXIES');
-
-            return;
-        }
-
-        Env::getRepository()->set('TRUSTED_PROXIES', $value);
     }
 }

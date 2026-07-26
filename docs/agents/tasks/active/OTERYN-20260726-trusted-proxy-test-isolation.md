@@ -24,7 +24,7 @@ Make the existing trusted reverse-proxy regression deterministic when it runs af
 
 ## Acceptance criteria
 
-- [ ] The trusted-proxy regression passes both alone and after another feature test in the same PHPUnit process.
+- [x] The trusted-proxy regression passes both alone and after another feature test in the same PHPUnit process.
 - [ ] The complete PHPUnit suite passes with the original HTTPS and untrusted-spoofing assertions intact.
 - [ ] Formatter, static analysis, focused tests and required CI pass on the exact final head.
 
@@ -49,7 +49,7 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-07-26T11:12:35Z
+updated_at: 2026-07-26T11:20:12Z
 head: 791884d74f7a9d5fa15b665da95808d5d5f8d33b
 branch: fix/OTERYN-20260726-trusted-proxy-test-isolation
 pr: 203
@@ -64,10 +64,10 @@ proven:
   - The unchanged main test passes alone but fails after PublicSiteShellTest because Laravel's already-instantiated immutable environment repository does not observe later direct process-global mutation
   - The full Wiki branch suite first fails at TrustedProxySchemeTest with a localhost HTTP form action while every Wiki integration regression passes
   - No active task or open pull request owns TrustedProxySchemeTest or an overlapping test-isolation repair
-  - Laravel Env repository mutation makes the proxy test pass both alone and after PublicSiteShellTest while preserving all original assertions
+  - Per-application http.trusted_proxies configuration makes the proxy test pass both alone and after PublicSiteShellTest while preserving all original assertions, including when a local .env already defines the variable
   - Draft PR 203 targets blakinio/Oteryn-Platform main from the dedicated repair branch
 derived:
-  - The regression must write and clear TRUSTED_PROXIES through Laravel's authoritative Env repository so application bootstrap observes the per-test value regardless of execution order
+  - The regression should inject the trusted CIDR at the middleware's per-application configuration boundary instead of mutating process environment state
 unknown:
   - Exact-head CI result after the narrow repair is published
 conflicts: []
@@ -76,6 +76,7 @@ first_failure:
   evidence: expected https://platform.oteryn.test/login but observed http://localhost:8000/login after PublicSiteShellTest
 rejected_hypotheses:
   - PublicSiteShellTest leaks URL generator state: the failure is the trusted proxy configuration missing at bootstrap, and the direct process-global mutation occurs after Laravel caches its Env repository
+  - Laravel Env repository mutation is sufficient in every checkout: an existing immutable .env value prevents the test from replacing the repository value
 changed_paths:
   - tests/Feature/Security/TrustedProxySchemeTest.php
   - docs/agents/tasks/active/OTERYN-20260726-trusted-proxy-test-isolation.md
@@ -85,19 +86,22 @@ validation:
     evidence: 2 tests and 6 assertions pass in isolation before repair
   - command: php artisan test tests/Feature/PublicSiteShellTest.php tests/Feature/Security/TrustedProxySchemeTest.php
     result: PASS
-    evidence: 5 tests and 19 assertions pass after repair
+    evidence: 5 tests and 19 assertions pass with the final per-application configuration repair and an existing .env
   - command: php artisan test tests/Feature/Security/TrustedProxySchemeTest.php
     result: PASS
-    evidence: 2 tests and 6 assertions pass after repair
+    evidence: 2 tests and 6 assertions pass with the final per-application configuration repair and an existing .env
   - command: php vendor/bin/pint --test tests/Feature/Security/TrustedProxySchemeTest.php
     result: PASS
     evidence: one file passes
   - command: php vendor/bin/phpstan analyse tests/Feature/Security/TrustedProxySchemeTest.php --memory-limit=1G --no-progress
     result: PASS
     evidence: no errors
+  - command: php artisan test --display-warnings
+    result: FAIL
+    evidence: 330 passed, 10 skipped and only TrustedProxySchemeTest failed on the superseded Env-repository repair at 5cee6d3
 blockers:
   - none
-next_action: Publish this checkpoint and run the complete repository validation on the exact PR 203 head.
+next_action: Commit the final per-application configuration repair, publish it to PR 203 and rerun exact-head validation.
 ```
 
 ## Notes
