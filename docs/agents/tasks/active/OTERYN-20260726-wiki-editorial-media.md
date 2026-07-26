@@ -87,8 +87,8 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-07-26T09:22:00Z
-head: 0979a5bdcfb59876e9db19bea40c234978ba57a4
+updated_at: 2026-07-26T09:31:00Z
+head: c96b1defec75cc8a206814b98042b8dcd227c30d
 branch: feat/OTERYN-20260726-wiki-editorial-media
 pr: 200
 status: blocked
@@ -123,15 +123,17 @@ owned_paths:
   - tests/Unit/Wiki/**
   - scripts/acceptance/tests/*wiki*
 proven:
-  - trusted main is 57716094cde335a0e8a661953bd3a5809ec12cb6 after merged PR 198
-  - Issue 145 remains open and names Wiki-to-EditorialMedia integration as the next bounded implementation child
+  - trusted main is 45297ec561075b62c36b7350b878b46cbd7c44fc after merged PR 201
+  - Issue 145 remains open and delegates Wiki-to-EditorialMedia integration to this bounded child
   - draft PR 200 is the only open implementation owner for the declared Wiki-to-EditorialMedia integration paths
+  - PR 200 was synchronized with trusted main through merge commit c96b1defec75cc8a206814b98042b8dcd227c30d
   - EditorialMedia stores normalized JPEG, PNG and WebP objects on a dedicated private disk with immutable integrity metadata
   - EditorialMediaConsumer already reserves the wiki consumer and EditorialMediaReferenceManager provides locked attach and bounded release operations
   - existing EditorialMedia serving is administrator-only and ADR 0011 requires a separate public consumer serving decision
   - the current CommonMark Wiki renderer strips raw HTML, disallows unsafe links and neutralizes every image node
   - Wiki article create and update already run through transactional writer and service boundaries with optimistic locking and append-only revisions
   - public Wiki reads are published-only and administrator preview uses short-lived signed routes
+  - the pre-synchronization documentation head 94caa3da76d1fedd83ec8585cd594d52e69282da passed CI, Agent Governance, Platform DB Outage Validation, Phase 7 Production-Like Validation and Game Auth Ticket Concurrency
   - no write occurred outside blakinio/Oteryn-Platform and no production or infrastructure action occurred
 derived:
   - this integration requires an explicit publication-aware media-resolution and serving boundary rather than exposing the private storage disk
@@ -155,10 +157,16 @@ changed_paths:
 validation:
   - command: repository, issue, active-task and pull-request overlap reconciliation
     result: PASS
-    evidence: main 57716094cde335a0e8a661953bd3a5809ec12cb6, Issue 145 programme checkpoint, PRs 176, 194, 196 and open PR search
+    evidence: trusted main 45297ec561075b62c36b7350b878b46cbd7c44fc, Issue 145 programme checkpoint, PRs 176, 194, 196, 200 and current open PR search
   - command: task branch and draft pull request creation
     result: PASS
     evidence: branch feat/OTERYN-20260726-wiki-editorial-media and draft PR 200
+  - command: exact-head workflows before main synchronization
+    result: PASS
+    evidence: commit 94caa3da76d1fedd83ec8585cd594d52e69282da; runs 30196354997, 30196354995, 30196355000, 30196355017 and 30196354998
+  - command: synchronize child branch with trusted main
+    result: PASS
+    evidence: merge commit c96b1defec75cc8a206814b98042b8dcd227c30d includes main 45297ec561075b62c36b7350b878b46cbd7c44fc
   - command: local checkout and runtime validation preflight
     result: BLOCKED
     evidence: sandbox DNS prevented cloning github.com; no writable checkout or installed project dependencies are available
