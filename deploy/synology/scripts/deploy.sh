@@ -329,7 +329,8 @@ fi
 "${compose[@]}" exec -T platform php artisan canary:verify-provisioning-db-privileges
 "${compose[@]}" exec -T platform php artisan canary:verify-character-create-db-privileges
 
-"${compose[@]}" up -d internal-proxy gateway
+"${compose[@]}" up -d --no-deps --force-recreate internal-proxy
+"${compose[@]}" up -d gateway
 
 OTERYN_ENV_FILE="$ENV_FILE" bash "$SCRIPT_DIR/health-check.sh"
 

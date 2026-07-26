@@ -6,6 +6,7 @@ on:
       - main
     paths:
       - .github/workflows/one-shot-public-web-final-staging.yml
+      - deploy/synology/scripts/deploy.sh
 
 permissions:
   actions: write
