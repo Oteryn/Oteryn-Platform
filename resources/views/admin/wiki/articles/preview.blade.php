@@ -1,9 +1,5 @@
 @extends('admin.layout')
 
-@push('head')
-    <meta name="robots" content="noindex,nofollow,noarchive">
-@endpush
-
 @section('title', 'Preview · '.$translation->title)
 
 @section('content')

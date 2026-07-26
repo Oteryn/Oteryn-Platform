@@ -10,7 +10,9 @@ test.setTimeout(120_000);
 test.describe.configure({ retries: 0 });
 
 test.beforeAll(() => {
-  runBinary('php', ['scripts/acceptance/seed-homepage-navigation-seo.php']);
+  if (process.env.ACCEPTANCE_SEEDED_EXTERNALLY !== '1') {
+    runBinary('php', ['scripts/acceptance/seed-homepage-navigation-seo.php']);
+  }
 });
 
 test.beforeEach(async ({ page }) => {
@@ -27,7 +29,7 @@ test('@homepage-seo homepage navigation metadata and crawl policy remain respons
 
   await expect(page.getByText('Acceptance realm maintenance')).toBeVisible();
   await expect(page.getByText('Acceptance tournament')).toBeVisible();
-  await expect(page.locator('meta[name="description"]')).toHaveAttribute('content', /Oteryn/u);
+  await expect(page.locator('meta[name="description"]')).toHaveAttribute('content', /Ancient powers stir/u);
   await expect(page.locator('meta[property="og:title"]')).toHaveAttribute('content', /Oteryn Platform/u);
   await expect(page.locator('meta[property="og:url"]')).toHaveAttribute('content', /\/en$/u);
   await expect(page.locator('link[rel="canonical"]')).toHaveAttribute('href', /\/en$/u);

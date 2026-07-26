@@ -83,10 +83,12 @@ owned_paths:
   - resources/views/home-preview.blade.php
   - resources/views/identity/layout.blade.php
   - resources/views/admin/layout.blade.php
+  - resources/views/admin/wiki/articles/preview.blade.php
   - lang/en/public.php
   - lang/pl/public.php
   - public/css/public-shell.css
   - public/css/home-production.css
+  - public/robots.txt
   - tests/Feature/HomeTest.php
   - tests/Feature/PublicSiteShellTest.php
   - tests/Feature/PublicPortal/**
@@ -123,8 +125,8 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-07-26T12:51:11Z
-head: a7ee7befa8e94fa1427f9909be5e23a2ca62f575
+updated_at: 2026-07-26T13:11:49Z
+head: 4e7eaebdc3a4fe3acd7f51e194bb166935bd2772
 branch: feat/OTERYN-20260726-homepage-navigation-seo
 pr: 206
 status: implementing
@@ -160,6 +162,8 @@ proven:
   - identity, administrator, preview, Wiki search and Wiki unavailable surfaces emit explicit noindex directives while their authentication and signed-route boundaries remain unchanged
   - the localized sitemap reuses publication and freshness query boundaries for news, managed pages, typed editorial pages, Events and Wiki and returns 503 without partial URLs when a dependency fails
   - robots.txt is public crawl guidance pointing to the sitemap and does not alter authorization
+  - production-like browser serving proved that the repository default public/robots.txt shadowed the Laravel robots route; the static file is now removed so the reviewed dynamic policy is authoritative under the real HTTP serving path
+  - administrator Wiki preview inherits one noindex directive from the administrator layout after its redundant page-local duplicate was removed
   - focused feature coverage proves homepage composition, live links, metadata escaping, noindex, robots, published-only localized sitemap entries and fail-closed dependency behavior
 derived:
   - the task can extend the existing PublicPortal orchestration and navigation registry without new persistence or raw Canary reads
@@ -168,12 +172,13 @@ derived:
 unknown: []
 conflicts: []
 first_failure:
-  marker: none
-  evidence: none
+  marker: browser acceptance on implementation commit 4e7eaebdc3a4fe3acd7f51e194bb166935bd2772
+  evidence: the production-like HTTP runtime served the default static public/robots.txt instead of the dynamic policy; the first CI portability run also proved duplicate noindex metadata on administrator Wiki preview
 rejected_hypotheses:
   - create new announcement or event queries: existing module providers are the authoritative reusable boundaries
   - add gameplay-specific Wiki content: approved source text remains UNKNOWN and belongs to a later child
   - make robots directives an access-control mechanism: authentication, MFA, exact permissions and signed preview boundaries remain authoritative
+  - retain public/robots.txt beside the dynamic route: production-like serving proves the static file shadows the application response
 changed_paths:
   - docs/agents/tasks/active/OTERYN-20260726-homepage-navigation-seo.md
   - docs/agents/ACTIVE_WORK.md
@@ -183,6 +188,7 @@ changed_paths:
   - publication-aware sitemap and robots query/controller/routes/views
   - narrow News, ManagedPage and Wiki published-slug query extensions
   - focused feature and Playwright acceptance coverage
+  - removed the default static public/robots.txt shadow and redundant administrator preview noindex metadata
 validation:
   - command: branch, worktree, active-task and open-PR preflight
     result: PASS
@@ -199,9 +205,15 @@ validation:
   - command: php artisan test --compact tests/Feature/PublicPortal/HomepageNavigationSeoTest.php
     result: PASS
     evidence: 6 tests and 56 assertions passed
+  - command: php artisan test --compact
+    result: PASS
+    evidence: 355 tests passed, 10 environment-gated tests skipped and 2742 assertions completed
+  - command: Playwright homepage-navigation-seo across Chromium primary, Chromium/Firefox/WebKit portability, desktop/tablet/mobile responsive and Chromium accessibility projects with zero retries
+    result: PASS
+    evidence: 8 of 8 project executions passed after removing the static robots shadow; no horizontal-overflow, metadata, crawl-policy or keyboard failure remained
 blockers:
   - none
-next_action: Run the complete focused and repository validation plus all required Playwright profiles on the exact implementation head, then publish the reviewed implementation commit to PR 206.
+next_action: Commit and push the production-like robots/preview corrections, then verify all required exact-head PR 206 checks and browser profiles are green.
 ```
 
 ## Notes
