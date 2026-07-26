@@ -5,6 +5,7 @@ Convenience index only. Individual active task records, live PRs and Git state a
 ## Active tasks
 
 - `OTERYN-20260725-public-web-programme-closure` — Issue #145 programme coordination; owns only its task record and delegates runtime paths to bounded child tasks.
+- `OTERYN-20260726-wiki-editorial-media` — Issue #145 bounded Wiki-to-EditorialMedia consumer integration; draft PR #200 owns the declared Wiki/media integration paths and is fail-closed pending a writable CODEX-capable checkout.
 
 ## Closed acceptance and release-preparation follow-ups
 
@@ -28,6 +29,7 @@ Convenience index only. Individual active task records, live PRs and Git state a
 - PR #195 / `c53e0f2a1a93de9275439aff573e5a713f5621b1` — public Wiki task lifecycle archived.
 - PR #196 / `f512f1e3a9bd567d40ddb09b699291c99a1b65f8` — trusted-editor Wiki administration, exact RBAC/MFA lifecycle controls, signed previews, revisions and responsive browser acceptance merged.
 - PR #197 — documentation-only Wiki administration task archival lifecycle.
+- PR #198 / `57716094cde335a0e8a661953bd3a5809ec12cb6` — refreshed the Issue #145 programme checkpoint after completed public Wiki and Wiki administration slices.
 
 ## Current project phase
 
@@ -49,9 +51,9 @@ No staging evidence may be promoted to `PRODUCTION_PROVEN`.
 
 ## Next work
 
-Update the Issue #145 programme checkpoint, then start the next bounded child for Wiki-to-EditorialMedia consumer integration without reopening the completed Wiki administration paths.
+Resume draft PR #200 in a writable CODEX-capable checkout and complete the bounded Wiki-to-EditorialMedia consumer integration with required exact-head validation.
 
-After the remaining Issue #145 child tasks merge, deploy the exact final trusted `main` SHA to Synology staging through the existing reviewed workflow and record live browser-smoke evidence.
+After PR #200 is merged and archived, continue the remaining Issue #145 homepage/navigation/SEO, approved Wiki content, programme acceptance and exact-final-SHA Synology staging closure children without reopening completed Wiki administration paths.
 
 Issue #91 remains the single production execution tracker. Resume it only when the exact final deployed production SHA, explicit production deployment/verification authorization and access to collect sanitized production evidence are available.
 
