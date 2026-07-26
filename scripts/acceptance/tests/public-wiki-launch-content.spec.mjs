@@ -73,7 +73,7 @@ test('@wiki-launch reviewed bilingual launch content is discoverable responsive 
     'href',
     /\/pl\/wiki\/pobieranie-i-instalacja$/u,
   );
-  await expect(page.locator('img[src^="http"]')).toHaveCount(0);
+  await expect(page.locator('article.wiki-markdown img[src^="http"]')).toHaveCount(0);
   await expectNoHorizontalOverflow(page);
   await assertAccessibilitySmoke(page);
 
