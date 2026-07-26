@@ -24,8 +24,6 @@ Route::middleware(['auth', 'mfa.confirmed', 'admin.permission:wiki.access'])
     ->group(function (): void {
         Route::get('/', AdminWikiController::class)->name('index');
         Route::get('/articles', [AdminWikiArticleController::class, 'index'])->name('articles.index');
-        Route::get('/articles/{article}/revisions', [AdminWikiArticleController::class, 'revisions'])
-            ->name('articles.revisions');
         Route::get('/categories', [AdminWikiCategoryController::class, 'index'])->name('categories.index');
 
         Route::middleware('admin.permission:wiki.articles.manage')->group(function (): void {
@@ -37,6 +35,8 @@ Route::middleware(['auth', 'mfa.confirmed', 'admin.permission:wiki.access'])
                 ->where('locale', 'en|pl')
                 ->middleware('signed')
                 ->name('articles.preview');
+            Route::get('/articles/{article}/revisions', [AdminWikiArticleController::class, 'revisions'])
+                ->name('articles.revisions');
             Route::post('/articles/{article}/submit-review', [AdminWikiLifecycleController::class, 'submitReview'])
                 ->name('articles.submit-review');
             Route::post('/articles/{article}/return-draft', [AdminWikiLifecycleController::class, 'returnDraft'])
