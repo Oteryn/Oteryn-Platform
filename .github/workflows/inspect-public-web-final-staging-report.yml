@@ -26,7 +26,6 @@ jobs:
 
   inspect-live-gateway:
     runs-on: oteryn-staging
-    environment: synology-staging
     timeout-minutes: 10
     steps:
       - name: Inspect current Gateway readiness without mutation
