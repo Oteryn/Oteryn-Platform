@@ -31,13 +31,31 @@ jobs:
             exit 1
           fi
 
-          grep -Fq 'Final Synology staging closure result: **PASS**' <<<"$report"
-          grep -Fq "exact trusted main SHA: \`${EXPECTED_SHA}\`" <<<"$report"
-          grep -Fq 'dispatch result: `success`' <<<"$report"
-          grep -Fq 'live Chromium smoke result: `success`' <<<"$report"
-          grep -Eq 'one-shot run: `[0-9]+`' <<<"$report"
-          grep -Eq 'deployment run: `[0-9]+`' <<<"$report"
-          grep -Fq "sanitized artifact: \`public-web-final-staging-${EXPECTED_SHA}\`" <<<"$report"
-
           echo 'Sanitized final staging report:'
           printf '%s\n' "$report"
+
+          assert_fixed() {
+            local label="$1"
+            local value="$2"
+            if ! grep -Fq "$value" <<<"$report"; then
+              echo "Missing expected sanitized field: $label" >&2
+              exit 1
+            fi
+          }
+
+          assert_regex() {
+            local label="$1"
+            local value="$2"
+            if ! grep -Eq "$value" <<<"$report"; then
+              echo "Missing expected sanitized pattern: $label" >&2
+              exit 1
+            fi
+          }
+
+          assert_fixed outcome 'Final Synology staging closure result: **PASS**'
+          assert_fixed exact_sha "exact trusted main SHA: \`${EXPECTED_SHA}\`"
+          assert_fixed dispatch 'dispatch result: `success`'
+          assert_fixed live_smoke 'live Chromium smoke result: `success`'
+          assert_regex one_shot 'one-shot run: `[0-9]+`'
+          assert_regex deployment 'deployment run: `[0-9]+`'
+          assert_fixed artifact "sanitized artifact: \`public-web-final-staging-${EXPECTED_SHA}\`"
