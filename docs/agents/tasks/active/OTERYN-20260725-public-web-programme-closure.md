@@ -66,7 +66,7 @@ cross_repository_tasks:
   - none
 ```
 
-The programme task owns coordination only. Deployment and closure paths are delegated to `OTERYN-20260726-public-web-final-staging-closure`.
+The programme task owns coordination only. Deployment and closure paths are delegated to `OTERYN-20260726-public-web-final-staging-closure` in draft PR #210.
 
 ## Implementation reconciliation
 
@@ -90,18 +90,18 @@ The programme task owns coordination only. Deployment and closure paths are dele
 | Canonical and hreflang metadata | COMPLETE | PR #206; shared escaped metadata with freshness-aware equivalent alternates | Preserve. | none |
 | Open Graph, sitemap and robots exclusions | COMPLETE | PR #206; bounded OG metadata, fail-closed published-only sitemap and authoritative dynamic robots policy | Preserve. | none |
 | Responsive, keyboard and accessibility closure | COMPLETE | PRs #194, #196, #199, #206 and #208 required browser profiles | Preserve required profiles. | none |
-| Initial approved Wiki content set | COMPLETE | PR #208 / `f8002191f0e5270dc4191227fd01d5e709ee5ab6`; thirteen bilingual source-backed topics and conflict-safe operator provisioning; task archived through PR #209 | Install or verify the exact reviewed package on final staging. | final-staging child |
-| Final Synology staging deployment | IMPLEMENTING | Task `OTERYN-20260726-public-web-final-staging-closure`; guarded exact-SHA dispatcher, existing reviewed deploy workflow and live Chromium evidence design | Validate, merge and collect exact deployment/smoke evidence. | final-staging child |
-| Issue #145 closure | PENDING | All implementation requirements and child archival lifecycles are merged; staging evidence remains outstanding | Close only after exact-SHA staging acceptance and temporary-trigger cleanup. | programme closure task |
+| Initial approved Wiki content set | COMPLETE | PR #208 / `f8002191f0e5270dc4191227fd01d5e709ee5ab6`; thirteen bilingual source-backed topics and conflict-safe operator provisioning; task archived through PR #209 | Install or verify the exact reviewed package on final staging. | PR #210 |
+| Final Synology staging deployment | IMPLEMENTING | Draft PR #210 / task `OTERYN-20260726-public-web-final-staging-closure`; guarded exact-SHA dispatcher, existing reviewed deploy workflow and live Chromium evidence | Pass exact-head checks, merge with trigger marker and collect deployment/smoke evidence. | PR #210 |
+| Issue #145 closure | PENDING | All implementation requirements and prior child archival lifecycles are merged; staging evidence remains outstanding | Close only after exact-SHA staging acceptance and temporary-trigger cleanup. | programme closure task |
 
 ## Context checkpoint
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-07-26T17:10:00Z
-head: 994f17f64b5d608094933cc35af240e954a76fc2
+updated_at: 2026-07-26T17:13:00Z
+head: 710c4371dcd411b6ea17c8efa7723dfd490df3bb
 branch: ops/OTERYN-20260726-public-web-final-staging-closure
-pr: none
+pr: 210
 status: implementing
 context_routes:
   - agent-governance
@@ -122,16 +122,17 @@ proven:
   - Issue 145 remains open
   - every approved implementation requirement is merged and every prior implementation child is archived
   - PR 208 delivered exactly thirteen bilingual source-backed Wiki launch topics and PR 209 archived its lifecycle
-  - active task OTERYN-20260726-public-web-final-staging-closure is the only owner for final staging deployment and smoke paths
-  - the final-staging branch adds a guarded main-only one-shot dispatcher, inert exact-image trigger and self-hosted live Chromium smoke while reusing the existing deploy workflow
+  - draft PR 210 and active task OTERYN-20260726-public-web-final-staging-closure are the only owners for final staging deployment and smoke paths
+  - PR 210 changes exactly the temporary one-shot workflow, inert deploy trigger and three declared coordination records
+  - the one-shot waits for exact merge-SHA images, invokes the existing trusted-main deploy workflow, verifies deployed image tags, resolves one eligible publisher internally and runs pinned Chromium smoke
   - no other open implementation owner overlaps the declared final-staging paths
   - no write occurred outside blakinio/Oteryn-Platform
   - no production, router, DSM, Internet-exposure or external-repository action occurred
 derived:
-  - programme completion now depends only on successful final-staging evidence, temporary-trigger cleanup, child archival and Issue 145 closure
+  - programme completion now depends only on PR 210 validation/merge, successful final-staging evidence, temporary-trigger cleanup, child archival and Issue 145 closure
 unknown:
   - whether staging currently contains exactly one eligible Wiki publisher Identity
-  - exact deployment and smoke workflow/run identifiers until the final-staging trigger merges
+  - exact deployment and smoke workflow/run identifiers until PR 210 merges
 conflicts: []
 first_failure:
   marker: none
@@ -148,10 +149,10 @@ validation:
     evidence: PRs 208 and 209 merged as f8002191f0e5270dc4191227fd01d5e709ee5ab6 and a262996eda36fc9430fe1883ea637ffd2f6ff698
   - command: final-staging ownership reconciliation
     result: PASS
-    evidence: one bounded active child owns the temporary workflow, inert trigger, task and coordination records
+    evidence: draft PR 210 is the single bounded owner for the temporary workflow, inert trigger, task and coordination records
 blockers:
   - none before pull-request validation
-next_action: Open a draft pull request for the final-staging closure and run exact-head validation.
+next_action: Run exact-head PR 210 validation and correct any workflow or governance failure before readiness.
 ```
 
 ## Notes
