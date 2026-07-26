@@ -10,15 +10,65 @@ permissions:
   contents: read
 
 jobs:
-  inspect:
+  inspect-deployment:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Print final health timeout lines
+      - name: Confirm final deployment failure
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           DEPLOYMENT_JOB_ID: '89821183195'
         run: |
           set -euo pipefail
           gh api "repos/${GITHUB_REPOSITORY}/actions/jobs/${DEPLOYMENT_JOB_ID}/logs" > deployment.log
-          sed -n '540,575p' deployment.log
+          grep -Fq 'Health probe failed: Gateway /ready' deployment.log
+          echo 'Deployment run 30212567112 failed only at Gateway /ready after exact images, migrations, privilege checks, service starts and bindings succeeded.'
+
+  inspect-live-gateway:
+    runs-on: oteryn-staging
+    environment: synology-staging
+    timeout-minutes: 10
+    steps:
+      - name: Inspect current Gateway readiness without mutation
+        run: |
+          set -euo pipefail
+          gateway_container="$(docker ps \
+            --filter label=com.docker.compose.project=oteryn-staging \
+            --filter label=com.docker.compose.service=gateway \
+            --format '{{.ID}}')"
+          platform_container="$(docker ps \
+            --filter label=com.docker.compose.project=oteryn-staging \
+            --filter label=com.docker.compose.service=platform \
+            --format '{{.ID}}')"
+
+          [[ "$(wc -w <<<"$gateway_container")" -eq 1 ]]
+          [[ "$(wc -w <<<"$platform_container")" -eq 1 ]]
+
+          echo "Gateway image: $(docker inspect --format '{{.Config.Image}}' "$gateway_container")"
+          echo "Platform image: $(docker inspect --format '{{.Config.Image}}' "$platform_container")"
+          echo "Gateway state: $(docker inspect --format '{{.State.Status}} restarts={{.RestartCount}}' "$gateway_container")"
+          echo "Platform state: $(docker inspect --format '{{.State.Status}} restarts={{.RestartCount}}' "$platform_container")"
+
+          probe() {
+            local label="$1"
+            local url="$2"
+            local body
+            local status
+            body="$(mktemp)"
+            status="$(curl --silent --show-error --output "$body" --write-out '%{http_code}' "$url" || true)"
+            echo "${label} status: ${status}"
+            echo "${label} body:"
+            cat "$body"
+            echo
+            rm -f "$body"
+          }
+
+          probe 'Platform health' 'http://127.0.0.1:8000/health'
+          probe 'Gateway health' 'http://127.0.0.1:8080/health'
+          probe 'Gateway ready' 'http://127.0.0.1:8080/ready'
+
+          echo 'Gateway diagnostic log excerpt:'
+          docker logs --tail 250 "$gateway_container" 2>&1 \
+            | grep -Ei 'error|fail|unavailable|ready|platform|oauth|jwks|ticket|token|timeout|connect' \
+            | tail -n 120 \
+            || true
