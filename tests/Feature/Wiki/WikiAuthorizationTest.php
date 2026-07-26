@@ -19,7 +19,7 @@ final class WikiAuthorizationTest extends TestCase
 {
     use RefreshDatabase;
 
-    public function test_existing_platform_admin_bundle_does_not_receive_reserved_wiki_permissions_implicitly(): void
+    public function test_platform_admin_receives_explicit_wiki_bundle_without_wildcard_authority(): void
     {
         $identity = $this->createIdentity('existing-platform-admin@example.com');
         $this->assignExistingRole($identity, AdminRoleManager::PLATFORM_ADMIN);
@@ -30,10 +30,11 @@ final class WikiAuthorizationTest extends TestCase
             AdminPermission::MANAGE_WIKI_ARTICLES,
             AdminPermission::MANAGE_WIKI_CATEGORIES,
             AdminPermission::PUBLISH_WIKI,
-            'wiki.*',
         ] as $permission) {
-            self::assertFalse($authorization->allows($identity, $permission));
+            self::assertTrue($authorization->allows($identity, $permission));
         }
+
+        self::assertFalse($authorization->allows($identity, 'wiki.*'));
     }
 
     public function test_exact_wiki_permission_does_not_grant_other_wiki_capabilities(): void
