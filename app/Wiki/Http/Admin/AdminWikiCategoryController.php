@@ -17,6 +17,8 @@ use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 use InvalidArgumentException;
+use RuntimeException;
+use stdClass;
 use Symfony\Component\HttpKernel\Exception\ConflictHttpException;
 
 final class AdminWikiCategoryController
@@ -104,7 +106,8 @@ final class AdminWikiCategoryController
                     ->get()
                     ->keyBy('locale'),
             'parentOptions' => $this->categoryRows()
-                ->reject(static fn (object $row): bool => $category !== null && (int) $row->id === $category->id)
+                ->reject(fn (stdClass $row): bool => $category !== null
+                    && $this->integer($row->id, 'Wiki category') === $category->id)
                 ->values(),
         ]);
     }
@@ -166,10 +169,6 @@ final class AdminWikiCategoryController
     {
         $value = $translation[$field] ?? '';
 
-        if ($value === null) {
-            return '';
-        }
-
         if (! is_string($value)) {
             throw ValidationException::withMessages([
                 "translations.{$locale}.{$field}" => 'Wiki category translation fields must be strings.',
@@ -188,7 +187,7 @@ final class AdminWikiCategoryController
         return WikiCategory::query()->findOrFail($request->integer('parent_id'));
     }
 
-    /** @return Collection<int, object> */
+    /** @return Collection<int, stdClass> */
     private function categoryRows(): Collection
     {
         return DB::table('wiki_categories as c')
@@ -222,5 +221,18 @@ final class AdminWikiCategoryController
             ->orderBy('c.key')
             ->orderBy('c.id')
             ->get();
+    }
+
+    private function integer(mixed $value, string $description): int
+    {
+        if (is_int($value)) {
+            return $value;
+        }
+
+        if (is_string($value) && ctype_digit($value)) {
+            return (int) $value;
+        }
+
+        throw new RuntimeException("Expected an integer-compatible {$description} identifier.");
     }
 }
