@@ -6,7 +6,7 @@ on:
       - .github/workflows/update-mfa-qr-dependency.yml
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   update:
@@ -14,6 +14,8 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: chore/OTERYN-20260726-public-web-programme-final-cleanup
       - uses: shivammathur/setup-php@v2
         with:
           php-version: '8.5'
@@ -23,12 +25,15 @@ jobs:
           set -euo pipefail
           composer require endroid/qr-code:^6.0 --no-interaction --no-progress
           composer validate --strict
-      - name: Upload generated Composer files
-        uses: actions/upload-artifact@v4
-        with:
-          name: mfa-qr-composer-files-${{ github.sha }}
-          path: |
-            composer.json
-            composer.lock
-          if-no-files-found: error
-          retention-days: 1
+      - name: Commit generated Composer files
+        run: |
+          set -euo pipefail
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add composer.json composer.lock
+          if git diff --cached --quiet; then
+            echo 'Composer files already contain the requested dependency.'
+            exit 0
+          fi
+          git commit -m 'build(deps): add local SVG QR generation'
+          git push origin HEAD:chore/OTERYN-20260726-public-web-programme-final-cleanup
