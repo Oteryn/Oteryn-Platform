@@ -144,9 +144,9 @@ Exact final head:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-07-26T07:02:06Z
-head: a286814d17a5697f2462f55dedccf1badd85d269
-branch: feat/OTERYN-20260725-public-wiki-read-search
+updated_at: 2026-07-26T07:10:00Z
+head: 9ed3861cc29dcaf6305c379de2bee5ee5ac923d6
+branch: codex/archive-public-wiki-read-search
 pr: 194
 status: ready
 context_routes:
@@ -189,8 +189,9 @@ proven:
   - localized route cloning preserves source middleware, including the Wiki search rate limiter
   - deterministic browser acceptance covers Wiki reads, search, TOC, bilingual equivalence, accessibility smoke and horizontal overflow in Chromium, Firefox, WebKit, desktop, tablet and mobile projects
   - no migration or Canary-owned schema change is required
-  - GitHub acceptance passed on PR head 7db66513b90328fd0eaa5b69efaca080e4062e78, including portability, responsive, dependency-resilience and keyboard-accessibility profiles
+  - GitHub acceptance passed on final PR head a1cc321f8efbd65ab7411a4af0f984db5b6802ed, including portability, responsive, dependency-resilience and keyboard-accessibility profiles
   - all required GitHub checks passed after the transient Docker Hub buildkit pull timeout was rerun successfully
+  - PR 194 was squash-merged to main as 9ed3861cc29dcaf6305c379de2bee5ee5ac923d6
 derived:
   - league/commonmark 2.8 is the selected renderer; Wiki adds stricter link and no-image renderers on top of its fail-closed configuration
   - public read/search can be delivered independently of administrator UI and media integration
@@ -257,13 +258,13 @@ validation:
     evidence: seed/spec/config syntax valid and the Wiki browser test is discovered by the portability project
   - command: GitHub Acceptance E2E and Visual UX
     result: PASS
-    evidence: exact PR head 7db66513b90328fd0eaa5b69efaca080e4062e78 passed Chromium smoke, Chromium/Firefox/WebKit portability, desktop/tablet/mobile responsive, dependency-resilience and keyboard-accessibility profiles
+    evidence: exact final PR head a1cc321f8efbd65ab7411a4af0f984db5b6802ed passed Chromium smoke, Chromium/Firefox/WebKit portability, desktop/tablet/mobile responsive, dependency-resilience and keyboard-accessibility profiles
   - command: required GitHub checks
     result: PASS
     evidence: CI, Agent Governance, Game Auth Ticket Concurrency, production-like validation, DB-outage validation and Synology image/package checks passed; one Docker Hub buildkit pull timeout was classified as external infrastructure and passed on failed-job rerun
 blockers:
   - none
-next_action: Commit and push the ready checkpoint, then mark PR 194 ready and merge only after required checks pass on the checkpoint-only head.
+next_action: Move this completed record to the archive, publish the documentation-only archival PR and merge it after governance validation passes.
 ```
 
 ## Notes
