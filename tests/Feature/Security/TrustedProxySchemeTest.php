@@ -11,18 +11,16 @@ final class TrustedProxySchemeTest extends TestCase
 {
     protected function setUp(): void
     {
-        $this->setTrustedProxiesEnvironment('10.201.3.0/24');
-        TrustProxies::flushState();
-
         parent::setUp();
+
+        config(['http.trusted_proxies' => ['10.201.3.0/24']]);
+        TrustProxies::flushState();
     }
 
     protected function tearDown(): void
     {
-        parent::tearDown();
-
         TrustProxies::flushState();
-        $this->setTrustedProxiesEnvironment(null);
+        parent::tearDown();
     }
 
     public function test_configured_reverse_proxy_generates_external_https_login_action(): void
@@ -102,19 +100,5 @@ final class TrustedProxySchemeTest extends TestCase
                 'X-Forwarded-Proto' => $forwardedProto,
             ])
             ->get('/login');
-    }
-
-    private function setTrustedProxiesEnvironment(?string $value): void
-    {
-        if ($value === null) {
-            putenv('TRUSTED_PROXIES');
-            unset($_ENV['TRUSTED_PROXIES'], $_SERVER['TRUSTED_PROXIES']);
-
-            return;
-        }
-
-        putenv('TRUSTED_PROXIES='.$value);
-        $_ENV['TRUSTED_PROXIES'] = $value;
-        $_SERVER['TRUSTED_PROXIES'] = $value;
     }
 }
