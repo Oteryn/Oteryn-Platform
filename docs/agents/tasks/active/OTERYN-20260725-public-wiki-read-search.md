@@ -144,8 +144,8 @@ Exact final head:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-07-26T07:12:00Z
-head: 35afabc1b3a726fab39fd7ae89163d7c891f1130
+updated_at: 2026-07-26T07:18:00Z
+head: a286814d17a5697f2462f55dedccf1badd85d269
 branch: feat/OTERYN-20260725-public-wiki-read-search
 pr: 194
 status: validating
@@ -256,7 +256,7 @@ validation:
     evidence: seed/spec/config syntax valid and the Wiki browser test is discovered by the portability project
 blockers:
   - none
-next_action: Commit and push the validated implementation to PR 194, then inspect fresh CI and browser acceptance on the exact head.
+next_action: Push the implementation and checkpoint commits to PR 194, then inspect fresh CI and browser acceptance for implementation head a286814d17a5697f2462f55dedccf1badd85d269.
 ```
 
 ## Notes
