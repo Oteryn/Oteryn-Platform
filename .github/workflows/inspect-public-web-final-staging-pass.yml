@@ -14,11 +14,11 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Print Phase 7 regression summary and terminal failure
+      - name: Print Phase 7 terminal test result
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PHASE7_JOB_ID: 89828002567
         run: |
           set -euo pipefail
           gh api "repos/${GITHUB_REPOSITORY}/actions/jobs/${PHASE7_JOB_ID}/logs" > phase7.log
-          sed -n '3400,3600p' phase7.log
+          grep -nE 'Tests:|Process completed with exit code|FAILURES!|FAILED  Tests|Tests failed' phase7.log | tail -n 40 || true
