@@ -76,10 +76,10 @@ cross_repository_tasks: []
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-07-26T17:24:00Z
-head: 9b876522142589daa36baaacb01a0af3c5ebe350
+updated_at: 2026-07-26T17:26:00Z
+head: 9f3c3bee72fd00f6d8ca80ba8a63835cbd4f0d61
 branch: ops/OTERYN-20260726-final-staging-observable-report
-pr: none
+pr: 211
 status: implementing
 context_routes:
   - agent-governance
@@ -97,8 +97,9 @@ proven:
   - all six required PR 210 exact-head workflows passed before merge
   - the push-triggered one-shot and deploy runs are intentionally separated from pull-request checks
   - the available GitHub connector cannot enumerate push or workflow-dispatch runs by SHA
+  - draft PR 211 adds an always-run report using exact issues write permission and changes only the temporary workflow, inert trigger and active checkpoint
   - the report-enabled workflow posts only exact SHA, release tag, one-shot run ID, deployment run ID, job conclusions and artifact name to Issue 145
-  - the report job runs with always semantics and does not expose identity email, secrets, private storage paths or image bytes
+  - the report job does not expose identity email, secrets, private storage paths or image bytes
   - the revised inert deploy trigger forces exact Platform and Gateway images for the report-enabled merge SHA
   - no production, router, DSM, Internet-exposure or external-repository action occurred while adding observability
  derived:
@@ -106,7 +107,7 @@ proven:
   - a fresh exact-SHA deployment is preferable to inferring the unobservable PR 210 post-merge outcome
 unknown:
   - outcome and run identifiers of the initial unobservable PR 210 post-merge one-shot
-  - exact report-enabled deployment and smoke run identifiers until the observability change merges
+  - exact report-enabled deployment and smoke run identifiers until PR 211 merges
   - whether staging currently contains exactly one eligible Wiki publisher Identity
 conflicts: []
 first_failure:
@@ -130,8 +131,11 @@ validation:
   - command: workflow observation through connector
     result: BLOCKED
     evidence: connector supports PR-associated runs only and returned no runs for the merge SHA
+  - command: PR 211 ownership reconciliation
+    result: PASS
+    evidence: draft PR 211 changes exactly the report-enabled temporary workflow, inert trigger and active task checkpoint
 blockers: []
-next_action: Open and validate a narrow report-enabled rerun pull request, then merge it with the guarded marker and observe the resulting Issue 145 comment.
+next_action: Run exact-head PR 211 validation, correct any failure, then merge with the guarded marker and observe the resulting Issue 145 report.
 ```
 
 ## Notes
