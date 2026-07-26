@@ -4,7 +4,8 @@ Convenience index only. Individual active task records, live PRs and Git state a
 
 ## Active tasks
 
-None.
+- `OTERYN-20260725-public-web-programme-closure` — Issue #145 programme coordination; owns only its task record and delegates runtime paths to bounded child tasks.
+- `OTERYN-20260726-wiki-administration` — trusted-editor Wiki dashboard, bilingual article/category editing, lifecycle, signed preview and revision restore in draft PR #196.
 
 ## Closed acceptance and release-preparation follow-ups
 
@@ -24,6 +25,8 @@ None.
 - PR #111 / `740d9879b341d98e4cf0ef0e7f076b43cd86cdaf` — issue #110 closed; required acceptance now includes bounded zero-retry Chromium keyboard/focus accessibility, while scheduled/manual three-iteration zero-retry critical stability and read-only public soak profiles provide future non-blocking evidence.
 - PR #142 / `f4570b99c9ef6f222ae3aa9ee1d9a41919768df3` — first-party Wiki architecture, phased implementation plan and standalone implementation-agent prompt merged.
 - PR #143 / `434ef4c950b52c1cb77422fda1a17c1d20bba59f` — complete non-commercial public website expansion architecture, delivery programme and first-slice implementation prompt merged.
+- PR #194 / `9ed3861cc29dcaf6305c379de2bee5ee5ac923d6` — production-capable published-only English/Polish public Wiki reads, restricted Markdown rendering and locale-isolated search merged.
+- PR #195 / `c53e0f2a1a93de9275439aff573e5a713f5621b1` — public Wiki task lifecycle archived.
 
 ## Current project phase
 
@@ -45,9 +48,9 @@ No staging evidence may be promoted to `PRODUCTION_PROVEN`.
 
 ## Next work
 
-The public website and Wiki planning records are complete and archived. The next implementation slice is the production homepage/public-shell foundation defined by `docs/architecture/PUBLIC_WEBSITE_EXPANSION_PLAN.md`; it must start as a new dedicated task, branch and draft PR after overlap checks.
+Complete and merge PR #196 with exact-head validation, then archive its child task and update the Issue #145 programme checkpoint. The next bounded child after Wiki administration is Wiki-to-EditorialMedia consumer integration; do not begin it until PR #196 releases its paths.
 
-The merged stability and soak workflows should accumulate scheduled/manual evidence. Their first multi-iteration and soak baselines are intentionally pending and remain non-blocking until measured variance justifies any stronger gate.
+After the remaining Issue #145 child tasks merge, deploy the exact final trusted `main` SHA to Synology staging through the existing reviewed workflow and record live browser-smoke evidence.
 
 Issue #91 remains the single production execution tracker. Resume it only when the exact final deployed production SHA, explicit production deployment/verification authorization and access to collect sanitized production evidence are available.
 
