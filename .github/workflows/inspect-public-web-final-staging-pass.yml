@@ -9,64 +9,16 @@ permissions:
   contents: read
 
 jobs:
-  inspect-staging-rbac:
-    runs-on: oteryn-staging
+  inspect-role-grants:
+    runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Inspect sanitized Identity and Wiki RBAC aggregates
+      - uses: actions/checkout@v7
+      - name: Print explicit role-grant migration precedents
         run: |
           set -euo pipefail
-          platform_container="$(docker ps \
-            --filter label=com.docker.compose.project=oteryn-staging \
-            --filter label=com.docker.compose.service=platform \
-            --format '{{.ID}}')"
-          [[ "$(wc -w <<<"$platform_container")" -eq 1 ]]
-
-          docker exec -i "$platform_container" php <<'PHP'
-          <?php
-          require '/var/www/html/vendor/autoload.php';
-          $app = require '/var/www/html/bootstrap/app.php';
-          $app->make(Illuminate\Contracts\Console\Kernel::class)->bootstrap();
-
-          $identities = App\Identity\Models\Identity::query()->orderBy('id')->get();
-          $enabled = $identities->filter(fn ($identity) => $identity->disabled_at === null);
-          $mfaConfirmed = $enabled->filter(fn ($identity) => $identity->hasConfirmedMfa());
-          $authorization = $app->make(App\Wiki\Application\WikiAuthorization::class);
-          $eligible = $mfaConfirmed->filter(function ($identity) use ($authorization): bool {
-              try {
-                  $authorization->assertCanAccess($identity);
-                  $authorization->assertCanManageCategories($identity);
-                  $authorization->assertCanManageArticles($identity);
-                  $authorization->assertCanPublish($identity);
-                  return true;
-              } catch (Throwable) {
-                  return false;
-              }
-          });
-
-          echo json_encode([
-              'identity_total' => $identities->count(),
-              'identity_enabled' => $enabled->count(),
-              'identity_mfa_confirmed' => $mfaConfirmed->count(),
-              'identity_wiki_publisher_eligible' => $eligible->count(),
-              'role_assignment_total' => Illuminate\Support\Facades\DB::table('identity_admin_roles')->count(),
-          ], JSON_THROW_ON_ERROR | JSON_PRETTY_PRINT).PHP_EOL;
-
-          $roles = Illuminate\Support\Facades\DB::table('admin_roles')->orderBy('key')->get(['id', 'key']);
-          foreach ($roles as $role) {
-              $permissions = Illuminate\Support\Facades\DB::table('admin_role_permissions')
-                  ->join('admin_permissions', 'admin_permissions.id', '=', 'admin_role_permissions.permission_id')
-                  ->where('admin_role_permissions.role_id', $role->id)
-                  ->orderBy('admin_permissions.key')
-                  ->pluck('admin_permissions.key')
-                  ->all();
-              $assignmentCount = Illuminate\Support\Facades\DB::table('identity_admin_roles')
-                  ->where('role_id', $role->id)
-                  ->count();
-              echo json_encode([
-                  'role' => $role->key,
-                  'assignment_count' => $assignmentCount,
-                  'permissions' => $permissions,
-              ], JSON_THROW_ON_ERROR).PHP_EOL;
-          }
-          PHP
+          echo 'Files granting media/support/public-module permissions:'
+          grep -RIlE "media\.manage|support\.content\.manage|wiki\.publish" database/migrations | sort
+          echo 'Relevant migration excerpts:'
+          grep -RInE "media\.manage|support\.content\.manage|wiki\.access|wiki\.articles\.manage|wiki\.categories\.manage|wiki\.publish|admin_role_permissions" database/migrations \
+            | tail -n 240
