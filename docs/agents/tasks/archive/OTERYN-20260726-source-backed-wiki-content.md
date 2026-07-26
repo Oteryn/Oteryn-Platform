@@ -107,7 +107,7 @@ proven:
   - PR 208 had no comments, reviews or unresolved review threads
   - PR 208 was marked ready and squash-merged as f8002191f0e5270dc4191227fd01d5e709ee5ab6
   - no production, Canary/login-server, router, DSM or external-repository write occurred
- derived:
+derived:
   - all approved Issue 145 implementation children are now merged
   - final programme completion now depends on exact-final-SHA Synology staging deployment, live smoke evidence and programme closure
 unknown:
@@ -153,7 +153,7 @@ validation:
     result: PASS
     evidence: PR 208 squash-merged as f8002191f0e5270dc4191227fd01d5e709ee5ab6
 blockers: []
-next_action: Merge the documentation-only archival pull request, then start exact-final-SHA Synology staging deployment closure for Issue 145.
+next_action: Create and merge the documentation-only archival pull request for the completed PR 208 task lifecycle.
 ```
 
 ## Notes
