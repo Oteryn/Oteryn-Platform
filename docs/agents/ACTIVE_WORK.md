@@ -4,7 +4,7 @@ Convenience index only. Individual active task records, live PRs and Git state a
 
 ## Active tasks
 
-- `OTERYN-20260725-public-web-programme-closure` — Issue #145 programme coordination; owns only its task record and delegates runtime paths to bounded child tasks.
+- `OTERYN-20260725-public-web-programme-closure` — Issue #145 programme coordination; owns only its task record and delegates deployment/closure paths to a bounded child task.
 
 ## Closed acceptance and release-preparation follow-ups
 
@@ -31,6 +31,7 @@ Convenience index only. Individual active task records, live PRs and Git state a
 - PR #198 / `57716094cde335a0e8a661953bd3a5809ec12cb6` — Issue #145 programme checkpoint refreshed after the public and administrator Wiki deliveries.
 - PR #199 / `f66c9944fd8110014773bd7cb7b58c9f49e45af0` — approved private EditorialMedia objects integrated into Wiki editing, transactional references, published-only verified public bytes and signed administrator previews.
 - PR #206 / `1d063604a66dd3154f97a6f167377d54131cc516` — homepage announcement/event composition, Download and guild navigation, escaped localized metadata, published-only sitemap, authoritative robots policy and required browser closure merged.
+- PR #208 / `f8002191f0e5270dc4191227fd01d5e709ee5ab6` — thirteen source-backed bilingual Wiki launch topics, exact-permission/MFA operator provisioning, conflict-safe idempotency and required cross-browser acceptance merged.
 
 ## Current project phase
 
@@ -52,11 +53,9 @@ No staging evidence may be promoted to `PRODUCTION_PROVEN`.
 
 ## Next work
 
-Complete the source-backed Wiki-content closure child without inventing gameplay facts.
+Complete the documentation-only PR #208 task archival lifecycle, then create a bounded deployment-closure task that deploys the exact final trusted `main` SHA to Synology staging through the existing reviewed workflow and records live browser-smoke evidence.
 
-After the remaining Issue #145 child tasks merge, deploy the exact final trusted `main` SHA to Synology staging through the existing reviewed workflow and record live browser-smoke evidence.
-
-Issue #91 remains the single production execution tracker. Resume it only when the exact final deployed production SHA, explicit production deployment/verification authorization and access to collect sanitized production evidence are available.
+Issue #145 may close only after that exact-SHA staging evidence is reconciled. Issue #91 remains the single production execution tracker and resumes only with explicit production authorization and access to collect sanitized production evidence.
 
 ## Remaining cross-repository dependency
 
