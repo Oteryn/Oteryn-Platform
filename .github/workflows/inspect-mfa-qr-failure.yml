@@ -14,13 +14,11 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Print focused failed-test block
+      - name: Print focused MFA web-flow failure
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CI_JOB_ID: 89844130696
         run: |
           set -euo pipefail
           gh api "repos/${GITHUB_REPOSITORY}/actions/jobs/${CI_JOB_ID}/logs" > ci.log
-          grep -nEi 'FAILED|FAILURES|MfaQrCode|Tests:|Error:|Assertion' ci.log | tail -n 120 || true
-          echo '--- terminal test range ---'
-          tail -n 220 ci.log
+          sed -n '1150,1195p' ci.log
