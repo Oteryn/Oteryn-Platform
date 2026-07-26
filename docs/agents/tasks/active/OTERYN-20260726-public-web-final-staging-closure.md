@@ -75,10 +75,10 @@ cross_repository_tasks: []
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-07-26T17:08:00Z
-head: 7618ce522080597b5c4b135d7197591b5f3a7c62
+updated_at: 2026-07-26T17:12:00Z
+head: 0aafc093bcfffb3e21fa89a76a4cafb892ea1a40
 branch: ops/OTERYN-20260726-public-web-final-staging-closure
-pr: none
+pr: 210
 status: implementing
 context_routes:
   - agent-governance
@@ -99,14 +99,15 @@ proven:
   - existing deployment workflow is workflow-dispatch-only, checks out trusted main, targets environment synology-staging and runner oteryn-staging
   - previous successful LAN staging deployment used immutable Canary image ghcr.io/blakinio/canary@sha256:784e5dbdcc64e311c48c51cd94aa206e2efa1e5eefb2f4ef40170d5aac55031f and private game bind 192.168.1.2
   - Wiki launch-content installation is idempotent and requires an enabled MFA-confirmed Identity with exact access, category, article and publish permissions
-  - the guarded one-shot workflow waits for exact images, invokes the existing deploy workflow, verifies deployed tags and defines a pinned Chromium host-network smoke with sanitized artifact output
+  - draft PR 210 is the only owner for the guarded one-shot, inert image trigger, live Chromium smoke and final programme staging reconciliation
+  - PR 210 changes exactly five declared paths and reuses the existing stable build and deploy workflows
   - no production, router, DSM, Internet-exposure or external-repository action occurred while creating this task
  derived:
   - the self-hosted follow-up can boot Laravel inside the deployed container and select one eligible publisher without printing its email
   - a pinned Playwright container on Docker host networking can exercise loopback-bound staging routes as a real browser
 unknown:
   - whether staging currently contains exactly one eligible Wiki publisher Identity
-  - exact deployment and smoke run identifiers until the reviewed trigger merges
+  - exact deployment and smoke run identifiers until PR 210 merges
 conflicts: []
 first_failure:
   marker: none
@@ -119,13 +120,18 @@ rejected_hypotheses:
 changed_paths:
   - .github/workflows/one-shot-public-web-final-staging.yml
   - deploy/synology/.public-web-final-staging-trigger
+  - docs/agents/ACTIVE_WORK.md
+  - docs/agents/tasks/active/OTERYN-20260725-public-web-programme-closure.md
   - docs/agents/tasks/active/OTERYN-20260726-public-web-final-staging-closure.md
 validation:
   - command: repository, workflow, Issue 145 and prior deployment evidence reconciliation
     result: PASS
     evidence: current main, PRs 127/130/137/138/141, current build/deploy workflows and Wiki installer inspected through GitHub
+  - command: pull-request ownership reconciliation
+    result: PASS
+    evidence: draft PR 210 owns exactly the five declared final-staging closure paths
 blockers: []
-next_action: Update the active-work and programme checkpoints, then open a draft pull request for exact-head validation.
+next_action: Run exact-head PR 210 validation, correct any workflow or governance failure, then mark ready only when all required checks pass.
 ```
 
 ## Notes
