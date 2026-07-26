@@ -15,6 +15,7 @@ required_reads:
   - docs/architecture/adr/0011-safe-editorial-media-boundary.md
   - docs/architecture/adr/0012-public-wiki-read-search.md
   - docs/architecture/adr/0013-wiki-administration.md
+  - docs/architecture/adr/0014-wiki-editorial-media-integration.md
   - docs/agents/tasks/archive/OTERYN-20260725-safe-editorial-media.md
   - docs/agents/tasks/archive/OTERYN-20260726-wiki-administration.md
 search_first:
@@ -38,7 +39,7 @@ Integrate the existing private, normalized EditorialMedia image library into tru
 
 ## Acceptance criteria
 
-- [ ] A durable ADR defines the canonical Wiki media-reference syntax, localized alternative-text rule, public delivery authorization and cache behavior.
+- [x] A durable ADR defines the canonical Wiki media-reference syntax, localized alternative-text rule, public delivery authorization and cache behavior.
 - [ ] Trusted Wiki article editors can discover and insert existing approved EditorialMedia objects without gaining upload or deletion authority implicitly.
 - [ ] Wiki create, update and revision-restore paths validate referenced media and synchronize bounded `EditorialMediaConsumer::WIKI` references transactionally.
 - [ ] Removing a media token releases its reference, while referenced objects remain protected by the existing fail-closed deletion boundary.
@@ -97,8 +98,8 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-07-26T09:22:00Z
-head: 8abf24f63759db52a63f898074d3e6ec1aeebb2e
+updated_at: 2026-07-26T09:40:00Z
+head: 7cd05340643afdf99d83cb0461dd21fbdb3c3a50
 branch: feat/OTERYN-20260726-wiki-editorial-media-integration
 pr: 199
 status: blocked
@@ -114,44 +115,60 @@ context_routes:
 owned_paths:
   - Wiki-to-EditorialMedia integration paths listed in Ownership
 proven:
-  - trusted base main is 57716094cde335a0e8a661953bd3a5809ec12cb6
+  - trusted base main is 45297ec561075b62c36b7350b878b46cbd7c44fc
   - draft PR 199 is the only open implementation owner for the bounded Wiki-to-EditorialMedia consumer scope
+  - duplicate PR 200 is closed and contains no runtime implementation
+  - PR 199 includes trusted main through merge commit aa55f44bc0e2ebc594bd966ced40b6e6d005dff3
+  - ADR 0014 accepts canonical Markdown targets of the exact form wiki-media:<positive-decimal-id>
+  - ADR 0014 makes bounded contextual Markdown alternative text authoritative and uses EditorialMedia alt_text only as an insertion default
+  - ADR 0014 assigns one current-reference row per translation and media using consumer_id translation:<translation-id> and usage body.<media-id>
+  - ADR 0014 excludes historical revisions from deletion-blocking references and requires restore-time revalidation
+  - ADR 0014 requires effective published-locale authorization on every public media request and public no-cache revalidation with immutable ETag
+  - ADR 0014 keeps draft preview authenticated, confirmed-MFA, exact-permission and short-lived signed
   - EditorialMedia accepts only normalized JPEG, PNG and WebP objects stored on the private editorial_media disk
   - EditorialMedia storage and integrity fields are immutable and safe deletion refuses any referenced object
   - EditorialMediaConsumer reserves the exact WIKI consumer value
   - EditorialMediaReferenceManager validates bounded identifiers and transactionally attaches or releases usage slots
   - current EditorialMedia byte delivery is administrator-only and verifies path, byte size and SHA-256 before responding
-  - ADR 0011 explicitly requires a separate public consumer authorization, route and cache decision
   - current public Wiki renderer replaces every CommonMark image with an inert placeholder
   - public Wiki reads and search expose only effective published locale content and reject stale Polish translations
   - Wiki administration create, update and revision restore already use existing lifecycle, optimistic locking, exact permissions, MFA and audit boundaries
-  - no schema, session or compatibility change with Canary or login-server is required by the proven foundation
+  - no schema, session or compatibility change with Canary or login-server is required by the accepted design
+  - the pre-ADR documentation head 320d45a1dc8edf8f33fd26f5e125217be265c0fb passed CI, Agent Governance, Platform DB Outage Validation, Phase 7 Production-Like Validation and Game Auth Ticket Concurrency
   - the sandbox has no mounted Oteryn checkout and cannot resolve github.com to clone one
   - no external repository, production, router, DSM or Internet-exposure write occurred
 derived:
-  - public image authorization must depend on an effective published Wiki reference rather than media existence alone
-  - draft-time reference synchronization can reuse the existing reference manager while public delivery independently enforces publication state
-  - upload and deletion authority can remain under media.manage while Wiki editing uses its existing exact article permission
+  - public image authorization depends on an effective published Wiki translation reference rather than media existence alone
+  - draft-time reference synchronization reuses the existing reference manager while public delivery independently enforces publication state
+  - upload and deletion authority remains under media.manage while Wiki editing uses its existing exact article permission
+  - runtime implementation can proceed without a migration, permission grant or cross-repository contract change
   - a CODEX-capable writable checkout with repository network/dependency access is required for the multi-file implementation, formatter, tests and browser acceptance
-unknown:
-  - canonical stored Markdown media-target syntax
-  - whether Markdown alt text or the media record alt_text is authoritative for rendered Wiki output
-  - exact public cache lifetime and validator policy compatible with unpublish/reference removal
+unknown: []
 conflicts: []
 first_failure:
   marker: execution-capability
   evidence: no checkout exists under /mnt/data and `git ls-remote https://github.com/blakinio/Oteryn-Platform.git HEAD` fails with `Could not resolve host: github.com`
 rejected_hypotheses:
-  - expose the private storage disk through public/storage: rejected by ADR 0011 and the established private-disk trust boundary
-  - allow arbitrary remote CommonMark images: rejected by ADR 0012 and the current fail-closed renderer
-  - attach media only when publishing: insufficient because draft updates, restores and deletion protection require deterministic reference tracking
+  - expose the private storage disk through public/storage: rejected by ADR 0011 and ADR 0014
+  - allow arbitrary remote CommonMark images: rejected by ADR 0012 and ADR 0014
+  - use media-record alternative text as rendered truth: rejected because it is not contextual or localized
+  - keep deletion-blocking references for historical revisions: rejected because non-current content must not create indefinite locks
+  - attach media only when publishing: rejected because draft updates and restores require deterministic deletion protection
+  - use a positive public cache lifetime: rejected because unpublish and reference removal must take effect on the next request
 changed_paths:
   - docs/agents/ACTIVE_WORK.md
   - docs/agents/tasks/active/OTERYN-20260726-wiki-editorial-media-integration.md
+  - docs/architecture/adr/0014-wiki-editorial-media-integration.md
 validation:
   - command: repository, task, pull-request and focused source reconciliation
     result: PASS
-    evidence: trusted main 57716094cde335a0e8a661953bd3a5809ec12cb6, draft PR 199, PRs 176/194/196, ADRs 0011/0012, EditorialMedia models/reference manager/routes and current blocked Wiki image renderer inspected through GitHub
+    evidence: trusted main 45297ec561075b62c36b7350b878b46cbd7c44fc, draft PR 199, PRs 176/194/196, ADRs 0011-0014 and current source inspected through GitHub
+  - command: architecture decision review
+    result: PASS
+    evidence: ADR 0014 resolves token syntax, alt-text authority, reference identity, revision behavior, public authorization/cache and signed-preview boundaries without schema or permission expansion
+  - command: exact-head workflows before ADR addition
+    result: PASS
+    evidence: commit 320d45a1dc8edf8f33fd26f5e125217be265c0fb; runs 30196315208, 30196315212, 30196315214, 30196315211 and 30196315215
   - command: locate mounted repository checkout
     result: BLOCKED
     evidence: no Oteryn Platform checkout exists under /mnt/data
@@ -163,7 +180,7 @@ validation:
     evidence: writable checkout and repository network access are unavailable in the current sandbox
 blockers:
   - writable CODEX-capable checkout unavailable in the current session
-next_action: Continue PR 199 in a CODEX-capable writable checkout, resolve the three recorded design unknowns in ADR 0014, implement the bounded Wiki-to-EditorialMedia integration, and run focused plus required final validation.
+next_action: Continue PR 199 in a CODEX-capable writable checkout, implement ADR 0014 with focused failing tests first, and run focused plus required final validation.
 ```
 
 ## Notes
