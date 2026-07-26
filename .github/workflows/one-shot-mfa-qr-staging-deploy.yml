@@ -164,7 +164,7 @@ jobs:
 
           $renderer = new App\Identity\Mfa\MfaQrCode();
           $uri = 'otpauth://totp/Oteryn%20Staging:test@example.invalid?secret=JBSWY3DPEHPK3PXP&issuer=Oteryn%20Staging';
-          $dataUri = $renderer->renderDataUri($uri);
+          $dataUri = $renderer->dataUri($uri);
 
           if (! str_starts_with($dataUri, 'data:image/svg+xml;base64,')) {
               fwrite(STDERR, "MFA QR renderer did not return an inline SVG data URI.\n");
