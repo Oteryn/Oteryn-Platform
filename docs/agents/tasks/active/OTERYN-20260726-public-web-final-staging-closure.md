@@ -36,15 +36,15 @@ Deploy the exact final Issue #145 trusted-main SHA to the existing Synology stag
 
 ## Acceptance criteria
 
-- [x] The reviewed merge SHA builds and publishes exact `sha-<full-sha>` Platform and Game Gateway images before deployment dispatch.
-- [x] The existing `Deploy Synology Staging` workflow deploys that exact tag with the previously proven immutable compatible Canary digest and LAN-only game configuration.
-- [x] Deployment runs only on trusted `main`, environment `synology-staging` and runner label `oteryn-staging`.
-- [x] The deployed Platform and Gateway containers report the exact expected image tag with zero ambiguous service selection.
-- [x] Exactly one enabled MFA-confirmed Identity with all four exact Wiki permissions is selected internally without logging its email; zero or multiple eligible publishers fail closed.
-- [x] `wiki:launch-content:install` installs or verifies content version `2026-07-26.1` without overwriting editorial changes.
-- [x] A real Chromium instance on the Synology host network receives HTTP 200 from the localized homepage, Wiki index, EN/PL launch articles, sitemap and robots surfaces and verifies expected public headings/content.
-- [x] Sanitized evidence records only commit SHA, image tags, workflow/run identifiers, route/status assertions and timestamps.
-- [ ] The temporary dispatcher, inert image-build trigger and read-only evidence audit are removed after evidence is reconciled, the task is archived and Issue #145 closes only from exact deployment evidence.
+- [x] The first reviewed merge SHA built and published exact `sha-<full-sha>` Platform and Game Gateway images before deployment dispatch.
+- [ ] The existing `Deploy Synology Staging` workflow deploys the repaired exact tag healthily with the previously proven immutable compatible Canary digest and LAN-only game configuration.
+- [x] The failed attempt ran only from trusted `main`, environment `synology-staging` and runner label `oteryn-staging`.
+- [x] The running Platform and Gateway containers from the failed attempt used the exact expected image tag with zero ambiguous service selection.
+- [ ] Exactly one enabled MFA-confirmed Identity with all four exact Wiki permissions is selected internally without logging its email; zero or multiple eligible publishers fail closed.
+- [ ] `wiki:launch-content:install` installs or verifies content version `2026-07-26.1` without overwriting editorial changes.
+- [ ] A real Chromium instance on the Synology host network receives HTTP 200 from the localized homepage, Wiki index, EN/PL launch articles, sitemap and robots surfaces and verifies expected public headings/content.
+- [x] The failed attempt's sanitized report records only commit SHA, image tag, workflow/run identifiers, job conclusions and artifact name.
+- [ ] The temporary dispatcher and inert image-build trigger are removed after successful evidence is reconciled, the task is archived and Issue #145 closes only from exact deployment evidence.
 - [x] No production, router, DSM, Internet-exposure, Canary/login-server repository or external-repository write occurs.
 
 ## Ownership
@@ -52,8 +52,8 @@ Deploy the exact final Issue #145 trusted-main SHA to the existing Synology stag
 ```yaml
 owned_paths:
   - .github/workflows/one-shot-public-web-final-staging.yml
-  - .github/workflows/inspect-public-web-final-staging-report.yml
   - deploy/synology/.public-web-final-staging-trigger
+  - deploy/synology/scripts/deploy.sh
   - docs/agents/ACTIVE_WORK.md
   - docs/agents/tasks/active/OTERYN-20260725-public-web-programme-closure.md
   - docs/agents/tasks/active/OTERYN-20260726-public-web-final-staging-closure.md
@@ -80,11 +80,11 @@ cross_repository_tasks: []
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-07-26T17:38:00Z
-head: e3b7f7969537c89e982a221d44e9c3d2351ba00a
+updated_at: 2026-07-26T18:04:00Z
+head: 2c9e4aa9313e465df8897f649dee10d6e4e4d514
 branch: chore/OTERYN-20260726-public-web-final-staging-cleanup
-pr: none
-status: validating
+pr: 212
+status: implementing
 context_routes:
   - agent-governance
   - deployment
@@ -95,46 +95,58 @@ context_routes:
   - testing
   - accessibility
 owned_paths:
-  - final staging cleanup and archive paths listed in Ownership
+  - final staging repair and later cleanup paths listed in Ownership
 proven:
-  - trusted main is 62dedb894ffc3af55ba10a0717a6a892b87f1370 after PR 211 squash merge with the report-enabled guarded marker
-  - all six required PR 211 exact-head workflows passed before merge
-  - Issue 145 contains a sanitized final-staging report for exact SHA 62dedb894ffc3af55ba10a0717a6a892b87f1370 with result PASS
-  - the PASS report is emitted only after exact image-tag verification, successful existing-workflow deployment, reviewed Wiki content installation or verification and all six bounded live Chromium assertions
-  - deterministic release tag is sha-62dedb894ffc3af55ba10a0717a6a892b87f1370
-  - deterministic sanitized artifact name is public-web-final-staging-62dedb894ffc3af55ba10a0717a6a892b87f1370
-  - the temporary audit workflow is read-only, searches only the sanitized Issue 145 marker and prints no identity email, secret, private path or image byte
+  - trusted main for the first observable attempt was 62dedb894ffc3af55ba10a0717a6a892b87f1370
+  - one-shot run 30212540753 dispatched deployment run 30212567112 and deployment job 89821183195
+  - exact Platform and Gateway images for sha-62dedb894ffc3af55ba10a0717a6a892b87f1370 were pulled and started
+  - MariaDB, Redis and Canary were healthy; migrations, Passport keys, OAuth client configuration and all three database privilege checks passed
+  - the deployment failed only after Gateway /ready remained HTTP 503 for the full readiness timeout; live Chromium smoke was skipped
+  - Gateway /health returned 200 and Canary session dependency https://canary-session-internal:8444/health returned 200
+  - Platform itself was healthy and listened on 0.0.0.0:8000, while the Gateway dependency request to https://platform-internal:8443/health returned 502
+  - deploy.sh recreated Platform but used docker compose up -d internal-proxy gateway, which did not recreate the unchanged Nginx container
+  - Nginx therefore retained the previous Platform container IP after Platform recreation
+  - PR 212 changes deploy.sh to force-recreate only internal-proxy after Platform verification and starts Gateway after the refreshed proxy
+  - PR 212 extends the guarded one-shot path filter to deploy.sh so its exact merge SHA receives new images and an observable deployment/live-smoke attempt
+  - the temporary diagnostic workflow has been removed from the PR; exactly three durable files remain changed
   - no production, router, DSM, Internet-exposure or external-repository action occurred
- derived:
-  - Issue 145 completion criteria are satisfied subject only to durable exact-ID reconciliation and temporary-workflow cleanup
-  - the audit job output can preserve exact one-shot and deployment run IDs before its own workflow is removed
+derived:
+  - recreating the private proxy after Platform is the narrow repair for Docker Compose container-IP churn without restarting database, Redis or Canary
+  - a successful repaired run must produce a new exact-SHA PASS report before any closure or archive action
 unknown:
-  - exact one-shot and deployment run IDs until the temporary audit job output is read
+  - exact repaired merge SHA and resulting one-shot/deployment run identifiers until PR 212 merges
+  - whether staging contains exactly one eligible Wiki publisher Identity; this remains intentionally fail-closed
 conflicts: []
 first_failure:
-  marker: none
-  evidence: none
+  marker: stale-private-proxy-upstream
+  evidence: deployment run 30212567112 ended with Health probe failed Gateway /ready; live dependency inspection proved Platform proxy 502 and Canary session 200
 rejected_hypotheses:
-  - infer success from image builds alone: the Issue 145 PASS report proves deployment and live Chromium smoke separately
-  - retain temporary workflow files after closure: durable cleanup must remove one-shot, report trigger and read-only audit before final review
-  - expose administrator identity to preserve evidence: exact workflow/run metadata is sufficient
+  - the exact images were missing or invalid: both exact images pulled and the containers ran
+  - Platform failed to bind: its Dockerfile and live health prove 0.0.0.0:8000 and Platform health passed
+  - Canary session caused readiness failure: its private TLS health returned 200 with protocol_version 1
+  - increasing the readiness timeout would fix the issue: the stale Nginx upstream persisted for the complete 4.5-minute loop
+  - recreate the whole stack: only the private proxy holds stale upstream resolution and requires recreation
 changed_paths:
-  - .github/workflows/inspect-public-web-final-staging-report.yml
+  - .github/workflows/one-shot-public-web-final-staging.yml
+  - deploy/synology/scripts/deploy.sh
   - docs/agents/tasks/active/OTERYN-20260726-public-web-final-staging-closure.md
 validation:
-  - command: PR 211 exact-head required workflows
+  - command: first observable one-shot report
+    result: FAIL
+    evidence: run 30212540753 reported dispatch failure, deployment run 30212567112 and skipped live Chromium smoke
+  - command: deployment job forensic inspection
     result: PASS
-    evidence: Agent Governance, CI, concurrency, DB outage, Phase 7 and Synology image build passed on 92ab3059b351803e4dcee483d43eade0dddeec4b
-  - command: report-enabled staging merge
+    evidence: job 89821183195 proves exact images and dependencies passed until Gateway readiness
+  - command: live private dependency inspection
     result: PASS
-    evidence: PR 211 squash-merged as 62dedb894ffc3af55ba10a0717a6a892b87f1370 with the guarded marker
-  - command: sanitized Issue 145 final-staging report
+    evidence: Platform proxy returned 502 while Canary session returned 200 from inside the exact Gateway container
+  - command: bounded repair diff
     result: PASS
-    evidence: report exists for exact SHA 62dedb894ffc3af55ba10a0717a6a892b87f1370 and states Final Synology staging closure result PASS
+    evidence: deploy.sh replaces one combined compose up with force-recreate internal-proxy followed by up gateway
 blockers: []
-next_action: Open the read-only audit and cleanup pull request, capture exact sanitized run IDs from its job log, then remove all temporary workflows/triggers and archive both completed tasks before final review.
+next_action: Run exact-head PR 212 validation, then merge with the guarded marker and require a new exact-SHA PASS report before cleanup.
 ```
 
 ## Notes
 
-Production remains tracked exclusively by Issue #91. The final cleanup PR must contain no deployment trigger or read-only audit workflow at final review.
+Production remains tracked exclusively by Issue #91. Final cleanup and task archival must occur only after the repaired exact-SHA report is PASS.
