@@ -97,8 +97,8 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-07-26T09:20:00Z
-head: dc65cf0c33df96ab56e3e185147b5303d7c09d36
+updated_at: 2026-07-26T09:22:00Z
+head: 8abf24f63759db52a63f898074d3e6ec1aeebb2e
 branch: feat/OTERYN-20260726-wiki-editorial-media-integration
 pr: 199
 status: blocked
@@ -126,12 +126,13 @@ proven:
   - public Wiki reads and search expose only effective published locale content and reject stale Polish translations
   - Wiki administration create, update and revision restore already use existing lifecycle, optimistic locking, exact permissions, MFA and audit boundaries
   - no schema, session or compatibility change with Canary or login-server is required by the proven foundation
+  - the sandbox has no mounted Oteryn checkout and cannot resolve github.com to clone one
   - no external repository, production, router, DSM or Internet-exposure write occurred
 derived:
   - public image authorization must depend on an effective published Wiki reference rather than media existence alone
   - draft-time reference synchronization can reuse the existing reference manager while public delivery independently enforces publication state
   - upload and deletion authority can remain under media.manage while Wiki editing uses its existing exact article permission
-  - a CODEX-capable writable checkout is required for the multi-file implementation, formatter, tests and browser acceptance
+  - a CODEX-capable writable checkout with repository network/dependency access is required for the multi-file implementation, formatter, tests and browser acceptance
 unknown:
   - canonical stored Markdown media-target syntax
   - whether Markdown alt text or the media record alt_text is authoritative for rendered Wiki output
@@ -139,7 +140,7 @@ unknown:
 conflicts: []
 first_failure:
   marker: execution-capability
-  evidence: no Oteryn Platform checkout is mounted under /mnt/data, so runtime source edits and required validation cannot be executed in this session
+  evidence: no checkout exists under /mnt/data and `git ls-remote https://github.com/blakinio/Oteryn-Platform.git HEAD` fails with `Could not resolve host: github.com`
 rejected_hypotheses:
   - expose the private storage disk through public/storage: rejected by ADR 0011 and the established private-disk trust boundary
   - allow arbitrary remote CommonMark images: rejected by ADR 0012 and the current fail-closed renderer
@@ -151,9 +152,15 @@ validation:
   - command: repository, task, pull-request and focused source reconciliation
     result: PASS
     evidence: trusted main 57716094cde335a0e8a661953bd3a5809ec12cb6, draft PR 199, PRs 176/194/196, ADRs 0011/0012, EditorialMedia models/reference manager/routes and current blocked Wiki image renderer inspected through GitHub
+  - command: locate mounted repository checkout
+    result: BLOCKED
+    evidence: no Oteryn Platform checkout exists under /mnt/data
+  - command: git ls-remote https://github.com/blakinio/Oteryn-Platform.git HEAD
+    result: BLOCKED
+    evidence: container DNS cannot resolve github.com
   - command: local implementation, formatter, static analysis, feature tests and browser acceptance
     result: BLOCKED
-    evidence: no mounted writable repository checkout in the current sandbox
+    evidence: writable checkout and repository network access are unavailable in the current sandbox
 blockers:
   - writable CODEX-capable checkout unavailable in the current session
 next_action: Continue PR 199 in a CODEX-capable writable checkout, resolve the three recorded design unknowns in ADR 0014, implement the bounded Wiki-to-EditorialMedia integration, and run focused plus required final validation.
