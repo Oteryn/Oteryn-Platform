@@ -13,36 +13,32 @@ jobs:
     runs-on: oteryn-staging
     timeout-minutes: 10
     steps:
-      - name: Print Gateway readiness component without mutation
+      - name: Probe Gateway private dependencies without mutation
         run: |
           set -euo pipefail
           gateway_container="$(docker ps \
             --filter label=com.docker.compose.project=oteryn-staging \
             --filter label=com.docker.compose.service=gateway \
             --format '{{.ID}}')"
-          platform_container="$(docker ps \
-            --filter label=com.docker.compose.project=oteryn-staging \
-            --filter label=com.docker.compose.service=platform \
-            --format '{{.ID}}')"
-
           [[ "$(wc -w <<<"$gateway_container")" -eq 1 ]]
-          [[ "$(wc -w <<<"$platform_container")" -eq 1 ]]
 
           echo "Gateway image: $(docker inspect --format '{{.Config.Image}}' "$gateway_container")"
-          echo "Gateway state: $(docker inspect --format '{{.State.Status}} restarts={{.RestartCount}}' "$gateway_container")"
+          echo 'Gateway dependency environment names:'
+          docker inspect --format '{{range .Config.Env}}{{println .}}{{end}}' "$gateway_container" \
+            | grep -E '^(OTERYN_PLATFORM_BASE_URL|GAME_SESSION_SERVICE_BASE_URL|SSL_CERT_FILE)='
 
-          docker exec "$platform_container" php -r '
-          foreach (["http://gateway:8080/health", "http://gateway:8080/ready"] as $url) {
-              $context = stream_context_create(["http" => ["ignore_errors" => true, "timeout" => 5]]);
-              $body = @file_get_contents($url, false, $context);
-              $status = $http_response_header[0] ?? "no-status";
-              echo $url." => ".$status.PHP_EOL;
-              echo ($body === false ? "<read-failed>" : $body).PHP_EOL;
+          probe() {
+            local label="$1"
+            local url="$2"
+            echo "=== ${label} ==="
+            docker exec "$gateway_container" wget \
+              --server-response \
+              --output-document=- \
+              --ca-certificate=/etc/oteryn/tls/ca.crt \
+              "$url" \
+              2>&1 \
+              || true
           }
-          '
 
-          echo 'Gateway non-request log excerpt:'
-          docker logs --tail 500 "$gateway_container" 2>&1 \
-            | grep -v '"msg":"http_request"' \
-            | tail -n 100 \
-            || true
+          probe 'Platform dependency' 'https://platform-internal:8443/health'
+          probe 'Canary session dependency' 'https://canary-session-internal:8444/health'
