@@ -108,8 +108,8 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-07-26T11:39:11Z
-head: 73612eb17768ba830daa17b442e98e2ef6efb94e
+updated_at: 2026-07-26T11:48:49Z
+head: 0fdca21780bcffdfdecc24ff40dd0d6552a49edd
 branch: feat/OTERYN-20260726-wiki-editorial-media-integration
 pr: 199
 status: validating
@@ -165,7 +165,7 @@ derived:
   - runtime implementation can proceed without a migration, permission grant or cross-repository contract change
   - responsive, portability and accessibility projects now select the bounded admin Wiki media Playwright scenario by filename
 unknown:
-  - exact final commit SHA and exact-head GitHub CI/browser outcomes remain pending until the validated implementation is committed and pushed
+  - exact-head GitHub CI and browser outcomes remain pending until the rebased implementation is pushed
 conflicts:
   - none
 first_failure:
@@ -210,13 +210,13 @@ validation:
     evidence: composer metadata is valid and no security vulnerability advisories were reported
   - command: vendor/bin/pint --test
     result: PASS
-    evidence: all 432 PHP files pass formatting
+    evidence: all 434 PHP files pass formatting on rebased head 0fdca21780bcffdfdecc24ff40dd0d6552a49edd
   - command: vendor/bin/phpstan analyse --memory-limit=1G
     result: PASS
-    evidence: all 421 analyzed files pass with no errors after ADR 0014 runtime reconciliation
+    evidence: level-10 analysis passes with no errors on rebased head 0fdca21780bcffdfdecc24ff40dd0d6552a49edd
   - command: focused Wiki EditorialMedia unit and feature tests
     result: PASS
-    evidence: 31 tests and 341 assertions pass for strict parsing/rendering, translation-owned reference synchronization, rollback/stale/restore/deletion safety, public/preview authorization, storage integrity and existing Wiki administration/public-read regressions
+    evidence: 31 tests and 341 assertions pass on rebased head 0fdca21780bcffdfdecc24ff40dd0d6552a49edd for strict parsing/rendering, translation-owned reference synchronization, rollback/stale/restore/deletion safety, public/preview authorization, storage integrity and existing Wiki administration/public-read regressions
   - command: implementation commit
     result: PASS
     evidence: commit 9d20769c2972d2279e55811b1c14bc3ae882f897 is rebased on authoritative PR head 5e395cbc03824f6f7a944ceac692a86859ada08f and contains the ADR 0014 implementation
@@ -232,12 +232,18 @@ validation:
   - command: prerequisite trusted-proxy test-isolation lifecycle
     result: PASS
     evidence: PR 203 full suite passed 331 tests and 2473 assertions; all exact-head checks passed and PR 204 archived the task
-  - command: exact-head full PHPUnit and browser acceptance
+  - command: php artisan test --display-warnings
+    result: PASS
+    evidence: 349 tests and 2679 assertions pass with 10 documented skips on rebased head 0fdca21780bcffdfdecc24ff40dd0d6552a49edd
+  - command: node syntax, route registration, whitespace and agent-governance validation
+    result: PASS
+    evidence: picker, Playwright and config syntax pass; 32 Wiki routes register; 11 checkpoints and 9 validator tests pass; diff check is clean
+  - command: exact-head GitHub CI and browser acceptance
     result: NOT_RUN
-    evidence: pending on rebased local head
+    evidence: pending branch publication
 blockers:
   - none
-next_action: Commit this reconciliation checkpoint and run the complete local validation matrix on the exact rebased head before publishing PR 199.
+next_action: Commit this validation checkpoint, publish the rebased branch with force-with-lease, update PR 199 and monitor exact-head CI and browser acceptance.
 ```
 
 ## Notes
