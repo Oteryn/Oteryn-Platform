@@ -44,15 +44,15 @@ Deploy the exact final Issue #145 trusted-main SHA to the existing Synology stag
 - [ ] `wiki:launch-content:install` installs or verifies content version `2026-07-26.1` without overwriting editorial changes.
 - [ ] A real Chromium instance on the Synology host network receives HTTP 200 from the localized homepage, Wiki index, EN/PL launch articles, sitemap and robots surfaces and verifies expected public headings/content.
 - [ ] Sanitized evidence records only commit SHA, image tags, workflow/run identifiers, route/status assertions and timestamps.
-- [ ] The temporary dispatcher is removed after evidence is reconciled, the task is archived and Issue #145 closes only from exact deployment evidence.
+- [ ] The temporary dispatcher and inert image-build trigger are removed after evidence is reconciled, the task is archived and Issue #145 closes only from exact deployment evidence.
 - [ ] No production, router, DSM, Internet-exposure, Canary/login-server repository or external-repository write occurs.
 
 ## Ownership
 
 ```yaml
 owned_paths:
-  - .github/workflows/build-synology-staging-images.yml
   - .github/workflows/one-shot-public-web-final-staging.yml
+  - deploy/synology/.public-web-final-staging-trigger
   - docs/agents/ACTIVE_WORK.md
   - docs/agents/tasks/active/OTERYN-20260725-public-web-programme-closure.md
   - docs/agents/tasks/active/OTERYN-20260726-public-web-final-staging-closure.md
@@ -75,8 +75,8 @@ cross_repository_tasks: []
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-07-26T17:02:00Z
-head: a262996eda36fc9430fe1883ea637ffd2f6ff698
+updated_at: 2026-07-26T17:08:00Z
+head: 7618ce522080597b5c4b135d7197591b5f3a7c62
 branch: ops/OTERYN-20260726-public-web-final-staging-closure
 pr: none
 status: implementing
@@ -94,14 +94,16 @@ owned_paths:
 proven:
   - trusted main is a262996eda36fc9430fe1883ea637ffd2f6ff698 after PR 209 archival merge
   - all Issue 145 implementation requirements are merged and exact-head validated
-  - current build workflow publishes full-SHA Platform and Gateway tags on qualifying pushes to main
+  - current build workflow publishes full-SHA Platform and Gateway tags for pushes changing deploy/synology paths
+  - an inert trigger under deploy/synology is sufficient to build exact merge-SHA images without changing the stable build workflow
   - existing deployment workflow is workflow-dispatch-only, checks out trusted main, targets environment synology-staging and runner oteryn-staging
   - previous successful LAN staging deployment used immutable Canary image ghcr.io/blakinio/canary@sha256:784e5dbdcc64e311c48c51cd94aa206e2efa1e5eefb2f4ef40170d5aac55031f and private game bind 192.168.1.2
   - Wiki launch-content installation is idempotent and requires an enabled MFA-confirmed Identity with exact access, category, article and publish permissions
+  - the guarded one-shot workflow waits for exact images, invokes the existing deploy workflow, verifies deployed tags and defines a pinned Chromium host-network smoke with sanitized artifact output
   - no production, router, DSM, Internet-exposure or external-repository action occurred while creating this task
  derived:
-  - a temporary path-triggered one-shot workflow can safely wait for exact merge-SHA images and invoke the existing reviewed deployment workflow
-  - a self-hosted follow-up job can verify exact container image tags, select one eligible publisher internally and run Chromium through a pinned Playwright container on the host network
+  - the self-hosted follow-up can boot Laravel inside the deployed container and select one eligible publisher without printing its email
+  - a pinned Playwright container on Docker host networking can exercise loopback-bound staging routes as a real browser
 unknown:
   - whether staging currently contains exactly one eligible Wiki publisher Identity
   - exact deployment and smoke run identifiers until the reviewed trigger merges
@@ -112,15 +114,18 @@ first_failure:
 rejected_hypotheses:
   - deploy the pre-archive PR 208 image as the final trusted main: the exact programme closure SHA must include durable archival reconciliation
   - log or hard-code a publisher email: identity data is unnecessary and zero/multiple eligible publishers must fail closed
+  - modify the stable image-build workflow only to force a build: the existing deploy/synology path filter supports an inert removable trigger
   - treat CI image builds as live staging evidence: deployment and browser smoke remain separate required proof
 changed_paths:
+  - .github/workflows/one-shot-public-web-final-staging.yml
+  - deploy/synology/.public-web-final-staging-trigger
   - docs/agents/tasks/active/OTERYN-20260726-public-web-final-staging-closure.md
 validation:
   - command: repository, workflow, Issue 145 and prior deployment evidence reconciliation
     result: PASS
     evidence: current main, PRs 127/130/137/138/141, current build/deploy workflows and Wiki installer inspected through GitHub
 blockers: []
-next_action: Add the guarded one-shot deployment and live-browser-smoke workflow, wire exact-SHA image builds, then open a draft pull request.
+next_action: Update the active-work and programme checkpoints, then open a draft pull request for exact-head validation.
 ```
 
 ## Notes
