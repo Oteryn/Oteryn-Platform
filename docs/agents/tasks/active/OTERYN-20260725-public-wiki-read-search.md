@@ -35,16 +35,16 @@ Deliver the first production-capable public Wiki slice: published-only Polish an
 
 ## Acceptance criteria
 
-- [ ] Public Wiki routes are locale-aware, canonical and deterministic for `en` and `pl`.
-- [ ] Public reads expose only published articles and visible categories; drafts, review records, archived content and missing translations never leak.
-- [ ] Wiki homepage, category pages, article pages, breadcrumbs, generated table of contents and related-article presentation are implemented.
-- [ ] Restricted Markdown is rendered by a maintained dependency with raw HTML disabled, dangerous protocols rejected and links/images constrained to approved policies.
-- [ ] Search is database-backed behind an explicit interface, published-only, locale-isolated, bounded, paginated, rate-limited and deterministically ordered.
-- [ ] Missing, unpublished, stale-translation, empty and unavailable states are explicit and truthful.
-- [ ] Canonical, `hreflang`, metadata and public navigation integration are complete for the delivered Wiki routes.
-- [ ] Desktop, tablet, mobile, keyboard and focus behavior meet existing acceptance conventions without horizontal overflow.
-- [ ] Focused unit/feature/security tests, migration compatibility checks and representative browser acceptance pass on the exact final head.
-- [ ] Existing Wiki lifecycle, authorization, audit, EditorialMedia, Events, Downloads, PublicGameData and authentication boundaries remain unchanged.
+- [x] Public Wiki routes are locale-aware, canonical and deterministic for `en` and `pl`.
+- [x] Public reads expose only published articles and visible categories; drafts, review records, archived content and missing translations never leak.
+- [x] Wiki homepage, category pages, article pages, breadcrumbs, generated table of contents and related-article presentation are implemented.
+- [x] Restricted Markdown is rendered by a maintained dependency with raw HTML disabled, dangerous protocols rejected and links/images constrained to approved policies.
+- [x] Search is database-backed behind an explicit interface, published-only, locale-isolated, bounded, paginated, rate-limited and deterministically ordered.
+- [x] Missing, unpublished, stale-translation, empty and unavailable states are explicit and truthful.
+- [x] Canonical, `hreflang`, metadata and public navigation integration are complete for the delivered Wiki routes.
+- [x] Desktop, tablet, mobile, keyboard and focus behavior meet existing acceptance conventions without horizontal overflow.
+- [x] Focused unit/feature/security tests, migration compatibility checks and representative browser acceptance pass on the exact final head.
+- [x] Existing Wiki lifecycle, authorization, audit, EditorialMedia, Events, Downloads, PublicGameData and authentication boundaries remain unchanged.
 
 ## Explicit exclusions
 
@@ -144,11 +144,11 @@ Exact final head:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-07-26T07:18:00Z
+updated_at: 2026-07-26T07:02:06Z
 head: a286814d17a5697f2462f55dedccf1badd85d269
 branch: feat/OTERYN-20260725-public-wiki-read-search
 pr: 194
-status: validating
+status: ready
 context_routes:
   - agent-governance
   - architecture
@@ -189,12 +189,13 @@ proven:
   - localized route cloning preserves source middleware, including the Wiki search rate limiter
   - deterministic browser acceptance covers Wiki reads, search, TOC, bilingual equivalence, accessibility smoke and horizontal overflow in Chromium, Firefox, WebKit, desktop, tablet and mobile projects
   - no migration or Canary-owned schema change is required
+  - GitHub acceptance passed on PR head 7db66513b90328fd0eaa5b69efaca080e4062e78, including portability, responsive, dependency-resilience and keyboard-accessibility profiles
+  - all required GitHub checks passed after the transient Docker Hub buildkit pull timeout was rerun successfully
 derived:
   - league/commonmark 2.8 is the selected renderer; Wiki adds stricter link and no-image renderers on top of its fail-closed configuration
   - public read/search can be delivered independently of administrator UI and media integration
   - the implementation satisfies the bounded public Wiki slice without expanding privileged mutation or media ownership
-unknown:
-  - fresh GitHub browser acceptance result on the implementation head
+unknown: []
 conflicts: []
 first_failure:
   marker: none
@@ -254,9 +255,15 @@ validation:
   - command: node --check; playwright test --list --project=portability-chromium --grep @wiki
     result: PASS
     evidence: seed/spec/config syntax valid and the Wiki browser test is discovered by the portability project
+  - command: GitHub Acceptance E2E and Visual UX
+    result: PASS
+    evidence: exact PR head 7db66513b90328fd0eaa5b69efaca080e4062e78 passed Chromium smoke, Chromium/Firefox/WebKit portability, desktop/tablet/mobile responsive, dependency-resilience and keyboard-accessibility profiles
+  - command: required GitHub checks
+    result: PASS
+    evidence: CI, Agent Governance, Game Auth Ticket Concurrency, production-like validation, DB-outage validation and Synology image/package checks passed; one Docker Hub buildkit pull timeout was classified as external infrastructure and passed on failed-job rerun
 blockers:
   - none
-next_action: Push the implementation and checkpoint commits to PR 194, then inspect fresh CI and browser acceptance for implementation head a286814d17a5697f2462f55dedccf1badd85d269.
+next_action: Commit and push the ready checkpoint, then mark PR 194 ready and merge only after required checks pass on the checkpoint-only head.
 ```
 
 ## Notes
