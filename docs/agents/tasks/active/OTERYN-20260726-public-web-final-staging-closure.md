@@ -36,26 +36,29 @@ Deploy the exact final Issue #145 trusted-main SHA to the existing Synology stag
 
 ## Acceptance criteria
 
-- [ ] The reviewed merge SHA builds and publishes exact `sha-<full-sha>` Platform and Game Gateway images before deployment dispatch.
-- [ ] The existing `Deploy Synology Staging` workflow deploys that exact tag with the previously proven immutable compatible Canary digest and LAN-only game configuration.
-- [ ] Deployment runs only on trusted `main`, environment `synology-staging` and runner label `oteryn-staging`.
-- [ ] The deployed Platform and Gateway containers report the exact expected image tag with zero ambiguous service selection.
-- [ ] Exactly one enabled MFA-confirmed Identity with all four exact Wiki permissions is selected internally without logging its email; zero or multiple eligible publishers fail closed.
-- [ ] `wiki:launch-content:install` installs or verifies content version `2026-07-26.1` without overwriting editorial changes.
-- [ ] A real Chromium instance on the Synology host network receives HTTP 200 from the localized homepage, Wiki index, EN/PL launch articles, sitemap and robots surfaces and verifies expected public headings/content.
-- [ ] Sanitized evidence records only commit SHA, image tags, workflow/run identifiers, route/status assertions and timestamps.
-- [ ] The temporary dispatcher and inert image-build trigger are removed after evidence is reconciled, the task is archived and Issue #145 closes only from exact deployment evidence.
-- [ ] No production, router, DSM, Internet-exposure, Canary/login-server repository or external-repository write occurs.
+- [x] The reviewed merge SHA builds and publishes exact `sha-<full-sha>` Platform and Game Gateway images before deployment dispatch.
+- [x] The existing `Deploy Synology Staging` workflow deploys that exact tag with the previously proven immutable compatible Canary digest and LAN-only game configuration.
+- [x] Deployment runs only on trusted `main`, environment `synology-staging` and runner label `oteryn-staging`.
+- [x] The deployed Platform and Gateway containers report the exact expected image tag with zero ambiguous service selection.
+- [x] Exactly one enabled MFA-confirmed Identity with all four exact Wiki permissions is selected internally without logging its email; zero or multiple eligible publishers fail closed.
+- [x] `wiki:launch-content:install` installs or verifies content version `2026-07-26.1` without overwriting editorial changes.
+- [x] A real Chromium instance on the Synology host network receives HTTP 200 from the localized homepage, Wiki index, EN/PL launch articles, sitemap and robots surfaces and verifies expected public headings/content.
+- [x] Sanitized evidence records only commit SHA, image tags, workflow/run identifiers, route/status assertions and timestamps.
+- [ ] The temporary dispatcher, inert image-build trigger and read-only evidence audit are removed after evidence is reconciled, the task is archived and Issue #145 closes only from exact deployment evidence.
+- [x] No production, router, DSM, Internet-exposure, Canary/login-server repository or external-repository write occurs.
 
 ## Ownership
 
 ```yaml
 owned_paths:
   - .github/workflows/one-shot-public-web-final-staging.yml
+  - .github/workflows/inspect-public-web-final-staging-report.yml
   - deploy/synology/.public-web-final-staging-trigger
   - docs/agents/ACTIVE_WORK.md
   - docs/agents/tasks/active/OTERYN-20260725-public-web-programme-closure.md
   - docs/agents/tasks/active/OTERYN-20260726-public-web-final-staging-closure.md
+  - docs/agents/tasks/archive/OTERYN-20260726-public-web-final-staging-closure.md
+  - docs/agents/tasks/archive/OTERYN-20260725-public-web-programme-closure.md
 modules:
   - Deployment
   - PublicPortal
@@ -67,6 +70,7 @@ dependencies:
   - PR 208 merge f8002191f0e5270dc4191227fd01d5e709ee5ab6
   - PR 209 merge a262996eda36fc9430fe1883ea637ffd2f6ff698
   - PR 210 merge a59a815472ab089572b6680a1f5fb4d9adcc3b44
+  - PR 211 merge 62dedb894ffc3af55ba10a0717a6a892b87f1370
   - existing Deploy Synology Staging workflow
 blockers: []
 cross_repository_tasks: []
@@ -76,11 +80,11 @@ cross_repository_tasks: []
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-07-26T17:27:00Z
-head: ba902bee5d0c6d067d7729f8179b672dc5b00b44
-branch: ops/OTERYN-20260726-final-staging-observable-report
-pr: 211
-status: implementing
+updated_at: 2026-07-26T17:38:00Z
+head: e3b7f7969537c89e982a221d44e9c3d2351ba00a
+branch: chore/OTERYN-20260726-public-web-final-staging-cleanup
+pr: none
+status: validating
 context_routes:
   - agent-governance
   - deployment
@@ -91,53 +95,46 @@ context_routes:
   - testing
   - accessibility
 owned_paths:
-  - final staging closure paths listed in Ownership
+  - final staging cleanup and archive paths listed in Ownership
 proven:
-  - trusted main is a59a815472ab089572b6680a1f5fb4d9adcc3b44 after PR 210 squash merge with the guarded trigger marker
-  - all six required PR 210 exact-head workflows passed before merge
-  - the push-triggered one-shot and deploy runs are intentionally separated from pull-request checks
-  - the available GitHub connector cannot enumerate push or workflow-dispatch runs by SHA
-  - draft PR 211 adds an always-run report using exact issues write permission and changes only the temporary workflow, inert trigger and active checkpoint
-  - the report-enabled workflow posts only exact SHA, release tag, one-shot run ID, deployment run ID, job conclusions and artifact name to Issue 145
-  - the report job does not expose identity email, secrets, private storage paths or image bytes
-  - the revised inert deploy trigger forces exact Platform and Gateway images for the report-enabled merge SHA
-  - no production, router, DSM, Internet-exposure or external-repository action occurred while adding observability
-derived:
-  - an Issue 145 status comment is the narrowest durable observation channel supported by both GitHub Actions and this connector
-  - a fresh exact-SHA deployment is preferable to inferring the unobservable PR 210 post-merge outcome
+  - trusted main is 62dedb894ffc3af55ba10a0717a6a892b87f1370 after PR 211 squash merge with the report-enabled guarded marker
+  - all six required PR 211 exact-head workflows passed before merge
+  - Issue 145 contains a sanitized final-staging report for exact SHA 62dedb894ffc3af55ba10a0717a6a892b87f1370 with result PASS
+  - the PASS report is emitted only after exact image-tag verification, successful existing-workflow deployment, reviewed Wiki content installation or verification and all six bounded live Chromium assertions
+  - deterministic release tag is sha-62dedb894ffc3af55ba10a0717a6a892b87f1370
+  - deterministic sanitized artifact name is public-web-final-staging-62dedb894ffc3af55ba10a0717a6a892b87f1370
+  - the temporary audit workflow is read-only, searches only the sanitized Issue 145 marker and prints no identity email, secret, private path or image byte
+  - no production, router, DSM, Internet-exposure or external-repository action occurred
+ derived:
+  - Issue 145 completion criteria are satisfied subject only to durable exact-ID reconciliation and temporary-workflow cleanup
+  - the audit job output can preserve exact one-shot and deployment run IDs before its own workflow is removed
 unknown:
-  - outcome and run identifiers of the initial unobservable PR 210 post-merge one-shot
-  - exact report-enabled deployment and smoke run identifiers until PR 211 merges
-  - whether staging currently contains exactly one eligible Wiki publisher Identity
+  - exact one-shot and deployment run IDs until the temporary audit job output is read
 conflicts: []
 first_failure:
-  marker: connector-observability-boundary
-  evidence: fetch_commit_workflow_runs returned no push/workflow-dispatch runs for a59a815472ab089572b6680a1f5fb4d9adcc3b44 and the connector exposes no repository workflow-run listing action
+  marker: none
+  evidence: none
 rejected_hypotheses:
-  - infer success from the merge or image build: deployment and live Chromium evidence remain separate
-  - expose administrator identity to make the result observable: only sanitized run metadata is necessary
-  - rely on manual UI inspection: a reviewed issue-comment report keeps the workflow autonomous and auditable
+  - infer success from image builds alone: the Issue 145 PASS report proves deployment and live Chromium smoke separately
+  - retain temporary workflow files after closure: durable cleanup must remove one-shot, report trigger and read-only audit before final review
+  - expose administrator identity to preserve evidence: exact workflow/run metadata is sufficient
 changed_paths:
-  - .github/workflows/one-shot-public-web-final-staging.yml
-  - deploy/synology/.public-web-final-staging-trigger
+  - .github/workflows/inspect-public-web-final-staging-report.yml
   - docs/agents/tasks/active/OTERYN-20260726-public-web-final-staging-closure.md
 validation:
-  - command: PR 210 exact-head required workflows
+  - command: PR 211 exact-head required workflows
     result: PASS
-    evidence: Agent Governance, CI, concurrency, DB outage, Phase 7 and Synology image build passed on 551e927ac7568552aa83dea107e03ef21116b558
-  - command: PR 210 merge
+    evidence: Agent Governance, CI, concurrency, DB outage, Phase 7 and Synology image build passed on 92ab3059b351803e4dcee483d43eade0dddeec4b
+  - command: report-enabled staging merge
     result: PASS
-    evidence: squash merge a59a815472ab089572b6680a1f5fb4d9adcc3b44 contains the required public-web-final-staging marker
-  - command: workflow observation through connector
-    result: BLOCKED
-    evidence: connector supports PR-associated runs only and returned no runs for the merge SHA
-  - command: initial PR 211 Agent Governance
-    result: FAIL
-    evidence: run 2069 found one leading space before top-level derived; corrected without changing workflow scope
+    evidence: PR 211 squash-merged as 62dedb894ffc3af55ba10a0717a6a892b87f1370 with the guarded marker
+  - command: sanitized Issue 145 final-staging report
+    result: PASS
+    evidence: report exists for exact SHA 62dedb894ffc3af55ba10a0717a6a892b87f1370 and states Final Synology staging closure result PASS
 blockers: []
-next_action: Re-run exact-head PR 211 validation, correct any failure, then merge with the guarded marker and observe the resulting Issue 145 report.
+next_action: Open the read-only audit and cleanup pull request, capture exact sanitized run IDs from its job log, then remove all temporary workflows/triggers and archive both completed tasks before final review.
 ```
 
 ## Notes
 
-The temporary dispatcher is a reviewed staging-only mechanism and must be removed after exact evidence is retained. Production remains tracked exclusively by Issue #91.
+Production remains tracked exclusively by Issue #91. The final cleanup PR must contain no deployment trigger or read-only audit workflow at final review.
