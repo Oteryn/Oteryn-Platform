@@ -8,6 +8,8 @@ final class WikiAuditAction
 
     public const ARTICLE_UPDATED = 'wiki.article_updated';
 
+    public const ARTICLE_PRESENTATION_UPDATED = 'wiki.article_presentation_updated';
+
     public const ARTICLE_SUBMITTED_FOR_REVIEW = 'wiki.article_submitted_for_review';
 
     public const ARTICLE_RETURNED_TO_DRAFT = 'wiki.article_returned_to_draft';
