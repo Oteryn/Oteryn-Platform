@@ -51,10 +51,10 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-07-26T22:13:51Z
+updated_at: 2026-07-26T22:17:35Z
 head: UNKNOWN
 branch: docs/OTERYN-20260727-liquid20-acceptance-complete
-pr: none
+pr: 216
 status: ready
 context_routes:
   - testing
@@ -70,7 +70,7 @@ proven:
   - Both bybit-linear and binance-usdm observed all 20 frozen symbols with intersection and union counts of 20.
   - Bybit recorded 835 events with availability 0.999992 and zero disconnects per hour.
   - Binance recorded 1519 events with availability 0.999991 and zero disconnects per hour.
-  - All five final evidence files passed SHA-256 verification.
+  - All six final evidence files passed SHA-256 verification.
   - Issue 148 states the entire immutable run directory remains on the Synology data volume and hourly monitoring is metadata-only.
   - The symbol universe, 86400-second duration, event schema, thresholds, frozen policy and collector security boundary were unchanged.
 derived:
@@ -94,7 +94,7 @@ validation:
     result: PASS
     evidence: binance-usdm-summary.json, binance-usdm.ndjson, bybit-linear-summary.json, bybit-linear.ndjson, multi-source-acceptance-report.json and multi-source-manifest.json reported OK
 blockers: []
-next_action: Merge this documentation-only archive change after repository checks pass.
+next_action: Merge PR 216 after repository checks pass.
 ```
 
 ## Notes
