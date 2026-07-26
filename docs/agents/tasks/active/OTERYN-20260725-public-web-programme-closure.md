@@ -98,10 +98,10 @@ The programme task owns coordination only. Implementation paths must be claimed 
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-07-26T12:15:55Z
+updated_at: 2026-07-26T12:18:53Z
 head: f66c9944fd8110014773bd7cb7b58c9f49e45af0
 branch: docs/OTERYN-20260726-archive-wiki-editorial-media-integration
-pr: pending
+pr: 205
 status: implementing
 context_routes:
   - agent-governance
@@ -133,6 +133,7 @@ proven:
   - PR 199 delivered the complete accepted Wiki-to-EditorialMedia child and squash-merged as f66c9944fd8110014773bd7cb7b58c9f49e45af0 after every required exact-head check passed
   - ADR 0014 is accepted and the runtime preserves private storage, exact Wiki permissions, current-reference synchronization, effective-publication delivery authorization and signed administrator previews
   - live open-pull-request reconciliation after PR 199 found no owner overlapping homepage, shared navigation, SEO, sitemap, robots or Open Graph closure
+  - draft PR 205 is the documentation-only archival owner for the completed PR 199 child and this programme reconciliation
 derived:
   - public Wiki and Wiki administration remain complete child slices
   - the Wiki-to-EditorialMedia child is complete and its implementation paths are released
@@ -166,7 +167,7 @@ validation:
     evidence: PR 199 passed required runtime and browser validation and squash-merged as f66c9944fd8110014773bd7cb7b58c9f49e45af0
 blockers:
   - none for programme coordination
-next_action: Archive the completed PR 199 child, then create the bounded homepage-navigation-seo child task, branch and draft pull request from trusted main.
+next_action: Merge documentation-only PR 205 after required governance checks pass, then create the bounded homepage-navigation-seo child task, branch and draft pull request from trusted main.
 ```
 
 ## Notes

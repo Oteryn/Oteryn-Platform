@@ -108,7 +108,7 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-07-26T12:15:55Z
+updated_at: 2026-07-26T12:18:53Z
 head: f66c9944fd8110014773bd7cb7b58c9f49e45af0
 branch: docs/OTERYN-20260726-archive-wiki-editorial-media-integration
 pr: 199
@@ -165,6 +165,7 @@ proven:
   - PR 199 had no review threads, submitted reviews or unresolved review blockers on its final head
   - PR 199 was marked ready and squash-merged to main as f66c9944fd8110014773bd7cb7b58c9f49e45af0
   - live open-pull-request reconciliation after the merge found only PRs 189, 182 and 116, none overlapping Wiki, EditorialMedia or this documentation-only archival scope
+  - draft PR 205 owns only this completed task archival, the active-work index and the Issue 145 programme checkpoint reconciliation
 derived:
   - public image authorization depends on an effective published Wiki translation reference rather than media existence alone
   - draft-time reference synchronization reuses the existing reference manager while public delivery independently enforces publication state
@@ -257,7 +258,7 @@ validation:
     evidence: merged to main as f66c9944fd8110014773bd7cb7b58c9f49e45af0
 blockers:
   - none
-next_action: Publish this completed record in a documentation-only archival PR and merge it after required governance validation passes.
+next_action: Merge documentation-only PR 205 after required governance checks pass.
 ```
 
 ## Notes
