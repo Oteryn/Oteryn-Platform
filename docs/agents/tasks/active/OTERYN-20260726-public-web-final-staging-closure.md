@@ -66,6 +66,7 @@ dependencies:
   - Issue 145
   - PR 208 merge f8002191f0e5270dc4191227fd01d5e709ee5ab6
   - PR 209 merge a262996eda36fc9430fe1883ea637ffd2f6ff698
+  - PR 210 merge a59a815472ab089572b6680a1f5fb4d9adcc3b44
   - existing Deploy Synology Staging workflow
 blockers: []
 cross_repository_tasks: []
@@ -75,10 +76,10 @@ cross_repository_tasks: []
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-07-26T17:14:00Z
-head: 201dbb5704f40178e3820ebf7702782a0d3574df
-branch: ops/OTERYN-20260726-public-web-final-staging-closure
-pr: 210
+updated_at: 2026-07-26T17:24:00Z
+head: 9b876522142589daa36baaacb01a0af3c5ebe350
+branch: ops/OTERYN-20260726-final-staging-observable-report
+pr: none
 status: implementing
 context_routes:
   - agent-governance
@@ -92,49 +93,45 @@ context_routes:
 owned_paths:
   - final staging closure paths listed in Ownership
 proven:
-  - trusted main is a262996eda36fc9430fe1883ea637ffd2f6ff698 after PR 209 archival merge
-  - all Issue 145 implementation requirements are merged and exact-head validated
-  - current build workflow publishes full-SHA Platform and Gateway tags for pushes changing deploy/synology paths
-  - an inert trigger under deploy/synology is sufficient to build exact merge-SHA images without changing the stable build workflow
-  - existing deployment workflow is workflow-dispatch-only, checks out trusted main, targets environment synology-staging and runner oteryn-staging
-  - previous successful LAN staging deployment used immutable Canary image ghcr.io/blakinio/canary@sha256:784e5dbdcc64e311c48c51cd94aa206e2efa1e5eefb2f4ef40170d5aac55031f and private game bind 192.168.1.2
-  - Wiki launch-content installation is idempotent and requires an enabled MFA-confirmed Identity with exact access, category, article and publish permissions
-  - draft PR 210 is the only owner for the guarded one-shot, inert image trigger, live Chromium smoke and final programme staging reconciliation
-  - PR 210 changes exactly five declared paths and reuses the existing stable build and deploy workflows
-  - no production, router, DSM, Internet-exposure or external-repository action occurred while creating this task
-derived:
-  - the self-hosted follow-up can boot Laravel inside the deployed container and select one eligible publisher without printing its email
-  - a pinned Playwright container on Docker host networking can exercise loopback-bound staging routes as a real browser
+  - trusted main is a59a815472ab089572b6680a1f5fb4d9adcc3b44 after PR 210 squash merge with the guarded trigger marker
+  - all six required PR 210 exact-head workflows passed before merge
+  - the push-triggered one-shot and deploy runs are intentionally separated from pull-request checks
+  - the available GitHub connector cannot enumerate push or workflow-dispatch runs by SHA
+  - the report-enabled workflow posts only exact SHA, release tag, one-shot run ID, deployment run ID, job conclusions and artifact name to Issue 145
+  - the report job runs with always semantics and does not expose identity email, secrets, private storage paths or image bytes
+  - the revised inert deploy trigger forces exact Platform and Gateway images for the report-enabled merge SHA
+  - no production, router, DSM, Internet-exposure or external-repository action occurred while adding observability
+ derived:
+  - an Issue 145 status comment is the narrowest durable observation channel supported by both GitHub Actions and this connector
+  - a fresh exact-SHA deployment is preferable to inferring the unobservable PR 210 post-merge outcome
 unknown:
+  - outcome and run identifiers of the initial unobservable PR 210 post-merge one-shot
+  - exact report-enabled deployment and smoke run identifiers until the observability change merges
   - whether staging currently contains exactly one eligible Wiki publisher Identity
-  - exact deployment and smoke run identifiers until PR 210 merges
 conflicts: []
 first_failure:
-  marker: checkpoint-indentation
-  evidence: Agent Governance run 2065 rejected one leading space before top-level derived; no workflow or runtime failure occurred
+  marker: connector-observability-boundary
+  evidence: fetch_commit_workflow_runs returned no push/workflow-dispatch runs for a59a815472ab089572b6680a1f5fb4d9adcc3b44 and the connector exposes no repository workflow-run listing action
 rejected_hypotheses:
-  - deploy the pre-archive PR 208 image as the final trusted main: the exact programme closure SHA must include durable archival reconciliation
-  - log or hard-code a publisher email: identity data is unnecessary and zero/multiple eligible publishers must fail closed
-  - modify the stable image-build workflow only to force a build: the existing deploy/synology path filter supports an inert removable trigger
-  - treat CI image builds as live staging evidence: deployment and browser smoke remain separate required proof
+  - infer success from the merge or image build: deployment and live Chromium evidence remain separate
+  - expose administrator identity to make the result observable: only sanitized run metadata is necessary
+  - rely on manual UI inspection: a reviewed issue-comment report keeps the workflow autonomous and auditable
 changed_paths:
   - .github/workflows/one-shot-public-web-final-staging.yml
   - deploy/synology/.public-web-final-staging-trigger
-  - docs/agents/ACTIVE_WORK.md
-  - docs/agents/tasks/active/OTERYN-20260725-public-web-programme-closure.md
   - docs/agents/tasks/active/OTERYN-20260726-public-web-final-staging-closure.md
 validation:
-  - command: repository, workflow, Issue 145 and prior deployment evidence reconciliation
+  - command: PR 210 exact-head required workflows
     result: PASS
-    evidence: current main, PRs 127/130/137/138/141, current build/deploy workflows and Wiki installer inspected through GitHub
-  - command: pull-request ownership reconciliation
+    evidence: Agent Governance, CI, concurrency, DB outage, Phase 7 and Synology image build passed on 551e927ac7568552aa83dea107e03ef21116b558
+  - command: PR 210 merge
     result: PASS
-    evidence: draft PR 210 owns exactly the five declared final-staging closure paths
-  - command: initial Agent Governance exact-head check
-    result: FAIL
-    evidence: run 2065 found only checkpoint indentation before derived; corrected without changing workflow or runtime scope
+    evidence: squash merge a59a815472ab089572b6680a1f5fb4d9adcc3b44 contains the required public-web-final-staging marker
+  - command: workflow observation through connector
+    result: BLOCKED
+    evidence: connector supports PR-associated runs only and returned no runs for the merge SHA
 blockers: []
-next_action: Re-run exact-head PR 210 validation and correct any remaining workflow or governance failure before readiness.
+next_action: Open and validate a narrow report-enabled rerun pull request, then merge it with the guarded marker and observe the resulting Issue 145 comment.
 ```
 
 ## Notes
