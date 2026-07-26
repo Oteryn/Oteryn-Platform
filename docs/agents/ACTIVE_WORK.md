@@ -5,7 +5,6 @@ Convenience index only. Individual active task records, live PRs and Git state a
 ## Active tasks
 
 - `OTERYN-20260725-public-web-programme-closure` — Issue #145 programme coordination; owns only its task record and delegates runtime paths to bounded child tasks.
-- `OTERYN-20260726-wiki-administration` — trusted-editor Wiki dashboard, bilingual article/category editing, lifecycle, signed preview and revision restore in draft PR #196.
 
 ## Closed acceptance and release-preparation follow-ups
 
@@ -27,6 +26,8 @@ Convenience index only. Individual active task records, live PRs and Git state a
 - PR #143 / `434ef4c950b52c1cb77422fda1a17c1d20bba59f` — complete non-commercial public website expansion architecture, delivery programme and first-slice implementation prompt merged.
 - PR #194 / `9ed3861cc29dcaf6305c379de2bee5ee5ac923d6` — production-capable published-only English/Polish public Wiki reads, restricted Markdown rendering and locale-isolated search merged.
 - PR #195 / `c53e0f2a1a93de9275439aff573e5a713f5621b1` — public Wiki task lifecycle archived.
+- PR #196 / `f512f1e3a9bd567d40ddb09b699291c99a1b65f8` — trusted-editor Wiki administration, exact RBAC/MFA lifecycle controls, signed previews, revisions and responsive browser acceptance merged.
+- PR #197 — documentation-only Wiki administration task archival lifecycle.
 
 ## Current project phase
 
@@ -48,7 +49,7 @@ No staging evidence may be promoted to `PRODUCTION_PROVEN`.
 
 ## Next work
 
-Complete and merge PR #196 with exact-head validation, then archive its child task and update the Issue #145 programme checkpoint. The next bounded child after Wiki administration is Wiki-to-EditorialMedia consumer integration; do not begin it until PR #196 releases its paths.
+Update the Issue #145 programme checkpoint, then start the next bounded child for Wiki-to-EditorialMedia consumer integration without reopening the completed Wiki administration paths.
 
 After the remaining Issue #145 child tasks merge, deploy the exact final trusted `main` SHA to Synology staging through the existing reviewed workflow and record live browser-smoke evidence.
 
