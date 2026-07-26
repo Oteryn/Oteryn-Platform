@@ -108,8 +108,8 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-07-26T10:57:40Z
-head: 9d20769c2972d2279e55811b1c14bc3ae882f897
+updated_at: 2026-07-26T11:39:11Z
+head: 73612eb17768ba830daa17b442e98e2ef6efb94e
 branch: feat/OTERYN-20260726-wiki-editorial-media-integration
 pr: 199
 status: validating
@@ -125,11 +125,11 @@ context_routes:
 owned_paths:
   - Wiki-to-EditorialMedia integration paths listed in Ownership
 proven:
-  - trusted base main is ef8d0fc2454f59a707e14f39c22d502612677734 after merged PR 202
+  - trusted base main is 97e8b8cbc62d9c359f71b24228d689612d79c276 after merged PRs 203 and 204
   - draft PR 199 is the only open implementation owner for the bounded Wiki-to-EditorialMedia consumer scope
   - duplicate PR 200 is closed and contains no runtime implementation
   - programme checkpoint now identifies PR 199 as authoritative
-  - PR 199 includes trusted main through merge commit 9f048cf29b93b3c24b1960c5a6d349e659b31d90
+  - local PR 199 implementation is cleanly rebased on trusted main 97e8b8cbc62d9c359f71b24228d689612d79c276
   - ADR 0014 accepts canonical Markdown targets of the exact form wiki-media:<positive-decimal-id>
   - ADR 0014 makes bounded contextual Markdown alternative text authoritative and uses EditorialMedia alt_text only as an insertion default
   - ADR 0014 assigns one current-reference row per translation and media using consumer_id translation:<translation-id> and usage body.<media-id>
@@ -150,6 +150,8 @@ proven:
   - media.manage belongs only to content_editor and platform_admin while Wiki permissions remain separately exact and are not wildcard grants
   - the acceptance Wiki administrator receives exact Wiki permissions without media.manage
   - no external repository, production, router, DSM or Internet-exposure write occurred
+  - PR 203 repaired the pre-existing order-dependent TrustedProxySchemeTest and squash-merged as 835db2c789699040babad4859051511673123785
+  - PR 204 archived the completed prerequisite task and squash-merged as 97e8b8cbc62d9c359f71b24228d689612d79c276
   - exact Wiki editor permissions expose a read-only approved-media picker and verified thumbnails without media.manage, upload or deletion routes
   - current translation references use consumer_id translation:<translation-id> and usage body.<media-id> exactly as ADR 0014 requires
   - create, update and restore parse every image node, validate all referenced private-disk media before reference mutation and reconcile current translation references inside the outer article transaction
@@ -167,8 +169,8 @@ unknown:
 conflicts:
   - none
 first_failure:
-  marker: resolved-invalid-markup-error-key
-  evidence: the first strict-markup feature rerun expected the synchronizer field key for raw HTML, but existing Wiki domain validation correctly rejected it earlier at translations.en; the assertion now preserves that established boundary and the targeted rerun passes
+  marker: none
+  evidence: the strict-markup assertion and pre-existing trusted-proxy suite defect are both resolved
 rejected_hypotheses:
   - expose the private storage disk through public/storage: rejected by ADR 0011 and ADR 0014
   - allow arbitrary remote CommonMark images: rejected by ADR 0012 and ADR 0014
@@ -178,6 +180,7 @@ rejected_hypotheses:
   - use a positive public cache lifetime: rejected because unpublish and reference removal must take effect on the next request
   - continue duplicate PR 200: rejected because the user explicitly selected PR 199 and overlapping ownership is prohibited
   - rely on implicit route binding without a typed model argument: rejected after focused tests proved Laravel leaves the route value as a scalar in that controller shape
+  - keep the trusted-proxy isolation repair inside PR 199: rejected because it was a pre-existing unrelated main defect and repository policy required a narrow prerequisite PR
 changed_paths:
   - app/EditorialMedia Wiki response and public route boundary
   - app/Wiki media parser, reference, rendering, article-write, preview and public-read boundaries
@@ -185,9 +188,7 @@ changed_paths:
   - routes/modules/wiki.php
   - focused PHPUnit and Playwright acceptance coverage
   - docs/architecture/adr/0014-wiki-editorial-media-integration.md
-  - docs/agents/tasks/active/OTERYN-20260725-public-web-programme-closure.md
   - docs/agents/tasks/active/OTERYN-20260726-wiki-editorial-media-integration.md
-  - docs/architecture/adr/0014-wiki-editorial-media-integration.md
 validation:
   - command: required reads, search_first reconciliation, repository, task and pull-request preflight
     result: PASS
@@ -226,14 +227,17 @@ validation:
     result: PASS
     evidence: syntax, whitespace and governance checks pass
   - command: composer test
-    result: FAIL
-    evidence: Composer terminated the repository suite at its default 300-second process timeout; the isolated TrustedProxySchemeTest passed 2 tests and 6 assertions immediately afterward
+    result: BLOCKED
+    evidence: the wrapper exceeded its 300-second timeout on the superseded head; direct full-suite validation follows after merged PR 203 fixed the independently proven order-dependent proxy regression
+  - command: prerequisite trusted-proxy test-isolation lifecycle
+    result: PASS
+    evidence: PR 203 full suite passed 331 tests and 2473 assertions; all exact-head checks passed and PR 204 archived the task
   - command: exact-head full PHPUnit and browser acceptance
     result: NOT_RUN
-    evidence: pending the final implementation commit
+    evidence: pending on rebased local head
 blockers:
   - none
-next_action: Commit this checkpoint, run direct full PHPUnit on the exact docs head and push for exact-head CI/browser acceptance.
+next_action: Commit this reconciliation checkpoint and run the complete local validation matrix on the exact rebased head before publishing PR 199.
 ```
 
 ## Notes
