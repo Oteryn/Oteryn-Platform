@@ -6,6 +6,7 @@ on:
       - .github/workflows/inspect-public-web-final-staging-pass.yml
 
 permissions:
+  actions: read
   contents: read
   issues: read
 
@@ -14,30 +15,16 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Resolve and verify sanitized Issue 145 PASS report
+      - name: Print sanitized Wiki publication failure
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          EXPECTED_SHA: b161983c4bf42ba21d00287bfad0418a605dd99c
+          LIVE_SMOKE_JOB_ID: 89826340682
         run: |
           set -euo pipefail
-          report="$(
-            gh api --paginate \
-              "repos/${GITHUB_REPOSITORY}/issues/145/comments?per_page=100" \
-              --jq "map(select(.body | contains(\"<!-- public-web-final-staging:${EXPECTED_SHA}:\"))) | last | .body // empty"
-          )"
-
-          if [[ -z "$report" ]]; then
-            echo "No sanitized final-staging report exists for the expected SHA." >&2
-            exit 1
-          fi
-
-          echo 'Sanitized final staging report:'
-          printf '%s\n' "$report"
-
-          grep -Fxq 'Final Synology staging closure result: **PASS**' <<<"$report"
-          grep -Fq "exact trusted main SHA: \`${EXPECTED_SHA}\`" <<<"$report"
-          grep -Fq 'dispatch result: `success`' <<<"$report"
-          grep -Fq 'live Chromium smoke result: `success`' <<<"$report"
-          grep -Eq 'one-shot run: `[0-9]+`' <<<"$report"
-          grep -Eq 'deployment run: `[0-9]+`' <<<"$report"
-          grep -Fq "sanitized artifact: \`public-web-final-staging-${EXPECTED_SHA}\`" <<<"$report"
+          gh api "repos/${GITHUB_REPOSITORY}/actions/jobs/${LIVE_SMOKE_JOB_ID}/logs" > live-smoke.log
+          echo 'Focused Wiki publication failure excerpt:'
+          grep -nEi 'eligible|publisher|wiki:launch|permission|mfa|expected exactly|exception|error|failed|failure' live-smoke.log \
+            | tail -n 120 \
+            || true
+          echo 'Live-smoke log tail:'
+          tail -n 100 live-smoke.log
