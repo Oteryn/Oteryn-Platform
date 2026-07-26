@@ -42,15 +42,15 @@ Close the remaining bounded homepage, shared public navigation, localization and
 
 ## Acceptance criteria
 
-- [ ] The homepage composes the existing active-announcement ticker and upcoming-event provider/component boundaries without duplicating their queries or hiding AVAILABLE, EMPTY or UNAVAILABLE states.
-- [ ] Homepage quick links and shared EN/PL navigation expose the existing Download Center, guild index, Wiki, Events and approved support routes without dead links or invented runtime/content state.
-- [ ] Every crawlable public route has a unique escaped title, description, canonical URL, localized alternates where an equivalent exists and bounded Open Graph metadata.
-- [ ] The XML sitemap contains only effective crawlable public URLs and published localized dynamic content, with deterministic deduplication and no drafts, previews, searches, account/security, administrator or signed routes.
-- [ ] `robots.txt` truthfully points to the sitemap and excludes administrator, account/security, preview, search and other non-indexable surfaces without being treated as an authorization boundary.
-- [ ] Missing translations, unpublished content and unavailable dependencies neither authorize sitemap entries nor produce false alternates or fabricated homepage data.
-- [ ] Existing publication freshness, private media, CSP, escaping, external-link validation, public-game-data freshness and cache boundaries remain unchanged.
-- [ ] Focused unit/feature/security tests and responsive, portability and keyboard-accessibility Playwright coverage pass on the exact final head.
-- [ ] No migration, new persistence, arbitrary HTML/remote image, upload format, wildcard permission, Canary/login-server change, production action or external-repository write is introduced.
+- [x] The homepage composes the existing active-announcement ticker and upcoming-event provider/component boundaries without duplicating their queries or hiding AVAILABLE, EMPTY or UNAVAILABLE states.
+- [x] Homepage quick links and shared EN/PL navigation expose the existing Download Center, guild index, Wiki, Events and approved support routes without dead links or invented runtime/content state.
+- [x] Every crawlable public route has a unique escaped title, description, canonical URL, localized alternates where an equivalent exists and bounded Open Graph metadata.
+- [x] The XML sitemap contains only effective crawlable public URLs and published localized dynamic content, with deterministic deduplication and no drafts, previews, searches, account/security, administrator or signed routes.
+- [x] `robots.txt` truthfully points to the sitemap and excludes administrator, account/security, preview, search and other non-indexable surfaces without being treated as an authorization boundary.
+- [x] Missing translations, unpublished content and unavailable dependencies neither authorize sitemap entries nor produce false alternates or fabricated homepage data.
+- [x] Existing publication freshness, private media, CSP, escaping, external-link validation, public-game-data freshness and cache boundaries remain unchanged.
+- [x] Focused unit/feature/security tests and responsive, portability and keyboard-accessibility Playwright coverage pass on the exact final head.
+- [x] No migration, new persistence, arbitrary HTML/remote image, upload format, wildcard permission, Canary/login-server change, production action or external-repository write is introduced.
 
 ## Ownership
 
@@ -125,11 +125,11 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-07-26T13:11:49Z
-head: 4e7eaebdc3a4fe3acd7f51e194bb166935bd2772
+updated_at: 2026-07-26T13:23:30Z
+head: ea5c39cc2f0c39620174d0d4da08e8bd87ed1aaa
 branch: feat/OTERYN-20260726-homepage-navigation-seo
 pr: 206
-status: implementing
+status: ready
 context_routes:
   - agent-governance
   - architecture
@@ -165,6 +165,8 @@ proven:
   - production-like browser serving proved that the repository default public/robots.txt shadowed the Laravel robots route; the static file is now removed so the reviewed dynamic policy is authoritative under the real HTTP serving path
   - administrator Wiki preview inherits one noindex directive from the administrator layout after its redundant page-local duplicate was removed
   - focused feature coverage proves homepage composition, live links, metadata escaping, noindex, robots, published-only localized sitemap entries and fail-closed dependency behavior
+  - every required PR 206 check passes on correction head ea5c39cc2f0c39620174d0d4da08e8bd87ed1aaa
+  - PR 206 has no review, requested-change or unresolved-thread blocker
 derived:
   - the task can extend the existing PublicPortal orchestration and navigation registry without new persistence or raw Canary reads
   - one bounded child can close homepage composition, navigation discoverability and their shared SEO/crawl-policy presentation because they converge on the existing public shell
@@ -211,9 +213,15 @@ validation:
   - command: Playwright homepage-navigation-seo across Chromium primary, Chromium/Firefox/WebKit portability, desktop/tablet/mobile responsive and Chromium accessibility projects with zero retries
     result: PASS
     evidence: 8 of 8 project executions passed after removing the static robots shadow; no horizontal-overflow, metadata, crawl-policy or keyboard failure remained
+  - command: PR 206 required GitHub checks on ea5c39cc2f0c39620174d0d4da08e8bd87ed1aaa
+    result: PASS
+    evidence: acceptance, test, both validate jobs, checkpoint-validation, concurrency-proof, all three image builds and Synology package validation passed
+  - command: PR 206 review-thread GraphQL reconciliation
+    result: PASS
+    evidence: no reviews, requested changes or unresolved review threads
 blockers:
   - none
-next_action: Commit and push the production-like robots/preview corrections, then verify all required exact-head PR 206 checks and browser profiles are green.
+next_action: Publish this final checkpoint, verify its exact-head checks, then mark PR 206 ready and squash merge it.
 ```
 
 ## Notes
