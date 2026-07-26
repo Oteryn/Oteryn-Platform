@@ -49,7 +49,7 @@ Integrate the existing private, normalized EditorialMedia image library into tru
 - [x] Draft, review, archived, future-published, missing-locale and stale Polish translations cannot authorize public image delivery.
 - [x] Public delivery uses verified MIME, `nosniff`, bounded cache semantics and truthful not-found/unavailable behavior without exposing private paths.
 - [x] Signed administrator preview can render authorized referenced media without creating an anonymous draft-media route.
-- [ ] Focused authorization, publication leakage, storage-integrity, reference-sync, deletion-safety, rendering, responsive and browser-accessibility regressions pass on the exact final head.
+- [x] Focused authorization, publication leakage, storage-integrity, reference-sync, deletion-safety, rendering, responsive and browser-accessibility regressions pass on the exact final head.
 - [x] No new upload format, executable/public storage path, wildcard permission, arbitrary HTML, Canary/login-server change, production action or external-repository write is introduced.
 
 ## Ownership
@@ -108,11 +108,11 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-07-26T11:58:10Z
-head: 0fdca21780bcffdfdecc24ff40dd0d6552a49edd
+updated_at: 2026-07-26T12:08:27Z
+head: e84cb22fb5666b05929581d61cc3e7c9d14de916
 branch: feat/OTERYN-20260726-wiki-editorial-media-integration
 pr: 199
-status: implementing
+status: ready
 context_routes:
   - agent-governance
   - architecture
@@ -159,6 +159,8 @@ proven:
   - preview media URLs are signed over article, locale, translation and media identifiers and the controller rechecks their current relationship and exact reference
   - successful public media uses no-cache max-age=0 revalidation while unauthorized and unavailable responses are no-store
   - exact-head Acceptance run 30200877625 passed smoke and 18 existing portability tests but failed the new Wiki media scenario in all three browser engines at keyboard insertion
+  - non-append picker requests now remove stale result controls before awaiting replacement data
+  - exact-head Acceptance run 30201158173 passes smoke, Chromium Firefox and WebKit portability, desktop tablet and mobile responsive coverage, resilience and keyboard accessibility
 derived:
   - public image authorization depends on an effective published Wiki translation reference rather than media existence alone
   - draft-time reference synchronization reuses the existing reference manager while public delivery independently enforces publication state
@@ -166,13 +168,12 @@ derived:
   - runtime implementation can proceed without a migration, permission grant or cross-repository contract change
   - responsive, portability and accessibility projects now select the bounded admin Wiki media Playwright scenario by filename
   - non-append picker requests must remove stale cards before awaiting replacement data so disposable controls cannot retain transient keyboard focus
-unknown:
-  - exact-head GitHub CI and browser outcomes remain pending until the rebased implementation is pushed
+unknown: []
 conflicts:
   - none
 first_failure:
-  marker: acceptance-portability-stale-media-card
-  evidence: run 30200877625 focused an initial-result insertion button while search replacement remained in flight; all three engines then replaced that focused node and observed an unchanged English Markdown field
+  marker: none
+  evidence: the stale-card failure from run 30200877625 is fixed and exact-head run 30201158173 passes every required browser profile
 rejected_hypotheses:
   - expose the private storage disk through public/storage: rejected by ADR 0011 and ADR 0014
   - allow arbitrary remote CommonMark images: rejected by ADR 0012 and ADR 0014
@@ -242,11 +243,11 @@ validation:
     result: PASS
     evidence: picker, Playwright and config syntax pass; 32 Wiki routes register; 11 checkpoints and 9 validator tests pass; diff check is clean
   - command: exact-head GitHub CI and browser acceptance
-    result: FAIL
-    evidence: all non-browser checks passed on 3f22971a96538add177d68e958911201f510629c; Acceptance run 30200877625 failed only the new Wiki media test in the portability phase because search-time stale cards remained interactive
+    result: PASS
+    evidence: final runtime head e84cb22fb5666b05929581d61cc3e7c9d14de916 passes CI 30201158151, governance 30201158153, concurrency 30201158175, outage 30201158148, Phase 7 30201158167, build 30201158150 and Acceptance 30201158173
 blockers:
   - none
-next_action: Validate the stale-result removal with JavaScript checks and the focused browser scenario, then publish the fix and rerun exact-head acceptance.
+next_action: Publish this ready checkpoint, verify the docs-only final head checks, mark PR 199 ready and squash merge it.
 ```
 
 ## Notes
