@@ -1,0 +1,26 @@
+name: Inspect MFA QR Failure
+
+on:
+  pull_request:
+    paths:
+      - .github/workflows/inspect-mfa-qr-failure.yml
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Print focused failed-test block
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CI_JOB_ID: 89844130696
+        run: |
+          set -euo pipefail
+          gh api "repos/${GITHUB_REPOSITORY}/actions/jobs/${CI_JOB_ID}/logs" > ci.log
+          grep -nEi 'FAILED|FAILURES|MfaQrCode|Tests:|Error:|Assertion' ci.log | tail -n 120 || true
+          echo '--- terminal test range ---'
+          tail -n 220 ci.log
