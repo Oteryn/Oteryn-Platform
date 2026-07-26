@@ -59,9 +59,9 @@ modules:
   - Testing
 dependencies:
   - Issue #145
-  - merged PRs #146, #157, #158, #159, #160, #161, #175, #176, #191 and #192
+  - merged PRs #146, #157, #158, #159, #160, #161, #175, #176, #191, #192, #194, #195, #196 and #197
 blockers:
-  - none for this coordination PR
+  - none for programme coordination
 cross_repository_tasks:
   - none
 ```
@@ -79,30 +79,30 @@ The programme task owns coordination only. Implementation paths must be claimed 
 | Download Center | PARTIAL | PR #161; routes, query, views and tests | Add shared navigation/homepage discoverability and closure acceptance. | homepage-navigation-seo child |
 | Server information, beginner guide, support and legal baseline | COMPLETE | PR #159; typed editorial routes, queries and navigation | Preserve publication truth and trusted links. | homepage-navigation-seo child |
 | Guild index | PARTIAL | PR #160; route, query, view and tests | Add shared navigation discoverability and closure acceptance. | homepage-navigation-seo child |
-| PL/EN localization foundation | PARTIAL | PR #175; locale routing, canonical/hreflang and localized current surfaces | Extend to Wiki. | public-wiki child |
-| Wiki persistence, lifecycle, revisions, locking, permissions and audit | PARTIAL | PR #158; `app/Wiki/**` and reversible foundation migration | Expose secure public/admin workflows and conflict handling. | public-wiki child |
-| Public Wiki routes, categories, articles, breadcrumbs, TOC and related articles | MISSING | No Wiki route module/controller/view on trusted main | Implement published-only locale-aware public Wiki. | public-wiki child |
-| Safe Markdown rendering boundary | MISSING | Input rules exist, but no maintained renderer or rendered public output exists | Add restricted renderer, anchors, TOC, internal links and security tests. | public-wiki child |
-| Wiki administration | MISSING | No `/admin/wiki` routes, controllers, requests or views | Implement auth + confirmed MFA + exact permissions and bounded audit actions. | public-wiki child |
-| Wiki search | MISSING | No search interface, implementation, route or tests | Implement published-only locale-isolated bounded search. | public-wiki child |
-| Safe editorial image library foundation | COMPLETE | PR #176; reusable private media boundary | Reuse; do not duplicate storage. | wiki-media child |
-| Approved media consumer integration | MISSING | PR #176 explicitly excluded consumers | Integrate Wiki first; other consumers require separate evidence. | wiki-media child |
-| Canonical and hreflang metadata | PARTIAL | PR #175; localized SEO partial | Extend to Wiki and verify published content. | homepage-navigation-seo and public-wiki children |
-| Open Graph, sitemap and robots exclusions | MISSING | No sitemap; robots allows all; layout lacks Open Graph abstraction | Add metadata, sitemap, exclusions and noindex. | homepage-navigation-seo child |
-| Responsive, keyboard and accessibility closure | PARTIAL | Existing acceptance covers delivered surfaces | Add Wiki/admin/media/homepage coverage. | implementation children plus acceptance closure |
-| Initial approved Wiki content set | MISSING | No Wiki publication seed exists | Add only source-backed approved content. | wiki-content child |
-| Final Synology staging deployment | BLOCKED | latest proven staging SHA is `7164edd1308d9f43cfbc20fb37901e66448fe165`; implementation remains incomplete | Deploy exact final SHA through reviewed workflow and run live smoke. | deployment-closure child |
+| PL/EN localization foundation | PARTIAL | PRs #175, #194 and #196; localized public Wiki and bilingual administration | Complete remaining shared-shell and closure acceptance. | homepage-navigation-seo and acceptance-closure children |
+| Wiki persistence, lifecycle, revisions, locking, permissions and audit | COMPLETE | PR #158; Wiki foundation services and reversible persistence | Preserve service and concurrency boundaries. | none |
+| Public Wiki routes, categories, articles, breadcrumbs, TOC and related articles | COMPLETE | PR #194 / `9ed3861cc29dcaf6305c379de2bee5ee5ac923d6` | Preserve published-only and locale-freshness constraints. | none |
+| Safe Markdown rendering boundary | COMPLETE | PR #194; restricted CommonMark renderer and security regressions | Integrate only approved local media references; do not re-enable remote images. | wiki-media child |
+| Wiki administration | COMPLETE | PR #196 / `f512f1e3a9bd567d40ddb09b699291c99a1b65f8` | Preserve auth + confirmed MFA + exact permission and optimistic locking. | none |
+| Wiki search | COMPLETE | PR #194; published-only locale-isolated bounded search | Preserve no-draft-leak and rate-limit behavior. | none |
+| Safe editorial image library foundation | COMPLETE | PR #176; reusable private media boundary | Reuse; do not duplicate storage or upload processing. | wiki-media child |
+| Approved media consumer integration | MISSING | PR #176 explicitly excluded consumers; Wiki renderer still blocks images | Integrate Wiki article image references with transactional reference tracking and safe public delivery. | wiki-media child |
+| Canonical and hreflang metadata | PARTIAL | PRs #175 and #194; localized SEO for current public and Wiki routes | Complete shared closure and verify all published content. | homepage-navigation-seo child |
+| Open Graph, sitemap and robots exclusions | MISSING | No complete programme-level sitemap/robots/OG closure evidence | Add metadata, sitemap, exclusions and noindex. | homepage-navigation-seo child |
+| Responsive, keyboard and accessibility closure | PARTIAL | PRs #194 and #196 cover public/admin Wiki; existing acceptance covers prior delivered surfaces | Add media and remaining homepage/SEO closure coverage. | implementation children plus acceptance closure |
+| Initial approved Wiki content set | MISSING | No approved Wiki publication seed exists | Add only source-backed approved content. | wiki-content child |
+| Final Synology staging deployment | BLOCKED | Latest proven staging SHA predates the remaining implementation | Deploy exact final SHA through reviewed workflow and run live smoke after all children merge. | deployment-closure child |
 | Issue #145 closure | MISSING | Issue remains open | Update only from merged evidence and close after staging acceptance. | programme closure PR |
 
 ## Context checkpoint
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-07-25T21:30:00Z
-head: UNKNOWN
-branch: feat/OTERYN-20260725-public-web-programme-closure
-pr: 190
-status: ready
+updated_at: 2026-07-26T09:10:00Z
+head: e0acbf4307e5ddab01ffeebc3e5b5f2cdba30deb
+branch: docs/OTERYN-20260725-public-web-programme-post-wiki
+pr: 198
+status: implementing
 context_routes:
   - agent-governance
   - architecture
@@ -118,50 +118,49 @@ context_routes:
 owned_paths:
   - docs/agents/tasks/active/OTERYN-20260725-public-web-programme-closure.md
 proven:
-  - branch was resynchronized from trusted main 5a5019858d0e01ba0c77e6efe88f7a23f16dbef5
-  - execution mode routing exists on main through PR 191 and its task is archived through PR 192
+  - trusted main is a9adbe07317cac0311e9dd5761d45ceb8c7203f5
   - Issue 145 remains open
-  - no open PR owns Wiki, PublicPortal, EditorialMedia consumer, SEO or sitemap implementation paths
-  - current homepage composes only world status and latest news
-  - Wiki foundation has persistence, lifecycle services, revisions, exact permissions, optimistic locking and audit
-  - trusted main has no public or administrator Wiki route module, Wiki search or rendered Markdown boundary
-  - editorial media has no delivered consumer integration
-  - canonical and hreflang support exists for current localized public routes
-  - public robots.txt currently disallows nothing and no sitemap implementation was found
-  - latest proven Synology staging deployment SHA is 7164edd1308d9f43cfbc20fb37901e66448fe165
+  - PR 194 delivered public published-only English and Polish Wiki reads, restricted Markdown rendering and locale-isolated search as 9ed3861cc29dcaf6305c379de2bee5ee5ac923d6
+  - PR 195 archived the completed public Wiki child as c53e0f2a1a93de9275439aff573e5a713f5621b1
+  - PR 196 delivered trusted Wiki administration as f512f1e3a9bd567d40ddb09b699291c99a1b65f8
+  - PR 197 archived the completed Wiki administration child as a9adbe07317cac0311e9dd5761d45ceb8c7203f5
+  - all required workflows passed on the exact final heads of PRs 194 and 196 and on their checkpoint-only heads
+  - Wiki public and administrator routes now reuse the existing lifecycle, revisions, optimistic locking, exact permissions, audit and restricted renderer boundaries
+  - EditorialMedia reserves the WIKI consumer and provides transactional attach/release reference management
+  - PR 198 is the only open programme-checkpoint owner and changes only this task record
+  - no open implementation PR owns Wiki-to-EditorialMedia consumer integration paths
+  - EditorialMedia consumer integration remains absent and public Wiki images remain blocked
   - no write occurred outside blakinio/Oteryn-Platform
   - no production, router, DSM, Internet-exposure or external-repository action occurred
 derived:
-  - remaining approved scope requires bounded implementation child PRs
+  - public Wiki and Wiki administration are complete child slices and their implementation paths are released
+  - the next bounded implementation child is Wiki-to-EditorialMedia consumer integration
   - runtime implementation and validation require a CODEX-capable writable checkout
-  - staging requires exact-final-SHA redeployment after implementation merges
+  - staging requires exact-final-SHA redeployment after all remaining implementation children merge
 unknown:
   - approved source text for gameplay-specific initial Wiki articles
-  - exact current functional/visual acceptance record paths not yet located
+  - exact current programme-level functional and visual closure record paths
   - whether Events or CMS image consumers are approved beyond Wiki-first integration
 conflicts: []
 first_failure:
-  marker: none
-  evidence: none
+  marker: execution-capability
+  evidence: current sandbox has no mounted writable Oteryn Platform checkout, so runtime implementation, formatter, tests and browser validation cannot be executed locally
 rejected_hypotheses:
-  - unchecked Issue 145 boxes prove implementation is absent: merged code proves several boxes are complete
-  - PR 158 delivered a usable Wiki: public/admin routes, rendering and search are absent
+  - public Wiki remains missing: PR 194 merged complete published-only reads, rendering and search
+  - Wiki administration remains missing: PR 196 merged the trusted-editor administration surface
   - PR 176 integrated media consumers: its merged scope explicitly excluded consumers
 changed_paths:
   - docs/agents/tasks/active/OTERYN-20260725-public-web-programme-closure.md
 validation:
-  - command: repository and GitHub reconciliation
+  - command: repository, task, Issue 145 and pull-request reconciliation
     result: PASS
-    evidence: current main, Issue 145, merged/open PRs, routes and module source inspected through GitHub
-  - command: required read docs/agents/EXECUTION_MODE_ROUTING.md
-    result: PASS
-    evidence: PR 191 merged as 6c3b9fedcd07844315c51f59b7a4f8a3abc557e1
-  - command: exact-head pull-request workflows
-    result: NOT_RUN
-    evidence: synchronized documentation commit triggers authoritative PR checks
+    evidence: trusted main a9adbe07317cac0311e9dd5761d45ceb8c7203f5, merged PRs 194-197, current active-work index and focused EditorialMedia source inspected through GitHub
+  - command: local implementation and test execution
+    result: BLOCKED
+    evidence: no mounted writable repository checkout in the current sandbox
 blockers:
-  - none for merging this coordination task
-next_action: Validate and merge PR 190, then create the bounded public Wiki child task, branch and draft PR from trusted main.
+  - current session lacks a writable checkout for runtime child implementation
+next_action: Merge PR 198 after required checks pass, then create the bounded Wiki-to-EditorialMedia child task, branch and draft PR from updated main.
 ```
 
 ## Notes
