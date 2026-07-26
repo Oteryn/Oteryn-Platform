@@ -40,17 +40,17 @@ Integrate the existing private, normalized EditorialMedia image library into tru
 ## Acceptance criteria
 
 - [x] A durable ADR defines the canonical Wiki media-reference syntax, localized alternative-text rule, public delivery authorization and cache behavior.
-- [ ] Trusted Wiki article editors can discover and insert existing approved EditorialMedia objects without gaining upload or deletion authority implicitly.
-- [ ] Wiki create, update and revision-restore paths validate referenced media and synchronize bounded `EditorialMediaConsumer::WIKI` references transactionally.
-- [ ] Removing a media token releases its reference, while referenced objects remain protected by the existing fail-closed deletion boundary.
-- [ ] Stale article writes still return HTTP 409 and never mutate media references from the rejected request.
-- [ ] Public Wiki rendering accepts only the canonical local media syntax; remote, malformed, unknown and unsupported image targets remain inert or fail closed without XSS or URL injection.
-- [ ] Public image bytes are served from the existing private disk only after integrity verification and only when an effective published Wiki translation currently references the object.
-- [ ] Draft, review, archived, future-published, missing-locale and stale Polish translations cannot authorize public image delivery.
-- [ ] Public delivery uses verified MIME, `nosniff`, bounded cache semantics and truthful not-found/unavailable behavior without exposing private paths.
-- [ ] Signed administrator preview can render authorized referenced media without creating an anonymous draft-media route.
+- [x] Trusted Wiki article editors can discover and insert existing approved EditorialMedia objects without gaining upload or deletion authority implicitly.
+- [x] Wiki create, update and revision-restore paths validate referenced media and synchronize bounded `EditorialMediaConsumer::WIKI` references transactionally.
+- [x] Removing a media token releases its reference, while referenced objects remain protected by the existing fail-closed deletion boundary.
+- [x] Stale article writes still return HTTP 409 and never mutate media references from the rejected request.
+- [x] Public Wiki rendering accepts only the canonical local media syntax; remote, malformed, unknown and unsupported image targets remain inert or fail closed without XSS or URL injection.
+- [x] Public image bytes are served from the existing private disk only after integrity verification and only when an effective published Wiki translation currently references the object.
+- [x] Draft, review, archived, future-published, missing-locale and stale Polish translations cannot authorize public image delivery.
+- [x] Public delivery uses verified MIME, `nosniff`, bounded cache semantics and truthful not-found/unavailable behavior without exposing private paths.
+- [x] Signed administrator preview can render authorized referenced media without creating an anonymous draft-media route.
 - [ ] Focused authorization, publication leakage, storage-integrity, reference-sync, deletion-safety, rendering, responsive and browser-accessibility regressions pass on the exact final head.
-- [ ] No new upload format, executable/public storage path, wildcard permission, arbitrary HTML, Canary/login-server change, production action or external-repository write is introduced.
+- [x] No new upload format, executable/public storage path, wildcard permission, arbitrary HTML, Canary/login-server change, production action or external-repository write is introduced.
 
 ## Ownership
 
@@ -108,8 +108,8 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-07-26T10:54:53Z
-head: 48a79fccb17cb6b0b285f05e5d6778f19191e19d
+updated_at: 2026-07-26T10:57:40Z
+head: 9d20769c2972d2279e55811b1c14bc3ae882f897
 branch: feat/OTERYN-20260726-wiki-editorial-media-integration
 pr: 199
 status: validating
@@ -216,6 +216,9 @@ validation:
   - command: focused Wiki EditorialMedia unit and feature tests
     result: PASS
     evidence: 31 tests and 341 assertions pass for strict parsing/rendering, translation-owned reference synchronization, rollback/stale/restore/deletion safety, public/preview authorization, storage integrity and existing Wiki administration/public-read regressions
+  - command: implementation commit
+    result: PASS
+    evidence: commit 9d20769c2972d2279e55811b1c14bc3ae882f897 is rebased on authoritative PR head 5e395cbc03824f6f7a944ceac692a86859ada08f and contains the ADR 0014 implementation
   - command: php artisan route:list --path=wiki --except-vendor
     result: PASS
     evidence: all 32 legacy, localized public and exact administrator Wiki routes register without collision
@@ -230,7 +233,7 @@ validation:
     evidence: pending the final implementation commit
 blockers:
   - none
-next_action: Amend the reconciled implementation commit, record its SHA and run full exact-head validation.
+next_action: Commit this checkpoint, run direct full PHPUnit on the exact docs head and push for exact-head CI/browser acceptance.
 ```
 
 ## Notes
