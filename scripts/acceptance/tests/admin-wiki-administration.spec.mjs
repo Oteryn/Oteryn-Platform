@@ -5,6 +5,7 @@ import {
   completeMfaChallenge,
   installDiagnostics,
   login,
+  runArtisan,
   runBinary,
   uniqueEmail,
 } from './helpers.mjs';
@@ -52,6 +53,9 @@ test('@wiki-admin trusted editor creates, previews and publishes bilingual Wiki 
   const polishTitle = `Poradnik instalacji ${id}`;
   const polishSlug = `poradnik-instalacji-${id}`;
 
+  // Portability and responsive projects share one acceptance Redis runtime.
+  // Clear prior-project throttle state before this independently seeded login.
+  runArtisan('cache:clear');
   seedWikiAdmin(email);
   await login(page, email, password);
   await completeMfaChallenge(page, recoveryCode);
