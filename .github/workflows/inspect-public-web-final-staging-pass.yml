@@ -14,16 +14,11 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Print focused Phase 7 regression failure
+      - name: Print Wiki RBAC test failure range
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PHASE7_JOB_ID: 89828002567
         run: |
           set -euo pipefail
           gh api "repos/${GITHUB_REPOSITORY}/actions/jobs/${PHASE7_JOB_ID}/logs" > phase7.log
-          echo 'Focused regression failure excerpt:'
-          grep -nEi 'FAILURES|FAILED|failure|Error:|Assertion|PublicModulePermissionReservationTest|wiki_permissions|Tests:' phase7.log \
-            | tail -n 160 \
-            || true
-          echo 'Regression-suite tail:'
-          sed -n '/Run exact-SHA critical regression suite/,$p' phase7.log | tail -n 220
+          sed -n '2410,2465p' phase7.log
