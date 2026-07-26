@@ -87,7 +87,7 @@ owned_paths:
   - .github/workflows/acceptance-validation.yml
   - docs/architecture/adr/0014-wiki-editorial-media-integration.md
   - docs/agents/ACTIVE_WORK.md
-  - docs/agents/tasks/active/OTERYN-20260726-wiki-editorial-media-integration.md
+  - docs/agents/tasks/archive/OTERYN-20260726-wiki-editorial-media-integration.md
 modules:
   - Wiki
   - EditorialMedia
@@ -108,9 +108,9 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-07-26T12:08:27Z
-head: e84cb22fb5666b05929581d61cc3e7c9d14de916
-branch: feat/OTERYN-20260726-wiki-editorial-media-integration
+updated_at: 2026-07-26T12:18:53Z
+head: f66c9944fd8110014773bd7cb7b58c9f49e45af0
+branch: docs/OTERYN-20260726-archive-wiki-editorial-media-integration
 pr: 199
 status: ready
 context_routes:
@@ -161,6 +161,11 @@ proven:
   - exact-head Acceptance run 30200877625 passed smoke and 18 existing portability tests but failed the new Wiki media scenario in all three browser engines at keyboard insertion
   - non-append picker requests now remove stale result controls before awaiting replacement data
   - exact-head Acceptance run 30201158173 passes smoke, Chromium Firefox and WebKit portability, desktop tablet and mobile responsive coverage, resilience and keyboard accessibility
+  - final documentation head 29f019916a2085b54cc48db4342185ecb159277e passed Acceptance 30201500002, CI 30201500010, Agent Governance 30201499993, Game Auth Ticket Concurrency 30201500001, Platform DB Outage Validation 30201499997, Phase 7 Production-Like Validation 30201500017 and Build Synology images/package 30201500012
+  - PR 199 had no review threads, submitted reviews or unresolved review blockers on its final head
+  - PR 199 was marked ready and squash-merged to main as f66c9944fd8110014773bd7cb7b58c9f49e45af0
+  - live open-pull-request reconciliation after the merge found only PRs 189, 182 and 116, none overlapping Wiki, EditorialMedia or this documentation-only archival scope
+  - draft PR 205 owns only this completed task archival, the active-work index and the Issue 145 programme checkpoint reconciliation
 derived:
   - public image authorization depends on an effective published Wiki translation reference rather than media existence alone
   - draft-time reference synchronization reuses the existing reference manager while public delivery independently enforces publication state
@@ -245,9 +250,15 @@ validation:
   - command: exact-head GitHub CI and browser acceptance
     result: PASS
     evidence: final runtime head e84cb22fb5666b05929581d61cc3e7c9d14de916 passes CI 30201158151, governance 30201158153, concurrency 30201158175, outage 30201158148, Phase 7 30201158167, build 30201158150 and Acceptance 30201158173
+  - command: final documentation-head GitHub validation
+    result: PASS
+    evidence: head 29f019916a2085b54cc48db4342185ecb159277e passes runs 30201500002, 30201500010, 30201499993, 30201500001, 30201499997, 30201500017 and 30201500012
+  - command: PR 199 ready transition and squash merge
+    result: PASS
+    evidence: merged to main as f66c9944fd8110014773bd7cb7b58c9f49e45af0
 blockers:
   - none
-next_action: Publish this ready checkpoint, verify the docs-only final head checks, mark PR 199 ready and squash merge it.
+next_action: Merge documentation-only PR 205 after required governance checks pass.
 ```
 
 ## Notes
