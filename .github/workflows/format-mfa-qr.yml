@@ -10,16 +10,12 @@ permissions:
 
 jobs:
   format:
-    runs-on: ubuntu-latest
+    runs-on: oteryn-staging
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
         with:
           ref: feat/OTERYN-20260726-mfa-qr-enrollment
-      - uses: shivammathur/setup-php@v2
-        with:
-          php-version: '8.5'
-          coverage: none
       - name: Install locked dependencies
         run: composer install --no-interaction --no-progress
       - name: Apply repository formatter
