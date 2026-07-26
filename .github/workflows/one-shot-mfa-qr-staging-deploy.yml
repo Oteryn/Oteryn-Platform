@@ -7,6 +7,7 @@ on:
     paths:
       - .github/workflows/one-shot-mfa-qr-staging-deploy.yml
       - deploy/synology/.public-web-final-staging-trigger
+      - deploy/synology/scripts/health-check.sh
 
 permissions:
   actions: write
@@ -15,7 +16,7 @@ permissions:
   packages: read
 
 concurrency:
-  group: mfa-qr-staging-deploy
+  group: mfa-qr-staging-deploy-${{ github.sha }}
   cancel-in-progress: false
 
 jobs:
@@ -80,7 +81,7 @@ jobs:
             -f 'inputs[game_world_region]=LAN'
           echo "DEPLOY_DISPATCHED_AT=$dispatched_at" >> "$GITHUB_ENV"
 
-      - name: Locate and monitor deployment run
+      - name: Locate and monitor deployment plus inline QR health check
         id: monitor
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -115,101 +116,23 @@ jobs:
         if: always()
         run: docker logout ghcr.io >/dev/null 2>&1 || true
 
-  verify:
-    needs: dispatch
-    runs-on: oteryn-staging
-    environment: synology-staging
-    timeout-minutes: 15
-    outputs:
-      platform_image: ${{ steps.images.outputs.platform_image }}
-      gateway_image: ${{ steps.images.outputs.gateway_image }}
-    steps:
-      - name: Verify exact deployed images
-        id: images
-        env:
-          EXPECTED_RELEASE_TAG: ${{ needs.dispatch.outputs.release_tag }}
-        run: |
-          set -euo pipefail
-          platform_container="$(docker ps \
-            --filter label=com.docker.compose.project=oteryn-staging \
-            --filter label=com.docker.compose.service=platform \
-            --format '{{.ID}}')"
-          gateway_container="$(docker ps \
-            --filter label=com.docker.compose.project=oteryn-staging \
-            --filter label=com.docker.compose.service=gateway \
-            --format '{{.ID}}')"
-
-          if [[ "$(wc -w <<<"$platform_container")" -ne 1 || "$(wc -w <<<"$gateway_container")" -ne 1 ]]; then
-            echo "Expected exactly one running Platform and Gateway staging container." >&2
-            exit 1
-          fi
-
-          expected_platform="ghcr.io/blakinio/oteryn-platform:${EXPECTED_RELEASE_TAG}"
-          expected_gateway="ghcr.io/blakinio/oteryn-game-gateway:${EXPECTED_RELEASE_TAG}"
-          actual_platform="$(docker inspect --format '{{.Config.Image}}' "$platform_container")"
-          actual_gateway="$(docker inspect --format '{{.Config.Image}}' "$gateway_container")"
-          [[ "$actual_platform" == "$expected_platform" ]]
-          [[ "$actual_gateway" == "$expected_gateway" ]]
-
-          echo "PLATFORM_CONTAINER=$platform_container" >> "$GITHUB_ENV"
-          echo "platform_image=$actual_platform" >> "$GITHUB_OUTPUT"
-          echo "gateway_image=$actual_gateway" >> "$GITHUB_OUTPUT"
-
-      - name: Verify QR-first MFA implementation in deployed Platform
-        run: |
-          set -euo pipefail
-          docker exec -i "$PLATFORM_CONTAINER" php <<'PHP'
-          <?php
-          require '/var/www/html/vendor/autoload.php';
-
-          $renderer = new App\Identity\Mfa\MfaQrCode();
-          $uri = 'otpauth://totp/Oteryn%20Staging:test@example.invalid?secret=JBSWY3DPEHPK3PXP&issuer=Oteryn%20Staging';
-          $dataUri = $renderer->dataUri($uri);
-
-          if (! str_starts_with($dataUri, 'data:image/svg+xml;base64,')) {
-              fwrite(STDERR, "MFA QR renderer did not return an inline SVG data URI.\n");
-              exit(31);
-          }
-
-          $svg = base64_decode(substr($dataUri, strlen('data:image/svg+xml;base64,')), true);
-          if (! is_string($svg) || ! str_contains($svg, '<svg') || str_contains($svg, $uri)) {
-              fwrite(STDERR, "MFA QR renderer output failed the bounded SVG checks.\n");
-              exit(32);
-          }
-
-          echo "MFA QR renderer verified.\n";
-          PHP
-
-          docker exec "$PLATFORM_CONTAINER" grep -q 'Scan with your authenticator app' /var/www/html/resources/views/identity/mfa/settings.blade.php
-          docker exec "$PLATFORM_CONTAINER" grep -q 'mfa-qr' /var/www/html/public/css/mfa.css
-
-      - name: Verify anonymous MFA boundary remains protected
-        run: |
-          set -euo pipefail
-          status="$(curl --silent --output /dev/null --write-out '%{http_code}' http://127.0.0.1:8000/mfa)"
-          [[ "$status" == 302 ]]
-
   report:
     if: always()
     needs:
       - dispatch
-      - verify
     runs-on: ubuntu-latest
     timeout-minutes: 5
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       DISPATCH_RESULT: ${{ needs.dispatch.result }}
-      VERIFY_RESULT: ${{ needs.verify.result }}
       DEPLOY_RUN_ID: ${{ needs.dispatch.outputs.deploy_run_id }}
       RELEASE_TAG: ${{ needs.dispatch.outputs.release_tag }}
-      PLATFORM_IMAGE: ${{ needs.verify.outputs.platform_image }}
-      GATEWAY_IMAGE: ${{ needs.verify.outputs.gateway_image }}
     steps:
       - name: Report sanitized MFA QR staging result
         run: |
           set -euo pipefail
           outcome=FAIL
-          if [[ "$DISPATCH_RESULT" == success && "$VERIFY_RESULT" == success ]]; then
+          if [[ "$DISPATCH_RESULT" == success ]]; then
             outcome=PASS
           fi
 
@@ -221,12 +144,11 @@ jobs:
           - release tag: \`${RELEASE_TAG:-unresolved}\`
           - one-shot run: \`${GITHUB_RUN_ID}\`
           - deployment run: \`${DEPLOY_RUN_ID:-unresolved}\`
-          - dispatch result: \`${DISPATCH_RESULT}\`
-          - QR verification result: \`${VERIFY_RESULT}\`
-          - Platform image: \`${PLATFORM_IMAGE:-unresolved}\`
-          - Gateway image: \`${GATEWAY_IMAGE:-unresolved}\`
+          - deployment plus inline QR health-check result: \`${DISPATCH_RESULT}\`
+          - expected Platform image: \`ghcr.io/blakinio/oteryn-platform:${RELEASE_TAG:-unresolved}\`
+          - expected Gateway image: \`ghcr.io/blakinio/oteryn-game-gateway:${RELEASE_TAG:-unresolved}\`
 
-          No identity email, TOTP secret, password, QR bytes or private path was included. PASS means the exact images deployed healthily and the local inline SVG QR renderer plus protected MFA route were verified inside staging.
+          No identity email, TOTP secret, password, QR bytes or private path was included. PASS means the exact images deployed healthily and the deployment job itself verified the local inline SVG QR renderer, deployed QR view/CSS markers and protected anonymous MFA route.
           EOF
           )"
 
