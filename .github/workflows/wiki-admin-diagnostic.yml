@@ -17,12 +17,32 @@ permissions:
 jobs:
   diagnose:
     runs-on: ubuntu-24.04
+    services:
+      mariadb:
+        image: mariadb:11.8
+        env:
+          MARIADB_ROOT_PASSWORD: oteryn-ci-root-password
+          MARIADB_ROOT_HOST: '%'
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="healthcheck.sh --connect --innodb_initialized"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=20
+    env:
+      CANARY_PROVISIONING_INTEGRATION_HOST: 127.0.0.1
+      CANARY_PROVISIONING_INTEGRATION_PORT: 3306
+      CANARY_PROVISIONING_INTEGRATION_ROOT_PASSWORD: oteryn-ci-root-password
+      CANARY_CHARACTER_CREATE_INTEGRATION_HOST: 127.0.0.1
+      CANARY_CHARACTER_CREATE_INTEGRATION_PORT: 3306
+      CANARY_CHARACTER_CREATE_INTEGRATION_ROOT_PASSWORD: oteryn-ci-root-password
     steps:
       - uses: actions/checkout@v7
       - uses: shivammathur/setup-php@v2
         with:
           php-version: '8.5'
-          extensions: mbstring, pdo_mysql, gd
+          extensions: mbstring, pdo_mysql, pcntl, gd
           coverage: none
       - name: Install dependencies
         run: composer install --no-interaction --prefer-dist --no-progress
@@ -38,22 +58,35 @@ jobs:
           syntax_exit=$?
           echo "syntax_exit=${syntax_exit}" >> wiki-admin-diagnostic.txt
 
-          echo '=== Pint ===' >> wiki-admin-diagnostic.txt
+          echo '=== Pint check ===' >> wiki-admin-diagnostic.txt
           vendor/bin/pint --test >> wiki-admin-diagnostic.txt 2>&1
           pint_exit=$?
           echo "pint_exit=${pint_exit}" >> wiki-admin-diagnostic.txt
 
-          echo '=== PHPStan ===' >> wiki-admin-diagnostic.txt
+          vendor/bin/pint >> wiki-admin-diagnostic.txt 2>&1
+          pint_fix_exit=$?
+          git diff --binary > wiki-admin-pint.patch
+          echo "pint_fix_exit=${pint_fix_exit}" >> wiki-admin-diagnostic.txt
+
+          echo '=== PHPStan after Pint ===' >> wiki-admin-diagnostic.txt
           composer analyse >> wiki-admin-diagnostic.txt 2>&1
           analyse_exit=$?
           echo "analyse_exit=${analyse_exit}" >> wiki-admin-diagnostic.txt
 
-          printf 'syntax=%s\npint=%s\nanalyse=%s\n' "$syntax_exit" "$pint_exit" "$analyse_exit" >> "$GITHUB_STEP_SUMMARY"
+          echo '=== Focused PHPUnit after Pint ===' >> wiki-admin-diagnostic.txt
+          php artisan test tests/Feature/Wiki/AdminWikiAdministrationTest.php >> wiki-admin-diagnostic.txt 2>&1
+          test_exit=$?
+          echo "test_exit=${test_exit}" >> wiki-admin-diagnostic.txt
+
+          printf 'syntax=%s\npint=%s\npint_fix=%s\nanalyse=%s\ntest=%s\n' \
+            "$syntax_exit" "$pint_exit" "$pint_fix_exit" "$analyse_exit" "$test_exit" >> "$GITHUB_STEP_SUMMARY"
           exit 0
       - name: Upload diagnostics
         uses: actions/upload-artifact@v6
         with:
           name: wiki-admin-diagnostic
-          path: wiki-admin-diagnostic.txt
+          path: |
+            wiki-admin-diagnostic.txt
+            wiki-admin-pint.patch
           if-no-files-found: error
           retention-days: 1
