@@ -25,8 +25,8 @@ Make the existing trusted reverse-proxy regression deterministic when it runs af
 ## Acceptance criteria
 
 - [x] The trusted-proxy regression passes both alone and after another feature test in the same PHPUnit process.
-- [ ] The complete PHPUnit suite passes with the original HTTPS and untrusted-spoofing assertions intact.
-- [ ] Formatter, static analysis, focused tests and required CI pass on the exact final head.
+- [x] The complete PHPUnit suite passes with the original HTTPS and untrusted-spoofing assertions intact.
+- [x] Formatter, static analysis, focused tests and required CI pass on the exact final head.
 
 ## Ownership
 
@@ -49,11 +49,11 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-07-26T11:20:12Z
-head: 791884d74f7a9d5fa15b665da95808d5d5f8d33b
+updated_at: 2026-07-26T11:26:20Z
+head: 5dbfb1338e1d952c704cb7b30b3d2c00c1164795
 branch: fix/OTERYN-20260726-trusted-proxy-test-isolation
 pr: 203
-status: validating
+status: ready
 context_routes:
   - testing
   - security
@@ -68,12 +68,11 @@ proven:
   - Draft PR 203 targets blakinio/Oteryn-Platform main from the dedicated repair branch
 derived:
   - The regression should inject the trusted CIDR at the middleware's per-application configuration boundary instead of mutating process environment state
-unknown:
-  - Exact-head CI result after the narrow repair is published
+unknown: []
 conflicts: []
 first_failure:
-  marker: TrustedProxySchemeTest configured proxy assertion
-  evidence: expected https://platform.oteryn.test/login but observed http://localhost:8000/login after PublicSiteShellTest
+  marker: none
+  evidence: none
 rejected_hypotheses:
   - PublicSiteShellTest leaks URL generator state: the failure is the trusted proxy configuration missing at bootstrap, and the direct process-global mutation occurs after Laravel caches its Env repository
   - Laravel Env repository mutation is sufficient in every checkout: an existing immutable .env value prevents the test from replacing the repository value
@@ -97,11 +96,14 @@ validation:
     result: PASS
     evidence: no errors
   - command: php artisan test --display-warnings
-    result: FAIL
-    evidence: 330 passed, 10 skipped and only TrustedProxySchemeTest failed on the superseded Env-repository repair at 5cee6d3
+    result: PASS
+    evidence: exact runtime head 5dbfb13 passes 331 tests with 2473 assertions and 10 documented skips
+  - command: GitHub required checks on PR 203 head 5dbfb1338e1d952c704cb7b30b3d2c00c1164795
+    result: PASS
+    evidence: checkpoint-validation, concurrency-proof, test and both validate jobs pass
 blockers:
   - none
-next_action: Commit the final per-application configuration repair, publish it to PR 203 and rerun exact-head validation.
+next_action: Publish this ready checkpoint, verify the docs-only final head checks and squash merge PR 203.
 ```
 
 ## Notes
