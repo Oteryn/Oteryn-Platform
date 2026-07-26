@@ -120,7 +120,7 @@ proven:
   - the second portability failure was a global remote-image assertion counting the shared header and footer logos and was corrected by scoping the assertion to article.wiki-markdown
   - no product runtime defect was found by either browser-test failure
   - no production, Canary/login-server, router, DSM or external-repository write occurred
- derived:
+derived:
   - a named operator command using the existing Wiki services can provision reviewed content without weakening administrator HTTP boundaries
   - unknown rates, detailed gameplay mechanics, PvP policy, Discord destination and final game-client login behavior must be represented as explicit authority pointers or unavailable facts
 unknown:
