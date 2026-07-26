@@ -2,6 +2,7 @@
 
 namespace App\Wiki\Infrastructure\Rendering;
 
+use App\Wiki\Application\Media\WikiMediaRenderContext;
 use App\Wiki\Application\Rendering\RenderedWikiMarkdown;
 use App\Wiki\Application\Rendering\WikiMarkdownRenderer;
 use League\CommonMark\Environment\Environment;
@@ -15,8 +16,10 @@ use League\CommonMark\MarkdownConverter;
 
 final class CommonMarkWikiRenderer implements WikiMarkdownRenderer
 {
-    public function render(string $sourceMarkdown): RenderedWikiMarkdown
-    {
+    public function render(
+        string $sourceMarkdown,
+        ?WikiMediaRenderContext $media = null,
+    ): RenderedWikiMarkdown {
         $headings = new WikiHeadingRenderer;
         $environment = new Environment([
             'html_input' => 'strip',
@@ -39,7 +42,7 @@ final class CommonMarkWikiRenderer implements WikiMarkdownRenderer
         $environment->addExtension(new TableExtension);
         $environment->addRenderer(Heading::class, $headings, 100);
         $environment->addRenderer(Link::class, new SafeWikiLinkRenderer, 100);
-        $environment->addRenderer(Image::class, new BlockedWikiImageRenderer, 100);
+        $environment->addRenderer(Image::class, new WikiMediaImageRenderer($media), 100);
 
         $html = (string) (new MarkdownConverter($environment))->convert($sourceMarkdown);
 

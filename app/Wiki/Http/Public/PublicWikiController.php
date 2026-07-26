@@ -2,6 +2,7 @@
 
 namespace App\Wiki\Http\Public;
 
+use App\Wiki\Application\Media\WikiMediaRenderContextFactory;
 use App\Wiki\Application\Rendering\WikiMarkdownRenderer;
 use App\Wiki\Application\Search\InvalidWikiSearch;
 use App\Wiki\Application\Search\WikiSearch;
@@ -18,6 +19,7 @@ final readonly class PublicWikiController
     public function __construct(
         private PublicWikiQuery $wiki,
         private WikiMarkdownRenderer $renderer,
+        private WikiMediaRenderContextFactory $media,
         private WikiSearch $search,
     ) {}
 
@@ -49,14 +51,18 @@ final readonly class PublicWikiController
     public function article(Request $request, string $slug): View|HttpResponse
     {
         try {
-            $article = $this->wiki->article($this->locale($request), $slug);
+            $locale = $this->locale($request);
+            $article = $this->wiki->article($locale, $slug);
             if ($article === null) {
                 abort(Response::HTTP_NOT_FOUND);
             }
 
             return view('wiki.article', [
                 'article' => $article,
-                'rendered' => $this->renderer->render($article->sourceMarkdown),
+                'rendered' => $this->renderer->render(
+                    $article->sourceMarkdown,
+                    $this->media->public($article->translationId, $locale, $article->sourceMarkdown),
+                ),
             ]);
         } catch (QueryException $exception) {
             return $this->unavailable($exception);

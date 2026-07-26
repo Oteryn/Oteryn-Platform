@@ -113,7 +113,7 @@ export default defineConfig({
     },
     {
       name: 'accessibility-chromium',
-      testMatch: '**/accessibility-critical.spec.mjs',
+      testMatch: ['**/accessibility-critical.spec.mjs', '**/admin-wiki-editorial-media.spec.mjs'],
       use: {
         browserName: 'chromium',
         viewport: desktopViewport,

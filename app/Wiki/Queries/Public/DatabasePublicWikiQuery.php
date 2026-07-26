@@ -63,6 +63,7 @@ final class DatabasePublicWikiQuery implements PublicWikiQuery
             ->where('wt.slug', $slug)
             ->select([
                 'a.id',
+                'wt.id as translation_id',
                 'wt.title',
                 'wt.slug',
                 'wt.summary',
@@ -87,6 +88,7 @@ final class DatabasePublicWikiQuery implements PublicWikiQuery
 
         return new WikiArticlePageViewModel(
             $articleId,
+            $this->integer($article->translation_id),
             $this->string($article->title),
             $this->string($article->slug),
             $this->string($article->summary),

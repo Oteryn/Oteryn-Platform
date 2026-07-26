@@ -5,9 +5,9 @@ namespace App\Wiki\Http\Admin;
 use App\Admin\AdminAuthorization;
 use App\Admin\AdminPermission;
 use App\Identity\Models\Identity;
+use App\Wiki\Application\Media\WikiMediaRenderContextFactory;
 use App\Wiki\Application\Rendering\WikiMarkdownRenderer;
 use App\Wiki\Application\WikiAdminArticleWriter;
-use App\Wiki\Application\WikiArticleService;
 use App\Wiki\Domain\WikiArticleStatus;
 use App\Wiki\Domain\WikiLocale;
 use App\Wiki\Domain\WikiTranslationInput;
@@ -182,6 +182,7 @@ final readonly class AdminWikiArticleController
         WikiArticle $article,
         string $locale,
         WikiMarkdownRenderer $renderer,
+        WikiMediaRenderContextFactory $media,
     ): View {
         if (WikiLocale::tryFrom($locale) === null) {
             abort(404);
@@ -196,7 +197,15 @@ final readonly class AdminWikiArticleController
         return view('admin.wiki.articles.preview', [
             'article' => $article,
             'translation' => $translation,
-            'rendered' => $renderer->render($translation->source_markdown),
+            'rendered' => $renderer->render(
+                $translation->source_markdown,
+                $media->preview(
+                    $article->id,
+                    $translation->id,
+                    $locale,
+                    $translation->source_markdown,
+                ),
+            ),
         ]);
     }
 
@@ -235,13 +244,13 @@ final readonly class AdminWikiArticleController
         AdminWikiRestoreRequest $request,
         WikiArticle $article,
         WikiRevision $revision,
-        WikiArticleService $articles,
+        WikiAdminArticleWriter $writer,
     ): RedirectResponse {
         $identity = $request->user();
         abort_unless($identity instanceof Identity, 403);
 
         try {
-            $saved = $articles->restoreRevision(
+            $saved = $writer->restoreRevision(
                 $identity,
                 $article,
                 $request->integer('lock_version'),

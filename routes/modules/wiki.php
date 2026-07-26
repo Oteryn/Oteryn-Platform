@@ -1,12 +1,24 @@
 <?php
 
+use App\EditorialMedia\Http\Public\PublicWikiEditorialMediaController;
 use App\Wiki\Http\Admin\AdminWikiArticleController;
 use App\Wiki\Http\Admin\AdminWikiCategoryController;
 use App\Wiki\Http\Admin\AdminWikiController;
 use App\Wiki\Http\Admin\AdminWikiLifecycleController;
+use App\Wiki\Http\Admin\AdminWikiMediaController;
 use App\Wiki\Http\Public\PublicWikiController;
 use Illuminate\Support\Facades\Route;
 
+Route::get('/wiki/media/{editorialMedia}', PublicWikiEditorialMediaController::class)
+    ->whereNumber('editorialMedia')
+    ->defaults('locale', 'en')
+    ->name('legacy.wiki.media');
+Route::get('/{locale}/wiki/media/{editorialMedia}', PublicWikiEditorialMediaController::class)
+    ->where([
+        'locale' => 'en|pl',
+        'editorialMedia' => '[0-9]+',
+    ])
+    ->name('wiki.media');
 Route::get('/wiki', [PublicWikiController::class, 'index'])->name('wiki.index');
 Route::get('/wiki/search', [PublicWikiController::class, 'search'])
     ->middleware('throttle:wiki-search')
@@ -27,6 +39,10 @@ Route::middleware(['auth', 'mfa.confirmed', 'admin.permission:wiki.access'])
         Route::get('/categories', [AdminWikiCategoryController::class, 'index'])->name('categories.index');
 
         Route::middleware('admin.permission:wiki.articles.manage')->group(function (): void {
+            Route::get('/media', [AdminWikiMediaController::class, 'index'])->name('media.index');
+            Route::get('/media/{editorialMedia}/thumbnail', [AdminWikiMediaController::class, 'thumbnail'])
+                ->whereNumber('editorialMedia')
+                ->name('media.thumbnail');
             Route::get('/articles/create', [AdminWikiArticleController::class, 'create'])->name('articles.create');
             Route::post('/articles', [AdminWikiArticleController::class, 'store'])->name('articles.store');
             Route::get('/articles/{article}/edit', [AdminWikiArticleController::class, 'edit'])->name('articles.edit');
@@ -35,6 +51,18 @@ Route::middleware(['auth', 'mfa.confirmed', 'admin.permission:wiki.access'])
                 ->where('locale', 'en|pl')
                 ->middleware('signed')
                 ->name('articles.preview');
+            Route::get(
+                '/articles/{article}/preview-media/{locale}/{translation}/{editorialMedia}',
+                [AdminWikiMediaController::class, 'preview'],
+            )
+                ->where([
+                    'article' => '[0-9]+',
+                    'locale' => 'en|pl',
+                    'translation' => '[0-9]+',
+                    'editorialMedia' => '[0-9]+',
+                ])
+                ->middleware('signed')
+                ->name('media.preview');
             Route::get('/articles/{article}/revisions', [AdminWikiArticleController::class, 'revisions'])
                 ->name('articles.revisions');
             Route::post('/articles/{article}/submit-review', [AdminWikiLifecycleController::class, 'submitReview'])
