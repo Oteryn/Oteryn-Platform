@@ -1,3 +1,4 @@
-Issue #145 observable exact-final-SHA Synology staging closure trigger.
-This revision forces exact images for the report-enabled merge SHA.
-Remove after deployment and live-smoke evidence are archived.
+Issue #145 observable exact-SHA Synology staging deployment trigger.
+This revision deploys the QR-first MFA merge and verifies it on staging.
+QR source merge: 671ac9fed05f51cc3989ff0aed2d37c99bc6d933.
+Remove after successful deployment evidence and task archival.
