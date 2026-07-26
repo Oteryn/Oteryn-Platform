@@ -99,6 +99,9 @@
     setStatus('Loading approved images...');
     searchButton.disabled = true;
     more.disabled = true;
+    if (!append) {
+      results.replaceChildren();
+    }
 
     try {
       const response = await fetch(url, {
@@ -111,9 +114,6 @@
 
       const payload = await response.json();
       const items = Array.isArray(payload.items) ? payload.items : [];
-      if (!append) {
-        results.replaceChildren();
-      }
       for (const item of items) {
         results.append(mediaCard(item));
       }

@@ -108,11 +108,11 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-07-26T11:48:49Z
+updated_at: 2026-07-26T11:58:10Z
 head: 0fdca21780bcffdfdecc24ff40dd0d6552a49edd
 branch: feat/OTERYN-20260726-wiki-editorial-media-integration
 pr: 199
-status: validating
+status: implementing
 context_routes:
   - agent-governance
   - architecture
@@ -158,19 +158,21 @@ proven:
   - public delivery joins the referenced translation to the effective publication query and reparses its current source before integrity-checked private-disk delivery
   - preview media URLs are signed over article, locale, translation and media identifiers and the controller rechecks their current relationship and exact reference
   - successful public media uses no-cache max-age=0 revalidation while unauthorized and unavailable responses are no-store
+  - exact-head Acceptance run 30200877625 passed smoke and 18 existing portability tests but failed the new Wiki media scenario in all three browser engines at keyboard insertion
 derived:
   - public image authorization depends on an effective published Wiki translation reference rather than media existence alone
   - draft-time reference synchronization reuses the existing reference manager while public delivery independently enforces publication state
   - upload and deletion authority remains under media.manage while Wiki editing uses its existing exact article permission
   - runtime implementation can proceed without a migration, permission grant or cross-repository contract change
   - responsive, portability and accessibility projects now select the bounded admin Wiki media Playwright scenario by filename
+  - non-append picker requests must remove stale cards before awaiting replacement data so disposable controls cannot retain transient keyboard focus
 unknown:
   - exact-head GitHub CI and browser outcomes remain pending until the rebased implementation is pushed
 conflicts:
   - none
 first_failure:
-  marker: none
-  evidence: the strict-markup assertion and pre-existing trusted-proxy suite defect are both resolved
+  marker: acceptance-portability-stale-media-card
+  evidence: run 30200877625 focused an initial-result insertion button while search replacement remained in flight; all three engines then replaced that focused node and observed an unchanged English Markdown field
 rejected_hypotheses:
   - expose the private storage disk through public/storage: rejected by ADR 0011 and ADR 0014
   - allow arbitrary remote CommonMark images: rejected by ADR 0012 and ADR 0014
@@ -181,6 +183,7 @@ rejected_hypotheses:
   - continue duplicate PR 200: rejected because the user explicitly selected PR 199 and overlapping ownership is prohibited
   - rely on implicit route binding without a typed model argument: rejected after focused tests proved Laravel leaves the route value as a scalar in that controller shape
   - keep the trusted-proxy isolation repair inside PR 199: rejected because it was a pre-existing unrelated main defect and repository policy required a narrow prerequisite PR
+  - browser-engine-specific keyboard activation defect: rejected because Chromium, Firefox and WebKit failed identically and the picker exposes stale controls during its asynchronous replacement request
 changed_paths:
   - app/EditorialMedia Wiki response and public route boundary
   - app/Wiki media parser, reference, rendering, article-write, preview and public-read boundaries
@@ -239,11 +242,11 @@ validation:
     result: PASS
     evidence: picker, Playwright and config syntax pass; 32 Wiki routes register; 11 checkpoints and 9 validator tests pass; diff check is clean
   - command: exact-head GitHub CI and browser acceptance
-    result: NOT_RUN
-    evidence: pending branch publication
+    result: FAIL
+    evidence: all non-browser checks passed on 3f22971a96538add177d68e958911201f510629c; Acceptance run 30200877625 failed only the new Wiki media test in the portability phase because search-time stale cards remained interactive
 blockers:
   - none
-next_action: Commit this validation checkpoint, publish the rebased branch with force-with-lease, update PR 199 and monitor exact-head CI and browser acceptance.
+next_action: Validate the stale-result removal with JavaScript checks and the focused browser scenario, then publish the fix and rerun exact-head acceptance.
 ```
 
 ## Notes
