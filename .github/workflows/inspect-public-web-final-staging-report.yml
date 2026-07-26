@@ -1,0 +1,43 @@
+name: Inspect Public Web Final Staging Report
+
+on:
+  pull_request:
+    paths:
+      - .github/workflows/inspect-public-web-final-staging-report.yml
+
+permissions:
+  contents: read
+  issues: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Resolve and verify sanitized Issue 145 report
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          EXPECTED_SHA: 62dedb894ffc3af55ba10a0717a6a892b87f1370
+        run: |
+          set -euo pipefail
+          report="$(
+            gh api --paginate \
+              "repos/${GITHUB_REPOSITORY}/issues/145/comments?per_page=100" \
+              --jq "map(select(.body | contains(\"<!-- public-web-final-staging:${EXPECTED_SHA}:\"))) | last | .body // empty"
+          )"
+
+          if [[ -z "$report" ]]; then
+            echo "No sanitized final-staging report exists for the expected SHA." >&2
+            exit 1
+          fi
+
+          grep -Fq 'Final Synology staging closure result: **PASS**' <<<"$report"
+          grep -Fq "exact trusted main SHA: \`${EXPECTED_SHA}\`" <<<"$report"
+          grep -Fq 'dispatch result: `success`' <<<"$report"
+          grep -Fq 'live Chromium smoke result: `success`' <<<"$report"
+          grep -Eq 'one-shot run: `[0-9]+`' <<<"$report"
+          grep -Eq 'deployment run: `[0-9]+`' <<<"$report"
+          grep -Fq "sanitized artifact: \`public-web-final-staging-${EXPECTED_SHA}\`" <<<"$report"
+
+          echo 'Sanitized final staging report:'
+          printf '%s\n' "$report"
