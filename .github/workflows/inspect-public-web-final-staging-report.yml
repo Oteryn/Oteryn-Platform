@@ -6,6 +6,7 @@ on:
       - .github/workflows/inspect-public-web-final-staging-report.yml
 
 permissions:
+  actions: read
   contents: read
   issues: read
 
@@ -14,7 +15,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Resolve and verify sanitized Issue 145 report
+      - name: Resolve sanitized report and failed deployment evidence
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           EXPECTED_SHA: 62dedb894ffc3af55ba10a0717a6a892b87f1370
@@ -34,28 +35,33 @@ jobs:
           echo 'Sanitized final staging report:'
           printf '%s\n' "$report"
 
-          assert_fixed() {
-            local label="$1"
-            local value="$2"
-            if ! grep -Fq "$value" <<<"$report"; then
-              echo "Missing expected sanitized field: $label" >&2
-              exit 1
-            fi
-          }
+          grep -Fq 'Final Synology staging closure result: **FAIL**' <<<"$report"
+          grep -Fq "exact trusted main SHA: \`${EXPECTED_SHA}\`" <<<"$report"
+          grep -Fq 'dispatch result: `failure`' <<<"$report"
+          grep -Fq 'live Chromium smoke result: `skipped`' <<<"$report"
 
-          assert_regex() {
-            local label="$1"
-            local value="$2"
-            if ! grep -Eq "$value" <<<"$report"; then
-              echo "Missing expected sanitized pattern: $label" >&2
-              exit 1
-            fi
-          }
+          deployment_run_id="$(sed -n 's/.*deployment run: `\([0-9][0-9]*\)`.*/\1/p' <<<"$report")"
+          if [[ -z "$deployment_run_id" ]]; then
+            echo 'Missing numeric deployment run ID.' >&2
+            exit 1
+          fi
 
-          assert_fixed outcome 'Final Synology staging closure result: **PASS**'
-          assert_fixed exact_sha "exact trusted main SHA: \`${EXPECTED_SHA}\`"
-          assert_fixed dispatch 'dispatch result: `success`'
-          assert_fixed live_smoke 'live Chromium smoke result: `success`'
-          assert_regex one_shot 'one-shot run: `[0-9]+`'
-          assert_regex deployment 'deployment run: `[0-9]+`'
-          assert_fixed artifact "sanitized artifact: \`public-web-final-staging-${EXPECTED_SHA}\`"
+          deployment_job_id="$(
+            gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${deployment_run_id}/jobs" \
+              --jq '.jobs | map(select(.name == "deploy")) | first | .id // empty'
+          )"
+          if [[ -z "$deployment_job_id" ]]; then
+            echo 'Missing deployment job ID.' >&2
+            exit 1
+          fi
+
+          gh api "repos/${GITHUB_REPOSITORY}/actions/jobs/${deployment_job_id}/logs" > deployment.log
+
+          echo "Deployment run ID: ${deployment_run_id}"
+          echo "Deployment job ID: ${deployment_job_id}"
+          echo 'Sanitized deployment failure excerpt:'
+          grep -nE '(^|[^A-Za-z])(error|failed|failure|denied|manifest|not found|no space|unhealthy|timeout)([^A-Za-z]|$)|##\[error\]' deployment.log \
+            | tail -n 80 \
+            || true
+          echo 'Deployment log tail:'
+          tail -n 100 deployment.log
