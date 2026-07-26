@@ -34,7 +34,7 @@ jobs:
             docker exec "$gateway_container" wget \
               --server-response \
               --output-document=- \
-              --ca-certificate=/etc/oteryn/tls/ca.crt \
+              --timeout=5 \
               "$url" \
               2>&1 \
               || true
