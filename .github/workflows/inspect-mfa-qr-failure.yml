@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   patch:
-    runs-on: ubuntu-latest
+    runs-on: oteryn-staging
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v7
@@ -19,7 +19,7 @@ jobs:
       - name: Replace manual-only enrollment assertion
         run: |
           set -euo pipefail
-          python - <<'PY'
+          python3 - <<'PY'
           from pathlib import Path
 
           path = Path('tests/Feature/Identity/Mfa/MfaWebFlowTest.php')
