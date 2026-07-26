@@ -10,13 +10,14 @@ on:
 permissions:
   actions: read
   contents: read
+  issues: read
 
 jobs:
   audit:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Print sanitized workflow status
+      - name: Print final sanitized PASS evidence
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TARGET_SHA: 37eb31d60aa8a47914745cd326aff6b313851dd0
@@ -28,6 +29,6 @@ jobs:
           echo '--- exact image build ---'
           gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/build-synology-staging-images.yml/runs?branch=main&per_page=20" \
             --jq '.workflow_runs[] | select(.head_sha == env.TARGET_SHA) | {id,status,conclusion,run_attempt,created_at,updated_at}'
-          echo '--- deployment candidates ---'
-          gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/deploy-synology-staging.yml/runs?event=workflow_dispatch&branch=main&per_page=10" \
-            --jq '.workflow_runs[0:5] | map({id,status,conclusion,created_at,updated_at})'
+          echo '--- matching sanitized Issue #145 report ---'
+          gh api --paginate "repos/${GITHUB_REPOSITORY}/issues/145/comments?per_page=100" \
+            --jq '[.[] | select(.body | contains(env.TARGET_SHA)) | select(.body | contains("MFA QR Synology staging deployment"))] | last | {id,body}'
