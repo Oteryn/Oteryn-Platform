@@ -23,4 +23,6 @@ jobs:
         run: |
           set -euo pipefail
           gh api "repos/${GITHUB_REPOSITORY}/actions/jobs/${JOB_ID}/logs" > job.log
-          tail -n 90 job.log
+          grep -nEi 'fatal|error|rejected|non-fast-forward|cannot|failed|conflict|from https|to https' job.log | tail -n 40 || true
+          echo '--- final lines ---'
+          tail -n 28 job.log
