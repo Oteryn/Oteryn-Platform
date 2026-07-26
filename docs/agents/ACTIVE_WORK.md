@@ -6,6 +6,7 @@ Convenience index only. Individual active task records, live PRs and Git state a
 
 - `OTERYN-20260725-public-web-programme-closure` — Issue #145 programme coordination; owns only its task record and delegates deployment/closure paths to a bounded child task.
 - `OTERYN-20260726-public-web-final-staging-closure` — exact-final-SHA Synology staging deployment, Wiki launch-content installation, sanitized live Chromium smoke and temporary-trigger cleanup.
+- `OTERYN-20260726-mfa-qr-enrollment` — bounded QR-first local TOTP enrollment prerequisite; manual key entry remains an explicit fallback.
 
 ## Closed acceptance and release-preparation follow-ups
 
@@ -55,9 +56,9 @@ No staging evidence may be promoted to `PRODUCTION_PROVEN`.
 
 ## Next work
 
-Validate and merge the bounded final-staging closure PR. Its guarded one-shot workflow must build exact merge-SHA images, deploy through the existing Synology staging workflow, install or verify reviewed Wiki content and retain sanitized live Chromium smoke evidence.
+Validate, merge and deploy the bounded MFA QR enrollment task so exactly one existing staging Identity can complete genuine MFA without manually transcribing the secret. Then resume the final-staging closure PR, verify the sanitized confirmed-MFA count is exactly one, install or verify reviewed Wiki content and retain sanitized live Chromium smoke evidence.
 
-After successful evidence reconciliation, remove the temporary trigger/workflow, archive the task and close Issue #145. Issue #91 remains the single production execution tracker and resumes only with explicit production authorization and access to collect sanitized production evidence.
+After successful evidence reconciliation, remove the temporary trigger/workflow, archive the tasks and close Issue #145. Issue #91 remains the single production execution tracker and resumes only with explicit production authorization and access to collect sanitized production evidence.
 
 ## Remaining cross-repository dependency
 
