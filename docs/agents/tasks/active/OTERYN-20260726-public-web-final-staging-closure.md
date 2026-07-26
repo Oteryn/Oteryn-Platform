@@ -36,9 +36,9 @@ Deploy the exact final Issue #145 trusted-main SHA to the existing Synology stag
 
 ## Acceptance criteria
 
-- [x] The first reviewed merge SHA built and published exact `sha-<full-sha>` Platform and Game Gateway images before deployment dispatch.
+- [x] Exact trusted-main Platform and Gateway images are built before every guarded deployment.
 - [x] The repaired deployment recreates the private proxy after Platform and completes healthily.
-- [ ] The exact trusted-main merge containing QR-first MFA is deployed to Synology staging.
+- [x] Trusted-main SHA `348f483938fc8358132128fc79d229e38b98045b`, containing QR-first MFA, deployed healthily through run `30223164413`.
 - [ ] The deployed Platform locally renders the TOTP provisioning URI as an inline SVG QR code while the anonymous MFA route remains protected.
 - [ ] Exactly one enabled MFA-confirmed Identity with all four exact Wiki permissions is selected internally without logging its email; zero or multiple candidates fail closed.
 - [ ] `wiki:launch-content:install` installs or verifies content version `2026-07-26.1` without overwriting editorial changes.
@@ -73,6 +73,7 @@ dependencies:
   - PR 209 merge a262996eda36fc9430fe1883ea637ffd2f6ff698
   - PR 212 merge b161983c4bf42ba21d00287bfad0418a605dd99c
   - PR 214 merge 671ac9fed05f51cc3989ff0aed2d37c99bc6d933
+  - PR 215 merge 348f483938fc8358132128fc79d229e38b98045b
   - existing Deploy Synology Staging workflow
 blockers: []
 cross_repository_tasks: []
@@ -82,11 +83,11 @@ cross_repository_tasks: []
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-07-27T00:20:00+02:00
-head: 8b85bb10c6b75beaa81f33c0ffe55ee4b8330889
-branch: chore/OTERYN-20260726-mfa-qr-staging-deploy
-pr: 215
-status: validating
+updated_at: 2026-07-27T00:35:00+02:00
+head: 5f7d9a235aec9dc9725fc8d4832273d018f11f47
+branch: fix/OTERYN-20260727-mfa-qr-staging-verifier
+pr: null
+status: implementing
 context_routes:
   - agent-governance
   - deployment
@@ -100,28 +101,32 @@ context_routes:
 owned_paths:
   - final staging, QR deployment and cleanup paths listed in Ownership
 proven:
-  - PR 212 repaired the stale private-proxy upstream and its exact deployment run 30214436534 completed successfully
-  - the final closure then failed closed because staging had zero MFA-confirmed Identities and zero eligible Wiki publishers
+  - PR 212 repaired the stale private-proxy upstream and its deployment completed successfully
+  - the earlier final closure failed closed because staging had zero MFA-confirmed Identities and zero eligible Wiki publishers
   - PR 214 merged QR-first local SVG TOTP enrollment as 671ac9fed05f51cc3989ff0aed2d37c99bc6d933
-  - all required PR 214 checks passed on exact head aa49338225a5a3cb5917681e9ddd385f1f081327
-  - the bounded MFA QR one-shot waits for exact images, dispatches only the existing guarded Synology workflow and verifies the renderer inside the exact deployed Platform container
-  - the QR verification uses a synthetic non-user TOTP URI and records no QR bytes, identity email, password or secret
-  - the anonymous `/mfa` route must remain HTTP 302 after deployment
-  - all preparator and inspection helpers plus the temporary PR marker were removed before final review
+  - PR 215 merged the guarded QR deployment workflow as 348f483938fc8358132128fc79d229e38b98045b after all exact-head checks passed
+  - exact image build run 30223101821 completed successfully
+  - guarded Synology deployment run 30223164413 completed successfully without rollback
+  - exact deployed Platform and Gateway image verification passed in one-shot run 30223101826
+  - QR verification then failed before route/view checks because the verifier called nonexistent renderDataUri instead of the public dataUri method
+  - App Identity Mfa MfaQrCode exposes dataUri(string) and rejects non-TOTP provisioning URIs
+  - the corrected workflow now calls dataUri with the same synthetic non-user TOTP URI
   - no production, router, DSM, Internet-exposure or external-repository action occurred
 derived:
-  - deploying QR before genuine MFA confirmation removes the usability blocker without fabricating MFA state or granting a synthetic publisher
+  - the staging runtime is healthy and the observed failure is isolated to the verification harness API name
+  - rerunning exact-SHA deployment with the corrected verifier is required before asking an operator to enroll genuine MFA
   - final Wiki publication remains intentionally fail-closed until exactly one existing enabled account completes genuine MFA
 unknown:
-  - exact PR 215 merge SHA and resulting QR one-shot/deployment run identifiers
+  - corrected verifier merge SHA and resulting one-shot/deployment run identifiers
   - post-deployment confirmed-MFA count
 conflicts: []
 first_failure:
-  marker: no-confirmed-mfa-publisher
-  evidence: final staging live-smoke found two enabled Identities, zero confirmed-MFA Identities and zero eligible Wiki publishers after a healthy deployment
+  marker: qr-verifier-api-name
+  evidence: one-shot run 30223101826 verify job 89849342662 failed with undefined method App Identity Mfa MfaQrCode renderDataUri after exact images and deployment passed
 rejected_hypotheses:
-  - exact images or deployment health are still broken: the repaired deployment completed successfully
-  - manual secret transcription is acceptable as the primary enrollment path: QR-first enrollment is merged and must be deployed
+  - the exact images failed to build: image run 30223101821 passed
+  - Synology deployment failed: deployment run 30223164413 passed without rollback
+  - QR implementation is absent: the exact deployed image contains PR 214 and the verifier resolved the class before failing on its incorrect method name
   - MFA can be fabricated for closure: genuine confirmation by one existing Identity remains required
   - a synthetic publisher can install Wiki content: publisher selection remains exact-permission and MFA guarded
 changed_paths:
@@ -129,14 +134,17 @@ changed_paths:
   - deploy/synology/.public-web-final-staging-trigger
   - docs/agents/tasks/active/OTERYN-20260726-public-web-final-staging-closure.md
 validation:
-  - command: PR 214 exact-head required checks
+  - command: PR 215 exact-head required checks
     result: PASS
-    evidence: CI, Governance, Phase 7, Acceptance, DB outage, concurrency and Synology image build passed on aa49338225a5a3cb5917681e9ddd385f1f081327
-  - command: QR staging one-shot review
+    evidence: Governance, CI, concurrency, DB outage, Phase 7 and Synology image/package build passed on 7956b9b835ef3eb7167917b34dd0788951320c52
+  - command: first QR staging exact-image deployment
     result: PASS
-    evidence: workflow uses trusted-main marker gating, exact-SHA image verification, existing deployment dispatch and bounded non-secret in-container QR checks
+    evidence: image run 30223101821 and deployment run 30223164413 completed successfully
+  - command: first QR staging bounded verifier
+    result: FAIL
+    evidence: job 89849342662 called nonexistent renderDataUri after exact-image verification passed
 blockers: []
-next_action: Complete all exact-head PR 215 checks, merge with marker [mfa-qr-staging], require a sanitized PASS report, then have exactly one existing staging account complete genuine MFA before resuming the guarded final Wiki closure.
+next_action: Validate the three-file verifier correction, merge it with marker [mfa-qr-staging], require a sanitized PASS report, then have exactly one existing staging account complete genuine MFA before resuming the guarded final Wiki closure.
 ```
 
 ## Notes
