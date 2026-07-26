@@ -1,5 +1,6 @@
 Issue #145 observable exact-SHA Synology staging deployment trigger.
-This revision verifies QR-first MFA inside the existing deployment health check.
+This revision verifies QR-first MFA and the anonymous route from inside the Platform container.
 QR source merge: 671ac9fed05f51cc3989ff0aed2d37c99bc6d933.
 Previous healthy deployments: 348f483938fc8358132128fc79d229e38b98045b and cb14a5c5209e868b0d99c42f3d1601505d1dd6d7.
+Previous inline renderer proof: 83c1d3b13eb3623930f5f068266333dae9380c24.
 Remove after successful deployment evidence and task archival.
