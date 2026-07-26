@@ -6,39 +6,51 @@ on:
       - .github/workflows/inspect-public-web-final-staging-report.yml
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
-  inspect-live-gateway:
-    runs-on: oteryn-staging
-    timeout-minutes: 10
+  patch-deploy-script:
+    if: >-
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.head_ref == 'chore/OTERYN-20260726-public-web-final-staging-cleanup'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
-      - name: Probe Gateway private dependencies without mutation
+      - name: Checkout exact pull-request branch
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.head_ref }}
+          fetch-depth: 0
+
+      - name: Replace stale-proxy deployment sequence exactly once
         run: |
           set -euo pipefail
-          gateway_container="$(docker ps \
-            --filter label=com.docker.compose.project=oteryn-staging \
-            --filter label=com.docker.compose.service=gateway \
-            --format '{{.ID}}')"
-          [[ "$(wc -w <<<"$gateway_container")" -eq 1 ]]
+          python3 - <<'PY'
+          from pathlib import Path
 
-          echo "Gateway image: $(docker inspect --format '{{.Config.Image}}' "$gateway_container")"
-          echo 'Gateway dependency environment names:'
-          docker inspect --format '{{range .Config.Env}}{{println .}}{{end}}' "$gateway_container" \
-            | grep -E '^(OTERYN_PLATFORM_BASE_URL|GAME_SESSION_SERVICE_BASE_URL|SSL_CERT_FILE)='
+          path = Path('deploy/synology/scripts/deploy.sh')
+          content = path.read_text()
+          old = '"${compose[@]}" up -d internal-proxy gateway\n'
+          new = (
+              '"${compose[@]}" up -d --no-deps --force-recreate internal-proxy\n'
+              '"${compose[@]}" up -d gateway\n'
+          )
+          count = content.count(old)
+          if count != 1:
+              raise SystemExit(f'expected exactly one deployment sequence, found {count}')
+          path.write_text(content.replace(old, new, 1))
+          PY
 
-          probe() {
-            local label="$1"
-            local url="$2"
-            echo "=== ${label} ==="
-            docker exec "$gateway_container" wget \
-              --server-response \
-              --output-document=- \
-              --timeout=5 \
-              "$url" \
-              2>&1 \
-              || true
-          }
+          git diff --check
+          git diff -- deploy/synology/scripts/deploy.sh
 
-          probe 'Platform dependency' 'https://platform-internal:8443/health'
-          probe 'Canary session dependency' 'https://canary-session-internal:8444/health'
+      - name: Commit bounded repair to pull-request branch
+        env:
+          HEAD_REF: ${{ github.head_ref }}
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add deploy/synology/scripts/deploy.sh
+          git commit -m 'fix(deploy): recreate internal proxy after platform'
+          git push origin "HEAD:${HEAD_REF}"
