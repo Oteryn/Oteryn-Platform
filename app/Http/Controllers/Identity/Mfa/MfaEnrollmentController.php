@@ -8,6 +8,7 @@ use App\Identity\Mfa\ConfirmIdentityMfaEnrollment;
 use App\Identity\Mfa\DisableIdentityMfa;
 use App\Identity\Mfa\MfaCodeRejected;
 use App\Identity\Mfa\MfaProvisioningUri;
+use App\Identity\Mfa\MfaQrCode;
 use App\Identity\Mfa\MfaStateRejected;
 use App\Identity\Mfa\StartIdentityMfaEnrollment;
 use App\Identity\Models\Identity;
@@ -18,20 +19,26 @@ use Illuminate\Http\Response;
 
 final class MfaEnrollmentController
 {
-    public function show(Request $request, MfaProvisioningUri $provisioningUri): Response
-    {
+    public function show(
+        Request $request,
+        MfaProvisioningUri $provisioningUri,
+        MfaQrCode $qrCode,
+    ): Response {
         $identity = $this->identity($request);
         $identity->refresh();
         $uri = null;
+        $qrCodeDataUri = null;
 
         if (! $identity->hasConfirmedMfa() && $identity->two_factor_secret !== null) {
             $uri = $provisioningUri->forIdentity($identity);
+            $qrCodeDataUri = $qrCode->dataUri($uri);
         }
 
         return response()
             ->view('identity.mfa.settings', [
                 'identity' => $identity,
                 'provisioningUri' => $uri,
+                'qrCodeDataUri' => $qrCodeDataUri,
             ])
             ->header('Cache-Control', 'no-store, private')
             ->header('Pragma', 'no-cache');
@@ -51,7 +58,7 @@ final class MfaEnrollmentController
 
         return redirect()
             ->route('identity.mfa.settings')
-            ->with('status', 'Enter this secret in your authenticator app, then confirm with your current password and a fresh code.');
+            ->with('status', 'Scan the QR code with your authenticator app, then confirm with your current password and a fresh code.');
     }
 
     public function confirm(
