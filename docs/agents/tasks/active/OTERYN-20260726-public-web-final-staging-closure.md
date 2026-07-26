@@ -75,8 +75,8 @@ cross_repository_tasks: []
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-07-26T17:12:00Z
-head: 0aafc093bcfffb3e21fa89a76a4cafb892ea1a40
+updated_at: 2026-07-26T17:14:00Z
+head: 201dbb5704f40178e3820ebf7702782a0d3574df
 branch: ops/OTERYN-20260726-public-web-final-staging-closure
 pr: 210
 status: implementing
@@ -102,7 +102,7 @@ proven:
   - draft PR 210 is the only owner for the guarded one-shot, inert image trigger, live Chromium smoke and final programme staging reconciliation
   - PR 210 changes exactly five declared paths and reuses the existing stable build and deploy workflows
   - no production, router, DSM, Internet-exposure or external-repository action occurred while creating this task
- derived:
+derived:
   - the self-hosted follow-up can boot Laravel inside the deployed container and select one eligible publisher without printing its email
   - a pinned Playwright container on Docker host networking can exercise loopback-bound staging routes as a real browser
 unknown:
@@ -110,8 +110,8 @@ unknown:
   - exact deployment and smoke run identifiers until PR 210 merges
 conflicts: []
 first_failure:
-  marker: none
-  evidence: none
+  marker: checkpoint-indentation
+  evidence: Agent Governance run 2065 rejected one leading space before top-level derived; no workflow or runtime failure occurred
 rejected_hypotheses:
   - deploy the pre-archive PR 208 image as the final trusted main: the exact programme closure SHA must include durable archival reconciliation
   - log or hard-code a publisher email: identity data is unnecessary and zero/multiple eligible publishers must fail closed
@@ -130,8 +130,11 @@ validation:
   - command: pull-request ownership reconciliation
     result: PASS
     evidence: draft PR 210 owns exactly the five declared final-staging closure paths
+  - command: initial Agent Governance exact-head check
+    result: FAIL
+    evidence: run 2065 found only checkpoint indentation before derived; corrected without changing workflow or runtime scope
 blockers: []
-next_action: Run exact-head PR 210 validation, correct any workflow or governance failure, then mark ready only when all required checks pass.
+next_action: Re-run exact-head PR 210 validation and correct any remaining workflow or governance failure before readiness.
 ```
 
 ## Notes
