@@ -46,6 +46,7 @@ owned_paths:
   - public/css/mfa.css
   - resources/views/identity/layout.blade.php
   - resources/views/identity/mfa/settings.blade.php
+  - tests/Feature/Identity/Mfa/MfaWebFlowTest.php
   - tests/Unit/Identity/MfaQrCodeTest.php
   - docs/agents/tasks/active/OTERYN-20260726-mfa-qr-enrollment.md
   - docs/agents/tasks/archive/OTERYN-20260726-mfa-qr-enrollment.md
@@ -65,8 +66,8 @@ cross_repository_tasks: []
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-07-26T21:38:00Z
-head: d76ddfa947b76480e53e00d1bd2d25c1c8cb5da4
+updated_at: 2026-07-26T21:46:00Z
+head: 8cb3b71197f48023706351ebe56073f912cb8b8f
 branch: feat/OTERYN-20260726-mfa-qr-enrollment
 pr: 214
 status: validating
@@ -86,9 +87,10 @@ proven:
   - the implementation renders a data URI from the existing provisioning URI and keeps manual entry collapsed as fallback
   - invalid non-TOTP provisioning URIs are rejected before rendering
   - the QR renderer has focused unit coverage and does not embed the original otpauth URI as readable SVG text
+  - the MFA web-flow regression now requires the local SVG data URI and scan instructions while forbidding the raw otpauth URI in rendered output
   - the view gives the QR code a fixed white backing surface and responsive maximum width for reliable camera scanning on the dark identity theme
   - PR 213 released all overlapping QR-owned paths and recorded PR 214 as a staging prerequisite
-  - the temporary Composer and formatter workflows completed their bounded jobs and were removed
+  - all temporary Composer, formatter, diagnostic and patch workflows completed their bounded jobs and were removed
   - repository Pint formatting and static analysis passed on the preceding implementation head
   - docs/agents/ACTIVE_WORK.md was restored to trusted main because the final-staging task already owns that coordination path
   - no production, staging-data, router, DSM, Internet-exposure, Canary/login-server repository or external-repository write occurred
@@ -107,6 +109,7 @@ changed_paths:
   - public/css/mfa.css
   - resources/views/identity/layout.blade.php
   - resources/views/identity/mfa/settings.blade.php
+  - tests/Feature/Identity/Mfa/MfaWebFlowTest.php
   - tests/Unit/Identity/MfaQrCodeTest.php
   - docs/agents/tasks/active/OTERYN-20260726-mfa-qr-enrollment.md
 validation:
@@ -116,6 +119,12 @@ validation:
   - command: Repository Pint formatting
     result: PASS
     evidence: workflow run 30221126420 applied the repository formatter and committed the exact changes
+  - command: preceding implementation-head static analysis
+    result: PASS
+    evidence: CI run 30221309298 completed static analysis successfully before the outdated MFA web-flow assertion failed
+  - command: focused QR renderer unit test
+    result: PASS
+    evidence: CI run 30221309298 reported Tests Unit Identity MfaQrCodeTest PASS
 blockers: []
 next_action: Run all required exact-head PR 214 checks, resolve any failures, then mark ready and merge before deploying the QR-capable SHA to staging.
 ```
