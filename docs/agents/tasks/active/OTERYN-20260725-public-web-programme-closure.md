@@ -99,10 +99,10 @@ The programme task owns coordination only. Implementation paths must be claimed 
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-07-26T09:36:00Z
-head: 45297ec561075b62c36b7350b878b46cbd7c44fc
+updated_at: 2026-07-26T09:35:00Z
+head: 2e2e0e44fb75e96dce4e760eacf569c1e448dbf4
 branch: docs/OTERYN-20260725-public-web-programme-authoritative-wiki-media
-pr: none
+pr: 202
 status: implementing
 context_routes:
   - agent-governance
@@ -127,6 +127,7 @@ proven:
   - draft PR 199 and active task OTERYN-20260726-wiki-editorial-media-integration are the authoritative bounded owner for Wiki-to-EditorialMedia integration
   - duplicate draft PR 200 was closed without runtime changes after the ownership conflict was detected
   - PR 199 was synchronized with trusted main through merge commit aa55f44bc0e2ebc594bd966ced40b6e6d005dff3
+  - PR 202 changes only this programme task record to correct the authoritative owner
   - no other open implementation PR owns the declared Wiki-to-EditorialMedia paths
   - no write occurred outside blakinio/Oteryn-Platform
   - no production, router, DSM, Internet-exposure or external-repository action occurred
@@ -154,6 +155,9 @@ validation:
   - command: authoritative child branch synchronization
     result: PASS
     evidence: PR 199 branch includes main through merge commit aa55f44bc0e2ebc594bd966ced40b6e6d005dff3
+  - command: correction pull request creation
+    result: PASS
+    evidence: PR 202 owns only this programme checkpoint correction
 blockers:
   - none for programme coordination
 next_action: Track draft PR 199 until its CODEX implementation and exact-head validation complete, then archive the child task and reconcile the next Issue 145 bounded child.
