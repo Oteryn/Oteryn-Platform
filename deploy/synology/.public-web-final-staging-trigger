@@ -1,4 +1,5 @@
 Issue #145 observable exact-SHA Synology staging deployment trigger.
-This revision deploys the QR-first MFA merge and verifies it on staging.
+This revision reruns the QR-first MFA deployment with the corrected verifier API.
 QR source merge: 671ac9fed05f51cc3989ff0aed2d37c99bc6d933.
+Previous healthy deployment: 348f483938fc8358132128fc79d229e38b98045b.
 Remove after successful deployment evidence and task archival.
