@@ -1,6 +1,7 @@
 @extends('game.layout')
 
 @section('title', $page->title)
+@section('description', \Illuminate\Support\Str::limit(strip_tags($page->body), 160, ''))
 
 @section('content')
     <article>

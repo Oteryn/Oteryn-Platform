@@ -2,8 +2,10 @@
 
 namespace App\PublicPortal;
 
+use App\Announcements\Queries\AnnouncementTickerProvider;
 use App\Cms\Models\NewsPost;
 use App\Cms\PublicNewsQuery;
+use App\Events\Queries\UpcomingEventProvider;
 use App\PublicGameData\CanaryChannelRuntimeService;
 use App\PublicGameData\CanaryGameDataRepository;
 use App\PublicPortal\ViewModels\HomeNewsSummary;
@@ -20,6 +22,8 @@ final readonly class HomePageQuery
         private PublicNewsQuery $news,
         private CanaryGameDataRepository $gameData,
         private CanaryChannelRuntimeService $runtime,
+        private AnnouncementTickerProvider $announcements,
+        private UpcomingEventProvider $events,
     ) {}
 
     public function get(): HomePageViewModel
@@ -27,6 +31,8 @@ final readonly class HomePageQuery
         return new HomePageViewModel(
             world: $this->worldSummary(),
             news: $this->newsSummary(),
+            announcements: $this->announcements->get(),
+            upcomingEvent: $this->events->get(app()->getLocale()),
         );
     }
 

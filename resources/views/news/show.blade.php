@@ -1,6 +1,8 @@
 @extends('game.layout')
 
 @section('title', $post->title)
+@section('description', \Illuminate\Support\Str::limit(strip_tags($post->body), 160, ''))
+@section('og-type', 'article')
 
 @section('content')
     @inject('localeFormatter', 'App\Localization\LocaleFormatter')

@@ -8,6 +8,8 @@ return [
         'mobile' => 'Mobilna nawigacja publiczna',
         'open_menu' => 'Otwórz nawigację',
         'menu' => 'Menu',
+        'download' => 'Pobierz',
+        'guilds' => 'Gildie',
         'home' => 'strona główna',
         'group_links' => 'Odnośniki: :group',
     ],
@@ -32,6 +34,12 @@ return [
     'footer' => [
         'description' => 'Publiczne informacje o świecie i bezpieczne usługi konta.',
         'status' => 'Dane gry i usług mogą być chwilowo niedostępne. Portal nie zastępuje brakujących danych wartościami zmyślonymi.',
+    ],
+    'seo' => [
+        'site_name' => 'Oteryn Platform',
+        'default_description' => 'Odkrywaj :title w Oteryn Platform przez opublikowane treÅ›ci i prawdziwe publiczne informacje o Å›wiecie.',
+        'og_locale' => 'pl_PL',
+        'og_alternate_locale' => 'en_US',
     ],
     'states' => [
         'available' => 'Dostępne',
@@ -87,6 +95,16 @@ return [
         'create_character_help' => 'Rozpocznij nową przygodę w zatwierdzonym procesie.',
         'meet_heroes' => 'Poznaj bohaterów',
         'meet_heroes_help' => 'Przeglądaj aktualne rankingi.',
+        'community_updates' => 'AktualnoÅ›ci spoÅ‚ecznoÅ›ci',
+        'discover' => 'Odkrywaj Oteryn',
+        'continue_journey' => 'Kontynuuj podrÃ³Å¼',
+        'continue_journey_help' => 'KaÅ¼dy poniÅ¼szy cel jest aktywnÄ… trasÄ… publicznÄ… z wÅ‚asnymi zasadami dostÄ™pnoÅ›ci i publikacji.',
+        'download_help' => 'Wybierz zatwierdzonÄ… wersjÄ™ klienta i sprawdÅº opublikowane metadane sumy kontrolnej.',
+        'guide_help' => 'Przeczytaj opublikowane instrukcje instalacji i pierwszego logowania.',
+        'wiki_help' => 'PrzeglÄ…daj sprawdzone poradniki i artykuÅ‚y referencyjne.',
+        'events_help' => 'Zobacz zatwierdzone trwajÄ…ce, nadchodzÄ…ce i archiwalne wydarzenia.',
+        'guilds_help' => 'Odkrywaj publiczne gildie przez granicÄ™ danych gry tylko do odczytu.',
+        'support_help' => 'OtwÃ³rz zatwierdzone instrukcje pomocy, bezpieczeÅ„stwa i zgÅ‚aszania problemÃ³w.',
     ],
     'news' => [
         'title' => 'Aktualności',

@@ -1,6 +1,7 @@
 @extends('game.layout')
 
 @section('title', $category->name)
+@section('description', $category->description ?? __('public.seo.default_description', ['title' => $category->name]))
 @section('page-class', 'wiki-page')
 
 @push('head')

@@ -1,6 +1,7 @@
 @extends('game.layout')
 
 @section('title', __('public.wiki.title'))
+@section('description', __('public.wiki.intro'))
 @section('page-class', 'wiki-page')
 
 @push('head')

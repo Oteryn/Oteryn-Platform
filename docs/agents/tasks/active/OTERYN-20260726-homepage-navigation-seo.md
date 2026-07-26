@@ -59,15 +59,28 @@ owned_paths:
   - app/PublicPortal/HomePageQuery.php
   - app/PublicPortal/ViewModels/HomePageViewModel.php
   - app/PublicPortal/Seo/**
+  - app/Cms/PublicNewsQuery.php
+  - app/Cms/PublicPageQuery.php
+  - app/Wiki/Queries/Public/PublicWikiQuery.php
+  - app/Wiki/Queries/Public/DatabasePublicWikiQuery.php
   - app/Http/Controllers/PublicPortal/**
   - routes/modules/public-portal.php
   - resources/navigation/public/downloads.php
   - resources/navigation/public/guilds.php
   - resources/views/home.blade.php
   - resources/views/game/layout.blade.php
-  - resources/views/game/partials/public-*.blade.php
+  - resources/views/game/partials/**
   - resources/views/game/partials/seo.blade.php
   - resources/views/seo/**
+  - resources/views/news/show.blade.php
+  - resources/views/pages/show.blade.php
+  - resources/views/events/show.blade.php
+  - resources/views/wiki/index.blade.php
+  - resources/views/wiki/category.blade.php
+  - resources/views/wiki/article.blade.php
+  - resources/views/wiki/search.blade.php
+  - resources/views/wiki/unavailable.blade.php
+  - resources/views/home-preview.blade.php
   - resources/views/identity/layout.blade.php
   - resources/views/admin/layout.blade.php
   - lang/en/public.php
@@ -79,6 +92,7 @@ owned_paths:
   - tests/Feature/PublicPortal/**
   - tests/Feature/Localization/PublicLocalizationTest.php
   - scripts/acceptance/tests/homepage-navigation-seo.spec.mjs
+  - scripts/acceptance/seed-homepage-navigation-seo.php
   - scripts/acceptance/playwright.config.mjs
   - docs/agents/ACTIVE_WORK.md
   - docs/agents/tasks/active/OTERYN-20260726-homepage-navigation-seo.md
@@ -109,11 +123,11 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-07-26T12:23:47Z
-head: 525167db87b3f9309c0100d2c8ed78b83901d970
+updated_at: 2026-07-26T12:51:11Z
+head: a7ee7befa8e94fa1427f9909be5e23a2ca62f575
 branch: feat/OTERYN-20260726-homepage-navigation-seo
-pr: none
-status: investigating
+pr: 206
+status: implementing
 context_routes:
   - agent-governance
   - architecture
@@ -139,9 +153,18 @@ proven:
   - existing critical acceptance covers shared-shell responsiveness, browser portability and keyboard navigation but does not assert the new homepage blocks, navigation additions or crawl metadata
   - the completed PR 157 and PR 161 task records retain stale active-file locations, but their checkpoints and the Issue 145 programme delegate homepage integration and shared navigation to this later child and no live PR owns those paths
   - no external repository, production, router, DSM or Internet-exposure write is authorized
+  - draft PR 206 is the live review surface for this dedicated task branch
+  - homepage composition now delegates to AnnouncementTickerProvider and UpcomingEventProvider and renders their existing AVAILABLE, EMPTY and UNAVAILABLE boundaries
+  - the navigation registry now receives route-name-only Download Center and guild index contributions and still omits unregistered routes
+  - shared public metadata now sanitizes dynamic titles and descriptions, escapes output and derives canonical and translation-aware Open Graph metadata from LocalizedUrlGenerator
+  - identity, administrator, preview, Wiki search and Wiki unavailable surfaces emit explicit noindex directives while their authentication and signed-route boundaries remain unchanged
+  - the localized sitemap reuses publication and freshness query boundaries for news, managed pages, typed editorial pages, Events and Wiki and returns 503 without partial URLs when a dependency fails
+  - robots.txt is public crawl guidance pointing to the sitemap and does not alter authorization
+  - focused feature coverage proves homepage composition, live links, metadata escaping, noindex, robots, published-only localized sitemap entries and fail-closed dependency behavior
 derived:
   - the task can extend the existing PublicPortal orchestration and navigation registry without new persistence or raw Canary reads
   - one bounded child can close homepage composition, navigation discoverability and their shared SEO/crawl-policy presentation because they converge on the existing public shell
+  - character and guild detail routes remain discoverable through live public data and metadata but are intentionally absent from the deterministic sitemap because no authoritative bounded enumeration contract exists
 unknown: []
 conflicts: []
 first_failure:
@@ -154,6 +177,12 @@ rejected_hypotheses:
 changed_paths:
   - docs/agents/tasks/active/OTERYN-20260726-homepage-navigation-seo.md
   - docs/agents/ACTIVE_WORK.md
+  - homepage provider/view-model, homepage Blade and production CSS
+  - route-driven Download and guild navigation contributions
+  - shared public, identity and administrator metadata layouts
+  - publication-aware sitemap and robots query/controller/routes/views
+  - narrow News, ManagedPage and Wiki published-slug query extensions
+  - focused feature and Playwright acceptance coverage
 validation:
   - command: branch, worktree, active-task and open-PR preflight
     result: PASS
@@ -161,9 +190,18 @@ validation:
   - command: every required_read and every search_first reconciliation
     result: PASS
     evidence: repository governance, programme architecture, completed child checkpoints, PublicPortal/Localization/module source, route inventory and required acceptance profiles inspected on trusted main
+  - command: vendor/bin/pint
+    result: PASS
+    evidence: 441 PHP files formatted
+  - command: vendor/bin/phpstan analyse --memory-limit=1G --no-progress
+    result: PASS
+    evidence: level 10 analysis completed without errors
+  - command: php artisan test --compact tests/Feature/PublicPortal/HomepageNavigationSeoTest.php
+    result: PASS
+    evidence: 6 tests and 56 assertions passed
 blockers:
   - none
-next_action: Complete every required read and every search_first reconciliation, then publish the task claim in an early draft pull request.
+next_action: Run the complete focused and repository validation plus all required Playwright profiles on the exact implementation head, then publish the reviewed implementation commit to PR 206.
 ```
 
 ## Notes

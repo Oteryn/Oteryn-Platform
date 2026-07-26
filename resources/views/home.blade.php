@@ -1,6 +1,7 @@
 @extends('game.layout')
 
 @section('title', __('public.home.title'))
+@section('description', __('public.home.hero_lede'))
 @section('page-class', 'preview-home-shell production-home-shell')
 
 @push('styles')
@@ -177,5 +178,44 @@
                 <a href="{{ route('game.highscores.index') }}"><strong>{{ __('public.home.meet_heroes') }}</strong><span>{{ __('public.home.meet_heroes_help') }}</span></a>
             </div>
         </article>
+    </section>
+
+    <section class="production-community-grid" aria-label="{{ __('public.home.community_updates') }}">
+        @include('announcements.components.ticker', ['ticker' => $homePage->announcements])
+        @include('events.components.upcoming-summary', ['summary' => $homePage->upcomingEvent])
+    </section>
+
+    <section class="production-discover" aria-labelledby="home-discover-title">
+        <div class="section-heading">
+            <p class="eyebrow">{{ __('public.home.discover') }}</p>
+            <h2 id="home-discover-title">{{ __('public.home.continue_journey') }}</h2>
+            <p class="muted">{{ __('public.home.continue_journey_help') }}</p>
+        </div>
+        <div class="production-discover-grid">
+            <a class="card" href="{{ route('downloads.index') }}">
+                <strong>{{ __('public.downloads.title') }}</strong>
+                <span>{{ __('public.home.download_help') }}</span>
+            </a>
+            <a class="card" href="{{ route('editorial.getting-started') }}">
+                <strong>{{ __('Beginner\'s Guide') }}</strong>
+                <span>{{ __('public.home.guide_help') }}</span>
+            </a>
+            <a class="card" href="{{ route('wiki.index') }}">
+                <strong>{{ __('public.wiki.title') }}</strong>
+                <span>{{ __('public.home.wiki_help') }}</span>
+            </a>
+            <a class="card" href="{{ route('events.index') }}">
+                <strong>{{ __('public.events.title') }}</strong>
+                <span>{{ __('public.home.events_help') }}</span>
+            </a>
+            <a class="card" href="{{ route('game.guilds.index') }}">
+                <strong>{{ __('public.game.guild_directory') }}</strong>
+                <span>{{ __('public.home.guilds_help') }}</span>
+            </a>
+            <a class="card" href="{{ route('support.index') }}">
+                <strong>{{ __('Support') }}</strong>
+                <span>{{ __('public.home.support_help') }}</span>
+            </a>
+        </div>
     </section>
 @endsection

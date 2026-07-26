@@ -1,4 +1,4 @@
-<section class="card" aria-labelledby="upcoming-event-title">
+<section class="card" data-content-state="{{ $summary->state->value }}" aria-labelledby="upcoming-event-title">
     @inject('localeFormatter', 'App\Localization\LocaleFormatter')
     <div class="section-heading">
         <p class="eyebrow">{{ __('public.events.calendar') }}</p>

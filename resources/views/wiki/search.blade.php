@@ -1,11 +1,9 @@
 @extends('game.layout')
 
 @section('title', __('public.wiki.search_title'))
+@section('robots', 'noindex,follow')
 @section('page-class', 'wiki-page')
 
-@push('head')
-    <meta name="robots" content="noindex,follow">
-@endpush
 @push('styles')
     <link rel="stylesheet" href="{{ asset('css/wiki.css') }}">
 @endpush
