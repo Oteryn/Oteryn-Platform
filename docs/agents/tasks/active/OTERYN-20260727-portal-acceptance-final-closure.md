@@ -73,8 +73,8 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-07-27T21:02:26Z
-head: 229dfa54ff353412b8ad96be4837dab5f30a3b82
+updated_at: 2026-07-27T21:04:49Z
+head: c036ba7ec33b2eea17d8fe647ec9ecf0ecaae048
 branch: test/OTERYN-20260727-portal-acceptance-final-closure
 pr: 260
 status: implementing
@@ -115,18 +115,19 @@ proven:
   - The passing administrator package proves guest redirect, confirmed-MFA enforcement, exact permission denial, legal validation/publication, Polish translation and redacted audit visibility on Chromium desktop, tablet and mobile.
   - The public package also passed bounded Firefox and WebKit desktop projects; every Support/Legal project used zero retries.
   - Portal coverage classification, CI, Agent Governance, Synology Production Target Preflight, Game Auth Ticket Concurrency, Edge Security Emulation and Platform DB Outage Validation passed on the same implementation SHA.
+  - A bounded Editorial Media fixture was added on commit 2805fbf7aed563a3253a2f0df27327be97ed6e4b; no browser or ledger claim is made from the fixture alone.
 derived:
   - Support/Legal has sufficient durable browser evidence for ledger promotion, but the record remains fail-closed until the manifest and matrix update retrigger exact-head gates.
   - Lower-layer codec, storage and domain tests were not duplicated in Playwright; browser evidence remains focused on composed operator and public behavior.
   - This work remains repository/staging evidence only and cannot establish production correctness.
 unknown:
   - Exact browser gaps that remain after Wiki state-by-state reconciliation.
-  - Final conclusions of the still-running repository workflows on implementation SHA 229dfa54ff353412b8ad96be4837dab5f30a3b82.
   - Exact-head workflow results after Support/Legal ledger promotion.
+  - Editorial Media fixture compatibility with the final browser package until its isolated workflow passes.
 conflicts: []
 first_failure:
-  marker: none
-  evidence: the first isolated Support Legal Acceptance run passed its complete zero-retry matrix
+  marker: Agent Governance run 30305206711 / Validate active task checkpoints
+  evidence: checkpoint commit c036ba7ec33b2eea17d8fe647ec9ecf0ecaae048 recorded head 229dfa54ff353412b8ad96be4837dab5f30a3b82 while concurrent fixture commit 2805fbf7aed563a3253a2f0df27327be97ed6e4b was already in the branch history
 rejected_hypotheses:
   - Existing feature tests alone close Support/Legal or Editorial Media composed browser contracts.
   - Existing Wiki happy paths alone justify changing both partial records to covered without explicit state reconciliation.
@@ -139,6 +140,7 @@ changed_paths:
   - docs/agents/tasks/archive/OTERYN-20260727-announcements-acceptance.md
   - scripts/acceptance/playwright.support-legal.config.mjs
   - scripts/acceptance/seed-browser-support-legal.php
+  - scripts/acceptance/seed-browser-editorial-media.php
   - scripts/acceptance/tests/support-legal-acceptance.spec.mjs
 validation:
   - command: branch test/OTERYN-20260727-portal-acceptance-final-closure created from d08062c653a137e1359b5626fda635b170704cd8
@@ -153,12 +155,12 @@ validation:
   - command: Portal coverage classification job in run 30304816114 on 229dfa54ff353412b8ad96be4837dab5f30a3b82
     result: PASS
     evidence: the existing fail-closed manifest remained valid before Support/Legal promotion
-  - command: remaining exact-head repository workflows on 229dfa54ff353412b8ad96be4837dab5f30a3b82
-    result: IN_PROGRESS
-    evidence: no failure invalidating Support/Legal implementation was observed when this checkpoint was written
+  - command: Agent Governance run 30305206711 on c036ba7ec33b2eea17d8fe647ec9ecf0ecaae048
+    result: FAIL
+    evidence: active task checkpoint did not account for the concurrent Editorial Media fixture commit in branch history
 blockers:
   - none
-next_action: Promote the Support/Legal manifest record and coverage-matrix contract with the passing exact markers, then require the retriggered exact-head Support Legal and Portal Acceptance gates before starting Editorial Media.
+next_action: Promote the Support/Legal manifest record and coverage-matrix contract with the passing exact markers, then require the retriggered exact-head Support Legal and Portal Acceptance gates before starting Editorial Media browser implementation.
 ```
 
 ## Notes
