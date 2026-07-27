@@ -1,0 +1,29 @@
+name: Events Manifest Snapshot
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/events-manifest-snapshot.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  snapshot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout exact head
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Upload exact manifest snapshot
+        uses: actions/upload-artifact@v7
+        with:
+          name: events-manifest-snapshot-${{ github.run_id }}-${{ github.run_attempt }}
+          path: scripts/acceptance/coverage/portal-coverage-manifest.json
+          if-no-files-found: error
+          retention-days: 1
