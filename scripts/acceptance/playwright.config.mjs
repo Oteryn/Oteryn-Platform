@@ -14,7 +14,24 @@ const primaryIgnore = [
   '**/soak-public.spec.mjs',
   '**/downloads-public-portability.spec.mjs',
 ];
-const configuredRetries = process.env.ACCEPTANCE_ZERO_RETRIES === '1' ? 0 : process.env.CI ? 1 : 0;
+const specializedLifecycleIgnore = [
+  '**/downloads-lifecycle-acceptance.spec.mjs',
+  '**/events-public-acceptance.spec.mjs',
+  '**/events-admin-acceptance.spec.mjs',
+  '**/announcements-public-acceptance.spec.mjs',
+  '**/announcements-admin-acceptance.spec.mjs',
+  '**/support-legal-acceptance.spec.mjs',
+  '**/editorial-media-acceptance.spec.mjs',
+  '**/wiki-reconciliation-acceptance.spec.mjs',
+];
+const chromiumPrimaryIgnore = process.env.ACCEPTANCE_PROFILE === 'full'
+  ? [...primaryIgnore, ...specializedLifecycleIgnore]
+  : primaryIgnore;
+const forcedZeroRetryProfiles = new Set(['critical', 'full', 'soak']);
+const configuredRetries = process.env.ACCEPTANCE_ZERO_RETRIES === '1'
+  || forcedZeroRetryProfiles.has(process.env.ACCEPTANCE_PROFILE ?? '')
+  ? 0
+  : process.env.CI ? 1 : 0;
 
 const portabilityMatches = [
   '**/portability-critical.spec.mjs',
@@ -54,7 +71,7 @@ export default defineConfig({
   projects: [
     {
       name: 'chromium-primary',
-      testIgnore: primaryIgnore,
+      testIgnore: chromiumPrimaryIgnore,
       use: {
         browserName: 'chromium',
         viewport: desktopViewport,
