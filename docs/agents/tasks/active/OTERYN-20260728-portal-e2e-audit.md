@@ -22,7 +22,7 @@ Execute a fresh exact-head comprehensive portal E2E audit against the current po
 
 ## Acceptance criteria
 
-- [ ] A dedicated audit orchestration executes both the existing zero-retry `critical` profile and the existing zero-retry `full` profile on one exact task head.
+- [ ] A dedicated audit orchestration executes both the effective zero-retry `critical` profile and the effective zero-retry `full` profile on one exact task head.
 - [ ] The strict portal ledger/account lifecycle and all module-specific acceptance workflows are executed on that same exact head.
 - [x] Every failed preliminary workflow was inspected at job/step/artifact level before classification and remediation.
 - [x] Confirmed defects, harness limitations, documentation drift and known missing capabilities are recorded in the audit report with severity, evidence and disposition.
@@ -34,6 +34,7 @@ Execute a fresh exact-head comprehensive portal E2E audit against the current po
 owned_paths:
   - .github/workflows/portal-e2e-audit.yml
   - scripts/acceptance/playwright.config.mjs
+  - scripts/acceptance/visual-acceptance.js
   - scripts/acceptance/tests/helpers.mjs
   - scripts/acceptance/tests/public-game-data-acceptance.spec.mjs
   - scripts/acceptance/tests/editorial-media-acceptance.spec.mjs
@@ -58,7 +59,7 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-07-27T22:34:00Z
+updated_at: 2026-07-27T23:10:00Z
 head: UNKNOWN
 branch: test/OTERYN-20260728-portal-e2e-audit
 pr: 265
@@ -72,6 +73,7 @@ context_routes:
 owned_paths:
   - .github/workflows/portal-e2e-audit.yml
   - scripts/acceptance/playwright.config.mjs
+  - scripts/acceptance/visual-acceptance.js
   - scripts/acceptance/tests/helpers.mjs
   - scripts/acceptance/tests/public-game-data-acceptance.spec.mjs
   - scripts/acceptance/tests/editorial-media-acceptance.spec.mjs
@@ -80,15 +82,16 @@ owned_paths:
   - docs/agents/ACTIVE_WORK.md
 proven:
   - Main base for the synchronized audit is ef6d03e0b7c6ed0ecf40e6e108b81358c9b64b1b from merged PR #264.
-  - Preliminary exact-head orchestration run 30310298326 tested bb1e2a395169d0000ed33ad4e325e4bfc7fb12ab and failed overall as expected after discovering harness defects.
-  - Preliminary portal contract, complete account lifecycle, Downloads, Events, Announcements, Support Legal, Wiki and three-iteration stability runs passed on bb1e2a395169d0000ed33ad4e325e4bfc7fb12ab.
-  - Preliminary critical was cancelled by a direct-profile concurrency collision; full collected specialized fixture-reset suites; Editorial Media read naturalWidth before tablet image decode; the public game-data assertion used stale channel copy; and the soak wrapper failed before creating a job.
-  - The findings and exact preliminary run IDs are persisted in docs/testing/PORTAL_E2E_AUDIT_2026-07-28.md.
+  - Preliminary orchestration 30310298326 on bb1e2a395169d0000ed33ad4e325e4bfc7fb12ab exposed concurrency, cross-suite fixture, stale copy, image-decode and soak-wrapper defects.
+  - Second orchestration 30311441485 on 418bb0939fea9b98753da14b0e0254e0afe37f3a proved serialized critical and soak, the functional full baseline, contract/account lifecycle, Events, Announcements, Support Legal, Editorial Media, Wiki and stability.
+  - The second orchestration exposed two remaining harness defects: full-profile exclusions produced zero Downloads lifecycle tests, and the exploratory visual harness used removed selector #character-name instead of #home-character-name.
+  - Playwright collection now applies specialized lifecycle exclusions only to profile full, and critical/full/soak profiles are forced to retries 0.
+  - The visual wrapper now resolves the legacy homepage capture selector to the current application control without changing application markup.
+  - All findings and exact preliminary run IDs are persisted in docs/testing/PORTAL_E2E_AUDIT_2026-07-28.md.
 derived:
-  - Serializing direct critical, full and soak dispatches removes the shared direct concurrency-key collision without weakening ordinary pull-request gates.
-  - Keeping specialized lifecycle specs in their dedicated zero-retry workflows prevents cross-suite reset contamination while preserving mandatory delivered-surface evidence.
+  - The next exact-head rerun must prove non-empty Downloads lifecycle execution and successful exploratory visual evidence in addition to all previously green gates.
 unknown:
-  - Final exact-head runtime results after all recorded remediations.
+  - Final exact-head runtime results after E2E-AUD-010 through E2E-AUD-012 remediation.
 conflicts: []
 first_failure:
   marker: E2E-AUD-001
@@ -96,10 +99,11 @@ first_failure:
 rejected_hypotheses:
   - A documentation-only pull request is sufficient to execute the complete E2E matrix.
   - Evidence collected on the superseded ccd45fdce3176bd1da97a264bbbaf19a68c1397b-based task head is valid for current main.
-  - Preliminary browser failures are product regressions; same-SHA dedicated workflows and failure artifacts proved fixture, orchestration, copy and image-decode test defects instead.
+  - Preliminary browser failures are product regressions; exact artifacts instead proved orchestration, fixture isolation, stale selector/copy and browser timing defects.
 changed_paths:
   - .github/workflows/portal-e2e-audit.yml
   - scripts/acceptance/playwright.config.mjs
+  - scripts/acceptance/visual-acceptance.js
   - scripts/acceptance/tests/helpers.mjs
   - scripts/acceptance/tests/public-game-data-acceptance.spec.mjs
   - scripts/acceptance/tests/editorial-media-acceptance.spec.mjs
@@ -109,13 +113,16 @@ changed_paths:
 validation:
   - command: Portal E2E Audit run 30310298326
     result: FAIL
-    evidence: preliminary exact-head audit correctly exposed E2E-AUD-005 through E2E-AUD-009; remediations committed and final rerun required
-  - command: CI run 30310298452
+    evidence: preliminary run exposed E2E-AUD-005 through E2E-AUD-009
+  - command: Portal E2E Audit run 30311441485
+    result: FAIL
+    evidence: second run proved most remediations and exposed E2E-AUD-010 through E2E-AUD-012
+  - command: CI run 30311441454
     result: PASS
-    evidence: Composer validation and audit, formatting, PHPStan and full PHP tests passed on preliminary SHA
+    evidence: Composer validation and audit, formatting, PHPStan and full PHP tests passed after the first remediation set
 blockers:
   - none
-next_action: Observe the new final-head CI and comprehensive audit runs, inspect any first failure, and update the report/checkpoint only from exact final-head evidence.
+next_action: Observe the new exact-head CI and comprehensive audit runs, inspect any first failure, and finalize the report only after every required gate passes on that same head.
 ```
 
 ## Notes
