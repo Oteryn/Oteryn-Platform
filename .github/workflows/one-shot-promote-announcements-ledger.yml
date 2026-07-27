@@ -34,7 +34,7 @@ jobs:
 
           manifest_path = Path('scripts/acceptance/coverage/portal-coverage-manifest.json')
           payload = json.loads(manifest_path.read_text())
-          records = {record['id']: record for record in payload['records']}
+          records = {record['id']: record for record in payload['surfaces']}
 
           record = records['announcements.admin-localization-home-composition']
           if record['status'] != 'planned':
