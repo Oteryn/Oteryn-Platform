@@ -174,6 +174,9 @@ test('@portal-announcements administrator validation, publication, Polish transl
   await expect(page.getByText('Polska treść komunikatu.')).toBeVisible();
   await expect(page.getByText(englishTitle)).toHaveCount(0);
 
+  // MariaDB timestamps are second-precision in this acceptance schema. Ensure the
+  // source edit is strictly newer than the reviewed translation snapshot.
+  await page.waitForTimeout(1100);
   await page.goto(editUrl);
   await page.getByLabel('Title').fill(`${englishTitle} updated`);
   await page.getByRole('button', { name: 'Save announcement' }).click();
