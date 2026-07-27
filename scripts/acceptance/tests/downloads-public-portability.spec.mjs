@@ -34,7 +34,8 @@ test('@portal-downloads-portability current public release renders in bounded br
   await assertNoPageOverflow(page);
 
   await page.goto('/pl/download');
-  await expect(page.getByRole('heading', { name: /Oteryn Client/u }).first()).toBeVisible();
+  await expect(page.getByRole('heading', { name: /Klient Oteryn/u }).first()).toBeVisible();
+  await expect(page.getByRole('table', { name: /Artefakty klienta/u }).first()).toBeVisible();
   await assertNoPageOverflow(page);
 
   expect(page.__acceptanceDiagnostics.pageErrors).toEqual([]);
