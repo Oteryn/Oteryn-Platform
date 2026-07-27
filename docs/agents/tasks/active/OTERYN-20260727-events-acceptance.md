@@ -41,7 +41,8 @@ owned_paths:
   - docs/agents/tasks/active/OTERYN-20260727-events-acceptance.md
   - docs/agents/ACTIVE_WORK.md
   - scripts/acceptance/seed-browser-events.php
-  - scripts/acceptance/tests/events-acceptance.spec.mjs
+  - scripts/acceptance/tests/events-public-acceptance.spec.mjs
+  - scripts/acceptance/tests/events-admin-acceptance.spec.mjs
   - scripts/acceptance/playwright.config.mjs
   - scripts/acceptance/package.json
   - scripts/acceptance/coverage/portal-coverage-manifest.json
@@ -62,11 +63,11 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-07-27T17:45:00Z
-head: 17f1acd430c27c8c441b59b16b440b8763f03312
+updated_at: 2026-07-27T17:48:00Z
+head: 2d7de436eaf622ed66b95a9629ea6faac28f2877
 branch: test/OTERYN-20260727-events-acceptance
-pr: none
-status: implementing
+pr: 254
+status: validating
 context_routes:
   - agent-governance
   - testing
@@ -77,7 +78,8 @@ owned_paths:
   - docs/agents/tasks/active/OTERYN-20260727-events-acceptance.md
   - docs/agents/ACTIVE_WORK.md
   - scripts/acceptance/seed-browser-events.php
-  - scripts/acceptance/tests/events-acceptance.spec.mjs
+  - scripts/acceptance/tests/events-public-acceptance.spec.mjs
+  - scripts/acceptance/tests/events-admin-acceptance.spec.mjs
   - scripts/acceptance/playwright.config.mjs
   - scripts/acceptance/package.json
   - scripts/acceptance/coverage/portal-coverage-manifest.json
@@ -87,25 +89,37 @@ proven:
   - PR #253 owns Downloads acceptance and does not overlap Events paths.
   - Existing Events feature tests prove UTC boundaries, validation, exact permissions, audit redaction and optimistic-lock conflicts.
   - The portal ledger currently classifies events.public-admin as planned.
+  - PR #254 is open as a mergeable draft and contains deterministic public/admin Events fixtures and browser scenarios.
+  - Public Events coverage is included in bounded Chromium, Firefox and WebKit portability projects.
+  - Public and administrator Events coverage is included in desktop, tablet and mobile Chromium projects.
 derived:
-  - The missing proof is composed browser behavior across public, administrative, authorization, localization and responsive states.
+  - The package adds composed browser evidence without replacing stronger lower-level transaction and locking proofs.
 unknown:
-  - Exact final workflow duration and first browser failure, if any.
+  - Exact-head workflow result and first failing project/test, if any.
 conflicts: []
 first_failure:
   marker: none
-  evidence: none
+  evidence: no workflow run observed yet
 rejected_hypotheses:
   - Reimplementing transaction races in Playwright would duplicate stronger feature/database evidence.
 changed_paths:
+  - docs/agents/ACTIVE_WORK.md
   - docs/agents/tasks/active/OTERYN-20260727-events-acceptance.md
+  - scripts/acceptance/package.json
+  - scripts/acceptance/playwright.config.mjs
+  - scripts/acceptance/seed-browser-events.php
+  - scripts/acceptance/tests/events-admin-acceptance.spec.mjs
+  - scripts/acceptance/tests/events-public-acceptance.spec.mjs
 validation:
-  - command: repository inspection through GitHub connector
+  - command: repository and PR diff inspection through GitHub connector
     result: PASS
-    evidence: routes, controllers, requests, views, feature tests and acceptance profiles inspected
+    evidence: route/controller/request/view/model/audit boundaries and all changed paths reviewed
+  - command: exact-head GitHub workflows
+    result: PENDING
+    evidence: no workflow run was returned for the prior head
 blockers:
   - none
-next_action: Open a draft PR and add deterministic Events browser fixtures and lifecycle coverage.
+next_action: Inspect exact-head workflow runs for PR #254 and fix the first concrete failure before changing the ledger to covered.
 ```
 
 ## Notes
