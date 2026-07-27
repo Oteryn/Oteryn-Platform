@@ -15,10 +15,11 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Print sanitized final-staging status
+      - name: Print sanitized final-staging status and smoke failure
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TARGET_SHA: d7984a2def655a01b513cdbc823117f37b90d5d4
+          LIVE_SMOKE_JOB_ID: '89965363040'
         run: |
           set -euo pipefail
           echo '--- runs for exact SHA ---'
@@ -27,3 +28,8 @@ jobs:
           echo '--- final report comment ---'
           gh api "repos/${GITHUB_REPOSITORY}/issues/145/comments?per_page=100" \
             --jq '.[] | select(.body | contains("public-web-final-staging:'"${TARGET_SHA}"'")) | [.id, .body] | @json'
+          echo '--- focused live-smoke failure ---'
+          gh api "repos/${GITHUB_REPOSITORY}/actions/jobs/${LIVE_SMOKE_JOB_ID}/logs" > live-smoke.log
+          grep -nE 'Error|error|failed|FAIL|Timeout|returned|locator|strict mode|ECONN|HTTP|heading|Process completed' live-smoke.log | tail -n 120 || true
+          echo '--- final live-smoke lines ---'
+          tail -n 120 live-smoke.log
