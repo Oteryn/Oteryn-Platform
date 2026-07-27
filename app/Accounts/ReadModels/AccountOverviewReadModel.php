@@ -59,13 +59,20 @@ final class AccountOverviewReadModel
         }
 
         if ($binding->isReady()) {
+            $accountId = $binding->canary_account_id;
+            if (! is_int($accountId)) {
+                return $this->withoutCharacters($this->unavailableState(
+                    'We cannot confirm the bound game account identifier. Character creation remains unavailable. Contact support for assistance.',
+                ));
+            }
+
             return $this->withCharacters([
                 'state' => self::STATE_READY,
                 'label' => 'Ready',
                 'message' => 'Your game account setup is complete and character creation is available.',
                 'retry_allowed' => false,
                 'character_creation_allowed' => true,
-            ], $binding->canary_account_id);
+            ], $accountId);
         }
 
         if ($binding->isConflict()) {
@@ -130,21 +137,28 @@ final class AccountOverviewReadModel
                 ...$overview,
                 'characters_state' => self::CHARACTERS_UNAVAILABLE,
                 'characters_message' => 'Your game account is ready, but the character list is temporarily unavailable.',
-                'characters' => new Collection,
+                'characters' => $this->emptyCharacters(),
                 'character_count' => 0,
                 'character_limit' => self::CHARACTER_LIMIT,
             ];
         }
 
         $count = $characters->count();
+        $atLimit = $count >= self::CHARACTER_LIMIT;
+        $usageMessage = $count === 1
+            ? sprintf('1 of %d active character slots is in use.', self::CHARACTER_LIMIT)
+            : sprintf('%d of %d active character slots are in use.', $count, self::CHARACTER_LIMIT);
 
         return [
             ...$overview,
-            'character_creation_allowed' => $overview['character_creation_allowed'] && $count < self::CHARACTER_LIMIT,
+            'message' => $atLimit
+                ? 'Your game account setup is complete. This account has reached the active character limit.'
+                : $overview['message'],
+            'character_creation_allowed' => $overview['character_creation_allowed'] && ! $atLimit,
             'characters_state' => $count === 0 ? self::CHARACTERS_EMPTY : self::CHARACTERS_AVAILABLE,
             'characters_message' => $count === 0
                 ? 'You do not have any active characters yet.'
-                : sprintf('%d of %d active character slots are in use.', $count, self::CHARACTER_LIMIT),
+                : $usageMessage,
             'characters' => $characters,
             'character_count' => $count,
             'character_limit' => self::CHARACTER_LIMIT,
@@ -172,10 +186,16 @@ final class AccountOverviewReadModel
             ...$overview,
             'characters_state' => self::CHARACTERS_NOT_READY,
             'characters_message' => 'Your characters will appear after the game account setup is ready.',
-            'characters' => new Collection,
+            'characters' => $this->emptyCharacters(),
             'character_count' => 0,
             'character_limit' => self::CHARACTER_LIMIT,
         ];
+    }
+
+    /** @return Collection<int, stdClass> */
+    private function emptyCharacters(): Collection
+    {
+        return new Collection;
     }
 
     /**
