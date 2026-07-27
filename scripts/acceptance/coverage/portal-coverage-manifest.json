@@ -107,19 +107,6 @@
       "gaps": []
     },
     {
-      "id": "public.design-comparison",
-      "owner": "PublicPortal",
-      "status": "supporting_endpoint",
-      "route_names": ["design.home.v2"],
-      "roles": ["guest"],
-      "states": ["comparison-only-not-navigation-advertised"],
-      "viewports": ["desktop-1440x1000"],
-      "browsers": ["chromium-primary"],
-      "evidence_layers": ["feature"],
-      "evidence": [{"file": "tests/Feature/HomePreviewTest.php", "markers": []}],
-      "gaps": []
-    },
-    {
       "id": "public.news-and-managed-pages",
       "owner": "CMS",
       "status": "covered",
