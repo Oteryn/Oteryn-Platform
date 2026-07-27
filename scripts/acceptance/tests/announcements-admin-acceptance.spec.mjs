@@ -75,6 +75,13 @@ async function assertNoPageOverflow(page) {
   expect(dimensions.document, `Unexpected page overflow on ${page.url()}`).toBeLessThanOrEqual(dimensions.viewport + 1);
 }
 
+async function activateButtonByKeyboard(page, name) {
+  const button = page.getByRole('button', { name });
+  await button.focus();
+  await expect(button).toBeFocused();
+  await page.keyboard.press('Enter');
+}
+
 test.setTimeout(180_000);
 test.describe.configure({ retries: 0 });
 
@@ -165,7 +172,7 @@ test('@portal-announcements administrator validation, publication, Polish transl
   await page.getByLabel('Polish content (plain text)').fill('Polska treść komunikatu.');
   await page.getByLabel('Polish action label').fill('Przeczytaj komunikat');
   await page.getByLabel('Publish Polish translation at (UTC)').fill('2000-01-01T00:00');
-  await page.getByRole('button', { name: 'Save translation' }).click();
+  await activateButtonByKeyboard(page, 'Save translation');
   await expect(page.getByRole('status')).toContainText('Polish translation saved.');
 
   response = await page.goto('/pl');
@@ -190,7 +197,7 @@ test('@portal-announcements administrator validation, publication, Polish transl
 
   await page.goto(`/admin/announcements/${announcementId}/translations/pl`);
   await expect(page.getByText('The source changed after this translation was reviewed.')).toBeVisible();
-  await page.getByRole('button', { name: 'Save translation' }).click();
+  await activateButtonByKeyboard(page, 'Save translation');
   await expect(page.getByRole('status')).toContainText('Polish translation saved.');
 
   response = await page.goto('/pl');
