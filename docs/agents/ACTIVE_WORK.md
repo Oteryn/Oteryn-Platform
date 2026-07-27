@@ -4,7 +4,7 @@ Convenience index only. Individual active task records, live PRs and Git state a
 
 ## Active tasks
 
-- `OTERYN-20260727-portal-completeness` — Issue #240 fail-closed route/state completeness matrix and remediation coordination. Owns only the shared matrix and programme governance; runtime repairs must use separate non-overlapping child tasks.
+- `OTERYN-20260727-portal-completeness` / draft PR #242 — Issue #240 fail-closed completeness matrix plus the first bounded remediation for Account Center, public character presentation and removal of the obsolete public design preview. Exact-head validation and Synology release-identity reconciliation remain pending.
 
 ## Closed acceptance and release-preparation follow-ups
 
@@ -63,7 +63,7 @@ No staging or emulation evidence may be promoted to `PRODUCTION_PROVEN`. No prev
 
 ## Next work
 
-Execute Issue #240 in bounded child tasks. First reconcile the exact running Synology Platform image/SHA, then complete Account Center and Character Profile before shared-shell/template, Identity, public editorial, Wiki/media and Admin closure slices.
+Validate draft PR #242 on its exact head and reconcile the exact running Synology Platform image/SHA. After the first Account/Character remediation is proven, continue Issue #240 with separate bounded shared-shell/template, Identity, public editorial, Wiki/media and Admin slices.
 
 Issue #91 remains the separate production execution tracker and cannot close from this programme.
 
