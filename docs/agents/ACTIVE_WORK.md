@@ -4,7 +4,7 @@ Convenience index only. Individual active task records, live PRs and Git state a
 
 ## Active tasks
 
-- `OTERYN-20260726-public-web-final-staging-closure` — final cleanup, durable checkpoint reconciliation and archival after Issue #145 staging acceptance PASS.
+None.
 
 ## Closed acceptance and release-preparation follow-ups
 
@@ -35,6 +35,8 @@ Convenience index only. Individual active task records, live PRs and Git state a
 - PR #209 / `a262996eda36fc9430fe1883ea637ffd2f6ff698` — source-backed Wiki content task lifecycle archived and Issue #145 reconciled to staging-only closure.
 - PR #230 / `d7984a2def655a01b513cdbc823117f37b90d5d4` — explicit Wiki role bundles, genuine-MFA guarded first-administrator bootstrap and reviewed launch-content installation merged.
 - PR #232 / `415aa3febd04c8d9c61082d4a7451352bf084013` — exact-SHA Synology deployment and named-volume live Chromium staging acceptance completed with sanitized PASS evidence.
+- PR #233 / `e3e94dae03e0468d71f911ad41e597bb5d802eb3` — temporary final-staging workflows and trigger removed after all required cleanup checks passed.
+- PR #234 / `4131a34b8c5f1092a2d0b8fb1bb56785f217b194` — closed Issue #145 state and the single remaining archival action persisted in the final-staging checkpoint.
 
 ## Current project phase
 
@@ -57,7 +59,7 @@ No staging evidence may be promoted to `PRODUCTION_PROVEN`.
 
 ## Next work
 
-Complete the final documentation cleanup, close Issue #145 from exact PASS evidence and archive the remaining final-staging task record. Issue #91 remains the single production execution tracker and resumes only with explicit production authorization and access to collect sanitized production evidence.
+No repository/staging public-web closure task remains. Issue #91 remains the sole production execution tracker and resumes only with explicit production authorization and access to collect sanitized production evidence.
 
 ## Remaining cross-repository dependency
 
