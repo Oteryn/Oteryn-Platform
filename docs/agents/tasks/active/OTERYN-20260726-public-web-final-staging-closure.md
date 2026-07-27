@@ -96,8 +96,8 @@ cross_repository_tasks: []
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-07-27T10:25:00+02:00
-head: 5638989db9d184f4628ef0192634c1a491a7dabf
+updated_at: 2026-07-27T13:24:00+02:00
+head: 91cd8e59e7d797ffbda1121a68c1d52279def964
 branch: fix/OTERYN-20260727-public-web-final-staging-resume
 pr: 230
 status: validating
@@ -123,11 +123,12 @@ proven:
   - the reviewed PR 213 migration and exact tests were reconciled onto current main
   - the current main one-shot blob was identical to PR 213 base, so its reviewed guarded bootstrap version was transferred without conflict
   - temporary prerequisite, preparation and CI-inspection workflows were removed from the final diff
-  - PHPStan found one test-helper return-type issue; the result is now explicitly normalized from mixed database values to list<string>
+  - CI run 30249747324 isolated its only error to an invalid mixed-to-string cast in a test helper; commit 2fea5fe4885f973aff65c05b71b00e8743687238 now validates every database value with is_string before returning list<string>
+  - Governance run 30249747328 isolated its only error to unsupported validation result FAIL_FIXED; the checkpoint now uses the supported result FAIL
   - no production, router, DSM, Internet-exposure or external-repository action occurred
 derived:
-  - the one-time administrator bootstrap prerequisite is now satisfied exactly
-  - migration plus bootstrap must still pass all exact-head repository checks before merge
+  - the one-time administrator bootstrap prerequisite is satisfied exactly
+  - migration plus bootstrap must pass all exact-head repository checks before merge
   - final staging remains fail closed for zero or multiple MFA candidates or eligible Wiki publishers
 unknown:
   - exact final trusted-main merge SHA and final staging run identifiers
@@ -135,7 +136,7 @@ unknown:
 conflicts: []
 first_failure:
   marker: phpstan-role-key-list
-  evidence: CI run 30249031419 job 89922557069 reported roleKeysForPermission should return list<string> but returned array<mixed>; commit 58f108dc063596f46ddcba9fe898e7cb96a45df0 added explicit string mapping and list normalization
+  evidence: CI runs 30249031419 and 30249747324 showed the test helper needed explicit runtime string validation; no runtime authorization code failed
 rejected_hypotheses:
   - genuine MFA is still absent: sanitized staging inspection proved exactly one confirmed-MFA Identity
   - an administrator role already exists: the same inspection proved zero assignments
@@ -156,9 +157,12 @@ validation:
   - command: sanitized staging MFA prerequisite
     result: PASS
     evidence: run 30248201054 job 89919947353 reported enabled 2, confirmed MFA 1, administrator assignments 0
-  - command: PR 230 first exact-head CI
-    result: FAIL_FIXED
-    evidence: the only PHPStan error was an array<mixed> versus list<string> helper return; explicit normalization is committed and the diagnostic workflow was removed
+  - command: PR 230 exact-head CI before final type guard
+    result: FAIL
+    evidence: run 30249747324 reported only Cannot cast mixed to string in the test helper; the guarded is_string implementation is committed for the next exact-head run
+  - command: PR 230 exact-head Governance before checkpoint result normalization
+    result: FAIL
+    evidence: run 30249747328 rejected unsupported validation result FAIL_FIXED; the checkpoint now records supported values only
 blockers: []
 next_action: Complete all exact-head PR 230 checks, merge with marker [public-web-final-staging], require final staging PASS evidence, then remove one-shot workflows/triggers, archive both closure tasks and close Issue 145.
 ```
