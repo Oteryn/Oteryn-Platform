@@ -110,7 +110,7 @@ final class AccountOverviewTest extends TestCase
 
         $this->get('/account')
             ->assertOk()
-            ->assertSee('1 of 10 active character slots are in use.')
+            ->assertSee('1 of 10 active character slots is in use.')
             ->assertSee('Active Knight')
             ->assertSee('Knight')
             ->assertSee('View public profile')
