@@ -62,7 +62,7 @@
                 @endif
 
                 <div class="table-region" tabindex="0" aria-label="{{ __('public.downloads.artifacts_table') }}">
-                    <table>
+                    <table aria-label="{{ __('public.downloads.artifacts_table') }}">
                         <thead>
                             <tr>
                                 <th scope="col">{{ __('public.downloads.platform') }}</th>

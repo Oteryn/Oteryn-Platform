@@ -121,6 +121,7 @@ proven:
   - acceptance-only registration throttle isolation prevents cross-scenario source-limit contamination while leaving product limiters and within-scenario 429 assertions enabled
   - strict validation is defined but intentionally remains disabled while truthful planned and partial module gaps exist
   - all required PR workflows succeeded on implementation head e840b6b78de1b659ea1bb4696c4d12f1e1e7022e
+  - PR 247 merged as 4e8a11a9b76aeaaa59a5dcc38bcd8a8e2fa54b39
   - no Canary, login-server, production, router or DSM write occurred
 derived:
   - classification completeness can be required immediately without claiming that the planned module packages are already covered
@@ -130,7 +131,7 @@ unknown:
 conflicts: []
 first_failure:
   marker: account-profile-shared-registration-throttle
-  evidence: initial parallel and then serial account-profile runs showed later scenarios receiving 429 from the shared synthetic source; the account-only helper now clears isolated acceptance cache before helper-driven registration and run 30285564647 passed all seven zero-retry scenarios
+  evidence: initial parallel and then serial account-profile runs showed later scenarios receiving 429 from the shared synthetic source; the account-only helper clears isolated acceptance cache before helper-driven registration and run 30285564647 passed all seven zero-retry scenarios
 rejected_hypotheses:
   - the conflicted PR 241 could be merged safely without rebasing its files onto current main
   - running the full secret-sensitive suite across every browser and viewport is required for exhaustive defined-surface coverage
@@ -171,7 +172,7 @@ validation:
     evidence: runs 30285564402, 30285564255, 30285564665, 30285564516, 30285564524 and 30285564263 succeeded
 blockers:
   - none
-next_action: Mark PR 247 ready and squash-merge after the docs-only checkpoint commit receives required checks.
+next_action: Continue Issue 240 with the bounded Downloads acceptance package.
 ```
 
 ## Notes
