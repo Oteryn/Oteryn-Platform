@@ -41,6 +41,7 @@ owned_paths:
   - scripts/acceptance/playwright.announcements.config.mjs
   - scripts/acceptance/seed-browser-announcements.php
   - scripts/acceptance/seed-account-overview-state.php
+  - scripts/acceptance/tests/helpers.mjs
   - scripts/acceptance/tests/account-overview-acceptance.spec.mjs
   - scripts/acceptance/tests/announcements-public-acceptance.spec.mjs
   - scripts/acceptance/tests/announcements-admin-acceptance.spec.mjs
@@ -61,7 +62,7 @@ dependencies:
   - PR #257 archived Events on main as 05d08714a0b87ee8a453d01bded605ff42de8bbc
   - Issue #240
 blockers:
-  - final docs-inclusive exact-head workflow set
+  - final exact-head workflow set after post-MFA navigation stabilization
 cross_repository_tasks:
   - none
 ```
@@ -70,8 +71,8 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-07-27T22:15:00+02:00
-head: c4b40956945561b5ab0e56b506f4fc4cb21b0bd8
+updated_at: 2026-07-27T22:23:00+02:00
+head: 364f1aac7a76ba92d2bebbaba32be9dc9be03d68
 branch: test/OTERYN-20260727-announcements-acceptance-v2
 pr: 259
 status: validating
@@ -89,6 +90,7 @@ owned_paths:
   - scripts/acceptance/playwright.announcements.config.mjs
   - scripts/acceptance/seed-browser-announcements.php
   - scripts/acceptance/seed-account-overview-state.php
+  - scripts/acceptance/tests/helpers.mjs
   - scripts/acceptance/tests/account-overview-acceptance.spec.mjs
   - scripts/acceptance/tests/announcements-public-acceptance.spec.mjs
   - scripts/acceptance/tests/announcements-admin-acceptance.spec.mjs
@@ -111,19 +113,21 @@ proven:
   - Events and Downloads remain covered and their completed task records are preserved or archived without overwriting prior evidence.
 derived:
   - The Announcements product and composed browser contract are complete for the declared repository boundary.
-  - Only final docs-inclusive exact-head checks and merge administration remain before Support and Legal begins.
+  - The single WebKit failure on final-head portability occurred after successful MFA and before the next explicit navigation; the authenticated homepage snapshot and all other WebKit scenarios isolate it to post-challenge navigation stabilization rather than product authorization or Wiki behavior.
+  - Only the final exact-head workflow set and merge administration remain before Support and Legal begins.
 unknown:
-  - final docs-inclusive exact-head workflow conclusions on the checkpoint commit
+  - final exact-head workflow conclusions after shared MFA helper stabilization
 conflicts: []
 first_failure:
-  marker: announcements-mobile-translation-and-account-fixture-contract
-  evidence: initial mobile runs exposed a real translation-control overlap and Playwright pointer-scroll ambiguity; the form was restructured with bounded mobile geometry and a separate external submitter. Account runs then exposed a numeric substring collision and mismatched seed arguments; exact label assertions and dual safe/legacy fixture interfaces corrected both root causes.
+  marker: announcements-mobile-translation-account-fixture-and-webkit-mfa-navigation
+  evidence: initial mobile runs exposed a real translation-control overlap and Playwright pointer-scroll ambiguity; the form was restructured with bounded mobile geometry and a separate external submitter. Account runs then exposed a numeric substring collision and mismatched seed arguments; exact label assertions and dual safe/legacy fixture interfaces corrected both root causes. Final bounded WebKit portability then exposed a page.goto internal error immediately after MFA while the authenticated homepage was already rendered; completeMfaChallenge now waits for the challenge document to disappear and the destination DOM to reach domcontentloaded before callers navigate again.
 rejected_hypotheses:
   - lower-layer tests alone prove the composed public and administrator browser lifecycle
   - the mobile translation failure should be bypassed with force, JavaScript submit or weakened viewport coverage
   - the Account Overview failure was caused by Announcements product behavior or shared CSS
   - removing the legacy Account Overview fixture interface would preserve existing critical security and E2E profiles
   - the transient CoreDNS registry timeout is an application regression that should be worked around in product code
+  - retrying the WebKit test without stabilizing completion of MFA navigation would provide trustworthy portability evidence
 changed_paths:
   - .github/workflows/announcements-acceptance.yml
   - public/css/admin-translations.css
@@ -131,6 +135,7 @@ changed_paths:
   - scripts/acceptance/playwright.announcements.config.mjs
   - scripts/acceptance/seed-browser-announcements.php
   - scripts/acceptance/seed-account-overview-state.php
+  - scripts/acceptance/tests/helpers.mjs
   - scripts/acceptance/tests/account-overview-acceptance.spec.mjs
   - scripts/acceptance/tests/announcements-public-acceptance.spec.mjs
   - scripts/acceptance/tests/announcements-admin-acceptance.spec.mjs
@@ -150,12 +155,15 @@ validation:
   - command: Acceptance E2E and Visual UX run 30300795276 on 53a54a45d67a71d0cd321b830ddfbb15e2dd8ceb
     result: PASS
     evidence: required primary smoke, bounded portability, responsive, dependency resilience and keyboard accessibility profiles succeeded
-  - command: final docs-inclusive exact-head repository workflows
+  - command: Acceptance E2E and Visual UX run 30301701789 on 4398a3a35af1a79cf3e01045344041392faa1924
+    result: FAIL
+    evidence: one WebKit internal navigation error occurred immediately after completed MFA; all other WebKit, Chromium and Firefox tests in the profile passed, and the shared helper was stabilized without adding retries
+  - command: final exact-head repository workflows after MFA stabilization
     result: NOT_RUN
-    evidence: triggered by this checkpoint and required before marking PR #259 ready
+    evidence: triggered by the helper and checkpoint commits and required before marking PR #259 ready
 blockers:
-  - final docs-inclusive exact-head workflow set
-next_action: Require every repository workflow on the final docs-inclusive PR #259 head, then mark ready and squash-merge before starting Support and Legal.
+  - final exact-head workflow set after post-MFA navigation stabilization
+next_action: Require every repository workflow on the final PR #259 head, then mark ready and squash-merge before starting Support and Legal.
 ```
 
 ## Notes
