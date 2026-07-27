@@ -12,6 +12,7 @@ const primaryIgnore = [
   '**/resilience-critical.spec.mjs',
   '**/accessibility-critical.spec.mjs',
   '**/soak-public.spec.mjs',
+  '**/downloads-public-portability.spec.mjs',
 ];
 const configuredRetries = process.env.ACCEPTANCE_ZERO_RETRIES === '1' ? 0 : process.env.CI ? 1 : 0;
 
@@ -20,7 +21,6 @@ const portabilityMatches = [
   '**/public-wiki*.spec.mjs',
   '**/admin-wiki*.spec.mjs',
   '**/homepage-navigation-seo.spec.mjs',
-  '**/downloads-public-portability.spec.mjs',
 ];
 
 export default defineConfig({
@@ -79,6 +79,22 @@ export default defineConfig({
     {
       name: 'portability-webkit',
       testMatch: portabilityMatches,
+      use: {
+        browserName: 'webkit',
+        viewport: desktopViewport,
+      },
+    },
+    {
+      name: 'downloads-portability-firefox',
+      testMatch: '**/downloads-public-portability.spec.mjs',
+      use: {
+        browserName: 'firefox',
+        viewport: desktopViewport,
+      },
+    },
+    {
+      name: 'downloads-portability-webkit',
+      testMatch: '**/downloads-public-portability.spec.mjs',
       use: {
         browserName: 'webkit',
         viewport: desktopViewport,
