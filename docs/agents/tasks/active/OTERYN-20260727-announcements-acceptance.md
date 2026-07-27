@@ -65,8 +65,8 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-07-27T21:25:00+02:00
-head: c15e0934f26a0e96e3a009b18bb0c540864d24a4
+updated_at: 2026-07-27T21:30:00+02:00
+head: 9ffa3c0ee1d324b8e28ec02ab775d61b3d797480
 branch: test/OTERYN-20260727-announcements-acceptance-v2
 pr: 259
 status: validating
@@ -94,12 +94,14 @@ proven:
   - Events and Downloads are covered on current main
   - PR #257 already archived Events with exact final evidence
   - the clean successor archives the still-active completed Downloads task without replacing the Events archive
+derived:
+  - the remaining closure risk is composed browser behavior rather than an identified persistence or authorization defect
 unknown:
   - exact-head browser result for the composed Announcements matrix
 conflicts: []
 first_failure:
-  marker: agent-governance-overlapping-completed-task-ownership
-  evidence: initial PR retained completed task records and then diverged after PR #257; PR #259 is rebuilt on current main and owns only the remaining Downloads archival
+  marker: checkpoint-required-derived-field
+  evidence: the initial successor checkpoint omitted the required derived evidence-state list; the repository contract requires proven, derived, unknown and conflicts at the top level
 rejected_hypotheses:
   - lower-layer tests alone prove the composed browser lifecycle
   - completed task records can remain active while successors own the same ledger paths
