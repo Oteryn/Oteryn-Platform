@@ -32,7 +32,7 @@ async function createCharacter(page, name) {
   await page.getByRole('button', { name: 'Create character' }).click();
 }
 
-test('Flows 1-2 — new and returning player complete the production-like browser journey', async ({ page }) => {
+test('@portal-account Flows 1-2 — new and returning player complete the production-like browser journey', async ({ page }) => {
   const email = uniqueEmail('player-journey');
   const password = 'AcceptanceJourney!234';
   const character = uniqueCharacterName('Journey');

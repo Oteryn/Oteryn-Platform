@@ -2,11 +2,18 @@
 
 ## Goal
 
-Make security, business invariants and Canary/login-server compatibility verifiable rather than dependent on manual assumptions.
+Make security, business invariants, delivered portal behavior and Canary/login-server compatibility verifiable rather than dependent on manual assumptions.
 
-The strategy is risk based: use the smallest deterministic layer that proves an invariant, and reserve browser/system E2E for composed behavior that lower layers cannot prove efficiently.
+The strategy is risk based: use the smallest deterministic layer that proves an invariant and reserve browser/system E2E for composed behavior that lower layers cannot prove efficiently.
 
-ADR 0008 and `docs/testing/E2E_COVERAGE_ROADMAP.md` govern continuous E2E hardening beyond the already-delivered functional acceptance baseline.
+Authoritative decisions:
+
+- ADR 0008 governs risk-based continuous E2E validation, bounded browser matrices and proof-layer selection.
+- ADR 0015 governs the machine-enforced delivered-surface acceptance ledger and complete account-lifecycle profile.
+- `docs/testing/E2E_COVERAGE_ROADMAP.md` governs additive E2E hardening.
+- `docs/testing/PORTAL_ACCEPTANCE_COVERAGE_MATRIX.md` summarizes current delivered-surface coverage and exact gaps.
+
+No repository or staging evidence can create `PRODUCTION_PROVEN` facts. Final production verification remains a separate gate.
 
 ## Test layers
 
@@ -15,9 +22,10 @@ ADR 0008 and `docs/testing/E2E_COVERAGE_ROADMAP.md` govern continuous E2E harden
 Use for pure domain/application logic:
 
 - validation rules not coupled to HTTP;
-- permission decisions with deterministic inputs;
+- permission and policy decisions with deterministic inputs;
 - value objects and transformations;
 - token/expiry policy helpers;
+- URL/content/media safety policies;
 - future ledger calculations.
 
 ### Feature/HTTP tests
@@ -26,50 +34,47 @@ Use Laravel feature tests for:
 
 - routes and middleware;
 - authentication and logout;
-- CSRF-relevant browser flows;
-- authorization policies;
-- validation/error behavior;
-- rate limiting;
-- admin access boundaries;
-- CMS/public pages.
+- CSRF-relevant browser requests;
+- authorization policies and exact permission boundaries;
+- validation, errors and rate limiting;
+- server-rendered empty/unavailable/conflict/not-found states;
+- admin, CMS and public pages;
+- signed URL and response-header behavior.
 
-Feature tests remain the preferred layer for deterministic request/authorization behavior that does not require a real browser engine.
+Feature tests remain the preferred deterministic layer for request/authorization behavior that does not require a real browser engine.
 
 ### Database integration tests
 
-Use an isolated test database for:
+Use isolated test databases for:
 
-- migrations;
-- transactions;
-- row locking/atomic mutations;
+- migrations and rollback compatibility;
+- transactions and atomic mutations;
+- row locking and concurrency;
 - uniqueness constraints;
 - account/character integration adapters;
-- concurrency and race conditions;
 - idempotent retry and ambiguous-commit recovery;
-- data-integrity invariants across approved shared-write boundaries.
+- data-integrity invariants across approved shared-write boundaries;
+- media reference and deletion locks.
 
 Never point automated tests at production data.
 
-Browser E2E must not replace real-database integration as the primary proof for locking, transaction races or uniqueness correctness. Browser scenarios may assert the user-visible outcome of a conflict only when that adds unique composed evidence.
+Browser E2E must not replace real-database integration as the primary proof for locking, transaction races, uniqueness or persisted integrity. Browser scenarios may assert the user-visible outcome of a conflict only when that adds unique composed evidence.
 
 ### Contract tests
 
 Required for shared Canary/login-server assumptions.
 
-Contract tests should verify only evidence-backed schemas/interfaces and fail visibly when incompatible changes occur.
-
-Examples:
+Contract tests verify only evidence-backed schemas/interfaces and fail visibly when incompatible changes occur. Examples:
 
 - required shared columns/types exist;
 - read queries return expected shapes;
-- approved character/account mutations preserve invariants;
-- auth/session token behavior matches documented contract.
+- approved account/character mutations preserve invariants;
+- auth/session/game-ticket behavior matches the documented contract;
+- external revisions/SHAs match the tested compatibility package.
 
 ### End-to-end and production-like browser tests
 
-The repository contains an exact-SHA Playwright production-like acceptance harness under `scripts/acceptance/**` and `.github/workflows/acceptance-validation.yml`.
-
-The primary full acceptance path runs against:
+The exact-SHA Playwright harness under `scripts/acceptance/**` and `.github/workflows/acceptance-validation.yml` runs against:
 
 - the exact tested application SHA;
 - a real Laravel HTTP runtime;
@@ -77,150 +82,168 @@ The primary full acceptance path runs against:
 - operation-specific Canary database principals;
 - a dedicated Redis runtime principal;
 - MailHog SMTP;
-- Chromium as the primary full-suite browser;
-- a primary desktop viewport;
-- serial execution with conservative secret-safe artifact handling.
+- Chromium as the primary complete browser;
+- bounded Firefox/WebKit projects;
+- deterministic synthetic fixtures;
+- conservative secret-safe diagnostics.
 
-The currently delivered staging-verifiable functional surface is covered by composed browser/system evidence classified `STAGING_PROVEN`. This does not prove the final production environment.
+Browser E2E proves composed outcomes such as navigation, cookies/sessions, cross-surface authorization, browser-visible validation, responsive interaction, focus behavior and user-visible dependency recovery.
 
-Critical composed flows include, where implemented:
+Passing controlled browser/system evidence may support `STAGING_PROVEN`. It does not prove the final production environment.
 
-- registration -> login -> MFA;
-- password recovery/change -> stale-session invalidation;
-- Platform Identity -> Canary account provisioning -> ready binding;
-- character creation -> public character visibility;
-- public game-data and dependency failure/recovery behavior;
-- administrator bootstrap/authentication -> MFA/RBAC -> privileged action;
-- CMS publication lifecycle -> public visibility/hiding -> audit visibility;
-- representative authorization and abuse-denial paths.
+## Machine-enforced delivered-surface acceptance contract
 
-The authoritative Platform-originated game-login bridge remains unimplemented and separately authorized. When implemented, add end-to-end coverage for credential authority, expiry/replay, revocation, disabled/banned state and character usability across the selected login-server/Canary boundary.
+`scripts/acceptance/coverage/portal-coverage-manifest.json` is the canonical inventory of delivered portal surfaces.
 
-## Implemented bounded acceptance profiles
+Each surface declares:
 
-The risk-based acceptance matrix preserves the complete primary Chromium baseline while adding bounded profiles only where they add unique evidence.
+- stable surface ID and owner;
+- exact named Laravel routes;
+- required roles/authorization states;
+- required functional/data states;
+- required viewport and browser scope;
+- required proof layers;
+- current state: `covered`, `partial`, `planned`, `supporting_endpoint` or `not_delivered`;
+- evidence file paths and stable markers;
+- exact remaining gaps.
 
-Current Playwright execution projects are:
+`npm --prefix scripts/acceptance run test:coverage-contract` validates manifest integrity and the exact runtime route table. It fails for:
 
-- `chromium-primary` — preserved full primary Chromium baseline at `1440x1000`;
-- `portability-chromium`, `portability-firefox`, `portability-webkit` — bounded critical portability spec at `1440x1000`;
-- `responsive-desktop` — Chromium at `1440x1000`;
-- `responsive-tablet` — Chromium at `820x1180` with touch enabled;
-- `responsive-mobile` — Chromium at `390x844` with touch/mobile emulation enabled;
-- `resilience-chromium` — bounded desktop Chromium dependency failure/restoration/recovery profile;
-- `accessibility-chromium` — bounded desktop Chromium keyboard/focus interaction profile;
-- `soak-chromium` — scheduled/manual read-only public-surface soak profile.
+- an unclassified named route;
+- a stale/nonexistent manifest route;
+- duplicate route ownership;
+- missing dimensions;
+- missing evidence files or markers;
+- a `covered` record with unresolved gaps;
+- a `partial` or `planned` record without an exact gap.
 
-The bounded portability subset proves representative composed outcomes for public navigation/game data, Identity login/logout, authenticated Account Overview, MFA-confirmed privileged access, authorization denial and deterministic CMS/public visibility.
+`npm --prefix scripts/acceptance run test:coverage-contract:strict` additionally fails while any delivered required surface remains `partial` or `planned`. Strict mode becomes a release gate only after all truthful gaps are closed.
 
-The bounded responsive subset proves representative public navigation, Identity entry forms, Account Overview, MFA challenge and privileged administration usability, including horizontal-overflow/accessibility smoke assertions.
+“Exhaustive” means complete against this versioned delivered-surface contract at the correct proof layers. It is not a guarantee that unknown defects cannot exist.
 
-The bounded resilience subset proves representative public dependency lifecycles rather than failure-only behavior:
+## Complete account-lifecycle profile
 
-- Canary read path `/online`: known-good -> controlled `SELECT` denial -> HTTP 503 -> grant restoration -> successful public read;
-- Redis runtime path `/servers`: known-good live state -> controlled `HMGET` ACL denial -> bounded unavailable UI -> ACL restoration -> live state recovered.
+`.github/workflows/portal-acceptance-contract.yml` runs a dedicated zero-retry Chromium profile through:
 
-All resilience dependency mutations are acceptance-scoped and restored in cleanup. The profile configures zero retries.
+```text
+npm --prefix scripts/acceptance run test:account-lifecycle
+```
 
-The bounded accessibility subset uses real keyboard interaction rather than only DOM presence checks. It proves representative:
+The profile composes the complete currently delivered account journey:
 
-- login and password-recovery form traversal/activation with `Tab` and `Enter`;
-- Account Overview create-character navigation;
-- character form forward/reverse focus progression;
-- MFA challenge completion;
-- privileged managed-page table-to-form navigation;
-- visible `:focus-visible` behavior on the controls reached by keyboard.
+- registration success, validation and duplicate identity;
+- invalid/successful login and logout;
+- protected-route redirect/denial;
+- Account Overview navigation and safe account data;
+- Canary provisioning/binding states: ready, pending, recoverable, conflict and missing;
+- recoverable retry and absence of raw Canary identifiers/provisioning names;
+- password recovery through real test SMTP;
+- reset token expiry/replay denial;
+- password change and old-password denial;
+- invalidation of other sessions after reset/change;
+- MFA enrollment, confirmation, challenge, invalid/replayed TOTP, recovery-code single use and disable-all-sessions behavior;
+- character creation authorization, validation, reserved/duplicate/quota/ownership/idempotency boundaries;
+- public visibility of a created character;
+- returning-user MFA sign-in.
 
-The accessibility profile is Chromium-only, configures zero retries and keeps raw trace, automatic screenshot and video disabled. It does not claim screen-reader compatibility from focus/DOM assertions alone.
+The profile remains primary-Chromium because it handles reset links, TOTP secrets, recovery codes and authenticated session material. Cross-browser evidence stays bounded to representative safe flows under ADR 0008.
 
-First successful accessibility implementation evidence is acceptance run `29853941922` on exact SHA `3bd1e4901a71841bc4593ec7e4efb98866c8c30f`:
+Raw traces, video and automatic screenshots remain disabled for secret-bearing flows. Explicit failure screenshots must mask inputs, textareas and code blocks.
 
-- smoke: PASS, 10 seconds wall-clock;
-- portability: PASS, 32 seconds wall-clock;
-- responsive: PASS, 9 seconds wall-clock;
-- resilience: PASS, 3 seconds wall-clock;
-- accessibility: PASS, 6 seconds wall-clock;
-- accessibility JUnit: 3 tests, 0 failures, 0 skipped.
+## Implemented acceptance profiles
 
-Durable evidence:
+Current projects/profiles include:
 
-- `docs/testing/E2E_SECURITY_BOUNDARY_EVIDENCE.md`;
-- `docs/testing/E2E_PUBLIC_DEPENDENCY_RECOVERY_EVIDENCE.md`;
-- `docs/testing/E2E_ACCESSIBILITY_STABILITY_SOAK_EVIDENCE.md`.
+- `chromium-primary` — complete primary Chromium baseline at `1440x1000`;
+- `portability-chromium`, `portability-firefox`, `portability-webkit` — bounded critical portability at desktop size;
+- `responsive-desktop`, `responsive-tablet`, `responsive-mobile` — representative responsive journeys;
+- `resilience-chromium` — deterministic dependency failure, restoration and successful recovery;
+- `accessibility-chromium` — bounded real keyboard/focus interaction;
+- `soak-chromium` — scheduled/manual read-only public-surface calibration;
+- `account-lifecycle` — complete zero-retry Identity/account/provisioning/security/character journey selected by `@portal-account`;
+- `portal coverage classification` — machine-enforced live route/evidence contract.
 
-The required pull-request `critical` profile executes primary smoke plus bounded portability, responsive, resilience and accessibility coverage. The `full` profile executes the complete primary Chromium functional baseline plus required resilience and accessibility before visual/accessibility collection. Only successful `full` execution may classify the composed functional result as `FUNCTIONAL_ACCEPTANCE_STAGING_PROVEN`.
+The existing required pull-request `critical` profile preserves primary smoke plus bounded portability, responsive, resilience and accessibility coverage.
 
-The complete secret-sensitive suite remains primary-Chromium only. Do not multiply it across the browser/viewport cross-product merely to increase test count.
+The existing `full` profile preserves the complete primary Chromium functional baseline plus resilience/accessibility before exploratory visual/accessibility collection.
+
+The separate `Portal Acceptance Contract` workflow requires route classification and the complete account lifecycle for affected changes.
+
+The complete secret-sensitive suite is not multiplied across every browser/viewport merely to increase test count.
+
+## Responsive, portability and accessibility rules
+
+Use representative dimensions based on concrete risk:
+
+- public navigation and content on desktop/tablet/mobile;
+- Identity entry forms and MFA challenge on small screens;
+- Account Overview and character creation on desktop/mobile;
+- table-heavy administrator surfaces on desktop/tablet/mobile;
+- critical public/admin flows in bounded Chromium/Firefox/WebKit projects.
+
+Accessibility browser evidence may prove:
+
+- labels and accessible names;
+- semantic headings/landmarks;
+- keyboard traversal and activation;
+- visible focus;
+- bounded overflow and status communication.
+
+Automated checks do not prove full screen-reader conformance. Manual assistive-technology evidence remains separate.
 
 ## Repeated-run stability validation
 
-`.github/workflows/acceptance-validation.yml` is reusable through `workflow_call` while preserving its direct pull-request, push and manual execution semantics.
+`.github/workflows/acceptance-stability.yml` provides scheduled/manual repeated critical execution:
 
-`.github/workflows/acceptance-stability.yml` provides scheduled/manual repeated-run evidence:
+- fresh isolated dependencies per iteration;
+- zero Playwright retries;
+- `fail-fast: false` so one failure does not hide later evidence;
+- distinct run/iteration identities;
+- classification of the first failure as product, harness or infrastructure.
 
-- three fresh isolated `critical` jobs per run;
-- `fail-fast: false` so a failed iteration does not suppress later evidence;
-- distinct iteration/run suffixes and artifact identities;
-- Playwright global retries forced to zero through `ACCEPTANCE_ZERO_RETRIES=1`;
-- fresh MariaDB, Redis, MailHog, Laravel runtime, cache and session state per iteration.
-
-A test that fails an iteration is not considered healthy because another iteration passes. Stability failures must be classified as product, harness or infrastructure failures from the first failing project/test/iteration.
-
-This repeat profile remains scheduled/manual rather than blocking every pull request. First multi-iteration runtime evidence remains pending until the workflow first executes.
+A test that fails one iteration is not considered healthy because another iteration passes.
 
 ## Read-only soak validation
 
-`.github/workflows/acceptance-soak.yml` schedules/exposes a bounded read-only public soak through the reusable acceptance workflow.
+`.github/workflows/acceptance-soak.yml` runs bounded repeated public reads over home, online, highscores and servers.
 
-The default profile:
+It records calibration metrics such as:
 
-- runs `soak-chromium` for 300 seconds unless manually configured otherwise;
-- uses zero retries;
-- repeatedly reads home, online, highscores and servers;
-- requires HTTP 200 plus representative expected UI on every navigation;
-- performs no login, MFA, password recovery, account, character or privileged mutation.
-
-The soak records non-secret calibration metrics:
-
-- exact tested SHA;
-- target/measured duration;
-- iteration/request count;
-- overall and per-route navigation-time distributions;
-- Laravel serve process-tree RSS start/end/max;
+- measured duration and navigation distributions;
+- Laravel process-tree RSS;
 - Redis key count before/after.
 
-No latency, memory or Redis-key budget is enforced until repeated measurements establish normal variance and a defensible regression threshold. The first scheduled/manual runtime baseline remains pending.
+The soak performs no Identity, MFA, password, account, character or privileged mutation. No performance budget is enforced until repeated evidence establishes normal variance.
 
 ## E2E layering and expansion rules
 
-Before adding a browser/system test:
+Before adding browser/system coverage:
 
-1. identify the concrete risk;
-2. search existing unit/feature/integration/contract/operations evidence;
-3. state what unique browser/system proof is missing;
-4. keep the scenario deterministic and exact-SHA;
-5. preserve secret-safe artifacts;
-6. classify the result by environment rather than by aspiration.
+1. Identify the concrete risk.
+2. Search existing unit/feature/integration/contract/operations evidence.
+3. State what unique browser/system proof is missing.
+4. Keep the scenario deterministic and exact-SHA.
+5. Preserve secret-safe artifacts.
+6. Classify the result by environment rather than aspiration.
+7. Add the exact route/state/role/viewport/evidence mapping to the manifest.
 
-Do not add browser tests merely to increase test count.
+Do not add browser tests solely to increase test count.
 
-Continuous hardening follows ADR 0008:
+Continuous hardening preserves these rules:
 
-- full primary-browser production-like acceptance remains the composed functional baseline;
-- a bounded critical subset provides Chromium/Firefox/WebKit portability evidence;
-- representative desktop/tablet/mobile profiles cover critical responsive journeys;
-- bounded Chromium keyboard/focus accessibility interaction is required in critical/full acceptance;
-- dependency interruption must be deterministic, fail closed, restore the dependency and prove subsequent recovery;
-- concurrency correctness remains primarily real-database integration evidence;
-- migration/upgrade/rollback validation must use representative synthetic existing data, never production dumps;
-- observability tests should correlate sanitized request IDs/audit/log outcomes where deterministic;
-- repeated-run and soak profiles remain scheduled/manual until stable measurements justify any stronger gate.
-
-The detailed priority and profile model is `docs/testing/E2E_COVERAGE_ROADMAP.md`.
+- full primary-browser acceptance remains the composed functional baseline;
+- bounded Chromium/Firefox/WebKit proves representative portability;
+- representative desktop/tablet/mobile profiles cover material responsive risks;
+- keyboard/focus interaction is required where declared;
+- dependency interruption must prove known pre-state, fail-closed behavior, restoration and recovery;
+- concurrency/data integrity remains primarily database integration evidence;
+- migration/rollback uses representative synthetic existing data, never production dumps;
+- observability correlation uses sanitized request IDs/log outcomes where deterministic;
+- repeated-run and soak remain scheduled/manual until evidence justifies stronger gates.
 
 ## Security regression tests
 
-Every confirmed vulnerability fix should add a focused regression test where practical.
+Every confirmed vulnerability fix should add a focused regression where practical.
 
 Priority areas:
 
@@ -233,16 +256,15 @@ Priority areas:
 - password reset enumeration/replay;
 - MFA bypass;
 - rate-limit bypass;
-- shared-data race conditions;
+- upload/media validation and authorization;
+- shared-data races;
 - future webhook/payment replay.
 
 Use browser E2E for representative composed abuse boundaries only when it adds proof beyond deterministic feature/security tests.
 
 ## Failure and recovery validation
 
-Failure testing must prove more than an error response.
-
-A controlled failure scenario should establish:
+A controlled failure scenario must establish:
 
 1. known pre-state;
 2. deterministic failure injection;
@@ -251,108 +273,81 @@ A controlled failure scenario should establish:
 5. dependency restoration;
 6. successful recovery.
 
-Search existing Phase 7 production-like validation and the dedicated Platform DB outage workflow before creating new failure orchestration. Do not duplicate an existing evidence layer without a new assertion.
-
-The required acceptance `resilience` profile provides the first browser-level implementation of this lifecycle for public Canary read access and Redis runtime ACL access. Additional dependency scenarios are added only when they close a distinct evidence gap.
+Search existing Phase 7, Platform DB outage and browser resilience evidence before adding new orchestration. Do not duplicate a workflow without a new assertion.
 
 ## Migration, upgrade and rollback validation
 
-For releases with persistent data or schema changes:
+For persistent-data/schema releases:
 
 - create representative synthetic pre-upgrade data;
-- apply the target migration/deployment transition;
-- verify schema and data invariants;
-- run bounded critical smoke on the upgraded exact SHA;
-- exercise controlled rollback only where the migration/deployment contract supports it safely;
-- verify expected post-rollback application/data state.
+- apply the exact candidate transition;
+- verify schema/data invariants;
+- run bounded candidate smoke;
+- exercise controlled rollback only where the contract supports it;
+- verify post-rollback state;
+- redeploy/reapply idempotently where required.
 
-Never use copied production dumps in CI.
-
-Migration/browser smoke complements, but does not replace, migration and database integration tests.
-
-The required Phase 7 production-like release path includes an isolated representative existing-data upgrade/rollback slice. It constructs synthetic Identity and published-news state on the actual PR `BASE_SHA` schema, runs exact-candidate migrations, verifies a non-secret persisted-data fingerprint, executes bounded candidate HTTP smoke, switches the existing release symlink back to `BASE_SHA` against the post-upgrade database, reruns smoke, and then redeploys the candidate and reruns smoke. Any migration, compatibility, data-integrity or smoke failure fails the release-validation job closed.
+Migration/browser smoke complements but does not replace migration/database integration tests. Never use copied production dumps in CI.
 
 Durable evidence is recorded in `docs/testing/E2E_MIGRATION_ROLLBACK_EVIDENCE.md`.
 
-This controlled path remains `STAGING_PROVEN`; it does not establish production migration duration, lock behavior, provider rollback mechanics, production RTO/RPO or universal backward compatibility for future destructive changes.
-
 ## Observability correlation validation
 
-The Phase 7 running-HTTP path proves that one concrete application-generated response `X-Request-ID` maps to exactly one structured `http.request.completed` JSON event with the same `request_id` and expected method/status pair.
+The controlled running-HTTP path proves that a concrete response `X-Request-ID` maps to exactly one structured `http.request.completed` event with the same identifier and expected method/status.
 
 Durable evidence is `docs/testing/E2E_OBSERVABILITY_CORRELATION_EVIDENCE.md`.
 
-This is controlled-runtime correlation evidence only. Production edge propagation, centralized log shipping, retention, alerting and distributed tracing remain environment-specific.
+This does not prove production edge propagation, centralized shipping, retention, alerts or distributed tracing.
 
-## Test data
+## Test data and artifact safety
 
-- use factories/seeders designed for test environments;
-- never copy production dumps into CI;
-- fixtures must not contain real emails, tokens, credentials or personal data;
-- cross-repository fixtures should include the schema/version evidence they represent;
-- representative migration datasets must be synthetic and deterministic;
-- resilience tests may mutate only disposable acceptance-scoped dependency principals and must restore them before completion;
-- repeated critical iterations must use isolated runtime/dependency state rather than sharing identity-scoped limiter/session/cache state;
-- soak journeys must remain read-only unless a separately justified mutation-soak design is approved.
-
-## Secret-safe browser diagnostics
-
-Raw Playwright traces, automatic screenshots and video may capture session cookies, password-reset URLs, TOTP enrollment secrets or recovery codes.
-
-Therefore:
-
-- keep raw trace/screenshot/video disabled by default for secret-bearing flows;
-- opt into richer artifacts only for demonstrably non-secret scenarios or artifacts sanitized by construction;
-- never persist passwords, reset links, TOTP secrets, recovery codes, session cookies, production credentials or private endpoints;
-- prefer bounded assertion messages, exact SHA, browser/profile identity and sanitized correlation identifiers.
+- use factories/seeders designed for tests;
+- use synthetic identities, email addresses and content;
+- never copy production dumps or personal data;
+- never commit/persist passwords, reset links, TOTP secrets, recovery codes, session cookies, game/OAuth tickets, production credentials or private endpoints;
+- cross-repository fixtures must identify the represented schema/version evidence;
+- resilience mutations may affect only disposable acceptance-scoped principals and must restore them;
+- repeated runs use isolated cache/session/limiter/dependency state;
+- richer diagnostics are allowed only for demonstrably non-secret or sanitized surfaces.
 
 ## CI direction
 
-The mandatory PHP CI gate runs, in order:
+Mandatory application CI includes:
 
-1. `composer validate --strict`;
-2. `composer install --no-interaction --prefer-dist --no-progress` from the committed lockfile;
-3. `composer audit --no-interaction` and fails when Composer reports a security advisory for the installed dependency set;
-4. `composer format:check`;
-5. `composer analyse` using PHPStan with Larastan at level 10 across `app`, `bootstrap`, `config`, `database`, `routes` and `tests`;
-6. `composer test`.
+1. strict Composer validation/install;
+2. Composer advisory audit;
+3. formatting;
+4. PHPStan/Larastan level 10;
+5. full tests.
 
-No PHPStan baseline is currently committed. New static-analysis errors fail CI directly rather than being absorbed into an ignore list or baseline.
+Acceptance/release workflows provide:
 
-Dependabot is configured for bounded weekly Composer and GitHub Actions updates. It complements but does not replace the required Composer advisory gate.
+- required `critical` browser profile;
+- required portal route-classification contract for affected changes;
+- required complete zero-retry account-lifecycle profile for affected changes;
+- standalone smoke, portability, responsive, resilience, accessibility, soak and full profiles;
+- full exact-SHA primary Chromium functional acceptance and visual collection;
+- scheduled/manual repeated-run and soak evidence;
+- required representative existing-data migration/rollback/redeploy validation;
+- required response-to-log observability correlation.
 
-The acceptance and release-validation workflows provide:
-
-- required pull-request `critical`: primary Chromium smoke + bounded Chromium/Firefox/WebKit portability + Chromium desktop/tablet/mobile responsive + bounded Chromium resilience + bounded Chromium keyboard accessibility;
-- standalone `smoke`, `portability`, `responsive`, `resilience`, `accessibility` and `soak` profiles;
-- full exact-SHA primary Chromium production-like functional acceptance plus required resilience/accessibility on main/manual full execution;
-- full-profile visual/accessibility collection only after full functional baseline, resilience and accessibility succeed;
-- durable non-secret browser evidence tied to exact tested SHA, profile, browser/project, viewport and measured profile duration;
-- profile-specific JUnit evidence with project identity preserved in test names;
-- reusable acceptance execution for isolated repeated critical/soak workflows;
-- scheduled/manual three-iteration zero-retry stability measurement;
-- scheduled/manual read-only public soak calibration;
-- required Phase 7 exact-SHA representative existing-data upgrade/rollback/redeploy validation;
-- required Phase 7 exact response-to-structured-log request correlation.
-
-Do not broaden the complete secret-sensitive suite to every browser/viewport before repeated-run evidence demonstrates that the signal and CI cost justify it.
+Do not broaden the complete secret-sensitive suite to every browser/viewport before measured evidence shows proportional value.
 
 ## Merge expectations
 
-- security-critical changes require relevant regression tests;
-- shared data changes require contract/integration evidence;
-- known dependency advisories fail the required Composer audit gate;
-- do not merge on tests from an old commit when current head changed;
-- do not weaken or delete failing tests to make CI green;
-- document exact unavailable environments rather than claiming tests passed;
-- E2E evidence must identify the exact tested SHA and applicable browser/profile;
-- browser-specific skips require explicit justification and must not silently count as coverage;
-- accessibility interaction tests must use real keyboard/focus behavior for the boundary they claim;
-- a repeated-run failure must not be hidden by Playwright retries;
-- soak metrics remain calibration-only until evidence-backed thresholds exist;
-- resilience tests must prove restoration and successful recovery, not only failure;
-- resilience dependency mutations must be acceptance-scoped and cleaned up deterministically;
-- migration-bearing candidates must pass the representative existing-data Phase 7 path or document a concrete safe rollout/rollback blocker rather than bypassing the check.
+- inspect the full changed-file list and diff;
+- security-critical changes require focused regression tests;
+- shared-data changes require contract/integration evidence;
+- do not merge on evidence from an old head;
+- do not weaken/delete/skip valid failing tests;
+- classify unavailable environments honestly;
+- E2E evidence identifies exact SHA, profile, project/browser and applicable viewport;
+- browser-specific skips require explicit reason and do not silently count as coverage;
+- repeated-run failure must not be hidden by retries;
+- resilience must prove cleanup/restoration/recovery;
+- a new named route must be classified before merge;
+- a manifest record becomes `covered` only after every declared dimension has proof;
+- strict coverage is enabled only after every delivered gap is truthfully closed.
 
 ## Production readiness E2E matrix
 
@@ -360,22 +355,20 @@ Before a production-ready/go-live claim, directly verify the applicable launch s
 
 | Flow | Required |
 |---|---|
-| Registration | Yes if registration is enabled |
+| Registration | Yes if enabled |
 | Web login/logout | Yes |
-| Password change | Yes |
-| Password reset | Yes |
+| Password change/reset | Yes |
 | Session revocation | Yes |
-| Admin MFA | Yes |
-| Authorization denial | Yes |
-| Canary/game login | Yes only if the authoritative game-login bridge is part of launch scope |
-| Ban/disabled state | Yes when an authoritative applicable path exists |
-| Auth token/session expiry | Yes for applicable token/session paths |
-| Replay attempt | Yes where tokenized flow exists |
-| Account provisioning | Yes if enabled in launch scope |
-| Character creation/public visibility | Yes if enabled in launch scope |
-| Critical CMS/public visibility | Yes if enabled in launch scope |
-| Backup restore | Operational production evidence |
+| Admin MFA and authorization denial | Yes |
+| Account provisioning | Yes if enabled |
+| Character creation/public visibility | Yes if enabled |
+| Critical CMS/public visibility | Yes if enabled |
+| Canary/game login | Yes only if the authoritative bridge is in launch scope |
+| Ban/disabled/expiry/replay | Yes when an authoritative applicable path exists |
+| Backup/restore/deployment/rollback | Operational production evidence |
 
-The authoritative production execution boundary is issue #91 plus `docs/operations/PRODUCTION_READINESS_CHECKLIST.md` and `docs/testing/PRODUCTION_SMOKE_CHECKLIST.md`.
+The production execution boundary is issue #91 plus `docs/operations/PRODUCTION_READINESS_CHECKLIST.md`, `docs/operations/PRODUCTION_VERIFICATION_EVIDENCE.md` and `docs/testing/PRODUCTION_SMOKE_CHECKLIST.md`.
 
-Results must be tied to exact deployed versions/commit SHAs. Repository or staging evidence never substitutes for direct final-production proof.
+The authoritative Platform-originated game-login bridge remains separately authorized. When implemented, add exact cross-repository E2E for credential authority, expiry/replay, revocation, disabled/banned state and character usability.
+
+Repository/staging evidence never substitutes for direct final-production proof.

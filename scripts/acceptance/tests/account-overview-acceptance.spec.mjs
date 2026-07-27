@@ -55,7 +55,7 @@ test.afterEach(async ({ page }, testInfo) => {
   await attachDiagnostics(testInfo, page.__acceptanceDiagnostics);
 });
 
-test('Account Overview — authorization, status matrix, responsive evidence and recoverable retry', async ({ page }) => {
+test('@portal-account Account Overview — authorization, status matrix, responsive evidence and recoverable retry', async ({ page }) => {
   const email = uniqueEmail('account-overview');
 
   await page.goto('/account');

@@ -54,7 +54,7 @@ test.afterEach(async ({ page }, testInfo) => {
   await attachDiagnostics(testInfo, page.__acceptanceDiagnostics);
 });
 
-test('Flow 5b — character validation, duplicate, ownership injection and quota boundaries respect rate limits', async ({ browser, page }) => {
+test('@portal-account Flow 5b — character validation, duplicate, ownership injection and quota boundaries respect rate limits', async ({ browser, page }) => {
   const email = uniqueEmail('character-boundary');
   const password = 'AcceptanceCharacter!234';
   await register(page, email, password);
