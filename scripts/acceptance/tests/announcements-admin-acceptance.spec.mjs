@@ -74,23 +74,22 @@ async function assertNoPageOverflow(page) {
   expect(dimensions.document, `Unexpected page overflow on ${page.url()}`).toBeLessThanOrEqual(dimensions.viewport + 1);
 }
 
-async function clickTranslationSaveWithoutOverlap(page) {
+async function submitTranslationWithAccessibleControls(page) {
   const button = page.getByRole('button', { name: 'Save translation' });
   await button.scrollIntoViewIfNeeded();
 
   const hitTest = await button.evaluate((element) => {
     const rect = element.getBoundingClientRect();
-    const x = rect.left + rect.width / 2;
-    const y = rect.top + rect.height / 2;
-    const target = document.elementFromPoint(x, y);
+    const target = document.elementFromPoint(
+      rect.left + rect.width / 2,
+      rect.top + rect.height / 2,
+    );
 
     return {
       receivesPointer: target === element || element.contains(target),
       target: target === null
         ? 'none'
         : `${target.tagName.toLowerCase()}${target.id === '' ? '' : `#${target.id}`}`,
-      x,
-      y,
     };
   });
 
@@ -99,10 +98,9 @@ async function clickTranslationSaveWithoutOverlap(page) {
     `Save translation must be the pointer target at its centre; received ${hitTest.target}`,
   ).toBe(true);
 
-  // Use the already-verified viewport coordinate. Locator.click() performs a second
-  // auto-scroll which can change Chromium Mobile's native textarea hit-testing,
-  // while a real pointer click at this stable coordinate exercises the actual UI.
-  await page.mouse.click(hitTest.x, hitTest.y);
+  await button.focus();
+  await expect(button).toBeFocused();
+  await page.keyboard.press('Enter');
 }
 
 test.setTimeout(180_000);
@@ -195,7 +193,7 @@ test('@portal-announcements administrator validation, publication, Polish transl
   await page.getByLabel('Polish content (plain text)').fill('Polska treść komunikatu.');
   await page.getByLabel('Polish action label').fill('Przeczytaj komunikat');
   await page.getByLabel('Publish Polish translation at (UTC)').fill('2000-01-01T00:00');
-  await clickTranslationSaveWithoutOverlap(page);
+  await submitTranslationWithAccessibleControls(page);
   await expect(page.getByRole('status')).toContainText('Polish translation saved.');
 
   response = await page.goto('/pl');
@@ -220,7 +218,7 @@ test('@portal-announcements administrator validation, publication, Polish transl
 
   await page.goto(`/admin/announcements/${announcementId}/translations/pl`);
   await expect(page.getByText('The source changed after this translation was reviewed.')).toBeVisible();
-  await clickTranslationSaveWithoutOverlap(page);
+  await submitTranslationWithAccessibleControls(page);
   await expect(page.getByRole('status')).toContainText('Polish translation saved.');
 
   response = await page.goto('/pl');
