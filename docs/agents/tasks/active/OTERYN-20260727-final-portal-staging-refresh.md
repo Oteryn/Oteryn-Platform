@@ -33,28 +33,37 @@ cross_repository_tasks: []
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-07-27T21:58:00Z
-head: 436d30e56bbf2821d01372a8aec15ec1a3ffca30
+updated_at: 2026-07-27T22:00:00Z
+head: 6e6acd56fb24828aec5838734e912a31c0489978
 branch: ops/OTERYN-20260727-final-portal-staging-refresh
-pr: null
-status: implementing
+pr: 262
+status: validating
 proven:
   - PR #260 merged after all exact-head repository and module workflows passed.
-  - Synology staging still requires a new exact image build and guarded deployment.
+  - The one-shot workflow uses the existing guarded Synology staging deployment and exact running-image verification.
+  - The deploy/synology trigger forces exact Platform and Gateway image publication for the eventual trusted-main merge SHA.
 derived:
-  - A trigger under deploy/synology forces exact Platform and Gateway image publication for the deployment PR merge SHA.
+  - Merging PR #262 with the required marker will publish exact images, dispatch deployment and verify the refreshed runtime.
 unknown:
   - Final deployment run ID and exact running image references.
 conflicts: []
 first_failure:
-  marker: none
-  evidence: deployment not started
+  marker: Agent Governance run 30308975378
+  evidence: checkpoint still recorded pr null and the pre-implementation head after PR #262 opened
 changed_paths:
+  - .github/workflows/one-shot-final-portal-staging-refresh.yml
+  - deploy/synology/.final-portal-staging-refresh-trigger
   - docs/agents/tasks/active/OTERYN-20260727-final-portal-staging-refresh.md
 validation:
   - command: branch created from 436d30e56bbf2821d01372a8aec15ec1a3ffca30
     result: PASS
     evidence: GitHub branch creation succeeded
+  - command: PR #262 opened to main
+    result: PASS
+    evidence: GitHub reports head 6e6acd56fb24828aec5838734e912a31c0489978
+  - command: first Agent Governance run 30308975378
+    result: FAIL
+    evidence: stale checkpoint metadata; corrected in this commit
 blockers: []
-next_action: Add the guarded one-shot image wait, deployment dispatch and exact running-image verification workflow.
+next_action: Require all exact-head PR workflows to pass, then squash-merge with the final-portal-staging-refresh marker.
 ```
