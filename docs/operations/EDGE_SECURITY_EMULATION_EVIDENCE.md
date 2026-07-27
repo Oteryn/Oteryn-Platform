@@ -60,8 +60,9 @@ The workflow fails closed unless all of these pass:
 - authenticated edge-to-origin TLS using a dedicated client certificate;
 - direct-origin request without that certificate denied;
 - spoofed inbound `CF-Connecting-IP` overwritten by the edge;
+- public host preservation across the authenticated origin pull;
 - bounded Cloudflare-style `CF-Ray` and `CF-Cache-Status` response metadata;
-- traversal, XSS and SQL-injection probes denied;
+- traversal, XSS and SQL-injection probes denied by the parser or WAF boundary;
 - unsupported method and oversized request body denied;
 - controlled request burst produces HTTP 429;
 - missing and invalid Access assertions denied;
@@ -69,7 +70,21 @@ The workflow fails closed unless all of these pass:
 
 ## Exact-SHA result
 
-`PENDING` — populate after the first successful workflow run on the final PR head.
+Validation date: `2026-07-27`
+
+Workflow: `Edge Security Emulation`
+
+Workflow run: `30270571670` / run number `9`
+
+Validated Oteryn Platform SHA: `791c350b93406eabe50702f8860b0515678a80bb`
+
+Evidence artifact: `edge-security-emulation-evidence-30270571670`
+
+Evidence artifact digest: `sha256:17ba33a26793a7f8d536acbcb78097e961a27bff65a690874fb72b884634e0b7`
+
+Result: `PASS` — all required assertions completed and the artifact records `classification: STAGING_PROVEN` with `production_environment_proven: false`.
+
+The artifact contains status values and the exact validation SHA only. It contains no certificate private key, Access signing key, credential, token, endpoint inventory or environment dump.
 
 ## Production boundary
 
