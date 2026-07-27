@@ -5,6 +5,7 @@
 
 @section('content')
     @inject('localeFormatter', 'App\Localization\LocaleFormatter')
+    @inject('characterPresentation', 'App\PublicGameData\CharacterPresentation')
     <div class="page-header">
         <p class="eyebrow">{{ __('public.game.rankings') }}</p>
         <h1>{{ __('public.game.highscores_title') }}</h1>
@@ -19,7 +20,7 @@
                     <th scope="col">{{ __('public.game.rank') }}</th>
                     <th scope="col">{{ __('public.game.character') }}</th>
                     <th scope="col">{{ __('public.game.level') }}</th>
-                    <th scope="col">{{ __('public.game.vocation_id') }}</th>
+                    <th scope="col">{{ __('public.game.vocation') }}</th>
                 </tr>
                 </thead>
                 <tbody>
@@ -28,7 +29,7 @@
                         <td>{{ $localeFormatter->number(($players->firstItem() ?? 1) + $loop->index) }}</td>
                         <td><a href="{{ route('game.characters.show', ['name' => $player->name]) }}">{{ $player->name }}</a></td>
                         <td>{{ $localeFormatter->number($player->level) }}</td>
-                        <td>{{ $localeFormatter->number($player->vocation) }}</td>
+                        <td>{{ $characterPresentation->vocationName((int) $player->vocation) }}</td>
                     </tr>
                 @empty
                     <tr><td colspan="4">{{ __('public.game.no_characters') }}</td></tr>
