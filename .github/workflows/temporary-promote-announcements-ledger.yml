@@ -1,0 +1,70 @@
+name: Temporary Promote Announcements Ledger
+
+on:
+  push:
+    paths:
+      - '.github/workflows/temporary-promote-announcements-ledger.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  promote:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.ref_name }}
+          fetch-depth: 0
+
+      - name: Promote exact Announcements record
+        run: |
+          node <<'NODE'
+          const fs = require('node:fs');
+          const path = 'scripts/acceptance/coverage/portal-coverage-manifest.json';
+          const manifest = JSON.parse(fs.readFileSync(path, 'utf8'));
+          const record = manifest.surfaces.find((surface) => surface.id === 'announcements.admin-localization-home-composition');
+          if (!record) throw new Error('Announcements ledger record not found');
+          if (record.status !== 'planned') throw new Error(`Expected planned status, got ${record.status}`);
+          record.status = 'covered';
+          record.browsers = [
+            'announcements-chromium-desktop',
+            'announcements-chromium-tablet',
+            'announcements-chromium-mobile',
+            'announcements-firefox-desktop',
+            'announcements-webkit-desktop'
+          ];
+          record.evidence = [
+            {
+              file: 'tests/Feature/Announcements/AnnouncementsModuleTest.php',
+              markers: []
+            },
+            {
+              file: 'scripts/acceptance/tests/homepage-navigation-seo.spec.mjs',
+              markers: ['homepage']
+            },
+            {
+              file: 'scripts/acceptance/tests/announcements-public-acceptance.spec.mjs',
+              markers: ['@portal-announcements public none-active, active-window, expired, escaped and localized states']
+            },
+            {
+              file: 'scripts/acceptance/tests/announcements-admin-acceptance.spec.mjs',
+              markers: [
+                '@portal-announcements guest, MFA and exact permission boundaries fail closed',
+                '@portal-announcements administrator validation, publication, Polish translation, stale recovery, conflict and audit lifecycle'
+              ]
+            }
+          ];
+          record.gaps = [];
+          fs.writeFileSync(path, `${JSON.stringify(manifest, null, 2)}\n`);
+          NODE
+
+      - name: Commit promoted ledger
+        run: |
+          git config user.name 'oteryn-acceptance-bot'
+          git config user.email 'actions@users.noreply.github.com'
+          git add scripts/acceptance/coverage/portal-coverage-manifest.json
+          git diff --cached --check
+          git commit -m 'test(acceptance): mark Announcements covered'
+          git push origin HEAD:${{ github.ref_name }}
