@@ -5,6 +5,7 @@ import {
   evidenceScreenshot,
   installDiagnostics,
   login,
+  register,
   runBinary,
   runPhpState,
   uniqueEmail,
@@ -17,8 +18,8 @@ const mobileViewport = { width: 390, height: 844 };
 function seedState(email, state) {
   return JSON.parse(runBinary('php', [
     'scripts/acceptance/seed-account-overview-state.php',
+    'seed',
     email,
-    password,
     state,
   ]));
 }
@@ -68,12 +69,12 @@ test('@portal-account Account Overview — authorization, status matrix, respons
   await page.goto('/account');
   await expect(page).toHaveURL(/\/login$/u);
 
-  let fixture = seedState(email, 'ready');
+  await register(page, email, password);
   await login(page, email, password);
   await expect(page).toHaveURL(/\/account$/u);
 
   for (const state of ['ready', 'pending', 'recoverable', 'conflict', 'missing']) {
-    fixture = seedState(email, state);
+    const fixture = seedState(email, state);
 
     await page.setViewportSize(desktopViewport);
     await page.goto('/account');
