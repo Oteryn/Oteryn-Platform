@@ -148,6 +148,8 @@ if (!manifest) {
     }
   }
 
+  let discoveredNamedRouteCount = null;
+  let classifiedNamedRouteCount = routeOwners.size;
   if (!manifestOnly && errors.length === 0) {
     let routeList;
     try {
@@ -163,23 +165,30 @@ if (!manifest) {
       routeList = [];
     }
 
-    const namedRoutes = new Set();
+    const allNamedRoutes = new Set();
+    const classifiedRuntimeRoutes = new Set();
     for (const route of Array.isArray(routeList) ? routeList : []) {
       const name = typeof route?.name === 'string' ? route.name.trim() : '';
       if (name === '') continue;
+      allNamedRoutes.add(name);
       if (exclusions.some((exclusion) => exclusionMatches(name, exclusion))) continue;
-      namedRoutes.add(name);
+      classifiedRuntimeRoutes.add(name);
     }
 
-    for (const name of [...namedRoutes].sort()) {
+    discoveredNamedRouteCount = allNamedRoutes.size;
+    classifiedNamedRouteCount = classifiedRuntimeRoutes.size;
+
+    for (const name of [...classifiedRuntimeRoutes].sort()) {
       if (!routeOwners.has(name)) errors.push(`Named Laravel route is not classified: ${name}`);
     }
     for (const [name, owner] of [...routeOwners.entries()].sort(([left], [right]) => left.localeCompare(right))) {
-      if (!namedRoutes.has(name)) errors.push(`Manifest route does not exist in the exact application route table: ${name} (${owner})`);
+      if (!classifiedRuntimeRoutes.has(name)) {
+        errors.push(`Manifest route does not exist in the exact application route table: ${name} (${owner})`);
+      }
     }
 
     for (const exclusion of exclusions) {
-      const matched = [...namedRoutes].some((name) => exclusionMatches(name, exclusion));
+      const matched = [...allNamedRoutes].some((name) => exclusionMatches(name, exclusion));
       if (!matched) warnings.push(`Route exclusion currently matches no named route: ${JSON.stringify(exclusion)}`);
     }
   }
@@ -195,6 +204,9 @@ if (!manifest) {
     manifest_only: manifestOnly,
     surface_count: manifest.surfaces?.length ?? 0,
     status_counts: statusCounts,
+    manifest_route_count: routeOwners.size,
+    discovered_named_route_count: discoveredNamedRouteCount,
+    classified_runtime_route_count: classifiedNamedRouteCount,
     errors,
     warnings,
   };
