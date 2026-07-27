@@ -7,18 +7,19 @@ on:
     paths:
       - '.github/workflows/prepare-downloads-ledger.yml'
       - 'scripts/acceptance/coverage/portal-coverage-manifest.json'
-      - 'scripts/acceptance/tests/downloads-lifecycle-acceptance.spec.mjs'
-      - 'scripts/acceptance/tests/downloads-public-portability.spec.mjs'
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   prepare:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout exact head
+      - name: Checkout exact source branch
         uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
 
       - name: Build exact Downloads-covered manifest
         run: |
@@ -73,16 +74,19 @@ jobs:
               },
           ]
           surface['gaps'] = []
-
-          output = Path('artifacts/downloads-ledger/portal-coverage-manifest.json')
-          output.parent.mkdir(parents=True, exist_ok=True)
-          output.write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
+          path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
           PY
 
-      - name: Upload exact transformed manifest
-        uses: actions/upload-artifact@v6
-        with:
-          name: downloads-covered-manifest-${{ github.sha }}
-          path: artifacts/downloads-ledger/portal-coverage-manifest.json
-          if-no-files-found: error
-          retention-days: 1
+      - name: Commit transformed manifest to source branch
+        env:
+          HEAD_BRANCH: ${{ github.head_ref }}
+        run: |
+          if git diff --quiet -- scripts/acceptance/coverage/portal-coverage-manifest.json; then
+            echo 'Downloads ledger is already current.'
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add scripts/acceptance/coverage/portal-coverage-manifest.json
+          git commit -m 'test(downloads): close portal coverage ledger record'
+          git push origin HEAD:"$HEAD_BRANCH"
