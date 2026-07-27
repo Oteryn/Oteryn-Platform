@@ -58,7 +58,7 @@ test('@portal-announcements public none-active, active-window, expired, escaped 
 
   response = await page.goto('/en');
   expect(response?.status()).toBe(200);
-  const ticker = page.locator('[data-content-state="available"]').filter({ has: page.getByRole('heading', { name: 'Announcements' }) });
+  const ticker = page.locator('[data-content-state="AVAILABLE"]').filter({ has: page.getByRole('heading', { name: 'Announcements' }) });
   await expect(ticker.getByRole('heading', { name: 'Acceptance Active Notice' })).toBeVisible();
   await expect(ticker).toContainText('<img src=x onerror=alert("announcement")> Plain-text maintenance details.');
   await expect(ticker.locator('img')).toHaveCount(0);
@@ -72,7 +72,7 @@ test('@portal-announcements public none-active, active-window, expired, escaped 
 
   response = await page.goto('/pl');
   expect(response?.status()).toBe(200);
-  const polishTicker = page.locator('[data-content-state="available"]').filter({ has: page.getByRole('heading', { name: 'Ogłoszenia' }) });
+  const polishTicker = page.locator('[data-content-state="AVAILABLE"]').filter({ has: page.getByRole('heading', { name: 'Ogłoszenia' }) });
   await expect(polishTicker.getByRole('heading', { name: 'Aktywny komunikat akceptacyjny' })).toBeVisible();
   await expect(polishTicker.getByText('Polskie informacje o przerwie technicznej.')).toBeVisible();
   await expect(polishTicker.getByRole('link', { name: 'Przeczytaj szczegóły' })).toBeVisible();
