@@ -17,7 +17,7 @@
             <dt>{{ __('public.game.level') }}</dt>
             <dd class="display-title">{{ $localeFormatter->number($character->level) }}</dd>
         </div>
-        <div class="stat">
+        <div class="stat" data-vocation-id="{{ $character->vocation }}">
             <dt>{{ __('public.game.vocation') }}</dt>
             <dd>{{ $characterPresentation->vocationName((int) $character->vocation) }}</dd>
         </div>
