@@ -12,16 +12,24 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use PragmaRX\Google2FA\Google2FA;
 
-require __DIR__.'/../../vendor/autoload.php';
+require dirname(__DIR__, 2).'/vendor/autoload.php';
 
-$app = require __DIR__.'/../../bootstrap/app.php';
+$app = require dirname(__DIR__, 2).'/bootstrap/app.php';
 $app->make(Kernel::class)->bootstrap();
 
 $command = $argv[1] ?? '';
 
-/** @return int */
-function integerId(mixed $value, string $label): int
-{
+$fail = static function (string $message, int $code = 1): never {
+    fwrite(STDERR, $message.PHP_EOL);
+    exit($code);
+};
+
+$json = static function (array $payload): never {
+    fwrite(STDOUT, json_encode($payload, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES).PHP_EOL);
+    exit(0);
+};
+
+$integerId = static function (mixed $value, string $label) use ($fail): int {
     if (is_int($value)) {
         return $value;
     }
@@ -30,11 +38,10 @@ function integerId(mixed $value, string $label): int
         return (int) $value;
     }
 
-    throw new RuntimeException("{$label} is unavailable after migrations.");
-}
+    $fail("{$label} is unavailable after migrations.");
+};
 
-/** @param array<string, string> $translations */
-function createEventFixture(
+$createEventFixture = static function (
     string $key,
     string $status,
     CarbonImmutable $startsAt,
@@ -67,14 +74,14 @@ function createEventFixture(
     }
 
     return $event;
-}
+};
 
 if ($command === 'reset') {
     DB::table('event_translations')->delete();
     DB::table('events')->delete();
     DB::table('admin_audit_events')->where('target_type', 'event')->delete();
-    fwrite(STDOUT, json_encode(['reset' => true], JSON_THROW_ON_ERROR)."\n");
-    exit(0);
+
+    $json(['reset' => true]);
 }
 
 if ($command === 'seed-public') {
@@ -83,7 +90,7 @@ if ($command === 'seed-public') {
 
     $now = CarbonImmutable::now('UTC')->startOfMinute();
     $fixtures = [
-        'active' => createEventFixture(
+        'active' => $createEventFixture(
             'active',
             Event::STATUS_SCHEDULED,
             $now->subHour(),
@@ -91,21 +98,21 @@ if ($command === 'seed-public') {
             ['en' => 'Acceptance Active Event', 'pl' => 'Aktywne wydarzenie akceptacyjne'],
             true,
         ),
-        'upcoming' => createEventFixture(
+        'upcoming' => $createEventFixture(
             'upcoming',
             Event::STATUS_SCHEDULED,
             $now->addHours(2),
             $now->addHours(3),
             ['en' => 'Acceptance Upcoming Event', 'pl' => 'Nadchodzące wydarzenie akceptacyjne'],
         ),
-        'archived' => createEventFixture(
+        'archived' => $createEventFixture(
             'archived',
             Event::STATUS_ACTIVE,
             $now->subHours(3),
             $now->subHours(2),
             ['en' => 'Acceptance Archived Event', 'pl' => 'Archiwalne wydarzenie akceptacyjne'],
         ),
-        'cancelled' => createEventFixture(
+        'cancelled' => $createEventFixture(
             'cancelled',
             Event::STATUS_CANCELLED,
             $now->addHours(4),
@@ -114,7 +121,7 @@ if ($command === 'seed-public') {
         ),
     ];
 
-    fwrite(STDOUT, json_encode([
+    $json([
         'slugs' => [
             'active_en' => 'acceptance-active-en',
             'active_pl' => 'acceptance-active-pl',
@@ -122,8 +129,7 @@ if ($command === 'seed-public') {
             'upcoming_pl' => 'acceptance-upcoming-pl',
         ],
         'ids' => array_map(static fn (Event $event): int => $event->id, $fixtures),
-    ], JSON_THROW_ON_ERROR)."\n");
-    exit(0);
+    ]);
 }
 
 if ($command === 'seed-identity') {
@@ -135,8 +141,7 @@ if ($command === 'seed-identity') {
     $permissions = array_values(array_filter(array_map('trim', explode(',', $permissionCsv))));
 
     if ($email === '' || $password === '') {
-        fwrite(STDERR, "Usage: php scripts/acceptance/seed-browser-events.php seed-identity <email> <password> <recovery-code> <confirmed|unconfirmed> <permission-csv>\n");
-        exit(2);
+        $fail('Usage: php scripts/acceptance/seed-browser-events.php seed-identity <email> <password> <recovery-code> <confirmed|unconfirmed> <permission-csv>', 2);
     }
 
     $identity = Identity::query()->updateOrCreate(
@@ -155,8 +160,9 @@ if ($command === 'seed-identity') {
 
     if ($mfaConfirmed) {
         if ($recoveryCode === '') {
-            throw new RuntimeException('A recovery code is required for a confirmed-MFA acceptance identity.');
+            $fail('A recovery code is required for a confirmed-MFA acceptance identity.');
         }
+
         $normalizer = new MfaRecoveryCodes;
         $attributes['two_factor_secret'] = (new Google2FA)->generateSecretKey();
         $attributes['two_factor_recovery_codes'] = [Hash::make($normalizer->normalize($recoveryCode))];
@@ -178,11 +184,12 @@ if ($command === 'seed-identity') {
                 'updated_at' => $now,
             ]);
         }
-        $roleId = integerId($roleId, 'Acceptance Events role');
+
+        $roleId = $integerId($roleId, 'Acceptance Events role');
         DB::table('admin_role_permissions')->where('role_id', $roleId)->delete();
 
         foreach ($permissions as $permission) {
-            $permissionId = integerId(
+            $permissionId = $integerId(
                 DB::table('admin_permissions')->where('key', $permission)->value('id'),
                 "Permission {$permission}",
             );
@@ -198,30 +205,27 @@ if ($command === 'seed-identity') {
         ]);
     }
 
-    fwrite(STDOUT, json_encode([
+    $json([
         'identity_id' => $identity->id,
         'email' => $identity->email,
         'mfa_confirmed' => $mfaConfirmed,
         'permissions' => $permissions,
-    ], JSON_THROW_ON_ERROR)."\n");
-    exit(0);
+    ]);
 }
 
 if ($command === 'bump-lock') {
     $slug = $argv[2] ?? '';
     $translation = EventTranslation::query()->where('locale', 'en')->where('slug', $slug)->first();
     if (! $translation instanceof EventTranslation) {
-        throw new RuntimeException("Event translation {$slug} was not found.");
+        $fail("Event translation {$slug} was not found.");
     }
 
     Event::query()->whereKey($translation->event_id)->increment('lock_version');
     $event = Event::query()->findOrFail($translation->event_id);
-    fwrite(STDOUT, json_encode([
+    $json([
         'event_id' => $event->id,
         'lock_version' => $event->lock_version,
-    ], JSON_THROW_ON_ERROR)."\n");
-    exit(0);
+    ]);
 }
 
-fwrite(STDERR, "Unknown Events acceptance fixture command: {$command}\n");
-exit(2);
+$fail('Unknown Events acceptance fixture command.', 2);
