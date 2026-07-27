@@ -15,6 +15,14 @@ const primaryIgnore = [
 ];
 const configuredRetries = process.env.ACCEPTANCE_ZERO_RETRIES === '1' ? 0 : process.env.CI ? 1 : 0;
 
+const portabilityMatches = [
+  '**/portability-critical.spec.mjs',
+  '**/public-wiki*.spec.mjs',
+  '**/admin-wiki*.spec.mjs',
+  '**/homepage-navigation-seo.spec.mjs',
+  '**/downloads-public-portability.spec.mjs',
+];
+
 export default defineConfig({
   testDir: './tests',
   // The original monolithic serial acceptance spec is retained as historical source
@@ -54,7 +62,7 @@ export default defineConfig({
     },
     {
       name: 'portability-chromium',
-      testMatch: ['**/portability-critical.spec.mjs', '**/public-wiki*.spec.mjs', '**/admin-wiki*.spec.mjs', '**/homepage-navigation-seo.spec.mjs'],
+      testMatch: portabilityMatches,
       use: {
         browserName: 'chromium',
         viewport: desktopViewport,
@@ -62,7 +70,7 @@ export default defineConfig({
     },
     {
       name: 'portability-firefox',
-      testMatch: ['**/portability-critical.spec.mjs', '**/public-wiki*.spec.mjs', '**/admin-wiki*.spec.mjs', '**/homepage-navigation-seo.spec.mjs'],
+      testMatch: portabilityMatches,
       use: {
         browserName: 'firefox',
         viewport: desktopViewport,
@@ -70,7 +78,7 @@ export default defineConfig({
     },
     {
       name: 'portability-webkit',
-      testMatch: ['**/portability-critical.spec.mjs', '**/public-wiki*.spec.mjs', '**/admin-wiki*.spec.mjs', '**/homepage-navigation-seo.spec.mjs'],
+      testMatch: portabilityMatches,
       use: {
         browserName: 'webkit',
         viewport: desktopViewport,
