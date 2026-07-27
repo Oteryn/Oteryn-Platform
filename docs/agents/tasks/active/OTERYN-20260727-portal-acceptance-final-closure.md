@@ -73,10 +73,10 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-07-27T20:40:05Z
-head: d08062c653a137e1359b5626fda635b170704cd8
+updated_at: 2026-07-27T20:43:08Z
+head: 0225d46ac20c5c4a38c7f9864fbef5e1433009c9
 branch: test/OTERYN-20260727-portal-acceptance-final-closure
-pr: none
+pr: 260
 status: investigating
 context_routes:
   - agent-governance
@@ -110,7 +110,9 @@ proven:
   - Support/Legal has lower-layer feature coverage but lacks route-complete composed browser evidence.
   - Editorial Media has lower-layer authorization, normalization, integrity and storage tests but lacks operator-visible browser lifecycle evidence.
   - Wiki already has published bilingual read/search and trusted-editor create/preview/publish browser paths; the ledger requires explicit reconciliation of missing states and stable markers.
-  - No open pull request or active task owns the final Issue #240 paths.
+  - No other open pull request or active task owns the final Issue #240 paths.
+  - Draft PR #260 is open from test/OTERYN-20260727-portal-acceptance-final-closure to main.
+  - The completed Announcements task was moved from active to archive and ACTIVE_WORK now points to this task.
 derived:
   - One final task may close all four records while preserving independent module workflows and fail-closed ledger promotion.
   - Lower-layer codec, storage and domain tests should not be duplicated in browser tests; browser evidence should prove composed operator and public behavior.
@@ -126,11 +128,17 @@ rejected_hypotheses:
   - Existing feature tests alone close Support/Legal or Editorial Media composed browser contracts.
   - Existing Wiki happy paths alone justify changing both partial records to covered without explicit state reconciliation.
 changed_paths:
+  - docs/agents/ACTIVE_WORK.md
   - docs/agents/tasks/active/OTERYN-20260727-portal-acceptance-final-closure.md
+  - docs/agents/tasks/active/OTERYN-20260727-announcements-acceptance.md
+  - docs/agents/tasks/archive/OTERYN-20260727-announcements-acceptance.md
 validation:
   - command: branch test/OTERYN-20260727-portal-acceptance-final-closure created from d08062c653a137e1359b5626fda635b170704cd8
     result: PASS
     evidence: branch creation succeeded from the merged PR #259 commit
+  - command: draft PR #260 opened to main
+    result: PASS
+    evidence: GitHub reports base d08062c653a137e1359b5626fda635b170704cd8 and head 0225d46ac20c5c4a38c7f9864fbef5e1433009c9
   - command: module implementation and exact-head workflows
     result: NOT_RUN
     evidence: final closure implementation has not started
