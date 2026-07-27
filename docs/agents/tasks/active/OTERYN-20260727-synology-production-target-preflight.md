@@ -41,7 +41,7 @@ Tracking issue: #238.
 - [ ] A sanitized exact-run artifact records only statuses, counts, durations and non-secret image/release identities with `classification: STAGING_PROVEN` and `production_environment_proven: false`.
 - [ ] Remaining public-production gaps are recorded without promoting DNS/TLS/Cloudflare/WAF/mail/monitoring/DSM-backup/game-login facts.
 - [ ] No router, NAT, DSM reverse proxy, public DNS, Cloudflare account, production, secret or external-repository action occurs.
-- [ ] Temporary one-shot dispatch machinery is removed and the completed task is archived after live evidence is persisted.
+- [ ] Temporary dispatch and observer machinery is removed and the completed task is archived after live evidence is persisted.
 
 ## Ownership
 
@@ -49,7 +49,9 @@ Tracking issue: #238.
 owned_paths:
   - .github/workflows/synology-production-target-preflight.yml
   - .github/workflows/one-shot-synology-production-target-preflight.yml
+  - .github/workflows/one-shot-synology-preflight-observer.yml
   - deploy/synology/.production-target-preflight-trigger
+  - deploy/synology/.production-target-preflight-observer-trigger
   - deploy/synology/scripts/production-target-preflight.sh
   - docs/operations/SYNOLOGY_PRODUCTION_TARGET_PREFLIGHT_EVIDENCE.md
   - docs/agents/ACTIVE_WORK.md
@@ -76,16 +78,17 @@ cross_repository_tasks: []
 - Canary/login-server schema or session compatibility: unchanged; the drill copies the currently deployed schemas into temporary databases only.
 - Rollback: temporary restore databases are dropped in a Python `finally` block; no deployed schema or runtime image is changed.
 - Secrets/production configuration: staging secrets are injected only through the GitHub Environment and are never written to evidence; no production-only configuration is used.
+- Observer boundary: the temporary observer has Actions read and Issues write only; it cannot dispatch, use the Synology runner, access NAS/Docker or read environment secrets.
 
 ## Context checkpoint
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-07-27T16:32:00+02:00
-head: fe28688c2af56100bd4a61ca8fb2820ebb2e8a01
-branch: ops/OTERYN-20260727-synology-production-target-preflight
-pr: 239
-status: ready
+updated_at: 2026-07-27T16:44:00+02:00
+head: a9479f66af3b684f7caf3a85d1f66cbaf860d1bf
+branch: ops/OTERYN-20260727-synology-preflight-observer
+pr: 243
+status: observing
 context_routes:
   - agent-governance
   - security
@@ -95,53 +98,53 @@ context_routes:
 owned_paths:
   - .github/workflows/synology-production-target-preflight.yml
   - .github/workflows/one-shot-synology-production-target-preflight.yml
+  - .github/workflows/one-shot-synology-preflight-observer.yml
   - deploy/synology/.production-target-preflight-trigger
+  - deploy/synology/.production-target-preflight-observer-trigger
   - deploy/synology/scripts/production-target-preflight.sh
   - docs/operations/SYNOLOGY_PRODUCTION_TARGET_PREFLIGHT_EVIDENCE.md
   - docs/agents/ACTIVE_WORK.md
   - docs/agents/tasks/active/OTERYN-20260727-synology-production-target-preflight.md
   - docs/agents/tasks/archive/OTERYN-20260727-synology-production-target-preflight.md
 proven:
-  - main head f5aeb2e80d4692b3ee6309cc3454aa20697721f2 had no active task after edge-emulation archival
-  - Issue 238 is open for the bounded local Synology production-target preflight
-  - the existing stack keeps Platform Gateway and legacy login on loopback, exposes only optional private-LAN game TCP, and keeps MariaDB and Redis unpublished
-  - PR 239 contains a trusted-main live workflow, temporary dispatcher, fail-closed runtime checks and a no-retained-dump streaming restore drill
-  - exact PR head fe28688c2af56100bd4a61ca8fb2820ebb2e8a01 passed Governance 30274983519, CI 30274986993, Synology package build 30274980191, Synology preflight static 30274980234, Edge 30274980034, concurrency 30274983457, DB outage 30274980212 and Phase 7 30274980231
+  - PR 239 merged as 50d917acd7fde333f0e74757ec1ced70e30c53de after all eight exact-head workflows passed
+  - trusted-main commit contains the bounded live preflight and one-shot dispatcher with the activation marker
+  - Issue 238 remains open and has no final dispatcher PASS or FAIL comment yet
+  - PR 243 adds a read-only observer that queries only GitHub Actions metadata and posts a bounded status snapshot
   - Issue 91 remains open and requires direct evidence from a future real production environment
-  - no other open pull request overlaps the preflight paths or intent
 derived:
-  - the repository-owned implementation is ready for trusted-main execution against the existing local NAS
-  - a successful live run can close the locally verifiable target-readiness gap without making a production claim
+  - the absence of an Issue 238 result comment is not sufficient to distinguish a queued runner from dispatcher failure
+  - the observer can resolve current Actions state without creating another live preflight or accessing the NAS
 unknown:
-  - exact currently deployed Platform Gateway and Canary image references until the live Synology workflow inspects them
-  - whether the first live restore drill passes on the current Synology MariaDB dataset
+  - current one-shot dispatcher and live workflow run identities/statuses until the observer executes
+  - exact currently deployed Platform Gateway and Canary image references until the live Synology workflow succeeds
+  - whether the live restore drill passes on the current Synology MariaDB dataset
 conflicts: []
 first_failure:
   marker: preflight-script-syntax
-  evidence: Synology Production Target Preflight run 30274168248 failed during bash syntax validation before any live job; malformed backtick quoting in the first SQL manifest implementation was replaced by Python streaming digest verification
+  evidence: Synology Production Target Preflight run 30274168248 failed during bash syntax validation before any live job; malformed backtick quoting was replaced by Python streaming digest verification
 rejected_hypotheses:
-  - the live NAS or database caused the first failure: the pull-request live job was skipped and no Synology action occurred
+  - silence in Issue 238 proves success or failure: only explicit workflow state or artifact evidence is authoritative
+  - the observer mutates Synology: it has no Synology runner, environment or dispatch permission
   - local Synology evidence can close Issue 91: public provider and production facts remain direct-environment requirements
 changed_paths:
   - .github/workflows/synology-production-target-preflight.yml
   - .github/workflows/one-shot-synology-production-target-preflight.yml
+  - .github/workflows/one-shot-synology-preflight-observer.yml
   - deploy/synology/.production-target-preflight-trigger
   - deploy/synology/scripts/production-target-preflight.sh
   - docs/operations/SYNOLOGY_PRODUCTION_TARGET_PREFLIGHT_EVIDENCE.md
   - docs/agents/ACTIVE_WORK.md
   - docs/agents/tasks/active/OTERYN-20260727-synology-production-target-preflight.md
 validation:
-  - command: repository Synology deployment and production-boundary review
-    result: PASS
-    evidence: existing deployment package, health/rollback scripts and Production Go-Live Gate preserve staging-only classification
-  - command: Synology Production Target Preflight 30274168248
-    result: FAIL
-    evidence: static bash syntax check rejected the initial SQL quoting; live-preflight was skipped
   - command: PR 239 exact-head required workflows
     result: PASS
-    evidence: Governance 30274983519, CI 30274986993, Synology package build 30274980191, Synology preflight 30274980234, Edge 30274980034, concurrency 30274983457, DB outage 30274980212 and Phase 7 30274980231 on fe28688c2af56100bd4a61ca8fb2820ebb2e8a01
+    evidence: all eight required workflows passed on f4aaa3426f680f593be175ebd332ccf9769a4814
+  - command: PR 239 squash merge
+    result: PASS
+    evidence: trusted-main activation commit 50d917acd7fde333f0e74757ec1ced70e30c53de
 blockers: []
-next_action: Mark PR 239 ready, squash-merge it with the trusted-main activation marker, then inspect the resulting live Synology preflight run.
+next_action: Pass PR 243 checks, merge the read-only observer, trigger its bounded snapshot and use that state to continue the live preflight lifecycle.
 ```
 
 ## Notes
