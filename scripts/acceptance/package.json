@@ -6,6 +6,10 @@
   "scripts": {
     "test": "playwright test --project=chromium-primary --grep-invert \"Flow 3 — password recovery uses real test SMTP, revokes old sessions and rejects token replay|Password change — authenticated change revokes all existing sessions and requires the new password|Flow 5 — character validation, reserved/duplicate/quota/ownership/idempotency boundaries|Flow 6 — public game data, pagination, empty and controlled dependency-failure states\"",
     "test:smoke": "playwright test --project=chromium-primary --grep @smoke",
+    "test:account-lifecycle": "playwright test --project=chromium-primary --grep @portal-account",
+    "test:coverage-contract": "node coverage/validate-portal-coverage.mjs",
+    "test:coverage-contract:manifest": "node coverage/validate-portal-coverage.mjs --manifest-only",
+    "test:coverage-contract:strict": "node coverage/validate-portal-coverage.mjs --strict",
     "test:portability": "playwright test --project=portability-chromium --project=portability-firefox --project=portability-webkit",
     "test:responsive": "playwright test --project=responsive-desktop --project=responsive-tablet --project=responsive-mobile",
     "test:resilience": "playwright test --project=resilience-chromium",
