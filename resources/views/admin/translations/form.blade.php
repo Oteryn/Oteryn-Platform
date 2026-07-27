@@ -2,6 +2,10 @@
 
 @section('title', 'Polish translation')
 
+@push('head')
+    <link rel="stylesheet" href="{{ asset('css/admin-translations.css') }}">
+@endpush
+
 @section('content')
     @php
         $sourceBody = match ($type) {
