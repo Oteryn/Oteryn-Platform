@@ -1,0 +1,4 @@
+oteryn.test:53 {
+    errors
+    file /zones/db.oteryn.test
+}
