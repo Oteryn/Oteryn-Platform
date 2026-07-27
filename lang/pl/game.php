@@ -15,4 +15,12 @@ return [
         'exalted_monk' => 'Exalted Monk',
         'unknown' => 'Nieznana profesja (ID :id)',
     ],
+    'profile' => [
+        'eyebrow' => 'Profil postaci',
+        'description' => 'Publiczne informacje o postaci z tylko do odczytu źródła danych Canary.',
+        'no_guild' => 'Brak gildii',
+        'explore' => 'Odkrywaj świat',
+        'highscores' => 'Zobacz rankingi',
+        'online' => 'Zobacz postacie online',
+    ],
 ];
