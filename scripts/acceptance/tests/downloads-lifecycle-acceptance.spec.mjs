@@ -49,6 +49,13 @@ async function fillReleaseDraft(page, { version, notes, artifactUrl, filename, s
   await page.locator('#artifact-0-sha256').fill(sha256);
 }
 
+function artifactDownloadLink(page, filename) {
+  return page
+    .locator('article.card')
+    .filter({ hasText: filename })
+    .getByRole('link', { name: 'Download', exact: true });
+}
+
 test.beforeEach(async ({ page }) => {
   page.__acceptanceDiagnostics = installDiagnostics(page);
 });
@@ -168,8 +175,7 @@ test('@portal-downloads complete public, administrator, localization and recover
   await expect(page.getByText(filename)).toBeVisible();
   await expect(page.getByText('1.5 MB')).toBeVisible();
   await expect(page.getByText(sha256)).toBeVisible();
-  const downloadLink = page.getByRole('link', { name: 'Download' }).first();
-  await expect(downloadLink).toHaveAttribute('href', approvedUrl);
+  await expect(artifactDownloadLink(page, filename)).toHaveAttribute('href', approvedUrl);
 
   await page.goto('/en/download/windows');
   await expect(page.getByText(filename)).toBeVisible();
@@ -201,7 +207,7 @@ test('@portal-downloads complete public, administrator, localization and recover
   downloadsState('set-artifact-url', version, approvedUrl);
   await page.reload();
   await expect(page.getByRole('heading', { name: `Oteryn Client ${version}` })).toBeVisible();
-  await expect(page.getByRole('link', { name: 'Download' }).first()).toHaveAttribute('href', approvedUrl);
+  await expect(artifactDownloadLink(page, filename)).toHaveAttribute('href', approvedUrl);
 
   for (const viewport of [desktopViewport, tabletViewport, mobileViewport]) {
     await page.setViewportSize(viewport);
