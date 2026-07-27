@@ -17,7 +17,7 @@ Convenience index only. Individual active task records, live PRs and Git state a
 - PR #92 / `c18432df6b387932aa04e1eb269677c9078d9063` — fail-closed non-secret Production Go-Live verification evidence packet prepared; actual production execution remains issue #91.
 - PR #94 / `26ff602696c597aac0833415b0a47af5d427a52d` — risk-based E2E architecture plus required bounded Chromium/Firefox/WebKit portability, desktop/tablet/mobile responsive and representative browser-security coverage merged.
 - PR #99 / `21d67c7e7edb533f9765ff96417f2ab2fbb1aea8` — issue #98 closed; existing Phase 7 release validation now includes isolated synthetic existing-data upgrade, candidate smoke, old-code rollback smoke against the post-upgrade database and candidate redeploy smoke with durable `STAGING_PROVEN` evidence.
-- PR #100 / `8a4fd46db04c8c75a4206be8c0920a96cc473452b` — archived the completed migration/rollback validation task and closed its governance lifecycle.
+- PR #100 / `8a4fd46db04d2476b6fea7fb47fdd58443548ac3` — archived the completed migration/rollback validation task and closed its governance lifecycle.
 - PR #102 / `ee235cbbdd379a5047fede98ff79a0e35e22ce76` — issue #101 closed; Phase 7 now proves exact response `X-Request-ID` to matching structured request-completion log correlation with bounded method/status agreement and non-secret `STAGING_PROVEN` evidence.
 - PR #104 / `18bd5b2c3b4496677cc58df41fd50c6387e9e6f8` — archived the completed observability-correlation task and closed its governance lifecycle.
 - PR #106 / `8030f98d7280c16705f34f2d29c8ebd7fc85f285` — issue #105 closed; required acceptance now includes zero-retry Chromium public dependency resilience proving Canary DB and Redis failure, deterministic restoration and successful browser recovery.
