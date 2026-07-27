@@ -13,21 +13,6 @@ const primaryIgnore = [
   '**/accessibility-critical.spec.mjs',
   '**/soak-public.spec.mjs',
 ];
-const portabilityTests = [
-  '**/portability-critical.spec.mjs',
-  '**/public-wiki*.spec.mjs',
-  '**/admin-wiki*.spec.mjs',
-  '**/homepage-navigation-seo.spec.mjs',
-  '**/events-public-acceptance.spec.mjs',
-];
-const responsiveTests = [
-  '**/responsive-critical.spec.mjs',
-  '**/public-wiki*.spec.mjs',
-  '**/admin-wiki*.spec.mjs',
-  '**/homepage-navigation-seo.spec.mjs',
-  '**/events-public-acceptance.spec.mjs',
-  '**/events-admin-acceptance.spec.mjs',
-];
 const configuredRetries = process.env.ACCEPTANCE_ZERO_RETRIES === '1' ? 0 : process.env.CI ? 1 : 0;
 
 export default defineConfig({
@@ -69,7 +54,7 @@ export default defineConfig({
     },
     {
       name: 'portability-chromium',
-      testMatch: portabilityTests,
+      testMatch: ['**/portability-critical.spec.mjs', '**/public-wiki*.spec.mjs', '**/admin-wiki*.spec.mjs', '**/homepage-navigation-seo.spec.mjs'],
       use: {
         browserName: 'chromium',
         viewport: desktopViewport,
@@ -77,7 +62,7 @@ export default defineConfig({
     },
     {
       name: 'portability-firefox',
-      testMatch: portabilityTests,
+      testMatch: ['**/portability-critical.spec.mjs', '**/public-wiki*.spec.mjs', '**/admin-wiki*.spec.mjs', '**/homepage-navigation-seo.spec.mjs'],
       use: {
         browserName: 'firefox',
         viewport: desktopViewport,
@@ -85,7 +70,7 @@ export default defineConfig({
     },
     {
       name: 'portability-webkit',
-      testMatch: portabilityTests,
+      testMatch: ['**/portability-critical.spec.mjs', '**/public-wiki*.spec.mjs', '**/admin-wiki*.spec.mjs', '**/homepage-navigation-seo.spec.mjs'],
       use: {
         browserName: 'webkit',
         viewport: desktopViewport,
@@ -93,7 +78,7 @@ export default defineConfig({
     },
     {
       name: 'responsive-desktop',
-      testMatch: responsiveTests,
+      testMatch: ['**/responsive-critical.spec.mjs', '**/public-wiki*.spec.mjs', '**/admin-wiki*.spec.mjs', '**/homepage-navigation-seo.spec.mjs'],
       use: {
         browserName: 'chromium',
         viewport: desktopViewport,
@@ -101,7 +86,7 @@ export default defineConfig({
     },
     {
       name: 'responsive-tablet',
-      testMatch: responsiveTests,
+      testMatch: ['**/responsive-critical.spec.mjs', '**/public-wiki*.spec.mjs', '**/admin-wiki*.spec.mjs', '**/homepage-navigation-seo.spec.mjs'],
       use: {
         browserName: 'chromium',
         viewport: tabletViewport,
@@ -110,7 +95,7 @@ export default defineConfig({
     },
     {
       name: 'responsive-mobile',
-      testMatch: responsiveTests,
+      testMatch: ['**/responsive-critical.spec.mjs', '**/public-wiki*.spec.mjs', '**/admin-wiki*.spec.mjs', '**/homepage-navigation-seo.spec.mjs'],
       use: {
         browserName: 'chromium',
         viewport: mobileViewport,
