@@ -74,10 +74,10 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-07-27T17:20:00+02:00
-head: c45cc8b336029cb011c9e3c2af6798834c2763b4
+updated_at: 2026-07-27T17:24:00+02:00
+head: 41c869140444a807c14e1d6ccb2fd3f507b51a7b
 branch: feat/OTERYN-20260727-portal-completeness
-pr: pending
+pr: 246
 status: validating
 context_routes:
   - agent-governance
@@ -110,6 +110,7 @@ proven:
   - the operator screenshot matches the sparse character view in deployed SHA 415aa3; the defect is product incompleteness rather than release drift
   - source changes add owned-character account reads, explicit account states, readable vocation mappings, approved guild presentation and removal of the obsolete preview route
   - Canary account IDs remain excluded from rendered account and public character output
+  - fresh PR 246 is based on current main and emitted the required workflow set
   - no Canary, login-server, production, router or DSM write occurred
 derived:
   - exact deployed release identity is reconciled and is no longer classified DEPLOYMENT_DRIFT
@@ -120,7 +121,7 @@ unknown:
 conflicts: []
 first_failure:
   marker: none
-  evidence: none observed on the fresh branch yet
+  evidence: no failed workflow observed yet
 rejected_hypotheses:
   - Synology was running an unknown or mismatched Platform build
   - every available Canary player field should be made public without a privacy/product contract
@@ -143,12 +144,12 @@ validation:
   - command: inspect sanitized Synology production-target preflight artifact
     result: PASS
     evidence: run 30275482522 artifact reports deployed_release_sha 415aa3febd04c8d9c61082d4a7451352bf084013
-  - command: formatter, static analysis, tests and browser acceptance
+  - command: PR 246 required workflow set
     result: NOT_RUN
-    evidence: pending fresh pull-request workflow execution
+    evidence: workflows emitted and are currently queued or running
 blockers:
   - none
-next_action: Open the fresh pull request and inspect the first exact-head workflow result.
+next_action: Inspect the first failed PR 246 workflow, or record exact-head success if every required workflow passes.
 ```
 
 ## Notes
