@@ -15,4 +15,12 @@ return [
         'exalted_monk' => 'Exalted Monk',
         'unknown' => 'Unknown vocation (ID :id)',
     ],
+    'profile' => [
+        'eyebrow' => 'Character profile',
+        'description' => 'Public gameplay information from the read-only Canary data boundary.',
+        'no_guild' => 'No guild',
+        'explore' => 'Explore the realm',
+        'highscores' => 'View highscores',
+        'online' => 'View online characters',
+    ],
 ];
