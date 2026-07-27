@@ -97,19 +97,9 @@ jobs:
                   raise SystemExit(f'Matrix marker missing: {old}')
               matrix = matrix.replace(old, new)
           matrix_path.write_text(matrix)
-
-          workflow_path = Path('.github/workflows/portal-acceptance-contract.yml')
-          workflow = workflow_path.read_text()
-          old_command = 'npm --prefix scripts/acceptance run test:coverage-contract | tee artifacts/portal-coverage/report.json'
-          new_command = 'npm --prefix scripts/acceptance run test:coverage-contract:strict | tee artifacts/portal-coverage/report.json'
-          if old_command not in workflow:
-              raise SystemExit('Portal acceptance command marker missing.')
-          workflow_path.write_text(workflow.replace(old_command, new_command))
-
-          Path('.github/workflows/promote-final-portal-ledger.yml').unlink()
           PY
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-          git add scripts/acceptance/coverage/portal-coverage-manifest.json docs/testing/PORTAL_ACCEPTANCE_COVERAGE_MATRIX.md .github/workflows/portal-acceptance-contract.yml .github/workflows/promote-final-portal-ledger.yml
-          git commit -m 'test(acceptance): promote final portal ledger'
+          git add scripts/acceptance/coverage/portal-coverage-manifest.json docs/testing/PORTAL_ACCEPTANCE_COVERAGE_MATRIX.md
+          git commit -m 'test(acceptance): promote final portal ledger data'
           git push origin HEAD:test/OTERYN-20260727-portal-acceptance-final-closure
