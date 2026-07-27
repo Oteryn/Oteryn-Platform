@@ -43,7 +43,7 @@
             @endif
         </section>
 
-        <form class="form-stack" method="POST" action="{{ route($updateRoute, $source) }}">
+        <form class="form-stack translation-form" method="POST" action="{{ route($updateRoute, $source) }}">
             @csrf
             @method('PUT')
 
