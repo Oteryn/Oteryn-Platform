@@ -132,17 +132,44 @@ jobs:
           actual_gateway="$(docker inspect --format '{{.Config.Image}}' "$gateway_container")"
           [[ "$actual_platform" == "$expected_platform" ]]
           [[ "$actual_gateway" == "$expected_gateway" ]]
+          echo "PLATFORM_CONTAINER=$platform_container" >> "$GITHUB_ENV"
           echo "platform_image=$actual_platform" >> "$GITHUB_OUTPUT"
           echo "gateway_image=$actual_gateway" >> "$GITHUB_OUTPUT"
 
       - name: Verify refreshed portal runtime
         run: |
           set -euo pipefail
-          curl -fsS http://127.0.0.1:8000/health >/dev/null
-          home="$(curl -fsS http://127.0.0.1:8000/)"
-          grep -qi 'Oteryn' <<<"$home"
-          account_status="$(curl --silent --output /dev/null --write-out '%{http_code}' http://127.0.0.1:8000/account)"
-          [[ "$account_status" == 302 || "$account_status" == 200 ]]
+          docker exec -i "$PLATFORM_CONTAINER" php <<'PHP'
+          <?php
+          $context = stream_context_create([
+              'http' => [
+                  'follow_location' => 0,
+                  'ignore_errors' => true,
+                  'timeout' => 5,
+              ],
+          ]);
+
+          $health = file_get_contents('http://127.0.0.1:8000/health', false, $context);
+          if (! is_string($health)) {
+              fwrite(STDERR, "Platform health response was unavailable.\n");
+              exit(41);
+          }
+
+          $home = file_get_contents('http://127.0.0.1:8000/', false, $context);
+          if (! is_string($home) || stripos($home, 'Oteryn') === false) {
+              fwrite(STDERR, "Refreshed portal homepage marker was unavailable.\n");
+              exit(42);
+          }
+
+          $headers = get_headers('http://127.0.0.1:8000/account', false, $context);
+          $statusLine = is_array($headers) ? ($headers[0] ?? null) : null;
+          if (! is_string($statusLine) || preg_match('/^HTTP\/\S+ (200|302)\b/', $statusLine) !== 1) {
+              fwrite(STDERR, "Account surface did not return the expected protected response.\n");
+              exit(43);
+          }
+
+          echo "Refreshed portal runtime verified inside Platform container namespace.\n";
+          PHP
 
   report:
     if: always()
@@ -180,7 +207,7 @@ jobs:
           - Platform image: \`${PLATFORM_IMAGE:-unresolved}\`
           - Gateway image: \`${GATEWAY_IMAGE:-unresolved}\`
 
-          PASS means the exact images were deployed through the existing guarded workflow, both running image references matched, health passed and the refreshed portal responded locally on Synology staging. No secret or private configuration value is included.
+          PASS means the exact images were deployed through the existing guarded workflow, both running image references matched, health passed and the refreshed portal responded inside the Platform container namespace. No secret or private configuration value is included.
           EOF
           )"
           gh api --method POST "repos/${GITHUB_REPOSITORY}/issues/261/comments" -f body="$body"
