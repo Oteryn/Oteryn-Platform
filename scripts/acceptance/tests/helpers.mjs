@@ -235,13 +235,15 @@ export async function enrollMfa(page, password) {
   return { secret, enrollmentCode, recoveryCodes: recoveryCodes.map((value) => value.trim()) };
 }
 
-export async function completeMfaChallenge(page, code) {
+export async function completeMfaChallenge(page, code, { expectSuccess = true } = {}) {
   const challengeHeading = page.getByRole('heading', { name: 'Complete your sign in' });
   await expect(challengeHeading).toBeVisible();
   await page.getByLabel('Authenticator or recovery code').fill(code);
   await page.getByRole('button', { name: 'Verify and sign in' }).click();
-  await expect(challengeHeading).toBeHidden();
-  await page.waitForLoadState('domcontentloaded');
+  if (expectSuccess) {
+    await expect(challengeHeading).toBeHidden();
+    await page.waitForLoadState('domcontentloaded');
+  }
 }
 
 export async function waitForResetLink(email, timeoutMs = 20_000) {

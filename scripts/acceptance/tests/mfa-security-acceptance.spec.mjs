@@ -41,10 +41,10 @@ test('@portal-account Flow 4 — MFA valid, invalid, replay, recovery single-use
 
   await logout(page);
   await login(page, email, password);
-  await completeMfaChallenge(page, 'not-a-code');
+  await completeMfaChallenge(page, 'not-a-code', { expectSuccess: false });
   await expect(page.getByRole('alert')).toBeVisible();
 
-  await completeMfaChallenge(page, lastTotp);
+  await completeMfaChallenge(page, lastTotp, { expectSuccess: false });
   await expect(page.getByRole('alert')).toBeVisible();
 
   const firstRecoveryCode = mfa.recoveryCodes[0];
