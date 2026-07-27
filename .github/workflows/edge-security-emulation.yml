@@ -69,6 +69,7 @@ jobs:
           echo "APP_KEY=$(php -r 'echo "base64:".base64_encode(random_bytes(32));')" >> "$GITHUB_ENV"
           touch "$DB_DATABASE"
           mkdir -p storage/framework/cache/data storage/framework/sessions storage/framework/views
+          chmod +x tests/edge-emulation/bin/curl
 
       - name: Migrate isolated Platform database
         run: php artisan migrate --force --no-interaction
@@ -87,7 +88,10 @@ jobs:
           exit 1
 
       - name: Validate DNS TLS WAF Access and origin composition
-        run: bash tests/edge-emulation/run.sh 2>&1 | tee /tmp/edge-security-emulation.log
+        run: |
+          set -o pipefail
+          PATH="$GITHUB_WORKSPACE/tests/edge-emulation/bin:$PATH" \
+            bash tests/edge-emulation/run.sh 2>&1 | tee /tmp/edge-security-emulation.log
 
       - name: Record staging-only decision
         run: |
