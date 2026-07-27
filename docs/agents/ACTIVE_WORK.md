@@ -4,7 +4,8 @@ Convenience index only. Individual active task records, live PRs and Git state a
 
 ## Active tasks
 
-- `OTERYN-20260727-exhaustive-portal-acceptance` — PR #247 is ready after exact-head route classification, complete zero-retry account lifecycle and required repository workflows passed. Its manifest defines the bounded successor order under Issue #240.
+- `OTERYN-20260727-downloads-acceptance` — PR #253 owns the bounded Downloads public/admin/localization closure under Issue #240.
+- `OTERYN-20260727-events-acceptance` — bounded Events public/admin/localization browser closure; branch `test/OTERYN-20260727-events-acceptance`.
 
 ## Closed acceptance and release-preparation follow-ups
 
@@ -17,7 +18,7 @@ Convenience index only. Individual active task records, live PRs and Git state a
 - PR #92 / `c18432df6b387932aa04e1eb269677c9078d9063` — fail-closed non-secret Production Go-Live verification evidence packet prepared; actual production execution remains issue #91.
 - PR #94 / `26ff602696c597aac0833415b0a47af5d427a52d` — risk-based E2E architecture plus required bounded Chromium/Firefox/WebKit portability, desktop/tablet/mobile responsive and representative browser-security coverage merged.
 - PR #99 / `21d67c7e7edb533f9765ff96417f2ab2fbb1aea8` — issue #98 closed; existing Phase 7 release validation now includes isolated synthetic existing-data upgrade, candidate smoke, old-code rollback smoke against the post-upgrade database and candidate redeploy smoke with durable `STAGING_PROVEN` evidence.
-- PR #100 / `8a4fd46db04d2476b6fea7fb47fdd58443548ac3` — archived the completed migration/rollback validation task and closed its governance lifecycle.
+- PR #100 / `8a4fd46db04d2477e7fede98ff79a0e35e22ce76` — archived the completed migration/rollback validation task and closed its governance lifecycle.
 - PR #102 / `ee235cbbdd379a5047fede98ff79a0e35e22ce76` — issue #101 closed; Phase 7 now proves exact response `X-Request-ID` to matching structured request-completion log correlation with bounded method/status agreement and non-secret `STAGING_PROVEN` evidence.
 - PR #104 / `18bd5b2c3b4496677cc58df41fd50c6387e9e6f8` — archived the completed observability-correlation task and closed its governance lifecycle.
 - PR #106 / `8030f98d7280c16705f34f2d29c8ebd7fc85f285` — issue #105 closed; required acceptance now includes zero-retry Chromium public dependency resilience proving Canary DB and Redis failure, deterministic restoration and successful browser recovery.
@@ -43,6 +44,7 @@ Convenience index only. Individual active task records, live PRs and Git state a
 - PR #239 / `50d917acd7fde333f0e74757ec1ced70e30c53de` — local Synology production-target preflight merged; live run `30275482522` proved host/runtime/storage/binding/health/least-privilege/Redis/rollback and isolated restore boundaries as `STAGING_PROVEN`.
 - PR #245 / `458d447a35aa87dd1b13fa16e120e9b9fb9c21ec` — Synology target-preflight lifecycle archived; permanent manual revalidation remains available.
 - PR #246 / `9af2624e68061d52f861068976a38fe67abc4b5a` — first Issue #240 runtime slice merged: Account Center character inventory/states, readable vocations, approved character guild presentation, obsolete public preview removal and fail-closed completeness matrix.
+- PR #247 / `4e8a11a9b76aeaaa59a5dcc38bcd8a8e2fa54b39` — machine-enforced portal route/state/role/viewport/evidence ledger and complete zero-retry account lifecycle merged; bounded module gaps remain under Issue #240.
 
 ## Current project phase
 
@@ -56,7 +58,7 @@ Previous representative acceptance remains valid only for its documented boundar
 
 - **Production Readiness: STAGING_PROVEN for previously documented boundaries**
 - **Portal Completeness: FAIL-CLOSED AUDIT AND REMEDIATION IN PROGRESS (Issue #240)**
-- **Functional Acceptance: machine-enforced route classification and complete account lifecycle ready in PR #247; planned and partial module packages remain**
+- **Functional Acceptance: route classification and complete account lifecycle merged; bounded module packages remain**
 - **Visual / UX Acceptance: representative evidence retained; full current-surface closure pending**
 - **Public Website Expansion Programme: implementation merged; completeness remediation reopened**
 - **Emulated Edge Security: STAGING_PROVEN**
@@ -68,7 +70,7 @@ The live Synology preflight identifies the running staging release as `415aa3feb
 
 ## Next work
 
-Merge PR #247 after its docs-only exact-head checks, then close Downloads, Events, Announcements, Support/Legal, Editorial Media and Wiki reconciliation in bounded successor PRs. Issue #244 separately owns audited homepage-template selection.
+Close Downloads and Events in the current non-overlapping PRs, then Announcements, Support/Legal, Editorial Media and Wiki reconciliation in bounded successors. Issue #244 separately owns audited homepage-template selection.
 
 Issue #91 remains the separate real Production Go-Live tracker.
 
