@@ -1,0 +1,29 @@
+name: Inspect Final Staging Run
+
+on:
+  pull_request:
+    paths:
+      - .github/workflows/inspect-final-staging-run.yml
+
+permissions:
+  actions: read
+  contents: read
+  issues: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Print sanitized final-staging status
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TARGET_SHA: d7984a2def655a01b513cdbc823117f37b90d5d4
+        run: |
+          set -euo pipefail
+          echo '--- runs for exact SHA ---'
+          gh api "repos/${GITHUB_REPOSITORY}/actions/runs?head_sha=${TARGET_SHA}&per_page=100" \
+            --jq '.workflow_runs[] | [.name, (.id|tostring), .status, (.conclusion // "pending")] | @tsv'
+          echo '--- final report comment ---'
+          gh api "repos/${GITHUB_REPOSITORY}/issues/145/comments?per_page=100" \
+            --jq '.[] | select(.body | contains("public-web-final-staging:'"${TARGET_SHA}"'")) | [.id, .body] | @json'
