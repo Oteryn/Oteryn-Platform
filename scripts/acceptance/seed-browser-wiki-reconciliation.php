@@ -50,6 +50,7 @@ $reset = static function () use ($restoreAvailability): void {
     $restoreAvailability();
 
     DB::transaction(static function (): void {
+        DB::table('wiki_revisions')->update(['source_revision_id' => null]);
         DB::table('wiki_revisions')->delete();
         DB::table('wiki_article_category')->delete();
         DB::table('wiki_article_translations')->delete();
