@@ -1,4 +1,4 @@
-name: Events Manifest Snapshot
+name: Events Manifest Promotion
 
 on:
   pull_request:
@@ -6,24 +6,118 @@ on:
       - main
     paths:
       - '.github/workflows/events-manifest-snapshot.yml'
-  workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
-  snapshot:
+  promote:
+    if: github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Checkout exact head
+      - name: Checkout pull-request branch
         uses: actions/checkout@v7
         with:
-          ref: ${{ github.event.pull_request.head.sha || github.sha }}
-      - name: Upload exact manifest snapshot
-        uses: actions/upload-artifact@v7
-        with:
-          name: events-current-main-manifest-${{ github.run_id }}-${{ github.run_attempt }}
-          path: scripts/acceptance/coverage/portal-coverage-manifest.json
-          if-no-files-found: error
-          retention-days: 1
+          ref: ${{ github.head_ref }}
+          fetch-depth: 0
+
+      - name: Promote only the Events coverage record
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          path = Path('scripts/acceptance/coverage/portal-coverage-manifest.json')
+          data = json.loads(path.read_text())
+          by_id = {surface['id']: surface for surface in data['surfaces']}
+
+          downloads = by_id['downloads.public-admin-localization']
+          if downloads['status'] != 'covered' or downloads.get('gaps') != []:
+              raise SystemExit('Downloads coverage must remain covered before Events promotion.')
+
+          events = by_id['events.public-admin']
+          events.update({
+              'status': 'covered',
+              'roles': [
+                  'guest',
+                  'authenticated-no-mfa',
+                  'mfa-confirmed-no-permission',
+                  'events-manager',
+                  'events-publisher',
+              ],
+              'states': [
+                  'empty',
+                  'upcoming',
+                  'active',
+                  'archived',
+                  'cancelled',
+                  'not-found',
+                  'validation',
+                  'draft',
+                  'published',
+                  'edit-to-draft',
+                  'stale-conflict',
+                  'permission-denied',
+                  'localized-en',
+                  'localized-pl',
+                  'audit-visible',
+              ],
+              'viewports': [
+                  'desktop-1440x1000',
+                  'tablet-820x1180',
+                  'mobile-390x844',
+              ],
+              'browsers': [
+                  'events-chromium-desktop',
+                  'events-chromium-tablet',
+                  'events-chromium-mobile',
+                  'events-firefox-desktop',
+                  'events-webkit-desktop',
+              ],
+              'evidence_layers': [
+                  'feature',
+                  'playwright',
+                  'responsive',
+                  'security',
+                  'audit',
+              ],
+              'evidence': [
+                  {
+                      'file': 'tests/Feature/Events/EventsModuleTest.php',
+                      'markers': [],
+                  },
+                  {
+                      'file': 'scripts/acceptance/tests/events-public-acceptance.spec.mjs',
+                      'markers': [
+                          '@portal-events public calendar, detail, locale isolation, empty and not-found states',
+                      ],
+                  },
+                  {
+                      'file': 'scripts/acceptance/tests/events-admin-acceptance.spec.mjs',
+                      'markers': [
+                          '@portal-events guest, MFA and exact manage/publish permission boundaries fail closed',
+                          '@portal-events administrator validation, create, publish, edit-to-draft, stale conflict and audit lifecycle',
+                      ],
+                  },
+              ],
+              'gaps': [],
+          })
+
+          path.write_text(json.dumps(data, indent=2, ensure_ascii=False) + '\n')
+          PY
+
+          git diff --check
+          git diff -- scripts/acceptance/coverage/portal-coverage-manifest.json
+
+      - name: Commit exact manifest promotion
+        run: |
+          if git diff --quiet -- scripts/acceptance/coverage/portal-coverage-manifest.json; then
+            echo 'Events manifest record already promoted.'
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add scripts/acceptance/coverage/portal-coverage-manifest.json
+          git commit -m 'test(events): promote current-main coverage record'
+          git push origin HEAD:${{ github.head_ref }}
