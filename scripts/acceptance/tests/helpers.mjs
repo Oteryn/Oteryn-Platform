@@ -170,7 +170,20 @@ export function uniqueCharacterName(prefix = 'Test') {
   return `${prefix}${suffix}`.slice(0, 15);
 }
 
+function resetAccountProfileRegistrationThrottle() {
+  if (process.env.ACCEPTANCE_RUN_SUFFIX !== 'account') {
+    return;
+  }
+
+  // Account-profile specs share one synthetic HTTP source and execute serially.
+  // Reset only the isolated acceptance cache before helper-driven registration,
+  // preventing a previous scenario from consuming the next scenario's source
+  // allowance. Product limiters and within-scenario 429 assertions stay active.
+  runArtisan('cache:clear');
+}
+
 export async function register(page, email, password) {
+  resetAccountProfileRegistrationThrottle();
   await page.goto('/register');
   await page.getByLabel('Email').fill(email);
   await page.getByLabel('Password', { exact: true }).fill(password);

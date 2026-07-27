@@ -83,7 +83,7 @@ test.afterEach(async ({ page }, testInfo) => {
   }
 });
 
-test('Flow 3b — password recovery uses real SMTP, revokes old sessions and rejects token replay', async ({ browser, page }) => {
+test('@portal-account Flow 3b — password recovery uses real SMTP, revokes old sessions and rejects token replay', async ({ browser, page }) => {
   const email = uniqueEmail('password-recovery');
   const originalPassword = 'AcceptanceRecovery!234';
   const changedPassword = 'AcceptanceRecovered!567';

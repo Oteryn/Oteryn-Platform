@@ -32,7 +32,7 @@ async function createCharacter(page, name) {
   await page.getByRole('button', { name: 'Create character' }).click();
 }
 
-test('Flows 1-2 — new and returning player complete the production-like browser journey', async ({ page }) => {
+test('@portal-account Flows 1-2 — new and returning player complete the production-like browser journey', async ({ page }) => {
   const email = uniqueEmail('player-journey');
   const password = 'AcceptanceJourney!234';
   const character = uniqueCharacterName('Journey');
@@ -58,8 +58,8 @@ test('Flows 1-2 — new and returning player complete the production-like browse
   await expect(page.getByRole('heading', { name: character })).toBeVisible();
   await expect(page.locator('dt').filter({ hasText: 'Level' })).toBeVisible();
   await expect(page.locator('dd').filter({ hasText: '8' }).first()).toBeVisible();
-  await expect(page.locator('dt').filter({ hasText: 'Vocation ID' })).toBeVisible();
-  await expect(page.locator('dd').filter({ hasText: '4' }).first()).toBeVisible();
+  await expect(page.locator('dt').filter({ hasText: 'Vocation' })).toBeVisible();
+  await expect(page.locator('dd').filter({ hasText: 'Knight' }).first()).toBeVisible();
 
   await logout(page);
   await login(page, email, password);
