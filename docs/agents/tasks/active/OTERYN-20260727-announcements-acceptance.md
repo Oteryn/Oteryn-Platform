@@ -45,9 +45,7 @@ owned_paths:
   - docs/agents/ACTIVE_WORK.md
   - docs/agents/tasks/active/OTERYN-20260727-announcements-acceptance.md
   - docs/agents/tasks/active/OTERYN-20260727-downloads-acceptance.md
-  - docs/agents/tasks/active/OTERYN-20260727-events-acceptance.md
   - docs/agents/tasks/archive/OTERYN-20260727-downloads-acceptance.md
-  - docs/agents/tasks/archive/OTERYN-20260727-events-acceptance.md
 modules:
   - Announcements
   - Localization
@@ -55,6 +53,7 @@ modules:
   - Agent governance
 dependencies:
   - PR #255 merged as 7e0fe46b57be4cf19900adefbada7133da47bb21
+  - PR #257 archived Events on main as 05d08714a0b87ee8a453d01bded605ff42de8bbc
   - Issue #240
 blockers:
   - none
@@ -66,10 +65,10 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-07-27T21:15:00+02:00
-head: 272977b77e265efc8309b8d7721883fee40a8d97
-branch: test/OTERYN-20260727-announcements-acceptance
-pr: 258
+updated_at: 2026-07-27T21:25:00+02:00
+head: c15e0934f26a0e96e3a009b18bb0c540864d24a4
+branch: test/OTERYN-20260727-announcements-acceptance-v2
+pr: 259
 status: validating
 context_routes:
   - agent-governance
@@ -89,22 +88,22 @@ owned_paths:
   - docs/agents/ACTIVE_WORK.md
   - docs/agents/tasks/active/OTERYN-20260727-announcements-acceptance.md
   - docs/agents/tasks/active/OTERYN-20260727-downloads-acceptance.md
-  - docs/agents/tasks/active/OTERYN-20260727-events-acceptance.md
   - docs/agents/tasks/archive/OTERYN-20260727-downloads-acceptance.md
-  - docs/agents/tasks/archive/OTERYN-20260727-events-acceptance.md
 proven:
   - lower-layer feature tests prove visibility boundaries, escaping, exact permission, MFA denial, unsafe-link rejection, optimistic locking and audit redaction
   - Events and Downloads are covered on current main
-  - completed Downloads and Events task records were archived and removed from active ownership
+  - PR #257 already archived Events with exact final evidence
+  - the clean successor archives the still-active completed Downloads task without replacing the Events archive
 unknown:
   - exact-head browser result for the composed Announcements matrix
 conflicts: []
 first_failure:
   marker: agent-governance-overlapping-completed-task-ownership
-  evidence: initial PR head retained completed Downloads and Events records under active tasks; both are now archived and removed from active ownership
+  evidence: initial PR retained completed task records and then diverged after PR #257; PR #259 is rebuilt on current main and owns only the remaining Downloads archival
 rejected_hypotheses:
   - lower-layer tests alone prove the composed browser lifecycle
   - completed task records can remain active while successors own the same ledger paths
+  - overwriting PR #257's enriched Events archive is acceptable
 changed_paths:
   - .github/workflows/announcements-acceptance.yml
   - scripts/acceptance/playwright.announcements.config.mjs
@@ -114,9 +113,7 @@ changed_paths:
   - docs/agents/ACTIVE_WORK.md
   - docs/agents/tasks/active/OTERYN-20260727-announcements-acceptance.md
   - docs/agents/tasks/active/OTERYN-20260727-downloads-acceptance.md
-  - docs/agents/tasks/active/OTERYN-20260727-events-acceptance.md
   - docs/agents/tasks/archive/OTERYN-20260727-downloads-acceptance.md
-  - docs/agents/tasks/archive/OTERYN-20260727-events-acceptance.md
 validation:
   - command: repository inspection
     result: PASS
