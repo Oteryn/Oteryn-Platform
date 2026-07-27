@@ -30,11 +30,18 @@ test.afterEach(async ({ page }, testInfo) => {
   }
 });
 
+async function disableNativeValidation(page) {
+  await page.locator('form').evaluate((form) => {
+    form.noValidate = true;
+  });
+}
+
 test('@portal-account registration, duplicate identity, invalid login and protected account access', async ({ page }) => {
   const email = uniqueEmail('account-lifecycle');
   const password = 'AcceptanceAccountLifecycle!234';
 
   await page.goto('/register');
+  await disableNativeValidation(page);
   await page.getByRole('button', { name: 'Register' }).click();
   await expect(page.getByRole('alert')).toBeVisible();
   await expect(page).toHaveURL(/\/register$/u);
@@ -42,6 +49,7 @@ test('@portal-account registration, duplicate identity, invalid login and protec
   await page.getByLabel('Email').fill('not-an-email');
   await page.getByLabel('Password', { exact: true }).fill('short');
   await page.getByLabel('Confirm password').fill('different');
+  await disableNativeValidation(page);
   await page.getByRole('button', { name: 'Register' }).click();
   await expect(page.getByRole('alert')).toBeVisible();
 
