@@ -40,7 +40,7 @@ Tracking issue: #238.
 - [x] A sanitized exact-run artifact recorded only statuses, counts, duration and non-secret image/release identities with `classification: STAGING_PROVEN` and `production_environment_proven: false`.
 - [x] Remaining public-production gaps were recorded without promoting DNS/TLS/Cloudflare/WAF/mail/monitoring/DSM-backup/game-login facts.
 - [x] No router, NAT, DSM reverse proxy, public DNS, Cloudflare account, production, secret or external-repository action occurred.
-- [x] The temporary one-shot dispatcher and trigger are removed by the closeout PR and this completed task record is archived.
+- [x] The temporary one-shot dispatcher and trigger are removed by PR #245 and this completed task record is archived.
 
 ## Ownership
 
@@ -71,10 +71,10 @@ cross_repository_tasks: []
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-07-27T16:58:00+02:00
-head: 50d917acd7fde333f0e74757ec1ced70e30c53de
+updated_at: 2026-07-27T17:00:00+02:00
+head: c205f7aea272c45d4544db29ebc0e92ad6825c19
 branch: docs/OTERYN-20260727-synology-preflight-closeout
-pr: none
+pr: 245
 status: ready
 context_routes:
   - agent-governance
@@ -94,6 +94,7 @@ proven:
   - the artifact records classification STAGING_PROVEN and production_environment_proven false
   - the current local runtime uses file sessions file cache synchronous queue and array non-delivery mail
   - PR 243 was closed without merge after the original dispatcher posted its authoritative success evidence
+  - PR 245 removes the one-shot dispatcher and trigger, persists exact evidence, clears ACTIVE_WORK and archives this record
   - no production router NAT DSM reverse proxy public DNS Cloudflare account secret or external-repository action occurred
 derived:
   - all repository-owned and currently locally verifiable Synology production-target preflight work is complete
