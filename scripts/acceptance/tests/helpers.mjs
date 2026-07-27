@@ -236,9 +236,12 @@ export async function enrollMfa(page, password) {
 }
 
 export async function completeMfaChallenge(page, code) {
-  await expect(page.getByRole('heading', { name: 'Complete your sign in' })).toBeVisible();
+  const challengeHeading = page.getByRole('heading', { name: 'Complete your sign in' });
+  await expect(challengeHeading).toBeVisible();
   await page.getByLabel('Authenticator or recovery code').fill(code);
   await page.getByRole('button', { name: 'Verify and sign in' }).click();
+  await expect(challengeHeading).toBeHidden();
+  await page.waitForLoadState('domcontentloaded');
 }
 
 export async function waitForResetLink(email, timeoutMs = 20_000) {
