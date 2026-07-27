@@ -27,7 +27,11 @@ const specializedLifecycleIgnore = [
 const chromiumPrimaryIgnore = process.env.ACCEPTANCE_PROFILE === 'full'
   ? [...primaryIgnore, ...specializedLifecycleIgnore]
   : primaryIgnore;
-const configuredRetries = process.env.ACCEPTANCE_ZERO_RETRIES === '1' ? 0 : process.env.CI ? 1 : 0;
+const forcedZeroRetryProfiles = new Set(['critical', 'full', 'soak']);
+const configuredRetries = process.env.ACCEPTANCE_ZERO_RETRIES === '1'
+  || forcedZeroRetryProfiles.has(process.env.ACCEPTANCE_PROFILE ?? '')
+  ? 0
+  : process.env.CI ? 1 : 0;
 
 const portabilityMatches = [
   '**/portability-critical.spec.mjs',
