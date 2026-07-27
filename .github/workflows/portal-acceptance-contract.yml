@@ -69,7 +69,19 @@ jobs:
         run: echo "APP_KEY=$(php -r 'echo "base64:".base64_encode(random_bytes(32));')" >> "$GITHUB_ENV"
 
       - name: Validate machine-enforced portal coverage ledger
-        run: npm --prefix scripts/acceptance run test:coverage-contract
+        run: |
+          mkdir -p artifacts/portal-coverage
+          set -o pipefail
+          npm --prefix scripts/acceptance run test:coverage-contract | tee artifacts/portal-coverage/report.json
+
+      - name: Upload portal coverage diagnostics
+        if: always() && hashFiles('artifacts/portal-coverage/report.json') != ''
+        uses: actions/upload-artifact@v7
+        with:
+          name: portal-coverage-report-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/portal-coverage/report.json
+          if-no-files-found: error
+          retention-days: 7
 
   account-lifecycle:
     name: Complete account lifecycle
