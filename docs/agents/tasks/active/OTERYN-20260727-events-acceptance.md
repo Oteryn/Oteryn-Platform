@@ -53,6 +53,7 @@ modules:
 dependencies:
   - Issue #240
   - ADR 0015
+  - PR #253 merged as f9301792cfc82956aa4af792283c18bcbaf2c28e
 blockers:
   - none
 cross_repository_tasks:
@@ -63,11 +64,11 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-07-27T18:29:00Z
-head: 3a51bc945f13fd7c9b3fe8e37ea5d644fb2f312e
-branch: test/OTERYN-20260727-events-acceptance
-pr: 254
-status: ready
+updated_at: 2026-07-27T20:45:00+02:00
+head: 1ff20e166796fa2ff6b8a71009f6605ece4558e8
+branch: test/OTERYN-20260727-events-acceptance-v3
+pr: 255
+status: validating
 context_routes:
   - agent-governance
   - testing
@@ -85,30 +86,27 @@ owned_paths:
   - scripts/acceptance/coverage/portal-coverage-manifest.json
   - docs/testing/PORTAL_ACCEPTANCE_COVERAGE_MATRIX.md
 proven:
-  - Main at task start was 17f1acd430c27c8c441b59b16b440b8763f03312.
-  - PR #253 owns Downloads acceptance; Events does not modify its shared package or primary Playwright configuration paths.
   - Existing Events feature tests remain authoritative for UTC boundaries, validation, exact permissions, audit redaction and optimistic-lock correctness.
   - Dedicated Events Acceptance run 30293402575 passed on exact runtime/browser head 3a51bc945f13fd7c9b3fe8e37ea5d644fb2f312e with zero retries.
   - The Events matrix covers Chromium desktop, tablet and mobile plus public Firefox and WebKit.
   - Public scenarios prove empty, active, upcoming, archived, cancelled, detail, not-found and locale-isolated English/Polish behavior.
   - Administrator scenarios prove guest, no-MFA, no-permission, manage-only and manage-plus-publish boundaries, validation, draft, publish, edit-to-draft, visible 409 conflict and audit redaction.
   - Events scenarios restore the shared homepage fixture after every test, preventing cross-spec contamination.
-  - Portal Acceptance Contract run 30293402858 passed live route classification, evidence-file and marker validation on the exact runtime/browser head.
-  - CI run 30293402905 passed Composer validation/audit, Pint, PHPStan level 10 and PHPUnit on the exact runtime/browser head.
-  - Acceptance E2E and Visual UX run 30293402551 passed smoke, Chromium/Firefox/WebKit portability, desktop/tablet/mobile responsive, resilience and keyboard accessibility profiles.
-  - Phase 7, Platform DB outage, Edge Security, Game Auth concurrency, Synology preflight and Agent Governance also passed on the same exact runtime/browser head.
-  - The manifest classifies events.public-admin as covered and the human-readable matrix records no remaining Events gap.
+  - PR #255 was rebuilt on current main after Downloads merged, preserving the covered Downloads record and copying only the validated Events ledger record.
+  - The temporary ledger reconciliation workflow was removed before final validation.
+  - No Canary, login-server, OTClient or production write occurred.
 derived:
   - The dedicated module workflow provides the required composed browser evidence without replacing stronger lower-level transaction and locking proofs.
+  - Final exact-head checks on the conflict-free successor are required before merge.
 unknown:
   - Production behavior remains UNKNOWN until the separate production verification boundary is executed.
 conflicts: []
 first_failure:
   marker: Acceptance E2E and Visual UX / bounded browser portability / homepage-navigation-seo
-  evidence: the initial Events fixture removed Acceptance tournament; deterministic shared-fixture restoration fixed the root cause and the exact-head rerun passed
+  evidence: the initial Events fixture removed Acceptance tournament; deterministic shared-fixture restoration fixed the root cause and the exact runtime/browser rerun passed
 rejected_hypotheses:
   - Reimplementing transaction races in Playwright would duplicate stronger feature/database evidence.
-  - Expanding the shared primary Playwright matrix was rejected because PR #253 owned overlapping shared files and a module-specific gate provides a cleaner proof boundary.
+  - Merging conflicted PR #254 after Downloads would preserve both shared ledger edits.
 changed_paths:
   - .github/workflows/events-acceptance.yml
   - docs/agents/ACTIVE_WORK.md
@@ -126,18 +124,12 @@ validation:
   - command: Events Acceptance run 30293402575 on 3a51bc945f13fd7c9b3fe8e37ea5d644fb2f312e
     result: PASS
     evidence: complete zero-retry Events matrix succeeded on five browser/viewport projects
-  - command: Portal Acceptance Contract run 30293402858 on 3a51bc945f13fd7c9b3fe8e37ea5d644fb2f312e
+  - command: Portal Acceptance Contract and Acceptance E2E/Visual on 3a51bc945f13fd7c9b3fe8e37ea5d644fb2f312e
     result: PASS
-    evidence: coverage classification and complete account lifecycle both succeeded
-  - command: Acceptance E2E and Visual UX run 30293402551 on 3a51bc945f13fd7c9b3fe8e37ea5d644fb2f312e
-    result: PASS
-    evidence: required critical browser profiles succeeded
-  - command: Phase 7 and focused system workflows on 3a51bc945f13fd7c9b3fe8e37ea5d644fb2f312e
-    result: PASS
-    evidence: production-like, DB outage, edge, game-auth concurrency and Synology preflight checks succeeded
+    evidence: route/evidence classification, complete account lifecycle and required critical browser profiles succeeded
 blockers:
   - none
-next_action: Mark PR #254 ready for review and squash-merge it after the docs-only checkpoint check passes.
+next_action: Require every repository workflow on the final conflict-free PR #255 head, then mark ready and squash-merge.
 ```
 
 ## Notes
