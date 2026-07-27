@@ -12,10 +12,6 @@ import {
 } from './helpers.mjs';
 
 const password = 'AcceptanceEditorialMedia!234';
-const validPng = Buffer.from(
-  'iVBORw0KGgoAAAANSUhEUgAAABQAAAAUCAIAAAAC64paAAAAHUlEQVR4nGOUcYphIBcwka1zVPOo5lHNo5qpohkA2PUA4vxmTfwAAAAASUVORK5CYII=',
-  'base64',
-);
 
 function editorialMediaFixture(...args) {
   return JSON.parse(runBinary('php', ['scripts/acceptance/seed-browser-editorial-media.php', ...args]));
@@ -119,11 +115,8 @@ test('@portal-editorial-media manager validates, uploads, privately previews, pr
   await expect(page.getByRole('heading', { name: 'No editorial images' })).toBeVisible();
 
   const uploadedAlt = `Acceptance private bridge ${Math.random().toString(16).slice(2, 10)}`;
-  await imageInput.setInputFiles({
-    name: 'acceptance-private.png',
-    mimeType: 'image/png',
-    buffer: validPng,
-  });
+  const uploadFixture = editorialMediaFixture('create-upload-fixture');
+  await imageInput.setInputFiles(uploadFixture.path);
   await page.getByLabel('Alternative text').fill(uploadedAlt);
   await page.getByRole('button', { name: 'Upload image' }).click();
   await expect(page.getByRole('status')).toContainText('Editorial image uploaded safely.');
