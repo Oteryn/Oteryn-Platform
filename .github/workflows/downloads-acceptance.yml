@@ -17,6 +17,7 @@ on:
       - 'scripts/acceptance/package.json'
       - 'scripts/acceptance/seed-downloads-state.php'
       - 'scripts/acceptance/tests/downloads-lifecycle-acceptance.spec.mjs'
+      - 'scripts/acceptance/tests/downloads-public-portability.spec.mjs'
       - 'scripts/acceptance/coverage/portal-coverage-manifest.json'
       - '.github/workflows/downloads-acceptance.yml'
   push:
@@ -35,6 +36,7 @@ on:
       - 'scripts/acceptance/package.json'
       - 'scripts/acceptance/seed-downloads-state.php'
       - 'scripts/acceptance/tests/downloads-lifecycle-acceptance.spec.mjs'
+      - 'scripts/acceptance/tests/downloads-public-portability.spec.mjs'
       - 'scripts/acceptance/coverage/portal-coverage-manifest.json'
       - '.github/workflows/downloads-acceptance.yml'
   workflow_dispatch:
@@ -50,7 +52,7 @@ jobs:
   downloads-lifecycle:
     name: Complete Downloads lifecycle
     runs-on: ubuntu-latest
-    timeout-minutes: 35
+    timeout-minutes: 40
     services:
       mariadb:
         image: mariadb:11.8
@@ -158,11 +160,11 @@ jobs:
       - name: Install application dependencies
         run: composer install --no-interaction --prefer-dist --no-progress
 
-      - name: Install pinned Chromium harness
+      - name: Install pinned browser harnesses
         run: |
           npm --prefix scripts/acceptance install --no-audit --no-fund
           cd scripts/acceptance
-          npx playwright install --with-deps chromium
+          npx playwright install --with-deps chromium firefox webkit
 
       - name: Generate ephemeral application key
         run: echo "APP_KEY=$(php -r 'echo "base64:".base64_encode(random_bytes(32));')" >> "$GITHUB_ENV"
@@ -187,6 +189,9 @@ jobs:
       - name: Execute complete zero-retry Downloads lifecycle
         run: npm --prefix scripts/acceptance run test:downloads
 
+      - name: Execute bounded read-only Firefox and WebKit portability
+        run: npm --prefix scripts/acceptance run test:downloads-portability
+
       - name: Write non-secret Downloads evidence
         if: always()
         run: |
@@ -195,7 +200,7 @@ jobs:
           {
             "exact_tested_sha": "$ACCEPTANCE_SHA",
             "profile": "downloads-lifecycle",
-            "browser": "chromium",
+            "browsers": ["chromium-primary", "portability-firefox", "portability-webkit"],
             "viewports": ["desktop-1440x1000", "tablet-820x1180", "mobile-390x844"],
             "retries": 0,
             "runtime": "real Laravel HTTP",
