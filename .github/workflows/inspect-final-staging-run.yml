@@ -28,7 +28,14 @@ jobs:
       - name: Generate compact continuation prompt
         run: |
           set -euo pipefail
-          echo '--- RESUME_OUTPUT_BEGIN ---'
           python tools/agents/resume.py \
-            --task docs/agents/tasks/active/OTERYN-20260726-public-web-final-staging-closure.md
-          echo '--- RESUME_OUTPUT_END ---'
+            --task docs/agents/tasks/active/OTERYN-20260726-public-web-final-staging-closure.md \
+            > resume.txt
+
+      - name: Upload compact handoff
+        uses: actions/upload-artifact@v4
+        with:
+          name: compact-final-handoff
+          path: resume.txt
+          if-no-files-found: error
+          retention-days: 1
