@@ -11,6 +11,10 @@ function eventFixture(...args) {
   return JSON.parse(runBinary('php', ['scripts/acceptance/seed-browser-events.php', ...args]));
 }
 
+function restoreSharedHomepageFixture() {
+  runBinary('php', ['scripts/acceptance/seed-homepage-navigation-seo.php']);
+}
+
 test.setTimeout(120_000);
 test.describe.configure({ retries: 0 });
 
@@ -19,7 +23,11 @@ test.beforeEach(async ({ page }) => {
 });
 
 test.afterEach(async ({ page }, testInfo) => {
-  await attachDiagnostics(testInfo, page.__acceptanceDiagnostics);
+  try {
+    await attachDiagnostics(testInfo, page.__acceptanceDiagnostics);
+  } finally {
+    restoreSharedHomepageFixture();
+  }
 });
 
 test('@portal-events public calendar, detail, locale isolation, empty and not-found states', async ({ page }) => {
