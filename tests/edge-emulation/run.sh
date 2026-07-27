@@ -302,7 +302,8 @@ grep -Eiq '^cf-ray: edge-emulation-' "$edge_headers" || fail "CF-Ray emulation h
 grep -Eiq '^cf-cache-status: DYNAMIC\r?$' "$edge_headers" || fail "CF-Cache-Status header is absent"
 grep -Eiq '^strict-transport-security: max-age=86400\r?$' "$edge_headers" || fail "bounded HSTS emulation header is absent"
 
-# Spoofed browser headers are overwritten at the edge.
+# Spoofed browser headers are overwritten at the edge, while the public host is
+# preserved through the authenticated origin pull.
 probe_body="$(curl --silent --show-error --cacert "$cert_dir/edge-ca.crt" \
     --resolve app.oteryn.test:8443:127.0.0.1 \
     -H 'CF-Connecting-IP: 203.0.113.99' \
@@ -314,7 +315,7 @@ import sys
 payload = json.loads(sys.argv[1])
 assert payload["cf_connecting_ip"] == "127.0.0.1", payload
 assert payload["forwarded_proto"] == "https", payload
-assert payload["host"] == "origin.oteryn.internal", payload
+assert payload["host"] == "app.oteryn.test", payload
 PY
 
 # Direct-origin requests fail unless they hold the edge client certificate.
@@ -437,6 +438,7 @@ cat > "$evidence_path" <<EOF
   "authenticated_origin_pull": "PASS",
   "direct_origin_without_client_certificate": "DENIED",
   "spoofed_client_ip_header": "OVERWRITTEN",
+  "public_host_preserved_to_origin": "PASS",
   "cloudflare_style_metadata": "PASS",
   "waf_traversal_xss_sqli": "DENIED",
   "unsupported_method": "DENIED",
