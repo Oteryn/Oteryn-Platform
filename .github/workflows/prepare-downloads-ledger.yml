@@ -1,0 +1,88 @@
+name: Prepare Downloads Ledger
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/prepare-downloads-ledger.yml'
+      - 'scripts/acceptance/coverage/portal-coverage-manifest.json'
+      - 'scripts/acceptance/tests/downloads-lifecycle-acceptance.spec.mjs'
+      - 'scripts/acceptance/tests/downloads-public-portability.spec.mjs'
+
+permissions:
+  contents: read
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout exact head
+        uses: actions/checkout@v7
+
+      - name: Build exact Downloads-covered manifest
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          path = Path('scripts/acceptance/coverage/portal-coverage-manifest.json')
+          manifest = json.loads(path.read_text(encoding='utf-8'))
+          matches = [surface for surface in manifest['surfaces'] if surface['id'] == 'downloads.public-admin-localization']
+          if len(matches) != 1:
+              raise SystemExit(f'expected one Downloads record, found {len(matches)}')
+
+          surface = matches[0]
+          surface['status'] = 'covered'
+          surface['states'] = [
+              'empty',
+              'current-release',
+              'platform-filter',
+              'validation',
+              'draft',
+              'published',
+              'invalid-url-denied',
+              'localized-en',
+              'localized-pl',
+              'permission-denied',
+              'dependency-unavailable',
+              'dependency-restored',
+              'audit-visible',
+              'no-upload-fetch-or-proxy',
+          ]
+          surface['browsers'] = ['chromium-primary', 'firefox-bounded', 'webkit-bounded']
+          surface['evidence'] = [
+              {
+                  'file': 'tests/Feature/Downloads/DownloadCenterTest.php',
+                  'markers': [
+                      'test_public_download_center_shows_only_current_published_releases_and_filters_platforms',
+                      'test_administrator_routes_require_authentication_confirmed_mfa_and_exact_permission',
+                  ],
+              },
+              {
+                  'file': 'tests/Unit/Downloads/ArtifactUrlPolicyTest.php',
+                  'markers': ['final class ArtifactUrlPolicyTest'],
+              },
+              {
+                  'file': 'scripts/acceptance/tests/downloads-lifecycle-acceptance.spec.mjs',
+                  'markers': ['@portal-downloads complete public, administrator, localization and recovery lifecycle'],
+              },
+              {
+                  'file': 'scripts/acceptance/tests/downloads-public-portability.spec.mjs',
+                  'markers': ['@portal-downloads-portability current public release renders in bounded browser engines'],
+              },
+          ]
+          surface['gaps'] = []
+
+          output = Path('artifacts/downloads-ledger/portal-coverage-manifest.json')
+          output.parent.mkdir(parents=True, exist_ok=True)
+          output.write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
+          PY
+
+      - name: Upload exact transformed manifest
+        uses: actions/upload-artifact@v6
+        with:
+          name: downloads-covered-manifest-${{ github.sha }}
+          path: artifacts/downloads-ledger/portal-coverage-manifest.json
+          if-no-files-found: error
+          retention-days: 1
