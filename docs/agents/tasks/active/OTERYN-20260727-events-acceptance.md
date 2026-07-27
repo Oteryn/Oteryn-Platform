@@ -63,11 +63,11 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-07-27T18:25:00Z
+updated_at: 2026-07-27T18:29:00Z
 head: 3a51bc945f13fd7c9b3fe8e37ea5d644fb2f312e
 branch: test/OTERYN-20260727-events-acceptance
 pr: 254
-status: ready_for_review
+status: ready
 context_routes:
   - agent-governance
   - testing
