@@ -96,6 +96,8 @@ test('@portal-downloads complete public, administrator, localization and recover
   await enrollMfa(page, adminPassword);
   const bootstrap = runArtisan('admin:bootstrap', adminEmail);
   expect(bootstrap).toContain('First platform administrator assigned');
+  const adminGrant = downloadsState('grant-downloads', adminEmail);
+  expect(adminGrant.permission).toBe('downloads.manage');
 
   await page.goto('/admin/downloads');
   await expect(page.getByRole('heading', { name: 'Client releases' })).toBeVisible();
