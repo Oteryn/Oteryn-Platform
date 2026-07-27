@@ -84,11 +84,11 @@ cross_repository_tasks: []
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-07-27T16:44:00+02:00
-head: a9479f66af3b684f7caf3a85d1f66cbaf860d1bf
+updated_at: 2026-07-27T16:46:00+02:00
+head: 378e06bbc8b0e3aecda12a097fe39a37f97e5dcf
 branch: ops/OTERYN-20260727-synology-preflight-observer
 pr: 243
-status: observing
+status: validating
 context_routes:
   - agent-governance
   - security
