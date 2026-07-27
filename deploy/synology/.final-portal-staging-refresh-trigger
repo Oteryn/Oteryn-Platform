@@ -1,0 +1,3 @@
+Issue #261 exact-SHA Synology staging refresh trigger.
+This file forces exact Platform and Gateway images for the merge SHA that contains PR #260.
+Remove after sanitized deployment evidence is archived.
