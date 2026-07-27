@@ -155,7 +155,11 @@ test('@portal-editorial-media manager validates, uploads, privately previews, pr
   await expect(referencedRow.getByRole('button', { name: 'Delete' })).toHaveCount(0);
 
   uploadedRow = page.getByRole('row').filter({ hasText: uploadedAlt });
-  await uploadedRow.getByRole('button', { name: 'Delete' }).click();
+  const deleteButton = uploadedRow.getByRole('button', { name: 'Delete' });
+  await deleteButton.scrollIntoViewIfNeeded();
+  await deleteButton.focus();
+  await expect(deleteButton).toBeFocused();
+  await page.keyboard.press('Enter');
   await expect(page.getByRole('status')).toContainText('Editorial image deleted.');
   await expect(page.getByRole('row').filter({ hasText: uploadedAlt })).toHaveCount(0);
   await expect(page.getByRole('row').filter({ hasText: referencedAlt })).toBeVisible();
