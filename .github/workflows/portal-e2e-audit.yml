@@ -20,7 +20,7 @@ jobs:
   comprehensive-audit:
     name: Exact-head comprehensive portal audit
     runs-on: ubuntu-latest
-    timeout-minutes: 150
+    timeout-minutes: 180
     permissions:
       contents: read
       actions: write
@@ -48,7 +48,7 @@ jobs:
             'editorial-media|editorial-media-acceptance.yml|'
             'wiki|wiki-reconciliation-acceptance.yml|'
             'stability|acceptance-stability.yml|'
-            'soak|acceptance-soak.yml|'
+            'soak|acceptance-validation.yml|soak'
           )
 
           for entry in "${audit_entries[@]}"; do
@@ -65,7 +65,9 @@ jobs:
             )"
 
             echo "Dispatching ${label} (${workflow}) for ${AUDIT_REF}@${AUDIT_SHA}"
-            if [ -n "$profile" ]; then
+            if [ "$label" = 'soak' ]; then
+              gh workflow run "$workflow" --repo "$GITHUB_REPOSITORY" --ref "$AUDIT_REF" -f profile=soak -f soak_seconds=300
+            elif [ -n "$profile" ]; then
               gh workflow run "$workflow" --repo "$GITHUB_REPOSITORY" --ref "$AUDIT_REF" -f profile="$profile"
             else
               gh workflow run "$workflow" --repo "$GITHUB_REPOSITORY" --ref "$AUDIT_REF"
@@ -98,6 +100,13 @@ jobs:
             fi
 
             printf '%s\t%s\t%s\n' "$label" "$workflow" "$run_id" | tee -a artifacts/portal-e2e-audit/dispatched.tsv
+
+            # Direct workflow_dispatch runs of acceptance-validation share the
+            # same concurrency key. Serialize critical, full and soak so a
+            # later profile cannot cancel an earlier exact-head audit run.
+            if [ "$workflow" = 'acceptance-validation.yml' ]; then
+              gh run watch "$run_id" --repo "$GITHUB_REPOSITORY" --interval 10 || true
+            fi
           done
 
       - name: Wait for exact-head audit workflows and collect results
@@ -108,7 +117,7 @@ jobs:
           failed=0
 
           while IFS=$'\t' read -r label workflow run_id; do
-            echo "Waiting for ${label} (${workflow}) run ${run_id}"
+            echo "Collecting ${label} (${workflow}) run ${run_id}"
             gh run watch "$run_id" --repo "$GITHUB_REPOSITORY" --interval 10 || true
 
             result="$(
