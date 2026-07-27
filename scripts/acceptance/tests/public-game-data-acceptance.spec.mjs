@@ -27,7 +27,7 @@ test('Flow 6b — public game data, pagination, empty and controlled dependency-
 
   await page.goto('/online');
   await expect(page.getByText('Acceptance Hero')).toBeVisible();
-  await expect(page.getByText(/Acceptance \(ID 1\)/u)).toBeVisible();
+  await expect(page.getByText(/Acceptance \(Channel ID 1\)/u)).toBeVisible();
 
   await page.goto('/highscores');
   await expect(page.getByRole('heading', { name: 'Level highscores' })).toBeVisible();
