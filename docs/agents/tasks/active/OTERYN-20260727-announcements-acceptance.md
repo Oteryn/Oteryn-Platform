@@ -23,21 +23,24 @@ Close `announcements.admin-localization-home-composition` with deterministic bro
 
 ## Acceptance criteria
 
-- [ ] Public homepage proves none-active, active, expired/future/draft hidden, escaped plain text and EN/PL locale-isolated states.
-- [ ] Guest, no-MFA, no-permission and exact `portal.announcements.manage` boundaries are browser-proven.
-- [ ] Validation rejects unsafe links; create, publish, source edit, stale translation recovery and 409 conflict are browser-proven.
-- [ ] Audit evidence is visible to an authorized operator and does not contain announcement body or credentials.
-- [ ] Chromium desktop/tablet/mobile and bounded public Firefox/WebKit execute with zero retries.
+- [x] Public homepage proves none-active, active, expired/future/draft hidden, escaped plain text and EN/PL locale-isolated states.
+- [x] Guest, no-MFA, no-permission and exact `portal.announcements.manage` boundaries are browser-proven.
+- [x] Validation rejects unsafe links; create, publish, source edit, stale translation recovery and 409 conflict are browser-proven.
+- [x] Audit evidence is visible to an authorized operator and does not contain announcement body or credentials.
+- [x] Chromium desktop/tablet/mobile and bounded public Firefox/WebKit execute with zero retries.
 - [ ] The canonical ledger changes to `covered` only after exact-head browser and repository checks pass.
-- [ ] No production action or `PRODUCTION_PROVEN` claim is made.
+- [x] No production action or `PRODUCTION_PROVEN` claim is made.
 
 ## Ownership
 
 ```yaml
 owned_paths:
   - .github/workflows/announcements-acceptance.yml
+  - public/css/admin-translations.css
+  - resources/views/admin/translations/form.blade.php
   - scripts/acceptance/playwright.announcements.config.mjs
   - scripts/acceptance/seed-browser-announcements.php
+  - scripts/acceptance/seed-account-overview-state.php
   - scripts/acceptance/tests/announcements-public-acceptance.spec.mjs
   - scripts/acceptance/tests/announcements-admin-acceptance.spec.mjs
   - scripts/acceptance/coverage/portal-coverage-manifest.json
@@ -49,6 +52,7 @@ owned_paths:
 modules:
   - Announcements
   - Localization
+  - Accounts acceptance harness
   - Testing / Acceptance E2E
   - Agent governance
 dependencies:
@@ -56,7 +60,7 @@ dependencies:
   - PR #257 archived Events on main as 05d08714a0b87ee8a453d01bded605ff42de8bbc
   - Issue #240
 blockers:
-  - none
+  - exact-head account-lifecycle rerun after fixture command-contract repair
 cross_repository_tasks:
   - none
 ```
@@ -65,8 +69,8 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-07-27T21:30:00+02:00
-head: 9ffa3c0ee1d324b8e28ec02ab775d61b3d797480
+updated_at: 2026-07-27T21:56:00+02:00
+head: 067457a14caffef6068f22f185d75bd6ff6868c0
 branch: test/OTERYN-20260727-announcements-acceptance-v2
 pr: 259
 status: validating
@@ -79,8 +83,11 @@ context_routes:
   - accessibility
 owned_paths:
   - .github/workflows/announcements-acceptance.yml
+  - public/css/admin-translations.css
+  - resources/views/admin/translations/form.blade.php
   - scripts/acceptance/playwright.announcements.config.mjs
   - scripts/acceptance/seed-browser-announcements.php
+  - scripts/acceptance/seed-account-overview-state.php
   - scripts/acceptance/tests/announcements-public-acceptance.spec.mjs
   - scripts/acceptance/tests/announcements-admin-acceptance.spec.mjs
   - scripts/acceptance/coverage/portal-coverage-manifest.json
@@ -94,22 +101,31 @@ proven:
   - Events and Downloads are covered on current main
   - PR #257 already archived Events with exact final evidence
   - the clean successor archives the still-active completed Downloads task without replacing the Events archive
+  - Announcements Acceptance run 30299581452 passed the complete zero-retry matrix on exact SHA 6d2a684780ffef2b6a8d0a7c435d00c1eacd895a
+  - the Announcements matrix passed Chromium desktop, tablet and mobile plus public Firefox and WebKit
+  - the shared translation form now proves an unobstructed mobile pointer target and keyboard activation without force or JavaScript submission
 derived:
-  - the remaining closure risk is composed browser behavior rather than an identified persistence or authorization defect
+  - the Announcements product and composed browser contract are complete for the declared repository boundary
+  - the remaining gate is the repaired pre-existing Account Overview acceptance fixture and final ledger promotion
 unknown:
-  - exact-head browser result for the composed Announcements matrix
+  - exact-head account-lifecycle result after the fixture command contract repair
+  - final docs-inclusive workflow set after ledger promotion
 conflicts: []
 first_failure:
-  marker: checkpoint-required-derived-field
-  evidence: the initial successor checkpoint omitted the required derived evidence-state list; the repository contract requires proven, derived, unknown and conflicts at the top level
+  marker: account-overview-fixture-command-contract
+  evidence: final Account lifecycle run 30299581391 showed the requested missing state rendering Ready; the test invoked seed/binding commands while the fixture parsed email/password/state, so it mutated a different identity. The fixture now uses explicit commands without resetting the active browser identity password or session generation.
 rejected_hypotheses:
-  - lower-layer tests alone prove the composed browser lifecycle
-  - completed task records can remain active while successors own the same ledger paths
-  - overwriting PR #257's enriched Events archive is acceptable
+  - lower-layer tests alone prove the composed public and administrator browser lifecycle
+  - the mobile translation failure should be bypassed with force, JavaScript submit or weakened viewport coverage
+  - the Account Overview failure was caused by Announcements product behavior or shared CSS
+  - retrying the mismatched account fixture without fixing its argument contract would provide trustworthy evidence
 changed_paths:
   - .github/workflows/announcements-acceptance.yml
+  - public/css/admin-translations.css
+  - resources/views/admin/translations/form.blade.php
   - scripts/acceptance/playwright.announcements.config.mjs
   - scripts/acceptance/seed-browser-announcements.php
+  - scripts/acceptance/seed-account-overview-state.php
   - scripts/acceptance/tests/announcements-public-acceptance.spec.mjs
   - scripts/acceptance/tests/announcements-admin-acceptance.spec.mjs
   - docs/agents/ACTIVE_WORK.md
@@ -117,12 +133,15 @@ changed_paths:
   - docs/agents/tasks/active/OTERYN-20260727-downloads-acceptance.md
   - docs/agents/tasks/archive/OTERYN-20260727-downloads-acceptance.md
 validation:
-  - command: repository inspection
+  - command: Announcements Acceptance run 30299581452 on 6d2a684780ffef2b6a8d0a7c435d00c1eacd895a
     result: PASS
-    evidence: routes, controller, model, translation controller/form, ticker query/view and feature tests inspected
+    evidence: complete zero-retry public and administrator matrix passed on five browser/viewport projects
+  - command: Portal Acceptance Contract run 30299581391 on 6d2a684780ffef2b6a8d0a7c435d00c1eacd895a
+    result: FAIL
+    evidence: route classification passed; account lifecycle exposed the pre-existing fixture command mismatch and was repaired rather than retried unchanged
 blockers:
-  - none
-next_action: Execute the exact-SHA Announcements workflow while the ledger remains planned; fix the first browser failure before promotion.
+  - exact-head account-lifecycle rerun after fixture repair
+next_action: Require the repaired exact-head account lifecycle and repository workflows, then promote Announcements to covered and execute the final docs-inclusive merge gate.
 ```
 
 ## Notes
