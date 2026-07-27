@@ -40,7 +40,7 @@ test('@portal-events public calendar, detail, locale isolation, empty and not-fo
 
   response = await page.goto('/events');
   expect(response?.status()).toBe(200);
-  for (const heading of ['Active', 'Upcoming', 'Archived', 'Cancelled']) {
+  for (const heading of ['Active now', 'Upcoming', 'Archived', 'Cancelled']) {
     await expect(page.getByRole('heading', { name: heading, exact: true })).toBeVisible();
   }
   for (const title of [
