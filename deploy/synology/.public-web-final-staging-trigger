@@ -1,5 +1,0 @@
-Issue #145 observable exact-SHA Synology staging deployment trigger.
-This revision retries the final public Chromium smoke through a Docker named volume.
-Previous exact deployment d7984a2def655a01b513cdbc823117f37b90d5d4 completed successfully.
-The previous live smoke failed only because runner-local /tmp was not visible to the host Docker daemon.
-Remove after successful deployment evidence and task archival.
