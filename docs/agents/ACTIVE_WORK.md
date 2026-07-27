@@ -4,7 +4,7 @@ Convenience index only. Individual active task records, live PRs and Git state a
 
 ## Active tasks
 
-None.
+- `OTERYN-20260727-synology-production-target-preflight` — live local Synology host/runtime, storage, restore-drill and rollback-readiness validation tracked by Issue #238; staging-only with no public exposure.
 
 ## Closed acceptance and release-preparation follow-ups
 
@@ -17,7 +17,7 @@ None.
 - PR #92 / `c18432df6b387932aa04e1eb269677c9078d9063` — fail-closed non-secret Production Go-Live verification evidence packet prepared; actual production execution remains issue #91.
 - PR #94 / `26ff602696c597aac0833415b0a47af5d427a52d` — risk-based E2E architecture plus required bounded Chromium/Firefox/WebKit portability, desktop/tablet/mobile responsive and representative browser-security coverage merged.
 - PR #99 / `21d67c7e7edb533f9765ff96417f2ab2fbb1aea8` — issue #98 closed; existing Phase 7 release validation now includes isolated synthetic existing-data upgrade, candidate smoke, old-code rollback smoke against the post-upgrade database and candidate redeploy smoke with durable `STAGING_PROVEN` evidence.
-- PR #100 / `8a4fd46db04d2476b6fea7fb47fdd58443548ac3` — archived the completed migration/rollback validation task and closed its governance lifecycle.
+- PR #100 / `8a4fd46db04c8c75a4206be8c0920a96cc473452b` — archived the completed migration/rollback validation task and closed its governance lifecycle.
 - PR #102 / `ee235cbbdd379a5047fede98ff79a0e35e22ce76` — issue #101 closed; Phase 7 now proves exact response `X-Request-ID` to matching structured request-completion log correlation with bounded method/status agreement and non-secret `STAGING_PROVEN` evidence.
 - PR #104 / `18bd5b2c3b4496677cc58df41fd50c6387e9e6f8` — archived the completed observability-correlation task and closed its governance lifecycle.
 - PR #106 / `8030f98d7280c16705f34f2d29c8ebd7fc85f285` — issue #105 closed; required acceptance now includes zero-retry Chromium public dependency resilience proving Canary DB and Redis failure, deterministic restoration and successful browser recovery.
@@ -39,6 +39,7 @@ None.
 - PR #234 / `4131a34b8c5f1092a2d0b8fb1bb56785f217b194` — closed Issue #145 state and the single remaining archival action persisted in the final-staging checkpoint.
 - PR #235 / `cab40863bd5058209cdcbee1342a54acc814ec01` — final public-staging task record archived and `ACTIVE_WORK` cleared.
 - PR #236 / `ee8293d8bbf33c9bc89ca105a0273728bb222f4d` — deterministic reserved-domain DNS, TLS, Cloudflare/WAF/Access and authenticated-origin emulation merged with exact-SHA `STAGING_PROVEN` evidence.
+- PR #237 / `f5aeb2e80d4692b3ee6309cc3454aa20697721f2` — edge-security emulation task archived and `ACTIVE_WORK` cleared.
 
 ## Current project phase
 
@@ -55,14 +56,15 @@ The E2E coverage-hardening programme is continuous verification and does not reo
 - **Visual / UX Acceptance: PASS for the delivered staging-verifiable launch scope**
 - **Public Website Expansion Programme: STAGING_PROVEN**
 - **Emulated Edge Security: STAGING_PROVEN**
+- **Synology Production Target Preflight: IN PROGRESS**
 - **Production Go-Live Gate: PENDING PRODUCTION VERIFICATION**
 - **Production Verification: REQUIRED BEFORE GO-LIVE**
 
-No staging or emulation evidence may be promoted to `PRODUCTION_PROVEN`.
+No staging, local-target or emulation evidence may be promoted to `PRODUCTION_PROVEN`.
 
 ## Next work
 
-No repository-owned edge-emulation task remains. Issue #91 resumes only after a real production environment exists and explicit production authorization permits direct verification of provider, DNS, TLS, WAF, firewall, certificate lifecycle and origin exposure.
+Complete Issue #238 by executing the sanitized live Synology production-target preflight, persisting exact-run `STAGING_PROVEN` evidence, removing its temporary dispatcher and archiving the task. Issue #91 remains the sole real production execution tracker.
 
 ## Remaining cross-repository dependency
 
