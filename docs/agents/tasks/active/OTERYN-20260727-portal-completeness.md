@@ -29,14 +29,15 @@ Deliver the first bounded Issue #240 remediation: complete the authenticated acc
 - [x] Character Profile, Highscores and Online use readable vocation labels.
 - [x] Character Profile presents an approved read-only guild relationship or explicit no-guild state.
 - [x] `/design/home-v2` is no longer routable.
-- [ ] Focused formatter, static analysis and tests pass on the exact head.
-- [ ] Required GitHub checks pass on the exact head.
-- [ ] Affected browser acceptance passes before merge.
+- [x] Focused formatter, static analysis and tests pass on the exact implementation head.
+- [x] Required GitHub checks pass on the exact implementation head.
+- [x] Affected Chromium, Firefox and WebKit acceptance passes before merge.
 
 ## Ownership
 
 ```yaml
 owned_paths:
+  - .github/workflows/ci.yml
   - app/Accounts/ReadModels/AccountOverviewReadModel.php
   - app/PublicGameData/CanaryGameDataRepository.php
   - app/PublicGameData/CharacterPresentation.php
@@ -48,8 +49,10 @@ owned_paths:
   - resources/views/game/online.blade.php
   - routes/modules/public-portal.php
   - tests/Feature/Accounts/AccountOverviewTest.php
+  - tests/Feature/HomePreviewTest.php
   - tests/Feature/PublicGameData/CharacterProfilePresentationTest.php
   - tests/Feature/PublicPortal/DesignPreviewRouteTest.php
+  - tests/Feature/PublicPortal/HomepageNavigationSeoTest.php
   - tests/Unit/PublicGameData/CharacterPresentationTest.php
   - docs/agents/ACTIVE_WORK.md
   - docs/agents/tasks/active/OTERYN-20260727-portal-completeness.md
@@ -60,6 +63,7 @@ modules:
   - PublicGameData
   - PublicPortal
   - Testing
+  - CI
 dependencies:
   - Issue 240
   - Issue 244 for the later audited template selector
@@ -74,11 +78,11 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-07-27T17:24:00+02:00
-head: 41c869140444a807c14e1d6ccb2fd3f507b51a7b
+updated_at: 2026-07-27T17:40:00+02:00
+head: 6fbaea6b64691cae36f2b420866b8cbb2d2c17d7
 branch: feat/OTERYN-20260727-portal-completeness
 pr: 246
-status: validating
+status: review
 context_routes:
   - agent-governance
   - testing
@@ -87,7 +91,9 @@ context_routes:
   - public-game-data
   - security
   - accessibility
+  - ci
 owned_paths:
+  - .github/workflows/ci.yml
   - app/Accounts/ReadModels/AccountOverviewReadModel.php
   - app/PublicGameData/CanaryGameDataRepository.php
   - app/PublicGameData/CharacterPresentation.php
@@ -99,8 +105,10 @@ owned_paths:
   - resources/views/game/online.blade.php
   - routes/modules/public-portal.php
   - tests/Feature/Accounts/AccountOverviewTest.php
+  - tests/Feature/HomePreviewTest.php
   - tests/Feature/PublicGameData/CharacterProfilePresentationTest.php
   - tests/Feature/PublicPortal/DesignPreviewRouteTest.php
+  - tests/Feature/PublicPortal/HomepageNavigationSeoTest.php
   - tests/Unit/PublicGameData/CharacterPresentationTest.php
   - docs/agents/ACTIVE_WORK.md
   - docs/agents/tasks/active/OTERYN-20260727-portal-completeness.md
@@ -108,24 +116,28 @@ owned_paths:
 proven:
   - live Synology preflight run 30275482522 reported deployed release SHA 415aa3febd04c8d9c61082d4a7451352bf084013 and immutable matching Platform/Gateway images
   - the operator screenshot matches the sparse character view in deployed SHA 415aa3; the defect is product incompleteness rather than release drift
-  - source changes add owned-character account reads, explicit account states, readable vocation mappings, approved guild presentation and removal of the obsolete preview route
-  - Canary account IDs remain excluded from rendered account and public character output
-  - fresh PR 246 is based on current main and emitted the required workflow set
+  - Account Center now reads only active characters for the authenticated ready immutable binding and handles populated, empty, unavailable, not-ready and limit states
+  - readable localized vocation presentation is used by Account Center, Character Profile, Highscores and Online
+  - Character Profile exposes only approved read-only level, vocation and guild/no-guild information and hides Canary account identifiers
+  - the obsolete public design preview returns 404 and the retired public-preview tests now enforce that decision
+  - CI failure diagnostics retain a bounded PHPUnit JUnit artifact only when tests fail
+  - all required PR 246 workflows succeeded on implementation head 6fbaea6b64691cae36f2b420866b8cbb2d2c17d7
   - no Canary, login-server, production, router or DSM write occurred
 derived:
   - exact deployed release identity is reconciled and is no longer classified DEPLOYMENT_DRIFT
-  - source remediation is not staging-proven until exact-head checks and a later exact-SHA deployment/browser run pass
+  - this source slice is merge-ready but requires a later exact-SHA Synology deployment/live run before its UI can be classified staging-proven
 unknown:
-  - exact-head formatter, static-analysis, feature and browser results
   - remaining Issue 240 surface classifications outside this bounded slice
 conflicts: []
 first_failure:
-  marker: none
-  evidence: no failed workflow observed yet
+  marker: retired-public-preview-contract
+  evidence: initial CI retained two tests requiring public 200/noindex behavior for design/home-v2; both contracts were updated to the approved 404 behavior and all reruns passed
 rejected_hypotheses:
   - Synology was running an unknown or mismatched Platform build
   - every available Canary player field should be made public without a privacy/product contract
+  - the new Account Center heading should replace the established accessible Account overview heading contract
 changed_paths:
+  - .github/workflows/ci.yml
   - app/Accounts/ReadModels/AccountOverviewReadModel.php
   - app/PublicGameData/CanaryGameDataRepository.php
   - app/PublicGameData/CharacterPresentation.php
@@ -137,19 +149,33 @@ changed_paths:
   - resources/views/game/online.blade.php
   - routes/modules/public-portal.php
   - tests/Feature/Accounts/AccountOverviewTest.php
+  - tests/Feature/HomePreviewTest.php
   - tests/Feature/PublicGameData/CharacterProfilePresentationTest.php
   - tests/Feature/PublicPortal/DesignPreviewRouteTest.php
+  - tests/Feature/PublicPortal/HomepageNavigationSeoTest.php
   - tests/Unit/PublicGameData/CharacterPresentationTest.php
+  - docs/agents/ACTIVE_WORK.md
+  - docs/agents/tasks/active/OTERYN-20260727-portal-completeness.md
+  - docs/testing/PORTAL_COMPLETENESS_MATRIX.md
 validation:
   - command: inspect sanitized Synology production-target preflight artifact
     result: PASS
     evidence: run 30275482522 artifact reports deployed_release_sha 415aa3febd04c8d9c61082d4a7451352bf084013
-  - command: PR 246 required workflow set
-    result: NOT_RUN
-    evidence: workflows emitted and are currently queued or running
+  - command: CI run 30280097524
+    result: PASS
+    evidence: formatting, PHPStan and complete PHPUnit suite succeeded
+  - command: Phase 7 Production-Like Validation run 30280097228
+    result: PASS
+    evidence: exact-SHA critical regressions and production-like boundaries succeeded
+  - command: Acceptance E2E and Visual UX run 30280095875
+    result: PASS
+    evidence: required critical Chromium, Firefox and WebKit profile succeeded
+  - command: Agent Governance, Platform DB Outage, Game Auth Ticket Concurrency, Edge Security Emulation, Build Synology Staging Images and Synology Target Preflight
+    result: PASS
+    evidence: runs 30280095881, 30280097530, 30280097316, 30280098390, 30280097399 and 30280097354 succeeded
 blockers:
   - none
-next_action: Inspect the first failed PR 246 workflow, or record exact-head success if every required workflow passes.
+next_action: Mark PR 246 ready and squash-merge after the docs-only checkpoint commit receives required checks.
 ```
 
 ## Notes
