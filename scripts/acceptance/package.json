@@ -8,6 +8,7 @@
     "test:smoke": "playwright test --project=chromium-primary --grep @smoke",
     "test:account-lifecycle": "playwright test --project=chromium-primary --grep @portal-account --workers=1",
     "test:downloads": "playwright test --project=chromium-primary --grep @portal-downloads --workers=1",
+    "test:downloads-portability": "playwright test tests/downloads-public-portability.spec.mjs --project=portability-firefox --project=portability-webkit --workers=1",
     "test:coverage-contract": "node coverage/validate-portal-coverage.mjs",
     "test:coverage-contract:manifest": "node coverage/validate-portal-coverage.mjs --manifest-only",
     "test:coverage-contract:strict": "node coverage/validate-portal-coverage.mjs --strict",
