@@ -75,11 +75,19 @@ async function assertNoPageOverflow(page) {
   expect(dimensions.document, `Unexpected page overflow on ${page.url()}`).toBeLessThanOrEqual(dimensions.viewport + 1);
 }
 
-async function activateButtonByKeyboard(page, name) {
-  const button = page.getByRole('button', { name });
-  await button.focus();
-  await expect(button).toBeFocused();
-  await page.keyboard.press('Enter');
+async function clickTranslationSaveWithoutOverlap(page) {
+  const body = page.getByLabel('Polish content (plain text)');
+  const button = page.getByRole('button', { name: 'Save translation' });
+  const [bodyBox, buttonBox] = await Promise.all([body.boundingBox(), button.boundingBox()]);
+
+  expect(bodyBox, 'Polish translation textarea must have a measurable box').not.toBeNull();
+  expect(buttonBox, 'Save translation button must have a measurable box').not.toBeNull();
+  expect(
+    bodyBox.y + bodyBox.height,
+    'Polish translation textarea must end before the Save translation button begins',
+  ).toBeLessThanOrEqual(buttonBox.y + 1);
+
+  await button.click();
 }
 
 test.setTimeout(180_000);
@@ -172,7 +180,7 @@ test('@portal-announcements administrator validation, publication, Polish transl
   await page.getByLabel('Polish content (plain text)').fill('Polska treść komunikatu.');
   await page.getByLabel('Polish action label').fill('Przeczytaj komunikat');
   await page.getByLabel('Publish Polish translation at (UTC)').fill('2000-01-01T00:00');
-  await activateButtonByKeyboard(page, 'Save translation');
+  await clickTranslationSaveWithoutOverlap(page);
   await expect(page.getByRole('status')).toContainText('Polish translation saved.');
 
   response = await page.goto('/pl');
@@ -197,7 +205,7 @@ test('@portal-announcements administrator validation, publication, Polish transl
 
   await page.goto(`/admin/announcements/${announcementId}/translations/pl`);
   await expect(page.getByText('The source changed after this translation was reviewed.')).toBeVisible();
-  await activateButtonByKeyboard(page, 'Save translation');
+  await clickTranslationSaveWithoutOverlap(page);
   await expect(page.getByRole('status')).toContainText('Polish translation saved.');
 
   response = await page.goto('/pl');
