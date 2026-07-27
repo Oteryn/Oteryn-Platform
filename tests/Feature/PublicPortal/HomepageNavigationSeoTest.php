@@ -73,9 +73,7 @@ final class HomepageNavigationSeoTest extends TestCase
             ->assertOk()
             ->assertSee('<meta name="robots" content="noindex,nofollow,noarchive">', false);
 
-        $this->get('/design/home-v2')
-            ->assertOk()
-            ->assertSee('<meta name="robots" content="noindex,nofollow">', false);
+        $this->get('/design/home-v2')->assertNotFound();
 
         $this->get('/en/wiki/search?q=account')
             ->assertOk()
