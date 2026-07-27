@@ -1,0 +1,63 @@
+name: Reconcile Events Ledger
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/reconcile-events-ledger.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  reconcile:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout successor branch
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+
+      - name: Fetch validated Events branch
+        run: git fetch origin test/OTERYN-20260727-events-acceptance
+
+      - name: Replace only the Events ledger record
+        run: |
+          python - <<'PY'
+          import json
+          import subprocess
+          from pathlib import Path
+
+          path = Path('scripts/acceptance/coverage/portal-coverage-manifest.json')
+          current = json.loads(path.read_text(encoding='utf-8'))
+          validated_text = subprocess.check_output([
+              'git', 'show',
+              'origin/test/OTERYN-20260727-events-acceptance:scripts/acceptance/coverage/portal-coverage-manifest.json',
+          ], text=True)
+          validated = json.loads(validated_text)
+
+          matches = [surface for surface in validated['surfaces'] if surface['id'] == 'events.public-admin']
+          if len(matches) != 1:
+              raise SystemExit(f'expected one validated Events record, found {len(matches)}')
+          replacement = matches[0]
+          if replacement.get('status') != 'covered' or replacement.get('gaps') != []:
+              raise SystemExit('validated Events record is not closed')
+
+          indices = [index for index, surface in enumerate(current['surfaces']) if surface['id'] == 'events.public-admin']
+          if len(indices) != 1:
+              raise SystemExit(f'expected one current Events record, found {len(indices)}')
+          current['surfaces'][indices[0]] = replacement
+          path.write_text(json.dumps(current, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
+          PY
+
+      - name: Commit reconciled ledger
+        env:
+          HEAD_BRANCH: ${{ github.head_ref }}
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add scripts/acceptance/coverage/portal-coverage-manifest.json
+          git commit -m 'test(events): reconcile portal coverage ledger'
+          git push origin HEAD:"$HEAD_BRANCH"
