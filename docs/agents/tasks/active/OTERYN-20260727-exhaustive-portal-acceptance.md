@@ -29,23 +29,26 @@ Establish a machine-enforced, risk-layered acceptance coverage contract for ever
 
 ## Acceptance criteria
 
-- [ ] A durable architecture decision defines the route/surface/state/role/viewport/evidence ledger and preserves ADR 0008 layering.
-- [ ] `TEST_STRATEGY.md` documents the exhaustive delivered-surface acceptance contract and honest evidence limits.
-- [ ] A versioned machine-readable portal coverage manifest classifies every browser-visible named route as covered, partial, planned or intentionally non-page.
-- [ ] A deterministic validator rejects malformed, stale, duplicate or unclassified manifest entries and can report strict coverage gaps.
-- [ ] The acceptance package exposes dedicated coverage-contract and account-lifecycle commands.
-- [ ] Critical acceptance executes the complete account lifecycle profile with zero retries and secret-safe diagnostics.
-- [ ] Account lifecycle coverage explicitly includes registration, login/logout, Account Overview, provisioning states/retry, password recovery/change, MFA lifecycle, session revocation and character creation/visibility.
-- [ ] A human-readable matrix lists delivered surfaces, required dimensions, current evidence and remaining gaps.
-- [ ] A standalone agent prompt can continue from repository state and close every remaining classified gap in bounded PRs.
-- [ ] No staging evidence is promoted to `PRODUCTION_PROVEN`; authoritative game login and final production verification remain separate boundaries.
+- [x] A durable architecture decision defines the route/surface/state/role/viewport/evidence ledger and preserves ADR 0008 layering.
+- [x] `TEST_STRATEGY.md` documents the exhaustive delivered-surface acceptance contract and honest evidence limits.
+- [x] A versioned machine-readable portal coverage manifest classifies every browser-visible named route as covered, partial, planned or intentionally non-page.
+- [x] A deterministic validator rejects malformed, stale, duplicate or unclassified manifest entries and can report strict coverage gaps.
+- [x] The acceptance package exposes dedicated coverage-contract and account-lifecycle commands.
+- [x] A dedicated workflow executes route classification and the complete account lifecycle with zero retries and secret-safe diagnostics.
+- [x] Account lifecycle coverage explicitly includes registration, login/logout, Account Overview, provisioning states/retry, password recovery/change, MFA lifecycle, session revocation and character creation/visibility.
+- [x] A human-readable matrix lists delivered surfaces, required dimensions, current evidence and remaining gaps.
+- [x] A standalone agent prompt can continue from repository state and close every remaining classified gap in bounded PRs.
+- [x] No staging evidence is promoted to `PRODUCTION_PROVEN`; authoritative game login and final production verification remain separate boundaries.
+- [ ] Manifest validation, account-lifecycle browser execution and all required repository checks pass on the fresh exact head.
 
 ## Ownership
 
 ```yaml
 owned_paths:
+  - .github/workflows/portal-acceptance-contract.yml
   - docs/agents/tasks/active/OTERYN-20260727-exhaustive-portal-acceptance.md
   - docs/agents/ACTIVE_WORK.md
+  - docs/agents/tasks/archive/OTERYN-20260727-portal-completeness.md
   - docs/architecture/TEST_STRATEGY.md
   - docs/architecture/adr/0015-machine-enforced-portal-acceptance-ledger.md
   - docs/testing/PORTAL_ACCEPTANCE_COVERAGE_MATRIX.md
@@ -58,17 +61,17 @@ owned_paths:
   - scripts/acceptance/tests/password-change-acceptance.spec.mjs
   - scripts/acceptance/tests/mfa-security-acceptance.spec.mjs
   - scripts/acceptance/tests/account-overview-acceptance.spec.mjs
-  - .github/workflows/acceptance-validation.yml
+  - scripts/acceptance/tests/character-boundaries-acceptance.spec.mjs
 modules:
   - Testing / Acceptance E2E
   - Identity
   - Accounts / Characters
   - Agent governance
   - Architecture
-
 dependencies:
   - ADR 0008 risk-based continuous E2E validation
   - current exact-SHA Playwright production-like harness
+  - PR 246 merged as 9af2624e68061d52f861068976a38fe67abc4b5a
 blockers:
   - none
 cross_repository_tasks:
@@ -79,11 +82,11 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-07-27T14:20:00Z
-head: f5aeb2e80d4692b3ee6309cc3454aa20697721f2
-branch: test/OTERYN-20260727-exhaustive-portal-acceptance
-pr: none
-status: implementing
+updated_at: 2026-07-27T18:05:00+02:00
+head: 1a388323de959680d0e3cf7a315c991a920da74a
+branch: test/OTERYN-20260727-exhaustive-portal-acceptance-v2
+pr: pending
+status: validating
 context_routes:
   - agent-governance
   - architecture
@@ -92,46 +95,73 @@ context_routes:
   - accounts-characters
   - security
 owned_paths:
+  - .github/workflows/portal-acceptance-contract.yml
   - docs/agents/tasks/active/OTERYN-20260727-exhaustive-portal-acceptance.md
   - docs/agents/ACTIVE_WORK.md
+  - docs/agents/tasks/archive/OTERYN-20260727-portal-completeness.md
   - docs/architecture/TEST_STRATEGY.md
   - docs/architecture/adr/0015-machine-enforced-portal-acceptance-ledger.md
   - docs/testing/PORTAL_ACCEPTANCE_COVERAGE_MATRIX.md
   - docs/agents/prompts/OTERYN-EXHAUSTIVE-PORTAL-ACCEPTANCE-AGENT-PROMPT.md
   - scripts/acceptance/package.json
   - scripts/acceptance/coverage/**
-  - scripts/acceptance/tests/*account*.spec.mjs
+  - scripts/acceptance/tests/account-lifecycle-acceptance.spec.mjs
   - scripts/acceptance/tests/player-journey-acceptance.spec.mjs
   - scripts/acceptance/tests/password-recovery-acceptance.spec.mjs
   - scripts/acceptance/tests/password-change-acceptance.spec.mjs
   - scripts/acceptance/tests/mfa-security-acceptance.spec.mjs
-  - .github/workflows/acceptance-validation.yml
+  - scripts/acceptance/tests/account-overview-acceptance.spec.mjs
+  - scripts/acceptance/tests/character-boundaries-acceptance.spec.mjs
 proven:
-  - Current main is f5aeb2e80d4692b3ee6309cc3454aa20697721f2.
-  - ACTIVE_WORK records no active repository task.
-  - Open PR 218 is operational and does not own acceptance architecture or portal test paths.
-  - Existing browser evidence covers registration, login/logout, MFA, password recovery/change, Account Overview provisioning states, retry, character creation and public visibility across several separate specs.
-  - The existing strategy intentionally uses lower deterministic layers for concurrency, locking and data-integrity invariants.
+  - PR 246 merged the Account Center and character-presentation remediation as 9af2624e68061d52f861068976a38fe67abc4b5a
+  - the earlier PR 241 implementation was conflict-isolated from current main and its non-overlapping files were transferred onto a fresh branch
+  - the ledger architecture classifies delivered surfaces separately from environment proof and preserves lower-layer database and contract evidence
+  - the dedicated account profile selects registration, login/logout, Account Overview, provisioning, password, MFA, sessions and character scenarios with zero retries
+  - strict validation is defined but intentionally not enabled while truthful planned and partial surface gaps remain
+  - no Canary, login-server, production, router or DSM write occurred
 derived:
-  - A machine-readable coverage ledger can prevent new portal routes or required states from remaining silently unclassified without forcing every invariant into Playwright.
-  - The complete account lifecycle should be executable as one dedicated zero-retry critical profile while reusing existing secret-safe specs.
+  - classification completeness can become required immediately without dishonestly claiming the planned module packages are already covered
+  - the planned and partial manifest records provide the bounded successor order for Issue 240
 unknown:
-  - Exact final CI duration and any route-list normalization adjustment required by the first workflow run.
+  - exact first validator adjustment required against current main route inventory, if any
+  - exact account-lifecycle workflow result and duration on the fresh head
 conflicts: []
 first_failure:
   marker: none
-  evidence: none
+  evidence: no fresh-branch validation failure observed yet
 rejected_hypotheses:
-  - Running the full secret-sensitive suite across every browser and viewport is not required for exhaustive defined-surface coverage and would conflict with ADR 0008.
+  - the conflicted PR 241 could be merged safely without rebasing its files onto current main
+  - running the full secret-sensitive suite across every browser and viewport is required for exhaustive defined-surface coverage
 changed_paths:
+  - .github/workflows/portal-acceptance-contract.yml
+  - docs/agents/ACTIVE_WORK.md
+  - docs/agents/prompts/OTERYN-EXHAUSTIVE-PORTAL-ACCEPTANCE-AGENT-PROMPT.md
   - docs/agents/tasks/active/OTERYN-20260727-exhaustive-portal-acceptance.md
+  - docs/agents/tasks/archive/OTERYN-20260727-portal-completeness.md
+  - docs/agents/tasks/active/OTERYN-20260727-portal-completeness.md
+  - docs/architecture/TEST_STRATEGY.md
+  - docs/architecture/adr/0015-machine-enforced-portal-acceptance-ledger.md
+  - docs/testing/PORTAL_ACCEPTANCE_COVERAGE_MATRIX.md
+  - scripts/acceptance/coverage/portal-coverage-manifest.json
+  - scripts/acceptance/coverage/validate-portal-coverage.mjs
+  - scripts/acceptance/package.json
+  - scripts/acceptance/tests/account-lifecycle-acceptance.spec.mjs
+  - scripts/acceptance/tests/account-overview-acceptance.spec.mjs
+  - scripts/acceptance/tests/character-boundaries-acceptance.spec.mjs
+  - scripts/acceptance/tests/mfa-security-acceptance.spec.mjs
+  - scripts/acceptance/tests/password-change-acceptance.spec.mjs
+  - scripts/acceptance/tests/password-recovery-acceptance.spec.mjs
+  - scripts/acceptance/tests/player-journey-acceptance.spec.mjs
 validation:
-  - command: repository inspection through GitHub connector
+  - command: transfer the PR 241 implementation onto current main without overwriting PR 246 runtime files
     result: PASS
-    evidence: current main, active work, route files, strategy and existing acceptance specs inspected
+    evidence: fresh branch is based on main 9af2624e68061d52f861068976a38fe67abc4b5a and changes only the declared acceptance/governance/documentation paths
+  - command: manifest validator, account lifecycle and required workflows
+    result: NOT_RUN
+    evidence: pending fresh pull-request execution
 blockers:
   - none
-next_action: Publish the architecture decision, coverage ledger/validator, account-lifecycle profile and implementation-agent prompt, then open a draft PR.
+next_action: Open the fresh draft PR, inspect the first failed exact-head workflow and fix its root cause.
 ```
 
 ## Notes
