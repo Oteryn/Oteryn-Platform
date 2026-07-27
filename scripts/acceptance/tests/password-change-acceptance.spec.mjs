@@ -32,7 +32,7 @@ test.afterEach(async ({ page }, testInfo) => {
   }
 });
 
-test('Flow 3c — authenticated password change revokes existing sessions and requires the new password', async ({ browser, page }) => {
+test('@portal-account Flow 3c — authenticated password change revokes existing sessions and requires the new password', async ({ browser, page }) => {
   const email = uniqueEmail('password-change');
   const originalPassword = 'AcceptanceChange!234';
   const changedPassword = 'AcceptanceChanged!567';
