@@ -6,16 +6,9 @@ use Tests\TestCase;
 
 final class HomePreviewTest extends TestCase
 {
-    public function test_isolated_homepage_design_preview_remains_available_and_noindexed(): void
+    public function test_obsolete_public_homepage_design_preview_is_not_available(): void
     {
-        $response = $this->get('/design/home-v2');
-
-        $response->assertOk();
-        $response->assertSee('Design preview.');
-        $response->assertSee('Answer the call of Oteryn');
-        $response->assertSee('Find your character');
-        $response->assertSee('css/home-preview.css', false);
-        $response->assertSee('noindex,nofollow', false);
+        $this->get('/design/home-v2')->assertNotFound();
     }
 
     public function test_production_homepage_uses_the_approved_visual_foundation_without_preview_notice(): void

@@ -4,7 +4,7 @@ Convenience index only. Individual active task records, live PRs and Git state a
 
 ## Active tasks
 
-None.
+- `OTERYN-20260727-portal-completeness` — first Issue #240 runtime remediation for Account Center, character presentation and obsolete preview removal. PR #241 separately owns exhaustive acceptance infrastructure; Issue #244 owns the later administrator template selector.
 
 ## Closed acceptance and release-preparation follow-ups
 
@@ -41,31 +41,35 @@ None.
 - PR #236 / `ee8293d8bbf33c9bc89ca105a0273728bb222f4d` — deterministic reserved-domain DNS, TLS, Cloudflare/WAF/Access and authenticated-origin emulation merged with exact-SHA `STAGING_PROVEN` evidence.
 - PR #237 / `f5aeb2e80d4692b3ee6309cc3454aa20697721f2` — edge-security emulation task archived and `ACTIVE_WORK` cleared.
 - PR #239 / `50d917acd7fde333f0e74757ec1ced70e30c53de` — local Synology production-target preflight merged; live run `30275482522` proved host/runtime/storage/binding/health/least-privilege/Redis/rollback and isolated restore boundaries as `STAGING_PROVEN`.
+- PR #245 / `458d447a35aa87dd1b13fa16e120e9b9fb9c21ec` — Synology target-preflight lifecycle archived; permanent manual revalidation remains available.
 
 ## Current project phase
 
-**Phase 6 — CMS, Admin, RBAC and Audit: COMPLETE**
+**Phase 6 — CMS, Admin, RBAC and Audit: COMPLETE as an engineering milestone; route-by-route product completeness is reopened through Issue #240.**
 
-**Phase 7 — Production hardening and operations: COMPLETE**
+**Phase 7 — Production hardening and operations: COMPLETE as an engineering milestone.**
 
-The E2E coverage-hardening programme is continuous verification and does not reopen either completed phase.
+Previous representative acceptance remains valid only for its documented boundaries and does not prove every current portal route and state.
 
 ## Operational release state
 
-- **Production Readiness: STAGING_PROVEN**
-- **Functional Acceptance: STAGING_PROVEN for the delivered staging-verifiable functional surface**
-- **Visual / UX Acceptance: PASS for the delivered staging-verifiable launch scope**
-- **Public Website Expansion Programme: STAGING_PROVEN**
+- **Production Readiness: STAGING_PROVEN for previously documented boundaries**
+- **Portal Completeness: FAIL-CLOSED AUDIT AND REMEDIATION IN PROGRESS (Issue #240)**
+- **Functional Acceptance: representative staging evidence retained; exhaustive current-surface closure pending PR #241 and Issue #240**
+- **Visual / UX Acceptance: representative evidence retained; full current-surface closure pending**
+- **Public Website Expansion Programme: implementation merged; completeness remediation reopened**
 - **Emulated Edge Security: STAGING_PROVEN**
 - **Synology Production Target Preflight: STAGING_PROVEN**
 - **Production Go-Live Gate: PENDING PRODUCTION VERIFICATION**
 - **Production Verification: REQUIRED BEFORE GO-LIVE**
 
-No staging, local-target or emulation evidence may be promoted to `PRODUCTION_PROVEN`.
+The live Synology preflight identifies the running staging release as `415aa3febd04c8d9c61082d4a7451352bf084013`. No staging, local-target or emulation evidence may be promoted to `PRODUCTION_PROVEN`.
 
 ## Next work
 
-No repository-owned or currently locally verifiable Synology preflight task remains. Issue #91 resumes only after a real production environment exists and explicit production authorization permits direct verification of public DNS/TLS/Cloudflare/WAF/origin, real mail, external monitoring/alerting, DSM backup policy and final production smoke.
+Execute Issue #240 in bounded non-overlapping slices. The current task repairs Account Center and character presentation; PR #241 owns exhaustive acceptance infrastructure and Issue #244 owns audited homepage-template selection.
+
+Issue #91 remains the separate real Production Go-Live tracker.
 
 ## Remaining cross-repository dependency
 

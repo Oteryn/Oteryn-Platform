@@ -26,10 +26,18 @@ final class CanaryGameDataRepository
     public function findActiveCharacter(string $name): ?object
     {
         return DB::connection('canary')
-            ->table('players')
-            ->select(['id', 'name', 'level', 'vocation'])
-            ->where('deletion', 0)
-            ->where('name', $name)
+            ->table('players as player')
+            ->leftJoin('guild_membership as membership', 'membership.player_id', '=', 'player.id')
+            ->leftJoin('guilds as guild', 'guild.id', '=', 'membership.guild_id')
+            ->select([
+                'player.id',
+                'player.name',
+                'player.level',
+                'player.vocation',
+                'guild.name as guild_name',
+            ])
+            ->where('player.deletion', 0)
+            ->where('player.name', $name)
             ->first();
     }
 
