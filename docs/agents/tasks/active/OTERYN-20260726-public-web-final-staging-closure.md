@@ -75,11 +75,11 @@ cross_repository_tasks: []
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-07-27T14:04:00+02:00
-head: fcbfbf7eebd4bb11f01ed8b229a7365e45c182e0
+updated_at: 2026-07-27T14:12:00+02:00
+head: 6cc64ac32a2bfb8722bf0ce0aa4c3ce210e5c260
 branch: chore/OTERYN-20260727-public-web-final-cleanup
 pr: 233
-status: validating
+status: ready
 context_routes:
   - agent-governance
   - deployment
@@ -102,13 +102,14 @@ proven:
   - superseded PR 213 and temporary audit PR 231 are closed without merge
   - cleanup PR 233 removes all three temporary one-shot workflows and the inert trigger
   - cleanup PR 233 archives the programme coordination task and narrows ACTIVE_WORK to this final lifecycle
+  - Governance 30264318485, concurrency 30264318446, image build 30264318448, DB outage 30264318458, CI 30264318404 and Phase 7 30264318427 all passed on cleanup head 6cc64ac32a2bfb8722bf0ce0aa4c3ce210e5c260
   - no Identity email, password, TOTP secret, recovery code, production, router, DSM, Internet-exposure or external-repository action occurred
 derived:
   - Issue 145 completion criteria are satisfied at STAGING_PROVEN level
-  - cleanup merge can safely precede Issue 145 closure because all executable evidence is already durable in Actions, the artifact and the Issue comment
+  - cleanup PR 233 satisfies its merge gate
   - Issue 91 remains the only production execution tracker
 unknown:
-  - cleanup PR 233 exact-head validation result and merge SHA
+  - cleanup PR 233 merge SHA
   - Issue 145 closed timestamp
 conflicts: []
 first_failure:
@@ -135,10 +136,10 @@ validation:
     result: PASS
     evidence: build 30263299006, one-shot 30263298962, deployment 30263361980, live-smoke job 89968912201 and Issue comment 5090951110
   - command: cleanup PR 233 exact-head checks
-    result: NOT_RUN
-    evidence: pending after checkpoint update
+    result: PASS
+    evidence: six required workflows passed on 6cc64ac32a2bfb8722bf0ce0aa4c3ce210e5c260
 blockers: []
-next_action: Validate and merge cleanup PR 233, then close Issue 145 from comment 5090951110 and persist the closed-Issue checkpoint.
+next_action: Merge cleanup PR 233, close Issue 145 from comment 5090951110 and persist the closed-Issue checkpoint.
 ```
 
 ## Notes
