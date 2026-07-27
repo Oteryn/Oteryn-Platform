@@ -6,6 +6,7 @@ use App\Admin\AdminPermission;
 use App\Admin\AdminRoleManager;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
+use RuntimeException;
 use Tests\TestCase;
 
 final class PublicModulePermissionReservationTest extends TestCase
@@ -81,7 +82,13 @@ final class PublicModulePermissionReservationTest extends TestCase
             ->all();
 
         return array_values(array_map(
-            static fn (mixed $roleKey): string => (string) $roleKey,
+            static function (mixed $roleKey): string {
+                if (! is_string($roleKey)) {
+                    throw new RuntimeException('Expected every administrator role key to be a string.');
+                }
+
+                return $roleKey;
+            },
             $roleKeys,
         ));
     }
