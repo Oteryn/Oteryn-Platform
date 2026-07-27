@@ -81,8 +81,8 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-07-27T16:45:00+02:00
-head: babd47687858527fe54417c20a722d96d06c9b75
+updated_at: 2026-07-27T17:00:00+02:00
+head: 70ba7667ffffdf7d94d6eab96c2d126c7c035c23
 branch: audit/OTERYN-20260727-portal-completeness
 pr: 242
 status: validating
@@ -164,11 +164,11 @@ validation:
     evidence: deployment drift and original Account/Character skeletons are directly proven and recorded fail closed
   - command: formatter, static analysis and focused/full tests
     result: NOT_RUN
-    evidence: current connector session cannot execute the PHP/Composer/browser toolchain and no exact-head workflow result has been observed yet
+    evidence: local checkout cannot reach GitHub and connector-authored commits emitted no PR workflow runs; PR reopen is being used to request an actual pull_request validation event
 blockers:
-  - exact running Synology Platform image SHA cannot be read through the current connector-only environment
+  - exact running Synology Platform image SHA cannot be read through the current environment
   - exact-head implementation validation remains pending
-next_action: Observe exact-head PR checks, fix any failures, then keep the PR draft until required validation passes.
+next_action: Reopen PR #242, inspect every resulting required workflow, and fix the first failing root cause.
 ```
 
 ## Notes
