@@ -26,7 +26,7 @@ jobs:
           ref: test/OTERYN-20260727-announcements-acceptance-v2
           fetch-depth: 0
 
-      - name: Promote exact proven record
+      - name: Reconcile exact proven record
         run: |
           python3 <<'PY'
           import json
@@ -37,8 +37,8 @@ jobs:
           records = {record['id']: record for record in payload['surfaces']}
 
           record = records['announcements.admin-localization-home-composition']
-          if record['status'] != 'planned':
-              raise SystemExit(f"Expected Announcements planned, got {record['status']}")
+          if record['status'] not in {'planned', 'covered'}:
+              raise SystemExit(f"Expected Announcements planned/covered, got {record['status']}")
           if records['downloads.public-admin-localization']['status'] != 'covered':
               raise SystemExit('Downloads coverage must remain covered')
           if records['events.public-admin']['status'] != 'covered':
