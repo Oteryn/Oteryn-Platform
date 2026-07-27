@@ -1,4 +1,4 @@
-name: Inspect Final Staging Run
+name: Validate Compact Final Handoff
 
 on:
   pull_request:
@@ -6,24 +6,29 @@ on:
       - .github/workflows/inspect-final-staging-run.yml
 
 permissions:
-  actions: read
   contents: read
-  issues: read
 
 jobs:
-  inspect:
+  validate:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Print sanitized named-volume retry status
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TARGET_SHA: 415aa3febd04c8d9c61082d4a7451352bf084013
+      - name: Checkout merged repository state
+        uses: actions/checkout@v7
+        with:
+          ref: main
+
+      - name: Validate active checkpoint
         run: |
           set -euo pipefail
-          echo '--- runs for exact SHA ---'
-          gh api "repos/${GITHUB_REPOSITORY}/actions/runs?head_sha=${TARGET_SHA}&per_page=100" \
-            --jq '.workflow_runs[] | [.name, (.id|tostring), .status, (.conclusion // "pending")] | @tsv'
-          echo '--- final report comment ---'
-          gh api "repos/${GITHUB_REPOSITORY}/issues/145/comments?per_page=100" \
-            --jq '.[] | select(.body | contains("public-web-final-staging:'"${TARGET_SHA}"'")) | [.id, .body] | @json'
+          python tools/agents/checkpoint.py \
+            docs/agents/tasks/active/OTERYN-20260726-public-web-final-staging-closure.md \
+            --require-checkpoint
+
+      - name: Generate compact continuation prompt
+        run: |
+          set -euo pipefail
+          echo '--- RESUME_OUTPUT_BEGIN ---'
+          python tools/agents/resume.py \
+            --task docs/agents/tasks/active/OTERYN-20260726-public-web-final-staging-closure.md
+          echo '--- RESUME_OUTPUT_END ---'
