@@ -4,7 +4,7 @@ Convenience index only. Individual active task records, live PRs and Git state a
 
 ## Active tasks
 
-None.
+- `OTERYN-20260727-announcements-acceptance` — bounded public, administrator, localization, conflict and responsive Announcements closure under Issue #240.
 
 ## Closed acceptance and release-preparation follow-ups
 
@@ -45,7 +45,7 @@ None.
 - PR #246 / `9af2624e68061d52f861068976a38fe67abc4b5a` — first Issue #240 runtime slice merged: Account Center character inventory/states, readable vocations, approved character guild presentation, obsolete public preview removal and fail-closed completeness matrix.
 - PR #247 / `4e8a11a9b76aeaaa59a5dcc38bcd8a8e2fa54b39` — machine-enforced portal route/evidence ledger and complete zero-retry account lifecycle merged; bounded module gaps are now explicit.
 - PR #253 / `f9301792cfc82956aa4af792283c18bcbaf2c28e` — complete Download Center public/admin/localization/failure-recovery lifecycle merged with Chromium, Firefox and WebKit evidence; Downloads is `covered`.
-- PR #255 / `7e0fe46b57be4cf19900adefbada7133da47bb21` — complete Events public/admin/localization lifecycle merged with Chromium desktop/tablet/mobile and bounded Firefox/WebKit evidence; Events is `covered`.
+- PR #255 / `7e0fe46b57be4cf19900adefbada7133da47bb21` — complete Events public/admin/localization/conflict lifecycle merged with Chromium desktop/tablet/mobile and bounded public Firefox/WebKit evidence; Events is `covered`.
 
 ## Current project phase
 
@@ -59,7 +59,7 @@ Previous representative acceptance remains valid only for its documented boundar
 
 - **Production Readiness: STAGING_PROVEN for previously documented boundaries**
 - **Portal Completeness: FAIL-CLOSED AUDIT AND REMEDIATION IN PROGRESS (Issue #240)**
-- **Functional Acceptance: account, Downloads and Events contracts are covered in repository evidence; remaining bounded module packages are open**
+- **Functional Acceptance: account, Downloads and Events are covered; Announcements package is in progress**
 - **Visual / UX Acceptance: representative evidence retained; full current-surface closure pending**
 - **Public Website Expansion Programme: implementation merged; completeness remediation reopened**
 - **Emulated Edge Security: STAGING_PROVEN**
@@ -71,7 +71,7 @@ The live Synology preflight identifies the running staging release as `415aa3feb
 
 ## Next work
 
-Start Announcements acceptance, then Support/Legal, Editorial Media and Wiki reconciliation in bounded successors. Issue #244 separately owns audited homepage-template selection.
+Close Announcements, then Support/Legal, Editorial Media and Wiki reconciliation in bounded successors. Issue #244 separately owns audited homepage-template selection.
 
 Issue #91 remains the separate real Production Go-Live tracker.
 
