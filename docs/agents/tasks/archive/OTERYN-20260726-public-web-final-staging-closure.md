@@ -65,10 +65,10 @@ cross_repository_tasks: []
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-07-27T14:30:30+02:00
-head: 4131a34b8c5f1092a2d0b8fb1bb56785f217b194
+updated_at: 2026-07-27T14:34:00+02:00
+head: 21d40c1423d8a55612ec91863da1eb29beb639ff
 branch: docs/OTERYN-20260727-final-staging-archive
-pr: none
+pr: 235
 status: ready
 context_routes:
   - agent-governance
@@ -91,6 +91,7 @@ proven:
   - cleanup removed three temporary one-shot workflows and the inert trigger and archived the programme coordination task
   - Issue #145 closed as completed at 2026-07-27T12:09:42Z after final closure comment 5091097147
   - PR 234 merged as 4131a34b8c5f1092a2d0b8fb1bb56785f217b194 and persisted the closed-Issue checkpoint
+  - PR 235 contains only the final task-record archive and ACTIVE_WORK closure
   - superseded PR 213 and audit PR 231 are closed without merge
   - no Identity email, password, TOTP secret, recovery code, production, router, DSM, Internet-exposure or external-repository action occurred
 derived:
