@@ -58,8 +58,8 @@ test('@portal-account Flows 1-2 — new and returning player complete the produc
   await expect(page.getByRole('heading', { name: character })).toBeVisible();
   await expect(page.locator('dt').filter({ hasText: 'Level' })).toBeVisible();
   await expect(page.locator('dd').filter({ hasText: '8' }).first()).toBeVisible();
-  await expect(page.locator('dt').filter({ hasText: 'Vocation ID' })).toBeVisible();
-  await expect(page.locator('dd').filter({ hasText: '4' }).first()).toBeVisible();
+  await expect(page.locator('dt').filter({ hasText: 'Vocation' })).toBeVisible();
+  await expect(page.locator('dd').filter({ hasText: 'Knight' }).first()).toBeVisible();
 
   await logout(page);
   await login(page, email, password);
