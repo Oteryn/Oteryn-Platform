@@ -44,7 +44,39 @@ $integerId = static function (mixed $value, string $label) use ($fail): int {
     $fail("{$label} is unavailable after migrations.");
 };
 
-$reset = static function (): void {
+$createPng = static function (string $path) use ($fail): void {
+    $image = imagecreatetruecolor(320, 180);
+    if (! $image instanceof GdImage) {
+        $fail('Could not create the Editorial Media acceptance image.');
+    }
+
+    try {
+        $background = imagecolorallocate($image, 24, 48, 72);
+        $accent = imagecolorallocate($image, 190, 145, 72);
+        if (! is_int($background) || ! is_int($accent)) {
+            $fail('Could not allocate Editorial Media acceptance colours.');
+        }
+
+        imagefill($image, 0, 0, $background);
+        imagefilledrectangle($image, 36, 80, 284, 100, $accent);
+
+        if (! imagepng($image, $path, 6)) {
+            $fail('Could not encode the Editorial Media acceptance image.');
+        }
+    } finally {
+        imagedestroy($image);
+    }
+};
+
+$removeUploadFixtures = static function (): void {
+    foreach (glob(sys_get_temp_dir().'/oteryn-editorial-media-browser-*.png') ?: [] as $path) {
+        if (is_string($path) && is_file($path)) {
+            unlink($path);
+        }
+    }
+};
+
+$reset = static function () use ($removeUploadFixtures): void {
     $mediaItems = EditorialMedia::query()->get();
 
     DB::table('editorial_media_references')->delete();
@@ -62,11 +94,30 @@ $reset = static function (): void {
 
     DB::table('admin_audit_events')->where('target_type', 'editorial_media')->delete();
     DB::table('editorial_media')->delete();
+    $removeUploadFixtures();
 };
 
 if ($command === 'reset') {
     $reset();
     $json(['reset' => true]);
+}
+
+if ($command === 'create-upload-fixture') {
+    $path = tempnam(sys_get_temp_dir(), 'oteryn-editorial-media-browser-');
+    if (! is_string($path)) {
+        $fail('Could not allocate an Editorial Media browser upload fixture.');
+    }
+
+    $pngPath = $path.'.png';
+    if (! rename($path, $pngPath)) {
+        if (is_file($path)) {
+            unlink($path);
+        }
+        $fail('Could not prepare an Editorial Media browser upload fixture path.');
+    }
+
+    $createPng($pngPath);
+    $json(['path' => $pngPath]);
 }
 
 if ($command === 'seed-identity') {
@@ -162,31 +213,13 @@ if ($command === 'seed-referenced') {
         $fail('The Editorial Media acceptance identity must be seeded first.');
     }
 
-    $image = imagecreatetruecolor(320, 180);
-    if (! $image instanceof GdImage) {
-        $fail('Could not create the Editorial Media acceptance image.');
-    }
-
-    $background = imagecolorallocate($image, 24, 48, 72);
-    $accent = imagecolorallocate($image, 190, 145, 72);
-    if (! is_int($background) || ! is_int($accent)) {
-        imagedestroy($image);
-        $fail('Could not allocate Editorial Media acceptance colours.');
-    }
-
-    imagefill($image, 0, 0, $background);
-    imagefilledrectangle($image, 36, 80, 284, 100, $accent);
     $temporaryPath = tempnam(sys_get_temp_dir(), 'oteryn-editorial-media-');
-
     if (! is_string($temporaryPath)) {
-        imagedestroy($image);
         $fail('Could not allocate an Editorial Media acceptance file.');
     }
 
     try {
-        if (! imagepng($image, $temporaryPath, 6)) {
-            $fail('Could not encode the Editorial Media acceptance image.');
-        }
+        $createPng($temporaryPath);
 
         $media = app(StoreEditorialImage::class)->execute(
             $identity,
@@ -207,8 +240,6 @@ if ($command === 'seed-referenced') {
             'body',
         );
     } finally {
-        imagedestroy($image);
-
         if (is_file($temporaryPath)) {
             unlink($temporaryPath);
         }
