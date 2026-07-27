@@ -87,7 +87,7 @@ jobs:
           exit 1
 
       - name: Validate DNS TLS WAF Access and origin composition
-        run: bash tests/edge-emulation/run.sh
+        run: bash tests/edge-emulation/run.sh 2>&1 | tee /tmp/edge-security-emulation.log
 
       - name: Record staging-only decision
         run: |
@@ -107,6 +107,19 @@ jobs:
           path: /tmp/edge-security-emulation-evidence.json
           retention-days: 7
           if-no-files-found: error
+
+      - name: Upload bounded failure diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: edge-security-emulation-failure-${{ github.run_id }}
+          path: |
+            /tmp/edge-security-emulation.log
+            /tmp/oteryn-edge-emulation/nginx-error.log
+            /tmp/oteryn-edge-emulation/access.log
+            /tmp/oteryn-edge-laravel.log
+          retention-days: 3
+          if-no-files-found: warn
 
       - name: Stop current-SHA Laravel application
         if: always()
