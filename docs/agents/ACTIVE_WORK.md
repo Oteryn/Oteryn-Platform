@@ -4,13 +4,13 @@ Convenience index only. Individual active task records, live PRs and Git state a
 
 ## Active tasks
 
-- `OTERYN-20260727-exhaustive-portal-acceptance` — PR #247 is ready after exact-head route classification, complete zero-retry account lifecycle and required repository workflows passed. Its manifest defines the bounded successor order under Issue #240.
+- `OTERYN-20260727-downloads-acceptance` — first bounded successor package under Issue #240, closing the public, administrator, localization and responsive Download Center acceptance contract.
 
 ## Closed acceptance and release-preparation follow-ups
 
 - PR #67 / `517968539bdfd7d189677b669bf0899c35fccec1` — issues #68-#70 closed with exact-SHA production-like browser acceptance evidence classified `STAGING_PROVEN`.
 - PR #73 / `06d8d94aafd73de996eb4ea93705e8a45fbadafb` — issue #71 closed with controlled Platform DB outage evidence classified `STAGING_PROVEN` for that staging failure path only.
-- PR #74 / `24eaa4ca5e38bb255db95a989c0ff02e954360f3` — issue #72 closed with focused CMS publication-state and privileged-audit regressions; no runtime defect found.
+- PR #74 / `24eaa4ca5e38bb255db95a989c0ff02e954360f3` — issue #72 closed; focused CMS publication-state and privileged-audit regressions found no runtime defect.
 - PR #75 / `4fc6fcccea00bdd8d7679595b92d189cb572dd35` — final Functional Acceptance matrix reconciliation merged; FAV-01 through FAV-05 are closed for the delivered staging-verifiable scope.
 - PR #77 / `1e6e21f0963406d4e58c39b347a49cfa4529bd1c` — delivered-surface UI/UX remediation merged with clean browser Visual/Accessibility evidence.
 - PR #86 / `5d3628f8c6ba2e454246f24947ebe08ca93cf684` — issue #81 closed; authenticated Account Overview and provisioning-status UX delivered with full production-like browser evidence.
@@ -25,7 +25,7 @@ Convenience index only. Individual active task records, live PRs and Git state a
 - PR #142 / `f4570b99c9ef6f222ae3aa9ee1d9a41919768df3` — first-party Wiki architecture, phased implementation plan and standalone implementation-agent prompt merged.
 - PR #143 / `434ef4c950b52c1cb77422fda1a17c1d20bba59f` — complete non-commercial public website expansion architecture, delivery programme and first-slice implementation prompt merged.
 - PR #194 / `9ed3861cc29dcaf6305c379de2bee5ee5ac923d6` — production-capable published-only English/Polish public Wiki reads, restricted Markdown rendering and locale-isolated search merged.
-- PR #195 / `c53e0f2a1a93de9275439aff573e5a713f5621b1` — public Wiki task lifecycle archived.
+- PR #195 / `c53e0f2a1a93de9275439aff573e5a713f5621b1c` — public Wiki task lifecycle archived.
 - PR #196 / `f512f1e3a9bd567d40ddb09b699291c99a1b65f8` — trusted-editor Wiki administration, exact RBAC/MFA lifecycle controls, signed previews, revisions and responsive browser acceptance merged.
 - PR #197 / `a9adbe07317cac0311e9dd5761d45ceb8c7203f5` — Wiki administration task lifecycle archived.
 - PR #198 / `57716094cde335a0e8a661953bd3a5809ec12cb6` — Issue #145 programme checkpoint refreshed after the public and administrator Wiki deliveries.
@@ -43,6 +43,7 @@ Convenience index only. Individual active task records, live PRs and Git state a
 - PR #239 / `50d917acd7fde333f0e74757ec1ced70e30c53de` — local Synology production-target preflight merged; live run `30275482522` proved host/runtime/storage/binding/health/least-privilege/Redis/rollback and isolated restore boundaries as `STAGING_PROVEN`.
 - PR #245 / `458d447a35aa87dd1b13fa16e120e9b9fb9c21ec` — Synology target-preflight lifecycle archived; permanent manual revalidation remains available.
 - PR #246 / `9af2624e68061d52f861068976a38fe67abc4b5a` — first Issue #240 runtime slice merged: Account Center character inventory/states, readable vocations, approved character guild presentation, obsolete public preview removal and fail-closed completeness matrix.
+- PR #247 / `4e8a11a9b76aeaaa59a5dcc38bcd8a8e2fa54b39` — machine-enforced portal route/evidence ledger and complete zero-retry account lifecycle merged; bounded module gaps are now explicit.
 
 ## Current project phase
 
@@ -56,7 +57,7 @@ Previous representative acceptance remains valid only for its documented boundar
 
 - **Production Readiness: STAGING_PROVEN for previously documented boundaries**
 - **Portal Completeness: FAIL-CLOSED AUDIT AND REMEDIATION IN PROGRESS (Issue #240)**
-- **Functional Acceptance: machine-enforced route classification and complete account lifecycle ready in PR #247; planned and partial module packages remain**
+- **Functional Acceptance: route classification and complete account lifecycle merged; Downloads package in progress**
 - **Visual / UX Acceptance: representative evidence retained; full current-surface closure pending**
 - **Public Website Expansion Programme: implementation merged; completeness remediation reopened**
 - **Emulated Edge Security: STAGING_PROVEN**
@@ -68,7 +69,7 @@ The live Synology preflight identifies the running staging release as `415aa3feb
 
 ## Next work
 
-Merge PR #247 after its docs-only exact-head checks, then close Downloads, Events, Announcements, Support/Legal, Editorial Media and Wiki reconciliation in bounded successor PRs. Issue #244 separately owns audited homepage-template selection.
+Close Downloads, then Events, Announcements, Support/Legal, Editorial Media and Wiki reconciliation in bounded successor PRs. Issue #244 separately owns audited homepage-template selection.
 
 Issue #91 remains the separate real Production Go-Live tracker.
 
