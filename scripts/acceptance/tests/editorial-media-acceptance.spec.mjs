@@ -126,7 +126,10 @@ test('@portal-editorial-media manager validates, uploads, privately previews, pr
   await expect(uploadedRow.locator('code.admin-media-digest')).toHaveText(/^[a-f0-9]{64}$/u);
   const previewImage = uploadedRow.getByRole('img', { name: uploadedAlt });
   await expect(previewImage).toBeVisible();
-  expect(await previewImage.evaluate((image) => image.naturalWidth)).toBeGreaterThan(0);
+  await expect.poll(
+    () => previewImage.evaluate((image) => image.complete ? image.naturalWidth : 0),
+    { message: 'Authenticated editorial image preview did not decode.' },
+  ).toBeGreaterThan(0);
 
   const contentHref = await uploadedRow.getByRole('link').getAttribute('href');
   expect(contentHref).toBeTruthy();
