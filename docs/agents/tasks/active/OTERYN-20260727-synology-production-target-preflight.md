@@ -37,7 +37,7 @@ Tracking issue: #238.
 - [ ] Platform and Gateway use exact `sha-<40 hex>` release tags and Canary uses an immutable digest reference.
 - [ ] Required named volumes, mounts, restart policies, MariaDB health, Redis health/AOF and the last-good runtime snapshot are present.
 - [ ] Existing application/Gateway/Canary health checks and all three Canary database privilege verifiers pass against the live stack.
-- [ ] A streaming MariaDB restore drill restores Platform and Canary into temporary isolated databases, compares schema/row-count manifests, and removes all temporary state without uploading or retaining database contents.
+- [ ] A streaming MariaDB restore drill restores Platform and Canary into temporary isolated databases, compares exact deterministic dump digests and base-table counts, and removes all temporary state without uploading or retaining database contents.
 - [ ] A sanitized exact-run artifact records only statuses, counts, durations and non-secret image/release identities with `classification: STAGING_PROVEN` and `production_environment_proven: false`.
 - [ ] Remaining public-production gaps are recorded without promoting DNS/TLS/Cloudflare/WAF/mail/monitoring/DSM-backup/game-login facts.
 - [ ] No router, NAT, DSM reverse proxy, public DNS, Cloudflare account, production, secret or external-repository action occurs.
@@ -51,7 +51,6 @@ owned_paths:
   - .github/workflows/one-shot-synology-production-target-preflight.yml
   - deploy/synology/.production-target-preflight-trigger
   - deploy/synology/scripts/production-target-preflight.sh
-  - deploy/synology/README.md
   - docs/operations/SYNOLOGY_PRODUCTION_TARGET_PREFLIGHT_EVIDENCE.md
   - docs/agents/ACTIVE_WORK.md
   - docs/agents/tasks/active/OTERYN-20260727-synology-production-target-preflight.md
@@ -75,18 +74,18 @@ cross_repository_tasks: []
 - Trust boundary: repository-reviewed trusted-main workflow -> dedicated Synology deployment runner -> local Docker socket and local staging containers.
 - Authentication/authorization invariant: unchanged; Platform auth, MFA, RBAC and audit remain authoritative.
 - Canary/login-server schema or session compatibility: unchanged; the drill copies the currently deployed schemas into temporary databases only.
-- Rollback: temporary restore databases are dropped in an exit trap; no deployed schema or runtime image is changed.
+- Rollback: temporary restore databases are dropped in a Python `finally` block; no deployed schema or runtime image is changed.
 - Secrets/production configuration: staging secrets are injected only through the GitHub Environment and are never written to evidence; no production-only configuration is used.
 
 ## Context checkpoint
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-07-27T16:05:00+02:00
-head: f5aeb2e80d4692b3ee6309cc3454aa20697721f2
+updated_at: 2026-07-27T16:22:00+02:00
+head: 87015829ea3a2b1f5d9187197af11e3c2715c2fc
 branch: ops/OTERYN-20260727-synology-production-target-preflight
-pr: none
-status: implementing
+pr: 239
+status: validating
 context_routes:
   - agent-governance
   - security
@@ -98,18 +97,18 @@ owned_paths:
   - .github/workflows/one-shot-synology-production-target-preflight.yml
   - deploy/synology/.production-target-preflight-trigger
   - deploy/synology/scripts/production-target-preflight.sh
-  - deploy/synology/README.md
   - docs/operations/SYNOLOGY_PRODUCTION_TARGET_PREFLIGHT_EVIDENCE.md
   - docs/agents/ACTIVE_WORK.md
   - docs/agents/tasks/active/OTERYN-20260727-synology-production-target-preflight.md
   - docs/agents/tasks/archive/OTERYN-20260727-synology-production-target-preflight.md
 proven:
-  - main head f5aeb2e80d4692b3ee6309cc3454aa20697721f2 has no active task after edge-emulation archival
+  - main head f5aeb2e80d4692b3ee6309cc3454aa20697721f2 had no active task after edge-emulation archival
   - Issue 238 is open for the bounded local Synology production-target preflight
   - the existing stack keeps Platform Gateway and legacy login on loopback, exposes only optional private-LAN game TCP, and keeps MariaDB and Redis unpublished
   - the existing deployment already proves migrations, health checks, three Canary effective-grant verifiers and runtime-image rollback snapshots
+  - PR 239 contains a trusted-main live workflow, temporary dispatcher, fail-closed runtime checks and a no-retained-dump streaming restore drill
   - Issue 91 remains open and requires direct evidence from a future real production environment
-  - no open pull request overlaps the proposed preflight paths or intent
+  - no other open pull request overlaps the preflight paths or intent
 derived:
   - a live read-mostly host preflight plus temporary isolated restore drill can close the locally verifiable target-readiness gap without making a production claim
 unknown:
@@ -117,18 +116,28 @@ unknown:
   - whether the first live restore drill passes on the current Synology MariaDB dataset
 conflicts: []
 first_failure:
-  marker: none
-  evidence: implementation has not yet executed
+  marker: preflight-script-syntax
+  evidence: Synology Production Target Preflight run 30274168248 failed during bash syntax validation before any live job; malformed backtick quoting in the first SQL manifest implementation was replaced by Python streaming digest verification
 rejected_hypotheses:
+  - the live NAS or database caused the first failure: the pull-request live job was skipped and no Synology action occurred
   - local Synology evidence can close Issue 91: public provider and production facts remain direct-environment requirements
 changed_paths:
+  - .github/workflows/synology-production-target-preflight.yml
+  - .github/workflows/one-shot-synology-production-target-preflight.yml
+  - deploy/synology/.production-target-preflight-trigger
+  - deploy/synology/scripts/production-target-preflight.sh
+  - docs/operations/SYNOLOGY_PRODUCTION_TARGET_PREFLIGHT_EVIDENCE.md
+  - docs/agents/ACTIVE_WORK.md
   - docs/agents/tasks/active/OTERYN-20260727-synology-production-target-preflight.md
 validation:
   - command: repository Synology deployment and production-boundary review
     result: PASS
     evidence: existing deployment package, health/rollback scripts and Production Go-Live Gate preserve staging-only classification
+  - command: Synology Production Target Preflight 30274168248
+    result: FAIL
+    evidence: static bash syntax check rejected the initial SQL quoting; live-preflight was skipped
 blockers: []
-next_action: Implement the sanitized live Synology preflight script, trusted-main workflow, temporary dispatcher and evidence record.
+next_action: Obtain a static-validation PASS for the corrected streaming preflight implementation, then complete all required PR checks before trusted-main execution.
 ```
 
 ## Notes
