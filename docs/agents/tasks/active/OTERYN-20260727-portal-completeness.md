@@ -78,11 +78,11 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-07-27T17:40:00+02:00
+updated_at: 2026-07-27T17:45:00+02:00
 head: 6fbaea6b64691cae36f2b420866b8cbb2d2c17d7
 branch: feat/OTERYN-20260727-portal-completeness
 pr: 246
-status: review
+status: ready
 context_routes:
   - agent-governance
   - testing
