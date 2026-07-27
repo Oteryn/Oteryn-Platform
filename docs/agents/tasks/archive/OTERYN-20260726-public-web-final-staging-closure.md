@@ -34,15 +34,13 @@ Complete exact-SHA Synology staging acceptance for Issue #145, preserve sanitize
 - [x] Temporary one-shot workflows and trigger were removed.
 - [x] Programme coordination task was archived.
 - [x] Issue #145 was closed as completed after cleanup merge.
-- [ ] This final task record is archived in a documentation-only PR.
+- [x] This final task record is archived in a documentation-only PR.
 - [x] No production, router, DSM, Internet-exposure, Canary/login-server repository or external-repository write occurred.
 
 ## Ownership
 
 ```yaml
 owned_paths:
-  - docs/agents/ACTIVE_WORK.md
-  - docs/agents/tasks/active/OTERYN-20260726-public-web-final-staging-closure.md
   - docs/agents/tasks/archive/OTERYN-20260726-public-web-final-staging-closure.md
 modules:
   - Deployment
@@ -58,6 +56,7 @@ dependencies:
   - PR 230 merge d7984a2def655a01b513cdbc823117f37b90d5d4
   - PR 232 merge 415aa3febd04c8d9c61082d4a7451352bf084013
   - PR 233 merge e3e94dae03e0468d71f911ad41e597bb5d802eb3
+  - PR 234 merge 4131a34b8c5f1092a2d0b8fb1bb56785f217b194
 blockers: []
 cross_repository_tasks: []
 ```
@@ -66,10 +65,10 @@ cross_repository_tasks: []
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-07-27T14:16:00+02:00
-head: e3e94dae03e0468d71f911ad41e597bb5d802eb3
-branch: main
-pr: none
+updated_at: 2026-07-27T14:34:00+02:00
+head: 21d40c1423d8a55612ec91863da1eb29beb639ff
+branch: docs/OTERYN-20260727-final-staging-archive
+pr: 235
 status: ready
 context_routes:
   - agent-governance
@@ -81,8 +80,6 @@ context_routes:
   - testing
   - accessibility
 owned_paths:
-  - docs/agents/ACTIVE_WORK.md
-  - docs/agents/tasks/active/OTERYN-20260726-public-web-final-staging-closure.md
   - docs/agents/tasks/archive/OTERYN-20260726-public-web-final-staging-closure.md
 proven:
   - PR 230 merged guarded Wiki RBAC, genuine-MFA first-administrator bootstrap and reviewed launch-content installation as d7984a2def655a01b513cdbc823117f37b90d5d4
@@ -93,11 +90,13 @@ proven:
   - cleanup PR 233 merged as e3e94dae03e0468d71f911ad41e597bb5d802eb3 after six required workflows passed
   - cleanup removed three temporary one-shot workflows and the inert trigger and archived the programme coordination task
   - Issue #145 closed as completed at 2026-07-27T12:09:42Z after final closure comment 5091097147
+  - PR 234 merged as 4131a34b8c5f1092a2d0b8fb1bb56785f217b194 and persisted the closed-Issue checkpoint
+  - PR 235 contains only the final task-record archive and ACTIVE_WORK closure
   - superseded PR 213 and audit PR 231 are closed without merge
   - no Identity email, password, TOTP secret, recovery code, production, router, DSM, Internet-exposure or external-repository action occurred
 derived:
   - the public website expansion programme is complete at STAGING_PROVEN
-  - only archival of this completed task record remains
+  - the completed final-staging task lifecycle is ready for archival merge
   - Issue 91 remains the sole production execution tracker
 unknown: []
 conflicts: []
@@ -109,7 +108,9 @@ rejected_hypotheses:
   - another administrator or fabricated MFA was required: the sole genuine MFA-confirmed account passed the audited gate
   - staging PASS proves production: Issue 91 remains the explicitly separate production boundary
 changed_paths:
+  - docs/agents/ACTIVE_WORK.md
   - docs/agents/tasks/active/OTERYN-20260726-public-web-final-staging-closure.md
+  - docs/agents/tasks/archive/OTERYN-20260726-public-web-final-staging-closure.md
 validation:
   - command: final exact-SHA Synology staging closure
     result: PASS
@@ -120,8 +121,11 @@ validation:
   - command: Issue 145 closure
     result: PASS
     evidence: state closed/completed at 2026-07-27T12:09:42Z after comment 5091097147
+  - command: documentation archival review
+    result: PASS
+    evidence: archived record replaces the active record and ACTIVE_WORK no longer lists this task
 blockers: []
-next_action: Archive this completed task record in a documentation-only PR and remove it from ACTIVE_WORK.
+next_action: Preserve this archived record as completion evidence.
 ```
 
 ## Notes
