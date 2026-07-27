@@ -92,7 +92,8 @@ An earlier successful controlled run #5 on SHA `b6dcd6ed95c55f400206864ffd6ff799
 | Restore integrity | `STAGING_PROVEN` | Source/restored table counts matched `13/13`; migration counts matched `11/11`; a SHA-tagged restore probe matched the validated SHA. |
 | Restored-environment smoke | `STAGING_PROVEN` | `migrate:status` and production configuration verification passed against the restored database. |
 | Measured staging restore time | `STAGING_PROVEN` | Latest final-head restore completed in `105 ms` for this controlled dataset on `2026-07-20`; this is **not** a production RTO or RPO. |
-| HTTPS/TLS termination and reverse-proxy trust | `UNKNOWN` | The controlled run enforces HTTPS application configuration and Secure cookies but does not include the final edge/TLS/reverse-proxy topology. Must be verified in the final environment. |
+| Emulated DNS/TLS/WAF/Access/authenticated-origin composition | `STAGING_PROVEN` | Edge Security Emulation run `30270571670` validated SHA `791c350b93406eabe50702f8860b0515678a80bb`; artifact `edge-security-emulation-evidence-30270571670` digest `sha256:17ba33a26793a7f8d536acbcb78097e961a27bff65a690874fb72b884634e0b7` records DNS, TLS 1.2/1.3, legacy TLS denial, mTLS origin authentication, direct-origin denial, forwarded-header normalization, WAF/protocol/body denial, HTTP 429, Access denial and independent Platform auth as PASS/denied outcomes. Reserved `.test`, loopback and ephemeral credentials only. |
+| Actual production HTTPS/TLS/DNS/WAF/Access and origin ingress | `UNKNOWN` | The emulation proves a reviewed procedure and controlled composition only. Real provider settings, public certificates, hostname policy, HSTS scope, Cloudflare rules and effective production origin exposure must be verified in the final environment. |
 | Centralized logging/metrics/alerts/on-call | `UNKNOWN` | Application JSON logging primitive is proven; final production sink, retention, access, alerting and on-call routing require final environment evidence. |
 
 ## Critical-flow evidence composition
@@ -104,7 +105,8 @@ The production-like evidence intentionally combines complementary layers instead
 3. the environment workflow runs the three effective-grant verifiers against real dedicated MariaDB principals and actively proves prohibited cross-surface writes are denied;
 4. the runtime Redis path uses a real ACL user and real TTL/hash reads;
 5. mail delivery uses an actual SMTP protocol path to a safe test service;
-6. the deployed release itself is live-smoked for health, browser headers, cookies, correlation and structured logging.
+6. the deployed release itself is live-smoked for health, browser headers, cookies, correlation and structured logging;
+7. the edge-emulation workflow composes reserved authoritative DNS, public-edge TLS, authenticated origin pulls, WAF/rate limiting and optional Access admission around the current-SHA Laravel application.
 
 This composition is `STAGING_PROVEN`. It is not a substitute for final production smoke tests against the exact deployed production SHA.
 

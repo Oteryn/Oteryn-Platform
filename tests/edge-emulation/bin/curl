@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+real_curl="${OTERYN_REAL_CURL:-/usr/bin/curl}"
+header_file=""
+args=("$@")
+
+for ((index = 0; index < ${#args[@]}; index++)); do
+    case "${args[$index]}" in
+        --dump-header|-D)
+            if (( index + 1 < ${#args[@]} )); then
+                header_file="${args[$((index + 1))]}"
+            fi
+            ;;
+        --dump-header=*)
+            header_file="${args[$index]#--dump-header=}"
+            ;;
+    esac
+done
+
+set +e
+"$real_curl" "$@"
+status=$?
+set -e
+
+if [[ -n "$header_file" && "$header_file" != "-" && -f "$header_file" ]]; then
+    normalized="${header_file}.normalized.$$"
+    tr -d '\r' < "$header_file" > "$normalized"
+    mv "$normalized" "$header_file"
+fi
+
+exit "$status"

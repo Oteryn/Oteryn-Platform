@@ -1,0 +1,133 @@
+name: Edge Security Emulation
+
+on:
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: edge-security-emulation-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      VALIDATION_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+      APP_ENV: production
+      APP_DEBUG: "false"
+      APP_URL: https://app.oteryn.test:8443
+      LOG_CHANNEL: stderr_json
+      LOG_LEVEL: info
+      SESSION_DRIVER: file
+      SESSION_SECURE_COOKIE: "true"
+      SESSION_HTTP_ONLY: "true"
+      CACHE_STORE: file
+      QUEUE_CONNECTION: sync
+      MAIL_MAILER: array
+      MAIL_FROM_ADDRESS: edge-emulation@example.test
+      MAIL_FROM_NAME: Oteryn Edge Emulation
+      DB_CONNECTION: sqlite
+      DB_DATABASE: /tmp/oteryn-edge-platform.sqlite
+      LARAVEL_EDGE_LOG: /tmp/oteryn-edge-laravel.log
+      EDGE_EVIDENCE_PATH: /tmp/edge-security-emulation-evidence.json
+
+    steps:
+      - name: Checkout exact validation SHA
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.5'
+          coverage: none
+          extensions: pdo_sqlite, pcntl
+          tools: composer:v2
+
+      - name: Install edge validation tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends nginx dnsutils
+          nginx -v
+          dig -v
+          openssl version
+          docker version
+
+      - name: Install application dependencies
+        run: composer install --no-interaction --prefer-dist --no-progress
+
+      - name: Prepare current-SHA application
+        run: |
+          echo "APP_KEY=$(php -r 'echo "base64:".base64_encode(random_bytes(32));')" >> "$GITHUB_ENV"
+          touch "$DB_DATABASE"
+          mkdir -p storage/framework/cache/data storage/framework/sessions storage/framework/views
+          chmod +x tests/edge-emulation/bin/curl
+
+      - name: Migrate isolated Platform database
+        run: php artisan migrate --force --no-interaction
+
+      - name: Start current-SHA Laravel origin application
+        run: |
+          nohup php artisan serve --host=127.0.0.1 --port=8000 >"$LARAVEL_EDGE_LOG" 2>&1 &
+          echo $! > /tmp/oteryn-edge-laravel.pid
+          for _ in $(seq 1 60); do
+            if curl --fail --silent --show-error http://127.0.0.1:8000/health >/dev/null; then
+              exit 0
+            fi
+            sleep 0.25
+          done
+          cat "$LARAVEL_EDGE_LOG"
+          exit 1
+
+      - name: Validate DNS TLS WAF Access and origin composition
+        run: |
+          set -o pipefail
+          PATH="$GITHUB_WORKSPACE/tests/edge-emulation/bin:$PATH" \
+            bash tests/edge-emulation/run.sh 2>&1 | tee /tmp/edge-security-emulation.log
+
+      - name: Record staging-only decision
+        run: |
+          {
+            echo "### Edge security emulation"
+            echo "- validation_sha: \`$VALIDATION_SHA\`"
+            echo "- DNS/TLS/Cloudflare-style WAF/Access/origin composition: PASS"
+            echo "- classification: \`STAGING_PROVEN\`"
+            echo "- actual production DNS/TLS/Cloudflare/WAF/origin state: \`UNKNOWN\`"
+            echo "- Issue #91 remains: \`PENDING PRODUCTION VERIFICATION\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload non-secret edge evidence artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: edge-security-emulation-evidence-${{ github.run_id }}
+          path: /tmp/edge-security-emulation-evidence.json
+          retention-days: 7
+          if-no-files-found: error
+
+      - name: Upload bounded failure diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: edge-security-emulation-failure-${{ github.run_id }}
+          path: |
+            /tmp/edge-security-emulation.log
+            /tmp/oteryn-edge-emulation/nginx-error.log
+            /tmp/oteryn-edge-emulation/access.log
+            /tmp/oteryn-edge-laravel.log
+          retention-days: 3
+          if-no-files-found: warn
+
+      - name: Stop current-SHA Laravel application
+        if: always()
+        run: |
+          if [[ -f /tmp/oteryn-edge-laravel.pid ]]; then
+            kill "$(cat /tmp/oteryn-edge-laravel.pid)" >/dev/null 2>&1 || true
+          fi

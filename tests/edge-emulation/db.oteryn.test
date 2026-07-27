@@ -1,0 +1,7 @@
+$ORIGIN oteryn.test.
+$TTL 60
+@ IN SOA ns.oteryn.test. hostmaster.oteryn.test. 2026072701 60 60 300 60
+@ IN NS ns.oteryn.test.
+ns IN A 127.0.0.1
+app IN A 127.0.0.1
+admin IN CNAME app.oteryn.test.

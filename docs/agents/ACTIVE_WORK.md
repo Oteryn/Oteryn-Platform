@@ -4,7 +4,7 @@ Convenience index only. Individual active task records, live PRs and Git state a
 
 ## Active tasks
 
-None.
+- `OTERYN-20260727-edge-security-emulation` — deterministic production-like DNS, TLS, Cloudflare/WAF/Access and authenticated-origin emulation without production claims.
 
 ## Closed acceptance and release-preparation follow-ups
 
@@ -37,6 +37,7 @@ None.
 - PR #232 / `415aa3febd04c8d9c61082d4a7451352bf084013` — exact-SHA Synology deployment and named-volume live Chromium staging acceptance completed with sanitized PASS evidence.
 - PR #233 / `e3e94dae03e0468d71f911ad41e597bb5d802eb3` — temporary final-staging workflows and trigger removed after all required cleanup checks passed.
 - PR #234 / `4131a34b8c5f1092a2d0b8fb1bb56785f217b194` — closed Issue #145 state and the single remaining archival action persisted in the final-staging checkpoint.
+- PR #235 / `cab40863bd5058209cdcbee1342a54acc814ec01` — final public-staging task record archived and `ACTIVE_WORK` cleared.
 
 ## Current project phase
 
@@ -59,7 +60,7 @@ No staging evidence may be promoted to `PRODUCTION_PROVEN`.
 
 ## Next work
 
-No repository/staging public-web closure task remains. Issue #91 remains the sole production execution tracker and resumes only with explicit production authorization and access to collect sanitized production evidence.
+Complete the deterministic edge-security emulation profile and archive its exact-SHA `STAGING_PROVEN` evidence. Issue #91 remains the sole production execution tracker; actual provider, DNS, TLS, WAF, firewall and origin facts remain `UNKNOWN` until a real environment exists.
 
 ## Remaining cross-repository dependency
 
