@@ -4,7 +4,7 @@ Convenience index only. Individual active task records, live PRs and Git state a
 
 ## Active tasks
 
-- `OTERYN-20260728-portal-e2e-audit` — fresh exact-head comprehensive portal E2E execution and persistent findings ledger in `docs/testing/PORTAL_E2E_AUDIT_2026-07-28.md`.
+- None.
 
 ## Closed acceptance and release-preparation follow-ups
 
@@ -48,6 +48,7 @@ Convenience index only. Individual active task records, live PRs and Git state a
 - PR #255 / `7e0fe46b57be4cf19900adefbada7133da47bb21` — complete Events public/admin/localization/conflict lifecycle merged with Chromium desktop/tablet/mobile and bounded public Firefox/WebKit evidence; Events is `covered`.
 - PR #259 / `d08062c653a137e1359b5626fda635b170704cd8` — complete Announcements public/admin/localization lifecycle merged after every exact-head workflow passed; Announcements is `covered`.
 - PR #260 / `436d30e56bbf2821d01372a8aec15ec1a3ffca30` — Support/Legal, Editorial Media and Wiki public/admin final acceptance closure merged; strict delivered-surface ledger and all exact-head workflows passed, and Issue #240 is closed.
+- PR #265 / `dd48947a0c6328dc5d361f9953c221df343ecb4d` — comprehensive exact-head portal E2E audit and harness remediations merged after critical, full, contract, module, stability, soak, CI and governance gates passed on tested SHA `a5929d0725d6a99069abbc2faa42022d843e560d`.
 
 ## Current project phase
 
@@ -61,19 +62,19 @@ Repository and staging evidence remains valid only for its documented boundaries
 
 - **Production Readiness: STAGING_PROVEN for previously documented boundaries**
 - **Portal Completeness: COMPLETE AGAINST THE VERSIONED DELIVERED-SURFACE CONTRACT (Issue #240 closed)**
-- **Functional Acceptance: strict zero-gap ledger and complete account lifecycle passed on the final PR #260 head**
-- **Visual / UX Acceptance: required exact-head browser, responsive and accessibility profiles passed for the declared surfaces**
+- **Functional Acceptance: comprehensive exact-head critical/full/contract/module/stability/soak audit passed through PR #265**
+- **Visual / UX Acceptance: automated responsive/accessibility profiles and exploratory visual contact-sheet audit passed on the PR #265 exact head**
 - **Public Website Expansion Programme: implementation and machine-ledger closure merged**
 - **Emulated Edge Security: STAGING_PROVEN**
 - **Synology Production Target Preflight: STAGING_PROVEN**
 - **Production Go-Live Gate: PENDING PRODUCTION VERIFICATION**
 - **Production Verification: REQUIRED BEFORE GO-LIVE**
 
-The live Synology preflight identifies the previously verified staging release as `415aa3febd04c8d9c61082d4a7451352bf084013`. No repository, staging, local-target or emulation evidence may be promoted to `PRODUCTION_PROVEN`.
+The latest verified final-portal staging refresh identity is `ef6d03e0b7c6ed0ecf40e6e108b81358c9b64b1b` from PR #264. The later PR #265 evidence is repository/isolated-acceptance proof and is not a claim that its merge SHA is deployed to staging. No repository, staging, local-target or emulation evidence may be promoted to `PRODUCTION_PROVEN`.
 
 ## Next work
 
-Issue #244 separately owns audited homepage-template selection. Issue #91 remains the separate real Production Go-Live tracker.
+Issue #244 separately owns audited homepage-template selection. Issue #91 remains the separate real Production Go-Live tracker. The completed audit report records bounded follow-ups for reusable profile precedence, stale core project-state documentation and the nonfunctional soak wrapper.
 
 ## Remaining cross-repository dependency
 
