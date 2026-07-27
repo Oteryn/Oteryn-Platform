@@ -4,7 +4,7 @@ Convenience index only. Individual active task records, live PRs and Git state a
 
 ## Active tasks
 
-None.
+- `OTERYN-20260727-exhaustive-portal-acceptance` / draft PR #241 — machine-enforced portal route/state/role/viewport coverage ledger, complete account-lifecycle profile and implementation-agent prompt. Owned paths are limited to acceptance architecture, acceptance harness/tests/workflow and the task record.
 
 ## Closed acceptance and release-preparation follow-ups
 
@@ -62,7 +62,7 @@ No staging or emulation evidence may be promoted to `PRODUCTION_PROVEN`.
 
 ## Next work
 
-No repository-owned edge-emulation task remains. Issue #91 resumes only after a real production environment exists and explicit production authorization permits direct verification of provider, DNS, TLS, WAF, firewall, certificate lifecycle and origin exposure.
+Complete PR #241 as the architecture and harness foundation for exhaustive delivered-surface acceptance. Execute its remaining classified coverage gaps through the standalone bounded implementation-agent prompt; do not replace issue #91 or the authoritative game-login programme.
 
 ## Remaining cross-repository dependency
 
