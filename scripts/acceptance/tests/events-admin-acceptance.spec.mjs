@@ -17,6 +17,10 @@ function eventFixture(...args) {
   return JSON.parse(runBinary('php', ['scripts/acceptance/seed-browser-events.php', ...args]));
 }
 
+function restoreSharedHomepageFixture() {
+  runBinary('php', ['scripts/acceptance/seed-homepage-navigation-seo.php']);
+}
+
 function seedIdentity(label, { confirmedMfa, permissions }) {
   const email = uniqueEmail(label);
   const recoveryCode = `EVENT-${label.toUpperCase().replace(/[^A-Z0-9]/gu, '').slice(0, 12)}-01`;
@@ -79,7 +83,11 @@ test.beforeEach(async ({ page }) => {
 });
 
 test.afterEach(async ({ page }, testInfo) => {
-  await attachDiagnostics(testInfo, page.__acceptanceDiagnostics);
+  try {
+    await attachDiagnostics(testInfo, page.__acceptanceDiagnostics);
+  } finally {
+    restoreSharedHomepageFixture();
+  }
 });
 
 test('@portal-events guest, MFA and exact manage/publish permission boundaries fail closed', async ({ page }) => {
