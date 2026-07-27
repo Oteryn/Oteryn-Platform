@@ -348,6 +348,7 @@ body_status="$(curl --silent --show-error --cacert "$cert_dir/edge-ca.crt" \
 [[ "$body_status" == "413" ]] || fail "oversized request returned HTTP $body_status"
 
 : > "$work_dir/rate-statuses"
+rate_pids=()
 for _ in $(seq 1 24); do
     (
         curl --silent --show-error --cacert "$cert_dir/edge-ca.crt" \
@@ -356,8 +357,11 @@ for _ in $(seq 1 24); do
             https://app.oteryn.test:8443/__rate_limit_probe \
             >> "$work_dir/rate-statuses"
     ) &
+    rate_pids+=("$!")
 done
-wait
+for rate_pid in "${rate_pids[@]}"; do
+    wait "$rate_pid"
+done
 grep -Eq '^(200|204)$' "$work_dir/rate-statuses" || fail "rate-limit probe admitted no request"
 grep -qx '429' "$work_dir/rate-statuses" || fail "rate-limit probe produced no HTTP 429"
 
