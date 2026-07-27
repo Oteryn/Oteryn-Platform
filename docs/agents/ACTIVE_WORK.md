@@ -4,7 +4,7 @@ Convenience index only. Individual active task records, live PRs and Git state a
 
 ## Active tasks
 
-None.
+- `OTERYN-20260727-portal-completeness` — Issue #240 fail-closed route/state completeness matrix and remediation coordination. Owns only the shared matrix and programme governance; runtime repairs must use separate non-overlapping child tasks.
 
 ## Closed acceptance and release-preparation follow-ups
 
@@ -42,27 +42,30 @@ None.
 
 ## Current project phase
 
-**Phase 6 — CMS, Admin, RBAC and Audit: COMPLETE**
+**Phase 6 — CMS, Admin, RBAC and Audit: COMPLETE as an implementation milestone; portal completeness is under direct re-audit through Issue #240.**
 
-**Phase 7 — Production hardening and operations: COMPLETE**
+**Phase 7 — Production hardening and operations: COMPLETE as an engineering milestone.**
 
-The E2E coverage-hardening programme is continuous verification and does not reopen either completed phase.
+The E2E coverage-hardening programme is continuous verification and does not by itself prove route-by-route product completeness.
 
 ## Operational release state
 
-- **Production Readiness: STAGING_PROVEN**
-- **Functional Acceptance: STAGING_PROVEN for the delivered staging-verifiable functional surface**
-- **Visual / UX Acceptance: PASS for the delivered staging-verifiable launch scope**
-- **Public Website Expansion Programme: STAGING_PROVEN**
+- **Production Readiness: STAGING_PROVEN for the previously documented boundaries**
+- **Portal Completeness: REOPENED / FAIL-CLOSED AUDIT IN PROGRESS (Issue #240)**
+- **Functional Acceptance: previous representative evidence retained, complete route/state acceptance not yet proven**
+- **Visual / UX Acceptance: previous representative evidence retained, complete current-surface acceptance not yet proven**
+- **Public Website Expansion Programme: implementation slices merged; operator-observed completeness defects and deployment drift under Issue #240**
 - **Emulated Edge Security: STAGING_PROVEN**
 - **Production Go-Live Gate: PENDING PRODUCTION VERIFICATION**
 - **Production Verification: REQUIRED BEFORE GO-LIVE**
 
-No staging or emulation evidence may be promoted to `PRODUCTION_PROVEN`.
+No staging or emulation evidence may be promoted to `PRODUCTION_PROVEN`. No previous representative PASS may be treated as proof that every current portal surface is complete.
 
 ## Next work
 
-No repository-owned edge-emulation task remains. Issue #91 resumes only after a real production environment exists and explicit production authorization permits direct verification of provider, DNS, TLS, WAF, firewall, certificate lifecycle and origin exposure.
+Execute Issue #240 in bounded child tasks. First reconcile the exact running Synology Platform image/SHA, then complete Account Center and Character Profile before shared-shell/template, Identity, public editorial, Wiki/media and Admin closure slices.
+
+Issue #91 remains the separate production execution tracker and cannot close from this programme.
 
 ## Remaining cross-repository dependency
 
