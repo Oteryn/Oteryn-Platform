@@ -4,7 +4,7 @@ Convenience index only. Individual active task records, live PRs and Git state a
 
 ## Active tasks
 
-- `OTERYN-20260727-announcements-acceptance` — PR #259 has complete public/admin/localization evidence and a covered ledger record; final exact-head merge gates are running before Support/Legal begins.
+- `OTERYN-20260727-portal-acceptance-final-closure` — final Issue #240 closure for Support/Legal, Editorial Media and Wiki public/admin with independent zero-retry module gates and strict ledger reconciliation.
 
 ## Closed acceptance and release-preparation follow-ups
 
@@ -46,6 +46,7 @@ Convenience index only. Individual active task records, live PRs and Git state a
 - PR #247 / `4e8a11a9b76aeaaa59a5dcc38bcd8a8e2fa54b39` — machine-enforced portal route/evidence ledger and complete zero-retry account lifecycle merged; bounded module gaps are now explicit.
 - PR #253 / `f9301792cfc82956aa4af792283c18bcbaf2c28e` — complete Download Center public/admin/localization/failure-recovery lifecycle merged with Chromium, Firefox and WebKit evidence; Downloads is `covered`.
 - PR #255 / `7e0fe46b57be4cf19900adefbada7133da47bb21` — complete Events public/admin/localization/conflict lifecycle merged with Chromium desktop/tablet/mobile and bounded public Firefox/WebKit evidence; Events is `covered`.
+- PR #259 / `d08062c653a137e1359b5626fda635b170704cd8` — complete Announcements public/admin/localization lifecycle merged after every exact-head workflow passed; Announcements is `covered`.
 
 ## Current project phase
 
@@ -58,9 +59,9 @@ Previous representative acceptance remains valid only for its documented boundar
 ## Operational release state
 
 - **Production Readiness: STAGING_PROVEN for previously documented boundaries**
-- **Portal Completeness: FAIL-CLOSED AUDIT AND REMEDIATION IN PROGRESS (Issue #240)**
-- **Functional Acceptance: account, Downloads, Events and Announcements are covered; final PR #259 checks are running**
-- **Visual / UX Acceptance: representative evidence retained; full current-surface closure pending**
+- **Portal Completeness: FAIL-CLOSED FINAL CLOSURE IN PROGRESS (Issue #240)**
+- **Functional Acceptance: account, Downloads, Events and Announcements are covered; Support/Legal, Editorial Media and Wiki reconciliation remain**
+- **Visual / UX Acceptance: representative evidence retained; final current-surface closure pending**
 - **Public Website Expansion Programme: implementation merged; completeness remediation reopened**
 - **Emulated Edge Security: STAGING_PROVEN**
 - **Synology Production Target Preflight: STAGING_PROVEN**
@@ -71,7 +72,7 @@ The live Synology preflight identifies the running staging release as `415aa3feb
 
 ## Next work
 
-Merge PR #259, then close Support/Legal, Editorial Media and Wiki reconciliation in bounded successors. Issue #244 separately owns audited homepage-template selection.
+Close Support/Legal, Editorial Media and Wiki public/admin records with independent module gates, then require a strict zero-gap portal ledger. Issue #244 separately owns audited homepage-template selection.
 
 Issue #91 remains the separate real Production Go-Live tracker.
 
