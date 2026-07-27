@@ -39,7 +39,7 @@ Establish a machine-enforced, risk-layered acceptance coverage contract for ever
 - [x] A human-readable matrix lists delivered surfaces, required dimensions, current evidence and remaining gaps.
 - [x] A standalone agent prompt can continue from repository state and close every remaining classified gap in bounded PRs.
 - [x] No staging evidence is promoted to `PRODUCTION_PROVEN`; authoritative game login and final production verification remain separate boundaries.
-- [ ] Manifest validation, account-lifecycle browser execution and all required repository checks pass on the fresh exact head.
+- [x] Manifest validation, account-lifecycle browser execution and all required repository checks pass on the fresh exact implementation head.
 
 ## Ownership
 
@@ -55,6 +55,7 @@ owned_paths:
   - docs/agents/prompts/OTERYN-EXHAUSTIVE-PORTAL-ACCEPTANCE-AGENT-PROMPT.md
   - scripts/acceptance/package.json
   - scripts/acceptance/coverage/**
+  - scripts/acceptance/tests/helpers.mjs
   - scripts/acceptance/tests/account-lifecycle-acceptance.spec.mjs
   - scripts/acceptance/tests/player-journey-acceptance.spec.mjs
   - scripts/acceptance/tests/password-recovery-acceptance.spec.mjs
@@ -82,11 +83,11 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-07-27T18:05:00+02:00
-head: 1a388323de959680d0e3cf7a315c991a920da74a
+updated_at: 2026-07-27T18:45:00+02:00
+head: e840b6b78de1b659ea1bb4696c4d12f1e1e7022e
 branch: test/OTERYN-20260727-exhaustive-portal-acceptance-v2
-pr: pending
-status: validating
+pr: 247
+status: ready
 context_routes:
   - agent-governance
   - architecture
@@ -105,6 +106,7 @@ owned_paths:
   - docs/agents/prompts/OTERYN-EXHAUSTIVE-PORTAL-ACCEPTANCE-AGENT-PROMPT.md
   - scripts/acceptance/package.json
   - scripts/acceptance/coverage/**
+  - scripts/acceptance/tests/helpers.mjs
   - scripts/acceptance/tests/account-lifecycle-acceptance.spec.mjs
   - scripts/acceptance/tests/player-journey-acceptance.spec.mjs
   - scripts/acceptance/tests/password-recovery-acceptance.spec.mjs
@@ -114,24 +116,25 @@ owned_paths:
   - scripts/acceptance/tests/character-boundaries-acceptance.spec.mjs
 proven:
   - PR 246 merged the Account Center and character-presentation remediation as 9af2624e68061d52f861068976a38fe67abc4b5a
-  - the earlier PR 241 implementation was conflict-isolated from current main and its non-overlapping files were transferred onto a fresh branch
-  - the ledger architecture classifies delivered surfaces separately from environment proof and preserves lower-layer database and contract evidence
-  - the dedicated account profile selects registration, login/logout, Account Overview, provisioning, password, MFA, sessions and character scenarios with zero retries
-  - strict validation is defined but intentionally not enabled while truthful planned and partial surface gaps remain
+  - every current named application route is classified once or has a bounded framework-endpoint exclusion
+  - the dedicated account profile executes seven registration, login/logout, Account Overview, provisioning, password, MFA, session and character scenarios serially with zero retries
+  - acceptance-only registration throttle isolation prevents cross-scenario source-limit contamination while leaving product limiters and within-scenario 429 assertions enabled
+  - strict validation is defined but intentionally remains disabled while truthful planned and partial module gaps exist
+  - all required PR workflows succeeded on implementation head e840b6b78de1b659ea1bb4696c4d12f1e1e7022e
   - no Canary, login-server, production, router or DSM write occurred
 derived:
-  - classification completeness can become required immediately without dishonestly claiming the planned module packages are already covered
-  - the planned and partial manifest records provide the bounded successor order for Issue 240
+  - classification completeness can be required immediately without claiming that the planned module packages are already covered
+  - the manifest provides the bounded successor order for Downloads, Events, Announcements, Support and Legal, Editorial Media and Wiki reconciliation
 unknown:
-  - exact first validator adjustment required against current main route inventory, if any
-  - exact account-lifecycle workflow result and duration on the fresh head
+  - exact future CI duration of each bounded successor module package
 conflicts: []
 first_failure:
-  marker: none
-  evidence: no fresh-branch validation failure observed yet
+  marker: account-profile-shared-registration-throttle
+  evidence: initial parallel and then serial account-profile runs showed later scenarios receiving 429 from the shared synthetic source; the account-only helper now clears isolated acceptance cache before helper-driven registration and run 30285564647 passed all seven zero-retry scenarios
 rejected_hypotheses:
   - the conflicted PR 241 could be merged safely without rebasing its files onto current main
   - running the full secret-sensitive suite across every browser and viewport is required for exhaustive defined-surface coverage
+  - disabling production rate limiting is an acceptable way to stabilize account acceptance
 changed_paths:
   - .github/workflows/portal-acceptance-contract.yml
   - docs/agents/ACTIVE_WORK.md
@@ -145,6 +148,7 @@ changed_paths:
   - scripts/acceptance/coverage/portal-coverage-manifest.json
   - scripts/acceptance/coverage/validate-portal-coverage.mjs
   - scripts/acceptance/package.json
+  - scripts/acceptance/tests/helpers.mjs
   - scripts/acceptance/tests/account-lifecycle-acceptance.spec.mjs
   - scripts/acceptance/tests/account-overview-acceptance.spec.mjs
   - scripts/acceptance/tests/character-boundaries-acceptance.spec.mjs
@@ -153,15 +157,21 @@ changed_paths:
   - scripts/acceptance/tests/password-recovery-acceptance.spec.mjs
   - scripts/acceptance/tests/player-journey-acceptance.spec.mjs
 validation:
-  - command: transfer the PR 241 implementation onto current main without overwriting PR 246 runtime files
+  - command: Portal Acceptance Contract run 30285564647
     result: PASS
-    evidence: fresh branch is based on main 9af2624e68061d52f861068976a38fe67abc4b5a and changes only the declared acceptance/governance/documentation paths
-  - command: manifest validator, account lifecycle and required workflows
-    result: NOT_RUN
-    evidence: pending fresh pull-request execution
+    evidence: route classification and all seven zero-retry account-lifecycle scenarios succeeded on e840b6b78de1b659ea1bb4696c4d12f1e1e7022e
+  - command: CI run 30285564271
+    result: PASS
+    evidence: formatting, static analysis and complete PHPUnit suite succeeded on the same implementation head
+  - command: Acceptance E2E and Visual UX run 30285564266
+    result: PASS
+    evidence: required primary, portability, responsive, resilience, accessibility and visual acceptance succeeded
+  - command: Phase 7, governance, outage, concurrency, edge and Synology preflight workflows
+    result: PASS
+    evidence: runs 30285564402, 30285564255, 30285564665, 30285564516, 30285564524 and 30285564263 succeeded
 blockers:
   - none
-next_action: Open the fresh draft PR, inspect the first failed exact-head workflow and fix its root cause.
+next_action: Mark PR 247 ready and squash-merge after the docs-only checkpoint commit receives required checks.
 ```
 
 ## Notes
