@@ -68,7 +68,7 @@ cross_repository_tasks: []
 checkpoint_version: 1
 updated_at: 2026-07-27T14:16:00+02:00
 head: e3e94dae03e0468d71f911ad41e597bb5d802eb3
-branch: docs/OTERYN-20260727-final-staging-handoff
+branch: main
 pr: none
 status: ready
 context_routes:
