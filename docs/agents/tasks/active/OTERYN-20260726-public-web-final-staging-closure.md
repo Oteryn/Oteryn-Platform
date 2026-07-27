@@ -19,7 +19,7 @@ required_reads:
 search_first:
   - active tasks and open pull requests touching final Synology staging, Wiki RBAC, temporary workflows or Issue 145 closure
   - latest trusted main and exact Platform/Gateway image-tag behavior
-  - latest sanitized MFA prerequisite and QR deployment evidence
+  - latest sanitized final-staging reports and live-smoke job evidence
   - existing first-administrator bootstrap and Wiki launch-content installation boundaries
   - public routes required for bounded live Chromium smoke
 optional_reads:
@@ -39,11 +39,11 @@ Deploy the exact final Issue #145 trusted-main SHA to the existing Synology stag
 
 - [x] Exact trusted-main Platform and Gateway images are built before every guarded deployment.
 - [x] QR-first MFA is deployed and verified inside the deployment health check.
-- [x] Exactly one enabled staging Identity has genuine confirmed MFA and zero administrator-role assignments exist before bootstrap.
-- [ ] `content_editor` receives only Wiki access/article/category management and `platform_admin` additionally receives exact `wiki.publish`; no wildcard is introduced.
-- [ ] The existing audited `admin:bootstrap` command runs only when there are zero role assignments and exactly one enabled MFA-confirmed Identity; all other counts fail closed.
-- [ ] Exactly one enabled MFA-confirmed Identity with all four exact Wiki permissions is selected internally without logging its email.
-- [ ] `wiki:launch-content:install` installs or verifies content version `2026-07-26.1` without overwriting editorial changes.
+- [x] Exactly one enabled staging Identity has genuine confirmed MFA and zero administrator-role assignments existed before bootstrap.
+- [x] `content_editor` receives only Wiki access/article/category management and `platform_admin` additionally receives exact `wiki.publish`; no wildcard is introduced.
+- [x] The existing audited `admin:bootstrap` command ran only after the zero-assignment and sole genuine MFA-candidate gate passed.
+- [x] Exactly one enabled MFA-confirmed Identity with all four exact Wiki permissions is selected internally without logging its email.
+- [x] `wiki:launch-content:install` installed or verified content version `2026-07-26.1` without overwriting editorial changes.
 - [ ] A real Chromium instance on the Synology host network receives HTTP 200 from the localized homepage, Wiki index, EN/PL launch articles, sitemap and robots surfaces and verifies expected public headings/content.
 - [x] Sanitized reports contain only commit SHA, image tags, workflow/run identifiers, counts, job conclusions and artifact names.
 - [ ] Temporary one-shot workflows and inert triggers are removed after successful evidence is reconciled; tasks are archived and Issue #145 closes only from exact deployment evidence.
@@ -54,6 +54,7 @@ Deploy the exact final Issue #145 trusted-main SHA to the existing Synology stag
 ```yaml
 owned_paths:
   - .github/workflows/one-shot-public-web-final-staging.yml
+  - .github/workflows/one-shot-public-web-final-staging-smoke-retry.yml
   - .github/workflows/one-shot-mfa-qr-staging-deploy.yml
   - deploy/synology/.public-web-final-staging-trigger
   - deploy/synology/scripts/deploy.sh
@@ -85,8 +86,8 @@ dependencies:
   - PR 219 merge cb14a5c5209e868b0d99c42f3d1601505d1dd6d7
   - PR 220 merge 83c1d3b13eb3623930f5f068266333dae9380c24
   - PR 221 merge 37eb31d60aa8a47914745cd326aff6b313851dd0
-  - superseded PR 213 reviewed RBAC/bootstrap changes
-  - current PR 230
+  - PR 230 merge d7984a2def655a01b513cdbc823117f37b90d5d4
+  - current PR 232
   - existing Deploy Synology Staging workflow
 blockers: []
 cross_repository_tasks: []
@@ -96,10 +97,10 @@ cross_repository_tasks: []
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-07-27T13:24:00+02:00
-head: 91cd8e59e7d797ffbda1121a68c1d52279def964
-branch: fix/OTERYN-20260727-public-web-final-staging-resume
-pr: 230
+updated_at: 2026-07-27T13:44:00+02:00
+head: 1ca854fb7356ee0633a206e364ed93cd9f54d817
+branch: fix/OTERYN-20260727-final-staging-smoke-volume
+pr: 232
 status: validating
 context_routes:
   - agent-governance
@@ -112,59 +113,51 @@ context_routes:
   - testing
   - accessibility
 owned_paths:
-  - final staging, Wiki RBAC and cleanup paths listed in Ownership
+  - final staging, named-volume smoke retry and cleanup paths listed in Ownership
 proven:
-  - PR 221 exact SHA 37eb31d60aa8a47914745cd326aff6b313851dd0 deployed successfully through one-shot 30224899245 and deployment 30225044085
-  - Issue 145 sanitized report 5085918120 records MFA QR Synology staging deployment PASS
-  - the deployment health check verified the inline SVG QR renderer, deployed view/CSS markers and protected anonymous MFA route
-  - fresh PR 230 is based directly on trusted main SHA 37eb31d60aa8a47914745cd326aff6b313851dd0
-  - staging prerequisite run 30248201054 job 89919947353 reported two enabled Identities, exactly one confirmed-MFA Identity and zero administrator-role assignments
-  - the prerequisite output contained counts only and no Identity email, password, TOTP secret, QR bytes or recovery codes
-  - the reviewed PR 213 migration and exact tests were reconciled onto current main
-  - the current main one-shot blob was identical to PR 213 base, so its reviewed guarded bootstrap version was transferred without conflict
-  - temporary prerequisite, preparation and CI-inspection workflows were removed from the final diff
-  - CI run 30249747324 isolated its only error to an invalid mixed-to-string cast in a test helper; commit 2fea5fe4885f973aff65c05b71b00e8743687238 now validates every database value with is_string before returning list<string>
-  - Governance run 30249747328 isolated its only error to unsupported validation result FAIL_FIXED; the checkpoint now uses the supported result FAIL
-  - no production, router, DSM, Internet-exposure or external-repository action occurred
+  - PR 230 exact head 479df87ea133aa68fceca5678d390e2e002827f0 passed Governance, CI, concurrency, DB outage, Phase 7, Synology image build and Acceptance E2E/Visual UX before merge
+  - PR 230 merged as d7984a2def655a01b513cdbc823117f37b90d5d4
+  - exact image build 30262166816 and deployment 30262204007 completed successfully for d7984a2def655a01b513cdbc823117f37b90d5d4
+  - one-shot 30262167013 live-smoke job 89965363040 verified exact deployed images
+  - the same job completed the audited first-administrator bootstrap successfully
+  - the same job installed or verified reviewed Wiki launch content successfully through the sole eligible MFA-confirmed publisher
+  - the only live-smoke failure was Docker exit 125 because runner-container path /tmp/tmp.JhNx1wMHeU did not exist in the host Docker daemon namespace
+  - Issue 145 report comment 5090809928 correctly recorded FAIL rather than claiming staging closure
+  - PR 232 replaces the host-path bind with a Docker named volume, streams smoke.cjs through stdin and reads evidence.json back through a container
+  - no Identity email, password, TOTP secret, recovery code, production, router, DSM, Internet-exposure or external-repository action occurred
 derived:
-  - the one-time administrator bootstrap prerequisite is satisfied exactly
-  - migration plus bootstrap must pass all exact-head repository checks before merge
-  - final staging remains fail closed for zero or multiple MFA candidates or eligible Wiki publishers
+  - the RBAC, MFA, bootstrap, publisher and Wiki-content gates no longer block closure
+  - a named Docker volume removes the runner-container versus host-daemon filesystem mismatch without weakening browser assertions
+  - the retry remains exact-SHA because deploy/synology trigger changes force new images and the retry workflow verifies exact running image tags
 unknown:
-  - exact final trusted-main merge SHA and final staging run identifiers
-  - final Wiki installation and Chromium evidence result
+  - PR 232 exact-head validation result
+  - retry merge SHA, one-shot run, deployment run and Chromium evidence result
 conflicts: []
 first_failure:
-  marker: phpstan-role-key-list
-  evidence: CI runs 30249031419 and 30249747324 showed the test helper needed explicit runtime string validation; no runtime authorization code failed
+  marker: runner-container-bind-mount
+  evidence: one-shot 30262167013 live-smoke job 89965363040 ended with Docker exit 125 because /tmp/tmp.JhNx1wMHeU was not visible to the host daemon; application, deployment, bootstrap and Wiki installation steps had already passed
 rejected_hypotheses:
-  - genuine MFA is still absent: sanitized staging inspection proved exactly one confirmed-MFA Identity
-  - an administrator role already exists: the same inspection proved zero assignments
-  - a synthetic publisher or fabricated MFA is needed: the existing genuine account satisfies the exact prerequisite
-  - current main changed the final-staging one-shot since PR 213 base: both versions used blob dda377adcde255bac6f2b73b5164000d7fdd7eb8
-  - the CI failure affected runtime authorization: it was isolated to a test-helper static return type
+  - deployment failed: deployment run 30262204007 completed successfully
+  - administrator bootstrap failed: the bootstrap step completed successfully
+  - Wiki content installation failed: the install-or-verify step completed successfully
+  - Chromium found a route or heading defect: the Playwright container never started because Docker rejected the bind mount first
+  - a user secret is required for retry: the existing confirmed MFA and role assignment are already persisted
 changed_paths:
-  - .github/workflows/one-shot-public-web-final-staging.yml
-  - database/migrations/2026_07_26_183200_grant_wiki_permissions_to_editor_roles.php
-  - tests/Feature/Admin/PublicModulePermissionReservationTest.php
-  - tests/Feature/EditorialMedia/WikiEditorialMediaSecurityTest.php
-  - tests/Feature/Wiki/WikiAuthorizationTest.php
+  - .github/workflows/one-shot-public-web-final-staging-smoke-retry.yml
+  - deploy/synology/.public-web-final-staging-trigger
   - docs/agents/tasks/active/OTERYN-20260726-public-web-final-staging-closure.md
 validation:
-  - command: QR-first exact-SHA deployment
+  - command: PR 230 exact-head required checks
     result: PASS
-    evidence: build 30224899239, one-shot 30224899245 and deployment 30225044085 all succeeded for 37eb31d60aa8a47914745cd326aff6b313851dd0
-  - command: sanitized staging MFA prerequisite
+    evidence: seven required workflows passed on 479df87ea133aa68fceca5678d390e2e002827f0
+  - command: exact-SHA deployment and pre-browser final gates
     result: PASS
-    evidence: run 30248201054 job 89919947353 reported enabled 2, confirmed MFA 1, administrator assignments 0
-  - command: PR 230 exact-head CI before final type guard
+    evidence: build 30262166816, deployment 30262204007, bootstrap and Wiki install-or-verify steps all succeeded for d7984a2def655a01b513cdbc823117f37b90d5d4
+  - command: first live Chromium staging smoke
     result: FAIL
-    evidence: run 30249747324 reported only Cannot cast mixed to string in the test helper; the guarded is_string implementation is committed for the next exact-head run
-  - command: PR 230 exact-head Governance before checkpoint result normalization
-    result: FAIL
-    evidence: run 30249747328 rejected unsupported validation result FAIL_FIXED; the checkpoint now records supported values only
+    evidence: job 89965363040 failed before Playwright start with host-daemon bind-mount error for runner-local /tmp
 blockers: []
-next_action: Complete all exact-head PR 230 checks, merge with marker [public-web-final-staging], require final staging PASS evidence, then remove one-shot workflows/triggers, archive both closure tasks and close Issue 145.
+next_action: Complete PR 232 exact-head checks, merge with marker [public-web-final-staging], require a sanitized PASS report, then remove all temporary one-shot workflows/triggers, archive both closure tasks and close Issue 145.
 ```
 
 ## Notes
