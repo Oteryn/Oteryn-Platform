@@ -4,7 +4,7 @@ Convenience index only. Individual active task records, live PRs and Git state a
 
 ## Active tasks
 
-- `OTERYN-20260727-announcements-acceptance` — bounded public, administrator, localization, conflict and responsive Announcements closure under Issue #240.
+- `OTERYN-20260727-announcements-acceptance` — PR #259 has complete public/admin/localization evidence and a covered ledger record; final exact-head merge gates are running before Support/Legal begins.
 
 ## Closed acceptance and release-preparation follow-ups
 
@@ -38,7 +38,7 @@ Convenience index only. Individual active task records, live PRs and Git state a
 - PR #233 / `e3e94dae03e0468d71f911ad41e597bb5d802eb3` — temporary final-staging workflows and trigger removed after all required cleanup checks passed.
 - PR #234 / `4131a34b8c5f1092a2d0b8fb1bb56785f217b194` — closed Issue #145 state and the single remaining archival action persisted in the final-staging checkpoint.
 - PR #235 / `cab40863bd5058209cdcbee1342a54acc814ec01` — final public-staging task record archived and `ACTIVE_WORK` cleared.
-- PR #236 / `ee8293d8bbf33c9bc89ca105a0273728bb222f4d` — deterministic reserved-domain DNS, TLS, Cloudflare/WAF/Access and authenticated-origin emulation merged with exact-SHA `STAGING_PROVEN` evidence.
+- PR #236 / `ee8293d8bbf33f0e74757ec1ced70e30c53de` — deterministic reserved-domain DNS, TLS, Cloudflare/WAF/Access and authenticated-origin emulation merged with exact-SHA `STAGING_PROVEN` evidence.
 - PR #237 / `f5aeb2e80d4692b3ee6309cc3454aa20697721f2` — edge-security emulation task archived and `ACTIVE_WORK` cleared.
 - PR #239 / `50d917acd7fde333f0e74757ec1ced70e30c53de` — local Synology production-target preflight merged; live run `30275482522` proved host/runtime/storage/binding/health/least-privilege/Redis/rollback and isolated restore boundaries as `STAGING_PROVEN`.
 - PR #245 / `458d447a35aa87dd1b13fa16e120e9b9fb9c21ec` — Synology target-preflight lifecycle archived; permanent manual revalidation remains available.
@@ -59,7 +59,7 @@ Previous representative acceptance remains valid only for its documented boundar
 
 - **Production Readiness: STAGING_PROVEN for previously documented boundaries**
 - **Portal Completeness: FAIL-CLOSED AUDIT AND REMEDIATION IN PROGRESS (Issue #240)**
-- **Functional Acceptance: account, Downloads and Events are covered; Announcements package is in progress**
+- **Functional Acceptance: account, Downloads, Events and Announcements are covered; final PR #259 checks are running**
 - **Visual / UX Acceptance: representative evidence retained; full current-surface closure pending**
 - **Public Website Expansion Programme: implementation merged; completeness remediation reopened**
 - **Emulated Edge Security: STAGING_PROVEN**
@@ -71,7 +71,7 @@ The live Synology preflight identifies the running staging release as `415aa3feb
 
 ## Next work
 
-Close Announcements, then Support/Legal, Editorial Media and Wiki reconciliation in bounded successors. Issue #244 separately owns audited homepage-template selection.
+Merge PR #259, then close Support/Legal, Editorial Media and Wiki reconciliation in bounded successors. Issue #244 separately owns audited homepage-template selection.
 
 Issue #91 remains the separate real Production Go-Live tracker.
 
