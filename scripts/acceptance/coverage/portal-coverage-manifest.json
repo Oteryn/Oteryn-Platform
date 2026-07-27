@@ -720,7 +720,7 @@
     {
       "id": "events.public-admin",
       "owner": "Events",
-      "status": "planned",
+      "status": "covered",
       "route_names": [
         "legacy.events.index",
         "legacy.events.show",
@@ -735,6 +735,7 @@
       ],
       "roles": [
         "guest",
+        "authenticated-no-mfa",
         "mfa-confirmed-no-permission",
         "events-manager",
         "events-publisher"
@@ -747,10 +748,14 @@
         "cancelled",
         "not-found",
         "validation",
+        "draft",
+        "published",
+        "edit-to-draft",
         "stale-conflict",
         "permission-denied",
         "localized-en",
-        "localized-pl"
+        "localized-pl",
+        "audit-visible"
       ],
       "viewports": [
         "desktop-1440x1000",
@@ -758,8 +763,11 @@
         "mobile-390x844"
       ],
       "browsers": [
-        "chromium-primary",
-        "bounded-portability"
+        "events-chromium-desktop",
+        "events-chromium-tablet",
+        "events-chromium-mobile",
+        "events-firefox-desktop",
+        "events-webkit-desktop"
       ],
       "evidence_layers": [
         "feature",
@@ -772,11 +780,22 @@
         {
           "file": "tests/Feature/Events/EventsModuleTest.php",
           "markers": []
+        },
+        {
+          "file": "scripts/acceptance/tests/events-public-acceptance.spec.mjs",
+          "markers": [
+            "@portal-events public calendar, detail, locale isolation, empty and not-found states"
+          ]
+        },
+        {
+          "file": "scripts/acceptance/tests/events-admin-acceptance.spec.mjs",
+          "markers": [
+            "@portal-events guest, MFA and exact manage/publish permission boundaries fail closed",
+            "@portal-events administrator validation, create, publish, edit-to-draft, stale conflict and audit lifecycle"
+          ]
         }
       ],
-      "gaps": [
-        "Add public calendar/detail and complete administrator lifecycle Playwright coverage."
-      ]
+      "gaps": []
     },
     {
       "id": "announcements.admin-localization-home-composition",
