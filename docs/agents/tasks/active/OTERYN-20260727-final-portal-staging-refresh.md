@@ -33,11 +33,19 @@ cross_repository_tasks: []
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-07-27T22:00:00Z
-head: 6e6acd56fb24828aec5838734e912a31c0489978
+updated_at: 2026-07-27T22:02:00Z
+head: f31a416948b2169b1af00188dc4b122ad880fb50
 branch: ops/OTERYN-20260727-final-portal-staging-refresh
 pr: 262
 status: validating
+context_routes:
+  - agent-governance
+  - testing
+  - ci-repair
+owned_paths:
+  - .github/workflows/one-shot-final-portal-staging-refresh.yml
+  - deploy/synology/.final-portal-staging-refresh-trigger
+  - docs/agents/tasks/active/OTERYN-20260727-final-portal-staging-refresh.md
 proven:
   - PR #260 merged after all exact-head repository and module workflows passed.
   - The one-shot workflow uses the existing guarded Synology staging deployment and exact running-image verification.
@@ -49,7 +57,10 @@ unknown:
 conflicts: []
 first_failure:
   marker: Agent Governance run 30308975378
-  evidence: checkpoint still recorded pr null and the pre-implementation head after PR #262 opened
+  evidence: checkpoint omitted required contract fields and retained stale PR metadata
+rejected_hypotheses:
+  - The deployment workflow itself caused the governance failure.
+  - Staging can be considered refreshed before exact running image verification.
 changed_paths:
   - .github/workflows/one-shot-final-portal-staging-refresh.yml
   - deploy/synology/.final-portal-staging-refresh-trigger
@@ -60,10 +71,10 @@ validation:
     evidence: GitHub branch creation succeeded
   - command: PR #262 opened to main
     result: PASS
-    evidence: GitHub reports head 6e6acd56fb24828aec5838734e912a31c0489978
-  - command: first Agent Governance run 30308975378
+    evidence: GitHub reports the dedicated deployment branch and task scope
+  - command: Agent Governance runs 30308975378 and 30309056363
     result: FAIL
-    evidence: stale checkpoint metadata; corrected in this commit
+    evidence: required checkpoint fields context_routes, owned_paths and rejected_hypotheses were absent; corrected in this commit
 blockers: []
 next_action: Require all exact-head PR workflows to pass, then squash-merge with the final-portal-staging-refresh marker.
 ```
