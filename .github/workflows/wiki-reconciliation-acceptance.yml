@@ -1,92 +1,66 @@
-name: Portal Acceptance Contract
+name: Wiki Reconciliation Acceptance
 
 on:
   pull_request:
     branches:
       - main
     paths:
-      - 'app/**'
-      - 'bootstrap/**'
-      - 'config/**'
-      - 'database/**'
-      - 'resources/views/**'
-      - 'routes/**'
-      - 'scripts/acceptance/**'
-      - '.github/workflows/portal-acceptance-contract.yml'
-      - 'composer.json'
-      - 'composer.lock'
+      - 'app/Wiki/**'
+      - 'app/EditorialMedia/**'
+      - 'resources/views/wiki/**'
+      - 'resources/views/admin/wiki/**'
+      - 'public/css/wiki.css'
+      - 'public/css/wiki-admin.css'
+      - 'public/js/wiki-admin-media.js'
+      - 'lang/en/public.php'
+      - 'lang/pl/public.php'
+      - 'routes/modules/wiki.php'
+      - 'routes/localization.php'
+      - 'scripts/acceptance/playwright.wiki-reconciliation.config.mjs'
+      - 'scripts/acceptance/seed-public-wiki.php'
+      - 'scripts/acceptance/seed-browser-wiki-reconciliation.php'
+      - 'scripts/acceptance/tests/public-wiki-read-search.spec.mjs'
+      - 'scripts/acceptance/tests/admin-wiki-administration.spec.mjs'
+      - 'scripts/acceptance/tests/wiki-reconciliation-acceptance.spec.mjs'
+      - 'scripts/acceptance/coverage/portal-coverage-manifest.json'
+      - '.github/workflows/wiki-reconciliation-acceptance.yml'
   push:
     branches:
       - main
+    paths:
+      - 'app/Wiki/**'
+      - 'app/EditorialMedia/**'
+      - 'resources/views/wiki/**'
+      - 'resources/views/admin/wiki/**'
+      - 'public/css/wiki.css'
+      - 'public/css/wiki-admin.css'
+      - 'public/js/wiki-admin-media.js'
+      - 'lang/en/public.php'
+      - 'lang/pl/public.php'
+      - 'routes/modules/wiki.php'
+      - 'routes/localization.php'
+      - 'scripts/acceptance/playwright.wiki-reconciliation.config.mjs'
+      - 'scripts/acceptance/seed-public-wiki.php'
+      - 'scripts/acceptance/seed-browser-wiki-reconciliation.php'
+      - 'scripts/acceptance/tests/public-wiki-read-search.spec.mjs'
+      - 'scripts/acceptance/tests/admin-wiki-administration.spec.mjs'
+      - 'scripts/acceptance/tests/wiki-reconciliation-acceptance.spec.mjs'
+      - 'scripts/acceptance/coverage/portal-coverage-manifest.json'
+      - '.github/workflows/wiki-reconciliation-acceptance.yml'
   workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: portal-acceptance-${{ github.workflow }}-${{ github.ref }}
+  group: wiki-reconciliation-acceptance-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  coverage-contract:
-    name: Strict portal coverage closure
+  wiki-reconciliation-lifecycle:
+    name: Complete Wiki reconciliation lifecycle
     runs-on: ubuntu-latest
-    timeout-minutes: 15
-    env:
-      APP_ENV: acceptance
-      APP_DEBUG: 'false'
-      APP_URL: http://127.0.0.1:8080
-      DB_CONNECTION: sqlite
-      DB_DATABASE: ':memory:'
-      CACHE_STORE: array
-      SESSION_DRIVER: array
-      QUEUE_CONNECTION: sync
-
-    steps:
-      - name: Checkout exact tested SHA
-        uses: actions/checkout@v7
-        with:
-          ref: ${{ github.event.pull_request.head.sha || github.sha }}
-          fetch-depth: 0
-
-      - name: Setup PHP
-        uses: shivammathur/setup-php@v2
-        with:
-          php-version: '8.5'
-          coverage: none
-          extensions: pdo_sqlite
-          tools: composer:v2
-
-      - name: Setup Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-
-      - name: Install application dependencies
-        run: composer install --no-interaction --prefer-dist --no-progress
-
-      - name: Generate ephemeral application key
-        run: echo "APP_KEY=$(php -r 'echo "base64:".base64_encode(random_bytes(32));')" >> "$GITHUB_ENV"
-
-      - name: Validate strict machine-enforced portal coverage ledger
-        run: |
-          mkdir -p artifacts/portal-coverage
-          set -o pipefail
-          npm --prefix scripts/acceptance run test:coverage-contract:strict | tee artifacts/portal-coverage/report.json
-
-      - name: Upload portal coverage diagnostics
-        if: always() && hashFiles('artifacts/portal-coverage/report.json') != ''
-        uses: actions/upload-artifact@v7
-        with:
-          name: portal-coverage-report-${{ github.run_id }}-${{ github.run_attempt }}
-          path: artifacts/portal-coverage/report.json
-          if-no-files-found: error
-          retention-days: 7
-
-  account-lifecycle:
-    name: Complete account lifecycle
-    runs-on: ubuntu-latest
-    timeout-minutes: 35
+    timeout-minutes: 50
     services:
       mariadb:
         image: mariadb:11.8
@@ -113,12 +87,12 @@ jobs:
     env:
       ACCEPTANCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
       VALIDATION_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
-      ACCEPTANCE_RUN_ID: ${{ github.run_id }}-${{ github.run_attempt }}-account
-      ACCEPTANCE_RUN_SUFFIX: account
+      ACCEPTANCE_RUN_ID: ${{ github.run_id }}-${{ github.run_attempt }}-wiki-reconciliation
+      ACCEPTANCE_RUN_SUFFIX: wiki-reconciliation
       ACCEPTANCE_ZERO_RETRIES: '1'
       ACCEPTANCE_BASE_URL: http://127.0.0.1:8080
       ACCEPTANCE_MAILHOG_URL: http://127.0.0.1:8025
-      ACCEPTANCE_OUTPUT_DIR: /tmp/oteryn-account-acceptance
+      ACCEPTANCE_OUTPUT_DIR: /tmp/oteryn-wiki-reconciliation-acceptance
       APP_ENV: acceptance
       APP_DEBUG: 'false'
       APP_URL: http://127.0.0.1:8080
@@ -193,11 +167,11 @@ jobs:
       - name: Install application dependencies
         run: composer install --no-interaction --prefer-dist --no-progress
 
-      - name: Install pinned Chromium harness
+      - name: Install pinned browser harnesses
         run: |
           npm --prefix scripts/acceptance install --no-audit --no-fund
           cd scripts/acceptance
-          npx playwright install --with-deps chromium
+          npx playwright install --with-deps chromium firefox webkit
 
       - name: Generate ephemeral application key
         run: echo "APP_KEY=$(php -r 'echo "base64:".base64_encode(random_bytes(32));')" >> "$GITHUB_ENV"
@@ -208,44 +182,45 @@ jobs:
       - name: Start exact-SHA Laravel HTTP runtime
         run: |
           mkdir -p artifacts/acceptance
-          php artisan serve --host=127.0.0.1 --port=8080 >/tmp/oteryn-account-server.log 2>&1 &
-          echo $! >/tmp/oteryn-account-server.pid
+          php artisan serve --host=127.0.0.1 --port=8080 >/tmp/oteryn-wiki-reconciliation-server.log 2>&1 &
+          echo $! >/tmp/oteryn-wiki-reconciliation-server.pid
           for attempt in $(seq 1 30); do
             if curl -fsS http://127.0.0.1:8080/health >/dev/null; then
               exit 0
             fi
             sleep 1
           done
-          cat /tmp/oteryn-account-server.log >&2 || true
+          cat /tmp/oteryn-wiki-reconciliation-server.log >&2 || true
           exit 1
 
-      - name: Execute complete zero-retry account lifecycle
-        run: npm --prefix scripts/acceptance run test:account-lifecycle
+      - name: Execute complete zero-retry Wiki reconciliation matrix
+        run: |
+          cd scripts/acceptance
+          npx playwright test --config=playwright.wiki-reconciliation.config.mjs
 
-      - name: Write non-secret account-lifecycle evidence
+      - name: Write non-secret Wiki reconciliation evidence
         if: always()
         run: |
           mkdir -p artifacts/acceptance
-          cat > artifacts/acceptance/account-lifecycle-evidence.json <<JSON
+          cat > artifacts/acceptance/wiki-reconciliation-lifecycle-evidence.json <<JSON
           {
             "exact_tested_sha": "$ACCEPTANCE_SHA",
-            "profile": "account-lifecycle",
-            "browser": "chromium",
-            "viewport": "desktop-1440x1000 with focused responsive evidence in owned scenarios",
+            "profile": "wiki-reconciliation-lifecycle",
+            "projects": ["wiki-reconciliation-chromium-desktop", "wiki-reconciliation-chromium-tablet", "wiki-reconciliation-chromium-mobile", "wiki-reconciliation-firefox-desktop", "wiki-reconciliation-webkit-desktop"],
+            "viewports": ["desktop-1440x1000", "tablet-820x1180", "mobile-390x844"],
             "retries": 0,
             "runtime": "real Laravel HTTP",
             "platform_database": "MariaDB 11.8 isolated acceptance schema",
-            "canary_database": "MariaDB 11.8 isolated acceptance schema with operation-specific principals",
-            "mail_dependency": "MailHog SMTP test service",
+            "proof_boundary": "route-complete public read/search/error/recovery/localization plus exact-MFA-RBAC administrator lifecycle, preview, conflict, revision restore and audit",
             "production_claim": "none"
           }
           JSON
 
-      - name: Upload secret-safe account evidence
+      - name: Upload secret-safe Wiki reconciliation evidence
         if: always()
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
-          name: portal-account-acceptance-${{ github.run_id }}-${{ github.run_attempt }}
+          name: wiki-reconciliation-acceptance-${{ github.run_id }}-${{ github.run_attempt }}
           path: artifacts/acceptance
           if-no-files-found: warn
           retention-days: 7

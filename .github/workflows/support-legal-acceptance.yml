@@ -1,92 +1,74 @@
-name: Portal Acceptance Contract
+name: Support Legal Acceptance
 
 on:
   pull_request:
     branches:
       - main
     paths:
-      - 'app/**'
-      - 'bootstrap/**'
-      - 'config/**'
-      - 'database/**'
-      - 'resources/views/**'
-      - 'routes/**'
-      - 'scripts/acceptance/**'
-      - '.github/workflows/portal-acceptance-contract.yml'
-      - 'composer.json'
-      - 'composer.lock'
+      - 'app/Cms/Actions/SaveManagedPage.php'
+      - 'app/Cms/Editorial/**'
+      - 'app/Cms/Models/EditorialTranslation.php'
+      - 'app/Cms/Models/ManagedPage.php'
+      - 'app/Cms/Models/ManagedPageLegalVersion.php'
+      - 'app/Http/Controllers/Admin/AdminEditorialTranslationController.php'
+      - 'app/Http/Controllers/Admin/AdminSupportContentController.php'
+      - 'app/Http/Controllers/Support/**'
+      - 'app/Http/Requests/Admin/AdminSupportContentRequest.php'
+      - 'app/Support/**'
+      - 'config/support.php'
+      - 'lang/en/public.php'
+      - 'lang/pl/public.php'
+      - 'resources/views/admin/support-content/**'
+      - 'resources/views/admin/translations/form.blade.php'
+      - 'resources/views/support/**'
+      - 'routes/modules/support.php'
+      - 'routes/localization.php'
+      - 'scripts/acceptance/playwright.support-legal.config.mjs'
+      - 'scripts/acceptance/seed-browser-support-legal.php'
+      - 'scripts/acceptance/tests/support-legal-acceptance.spec.mjs'
+      - 'scripts/acceptance/coverage/portal-coverage-manifest.json'
+      - '.github/workflows/support-legal-acceptance.yml'
   push:
     branches:
       - main
+    paths:
+      - 'app/Cms/Actions/SaveManagedPage.php'
+      - 'app/Cms/Editorial/**'
+      - 'app/Cms/Models/EditorialTranslation.php'
+      - 'app/Cms/Models/ManagedPage.php'
+      - 'app/Cms/Models/ManagedPageLegalVersion.php'
+      - 'app/Http/Controllers/Admin/AdminEditorialTranslationController.php'
+      - 'app/Http/Controllers/Admin/AdminSupportContentController.php'
+      - 'app/Http/Controllers/Support/**'
+      - 'app/Http/Requests/Admin/AdminSupportContentRequest.php'
+      - 'app/Support/**'
+      - 'config/support.php'
+      - 'lang/en/public.php'
+      - 'lang/pl/public.php'
+      - 'resources/views/admin/support-content/**'
+      - 'resources/views/admin/translations/form.blade.php'
+      - 'resources/views/support/**'
+      - 'routes/modules/support.php'
+      - 'routes/localization.php'
+      - 'scripts/acceptance/playwright.support-legal.config.mjs'
+      - 'scripts/acceptance/seed-browser-support-legal.php'
+      - 'scripts/acceptance/tests/support-legal-acceptance.spec.mjs'
+      - 'scripts/acceptance/coverage/portal-coverage-manifest.json'
+      - '.github/workflows/support-legal-acceptance.yml'
   workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: portal-acceptance-${{ github.workflow }}-${{ github.ref }}
+  group: support-legal-acceptance-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  coverage-contract:
-    name: Strict portal coverage closure
+  support-legal-lifecycle:
+    name: Complete Support Legal lifecycle
     runs-on: ubuntu-latest
-    timeout-minutes: 15
-    env:
-      APP_ENV: acceptance
-      APP_DEBUG: 'false'
-      APP_URL: http://127.0.0.1:8080
-      DB_CONNECTION: sqlite
-      DB_DATABASE: ':memory:'
-      CACHE_STORE: array
-      SESSION_DRIVER: array
-      QUEUE_CONNECTION: sync
-
-    steps:
-      - name: Checkout exact tested SHA
-        uses: actions/checkout@v7
-        with:
-          ref: ${{ github.event.pull_request.head.sha || github.sha }}
-          fetch-depth: 0
-
-      - name: Setup PHP
-        uses: shivammathur/setup-php@v2
-        with:
-          php-version: '8.5'
-          coverage: none
-          extensions: pdo_sqlite
-          tools: composer:v2
-
-      - name: Setup Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-
-      - name: Install application dependencies
-        run: composer install --no-interaction --prefer-dist --no-progress
-
-      - name: Generate ephemeral application key
-        run: echo "APP_KEY=$(php -r 'echo "base64:".base64_encode(random_bytes(32));')" >> "$GITHUB_ENV"
-
-      - name: Validate strict machine-enforced portal coverage ledger
-        run: |
-          mkdir -p artifacts/portal-coverage
-          set -o pipefail
-          npm --prefix scripts/acceptance run test:coverage-contract:strict | tee artifacts/portal-coverage/report.json
-
-      - name: Upload portal coverage diagnostics
-        if: always() && hashFiles('artifacts/portal-coverage/report.json') != ''
-        uses: actions/upload-artifact@v7
-        with:
-          name: portal-coverage-report-${{ github.run_id }}-${{ github.run_attempt }}
-          path: artifacts/portal-coverage/report.json
-          if-no-files-found: error
-          retention-days: 7
-
-  account-lifecycle:
-    name: Complete account lifecycle
-    runs-on: ubuntu-latest
-    timeout-minutes: 35
+    timeout-minutes: 40
     services:
       mariadb:
         image: mariadb:11.8
@@ -113,12 +95,12 @@ jobs:
     env:
       ACCEPTANCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
       VALIDATION_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
-      ACCEPTANCE_RUN_ID: ${{ github.run_id }}-${{ github.run_attempt }}-account
-      ACCEPTANCE_RUN_SUFFIX: account
+      ACCEPTANCE_RUN_ID: ${{ github.run_id }}-${{ github.run_attempt }}-support-legal
+      ACCEPTANCE_RUN_SUFFIX: support-legal
       ACCEPTANCE_ZERO_RETRIES: '1'
       ACCEPTANCE_BASE_URL: http://127.0.0.1:8080
       ACCEPTANCE_MAILHOG_URL: http://127.0.0.1:8025
-      ACCEPTANCE_OUTPUT_DIR: /tmp/oteryn-account-acceptance
+      ACCEPTANCE_OUTPUT_DIR: /tmp/oteryn-support-legal-acceptance
       APP_ENV: acceptance
       APP_DEBUG: 'false'
       APP_URL: http://127.0.0.1:8080
@@ -163,6 +145,11 @@ jobs:
       CANARY_RUNTIME_REDIS_DB: 0
       CANARY_RUNTIME_REDIS_USERNAME: oteryn_acceptance_runtime
       CANARY_RUNTIME_REDIS_PASSWORD: acceptance-ci-runtime-not-a-secret
+      OTERYN_SUPPORT_DISCORD_URL: https://discord.gg/oteryn-acceptance
+      OTERYN_SUPPORT_DISCORD_HOSTS: discord.gg
+      OTERYN_SUPPORT_CONTACT_EMAIL: support-acceptance@example.test
+      OTERYN_SUPPORT_URL: https://help.example.test/oteryn
+      OTERYN_SUPPORT_ALLOWED_HOSTS: help.example.test
       MARIADB_ROOT_PASSWORD: acceptance-ci-root-not-a-secret
 
     steps:
@@ -193,11 +180,11 @@ jobs:
       - name: Install application dependencies
         run: composer install --no-interaction --prefer-dist --no-progress
 
-      - name: Install pinned Chromium harness
+      - name: Install pinned browser harnesses
         run: |
           npm --prefix scripts/acceptance install --no-audit --no-fund
           cd scripts/acceptance
-          npx playwright install --with-deps chromium
+          npx playwright install --with-deps chromium firefox webkit
 
       - name: Generate ephemeral application key
         run: echo "APP_KEY=$(php -r 'echo "base64:".base64_encode(random_bytes(32));')" >> "$GITHUB_ENV"
@@ -208,44 +195,45 @@ jobs:
       - name: Start exact-SHA Laravel HTTP runtime
         run: |
           mkdir -p artifacts/acceptance
-          php artisan serve --host=127.0.0.1 --port=8080 >/tmp/oteryn-account-server.log 2>&1 &
-          echo $! >/tmp/oteryn-account-server.pid
+          php artisan serve --host=127.0.0.1 --port=8080 >/tmp/oteryn-support-legal-server.log 2>&1 &
+          echo $! >/tmp/oteryn-support-legal-server.pid
           for attempt in $(seq 1 30); do
             if curl -fsS http://127.0.0.1:8080/health >/dev/null; then
               exit 0
             fi
             sleep 1
           done
-          cat /tmp/oteryn-account-server.log >&2 || true
+          cat /tmp/oteryn-support-legal-server.log >&2 || true
           exit 1
 
-      - name: Execute complete zero-retry account lifecycle
-        run: npm --prefix scripts/acceptance run test:account-lifecycle
+      - name: Execute complete zero-retry Support Legal matrix
+        run: |
+          cd scripts/acceptance
+          npx playwright test --config=playwright.support-legal.config.mjs
 
-      - name: Write non-secret account-lifecycle evidence
+      - name: Write non-secret Support Legal evidence
         if: always()
         run: |
           mkdir -p artifacts/acceptance
-          cat > artifacts/acceptance/account-lifecycle-evidence.json <<JSON
+          cat > artifacts/acceptance/support-legal-lifecycle-evidence.json <<JSON
           {
             "exact_tested_sha": "$ACCEPTANCE_SHA",
-            "profile": "account-lifecycle",
-            "browser": "chromium",
-            "viewport": "desktop-1440x1000 with focused responsive evidence in owned scenarios",
+            "profile": "support-legal-lifecycle",
+            "projects": ["support-legal-chromium-desktop", "support-legal-chromium-tablet", "support-legal-chromium-mobile", "support-legal-firefox-desktop", "support-legal-webkit-desktop"],
+            "viewports": ["desktop-1440x1000", "tablet-820x1180", "mobile-390x844"],
             "retries": 0,
             "runtime": "real Laravel HTTP",
             "platform_database": "MariaDB 11.8 isolated acceptance schema",
-            "canary_database": "MariaDB 11.8 isolated acceptance schema with operation-specific principals",
-            "mail_dependency": "MailHog SMTP test service",
+            "proof_boundary": "route-complete public missing, unpublished, published, legal-version, approved-link and EN/PL states plus exact-MFA-RBAC administrator editing and audit",
             "production_claim": "none"
           }
           JSON
 
-      - name: Upload secret-safe account evidence
+      - name: Upload secret-safe Support Legal evidence
         if: always()
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
-          name: portal-account-acceptance-${{ github.run_id }}-${{ github.run_attempt }}
+          name: support-legal-acceptance-${{ github.run_id }}-${{ github.run_attempt }}
           path: artifacts/acceptance
           if-no-files-found: warn
           retention-days: 7

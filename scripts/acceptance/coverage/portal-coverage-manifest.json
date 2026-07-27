@@ -878,7 +878,7 @@
     {
       "id": "support-legal.public-admin-localization",
       "owner": "Support / CMS",
-      "status": "planned",
+      "status": "covered",
       "route_names": [
         "legacy.editorial.getting-started",
         "legacy.editorial.server-information",
@@ -938,16 +938,22 @@
         {
           "file": "tests/Feature/Support/EditorialSupportLegalTest.php",
           "markers": []
+        },
+        {
+          "file": "scripts/acceptance/tests/support-legal-acceptance.spec.mjs",
+          "markers": [
+            "@portal-support-legal-public route-complete missing, unpublished, published, legal-version, approved-link and EN/PL isolation states",
+            "@portal-support-legal-admin guest, MFA and exact permission boundaries fail closed",
+            "@portal-support-legal-admin administrator validation, legal publication, Polish translation and bounded audit lifecycle"
+          ]
         }
       ],
-      "gaps": [
-        "Add route-complete public and administrator Playwright coverage for all typed support/legal pages and Polish translation editing."
-      ]
+      "gaps": []
     },
     {
       "id": "wiki.public",
       "owner": "Wiki",
-      "status": "partial",
+      "status": "covered",
       "route_names": [
         "legacy.wiki.index",
         "legacy.wiki.search",
@@ -993,20 +999,30 @@
       ],
       "evidence": [
         {
-          "file": "scripts/acceptance/tests/public-wiki-read-search.spec.mjs",
+          "file": "tests/Feature/Wiki/PublicWikiReadTest.php",
           "markers": [
-            "wiki"
+            "final class PublicWikiReadTest"
+          ]
+        },
+        {
+          "file": "tests/Feature/Wiki/PublicWikiSearchTest.php",
+          "markers": [
+            "final class PublicWikiSearchTest"
+          ]
+        },
+        {
+          "file": "scripts/acceptance/tests/wiki-reconciliation-acceptance.spec.mjs",
+          "markers": [
+            "@portal-wiki-public route-complete empty, read, search, invalid, not-found, unavailable, recovery and EN/PL states"
           ]
         }
       ],
-      "gaps": [
-        "Reconcile current Wiki browser scenarios against every required state and record exact stable markers before strict closure."
-      ]
+      "gaps": []
     },
     {
       "id": "wiki.admin-editorial-lifecycle",
       "owner": "Wiki",
-      "status": "partial",
+      "status": "covered",
       "route_names": [
         "admin.wiki.index",
         "admin.wiki.articles.index",
@@ -1067,20 +1083,25 @@
       ],
       "evidence": [
         {
-          "file": "scripts/acceptance/tests/admin-wiki-administration.spec.mjs",
+          "file": "tests/Feature/Wiki/AdminWikiAdministrationTest.php",
           "markers": [
-            "wiki"
+            "final class AdminWikiAdministrationTest"
+          ]
+        },
+        {
+          "file": "scripts/acceptance/tests/wiki-reconciliation-acceptance.spec.mjs",
+          "markers": [
+            "@portal-wiki-admin guest, MFA and exact Wiki permission boundaries fail closed",
+            "@portal-wiki-admin complete validation, draft, signed-preview, conflict, review, publish, unpublish, revision-restore, archive and audit lifecycle"
           ]
         }
       ],
-      "gaps": [
-        "Reconcile every lifecycle, role, viewport and exact evidence marker before strict closure."
-      ]
+      "gaps": []
     },
     {
       "id": "editorial-media.admin",
       "owner": "EditorialMedia",
-      "status": "planned",
+      "status": "covered",
       "route_names": [
         "admin.media.index",
         "admin.media.store",
@@ -1118,16 +1139,25 @@
       "evidence": [
         {
           "file": "tests/Feature/EditorialMedia/AdminEditorialMediaUploadTest.php",
-          "markers": []
+          "markers": [
+            "final class AdminEditorialMediaUploadTest"
+          ]
         },
         {
           "file": "tests/Feature/EditorialMedia/AdminEditorialMediaAuthorizationTest.php",
-          "markers": []
+          "markers": [
+            "final class AdminEditorialMediaAuthorizationTest"
+          ]
+        },
+        {
+          "file": "scripts/acceptance/tests/editorial-media-acceptance.spec.mjs",
+          "markers": [
+            "@portal-editorial-media guest, MFA and exact permission boundaries fail closed",
+            "@portal-editorial-media manager validates, uploads, privately previews, protects references, deletes and audits"
+          ]
         }
       ],
-      "gaps": [
-        "Add secret-safe browser upload, library, delete and reference-lock lifecycle coverage."
-      ]
+      "gaps": []
     },
     {
       "id": "browser-supporting-media-preview-endpoints",
@@ -1171,7 +1201,7 @@
         {
           "file": "scripts/acceptance/tests/admin-wiki-editorial-media.spec.mjs",
           "markers": [
-            "wiki"
+            "@wiki-media exact Wiki editor discovers inserts previews and publishes private EditorialMedia responsively"
           ]
         },
         {
