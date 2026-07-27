@@ -26,18 +26,18 @@ Add a deterministic repository-owned production-like edge profile that emulates 
 
 ## Acceptance criteria
 
-- [ ] A local authoritative DNS fixture proves intended A/CNAME records and NXDOMAIN behavior for unconfigured names.
-- [ ] A public edge TLS fixture proves hostname verification, supported TLS versions and HTTP-to-HTTPS redirect behavior.
-- [ ] Edge-to-origin TLS uses a separately generated trust chain and authenticated client certificate.
-- [ ] Direct origin access without the edge client certificate fails closed.
-- [ ] Cloudflare-style response metadata and forwarded-client normalization are proven without trusting spoofed inbound headers.
-- [ ] Deterministic WAF checks block traversal, XSS and SQL-injection probes, unsupported methods and oversized bodies.
-- [ ] A bounded rate-limit probe produces HTTP 429 under controlled burst load.
-- [ ] The optional administrator Access gate denies missing/invalid assertions while successful edge admission still leaves Platform auth/MFA/RBAC authoritative.
-- [ ] A real current-SHA Laravel `/health` response succeeds through DNS/TLS/edge/origin composition.
-- [ ] Sanitized exact-SHA evidence is uploaded and recorded as `STAGING_PROVEN` only.
-- [ ] Issue #91 and every actual production DNS/TLS/Cloudflare/WAF/origin fact remain `UNKNOWN` pending a real environment.
-- [ ] No production, router, DSM, public DNS, Cloudflare account, secret or external-repository action occurs.
+- [x] A local authoritative DNS fixture proves intended A/CNAME records and NXDOMAIN behavior for unconfigured names.
+- [x] A public edge TLS fixture proves hostname verification, supported TLS versions and HTTP-to-HTTPS redirect behavior.
+- [x] Edge-to-origin TLS uses a separately generated trust chain and authenticated client certificate.
+- [x] Direct origin access without the edge client certificate fails closed.
+- [x] Cloudflare-style response metadata and forwarded-client normalization are proven without trusting spoofed inbound headers.
+- [x] Deterministic WAF checks block traversal, XSS and SQL-injection probes, unsupported methods and oversized bodies.
+- [x] A bounded rate-limit probe produces HTTP 429 under controlled burst load.
+- [x] The optional administrator Access gate denies missing/invalid assertions while successful edge admission still leaves Platform auth/MFA/RBAC authoritative.
+- [x] A real current-SHA Laravel `/health` response succeeds through DNS/TLS/edge/origin composition.
+- [x] Sanitized exact-SHA evidence is uploaded and recorded as `STAGING_PROVEN` only.
+- [x] Issue #91 and every actual production DNS/TLS/Cloudflare/WAF/origin fact remain `UNKNOWN` pending a real environment.
+- [x] No production, router, DSM, public DNS, Cloudflare account, secret or external-repository action occurs.
 
 ## Ownership
 
@@ -66,11 +66,11 @@ cross_repository_tasks: []
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-07-27T15:22:00+02:00
-head: 4afdc2c4ed39ec5a50c461af8ec1195a6b23a4bf
+updated_at: 2026-07-27T15:36:00+02:00
+head: d0e1aebf16992b27925c0f0cd59a5a1c04f65319
 branch: test/OTERYN-20260727-edge-security-emulation
 pr: 236
-status: validating
+status: ready
 context_routes:
   - agent-governance
   - deployment
@@ -85,23 +85,25 @@ owned_paths:
   - docs/agents/tasks/active/OTERYN-20260727-edge-security-emulation.md
   - docs/agents/tasks/archive/OTERYN-20260727-edge-security-emulation.md
 proven:
-  - main base cab40863bd5058209cdcbee1342a54acc814ec01 has no other active task after completed public-web archival
   - Issue 91 remains open and requires actual production evidence before PRODUCTION_PROVEN
-  - the repository previously proved application and dependency boundaries but left final DNS TLS WAF Access and origin exposure UNKNOWN
-  - PR 236 contains a reserved-domain CoreDNS fixture, ephemeral public and origin trust chains, mTLS-authenticated origin pull, Cloudflare-style edge metadata, WAF and rate-limit assertions, Access admission and current-SHA Laravel health composition
+  - PR 236 adds a reserved-domain CoreDNS fixture, ephemeral public and origin trust chains, mTLS-authenticated origin pull, Cloudflare-style edge metadata, WAF and rate-limit assertions, Access admission and current-SHA Laravel health composition
+  - Edge Security Emulation run 30270571670 passed on SHA 791c350b93406eabe50702f8860b0515678a80bb
+  - artifact edge-security-emulation-evidence-30270571670 digest sha256:17ba33a26793a7f8d536acbcb78097e961a27bff65a690874fb72b884634e0b7 records all required outcomes and production_environment_proven false
   - Cloudflare Access admission remains independent from Platform auth confirmed MFA exact RBAC and audit
-  - workflow run 30269153474 reached and exercised the complete edge harness before artifact publication
+  - production-like evidence now composes the edge-emulation PASS while actual production DNS TLS Cloudflare WAF Access firewall and origin facts remain UNKNOWN
   - no production router DSM public DNS Cloudflare account secret or external-repository action occurred
 derived:
-  - successful exact-head validation can add STAGING_PROVEN procedure evidence without changing actual production UNKNOWN facts
-unknown:
-  - exact final-head workflow result after CRLF-safe header capture and pipefail correction
+  - the deterministic edge-security procedure and composition are complete at STAGING_PROVEN
+  - the absence of a real provider environment no longer blocks repository-owned edge procedure validation
+  - Issue 91 remains the sole production execution tracker
+unknown: []
 conflicts: []
 first_failure:
   marker: http-redirect-target
-  evidence: edge run 30268938970 first failed after Nginx and CoreDNS startup because the header assertion compared CRLF curl output without normalization; run 30269153474 diagnostics artifact 8654060873 preserved the bounded marker
+  evidence: edge run 30268938970 first failed after Nginx and CoreDNS startup because the header assertion compared CRLF curl output without normalization; later corrections normalized captured headers, preserved the public host contract, accepted parser-level traversal denial and scoped rate-limit process waits
 rejected_hypotheses:
-  - DNS TLS mTLS or Laravel startup caused the first failure: those stages completed before the redirect-header assertion
+  - DNS TLS mTLS or Laravel startup caused the first failure: those stages completed before the initial header assertion
+  - HTTP 400 on a raw traversal path means the protection failed: Nginx rejected the request at its parser boundary before the WAF rule and the final harness accepts only controlled 400 or 403 denial
   - emulation can close Issue 91: actual production environment evidence remains mandatory
 changed_paths:
   - .github/workflows/edge-security-emulation.yml
@@ -111,6 +113,7 @@ changed_paths:
   - tests/edge-emulation/bin/curl
   - tests/edge-emulation/run.sh
   - docs/operations/EDGE_SECURITY_EMULATION_EVIDENCE.md
+  - docs/operations/PRODUCTION_LIKE_VALIDATION_EVIDENCE.md
   - docs/agents/ACTIVE_WORK.md
   - docs/agents/tasks/active/OTERYN-20260727-edge-security-emulation.md
 validation:
@@ -120,13 +123,19 @@ validation:
   - command: Edge Security Emulation 30268938970
     result: FAIL
     evidence: first unmet invariant http-redirect-target after successful application Nginx and DNS startup
-  - command: Edge Security Emulation 30269153474
+  - command: Edge Security Emulation 30269692490
     result: FAIL
-    evidence: validation output was masked by tee before pipefail was enforced; diagnostics artifact 8654060873 exposed the same CRLF-sensitive header marker
+    evidence: public host preservation was correct but the test expected the internal origin hostname
+  - command: Edge Security Emulation 30270031473
+    result: FAIL
+    evidence: raw traversal was denied with HTTP 400 at the Nginx parser boundary rather than HTTP 403 at the WAF rule
+  - command: Edge Security Emulation 30270571670
+    result: PASS
+    evidence: exact SHA 791c350b93406eabe50702f8860b0515678a80bb and sanitized artifact digest sha256:17ba33a26793a7f8d536acbcb78097e961a27bff65a690874fb72b884634e0b7
 blockers: []
-next_action: Obtain an exact-head PASS from the corrected edge workflow and persist its sanitized artifact evidence.
+next_action: Pass all required workflows on the final PR head, merge PR 236 and archive this completed task record.
 ```
 
 ## Notes
 
-The emulation uses reserved test hostnames and ephemeral keys only. It may prove the reviewed topology and controls under CI, but it must not imply ownership or configuration of a real DNS zone, certificate, Cloudflare account, firewall or production origin.
+The emulation uses reserved test hostnames and ephemeral keys only. It proves the reviewed topology and controls under CI but does not imply ownership or configuration of a real DNS zone, certificate, Cloudflare account, firewall or production origin.
