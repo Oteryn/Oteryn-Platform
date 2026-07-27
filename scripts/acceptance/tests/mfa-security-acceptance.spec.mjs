@@ -23,7 +23,7 @@ test.afterEach(async ({ page }, testInfo) => {
   await attachDiagnostics(testInfo, page.__acceptanceDiagnostics);
 });
 
-test('Flow 4 — MFA valid, invalid, replay, recovery single-use, disable and session invalidation', async ({ browser, page }) => {
+test('@portal-account Flow 4 — MFA valid, invalid, replay, recovery single-use, disable and session invalidation', async ({ browser, page }) => {
   const email = uniqueEmail('mfa-security');
   const password = 'AcceptanceMfa!234';
 
