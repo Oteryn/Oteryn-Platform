@@ -1,0 +1,56 @@
+name: Prepare Public Web Final Staging Resume
+
+on:
+  pull_request:
+    paths:
+      - .github/workflows/prepare-public-web-final-staging-resume.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply-reviewed-non-workflow-changes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout current PR branch
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+          fetch-depth: 0
+
+      - name: Apply PR 213 tests and task checkpoint with three-way merge
+        env:
+          SOURCE_BASE: b161983c4bf42ba21d00287bfad0418a605dd99c
+          SOURCE_BRANCH: chore/OTERYN-20260726-public-web-programme-final-cleanup
+        run: |
+          set -euo pipefail
+          git fetch origin "$SOURCE_BRANCH:refs/remotes/origin/$SOURCE_BRANCH"
+          git diff "$SOURCE_BASE" "refs/remotes/origin/$SOURCE_BRANCH" -- \
+            docs/agents/tasks/active/OTERYN-20260726-public-web-final-staging-closure.md \
+            tests/Feature/Admin/PublicModulePermissionReservationTest.php \
+            tests/Feature/EditorialMedia/WikiEditorialMediaSecurityTest.php \
+            tests/Feature/Wiki/WikiAuthorizationTest.php \
+            > /tmp/pr213-reviewed.patch
+
+          if [[ ! -s /tmp/pr213-reviewed.patch ]]; then
+            echo "Reviewed PR 213 patch is unexpectedly empty." >&2
+            exit 1
+          fi
+
+          git apply --3way /tmp/pr213-reviewed.patch
+          git status --short
+
+      - name: Commit reconciled files
+        run: |
+          set -euo pipefail
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add \
+            docs/agents/tasks/active/OTERYN-20260726-public-web-final-staging-closure.md \
+            tests/Feature/Admin/PublicModulePermissionReservationTest.php \
+            tests/Feature/EditorialMedia/WikiEditorialMediaSecurityTest.php \
+            tests/Feature/Wiki/WikiAuthorizationTest.php
+          git diff --cached --quiet && { echo "No reconciled changes to commit."; exit 0; }
+          git commit -m "test(wiki): reconcile guarded publisher RBAC coverage"
+          git push origin "HEAD:${{ github.event.pull_request.head.ref }}"
