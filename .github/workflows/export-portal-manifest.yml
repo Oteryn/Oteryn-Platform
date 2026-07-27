@@ -1,6 +1,12 @@
 name: Export Portal Manifest
 
 on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/export-portal-manifest.yml'
+      - 'scripts/acceptance/coverage/portal-coverage-manifest.json'
   push:
     branches:
       - test/OTERYN-20260727-exhaustive-portal-acceptance-v2
