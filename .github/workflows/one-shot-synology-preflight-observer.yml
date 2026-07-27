@@ -1,0 +1,48 @@
+name: One-shot Synology Preflight Observer
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - deploy/synology/.production-target-preflight-observer-trigger
+
+permissions:
+  actions: read
+  contents: read
+  issues: write
+
+jobs:
+  observe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Read current dispatcher and live run state
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TRACKING_ISSUE: "238"
+        run: |
+          set -euo pipefail
+
+          dispatcher="$(
+            gh api \
+              "repos/${GITHUB_REPOSITORY}/actions/workflows/one-shot-synology-production-target-preflight.yml/runs?branch=main&per_page=5" \
+              --jq '.workflow_runs | sort_by(.created_at) | last | {id,status,conclusion,html_url,created_at}'
+          )"
+          live="$(
+            gh api \
+              "repos/${GITHUB_REPOSITORY}/actions/workflows/synology-production-target-preflight.yml/runs?event=workflow_dispatch&branch=main&per_page=5" \
+              --jq '.workflow_runs | sort_by(.created_at) | last | {id,status,conclusion,html_url,created_at}'
+          )"
+
+          dispatcher_id="$(jq -r '.id // "none"' <<<"$dispatcher")"
+          dispatcher_status="$(jq -r '.status // "absent"' <<<"$dispatcher")"
+          dispatcher_conclusion="$(jq -r '.conclusion // "pending"' <<<"$dispatcher")"
+          dispatcher_url="$(jq -r '.html_url // "not-created"' <<<"$dispatcher")"
+          live_id="$(jq -r '.id // "none"' <<<"$live")"
+          live_status="$(jq -r '.status // "absent"' <<<"$live")"
+          live_conclusion="$(jq -r '.conclusion // "pending"' <<<"$live")"
+          live_url="$(jq -r '.html_url // "not-created"' <<<"$live")"
+
+          gh issue comment "$TRACKING_ISSUE" --repo "$GITHUB_REPOSITORY" --body "Synology preflight observer snapshot:\n\n- dispatcher run: \`${dispatcher_id}\` — \`${dispatcher_status}/${dispatcher_conclusion}\` — ${dispatcher_url}\n- live preflight run: \`${live_id}\` — \`${live_status}/${live_conclusion}\` — ${live_url}\n\nThis observer is read-only and did not dispatch a workflow or access the NAS."
