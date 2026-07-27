@@ -63,8 +63,8 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-07-27T17:48:00Z
-head: 2d7de436eaf622ed66b95a9629ea6faac28f2877
+updated_at: 2026-07-27T17:54:00Z
+head: 7b6ab892988958e49334883f8052f0aa7ede5799
 branch: test/OTERYN-20260727-events-acceptance
 pr: 254
 status: validating
@@ -92,14 +92,15 @@ proven:
   - PR #254 is open as a mergeable draft and contains deterministic public/admin Events fixtures and browser scenarios.
   - Public Events coverage is included in bounded Chromium, Firefox and WebKit portability projects.
   - Public and administrator Events coverage is included in desktop, tablet and mobile Chromium projects.
+  - PHP fixture syntax and JavaScript administrator-spec syntax pass local parser checks.
 derived:
   - The package adds composed browser evidence without replacing stronger lower-level transaction and locking proofs.
 unknown:
-  - Exact-head workflow result and first failing project/test, if any.
+  - Exact-head outcomes for browser, coverage-contract and ordinary repository workflows after the governance metadata correction.
 conflicts: []
 first_failure:
-  marker: none
-  evidence: no workflow run observed yet
+  marker: Agent Governance / Validate active task checkpoints
+  evidence: checkpoint used unsupported validation result PENDING; governance contract allows PASS, FAIL, BLOCKED or NOT_RUN
 rejected_hypotheses:
   - Reimplementing transaction races in Playwright would duplicate stronger feature/database evidence.
 changed_paths:
@@ -114,12 +115,18 @@ validation:
   - command: repository and PR diff inspection through GitHub connector
     result: PASS
     evidence: route/controller/request/view/model/audit boundaries and all changed paths reviewed
-  - command: exact-head GitHub workflows
-    result: PENDING
-    evidence: no workflow run was returned for the prior head
+  - command: php -l scripts/acceptance/seed-browser-events.php
+    result: PASS
+    evidence: no syntax errors detected under local PHP 8.4 parser
+  - command: node --check scripts/acceptance/tests/events-admin-acceptance.spec.mjs
+    result: PASS
+    evidence: no JavaScript syntax errors under Node 22 parser
+  - command: exact-head GitHub workflows after governance correction
+    result: NOT_RUN
+    evidence: new synchronize event is pending after this checkpoint correction
 blockers:
   - none
-next_action: Inspect exact-head workflow runs for PR #254 and fix the first concrete failure before changing the ledger to covered.
+next_action: Inspect exact-head workflow runs after the governance correction and fix the first remaining concrete failure before changing the ledger to covered.
 ```
 
 ## Notes
