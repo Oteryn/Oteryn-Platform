@@ -4,7 +4,7 @@ Convenience index only. Individual active task records, live PRs and Git state a
 
 ## Active tasks
 
-- `OTERYN-20260727-edge-security-emulation` — deterministic production-like DNS, TLS, Cloudflare/WAF/Access and authenticated-origin emulation without production claims.
+None.
 
 ## Closed acceptance and release-preparation follow-ups
 
@@ -38,6 +38,7 @@ Convenience index only. Individual active task records, live PRs and Git state a
 - PR #233 / `e3e94dae03e0468d71f911ad41e597bb5d802eb3` — temporary final-staging workflows and trigger removed after all required cleanup checks passed.
 - PR #234 / `4131a34b8c5f1092a2d0b8fb1bb56785f217b194` — closed Issue #145 state and the single remaining archival action persisted in the final-staging checkpoint.
 - PR #235 / `cab40863bd5058209cdcbee1342a54acc814ec01` — final public-staging task record archived and `ACTIVE_WORK` cleared.
+- PR #236 / `ee8293d8bbf33c9bc89ca105a0273728bb222f4d` — deterministic reserved-domain DNS, TLS, Cloudflare/WAF/Access and authenticated-origin emulation merged with exact-SHA `STAGING_PROVEN` evidence.
 
 ## Current project phase
 
@@ -53,14 +54,15 @@ The E2E coverage-hardening programme is continuous verification and does not reo
 - **Functional Acceptance: STAGING_PROVEN for the delivered staging-verifiable functional surface**
 - **Visual / UX Acceptance: PASS for the delivered staging-verifiable launch scope**
 - **Public Website Expansion Programme: STAGING_PROVEN**
+- **Emulated Edge Security: STAGING_PROVEN**
 - **Production Go-Live Gate: PENDING PRODUCTION VERIFICATION**
 - **Production Verification: REQUIRED BEFORE GO-LIVE**
 
-No staging evidence may be promoted to `PRODUCTION_PROVEN`.
+No staging or emulation evidence may be promoted to `PRODUCTION_PROVEN`.
 
 ## Next work
 
-Complete the deterministic edge-security emulation profile and archive its exact-SHA `STAGING_PROVEN` evidence. Issue #91 remains the sole production execution tracker; actual provider, DNS, TLS, WAF, firewall and origin facts remain `UNKNOWN` until a real environment exists.
+No repository-owned edge-emulation task remains. Issue #91 resumes only after a real production environment exists and explicit production authorization permits direct verification of provider, DNS, TLS, WAF, firewall, certificate lifecycle and origin exposure.
 
 ## Remaining cross-repository dependency
 
