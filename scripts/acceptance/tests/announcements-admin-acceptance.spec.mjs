@@ -32,7 +32,6 @@ function seedIdentity(label, { confirmedMfa, permissions }) {
     confirmedMfa ? 'confirmed' : 'unconfirmed',
     permissions.join(','),
   );
-
   return { email, password, recoveryCode, confirmedMfa };
 }
 
@@ -76,16 +75,25 @@ async function assertNoPageOverflow(page) {
 }
 
 async function clickTranslationSaveWithoutOverlap(page) {
-  const body = page.getByLabel('Polish content (plain text)');
   const button = page.getByRole('button', { name: 'Save translation' });
-  const [bodyBox, buttonBox] = await Promise.all([body.boundingBox(), button.boundingBox()]);
+  await button.scrollIntoViewIfNeeded();
 
-  expect(bodyBox, 'Polish translation textarea must have a measurable box').not.toBeNull();
-  expect(buttonBox, 'Save translation button must have a measurable box').not.toBeNull();
+  const hitTest = await button.evaluate((element) => {
+    const rect = element.getBoundingClientRect();
+    const target = document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2);
+
+    return {
+      receivesPointer: target === element || element.contains(target),
+      target: target === null
+        ? 'none'
+        : `${target.tagName.toLowerCase()}${target.id === '' ? '' : `#${target.id}`}`,
+    };
+  });
+
   expect(
-    bodyBox.y + bodyBox.height,
-    'Polish translation textarea must end before the Save translation button begins',
-  ).toBeLessThanOrEqual(buttonBox.y + 1);
+    hitTest.receivesPointer,
+    `Save translation must be the pointer target at its centre; received ${hitTest.target}`,
+  ).toBe(true);
 
   await button.click();
 }
