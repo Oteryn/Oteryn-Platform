@@ -800,7 +800,7 @@
     {
       "id": "announcements.admin-localization-home-composition",
       "owner": "Announcements",
-      "status": "planned",
+      "status": "covered",
       "route_names": [
         "admin.announcements.index",
         "admin.announcements.create",
@@ -831,8 +831,11 @@
         "mobile-390x844"
       ],
       "browsers": [
-        "chromium-primary",
-        "bounded-portability"
+        "announcements-chromium-desktop",
+        "announcements-chromium-tablet",
+        "announcements-chromium-mobile",
+        "announcements-firefox-desktop",
+        "announcements-webkit-desktop"
       ],
       "evidence_layers": [
         "feature",
@@ -851,11 +854,22 @@
           "markers": [
             "homepage"
           ]
+        },
+        {
+          "file": "scripts/acceptance/tests/announcements-public-acceptance.spec.mjs",
+          "markers": [
+            "@portal-announcements public none-active, active-window, expired, escaped and localized states"
+          ]
+        },
+        {
+          "file": "scripts/acceptance/tests/announcements-admin-acceptance.spec.mjs",
+          "markers": [
+            "@portal-announcements guest, MFA and exact permission boundaries fail closed",
+            "@portal-announcements administrator validation, publication, Polish translation, stale recovery, conflict and audit lifecycle"
+          ]
         }
       ],
-      "gaps": [
-        "Add administrator create/edit/localization and conflict Playwright coverage."
-      ]
+      "gaps": []
     },
     {
       "id": "support-legal.public-admin-localization",
