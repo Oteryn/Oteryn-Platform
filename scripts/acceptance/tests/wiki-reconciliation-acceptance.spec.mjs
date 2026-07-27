@@ -189,7 +189,9 @@ test('@portal-wiki-public route-complete empty, read, search, invalid, not-found
 
   response = await page.goto('/en/wiki');
   expect(response?.status()).toBe(200);
-  await expect(page.getByRole('link', { name: 'First login' })).toBeVisible();
+  await expect(
+    page.getByRole('region', { name: 'Featured articles' }).getByRole('link', { name: 'First login' }),
+  ).toBeVisible();
   await assertAccessibilitySmoke(page);
   await assertNoPageOverflow(page);
   await evidenceScreenshot(page, `wiki-public-reconciliation-${test.info().project.name}`);
@@ -308,6 +310,7 @@ test('@portal-wiki-admin complete validation, draft, signed-preview, conflict, r
 
   await page.goto(editUrl);
   await page.getByLabel('Title').first().fill(updatedTitle);
+  await page.getByLabel('Summary').nth(1).fill('Odświeżone podsumowanie uzgodnienia akceptacyjnego.');
   await page.getByLabel('Change note').fill('Acceptance update before lifecycle.');
   await page.getByRole('button', { name: 'Save draft' }).click();
   await expect(page.getByRole('status')).toContainText('Wiki article draft saved.');
