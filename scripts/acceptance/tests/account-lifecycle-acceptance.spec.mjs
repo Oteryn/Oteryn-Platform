@@ -71,9 +71,7 @@ test('@portal-account registration, duplicate identity, invalid login and protec
   await expect(page).toHaveURL(/\/login$/u);
 
   await login(page, email, password);
-  await expect(page).toHaveURL(/\/$/u);
-
-  await page.goto('/account');
+  await expect(page).toHaveURL(/\/account$/u);
   await expect(page.getByRole('heading', { name: 'Account overview' })).toBeVisible();
   await expect(page.getByText(email, { exact: true })).toBeVisible();
   await expect(page.getByText('Ready', { exact: true })).toBeVisible();
