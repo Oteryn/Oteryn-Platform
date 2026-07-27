@@ -2,6 +2,10 @@
 
 @section('title', 'Polish translation')
 
+@push('head')
+    <link rel="stylesheet" href="{{ asset('css/admin-translations.css') }}">
+@endpush
+
 @section('content')
     @php
         $sourceBody = match ($type) {
@@ -43,7 +47,7 @@
             @endif
         </section>
 
-        <form class="form-stack" method="POST" action="{{ route($updateRoute, $source) }}">
+        <form id="translation-form" class="form-stack translation-form" method="POST" action="{{ route($updateRoute, $source) }}">
             @csrf
             @method('PUT')
 
@@ -72,11 +76,11 @@
                 <input id="published_at" name="published_at" type="datetime-local" value="{{ old('published_at', $translation?->published_at?->format('Y-m-d\TH:i')) }}">
                 <p class="form-help">Leave empty for a draft. Clear every translated field to remove the record. No English content is substituted on Polish routes.</p>
             </div>
-
-            <div class="action-row">
-                <button type="submit">Save translation</button>
-                <a class="button button-secondary" href="{{ $backUrl }}">Back to source</a>
-            </div>
         </form>
+
+        <div class="action-row translation-form-actions">
+            <button type="submit" form="translation-form">Save translation</button>
+            <a class="button button-secondary" href="{{ $backUrl }}">Back to source</a>
+        </div>
     </div>
 @endsection

@@ -1,0 +1,31 @@
+.translation-form {
+    display: grid;
+    min-width: 0;
+    gap: 1rem;
+    margin-bottom: 0;
+}
+
+.translation-form .form-field {
+    min-width: 0;
+}
+
+.translation-form textarea {
+    display: block;
+    width: 100%;
+    max-width: 100%;
+    overflow: auto;
+}
+
+.translation-form-actions {
+    position: relative;
+    z-index: 1;
+    margin-top: 0;
+}
+
+@media (max-width: 47.99rem) {
+    .translation-form textarea {
+        height: min(24rem, 52vh);
+        min-height: 16rem;
+        resize: none;
+    }
+}

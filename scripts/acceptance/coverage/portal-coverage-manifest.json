@@ -800,7 +800,7 @@
     {
       "id": "announcements.admin-localization-home-composition",
       "owner": "Announcements",
-      "status": "planned",
+      "status": "covered",
       "route_names": [
         "admin.announcements.index",
         "admin.announcements.create",
@@ -812,18 +812,27 @@
       ],
       "roles": [
         "guest-home-consumer",
+        "authenticated-no-mfa",
         "mfa-confirmed-no-permission",
         "announcement-manager"
       ],
       "states": [
         "none-active",
         "active-window",
-        "expired",
+        "future-hidden",
+        "expired-hidden",
+        "draft-hidden",
+        "escaped-plain-text",
         "validation",
+        "published",
+        "source-edit",
+        "translation-stale",
+        "translation-republished",
         "stale-conflict",
+        "permission-denied",
         "localized-en",
         "localized-pl",
-        "permission-denied"
+        "audit-visible"
       ],
       "viewports": [
         "desktop-1440x1000",
@@ -831,13 +840,17 @@
         "mobile-390x844"
       ],
       "browsers": [
-        "chromium-primary",
-        "bounded-portability"
+        "announcements-chromium-desktop",
+        "announcements-chromium-tablet",
+        "announcements-chromium-mobile",
+        "announcements-firefox-desktop",
+        "announcements-webkit-desktop"
       ],
       "evidence_layers": [
         "feature",
         "playwright",
         "responsive",
+        "accessibility",
         "security",
         "audit"
       ],
@@ -847,15 +860,20 @@
           "markers": []
         },
         {
-          "file": "scripts/acceptance/tests/homepage-navigation-seo.spec.mjs",
+          "file": "scripts/acceptance/tests/announcements-public-acceptance.spec.mjs",
           "markers": [
-            "homepage"
+            "@portal-announcements public none-active, active-window, expired, escaped and localized states"
+          ]
+        },
+        {
+          "file": "scripts/acceptance/tests/announcements-admin-acceptance.spec.mjs",
+          "markers": [
+            "@portal-announcements guest, MFA and exact permission boundaries fail closed",
+            "@portal-announcements administrator validation, publication, Polish translation, stale recovery, conflict and audit lifecycle"
           ]
         }
       ],
-      "gaps": [
-        "Add administrator create/edit/localization and conflict Playwright coverage."
-      ]
+      "gaps": []
     },
     {
       "id": "support-legal.public-admin-localization",

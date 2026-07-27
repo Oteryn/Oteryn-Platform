@@ -5,6 +5,7 @@ import {
   evidenceScreenshot,
   installDiagnostics,
   login,
+  register,
   runBinary,
   runPhpState,
   uniqueEmail,
@@ -17,8 +18,8 @@ const mobileViewport = { width: 390, height: 844 };
 function seedState(email, state) {
   return JSON.parse(runBinary('php', [
     'scripts/acceptance/seed-account-overview-state.php',
+    'seed',
     email,
-    password,
     state,
   ]));
 }
@@ -44,6 +45,13 @@ async function assertState(page, state) {
   await assertAccessibilitySmoke(page);
 }
 
+async function assertInternalAccountIdHidden(page, accountId) {
+  const body = await page.locator('body').innerText();
+  expect(body).not.toContain(`Canary account ID: ${accountId}`);
+  expect(body).not.toContain(`Game account ID: ${accountId}`);
+  await expect(page.getByText(String(accountId), { exact: true })).toHaveCount(0);
+}
+
 test.setTimeout(120_000);
 test.describe.configure({ retries: 0 });
 
@@ -61,24 +69,23 @@ test('@portal-account Account Overview — authorization, status matrix, respons
   await page.goto('/account');
   await expect(page).toHaveURL(/\/login$/u);
 
-  let fixture = seedState(email, 'ready');
+  await register(page, email, password);
   await login(page, email, password);
   await expect(page).toHaveURL(/\/account$/u);
 
   for (const state of ['ready', 'pending', 'recoverable', 'conflict', 'missing']) {
-    fixture = seedState(email, state);
+    const fixture = seedState(email, state);
 
     await page.setViewportSize(desktopViewport);
     await page.goto('/account');
     await assertState(page, state);
     await evidenceScreenshot(page, `account-overview-${state}-desktop`);
 
-    const body = await page.locator('body').innerText();
     if (fixture.canary_account_id) {
-      expect(body).not.toContain(String(fixture.canary_account_id));
+      await assertInternalAccountIdHidden(page, fixture.canary_account_id);
     }
     if (fixture.provisioning_name) {
-      expect(body).not.toContain(fixture.provisioning_name);
+      expect(await page.locator('body').innerText()).not.toContain(fixture.provisioning_name);
     }
 
     await page.setViewportSize(mobileViewport);
@@ -98,6 +105,6 @@ test('@portal-account Account Overview — authorization, status matrix, respons
   const binding = runPhpState('binding', email);
   expect(binding.status).toBe('ready');
   expect(binding.canary_account_id).toBeGreaterThan(0);
-  expect(await page.locator('body').innerText()).not.toContain(String(binding.canary_account_id));
+  await assertInternalAccountIdHidden(page, binding.canary_account_id);
   await evidenceScreenshot(page, 'account-overview-retry-success-desktop');
 });
