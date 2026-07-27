@@ -6,6 +6,7 @@ use App\Admin\AdminPermission;
 use App\Admin\AdminRoleManager;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
+use RuntimeException;
 use Tests\TestCase;
 
 final class PublicModulePermissionReservationTest extends TestCase
@@ -22,10 +23,6 @@ final class PublicModulePermissionReservationTest extends TestCase
         'downloads.manage',
         'events.manage',
         'events.publish',
-        'wiki.access',
-        'wiki.articles.manage',
-        'wiki.categories.manage',
-        'wiki.publish',
     ];
 
     public function test_inactive_public_module_permissions_are_registered_without_implicit_role_grants(): void
@@ -47,17 +44,52 @@ final class PublicModulePermissionReservationTest extends TestCase
     {
         $this->assertDatabaseHas('admin_permissions', ['key' => AdminPermission::MANAGE_SUPPORT_CONTENT]);
 
+        self::assertSame([
+            AdminRoleManager::CONTENT_EDITOR,
+            AdminRoleManager::PLATFORM_ADMIN,
+        ], $this->roleKeysForPermission(AdminPermission::MANAGE_SUPPORT_CONTENT));
+    }
+
+    public function test_wiki_permissions_are_explicitly_granted_with_publish_restricted_to_platform_admin(): void
+    {
+        foreach ([
+            AdminPermission::WIKI_ACCESS,
+            AdminPermission::MANAGE_WIKI_ARTICLES,
+            AdminPermission::MANAGE_WIKI_CATEGORIES,
+        ] as $permission) {
+            self::assertSame([
+                AdminRoleManager::CONTENT_EDITOR,
+                AdminRoleManager::PLATFORM_ADMIN,
+            ], $this->roleKeysForPermission($permission));
+        }
+
+        self::assertSame([
+            AdminRoleManager::PLATFORM_ADMIN,
+        ], $this->roleKeysForPermission(AdminPermission::PUBLISH_WIKI));
+    }
+
+    /**
+     * @return list<string>
+     */
+    private function roleKeysForPermission(string $permission): array
+    {
         $roleKeys = DB::table('admin_role_permissions')
             ->join('admin_permissions', 'admin_permissions.id', '=', 'admin_role_permissions.permission_id')
             ->join('admin_roles', 'admin_roles.id', '=', 'admin_role_permissions.role_id')
-            ->where('admin_permissions.key', AdminPermission::MANAGE_SUPPORT_CONTENT)
+            ->where('admin_permissions.key', $permission)
             ->orderBy('admin_roles.key')
             ->pluck('admin_roles.key')
             ->all();
 
-        self::assertSame([
-            AdminRoleManager::CONTENT_EDITOR,
-            AdminRoleManager::PLATFORM_ADMIN,
-        ], $roleKeys);
+        return array_values(array_map(
+            static function (mixed $roleKey): string {
+                if (! is_string($roleKey)) {
+                    throw new RuntimeException('Expected every administrator role key to be a string.');
+                }
+
+                return $roleKey;
+            },
+            $roleKeys,
+        ));
     }
 }
