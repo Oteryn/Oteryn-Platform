@@ -27,6 +27,7 @@ Coverage states in `scripts/acceptance/coverage/portal-coverage-manifest.json` a
 |---|---|---|---|
 | Manifest integrity and live route classification | `npm --prefix scripts/acceptance run test:coverage-contract` | Fails for malformed records, duplicate routes, stale routes, missing evidence files/markers and unclassified named routes | Required by `Portal Acceptance Contract` |
 | Complete account lifecycle | `npm --prefix scripts/acceptance run test:account-lifecycle` | Executes registration, login/logout, account overview, provisioning, password, MFA, sessions and character entry in real Chromium with zero retries | Required by `Portal Acceptance Contract` |
+| Complete Downloads lifecycle | `npm --prefix scripts/acceptance run test:downloads` plus `test:downloads-portability` | Executes public/admin/localization/failure-recovery in Chromium and bounded public reads in Firefox/WebKit | Required by `Downloads Acceptance` for owned changes |
 | Strict delivered-surface closure | `npm --prefix scripts/acceptance run test:coverage-contract:strict` | Fails while any delivered required surface is `partial` or `planned` | Activation only after the programme closes all recorded gaps |
 | Existing critical acceptance | Existing `critical` profile | Browser portability, responsive, resilience, accessibility and primary smoke | Preserved |
 | Existing full acceptance | Existing `full` profile | Complete primary Chromium functional baseline, resilience, accessibility and visual collection | Preserved |
@@ -66,7 +67,7 @@ The account profile is primary-Chromium only because it contains reset links, MF
 | Public game data | `covered` | search/detail/index, pagination/empty/not-found, Redis/Canary failure and recovery; D/T/M | None in current contract |
 | Core Admin, RBAC, CMS and Audit | `covered` | guest/no-MFA/no-permission/exact roles, mutations, publish/hide, audit and final-admin protection; D/T/M | None in current contract |
 | Public/admin localization core | `covered` | EN/PL, missing/incomplete/draft/published/stale, route-preserving switch | Module-specific translation gaps remain below |
-| Downloads | `planned` | public empty/current/platform filter; admin create/edit/publish; URL policy; PL translation; denial; D/T/M | Add composed Playwright lifecycle |
+| Downloads | `covered` | public empty/current/platform filter; admin create/publish; URL-policy failure/recovery; EN/PL; guest/no-MFA/no-permission; audit; D/T/M; bounded Firefox/WebKit | None in current contract |
 | Events | `planned` | public calendar/detail; active/upcoming/archived/cancelled; admin edit/status; conflict; exact permissions; D/T/M | Add composed Playwright lifecycle |
 | Announcements | `planned` | active-window composition; admin create/edit/PL; conflict/denial; D/T/M | Add admin Playwright lifecycle |
 | Support and legal | `planned` | every typed route, published/missing/unpublished, legal version, approved links, admin and PL translation; D/T/M | Add route-complete Playwright lifecycle |
