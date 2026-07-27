@@ -4,8 +4,7 @@ Convenience index only. Individual active task records, live PRs and Git state a
 
 ## Active tasks
 
-- `OTERYN-20260725-public-web-programme-closure` — Issue #145 programme coordination; owns only its task record and delegates deployment/closure paths to a bounded child task.
-- `OTERYN-20260726-public-web-final-staging-closure` — exact-final-SHA Synology staging deployment, Wiki launch-content installation, sanitized live Chromium smoke and temporary-trigger cleanup.
+- `OTERYN-20260726-public-web-final-staging-closure` — final cleanup, durable checkpoint reconciliation and archival after Issue #145 staging acceptance PASS.
 
 ## Closed acceptance and release-preparation follow-ups
 
@@ -34,6 +33,8 @@ Convenience index only. Individual active task records, live PRs and Git state a
 - PR #206 / `1d063604a66dd3154f97a6f167377d54131cc516` — homepage announcement/event composition, Download and guild navigation, escaped localized metadata, published-only sitemap, authoritative robots policy and required browser closure merged.
 - PR #208 / `f8002191f0e5270dc4191227fd01d5e709ee5ab6` — thirteen source-backed bilingual Wiki launch topics, exact-permission/MFA operator provisioning, conflict-safe idempotency and required cross-browser acceptance merged.
 - PR #209 / `a262996eda36fc9430fe1883ea637ffd2f6ff698` — source-backed Wiki content task lifecycle archived and Issue #145 reconciled to staging-only closure.
+- PR #230 / `d7984a2def655a01b513cdbc823117f37b90d5d4` — explicit Wiki role bundles, genuine-MFA guarded first-administrator bootstrap and reviewed launch-content installation merged.
+- PR #232 / `415aa3febd04c8d9c61082d4a7451352bf084013` — exact-SHA Synology deployment and named-volume live Chromium staging acceptance completed with sanitized PASS evidence.
 
 ## Current project phase
 
@@ -46,8 +47,9 @@ The E2E coverage-hardening programme is continuous verification and does not reo
 ## Operational release state
 
 - **Production Readiness: STAGING_PROVEN**
-- **Functional Acceptance: STAGING_PROVEN for the currently delivered staging-verifiable functional surface**
-- **Visual / UX Acceptance: PASS for the currently delivered staging-verifiable launch scope**
+- **Functional Acceptance: STAGING_PROVEN for the delivered staging-verifiable functional surface**
+- **Visual / UX Acceptance: PASS for the delivered staging-verifiable launch scope**
+- **Public Website Expansion Programme: STAGING_PROVEN**
 - **Production Go-Live Gate: PENDING PRODUCTION VERIFICATION**
 - **Production Verification: REQUIRED BEFORE GO-LIVE**
 
@@ -55,9 +57,7 @@ No staging evidence may be promoted to `PRODUCTION_PROVEN`.
 
 ## Next work
 
-Validate and merge the bounded final-staging closure PR. Its guarded one-shot workflow must build exact merge-SHA images, deploy through the existing Synology staging workflow, install or verify reviewed Wiki content and retain sanitized live Chromium smoke evidence.
-
-After successful evidence reconciliation, remove the temporary trigger/workflow, archive the task and close Issue #145. Issue #91 remains the single production execution tracker and resumes only with explicit production authorization and access to collect sanitized production evidence.
+Complete the final documentation cleanup, close Issue #145 from exact PASS evidence and archive the remaining final-staging task record. Issue #91 remains the single production execution tracker and resumes only with explicit production authorization and access to collect sanitized production evidence.
 
 ## Remaining cross-repository dependency
 
