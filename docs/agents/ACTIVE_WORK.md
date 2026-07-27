@@ -4,7 +4,7 @@ Convenience index only. Individual active task records, live PRs and Git state a
 
 ## Active tasks
 
-- `OTERYN-20260727-downloads-acceptance` — PR #253 is ready after the complete Chromium lifecycle and bounded Firefox/WebKit public portability passed; final docs-only exact-head checks remain before merge.
+- `OTERYN-20260727-events-acceptance` — current-main successor branch `test/OTERYN-20260727-events-acceptance-v2` preserves merged Downloads evidence and closes the bounded Events lifecycle under Issue #240.
 
 ## Closed acceptance and release-preparation follow-ups
 
@@ -44,6 +44,7 @@ Convenience index only. Individual active task records, live PRs and Git state a
 - PR #245 / `458d447a35aa87dd1b13fa16e120e9b9fb9c21ec` — Synology target-preflight lifecycle archived; permanent manual revalidation remains available.
 - PR #246 / `9af2624e68061d52f861068976a38fe67abc4b5a` — first Issue #240 runtime slice merged: Account Center character inventory/states, readable vocations, approved character guild presentation, obsolete public preview removal and fail-closed completeness matrix.
 - PR #247 / `4e8a11a9b76aeaaa59a5dcc38bcd8a8e2fa54b39` — machine-enforced portal route/evidence ledger and complete zero-retry account lifecycle merged; bounded module gaps are now explicit.
+- PR #253 / `f9301792cfc82956aa4af792283c18bcbaf2c28e` — complete Downloads public/admin/localization lifecycle and bounded Firefox/WebKit portability merged; `downloads.public-admin-localization` is covered.
 
 ## Current project phase
 
@@ -57,7 +58,7 @@ Previous representative acceptance remains valid only for its documented boundar
 
 - **Production Readiness: STAGING_PROVEN for previously documented boundaries**
 - **Portal Completeness: FAIL-CLOSED AUDIT AND REMEDIATION IN PROGRESS (Issue #240)**
-- **Functional Acceptance: route classification and complete account lifecycle merged; Downloads is covered on PR #253 pending merge**
+- **Functional Acceptance: account lifecycle and Downloads are covered; Events current-main reconciliation is active**
 - **Visual / UX Acceptance: representative evidence retained; full current-surface closure pending**
 - **Public Website Expansion Programme: implementation merged; completeness remediation reopened**
 - **Emulated Edge Security: STAGING_PROVEN**
@@ -69,7 +70,7 @@ The live Synology preflight identifies the running staging release as `415aa3feb
 
 ## Next work
 
-Merge PR #253 after final exact-head checks, then close Events, Announcements, Support/Legal, Editorial Media and Wiki reconciliation in bounded successor PRs. Issue #244 separately owns audited homepage-template selection.
+Close Events on the current-main successor branch, then Announcements, Support/Legal, Editorial Media and Wiki reconciliation in bounded successor PRs. Issue #244 separately owns audited homepage-template selection.
 
 Issue #91 remains the separate real Production Go-Live tracker.
 
