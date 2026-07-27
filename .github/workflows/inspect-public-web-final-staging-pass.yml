@@ -1,4 +1,4 @@
-name: Inspect Public Web Final Staging PASS
+name: Inspect Public Web Final Staging Prerequisite
 
 on:
   pull_request:
@@ -6,19 +6,60 @@ on:
       - .github/workflows/inspect-public-web-final-staging-pass.yml
 
 permissions:
-  actions: read
   contents: read
 
 jobs:
-  inspect-phase7:
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
+  inspect-prerequisite:
+    runs-on: oteryn-staging
+    timeout-minutes: 10
     steps:
-      - name: Print Phase 7 failed-test block
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          PHASE7_JOB_ID: 89828002567
+      - name: Print sanitized MFA and publisher counts
         run: |
           set -euo pipefail
-          gh api "repos/${GITHUB_REPOSITORY}/actions/jobs/${PHASE7_JOB_ID}/logs" > phase7.log
-          sed -n '3420,3470p' phase7.log
+          platform_container="$(docker ps \
+            --filter label=com.docker.compose.project=oteryn-staging \
+            --filter label=com.docker.compose.service=platform \
+            --format '{{.ID}}')"
+
+          if [[ "$(wc -w <<<"$platform_container")" -ne 1 ]]; then
+            echo "Expected exactly one running Platform staging container." >&2
+            exit 1
+          fi
+
+          docker exec -i "$platform_container" php <<'PHP'
+          <?php
+          require '/var/www/html/vendor/autoload.php';
+          $app = require '/var/www/html/bootstrap/app.php';
+          $app->make(Illuminate\Contracts\Console\Kernel::class)->bootstrap();
+
+          $enabled = App\Identity\Models\Identity::query()
+              ->whereNull('disabled_at')
+              ->get();
+          $confirmed = $enabled
+              ->filter(fn (App\Identity\Models\Identity $identity): bool => $identity->hasConfirmedMfa())
+              ->values();
+          $assignments = Illuminate\Support\Facades\DB::table('identity_admin_roles')->count();
+
+          $requiredPermissions = [
+              'wiki.access',
+              'wiki.articles.manage',
+              'wiki.categories.manage',
+              'wiki.publish',
+          ];
+
+          $eligible = $confirmed->filter(function (App\Identity\Models\Identity $identity) use ($requiredPermissions): bool {
+              return collect($requiredPermissions)->every(
+                  fn (string $permission): bool => $identity->hasAdminPermission($permission),
+              );
+          })->count();
+
+          echo 'enabled_identities='.$enabled->count().PHP_EOL;
+          echo 'confirmed_mfa_identities='.$confirmed->count().PHP_EOL;
+          echo 'administrator_role_assignments='.$assignments.PHP_EOL;
+          echo 'eligible_wiki_publishers='.$eligible.PHP_EOL;
+
+          if ($confirmed->count() !== 1) {
+              fwrite(STDERR, 'Expected exactly one enabled MFA-confirmed Identity.'.PHP_EOL);
+              exit(33);
+          }
+          PHP
