@@ -4,7 +4,7 @@ Convenience index only. Individual active task records, live PRs and Git state a
 
 ## Active tasks
 
-- `OTERYN-20260727-exhaustive-portal-acceptance` — machine-enforced route/surface/state/role/viewport/evidence ledger plus a zero-retry complete account-lifecycle browser profile, rebased from superseded PR #241 onto current `main` after PR #246.
+- `OTERYN-20260727-exhaustive-portal-acceptance` — PR #247 is ready after exact-head route classification, complete zero-retry account lifecycle and required repository workflows passed. Its manifest defines the bounded successor order under Issue #240.
 
 ## Closed acceptance and release-preparation follow-ups
 
@@ -56,7 +56,7 @@ Previous representative acceptance remains valid only for its documented boundar
 
 - **Production Readiness: STAGING_PROVEN for previously documented boundaries**
 - **Portal Completeness: FAIL-CLOSED AUDIT AND REMEDIATION IN PROGRESS (Issue #240)**
-- **Functional Acceptance: representative staging evidence retained; machine-enforced delivered-surface ledger and complete account profile in progress**
+- **Functional Acceptance: machine-enforced route classification and complete account lifecycle ready in PR #247; planned and partial module packages remain**
 - **Visual / UX Acceptance: representative evidence retained; full current-surface closure pending**
 - **Public Website Expansion Programme: implementation merged; completeness remediation reopened**
 - **Emulated Edge Security: STAGING_PROVEN**
@@ -68,7 +68,7 @@ The live Synology preflight identifies the running staging release as `415aa3feb
 
 ## Next work
 
-Finish the exhaustive acceptance contract, then close its machine-classified `planned` and `partial` module packages in bounded successor PRs. Issue #244 separately owns audited homepage-template selection.
+Merge PR #247 after its docs-only exact-head checks, then close Downloads, Events, Announcements, Support/Legal, Editorial Media and Wiki reconciliation in bounded successor PRs. Issue #244 separately owns audited homepage-template selection.
 
 Issue #91 remains the separate real Production Go-Live tracker.
 
