@@ -1,9 +1,9 @@
 name: Portal E2E Audit
 
 on:
-  push:
+  pull_request:
     branches:
-      - 'test/*-portal-e2e-audit'
+      - main
     paths:
       - '.github/workflows/portal-e2e-audit.yml'
   workflow_dispatch:
@@ -17,37 +17,17 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  critical-browser-matrix:
-    name: Zero-retry critical browser matrix
-    uses: ./.github/workflows/acceptance-validation.yml
-    with:
-      profile: critical
-      run_suffix: portal-audit-critical
-      zero_retries: true
-    permissions:
-      contents: read
-
-  full-primary-browser:
-    name: Zero-retry full primary browser baseline
-    uses: ./.github/workflows/acceptance-validation.yml
-    with:
-      profile: full
-      run_suffix: portal-audit-full
-      zero_retries: true
-    permissions:
-      contents: read
-
-  specialized-and-contract-audit:
-    name: Exact-head specialized, contract, stability and soak audit
+  comprehensive-audit:
+    name: Exact-head comprehensive portal audit
     runs-on: ubuntu-latest
-    timeout-minutes: 120
+    timeout-minutes: 150
     permissions:
       contents: read
       actions: write
     env:
       GH_TOKEN: ${{ github.token }}
-      AUDIT_REF: ${{ github.ref_name }}
-      AUDIT_SHA: ${{ github.sha }}
+      AUDIT_REF: ${{ github.event.pull_request.head.ref || github.ref_name }}
+      AUDIT_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
 
     steps:
       - name: Dispatch exact-head audit workflows
@@ -57,22 +37,39 @@ jobs:
           mkdir -p artifacts/portal-e2e-audit
           : > artifacts/portal-e2e-audit/dispatched.tsv
 
-          workflows=(
-            portal-acceptance-contract.yml
-            downloads-acceptance.yml
-            events-acceptance.yml
-            announcements-acceptance.yml
-            support-legal-acceptance.yml
-            editorial-media-acceptance.yml
-            wiki-reconciliation-acceptance.yml
-            acceptance-stability.yml
-            acceptance-soak.yml
+          audit_entries=(
+            'acceptance-critical|acceptance-validation.yml|critical'
+            'acceptance-full|acceptance-validation.yml|full'
+            'portal-contract|portal-acceptance-contract.yml|'
+            'downloads|downloads-acceptance.yml|'
+            'events|events-acceptance.yml|'
+            'announcements|announcements-acceptance.yml|'
+            'support-legal|support-legal-acceptance.yml|'
+            'editorial-media|editorial-media-acceptance.yml|'
+            'wiki|wiki-reconciliation-acceptance.yml|'
+            'stability|acceptance-stability.yml|'
+            'soak|acceptance-soak.yml|'
           )
 
-          for workflow in "${workflows[@]}"; do
-            started_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-            echo "Dispatching ${workflow} for ${AUDIT_REF}@${AUDIT_SHA}"
-            gh workflow run "$workflow" --repo "$GITHUB_REPOSITORY" --ref "$AUDIT_REF"
+          for entry in "${audit_entries[@]}"; do
+            IFS='|' read -r label workflow profile <<< "$entry"
+            before_ids="$(
+              gh run list \
+                --repo "$GITHUB_REPOSITORY" \
+                --workflow "$workflow" \
+                --branch "$AUDIT_REF" \
+                --event workflow_dispatch \
+                --limit 50 \
+                --json databaseId \
+              | jq '[.[].databaseId]'
+            )"
+
+            echo "Dispatching ${label} (${workflow}) for ${AUDIT_REF}@${AUDIT_SHA}"
+            if [ -n "$profile" ]; then
+              gh workflow run "$workflow" --repo "$GITHUB_REPOSITORY" --ref "$AUDIT_REF" -f profile="$profile"
+            else
+              gh workflow run "$workflow" --repo "$GITHUB_REPOSITORY" --ref "$AUDIT_REF"
+            fi
 
             run_id=''
             for attempt in $(seq 1 90); do
@@ -82,12 +79,12 @@ jobs:
                   --workflow "$workflow" \
                   --branch "$AUDIT_REF" \
                   --event workflow_dispatch \
-                  --limit 30 \
+                  --limit 50 \
                   --json databaseId,headSha,createdAt \
                 | jq -r \
                     --arg sha "$AUDIT_SHA" \
-                    --arg started "$started_at" \
-                    '[.[] | select(.headSha == $sha and .createdAt >= $started)] | sort_by(.createdAt) | reverse | .[0].databaseId // empty'
+                    --argjson before "$before_ids" \
+                    '[.[] | select(.headSha == $sha and ((.databaseId as $id | $before | index($id)) == null))] | sort_by(.createdAt) | reverse | .[0].databaseId // empty'
               )"
               if [ -n "$run_id" ]; then
                 break
@@ -96,11 +93,11 @@ jobs:
             done
 
             if [ -z "$run_id" ]; then
-              echo "Could not identify dispatched run for ${workflow} on ${AUDIT_SHA}." >&2
+              echo "Could not identify dispatched run for ${label} (${workflow}) on ${AUDIT_SHA}." >&2
               exit 1
             fi
 
-            printf '%s\t%s\n' "$workflow" "$run_id" | tee -a artifacts/portal-e2e-audit/dispatched.tsv
+            printf '%s\t%s\t%s\n' "$label" "$workflow" "$run_id" | tee -a artifacts/portal-e2e-audit/dispatched.tsv
           done
 
       - name: Wait for exact-head audit workflows and collect results
@@ -110,8 +107,8 @@ jobs:
           : > artifacts/portal-e2e-audit/results.jsonl
           failed=0
 
-          while IFS=$'\t' read -r workflow run_id; do
-            echo "Waiting for ${workflow} run ${run_id}"
+          while IFS=$'\t' read -r label workflow run_id; do
+            echo "Waiting for ${label} (${workflow}) run ${run_id}"
             gh run watch "$run_id" --repo "$GITHUB_REPOSITORY" --interval 10 || true
 
             result="$(
@@ -119,7 +116,10 @@ jobs:
                 --repo "$GITHUB_REPOSITORY" \
                 --json databaseId,workflowName,headSha,event,status,conclusion,url,createdAt,updatedAt
             )"
-            echo "$result" | jq -c --arg workflow_file "$workflow" '. + {workflow_file: $workflow_file}' \
+            echo "$result" | jq -c \
+              --arg audit_label "$label" \
+              --arg workflow_file "$workflow" \
+              '. + {audit_label: $audit_label, workflow_file: $workflow_file}' \
               | tee -a artifacts/portal-e2e-audit/results.jsonl
 
             conclusion="$(echo "$result" | jq -r '.conclusion // empty')"
@@ -144,7 +144,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: portal-e2e-audit-${{ github.sha }}
+          name: portal-e2e-audit-${{ github.event.pull_request.head.sha || github.sha }}
           path: artifacts/portal-e2e-audit
           if-no-files-found: warn
           retention-days: 14
