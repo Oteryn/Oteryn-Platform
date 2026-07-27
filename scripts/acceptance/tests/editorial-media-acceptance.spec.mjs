@@ -107,7 +107,8 @@ test('@portal-editorial-media manager validates, uploads, privately previews, pr
   await assertAccessibilitySmoke(page);
   await assertNoPageOverflow(page);
 
-  await page.getByLabel('Image').setInputFiles({
+  const imageInput = page.getByLabel('Image', { exact: true });
+  await imageInput.setInputFiles({
     name: 'malformed.png',
     mimeType: 'image/png',
     buffer: Buffer.from('not a raster image'),
@@ -118,7 +119,7 @@ test('@portal-editorial-media manager validates, uploads, privately previews, pr
   await expect(page.getByRole('heading', { name: 'No editorial images' })).toBeVisible();
 
   const uploadedAlt = `Acceptance private bridge ${Math.random().toString(16).slice(2, 10)}`;
-  await page.getByLabel('Image').setInputFiles({
+  await imageInput.setInputFiles({
     name: 'acceptance-private.png',
     mimeType: 'image/png',
     buffer: validPng,
