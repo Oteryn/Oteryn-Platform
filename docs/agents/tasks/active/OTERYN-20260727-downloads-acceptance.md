@@ -29,15 +29,16 @@ Close the `downloads.public-admin-localization` ledger record through a bounded 
 - [x] Browser validation rejects an unapproved executable URL and never uploads, fetches or proxies executable content.
 - [x] English and Polish public behavior proves no English release-note fallback and a published Polish translation.
 - [x] Desktop, tablet and mobile layouts have no horizontal page overflow; scrollable tables remain usable.
+- [x] Bounded read-only Firefox and WebKit public rendering passes after the Chromium lifecycle creates deterministic data.
+- [x] The public artifact table has a stable accessible name.
 - [x] The Downloads ledger record becomes `covered` only after stable exact evidence exists.
-- [ ] Target Downloads browser execution, route classification, account lifecycle and all required repository checks pass on the exact final head.
+- [x] Target Downloads browser execution, route classification, account lifecycle and all required repository checks pass on the exact implementation head.
 
 ## Ownership
 
 ```yaml
 owned_paths:
   - .github/workflows/downloads-acceptance.yml
-  - .github/workflows/prepare-downloads-ledger.yml
   - resources/views/downloads/index.blade.php
   - scripts/acceptance/package.json
   - scripts/acceptance/playwright.config.mjs
@@ -48,6 +49,8 @@ owned_paths:
   - docs/testing/PORTAL_ACCEPTANCE_COVERAGE_MATRIX.md
   - docs/agents/ACTIVE_WORK.md
   - docs/agents/tasks/active/OTERYN-20260727-downloads-acceptance.md
+  - docs/agents/tasks/active/OTERYN-20260727-exhaustive-portal-acceptance.md
+  - docs/agents/tasks/archive/OTERYN-20260727-exhaustive-portal-acceptance.md
 modules:
   - Downloads
   - Localization
@@ -66,11 +69,11 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-07-27T19:45:00+02:00
-head: 3c9e4fe9218f5460298477e02cd5da239ceda851
+updated_at: 2026-07-27T20:00:00+02:00
+head: 01ec013db342cdc355918f3cc50d3d387da3cf3e
 branch: test/OTERYN-20260727-downloads-acceptance
 pr: 253
-status: implementing
+status: ready
 context_routes:
   - agent-governance
   - testing
@@ -80,7 +83,6 @@ context_routes:
   - accessibility
 owned_paths:
   - .github/workflows/downloads-acceptance.yml
-  - .github/workflows/prepare-downloads-ledger.yml
   - resources/views/downloads/index.blade.php
   - scripts/acceptance/package.json
   - scripts/acceptance/playwright.config.mjs
@@ -91,31 +93,35 @@ owned_paths:
   - docs/testing/PORTAL_ACCEPTANCE_COVERAGE_MATRIX.md
   - docs/agents/ACTIVE_WORK.md
   - docs/agents/tasks/active/OTERYN-20260727-downloads-acceptance.md
+  - docs/agents/tasks/active/OTERYN-20260727-exhaustive-portal-acceptance.md
+  - docs/agents/tasks/archive/OTERYN-20260727-exhaustive-portal-acceptance.md
 proven:
   - complete zero-retry Chromium Downloads lifecycle passed on head 01ec013db342cdc355918f3cc50d3d387da3cf3e
   - bounded Firefox and WebKit public portability passed after the localized Polish heading contract was corrected
-  - the Downloads table now has an accessible name on the table element itself
-  - public empty, current, platform filter, fail-closed, English and Polish states are exercised
+  - the Downloads table has an accessible name on the table element itself
+  - public empty, current, platform filter, fail-closed, restored, English and Polish states are exercised
   - administrator guest, no-MFA, no-permission, validation, create, publish and immutable released-metadata boundaries are exercised
-  - the canonical portal ledger records Downloads as covered with stable browser evidence markers
+  - the canonical portal ledger records Downloads as covered with stable feature, unit and browser evidence markers
+  - the PR 247 task lifecycle is archived and removed from active work
   - no executable upload, fetch or proxy capability was introduced
   - no Canary, login-server, OTClient or production write occurred
 derived:
   - the product and browser package are complete for the declared Downloads surface contract
-  - the workflow-authored ledger commit must be followed by this trusted checkpoint commit so required checks can execute without action-required approval
+  - the next bounded Issue 240 package is Events
 unknown:
-  - final exact-head required workflow conclusions for the trusted checkpoint commit
+  - final production CDN and approved artifact-host availability remain outside repository and staging evidence
 conflicts: []
 first_failure:
   marker: downloads-accessibility-and-portability-contract
-  evidence: initial runs exposed an unnamed table, then an unselected portability spec, then an English-only assertion on the Polish route; each root cause was corrected without retries or weakened coverage
+  evidence: initial runs exposed an exact-permission assumption, an ambiguous navigation/download locator, an unnamed table, an unselected portability spec and an English assertion on the Polish route; each root cause was corrected without retries or weakened coverage, and run 30289922496 passed Chromium, Firefox and WebKit
 rejected_hypotheses:
   - existing feature tests alone prove the composed public and administrator browser lifecycle
+  - platform_admin should automatically gain every newly introduced module permission
   - executable upload or proxy behavior should be added to make the Download Center complete
   - the Polish route should be tested with English presentation text
+  - cross-browser proof requires repeating secret-bearing MFA and mutations in every engine
 changed_paths:
   - .github/workflows/downloads-acceptance.yml
-  - .github/workflows/prepare-downloads-ledger.yml
   - resources/views/downloads/index.blade.php
   - scripts/acceptance/package.json
   - scripts/acceptance/playwright.config.mjs
@@ -126,16 +132,21 @@ changed_paths:
   - docs/testing/PORTAL_ACCEPTANCE_COVERAGE_MATRIX.md
   - docs/agents/ACTIVE_WORK.md
   - docs/agents/tasks/active/OTERYN-20260727-downloads-acceptance.md
+  - docs/agents/tasks/active/OTERYN-20260727-exhaustive-portal-acceptance.md
+  - docs/agents/tasks/archive/OTERYN-20260727-exhaustive-portal-acceptance.md
 validation:
   - command: Downloads Acceptance run 30289922496
     result: PASS
     evidence: exact-head Chromium lifecycle plus Firefox and WebKit portability succeeded with zero retries
+  - command: Portal Acceptance Contract on 01ec013db342cdc355918f3cc50d3d387da3cf3e
+    result: PASS
+    evidence: live route classification and complete account lifecycle remained green
   - command: CI and production-like required checks on 01ec013db342cdc355918f3cc50d3d387da3cf3e
     result: PASS
     evidence: CI, governance, outage, edge, game-auth, image build and Synology preflight succeeded before ledger closure
 blockers:
   - none
-next_action: Run every required workflow on this trusted exact head, mark PR 253 ready and squash-merge when all checks pass.
+next_action: Mark PR 253 ready and squash-merge after this docs-only exact head receives all required checks, then begin the bounded Events package.
 ```
 
 ## Notes
