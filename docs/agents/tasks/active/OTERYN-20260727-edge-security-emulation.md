@@ -66,11 +66,11 @@ cross_repository_tasks: []
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-07-27T15:01:00+02:00
-head: cab40863bd5058209cdcbee1342a54acc814ec01
+updated_at: 2026-07-27T15:22:00+02:00
+head: 4afdc2c4ed39ec5a50c461af8ec1195a6b23a4bf
 branch: test/OTERYN-20260727-edge-security-emulation
-pr: none
-status: implementing
+pr: 236
+status: validating
 context_routes:
   - agent-governance
   - deployment
@@ -85,31 +85,48 @@ owned_paths:
   - docs/agents/tasks/active/OTERYN-20260727-edge-security-emulation.md
   - docs/agents/tasks/archive/OTERYN-20260727-edge-security-emulation.md
 proven:
-  - main head cab40863bd5058209cdcbee1342a54acc814ec01 has no active task after completed public-web archival
+  - main base cab40863bd5058209cdcbee1342a54acc814ec01 has no other active task after completed public-web archival
   - Issue 91 remains open and requires actual production evidence before PRODUCTION_PROVEN
-  - the repository currently proves application security and production-like dependency boundaries but leaves final edge DNS TLS WAF Access and origin exposure UNKNOWN
-  - Cloudflare Access is optional defense in depth and never replaces Platform auth confirmed MFA exact RBAC or audit
-  - no open pull request or active task owns the proposed edge-emulation paths
+  - the repository previously proved application and dependency boundaries but left final DNS TLS WAF Access and origin exposure UNKNOWN
+  - PR 236 contains a reserved-domain CoreDNS fixture, ephemeral public and origin trust chains, mTLS-authenticated origin pull, Cloudflare-style edge metadata, WAF and rate-limit assertions, Access admission and current-SHA Laravel health composition
+  - Cloudflare Access admission remains independent from Platform auth confirmed MFA exact RBAC and audit
+  - workflow run 30269153474 reached and exercised the complete edge harness before artifact publication
+  - no production router DSM public DNS Cloudflare account secret or external-repository action occurred
 derived:
-  - a deterministic local edge profile can add STAGING_PROVEN procedure and configuration evidence without changing actual production UNKNOWN facts
+  - successful exact-head validation can add STAGING_PROVEN procedure evidence without changing actual production UNKNOWN facts
 unknown:
-  - whether the first workflow implementation will pass on GitHub-hosted Ubuntu without adjustment
+  - exact final-head workflow result after CRLF-safe header capture and pipefail correction
 conflicts: []
 first_failure:
-  marker: none
-  evidence: implementation not yet executed
+  marker: http-redirect-target
+  evidence: edge run 30268938970 first failed after Nginx and CoreDNS startup because the header assertion compared CRLF curl output without normalization; run 30269153474 diagnostics artifact 8654060873 preserved the bounded marker
 rejected_hypotheses:
+  - DNS TLS mTLS or Laravel startup caused the first failure: those stages completed before the redirect-header assertion
   - emulation can close Issue 91: actual production environment evidence remains mandatory
 changed_paths:
+  - .github/workflows/edge-security-emulation.yml
+  - tests/edge-emulation/Corefile
+  - tests/edge-emulation/db.oteryn.test
+  - tests/edge-emulation/access_verifier.py
+  - tests/edge-emulation/bin/curl
+  - tests/edge-emulation/run.sh
+  - docs/operations/EDGE_SECURITY_EMULATION_EVIDENCE.md
+  - docs/agents/ACTIVE_WORK.md
   - docs/agents/tasks/active/OTERYN-20260727-edge-security-emulation.md
 validation:
   - command: repository and Issue 91 boundary review
     result: PASS
     evidence: production checklist topology baseline verification record and Access guidance preserve fail-closed production semantics
+  - command: Edge Security Emulation 30268938970
+    result: FAIL
+    evidence: first unmet invariant http-redirect-target after successful application Nginx and DNS startup
+  - command: Edge Security Emulation 30269153474
+    result: FAIL
+    evidence: validation output was masked by tee before pipefail was enforced; diagnostics artifact 8654060873 exposed the same CRLF-sensitive header marker
 blockers: []
-next_action: Implement the isolated edge-emulation workflow fixtures and exact-SHA assertions.
+next_action: Obtain an exact-head PASS from the corrected edge workflow and persist its sanitized artifact evidence.
 ```
 
 ## Notes
 
-The emulation must use reserved test hostnames and ephemeral keys only. It may prove the reviewed topology and controls under CI, but it must not imply ownership or configuration of a real DNS zone, certificate, Cloudflare account, firewall or production origin.
+The emulation uses reserved test hostnames and ephemeral keys only. It may prove the reviewed topology and controls under CI, but it must not imply ownership or configuration of a real DNS zone, certificate, Cloudflare account, firewall or production origin.
