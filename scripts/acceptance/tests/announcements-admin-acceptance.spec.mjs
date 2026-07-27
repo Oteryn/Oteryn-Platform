@@ -80,13 +80,18 @@ async function clickTranslationSaveWithoutOverlap(page) {
 
   const hitTest = await button.evaluate((element) => {
     const rect = element.getBoundingClientRect();
-    const target = document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2);
+    const x = rect.left + rect.width / 2;
+    const y = rect.top + rect.height / 2;
+    const target = document.elementFromPoint(x, y);
 
     return {
       receivesPointer: target === element || element.contains(target),
       target: target === null
         ? 'none'
         : `${target.tagName.toLowerCase()}${target.id === '' ? '' : `#${target.id}`}`,
+      x,
+      y,
+      touchPoints: navigator.maxTouchPoints,
     };
   });
 
@@ -95,7 +100,11 @@ async function clickTranslationSaveWithoutOverlap(page) {
     `Save translation must be the pointer target at its centre; received ${hitTest.target}`,
   ).toBe(true);
 
-  await button.click();
+  if (hitTest.touchPoints > 0) {
+    await page.touchscreen.tap(hitTest.x, hitTest.y);
+  } else {
+    await page.mouse.click(hitTest.x, hitTest.y);
+  }
 }
 
 test.setTimeout(180_000);
