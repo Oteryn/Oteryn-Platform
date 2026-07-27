@@ -46,7 +46,7 @@ Deploy the exact final Issue #145 trusted-main SHA to the existing Synology stag
 - [ ] `wiki:launch-content:install` installs or verifies content version `2026-07-26.1` without overwriting editorial changes.
 - [ ] A real Chromium instance on the Synology host network receives HTTP 200 from the localized homepage, Wiki index, EN/PL launch articles, sitemap and robots surfaces and verifies expected public headings/content.
 - [x] Sanitized reports contain only commit SHA, image tags, workflow/run identifiers, counts, job conclusions and artifact names.
-- [ ] Temporary inspection/preparation/one-shot workflows and inert triggers are removed after successful evidence is reconciled; tasks are archived and Issue #145 closes only from exact deployment evidence.
+- [ ] Temporary one-shot workflows and inert triggers are removed after successful evidence is reconciled; tasks are archived and Issue #145 closes only from exact deployment evidence.
 - [x] No production, router, DSM, Internet-exposure, Canary/login-server repository or external-repository write occurs.
 
 ## Ownership
@@ -55,8 +55,6 @@ Deploy the exact final Issue #145 trusted-main SHA to the existing Synology stag
 owned_paths:
   - .github/workflows/one-shot-public-web-final-staging.yml
   - .github/workflows/one-shot-mfa-qr-staging-deploy.yml
-  - .github/workflows/inspect-public-web-final-staging-prerequisite.yml
-  - .github/workflows/prepare-public-web-final-staging-resume.yml
   - deploy/synology/.public-web-final-staging-trigger
   - deploy/synology/scripts/deploy.sh
   - deploy/synology/scripts/health-check.sh
@@ -98,8 +96,8 @@ cross_repository_tasks: []
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-07-27T10:15:00+02:00
-head: 7cdad8a207c6ae2d4d965f135c5355fb61cc923b
+updated_at: 2026-07-27T10:25:00+02:00
+head: 5638989db9d184f4628ef0192634c1a491a7dabf
 branch: fix/OTERYN-20260727-public-web-final-staging-resume
 pr: 230
 status: validating
@@ -114,7 +112,7 @@ context_routes:
   - testing
   - accessibility
 owned_paths:
-  - final staging, Wiki RBAC, temporary validation and cleanup paths listed in Ownership
+  - final staging, Wiki RBAC and cleanup paths listed in Ownership
 proven:
   - PR 221 exact SHA 37eb31d60aa8a47914745cd326aff6b313851dd0 deployed successfully through one-shot 30224899245 and deployment 30225044085
   - Issue 145 sanitized report 5085918120 records MFA QR Synology staging deployment PASS
@@ -124,24 +122,26 @@ proven:
   - the prerequisite output contained counts only and no Identity email, password, TOTP secret, QR bytes or recovery codes
   - the reviewed PR 213 migration and exact tests were reconciled onto current main
   - the current main one-shot blob was identical to PR 213 base, so its reviewed guarded bootstrap version was transferred without conflict
+  - temporary prerequisite, preparation and CI-inspection workflows were removed from the final diff
+  - PHPStan found one test-helper return-type issue; the result is now explicitly normalized from mixed database values to list<string>
   - no production, router, DSM, Internet-exposure or external-repository action occurred
 derived:
   - the one-time administrator bootstrap prerequisite is now satisfied exactly
   - migration plus bootstrap must still pass all exact-head repository checks before merge
   - final staging remains fail closed for zero or multiple MFA candidates or eligible Wiki publishers
 unknown:
-  - exact final PR 230 head after cleanup and validation
-  - final trusted-main merge SHA and final staging run identifiers
+  - exact final trusted-main merge SHA and final staging run identifiers
   - final Wiki installation and Chromium evidence result
 conflicts: []
 first_failure:
-  marker: superseded-branch-conflict
-  evidence: PR 213 could not produce a current merge ref after the later QR deployment merges; its bounded changes were reconciled onto fresh PR 230 instead of force-updating the stale branch
+  marker: phpstan-role-key-list
+  evidence: CI run 30249031419 job 89922557069 reported roleKeysForPermission should return list<string> but returned array<mixed>; commit 58f108dc063596f46ddcba9fe898e7cb96a45df0 added explicit string mapping and list normalization
 rejected_hypotheses:
   - genuine MFA is still absent: sanitized staging inspection proved exactly one confirmed-MFA Identity
   - an administrator role already exists: the same inspection proved zero assignments
   - a synthetic publisher or fabricated MFA is needed: the existing genuine account satisfies the exact prerequisite
   - current main changed the final-staging one-shot since PR 213 base: both versions used blob dda377adcde255bac6f2b73b5164000d7fdd7eb8
+  - the CI failure affected runtime authorization: it was isolated to a test-helper static return type
 changed_paths:
   - .github/workflows/one-shot-public-web-final-staging.yml
   - database/migrations/2026_07_26_183200_grant_wiki_permissions_to_editor_roles.php
@@ -149,7 +149,6 @@ changed_paths:
   - tests/Feature/EditorialMedia/WikiEditorialMediaSecurityTest.php
   - tests/Feature/Wiki/WikiAuthorizationTest.php
   - docs/agents/tasks/active/OTERYN-20260726-public-web-final-staging-closure.md
-  - temporary inspection and preparation workflows pending deletion
 validation:
   - command: QR-first exact-SHA deployment
     result: PASS
@@ -157,8 +156,11 @@ validation:
   - command: sanitized staging MFA prerequisite
     result: PASS
     evidence: run 30248201054 job 89919947353 reported enabled 2, confirmed MFA 1, administrator assignments 0
+  - command: PR 230 first exact-head CI
+    result: FAIL_FIXED
+    evidence: the only PHPStan error was an array<mixed> versus list<string> helper return; explicit normalization is committed and the diagnostic workflow was removed
 blockers: []
-next_action: Remove temporary inspection/preparation workflows, complete all exact-head PR 230 checks, merge with marker [public-web-final-staging], require final staging PASS evidence, then archive both closure tasks and close Issue 145.
+next_action: Complete all exact-head PR 230 checks, merge with marker [public-web-final-staging], require final staging PASS evidence, then remove one-shot workflows/triggers, archive both closure tasks and close Issue 145.
 ```
 
 ## Notes
