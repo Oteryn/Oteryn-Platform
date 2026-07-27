@@ -2,38 +2,41 @@
 
 ## Status
 
-`REMEDIATING_AND_REVALIDATING`
+`COMPLETE_WITH_RECORDED_FOLLOW_UPS`
 
-This is the durable findings record for the exact task head on `test/OTERYN-20260728-portal-e2e-audit`. It records failures and missing capabilities without promoting repository or staging evidence to `PRODUCTION_PROVEN`.
+This is the durable findings record for the exact-head portal audit completed through PR #265. It records failures, remediations and missing capabilities without promoting repository or staging evidence to `PRODUCTION_PROVEN`.
 
-## Audit target
+## Audit target and outcome
 
 - Base repository SHA: `ef6d03e0b7c6ed0ecf40e6e108b81358c9b64b1b`
-- Base changes: merged PR #262 staging refresh and PR #264 container-namespace verification fix
 - Delivered-surface baseline: PR #260 / Issue #240 closure
-- Audit branch: `test/OTERYN-20260728-portal-e2e-audit`
-- First preliminary tested SHA: `bb1e2a395169d0000ed33ad4e325e4bfc7fb12ab`
-- Second preliminary tested SHA: `418bb0939fea9b98753da14b0e0254e0afe37f3a`
-- Final tested SHA: `PENDING`
+- Final exact tested SHA: `a5929d0725d6a99069abbc2faa42022d843e560d`
+- Audit orchestration run: `30313332817`
 - Audit PR: #265
+- Squash merge SHA: `dd48947a0c6328dc5d361f9953c221df343ecb4d`
+- Final result: every required repository, browser, contract, module, stability and soak gate passed on the same exact tested SHA.
+- Product result: no confirmed product runtime regression was found within the declared repository/staging coverage boundary.
+- Nonclaim: production behavior was not tested and remains owned by Issue #91.
 
-## Required execution matrix
+## Final execution matrix
 
-| Area | Required evidence | Latest preliminary state | Final state |
-|---|---|---|---|
-| Primary functional browser baseline | `full` Chromium profile with effective zero retries | Functional, resilience and accessibility profiles passed in run `30311830608`; legacy visual selector failed | Pending rerun |
-| Critical risk matrix | Smoke, Chromium/Firefox/WebKit portability, desktop/tablet/mobile responsive, resilience and keyboard/focus accessibility, zero retries | Passed in run `30311500518` | Pending final head |
-| Identity/account lifecycle | Registration, login/logout, account overview, provisioning, password recovery/change, MFA, sessions and character creation | Passed in run `30312252559` | Pending final head |
-| Delivered route contract | Strict zero-gap route/evidence ledger against the exact Laravel route table | Passed in run `30312252559` | Pending final head |
-| Downloads | Public/admin/localization/failure recovery and bounded Firefox/WebKit | Misconfigured collection produced zero lifecycle tests in runs `30311441459` and `30312256615` | Pending rerun |
-| Events | Public/admin/localization/conflict lifecycle across declared browser/viewports | Passed in run `30312260632` | Pending final head |
-| Announcements | Public/admin/localization/stale/conflict/audit lifecycle | Passed in run `30312264757` | Pending final head |
-| Support and legal | Typed routes, legal versions, localization, RBAC/MFA and audit | Passed in run `30312268671` | Pending final head |
-| Editorial media | Upload validation, private content, integrity, reference lock, deletion and audit | Passed in run `30312273170` after image-decode remediation | Pending final head |
-| Wiki | Public/search/errors/recovery/localization and complete admin editorial lifecycle | Passed in run `30312277252` | Pending final head |
-| Stability | Three fresh isolated zero-retry critical iterations | Passed in run `30312281574` | Pending final head |
-| Soak | Bounded read-only public surface calibration | Direct 300-second soak passed in run `30312285888` | Pending final head |
-| Repository CI | Composer validation/audit, formatting, PHPStan and full automated tests | Passed in run `30311441454` | Pending final head |
+| Area | Final exact-head evidence | Result |
+|---|---:|---|
+| Critical browser matrix | `30313356495` | PASS |
+| Full Chromium baseline, resilience, accessibility and exploratory visual UX | `30313569233` | PASS |
+| Strict route ledger and complete account lifecycle | `30313963191` | PASS |
+| Downloads lifecycle plus Firefox/WebKit portability | `30313967734` | PASS |
+| Events public/admin/localization/conflict lifecycle | `30313972600` | PASS |
+| Announcements public/admin/localization/audit lifecycle | `30313976960` | PASS |
+| Support/Legal routes, localization, RBAC/MFA and audit | `30313981106` | PASS |
+| Editorial Media upload, preview, integrity, reference lock, deletion and audit | `30313985873` | PASS |
+| Wiki public/admin/editorial lifecycle | `30313990460` | PASS |
+| Three-iteration zero-retry critical stability | `30313994976` | PASS |
+| Bounded 300-second read-only public soak | `30313999674` | PASS |
+| Parent exact-head audit collector | `30313332817` | PASS |
+| Pull-request CI, governance and platform checks | PR #265 exact head | PASS |
+
+The final full artifact reports 22 passing Chromium-primary tests, two passing resilience tests, six passing accessibility tests and `visual_result: success`. The visual artifact includes the generated contact sheet and captured desktop/tablet/mobile states.
 
 ## Findings ledger
 
@@ -41,129 +44,113 @@ This is the durable findings record for the exact task head on `test/OTERYN-2026
 
 - Classification: test harness defect
 - Severity: medium
-- Status: confirmed; durable audit workaround implemented
-- Evidence: `.github/workflows/acceptance-validation.yml` selects `critical` from `github.event_name == 'pull_request'` before considering `inputs.profile`.
-- Impact: a reusable workflow called from a pull-request workflow cannot request `full`; it silently executes `critical` instead.
-- Disposition: the audit invokes `acceptance-validation.yml` through `workflow_dispatch` with an explicit profile and verifies the selected exact-head run.
+- Final status: recorded follow-up; audit path is safe
+- Evidence: `.github/workflows/acceptance-validation.yml` gives pull-request event context precedence over the explicit `workflow_call` profile.
+- Impact: a PR caller can silently receive `critical` when requesting `full`.
+- Current control: the audit invokes the workflow through explicit `workflow_dispatch` and verifies exact profile/run evidence.
 
 ### E2E-AUD-002 — Project-state documentation is behind the delivered portal state
 
 - Classification: documentation drift
 - Severity: low
-- Status: confirmed; not a runtime defect
-- Evidence: `docs/agents/PROJECT_STATE.md` is dated 2026-07-21 and describes continuous E2E closure only through PR #111, while current repository state includes the Issue #240 closure and later staging work.
-- Impact: an agent reading only the required startup file can underestimate current delivered coverage and repeat completed work.
-- Disposition: recorded for a narrow documentation follow-up.
+- Final status: recorded follow-up
+- Evidence: `docs/agents/PROJECT_STATE.md` predates the final Issue #240 closure and current audit work.
+- Impact: startup context can understate current delivered coverage.
 
-### E2E-AUD-003 — Staging release identity text is stale after the final refresh
+### E2E-AUD-003 — Staging release identity text was stale
 
 - Classification: documentation drift
 - Severity: medium
-- Status: confirmed
-- Evidence: `docs/agents/ACTIVE_WORK.md` still names `415aa3febd04c8d9c61082d4a7451352bf084013` as the previously verified staging release, while PR #262 and PR #264 established later staging refresh and verification evidence.
-- Impact: operators or agents may use an obsolete staging release identity.
-- Disposition: record the exact PR #262/#264 deployment evidence before changing the authoritative release identity text.
+- Final status: resolved during audit closeout
+- Evidence: `docs/agents/ACTIVE_WORK.md` named the earlier PR #232 staging SHA after PR #262/#264 refreshed and verified the staging target.
+- Resolution: the closeout records `ef6d03e0b7c6ed0ecf40e6e108b81358c9b64b1b` as the latest verified staging refresh identity while retaining the no-production-claim boundary.
 
-### E2E-AUD-004 — Audit target changed while the first branch was being prepared
+### E2E-AUD-004 — Audit target changed during initial preparation
 
 - Classification: process/evidence invalidation
 - Severity: informational
-- Status: handled
-- Evidence: main advanced from `ccd45fdce3176bd1da97a264bbbaf19a68c1397b` to `ef6d03e0b7c6ed0ecf40e6e108b81358c9b64b1b` through PR #264 before PR #265 was opened.
-- Impact: runs on the superseded task head cannot be used as final exact-head evidence.
-- Disposition: branch was force-synchronized before the audit implementation was recreated.
+- Final status: resolved
+- Evidence: main advanced through PR #264 before the first audit PR was opened.
+- Resolution: the branch was force-synchronized and all superseded runs were excluded from final evidence.
 
-### E2E-AUD-005 — Direct critical and full profiles cancel each other
+### E2E-AUD-005 — Direct critical and full profiles cancelled each other
 
 - Classification: test orchestration defect
 - Severity: high for audit trustworthiness
-- Status: confirmed; fixed and preliminarily proven
-- Evidence: `critical` run `30310320026` was cancelled seconds after `full` run `30310324691` started on the same ref because both used the direct concurrency key.
-- Impact: concurrent profile dispatch can silently remove required evidence.
-- Disposition: direct `critical`, `full` and `soak` profiles are serialized. The second critical run `30311500518` and direct soak run `30312285888` passed.
+- Final status: fixed and proven
+- Evidence: preliminary `critical` run `30310320026` was cancelled when `full` run `30310324691` reused the same direct concurrency key.
+- Resolution: direct `critical`, `full` and `soak` profiles are serialized. Final runs `30313356495`, `30313569233` and `30313999674` passed.
 
 ### E2E-AUD-006 — Specialized lifecycle suites leaked into the full baseline
 
 - Classification: Playwright collection and fixture-isolation defect
-- Severity: high for full-profile reliability
-- Status: confirmed; fixed and preliminarily proven
-- Evidence: full run `30310324691` collected module suites with independent reset scripts, while their dedicated same-SHA workflows passed. After isolation, the full functional baseline in run `30311830608` passed all 22 Chromium-primary tests plus resilience and accessibility.
-- Impact: the generic baseline previously produced misleading cross-suite fixture failures.
-- Disposition: specialized lifecycle suites remain mandatory in their independent workflows and are excluded only when `ACCEPTANCE_PROFILE=full`.
+- Severity: high
+- Final status: fixed and proven
+- Evidence: preliminary full execution collected independently seeded module lifecycle suites and produced cross-suite state contamination.
+- Resolution: specialized lifecycle suites remain mandatory in their dedicated workflows and are excluded only from `ACCEPTANCE_PROFILE=full`. Final full run `30313569233` passed.
 
 ### E2E-AUD-007 — Public game-data assertion used stale channel copy
 
-- Classification: test expectation drift
+- Classification: expectation drift
 - Severity: low
-- Status: fixed and preliminarily proven
-- Evidence: the delivered page renders `Acceptance (Channel ID 1)`, while the former assertion expected `Acceptance (ID 1)`.
-- Impact: correct and more explicit UI copy failed an older assertion.
-- Disposition: the browser expectation now matches the accessible delivered text; full functional run `30311830608` passed.
+- Final status: fixed and proven
+- Evidence: the UI renders `Acceptance (Channel ID 1)` while the old assertion expected `Acceptance (ID 1)`.
+- Resolution: the expectation matches the current accessible copy; final full run passed.
 
 ### E2E-AUD-008 — Editorial preview assertion did not wait for image decoding
 
 - Classification: browser-test race
 - Severity: medium
-- Status: fixed and preliminarily proven
-- Evidence: run `30310355821` showed a visible authenticated 320 × 180 image, but the tablet assertion read `naturalWidth` before decoding completed.
-- Impact: a slow decode could fail a zero-retry test despite correct upload, authorization and markup.
-- Disposition: the test polls `image.complete` and `naturalWidth > 0`; exact-head Editorial Media run `30312273170` passed.
+- Final status: fixed and proven
+- Evidence: preliminary tablet execution read `naturalWidth` before a valid authenticated image finished decoding.
+- Resolution: the test polls image completion and decoded width. Final Editorial Media run `30313985873` passed.
 
 ### E2E-AUD-009 — Soak wrapper failed before creating a job
 
 - Classification: workflow composition defect
 - Severity: medium
-- Status: confirmed; direct-profile bypass proven
-- Evidence: wrapper run `30310370831` failed in two seconds and produced zero jobs.
-- Impact: the wrapper supplied no soak evidence and no job-level diagnostics.
-- Disposition: the audit invokes the acceptance workflow directly with `profile=soak`; 300-second run `30312285888` passed. The wrapper remains a separately recorded defect.
+- Final status: recorded follow-up; direct soak path is proven
+- Evidence: wrapper run `30310370831` failed before job creation and supplied no diagnostics.
+- Current control: the audit invokes the underlying acceptance workflow directly with `profile=soak`; final 300-second run `30313999674` passed.
 
 ### E2E-AUD-010 — Full-profile exclusions disabled the dedicated Downloads lifecycle
 
-- Classification: Playwright collection regression introduced during audit remediation
+- Classification: audit-remediation collection regression
 - Severity: high
-- Status: confirmed; fixed pending final rerun
-- Evidence: Downloads runs `30311441459` and `30312256615` generated JUnit with `tests=0` after the Downloads lifecycle spec was added to the unconditional `chromium-primary` ignore list.
-- Impact: the workflow failed before Firefox/WebKit portability and produced no Downloads lifecycle evidence.
-- Disposition: specialized lifecycle exclusions now apply only when `ACCEPTANCE_PROFILE=full`; dedicated workflows retain their declared tests.
+- Final status: fixed and proven
+- Evidence: preliminary Downloads runs produced JUnit `tests=0` after an unconditional project ignore was introduced.
+- Resolution: lifecycle exclusions apply only to profile `full`. Final Downloads run `30313967734` executed lifecycle and Firefox/WebKit tests successfully.
 
 ### E2E-AUD-011 — Exploratory visual audit used a removed homepage selector
 
 - Classification: visual harness drift
 - Severity: medium
-- Status: confirmed; fixed pending final rerun
-- Evidence: full run `30311830608` passed functional, resilience and accessibility execution but failed before writing visual evidence. The visual harness targeted `#character-name`; the current homepage control is `#home-character-name`.
-- Impact: visual/UX evidence was marked not proven despite the functional baseline passing.
-- Disposition: the visual wrapper resolves the legacy capture selector to the current homepage search control without modifying application markup.
+- Final status: fixed and proven
+- Evidence: the old harness targeted `#character-name`; the refreshed homepage uses `#home-character-name`.
+- Resolution: the visual wrapper resolves the legacy capture selector to the current control without changing application markup. Final full run `30313569233` produced successful visual evidence and a contact sheet.
 
-### E2E-AUD-012 — Direct audit profiles did not explicitly force global zero retries
+### E2E-AUD-012 — Direct audit profiles did not unambiguously force zero retries
 
 - Classification: retry-policy ambiguity
 - Severity: medium
-- Status: fixed pending final evidence
-- Evidence: full evidence for run `30311830608` recorded `global_zero_retries_requested: "0"`, even though bounded specs used zero-retry declarations.
-- Impact: audit evidence could not unambiguously prove that every collected profile used zero retries.
-- Disposition: Playwright configuration now forces `critical`, `full` and `soak` profiles to `retries: 0`, while specialized workflows continue to use `ACCEPTANCE_ZERO_RETRIES=1`.
+- Final status: fixed and proven
+- Evidence: preliminary full evidence did not explicitly request global zero retries.
+- Resolution: Playwright configuration forces `critical`, `full` and `soak` profiles to `retries: 0`; specialized workflows retain `ACCEPTANCE_ZERO_RETRIES=1`. Final matrix passed with bounded retries equal to zero.
 
 ## Known missing capabilities and explicit nonclaims
 
-These are not counted as newly discovered regressions, but they remain material gaps:
-
-| ID | Missing or unproven capability | Current owner/boundary |
+| ID | Missing or unproven capability | Owner/boundary |
 |---|---|---|
-| GAP-001 | Audited administrator homepage-template selector is not delivered | Open Issue #244 |
-| GAP-002 | Production Go-Live verification is not executed | Open Issue #91; explicit production authorization and access required |
+| GAP-001 | Audited administrator homepage-template selector is not delivered | Issue #244 |
+| GAP-002 | Production Go-Live verification is not executed | Issue #91; production authorization and access required |
 | GAP-003 | Authoritative Platform-originated game-login bridge is not implemented/proven | Separate cross-repository authorization and contract required |
 | GAP-004 | Full manual screen-reader compatibility is not proven by automated keyboard/focus checks | Manual assistive-technology validation |
-| GAP-005 | Deferred account deletion, unlink/rebind/transfer, character rename/deletion and payments are not delivered | Explicitly outside the current delivered-surface contract |
+| GAP-005 | Deferred account deletion, unlink/rebind/transfer, character rename/deletion and payments are not delivered | Outside the current delivered-surface contract |
 
-## Preliminary runtime results
+## Follow-up boundary
 
-- Orchestration `30310298326` on `bb1e2a395169d0000ed33ad4e325e4bfc7fb12ab` exposed the initial concurrency, fixture, copy, media and soak-wrapper defects.
-- Orchestration `30311441485` on `418bb0939fea9b98753da14b0e0254e0afe37f3a` proved the serialized critical and soak runs, the functional full baseline, contract/account lifecycle, Events, Announcements, Support/Legal, Editorial Media, Wiki and stability. It also exposed the zero-test Downloads regression and stale visual selector.
+`E2E-AUD-001`, `E2E-AUD-002` and `E2E-AUD-009` remain bounded harness/documentation follow-ups. They do not invalidate the final exact-head audit because the audit used explicit profile dispatch, exact run collection and the proven direct soak path.
 
-No preliminary result is promoted to final evidence after code or test changes. Every required gate must pass again on one final exact head.
+## Conclusion
 
-## Final evidence
-
-Pending exact-head rerun after the recorded remediations.
+The repository now contains a persistent audit workflow and findings ledger. All required final gates passed on `a5929d0725d6a99069abbc2faa42022d843e560d`, and PR #265 merged the tested remediations. This is repository/staging evidence only, not production proof.
