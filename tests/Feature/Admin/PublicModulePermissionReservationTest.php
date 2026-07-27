@@ -72,12 +72,17 @@ final class PublicModulePermissionReservationTest extends TestCase
      */
     private function roleKeysForPermission(string $permission): array
     {
-        return DB::table('admin_role_permissions')
+        $roleKeys = DB::table('admin_role_permissions')
             ->join('admin_permissions', 'admin_permissions.id', '=', 'admin_role_permissions.permission_id')
             ->join('admin_roles', 'admin_roles.id', '=', 'admin_role_permissions.role_id')
             ->where('admin_permissions.key', $permission)
             ->orderBy('admin_roles.key')
             ->pluck('admin_roles.key')
             ->all();
+
+        return array_values(array_map(
+            static fn (mixed $roleKey): string => (string) $roleKey,
+            $roleKeys,
+        ));
     }
 }
