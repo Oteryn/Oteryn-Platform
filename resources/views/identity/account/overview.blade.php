@@ -8,8 +8,8 @@
 
     <header class="page-header">
         <p class="eyebrow">Account center</p>
-        <h1>Your Oteryn account</h1>
-        <p class="muted">Manage account readiness, security and the characters owned by your authenticated Platform identity.</p>
+        <h1>Account overview</h1>
+        <p class="muted">Your Oteryn account brings together account readiness, security and the characters owned by your authenticated Platform identity.</p>
     </header>
 
     @php
