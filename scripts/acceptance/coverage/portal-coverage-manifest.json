@@ -812,18 +812,27 @@
       ],
       "roles": [
         "guest-home-consumer",
+        "authenticated-no-mfa",
         "mfa-confirmed-no-permission",
         "announcement-manager"
       ],
       "states": [
         "none-active",
         "active-window",
-        "expired",
+        "future-hidden",
+        "expired-hidden",
+        "draft-hidden",
+        "escaped-plain-text",
         "validation",
+        "published",
+        "source-edit",
+        "translation-stale",
+        "translation-republished",
         "stale-conflict",
+        "permission-denied",
         "localized-en",
         "localized-pl",
-        "permission-denied"
+        "audit-visible"
       ],
       "viewports": [
         "desktop-1440x1000",
@@ -841,6 +850,7 @@
         "feature",
         "playwright",
         "responsive",
+        "accessibility",
         "security",
         "audit"
       ],
@@ -848,12 +858,6 @@
         {
           "file": "tests/Feature/Announcements/AnnouncementsModuleTest.php",
           "markers": []
-        },
-        {
-          "file": "scripts/acceptance/tests/homepage-navigation-seo.spec.mjs",
-          "markers": [
-            "homepage"
-          ]
         },
         {
           "file": "scripts/acceptance/tests/announcements-public-acceptance.spec.mjs",
