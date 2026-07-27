@@ -4,7 +4,7 @@ Convenience index only. Individual active task records, live PRs and Git state a
 
 ## Active tasks
 
-- `OTERYN-20260727-downloads-acceptance` — first bounded successor package under Issue #240, closing the public, administrator, localization and responsive Download Center acceptance contract.
+- `OTERYN-20260727-downloads-acceptance` — PR #253 is ready after the complete Chromium lifecycle and bounded Firefox/WebKit public portability passed; final docs-only exact-head checks remain before merge.
 
 ## Closed acceptance and release-preparation follow-ups
 
@@ -25,7 +25,7 @@ Convenience index only. Individual active task records, live PRs and Git state a
 - PR #142 / `f4570b99c9ef6f222ae3aa9ee1d9a41919768df3` — first-party Wiki architecture, phased implementation plan and standalone implementation-agent prompt merged.
 - PR #143 / `434ef4c950b52c1cb77422fda1a17c1d20bba59f` — complete non-commercial public website expansion architecture, delivery programme and first-slice implementation prompt merged.
 - PR #194 / `9ed3861cc29dcaf6305c379de2bee5ee5ac923d6` — production-capable published-only English/Polish public Wiki reads, restricted Markdown rendering and locale-isolated search merged.
-- PR #195 / `c53e0f2a1a93de9275439aff573e5a713f5621b1c` — public Wiki task lifecycle archived.
+- PR #195 / `c53e0f2a1a93de9275439aff573e5a713f5621b1` — public Wiki task lifecycle archived.
 - PR #196 / `f512f1e3a9bd567d40ddb09b699291c99a1b65f8` — trusted-editor Wiki administration, exact RBAC/MFA lifecycle controls, signed previews, revisions and responsive browser acceptance merged.
 - PR #197 / `a9adbe07317cac0311e9dd5761d45ceb8c7203f5` — Wiki administration task lifecycle archived.
 - PR #198 / `57716094cde335a0e8a661953bd3a5809ec12cb6` — Issue #145 programme checkpoint refreshed after the public and administrator Wiki deliveries.
@@ -57,7 +57,7 @@ Previous representative acceptance remains valid only for its documented boundar
 
 - **Production Readiness: STAGING_PROVEN for previously documented boundaries**
 - **Portal Completeness: FAIL-CLOSED AUDIT AND REMEDIATION IN PROGRESS (Issue #240)**
-- **Functional Acceptance: route classification and complete account lifecycle merged; Downloads package in progress**
+- **Functional Acceptance: route classification and complete account lifecycle merged; Downloads is covered on PR #253 pending merge**
 - **Visual / UX Acceptance: representative evidence retained; full current-surface closure pending**
 - **Public Website Expansion Programme: implementation merged; completeness remediation reopened**
 - **Emulated Edge Security: STAGING_PROVEN**
@@ -69,7 +69,7 @@ The live Synology preflight identifies the running staging release as `415aa3feb
 
 ## Next work
 
-Close Downloads, then Events, Announcements, Support/Legal, Editorial Media and Wiki reconciliation in bounded successor PRs. Issue #244 separately owns audited homepage-template selection.
+Merge PR #253 after final exact-head checks, then close Events, Announcements, Support/Legal, Editorial Media and Wiki reconciliation in bounded successor PRs. Issue #244 separately owns audited homepage-template selection.
 
 Issue #91 remains the separate real Production Go-Live tracker.
 
