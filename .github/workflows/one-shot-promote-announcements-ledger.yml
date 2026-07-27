@@ -111,22 +111,24 @@ jobs:
               ],
               'gaps': [],
           })
-
           manifest_path.write_text(json.dumps(payload, indent=2, ensure_ascii=False) + '\n')
 
           matrix_path = Path('docs/testing/PORTAL_ACCEPTANCE_COVERAGE_MATRIX.md')
-          matrix = matrix_path.read_text()
-          old_contract = '| Complete Events lifecycle | `npx playwright test --config=playwright.events.config.mjs` from `scripts/acceptance` | Executes public EN/PL calendar/detail states and exact MFA/RBAC administrator lifecycle on Chromium D/T/M plus public Firefox/WebKit with zero retries | Required by `Events Acceptance` |'
-          new_contract = old_contract + '\n| Complete Announcements lifecycle | `npx playwright test --config=playwright.announcements.config.mjs` from `scripts/acceptance` | Executes homepage visibility/localization and exact MFA/RBAC administrator lifecycle on Chromium D/T/M plus public Firefox/WebKit with zero retries | Required by `Announcements Acceptance` |'
-          if old_contract not in matrix:
-              raise SystemExit('Events contract row not found')
-          matrix = matrix.replace(old_contract, new_contract, 1)
+          lines = matrix_path.read_text().splitlines()
+          contract_row = '| Complete Announcements lifecycle | `npx playwright test --config=playwright.announcements.config.mjs` from `scripts/acceptance` | Executes homepage visibility/localization and exact MFA/RBAC administrator lifecycle on Chromium D/T/M plus public Firefox/WebKit with zero retries | Required by `Announcements Acceptance` |'
+          surface_row = '| Announcements | `covered` | active/empty/future/expired/draft visibility; escaped text; EN/PL; exact MFA/RBAC; validation/create/publish/source edit/stale translation recovery/409/audit; Chromium D/T/M and public Firefox/WebKit | None in current contract |'
 
-          old_row = '| Announcements | `planned` | active-window composition; admin create/edit/PL; conflict/denial; D/T/M | Add admin Playwright lifecycle |'
-          new_row = '| Announcements | `covered` | active/empty/future/expired/draft visibility; escaped text; EN/PL; exact MFA/RBAC; validation/create/publish/source edit/stale translation recovery/409/audit; Chromium D/T/M and public Firefox/WebKit | None in current contract |'
-          if old_row not in matrix:
-              raise SystemExit('Announcements planned row not found')
-          matrix_path.write_text(matrix.replace(old_row, new_row, 1))
+          if not any(line.startswith('| Complete Announcements lifecycle |') for line in lines):
+              events_index = next((index for index, line in enumerate(lines) if line.startswith('| Complete Events lifecycle |')), None)
+              if events_index is None:
+                  raise SystemExit('Events contract row not found')
+              lines.insert(events_index + 1, contract_row)
+
+          announcement_index = next((index for index, line in enumerate(lines) if line.startswith('| Announcements |')), None)
+          if announcement_index is None:
+              raise SystemExit('Announcements surface row not found')
+          lines[announcement_index] = surface_row
+          matrix_path.write_text('\n'.join(lines) + '\n')
           PY
 
       - name: Validate promoted ledger
