@@ -1,0 +1,138 @@
+name: One-shot Promote Announcements Ledger
+
+on:
+  push:
+    branches:
+      - test/OTERYN-20260727-announcements-acceptance-v2
+    paths:
+      - .github/workflows/one-shot-promote-announcements-ledger.yml
+
+permissions:
+  contents: write
+
+jobs:
+  promote:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: test/OTERYN-20260727-announcements-acceptance-v2
+          fetch-depth: 0
+
+      - name: Promote exact proven record
+        run: |
+          python3 <<'PY'
+          import json
+          from pathlib import Path
+
+          manifest_path = Path('scripts/acceptance/coverage/portal-coverage-manifest.json')
+          payload = json.loads(manifest_path.read_text())
+          records = {record['id']: record for record in payload['records']}
+
+          record = records['announcements.admin-localization-home-composition']
+          if record['status'] != 'planned':
+              raise SystemExit(f"Expected Announcements planned, got {record['status']}")
+          if records['downloads.public-admin-localization']['status'] != 'covered':
+              raise SystemExit('Downloads coverage must remain covered')
+          if records['events.public-admin']['status'] != 'covered':
+              raise SystemExit('Events coverage must remain covered')
+
+          record.update({
+              'status': 'covered',
+              'roles': [
+                  'guest-home-consumer',
+                  'authenticated-no-mfa',
+                  'mfa-confirmed-no-permission',
+                  'announcement-manager',
+              ],
+              'states': [
+                  'none-active',
+                  'active-window',
+                  'future-hidden',
+                  'expired-hidden',
+                  'draft-hidden',
+                  'escaped-plain-text',
+                  'validation',
+                  'published',
+                  'source-edit',
+                  'translation-stale',
+                  'translation-republished',
+                  'stale-conflict',
+                  'permission-denied',
+                  'localized-en',
+                  'localized-pl',
+                  'audit-visible',
+              ],
+              'viewports': [
+                  'desktop-1440x1000',
+                  'tablet-820x1180',
+                  'mobile-390x844',
+              ],
+              'browsers': [
+                  'announcements-chromium-desktop',
+                  'announcements-chromium-tablet',
+                  'announcements-chromium-mobile',
+                  'announcements-firefox-desktop',
+                  'announcements-webkit-desktop',
+              ],
+              'evidence_layers': [
+                  'feature',
+                  'playwright',
+                  'responsive',
+                  'accessibility',
+                  'security',
+                  'audit',
+              ],
+              'evidence': [
+                  {
+                      'file': 'tests/Feature/Announcements/AnnouncementsModuleTest.php',
+                      'markers': [],
+                  },
+                  {
+                      'file': 'scripts/acceptance/tests/announcements-public-acceptance.spec.mjs',
+                      'markers': [
+                          '@portal-announcements public none-active, active-window, expired, escaped and localized states',
+                      ],
+                  },
+                  {
+                      'file': 'scripts/acceptance/tests/announcements-admin-acceptance.spec.mjs',
+                      'markers': [
+                          '@portal-announcements guest, MFA and exact permission boundaries fail closed',
+                          '@portal-announcements administrator validation, publication, Polish translation, stale recovery, conflict and audit lifecycle',
+                      ],
+                  },
+              ],
+              'gaps': [],
+          })
+
+          manifest_path.write_text(json.dumps(payload, indent=2, ensure_ascii=False) + '\n')
+
+          matrix_path = Path('docs/testing/PORTAL_ACCEPTANCE_COVERAGE_MATRIX.md')
+          matrix = matrix_path.read_text()
+          old_contract = '| Complete Events lifecycle | `npx playwright test --config=playwright.events.config.mjs` from `scripts/acceptance` | Executes public EN/PL calendar/detail states and exact MFA/RBAC administrator lifecycle on Chromium D/T/M plus public Firefox/WebKit with zero retries | Required by `Events Acceptance` |'
+          new_contract = old_contract + '\n| Complete Announcements lifecycle | `npx playwright test --config=playwright.announcements.config.mjs` from `scripts/acceptance` | Executes homepage visibility/localization and exact MFA/RBAC administrator lifecycle on Chromium D/T/M plus public Firefox/WebKit with zero retries | Required by `Announcements Acceptance` |'
+          if old_contract not in matrix:
+              raise SystemExit('Events contract row not found')
+          matrix = matrix.replace(old_contract, new_contract, 1)
+
+          old_row = '| Announcements | `planned` | active-window composition; admin create/edit/PL; conflict/denial; D/T/M | Add admin Playwright lifecycle |'
+          new_row = '| Announcements | `covered` | active/empty/future/expired/draft visibility; escaped text; EN/PL; exact MFA/RBAC; validation/create/publish/source edit/stale translation recovery/409/audit; Chromium D/T/M and public Firefox/WebKit | None in current contract |'
+          if old_row not in matrix:
+              raise SystemExit('Announcements planned row not found')
+          matrix_path.write_text(matrix.replace(old_row, new_row, 1))
+          PY
+
+      - name: Validate promoted ledger
+        run: |
+          npm --prefix scripts/acceptance install --no-audit --no-fund
+          npm --prefix scripts/acceptance run test:coverage-contract:manifest
+
+      - name: Remove one-shot workflow and commit
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git rm .github/workflows/one-shot-promote-announcements-ledger.yml
+          git add scripts/acceptance/coverage/portal-coverage-manifest.json docs/testing/PORTAL_ACCEPTANCE_COVERAGE_MATRIX.md
+          git commit -m 'test(announcements): record exact proven coverage'
+          git push origin HEAD:test/OTERYN-20260727-announcements-acceptance-v2
