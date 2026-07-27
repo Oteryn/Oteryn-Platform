@@ -91,7 +91,6 @@ async function clickTranslationSaveWithoutOverlap(page) {
         : `${target.tagName.toLowerCase()}${target.id === '' ? '' : `#${target.id}`}`,
       x,
       y,
-      touchPoints: navigator.maxTouchPoints,
     };
   });
 
@@ -100,11 +99,10 @@ async function clickTranslationSaveWithoutOverlap(page) {
     `Save translation must be the pointer target at its centre; received ${hitTest.target}`,
   ).toBe(true);
 
-  if (hitTest.touchPoints > 0) {
-    await page.touchscreen.tap(hitTest.x, hitTest.y);
-  } else {
-    await page.mouse.click(hitTest.x, hitTest.y);
-  }
+  // Use the already-verified viewport coordinate. Locator.click() performs a second
+  // auto-scroll which can change Chromium Mobile's native textarea hit-testing,
+  // while a real pointer click at this stable coordinate exercises the actual UI.
+  await page.mouse.click(hitTest.x, hitTest.y);
 }
 
 test.setTimeout(180_000);
