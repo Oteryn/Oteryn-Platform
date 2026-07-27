@@ -12,7 +12,7 @@ required_reads:
   - docs/testing/PORTAL_ACCEPTANCE_COVERAGE_MATRIX.md
   - scripts/acceptance/coverage/portal-coverage-manifest.json
 search_first:
-  - active tasks and open PRs touching Events, scripts/acceptance, Playwright configuration or the portal coverage manifest
+  - active tasks and open PRs touching Events, scripts/acceptance or the portal coverage manifest
   - current Events routes, controllers, views, validation, lifecycle actions and feature tests
 optional_reads:
   - docs/architecture/SECURITY_ARCHITECTURE.md
@@ -38,13 +38,13 @@ Close the `events.public-admin` record from the machine-enforced portal acceptan
 
 ```yaml
 owned_paths:
+  - .github/workflows/events-acceptance.yml
   - docs/agents/tasks/active/OTERYN-20260727-events-acceptance.md
   - docs/agents/ACTIVE_WORK.md
+  - scripts/acceptance/playwright.events.config.mjs
   - scripts/acceptance/seed-browser-events.php
   - scripts/acceptance/tests/events-public-acceptance.spec.mjs
   - scripts/acceptance/tests/events-admin-acceptance.spec.mjs
-  - scripts/acceptance/playwright.config.mjs
-  - scripts/acceptance/package.json
   - scripts/acceptance/coverage/portal-coverage-manifest.json
   - docs/testing/PORTAL_ACCEPTANCE_COVERAGE_MATRIX.md
 modules:
@@ -63,8 +63,8 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-07-27T17:54:00Z
-head: 7b6ab892988958e49334883f8052f0aa7ede5799
+updated_at: 2026-07-27T18:10:00Z
+head: 1b385a7b6afd7708d14322deb25adfb18b14de51
 branch: test/OTERYN-20260727-events-acceptance
 pr: 254
 status: validating
@@ -75,58 +75,59 @@ context_routes:
   - admin-rbac
   - security
 owned_paths:
+  - .github/workflows/events-acceptance.yml
   - docs/agents/tasks/active/OTERYN-20260727-events-acceptance.md
   - docs/agents/ACTIVE_WORK.md
+  - scripts/acceptance/playwright.events.config.mjs
   - scripts/acceptance/seed-browser-events.php
   - scripts/acceptance/tests/events-public-acceptance.spec.mjs
   - scripts/acceptance/tests/events-admin-acceptance.spec.mjs
-  - scripts/acceptance/playwright.config.mjs
-  - scripts/acceptance/package.json
   - scripts/acceptance/coverage/portal-coverage-manifest.json
   - docs/testing/PORTAL_ACCEPTANCE_COVERAGE_MATRIX.md
 proven:
   - Main at task start is 17f1acd430c27c8c441b59b16b440b8763f03312.
-  - PR #253 owns Downloads acceptance and does not overlap Events paths.
+  - PR #253 owns Downloads acceptance; Events no longer modifies its shared package or primary Playwright configuration paths.
   - Existing Events feature tests prove UTC boundaries, validation, exact permissions, audit redaction and optimistic-lock conflicts.
   - The portal ledger currently classifies events.public-admin as planned.
-  - PR #254 is open as a mergeable draft and contains deterministic public/admin Events fixtures and browser scenarios.
-  - Public Events coverage is included in bounded Chromium, Firefox and WebKit portability projects.
-  - Public and administrator Events coverage is included in desktop, tablet and mobile Chromium projects.
-  - PHP fixture syntax and JavaScript administrator-spec syntax pass local parser checks.
+  - CI on a99632f7212ec54ffd863e030d391ccd2345edec passed Composer validation/audit, Pint, level-10 static analysis and PHPUnit.
+  - The first portability run executed the Events public scenario successfully in Chromium, Firefox and WebKit before later homepage assertions exposed shared fixture contamination.
+  - Public and administrator Events now have an isolated zero-retry browser matrix with Chromium desktop/tablet/mobile and bounded public Firefox/WebKit projects.
+  - Events scenarios restore the shared homepage event fixture after every test.
 derived:
-  - The package adds composed browser evidence without replacing stronger lower-level transaction and locking proofs.
+  - A dedicated module workflow removes active path ownership conflict while preserving the existing full Chromium baseline and adding unique bounded Events evidence.
 unknown:
-  - Exact-head outcomes for browser, coverage-contract and ordinary repository workflows after the governance metadata correction.
+  - Exact-head outcome of the isolated Events workflow and ordinary required workflows after ownership isolation.
 conflicts: []
 first_failure:
-  marker: Agent Governance / Validate active task checkpoints
-  evidence: checkpoint used unsupported validation result PENDING; governance contract allows PASS, FAIL, BLOCKED or NOT_RUN
+  marker: Acceptance E2E and Visual UX / bounded browser portability / homepage-navigation-seo
+  evidence: Events public fixture deleted Acceptance tournament; restored deterministically after each Events scenario before rerun
 rejected_hypotheses:
   - Reimplementing transaction races in Playwright would duplicate stronger feature/database evidence.
+  - Expanding the shared primary Playwright matrix was rejected because PR #253 already owns those shared files and a module-specific gate provides a cleaner proof boundary.
 changed_paths:
+  - .github/workflows/events-acceptance.yml
   - docs/agents/ACTIVE_WORK.md
   - docs/agents/tasks/active/OTERYN-20260727-events-acceptance.md
-  - scripts/acceptance/package.json
-  - scripts/acceptance/playwright.config.mjs
+  - scripts/acceptance/playwright.events.config.mjs
   - scripts/acceptance/seed-browser-events.php
   - scripts/acceptance/tests/events-admin-acceptance.spec.mjs
   - scripts/acceptance/tests/events-public-acceptance.spec.mjs
 validation:
   - command: repository and PR diff inspection through GitHub connector
     result: PASS
-    evidence: route/controller/request/view/model/audit boundaries and all changed paths reviewed
-  - command: php -l scripts/acceptance/seed-browser-events.php
+    evidence: route/controller/request/view/model/audit boundaries and final isolated changed paths reviewed
+  - command: CI on a99632f7212ec54ffd863e030d391ccd2345edec
     result: PASS
-    evidence: no syntax errors detected under local PHP 8.4 parser
-  - command: node --check scripts/acceptance/tests/events-admin-acceptance.spec.mjs
-    result: PASS
-    evidence: no JavaScript syntax errors under Node 22 parser
-  - command: exact-head GitHub workflows after governance correction
+    evidence: Composer validation and audit, Pint, PHPStan level 10 and PHPUnit all succeeded
+  - command: Acceptance E2E and Visual UX on a99632f7212ec54ffd863e030d391ccd2345edec
+    result: FAIL
+    evidence: Events public scenarios passed; three portability failures were later homepage assertions caused by non-restored shared event data
+  - command: exact-head Events and ordinary workflows after ownership isolation
     result: NOT_RUN
-    evidence: new synchronize event is pending after this checkpoint correction
+    evidence: new workflow/configuration head has just been published
 blockers:
   - none
-next_action: Inspect exact-head workflow runs after the governance correction and fix the first remaining concrete failure before changing the ledger to covered.
+next_action: Inspect the isolated Events workflow on the exact head and fix the first concrete browser failure before promoting the ledger record.
 ```
 
 ## Notes
