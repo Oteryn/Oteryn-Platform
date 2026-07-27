@@ -6,7 +6,6 @@ use App\Accounts\Actions\ProvisionCanaryAccount;
 use App\Accounts\Models\IdentityCanaryAccount;
 use App\Identity\Models\Identity;
 use Illuminate\Contracts\Console\Kernel;
-use Illuminate\Support\Facades\Hash;
 
 require __DIR__.'/../../vendor/autoload.php';
 
@@ -18,36 +17,57 @@ if (! $app->environment('acceptance')) {
     exit(2);
 }
 
-$email = $argv[1] ?? '';
-$password = $argv[2] ?? '';
-$state = $argv[3] ?? '';
+$command = $argv[1] ?? '';
+$email = $argv[2] ?? '';
 
-if ($email === '' || $password === '' || ! in_array($state, ['ready', 'pending', 'recoverable', 'conflict', 'missing'], true)) {
-    fwrite(STDERR, "Usage: php scripts/acceptance/seed-account-overview-state.php <email> <password> <ready|pending|recoverable|conflict|missing>\n");
-    exit(2);
+$fail = static function (string $message, int $code = 1): never {
+    fwrite(STDERR, $message.PHP_EOL);
+    exit($code);
+};
+
+$json = static function (array $payload): never {
+    fwrite(STDOUT, json_encode($payload, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES).PHP_EOL);
+    exit(0);
+};
+
+if ($email === '') {
+    $fail('Usage: php scripts/acceptance/seed-account-overview-state.php <seed|binding> <email> [ready|pending|recoverable|conflict|missing]', 2);
 }
 
-$identity = Identity::query()->updateOrCreate(
-    ['email' => $email],
-    ['password' => Hash::make($password)],
-);
-$identity->forceFill([
-    'web_session_generation' => 0,
-    'disabled_at' => null,
-    'two_factor_secret' => null,
-    'two_factor_recovery_codes' => null,
-    'two_factor_confirmed_at' => null,
-    'two_factor_last_used_timestep' => null,
-])->save();
+$identity = Identity::query()->where('email', $email)->first();
+if (! $identity instanceof Identity) {
+    $fail("Acceptance identity {$email} does not exist. Register it through the browser before changing Account Overview state.");
+}
+
+if ($command === 'binding') {
+    $binding = IdentityCanaryAccount::query()->whereKey($identity->id)->first();
+
+    $json([
+        'email' => $identity->email,
+        'status' => $binding?->status ?? 'missing',
+        'canary_account_id' => $binding?->canary_account_id,
+        'provisioning_name' => $binding?->provisioning_name,
+    ]);
+}
+
+if ($command !== 'seed') {
+    $fail('Unknown Account Overview fixture command.', 2);
+}
+
+$state = $argv[3] ?? '';
+if (! in_array($state, ['ready', 'pending', 'recoverable', 'conflict', 'missing'], true)) {
+    $fail('Seed state must be ready, pending, recoverable, conflict or missing.', 2);
+}
 
 if ($state === 'missing') {
     IdentityCanaryAccount::query()->whereKey($identity->id)->delete();
 
-    fwrite(STDOUT, json_encode([
+    $json([
         'email' => $identity->email,
         'state' => $state,
-    ], JSON_THROW_ON_ERROR)."\n");
-    exit(0);
+        'canary_account_id' => null,
+        'provisioning_name' => null,
+    ]);
 }
 
 $provisioningName = 'op'.substr(hash('sha256', 'account-overview-'.$email), 0, 30);
@@ -80,9 +100,9 @@ IdentityCanaryAccount::query()->updateOrCreate(
     $attributes,
 );
 
-fwrite(STDOUT, json_encode([
+$json([
     'email' => $identity->email,
     'state' => $state,
     'canary_account_id' => $state === 'ready' ? $accountId : null,
     'provisioning_name' => $provisioningName,
-], JSON_THROW_ON_ERROR)."\n");
+]);
