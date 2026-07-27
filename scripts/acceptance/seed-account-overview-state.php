@@ -6,6 +6,7 @@ use App\Accounts\Actions\ProvisionCanaryAccount;
 use App\Accounts\Models\IdentityCanaryAccount;
 use App\Identity\Models\Identity;
 use Illuminate\Contracts\Console\Kernel;
+use Illuminate\Support\Facades\Hash;
 
 require __DIR__.'/../../vendor/autoload.php';
 
@@ -17,9 +18,6 @@ if (! $app->environment('acceptance')) {
     exit(2);
 }
 
-$command = $argv[1] ?? '';
-$email = $argv[2] ?? '';
-
 $fail = static function (string $message, int $code = 1): never {
     fwrite(STDERR, $message.PHP_EOL);
     exit($code);
@@ -30,13 +28,49 @@ $json = static function (array $payload): never {
     exit(0);
 };
 
-if ($email === '') {
-    $fail('Usage: php scripts/acceptance/seed-account-overview-state.php <seed|binding> <email> [ready|pending|recoverable|conflict|missing]', 2);
-}
+$first = $argv[1] ?? '';
+$second = $argv[2] ?? '';
+$third = $argv[3] ?? '';
+$commandMode = in_array($first, ['seed', 'binding'], true);
 
-$identity = Identity::query()->where('email', $email)->first();
-if (! $identity instanceof Identity) {
-    $fail("Acceptance identity {$email} does not exist. Register it through the browser before changing Account Overview state.");
+if ($commandMode) {
+    $command = $first;
+    $email = $second;
+    $state = $third;
+
+    if ($email === '') {
+        $fail('Usage: php scripts/acceptance/seed-account-overview-state.php <seed|binding> <email> [ready|pending|recoverable|conflict|missing]', 2);
+    }
+
+    $identity = Identity::query()->where('email', $email)->first();
+    if (! $identity instanceof Identity) {
+        $fail("Acceptance identity {$email} does not exist. Register it through the browser before changing Account Overview state.");
+    }
+} else {
+    // Backward-compatible interface used by established isolated security/browser
+    // fixtures: <email> <password> <state>. Keep it while the command interface
+    // lets Account Overview mutate only a browser-created identity.
+    $command = 'seed';
+    $email = $first;
+    $password = $second;
+    $state = $third;
+
+    if ($email === '' || $password === '') {
+        $fail('Usage: php scripts/acceptance/seed-account-overview-state.php <email> <password> <ready|pending|recoverable|conflict|missing>', 2);
+    }
+
+    $identity = Identity::query()->updateOrCreate(
+        ['email' => $email],
+        ['password' => Hash::make($password)],
+    );
+    $identity->forceFill([
+        'web_session_generation' => 0,
+        'disabled_at' => null,
+        'two_factor_secret' => null,
+        'two_factor_recovery_codes' => null,
+        'two_factor_confirmed_at' => null,
+        'two_factor_last_used_timestep' => null,
+    ])->save();
 }
 
 if ($command === 'binding') {
@@ -54,7 +88,6 @@ if ($command !== 'seed') {
     $fail('Unknown Account Overview fixture command.', 2);
 }
 
-$state = $argv[3] ?? '';
 if (! in_array($state, ['ready', 'pending', 'recoverable', 'conflict', 'missing'], true)) {
     $fail('Seed state must be ready, pending, recoverable, conflict or missing.', 2);
 }
