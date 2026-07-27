@@ -4,7 +4,7 @@ Convenience index only. Individual active task records, live PRs and Git state a
 
 ## Active tasks
 
-- None.
+- `OTERYN-20260728-portal-e2e-audit` — fresh exact-head comprehensive portal E2E execution and persistent findings ledger in `docs/testing/PORTAL_E2E_AUDIT_2026-07-28.md`.
 
 ## Closed acceptance and release-preparation follow-ups
 
