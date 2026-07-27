@@ -55,11 +55,11 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-07-27T16:31:00Z
-head: 363878c4c87b570d708282175a938c74d34ae64c
+updated_at: 2026-07-27T16:33:00Z
+head: c5ddf82e715e6fb01f8defe6f9052622a55db547
 branch: ops/OTERYN-20260727-staging-admin-credential-recovery
 pr: 249
-status: validating-keygen
+status: validating
 context_routes:
   - auth-identity
   - admin-rbac
@@ -80,12 +80,12 @@ proven:
 derived:
   - a two-phase ephemeral public-key exchange can deliver an encrypted reset payload without exposing credentials to GitHub
 unknown:
-  - exact PR 249 validation result
+  - exact corrected PR 249 validation result
   - exact self-hosted runner result for key generation and credential application
 conflicts: []
 first_failure:
-  marker: none
-  evidence: none
+  marker: Agent Governance run 30285063543 checkpoint-validation
+  evidence: checkpoint status validating-keygen was outside the governance contract allowed status set
 rejected_hypotheses:
   - committing or logging a temporary plaintext password is acceptable for staging
   - creating a second synthetic administrator is necessary
@@ -96,12 +96,15 @@ validation:
   - command: repository and active ownership inspection
     result: PASS
     evidence: unique workflow, encrypted-payload and task paths do not overlap PR 247 owned paths
-  - command: exact-head GitHub checks for PR 249
+  - command: Agent Governance run 30285063543
+    result: FAIL
+    evidence: unsupported checkpoint status validating-keygen; corrected to validating
+  - command: corrected exact-head GitHub checks for PR 249
     result: NOT_RUN
-    evidence: pending workflow registration
+    evidence: pending workflow registration on the corrected head
 blockers:
   - none
-next_action: Pass exact-head checks, merge PR 249 with the keygen marker, and read the sanitized public key from Issue 248.
+next_action: Pass corrected exact-head checks, merge PR 249 with the keygen marker, and read the sanitized public key from Issue 248.
 ```
 
 ## Notes
