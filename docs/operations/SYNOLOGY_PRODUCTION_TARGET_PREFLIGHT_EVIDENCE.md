@@ -38,13 +38,15 @@ The workflow fails closed unless all applicable assertions pass:
 9. the persistent runner state directory and permission-restricted last-good image snapshot exist;
 10. Platform/Gateway health and readiness, Canary TCP and all three Canary database privilege verifiers pass;
 11. Redis AOF is enabled, the dedicated runtime ACL user can `PING`, and a write attempt is denied;
-12. the restore drill streams each live staging database directly into a temporary isolated database, compares schema and per-table row-count manifests, and drops temporary databases on every exit path.
+12. the restore drill streams each live staging database directly into a temporary isolated database, compares deterministic dump digests plus aggregate base-table counts, and drops temporary databases on every exit path.
 
 ## Restore-drill safety
 
-The drill does not create a retained dump file. `mariadb-dump` output is streamed directly into the isolated restore database through a pipe. Comparison files contain only table names and aggregate row counts, remain in a permission-restricted temporary directory and are removed by the exit trap.
+The drill does not create a retained dump file. `mariadb-dump` output is read in bounded chunks, hashed in memory and written directly to the isolated restore database. The restored database is dumped through the same deterministic options and its in-memory digest is compared with the streamed source digest.
 
-The drill does not change either source database. Temporary restore database names are generated from the workflow run identity and are removed whether the workflow passes or fails.
+Only the final PASS status, duration and aggregate base-table counts enter the sanitized evidence artifact. No table name, row, dump byte or comparison file is retained or uploaded.
+
+The drill does not change either source database. Temporary restore database names are generated from the workflow run identity and are removed in a Python `finally` block whether the workflow passes or fails.
 
 ## Exact live result
 
