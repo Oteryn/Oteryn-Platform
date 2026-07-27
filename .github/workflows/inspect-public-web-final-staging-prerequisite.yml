@@ -1,0 +1,51 @@
+name: Inspect Public Web Final Staging Prerequisite
+
+on:
+  pull_request:
+    paths:
+      - .github/workflows/inspect-public-web-final-staging-prerequisite.yml
+
+permissions:
+  contents: read
+
+jobs:
+  inspect-prerequisite:
+    runs-on: oteryn-staging
+    timeout-minutes: 10
+    steps:
+      - name: Print sanitized MFA prerequisite counts
+        run: |
+          set -euo pipefail
+          platform_container="$(docker ps \
+            --filter label=com.docker.compose.project=oteryn-staging \
+            --filter label=com.docker.compose.service=platform \
+            --format '{{.ID}}')"
+
+          if [[ "$(wc -w <<<"$platform_container")" -ne 1 ]]; then
+            echo "Expected exactly one running Platform staging container." >&2
+            exit 1
+          fi
+
+          docker exec -i "$platform_container" php <<'PHP'
+          <?php
+          require '/var/www/html/vendor/autoload.php';
+          $app = require '/var/www/html/bootstrap/app.php';
+          $app->make(Illuminate\Contracts\Console\Kernel::class)->bootstrap();
+
+          $enabled = App\Identity\Models\Identity::query()
+              ->whereNull('disabled_at')
+              ->get();
+          $confirmed = $enabled
+              ->filter(fn (App\Identity\Models\Identity $identity): bool => $identity->hasConfirmedMfa())
+              ->values();
+          $assignments = Illuminate\Support\Facades\DB::table('identity_admin_roles')->count();
+
+          echo 'enabled_identities='.$enabled->count().PHP_EOL;
+          echo 'confirmed_mfa_identities='.$confirmed->count().PHP_EOL;
+          echo 'administrator_role_assignments='.$assignments.PHP_EOL;
+
+          if ($confirmed->count() !== 1) {
+              fwrite(STDERR, 'Expected exactly one enabled MFA-confirmed Identity.'.PHP_EOL);
+              exit(33);
+          }
+          PHP
