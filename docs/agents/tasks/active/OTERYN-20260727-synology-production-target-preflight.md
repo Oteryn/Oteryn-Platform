@@ -81,11 +81,11 @@ cross_repository_tasks: []
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-07-27T16:22:00+02:00
-head: 87015829ea3a2b1f5d9187197af11e3c2715c2fc
+updated_at: 2026-07-27T16:32:00+02:00
+head: fe28688c2af56100bd4a61ca8fb2820ebb2e8a01
 branch: ops/OTERYN-20260727-synology-production-target-preflight
 pr: 239
-status: validating
+status: ready
 context_routes:
   - agent-governance
   - security
@@ -105,12 +105,13 @@ proven:
   - main head f5aeb2e80d4692b3ee6309cc3454aa20697721f2 had no active task after edge-emulation archival
   - Issue 238 is open for the bounded local Synology production-target preflight
   - the existing stack keeps Platform Gateway and legacy login on loopback, exposes only optional private-LAN game TCP, and keeps MariaDB and Redis unpublished
-  - the existing deployment already proves migrations, health checks, three Canary effective-grant verifiers and runtime-image rollback snapshots
   - PR 239 contains a trusted-main live workflow, temporary dispatcher, fail-closed runtime checks and a no-retained-dump streaming restore drill
+  - exact PR head fe28688c2af56100bd4a61ca8fb2820ebb2e8a01 passed Governance 30274983519, CI 30274986993, Synology package build 30274980191, Synology preflight static 30274980234, Edge 30274980034, concurrency 30274983457, DB outage 30274980212 and Phase 7 30274980231
   - Issue 91 remains open and requires direct evidence from a future real production environment
   - no other open pull request overlaps the preflight paths or intent
 derived:
-  - a live read-mostly host preflight plus temporary isolated restore drill can close the locally verifiable target-readiness gap without making a production claim
+  - the repository-owned implementation is ready for trusted-main execution against the existing local NAS
+  - a successful live run can close the locally verifiable target-readiness gap without making a production claim
 unknown:
   - exact currently deployed Platform Gateway and Canary image references until the live Synology workflow inspects them
   - whether the first live restore drill passes on the current Synology MariaDB dataset
@@ -136,8 +137,11 @@ validation:
   - command: Synology Production Target Preflight 30274168248
     result: FAIL
     evidence: static bash syntax check rejected the initial SQL quoting; live-preflight was skipped
+  - command: PR 239 exact-head required workflows
+    result: PASS
+    evidence: Governance 30274983519, CI 30274986993, Synology package build 30274980191, Synology preflight 30274980234, Edge 30274980034, concurrency 30274983457, DB outage 30274980212 and Phase 7 30274980231 on fe28688c2af56100bd4a61ca8fb2820ebb2e8a01
 blockers: []
-next_action: Obtain a static-validation PASS for the corrected streaming preflight implementation, then complete all required PR checks before trusted-main execution.
+next_action: Mark PR 239 ready, squash-merge it with the trusted-main activation marker, then inspect the resulting live Synology preflight run.
 ```
 
 ## Notes
