@@ -1,0 +1,186 @@
+name: One-shot Final Portal Staging Refresh
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/one-shot-final-portal-staging-refresh.yml
+      - deploy/synology/.final-portal-staging-refresh-trigger
+
+permissions:
+  actions: write
+  contents: read
+  issues: write
+  packages: read
+
+concurrency:
+  group: final-portal-staging-refresh
+  cancel-in-progress: false
+
+jobs:
+  dispatch:
+    if: contains(github.event.head_commit.message, '[final-portal-staging-refresh]')
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    outputs:
+      deploy_run_id: ${{ steps.monitor.outputs.deploy_run_id }}
+      release_tag: ${{ steps.images.outputs.release_tag }}
+    steps:
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Wait for exact Platform and Gateway images
+        id: images
+        run: |
+          set -euo pipefail
+          release_tag="sha-${GITHUB_SHA}"
+          wait_for_image() {
+            local image="$1"
+            for attempt in $(seq 1 180); do
+              if docker manifest inspect "$image" >/dev/null 2>&1; then
+                echo "Resolved exact image: $image"
+                return 0
+              fi
+              echo "Waiting for exact image (attempt $attempt/180)"
+              sleep 10
+            done
+            echo "Timed out waiting for exact image tag: $image" >&2
+            return 1
+          }
+          wait_for_image "ghcr.io/blakinio/oteryn-platform:${release_tag}"
+          wait_for_image "ghcr.io/blakinio/oteryn-game-gateway:${release_tag}"
+          echo "release_tag=$release_tag" >> "$GITHUB_OUTPUT"
+
+      - name: Dispatch guarded Synology staging deployment
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ steps.images.outputs.release_tag }}
+          CANARY_IMAGE_DIGEST: ghcr.io/blakinio/canary@sha256:784e5dbdcc64e311c48c51cd94aa206e2efa1e5eefb2f4ef40170d5aac55031f
+        run: |
+          set -euo pipefail
+          dispatched_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          gh api --method POST \
+            "repos/${GITHUB_REPOSITORY}/actions/workflows/deploy-synology-staging.yml/dispatches" \
+            -f ref=main \
+            -f 'inputs[action]=deploy' \
+            -f "inputs[release_tag]=${RELEASE_TAG}" \
+            -f "inputs[canary_image]=${CANARY_IMAGE_DIGEST}" \
+            -f 'inputs[canary_game_bind_address]=192.168.1.2' \
+            -f 'inputs[game_world_id]=1' \
+            -f 'inputs[game_world_slug]=oteryn-staging' \
+            -f 'inputs[game_world_name]=Oteryn Staging' \
+            -f 'inputs[game_world_region]=LAN'
+          echo "DEPLOY_DISPATCHED_AT=$dispatched_at" >> "$GITHUB_ENV"
+
+      - name: Locate and monitor deployment run
+        id: monitor
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          deploy_run_id=""
+          for attempt in $(seq 1 60); do
+            deploy_run_id="$(gh api \
+              "repos/${GITHUB_REPOSITORY}/actions/workflows/deploy-synology-staging.yml/runs?event=workflow_dispatch&branch=main&per_page=20" \
+              --jq ".workflow_runs | map(select(.created_at >= \"${DEPLOY_DISPATCHED_AT}\")) | sort_by(.created_at) | last | .id // empty")"
+            if [[ -n "$deploy_run_id" ]]; then
+              break
+            fi
+            echo "Waiting for deployment run registration (attempt $attempt/60)"
+            sleep 5
+          done
+          if [[ -z "$deploy_run_id" ]]; then
+            echo "Deployment dispatch was accepted but no matching run appeared." >&2
+            exit 1
+          fi
+          echo "deploy_run_id=$deploy_run_id" >> "$GITHUB_OUTPUT"
+          gh run watch "$deploy_run_id" --repo "$GITHUB_REPOSITORY" --exit-status --interval 10
+
+      - name: Log out of GHCR
+        if: always()
+        run: docker logout ghcr.io >/dev/null 2>&1 || true
+
+  verify:
+    needs: dispatch
+    runs-on: oteryn-staging
+    environment: synology-staging
+    timeout-minutes: 15
+    outputs:
+      platform_image: ${{ steps.images.outputs.platform_image }}
+      gateway_image: ${{ steps.images.outputs.gateway_image }}
+    steps:
+      - name: Verify exact deployed images
+        id: images
+        env:
+          EXPECTED_RELEASE_TAG: ${{ needs.dispatch.outputs.release_tag }}
+        run: |
+          set -euo pipefail
+          platform_container="$(docker ps --filter label=com.docker.compose.project=oteryn-staging --filter label=com.docker.compose.service=platform --format '{{.ID}}')"
+          gateway_container="$(docker ps --filter label=com.docker.compose.project=oteryn-staging --filter label=com.docker.compose.service=gateway --format '{{.ID}}')"
+          if [[ "$(wc -w <<<"$platform_container")" -ne 1 || "$(wc -w <<<"$gateway_container")" -ne 1 ]]; then
+            echo "Expected exactly one running Platform and Gateway staging container." >&2
+            exit 1
+          fi
+          expected_platform="ghcr.io/blakinio/oteryn-platform:${EXPECTED_RELEASE_TAG}"
+          expected_gateway="ghcr.io/blakinio/oteryn-game-gateway:${EXPECTED_RELEASE_TAG}"
+          actual_platform="$(docker inspect --format '{{.Config.Image}}' "$platform_container")"
+          actual_gateway="$(docker inspect --format '{{.Config.Image}}' "$gateway_container")"
+          [[ "$actual_platform" == "$expected_platform" ]]
+          [[ "$actual_gateway" == "$expected_gateway" ]]
+          echo "platform_image=$actual_platform" >> "$GITHUB_OUTPUT"
+          echo "gateway_image=$actual_gateway" >> "$GITHUB_OUTPUT"
+
+      - name: Verify refreshed portal runtime
+        run: |
+          set -euo pipefail
+          curl -fsS http://127.0.0.1:8000/health >/dev/null
+          home="$(curl -fsS http://127.0.0.1:8000/)"
+          grep -qi 'Oteryn' <<<"$home"
+          account_status="$(curl --silent --output /dev/null --write-out '%{http_code}' http://127.0.0.1:8000/account)"
+          [[ "$account_status" == 302 || "$account_status" == 200 ]]
+
+  report:
+    if: always()
+    needs:
+      - dispatch
+      - verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      DISPATCH_RESULT: ${{ needs.dispatch.result }}
+      VERIFY_RESULT: ${{ needs.verify.result }}
+      DEPLOY_RUN_ID: ${{ needs.dispatch.outputs.deploy_run_id }}
+      RELEASE_TAG: ${{ needs.dispatch.outputs.release_tag }}
+      PLATFORM_IMAGE: ${{ needs.verify.outputs.platform_image }}
+      GATEWAY_IMAGE: ${{ needs.verify.outputs.gateway_image }}
+    steps:
+      - name: Report sanitized staging result
+        run: |
+          set -euo pipefail
+          outcome=FAIL
+          if [[ "$DISPATCH_RESULT" == success && "$VERIFY_RESULT" == success ]]; then
+            outcome=PASS
+          fi
+          body="$(cat <<EOF
+          <!-- final-portal-staging-refresh:${GITHUB_SHA}:${GITHUB_RUN_ID} -->
+          Final portal Synology staging refresh: **${outcome}**
+
+          - exact trusted main SHA: \`${GITHUB_SHA}\`
+          - release tag: \`${RELEASE_TAG:-unresolved}\`
+          - one-shot run: \`${GITHUB_RUN_ID}\`
+          - deployment run: \`${DEPLOY_RUN_ID:-unresolved}\`
+          - dispatch result: \`${DISPATCH_RESULT}\`
+          - runtime verification result: \`${VERIFY_RESULT}\`
+          - Platform image: \`${PLATFORM_IMAGE:-unresolved}\`
+          - Gateway image: \`${GATEWAY_IMAGE:-unresolved}\`
+
+          PASS means the exact images were deployed through the existing guarded workflow, both running image references matched, health passed and the refreshed portal responded locally on Synology staging. No secret or private configuration value is included.
+          EOF
+          )"
+          gh api --method POST "repos/${GITHUB_REPOSITORY}/issues/261/comments" -f body="$body"
