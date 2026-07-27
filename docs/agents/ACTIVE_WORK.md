@@ -4,7 +4,7 @@ Convenience index only. Individual active task records, live PRs and Git state a
 
 ## Active tasks
 
-- `OTERYN-20260727-synology-production-target-preflight` — live local Synology host/runtime, storage, restore-drill and rollback-readiness validation tracked by Issue #238; staging-only with no public exposure.
+None.
 
 ## Closed acceptance and release-preparation follow-ups
 
@@ -40,6 +40,7 @@ Convenience index only. Individual active task records, live PRs and Git state a
 - PR #235 / `cab40863bd5058209cdcbee1342a54acc814ec01` — final public-staging task record archived and `ACTIVE_WORK` cleared.
 - PR #236 / `ee8293d8bbf33c9bc89ca105a0273728bb222f4d` — deterministic reserved-domain DNS, TLS, Cloudflare/WAF/Access and authenticated-origin emulation merged with exact-SHA `STAGING_PROVEN` evidence.
 - PR #237 / `f5aeb2e80d4692b3ee6309cc3454aa20697721f2` — edge-security emulation task archived and `ACTIVE_WORK` cleared.
+- PR #239 / `50d917acd7fde333f0e74757ec1ced70e30c53de` — local Synology production-target preflight merged; live run `30275482522` proved host/runtime/storage/binding/health/least-privilege/Redis/rollback and isolated restore boundaries as `STAGING_PROVEN`.
 
 ## Current project phase
 
@@ -56,7 +57,7 @@ The E2E coverage-hardening programme is continuous verification and does not reo
 - **Visual / UX Acceptance: PASS for the delivered staging-verifiable launch scope**
 - **Public Website Expansion Programme: STAGING_PROVEN**
 - **Emulated Edge Security: STAGING_PROVEN**
-- **Synology Production Target Preflight: IN PROGRESS**
+- **Synology Production Target Preflight: STAGING_PROVEN**
 - **Production Go-Live Gate: PENDING PRODUCTION VERIFICATION**
 - **Production Verification: REQUIRED BEFORE GO-LIVE**
 
@@ -64,7 +65,7 @@ No staging, local-target or emulation evidence may be promoted to `PRODUCTION_PR
 
 ## Next work
 
-Complete Issue #238 by executing the sanitized live Synology production-target preflight, persisting exact-run `STAGING_PROVEN` evidence, removing its temporary dispatcher and archiving the task. Issue #91 remains the sole real production execution tracker.
+No repository-owned or currently locally verifiable Synology preflight task remains. Issue #91 resumes only after a real production environment exists and explicit production authorization permits direct verification of public DNS/TLS/Cloudflare/WAF/origin, real mail, external monitoring/alerting, DSM backup policy and final production smoke.
 
 ## Remaining cross-repository dependency
 

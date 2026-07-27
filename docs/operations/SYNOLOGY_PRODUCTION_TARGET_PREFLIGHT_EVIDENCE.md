@@ -10,7 +10,7 @@ The preflight does not configure DSM reverse proxy, router/NAT, public DNS, publ
 
 A successful run is classified only as `STAGING_PROVEN`.
 
-The evidence artifact must contain:
+The evidence artifact contains:
 
 - exact trusted workflow source SHA;
 - exact currently deployed Platform/Gateway release SHA;
@@ -21,7 +21,7 @@ The evidence artifact must contain:
 - `production_environment_proven: false`;
 - a bounded list of remaining public-production gaps.
 
-It must not contain secrets, environment variables, private keys, database rows, dump bytes, user data, private endpoint inventories or copied `.env` content.
+It contains no secret, environment variable, private key, database row, dump byte, user data, private endpoint inventory or copied `.env` content.
 
 ## Live target assertions
 
@@ -42,7 +42,7 @@ The workflow fails closed unless all applicable assertions pass:
 
 ## Restore-drill safety
 
-The drill does not create a retained dump file. `mariadb-dump` output is read in bounded chunks, hashed in memory and written directly to the isolated restore database. The restored database is dumped through the same deterministic options and its in-memory digest is compared with the streamed source digest.
+The drill creates no retained dump file. `mariadb-dump` output is read in bounded chunks, hashed in memory and written directly to an isolated temporary restore database. The restored database is dumped through the same deterministic options and its in-memory digest is compared with the streamed source digest.
 
 Only the final PASS status, duration and aggregate base-table counts enter the sanitized evidence artifact. No table name, row, dump byte or comparison file is retained or uploaded.
 
@@ -50,11 +50,63 @@ The drill does not change either source database. Temporary restore database nam
 
 ## Exact live result
 
-`PENDING` — populate after the first successful trusted-main live run and sanitized artifact inspection.
+Validation date: `2026-07-27T14:44:23Z`
+
+Workflow: `Synology Production Target Preflight`
+
+Workflow source SHA: `50d917acd7fde333f0e74757ec1ced70e30c53de`
+
+Live workflow run: `30275482522`
+
+Evidence artifact: `synology-production-target-preflight-evidence-30275482522`
+
+Evidence artifact digest: `sha256:b54ec5fc619201685fe792328dd9682e958b07f41ab6b5c2f9d6f255b1e2a704`
+
+Inspected Compose project: `oteryn-staging`
+
+Deployed Platform/Gateway release SHA: `415aa3febd04c8d9c61082d4a7451352bf084013`
+
+Platform image: `ghcr.io/blakinio/oteryn-platform:sha-415aa3febd04c8d9c61082d4a7451352bf084013`
+
+Gateway image: `ghcr.io/blakinio/oteryn-game-gateway:sha-415aa3febd04c8d9c61082d4a7451352bf084013`
+
+Canary image digest: `sha256:784e5dbdcc64e311c48c51cd94aa206e2efa1e5eefb2f4ef40170d5aac55031f`
+
+Result: `PASS`
+
+Classification: `STAGING_PROVEN`
+
+Production environment proven: `false`
+
+### Sanitized result matrix
+
+| Boundary | Result |
+|---|---|
+| Container singleton and running state | `PASS` |
+| Restart policies | `PASS` |
+| Private network membership | `PASS` |
+| Host bindings fail closed | `PASS` |
+| MariaDB and Redis unpublished | `PASS` |
+| Immutable runtime image identities | `PASS` |
+| Named persistent volumes | `PASS` |
+| Runner state and last-good rollback snapshot | `PASS` |
+| Platform and Gateway health/readiness | `PASS` |
+| Canary game TCP | `PASS` |
+| Canary effective-grant verifiers | `PASS` |
+| Redis AOF and ACL boundary | `PASS` |
+| Platform and Canary streaming restore drill | `PASS` |
+
+Restore drill duration: `717610 ms` for this local staging dataset. This is controlled staging evidence and is not a production RTO or RPO.
+
+Platform base-table count: `34`
+
+Canary base-table count: `59`
+
+The inspected local runtime uses the bounded single-instance profile `file` sessions, `file` cache and synchronous queue execution. The current local mail profile is Laravel `array` non-delivery. Those values are recorded as the current local-target facts, not as proof of a future multi-instance or real-mail production design.
 
 ## Remaining environment-only gaps
 
-Even after a successful local Synology preflight, the following remain `UNKNOWN` for production:
+The following remain `UNKNOWN` for production:
 
 - public DNS, real TLS certificate lifecycle, Cloudflare proxy/WAF/Access and direct-origin exposure;
 - real production mail transport, sender-domain readiness and delivery/bounce monitoring;

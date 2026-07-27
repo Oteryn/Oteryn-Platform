@@ -1,3 +1,0 @@
-OTERYN-20260727-synology-production-target-preflight
-
-This inert marker activates the reviewed trusted-main one-shot dispatcher after squash merge. It contains no runtime configuration or secret.

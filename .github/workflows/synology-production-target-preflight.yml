@@ -6,13 +6,12 @@ on:
       - main
     paths:
       - .github/workflows/synology-production-target-preflight.yml
-      - .github/workflows/one-shot-synology-production-target-preflight.yml
-      - deploy/synology/.production-target-preflight-trigger
       - deploy/synology/scripts/production-target-preflight.sh
       - deploy/synology/README.md
       - docs/operations/SYNOLOGY_PRODUCTION_TARGET_PREFLIGHT_EVIDENCE.md
       - docs/agents/ACTIVE_WORK.md
       - docs/agents/tasks/active/OTERYN-20260727-synology-production-target-preflight.md
+      - docs/agents/tasks/archive/OTERYN-20260727-synology-production-target-preflight.md
   workflow_dispatch:
     inputs:
       run_restore_drill:
@@ -47,9 +46,22 @@ jobs:
         run: |
           set -euo pipefail
           bash -n deploy/synology/scripts/production-target-preflight.sh
-          python3 tools/agents/checkpoint.py \
-            docs/agents/tasks/active/OTERYN-20260727-synology-production-target-preflight.md \
-            --require-checkpoint
+
+          active_checkpoint="docs/agents/tasks/active/OTERYN-20260727-synology-production-target-preflight.md"
+          archived_checkpoint="docs/agents/tasks/archive/OTERYN-20260727-synology-production-target-preflight.md"
+          if [[ -f "$active_checkpoint" && -f "$archived_checkpoint" ]]; then
+            echo "Both active and archived Synology preflight checkpoints exist." >&2
+            exit 1
+          elif [[ -f "$active_checkpoint" ]]; then
+            checkpoint="$active_checkpoint"
+          elif [[ -f "$archived_checkpoint" ]]; then
+            checkpoint="$archived_checkpoint"
+          else
+            echo "No Synology preflight checkpoint exists." >&2
+            exit 1
+          fi
+
+          python3 tools/agents/checkpoint.py "$checkpoint" --require-checkpoint
 
       - name: Validate secret-safe evidence boundary
         run: |
