@@ -4,7 +4,7 @@ Convenience index only. Individual active task records, live PRs and Git state a
 
 ## Active tasks
 
-- `OTERYN-20260727-portal-completeness` — first Issue #240 runtime remediation for Account Center, character presentation and obsolete preview removal. PR #241 separately owns exhaustive acceptance infrastructure; Issue #244 owns the later administrator template selector.
+- `OTERYN-20260727-exhaustive-portal-acceptance` — machine-enforced route/surface/state/role/viewport/evidence ledger plus a zero-retry complete account-lifecycle browser profile, rebased from superseded PR #241 onto current `main` after PR #246.
 
 ## Closed acceptance and release-preparation follow-ups
 
@@ -42,6 +42,7 @@ Convenience index only. Individual active task records, live PRs and Git state a
 - PR #237 / `f5aeb2e80d4692b3ee6309cc3454aa20697721f2` — edge-security emulation task archived and `ACTIVE_WORK` cleared.
 - PR #239 / `50d917acd7fde333f0e74757ec1ced70e30c53de` — local Synology production-target preflight merged; live run `30275482522` proved host/runtime/storage/binding/health/least-privilege/Redis/rollback and isolated restore boundaries as `STAGING_PROVEN`.
 - PR #245 / `458d447a35aa87dd1b13fa16e120e9b9fb9c21ec` — Synology target-preflight lifecycle archived; permanent manual revalidation remains available.
+- PR #246 / `9af2624e68061d52f861068976a38fe67abc4b5a` — first Issue #240 runtime slice merged: Account Center character inventory/states, readable vocations, approved character guild presentation, obsolete public preview removal and fail-closed completeness matrix.
 
 ## Current project phase
 
@@ -55,7 +56,7 @@ Previous representative acceptance remains valid only for its documented boundar
 
 - **Production Readiness: STAGING_PROVEN for previously documented boundaries**
 - **Portal Completeness: FAIL-CLOSED AUDIT AND REMEDIATION IN PROGRESS (Issue #240)**
-- **Functional Acceptance: representative staging evidence retained; exhaustive current-surface closure pending PR #241 and Issue #240**
+- **Functional Acceptance: representative staging evidence retained; machine-enforced delivered-surface ledger and complete account profile in progress**
 - **Visual / UX Acceptance: representative evidence retained; full current-surface closure pending**
 - **Public Website Expansion Programme: implementation merged; completeness remediation reopened**
 - **Emulated Edge Security: STAGING_PROVEN**
@@ -67,7 +68,7 @@ The live Synology preflight identifies the running staging release as `415aa3feb
 
 ## Next work
 
-Execute Issue #240 in bounded non-overlapping slices. The current task repairs Account Center and character presentation; PR #241 owns exhaustive acceptance infrastructure and Issue #244 owns audited homepage-template selection.
+Finish the exhaustive acceptance contract, then close its machine-classified `planned` and `partial` module packages in bounded successor PRs. Issue #244 separately owns audited homepage-template selection.
 
 Issue #91 remains the separate real Production Go-Live tracker.
 
