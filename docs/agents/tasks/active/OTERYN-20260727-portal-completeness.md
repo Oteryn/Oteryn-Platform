@@ -24,86 +24,113 @@ optional_reads:
 
 ## Goal
 
-Coordinate a fail-closed route-by-route completeness audit and bounded remediation programme for every approved Oteryn launch surface, including direct reconciliation of the code deployed at Synology staging with the exact release identity claimed by repository evidence.
+Establish a fail-closed route-by-route completeness programme and deliver the first bounded remediation for the directly proven Account Center, public character presentation and obsolete public design-preview defects.
 
 ## Acceptance criteria
 
-- [ ] A durable completeness matrix inventories every public, Identity, Account, Character, Admin, CMS, Events, Downloads, Wiki, Media and error-state surface.
-- [ ] Every matrix row records ownership, user purpose, data dependencies, desktop/tablet/mobile status, localization, accessibility, security, automated coverage and exact-SHA live staging evidence.
-- [ ] Every launch-scope surface is classified as `COMPLETE`, `PARTIAL`, `SKELETON`, `BROKEN`, `DEPLOYMENT_DRIFT` or `DEFERRED_WITH_PRODUCT_DECISION`.
-- [ ] Direct operator evidence showing Synology output that differs from repository views is reconciled before further staging-completeness claims.
-- [ ] Account Center and Character Profile receive the first bounded remediation child tasks.
-- [ ] The obsolete public design-preview route is removed or restricted through a bounded presentation-settings child.
-- [ ] A homepage-template selector is introduced only through an explicit administrator-owned setting with no public arbitrary template parameter.
-- [ ] No `SKELETON`, `BROKEN` or `DEPLOYMENT_DRIFT` row remains unresolved for the approved launch scope.
-- [ ] Final exact-head CI and complete exact-SHA Synology browser acceptance pass before Issue #240 closes.
+- [x] A durable completeness matrix inventories every public, Identity, Account, Character, Admin, CMS, Events, Downloads, Wiki, Media and error-state surface.
+- [x] Direct operator evidence showing Synology output that differs from repository views is recorded as `DEPLOYMENT_DRIFT` rather than promoted to a staging PASS.
+- [x] Account Center reads and presents only active characters owned through the authenticated Identity's ready immutable Canary binding.
+- [x] Account Center distinguishes populated, empty, not-ready, dependency-unavailable and active-character-limit states without exposing internal account identifiers.
+- [x] Public character, highscores and online views use human-readable vocation names instead of raw vocation IDs.
+- [x] Public character profile presents an explicit guild link or explicit no-guild state using the read-only Canary boundary.
+- [x] The obsolete public `/design/home-v2` route is removed and protected by a regression test.
+- [ ] Focused formatter/static analysis/unit/feature validation passes on the exact implementation head.
+- [ ] Required GitHub checks pass on the exact final head.
+- [ ] Exact running Synology Platform image SHA is reconciled before deployment-completeness claims resume.
+- [ ] The complete Issue #240 matrix is executed through later bounded child slices and exact-SHA live staging acceptance.
 
 ## Ownership
 
 ```yaml
 owned_paths:
+  - app/Accounts/ReadModels/AccountOverviewReadModel.php
+  - app/PublicGameData/CanaryGameDataRepository.php
+  - app/PublicGameData/CharacterPresentation.php
   - docs/agents/ACTIVE_WORK.md
   - docs/agents/tasks/active/OTERYN-20260727-portal-completeness.md
   - docs/testing/PORTAL_COMPLETENESS_MATRIX.md
+  - lang/en/game.php
+  - lang/pl/game.php
+  - resources/views/identity/account/overview.blade.php
+  - resources/views/game/character.blade.php
+  - resources/views/game/highscores.blade.php
+  - resources/views/game/online.blade.php
+  - routes/modules/public-portal.php
+  - tests/Feature/Accounts/AccountOverviewTest.php
+  - tests/Feature/PublicGameData/CharacterProfilePresentationTest.php
+  - tests/Feature/PublicPortal/DesignPreviewRouteTest.php
+  - tests/Unit/PublicGameData/CharacterPresentationTest.php
 modules:
   - AgentGovernance
   - Testing
   - PublicPortal
-  - Identity
   - Accounts
   - Characters
   - PublicGameData
-  - CMS
-  - Admin
-  - Wiki
-  - Deployment
 dependencies:
   - Issue 240
   - Issue 91 production boundary
 blockers:
   - exact running Synology Platform image SHA is not directly proven from the operator-observed environment
 cross_repository_tasks:
-  - Canary schema/source remains read-only and may be inspected for field semantics
+  - blakinio/canary remains read-only and was inspected only for schema and vocation evidence
 ```
 
 ## Context checkpoint
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-07-27T14:20:00Z
-head: f5aeb2e80d4692b3ee6309cc3454aa20697721f2
+updated_at: 2026-07-27T16:45:00+02:00
+head: babd47687858527fe54417c20a722d96d06c9b75
 branch: audit/OTERYN-20260727-portal-completeness
-pr: none
-status: investigating
+pr: 242
+status: validating
 context_routes:
   - agent-governance
   - testing
   - web-cms
-  - auth-identity
   - accounts-characters
   - public-game-data
-  - admin-rbac
   - security
   - accessibility
   - deployment
 owned_paths:
+  - app/Accounts/ReadModels/AccountOverviewReadModel.php
+  - app/PublicGameData/CanaryGameDataRepository.php
+  - app/PublicGameData/CharacterPresentation.php
   - docs/agents/ACTIVE_WORK.md
   - docs/agents/tasks/active/OTERYN-20260727-portal-completeness.md
   - docs/testing/PORTAL_COMPLETENESS_MATRIX.md
+  - lang/en/game.php
+  - lang/pl/game.php
+  - resources/views/identity/account/overview.blade.php
+  - resources/views/game/character.blade.php
+  - resources/views/game/highscores.blade.php
+  - resources/views/game/online.blade.php
+  - routes/modules/public-portal.php
+  - tests/Feature/Accounts/AccountOverviewTest.php
+  - tests/Feature/PublicGameData/CharacterProfilePresentationTest.php
+  - tests/Feature/PublicPortal/DesignPreviewRouteTest.php
+  - tests/Unit/PublicGameData/CharacterPresentationTest.php
 proven:
   - Issue 240 records the fail-closed full-portal audit and remediation programme
-  - current main Account Overview is a narrow provisioning and security summary rather than a complete account-management center
-  - current main Character Profile selects and renders only id, name, level and numeric vocation
+  - current main Account Overview was a narrow provisioning/security summary without an owned-character list
+  - current main Character Profile selected and rendered only id, name, level and numeric vocation
   - operator-observed Synology Character Profile does not match current main or recorded final public-staging SHA 415aa3febd04c8d9c61082d4a7451352bf084013
   - final public Synology smoke recorded only six public assertions and did not prove every portal surface
-  - public design preview route design/home-v2 remains registered on main
+  - Canary schema and ADR 0005 prove the supported vocation ID mapping used by the presentation service
+  - the current implementation branch adds bound-account active-character reads, explicit Account Center character states, readable vocation labels, a read-only guild relationship and removes the obsolete public design preview route
+  - internal Canary account identifiers remain excluded from Account Center and public profile output
+  - no Canary, login-server, production, router or DSM write occurred
 derived:
-  - deployed release identity must be classified DEPLOYMENT_DRIFT until the running image SHA and file content are reconciled
-  - Account Center and Character Profile are SKELETON/PARTIAL launch surfaces and require bounded remediation
+  - deployed release identity remains DEPLOYMENT_DRIFT until the running image SHA and deployed file content are reconciled
+  - the first Account Center and Character Profile skeleton defects are addressed in source but are not yet validated or deployed
+  - the administrator homepage-template selector requires a separate bounded persistence, RBAC, audit, preview and rollback design rather than a public query parameter
 unknown:
   - exact running Synology Platform image digest and application SHA for the operator-observed screens
-  - complete route-to-state inventory after all module route files are enumerated
-  - which additional character fields are safe, authoritative and useful under the current Canary read contract
+  - exact result of formatter, PHPStan, focused tests, complete tests and browser acceptance on the implementation head
+  - remaining Issue 240 row classifications after direct audit of every route and meaningful state
 conflicts:
   - repository/staging completion declarations conflict with direct operator evidence of unfinished screens and code/deployment mismatch
 first_failure:
@@ -112,17 +139,38 @@ first_failure:
 rejected_hypotheses:
   - the observed Character Profile is the exact view from current main: repository source differs materially
   - the final six-route public smoke proves complete portal acceptance: it did not exercise Identity, Account, Character, Admin or most public modules
+  - adding every available Canary field is automatically safe: last-login, sex and other profile fields require explicit privacy and product decisions
 changed_paths:
+  - app/Accounts/ReadModels/AccountOverviewReadModel.php
+  - app/PublicGameData/CanaryGameDataRepository.php
+  - app/PublicGameData/CharacterPresentation.php
+  - docs/agents/ACTIVE_WORK.md
   - docs/agents/tasks/active/OTERYN-20260727-portal-completeness.md
+  - docs/testing/PORTAL_COMPLETENESS_MATRIX.md
+  - lang/en/game.php
+  - lang/pl/game.php
+  - resources/views/identity/account/overview.blade.php
+  - resources/views/game/character.blade.php
+  - resources/views/game/highscores.blade.php
+  - resources/views/game/online.blade.php
+  - routes/modules/public-portal.php
+  - tests/Feature/Accounts/AccountOverviewTest.php
+  - tests/Feature/PublicGameData/CharacterProfilePresentationTest.php
+  - tests/Feature/PublicPortal/DesignPreviewRouteTest.php
+  - tests/Unit/PublicGameData/CharacterPresentationTest.php
 validation:
   - command: repository and staging evidence reconciliation through GitHub connector plus direct operator screenshots
-    result: PARTIAL
-    evidence: P0 deployment drift and skeletal Account/Character surfaces proven; complete route inventory pending
+    result: PASS
+    evidence: deployment drift and original Account/Character skeletons are directly proven and recorded fail closed
+  - command: formatter, static analysis and focused/full tests
+    result: NOT_RUN
+    evidence: current connector session cannot execute the PHP/Composer/browser toolchain and no exact-head workflow result has been observed yet
 blockers:
   - exact running Synology Platform image SHA cannot be read through the current connector-only environment
-next_action: Create the durable portal completeness matrix and register this coordination task in ACTIVE_WORK.
+  - exact-head implementation validation remains pending
+next_action: Observe exact-head PR checks, fix any failures, then keep the PR draft until required validation passes.
 ```
 
 ## Notes
 
-This task owns programme coordination and the shared matrix only. Runtime remediation must use separate child tasks and non-overlapping owned paths. Production verification remains Issue #91.
+PR #242 is the first bounded remediation under Issue #240. Later route families and the audited homepage-template selector remain separate child slices. Production verification remains Issue #91.
