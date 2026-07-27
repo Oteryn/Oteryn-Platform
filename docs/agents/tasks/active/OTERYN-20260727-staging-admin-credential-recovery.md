@@ -55,11 +55,11 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-07-27T16:29:00Z
-head: 9af2624e68061d52f861068976a38fe67abc4b5a
+updated_at: 2026-07-27T16:31:00Z
+head: 363878c4c87b570d708282175a938c74d34ae64c
 branch: ops/OTERYN-20260727-staging-admin-credential-recovery
-pr: none
-status: implementing
+pr: 249
+status: validating-keygen
 context_routes:
   - auth-identity
   - admin-rbac
@@ -75,10 +75,12 @@ proven:
   - IdentityCredentialUpdater::reset replaces the password, revokes web sessions, revokes game authorizations and records a password-reset completion event
   - active PR 247 owns only its exact portal acceptance workflow and listed acceptance/governance paths; this task uses disjoint paths
   - Issue 248 contains only sanitized execution scope
+  - PR 249 contains only the dedicated one-shot workflow and this task record
   - the requested target email and temporary password remain outside repository-visible state
 derived:
   - a two-phase ephemeral public-key exchange can deliver an encrypted reset payload without exposing credentials to GitHub
 unknown:
+  - exact PR 249 validation result
   - exact self-hosted runner result for key generation and credential application
 conflicts: []
 first_failure:
@@ -88,14 +90,18 @@ rejected_hypotheses:
   - committing or logging a temporary plaintext password is acceptable for staging
   - creating a second synthetic administrator is necessary
 changed_paths:
+  - .github/workflows/one-shot-staging-admin-credential-recovery.yml
   - docs/agents/tasks/active/OTERYN-20260727-staging-admin-credential-recovery.md
 validation:
   - command: repository and active ownership inspection
     result: PASS
     evidence: unique workflow, encrypted-payload and task paths do not overlap PR 247 owned paths
+  - command: exact-head GitHub checks for PR 249
+    result: NOT_RUN
+    evidence: pending workflow registration
 blockers:
   - none
-next_action: Add and merge the guarded key-generation phase, then encrypt the recovery payload to its runner-generated public key.
+next_action: Pass exact-head checks, merge PR 249 with the keygen marker, and read the sanitized public key from Issue 248.
 ```
 
 ## Notes
