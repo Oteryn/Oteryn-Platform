@@ -55,10 +55,10 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-07-27T16:33:00Z
-head: c5ddf82e715e6fb01f8defe6f9052622a55db547
-branch: ops/OTERYN-20260727-staging-admin-credential-recovery
-pr: 249
+updated_at: 2026-07-27T16:39:00Z
+head: ec05df6d9ea4a29b53932001a7c9a33ad280c55c
+branch: ops/OTERYN-20260727-staging-admin-keygen-trigger
+pr: pending
 status: validating
 context_routes:
   - auth-identity
@@ -75,17 +75,16 @@ proven:
   - IdentityCredentialUpdater::reset replaces the password, revokes web sessions, revokes game authorizations and records a password-reset completion event
   - active PR 247 owns only its exact portal acceptance workflow and listed acceptance/governance paths; this task uses disjoint paths
   - Issue 248 contains only sanitized execution scope
-  - PR 249 contains only the dedicated one-shot workflow and this task record
+  - PR 249 merged the secret-safe one-shot workflow to main as ec05df6d9ea4a29b53932001a7c9a33ad280c55c after all required checks passed
   - the requested target email and temporary password remain outside repository-visible state
 derived:
-  - a two-phase ephemeral public-key exchange can deliver an encrypted reset payload without exposing credentials to GitHub
+  - a follow-up main push touching the active task file will trigger the already-installed key-generation workflow deterministically
 unknown:
-  - exact corrected PR 249 validation result
   - exact self-hosted runner result for key generation and credential application
 conflicts: []
 first_failure:
   marker: Agent Governance run 30285063543 checkpoint-validation
-  evidence: checkpoint status validating-keygen was outside the governance contract allowed status set
+  evidence: checkpoint status validating-keygen was outside the governance contract allowed status set and was corrected before merge
 rejected_hypotheses:
   - committing or logging a temporary plaintext password is acceptable for staging
   - creating a second synthetic administrator is necessary
@@ -93,18 +92,15 @@ changed_paths:
   - .github/workflows/one-shot-staging-admin-credential-recovery.yml
   - docs/agents/tasks/active/OTERYN-20260727-staging-admin-credential-recovery.md
 validation:
-  - command: repository and active ownership inspection
-    result: PASS
-    evidence: unique workflow, encrypted-payload and task paths do not overlap PR 247 owned paths
-  - command: Agent Governance run 30285063543
-    result: FAIL
-    evidence: unsupported checkpoint status validating-keygen; corrected to validating
   - command: corrected exact-head GitHub checks for PR 249
+    result: PASS
+    evidence: Agent Governance 30285220251, CI 30285219831, Game Auth Ticket Concurrency 30285220365, Platform DB Outage Validation 30285219942, Edge Security Emulation 30285219797 and Phase 7 Production-Like Validation 30285220226 all succeeded
+  - command: first key-generation main push report
     result: NOT_RUN
-    evidence: pending workflow registration on the corrected head
+    evidence: no Issue 248 report appeared from the workflow-introduction commit; a dedicated trigger push is being prepared
 blockers:
   - none
-next_action: Pass corrected exact-head checks, merge PR 249 with the keygen marker, and read the sanitized public key from Issue 248.
+next_action: Merge the minimal key-generation trigger with the keygen marker and read the sanitized public key from Issue 248.
 ```
 
 ## Notes
