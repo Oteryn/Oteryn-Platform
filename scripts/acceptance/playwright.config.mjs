@@ -12,7 +12,15 @@ const primaryIgnore = [
   '**/resilience-critical.spec.mjs',
   '**/accessibility-critical.spec.mjs',
   '**/soak-public.spec.mjs',
+  '**/downloads-lifecycle-acceptance.spec.mjs',
   '**/downloads-public-portability.spec.mjs',
+  '**/events-public-acceptance.spec.mjs',
+  '**/events-admin-acceptance.spec.mjs',
+  '**/announcements-public-acceptance.spec.mjs',
+  '**/announcements-admin-acceptance.spec.mjs',
+  '**/support-legal-acceptance.spec.mjs',
+  '**/editorial-media-acceptance.spec.mjs',
+  '**/wiki-reconciliation-acceptance.spec.mjs',
 ];
 const configuredRetries = process.env.ACCEPTANCE_ZERO_RETRIES === '1' ? 0 : process.env.CI ? 1 : 0;
 
