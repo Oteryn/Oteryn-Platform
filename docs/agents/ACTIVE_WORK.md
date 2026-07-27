@@ -4,7 +4,7 @@ Convenience index only. Individual active task records, live PRs and Git state a
 
 ## Active tasks
 
-- `OTERYN-20260727-portal-acceptance-final-closure` — final Issue #240 closure for Support/Legal, Editorial Media and Wiki public/admin with independent zero-retry module gates and strict ledger reconciliation.
+- None.
 
 ## Closed acceptance and release-preparation follow-ups
 
@@ -47,34 +47,33 @@ Convenience index only. Individual active task records, live PRs and Git state a
 - PR #253 / `f9301792cfc82956aa4af792283c18bcbaf2c28e` — complete Download Center public/admin/localization/failure-recovery lifecycle merged with Chromium, Firefox and WebKit evidence; Downloads is `covered`.
 - PR #255 / `7e0fe46b57be4cf19900adefbada7133da47bb21` — complete Events public/admin/localization/conflict lifecycle merged with Chromium desktop/tablet/mobile and bounded public Firefox/WebKit evidence; Events is `covered`.
 - PR #259 / `d08062c653a137e1359b5626fda635b170704cd8` — complete Announcements public/admin/localization lifecycle merged after every exact-head workflow passed; Announcements is `covered`.
+- PR #260 / `436d30e56bbf2821d01372a8aec15ec1a3ffca30` — Support/Legal, Editorial Media and Wiki public/admin final acceptance closure merged; strict delivered-surface ledger and all exact-head workflows passed, and Issue #240 is closed.
 
 ## Current project phase
 
-**Phase 6 — CMS, Admin, RBAC and Audit: COMPLETE as an engineering milestone; route-by-route product completeness is reopened through Issue #240.**
+**Phase 6 — CMS, Admin, RBAC and Audit: COMPLETE as an engineering milestone and complete against the current machine-enforced delivered-surface acceptance ledger.**
 
 **Phase 7 — Production hardening and operations: COMPLETE as an engineering milestone.**
 
-Previous representative acceptance remains valid only for its documented boundaries and does not prove every current portal route and state.
+Repository and staging evidence remains valid only for its documented boundaries and does not establish final production correctness.
 
 ## Operational release state
 
 - **Production Readiness: STAGING_PROVEN for previously documented boundaries**
-- **Portal Completeness: FAIL-CLOSED FINAL CLOSURE IN PROGRESS (Issue #240)**
-- **Functional Acceptance: account, Downloads, Events and Announcements are covered; Support/Legal, Editorial Media and Wiki reconciliation remain**
-- **Visual / UX Acceptance: representative evidence retained; final current-surface closure pending**
-- **Public Website Expansion Programme: implementation merged; completeness remediation reopened**
+- **Portal Completeness: COMPLETE AGAINST THE VERSIONED DELIVERED-SURFACE CONTRACT (Issue #240 closed)**
+- **Functional Acceptance: strict zero-gap ledger and complete account lifecycle passed on the final PR #260 head**
+- **Visual / UX Acceptance: required exact-head browser, responsive and accessibility profiles passed for the declared surfaces**
+- **Public Website Expansion Programme: implementation and machine-ledger closure merged**
 - **Emulated Edge Security: STAGING_PROVEN**
 - **Synology Production Target Preflight: STAGING_PROVEN**
 - **Production Go-Live Gate: PENDING PRODUCTION VERIFICATION**
 - **Production Verification: REQUIRED BEFORE GO-LIVE**
 
-The live Synology preflight identifies the running staging release as `415aa3febd04c8d9c61082d4a7451352bf084013`. No staging, local-target or emulation evidence may be promoted to `PRODUCTION_PROVEN`.
+The live Synology preflight identifies the previously verified staging release as `415aa3febd04c8d9c61082d4a7451352bf084013`. No repository, staging, local-target or emulation evidence may be promoted to `PRODUCTION_PROVEN`.
 
 ## Next work
 
-Close Support/Legal, Editorial Media and Wiki public/admin records with independent module gates, then require a strict zero-gap portal ledger. Issue #244 separately owns audited homepage-template selection.
-
-Issue #91 remains the separate real Production Go-Live tracker.
+Issue #244 separately owns audited homepage-template selection. Issue #91 remains the separate real Production Go-Live tracker.
 
 ## Remaining cross-repository dependency
 
