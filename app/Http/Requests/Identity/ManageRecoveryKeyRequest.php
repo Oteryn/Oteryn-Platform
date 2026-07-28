@@ -26,7 +26,8 @@ final class ManageRecoveryKeyRequest extends FormRequest
     {
         $validator->after(function (Validator $validator): void {
             $identity = $this->user();
-            if ($identity instanceof Identity && ! Hash::check((string) $this->input('current_password'), $identity->password)) {
+            $password = $this->input('current_password');
+            if ($identity instanceof Identity && (! is_string($password) || ! Hash::check($password, $identity->password))) {
                 $validator->errors()->add('current_password', 'The current password is invalid.');
             }
         });
