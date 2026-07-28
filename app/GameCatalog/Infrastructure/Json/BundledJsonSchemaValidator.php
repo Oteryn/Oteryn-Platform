@@ -18,9 +18,7 @@ final class BundledJsonSchemaValidator
 
     public function __construct(private readonly int $maximumFindings = 2_000) {}
 
-    /**
-     * @return list<CatalogValidationFinding>
-     */
+    /** @return list<CatalogValidationFinding> */
     public function validate(mixed $document, string $schemaJson): array
     {
         try {
@@ -29,9 +27,7 @@ final class BundledJsonSchemaValidator
             throw new RuntimeException('The bundled Game Catalog schema is invalid JSON.', previous: $exception);
         }
 
-        if (! is_array($schema)) {
-            throw new RuntimeException('The bundled Game Catalog schema root must be an object.');
-        }
+        $schema = $this->stringKeyedSchema($schema, 'The bundled Game Catalog schema root must be an object.');
 
         $this->rootSchema = $schema;
         $this->findings = [];
@@ -40,9 +36,7 @@ final class BundledJsonSchemaValidator
         return $this->findings;
     }
 
-    /**
-     * @param  array<string, mixed>  $schema
-     */
+    /** @param array<string, mixed> $schema */
     private function validateNode(mixed $value, array $schema, string $path): void
     {
         if ($this->isFull()) {
@@ -64,9 +58,7 @@ final class BundledJsonSchemaValidator
                 throw new RuntimeException('The bundled schema contains an invalid allOf.');
             }
             foreach ($schema['allOf'] as $branch) {
-                if (! is_array($branch)) {
-                    throw new RuntimeException('The bundled schema contains an invalid allOf branch.');
-                }
+                $branch = $this->stringKeyedSchema($branch, 'The bundled schema contains an invalid allOf branch.');
                 $this->validateNode($value, $branch, $path);
             }
         }
@@ -79,9 +71,7 @@ final class BundledJsonSchemaValidator
             $original = $this->findings;
             $matchingBranches = 0;
             foreach ($schema['oneOf'] as $branch) {
-                if (! is_array($branch)) {
-                    throw new RuntimeException('The bundled schema contains an invalid oneOf branch.');
-                }
+                $branch = $this->stringKeyedSchema($branch, 'The bundled schema contains an invalid oneOf branch.');
 
                 $this->findings = [];
                 $this->validateNode($value, $branch, $path);
@@ -125,6 +115,9 @@ final class BundledJsonSchemaValidator
         if ($value instanceof stdClass) {
             $this->validateObject($value, $schema, $path);
         } elseif (is_array($value)) {
+            if (! array_is_list($value)) {
+                throw new RuntimeException('Schema-validated JSON arrays must be represented as lists.');
+            }
             $this->validateArray($value, $schema, $path);
         } elseif (is_string($value)) {
             $this->validateString($value, $schema, $path);
@@ -133,22 +126,21 @@ final class BundledJsonSchemaValidator
         }
     }
 
-    /**
-     * @param  array<string, mixed>  $schema
-     */
+    /** @param array<string, mixed> $schema */
     private function validateObject(stdClass $value, array $schema, string $path): void
     {
         $properties = get_object_vars($value);
 
-        if (isset($schema['maxProperties']) && count($properties) > (int) $schema['maxProperties']) {
+        $maximumProperties = $this->schemaInt($schema, 'maxProperties');
+        if ($maximumProperties !== null && count($properties) > $maximumProperties) {
             $this->add('schema.max_properties', 'Object contains too many properties.', $path, [
                 'count' => count($properties),
-                'maximum' => (int) $schema['maxProperties'],
+                'maximum' => $maximumProperties,
             ]);
         }
 
-        $defined = isset($schema['properties']) && is_array($schema['properties'])
-            ? $schema['properties']
+        $defined = array_key_exists('properties', $schema)
+            ? $this->stringKeyedSchema($schema['properties'], 'The bundled schema contains invalid properties.')
             : [];
 
         if (isset($schema['required'])) {
@@ -177,6 +169,7 @@ final class BundledJsonSchemaValidator
             if (! is_string($name) || ! is_array($propertySchema)) {
                 throw new RuntimeException('The bundled schema contains an invalid property definition.');
             }
+            $propertySchema = $this->stringKeyedSchema($propertySchema, 'The bundled schema contains an invalid property definition.');
             if (array_key_exists($name, $properties)) {
                 $this->validateNode($properties[$name], $propertySchema, $path.'.'.$name);
             }
@@ -184,45 +177,45 @@ final class BundledJsonSchemaValidator
     }
 
     /**
-     * @param  list<mixed>  $value
-     * @param  array<string, mixed>  $schema
+     * @param list<mixed> $value
+     * @param array<string, mixed> $schema
      */
     private function validateArray(array $value, array $schema, string $path): void
     {
         $count = count($value);
-        if (isset($schema['minItems']) && $count < (int) $schema['minItems']) {
+        $minimumItems = $this->schemaInt($schema, 'minItems');
+        if ($minimumItems !== null && $count < $minimumItems) {
             $this->add('schema.min_items', 'Array contains too few items.', $path, [
                 'count' => $count,
-                'minimum' => (int) $schema['minItems'],
+                'minimum' => $minimumItems,
             ]);
         }
-        if (isset($schema['maxItems']) && $count > (int) $schema['maxItems']) {
+        $maximumItems = $this->schemaInt($schema, 'maxItems');
+        if ($maximumItems !== null && $count > $maximumItems) {
             $this->add('schema.max_items', 'Array contains too many items.', $path, [
                 'count' => $count,
-                'maximum' => (int) $schema['maxItems'],
+                'maximum' => $maximumItems,
             ]);
         }
 
         if (isset($schema['items'])) {
-            if (! is_array($schema['items'])) {
-                throw new RuntimeException('The bundled schema contains an invalid items definition.');
-            }
+            $itemSchema = $this->stringKeyedSchema($schema['items'], 'The bundled schema contains an invalid items definition.');
             foreach ($value as $index => $item) {
-                $this->validateNode($item, $schema['items'], $path.'['.$index.']');
+                $this->validateNode($item, $itemSchema, $path.'['.$index.']');
             }
         }
     }
 
-    /**
-     * @param  array<string, mixed>  $schema
-     */
+    /** @param array<string, mixed> $schema */
     private function validateString(string $value, array $schema, string $path): void
     {
         $length = mb_strlen($value, 'UTF-8');
-        if (isset($schema['minLength']) && $length < (int) $schema['minLength']) {
+        $minimumLength = $this->schemaInt($schema, 'minLength');
+        if ($minimumLength !== null && $length < $minimumLength) {
             $this->add('schema.min_length', 'String is shorter than allowed.', $path);
         }
-        if (isset($schema['maxLength']) && $length > (int) $schema['maxLength']) {
+        $maximumLength = $this->schemaInt($schema, 'maxLength');
+        if ($maximumLength !== null && $length > $maximumLength) {
             $this->add('schema.max_length', 'String is longer than allowed.', $path);
         }
         if (isset($schema['pattern'])) {
@@ -241,15 +234,15 @@ final class BundledJsonSchemaValidator
         }
     }
 
-    /**
-     * @param  array<string, mixed>  $schema
-     */
+    /** @param array<string, mixed> $schema */
     private function validateNumber(int|float $value, array $schema, string $path): void
     {
-        if (isset($schema['minimum']) && $value < $schema['minimum']) {
+        $minimum = $this->schemaNumber($schema, 'minimum');
+        if ($minimum !== null && $value < $minimum) {
             $this->add('schema.minimum', 'Number is below the allowed minimum.', $path);
         }
-        if (isset($schema['maximum']) && $value > $schema['maximum']) {
+        $maximum = $this->schemaNumber($schema, 'maximum');
+        if ($maximum !== null && $value > $maximum) {
             $this->add('schema.maximum', 'Number is above the allowed maximum.', $path);
         }
     }
@@ -281,9 +274,7 @@ final class BundledJsonSchemaValidator
         return false;
     }
 
-    /**
-     * @return array<string, mixed>
-     */
+    /** @return array<string, mixed> */
     private function resolveReference(string $reference): array
     {
         if (! str_starts_with($reference, '#/')) {
@@ -299,8 +290,54 @@ final class BundledJsonSchemaValidator
             $value = $value[$segment];
         }
 
-        if (! is_array($value)) {
-            throw new RuntimeException("The bundled schema reference '{$reference}' does not resolve to an object.");
+        return $this->stringKeyedSchema(
+            $value,
+            "The bundled schema reference '{$reference}' does not resolve to an object.",
+        );
+    }
+
+    /** @return array<string, mixed> */
+    private function stringKeyedSchema(mixed $value, string $message): array
+    {
+        if (! is_array($value) || array_is_list($value)) {
+            throw new RuntimeException($message);
+        }
+
+        foreach (array_keys($value) as $key) {
+            if (! is_string($key)) {
+                throw new RuntimeException($message);
+            }
+        }
+
+        /** @var array<string, mixed> $value */
+        return $value;
+    }
+
+    /** @param array<string, mixed> $schema */
+    private function schemaInt(array $schema, string $key): ?int
+    {
+        if (! array_key_exists($key, $schema)) {
+            return null;
+        }
+
+        $value = $schema[$key];
+        if (! is_int($value) || $value < 0) {
+            throw new RuntimeException("The bundled schema contains an invalid {$key} value.");
+        }
+
+        return $value;
+    }
+
+    /** @param array<string, mixed> $schema */
+    private function schemaNumber(array $schema, string $key): int|float|null
+    {
+        if (! array_key_exists($key, $schema)) {
+            return null;
+        }
+
+        $value = $schema[$key];
+        if (! is_int($value) && ! is_float($value)) {
+            throw new RuntimeException("The bundled schema contains an invalid {$key} value.");
         }
 
         return $value;
@@ -335,9 +372,7 @@ final class BundledJsonSchemaValidator
         };
     }
 
-    /**
-     * @param  array<string, bool|float|int|string|null>  $context
-     */
+    /** @param array<string, bool|float|int|string|null> $context */
     private function add(string $code, string $message, string $path, array $context = []): void
     {
         if ($this->isFull()) {
