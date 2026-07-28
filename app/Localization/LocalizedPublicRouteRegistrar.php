@@ -31,8 +31,6 @@ final readonly class LocalizedPublicRouteRegistrar
             'game.guilds.show' => '/guilds/{name}',
             'game.online.index' => '/online',
             'game.servers.index' => '/servers',
-            'marketplace.index' => '/bazaar',
-            'marketplace.show' => '/bazaar/{auction}',
             'events.index' => '/events',
             'events.show' => '/events/{slug}',
             'downloads.index' => '/download/{platform?}',
@@ -49,6 +47,11 @@ final readonly class LocalizedPublicRouteRegistrar
             'wiki.category' => '/wiki/category/{slug}',
             'wiki.article' => '/wiki/{slug}',
         ];
+
+        if (config('marketplace.enabled')) {
+            $definitions['marketplace.index'] = '/bazaar';
+            $definitions['marketplace.show'] = '/bazaar/{auction}';
+        }
 
         /** @var array<string, array{uses: Closure|array<array-key, mixed>|string, defaults: array<string, mixed>, wheres: array<string, string>, middleware: array<int, string>}> $sourceRoutes */
         $sourceRoutes = [];
