@@ -22,13 +22,23 @@ final class ManageRecoveryKeyRequest extends FormRequest
         ];
     }
 
+    /** @return array<string, string> */
+    public function messages(): array
+    {
+        return [
+            'current_password.required' => __('identity.validation.password_required'),
+            'current_password.string' => __('identity.validation.password_required'),
+            'current_password.max' => __('identity.validation.password_too_long'),
+        ];
+    }
+
     public function withValidator(Validator $validator): void
     {
         $validator->after(function (Validator $validator): void {
             $identity = $this->user();
             $password = $this->input('current_password');
             if ($identity instanceof Identity && (! is_string($password) || ! Hash::check($password, $identity->password))) {
-                $validator->errors()->add('current_password', 'The current password is invalid.');
+                $validator->errors()->add('current_password', __('identity.errors.current_password_invalid'));
             }
         });
     }
