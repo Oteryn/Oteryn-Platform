@@ -8,11 +8,17 @@ use App\Http\Controllers\Admin\AdminRoleController;
 use App\Http\Controllers\Characters\CharacterCreationController;
 use App\Http\Controllers\Cms\PublicNewsController;
 use App\Http\Controllers\Cms\PublicPageController;
+use App\Http\Controllers\Identity\AccountPrivacyController;
+use App\Http\Controllers\Identity\AccountSecurityController;
+use App\Http\Controllers\Identity\AccountTerminationController;
+use App\Http\Controllers\Identity\AccountWebSessionController;
+use App\Http\Controllers\Identity\EmailChangeController;
 use App\Http\Controllers\Identity\Mfa\MfaChallengeController;
 use App\Http\Controllers\Identity\Mfa\MfaEnrollmentController;
 use App\Http\Controllers\Identity\PasswordChangeController;
 use App\Http\Controllers\Identity\PasswordRecoveryController;
 use App\Http\Controllers\Identity\PasswordResetController;
+use App\Http\Controllers\Identity\RecoveryKeyController;
 use App\Http\Controllers\Identity\RegistrationController;
 use App\Http\Controllers\Identity\SessionController;
 use App\Http\Controllers\PublicGameData\PublicGameDataController;
@@ -73,6 +79,26 @@ Route::post('/reset-password', [PasswordResetController::class, 'store'])
     ->middleware(['guest', 'throttle:identity-password-reset'])
     ->name('password.update');
 
+Route::get('/recovery-key', [RecoveryKeyController::class, 'recoverCreate'])
+    ->middleware('guest')
+    ->name('identity.recovery-key.recover.create');
+Route::post('/recovery-key', [RecoveryKeyController::class, 'recover'])
+    ->middleware(['guest', 'throttle:identity-recovery-key-use', 'throttle:identity-password-recovery-source'])
+    ->name('identity.recovery-key.recover');
+
+Route::get('/email-change/confirm/{token}', [EmailChangeController::class, 'confirmCreate'])
+    ->middleware('throttle:identity-email-token')
+    ->name('identity.email-change.confirm.create');
+Route::post('/email-change/confirm/{token}', [EmailChangeController::class, 'confirm'])
+    ->middleware('throttle:identity-email-token')
+    ->name('identity.email-change.confirm');
+Route::get('/email-change/recover/{token}', [EmailChangeController::class, 'recoverCreate'])
+    ->middleware('throttle:identity-email-token')
+    ->name('identity.email-change.recover.create');
+Route::post('/email-change/recover/{token}', [EmailChangeController::class, 'recover'])
+    ->middleware('throttle:identity-email-token')
+    ->name('identity.email-change.recover');
+
 Route::get('/password/change', [PasswordChangeController::class, 'create'])
     ->middleware('auth')
     ->name('identity.password.change.create');
@@ -92,6 +118,34 @@ Route::get('/account/characters/create', [CharacterCreationController::class, 'c
 Route::post('/account/characters', [CharacterCreationController::class, 'store'])
     ->middleware(['auth', 'throttle:character-create'])
     ->name('account.characters.store');
+
+Route::middleware('auth')->prefix('account/security')->group(function (): void {
+    Route::get('/', [AccountSecurityController::class, 'show'])->name('identity.account-security.show');
+    Route::post('/email', [EmailChangeController::class, 'store'])
+        ->middleware('throttle:identity-email-change')
+        ->name('identity.email-change.store');
+    Route::delete('/sessions/{session}', [AccountWebSessionController::class, 'destroy'])
+        ->middleware('throttle:identity-session-revoke')
+        ->name('identity.sessions.destroy');
+    Route::delete('/sessions', [AccountWebSessionController::class, 'destroyOthers'])
+        ->middleware('throttle:identity-session-revoke')
+        ->name('identity.sessions.destroy-others');
+    Route::put('/privacy', [AccountPrivacyController::class, 'update'])
+        ->middleware('throttle:identity-security-mutation')
+        ->name('identity.privacy.update');
+    Route::post('/recovery-key', [RecoveryKeyController::class, 'generate'])
+        ->middleware('throttle:identity-recovery-key-manage')
+        ->name('identity.recovery-key.generate');
+    Route::delete('/recovery-key', [RecoveryKeyController::class, 'revoke'])
+        ->middleware('throttle:identity-recovery-key-manage')
+        ->name('identity.recovery-key.revoke');
+    Route::post('/termination', [AccountTerminationController::class, 'store'])
+        ->middleware('throttle:identity-termination')
+        ->name('identity.termination.store');
+    Route::delete('/termination', [AccountTerminationController::class, 'destroy'])
+        ->middleware('throttle:identity-termination')
+        ->name('identity.termination.destroy');
+});
 
 Route::view('/admin', 'admin.dashboard')
     ->middleware(['auth', 'mfa.confirmed', 'admin.permission:admin.access'])
