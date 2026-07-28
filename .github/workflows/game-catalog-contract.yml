@@ -31,7 +31,7 @@ on:
       - 'tools/game-catalog/**'
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: game-catalog-contract-${{ github.workflow }}-${{ github.ref }}
@@ -56,13 +56,11 @@ jobs:
           --schema resources/schemas/game-catalog/v1/game-catalog-snapshot.schema.json
           --fixture tests/Fixtures/GameCatalog/v1/minimal-snapshot.json
 
-  autofix-public-slice:
+  static-analysis:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout feature branch
+      - name: Checkout
         uses: actions/checkout@v7
-        with:
-          ref: feat/OTERYN-20260728-game-catalog-slice-1
 
       - name: Setup PHP
         uses: shivammathur/setup-php@v2
@@ -75,28 +73,45 @@ jobs:
       - name: Install dependencies from lockfile
         run: composer install --no-interaction --prefer-dist --no-progress --quiet
 
-      - name: Fix exact public-query type boundary
+      - name: Check Game Catalog formatting
         shell: bash
         run: |
-          python3 - <<'PY'
-          from pathlib import Path
-          import re
-          path = Path('app/GameCatalog/Queries/Public/DatabasePublicCatalogQuery.php')
-          text = path.read_text()
-          text, count = re.subn(r'@param\s+list<object>\s+\$rows', '@param  array<int, object>  $rows', text)
-          if count != 1:
-              raise SystemExit(f'Expected one loot row annotation, found {count}')
-          path.write_text(text)
-          PY
+          set -o pipefail
+          mkdir -p artifacts/ci
+          vendor/bin/pint --test --format=json \
+            app/GameCatalog \
+            bootstrap/providers.php \
+            config/game-catalog.php \
+            database/migrations/2026_07_28_110000_create_game_catalog_tables.php \
+            database/migrations/2026_07_28_110100_add_game_catalog_profile_policies.php \
+            tests/Feature/GameCatalog \
+            tests/Unit/GameCatalog \
+            2>&1 | tee artifacts/ci/game-catalog-pint.json
 
-      - name: Apply Pint
-        run: vendor/bin/pint app/GameCatalog/Queries/Public/DatabasePublicCatalogQuery.php
-
-      - name: Commit exact type fix
+      - name: Analyse Game Catalog slice
         shell: bash
         run: |
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add -- app/GameCatalog/Queries/Public/DatabasePublicCatalogQuery.php
-          git commit -m 'fix(catalog): type public loot query rows'
-          git push origin HEAD:feat/OTERYN-20260728-game-catalog-slice-1
+          set -o pipefail
+          vendor/bin/phpstan analyse \
+            app/GameCatalog \
+            bootstrap/providers.php \
+            config/game-catalog.php \
+            database/migrations/2026_07_28_110000_create_game_catalog_tables.php \
+            database/migrations/2026_07_28_110100_add_game_catalog_profile_policies.php \
+            tests/Feature/GameCatalog \
+            tests/Unit/GameCatalog \
+            --memory-limit=1G \
+            --no-progress \
+            --error-format=raw \
+            2>&1 | tee artifacts/ci/game-catalog-phpstan.txt
+
+      - name: Upload Game Catalog diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: game-catalog-ci-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            artifacts/ci/game-catalog-pint.json
+            artifacts/ci/game-catalog-phpstan.txt
+          if-no-files-found: warn
+          retention-days: 7
