@@ -68,5 +68,78 @@
       }
     ],
     "gaps": []
+  },
+  {
+    "id": "game-catalog.administrator-inspection",
+    "owner": "GameCatalog / Admin / Security",
+    "status": "covered",
+    "route_names": [
+      "admin.game-catalog.index",
+      "admin.game-catalog.snapshots.index",
+      "admin.game-catalog.snapshots.show",
+      "admin.game-catalog.profiles.index",
+      "admin.game-catalog.profiles.show",
+      "admin.game-catalog.findings.index",
+      "admin.game-catalog.diff.index"
+    ],
+    "roles": [
+      "guest",
+      "authenticated-no-mfa",
+      "mfa-confirmed-no-permission",
+      "catalog-access",
+      "snapshot-viewer",
+      "platform-admin"
+    ],
+    "states": [
+      "authentication-required",
+      "confirmed-mfa-required",
+      "exact-access-permission",
+      "exact-snapshot-view-permission",
+      "overview",
+      "snapshot-list-and-detail",
+      "profile-list-and-visibility-detail",
+      "bounded-validation-findings",
+      "bounded-snapshot-diff",
+      "provenance-visible-to-admin",
+      "read-only-no-browser-upload",
+      "read-only-no-browser-activation",
+      "desktop",
+      "tablet",
+      "mobile",
+      "keyboard-focus"
+    ],
+    "viewports": [
+      "desktop-1440x1000",
+      "tablet-820x1180",
+      "mobile-390x844"
+    ],
+    "browsers": [
+      "chromium-primary"
+    ],
+    "evidence_layers": [
+      "feature",
+      "playwright",
+      "responsive",
+      "accessibility",
+      "security",
+      "rbac",
+      "mfa"
+    ],
+    "evidence": [
+      {
+        "file": "tests/Feature/GameCatalog/AdminGameCatalogTest.php",
+        "markers": [
+          "test_admin_catalog_routes_require_confirmed_mfa_and_exact_permissions",
+          "test_admin_catalog_inspects_snapshot_profile_findings_and_visibility_without_browser_mutation"
+        ]
+      },
+      {
+        "file": "scripts/acceptance/tests/admin-game-catalog-acceptance.spec.mjs",
+        "markers": [
+          "@portal-game-catalog-admin MFA RBAC snapshot profile finding diff responsive and accessibility inspection"
+        ]
+      }
+    ],
+    "gaps": []
   }
 ]
