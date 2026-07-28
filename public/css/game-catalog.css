@@ -1,0 +1,274 @@
+.game-catalog-page {
+    overflow-wrap: anywhere;
+}
+
+.game-catalog-page > section,
+.game-catalog-page > .catalog-two-column {
+    margin-block: clamp(2rem, 5vw, 4rem);
+}
+
+.catalog-hero {
+    display: grid;
+    gap: .75rem;
+}
+
+.catalog-context {
+    display: flex;
+    flex-wrap: wrap;
+    gap: .65rem 1.25rem;
+    margin-block: 1.5rem;
+    padding: .9rem 1rem;
+    border: 1px solid var(--border);
+    border-radius: .55rem;
+    background: rgb(8 11 14 / .58);
+    color: var(--text-muted);
+    font-size: .92rem;
+}
+
+.catalog-surface-grid,
+.catalog-card-grid,
+.catalog-two-column {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: clamp(1rem, 3vw, 1.5rem);
+}
+
+.catalog-surface-card,
+.catalog-card,
+.catalog-two-column > section {
+    min-width: 0;
+    padding: clamp(1rem, 3vw, 1.5rem);
+    border: 1px solid var(--border);
+    border-radius: .65rem;
+    background: rgb(8 11 14 / .62);
+}
+
+.catalog-surface-card h2,
+.catalog-card h2 {
+    margin-top: 0;
+}
+
+.catalog-tag-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: .5rem;
+    margin: 1rem 0 0;
+    padding: 0;
+    list-style: none;
+}
+
+.catalog-tag-list a,
+.button-link {
+    display: inline-flex;
+    align-items: center;
+    min-height: 2.5rem;
+    padding: .35rem .7rem;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    text-decoration: none;
+}
+
+.catalog-filters {
+    display: grid;
+    grid-template-columns: minmax(12rem, 2fr) repeat(2, minmax(10rem, 1fr)) auto auto;
+    align-items: end;
+    gap: .85rem;
+    margin-block: 1.5rem 2rem;
+    padding: 1rem;
+    border: 1px solid var(--border);
+    border-radius: .6rem;
+}
+
+.catalog-filters label {
+    display: grid;
+    gap: .35rem;
+    min-width: 0;
+}
+
+.catalog-filters input,
+.catalog-filters select,
+.catalog-filters button {
+    min-width: 0;
+    min-height: 2.75rem;
+}
+
+.catalog-card {
+    display: grid;
+    grid-template-columns: 5rem minmax(0, 1fr);
+    gap: 1rem;
+}
+
+.catalog-image-placeholder {
+    display: grid;
+    width: 5rem;
+    height: 5rem;
+    place-items: center;
+    overflow: hidden;
+    border: 1px dashed var(--border);
+    border-radius: .5rem;
+    color: var(--text-muted);
+    font-size: 1.2rem;
+    text-align: center;
+}
+
+.catalog-image-large {
+    width: 7rem;
+    height: 7rem;
+}
+
+.catalog-kicker {
+    margin: 0 0 .35rem;
+    color: var(--text-muted);
+    font-size: .85rem;
+    letter-spacing: .03em;
+    text-transform: uppercase;
+}
+
+.catalog-compact-stats,
+.catalog-stat-grid {
+    display: grid;
+    gap: .65rem;
+    margin: 1rem 0 0;
+}
+
+.catalog-compact-stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.catalog-stat-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.catalog-compact-stats > div,
+.catalog-stat-grid > div {
+    min-width: 0;
+    padding: .65rem;
+    border: 1px solid var(--border);
+    border-radius: .45rem;
+}
+
+.catalog-compact-stats dt,
+.catalog-stat-grid dt {
+    color: var(--text-muted);
+    font-size: .82rem;
+}
+
+.catalog-compact-stats dd,
+.catalog-stat-grid dd {
+    margin: .2rem 0 0;
+    font-weight: 700;
+}
+
+.catalog-detail-header {
+    display: grid;
+    grid-template-columns: 7rem minmax(0, 1fr);
+    align-items: center;
+    gap: 1.5rem;
+}
+
+.catalog-breadcrumbs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: .4rem;
+    margin-block: 1.25rem 2rem;
+    color: var(--text-muted);
+    font-size: .92rem;
+}
+
+.catalog-table-wrap {
+    width: 100%;
+    overflow-x: auto;
+    border: 1px solid var(--border);
+    border-radius: .55rem;
+}
+
+.catalog-table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+.catalog-table th,
+.catalog-table td {
+    padding: .75rem;
+    border-bottom: 1px solid var(--border);
+    text-align: left;
+    vertical-align: top;
+}
+
+.catalog-table tbody tr:last-child td {
+    border-bottom: 0;
+}
+
+.catalog-json {
+    max-width: 100%;
+    overflow-x: auto;
+    padding: .8rem;
+    border: 1px solid var(--border);
+    border-radius: .45rem;
+    background: #07090b;
+    white-space: pre-wrap;
+}
+
+.catalog-pagination,
+.catalog-result-count {
+    margin-block: 1.5rem;
+}
+
+.game-catalog-page a:focus-visible,
+.game-catalog-page button:focus-visible,
+.game-catalog-page input:focus-visible,
+.game-catalog-page select:focus-visible {
+    outline: 3px solid var(--accent-hover);
+    outline-offset: 3px;
+}
+
+@media (max-width: 72rem) {
+    .catalog-filters {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .catalog-stat-grid {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+}
+
+@media (max-width: 52rem) {
+    .catalog-surface-grid,
+    .catalog-card-grid,
+    .catalog-two-column {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .catalog-stat-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+
+@media (max-width: 36rem) {
+    .catalog-filters,
+    .catalog-stat-grid,
+    .catalog-compact-stats,
+    .catalog-detail-header {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .catalog-card {
+        grid-template-columns: 4rem minmax(0, 1fr);
+    }
+
+    .catalog-image-placeholder {
+        width: 4rem;
+        height: 4rem;
+    }
+
+    .catalog-image-large {
+        width: 6rem;
+        height: 6rem;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .game-catalog-page * {
+        scroll-behavior: auto;
+    }
+}
