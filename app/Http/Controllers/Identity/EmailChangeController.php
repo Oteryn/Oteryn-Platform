@@ -32,7 +32,7 @@ final class EmailChangeController
 
         return redirect()
             ->route('identity.account-security.show')
-            ->with('status', 'Check the new email address to confirm the change. The old address received a recovery link.');
+            ->with('status', __('identity.status.email_change_requested'));
     }
 
     public function confirmCreate(string $token): View
@@ -60,7 +60,7 @@ final class EmailChangeController
 
         return redirect()
             ->route('identity.login.create')
-            ->with('status', 'Your primary email address has been changed. Sign in with the new address.');
+            ->with('status', __('identity.status.email_changed'));
     }
 
     public function recoverCreate(string $token): View
@@ -83,7 +83,7 @@ final class EmailChangeController
         return redirect()
             ->route('identity.login.create')
             ->with('status', $result === 'recovered'
-                ? 'The previous email address has been restored. Sign in again.'
-                : 'The pending email change has been cancelled.');
+                ? __('identity.status.email_restored')
+                : __('identity.status.email_change_cancelled'));
     }
 }
