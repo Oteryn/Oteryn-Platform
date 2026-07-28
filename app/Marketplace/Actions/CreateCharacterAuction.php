@@ -25,11 +25,7 @@ final class CreateCharacterAuction
     ): CharacterAuction {
         $existing = CharacterAuction::query()->where('listing_request_id', $requestId)->first();
         if ($existing instanceof CharacterAuction) {
-            if ($existing->seller_identity_id !== $seller->id) {
-                throw new MarketplaceException('idempotency_conflict', 'The listing request identifier is already in use.');
-            }
-
-            return $existing;
+            return $this->existingResult($existing, $seller, $playerId, $durationDays, $startingBid, $buyNowPrice);
         }
 
         $binding = IdentityCanaryAccount::query()->whereKey($seller->id)->first();
@@ -113,8 +109,8 @@ final class CreateCharacterAuction
             }
 
             $recovered = CharacterAuction::query()->where('listing_request_id', $requestId)->first();
-            if ($recovered instanceof CharacterAuction && $recovered->seller_identity_id === $seller->id) {
-                return $recovered;
+            if ($recovered instanceof CharacterAuction) {
+                return $this->existingResult($recovered, $seller, $playerId, $durationDays, $startingBid, $buyNowPrice);
             }
 
             throw new MarketplaceException('character_already_listed', 'This character is already controlled by another auction.');
@@ -146,6 +142,25 @@ final class CreateCharacterAuction
         }
 
         return $auction->refresh();
+    }
+
+    private function existingResult(
+        CharacterAuction $existing,
+        Identity $seller,
+        int $playerId,
+        int $durationDays,
+        int $startingBid,
+        ?int $buyNowPrice,
+    ): CharacterAuction {
+        if ($existing->seller_identity_id !== $seller->id
+            || $existing->player_id !== $playerId
+            || $existing->duration_days !== $durationDays
+            || $existing->starting_bid !== $startingBid
+            || $existing->buy_now_price !== $buyNowPrice) {
+            throw new MarketplaceException('idempotency_conflict', 'The listing request identifier is already in use.');
+        }
+
+        return $existing;
     }
 
     private function markRecovery(CharacterAuction $auction, string $reason): void
