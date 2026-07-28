@@ -53,9 +53,11 @@ owned_paths:
   - lang/en/game_catalog.php
   - lang/pl/game_catalog.php
   - public/css/game-catalog.css
+  - tests/Fixtures/GameCatalog/**
   - tests/Unit/GameCatalog/**
   - tests/Feature/GameCatalog/**
   - tests/Integration/GameCatalog/**
+  - tools/game-catalog/**
   - scripts/acceptance/**/*game-catalog*
 modules:
   - GameCatalog
@@ -95,9 +97,9 @@ production_activation: forbidden
 ```yaml
 checkpoint_version: 1
 updated_at: 2026-07-28T10:15:12+02:00
-head: 8aa1fc29dd13895efb2a7006204a6b88105e6972
+head: c596d61d6d4ee54fee5721066eaf9e5ebe3e7127
 branch: feat/OTERYN-20260728-game-catalog-slice-1
-pr: none
+pr: 272
 status: implementing
 context_routes:
   - agent-governance
@@ -122,22 +124,29 @@ owned_paths:
   - lang/en/game_catalog.php
   - lang/pl/game_catalog.php
   - public/css/game-catalog.css
+  - tests/Fixtures/GameCatalog/**
   - tests/Unit/GameCatalog/**
   - tests/Feature/GameCatalog/**
   - tests/Integration/GameCatalog/**
+  - tools/game-catalog/**
   - scripts/acceptance/**/*game-catalog*
 proven:
   - main head is architecture merge commit 8aa1fc29dd13895efb2a7006204a6b88105e6972
   - merged architecture defines contract oteryn.game-catalog schema 1.0.0 and fail-closed visibility
+  - Platform and Canary schema files have the same Git blob SHA a3c239a6d61385edde0b06f72cdf781f4ce58df3
   - no open Platform PR is dedicated to Game Catalog
   - open PR #270 modifies shared provider, routing, navigation and layout integration paths
+  - draft PR #272 tracks this task
+  - sanitized fixture contains two releases, visible/future items, complete/partial creatures and visible/future loot relations
   - repository writes are authorized only in blakinio/Oteryn-Platform and blakinio/canary
   - production deployment and production activation are excluded
 derived:
+  - matching Git blob SHAs prove the two schema files are byte-identical
   - initial contract/fixture work can proceed without touching PR #270 shared paths
 unknown:
+  - automated confirmation of the expected schema SHA-256 on the branch
   - final integration shape after PR #270 lands or ownership is explicitly reconciled
-  - executable local test results because the sandbox cannot clone GitHub or run the repository checkout
+  - executable local PHP test results because the sandbox cannot clone GitHub or run the repository checkout
   - complete historical content and availability facts listed by the architecture
 conflicts:
   - potential future ownership overlap with PR #270 for app/Providers/AppServiceProvider.php, localized route registration, shared layouts and navigation aggregation
@@ -150,10 +159,17 @@ rejected_hypotheses:
   - unknown values may be converted to zero or guessed
 changed_paths:
   - docs/agents/tasks/active/OTERYN-20260728-game-catalog-slice-1.md
+  - tests/Fixtures/GameCatalog/v1/minimal-snapshot.json
 validation:
   - command: GitHub repository and main-head inspection
     result: PASS
     evidence: main head 8aa1fc29dd13895efb2a7006204a6b88105e6972
+  - command: GitHub schema blob comparison
+    result: PASS
+    evidence: both schema paths resolve to blob a3c239a6d61385edde0b06f72cdf781f4ce58df3
+  - command: local synthetic fixture semantic validation
+    result: PASS
+    evidence: counts, ranges, endpoints, probability/count bounds and 15.20/15.21 visibility assertions passed; fixture SHA-256 c947e461c1ee8f6fbf511c9890b61135d2585d6c16e2e99a0f72dd5a946c2181
   - command: open PR ownership inspection
     result: PASS_WITH_CONFLICT_RECORDED
     evidence: PR #270 changed-file inventory reviewed
@@ -162,7 +178,7 @@ validation:
     evidence: sandbox DNS cannot resolve github.com
 blockers:
   - shared integration paths remain held pending reconciliation with PR #270
-next_action: Add the sanitized shared fixture and automated schema/fixture contract validation without touching PR #270-owned integration paths.
+next_action: Add the automated schema and fixture validator under tools/game-catalog and run it in CI on PR #272.
 ```
 
 ## Deferred child tasks
