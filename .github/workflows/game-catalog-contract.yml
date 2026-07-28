@@ -146,7 +146,7 @@ jobs:
           --health-retries=20
     env:
       CANARY_REPOSITORY: blakinio/canary
-      CANARY_HEAD_SHA: 8fceccbae43dd4c965543280201888c6395629ba
+      CANARY_HEAD_SHA: c090e8d6a68730fcf0147105be03c37f3f19d1cb
       CANARY_WORKFLOW_FILE: game-catalog.yml
       APP_ENV: testing
       APP_DEBUG: 'false'
