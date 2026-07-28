@@ -239,8 +239,8 @@ final class CanaryCharacterTransfer implements CanaryCharacterTransferGateway
             }
 
             if ($enforceTargetCharacterLimit) {
-                $limit = (int) config('marketplace.character_limit', 10);
-                if ($limit < 1 || $limit > 100) {
+                $configuredLimit = config('marketplace.character_limit', 10);
+                if (! is_int($configuredLimit) || $configuredLimit < 1 || $configuredLimit > 100) {
                     throw new MarketplaceException('invalid_marketplace_configuration', 'The marketplace character limit configuration is invalid.');
                 }
 
@@ -250,7 +250,7 @@ final class CanaryCharacterTransfer implements CanaryCharacterTransferGateway
                     ->where('id', '<>', $playerId)
                     ->count('id');
 
-                if ($targetCount >= $limit) {
+                if ($targetCount >= $configuredLimit) {
                     throw new MarketplaceException('target_character_limit', 'The target account has reached its active character limit.');
                 }
             }
@@ -285,7 +285,7 @@ final class CanaryCharacterTransfer implements CanaryCharacterTransferGateway
         return $query->exists();
     }
 
-    /** @param array<string, mixed> $values */
+    /** @param array<array-key, mixed> $values */
     private function positiveInt(array $values, string $key): int
     {
         $value = $values[$key] ?? null;
@@ -296,7 +296,7 @@ final class CanaryCharacterTransfer implements CanaryCharacterTransferGateway
         return (int) $value;
     }
 
-    /** @param array<string, mixed> $values */
+    /** @param array<array-key, mixed> $values */
     private function intValue(array $values, string $key): int
     {
         $value = $values[$key] ?? null;
