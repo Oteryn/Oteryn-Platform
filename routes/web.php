@@ -22,6 +22,7 @@ use App\Http\Controllers\Identity\RecoveryKeyController;
 use App\Http\Controllers\Identity\RegistrationController;
 use App\Http\Controllers\Identity\SessionController;
 use App\Http\Controllers\PublicGameData\PublicGameDataController;
+use App\Identity\Localization\SetIdentityLocale;
 use Illuminate\Support\Facades\Route;
 
 Route::get('/register', [RegistrationController::class, 'create'])
@@ -32,10 +33,15 @@ Route::post('/register', [RegistrationController::class, 'store'])
     ->name('identity.register.store');
 
 Route::get('/login', [SessionController::class, 'create'])
-    ->middleware('guest')
+    ->middleware([SetIdentityLocale::class, 'guest'])
     ->name('identity.login.create');
 Route::post('/login', [SessionController::class, 'store'])
-    ->middleware(['guest', 'throttle:identity-login', 'throttle:identity-login-source'])
+    ->middleware([
+        SetIdentityLocale::class,
+        'guest',
+        'throttle:identity-login',
+        'throttle:identity-login-source',
+    ])
     ->name('identity.login.store');
 Route::post('/logout', [SessionController::class, 'destroy'])
     ->middleware('auth')
@@ -80,23 +86,28 @@ Route::post('/reset-password', [PasswordResetController::class, 'store'])
     ->name('password.update');
 
 Route::get('/recovery-key', [RecoveryKeyController::class, 'recoverCreate'])
-    ->middleware('guest')
+    ->middleware([SetIdentityLocale::class, 'guest'])
     ->name('identity.recovery-key.recover.create');
 Route::post('/recovery-key', [RecoveryKeyController::class, 'recover'])
-    ->middleware(['guest', 'throttle:identity-recovery-key-use', 'throttle:identity-password-recovery-source'])
+    ->middleware([
+        SetIdentityLocale::class,
+        'guest',
+        'throttle:identity-recovery-key-use',
+        'throttle:identity-password-recovery-source',
+    ])
     ->name('identity.recovery-key.recover');
 
 Route::get('/email-change/confirm/{token}', [EmailChangeController::class, 'confirmCreate'])
-    ->middleware('throttle:identity-email-token')
+    ->middleware([SetIdentityLocale::class, 'throttle:identity-email-token'])
     ->name('identity.email-change.confirm.create');
 Route::post('/email-change/confirm/{token}', [EmailChangeController::class, 'confirm'])
-    ->middleware('throttle:identity-email-token')
+    ->middleware([SetIdentityLocale::class, 'throttle:identity-email-token'])
     ->name('identity.email-change.confirm');
 Route::get('/email-change/recover/{token}', [EmailChangeController::class, 'recoverCreate'])
-    ->middleware('throttle:identity-email-token')
+    ->middleware([SetIdentityLocale::class, 'throttle:identity-email-token'])
     ->name('identity.email-change.recover.create');
 Route::post('/email-change/recover/{token}', [EmailChangeController::class, 'recover'])
-    ->middleware('throttle:identity-email-token')
+    ->middleware([SetIdentityLocale::class, 'throttle:identity-email-token'])
     ->name('identity.email-change.recover');
 
 Route::get('/password/change', [PasswordChangeController::class, 'create'])
@@ -119,7 +130,7 @@ Route::post('/account/characters', [CharacterCreationController::class, 'store']
     ->middleware(['auth', 'throttle:character-create'])
     ->name('account.characters.store');
 
-Route::middleware('auth')->prefix('account/security')->group(function (): void {
+Route::middleware([SetIdentityLocale::class, 'auth'])->prefix('account/security')->group(function (): void {
     Route::get('/', [AccountSecurityController::class, 'show'])->name('identity.account-security.show');
     Route::post('/email', [EmailChangeController::class, 'store'])
         ->middleware('throttle:identity-email-change')
