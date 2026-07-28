@@ -30,12 +30,12 @@ final class ConfirmIdentityEmailChange
                     ->first();
 
                 if (! $change instanceof IdentityEmailChangeRequest || ! $change->isPending()) {
-                    throw new EmailChangeRejected('The email verification link is invalid or has expired.');
+                    throw new EmailChangeRejected(__('identity.errors.email_verification_invalid'));
                 }
 
                 $identity = Identity::query()->lockForUpdate()->find($change->identity_id);
                 if (! $identity instanceof Identity || $identity->disabled_at !== null || $identity->terminated_at !== null) {
-                    throw new EmailChangeRejected('Email change is not available for this account.');
+                    throw new EmailChangeRejected(__('identity.errors.email_change_unavailable'));
                 }
 
                 $emailInUse = Identity::query()
@@ -43,7 +43,7 @@ final class ConfirmIdentityEmailChange
                     ->whereKeyNot($identity->id)
                     ->exists();
                 if ($emailInUse) {
-                    throw new EmailChangeRejected('The requested email address cannot be used.');
+                    throw new EmailChangeRejected(__('identity.errors.email_unusable'));
                 }
 
                 $now = now();
@@ -67,7 +67,7 @@ final class ConfirmIdentityEmailChange
                 return $identity->refresh();
             });
         } catch (QueryException $exception) {
-            throw new EmailChangeRejected('The requested email address cannot be used.', previous: $exception);
+            throw new EmailChangeRejected(__('identity.errors.email_unusable'), previous: $exception);
         }
     }
 
