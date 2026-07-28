@@ -10,7 +10,7 @@ use Illuminate\Support\Collection;
 final class PublicCharacterAuctionQuery
 {
     /**
-     * @param array{vocation?: int|null, level_min?: int|null, level_max?: int|null, price_min?: int|null, price_max?: int|null, sort?: string|null} $filters
+     * @param  array{vocation?: int|null, level_min?: int|null, level_max?: int|null, price_min?: int|null, price_max?: int|null, sort?: string|null}  $filters
      * @return LengthAwarePaginator<int, CharacterAuction>
      */
     public function paginate(array $filters, int $perPage = 24): LengthAwarePaginator
@@ -68,5 +68,21 @@ final class PublicCharacterAuctionQuery
             ->orderByDesc('placed_at')
             ->limit($limit)
             ->get(['id', 'auction_id', 'amount', 'status', 'placed_at']);
+    }
+
+    /** @return list<int> */
+    public function sitemapIds(): array
+    {
+        return CharacterAuction::query()
+            ->whereIn('status', [
+                CharacterAuction::STATUS_ACTIVE,
+                CharacterAuction::STATUS_SETTLEMENT_PENDING,
+                CharacterAuction::STATUS_COMPLETED,
+            ])
+            ->orderBy('id')
+            ->limit(10_000)
+            ->pluck('id')
+            ->map(static fn (mixed $id): int => (int) $id)
+            ->all();
     }
 }
