@@ -19,7 +19,7 @@ final class IdentityTerminationGuard
             ->where('expires_at', '>', now())
             ->exists();
         if ($pendingEmailChange) {
-            throw new AccountTerminationRejected('Cancel or complete the pending email change before requesting termination.');
+            throw new AccountTerminationRejected(__('identity.errors.termination_pending_email'));
         }
 
         $nonTerminalStatuses = [
@@ -37,14 +37,14 @@ final class IdentityTerminationGuard
             })
             ->exists();
         if ($activeMarketplaceOperation) {
-            throw new AccountTerminationRejected('Resolve active Character Bazaar operations before requesting termination.');
+            throw new AccountTerminationRejected(__('identity.errors.termination_active_bazaar'));
         }
 
         $reservedBalance = WalletAccount::query()
             ->where('identity_id', $identity->id)
             ->value('reserved_balance');
         if (is_int($reservedBalance) && $reservedBalance > 0) {
-            throw new AccountTerminationRejected('Reserved Oteryn Coins must be released before requesting termination.');
+            throw new AccountTerminationRejected(__('identity.errors.termination_reserved_coins'));
         }
     }
 }
