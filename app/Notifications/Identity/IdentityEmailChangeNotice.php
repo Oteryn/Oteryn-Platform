@@ -5,6 +5,7 @@ namespace App\Notifications\Identity;
 use Illuminate\Bus\Queueable;
 use Illuminate\Notifications\Messages\MailMessage;
 use Illuminate\Notifications\Notification;
+use Illuminate\Support\Facades\Lang;
 
 final class IdentityEmailChangeNotice extends Notification
 {
@@ -12,6 +13,7 @@ final class IdentityEmailChangeNotice extends Notification
 
     public function __construct(
         private readonly string $token,
+        private readonly ?string $notificationLocale = null,
     ) {}
 
     /** @return list<string> */
@@ -22,10 +24,17 @@ final class IdentityEmailChangeNotice extends Notification
 
     public function toMail(object $notifiable): MailMessage
     {
+        $locale = in_array($this->notificationLocale, ['en', 'pl'], true)
+            ? $this->notificationLocale
+            : 'en';
+
         return (new MailMessage)
-            ->subject('Oteryn primary email change requested')
-            ->line('A request was made to change the primary email address for your Oteryn Platform account.')
-            ->action('Cancel or recover this change', route('identity.email-change.recover.create', ['token' => $this->token]))
-            ->line('Use the recovery link immediately when you did not request this change. The link is single-use and expires automatically.');
+            ->subject((string) Lang::get('identity.mail.notice_subject', [], $locale))
+            ->line((string) Lang::get('identity.mail.notice_intro', [], $locale))
+            ->action(
+                (string) Lang::get('identity.mail.notice_action', [], $locale),
+                route('identity.email-change.recover.create', ['token' => $this->token, 'locale' => $locale]),
+            )
+            ->line((string) Lang::get('identity.mail.notice_outro', [], $locale));
     }
 }
