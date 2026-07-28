@@ -78,7 +78,7 @@ Route::middleware([SetIdentityLocale::class, 'auth'])
             ->name('support.enforcement.appeal');
     });
 
-Route::middleware(['auth', 'mfa.confirmed', 'admin.permission:support.content.manage'])
+Route::middleware([SetIdentityLocale::class, 'auth', 'mfa.confirmed', 'admin.permission:support.content.manage'])
     ->prefix('admin/support-content')
     ->group(function (): void {
         Route::get('/', [AdminSupportContentController::class, 'index'])
@@ -89,7 +89,7 @@ Route::middleware(['auth', 'mfa.confirmed', 'admin.permission:support.content.ma
             ->name('admin.support-content.update');
     });
 
-Route::middleware(['auth', 'mfa.confirmed', 'admin.permission:support.tickets.manage'])
+Route::middleware([SetIdentityLocale::class, 'auth', 'mfa.confirmed', 'admin.permission:support.tickets.manage'])
     ->prefix('admin/support/tickets')
     ->group(function (): void {
         Route::get('/', [AdminSupportTicketController::class, 'index'])->name('admin.support.tickets.index');
@@ -98,7 +98,7 @@ Route::middleware(['auth', 'mfa.confirmed', 'admin.permission:support.tickets.ma
         Route::put('/{supportTicket}/status', [AdminSupportTicketController::class, 'status'])->name('admin.support.tickets.status');
     });
 
-Route::middleware(['auth', 'mfa.confirmed', 'admin.permission:support.reports.manage'])
+Route::middleware([SetIdentityLocale::class, 'auth', 'mfa.confirmed', 'admin.permission:support.reports.manage'])
     ->prefix('admin/moderation/reports')
     ->group(function (): void {
         Route::get('/', [AdminPlayerReportController::class, 'index'])->name('admin.moderation.reports.index');
@@ -106,7 +106,7 @@ Route::middleware(['auth', 'mfa.confirmed', 'admin.permission:support.reports.ma
         Route::put('/{playerReport}', [AdminPlayerReportController::class, 'update'])->name('admin.moderation.reports.update');
     });
 
-Route::middleware(['auth', 'mfa.confirmed', 'admin.permission:support.enforcement.manage'])
+Route::middleware([SetIdentityLocale::class, 'auth', 'mfa.confirmed', 'admin.permission:support.enforcement.manage'])
     ->prefix('admin/moderation/enforcement')
     ->group(function (): void {
         Route::get('/', [AdminEnforcementController::class, 'index'])->name('admin.moderation.enforcement.index');
