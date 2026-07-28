@@ -91,11 +91,26 @@ jobs:
             --error-format=raw \
             2>&1 | tee artifacts/ci/game-catalog-phpstan.txt
 
+      - name: Archive exact Game Catalog source snapshot
+        if: always()
+        shell: bash
+        run: |
+          tar -czf artifacts/ci/game-catalog-source.tgz \
+            app/GameCatalog \
+            bootstrap/providers.php \
+            config/game-catalog.php \
+            database/migrations/2026_07_28_110000_create_game_catalog_tables.php \
+            database/migrations/2026_07_28_110100_add_game_catalog_profile_policies.php \
+            tests/Feature/GameCatalog \
+            tests/Unit/GameCatalog
+
       - name: Upload Game Catalog static-analysis diagnostics
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: game-catalog-phpstan-${{ github.run_id }}-${{ github.run_attempt }}
-          path: artifacts/ci/game-catalog-phpstan.txt
+          name: game-catalog-ci-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            artifacts/ci/game-catalog-phpstan.txt
+            artifacts/ci/game-catalog-source.tgz
           if-no-files-found: error
           retention-days: 7
