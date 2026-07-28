@@ -54,13 +54,7 @@ final class PublicCharacterAuctionQuery
 
     public function visible(CharacterAuction $auction): bool
     {
-        return in_array($auction->status, [
-            CharacterAuction::STATUS_ACTIVE,
-            CharacterAuction::STATUS_SETTLEMENT_PENDING,
-            CharacterAuction::STATUS_COMPLETED,
-            CharacterAuction::STATUS_CANCELLED,
-            CharacterAuction::STATUS_EXPIRED,
-        ], true);
+        return $auction->isPubliclyVisible();
     }
 
     /** @return Collection<int, AuctionBid> */
