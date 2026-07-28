@@ -104,8 +104,8 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-07-28T17:52:49Z
-head: 544912954cbc3c07657182d0923042aaea26f27b
+updated_at: 2026-07-28T19:21:19Z
+head: 0470eb6bcbbebca80927ce8df4fc7507d6413914
 branch: feat/OTERYN-20260728-account-security-lifecycle
 pr: 283
 status: validating
@@ -134,31 +134,43 @@ owned_paths:
   - config/identity_security.php
   - tests/**/Identity/**
   - scripts/acceptance/tests/*account*security*
+  - scripts/acceptance/coverage/**
   - docs/architecture/adr/*account-security*
+  - docs/architecture/MODULE_CATALOG.md
+  - docs/architecture/DATA_OWNERSHIP.md
+  - docs/architecture/SECURITY_ARCHITECTURE.md
   - docs/operations/*ACCOUNT*SECURITY*
+  - docs/testing/PRODUCT_COMPLETENESS_BENCHMARK.md
+  - docs/testing/product-completeness-benchmark.json
+  - docs/testing/PORTAL_ACCEPTANCE_COVERAGE_MATRIX.md
   - docs/agents/tasks/active/OTERYN-20260728-account-security-lifecycle.md
 proven:
-  - PR #283 is open, draft and mergeable on branch feat/OTERYN-20260728-account-security-lifecycle at head 544912954cbc3c07657182d0923042aaea26f27b.
+  - PR #283 is open, draft and mergeable on branch feat/OTERYN-20260728-account-security-lifecycle; the last fully validated functional head is 0470eb6bcbbebca80927ce8df4fc7507d6413914.
   - The branch implements Platform-owned active-session persistence and targeted revocation, verified email change with old-address recovery, privacy controls, non-destructive termination and a verifier-only recovery-key lifecycle.
   - Browser-supplied identifiers do not establish session ownership, recovery keys are stored only as keyed verifiers, and termination preserves the immutable Canary binding and Canary-owned account and character data.
+  - Revoked or stale registered sessions are rejected before protected controllers execute and are redirected to the login surface; public routes continue as guest requests.
   - Canary and login-server schema or session compatibility is unchanged; blakinio/canary remains read-only and no cross-repository rollout is required.
   - No secret or production-only credential is committed; rollback is the reversible PR branch plus reversible Platform migrations, and production deployment remains unverified.
-  - Exact-head format diagnostics run 30368928083 produced one Pint patch limited to tests/Feature/Identity/AccountSecurityLifecycleTest.php.
-  - Exact-head static diagnostics run 30368933274 passed; Agent Governance, Synology preflight, image build, DB outage, edge-security and game-auth concurrency workflows also passed on this head.
+  - Exact-head CI run 30390881191 passed Composer validation, dependency audit, Pint, PHPStan and the full PHPUnit suite.
+  - Portal Acceptance Contract run 30390881152 passed both strict portal coverage closure and the complete zero-retry account lifecycle against real HTTP, MariaDB, Redis and MailHog.
+  - Acceptance E2E and Visual UX run 30390881206 and Phase 7 run 30390881058 passed on exact head 0470eb6bcbbebca80927ce8df4fc7507d6413914.
+  - Agent Governance, Synology preflight and image build, DB outage, edge-security and game-auth concurrency workflows all passed on exact head 0470eb6bcbbebca80927ce8df4fc7507d6413914.
+  - Account Security Static Diagnostics run 30390881213 produced artifact 8700909486 with PHPStan exit-code 0.
 derived:
-  - The current first failure is formatting rather than PHPStan, and the exact artifact patch is the smallest safe next change before broader test diagnosis.
-  - The trust boundary remains Platform Identity and web-session state; authorization must continue to derive the authenticated Identity server-side and security-sensitive mutations must revoke or rotate sessions deterministically.
+  - The formatter, PHPStan, PHPUnit, strict coverage ledger, targeted session revocation and complete browser lifecycle blockers are resolved on the validated functional head.
+  - The trust boundary remains Platform Identity and registered web-session state; authorization derives the authenticated Identity server-side and security-sensitive mutations revoke or rotate sessions deterministically.
+  - The remaining acceptance slice is localization and durable architecture, operations and product-completeness documentation; the current PR changed-file inventory does not include those declared outputs.
 unknown:
-  - Whether PHPUnit and focused account-security tests pass after the formatter gate is cleared.
-  - The downstream root causes of Phase 7 run 30368933723 and Portal Acceptance Contract run 30368933745 after formatting is fixed.
-  - Whether the cancelled acceptance run 30368928203 will expose additional browser, localization or responsive failures on a clean exact head.
+  - English and Polish account-security UI coverage remains unproven because the declared localization outputs are not present in the current PR changed-file inventory.
+  - Required module catalog, data ownership, security architecture, operations guidance and product-completeness updates remain unproven because those files are not present in the current PR changed-file inventory.
   - Production deployment state and production-only configuration remain outside repository evidence.
 conflicts: []
 first_failure:
-  marker: pint-format-account-security-lifecycle-test
-  evidence: CI run 30368933735 failed at Check formatting; artifact 8692009680 from diagnostics run 30368928083 imports EmailChangeRejected and replaces two fully-qualified exception references.
+  marker: none-on-validated-functional-head
+  evidence: All required workflows associated with exact head 0470eb6bcbbebca80927ce8df4fc7507d6413914 concluded success, including CI, Portal Acceptance Contract, Acceptance E2E and Visual UX and Phase 7.
 rejected_hypotheses:
-  - PHPStan is still the current first failure; rejected because exact-head static diagnostics run 30368933274 passed.
+  - PHPStan remains blocked after the Pint patch; rejected because exact-head CI and static diagnostics both pass with PHPStan exit-code 0.
+  - Targeted or global session revocation may allow a stale authenticated request to execute a protected controller; rejected by the protected-route regression test and complete browser lifecycle evidence.
   - First-slice termination should delete or unlink Canary data; rejected because the immutable binding contract and repository authorization permit no such mutation.
   - Email-code MFA should be added as a second factor; rejected by the durable ADR because email is already the recovery channel.
 changed_paths:
@@ -166,39 +178,49 @@ changed_paths:
   - app/Http/Controllers/Identity/**
   - app/Http/Middleware/EnsureIdentitySessionIsCurrent.php
   - app/Http/Requests/Identity/**
-  - app/Mail/Identity/**
   - app/Notifications/Identity/**
   - app/Console/Commands/FinalizeIdentityTerminations.php
+  - app/Providers/AccountSecurityServiceProvider.php
+  - bootstrap/app.php
+  - bootstrap/providers.php
   - database/migrations/*identity*
   - routes/web.php
   - resources/views/identity/**
   - config/identity_security.php
-  - tests/Feature/Identity/AccountSecurityLifecycleTest.php
+  - tests/Feature/Identity/**
   - tests/Unit/Identity/**
+  - tests/TestCase.php
+  - scripts/acceptance/tests/*account*security*
+  - scripts/acceptance/tests/mfa-security-acceptance.spec.mjs
+  - scripts/acceptance/tests/password-change-acceptance.spec.mjs
+  - scripts/acceptance/tests/password-recovery-acceptance.spec.mjs
+  - scripts/acceptance/coverage/surfaces/identity-account-security-lifecycle.json
   - docs/architecture/adr/0017-account-security-lifecycle.md
+  - docs/agents/ACTIVE_WORK.md
   - docs/agents/tasks/active/OTERYN-20260728-account-security-lifecycle.md
 validation:
-  - command: Account Security Format Diagnostics run 30368928083
+  - command: CI run 30390881191
     result: PASS
-    evidence: artifact 8692009680 identifies exactly one Pint-managed test file.
-  - command: Account Security Static Diagnostics run 30368933274
+    evidence: Composer metadata, dependency audit, Pint, PHPStan and the full PHPUnit suite completed successfully on exact head 0470eb6bcbbebca80927ce8df4fc7507d6413914.
+  - command: Account Security Static Diagnostics run 30390881213
     result: PASS
-    evidence: PHPStan diagnostics completed successfully on exact head 544912954cbc3c07657182d0923042aaea26f27b.
-  - command: CI run 30368933735
-    result: FAIL
-    evidence: Check formatting failed before static analysis and PHPUnit.
-  - command: Agent Governance run 30368928038 and infrastructure/security focused workflows on exact head
+    evidence: artifact 8700909486 records PHPStan exit-code 0 on exact head 0470eb6bcbbebca80927ce8df4fc7507d6413914.
+  - command: Portal Acceptance Contract run 30390881152
     result: PASS
-    evidence: governance, Synology preflight, image build, DB outage, edge-security and game-auth concurrency concluded success.
-  - command: Phase 7 run 30368933723 and Portal Acceptance Contract run 30368933745
-    result: FAIL
-    evidence: downstream failures remain to inspect after the formatter gate is cleared.
-  - command: Acceptance E2E and Visual UX run 30368928203
-    result: BLOCKED
-    evidence: run was cancelled before exact-head account-security acceptance evidence completed.
+    evidence: strict portal coverage closure and the complete zero-retry account lifecycle both completed successfully.
+  - command: Acceptance E2E and Visual UX run 30390881206
+    result: PASS
+    evidence: the exact-head browser acceptance and visual/UX workflow concluded success.
+  - command: Phase 7 Production-Like Validation run 30390881058
+    result: PASS
+    evidence: production-like validation concluded success on the exact functional head.
+  - command: Agent Governance run 30390881231, Synology preflight run 30390881050, image build run 30390881200, DB outage run 30390881297, edge-security run 30390881051 and game-auth concurrency run 30390881109
+    result: PASS
+    evidence: all focused governance, infrastructure and security workflows concluded success on the exact functional head.
 blockers:
-  - Exact head is not merge-ready because CI currently stops at the Pint formatting gate and downstream validation remains unresolved.
-next_action: Apply the exact Pint patch from artifact 8692009680 to tests/Feature/Identity/AccountSecurityLifecycleTest.php, then verify the new exact-head CI progresses past Check formatting.
+  - PR #283 remains validating because English/Polish account-security localization and the required architecture, operations and product-completeness documentation have not been closed.
+  - Production deployment and production-only configuration remain unverified and outside repository evidence.
+next_action: Close the remaining acceptance slice by adding English/Polish account-security localization and updating the module catalog, data ownership, security architecture, operations guidance and product-completeness documentation, then rerun exact-final-head workflows.
 ```
 
 ## Boundaries
