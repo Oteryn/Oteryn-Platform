@@ -80,27 +80,23 @@ jobs:
         run: |
           python3 - <<'PY'
           from pathlib import Path
+          import re
           path = Path('app/GameCatalog/Queries/Public/DatabasePublicCatalogQuery.php')
           text = path.read_text()
-          text = text.replace('@param list<object> $rows', '@param array<int, object> $rows')
+          text, count = re.subn(r'@param\s+list<object>\s+\$rows', '@param  array<int, object>  $rows', text)
+          if count != 1:
+              raise SystemExit(f'Expected one loot row annotation, found {count}')
           path.write_text(text)
           PY
 
       - name: Apply Pint
-        run: >-
-          vendor/bin/pint
-          app/GameCatalog
-          tests/Feature/GameCatalog
-          tests/Unit/GameCatalog
+        run: vendor/bin/pint app/GameCatalog/Queries/Public/DatabasePublicCatalogQuery.php
 
-      - name: Commit deterministic public-slice fixes
+      - name: Commit exact type fix
         shell: bash
         run: |
-          if git diff --quiet -- app/GameCatalog tests/Feature/GameCatalog tests/Unit/GameCatalog; then
-            exit 0
-          fi
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add -- app/GameCatalog tests/Feature/GameCatalog tests/Unit/GameCatalog
-          git commit -m 'style(catalog): finalize public catalog slice'
+          git add -- app/GameCatalog/Queries/Public/DatabasePublicCatalogQuery.php
+          git commit -m 'fix(catalog): type public loot query rows'
           git push origin HEAD:feat/OTERYN-20260728-game-catalog-slice-1
