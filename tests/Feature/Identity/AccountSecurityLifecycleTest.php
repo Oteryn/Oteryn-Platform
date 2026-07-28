@@ -3,6 +3,7 @@
 namespace Tests\Feature\Identity;
 
 use App\Identity\Email\ConfirmIdentityEmailChange;
+use App\Identity\Email\EmailChangeRejected;
 use App\Identity\Email\RecoverIdentityEmailChange;
 use App\Identity\Models\Identity;
 use App\Identity\Models\IdentityEmailChangeRequest;
@@ -97,7 +98,7 @@ final class AccountSecurityLifecycleTest extends TestCase
         self::assertGreaterThan(0, $identity->web_session_generation);
         self::assertGreaterThan(0, $identity->game_auth_generation);
 
-        $this->expectException(\App\Identity\Email\EmailChangeRejected::class);
+        $this->expectException(EmailChangeRejected::class);
         app(ConfirmIdentityEmailChange::class)->execute($verificationToken);
     }
 
@@ -122,7 +123,7 @@ final class AccountSecurityLifecycleTest extends TestCase
         self::assertSame('old-address@example.test', $identity->fresh()?->email);
         self::assertNotNull($change->fresh()?->recovered_at);
 
-        $this->expectException(\App\Identity\Email\EmailChangeRejected::class);
+        $this->expectException(EmailChangeRejected::class);
         app(RecoverIdentityEmailChange::class)->execute($recoveryToken);
     }
 
