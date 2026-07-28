@@ -15,6 +15,7 @@ use Illuminate\Support\Carbon;
  * @property int $amount
  * @property string $status
  * @property Carbon $placed_at
+ * @property Carbon|null $updated_at
  */
 final class AuctionBid extends Model
 {
@@ -27,6 +28,8 @@ final class AuctionBid extends Model
     public const STATUS_WON = 'won';
 
     public const STATUS_RELEASED = 'released';
+
+    protected $table = 'character_auction_bids';
 
     /** @var list<string> */
     protected $fillable = [
