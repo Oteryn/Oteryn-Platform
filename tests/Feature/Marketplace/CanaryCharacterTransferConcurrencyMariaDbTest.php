@@ -142,6 +142,9 @@ final class CanaryCharacterTransferConcurrencyMariaDbTest extends TestCase
                 self::assertSame(0, pcntl_wexitstatus($waitStatus));
             }
 
+            $this->root = null;
+            $this->connectRoot();
+
             $statuses = [];
             foreach ($resultPaths as $resultPath) {
                 self::assertFileExists($resultPath);
