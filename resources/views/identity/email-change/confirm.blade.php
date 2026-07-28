@@ -1,16 +1,20 @@
 @extends('identity.layout')
 
-@section('title', 'Confirm email change')
+@section('title', __('identity.email_change.confirm.title'))
 
 @section('content')
     <div class="identity-heading">
-        <p class="eyebrow">Primary email</p>
-        <h1>Confirm the new email address</h1>
-        <p>This single-use action changes the sign-in email and revokes every existing web session and game authorization.</p>
+        <p class="eyebrow">{{ __('identity.email_change.confirm.eyebrow') }}</p>
+        <h1>{{ __('identity.email_change.confirm.heading') }}</h1>
+        <p>{{ __('identity.email_change.confirm.intro') }}</p>
+        @include('identity.partials.locale-switcher', [
+            'localeRoute' => 'identity.email-change.confirm.create',
+            'localeParameters' => ['token' => $token],
+        ])
     </div>
 
     <form method="POST" action="{{ route('identity.email-change.confirm', ['token' => $token]) }}" class="stacked-form">
         @csrf
-        <button type="submit">Confirm email change</button>
+        <button type="submit">{{ __('identity.email_change.confirm.submit') }}</button>
     </form>
 @endsection
