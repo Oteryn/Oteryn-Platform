@@ -28,7 +28,7 @@ concurrency:
 jobs:
   focused:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
       - uses: shivammathur/setup-php@v2
@@ -58,17 +58,17 @@ jobs:
         if: steps.composer.outputs.status != '0'
         run: exit 1
       - name: Lint catalogue PHP
-        run: find app/GameCatalog database/migrations routes/modules tests/Unit/GameCatalog -type f -name '*.php' -print0 | xargs -0 -n1 php -l
+        run: find app/GameCatalog database/migrations routes/modules tests -path '*GameCatalog*' -type f -name '*.php' -print0 | xargs -0 -n1 php -l
       - name: Verify schema and fixture hashes
         run: |
           test "$(sha256sum resources/schemas/game-catalog/v1/game-catalog-snapshot.schema.json | cut -d' ' -f1)" = "099a8373ff2b0017cc2b321991662dc4e4783b626391aa7a110a6db0559d146b"
-          test "$(sha256sum resources/fixtures/game-catalog/minimal-snapshot.json | cut -d' ' -f1)" = "76b61b167e77a0c0379c5c1d179c3fec808ae1cf3d996e30be5784fde699691e"
-      - name: Run focused validator tests with captured diagnostics
+          test "$(sha256sum resources/fixtures/game-catalog/minimal-snapshot.json | cut -d' ' -f1)" = "ec0658bb11877240f2e22575180513dbff426b3df1fc2af8f20343ed0d424055"
+      - name: Run focused Game Catalog tests with captured diagnostics
         id: focused_tests
         shell: bash
         run: |
           set +e
-          php artisan test tests/Unit/GameCatalog/GameCatalogDocumentValidatorTest.php 2>&1 | tee focused-test.log
+          php artisan test tests/Unit/GameCatalog tests/Integration/GameCatalog 2>&1 | tee focused-test.log
           status=${PIPESTATUS[0]}
           echo "status=${status}" >> "$GITHUB_OUTPUT"
           exit 0
