@@ -57,13 +57,13 @@ async function waitForEmailChangeLink(email, pathFragment, timeoutMs = 20_000) {
   throw new Error(`MailHog did not expose the expected ${pathFragment} link for the requested identity.`);
 }
 
-async function assertResponsiveSecurityPage(page) {
+async function assertResponsiveSecurityPage(page, heading = 'Security and lifecycle') {
   for (const viewport of [
     { width: 820, height: 1180 },
     { width: 390, height: 844 },
   ]) {
     await page.setViewportSize(viewport);
-    await expect(page.getByRole('heading', { name: 'Security and lifecycle' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: heading })).toBeVisible();
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
     expect(overflow).toBeLessThanOrEqual(1);
   }
@@ -220,4 +220,42 @@ test('@portal-account account security lifecycle covers sessions, privacy, verif
   await currentSession.getByRole('button', { name: 'Revoke and sign out' }).click();
   await expect(page).toHaveURL(/\/login$/u);
   await expect(page.getByRole('status')).toContainText('This session has been revoked.');
+});
+
+test('@portal-account account security localization covers Polish responsive, validation, authorization and expired-token states', async ({ browser, page }) => {
+  const email = uniqueEmail('account-security-pl');
+  const password = 'AcceptanceSecurityPl!234';
+
+  await register(page, email, password);
+  await login(page, email, password);
+  await page.goto('/account/security?locale=pl');
+  await expect(page.locator('html')).toHaveAttribute('lang', 'pl');
+  await expect(page.getByRole('heading', { name: 'Bezpieczeństwo i cykl życia' })).toBeVisible();
+  await assertResponsiveSecurityPage(page, 'Bezpieczeństwo i cykl życia');
+
+  const primaryEmail = page.locator('section[aria-labelledby="primary-email-heading"]');
+  const changedEmail = uniqueEmail('account-security-pl-changed');
+  await primaryEmail.getByLabel('Nowy adres e-mail', { exact: true }).fill(changedEmail);
+  await primaryEmail.getByLabel('Potwierdź nowy adres e-mail', { exact: true }).fill(changedEmail);
+  await primaryEmail.getByLabel('Bieżące hasło').fill('wrong-password');
+  await primaryEmail.getByRole('button', { name: 'Wyślij łącza potwierdzające' }).click();
+  await expect(page.getByRole('alert')).toContainText('Bieżące hasło jest nieprawidłowe.');
+
+  await page.goto('/email-change/confirm/expired-token?locale=pl');
+  await expect(page.getByRole('heading', { name: 'Potwierdź nowy adres e-mail' })).toBeVisible();
+  await page.getByRole('button', { name: 'Potwierdź zmianę adresu e-mail' }).click();
+  await expect(page.getByRole('alert')).toContainText('Łącze potwierdzające adres e-mail jest nieprawidłowe lub wygasło.');
+
+  const guestContext = await browser.newContext();
+  const guestPage = await guestContext.newPage();
+  try {
+    await guestPage.goto('/account/security?locale=pl');
+    await expect(guestPage).toHaveURL(/\/login$/u);
+    await expect(guestPage.getByRole('heading', { name: 'Zaloguj się do Oteryn Platform' })).toBeVisible();
+
+    await guestPage.goto('/recovery-key?locale=pl');
+    await expect(guestPage.getByRole('heading', { name: 'Odzyskaj konto za pomocą klucza odzyskiwania' })).toBeVisible();
+  } finally {
+    await guestContext.close();
+  }
 });
