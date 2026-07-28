@@ -28,7 +28,7 @@ final class IdentityRecoveryKeyService
         DB::transaction(function () use ($identity, $normalized): void {
             $lockedIdentity = Identity::query()->lockForUpdate()->find($identity->id);
             if (! $lockedIdentity instanceof Identity || $lockedIdentity->disabled_at !== null || $lockedIdentity->terminated_at !== null) {
-                throw new RecoveryKeyRejected('Recovery key management is not available for this account.');
+                throw new RecoveryKeyRejected(__('identity.errors.recovery_management_unavailable'));
             }
 
             IdentityRecoveryKey::query()->updateOrCreate(
@@ -55,7 +55,7 @@ final class IdentityRecoveryKeyService
                 ->first();
 
             if (! $key instanceof IdentityRecoveryKey || ! $key->isActive()) {
-                throw new RecoveryKeyRejected('No active recovery key exists.');
+                throw new RecoveryKeyRejected(__('identity.errors.no_active_recovery_key'));
             }
 
             $key->forceFill(['revoked_at' => now()])->save();
@@ -67,13 +67,13 @@ final class IdentityRecoveryKeyService
     {
         $normalized = $this->normalize($rawKey);
         if ($normalized === '') {
-            throw new RecoveryKeyRejected('The recovery credentials are invalid.');
+            throw new RecoveryKeyRejected(__('identity.errors.recovery_credentials_invalid'));
         }
 
         return DB::transaction(function () use ($email, $normalized, $newPassword): Identity {
             $identity = Identity::query()->where('email', $email)->lockForUpdate()->first();
             if (! $identity instanceof Identity || $identity->disabled_at !== null || $identity->terminated_at !== null) {
-                throw new RecoveryKeyRejected('The recovery credentials are invalid.');
+                throw new RecoveryKeyRejected(__('identity.errors.recovery_credentials_invalid'));
             }
 
             $key = IdentityRecoveryKey::query()
@@ -82,7 +82,7 @@ final class IdentityRecoveryKeyService
                 ->first();
             $candidate = IdentitySecret::keyedHash($normalized);
             if (! $key instanceof IdentityRecoveryKey || ! $key->isActive() || ! hash_equals($key->key_hash, $candidate)) {
-                throw new RecoveryKeyRejected('The recovery credentials are invalid.');
+                throw new RecoveryKeyRejected(__('identity.errors.recovery_credentials_invalid'));
             }
 
             $identity->forceFill([
