@@ -1,0 +1,47 @@
+name: Marketplace Static Diagnostics
+
+on:
+  pull_request:
+    paths:
+      - 'app/Marketplace/**'
+      - 'app/Wallet/**'
+      - 'database/migrations/*character_bazaar*'
+      - 'tests/Feature/Marketplace/**'
+      - '.github/workflows/marketplace-static-diagnostics.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  analyse:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.5'
+          coverage: none
+
+      - name: Install dependencies
+        run: composer install --no-interaction --prefer-dist --no-progress
+
+      - name: Capture static analysis
+        shell: bash
+        run: |
+          set +e
+          composer analyse > marketplace-static-analysis.txt 2>&1
+          echo $? > marketplace-static-analysis.exit
+          exit 0
+
+      - name: Upload diagnostics
+        uses: actions/upload-artifact@v7
+        with:
+          name: marketplace-static-diagnostics-${{ github.sha }}
+          path: |
+            marketplace-static-analysis.txt
+            marketplace-static-analysis.exit
+          if-no-files-found: error
+          retention-days: 1
