@@ -118,8 +118,8 @@ final class CatalogSnapshotDiffService
     }
 
     /**
-     * @param array<string, string> $from
-     * @param array<string, string> $to
+     * @param  array<string, string>  $from
+     * @param  array<string, string>  $to
      * @return list<string>
      */
     private function added(array $from, array $to): array
@@ -131,8 +131,8 @@ final class CatalogSnapshotDiffService
     }
 
     /**
-     * @param array<string, string> $left
-     * @param array<string, string> $right
+     * @param  array<string, string>  $left
+     * @param  array<string, string>  $right
      * @return list<string>
      */
     private function changed(array $left, array $right): array

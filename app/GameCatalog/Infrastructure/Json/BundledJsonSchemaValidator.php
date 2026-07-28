@@ -177,8 +177,8 @@ final class BundledJsonSchemaValidator
     }
 
     /**
-     * @param list<mixed> $value
-     * @param array<string, mixed> $schema
+     * @param  list<mixed>  $value
+     * @param  array<string, mixed>  $schema
      */
     private function validateArray(array $value, array $schema, string $path): void
     {

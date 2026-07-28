@@ -105,7 +105,7 @@ final class CatalogImportService
     }
 
     /**
-     * @param list<CatalogRelease> $releases
+     * @param  list<CatalogRelease>  $releases
      * @return array<string, int>
      */
     private function persistReleases(array $releases, CarbonImmutable $now): array
@@ -207,8 +207,8 @@ final class CatalogImportService
     }
 
     /**
-     * @param list<CatalogEntity> $entities
-     * @param array<string, int> $releaseIds
+     * @param  list<CatalogEntity>  $entities
+     * @param  array<string, int>  $releaseIds
      * @return array<string, int>
      */
     private function persistEntities(int $snapshotId, array $entities, array $releaseIds, CarbonImmutable $now): array
@@ -342,9 +342,9 @@ final class CatalogImportService
     }
 
     /**
-     * @param list<CatalogRelation> $relations
-     * @param array<string, int> $releaseIds
-     * @param array<string, int> $entityIds
+     * @param  list<CatalogRelation>  $relations
+     * @param  array<string, int>  $releaseIds
+     * @param  array<string, int>  $entityIds
      */
     private function persistRelations(
         int $snapshotId,
