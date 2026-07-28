@@ -84,6 +84,7 @@ jobs:
             config/game-catalog.php \
             database/migrations/2026_07_28_110000_create_game_catalog_tables.php \
             database/migrations/2026_07_28_110100_add_game_catalog_profile_policies.php \
+            database/migrations/2026_07_28_110200_add_game_catalog_permissions.php \
             tests/Feature/GameCatalog \
             tests/Unit/GameCatalog \
             2>&1 | tee artifacts/ci/game-catalog-pint.json
@@ -98,6 +99,7 @@ jobs:
             config/game-catalog.php \
             database/migrations/2026_07_28_110000_create_game_catalog_tables.php \
             database/migrations/2026_07_28_110100_add_game_catalog_profile_policies.php \
+            database/migrations/2026_07_28_110200_add_game_catalog_permissions.php \
             tests/Feature/GameCatalog \
             tests/Unit/GameCatalog \
             --memory-limit=1G \
