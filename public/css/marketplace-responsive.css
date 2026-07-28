@@ -1,0 +1,21 @@
+.bazaar-page .table-wrap,
+.admin-main .bazaar-panel .table-wrap {
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+    overflow-x: auto;
+    overscroll-behavior-inline: contain;
+    -webkit-overflow-scrolling: touch;
+}
+
+.bazaar-page .table-wrap table,
+.admin-main .bazaar-panel .table-wrap table {
+    max-width: none;
+}
+
+@media (max-width: 58rem) {
+    .bazaar-account-table table {
+        width: 100%;
+        min-width: 0;
+    }
+}
