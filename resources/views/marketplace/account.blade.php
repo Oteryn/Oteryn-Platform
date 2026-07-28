@@ -79,7 +79,12 @@
                         @foreach ($$collectionName as $auction)
                             <tr>
                                 <td data-label="{{ __('marketplace.character') }}">
-                                    <a href="{{ route('marketplace.show', $auction) }}"><strong>{{ $auction->player_name }}</strong></a><br>
+                                    @if ($auction->isPubliclyVisible())
+                                        <a href="{{ route('marketplace.show', $auction) }}"><strong>{{ $auction->player_name }}</strong></a>
+                                    @else
+                                        <strong>{{ $auction->player_name }}</strong>
+                                    @endif
+                                    <br>
                                     <span class="muted">{{ __('marketplace.level') }} {{ $auction->level }} · {{ __('marketplace.vocations.'.$auction->vocation) }}</span>
                                 </td>
                                 <td data-label="{{ __('marketplace.status') }}">{{ __('marketplace.status_labels.'.$auction->status) }}</td>
@@ -93,7 +98,9 @@
                                 </td>
                                 <td data-label="{{ __('marketplace.actions') }}">
                                     <div class="action-row">
-                                        <a class="button button-secondary" href="{{ route('marketplace.show', $auction) }}">{{ __('marketplace.details') }}</a>
+                                        @if ($auction->isPubliclyVisible())
+                                            <a class="button button-secondary" href="{{ route('marketplace.show', $auction) }}">{{ __('marketplace.details') }}</a>
+                                        @endif
                                         @if ($collectionName === 'selling' && in_array($auction->status, [\App\Marketplace\Models\CharacterAuction::STATUS_ESCROW_PENDING, \App\Marketplace\Models\CharacterAuction::STATUS_ACTIVE], true) && $auction->bid_count === 0)
                                             <form method="POST" action="{{ route('marketplace.listing.cancel', $auction) }}">
                                                 @csrf
