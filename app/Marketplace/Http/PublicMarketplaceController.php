@@ -2,6 +2,8 @@
 
 namespace App\Marketplace\Http;
 
+use App\Identity\Models\Identity;
+use App\Marketplace\Models\AuctionWatch;
 use App\Marketplace\Models\CharacterAuction;
 use App\Marketplace\Queries\PublicCharacterAuctionQuery;
 use Illuminate\Contracts\View\View;
@@ -29,13 +31,20 @@ final class PublicMarketplaceController
         ]);
     }
 
-    public function show(CharacterAuction $auction): View
+    public function show(Request $request, CharacterAuction $auction): View
     {
         abort_unless($this->auctions->visible($auction), 404);
+
+        $identity = $request->user();
+        $isWatched = $identity instanceof Identity && AuctionWatch::query()
+            ->where('identity_id', $identity->id)
+            ->where('auction_id', $auction->id)
+            ->exists();
 
         return view('marketplace.show', [
             'auction' => $auction,
             'bids' => $this->auctions->publicBidHistory($auction),
+            'isWatched' => $isWatched,
         ]);
     }
 }
