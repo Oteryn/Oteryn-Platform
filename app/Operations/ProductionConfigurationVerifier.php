@@ -61,7 +61,9 @@ final class ProductionConfigurationVerifier
             $violations[] = 'MAIL_FROM_ADDRESS must not use a reserved test domain.';
         }
 
-        array_push($violations, ...$this->marketplaceViolations());
+        if (config('marketplace.enabled')) {
+            array_push($violations, ...$this->marketplaceViolations());
+        }
 
         return $violations;
     }
