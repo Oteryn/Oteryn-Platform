@@ -218,7 +218,16 @@ bootstrap_stage="laravel-config-clear"
 php artisan config:clear --no-interaction
 
 bootstrap_stage="platform-migrate-fresh"
-php artisan migrate:fresh --force --no-interaction
+migration_log="/tmp/oteryn-acceptance-platform-migrate-fresh.log"
+if ! php artisan migrate:fresh --force --no-interaction >"$migration_log" 2>&1; then
+    mkdir -p artifacts/acceptance
+    tail -n 160 "$migration_log" > artifacts/acceptance/platform-migrate-fresh.log
+    cat artifacts/acceptance/platform-migrate-fresh.log >&2
+    write_bootstrap_diagnostic failure 1
+    trap - ERR
+    exit 1
+fi
+rm -f "$migration_log"
 
 bootstrap_stage="complete"
 write_bootstrap_diagnostic success 0
