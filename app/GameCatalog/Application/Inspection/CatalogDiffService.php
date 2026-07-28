@@ -28,7 +28,7 @@ final class CatalogDiffService
 
     private function requireSnapshot(int $snapshotId): void
     {
-        if (! DB::table('game_catalog_snapshots')->whereKey($snapshotId)->exists()) {
+        if (! DB::table('game_catalog_snapshots')->where('id', $snapshotId)->exists()) {
             throw new RuntimeException("Game Catalog snapshot [{$snapshotId}] does not exist.");
         }
     }
