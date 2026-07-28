@@ -1,0 +1,74 @@
+name: Game Catalog Pint Autofix
+
+on:
+  push:
+    branches:
+      - feat/OTERYN-20260728-game-catalog-slice-1
+    paths:
+      - '.github/workflows/game-catalog-pint-autofix.yml'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: game-catalog-pint-autofix-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  autofix:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout feature branch
+        uses: actions/checkout@v7
+        with:
+          ref: feat/OTERYN-20260728-game-catalog-slice-1
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.5'
+          coverage: none
+          extensions: pdo_mysql, pcntl, gd
+          tools: composer:v2
+
+      - name: Install dependencies from lockfile
+        run: composer install --no-interaction --prefer-dist --no-progress --quiet
+
+      - name: Apply Pint to Game Catalog slice
+        run: >-
+          vendor/bin/pint
+          app/GameCatalog
+          bootstrap/providers.php
+          config/game-catalog.php
+          database/migrations/2026_07_28_110000_create_game_catalog_tables.php
+          database/migrations/2026_07_28_110100_add_game_catalog_profile_policies.php
+          tests/Feature/GameCatalog
+          tests/Unit/GameCatalog
+
+      - name: Commit deterministic formatting
+        shell: bash
+        run: |
+          if git diff --quiet -- \
+            app/GameCatalog \
+            bootstrap/providers.php \
+            config/game-catalog.php \
+            database/migrations/2026_07_28_110000_create_game_catalog_tables.php \
+            database/migrations/2026_07_28_110100_add_game_catalog_profile_policies.php \
+            tests/Feature/GameCatalog \
+            tests/Unit/GameCatalog; then
+            echo 'Game Catalog sources already match Pint.'
+            exit 0
+          fi
+
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -- \
+            app/GameCatalog \
+            bootstrap/providers.php \
+            config/game-catalog.php \
+            database/migrations/2026_07_28_110000_create_game_catalog_tables.php \
+            database/migrations/2026_07_28_110100_add_game_catalog_profile_policies.php \
+            tests/Feature/GameCatalog \
+            tests/Unit/GameCatalog
+          git commit -m 'style(catalog): apply Pint formatting'
+          git push origin HEAD:feat/OTERYN-20260728-game-catalog-slice-1
