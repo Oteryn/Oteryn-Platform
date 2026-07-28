@@ -32,8 +32,16 @@ return new class extends Migration
             $table->string('protocol_profile', 80);
             $table->foreignId('runtime_release_id')->constrained('game_catalog_releases')->restrictOnDelete();
             $table->foreignId('content_target_release_id')->constrained('game_catalog_releases')->restrictOnDelete();
-            $table->foreignId('verified_content_through_release_id')->constrained('game_catalog_releases')->restrictOnDelete();
-            $table->foreignId('contains_content_through_release_id')->nullable()->constrained('game_catalog_releases')->restrictOnDelete();
+            $table->foreignId('verified_content_through_release_id');
+            $table->foreign('verified_content_through_release_id', 'game_catalog_snapshots_verified_release_fk')
+                ->references('id')
+                ->on('game_catalog_releases')
+                ->restrictOnDelete();
+            $table->foreignId('contains_content_through_release_id')->nullable();
+            $table->foreign('contains_content_through_release_id', 'game_catalog_snapshots_contains_release_fk')
+                ->references('id')
+                ->on('game_catalog_releases')
+                ->restrictOnDelete();
             $table->char('appearances_sha256', 64);
             $table->char('map_sha256', 64)->nullable();
             $table->string('producer_build_id', 160)->nullable();
@@ -260,19 +268,20 @@ return new class extends Migration
             $table->string('reason', 500);
             $table->unsignedBigInteger('approved_by_identity_id');
             $table->timestamp('approved_at');
-            $table->timestamp('created_at');
-            $table->index(['profile_id', 'action'], 'game_catalog_override_profile_action_index');
+            $table->timestamp('expires_at')->nullable();
+            $table->timestamps();
+            $table->index(['profile_id', 'entity_id'], 'game_catalog_override_entity_index');
+            $table->index(['profile_id', 'relation_snapshot_id'], 'game_catalog_override_relation_index');
         });
 
         Schema::create('game_catalog_audit_events', function (Blueprint $table): void {
             $table->id();
-            $table->string('action', 80)->index();
-            $table->unsignedBigInteger('actor_identity_id')->nullable()->index();
             $table->foreignId('profile_id')->nullable()->constrained('game_catalog_profiles')->nullOnDelete();
             $table->foreignId('snapshot_id')->nullable()->constrained('game_catalog_snapshots')->nullOnDelete();
+            $table->string('action', 80)->index();
+            $table->unsignedBigInteger('actor_identity_id')->nullable();
             $table->json('metadata');
             $table->timestamp('created_at');
-            $table->index(['profile_id', 'created_at'], 'game_catalog_audit_profile_history');
         });
     }
 
