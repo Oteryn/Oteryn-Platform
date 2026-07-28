@@ -2,6 +2,7 @@
 
 namespace App\Marketplace\Queries;
 
+use App\Marketplace\Exceptions\MarketplaceException;
 use App\Marketplace\Models\AuctionBid;
 use App\Marketplace\Models\CharacterAuction;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
@@ -16,23 +17,28 @@ final class PublicCharacterAuctionQuery
     public function paginate(array $filters, int $perPage = 24): LengthAwarePaginator
     {
         $query = CharacterAuction::query()->publicActive();
+        $vocation = $filters['vocation'] ?? null;
+        $levelMin = $filters['level_min'] ?? null;
+        $levelMax = $filters['level_max'] ?? null;
+        $priceMin = $filters['price_min'] ?? null;
+        $priceMax = $filters['price_max'] ?? null;
 
-        if (isset($filters['vocation']) && $filters['vocation'] !== null) {
-            $query->where('vocation', $filters['vocation']);
+        if ($vocation !== null) {
+            $query->where('vocation', $vocation);
         }
-        if (isset($filters['level_min']) && $filters['level_min'] !== null) {
-            $query->where('level', '>=', $filters['level_min']);
+        if ($levelMin !== null) {
+            $query->where('level', '>=', $levelMin);
         }
-        if (isset($filters['level_max']) && $filters['level_max'] !== null) {
-            $query->where('level', '<=', $filters['level_max']);
+        if ($levelMax !== null) {
+            $query->where('level', '<=', $levelMax);
         }
 
         $effectivePrice = 'CASE WHEN current_bid > 0 THEN current_bid ELSE starting_bid END';
-        if (isset($filters['price_min']) && $filters['price_min'] !== null) {
-            $query->whereRaw("{$effectivePrice} >= ?", [$filters['price_min']]);
+        if ($priceMin !== null) {
+            $query->whereRaw("{$effectivePrice} >= ?", [$priceMin]);
         }
-        if (isset($filters['price_max']) && $filters['price_max'] !== null) {
-            $query->whereRaw("{$effectivePrice} <= ?", [$filters['price_max']]);
+        if ($priceMax !== null) {
+            $query->whereRaw("{$effectivePrice} <= ?", [$priceMax]);
         }
 
         match ($filters['sort'] ?? 'ending') {
@@ -60,13 +66,15 @@ final class PublicCharacterAuctionQuery
     /** @return Collection<int, AuctionBid> */
     public function publicBidHistory(CharacterAuction $auction): Collection
     {
-        $limit = (int) config('marketplace.public_bid_history_limit', 20);
-        $limit = max(1, min($limit, 100));
+        $configuredLimit = config('marketplace.public_bid_history_limit', 20);
+        if (! is_int($configuredLimit) || $configuredLimit < 1 || $configuredLimit > 100) {
+            throw new MarketplaceException('invalid_marketplace_configuration', 'The public bid history configuration is invalid.');
+        }
 
         return AuctionBid::query()
             ->where('auction_id', $auction->id)
             ->orderByDesc('placed_at')
-            ->limit($limit)
+            ->limit($configuredLimit)
             ->get(['id', 'auction_id', 'amount', 'status', 'placed_at']);
     }
 
@@ -81,8 +89,9 @@ final class PublicCharacterAuctionQuery
             ])
             ->orderBy('id')
             ->limit(10_000)
-            ->pluck('id')
-            ->map(static fn (mixed $id): int => (int) $id)
+            ->get(['id'])
+            ->map(static fn (CharacterAuction $auction): int => $auction->id)
+            ->values()
             ->all();
     }
 }
