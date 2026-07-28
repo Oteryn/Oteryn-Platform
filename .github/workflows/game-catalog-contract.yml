@@ -1,0 +1,45 @@
+name: Game Catalog Contract
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/game-catalog-contract.yml'
+      - 'resources/schemas/game-catalog/**'
+      - 'tests/Fixtures/GameCatalog/**'
+      - 'tools/game-catalog/**'
+  pull_request:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/game-catalog-contract.yml'
+      - 'resources/schemas/game-catalog/**'
+      - 'tests/Fixtures/GameCatalog/**'
+      - 'tools/game-catalog/**'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: game-catalog-contract-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Install contract validator dependency
+        run: python3 -m pip install --disable-pip-version-check --no-cache-dir 'jsonschema==4.26.0'
+
+      - name: Compile contract validator
+        run: python3 -m py_compile tools/game-catalog/validate_contract_fixture.py
+
+      - name: Validate schema and shared fixture
+        run: >-
+          python3 tools/game-catalog/validate_contract_fixture.py
+          --schema resources/schemas/game-catalog/v1/game-catalog-snapshot.schema.json
+          --fixture tests/Fixtures/GameCatalog/v1/minimal-snapshot.json
