@@ -148,6 +148,9 @@ final class DuplicateJsonKeyDetector
             if ($character === '\\') {
                 $escaped = $json[$this->offset++] ?? null;
                 if ($escaped === 'u') {
+                    if ($this->offset + 4 > $this->length) {
+                        throw new RuntimeException('Invalid JSON unicode escape.');
+                    }
                     $this->offset += 4;
                 }
             }
@@ -158,7 +161,7 @@ final class DuplicateJsonKeyDetector
 
     private function parseNumber(string $json): void
     {
-        if (preg_match('/\G-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?/A', $json, $matches, 0, $this->offset) !== 1) {
+        if (preg_match('/\G-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?/', $json, $matches, 0, $this->offset) !== 1) {
             throw new RuntimeException('Invalid JSON scalar.');
         }
 
