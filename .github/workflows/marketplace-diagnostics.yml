@@ -80,6 +80,23 @@ jobs:
           echo $? > marketplace-tests.exit
           exit 0
 
+      - name: Capture marketplace source snapshot
+        shell: bash
+        run: |
+          tar -czf marketplace-source.tar.gz \
+            app/Marketplace \
+            app/Wallet \
+            app/CanaryIntegration/CanaryCharacterTransfer.php \
+            app/CanaryIntegration/CanaryCharacterTransferDatabasePrivilegeVerifier.php \
+            app/Operations/ProductionConfigurationVerifier.php \
+            tests/Feature/Marketplace \
+            tests/Unit/CanaryIntegration/CanaryCharacterTransferDatabasePrivilegeVerifierTest.php \
+            database/migrations/2026_07_28_070000_create_wallet_tables.php \
+            database/migrations/2026_07_28_070100_create_character_bazaar_tables.php \
+            database/migrations/2026_07_28_070200_add_marketplace_permission.php \
+            routes/modules/marketplace.php \
+            config/marketplace.php
+
       - name: Upload diagnostics
         uses: actions/upload-artifact@v7
         with:
@@ -90,5 +107,6 @@ jobs:
             marketplace-phpstan.exit
             marketplace-tests.txt
             marketplace-tests.exit
+            marketplace-source.tar.gz
           if-no-files-found: error
           retention-days: 3
