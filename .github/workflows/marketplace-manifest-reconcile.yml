@@ -33,19 +33,25 @@ jobs:
           }
           data['surfaces'] = [surface for surface in data['surfaces'] if surface['id'] not in remove_ids]
 
-          old_marker = '@portal-marketplace-account authenticated watch bid wallet reservation dashboard and authorization journey'
-          new_marker = '@portal-marketplace-account authenticated watch bid wallet reservation complete state matrix and authorization journey'
-          updated = False
+          expected_surface = None
           for surface in data['surfaces']:
-              if surface['id'] != 'marketplace.authenticated-auction-lifecycle':
-                  continue
-              for evidence in surface.get('evidence', []):
-                  evidence['markers'] = [new_marker if marker == old_marker else marker for marker in evidence.get('markers', [])]
-                  if new_marker in evidence['markers']:
-                      updated = True
+              if surface['id'] == 'marketplace.authenticated-auction-lifecycle':
+                  expected_surface = surface
+                  break
+          if expected_surface is None:
+              raise SystemExit('Expected authenticated Marketplace coverage record was not found.')
 
-          if not updated:
-              raise SystemExit('Expected authenticated Marketplace acceptance marker was not found.')
+          marker = '@portal-marketplace-account authenticated watch bid wallet reservation complete state matrix and authorization journey'
+          evidence_found = False
+          for evidence in expected_surface.get('evidence', []):
+              if evidence.get('file') == 'scripts/acceptance/tests/marketplace-acceptance.spec.mjs':
+                  evidence['markers'] = [marker]
+                  evidence_found = True
+          if not evidence_found:
+              expected_surface.setdefault('evidence', []).append({
+                  'file': 'scripts/acceptance/tests/marketplace-acceptance.spec.mjs',
+                  'markers': [marker],
+              })
 
           path.write_text(json.dumps(data, ensure_ascii=False, indent=2) + '\n')
           PY
