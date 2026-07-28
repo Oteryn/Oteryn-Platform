@@ -35,7 +35,8 @@ final class IdentityWebSessionManager
 
     public function invalidate(Request $request): void
     {
-        $this->registry->revokeCurrent($request);
+        $authenticated = Auth::user();
+        $this->registry->revokeCurrent($request, $authenticated instanceof Identity ? $authenticated : null);
         Auth::logout();
         $request->session()->invalidate();
         $request->session()->regenerateToken();
