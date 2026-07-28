@@ -31,6 +31,8 @@ final readonly class LocalizedPublicRouteRegistrar
             'game.guilds.show' => '/guilds/{name}',
             'game.online.index' => '/online',
             'game.servers.index' => '/servers',
+            'marketplace.index' => '/bazaar',
+            'marketplace.show' => '/bazaar/{auction}',
             'events.index' => '/events',
             'events.show' => '/events/{slug}',
             'downloads.index' => '/download/{platform?}',
