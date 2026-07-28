@@ -107,7 +107,7 @@ updated_at: 2026-07-28T20:40:00Z
 head: 9aa04d483bb02c6918ccb70aee418334ea13566f
 branch: feat/OTERYN-20260728-account-security-lifecycle
 pr: 283
-status: reviewing
+status: ready
 context_routes:
   - agent-governance
   - architecture
