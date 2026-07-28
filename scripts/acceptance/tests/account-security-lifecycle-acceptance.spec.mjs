@@ -152,7 +152,7 @@ test('@portal-account account security lifecycle covers sessions, privacy, verif
   await primaryEmail.getByLabel('Confirm new email address', { exact: true }).fill(changedEmail);
   await primaryEmail.getByLabel('Current password').fill(password);
   await primaryEmail.getByRole('button', { name: 'Send confirmation links' }).click();
-  await expect(page.getByText('Check the new email address to confirm the change.', { exact: true })).toBeVisible();
+  await expect(page.getByRole('status').filter({ hasText: 'Check the new email address to confirm the change.' })).toBeVisible();
 
   const confirmationLink = await confirmationLinkPromise;
   const recoveryLink = await recoveryLinkPromise;
