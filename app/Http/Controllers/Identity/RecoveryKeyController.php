@@ -51,7 +51,7 @@ final class RecoveryKeyController
 
         return redirect()
             ->route('identity.account-security.show')
-            ->with('status', 'The recovery key has been revoked.');
+            ->with('status', __('identity.status.recovery_key_revoked'));
     }
 
     public function recoverCreate(): View
@@ -72,11 +72,11 @@ final class RecoveryKeyController
         } catch (RecoveryKeyRejected) {
             return back()
                 ->withInput($request->safe()->only('email'))
-                ->withErrors(['recovery_key' => 'The recovery credentials are invalid.']);
+                ->withErrors(['recovery_key' => __('identity.errors.recovery_credentials_invalid')]);
         }
 
         return redirect()
             ->route('identity.login.create')
-            ->with('status', 'Account recovery completed. MFA was reset and every existing session was revoked.');
+            ->with('status', __('identity.status.account_recovered'));
     }
 }
