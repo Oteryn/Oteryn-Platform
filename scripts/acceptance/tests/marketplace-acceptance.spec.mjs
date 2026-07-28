@@ -90,7 +90,7 @@ test('@portal-marketplace-public catalogue detail filters localization responsiv
   await assertResponsiveLayout(page);
 });
 
-test('@portal-marketplace-account authenticated watch bid wallet reservation dashboard and authorization journey', async ({ page }) => {
+test('@portal-marketplace-account authenticated watch bid wallet reservation complete state matrix and authorization journey', async ({ page }) => {
   const email = uniqueEmail('marketplace-bidder');
   const fixture = seedMarketplace(email);
 
@@ -110,13 +110,24 @@ test('@portal-marketplace-account authenticated watch bid wallet reservation das
   await expect(page.getByRole('heading', { name: 'My bids' })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Watched auctions' })).toBeVisible();
   await expect(page.getByText(fixture.player_name, { exact: true }).first()).toBeVisible();
+  await expect(page.getByText(fixture.pending_player_name, { exact: true })).toBeVisible();
+  await expect(page.getByText(fixture.recovery_player_name, { exact: true })).toBeVisible();
+  await expect(page.getByText(fixture.cancelled_player_name, { exact: true })).toBeVisible();
+  await expect(page.getByText(fixture.completed_player_name, { exact: true })).toBeVisible();
+  await expect(page.getByText('Escrow safety check', { exact: true })).toBeVisible();
+  await expect(page.getByText('Active', { exact: true }).first()).toBeVisible();
+  await expect(page.getByText('Cancelled', { exact: true })).toBeVisible();
+  await expect(page.getByText('Completed', { exact: true })).toBeVisible();
+  await expect(page.getByText('Operator recovery required', { exact: true })).toBeVisible();
+  await expect(page.getByRole('link', { name: fixture.pending_player_name, exact: true })).toHaveCount(0);
+  await expect(page.getByRole('link', { name: fixture.recovery_player_name, exact: true })).toHaveCount(0);
   await assertResponsiveLayout(page);
   await assertAccessibilitySmoke(page);
 });
 
 test('@portal-marketplace-admin MFA permission wallet adjustment ledger and recovery queue surface', async ({ page }) => {
   const targetEmail = uniqueEmail('marketplace-wallet-target');
-  seedMarketplace(targetEmail);
+  const fixture = seedMarketplace(targetEmail);
   const adminEmail = uniqueEmail('marketplace-admin');
   seedAdmin(adminEmail);
 
@@ -125,6 +136,8 @@ test('@portal-marketplace-admin MFA permission wallet adjustment ledger and reco
   await page.goto('/admin/marketplace');
   await expect(page.getByRole('heading', { name: 'Character Bazaar' })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Auctions requiring operator reconciliation' })).toBeVisible();
+  await expect(page.getByText(fixture.recovery_player_name, { exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Run bounded recovery' }).first()).toBeVisible();
 
   await page.getByLabel('Platform Identity email').fill(targetEmail);
   await page.getByRole('button', { name: 'Find wallet' }).click();
