@@ -41,7 +41,9 @@ final class SupportNotificationDeliveryService
             ],
         );
 
-        DB::afterCommit(fn (): mixed => $this->deliver($delivery->id));
+        DB::afterCommit(function () use ($delivery): void {
+            $this->deliver($delivery->id);
+        });
 
         return $delivery;
     }
