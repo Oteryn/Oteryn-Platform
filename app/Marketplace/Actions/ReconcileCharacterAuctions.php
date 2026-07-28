@@ -102,12 +102,12 @@ final class ReconcileCharacterAuctions
             return CharacterAuction::query()->findOrFail($auction->id);
         }
 
-        $quiescence = (int) config('marketplace.escrow_quiescence_seconds', 30);
-        if ($quiescence < 1 || $quiescence > 3600) {
+        $configuredQuiescence = config('marketplace.escrow_quiescence_seconds', 30);
+        if (! is_int($configuredQuiescence) || $configuredQuiescence < 1 || $configuredQuiescence > 3600) {
             throw new MarketplaceException('invalid_marketplace_configuration', 'The escrow quiescence configuration is invalid.');
         }
 
-        if ($auction->escrowed_at->addSeconds($quiescence)->isFuture()) {
+        if ($auction->escrowed_at->addSeconds($configuredQuiescence)->isFuture()) {
             return $auction;
         }
 
@@ -208,12 +208,12 @@ final class ReconcileCharacterAuctions
                 $wallets[$identityId] = $this->wallets->lock($identityId);
             }
 
-            $commissionBps = (int) config('marketplace.commission_basis_points', 1000);
-            if ($commissionBps < 0 || $commissionBps > 10_000) {
+            $configuredCommissionBps = config('marketplace.commission_basis_points', 1000);
+            if (! is_int($configuredCommissionBps) || $configuredCommissionBps < 0 || $configuredCommissionBps > 10_000) {
                 throw new MarketplaceException('invalid_marketplace_configuration', 'The marketplace commission configuration is invalid.');
             }
 
-            $commission = intdiv($winningBid->amount * $commissionBps, 10_000);
+            $commission = intdiv($winningBid->amount * $configuredCommissionBps, 10_000);
             $sellerProceeds = $winningBid->amount - $commission;
 
             $this->wallets->applyLocked(
