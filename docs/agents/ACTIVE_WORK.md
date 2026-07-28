@@ -51,6 +51,7 @@ Convenience index only. Individual active task records, live PRs and Git state a
 - PR #259 / `d08062c653a137e1359b5626fda635b170704cd8` — complete Announcements public/admin/localization lifecycle merged after every exact-head workflow passed; Announcements is `covered`.
 - PR #260 / `436d30e56bbf2821d01372a8aec15ec1a3ffca30` — Support/Legal, Editorial Media and Wiki public/admin final acceptance closure merged; strict delivered-surface ledger and all exact-head workflows passed, and Issue #240 is closed.
 - PR #265 / `dd48947a0c6328dc5d361f9953c221df343ecb4d` — comprehensive exact-head portal E2E audit and harness remediations merged after critical, full, contract, module, stability, soak, CI and governance gates passed on tested SHA `a5929d0725d6a99069abbc2faa42022d843e560d`.
+- PR #267 / `583cae5f430998b2bbdf5e60b59d93f09ec6f4c8` — exact Platform and Gateway images deployed through the guarded Synology staging workflow; one-shot run `30335134588`, deployment run `30335161092` and in-container portal runtime verification all passed.
 
 ## Current project phase
 
@@ -74,7 +75,7 @@ Repository and staging evidence remains valid only for its documented boundaries
 - **Production Go-Live Gate: PENDING PRODUCTION VERIFICATION**
 - **Production Verification: REQUIRED BEFORE GO-LIVE**
 
-The latest verified final-portal staging refresh identity is `ef6d03e0b7c6ed0ecf40e6e108b81358c9b64b1b` from PR #264. Later marketplace, account-security and audit evidence is repository/isolated-acceptance proof unless a deployment-specific record says otherwise. No repository, staging, local-target or emulation evidence may be promoted to `PRODUCTION_PROVEN`.
+The latest verified final-portal staging refresh identity is `583cae5f430998b2bbdf5e60b59d93f09ec6f4c8` from PR #267 and deployment run `30335161092`. Later marketplace, account-security and audit evidence is repository/isolated-acceptance proof unless a deployment-specific record says otherwise. No repository, staging, local-target or emulation evidence may be promoted to `PRODUCTION_PROVEN`.
 
 ## Next work
 
