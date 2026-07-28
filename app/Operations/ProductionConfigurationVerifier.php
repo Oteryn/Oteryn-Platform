@@ -78,10 +78,17 @@ final class ProductionConfigurationVerifier
         }
 
         $durations = config('marketplace.allowed_duration_days');
-        if (! is_array($durations) || $durations === [] || array_values(array_unique($durations)) !== $durations) {
+        if (! is_array($durations) || $durations === []) {
             $violations[] = 'Character Bazaar auction durations must be a non-empty unique list.';
-        } elseif (array_filter($durations, static fn (mixed $duration): bool => ! is_int($duration) || $duration < 1 || $duration > 30) !== []) {
+        } elseif (array_filter($durations, static fn (mixed $duration): bool => ! is_int($duration)) !== []) {
             $violations[] = 'Character Bazaar auction durations must be integers between 1 and 30 days.';
+        } else {
+            /** @var array<array-key, int> $durations */
+            if (array_values(array_unique($durations)) !== array_values($durations)) {
+                $violations[] = 'Character Bazaar auction durations must be a non-empty unique list.';
+            } elseif (array_filter($durations, static fn (int $duration): bool => $duration < 1 || $duration > 30) !== []) {
+                $violations[] = 'Character Bazaar auction durations must be integers between 1 and 30 days.';
+            }
         }
 
         foreach (['minimum_starting_bid', 'minimum_bid_increment', 'escrow_quiescence_seconds', 'public_bid_history_limit', 'character_limit'] as $key) {
