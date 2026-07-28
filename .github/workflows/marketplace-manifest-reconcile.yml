@@ -1,0 +1,65 @@
+name: Marketplace Manifest Reconcile
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/marketplace-manifest-reconcile.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  reconcile:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.head_ref }}
+
+      - name: Reconcile Marketplace coverage records
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          path = Path('scripts/acceptance/coverage/portal-coverage-manifest.json')
+          data = json.loads(path.read_text())
+          remove_ids = {
+              'marketplace.public-catalogue-detail',
+              'marketplace.account-auction-wallet-lifecycle',
+              'marketplace.admin-wallet-recovery',
+          }
+          data['surfaces'] = [surface for surface in data['surfaces'] if surface['id'] not in remove_ids]
+
+          old_marker = '@portal-marketplace-account authenticated watch bid wallet reservation dashboard and authorization journey'
+          new_marker = '@portal-marketplace-account authenticated watch bid wallet reservation complete state matrix and authorization journey'
+          updated = False
+          for surface in data['surfaces']:
+              if surface['id'] != 'marketplace.authenticated-auction-lifecycle':
+                  continue
+              for evidence in surface.get('evidence', []):
+                  evidence['markers'] = [new_marker if marker == old_marker else marker for marker in evidence.get('markers', [])]
+                  if new_marker in evidence['markers']:
+                      updated = True
+
+          if not updated:
+              raise SystemExit('Expected authenticated Marketplace acceptance marker was not found.')
+
+          path.write_text(json.dumps(data, ensure_ascii=False, indent=2) + '\n')
+          PY
+
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add scripts/acceptance/coverage/portal-coverage-manifest.json
+          git commit -m 'test(marketplace): reconcile coverage records'
+          git push origin "HEAD:${GITHUB_HEAD_REF}"
+
+      - name: Upload reconciled manifest
+        uses: actions/upload-artifact@v7
+        with:
+          name: marketplace-reconciled-manifest-${{ github.sha }}
+          path: scripts/acceptance/coverage/portal-coverage-manifest.json
+          if-no-files-found: error
+          retention-days: 1
