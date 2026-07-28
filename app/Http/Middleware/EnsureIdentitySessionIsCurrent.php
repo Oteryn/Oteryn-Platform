@@ -84,6 +84,10 @@ final class EnsureIdentitySessionIsCurrent
         }
 
         foreach ($route->gatherMiddleware() as $middleware) {
+            if (! is_string($middleware)) {
+                continue;
+            }
+
             if ($middleware === 'auth'
                 || str_starts_with($middleware, 'auth:')
                 || $middleware === Authenticate::class) {
