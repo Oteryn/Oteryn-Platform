@@ -5,6 +5,7 @@ namespace App\GameCatalog\Http;
 use App\GameCatalog\Queries\PublicCatalogQuery;
 use Illuminate\Contracts\View\View;
 use Illuminate\Http\Request;
+use Illuminate\Pagination\LengthAwarePaginator;
 
 final readonly class PublicGameCatalogController
 {
@@ -27,22 +28,27 @@ final readonly class PublicGameCatalogController
             'q' => $this->boundedSearch($request->query('q')),
             'per_page' => $this->perPage($request),
         ];
+        $context = $this->catalog->context();
 
         return view('game-catalog.items.index', [
-            'context' => $this->catalog->context(),
-            'items' => $this->catalog->items($filters),
-            'categories' => $this->catalog->itemCategories(),
+            'context' => $context,
+            'items' => $context === null
+                ? $this->emptyPaginator($request, $filters['per_page'])
+                : $this->catalog->items($filters),
+            'categories' => $context === null ? [] : $this->catalog->itemCategories(),
             'filters' => $filters,
         ]);
     }
 
     public function item(string $locale, string $slug): View
     {
+        $context = $this->catalog->context();
+        abort_if($context === null, 404);
         $item = $this->catalog->item($slug);
         abort_if($item === null, 404);
 
         return view('game-catalog.items.show', [
-            'context' => $this->catalog->context(),
+            'context' => $context,
             'item' => $item,
             'lootSources' => $this->catalog->itemLootSources((int) $item->entity_id),
         ]);
@@ -57,22 +63,27 @@ final readonly class PublicGameCatalogController
             'bestiary_class' => $this->boundedToken($request->query('bestiary_class'), 120),
             'per_page' => $this->perPage($request),
         ];
+        $context = $this->catalog->context();
 
         return view('game-catalog.creatures.index', [
-            'context' => $this->catalog->context(),
-            'creatures' => $this->catalog->creatures($filters),
-            'bestiaryClasses' => $this->catalog->bestiaryClasses(),
+            'context' => $context,
+            'creatures' => $context === null
+                ? $this->emptyPaginator($request, $filters['per_page'])
+                : $this->catalog->creatures($filters),
+            'bestiaryClasses' => $context === null ? [] : $this->catalog->bestiaryClasses(),
             'filters' => $filters,
         ]);
     }
 
     public function creature(string $locale, string $slug): View
     {
+        $context = $this->catalog->context();
+        abort_if($context === null, 404);
         $creature = $this->catalog->creature($slug);
         abort_if($creature === null, 404);
 
         return view('game-catalog.creatures.show', [
-            'context' => $this->catalog->context(),
+            'context' => $context,
             'creature' => $creature,
             'loot' => $this->catalog->creatureLoot((int) $creature->entity_id),
         ]);
@@ -108,5 +119,13 @@ final readonly class PublicGameCatalogController
         }
 
         return $value;
+    }
+
+    private function emptyPaginator(Request $request, int $perPage): LengthAwarePaginator
+    {
+        return new LengthAwarePaginator([], 0, $perPage, max(1, $request->integer('page', 1)), [
+            'path' => $request->url(),
+            'query' => $request->query(),
+        ]);
     }
 }
