@@ -10,6 +10,7 @@ use App\Http\Middleware\RequireAdminPermission;
 use App\Http\Middleware\SecurityHeaders;
 use App\Http\Middleware\SetPublicLocale;
 use App\Http\Middleware\TrustConfiguredProxies;
+use App\Identity\Localization\SetIdentityLocale;
 use Illuminate\Auth\Middleware\Authenticate;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
@@ -38,6 +39,7 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->redirectGuestsTo('/login');
         $middleware->redirectUsersTo('/');
         $middleware->appendToGroup('web', EnsureIdentitySessionIsCurrent::class);
+        $middleware->prependToPriorityList(Authenticate::class, SetIdentityLocale::class);
         $middleware->prependToPriorityList(Authenticate::class, EnsureIdentitySessionIsCurrent::class);
         $middleware->appendToGroup('web', SecurityHeaders::class);
         $middleware->alias([
