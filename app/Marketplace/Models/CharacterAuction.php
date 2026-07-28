@@ -3,6 +3,7 @@
 namespace App\Marketplace\Models;
 
 use App\Identity\Models\Identity;
+use App\Marketplace\Exceptions\MarketplaceException;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -137,7 +138,12 @@ final class CharacterAuction extends Model
             return $this->starting_bid;
         }
 
-        return $this->current_bid + (int) config('marketplace.minimum_bid_increment', 10);
+        $configuredIncrement = config('marketplace.minimum_bid_increment', 10);
+        if (! is_int($configuredIncrement) || $configuredIncrement < 1) {
+            throw new MarketplaceException('invalid_marketplace_configuration', 'The marketplace bid increment configuration is invalid.');
+        }
+
+        return $this->current_bid + $configuredIncrement;
     }
 
     public function isTerminal(): bool
