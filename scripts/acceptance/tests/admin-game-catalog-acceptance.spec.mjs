@@ -74,19 +74,26 @@ test('@portal-game-catalog-admin MFA RBAC snapshot profile finding diff responsi
   await expect(page.getByRole('heading', { level: 1, name: 'Snapshots' })).toBeVisible();
   await page.getByRole('link', { name: `#${fixture.snapshot_id}`, exact: true }).click();
   await expect(page.getByRole('heading', { level: 1, name: `Snapshot #${fixture.snapshot_id}` })).toBeVisible();
-  await expect(page.getByText('item:fixture-sword', { exact: true })).toBeVisible();
-  await expect(page.getByText('outside_release', { exact: true })).toBeVisible();
-  await expect(page.getByText('partial', { exact: true })).toBeVisible();
-  await expect(page.getByText('snapshot.activate', { exact: true })).toBeVisible();
+
+  const snapshotEntities = page.getByRole('region', { name: 'Entities (bounded to 200)' });
+  const snapshotVisibility = page.getByRole('region', { name: 'Profile visibility summary' });
+  const snapshotAudit = page.getByRole('region', { name: 'Bounded audit history' });
+  await expect(snapshotEntities.getByText('item:fixture-sword', { exact: true })).toBeVisible();
+  await expect(snapshotVisibility.getByText('outside_release', { exact: true })).toBeVisible();
+  await expect(snapshotEntities.getByText('partial', { exact: true })).toBeVisible();
+  await expect(snapshotAudit.getByText('snapshot.activate', { exact: true }).first()).toBeVisible();
   await assertResponsiveLayout(page);
   await assertAccessibilitySmoke(page);
 
   await page.goto(`/admin/game-catalog/profiles/${fixture.profile_id}`);
   await expect(page.getByRole('heading', { level: 1, name: 'Public Game Catalog' })).toBeVisible();
-  await expect(page.getByText('item:fixture-sword', { exact: true })).toBeVisible();
-  await expect(page.getByText('visible', { exact: true }).first()).toBeVisible();
-  await expect(page.getByText('outside_release', { exact: true })).toBeVisible();
-  await expect(page.getByText('snapshot.activate', { exact: true })).toBeVisible();
+
+  const profileEntities = page.getByRole('region', { name: /Entity visibility/ });
+  const profileAudit = page.getByRole('region', { name: 'Bounded audit history' });
+  await expect(profileEntities.getByText('item:fixture-sword', { exact: true })).toBeVisible();
+  await expect(profileEntities.getByText('visible', { exact: true }).first()).toBeVisible();
+  await expect(profileEntities.getByText('outside_release', { exact: true })).toBeVisible();
+  await expect(profileAudit.getByText('snapshot.activate', { exact: true }).first()).toBeVisible();
   await assertResponsiveLayout(page);
   await assertAccessibilitySmoke(page);
 
@@ -101,8 +108,10 @@ test('@portal-game-catalog-admin MFA RBAC snapshot profile finding diff responsi
   await expect(page.getByRole('heading', { level: 1, name: 'Snapshot diff' })).toBeVisible();
   await expect(page.getByLabel('Snapshot A')).toHaveValue(String(fixture.snapshot_id));
   await expect(page.getByLabel('Snapshot B')).toHaveValue(String(fixture.comparison_snapshot_id));
-  await expect(page.getByText('Changed entities', { exact: true }).first()).toBeVisible();
-  await expect(page.getByText('item:fixture-sword', { exact: true })).toBeVisible();
+
+  const changedEntities = page.getByRole('region', { name: 'Changed entities' });
+  await expect(changedEntities).toBeVisible();
+  await expect(changedEntities.getByText('item:fixture-sword', { exact: true })).toBeVisible();
   await assertResponsiveLayout(page);
   await assertAccessibilitySmoke(page);
 });
