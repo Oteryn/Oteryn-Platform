@@ -1,0 +1,527 @@
+.bazaar-page {
+    width: min(var(--content-wide), calc(100% - (2 * var(--gutter))));
+}
+
+.bazaar-hero {
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: end;
+    gap: 1.5rem;
+    padding: clamp(1.25rem, 4vw, 2.25rem);
+    border: 1px solid var(--border-strong);
+    border-radius: var(--radius-lg);
+    background:
+        radial-gradient(circle at 90% 10%, color-mix(in srgb, var(--accent) 18%, transparent), transparent 40%),
+        linear-gradient(135deg, var(--surface-elevated), var(--surface));
+    box-shadow: var(--shadow);
+}
+
+.bazaar-hero h1 {
+    margin-bottom: .35rem;
+}
+
+.bazaar-filters,
+.bazaar-panel,
+.bazaar-wallet,
+.bazaar-action-panel,
+.bazaar-listing-form {
+    min-width: 0;
+    padding: clamp(1rem, 3vw, 1.5rem);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    background: var(--surface);
+    box-shadow: 0 .75rem 2rem rgb(0 0 0 / .14);
+}
+
+.bazaar-filters {
+    display: grid;
+    gap: 1rem;
+    margin-bottom: 1.25rem;
+}
+
+.bazaar-filter-grid {
+    display: grid;
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+    gap: .8rem;
+}
+
+.bazaar-filter-grid label,
+.bazaar-listing-form label,
+.bazaar-bid-form label,
+.bazaar-admin-search label {
+    display: grid;
+    min-width: 0;
+    gap: .4rem;
+    font-weight: 700;
+}
+
+.bazaar-filter-grid label span,
+.bazaar-listing-form label span,
+.bazaar-bid-form label span,
+.bazaar-admin-search label span {
+    color: var(--text-muted);
+    font-size: .86rem;
+}
+
+.bazaar-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 1rem;
+}
+
+.bazaar-card {
+    display: grid;
+    min-width: 0;
+    grid-template-columns: 5.5rem minmax(0, 1fr);
+    overflow: hidden;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    background: var(--surface);
+    box-shadow: 0 .65rem 1.7rem rgb(0 0 0 / .16);
+}
+
+.bazaar-card__portrait,
+.bazaar-detail-portrait {
+    display: grid;
+    place-items: center;
+    background:
+        linear-gradient(160deg, color-mix(in srgb, var(--accent) 32%, var(--surface-elevated)), var(--bg-subtle));
+    color: var(--accent-hover);
+    font-family: Georgia, "Times New Roman", serif;
+    font-weight: 800;
+    text-shadow: 0 .2rem .6rem rgb(0 0 0 / .45);
+}
+
+.bazaar-card__portrait span {
+    font-size: 2.6rem;
+}
+
+.bazaar-card__body {
+    display: grid;
+    min-width: 0;
+    gap: .9rem;
+    padding: 1rem;
+}
+
+.bazaar-card__heading {
+    display: flex;
+    min-width: 0;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: .75rem;
+}
+
+.bazaar-card__heading h2 {
+    margin: .15rem 0 0;
+    font-size: 1.25rem;
+}
+
+.bazaar-card__heading a {
+    color: var(--text);
+    text-decoration: none;
+}
+
+.bazaar-card__heading a:hover {
+    color: var(--accent-hover);
+    text-decoration: underline;
+}
+
+.bazaar-level,
+.bazaar-buy-now {
+    display: inline-flex;
+    width: fit-content;
+    padding: .25rem .5rem;
+    border: 1px solid var(--border-strong);
+    border-radius: 999px;
+    background: var(--surface-interactive);
+    color: var(--accent-hover);
+    font-size: .78rem;
+    font-weight: 800;
+    white-space: nowrap;
+}
+
+.bazaar-card__facts,
+.bazaar-price-panel,
+.bazaar-stat-grid,
+.bazaar-skill-grid,
+.bazaar-wallet dl,
+.bazaar-admin-wallet dl {
+    display: grid;
+    min-width: 0;
+    margin: 0;
+    gap: .65rem;
+}
+
+.bazaar-card__facts {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.bazaar-card__facts div,
+.bazaar-price-panel div,
+.bazaar-stat-grid div,
+.bazaar-skill-grid div,
+.bazaar-wallet dl div,
+.bazaar-admin-wallet dl div {
+    min-width: 0;
+    padding: .65rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: var(--bg-subtle);
+}
+
+.bazaar-card dt,
+.bazaar-price-panel dt,
+.bazaar-stat-grid dt,
+.bazaar-skill-grid dt,
+.bazaar-wallet dt,
+.bazaar-admin-wallet dt {
+    color: var(--text-muted);
+    font-size: .75rem;
+    font-weight: 700;
+    text-transform: uppercase;
+}
+
+.bazaar-card dd,
+.bazaar-price-panel dd,
+.bazaar-stat-grid dd,
+.bazaar-skill-grid dd,
+.bazaar-wallet dd,
+.bazaar-admin-wallet dd {
+    margin: .15rem 0 0;
+    color: var(--text);
+    font-weight: 750;
+}
+
+.bazaar-card__footer {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: .65rem;
+}
+
+.bazaar-empty {
+    min-height: 14rem;
+}
+
+.bazaar-pagination {
+    margin-top: 1.5rem;
+}
+
+.bazaar-breadcrumbs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: .55rem;
+    margin-bottom: 1rem;
+    color: var(--text-muted);
+    font-size: .9rem;
+}
+
+.bazaar-detail-hero {
+    display: grid;
+    grid-template-columns: 7rem minmax(0, 1fr) minmax(16rem, .7fr);
+    gap: 1.25rem;
+    align-items: stretch;
+    margin-bottom: 1.25rem;
+    overflow: hidden;
+    border: 1px solid var(--border-strong);
+    border-radius: var(--radius-lg);
+    background: linear-gradient(135deg, var(--surface-elevated), var(--surface));
+    box-shadow: var(--shadow);
+}
+
+.bazaar-detail-portrait span {
+    font-size: 3.6rem;
+}
+
+.bazaar-detail-title {
+    align-self: center;
+    padding-block: 1.25rem;
+}
+
+.bazaar-detail-title h1 {
+    margin: .2rem 0;
+}
+
+.bazaar-price-panel {
+    padding: 1rem;
+    background: color-mix(in srgb, var(--accent) 7%, var(--surface));
+}
+
+.bazaar-price-panel dd {
+    font-size: 1.2rem;
+}
+
+.bazaar-price-panel small,
+.bazaar-wallet small {
+    color: var(--text-muted);
+    font-size: .72em;
+}
+
+.bazaar-detail-layout {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(17rem, 23rem);
+    gap: 1rem;
+    align-items: start;
+}
+
+.bazaar-detail-main {
+    display: grid;
+    min-width: 0;
+    gap: 1rem;
+}
+
+.bazaar-panel {
+    margin: 0;
+}
+
+.bazaar-stat-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.bazaar-skill-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.bazaar-action-panel {
+    position: sticky;
+    top: 1rem;
+    display: grid;
+    gap: .8rem;
+}
+
+.bazaar-action-panel form,
+.bazaar-bid-form {
+    display: grid;
+    gap: .75rem;
+    margin: 0;
+}
+
+.button-block {
+    width: 100%;
+}
+
+.button-accent {
+    border-color: color-mix(in srgb, var(--success) 75%, #000);
+    background: var(--success);
+}
+
+.bazaar-bid-history {
+    display: grid;
+    margin: 0;
+    padding: 0;
+    gap: .5rem;
+    list-style: none;
+}
+
+.bazaar-bid-history li {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto auto;
+    gap: .75rem;
+    align-items: center;
+    padding: .75rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: var(--bg-subtle);
+}
+
+.bazaar-bid-history time {
+    color: var(--text-muted);
+    font-size: .82rem;
+}
+
+.bazaar-wallet {
+    display: grid;
+    grid-template-columns: minmax(0, .7fr) minmax(0, 1fr);
+    gap: 1rem;
+    align-items: center;
+    margin-bottom: 1.25rem;
+}
+
+.bazaar-wallet dl {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.bazaar-wallet dd {
+    font-size: clamp(1.4rem, 3vw, 2rem);
+}
+
+.bazaar-account-section {
+    margin-top: 1.5rem;
+}
+
+.bazaar-account-table td {
+    vertical-align: top;
+}
+
+.bazaar-create-layout,
+.bazaar-admin-wallet {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(18rem, .7fr);
+    gap: 1rem;
+    align-items: start;
+}
+
+.bazaar-listing-form {
+    display: grid;
+    gap: 1rem;
+    margin: 0;
+}
+
+.bazaar-listing-summary ul {
+    padding-left: 1.2rem;
+}
+
+.bazaar-admin-search {
+    display: flex;
+    align-items: end;
+    gap: .75rem;
+}
+
+.bazaar-admin-search label {
+    flex: 1;
+}
+
+.bazaar-admin-wallet {
+    margin-block: 1rem;
+}
+
+.bazaar-admin-wallet dl {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+@media (max-width: 78rem) {
+    .bazaar-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .bazaar-filter-grid {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+
+    .bazaar-detail-hero {
+        grid-template-columns: 6rem minmax(0, 1fr);
+    }
+
+    .bazaar-price-panel {
+        grid-column: 1 / -1;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+}
+
+@media (max-width: 58rem) {
+    .bazaar-hero,
+    .bazaar-wallet,
+    .bazaar-create-layout,
+    .bazaar-admin-wallet,
+    .bazaar-detail-layout {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .bazaar-hero {
+        align-items: start;
+    }
+
+    .bazaar-action-panel {
+        position: static;
+        grid-row: 1;
+    }
+
+    .bazaar-skill-grid,
+    .bazaar-stat-grid,
+    .bazaar-admin-wallet dl {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .bazaar-account-table table,
+    .bazaar-account-table thead,
+    .bazaar-account-table tbody,
+    .bazaar-account-table tr,
+    .bazaar-account-table th,
+    .bazaar-account-table td {
+        display: block;
+    }
+
+    .bazaar-account-table thead {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        overflow: hidden;
+        clip: rect(0 0 0 0);
+        white-space: nowrap;
+    }
+
+    .bazaar-account-table tr {
+        padding: .75rem;
+        margin-bottom: .75rem;
+        border: 1px solid var(--border);
+        border-radius: var(--radius-md);
+        background: var(--surface);
+    }
+
+    .bazaar-account-table td {
+        display: grid;
+        grid-template-columns: minmax(7rem, .45fr) minmax(0, 1fr);
+        gap: .75rem;
+        padding: .55rem 0;
+        border: 0;
+    }
+
+    .bazaar-account-table td::before {
+        content: attr(data-label);
+        color: var(--text-muted);
+        font-weight: 750;
+    }
+}
+
+@media (max-width: 42rem) {
+    .bazaar-grid,
+    .bazaar-filter-grid,
+    .bazaar-wallet dl,
+    .bazaar-stat-grid,
+    .bazaar-skill-grid,
+    .bazaar-price-panel,
+    .bazaar-admin-wallet dl {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .bazaar-card {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .bazaar-card__portrait {
+        min-height: 5rem;
+    }
+
+    .bazaar-detail-hero {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .bazaar-detail-portrait {
+        min-height: 6rem;
+    }
+
+    .bazaar-detail-title {
+        padding: 0 1rem 1rem;
+    }
+
+    .bazaar-bid-history li {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .bazaar-admin-search {
+        display: grid;
+    }
+
+    .bazaar-account-table td {
+        grid-template-columns: minmax(0, 1fr);
+        gap: .2rem;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .bazaar-card,
+    .bazaar-panel,
+    .bazaar-action-panel {
+        scroll-behavior: auto;
+    }
+}
