@@ -4,12 +4,15 @@ namespace Tests\Feature\GameCatalog;
 
 use App\GameCatalog\Application\Import\CatalogImportService;
 use App\GameCatalog\Application\Import\CatalogSnapshotValidator;
+use App\GameCatalog\Application\Import\ValidatedCatalogSnapshot;
 use App\GameCatalog\Domain\Exceptions\CatalogValidationException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use JsonException;
+use RuntimeException;
 use Tests\TestCase;
 
+/** @phpstan-import-type CatalogPayload from ValidatedCatalogSnapshot */
 final class CatalogImportTest extends TestCase
 {
     use RefreshDatabase;
@@ -94,10 +97,17 @@ final class CatalogImportTest extends TestCase
 
     public function test_operator_commands_validate_and_import_without_activation(): void
     {
-        $this->artisan('game-catalog:validate', ['path' => $this->fixturePath()])
-            ->assertSuccessful();
+        $validateCommand = $this->artisan('game-catalog:validate', ['path' => $this->fixturePath()]);
+        if (is_int($validateCommand)) {
+            throw new RuntimeException('The validation command did not return a test command instance.');
+        }
+        $validateCommand->assertSuccessful();
 
-        $this->artisan('game-catalog:import', ['path' => $this->fixturePath()])
+        $importCommand = $this->artisan('game-catalog:import', ['path' => $this->fixturePath()]);
+        if (is_int($importCommand)) {
+            throw new RuntimeException('The import command did not return a test command instance.');
+        }
+        $importCommand
             ->expectsOutputToContain('without activation')
             ->assertSuccessful();
 
@@ -110,18 +120,20 @@ final class CatalogImportTest extends TestCase
         return base_path('tests/Fixtures/GameCatalog/v1/minimal-snapshot.json');
     }
 
-    /**
-     * @param  callable(array<string, mixed>&): void  $mutate
-     */
+    /** @param callable(CatalogPayload&): void $mutate */
     private function temporarySnapshot(callable $mutate): string
     {
         try {
-            $payload = json_decode(
-                file_get_contents($this->fixturePath()),
-                true,
-                128,
-                JSON_THROW_ON_ERROR,
-            );
+            $contents = file_get_contents($this->fixturePath());
+            if (! is_string($contents)) {
+                throw new RuntimeException('The shared Game Catalog fixture could not be read.');
+            }
+            $decoded = json_decode($contents, true, 128, JSON_THROW_ON_ERROR);
+            if (! is_array($decoded) || array_is_list($decoded)) {
+                throw new RuntimeException('The shared Game Catalog fixture root is invalid.');
+            }
+            /** @var CatalogPayload $payload */
+            $payload = $decoded;
             $mutate($payload);
             $json = json_encode(
                 $payload,

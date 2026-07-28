@@ -4,6 +4,7 @@ namespace Tests\Feature\GameCatalog;
 
 use App\GameCatalog\Application\Activation\CatalogActivationService;
 use App\GameCatalog\Application\Import\CatalogImportService;
+use App\GameCatalog\Application\Import\ValidatedCatalogSnapshot;
 use App\GameCatalog\Application\Verification\CatalogVerificationService;
 use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -12,6 +13,7 @@ use JsonException;
 use RuntimeException;
 use Tests\TestCase;
 
+/** @phpstan-import-type CatalogPayload from ValidatedCatalogSnapshot */
 final class CatalogActivationTest extends TestCase
 {
     use RefreshDatabase;
@@ -102,6 +104,9 @@ final class CatalogActivationTest extends TestCase
         $secondPath = $this->temporarySnapshot(function (array &$payload): void {
             $payload['snapshot']['generated_at'] = '2026-01-02T00:00:00Z';
             $payload['snapshot']['producer_build_id'] = 'shared-fixture-v2';
+            if (! isset($payload['entities'][2]) || $payload['entities'][2]['type'] !== 'item') {
+                throw new RuntimeException('The shared fixture item layout changed unexpectedly.');
+            }
             $payload['entities'][2]['data']['attack'] = 11;
         });
 
@@ -119,7 +124,7 @@ final class CatalogActivationTest extends TestCase
 
         self::assertTrue($rollback->rollback);
         self::assertSame($second->snapshotId, $rollback->previousSnapshotId);
-        self::assertSame($first->snapshotId, (int) DB::table('game_catalog_profiles')->where('id', $profileId)->value('active_snapshot_id'));
+        self::assertSame($first->snapshotId, $this->databaseInt(DB::table('game_catalog_profiles')->where('id', $profileId)->value('active_snapshot_id')));
         self::assertSame('snapshot.rollback', DB::table('game_catalog_audit_events')->latest('id')->value('action'));
 
         $verification = app(CatalogVerificationService::class)->verify('public-current');
@@ -131,6 +136,9 @@ final class CatalogActivationTest extends TestCase
     public function test_partial_and_unknown_availability_content_are_hidden_by_default(): void
     {
         $path = $this->temporarySnapshot(function (array &$payload): void {
+            if (! isset($payload['entities'][0])) {
+                throw new RuntimeException('The shared fixture entity layout changed unexpectedly.');
+            }
             $payload['entities'][0]['availability'] = 'unknown';
         });
 
@@ -171,18 +179,37 @@ final class CatalogActivationTest extends TestCase
         ]);
     }
 
+    private function databaseInt(mixed $value): int
+    {
+        if (is_int($value)) {
+            return $value;
+        }
+        if (is_string($value) && preg_match('/^(?:0|[1-9][0-9]*)$/D', $value) === 1) {
+            return (int) $value;
+        }
+
+        throw new RuntimeException('Expected an integer database value.');
+    }
+
     private function fixturePath(): string
     {
         return base_path('tests/Fixtures/GameCatalog/v1/minimal-snapshot.json');
     }
 
-    /**
-     * @param  callable(array<string, mixed>&): void  $mutate
-     */
+    /** @param callable(CatalogPayload&): void $mutate */
     private function temporarySnapshot(callable $mutate): string
     {
         try {
-            $payload = json_decode(file_get_contents($this->fixturePath()), true, 128, JSON_THROW_ON_ERROR);
+            $contents = file_get_contents($this->fixturePath());
+            if (! is_string($contents)) {
+                throw new RuntimeException('The shared Game Catalog fixture could not be read.');
+            }
+            $decoded = json_decode($contents, true, 128, JSON_THROW_ON_ERROR);
+            if (! is_array($decoded) || array_is_list($decoded)) {
+                throw new RuntimeException('The shared Game Catalog fixture root is invalid.');
+            }
+            /** @var CatalogPayload $payload */
+            $payload = $decoded;
             $mutate($payload);
             $json = json_encode($payload, JSON_THROW_ON_ERROR | JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE)."\n";
         } catch (JsonException $exception) {
