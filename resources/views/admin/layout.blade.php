@@ -8,6 +8,7 @@
     <link rel="stylesheet" href="{{ asset('css/app.css') }}">
     <link rel="stylesheet" href="{{ asset('css/editorial-media-admin.css') }}">
     <link rel="stylesheet" href="{{ asset('css/wiki-admin.css') }}">
+    <link rel="stylesheet" href="{{ asset('css/marketplace.css') }}">
     @stack('head')
 </head>
 <body class="admin-body">
@@ -41,6 +42,7 @@
             <p class="admin-nav-group">Access</p>
             <a href="{{ route('admin.roles.index') }}" @if(request()->routeIs('admin.roles.*')) aria-current="page" @endif>Roles</a>
             <p class="admin-nav-group">Operations</p>
+            <a href="{{ route('admin.marketplace.index') }}" @if(request()->routeIs('admin.marketplace.*')) aria-current="page" @endif>Character Bazaar</a>
             <a href="{{ route('admin.audit.index') }}" @if(request()->routeIs('admin.audit.*')) aria-current="page" @endif>Audit</a>
         </nav>
     </aside>
@@ -55,6 +57,7 @@
                 <a href="{{ route('admin.media.index') }}" @if(request()->routeIs('admin.media.*')) aria-current="page" @endif>Editorial media</a>
                 <a href="{{ route('admin.wiki.index') }}" @if(request()->routeIs('admin.wiki.*')) aria-current="page" @endif>Wiki</a>
                 <a href="{{ route('admin.roles.index') }}" @if(request()->routeIs('admin.roles.*')) aria-current="page" @endif>Roles</a>
+                <a href="{{ route('admin.marketplace.index') }}" @if(request()->routeIs('admin.marketplace.*')) aria-current="page" @endif>Character Bazaar</a>
                 <a href="{{ route('admin.audit.index') }}" @if(request()->routeIs('admin.audit.*')) aria-current="page" @endif>Audit</a>
             </nav>
         </details>
