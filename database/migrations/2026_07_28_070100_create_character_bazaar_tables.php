@@ -50,6 +50,7 @@ return new class extends Migration
             $table->foreignId('auction_id')->constrained('character_auctions')->cascadeOnDelete();
             $table->foreignId('bidder_identity_id')->constrained('identities')->restrictOnDelete();
             $table->unsignedBigInteger('amount');
+            $table->boolean('is_buy_now')->default(false);
             $table->string('status', 24)->index();
             $table->timestamp('placed_at');
             $table->timestamp('updated_at')->nullable();
