@@ -55,7 +55,9 @@ final readonly class CatalogProfileActivator
                 throw new RuntimeException('Target Game Catalog snapshot is incompatible with this consumer.');
             }
 
-            $targetRelease = DB::table('game_catalog_releases')->whereKey($profile->target_release_id)->first(['id', 'release_order']);
+            $targetRelease = DB::table('game_catalog_releases')
+                ->where('id', $profile->target_release_id)
+                ->first(['id', 'release_order']);
             if ($targetRelease === null) {
                 throw new RuntimeException('Profile target release is missing.');
             }
@@ -72,7 +74,7 @@ final readonly class CatalogProfileActivator
             $projection = $this->projector->rebuild((int) $profile->id, $snapshotId);
             $previousSnapshotId = $profile->active_snapshot_id === null ? null : (int) $profile->active_snapshot_id;
 
-            DB::table('game_catalog_profiles')->whereKey($profile->id)->update([
+            DB::table('game_catalog_profiles')->where('id', $profile->id)->update([
                 'active_snapshot_id' => $snapshotId,
                 'lock_version' => DB::raw('lock_version + 1'),
                 'updated_at' => now(),
