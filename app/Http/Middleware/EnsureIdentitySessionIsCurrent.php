@@ -8,7 +8,10 @@ use App\Identity\Sessions\IdentityWebSessionManager;
 use App\Identity\Sessions\IdentityWebSessionRegistry;
 use App\Identity\Sessions\WebSessionState;
 use Closure;
+use Illuminate\Auth\Middleware\Authenticate;
+use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Routing\Route;
 use Symfony\Component\HttpFoundation\Response;
 
 final class EnsureIdentitySessionIsCurrent
@@ -33,7 +36,7 @@ final class EnsureIdentitySessionIsCurrent
         if (! $authenticatedIdentity instanceof Identity) {
             $this->sessions->invalidate($request);
 
-            return $next($request);
+            return $this->afterInvalidation($request, $next);
         }
 
         $identityId = $authenticatedIdentity->id;
@@ -55,11 +58,39 @@ final class EnsureIdentitySessionIsCurrent
             $this->sessions->invalidate($request);
             $this->securityEvents->recordIdentityWebSessionRejected($identityId);
 
-            return $next($request);
+            return $this->afterInvalidation($request, $next);
         }
 
         $this->registry->touch($registeredSession);
 
         return $next($request);
+    }
+
+    /**
+     * @param  Closure(Request): Response  $next
+     */
+    private function afterInvalidation(Request $request, Closure $next): Response
+    {
+        return $this->requiresAuthentication($request)
+            ? new RedirectResponse('/login')
+            : $next($request);
+    }
+
+    private function requiresAuthentication(Request $request): bool
+    {
+        $route = $request->route();
+        if (! $route instanceof Route) {
+            return false;
+        }
+
+        foreach ($route->gatherMiddleware() as $middleware) {
+            if ($middleware === 'auth'
+                || str_starts_with($middleware, 'auth:')
+                || $middleware === Authenticate::class) {
+                return true;
+            }
+        }
+
+        return false;
     }
 }
