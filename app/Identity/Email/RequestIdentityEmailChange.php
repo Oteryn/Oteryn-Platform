@@ -25,15 +25,16 @@ final class RequestIdentityEmailChange
         $recoveryToken = IdentitySecret::generate();
         $now = now();
         $ttlHours = $this->boundedConfig('identity_security.email_change.verification_ttl_hours', 1, 168);
+        $locale = app()->getLocale();
 
         $request = DB::transaction(function () use ($identity, $newEmail, $verificationToken, $recoveryToken, $now, $ttlHours): IdentityEmailChangeRequest {
             $lockedIdentity = Identity::query()->lockForUpdate()->find($identity->id);
             if (! $lockedIdentity instanceof Identity || $lockedIdentity->disabled_at !== null || $lockedIdentity->terminated_at !== null) {
-                throw new EmailChangeRejected('Email change is not available for this account.');
+                throw new EmailChangeRejected(__('identity.errors.email_change_unavailable'));
             }
 
             if ($lockedIdentity->email_change_available_at?->isFuture() === true) {
-                throw new EmailChangeRejected('Email change is temporarily unavailable due to the security cooldown.');
+                throw new EmailChangeRejected(__('identity.errors.email_change_cooldown'));
             }
 
             $emailInUse = Identity::query()
@@ -41,7 +42,7 @@ final class RequestIdentityEmailChange
                 ->whereKeyNot($lockedIdentity->id)
                 ->exists();
             if ($emailInUse) {
-                throw new EmailChangeRejected('The requested email address cannot be used.');
+                throw new EmailChangeRejected(__('identity.errors.email_unusable'));
             }
 
             $pendingCollision = IdentityEmailChangeRequest::query()
@@ -53,7 +54,7 @@ final class RequestIdentityEmailChange
                 ->where('expires_at', '>', $now)
                 ->exists();
             if ($pendingCollision) {
-                throw new EmailChangeRejected('The requested email address cannot be used.');
+                throw new EmailChangeRejected(__('identity.errors.email_unusable'));
             }
 
             IdentityEmailChangeRequest::query()
@@ -80,9 +81,9 @@ final class RequestIdentityEmailChange
         });
 
         Notification::route('mail', $request->new_email)
-            ->notify(new VerifyIdentityEmailChange($verificationToken));
+            ->notify(new VerifyIdentityEmailChange($verificationToken, $locale));
         Notification::route('mail', $request->old_email)
-            ->notify(new IdentityEmailChangeNotice($recoveryToken));
+            ->notify(new IdentityEmailChangeNotice($recoveryToken, $locale));
 
         return $request;
     }
