@@ -27,6 +27,9 @@
       ],
       "states": [
         "security-overview",
+        "english-and-polish-localization",
+        "localized-validation-and-token-errors",
+        "locale-preserving-email-links",
         "current-and-remote-session-inventory",
         "targeted-session-revocation",
         "other-session-revocation",
@@ -54,6 +57,7 @@
         "feature",
         "playwright",
         "responsive",
+        "localization",
         "smtp",
         "session-security"
       ],
@@ -62,6 +66,7 @@
           "file": "tests/Feature/Identity/AccountSecurityLifecycleTest.php",
           "markers": [
             "test_login_registers_a_concrete_session_and_targeted_revocation_is_owner_scoped",
+            "test_account_security_locale_persists_and_localizes_validation_and_expired_tokens",
             "test_old_address_recovery_restores_the_email_and_cannot_be_replayed",
             "test_recovery_key_is_stored_only_as_a_verifier_and_is_consumed_once",
             "test_termination_can_be_cancelled_during_grace_and_finalization_preserves_identity_record"
@@ -70,7 +75,8 @@
         {
           "file": "scripts/acceptance/tests/account-security-lifecycle-acceptance.spec.mjs",
           "markers": [
-            "@portal-account account security lifecycle covers sessions, privacy, verified email recovery, recovery keys and termination grace"
+            "@portal-account account security lifecycle covers sessions, privacy, verified email recovery, recovery keys and termination grace",
+            "@portal-account account security localization covers Polish responsive, validation, authorization and expired-token states"
           ]
         }
       ],
