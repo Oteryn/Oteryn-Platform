@@ -82,16 +82,18 @@ final class AdminGameCatalogTest extends TestCase
             ->assertOk()
             ->assertSeeText('fixture-protocol')
             ->assertSeeText('item:fixture-sword')
-            ->assertSeeText('future_release')
+            ->assertSeeText('outside_release')
             ->assertSeeText('partial')
-            ->assertSeeText('acceptance.synthetic_warning');
+            ->assertSeeText('acceptance.synthetic_warning')
+            ->assertSeeText('snapshot.activate');
 
         $this->get('/admin/game-catalog/profiles/'.$profileId)
             ->assertOk()
             ->assertSeeText('Public Game Catalog')
             ->assertSeeText('item:fixture-sword')
             ->assertSeeText('visible')
-            ->assertSeeText('future_release');
+            ->assertSeeText('outside_release')
+            ->assertSeeText('snapshot.activate');
 
         $this->get('/admin/game-catalog/findings?severity=warning&snapshot_id='.$snapshot->snapshotId)
             ->assertOk()
