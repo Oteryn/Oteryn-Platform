@@ -46,7 +46,7 @@ final class CanaryCharacterTransferDatabasePrivilegeVerifier
     }
 
     /**
-     * @param list<string> $grants
+     * @param  list<string>  $grants
      * @return list<string>
      */
     public function verify(string $database, array $grants): array
@@ -65,6 +65,7 @@ final class CanaryCharacterTransferDatabasePrivilegeVerifier
 
             if (preg_match('/\bWITH\s+GRANT\s+OPTION\b/i', $normalized) === 1) {
                 $violations[] = "Grant #{$number} includes GRANT OPTION.";
+
                 continue;
             }
 
@@ -74,18 +75,21 @@ final class CanaryCharacterTransferDatabasePrivilegeVerifier
 
             if (preg_match('/^GRANT\s+(.+?)\s+ON\s+(.+?)\s+TO\s+/i', $normalized, $matches) !== 1) {
                 $violations[] = "Grant #{$number} has an unsupported grant shape.";
+
                 continue;
             }
 
             $target = $this->parseQualifiedTarget(trim($matches[2]));
             if ($target === null) {
                 $violations[] = "Grant #{$number} has an unsupported privilege target.";
+
                 continue;
             }
 
             [$grantDatabase, $table] = $target;
             if ($grantDatabase !== $database || ! array_key_exists($table, self::APPROVED)) {
                 $violations[] = "Grant #{$number} targets data outside the approved Character Bazaar transfer surface.";
+
                 continue;
             }
 
@@ -98,6 +102,7 @@ final class CanaryCharacterTransferDatabasePrivilegeVerifier
 
             if ($remaining === null || $remaining !== '' || ($select === null && $update === null)) {
                 $violations[] = "Grant #{$number} includes an unsupported or non-column-level privilege.";
+
                 continue;
             }
 
@@ -109,6 +114,7 @@ final class CanaryCharacterTransferDatabasePrivilegeVerifier
                 foreach ($columns as $column) {
                     if (! in_array($column, self::APPROVED[$table][$privilege], true)) {
                         $violations[] = "Grant #{$number} grants {$privilege} on unapproved {$table}.{$column}.";
+
                         continue 3;
                     }
                     $found[$table][$privilege][$column] = true;

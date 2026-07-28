@@ -5,6 +5,7 @@ namespace App\Marketplace\Data;
 final readonly class CharacterTransferResult
 {
     public const TRANSFERRED = 'transferred';
+
     public const ALREADY_TRANSFERRED = 'already_transferred';
 
     public function __construct(

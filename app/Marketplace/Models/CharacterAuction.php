@@ -7,6 +7,7 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Support\Carbon;
 
 /**
  * @property int $id
@@ -31,31 +32,45 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  * @property int|null $highest_bidder_identity_id
  * @property int $bid_count
  * @property int $lock_version
- * @property \Illuminate\Support\Carbon|null $starts_at
- * @property \Illuminate\Support\Carbon|null $ends_at
- * @property \Illuminate\Support\Carbon|null $escrowed_at
- * @property \Illuminate\Support\Carbon|null $settlement_started_at
- * @property \Illuminate\Support\Carbon|null $settled_at
- * @property \Illuminate\Support\Carbon|null $cancelled_at
+ * @property Carbon|null $starts_at
+ * @property Carbon|null $ends_at
+ * @property Carbon|null $escrowed_at
+ * @property Carbon|null $settlement_started_at
+ * @property Carbon|null $settled_at
+ * @property Carbon|null $cancelled_at
  */
 final class CharacterAuction extends Model
 {
     public const STATUS_ESCROW_PENDING = 'escrow_pending';
+
     public const STATUS_ACTIVE = 'active';
+
     public const STATUS_SETTLEMENT_PENDING = 'settlement_pending';
+
     public const STATUS_COMPLETED = 'completed';
+
     public const STATUS_CANCEL_PENDING = 'cancel_pending';
+
     public const STATUS_CANCELLED = 'cancelled';
+
     public const STATUS_EXPIRED = 'expired';
+
     public const STATUS_RECOVERY_REQUIRED = 'recovery_required';
 
     public const SAGA_ESCROW_REQUESTED = 'escrow_requested';
+
     public const SAGA_QUIESCENCE_WAIT = 'quiescence_wait';
+
     public const SAGA_ACTIVE = 'active';
+
     public const SAGA_TRANSFER_TO_WINNER = 'transfer_to_winner';
+
     public const SAGA_WALLET_SETTLEMENT = 'wallet_settlement';
+
     public const SAGA_RETURN_TO_SELLER = 'return_to_seller';
+
     public const SAGA_DONE = 'done';
+
     public const SAGA_RECOVERY_REQUIRED = 'recovery_required';
 
     /** @var list<string> */

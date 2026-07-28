@@ -5,7 +5,7 @@ namespace App\Marketplace\Data;
 final readonly class CharacterSnapshot
 {
     /**
-     * @param array<string, int|string|null> $publicData
+     * @param  array<string, int|string|null>  $publicData
      */
     public function __construct(
         public int $playerId,

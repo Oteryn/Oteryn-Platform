@@ -5,6 +5,7 @@ namespace App\Marketplace\Models;
 use App\Identity\Models\Identity;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Support\Carbon;
 
 /**
  * @property int $id
@@ -13,15 +14,18 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * @property int $bidder_identity_id
  * @property int $amount
  * @property string $status
- * @property \Illuminate\Support\Carbon $placed_at
+ * @property Carbon $placed_at
  */
 final class AuctionBid extends Model
 {
     public const CREATED_AT = 'placed_at';
 
     public const STATUS_LEADING = 'leading';
+
     public const STATUS_OUTBID = 'outbid';
+
     public const STATUS_WON = 'won';
+
     public const STATUS_RELEASED = 'released';
 
     /** @var list<string> */
