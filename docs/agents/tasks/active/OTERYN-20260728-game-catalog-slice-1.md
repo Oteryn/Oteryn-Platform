@@ -97,8 +97,8 @@ production_activation: forbidden
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-07-28T10:29:30+02:00
-head: ac0124ea5f4c7cca3ed346a90b4847a5a0ad377b
+updated_at: 2026-07-28T10:36:00+02:00
+head: 98cd827188490db17aba9e43db02d63b51ec4d70
 branch: feat/OTERYN-20260728-game-catalog-slice-1
 pr: 272
 status: implementing
@@ -141,6 +141,7 @@ proven:
   - draft PR #272 tracks this task
   - sanitized fixture contains two releases, visible/future items, complete/partial creatures and visible/future loot relations
   - shared validator performs pinned hash checks, Draft 2020-12 validation, semantic integrity checks and two-release visibility assertions
+  - Game Catalog Contract run 30342833946 passed on head 98cd827188490db17aba9e43db02d63b51ec4d70
   - repository writes are authorized only in blakinio/Oteryn-Platform and blakinio/canary
   - production deployment and production activation are excluded
 derived:
@@ -148,20 +149,20 @@ derived:
   - identical fixture and validator bytes plus pinned SHA-256 values create a cross-repository contract gate
   - initial contract/fixture work can proceed without touching PR #270 shared paths
 unknown:
-  - CI confirmation of the expected schema SHA-256 on the branch
   - final integration shape after PR #270 lands or ownership is explicitly reconciled
   - executable local PHP test results because the sandbox cannot clone GitHub or run the repository checkout
   - complete historical content and availability facts listed by the architecture
 conflicts:
   - potential future ownership overlap with PR #270 for app/Providers/AppServiceProvider.php, localized route registration, shared layouts and navigation aggregation
 first_failure:
-  marker: sandbox-github-dns-unavailable
-  evidence: local git clone failed with Could not resolve host github.com
+  marker: checkpoint-validation
+  evidence: Agent Governance run 30342833669 failed after the workflow path was added but before the checkpoint changed_paths list was refreshed
 rejected_hypotheses:
   - external wiki data is authoritative
   - imported snapshots activate automatically
   - unknown values may be converted to zero or guessed
 changed_paths:
+  - .github/workflows/game-catalog-contract.yml
   - docs/agents/tasks/active/OTERYN-20260728-game-catalog-slice-1.md
   - tests/Fixtures/GameCatalog/v1/minimal-snapshot.json
   - tools/game-catalog/validate_contract_fixture.py
@@ -178,6 +179,12 @@ validation:
   - command: local validator syntax and semantic smoke
     result: PASS
     evidence: Python validator executed against a Draft 2020-12 smoke schema and the exact fixture
+  - command: Game Catalog Contract
+    result: PASS
+    evidence: workflow run 30342833946 on head 98cd827188490db17aba9e43db02d63b51ec4d70
+  - command: Agent Governance
+    result: FAIL
+    evidence: workflow run 30342833669; checkpoint refreshed in this commit
   - command: open PR ownership inspection
     result: PASS_WITH_CONFLICT_RECORDED
     evidence: PR #270 changed-file inventory reviewed
@@ -186,7 +193,7 @@ validation:
     evidence: sandbox DNS cannot resolve github.com
 blockers:
   - shared integration paths remain held pending reconciliation with PR #270
-next_action: Add the dedicated Game Catalog contract workflow and inspect its PR #272 run.
+next_action: Inspect renewed PR #272 governance and contract checks, then begin the isolated Platform persistence/import package.
 ```
 
 ## Deferred child tasks
