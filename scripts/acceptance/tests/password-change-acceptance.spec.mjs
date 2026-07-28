@@ -64,9 +64,9 @@ test('@portal-account Flow 3c — authenticated password change revokes existing
     await page.goto('/mfa');
     await expect(page).toHaveURL(/\/login$/u);
 
-    const staleSessionResponse = await stalePage.goto('/mfa');
-    expect(staleSessionResponse?.status()).toBe(403);
-    await expect(stalePage.getByRole('heading', { name: 'You do not have access to this page' })).toBeVisible();
+    await stalePage.goto('/mfa');
+    await expect(stalePage).toHaveURL(/\/login$/u);
+    await expect(stalePage.getByRole('heading', { name: 'Sign in to Oteryn Platform' })).toBeVisible();
 
     await login(page, email, originalPassword);
     await expect(page.getByRole('alert')).toBeVisible();
