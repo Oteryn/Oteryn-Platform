@@ -7,6 +7,7 @@ use App\Marketplace\Data\CharacterTransferResult;
 use App\Marketplace\Exceptions\MarketplaceException;
 use Illuminate\Support\Facades\DB;
 use PDO;
+use PDOStatement;
 use Tests\TestCase;
 
 final class CanaryCharacterTransferConcurrencyMariaDbTest extends TestCase
@@ -131,7 +132,9 @@ final class CanaryCharacterTransferConcurrencyMariaDbTest extends TestCase
             touch($goPath);
 
             foreach ($pids as $pid) {
-                pcntl_waitpid($pid, $status);
+                $status = 0;
+                $waitedPid = pcntl_waitpid($pid, $status);
+                self::assertSame($pid, $waitedPid);
                 self::assertTrue(pcntl_wifexited($status));
                 self::assertSame(0, pcntl_wexitstatus($status));
             }
@@ -252,9 +255,14 @@ final class CanaryCharacterTransferConcurrencyMariaDbTest extends TestCase
             self::fail('MariaDB root connection is unavailable.');
         }
 
-        $owner = $this->root->query(
+        $statement = $this->root->query(
             'SELECT `account_id` FROM `'.self::DATABASE.'`.`players` WHERE `id` = '.$playerId,
-        )?->fetchColumn();
+        );
+        if (! $statement instanceof PDOStatement) {
+            self::fail('MariaDB player owner query failed.');
+        }
+
+        $owner = $statement->fetchColumn();
         if (! is_int($owner) && ! is_string($owner)) {
             self::fail('MariaDB player owner query returned invalid data.');
         }
