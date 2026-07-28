@@ -73,25 +73,22 @@ jobs:
       - name: Install dependencies from lockfile
         run: composer install --no-interaction --prefer-dist --no-progress --quiet
 
-      - name: Check Game Catalog formatting
+      - name: Format Game Catalog diagnostic copy
+        run: >-
+          vendor/bin/pint
+          app/GameCatalog
+          bootstrap/providers.php
+          config/game-catalog.php
+          database/migrations/2026_07_28_110000_create_game_catalog_tables.php
+          database/migrations/2026_07_28_110100_add_game_catalog_profile_policies.php
+          tests/Feature/GameCatalog
+          tests/Unit/GameCatalog
+
+      - name: Analyse formatted Game Catalog slice
         shell: bash
         run: |
           set -o pipefail
           mkdir -p artifacts/ci
-          vendor/bin/pint --test --format=json \
-            app/GameCatalog \
-            bootstrap/providers.php \
-            config/game-catalog.php \
-            database/migrations/2026_07_28_110000_create_game_catalog_tables.php \
-            database/migrations/2026_07_28_110100_add_game_catalog_profile_policies.php \
-            tests/Feature/GameCatalog \
-            tests/Unit/GameCatalog \
-            2>&1 | tee artifacts/ci/game-catalog-pint.json
-
-      - name: Analyse Game Catalog slice
-        shell: bash
-        run: |
-          set -o pipefail
           vendor/bin/phpstan analyse \
             app/GameCatalog \
             bootstrap/providers.php \
@@ -105,13 +102,29 @@ jobs:
             --error-format=raw \
             2>&1 | tee artifacts/ci/game-catalog-phpstan.txt
 
+      - name: Archive formatted Game Catalog source
+        if: always()
+        run: |
+          mkdir -p artifacts/ci
+          tar -czf artifacts/ci/game-catalog-source.tgz \
+            app/GameCatalog \
+            tests/Feature/GameCatalog \
+            tests/Unit/GameCatalog
+
       - name: Upload Game Catalog diagnostics
-        if: failure()
+        if: always()
         uses: actions/upload-artifact@v7
         with:
           name: game-catalog-ci-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
-            artifacts/ci/game-catalog-pint.json
             artifacts/ci/game-catalog-phpstan.txt
-          if-no-files-found: warn
+            artifacts/ci/game-catalog-source.tgz
+          if-no-files-found: error
           retention-days: 7
+
+      - name: Verify Game Catalog formatting is committed
+        run: >-
+          git diff --exit-code --
+          app/GameCatalog
+          tests/Feature/GameCatalog
+          tests/Unit/GameCatalog
