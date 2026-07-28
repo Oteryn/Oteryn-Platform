@@ -1,0 +1,80 @@
+{
+  "surfaces": [
+    {
+      "id": "identity.account-security-lifecycle",
+      "owner": "Identity",
+      "status": "covered",
+      "route_names": [
+        "identity.account-security.show",
+        "identity.email-change.store",
+        "identity.email-change.confirm.create",
+        "identity.email-change.confirm",
+        "identity.email-change.recover.create",
+        "identity.email-change.recover",
+        "identity.sessions.destroy",
+        "identity.sessions.destroy-others",
+        "identity.privacy.update",
+        "identity.recovery-key.generate",
+        "identity.recovery-key.revoke",
+        "identity.recovery-key.recover.create",
+        "identity.recovery-key.recover",
+        "identity.termination.store",
+        "identity.termination.destroy"
+      ],
+      "roles": [
+        "guest",
+        "authenticated"
+      ],
+      "states": [
+        "security-overview",
+        "current-and-remote-session-inventory",
+        "targeted-session-revocation",
+        "other-session-revocation",
+        "privacy-default-and-update",
+        "email-change-request",
+        "new-address-confirmation",
+        "old-address-recovery",
+        "single-use-token-replay-rejection",
+        "recovery-key-generate-once",
+        "recovery-key-revoke",
+        "recovery-key-consume-and-replay-reject",
+        "termination-grace-schedule",
+        "termination-cancel",
+        "browser-session-revocation"
+      ],
+      "viewports": [
+        "desktop-1440x1000",
+        "tablet-820x1180",
+        "mobile-390x844"
+      ],
+      "browsers": [
+        "chromium-primary"
+      ],
+      "evidence_layers": [
+        "feature",
+        "playwright",
+        "responsive",
+        "smtp",
+        "session-security"
+      ],
+      "evidence": [
+        {
+          "file": "tests/Feature/Identity/AccountSecurityLifecycleTest.php",
+          "markers": [
+            "test_login_registers_a_concrete_session_and_targeted_revocation_is_owner_scoped",
+            "test_old_address_recovery_restores_the_email_and_cannot_be_replayed",
+            "test_recovery_key_is_stored_only_as_a_verifier_and_is_consumed_once",
+            "test_termination_can_be_cancelled_during_grace_and_finalization_preserves_identity_record"
+          ]
+        },
+        {
+          "file": "scripts/acceptance/tests/account-security-lifecycle-acceptance.spec.mjs",
+          "markers": [
+            "@portal-account account security lifecycle covers sessions, privacy, verified email recovery, recovery keys and termination grace"
+          ]
+        }
+      ],
+      "gaps": []
+    }
+  ]
+}
