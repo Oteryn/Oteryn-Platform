@@ -5,6 +5,7 @@ namespace Tests\Feature\Identity;
 use App\Identity\Email\ConfirmIdentityEmailChange;
 use App\Identity\Email\EmailChangeRejected;
 use App\Identity\Email\RecoverIdentityEmailChange;
+use App\Identity\Localization\SetIdentityLocale;
 use App\Identity\Models\Identity;
 use App\Identity\Models\IdentityEmailChangeRequest;
 use App\Identity\Models\IdentityWebSession;
@@ -72,6 +73,36 @@ final class AccountSecurityLifecycleTest extends TestCase
             ->assertRedirect(route('identity.account-security.show'));
         self::assertNotNull($otherSession->fresh()?->revoked_at);
         self::assertNull(IdentityWebSession::query()->findOrFail($currentSessionId)->revoked_at);
+    }
+
+    public function test_account_security_locale_persists_and_localizes_validation_and_expired_tokens(): void
+    {
+        $identity = $this->identity('localized-security@example.test');
+
+        $this->actingAs($identity)
+            ->get(route('identity.account-security.show', ['locale' => 'pl']))
+            ->assertOk()
+            ->assertHeader('Content-Language', 'pl')
+            ->assertSee('Bezpieczeństwo i cykl życia')
+            ->assertSee('Brak aktywnego klucza odzyskiwania.');
+        $this->assertSessionHas(SetIdentityLocale::SESSION_KEY, 'pl');
+
+        $this->post(route('identity.email-change.store'), [
+            'email' => 'localized-new@example.test',
+            'email_confirmation' => 'localized-new@example.test',
+            'current_password' => 'wrong-password',
+        ])->assertRedirect()
+            ->assertSessionHasErrors([
+                'current_password' => 'Bieżące hasło jest nieprawidłowe.',
+            ]);
+
+        $this->post(route('identity.email-change.confirm', [
+            'token' => 'expired-token',
+            'locale' => 'pl',
+        ]))->assertRedirect()
+            ->assertSessionHasErrors([
+                'email' => 'Łącze potwierdzające adres e-mail jest nieprawidłowe lub wygasło.',
+            ]);
     }
 
     public function test_email_confirmation_and_old_address_recovery_are_single_use_and_revoke_sessions(): void
