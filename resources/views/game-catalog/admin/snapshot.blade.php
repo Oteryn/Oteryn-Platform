@@ -123,4 +123,26 @@
             </table>
         </div>
     </section>
+
+    <section aria-labelledby="snapshot-audit-heading">
+        <h2 id="snapshot-audit-heading">Bounded audit history</h2>
+        <div class="table-wrap">
+            <table>
+                <thead><tr><th>Action</th><th>Actor identity</th><th>Profile</th><th>Metadata</th><th>Created</th></tr></thead>
+                <tbody>
+                @forelse ($auditEvents as $event)
+                    <tr>
+                        <td><code>{{ $event->action }}</code></td>
+                        <td>{{ $event->actor_identity_id ?? 'operator CLI' }}</td>
+                        <td>{{ $event->profile_id === null ? 'none' : '#'.$event->profile_id }}</td>
+                        <td><code>{{ $event->metadata }}</code></td>
+                        <td>{{ $event->created_at }}</td>
+                    </tr>
+                @empty
+                    <tr><td colspan="5">No activation or rollback audit events reference this snapshot.</td></tr>
+                @endforelse
+                </tbody>
+            </table>
+        </div>
+    </section>
 @endsection
