@@ -12,6 +12,11 @@ import {
 const bidderPassword = 'Acceptance-Marketplace-9!Pass';
 const adminPassword = 'Acceptance-Marketplace-Admin-9!Pass';
 const adminRecoveryCode = 'MARKET-00001';
+const responsiveViewports = [
+  { width: 1440, height: 1000 },
+  { width: 820, height: 1180 },
+  { width: 390, height: 844 },
+];
 
 function seedMarketplace(email) {
   return JSON.parse(runBinary('php', [
@@ -38,6 +43,16 @@ async function assertNoHorizontalOverflow(page) {
   expect(dimensions.content).toBeLessThanOrEqual(dimensions.viewport + 1);
 }
 
+async function assertResponsiveLayout(page) {
+  for (const viewport of responsiveViewports) {
+    await page.setViewportSize(viewport);
+    await expect(page.locator('main')).toBeVisible();
+    await assertNoHorizontalOverflow(page);
+  }
+
+  await page.setViewportSize(responsiveViewports[0]);
+}
+
 test.setTimeout(120_000);
 test.describe.configure({ retries: 0 });
 
@@ -58,7 +73,7 @@ test('@portal-marketplace-public catalogue detail filters localization responsiv
   await page.getByLabel('Minimum level').fill('300');
   await page.getByRole('button', { name: 'Apply filters' }).click();
   await expect(page.getByText(fixture.player_name, { exact: true })).toBeVisible();
-  await assertNoHorizontalOverflow(page);
+  await assertResponsiveLayout(page);
   await assertAccessibilitySmoke(page);
 
   await page.getByRole('link', { name: 'View character' }).click();
@@ -66,12 +81,13 @@ test('@portal-marketplace-public catalogue detail filters localization responsiv
   await expect(page.getByRole('heading', { name: 'Verified listing snapshot' })).toBeVisible();
   await expect(page.getByText('Sword fighting', { exact: true })).toBeVisible();
   await expect(page.getByText('112', { exact: true })).toBeVisible();
-  await assertNoHorizontalOverflow(page);
+  await assertResponsiveLayout(page);
   await assertAccessibilitySmoke(page);
 
   await page.goto('/pl/bazaar');
   await expect(page.getByRole('heading', { name: 'Bazar postaci' })).toBeVisible();
   await expect(page.getByText(fixture.player_name, { exact: true })).toBeVisible();
+  await assertResponsiveLayout(page);
 });
 
 test('@portal-marketplace-account authenticated watch bid wallet reservation dashboard and authorization journey', async ({ page }) => {
@@ -94,7 +110,7 @@ test('@portal-marketplace-account authenticated watch bid wallet reservation das
   await expect(page.getByRole('heading', { name: 'My bids' })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Watched auctions' })).toBeVisible();
   await expect(page.getByText(fixture.player_name, { exact: true }).first()).toBeVisible();
-  await assertNoHorizontalOverflow(page);
+  await assertResponsiveLayout(page);
   await assertAccessibilitySmoke(page);
 });
 
@@ -121,6 +137,6 @@ test('@portal-marketplace-admin MFA permission wallet adjustment ledger and reco
   await expect(page.getByRole('status')).toContainText('Wallet adjustment recorded.');
   await expect(page.getByText('5 300 Oteryn Coins', { exact: true })).toBeVisible();
   await expect(page.getByText('administrator_adjustment', { exact: true })).toBeVisible();
-  await assertNoHorizontalOverflow(page);
+  await assertResponsiveLayout(page);
   await assertAccessibilitySmoke(page);
 });
