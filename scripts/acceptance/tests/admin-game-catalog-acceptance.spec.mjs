@@ -77,6 +77,7 @@ test('@portal-game-catalog-admin MFA RBAC snapshot profile finding diff responsi
   await expect(page.getByText('item:fixture-sword', { exact: true })).toBeVisible();
   await expect(page.getByText('future_release', { exact: true })).toBeVisible();
   await expect(page.getByText('partial', { exact: true })).toBeVisible();
+  await expect(page.getByText('snapshot.activate', { exact: true })).toBeVisible();
   await assertResponsiveLayout(page);
   await assertAccessibilitySmoke(page);
 
@@ -84,19 +85,23 @@ test('@portal-game-catalog-admin MFA RBAC snapshot profile finding diff responsi
   await expect(page.getByRole('heading', { level: 1, name: 'Public Game Catalog' })).toBeVisible();
   await expect(page.getByText('item:fixture-sword', { exact: true })).toBeVisible();
   await expect(page.getByText('visible', { exact: true }).first()).toBeVisible();
+  await expect(page.getByText('snapshot.activate', { exact: true })).toBeVisible();
   await assertResponsiveLayout(page);
   await assertAccessibilitySmoke(page);
 
   await page.goto(`/admin/game-catalog/findings?snapshot_id=${fixture.snapshot_id}`);
   await expect(page.getByRole('heading', { level: 1, name: 'Findings' })).toBeVisible();
+  await expect(page.getByLabel('Snapshot')).toHaveValue(String(fixture.snapshot_id));
   await expect(page.getByText('No validation findings match these filters.', { exact: true })).toBeVisible();
   await assertResponsiveLayout(page);
   await assertAccessibilitySmoke(page);
 
-  await page.goto('/admin/game-catalog/diff');
+  await page.goto(`/admin/game-catalog/diff?snapshot_a=${fixture.snapshot_id}&snapshot_b=${fixture.comparison_snapshot_id}`);
   await expect(page.getByRole('heading', { level: 1, name: 'Snapshot diff' })).toBeVisible();
-  await expect(page.getByLabel('Snapshot A')).toBeVisible();
-  await expect(page.getByLabel('Snapshot B')).toBeVisible();
+  await expect(page.getByLabel('Snapshot A')).toHaveValue(String(fixture.snapshot_id));
+  await expect(page.getByLabel('Snapshot B')).toHaveValue(String(fixture.comparison_snapshot_id));
+  await expect(page.getByText('Changed entities', { exact: true }).first()).toBeVisible();
+  await expect(page.getByText('item:fixture-sword', { exact: true })).toBeVisible();
   await assertResponsiveLayout(page);
   await assertAccessibilitySmoke(page);
 });
