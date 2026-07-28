@@ -2,14 +2,23 @@
 
 namespace App\GameCatalog\Application\Import;
 
+use App\GameCatalog\Application\Configuration\CatalogConfiguration;
 use App\GameCatalog\Domain\CatalogValidationFinding;
 use App\GameCatalog\Domain\Exceptions\CatalogValidationException;
+use App\GameCatalog\Infrastructure\Persistence\CatalogDatabaseRow;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\ConnectionInterface;
 use Illuminate\Support\Facades\DB;
 use JsonException;
 use Throwable;
 
+/**
+ * @phpstan-import-type CatalogRelease from ValidatedCatalogSnapshot
+ * @phpstan-import-type CatalogEntity from ValidatedCatalogSnapshot
+ * @phpstan-import-type CatalogItemData from ValidatedCatalogSnapshot
+ * @phpstan-import-type CatalogCreatureData from ValidatedCatalogSnapshot
+ * @phpstan-import-type CatalogRelation from ValidatedCatalogSnapshot
+ */
 final class CatalogImportService
 {
     public function __construct(
@@ -32,10 +41,11 @@ final class CatalogImportService
             ->first(['id']);
 
         if ($existingSnapshot !== null) {
-            $runId = $this->recordDeduplicatedRun($validated, (int) $existingSnapshot->id);
+            $existingSnapshotId = CatalogDatabaseRow::from($existingSnapshot)->int('id');
+            $runId = $this->recordDeduplicatedRun($validated, $existingSnapshotId);
 
             return new CatalogImportResult(
-                snapshotId: (int) $existingSnapshot->id,
+                snapshotId: $existingSnapshotId,
                 importRunId: $runId,
                 contentSha256: $validated->contentSha256,
                 deduplicated: true,
@@ -58,7 +68,7 @@ final class CatalogImportService
                     'validation_summary' => $this->json([
                         'errors' => 0,
                         'warnings' => 0,
-                        'schema_sha256' => config('game-catalog.expected_schema_sha256'),
+                        'schema_sha256' => CatalogConfiguration::string('game-catalog.expected_schema_sha256'),
                         'entity_count' => count($validated->payload['entities']),
                         'relation_count' => count($validated->payload['relations']),
                     ]),
@@ -95,7 +105,7 @@ final class CatalogImportService
     }
 
     /**
-     * @param  list<array<string, mixed>>  $releases
+     * @param list<CatalogRelease> $releases
      * @return array<string, int>
      */
     private function persistReleases(array $releases, CarbonImmutable $now): array
@@ -126,30 +136,30 @@ final class CatalogImportService
                 continue;
             }
 
-            $this->assertReleaseMatches($existing, $release, $releasedAt);
-            $ids[$release['key']] = (int) $existing->id;
+            $existingRow = CatalogDatabaseRow::from($existing);
+            $this->assertReleaseMatches($existingRow, $release, $releasedAt);
+            $ids[$release['key']] = $existingRow->int('id');
         }
 
         return $ids;
     }
 
-    /**
-     * @param  array<string, mixed>  $release
-     */
-    private function assertReleaseMatches(object $existing, array $release, ?CarbonImmutable $releasedAt): void
+    /** @param CatalogRelease $release */
+    private function assertReleaseMatches(CatalogDatabaseRow $existing, array $release, ?CarbonImmutable $releasedAt): void
     {
-        $existingReleasedAt = $existing->released_at === null
+        $existingReleasedAtValue = $existing->nullableString('released_at');
+        $existingReleasedAt = $existingReleasedAtValue === null
             ? null
-            : CarbonImmutable::parse((string) $existing->released_at)->utc()->format('Y-m-d\TH:i:s.u\Z');
+            : CarbonImmutable::parse($existingReleasedAtValue)->utc()->format('Y-m-d\TH:i:s.u\Z');
         $incomingReleasedAt = $releasedAt?->format('Y-m-d\TH:i:s.u\Z');
 
-        $matches = (string) $existing->display_label === $release['display_label']
-            && (int) $existing->major === $release['major']
-            && (int) $existing->minor === $release['minor']
-            && (int) $existing->patch === $release['patch']
-            && ($existing->build === null ? null : (int) $existing->build) === $release['build']
-            && (int) $existing->release_order === $release['release_order']
-            && $existing->protocol_family === $release['protocol_family']
+        $matches = $existing->string('display_label') === $release['display_label']
+            && $existing->int('major') === $release['major']
+            && $existing->int('minor') === $release['minor']
+            && $existing->int('patch') === $release['patch']
+            && $existing->nullableInt('build') === $release['build']
+            && $existing->int('release_order') === $release['release_order']
+            && $existing->nullableString('protocol_family') === $release['protocol_family']
             && $existingReleasedAt === $incomingReleasedAt;
 
         if (! $matches) {
@@ -164,9 +174,7 @@ final class CatalogImportService
         }
     }
 
-    /**
-     * @param  array<string, int>  $releaseIds
-     */
+    /** @param array<string, int> $releaseIds */
     private function persistSnapshot(ValidatedCatalogSnapshot $validated, array $releaseIds, CarbonImmutable $now): int
     {
         $snapshot = $validated->payload['snapshot'];
@@ -199,8 +207,8 @@ final class CatalogImportService
     }
 
     /**
-     * @param  list<array<string, mixed>>  $entities
-     * @param  array<string, int>  $releaseIds
+     * @param list<CatalogEntity> $entities
+     * @param array<string, int> $releaseIds
      * @return array<string, int>
      */
     private function persistEntities(int $snapshotId, array $entities, array $releaseIds, CarbonImmutable $now): array
@@ -217,7 +225,8 @@ final class CatalogImportService
                     'updated_at' => $now,
                 ]);
             } else {
-                if ((string) $stable->entity_type !== $entity['type']) {
+                $stableRow = CatalogDatabaseRow::from($stable);
+                if ($stableRow->string('entity_type') !== $entity['type']) {
                     throw new CatalogValidationException([
                         new CatalogValidationFinding(
                             severity: 'error',
@@ -227,7 +236,7 @@ final class CatalogImportService
                         ),
                     ]);
                 }
-                $entityId = (int) $stable->id;
+                $entityId = $stableRow->int('id');
             }
 
             $entityIds[$entity['canonical_key']] = $entityId;
@@ -269,9 +278,7 @@ final class CatalogImportService
         return $entityIds;
     }
 
-    /**
-     * @param  array<string, mixed>  $data
-     */
+    /** @param CatalogItemData $data */
     private function persistItem(int $entitySnapshotId, array $data): void
     {
         DB::table('game_catalog_item_snapshots')->insert([
@@ -303,9 +310,7 @@ final class CatalogImportService
         ]);
     }
 
-    /**
-     * @param  array<string, mixed>  $data
-     */
+    /** @param CatalogCreatureData $data */
     private function persistCreature(int $entitySnapshotId, array $data): void
     {
         DB::table('game_catalog_creature_snapshots')->insert([
@@ -337,9 +342,9 @@ final class CatalogImportService
     }
 
     /**
-     * @param  list<array<string, mixed>>  $relations
-     * @param  array<string, int>  $releaseIds
-     * @param  array<string, int>  $entityIds
+     * @param list<CatalogRelation> $relations
+     * @param array<string, int> $releaseIds
+     * @param array<string, int> $entityIds
      */
     private function persistRelations(
         int $snapshotId,
@@ -476,7 +481,7 @@ final class CatalogImportService
         }
 
         $now = CarbonImmutable::now('UTC');
-        $maximumFindings = (int) config('game-catalog.limits.validation_findings', 2_000);
+        $maximumFindings = CatalogConfiguration::positiveInt('game-catalog.limits.validation_findings', 2_000);
         $findings = array_slice($exception->findings, 0, $maximumFindings);
         $runId = (int) DB::table('game_catalog_import_runs')->insertGetId([
             'content_sha256' => $exception->contentSha256,
