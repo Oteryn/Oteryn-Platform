@@ -4,7 +4,7 @@ Convenience index only. Individual active task records, live PRs and Git state a
 
 ## Active tasks
 
-- `OTERYN-20260728-account-security-lifecycle` — Issue #276 on `feat/OTERYN-20260728-account-security-lifecycle`; implementation, EN/PL acceptance and architecture/operations/product-ledger closure are complete on the branch and exact-final-head validation is in progress before PR #283 review.
+- None.
 
 ## Closed acceptance and release-preparation follow-ups
 
@@ -40,14 +40,14 @@ Convenience index only. Individual active task records, live PRs and Git state a
 - PR #233 / `e3e94dae03e0468d71f911ad41e597bb5d802eb3` — temporary final-staging workflows and trigger removed after all required cleanup checks passed.
 - PR #234 / `4131a34b8c5f1092a2d0b8fb1bb56785f217b194` — closed Issue #145 state and the single remaining archival action persisted in the final-staging checkpoint.
 - PR #235 / `cab40863bd5058209cdcbee1342a54acc814ec01` — final public-staging task record archived and `ACTIVE_WORK` cleared.
-- PR #236 / `ee8293d8bbf33f0e74757ec1ced70e30c53de` — deterministic reserved-domain DNS, TLS, Cloudflare/WAF/Access and authenticated-origin emulation merged with exact-SHA `STAGING_PROVEN` evidence.
+- PR #236 / `ee8293d8bbf33c9bc89ca105a0273728bb222f4d` — deterministic reserved-domain DNS, TLS, Cloudflare/WAF/Access and authenticated-origin emulation merged with exact-SHA `STAGING_PROVEN` evidence.
 - PR #237 / `f5aeb2e80d4692b3ee6309cc3454aa20697721f2` — edge-security emulation task archived and `ACTIVE_WORK` cleared.
 - PR #239 / `50d917acd7fde333f0e74757ec1ced70e30c53de` — local Synology production-target preflight merged; live run `30275482522` proved host/runtime/storage/binding/health/least-privilege/Redis/rollback and isolated restore boundaries as `STAGING_PROVEN`.
 - PR #245 / `458d447a35aa87dd1b13fa16e120e9b9fb9c21ec` — Synology target-preflight lifecycle archived; permanent manual revalidation remains available.
 - PR #246 / `9af2624e68061d52f861068976a38fe67abc4b5a` — first Issue #240 runtime slice merged: Account Center character inventory/states, readable vocations, approved character guild presentation, obsolete public preview removal and fail-closed completeness matrix.
 - PR #247 / `4e8a11a9b76aeaaa59a5dcc38bcd8a8e2fa54b39` — machine-enforced portal route/evidence ledger and complete zero-retry account lifecycle merged; bounded module gaps are now explicit.
 - PR #253 / `f9301792cfc82956aa4af792283c18bcbaf2c28e` — complete Download Center public/admin/localization/failure-recovery lifecycle merged with Chromium, Firefox and WebKit evidence; Downloads is `covered`.
-- PR #255 / `7e0fe46b57be4cf19900adefbada7133da47bb21` — complete Events public/admin/localization/conflict lifecycle merged with Chromium desktop/tablet/mobile and bounded public Firefox/WebKit evidence; Events is `covered`.
+- PR #255 / `7e0fe46db04c8d9c61082d4a7451352bf084013` — complete Events public/admin/localization/conflict lifecycle merged with Chromium desktop/tablet/mobile and bounded public Firefox/WebKit evidence; Events is `covered`.
 - PR #259 / `d08062c653a137e1359b5626fda635b170704cd8` — complete Announcements public/admin/localization lifecycle merged after every exact-head workflow passed; Announcements is `covered`.
 - PR #260 / `436d30e56bbf2821d01372a8aec15ec1a3ffca30` — Support/Legal, Editorial Media and Wiki public/admin final acceptance closure merged; strict delivered-surface ledger and all exact-head workflows passed, and Issue #240 is closed.
 - PR #265 / `dd48947a0c6328dc5d361f9953c221df343ecb4d` — comprehensive exact-head portal E2E audit and harness remediations merged after critical, full, contract, module, stability, soak, CI and governance gates passed on tested SHA `a5929d0725d6a99069abbc2faa42022d843e560d`.
@@ -65,21 +65,21 @@ Repository and staging evidence remains valid only for its documented boundaries
 
 - **Production Readiness: STAGING_PROVEN for previously documented boundaries**
 - **Portal Completeness: COMPLETE AGAINST THE VERSIONED DELIVERED-SURFACE CONTRACT (Issue #240 closed)**
-- **Product Completeness Benchmark: COMPLETE AS AN AUDIT; REQUIRED PRODUCT GAPS REMAIN OPEN (#277-#281, with #278 required before commerce activation)**
+- **Product Completeness Benchmark: COMPLETE AS AN AUDIT; REQUIRED PRODUCT GAPS REMAIN OPEN (#276-#281)**
 - **Benchmark Product Completeness: NOT YET ACHIEVED**
-- **Functional Acceptance: comprehensive exact-head critical/full/contract/module/stability/soak audit passed through PR #275; PR #283 exact-final-head validation is in progress**
-- **Visual / UX Acceptance: automated responsive/accessibility profiles and exploratory visual validation passed on the PR #275 exact head; account-security EN/PL D/T/M evidence is being finalized in PR #283**
+- **Functional Acceptance: comprehensive exact-head critical/full/contract/module/stability/soak audit passed through PR #275**
+- **Visual / UX Acceptance: automated responsive/accessibility profiles and exploratory visual validation passed on the PR #275 exact head**
 - **Public Website Expansion Programme: implementation and machine-ledger closure merged**
 - **Emulated Edge Security: STAGING_PROVEN**
 - **Synology Production Target Preflight: STAGING_PROVEN**
 - **Production Go-Live Gate: PENDING PRODUCTION VERIFICATION**
 - **Production Verification: REQUIRED BEFORE GO-LIVE**
 
-The latest verified final-portal staging refresh identity is `583cae5f430998b2bbdf5e60b59d93f09ec6f4c8` from PR #267 and deployment run `30335161092`. Later marketplace, account-security and audit evidence is repository/isolated-acceptance proof unless a deployment-specific record says otherwise. No repository, staging, local-target or emulation evidence may be promoted to `PRODUCTION_PROVEN`.
+The latest verified final-portal staging refresh identity is `583cae5f430998b2bbdf5e60b59d93f09ec6f4c8` from PR #267 and deployment run `30335161092`. Later marketplace and audit evidence is repository/isolated-acceptance proof unless a deployment-specific record says otherwise. No repository, staging, local-target or emulation evidence may be promoted to `PRODUCTION_PROVEN`.
 
 ## Next work
 
-After PR #283 review, the highest-priority required benchmark gaps are #277 character management/profile, #279 support/moderation and #280 community data. Issue #278 is mandatory before commercial activation, #281 owns server-backed knowledge expansion, #244 separately owns the homepage-template selector and #91 remains the separate real Production Go-Live tracker.
+The highest-priority required benchmark gaps are #276 account security/lifecycle, #277 character management/profile, #279 support/moderation and #280 community data. Issue #278 is mandatory before commercial activation, #281 owns server-backed knowledge expansion, #244 separately owns the homepage-template selector and #91 remains the separate real Production Go-Live tracker.
 
 ## Remaining cross-repository dependency
 
