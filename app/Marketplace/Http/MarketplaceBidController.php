@@ -32,6 +32,7 @@ final class MarketplaceBidController
         $identity = $request->user();
         abort_unless($identity instanceof Identity, 403);
 
+        /** @var array{amount: int, request_id: string} $validated */
         $validated = $request->validate([
             'amount' => ['required', 'integer', 'min:1', 'max:1000000000'],
             'request_id' => ['required', 'uuid'],
@@ -41,8 +42,8 @@ final class MarketplaceBidController
             $updated = $this->bids->execute(
                 $identity,
                 $auction,
-                (int) $validated['amount'],
-                (string) $validated['request_id'],
+                $validated['amount'],
+                $validated['request_id'],
                 $fixedPrice,
             );
 
