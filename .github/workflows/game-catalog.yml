@@ -1,0 +1,67 @@
+name: Game Catalog
+
+on:
+  pull_request:
+    paths:
+      - 'app/GameCatalog/**'
+      - 'config/game-catalog.php'
+      - 'database/migrations/*game_catalog*'
+      - 'resources/fixtures/game-catalog/**'
+      - 'resources/schemas/game-catalog/**'
+      - 'resources/views/game-catalog/**'
+      - 'resources/views/admin/game-catalog/**'
+      - 'routes/modules/game-catalog.php'
+      - 'lang/*/game_catalog.php'
+      - 'public/css/game-catalog.css'
+      - 'tests/**/GameCatalog/**'
+      - 'bootstrap/providers.php'
+      - '.github/workflows/game-catalog.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: game-catalog-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  focused:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.5'
+          coverage: none
+          extensions: pdo_sqlite, mbstring
+          tools: composer:v2
+      - name: Install dependencies with captured diagnostics
+        id: composer
+        shell: bash
+        run: |
+          set +e
+          composer install --no-interaction --prefer-dist --no-progress 2>&1 | tee composer-install.log
+          status=${PIPESTATUS[0]}
+          echo "status=${status}" >> "$GITHUB_OUTPUT"
+          exit 0
+      - name: Upload Composer diagnostics
+        if: steps.composer.outputs.status != '0'
+        uses: actions/upload-artifact@v7
+        with:
+          name: game-catalog-composer-${{ github.run_id }}-${{ github.run_attempt }}
+          path: composer-install.log
+          if-no-files-found: error
+          retention-days: 7
+      - name: Fail after captured Composer error
+        if: steps.composer.outputs.status != '0'
+        run: exit 1
+      - name: Lint catalogue PHP
+        run: find app/GameCatalog database/migrations routes/modules tests/Unit/GameCatalog -type f -name '*.php' -print0 | xargs -0 -n1 php -l
+      - name: Verify schema and fixture hashes
+        run: |
+          test "$(sha256sum resources/schemas/game-catalog/v1/game-catalog-snapshot.schema.json | cut -d' ' -f1)" = "099a8373ff2b0017cc2b321991662dc4e4783b626391aa7a110a6db0559d146b"
+          test "$(sha256sum resources/fixtures/game-catalog/minimal-snapshot.json | cut -d' ' -f1)" = "76b61b167e77a0c0379c5c1d179c3fec808ae1cf3d996e30be5784fde699691e"
+      - name: Run focused validator tests
+        run: php artisan test tests/Unit/GameCatalog/GameCatalogDocumentValidatorTest.php
