@@ -61,6 +61,44 @@ final class ProductionConfigurationVerifier
             $violations[] = 'MAIL_FROM_ADDRESS must not use a reserved test domain.';
         }
 
+        array_push($violations, ...$this->marketplaceViolations());
+
+        return $violations;
+    }
+
+    /** @return list<string> */
+    private function marketplaceViolations(): array
+    {
+        $violations = [];
+        $escrowAccountId = config('marketplace.escrow_canary_account_id');
+        if (! is_int($escrowAccountId) || $escrowAccountId <= 0) {
+            $violations[] = 'MARKETPLACE_ESCROW_CANARY_ACCOUNT_ID must be a positive Canary account ID.';
+        }
+
+        $durations = config('marketplace.allowed_duration_days');
+        if (! is_array($durations) || $durations === [] || array_values(array_unique($durations)) !== $durations) {
+            $violations[] = 'Character Bazaar auction durations must be a non-empty unique list.';
+        } elseif (array_filter($durations, static fn (mixed $duration): bool => ! is_int($duration) || $duration < 1 || $duration > 30) !== []) {
+            $violations[] = 'Character Bazaar auction durations must be integers between 1 and 30 days.';
+        }
+
+        foreach (['minimum_starting_bid', 'minimum_bid_increment', 'escrow_quiescence_seconds', 'public_bid_history_limit', 'character_limit'] as $key) {
+            $value = config("marketplace.{$key}");
+            if (! is_int($value) || $value < 1) {
+                $violations[] = "Character Bazaar {$key} must be a positive integer.";
+            }
+        }
+
+        $commission = config('marketplace.commission_basis_points');
+        if (! is_int($commission) || $commission < 0 || $commission > 10_000) {
+            $violations[] = 'Character Bazaar commission must be between 0 and 10000 basis points.';
+        }
+
+        $transferUsername = config('database.connections.canary_character_transfer.username');
+        if (! is_string($transferUsername) || trim($transferUsername) === '' || $transferUsername === 'root') {
+            $violations[] = 'The dedicated Canary character-transfer database username must be configured and must not be root.';
+        }
+
         return $violations;
     }
 
