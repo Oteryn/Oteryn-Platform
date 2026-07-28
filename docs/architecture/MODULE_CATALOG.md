@@ -13,7 +13,7 @@ This catalog defines module responsibilities and dependency boundaries.
 |---|---|---|---|
 | Identity | AVAILABLE | Platform web authentication policy, credentials lifecycle, sessions, MFA, recovery | Payments, game runtime, arbitrary character mutations |
 | Accounts | AVAILABLE | Greenfield account provisioning/binding and future explicitly contracted account-level operations | Canary password verification logic, undocumented shared writes, game runtime |
-| Characters | AVAILABLE | Contract-approved web-triggered character operations; currently create | Direct undocumented Canary writes; uncontracted rename/delete |
+| Characters | AVAILABLE | Contract-approved web-triggered character operations; currently create plus Character Bazaar ownership transfer | Direct undocumented Canary writes; uncontracted rename/delete |
 | PublicGameData | AVAILABLE | Read models/queries for characters, guilds, highscores, online/status | Privileged mutations |
 | CMS | AVAILABLE | Public content reads and permission-scoped Platform content management | Identity policy, game state, rich/upload surfaces without explicit security controls |
 | EditorialMedia | IMPLEMENTING | Private normalized raster-image objects, integrity metadata, bounded consumer references and administrator lifecycle | Public/executable uploads, arbitrary documents, consumer-specific publication rules |
@@ -21,9 +21,11 @@ This catalog defines module responsibilities and dependency boundaries.
 | Admin | AVAILABLE | Admin UI, explicit RBAC/policies, privileged Platform use cases | Bypassing domain/application invariants or granting implicit wildcard authority |
 | Audit | AVAILABLE | Security/admin audit primitives, privileged-action audit and bounded admin audit visibility | Secrets, raw credentials, business-rule authorization decisions |
 | Integration | AVAILABLE | Implemented Canary read/write adapters, schema translation, contract enforcement; future login bridge remains separate | Product policy that belongs in domain modules |
+| Wallet | IMPLEMENTING | Oteryn Coins available/reserved projection and append-oriented idempotent ledger | Canary coins, payment-provider settlement, arbitrary balance edits |
+| Marketplace | IMPLEMENTING | Character Bazaar listings, escrow saga, bids, watches, settlement, history and recovery policy | Canary gameplay state, generic character mutation, payment-provider commerce |
 | Notifications | PLANNED | Email and asynchronous user notifications | Core auth decisions, payment settlement |
 | PlatformAPI | PLANNED | Stable first-party API endpoints and API-specific auth/limits | Duplicating business logic from modules |
-| Payments | PLANNED-LATER | Provider adapters, payments, webhook handling, ledger/coins/shop when approved | Identity core, direct dependency from basic account creation/login |
+| Payments | PLANNED-LATER | Provider adapters, payments, webhook handling and regulated commerce when approved | Identity core, direct dependency from basic account creation/login, Oteryn Coins gameplay marketplace policy |
 
 ## Identity
 
@@ -87,11 +89,11 @@ Existing Canary account claim/import, account deletion, unlink/rebind/transfer a
 
 ### Responsibilities
 
-- web-triggered character lifecycle operations explicitly approved by product/Canary contracts.
+- web-triggered character lifecycle and ownership operations explicitly approved by product/Canary contracts.
 
 ### Current available boundary
 
-Phase 5 implements **character creation only**:
+Phase 5 implements character creation:
 
 - authorization through the authenticated Identity's ready immutable Canary account binding;
 - ADR 0005 canonical-name, vocation/sex, starter-state and quota policy;
@@ -99,16 +101,27 @@ Phase 5 implements **character creation only**:
 - account-row locking, same-name idempotent recovery, maximum-10-active-character enforcement and unique-name race handling;
 - real MariaDB privilege/concurrency coverage.
 
-Character deletion/soft deletion and rename are not implemented or authorized. They require separate operation contracts and do not inherit create privileges.
+Character Bazaar adds one separate ownership-transfer operation under `docs/contracts/CHARACTER_TRANSFER_CONTRACT.md`:
+
+- seller, escrow and winner account IDs are resolved server-side;
+- only `players.account_id` may be updated by `canary_character_transfer`;
+- source/target account rows and the player row are locked deterministically;
+- deleted characters and every existing `cluster_sessions` row fail closed;
+- normal target character quota is enforced while the non-login escrow account is explicitly exempt;
+- already-target-owned state is idempotent success;
+- public activation waits for a second ownership/session check after a bounded quiescence period.
+
+Character deletion/soft deletion and rename are not implemented or authorized. They require separate operation contracts and do not inherit create or transfer privileges.
 
 ### Invariants
 
-- character ownership is resolved server-side from the ready binding;
+- character ownership is resolved server-side from the ready binding or the durable locked marketplace auction;
 - client-controlled account IDs cannot establish ownership;
 - names and vocation/sex choices follow verified product policy;
 - concurrency-sensitive writes are transactional;
 - no raw undocumented shared-table mutation;
-- each new mutation operation gets its own contract and least-privilege boundary.
+- each new mutation operation gets its own contract and least-privilege boundary;
+- the Character Bazaar transfer never changes character name, skills, inventory, guild, house, market or session state.
 
 ## PublicGameData
 
@@ -125,12 +138,15 @@ Character deletion/soft deletion and rename are not implemented or authorized. T
 
 Implemented Phase 4 read-only surfaces use explicit field allowlists, bounded pagination and the database-enforced `canary` / `oteryn_readonly` SQL boundary. Runtime availability uses the separate read-only `canary_runtime` Redis boundary with TTL freshness and fail-closed semantics.
 
+Character Bazaar listing creation uses its own operation-specific transfer connection to capture an immutable public-safe allowlisted character snapshot before escrow. Public catalogue/detail reads use the Platform snapshot rather than live mutable Canary data.
+
 ### Invariants
 
-- no privileged mutations;
+- no privileged mutations through public read services;
 - private account/session/security fields are never public output;
 - dependency failure is explicit, not fabricated empty/offline state;
-- freshness boundaries are not extended by unbounded caching.
+- freshness boundaries are not extended by unbounded caching;
+- Character Bazaar snapshots exclude Canary account IDs, IPs, sessions, credentials and arbitrary blobs.
 
 ## CMS
 
@@ -266,14 +282,15 @@ Phase 6 merged through PRs #44 and #45 and provides:
 - supported-path protection against removing the final `platform_admin`;
 - permission-scoped CMS administration;
 - permission-scoped bounded audit visibility;
+- Character Bazaar wallet inspection/adjustment and bounded saga recovery behind exact `marketplace.manage`;
 - optional Cloudflare Access deployment guidance as defense in depth.
 
 ### Invariants
 
 - deny by default;
 - no implicit "admin can do everything" shortcut;
-- `platform_admin` is an explicit current permission bundle, not a wildcard for future permissions;
-- privileged state changes are audited where delivered by Phase 6;
+- `platform_admin` is an explicit current permission bundle, not a wildcard for future permissions; new migration-owned permissions are assigned explicitly;
+- privileged state changes are audited where delivered by Phase 6 or the owning module;
 - no arbitrary PHP/code/plugin execution feature;
 - admin web access combines explicit authorization with confirmed MFA and may additionally use Cloudflare Access in production.
 
@@ -299,6 +316,8 @@ Phase 6 adds:
 
 The Wiki foundation reuses the same recorder for bounded article lifecycle, content/revision and category events. Complete article bodies, complete category descriptions and change-note text are excluded from audit metadata.
 
+Character Bazaar records administrator wallet adjustment and recovery actions. Wallet mutation and its administrator audit row commit in the same Platform transaction; unrestricted reason text and character snapshot bodies are excluded from audit metadata.
+
 Audit storage is not a replacement for infrastructure/application logs and must never contain raw credentials, session/reset tokens or MFA secrets.
 
 ## Integration
@@ -318,7 +337,8 @@ Implemented adapters include:
 - read-only Canary SQL game-data access;
 - read-only Canary runtime Redis access;
 - greenfield account provisioning through `canary_provisioning`;
-- greenfield character creation through `canary_character_create`.
+- greenfield character creation through `canary_character_create`;
+- Character Bazaar snapshot/ownership/transfer through `canary_character_transfer`, restricted to approved reads and `UPDATE (account_id)` only.
 
 The authoritative Platform game-login bridge remains a separate cross-repository integration task and is not implied by the module being `AVAILABLE`.
 
@@ -327,8 +347,78 @@ The authoritative Platform game-login bridge remains a separate cross-repository
 - external schema assumptions documented in `docs/contracts/**`;
 - no hidden shared-table usage outside agreed read/operation boundaries;
 - generic Canary access remains deny-by-default for mutations;
+- every write adapter has an effective-grant verifier and reviewed provisioning template;
 - breaking changes require contract updates and cross-repository coordination;
 - external repository changes require explicit authorization.
+
+## Wallet
+
+### Responsibilities
+
+- one Oteryn Coins wallet projection per Platform Identity;
+- available and reserved balance invariants;
+- append-oriented signed-delta financial history;
+- deterministic idempotency for every reservation, release, settlement and administrator adjustment.
+
+### Current implementing boundary
+
+Character Bazaar v1 provides:
+
+- `wallet_accounts` transactionally maintained available/reserved balances;
+- `wallet_ledger_entries` as the immutable mutation trace;
+- race-safe wallet creation and row locking;
+- leading-bid reservation and exactly-once outbid release;
+- exactly-once buyer reserved debit and seller proceeds/commission settlement;
+- signed administrator adjustment with bounded reason hash and same-transaction audit.
+
+Initial funding is administrator-controlled. Payment-provider purchase, refund and chargeback handling is not implemented.
+
+### Invariants
+
+- available and reserved balances never become negative;
+- ledger idempotency keys are unique and checked inside the locked transaction;
+- no routine direct update of balances outside `WalletMutator`;
+- Oteryn Coins are not Canary account coins, transferable coins, tournament coins or character bank gold;
+- payment-provider records, if later approved, remain a separate Payments responsibility.
+
+## Marketplace
+
+### Responsibilities
+
+- public Character Bazaar catalogue, filters, deterministic sorting and immutable auction detail;
+- authenticated watchlist, bids, owned listings and history;
+- listing eligibility and escrow activation policy;
+- direct ascending bid and optional fixed-price purchase policy;
+- cross-database cancellation/settlement saga and deterministic recovery;
+- bounded administrator recovery interface and operations documentation.
+
+### Current implementing boundary
+
+The Character Bazaar task provides:
+
+- Platform-owned auction, bid and watch persistence;
+- immutable public-safe snapshot captured before escrow;
+- non-login Canary escrow account deployment boundary;
+- delayed activation after ownership/session quiescence confirmation;
+- auction-row and wallet-row locking for direct bids;
+- seller self-bid denial and minimum start/increment rules;
+- fixed-price purchase through the same reservation and settlement invariants;
+- seller cancellation only before any bid and automatic no-bid expiry return;
+- idempotent escrow-to-winner transfer followed by Platform wallet settlement;
+- `recovery_required` rather than fabricated completion after ambiguous failure;
+- EN/PL public/account/admin surfaces with desktop/tablet/mobile accessibility coverage;
+- explicit production activation flag and fail-closed deployment verifier.
+
+### Invariants
+
+- only an authenticated ready binding may list or bid;
+- browser-supplied Canary account IDs never authorize ownership;
+- active auctions are backed by an escrow-owned, active character with no cluster session;
+- the current leading bid alone remains reserved;
+- an auction reaches `completed` only after actual winner ownership and wallet ledger settlement are reconciled;
+- public output never exposes account IDs, sessions, IPs, credentials or raw integration errors;
+- disabling the production feature flag removes routes/navigation/sitemap exposure while preserving data and reconciliation capability;
+- payment-provider commerce is not implied by Character Bazaar v1.
 
 ## Notifications
 
@@ -336,9 +426,10 @@ Initial use cases:
 
 - email verification if later enabled;
 - password reset;
-- security alerts.
+- security alerts;
+- future marketplace outbid/completion notifications after an explicitly reviewed asynchronous delivery slice.
 
-Mail delivery should be asynchronous once queue infrastructure exists, while security tokens remain owned by Identity use cases.
+Mail delivery should be asynchronous once queue infrastructure exists, while security tokens remain owned by Identity use cases and marketplace state remains owned by Marketplace.
 
 ## PlatformAPI
 
@@ -346,17 +437,8 @@ Expose API endpoints only for a concrete client/use case. API endpoints must reu
 
 ## Payments — deferred
 
-No payment implementation belongs in the current core platform scope.
+No payment-provider implementation belongs in the current core platform or Character Bazaar v1 scope.
 
-Future requirements include provider abstraction, signed webhook verification, idempotency, immutable ledger, reconciliation, refunds/chargebacks and a dedicated threat model/security review.
+Future requirements include provider abstraction, signed webhook verification, provider-event idempotency, immutable provider/financial ledgers, reconciliation, refunds/chargebacks, tax/legal review and explicit separation from Oteryn Coins gameplay policy.
 
-## Adding or expanding a module
-
-Before adding a new module or a new shared-write operation:
-
-1. prove the responsibility cannot be owned cleanly by an existing boundary;
-2. document responsibility/dependencies here when architectural state changes;
-3. create/update an ADR for durable product/architecture choices when material;
-4. establish task ownership and explicit contracts;
-5. apply least privilege and required authorization/concurrency tests;
-6. avoid cyclic dependencies and undocumented cross-repository coupling.
+Payments must not become a dependency of basic Identity/account creation/login, and must not reuse Canary mutable coin fields as the provider settlement source of truth.
