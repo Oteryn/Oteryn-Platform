@@ -63,5 +63,23 @@ jobs:
         run: |
           test "$(sha256sum resources/schemas/game-catalog/v1/game-catalog-snapshot.schema.json | cut -d' ' -f1)" = "099a8373ff2b0017cc2b321991662dc4e4783b626391aa7a110a6db0559d146b"
           test "$(sha256sum resources/fixtures/game-catalog/minimal-snapshot.json | cut -d' ' -f1)" = "76b61b167e77a0c0379c5c1d179c3fec808ae1cf3d996e30be5784fde699691e"
-      - name: Run focused validator tests
-        run: php artisan test tests/Unit/GameCatalog/GameCatalogDocumentValidatorTest.php
+      - name: Run focused validator tests with captured diagnostics
+        id: focused_tests
+        shell: bash
+        run: |
+          set +e
+          php artisan test tests/Unit/GameCatalog/GameCatalogDocumentValidatorTest.php 2>&1 | tee focused-test.log
+          status=${PIPESTATUS[0]}
+          echo "status=${status}" >> "$GITHUB_OUTPUT"
+          exit 0
+      - name: Upload focused test diagnostics
+        if: steps.focused_tests.outputs.status != '0'
+        uses: actions/upload-artifact@v7
+        with:
+          name: game-catalog-focused-tests-${{ github.run_id }}-${{ github.run_attempt }}
+          path: focused-test.log
+          if-no-files-found: error
+          retention-days: 7
+      - name: Fail after captured focused test error
+        if: steps.focused_tests.outputs.status != '0'
+        run: exit 1
