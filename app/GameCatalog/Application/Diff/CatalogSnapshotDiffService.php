@@ -2,6 +2,7 @@
 
 namespace App\GameCatalog\Application\Diff;
 
+use App\GameCatalog\Infrastructure\Persistence\CatalogDatabaseRow;
 use Illuminate\Support\Facades\DB;
 use RuntimeException;
 
@@ -36,12 +37,9 @@ final class CatalogSnapshotDiffService
         }
     }
 
-    /**
-     * @return array<string, string>
-     */
+    /** @return array<string, string> */
     private function entityFingerprints(int $snapshotId): array
     {
-        $result = [];
         $rows = DB::table('game_catalog_entity_snapshots as snapshots')
             ->join('game_catalog_entities as entities', 'entities.id', '=', 'snapshots.entity_id')
             ->where('snapshots.snapshot_id', $snapshotId)
@@ -58,28 +56,30 @@ final class CatalogSnapshotDiffService
                 'snapshots.data_sha256',
             ]);
 
+        /** @var array<string, string> $result */
+        $result = [];
         foreach ($rows as $row) {
-            $result[$row->canonical_key] = hash('sha256', implode('|', [
-                $row->entity_type,
-                $row->introduced_release_id ?? 'null',
-                $row->removed_release_id ?? 'null',
-                $row->completeness,
-                $row->availability,
-                (int) $row->runtime_present,
-                (int) $row->enabled,
-                $row->data_sha256,
+            $databaseRow = CatalogDatabaseRow::from($row);
+            $introducedReleaseId = $databaseRow->nullableInt('introduced_release_id');
+            $removedReleaseId = $databaseRow->nullableInt('removed_release_id');
+            $result[$databaseRow->string('canonical_key')] = hash('sha256', implode('|', [
+                $databaseRow->string('entity_type'),
+                $introducedReleaseId === null ? 'null' : (string) $introducedReleaseId,
+                $removedReleaseId === null ? 'null' : (string) $removedReleaseId,
+                $databaseRow->string('completeness'),
+                $databaseRow->string('availability'),
+                $databaseRow->bool('runtime_present') ? '1' : '0',
+                $databaseRow->bool('enabled') ? '1' : '0',
+                $databaseRow->string('data_sha256'),
             ]));
         }
 
         return $result;
     }
 
-    /**
-     * @return array<string, string>
-     */
+    /** @return array<string, string> */
     private function relationFingerprints(int $snapshotId): array
     {
-        $result = [];
         $rows = DB::table('game_catalog_relation_snapshots')
             ->where('snapshot_id', $snapshotId)
             ->orderBy('canonical_key')
@@ -95,16 +95,22 @@ final class CatalogSnapshotDiffService
                 'data_sha256',
             ]);
 
+        /** @var array<string, string> $result */
+        $result = [];
         foreach ($rows as $row) {
-            $result[$row->canonical_key] = hash('sha256', implode('|', [
-                $row->relation_type,
-                $row->source_entity_id,
-                $row->target_entity_id ?? 'null',
-                $row->introduced_release_id ?? 'null',
-                $row->removed_release_id ?? 'null',
-                $row->completeness,
-                (int) $row->enabled,
-                $row->data_sha256,
+            $databaseRow = CatalogDatabaseRow::from($row);
+            $targetEntityId = $databaseRow->nullableInt('target_entity_id');
+            $introducedReleaseId = $databaseRow->nullableInt('introduced_release_id');
+            $removedReleaseId = $databaseRow->nullableInt('removed_release_id');
+            $result[$databaseRow->string('canonical_key')] = hash('sha256', implode('|', [
+                $databaseRow->string('relation_type'),
+                (string) $databaseRow->int('source_entity_id'),
+                $targetEntityId === null ? 'null' : (string) $targetEntityId,
+                $introducedReleaseId === null ? 'null' : (string) $introducedReleaseId,
+                $removedReleaseId === null ? 'null' : (string) $removedReleaseId,
+                $databaseRow->string('completeness'),
+                $databaseRow->bool('enabled') ? '1' : '0',
+                $databaseRow->string('data_sha256'),
             ]));
         }
 
@@ -112,8 +118,8 @@ final class CatalogSnapshotDiffService
     }
 
     /**
-     * @param  array<string, string>  $from
-     * @param  array<string, string>  $to
+     * @param array<string, string> $from
+     * @param array<string, string> $to
      * @return list<string>
      */
     private function added(array $from, array $to): array
@@ -125,8 +131,8 @@ final class CatalogSnapshotDiffService
     }
 
     /**
-     * @param  array<string, string>  $left
-     * @param  array<string, string>  $right
+     * @param array<string, string> $left
+     * @param array<string, string> $right
      * @return list<string>
      */
     private function changed(array $left, array $right): array

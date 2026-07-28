@@ -2,7 +2,12 @@
 
 namespace App\GameCatalog\Application\Activation;
 
+use App\GameCatalog\Application\Configuration\CatalogConfiguration;
+use App\GameCatalog\Infrastructure\Persistence\CatalogDatabaseRow;
 use Carbon\CarbonImmutable;
+use Illuminate\Database\Query\Builder;
+use Illuminate\Database\Query\JoinClause;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use RuntimeException;
 
@@ -23,29 +28,39 @@ final class VisibilityProjector
             ->where('profile_id', $profileId)
             ->get(['entity_id', 'relation_snapshot_id', 'action']);
 
+        /** @var array<int, true> $excludedEntities */
         $excludedEntities = [];
+        /** @var array<int, true> $backportedEntities */
         $backportedEntities = [];
+        /** @var array<int, true> $excludedRelations */
         $excludedRelations = [];
+        /** @var array<int, true> $backportedRelations */
         $backportedRelations = [];
         foreach ($overrides as $override) {
-            if ($override->entity_id !== null) {
-                if ($override->action === 'exclude') {
-                    $excludedEntities[(int) $override->entity_id] = true;
-                } elseif ($allowBackports && $override->action === 'approved_backport') {
-                    $backportedEntities[(int) $override->entity_id] = true;
+            $overrideRow = CatalogDatabaseRow::from($override);
+            $action = $overrideRow->string('action');
+            $entityId = $overrideRow->nullableInt('entity_id');
+            $relationSnapshotId = $overrideRow->nullableInt('relation_snapshot_id');
+
+            if ($entityId !== null) {
+                if ($action === 'exclude') {
+                    $excludedEntities[$entityId] = true;
+                } elseif ($allowBackports && $action === 'approved_backport') {
+                    $backportedEntities[$entityId] = true;
                 }
             }
-            if ($override->relation_snapshot_id !== null) {
-                if ($override->action === 'exclude') {
-                    $excludedRelations[(int) $override->relation_snapshot_id] = true;
-                } elseif ($allowBackports && $override->action === 'approved_backport') {
-                    $backportedRelations[(int) $override->relation_snapshot_id] = true;
+            if ($relationSnapshotId !== null) {
+                if ($action === 'exclude') {
+                    $excludedRelations[$relationSnapshotId] = true;
+                } elseif ($allowBackports && $action === 'approved_backport') {
+                    $backportedRelations[$relationSnapshotId] = true;
                 }
             }
         }
 
-        $allowedItemAvailability = array_fill_keys((array) config('game-catalog.public_item_availability', []), true);
-        $allowedCreatureAvailability = array_fill_keys((array) config('game-catalog.public_creature_availability', []), true);
+        $allowedItemAvailability = array_fill_keys(CatalogConfiguration::stringList('game-catalog.public_item_availability'), true);
+        $allowedCreatureAvailability = array_fill_keys(CatalogConfiguration::stringList('game-catalog.public_creature_availability'), true);
+        /** @var array<int, true> $visibleEntityIds */
         $visibleEntityIds = [];
         $visibleEntityCount = 0;
 
@@ -66,7 +81,7 @@ final class VisibilityProjector
                 'removed.release_order as removed_order',
             ])
             ->orderBy('entity_snapshots.id')
-            ->chunkById(1_000, function ($rows) use (
+            ->chunkById(1_000, function (Collection $rows) use (
                 $profileId,
                 $targetReleaseOrder,
                 $completeOnly,
@@ -78,21 +93,30 @@ final class VisibilityProjector
                 &$visibleEntityIds,
                 &$visibleEntityCount,
             ): void {
+                /** @var Collection<int, object> $rows */
+                /** @var list<array{profile_id: int, entity_snapshot_id: int, visible: bool, reason_code: string, computed_at: CarbonImmutable}> $insert */
                 $insert = [];
                 foreach ($rows as $row) {
-                    $entityId = (int) $row->entity_id;
-                    $outsideRelease = ($row->introduced_order !== null && $targetReleaseOrder < (int) $row->introduced_order)
-                        || ($row->removed_order !== null && $targetReleaseOrder >= (int) $row->removed_order);
-                    $availabilityAllowed = $row->entity_type === 'item'
-                        ? isset($allowedItemAvailability[$row->availability])
-                        : isset($allowedCreatureAvailability[$row->availability]);
+                    if (! is_object($row)) {
+                        throw new RuntimeException('Game Catalog entity projection query returned an invalid row.');
+                    }
+                    $entityRow = CatalogDatabaseRow::from($row);
+                    $entityId = $entityRow->int('entity_id');
+                    $introducedOrder = $entityRow->nullableInt('introduced_order');
+                    $removedOrder = $entityRow->nullableInt('removed_order');
+                    $outsideRelease = ($introducedOrder !== null && $targetReleaseOrder < $introducedOrder)
+                        || ($removedOrder !== null && $targetReleaseOrder >= $removedOrder);
+                    $availability = $entityRow->string('availability');
+                    $availabilityAllowed = $entityRow->string('entity_type') === 'item'
+                        ? isset($allowedItemAvailability[$availability])
+                        : isset($allowedCreatureAvailability[$availability]);
 
                     $reason = match (true) {
                         isset($excludedEntities[$entityId]) => 'explicit_exclusion',
-                        ! (bool) $row->runtime_present => 'runtime_absent',
-                        ! (bool) $row->enabled => 'disabled',
+                        ! $entityRow->bool('runtime_present') => 'runtime_absent',
+                        ! $entityRow->bool('enabled') => 'disabled',
                         $outsideRelease && ! isset($backportedEntities[$entityId]) => 'outside_release',
-                        $completeOnly && $row->completeness !== 'complete' => 'incomplete',
+                        $completeOnly && $entityRow->string('completeness') !== 'complete' => 'incomplete',
                         ! $availabilityAllowed => 'availability_disallowed',
                         default => 'visible',
                     };
@@ -104,7 +128,7 @@ final class VisibilityProjector
 
                     $insert[] = [
                         'profile_id' => $profileId,
-                        'entity_snapshot_id' => (int) $row->entity_snapshot_id,
+                        'entity_snapshot_id' => $entityRow->int('entity_snapshot_id'),
                         'visible' => $visible,
                         'reason_code' => $reason,
                         'computed_at' => $computedAt,
@@ -131,7 +155,7 @@ final class VisibilityProjector
                 'removed.release_order as removed_order',
             ])
             ->orderBy('relations.id')
-            ->chunkById(1_000, function ($rows) use (
+            ->chunkById(1_000, function (Collection $rows) use (
                 $profileId,
                 $targetReleaseOrder,
                 $completeOnly,
@@ -141,19 +165,29 @@ final class VisibilityProjector
                 $visibleEntityIds,
                 &$visibleRelationCount,
             ): void {
+                /** @var Collection<int, object> $rows */
+                /** @var list<array{profile_id: int, relation_snapshot_id: int, visible: bool, reason_code: string, computed_at: CarbonImmutable}> $insert */
                 $insert = [];
                 foreach ($rows as $row) {
-                    $relationId = (int) $row->relation_snapshot_id;
-                    $outsideRelease = ($row->introduced_order !== null && $targetReleaseOrder < (int) $row->introduced_order)
-                        || ($row->removed_order !== null && $targetReleaseOrder >= (int) $row->removed_order);
+                    if (! is_object($row)) {
+                        throw new RuntimeException('Game Catalog relation projection query returned an invalid row.');
+                    }
+                    $relationRow = CatalogDatabaseRow::from($row);
+                    $relationId = $relationRow->int('relation_snapshot_id');
+                    $introducedOrder = $relationRow->nullableInt('introduced_order');
+                    $removedOrder = $relationRow->nullableInt('removed_order');
+                    $outsideRelease = ($introducedOrder !== null && $targetReleaseOrder < $introducedOrder)
+                        || ($removedOrder !== null && $targetReleaseOrder >= $removedOrder);
+                    $sourceEntityId = $relationRow->int('source_entity_id');
+                    $targetEntityId = $relationRow->nullableInt('target_entity_id');
 
                     $reason = match (true) {
                         isset($excludedRelations[$relationId]) => 'explicit_exclusion',
-                        ! (bool) $row->enabled => 'disabled',
+                        ! $relationRow->bool('enabled') => 'disabled',
                         $outsideRelease && ! isset($backportedRelations[$relationId]) => 'outside_release',
-                        $completeOnly && $row->completeness !== 'complete' => 'incomplete',
-                        ! isset($visibleEntityIds[(int) $row->source_entity_id]) => 'source_hidden',
-                        $row->target_entity_id === null || ! isset($visibleEntityIds[(int) $row->target_entity_id]) => 'target_hidden',
+                        $completeOnly && $relationRow->string('completeness') !== 'complete' => 'incomplete',
+                        ! isset($visibleEntityIds[$sourceEntityId]) => 'source_hidden',
+                        $targetEntityId === null || ! isset($visibleEntityIds[$targetEntityId]) => 'target_hidden',
                         default => 'visible',
                     };
                     $visible = $reason === 'visible';
@@ -186,25 +220,25 @@ final class VisibilityProjector
 
         $invalidVisibleRelations = DB::table('game_catalog_profile_relations as visibility')
             ->join('game_catalog_relation_snapshots as relations', 'relations.id', '=', 'visibility.relation_snapshot_id')
-            ->leftJoin('game_catalog_entity_snapshots as source_snapshot', function ($join) use ($snapshotId): void {
+            ->leftJoin('game_catalog_entity_snapshots as source_snapshot', function (JoinClause $join) use ($snapshotId): void {
                 $join->on('source_snapshot.entity_id', '=', 'relations.source_entity_id')
                     ->where('source_snapshot.snapshot_id', '=', $snapshotId);
             })
-            ->leftJoin('game_catalog_entity_snapshots as target_snapshot', function ($join) use ($snapshotId): void {
+            ->leftJoin('game_catalog_entity_snapshots as target_snapshot', function (JoinClause $join) use ($snapshotId): void {
                 $join->on('target_snapshot.entity_id', '=', 'relations.target_entity_id')
                     ->where('target_snapshot.snapshot_id', '=', $snapshotId);
             })
-            ->leftJoin('game_catalog_profile_entities as source_visibility', function ($join) use ($profileId): void {
+            ->leftJoin('game_catalog_profile_entities as source_visibility', function (JoinClause $join) use ($profileId): void {
                 $join->on('source_visibility.entity_snapshot_id', '=', 'source_snapshot.id')
                     ->where('source_visibility.profile_id', '=', $profileId);
             })
-            ->leftJoin('game_catalog_profile_entities as target_visibility', function ($join) use ($profileId): void {
+            ->leftJoin('game_catalog_profile_entities as target_visibility', function (JoinClause $join) use ($profileId): void {
                 $join->on('target_visibility.entity_snapshot_id', '=', 'target_snapshot.id')
                     ->where('target_visibility.profile_id', '=', $profileId);
             })
             ->where('visibility.profile_id', $profileId)
             ->where('visibility.visible', true)
-            ->where(function ($query): void {
+            ->where(function (Builder $query): void {
                 $query->whereNull('source_visibility.entity_snapshot_id')
                     ->orWhere('source_visibility.visible', false)
                     ->orWhereNull('target_visibility.entity_snapshot_id')

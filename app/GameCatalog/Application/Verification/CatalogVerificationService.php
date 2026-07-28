@@ -2,6 +2,9 @@
 
 namespace App\GameCatalog\Application\Verification;
 
+use App\GameCatalog\Infrastructure\Persistence\CatalogDatabaseRow;
+use Illuminate\Database\Query\Builder;
+use Illuminate\Database\Query\JoinClause;
 use Illuminate\Support\Facades\DB;
 use RuntimeException;
 
@@ -19,9 +22,14 @@ final class CatalogVerificationService
             throw new RuntimeException("Game Catalog profile '{$profileKey}' does not exist.");
         }
 
-        if ($profile->active_snapshot_id === null) {
+        $profileRow = CatalogDatabaseRow::from($profile);
+        $resolvedProfileKey = $profileRow->string('key');
+        $profileId = $profileRow->int('id');
+        $snapshotId = $profileRow->nullableInt('active_snapshot_id');
+
+        if ($snapshotId === null) {
             return new CatalogVerificationResult(
-                profileKey: (string) $profile->key,
+                profileKey: $resolvedProfileKey,
                 snapshotId: null,
                 projectedEntityCount: 0,
                 visibleEntityCount: 0,
@@ -31,7 +39,6 @@ final class CatalogVerificationService
             );
         }
 
-        $snapshotId = (int) $profile->active_snapshot_id;
         $snapshot = DB::table('game_catalog_snapshots')->where('id', $snapshotId)->first([
             'status',
             'entity_count',
@@ -39,7 +46,7 @@ final class CatalogVerificationService
         ]);
         if ($snapshot === null) {
             return new CatalogVerificationResult(
-                profileKey: (string) $profile->key,
+                profileKey: $resolvedProfileKey,
                 snapshotId: $snapshotId,
                 projectedEntityCount: 0,
                 visibleEntityCount: 0,
@@ -49,39 +56,40 @@ final class CatalogVerificationService
             );
         }
 
+        $snapshotRow = CatalogDatabaseRow::from($snapshot);
         $errors = [];
-        if ($snapshot->status !== 'validated') {
+        if ($snapshotRow->string('status') !== 'validated') {
             $errors[] = 'active_snapshot_not_validated';
         }
 
         $persistedEntities = DB::table('game_catalog_entity_snapshots')->where('snapshot_id', $snapshotId)->count();
         $persistedRelations = DB::table('game_catalog_relation_snapshots')->where('snapshot_id', $snapshotId)->count();
-        if ($persistedEntities !== (int) $snapshot->entity_count) {
+        if ($persistedEntities !== $snapshotRow->int('entity_count')) {
             $errors[] = 'snapshot_entity_count_mismatch';
         }
-        if ($persistedRelations !== (int) $snapshot->relation_count) {
+        if ($persistedRelations !== $snapshotRow->int('relation_count')) {
             $errors[] = 'snapshot_relation_count_mismatch';
         }
 
         $projectedEntities = DB::table('game_catalog_profile_entities as visibility')
             ->join('game_catalog_entity_snapshots as snapshots', 'snapshots.id', '=', 'visibility.entity_snapshot_id')
-            ->where('visibility.profile_id', $profile->id)
+            ->where('visibility.profile_id', $profileId)
             ->where('snapshots.snapshot_id', $snapshotId)
             ->count();
         $visibleEntities = DB::table('game_catalog_profile_entities as visibility')
             ->join('game_catalog_entity_snapshots as snapshots', 'snapshots.id', '=', 'visibility.entity_snapshot_id')
-            ->where('visibility.profile_id', $profile->id)
+            ->where('visibility.profile_id', $profileId)
             ->where('snapshots.snapshot_id', $snapshotId)
             ->where('visibility.visible', true)
             ->count();
         $projectedRelations = DB::table('game_catalog_profile_relations as visibility')
             ->join('game_catalog_relation_snapshots as snapshots', 'snapshots.id', '=', 'visibility.relation_snapshot_id')
-            ->where('visibility.profile_id', $profile->id)
+            ->where('visibility.profile_id', $profileId)
             ->where('snapshots.snapshot_id', $snapshotId)
             ->count();
         $visibleRelations = DB::table('game_catalog_profile_relations as visibility')
             ->join('game_catalog_relation_snapshots as snapshots', 'snapshots.id', '=', 'visibility.relation_snapshot_id')
-            ->where('visibility.profile_id', $profile->id)
+            ->where('visibility.profile_id', $profileId)
             ->where('snapshots.snapshot_id', $snapshotId)
             ->where('visibility.visible', true)
             ->count();
@@ -95,12 +103,12 @@ final class CatalogVerificationService
 
         $foreignEntityRows = DB::table('game_catalog_profile_entities as visibility')
             ->join('game_catalog_entity_snapshots as snapshots', 'snapshots.id', '=', 'visibility.entity_snapshot_id')
-            ->where('visibility.profile_id', $profile->id)
+            ->where('visibility.profile_id', $profileId)
             ->where('snapshots.snapshot_id', '!=', $snapshotId)
             ->count();
         $foreignRelationRows = DB::table('game_catalog_profile_relations as visibility')
             ->join('game_catalog_relation_snapshots as snapshots', 'snapshots.id', '=', 'visibility.relation_snapshot_id')
-            ->where('visibility.profile_id', $profile->id)
+            ->where('visibility.profile_id', $profileId)
             ->where('snapshots.snapshot_id', '!=', $snapshotId)
             ->count();
         if ($foreignEntityRows !== 0 || $foreignRelationRows !== 0) {
@@ -109,25 +117,25 @@ final class CatalogVerificationService
 
         $invalidVisibleRelations = DB::table('game_catalog_profile_relations as visibility')
             ->join('game_catalog_relation_snapshots as relations', 'relations.id', '=', 'visibility.relation_snapshot_id')
-            ->leftJoin('game_catalog_entity_snapshots as source_snapshot', function ($join) use ($snapshotId): void {
+            ->leftJoin('game_catalog_entity_snapshots as source_snapshot', function (JoinClause $join) use ($snapshotId): void {
                 $join->on('source_snapshot.entity_id', '=', 'relations.source_entity_id')
                     ->where('source_snapshot.snapshot_id', '=', $snapshotId);
             })
-            ->leftJoin('game_catalog_entity_snapshots as target_snapshot', function ($join) use ($snapshotId): void {
+            ->leftJoin('game_catalog_entity_snapshots as target_snapshot', function (JoinClause $join) use ($snapshotId): void {
                 $join->on('target_snapshot.entity_id', '=', 'relations.target_entity_id')
                     ->where('target_snapshot.snapshot_id', '=', $snapshotId);
             })
-            ->leftJoin('game_catalog_profile_entities as source_visibility', function ($join) use ($profile): void {
+            ->leftJoin('game_catalog_profile_entities as source_visibility', function (JoinClause $join) use ($profileId): void {
                 $join->on('source_visibility.entity_snapshot_id', '=', 'source_snapshot.id')
-                    ->where('source_visibility.profile_id', '=', $profile->id);
+                    ->where('source_visibility.profile_id', '=', $profileId);
             })
-            ->leftJoin('game_catalog_profile_entities as target_visibility', function ($join) use ($profile): void {
+            ->leftJoin('game_catalog_profile_entities as target_visibility', function (JoinClause $join) use ($profileId): void {
                 $join->on('target_visibility.entity_snapshot_id', '=', 'target_snapshot.id')
-                    ->where('target_visibility.profile_id', '=', $profile->id);
+                    ->where('target_visibility.profile_id', '=', $profileId);
             })
-            ->where('visibility.profile_id', $profile->id)
+            ->where('visibility.profile_id', $profileId)
             ->where('visibility.visible', true)
-            ->where(function ($query): void {
+            ->where(function (Builder $query): void {
                 $query->whereNull('source_visibility.entity_snapshot_id')
                     ->orWhere('source_visibility.visible', false)
                     ->orWhereNull('target_visibility.entity_snapshot_id')
@@ -139,7 +147,7 @@ final class CatalogVerificationService
         }
 
         return new CatalogVerificationResult(
-            profileKey: (string) $profile->key,
+            profileKey: $resolvedProfileKey,
             snapshotId: $snapshotId,
             projectedEntityCount: $projectedEntities,
             visibleEntityCount: $visibleEntities,

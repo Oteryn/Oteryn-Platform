@@ -2,6 +2,8 @@
 
 namespace App\GameCatalog\Application\Activation;
 
+use App\GameCatalog\Application\Configuration\CatalogConfiguration;
+use App\GameCatalog\Infrastructure\Persistence\CatalogDatabaseRow;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\ConnectionInterface;
 use Illuminate\Support\Facades\DB;
@@ -40,6 +42,7 @@ final class CatalogActivationService
             if ($profile === null) {
                 throw new RuntimeException("Game Catalog profile '{$profileKey}' does not exist.");
             }
+            $profileRow = CatalogDatabaseRow::from($profile);
 
             $snapshot = DB::table('game_catalog_snapshots as snapshots')
                 ->join('game_catalog_releases as content_target', 'content_target.id', '=', 'snapshots.content_target_release_id')
@@ -60,50 +63,59 @@ final class CatalogActivationService
             if ($snapshot === null) {
                 throw new RuntimeException("Game Catalog snapshot '{$snapshotId}' does not exist.");
             }
-            if ($snapshot->status !== 'validated') {
+            $snapshotRow = CatalogDatabaseRow::from($snapshot);
+            if ($snapshotRow->string('status') !== 'validated') {
                 throw new RuntimeException('Only validated immutable Game Catalog snapshots can be activated.');
             }
-            if ($snapshot->contract_version !== config('game-catalog.contract') || $snapshot->schema_version !== config('game-catalog.schema_version')) {
+            if (
+                $snapshotRow->string('contract_version') !== CatalogConfiguration::string('game-catalog.contract')
+                || $snapshotRow->string('schema_version') !== CatalogConfiguration::string('game-catalog.schema_version')
+            ) {
                 throw new RuntimeException('The Game Catalog snapshot contract is incompatible with this Platform build.');
             }
-            if ($profile->protocol_profile !== null && $profile->protocol_profile !== $snapshot->protocol_profile) {
+            $profileProtocol = $profileRow->nullableString('protocol_profile');
+            if ($profileProtocol !== null && $profileProtocol !== $snapshotRow->string('protocol_profile')) {
                 throw new RuntimeException('The Game Catalog snapshot protocol profile is incompatible with the target profile.');
             }
 
-            $contentBoundary = $snapshot->contains_content_order ?? $snapshot->content_target_order;
-            if ((int) $profile->target_release_order > (int) $contentBoundary) {
+            $contentBoundary = $snapshotRow->nullableInt('contains_content_order')
+                ?? $snapshotRow->int('content_target_order');
+            if ($profileRow->int('target_release_order') > $contentBoundary) {
                 throw new RuntimeException('The Game Catalog snapshot does not declare content through the profile target release.');
             }
 
             $persistedEntityCount = DB::table('game_catalog_entity_snapshots')->where('snapshot_id', $snapshotId)->count();
             $persistedRelationCount = DB::table('game_catalog_relation_snapshots')->where('snapshot_id', $snapshotId)->count();
-            if ($persistedEntityCount !== (int) $snapshot->entity_count || $persistedRelationCount !== (int) $snapshot->relation_count) {
+            if (
+                $persistedEntityCount !== $snapshotRow->int('entity_count')
+                || $persistedRelationCount !== $snapshotRow->int('relation_count')
+            ) {
                 throw new RuntimeException('The Game Catalog snapshot persistence verification failed before activation.');
             }
 
             $computedAt = CarbonImmutable::now('UTC');
             $projection = $this->visibilityProjector->rebuild(
-                profileId: (int) $profile->id,
+                profileId: $profileRow->int('id'),
                 snapshotId: $snapshotId,
-                targetReleaseOrder: (int) $profile->target_release_order,
-                completeOnly: (bool) $profile->complete_only,
-                allowBackports: (bool) $profile->allow_backports,
+                targetReleaseOrder: $profileRow->int('target_release_order'),
+                completeOnly: $profileRow->bool('complete_only'),
+                allowBackports: $profileRow->bool('allow_backports'),
                 computedAt: $computedAt,
             );
 
-            DB::table('game_catalog_profiles')->where('id', $profile->id)->update([
+            DB::table('game_catalog_profiles')->where('id', $profileRow->int('id'))->update([
                 'active_snapshot_id' => $snapshotId,
-                'lock_version' => (int) $profile->lock_version + 1,
+                'lock_version' => $profileRow->int('lock_version') + 1,
                 'updated_at' => $computedAt,
             ]);
 
             DB::table('game_catalog_audit_events')->insert([
                 'action' => $rollback ? 'snapshot.rollback' : 'snapshot.activate',
                 'actor_identity_id' => $actorIdentityId,
-                'profile_id' => (int) $profile->id,
+                'profile_id' => $profileRow->int('id'),
                 'snapshot_id' => $snapshotId,
                 'metadata' => $this->json([
-                    'previous_snapshot_id' => $profile->active_snapshot_id === null ? null : (int) $profile->active_snapshot_id,
+                    'previous_snapshot_id' => $profileRow->nullableInt('active_snapshot_id'),
                     'target_snapshot_id' => $snapshotId,
                     'visible_entity_count' => $projection->visibleEntityCount,
                     'visible_relation_count' => $projection->visibleRelationCount,
@@ -113,10 +125,10 @@ final class CatalogActivationService
             ]);
 
             return new CatalogActivationResult(
-                profileId: (int) $profile->id,
-                profileKey: (string) $profile->key,
+                profileId: $profileRow->int('id'),
+                profileKey: $profileRow->string('key'),
                 snapshotId: $snapshotId,
-                previousSnapshotId: $profile->active_snapshot_id === null ? null : (int) $profile->active_snapshot_id,
+                previousSnapshotId: $profileRow->nullableInt('active_snapshot_id'),
                 visibleEntityCount: $projection->visibleEntityCount,
                 visibleRelationCount: $projection->visibleRelationCount,
                 rollback: $rollback,
