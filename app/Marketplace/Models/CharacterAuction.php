@@ -146,6 +146,17 @@ final class CharacterAuction extends Model
         return $this->current_bid + $configuredIncrement;
     }
 
+    public function isPubliclyVisible(): bool
+    {
+        return in_array($this->status, [
+            self::STATUS_ACTIVE,
+            self::STATUS_SETTLEMENT_PENDING,
+            self::STATUS_COMPLETED,
+            self::STATUS_CANCELLED,
+            self::STATUS_EXPIRED,
+        ], true);
+    }
+
     public function isTerminal(): bool
     {
         return in_array($this->status, [self::STATUS_COMPLETED, self::STATUS_CANCELLED, self::STATUS_EXPIRED], true);
