@@ -9,6 +9,7 @@
     <link rel="stylesheet" href="{{ asset('css/editorial-media-admin.css') }}">
     <link rel="stylesheet" href="{{ asset('css/wiki-admin.css') }}">
     <link rel="stylesheet" href="{{ asset('css/marketplace.css') }}">
+    <link rel="stylesheet" href="{{ asset('css/marketplace-responsive.css') }}">
     @stack('head')
 </head>
 <body class="admin-body">
