@@ -159,7 +159,7 @@ final readonly class AdminGameCatalogController
             'action' => ['required', 'in:activate,rollback'],
             'reason' => ['nullable', 'string', 'max:500'],
         ]);
-        $profileRow = DB::table('game_catalog_profiles')->whereKey($profile)->first(['key']);
+        $profileRow = DB::table('game_catalog_profiles')->where('id', $profile)->first(['key']);
         abort_if($profileRow === null, 404);
 
         try {
