@@ -41,6 +41,7 @@ Deliver the Platform half of the first production-quality vertical slice of the 
 ```yaml
 owned_paths:
   - docs/agents/tasks/active/OTERYN-20260728-game-catalog-slice-1.md
+  - .github/workflows/game-catalog-contract.yml
   - app/GameCatalog/**
   - config/game-catalog.php
   - database/migrations/*game_catalog*.php
@@ -96,8 +97,8 @@ production_activation: forbidden
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-07-28T10:15:12+02:00
-head: c596d61d6d4ee54fee5721066eaf9e5ebe3e7127
+updated_at: 2026-07-28T10:29:30+02:00
+head: ac0124ea5f4c7cca3ed346a90b4847a5a0ad377b
 branch: feat/OTERYN-20260728-game-catalog-slice-1
 pr: 272
 status: implementing
@@ -112,6 +113,7 @@ context_routes:
   - canary-integration
 owned_paths:
   - docs/agents/tasks/active/OTERYN-20260728-game-catalog-slice-1.md
+  - .github/workflows/game-catalog-contract.yml
   - app/GameCatalog/**
   - config/game-catalog.php
   - database/migrations/*game_catalog*.php
@@ -138,13 +140,15 @@ proven:
   - open PR #270 modifies shared provider, routing, navigation and layout integration paths
   - draft PR #272 tracks this task
   - sanitized fixture contains two releases, visible/future items, complete/partial creatures and visible/future loot relations
+  - shared validator performs pinned hash checks, Draft 2020-12 validation, semantic integrity checks and two-release visibility assertions
   - repository writes are authorized only in blakinio/Oteryn-Platform and blakinio/canary
   - production deployment and production activation are excluded
 derived:
   - matching Git blob SHAs prove the two schema files are byte-identical
+  - identical fixture and validator bytes plus pinned SHA-256 values create a cross-repository contract gate
   - initial contract/fixture work can proceed without touching PR #270 shared paths
 unknown:
-  - automated confirmation of the expected schema SHA-256 on the branch
+  - CI confirmation of the expected schema SHA-256 on the branch
   - final integration shape after PR #270 lands or ownership is explicitly reconciled
   - executable local PHP test results because the sandbox cannot clone GitHub or run the repository checkout
   - complete historical content and availability facts listed by the architecture
@@ -160,6 +164,7 @@ rejected_hypotheses:
 changed_paths:
   - docs/agents/tasks/active/OTERYN-20260728-game-catalog-slice-1.md
   - tests/Fixtures/GameCatalog/v1/minimal-snapshot.json
+  - tools/game-catalog/validate_contract_fixture.py
 validation:
   - command: GitHub repository and main-head inspection
     result: PASS
@@ -170,6 +175,9 @@ validation:
   - command: local synthetic fixture semantic validation
     result: PASS
     evidence: counts, ranges, endpoints, probability/count bounds and 15.20/15.21 visibility assertions passed; fixture SHA-256 c947e461c1ee8f6fbf511c9890b61135d2585d6c16e2e99a0f72dd5a946c2181
+  - command: local validator syntax and semantic smoke
+    result: PASS
+    evidence: Python validator executed against a Draft 2020-12 smoke schema and the exact fixture
   - command: open PR ownership inspection
     result: PASS_WITH_CONFLICT_RECORDED
     evidence: PR #270 changed-file inventory reviewed
@@ -178,7 +186,7 @@ validation:
     evidence: sandbox DNS cannot resolve github.com
 blockers:
   - shared integration paths remain held pending reconciliation with PR #270
-next_action: Add the automated schema and fixture validator under tools/game-catalog and run it in CI on PR #272.
+next_action: Add the dedicated Game Catalog contract workflow and inspect its PR #272 run.
 ```
 
 ## Deferred child tasks
