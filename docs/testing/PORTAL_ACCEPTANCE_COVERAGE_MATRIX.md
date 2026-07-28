@@ -27,6 +27,7 @@ Coverage states in `scripts/acceptance/coverage/portal-coverage-manifest.json` a
 |---|---|---|---|
 | Manifest integrity and live route classification | `npm --prefix scripts/acceptance run test:coverage-contract` | Fails for malformed records, duplicate routes, stale routes, missing evidence files/markers and unclassified named routes | Required by `Portal Acceptance Contract` |
 | Complete account lifecycle | `npm --prefix scripts/acceptance run test:account-lifecycle` | Executes registration, login/logout, account overview, provisioning, password, MFA, sessions and character entry in real Chromium with zero retries | Required by `Portal Acceptance Contract` |
+| Complete Character Bazaar lifecycle | `npx playwright test tests/marketplace-acceptance.spec.mjs` from `scripts/acceptance` plus focused PHP/MariaDB tests | Executes public EN/PL catalogue/detail, authenticated watch/bid/wallet dashboard, MFA/RBAC administrator wallet/recovery and lower-layer escrow/transfer/locking/idempotency contracts | Required by the ordinary acceptance and portal coverage workflows for owned changes |
 | Complete Downloads lifecycle | `npm --prefix scripts/acceptance run test:downloads` plus `test:downloads-portability` | Executes public/admin/localization/failure-recovery in Chromium and bounded public reads in Firefox/WebKit | Required by `Downloads Acceptance` for owned changes |
 | Complete Events lifecycle | `npx playwright test --config=playwright.events.config.mjs` from `scripts/acceptance` | Executes public EN/PL calendar/detail states and exact MFA/RBAC administrator lifecycle on Chromium D/T/M plus public Firefox/WebKit with zero retries | Required by `Events Acceptance` |
 | Complete Announcements lifecycle | `npx playwright test --config=playwright.announcements.config.mjs` from `scripts/acceptance` | Executes public active-window/localization states and exact MFA/RBAC administrator create, publish, translation, stale recovery, conflict and audit lifecycle on Chromium D/T/M plus public Firefox/WebKit with zero retries | Required by `Announcements Acceptance` |
@@ -58,6 +59,21 @@ Coverage states in `scripts/acceptance/coverage/portal-coverage-manifest.json` a
 
 The account profile is primary-Chromium only because it contains reset links, MFA secrets, recovery codes and authenticated session material. Cross-browser expansion remains bounded to representative non-secret or safely isolated flows under ADR 0008.
 
+## Character Bazaar lifecycle matrix
+
+| Capability | Required states / abuse boundaries | Primary proof | Browser evidence |
+|---|---|---|---|
+| Public catalogue/detail | active, filtered, empty, detail, bid-history empty, terminal history, not-found, EN/PL | Feature/query + manifest/SEO | `marketplace-acceptance.spec.mjs` public scenario |
+| Listing eligibility | authenticated ready binding, exact server-resolved ownership, active/offline character, validation, duplicate/idempotent request, unavailable dependency | Feature + transfer contract | listing form/account surfaces; lower-layer fake/real adapter tests |
+| Escrow activation | deterministic account/player locking, no cluster session, transfer to non-login escrow, delayed quiescence, second owner/session check | Real MariaDB integration + saga feature tests | user-visible pending/active states |
+| Direct bidding | no self-bid, current minimum/increment, auction lock, leading reservation, outbid release, request idempotency, insufficient funds | Transactional feature/database tests | authenticated watch/bid/wallet dashboard scenario |
+| Fixed-price purchase/settlement | winner binding, target quota, escrow-to-winner transfer, reserved debit, seller proceeds, commission, retry after partial step | Transfer contract + wallet/saga tests | detail purchase and final account/history state |
+| Cancellation/expiry | seller-only, no existing bids, escrow return, idempotent already-returned state, no-bid expiry | Feature/saga + transfer tests | account seller actions/history |
+| Administrator wallet/recovery | guest/no-MFA/no-permission denial, signed adjustment validation, atomic ledger/audit, bounded ownership recovery | Feature/security/audit + operations runbook | administrator acceptance scenario |
+| Responsive/accessibility | desktop/tablet/mobile no overflow, semantic headings/labels, keyboard-reachable controls, visible focus | CSS + Playwright smoke | public, account and administrator marketplace scenarios |
+
+Character Bazaar concurrency and cross-database failure safety are proved at the smallest deterministic layer. Browser tests do not claim to reproduce database races; they prove composed navigation, authorization, visible state and recovery affordances.
+
 ## Portal surface status
 
 | Surface group | Current coverage | Required dimensions | Remaining exact work |
@@ -67,6 +83,7 @@ The account profile is primary-Chromium only because it contains reset links, MF
 | MFA lifecycle | `covered` | enroll/confirm/challenge/replay/recovery/disable; D/M; bounded portability | Manual screen-reader verification remains outside automated proof |
 | Account Overview and Canary provisioning | `covered` | ready/pending/recoverable/conflict/missing; retry; no internal identifiers; D/M | None in current contract |
 | Character creation and public visibility | `covered` | authorization, validation, ownership injection, quota/idempotency, public read; D/M | Authoritative game login remains separate |
+| Character Bazaar public/account/admin | `covered` | public catalogue/detail/filter/empty/EN/PL; authenticated watch/listing/bid/wallet/history; MFA/RBAC admin adjustment/recovery; escrow/session/quota/idempotency/concurrency; D/T/M | Payment-provider coin purchasing remains deliberately outside v1; production activation remains gated by deployment prerequisites |
 | Homepage, navigation and SEO | `covered` | available/empty/stale/unavailable, EN/PL, sitemap/robots; D/T/M; Chromium/Firefox/WebKit bounded | None in current contract |
 | News and managed public pages | `covered` | published/hidden/empty/not-found/long/localized; D/M | None in current contract |
 | Public game data | `covered` | search/detail/index, pagination/empty/not-found, Redis/Canary failure and recovery; D/T/M | None in current contract |
@@ -117,6 +134,6 @@ The matrix does not claim:
 - full screen-reader compatibility from automated checks;
 - the authoritative Platform-to-game login path;
 - imported/claimed legacy Canary accounts;
-- account deletion, unlink/rebind/transfer;
-- character rename/deletion;
-- payments, webshop or other deferred commerce.
+- account deletion or unlink/rebind;
+- character rename/deletion outside the approved Character Bazaar ownership-transfer operation;
+- payment-provider coin purchasing, webshop or other deferred commerce.
