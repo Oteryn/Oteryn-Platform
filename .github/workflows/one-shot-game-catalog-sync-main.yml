@@ -1,6 +1,11 @@
 name: One-shot Game Catalog Main Sync
 
 on:
+  push:
+    branches:
+      - feat/OTERYN-20260728-game-catalog-slice-1
+    paths:
+      - '.github/workflows/one-shot-game-catalog-sync-main.yml'
   pull_request:
     branches:
       - main
@@ -11,25 +16,25 @@ permissions:
   contents: write
 
 concurrency:
-  group: one-shot-game-catalog-main-sync-${{ github.event.pull_request.number }}
+  group: one-shot-game-catalog-main-sync-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
   sync:
-    if: github.event.pull_request.number == 272
+    if: github.event_name == 'push' || github.event.pull_request.number == 272
     runs-on: ubuntu-latest
     steps:
       - name: Checkout exact feature branch
         uses: actions/checkout@v7
         with:
-          ref: ${{ github.event.pull_request.head.ref }}
+          ref: ${{ github.head_ref || github.ref_name }}
           fetch-depth: 0
           token: ${{ github.token }}
 
       - name: Merge current main with guarded conflict resolution
         shell: bash
         env:
-          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          HEAD_REF: ${{ github.head_ref || github.ref_name }}
         run: |
           set -euo pipefail
           git config user.name 'github-actions[bot]'
