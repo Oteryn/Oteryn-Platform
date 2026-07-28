@@ -180,7 +180,7 @@ final class AdminGameCatalogController
             ->leftJoin('game_catalog_snapshots as snapshots', 'snapshots.id', '=', 'findings.snapshot_id')
             ->orderByDesc('findings.id');
 
-        if (isset($validated['severity']) && is_string($validated['severity'])) {
+        if (isset($validated['severity'])) {
             $query->where('findings.severity', $validated['severity']);
         }
         if ($snapshotId !== null) {
