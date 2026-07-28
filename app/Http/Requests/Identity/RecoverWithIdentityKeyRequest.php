@@ -5,6 +5,7 @@ namespace App\Http\Requests\Identity;
 use App\Identity\Support\CanonicalEmail;
 use App\Identity\Support\IdentityPasswordPolicy;
 use Illuminate\Foundation\Http\FormRequest;
+use LogicException;
 
 final class RecoverWithIdentityKeyRequest extends FormRequest
 {
@@ -25,16 +26,26 @@ final class RecoverWithIdentityKeyRequest extends FormRequest
 
     public function canonicalEmail(): string
     {
-        return CanonicalEmail::normalize((string) $this->validated('email'));
+        return CanonicalEmail::normalize($this->validatedString('email'));
     }
 
     public function recoveryKey(): string
     {
-        return (string) $this->validated('recovery_key');
+        return $this->validatedString('recovery_key');
     }
 
     public function newPassword(): string
     {
-        return (string) $this->validated('password');
+        return $this->validatedString('password');
+    }
+
+    private function validatedString(string $key): string
+    {
+        $value = $this->validated($key);
+        if (! is_string($value)) {
+            throw new LogicException("Validated identity input {$key} is not a string.");
+        }
+
+        return $value;
     }
 }
