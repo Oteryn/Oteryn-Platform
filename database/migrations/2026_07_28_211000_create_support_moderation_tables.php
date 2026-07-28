@@ -98,6 +98,7 @@ return new class extends Migration
             $table->string('event_key', 64);
             $table->string('related_type', 32);
             $table->string('related_id', 64);
+            $table->char('locale', 2)->default('en');
             $table->string('status', 16)->default('pending');
             $table->unsignedSmallInteger('attempts')->default(0);
             $table->string('last_error_code', 64)->nullable();
