@@ -31,7 +31,7 @@ final class AdjustWalletBalance
             throw new MarketplaceException('wallet_adjustment_reason_invalid', 'Provide a reason between 10 and 500 characters.');
         }
 
-        $wallet = DB::transaction(function () use ($target, $amount, $reason, $requestId): WalletAccount {
+        return DB::transaction(function () use ($actor, $target, $amount, $reason, $requestId): WalletAccount {
             $locked = $this->wallets->lock($target->id);
             $this->wallets->applyLocked(
                 $locked,
@@ -43,21 +43,19 @@ final class AdjustWalletBalance
                 ['reason_sha256' => hash('sha256', $reason)],
             );
 
+            $this->audit->record(
+                $actor->id,
+                'marketplace.wallet_adjusted',
+                'identity_wallet',
+                (string) $target->id,
+                [
+                    'amount' => $amount,
+                    'reason_sha256' => hash('sha256', $reason),
+                    'request_id' => $requestId,
+                ],
+            );
+
             return $locked->refresh();
         }, 3);
-
-        $this->audit->record(
-            $actor->id,
-            'marketplace.wallet_adjusted',
-            'identity_wallet',
-            (string) $target->id,
-            [
-                'amount' => $amount,
-                'reason_sha256' => hash('sha256', $reason),
-                'request_id' => $requestId,
-            ],
-        );
-
-        return $wallet;
     }
 }
