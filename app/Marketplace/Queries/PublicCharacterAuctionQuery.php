@@ -81,7 +81,7 @@ final class PublicCharacterAuctionQuery
     /** @return list<int> */
     public function sitemapIds(): array
     {
-        return CharacterAuction::query()
+        $auctions = CharacterAuction::query()
             ->whereIn('status', [
                 CharacterAuction::STATUS_ACTIVE,
                 CharacterAuction::STATUS_SETTLEMENT_PENDING,
@@ -89,9 +89,13 @@ final class PublicCharacterAuctionQuery
             ])
             ->orderBy('id')
             ->limit(10_000)
-            ->get(['id'])
-            ->map(static fn (CharacterAuction $auction): int => $auction->id)
-            ->values()
-            ->all();
+            ->get(['id']);
+        $ids = [];
+
+        foreach ($auctions as $auction) {
+            $ids[] = $auction->id;
+        }
+
+        return $ids;
     }
 }
