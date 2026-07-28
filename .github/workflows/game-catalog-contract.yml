@@ -13,8 +13,10 @@ on:
       - 'resources/schemas/game-catalog/**'
       - 'tests/Fixtures/GameCatalog/**'
       - 'tests/Feature/GameCatalog/**'
+      - 'tests/Integration/GameCatalog/**'
       - 'tests/Unit/GameCatalog/**'
       - 'tools/game-catalog/**'
+      - 'docs/agents/tasks/active/OTERYN-20260728-game-catalog-slice-1.md'
   pull_request:
     branches:
       - main
@@ -27,8 +29,10 @@ on:
       - 'resources/schemas/game-catalog/**'
       - 'tests/Fixtures/GameCatalog/**'
       - 'tests/Feature/GameCatalog/**'
+      - 'tests/Integration/GameCatalog/**'
       - 'tests/Unit/GameCatalog/**'
       - 'tools/game-catalog/**'
+      - 'docs/agents/tasks/active/OTERYN-20260728-game-catalog-slice-1.md'
 
 permissions:
   contents: read
@@ -86,6 +90,7 @@ jobs:
             database/migrations/2026_07_28_110100_add_game_catalog_profile_policies.php \
             database/migrations/2026_07_28_110200_add_game_catalog_permissions.php \
             tests/Feature/GameCatalog \
+            tests/Integration/GameCatalog \
             tests/Unit/GameCatalog \
             2>&1 | tee artifacts/ci/game-catalog-pint.json
 
@@ -101,6 +106,7 @@ jobs:
             database/migrations/2026_07_28_110100_add_game_catalog_profile_policies.php \
             database/migrations/2026_07_28_110200_add_game_catalog_permissions.php \
             tests/Feature/GameCatalog \
+            tests/Integration/GameCatalog \
             tests/Unit/GameCatalog \
             --memory-limit=1G \
             --no-progress \
@@ -117,3 +123,241 @@ jobs:
             artifacts/ci/game-catalog-phpstan.txt
           if-no-files-found: warn
           retention-days: 7
+
+  cross-repository-staging:
+    name: Canary staging import activation rollback
+    if: github.event_name == 'pull_request' && github.event.pull_request.number == 272
+    needs: [validate-contract, static-analysis]
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    services:
+      mariadb:
+        image: mariadb:11.8
+        env:
+          MARIADB_ROOT_PASSWORD: catalog-cross-repo-root-not-a-secret
+          MARIADB_ROOT_HOST: '%'
+          MARIADB_DATABASE: oteryn_catalog_cross_repo
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="healthcheck.sh --connect --innodb_initialized"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=20
+    env:
+      CANARY_REPOSITORY: blakinio/canary
+      CANARY_HEAD_SHA: 8fceccbae43dd4c965543280201888c6395629ba
+      CANARY_WORKFLOW_FILE: game-catalog.yml
+      APP_ENV: testing
+      APP_DEBUG: 'false'
+      APP_KEY: base64:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
+      CACHE_STORE: array
+      SESSION_DRIVER: array
+      QUEUE_CONNECTION: sync
+      MAIL_MAILER: array
+      DB_CONNECTION: mysql
+      DB_HOST: 127.0.0.1
+      DB_PORT: 3306
+      DB_DATABASE: oteryn_catalog_cross_repo
+      DB_USERNAME: root
+      DB_PASSWORD: catalog-cross-repo-root-not-a-secret
+    steps:
+      - name: Checkout exact Platform head
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.5'
+          coverage: none
+          extensions: pdo_mysql, gd
+          tools: composer:v2
+
+      - name: Install application dependencies
+        run: composer install --no-interaction --prefer-dist --no-progress --quiet
+
+      - name: Resolve exact successful Canary exporter run
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts/game-catalog-cross-repo/download
+          runs_url="https://api.github.com/repos/${CANARY_REPOSITORY}/actions/workflows/${CANARY_WORKFLOW_FILE}/runs?event=pull_request&head_sha=${CANARY_HEAD_SHA}&per_page=10"
+          run_id=''
+
+          for attempt in $(seq 1 30); do
+            curl --fail --location --silent --show-error \
+              --header 'Accept: application/vnd.github+json' \
+              --header 'X-GitHub-Api-Version: 2026-03-10' \
+              "${runs_url}" \
+              --output artifacts/game-catalog-cross-repo/download/runs.json
+
+            set +e
+            python3 - <<'PY' > artifacts/game-catalog-cross-repo/download/run-id.txt
+          import json
+          import os
+          import sys
+          from pathlib import Path
+
+          payload = json.loads(Path('artifacts/game-catalog-cross-repo/download/runs.json').read_text(encoding='utf-8'))
+          expected = os.environ['CANARY_HEAD_SHA']
+          runs = [run for run in payload.get('workflow_runs', []) if run.get('head_sha') == expected]
+          successful = [run for run in runs if run.get('status') == 'completed' and run.get('conclusion') == 'success']
+          if successful:
+              successful.sort(key=lambda run: run['id'], reverse=True)
+              print(successful[0]['id'])
+              raise SystemExit(0)
+          active = [run for run in runs if run.get('status') in {'queued', 'in_progress', 'waiting', 'pending'}]
+          if active or not runs:
+              raise SystemExit(2)
+          print(json.dumps([{'id': run.get('id'), 'status': run.get('status'), 'conclusion': run.get('conclusion')} for run in runs]), file=sys.stderr)
+          raise SystemExit(3)
+          PY
+            status=$?
+            set -e
+
+            if [[ ${status} -eq 0 ]]; then
+              run_id="$(tr -d '[:space:]' < artifacts/game-catalog-cross-repo/download/run-id.txt)"
+              break
+            fi
+            if [[ ${status} -eq 3 ]]; then
+              echo 'The exact Canary Game Catalog workflow completed without a successful run.' >&2
+              exit 1
+            fi
+            sleep 30
+          done
+
+          if [[ -z "${run_id}" ]]; then
+            echo 'Timed out waiting for the exact Canary Game Catalog workflow.' >&2
+            exit 1
+          fi
+
+          echo "CANARY_RUN_ID=${run_id}" >> "${GITHUB_ENV}"
+
+      - name: Download and verify exact public Canary artifact
+        shell: bash
+        run: |
+          set -euo pipefail
+          artifacts_url="https://api.github.com/repos/${CANARY_REPOSITORY}/actions/runs/${CANARY_RUN_ID}/artifacts?name=game-catalog-export-smoke&per_page=10"
+          curl --fail --location --silent --show-error \
+            --header 'Accept: application/vnd.github+json' \
+            --header 'X-GitHub-Api-Version: 2026-03-10' \
+            "${artifacts_url}" \
+            --output artifacts/game-catalog-cross-repo/download/artifacts.json
+
+          python3 - <<'PY' > artifacts/game-catalog-cross-repo/download/artifact.env
+          import json
+          import os
+          from pathlib import Path
+
+          payload = json.loads(Path('artifacts/game-catalog-cross-repo/download/artifacts.json').read_text(encoding='utf-8'))
+          expected = os.environ['CANARY_HEAD_SHA']
+          artifacts = [
+              artifact for artifact in payload.get('artifacts', [])
+              if artifact.get('name') == 'game-catalog-export-smoke'
+              and artifact.get('expired') is False
+              and artifact.get('workflow_run', {}).get('head_sha') == expected
+          ]
+          if len(artifacts) != 1:
+              raise RuntimeError(f'Expected one non-expired exact-head Game Catalog artifact, found {len(artifacts)}.')
+          artifact = artifacts[0]
+          digest = artifact.get('digest')
+          if not isinstance(digest, str) or not digest.startswith('sha256:'):
+              raise RuntimeError('The Canary artifact has no SHA-256 digest.')
+          print(f"CANARY_ARTIFACT_ID={artifact['id']}")
+          print(f"CANARY_ARTIFACT_DIGEST={digest}")
+          PY
+
+          cat artifacts/game-catalog-cross-repo/download/artifact.env >> "${GITHUB_ENV}"
+          source artifacts/game-catalog-cross-repo/download/artifact.env
+
+          curl --fail --location --silent --show-error \
+            --header 'Accept: application/vnd.github+json' \
+            --header 'X-GitHub-Api-Version: 2026-03-10' \
+            "https://api.github.com/repos/${CANARY_REPOSITORY}/actions/artifacts/${CANARY_ARTIFACT_ID}/zip" \
+            --output artifacts/game-catalog-cross-repo/download/canary-artifact.zip
+
+          expected_digest="${CANARY_ARTIFACT_DIGEST#sha256:}"
+          echo "${expected_digest}  artifacts/game-catalog-cross-repo/download/canary-artifact.zip" | sha256sum --check -
+          unzip -q artifacts/game-catalog-cross-repo/download/canary-artifact.zip \
+            -d artifacts/game-catalog-cross-repo/download/extracted
+
+          baseline="$(find artifacts/game-catalog-cross-repo/download/extracted -type f -name game-catalog-baseline.json -print -quit)"
+          candidate="$(find artifacts/game-catalog-cross-repo/download/extracted -type f -name game-catalog.json -print -quit)"
+          if [[ -z "${baseline}" || -z "${candidate}" ]]; then
+            echo 'The Canary artifact does not contain both staging snapshots.' >&2
+            exit 1
+          fi
+
+          for snapshot in "${baseline}" "${candidate}"; do
+            sidecar="${snapshot}.sha256"
+            test -f "${sidecar}"
+            (cd "$(dirname "${snapshot}")" && sha256sum --check "$(basename "${sidecar}")")
+          done
+
+          echo "GAME_CATALOG_BASELINE_PATH=${GITHUB_WORKSPACE}/${baseline}" >> "${GITHUB_ENV}"
+          echo "GAME_CATALOG_CANDIDATE_PATH=${GITHUB_WORKSPACE}/${candidate}" >> "${GITHUB_ENV}"
+          echo "GAME_CATALOG_CANARY_SHA=${CANARY_HEAD_SHA}" >> "${GITHUB_ENV}"
+
+      - name: Execute generated-snapshot staging lifecycle
+        shell: bash
+        run: |
+          set -o pipefail
+          php artisan config:clear --no-interaction
+          vendor/bin/phpunit \
+            tests/Integration/GameCatalog/CrossRepositoryGameCatalogTest.php \
+            --testdox \
+            2>&1 | tee artifacts/game-catalog-cross-repo/test.log
+
+      - name: Write durable cross-repository evidence
+        if: success()
+        shell: bash
+        env:
+          PLATFORM_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          baseline_path = Path(os.environ['GAME_CATALOG_BASELINE_PATH'])
+          candidate_path = Path(os.environ['GAME_CATALOG_CANDIDATE_PATH'])
+          baseline = json.loads(baseline_path.read_text(encoding='utf-8'))
+          candidate = json.loads(candidate_path.read_text(encoding='utf-8'))
+          evidence = {
+              'contract': 'oteryn.game-catalog',
+              'schema_version': '1.0.0',
+              'platform_head_sha': os.environ['PLATFORM_HEAD_SHA'],
+              'canary_head_sha': os.environ['CANARY_HEAD_SHA'],
+              'canary_workflow_run_id': int(os.environ['CANARY_RUN_ID']),
+              'canary_artifact_id': int(os.environ['CANARY_ARTIFACT_ID']),
+              'canary_artifact_digest': os.environ['CANARY_ARTIFACT_DIGEST'],
+              'baseline_generated_at': baseline['snapshot']['generated_at'],
+              'candidate_generated_at': candidate['snapshot']['generated_at'],
+              'entity_count': candidate['snapshot']['entity_count'],
+              'relation_count': candidate['snapshot']['relation_count'],
+              'profile': 'staging-canary-cross-repo',
+              'public_enabled': False,
+              'lifecycle': ['import-baseline', 'activate-baseline', 'import-candidate', 'activate-candidate', 'rollback-baseline'],
+              'production_deployment': False,
+              'production_profile_activation': False,
+          }
+          Path('artifacts/game-catalog-cross-repo/evidence.json').write_text(
+              json.dumps(evidence, indent=2, sort_keys=True) + '\n',
+              encoding='utf-8',
+          )
+          PY
+
+      - name: Upload cross-repository evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: game-catalog-cross-repository-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            artifacts/game-catalog-cross-repo/evidence.json
+            artifacts/game-catalog-cross-repo/test.log
+            artifacts/game-catalog-cross-repo/download/runs.json
+            artifacts/game-catalog-cross-repo/download/artifacts.json
+          if-no-files-found: warn
+          retention-days: 14
