@@ -76,7 +76,7 @@ test('@portal-account registration, duplicate identity, invalid login and protec
   await expect(page.getByText(email, { exact: true })).toBeVisible();
   await expect(page.getByText('Ready', { exact: true })).toBeVisible();
   await expect(page.getByRole('link', { name: 'Create a character' })).toBeVisible();
-  await expect(page.getByRole('link', { name: 'Manage security' })).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Manage account security' })).toBeVisible();
   await expect(page.getByRole('link', { name: 'Change password' })).toBeVisible();
 
   await logout(page);
