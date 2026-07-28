@@ -4,6 +4,7 @@ namespace App\GameCatalog\Domain\Exceptions;
 
 use App\GameCatalog\Domain\CatalogValidationFinding;
 use RuntimeException;
+use Throwable;
 
 final class CatalogValidationException extends RuntimeException
 {
@@ -14,7 +15,11 @@ final class CatalogValidationException extends RuntimeException
         public readonly array $findings,
         public readonly ?string $contentSha256 = null,
         public readonly ?int $fileSize = null,
+        ?Throwable $previous = null,
     ) {
-        parent::__construct($findings[0]->message ?? 'Game Catalog validation failed.');
+        parent::__construct(
+            message: $findings[0]->message ?? 'Game Catalog validation failed.',
+            previous: $previous,
+        );
     }
 }
