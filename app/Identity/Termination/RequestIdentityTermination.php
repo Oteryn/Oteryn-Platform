@@ -23,7 +23,7 @@ final class RequestIdentityTermination
         return DB::transaction(function () use ($identity): Identity {
             $locked = Identity::query()->lockForUpdate()->find($identity->id);
             if (! $locked instanceof Identity || $locked->disabled_at !== null || $locked->terminated_at !== null) {
-                throw new AccountTerminationRejected('Account termination is not available for this account.');
+                throw new AccountTerminationRejected(__('identity.errors.termination_unavailable'));
             }
 
             if ($locked->hasPendingTermination()) {
