@@ -97,8 +97,8 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-07-28T11:45:00Z
-head: e9a341bc27019aa6acfff7b69aeaee2aa28fe792
+updated_at: 2026-07-28T11:48:00Z
+head: fbba2cfb5f4155cc3430ce9fa34c251b868c7514
 branch: feat/OTERYN-20260728-character-bazaar
 pr: 270
 status: validating
@@ -113,6 +113,24 @@ context_routes:
   - web-cms
   - admin-rbac
   - testing
+owned_paths:
+  - app/Marketplace/**
+  - app/Wallet/**
+  - app/CanaryIntegration/CanaryCharacterTransfer.php
+  - app/CanaryIntegration/CanaryCharacterTransferDatabasePrivilegeVerifier.php
+  - database/migrations/*character_auction*
+  - database/migrations/*wallet*
+  - database/provisioning/canary-character-transfer.sql.template
+  - routes/modules/marketplace.php
+  - resources/views/marketplace/**
+  - resources/views/admin/marketplace/**
+  - public/css/marketplace*.css
+  - tests/**/Marketplace/**
+  - scripts/acceptance/**marketplace**
+  - docs/architecture/adr/0016-character-bazaar-wallet-and-escrow.md
+  - docs/contracts/CHARACTER_TRANSFER_CONTRACT.md
+  - docs/operations/MARKETPLACE_OPERATIONS.md
+  - docs/agents/tasks/active/OTERYN-20260728-character-bazaar.md
 proven:
   - Oteryn Platform owns the Character Bazaar UI, Platform wallet ledger, identity binding, RBAC, audit and recoverable marketplace saga state.
   - Canary players.account_id is changed only through the dedicated canary_character_transfer connection with operation-specific least privilege and deterministic lock order.
