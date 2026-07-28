@@ -33,7 +33,9 @@ final class AccountTerminationController
 
         return redirect()
             ->route('identity.login.create')
-            ->with('status', 'Account termination is scheduled for '.$scheduled->termination_scheduled_for?->utc()->format('Y-m-d H:i').' UTC. Sign in again to cancel during the grace period.');
+            ->with('status', __('identity.status.termination_scheduled', [
+                'date' => $scheduled->termination_scheduled_for?->utc()->format('Y-m-d H:i'),
+            ]));
     }
 
     public function destroy(
@@ -53,6 +55,6 @@ final class AccountTerminationController
 
         return redirect()
             ->route('identity.account-security.show')
-            ->with('status', 'The pending account termination has been cancelled.');
+            ->with('status', __('identity.status.termination_cancelled'));
     }
 }
