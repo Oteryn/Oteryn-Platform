@@ -42,6 +42,7 @@ Deliver the Platform half of the first production-quality vertical slice of the 
 owned_paths:
   - docs/agents/tasks/active/OTERYN-20260728-game-catalog-slice-1.md
   - .github/workflows/game-catalog-contract.yml
+  - bootstrap/providers.php
   - app/GameCatalog/**
   - config/game-catalog.php
   - database/migrations/*game_catalog*.php
@@ -60,6 +61,13 @@ owned_paths:
   - tests/Integration/GameCatalog/**
   - tools/game-catalog/**
   - scripts/acceptance/**/*game-catalog*
+shared_integration_paths:
+  - app/Admin/AdminPermission.php
+  - app/Localization/LocalizedPublicRouteRegistrar.php
+  - app/Providers/AppServiceProvider.php
+  - resources/views/admin/layout.blade.php
+  - resources/views/game/layout.blade.php
+  - routes/console.php
 modules:
   - GameCatalog
   - Wiki public navigation integration
@@ -68,7 +76,7 @@ dependencies:
   - CAN-20260728-game-catalog-exporter-slice-1
   - oteryn.game-catalog schema version 1.0.0
 blockers:
-  - Shared integration paths modified by open PR #270 must not be edited until ownership is reconciled from current main.
+  - PR #270 currently owns shared permission, localized routing, layout and routes/console integration paths; do not edit them until reconciled.
   - Local PHP/Node execution is unavailable in the current sandbox; CI evidence is required for executable validation.
 cross_repository_tasks:
   - CAN-20260728-game-catalog-exporter-slice-1
@@ -97,7 +105,7 @@ production_activation: forbidden
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-07-28T10:36:00+02:00
+updated_at: 2026-07-28T11:12:00+02:00
 head: 98cd827188490db17aba9e43db02d63b51ec4d70
 branch: feat/OTERYN-20260728-game-catalog-slice-1
 pr: 272
@@ -114,6 +122,7 @@ context_routes:
 owned_paths:
   - docs/agents/tasks/active/OTERYN-20260728-game-catalog-slice-1.md
   - .github/workflows/game-catalog-contract.yml
+  - bootstrap/providers.php
   - app/GameCatalog/**
   - config/game-catalog.php
   - database/migrations/*game_catalog*.php
@@ -133,11 +142,10 @@ owned_paths:
   - tools/game-catalog/**
   - scripts/acceptance/**/*game-catalog*
 proven:
-  - main head is architecture merge commit 8aa1fc29dd13895efb2a7006204a6b88105e6972
+  - main contains architecture merge commit 8aa1fc29dd13895efb2a7006204a6b88105e6972
   - merged architecture defines contract oteryn.game-catalog schema 1.0.0 and fail-closed visibility
   - Platform and Canary schema files have the same Git blob SHA a3c239a6d61385edde0b06f72cdf781f4ce58df3
-  - no open Platform PR is dedicated to Game Catalog
-  - open PR #270 modifies shared provider, routing, navigation and layout integration paths
+  - open PR #270 owns shared permission, localized routing, layout and routes/console paths but not bootstrap/providers.php or the dedicated GameCatalog module
   - draft PR #272 tracks this task
   - sanitized fixture contains two releases, visible/future items, complete/partial creatures and visible/future loot relations
   - shared validator performs pinned hash checks, Draft 2020-12 validation, semantic integrity checks and two-release visibility assertions
@@ -146,17 +154,16 @@ proven:
   - production deployment and production activation are excluded
 derived:
   - matching Git blob SHAs prove the two schema files are byte-identical
-  - identical fixture and validator bytes plus pinned SHA-256 values create a cross-repository contract gate
-  - initial contract/fixture work can proceed without touching PR #270 shared paths
+  - isolated persistence/import/provider work can proceed without editing PR #270-owned paths
 unknown:
-  - final integration shape after PR #270 lands or ownership is explicitly reconciled
+  - final shared integration shape after PR #270 lands or explicit ownership reconciliation
   - executable local PHP test results because the sandbox cannot clone GitHub or run the repository checkout
   - complete historical content and availability facts listed by the architecture
 conflicts:
-  - potential future ownership overlap with PR #270 for app/Providers/AppServiceProvider.php, localized route registration, shared layouts and navigation aggregation
+  - PR #270 overlap is limited to shared permission, localized routing, console and layout aggregation paths
 first_failure:
   marker: checkpoint-validation
-  evidence: Agent Governance run 30342833669 failed after the workflow path was added but before the checkpoint changed_paths list was refreshed
+  evidence: Agent Governance run 30342833669 failed after the workflow path was added but before changed_paths was refreshed
 rejected_hypotheses:
   - external wiki data is authoritative
   - imported snapshots activate automatically
@@ -169,31 +176,25 @@ changed_paths:
 validation:
   - command: GitHub repository and main-head inspection
     result: PASS
-    evidence: main head 8aa1fc29dd13895efb2a7006204a6b88105e6972
+    evidence: main contains 8aa1fc29dd13895efb2a7006204a6b88105e6972
   - command: GitHub schema blob comparison
     result: PASS
     evidence: both schema paths resolve to blob a3c239a6d61385edde0b06f72cdf781f4ce58df3
   - command: local synthetic fixture semantic validation
     result: PASS
-    evidence: counts, ranges, endpoints, probability/count bounds and 15.20/15.21 visibility assertions passed; fixture SHA-256 c947e461c1ee8f6fbf511c9890b61135d2585d6c16e2e99a0f72dd5a946c2181
-  - command: local validator syntax and semantic smoke
-    result: PASS
-    evidence: Python validator executed against a Draft 2020-12 smoke schema and the exact fixture
+    evidence: fixture SHA-256 c947e461c1ee8f6fbf511c9890b61135d2585d6c16e2e99a0f72dd5a946c2181 and 15.20/15.21 assertions passed
   - command: Game Catalog Contract
     result: PASS
-    evidence: workflow run 30342833946 on head 98cd827188490db17aba9e43db02d63b51ec4d70
-  - command: Agent Governance
-    result: FAIL
-    evidence: workflow run 30342833669; checkpoint refreshed in this commit
+    evidence: workflow run 30342833946
   - command: open PR ownership inspection
     result: PASS_WITH_CONFLICT_RECORDED
-    evidence: PR #270 changed-file inventory reviewed
+    evidence: PR #270 changed-file inventory reviewed at head 8a1cd49d490d45b2c0ed4253d53975739cd60c4a
   - command: local checkout/build/test
     result: NOT_RUN
     evidence: sandbox DNS cannot resolve github.com
 blockers:
   - shared integration paths remain held pending reconciliation with PR #270
-next_action: Inspect renewed PR #272 governance and contract checks, then begin the isolated Platform persistence/import package.
+next_action: Implement isolated Game Catalog persistence, fixed-schema validation and transactional inactive import behind GameCatalogServiceProvider.
 ```
 
 ## Deferred child tasks
