@@ -135,6 +135,9 @@ final class CanaryCharacterTransferConcurrencyMariaDbTest extends TestCase
                 $waitStatus = 0;
                 $waitedPid = pcntl_waitpid($pid, $waitStatus);
                 self::assertSame($pid, $waitedPid);
+                if (! is_int($waitStatus)) {
+                    self::fail('The MariaDB transfer concurrency worker returned an invalid wait status.');
+                }
                 self::assertTrue(pcntl_wifexited($waitStatus));
                 self::assertSame(0, pcntl_wexitstatus($waitStatus));
             }
