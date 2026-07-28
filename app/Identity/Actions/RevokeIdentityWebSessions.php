@@ -11,7 +11,7 @@ final class RevokeIdentityWebSessions
 {
     public function __construct(
         private readonly SecurityEventRecorder $securityEvents,
-        private readonly IdentityWebSessionRegistry $registry,
+        private readonly ?IdentityWebSessionRegistry $registry = null,
     ) {}
 
     public function execute(Identity $identity): int
@@ -22,7 +22,7 @@ final class RevokeIdentityWebSessions
                 ->increment('web_session_generation');
 
             $identity->refresh();
-            $this->registry->revokeAll($identity);
+            ($this->registry ?? app(IdentityWebSessionRegistry::class))->revokeAll($identity);
             $this->securityEvents->recordIdentityWebSessionsRevoked($identity->id);
 
             return $identity->web_session_generation;
