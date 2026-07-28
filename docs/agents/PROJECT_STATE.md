@@ -48,9 +48,15 @@ Existing Canary accounts are not imported or claimed. The browser does not commu
 - TOTP MFA, replay protection and recovery codes;
 - account overview with pending, ready, recoverable, conflict and missing provisioning states;
 - bounded provisioning retry;
+- confirmed primary-email change with new-address confirmation, old-address recovery and cooldown;
+- registered active-session inventory with targeted, current and all-other revocation;
+- private-by-default account association and status controls;
+- verifier-only high-assurance recovery key generation, rotation, revocation, single use and replay denial;
+- bounded Platform account termination with grace, cancellation and idempotent finalization that preserves Canary-owned data;
+- English and Polish account-security UI, validation, token errors and notification links;
 - character creation for a ready immutable binding.
 
-Not yet benchmark-complete: email change, active-session inventory/targeted revocation, exceptional unlink/rebind, privacy controls, account termination and high-assurance recovery-artifact decisions. Tracker: #276.
+The ready Platform-to-Canary binding remains immutable. Self-service import, unlink, rebind or transfer is intentionally not applicable without a separately reviewed operation contract. Email-code MFA is intentionally not adopted because email is the recovery channel. Optional account badge/loyalty/status presentation remains absent.
 
 ### Public portal and game data
 
@@ -102,7 +108,7 @@ The strict contract proves:
 - evidence files and stable markers exist;
 - strict closure fails for delivered surfaces left `partial` or `planned`.
 
-The Character Bazaar fragment adds public, authenticated and administrator marketplace surfaces.
+The account-security fragment adds guest/authenticated EN/PL email, session, privacy, recovery-key and termination states. The Character Bazaar fragment adds public, authenticated and administrator marketplace surfaces.
 
 ## Product-completeness benchmark
 
@@ -112,16 +118,17 @@ Issue #268 is tracked by:
 - `docs/testing/product-completeness-benchmark.json`;
 - `scripts/acceptance/coverage/validate-product-completeness.mjs`.
 
-The baseline classifies 43 Tibia/RubinOT/OTS benchmark capabilities:
+The current ledger classifies 43 Tibia/RubinOT/OTS benchmark capabilities:
 
-- 3 implemented;
-- 11 partial;
-- 29 missing;
-- 23 required, 13 planned and 7 optional/differentiator.
+- 9 implemented;
+- 8 partial;
+- 25 missing;
+- 1 not applicable;
+- 22 required, 13 planned, 7 optional/differentiator and 1 not applicable.
 
 Focused backlog:
 
-- #276 — account security and lifecycle;
+- #276 — delivered Platform-owned account security and lifecycle;
 - #277 — character management and public profiles;
 - #278 — premium, coins and entitlement commerce;
 - #279 — tickets, reports and enforcement history;
@@ -152,12 +159,12 @@ Repository and exact-revision E2E work has hardened the native-auth direction, b
 
 ## Current active task
 
-`OTERYN-20260728-product-completeness-benchmark` on draft PR #275, resolving Issue #268.
+`OTERYN-20260728-account-security-lifecycle` on draft PR #283, resolving Issue #276 for the approved Platform-owned boundary.
 
 ## Recommended sequence
 
-1. Merge the evidence-linked product-completeness audit only after its machine ledger and exact-head checks pass.
-2. Deliver required gaps as bounded tasks: #276, #277, #279 and #280.
+1. Review and merge PR #283 only after exact-final-head CI, strict portal coverage and zero-retry browser acceptance pass.
+2. Deliver remaining required benchmark gaps as bounded tasks: #277, #279 and #280.
 3. Keep #278 disabled until a dedicated payment ADR, threat model and provider lifecycle are reviewed.
 4. Build #281 from authoritative Oteryn server availability, never by copying third-party datasets or prose.
 5. Resume #91 only after explicit production deployment/verification authorization and required production evidence access exist.
