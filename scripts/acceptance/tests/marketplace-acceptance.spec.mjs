@@ -105,8 +105,8 @@ test('@portal-marketplace-account authenticated watch bid wallet reservation com
 
   await page.goto('/account/bazaar');
   await expect(page.getByRole('heading', { name: 'My Bazaar' })).toBeVisible();
-  await expect(page.getByText('4 800', { exact: true })).toBeVisible();
-  await expect(page.getByText('200', { exact: true })).toBeVisible();
+  await expect(page.getByText('4 800 Oteryn Coins', { exact: true })).toBeVisible();
+  await expect(page.getByText('200 Oteryn Coins', { exact: true }).first()).toBeVisible();
   await expect(page.getByRole('heading', { name: 'My bids' })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Watched auctions' })).toBeVisible();
   await expect(page.getByText(fixture.player_name, { exact: true }).first()).toBeVisible();
@@ -136,7 +136,7 @@ test('@portal-marketplace-admin MFA permission wallet adjustment ledger and reco
   await page.goto('/admin/marketplace');
   await expect(page.getByRole('heading', { name: 'Character Bazaar' })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Auctions requiring operator reconciliation' })).toBeVisible();
-  await expect(page.getByText(fixture.recovery_player_name, { exact: true })).toBeVisible();
+  await expect(page.getByText(fixture.recovery_player_name, { exact: true }).first()).toBeVisible();
   await expect(page.getByRole('button', { name: 'Run bounded recovery' }).first()).toBeVisible();
 
   await page.getByLabel('Platform Identity email').fill(targetEmail);
