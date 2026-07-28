@@ -61,8 +61,10 @@ final readonly class PublicSitemapQuery
                     }
                 }
 
-                foreach ($this->marketplace->sitemapIds() as $auctionId) {
-                    $urls[] = route('marketplace.show', ['locale' => $locale, 'auction' => $auctionId]);
+                if (config('marketplace.enabled')) {
+                    foreach ($this->marketplace->sitemapIds() as $auctionId) {
+                        $urls[] = route('marketplace.show', ['locale' => $locale, 'auction' => $auctionId]);
+                    }
                 }
 
                 $wikiSlugs = $this->wiki->sitemapSlugs($locale);
@@ -89,17 +91,22 @@ final readonly class PublicSitemapQuery
     /** @return list<string> */
     private function staticRouteNames(): array
     {
-        return [
+        $routeNames = [
             'localized.home',
             'news.index',
             'game.highscores.index',
             'game.guilds.index',
             'game.online.index',
             'game.servers.index',
-            'marketplace.index',
             'events.index',
             'downloads.index',
             'wiki.index',
         ];
+
+        if (config('marketplace.enabled')) {
+            $routeNames[] = 'marketplace.index';
+        }
+
+        return $routeNames;
     }
 }
