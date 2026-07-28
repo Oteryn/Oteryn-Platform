@@ -4,10 +4,11 @@ Convenience index only. Individual active task records, live PRs and Git state a
 
 ## Active tasks
 
-- `OTERYN-20260728-product-completeness-benchmark` — Issue #268 on `audit/OTERYN-20260728-product-completeness-benchmark`; auditing actual Oteryn routes, states and workflows against Tibia/RubinOT/OTS benchmarks, producing an evidence-linked capability matrix and explicit required-gap backlog.
+- None.
 
 ## Closed acceptance and release-preparation follow-ups
 
+- PR #275 / `c365920b5ad672c9c3be9968d8a51132d3862859` — evidence-linked Tibia/RubinOT/OTS product-completeness benchmark, 43-capability machine ledger and focused gap backlog #276-#281 merged; Issue #268 closed without claiming product or production completeness.
 - PR #270 / `0f19656e0875d0a10b22002ac0e096deb20e94d8` — complete Character Bazaar, Platform wallet ledger, least-privilege Canary escrow/settlement and exact-head responsive/browser/database/security validation merged; Issue #269 closed.
 - PR #67 / `517968539bdfd7d189677b669bf0899c35fccec1` — issues #68-#70 closed with exact-SHA production-like browser acceptance evidence classified `STAGING_PROVEN`.
 - PR #73 / `06d8d94aafd73de996eb4ea93705e8a45fbadafb` — issue #71 closed with controlled Platform DB outage evidence classified `STAGING_PROVEN` for that staging failure path only.
@@ -63,9 +64,10 @@ Repository and staging evidence remains valid only for its documented boundaries
 
 - **Production Readiness: STAGING_PROVEN for previously documented boundaries**
 - **Portal Completeness: COMPLETE AGAINST THE VERSIONED DELIVERED-SURFACE CONTRACT (Issue #240 closed)**
-- **Product Completeness Benchmark: IN PROGRESS (Issue #268)**
-- **Functional Acceptance: comprehensive exact-head critical/full/contract/module/stability/soak audit passed through PR #265**
-- **Visual / UX Acceptance: automated responsive/accessibility profiles and exploratory visual contact-sheet audit passed on the PR #265 exact head**
+- **Product Completeness Benchmark: COMPLETE AS AN AUDIT; REQUIRED PRODUCT GAPS REMAIN OPEN (#276-#281)**
+- **Benchmark Product Completeness: NOT YET ACHIEVED**
+- **Functional Acceptance: comprehensive exact-head critical/full/contract/module/stability/soak audit passed through PR #275**
+- **Visual / UX Acceptance: automated responsive/accessibility profiles and exploratory visual validation passed on the PR #275 exact head**
 - **Public Website Expansion Programme: implementation and machine-ledger closure merged**
 - **Emulated Edge Security: STAGING_PROVEN**
 - **Synology Production Target Preflight: STAGING_PROVEN**
@@ -76,7 +78,7 @@ The latest verified final-portal staging refresh identity is `ef6d03e0b7c6ed0ecf
 
 ## Next work
 
-Issue #268 owns the benchmark-based product-completeness audit. Issue #244 separately owns audited homepage-template selection. Issue #91 remains the separate real Production Go-Live tracker.
+The highest-priority required benchmark gaps are #276 account security/lifecycle, #277 character management/profile, #279 support/moderation and #280 community data. Issue #278 is mandatory before commercial activation, #281 owns server-backed knowledge expansion, #244 separately owns the homepage-template selector and #91 remains the separate real Production Go-Live tracker.
 
 ## Remaining cross-repository dependency
 
