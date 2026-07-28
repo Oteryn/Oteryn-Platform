@@ -75,7 +75,7 @@ test('@portal-game-catalog-admin MFA RBAC snapshot profile finding diff responsi
   await page.getByRole('link', { name: `#${fixture.snapshot_id}`, exact: true }).click();
   await expect(page.getByRole('heading', { level: 1, name: `Snapshot #${fixture.snapshot_id}` })).toBeVisible();
   await expect(page.getByText('item:fixture-sword', { exact: true })).toBeVisible();
-  await expect(page.getByText('future_release', { exact: true })).toBeVisible();
+  await expect(page.getByText('outside_release', { exact: true })).toBeVisible();
   await expect(page.getByText('partial', { exact: true })).toBeVisible();
   await expect(page.getByText('snapshot.activate', { exact: true })).toBeVisible();
   await assertResponsiveLayout(page);
@@ -85,6 +85,7 @@ test('@portal-game-catalog-admin MFA RBAC snapshot profile finding diff responsi
   await expect(page.getByRole('heading', { level: 1, name: 'Public Game Catalog' })).toBeVisible();
   await expect(page.getByText('item:fixture-sword', { exact: true })).toBeVisible();
   await expect(page.getByText('visible', { exact: true }).first()).toBeVisible();
+  await expect(page.getByText('outside_release', { exact: true })).toBeVisible();
   await expect(page.getByText('snapshot.activate', { exact: true })).toBeVisible();
   await assertResponsiveLayout(page);
   await assertAccessibilitySmoke(page);
