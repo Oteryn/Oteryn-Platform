@@ -25,7 +25,7 @@ optional_reads: []
 
 ## Goal
 
-Deliver the Platform half of the first production-quality vertical slice of the version-aware Oteryn Game Catalog: shared contract validation, immutable transactional snapshot import, profile activation and rollback, visibility projections, public item/weapon/creature/loot surfaces, and administrative snapshot/visibility inspection. Production deployment and production profile activation are excluded.
+Deliver the Platform half of the first production-quality version-aware Oteryn Game Catalog slice: immutable transactional import, profile activation and rollback, projected public visibility, public item/weapon/creature/loot surfaces and secured administrative inspection. Production deployment and production profile activation are excluded.
 
 ## Acceptance criteria
 
@@ -76,7 +76,7 @@ dependencies:
   - CAN-20260728-game-catalog-exporter-slice-1
   - oteryn.game-catalog schema version 1.0.0
 blockers:
-  - PR #270 currently owns shared permission, localized routing, layout and routes/console integration paths; do not edit them until reconciled.
+  - PR #270 currently owns shared permission, localized routing, layout and routes/console paths; do not edit them until reconciled.
   - Local PHP/Node execution is unavailable in the current sandbox; CI evidence is required for executable validation.
 cross_repository_tasks:
   - CAN-20260728-game-catalog-exporter-slice-1
@@ -105,8 +105,8 @@ production_activation: forbidden
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-07-28T11:12:00+02:00
-head: 98cd827188490db17aba9e43db02d63b51ec4d70
+updated_at: 2026-07-28T11:28:00+02:00
+head: b98edaaf77b9f9d1541cb5b684efa8c045a1091a
 branch: feat/OTERYN-20260728-game-catalog-slice-1
 pr: 272
 status: implementing
@@ -143,35 +143,53 @@ owned_paths:
   - scripts/acceptance/**/*game-catalog*
 proven:
   - main contains architecture merge commit 8aa1fc29dd13895efb2a7006204a6b88105e6972
-  - merged architecture defines contract oteryn.game-catalog schema 1.0.0 and fail-closed visibility
-  - Platform and Canary schema files have the same Git blob SHA a3c239a6d61385edde0b06f72cdf781f4ce58df3
-  - open PR #270 owns shared permission, localized routing, layout and routes/console paths but not bootstrap/providers.php or the dedicated GameCatalog module
+  - Platform and Canary schema files have identical Git blob SHA a3c239a6d61385edde0b06f72cdf781f4ce58df3
+  - Game Catalog Contract run 30342833946 passed the expected schema SHA-256 and shared fixture
+  - PR #270 does not own bootstrap/providers.php or dedicated GameCatalog paths
+  - persistence covers releases, immutable snapshots, profiles, stable entities, identifiers, typed item/creature/loot records, import runs/findings, projected visibility, translations, Wiki links, overrides and audit events
+  - fixed-schema validation checks the registered schema hash, file limits, syntax, duplicate JSON keys, Draft 2020-12 keywords used by schema v1 and semantic integrity
+  - importer deduplicates by content hash and writes an inactive validated snapshot in one transaction
+  - validation and persistence failures do not change active profile state
+  - validation/import commands are registered through GameCatalogServiceProvider
   - draft PR #272 tracks this task
-  - sanitized fixture contains two releases, visible/future items, complete/partial creatures and visible/future loot relations
-  - shared validator performs pinned hash checks, Draft 2020-12 validation, semantic integrity checks and two-release visibility assertions
-  - Game Catalog Contract run 30342833946 passed on head 98cd827188490db17aba9e43db02d63b51ec4d70
-  - repository writes are authorized only in blakinio/Oteryn-Platform and blakinio/canary
   - production deployment and production activation are excluded
 derived:
-  - matching Git blob SHAs prove the two schema files are byte-identical
-  - isolated persistence/import/provider work can proceed without editing PR #270-owned paths
+  - isolated persistence/import/provider work proceeds without editing PR #270-owned paths
+  - public queries can use precomputed profile entity/relation projections rather than raw snapshot evaluation
 unknown:
-  - final shared integration shape after PR #270 lands or explicit ownership reconciliation
-  - executable local PHP test results because the sandbox cannot clone GitHub or run the repository checkout
+  - PHP migration, format, static-analysis and focused-test results for current head
+  - final shared routing/RBAC/layout integration shape after PR #270 lands or explicit ownership reconciliation
   - complete historical content and availability facts listed by the architecture
 conflicts:
-  - PR #270 overlap is limited to shared permission, localized routing, console and layout aggregation paths
+  - PR #270 overlap remains limited to shared permission, localized routing, console and layout aggregation paths
 first_failure:
   marker: checkpoint-validation
-  evidence: Agent Governance run 30342833669 failed after the workflow path was added but before changed_paths was refreshed
+  evidence: Agent Governance run 30342833669 failed before the initial workflow path was added to changed_paths
 rejected_hypotheses:
   - external wiki data is authoritative
   - imported snapshots activate automatically
   - unknown values may be converted to zero or guessed
 changed_paths:
   - .github/workflows/game-catalog-contract.yml
+  - app/GameCatalog/Application/Import/CatalogImportResult.php
+  - app/GameCatalog/Application/Import/CatalogImportService.php
+  - app/GameCatalog/Application/Import/CatalogSemanticValidator.php
+  - app/GameCatalog/Application/Import/CatalogSnapshotValidator.php
+  - app/GameCatalog/Application/Import/ValidatedCatalogSnapshot.php
+  - app/GameCatalog/Console/ImportCatalogCommand.php
+  - app/GameCatalog/Console/ValidateCatalogCommand.php
+  - app/GameCatalog/Domain/CatalogValidationFinding.php
+  - app/GameCatalog/Domain/Exceptions/CatalogValidationException.php
+  - app/GameCatalog/GameCatalogServiceProvider.php
+  - app/GameCatalog/Infrastructure/Json/BundledJsonSchemaValidator.php
+  - app/GameCatalog/Infrastructure/Json/DuplicateJsonKeyDetector.php
+  - bootstrap/providers.php
+  - config/game-catalog.php
+  - database/migrations/2026_07_28_110000_create_game_catalog_tables.php
   - docs/agents/tasks/active/OTERYN-20260728-game-catalog-slice-1.md
+  - tests/Feature/GameCatalog/CatalogImportTest.php
   - tests/Fixtures/GameCatalog/v1/minimal-snapshot.json
+  - tests/Unit/GameCatalog/DuplicateJsonKeyDetectorTest.php
   - tools/game-catalog/validate_contract_fixture.py
 validation:
   - command: GitHub repository and main-head inspection
@@ -180,21 +198,21 @@ validation:
   - command: GitHub schema blob comparison
     result: PASS
     evidence: both schema paths resolve to blob a3c239a6d61385edde0b06f72cdf781f4ce58df3
-  - command: local synthetic fixture semantic validation
-    result: PASS
-    evidence: fixture SHA-256 c947e461c1ee8f6fbf511c9890b61135d2585d6c16e2e99a0f72dd5a946c2181 and 15.20/15.21 assertions passed
   - command: Game Catalog Contract
     result: PASS
     evidence: workflow run 30342833946
   - command: open PR ownership inspection
     result: PASS_WITH_CONFLICT_RECORDED
     evidence: PR #270 changed-file inventory reviewed at head 8a1cd49d490d45b2c0ed4253d53975739cd60c4a
+  - command: Platform final-head CI
+    result: QUEUED
+    evidence: current implementation head b98edaaf77b9f9d1541cb5b684efa8c045a1091a awaits workflow dispatch
   - command: local checkout/build/test
     result: NOT_RUN
     evidence: sandbox DNS cannot resolve github.com
 blockers:
   - shared integration paths remain held pending reconciliation with PR #270
-next_action: Implement isolated Game Catalog persistence, fixed-schema validation and transactional inactive import behind GameCatalogServiceProvider.
+next_action: Inspect Platform final-head CI, fix the first migration, syntax, schema or importer failure, then implement profile activation visibility projections and rollback.
 ```
 
 ## Deferred child tasks
