@@ -38,81 +38,11 @@ Deliver a secure, responsive Character Bazaar that lets authenticated users escr
 - [x] UI is English/Polish, Oteryn-native rather than a visual clone, responsive on desktop/tablet/mobile and keyboard accessible.
 - [x] Focused unit, feature, authorization, real-database concurrency/locking, contract and browser acceptance coverage exists for sensitive paths.
 - [x] ADR, module catalog, data ownership, Canary transfer contract, deployment prerequisites and reconciliation runbook remain current.
-- [ ] Exact final head passes required repository CI and relevant marketplace acceptance checks before merge.
+- [x] Exact final head passes required repository CI and relevant marketplace acceptance checks before merge.
 
-## Ownership
-
-```yaml
-owned_paths:
-  - app/Marketplace/**
-  - app/Wallet/**
-  - app/Console/Commands/Marketplace/**
-  - database/migrations/*character_auction*
-  - database/migrations/*wallet*
-  - database/factories/Marketplace/**
-  - database/factories/Wallet/**
-  - routes/modules/marketplace.php
-  - resources/views/marketplace/**
-  - resources/views/admin/marketplace/**
-  - resources/navigation/public/marketplace.php
-  - resources/css/**
-  - lang/en/marketplace.php
-  - lang/pl/marketplace.php
-  - config/marketplace.php
-  - config/database.php
-  - .env.example
-  - tests/Unit/Marketplace/**
-  - tests/Feature/Marketplace/**
-  - tests/Integration/Marketplace/**
-  - scripts/acceptance/**marketplace**
-  - .github/workflows/*marketplace*
-  - docs/architecture/adr/*character-bazaar*
-  - docs/architecture/MODULE_CATALOG.md
-  - docs/architecture/DATA_OWNERSHIP.md
-  - docs/contracts/*CHARACTER*TRANSFER*
-  - docs/operations/*MARKETPLACE*
-  - docs/testing/PORTAL_ACCEPTANCE_COVERAGE_MATRIX.md
-  - scripts/acceptance/coverage/portal-coverage-manifest.json
-  - docs/agents/ACTIVE_WORK.md
-  - docs/agents/tasks/active/OTERYN-20260728-character-bazaar.md
-modules:
-  - Marketplace
-  - Wallet
-  - Accounts
-  - Characters
-  - Integration
-  - Admin
-  - Audit
-dependencies:
-  - ready immutable IdentityCanaryAccount binding
-  - Canary players/account/cluster-session schema evidence
-  - existing Admin RBAC and audit recorder
-blockers:
-  - final exact-head checks are still running
-cross_repository_tasks:
-  - blakinio/canary is evidence-only; no write is authorized
-```
-
-## Context checkpoint
+## Final ownership
 
 ```yaml
-checkpoint_version: 1
-updated_at: 2026-07-28T11:48:00Z
-head: fbba2cfb5f4155cc3430ce9fa34c251b868c7514
-branch: feat/OTERYN-20260728-character-bazaar
-pr: 270
-status: validating
-context_routes:
-  - agent-governance
-  - architecture
-  - accounts-characters
-  - canary-integration
-  - database
-  - security
-  - payments
-  - web-cms
-  - admin-rbac
-  - testing
 owned_paths:
   - app/Marketplace/**
   - app/Wallet/**
@@ -130,26 +60,68 @@ owned_paths:
   - docs/architecture/adr/0016-character-bazaar-wallet-and-escrow.md
   - docs/contracts/CHARACTER_TRANSFER_CONTRACT.md
   - docs/operations/MARKETPLACE_OPERATIONS.md
-  - docs/agents/tasks/active/OTERYN-20260728-character-bazaar.md
+  - docs/agents/tasks/archive/OTERYN-20260728-character-bazaar.md
+  - docs/agents/ACTIVE_WORK.md
+modules:
+  - Marketplace
+  - Wallet
+  - Accounts
+  - Characters
+  - Integration
+  - Admin
+  - Audit
+dependencies:
+  - ready immutable IdentityCanaryAccount binding
+  - Canary players/account/cluster-session schema evidence
+  - existing Admin RBAC and audit recorder
+blockers:
+  - none
+cross_repository_tasks:
+  - blakinio/canary remained evidence-only; no write was performed
+```
+
+## Final checkpoint
+
+```yaml
+checkpoint_version: 1
+updated_at: 2026-07-28T12:05:00Z
+head: eabdd0ecbd617678c0a338e1c68229c638e4af06
+branch: feat/OTERYN-20260728-character-bazaar
+pr: 270
+merge_sha: 0f19656e0875d0a10b22002ac0e096deb20e94d8
+status: completed
+context_routes:
+  - agent-governance
+  - architecture
+  - accounts-characters
+  - canary-integration
+  - database
+  - security
+  - payments
+  - web-cms
+  - admin-rbac
+  - testing
 proven:
-  - Oteryn Platform owns the Character Bazaar UI, Platform wallet ledger, identity binding, RBAC, audit and recoverable marketplace saga state.
-  - Canary players.account_id is changed only through the dedicated canary_character_transfer connection with operation-specific least privilege and deterministic lock order.
-  - Listing transfers eligible offline characters to a configured non-login escrow account before activation; settlement and cancellation reconcile actual ownership and remain recoverable.
-  - Oteryn Coins reservations, outbid release, seller proceeds, commission and administrator adjustments are append-oriented and idempotent.
-  - Public, authenticated and administrator browser journeys are covered in English/Polish with desktop/tablet/mobile, accessibility and authorization assertions.
-  - CI, static analysis, focused MariaDB privilege/concurrency tests, Phase 7, outage, edge, Synology and portal-contract gates passed on the preceding implementation heads.
+  - PR #270 merged the complete Character Bazaar implementation as squash merge 0f19656e0875d0a10b22002ac0e096deb20e94d8 and automatically closed Issue #269.
+  - Exact feature head eabdd0ecbd617678c0a338e1c68229c638e4af06 passed CI run 30356211862 and Agent Governance run 30356211977.
+  - Acceptance E2E and Visual UX run 30356211988 passed smoke, Chromium/Firefox/WebKit portability, desktop/tablet/mobile responsive, resilience and accessibility profiles.
+  - Marketplace Acceptance run 30356211843 passed the exact-head full portal acceptance profile, including public, account and administrator marketplace journeys.
+  - Portal Acceptance Contract run 30356211854 passed the strict delivered-surface ledger and complete account lifecycle.
+  - Phase 7 run 30356212021, Platform DB Outage run 30356211796, Edge Security run 30356211993, Game Auth concurrency run 30356211869, Synology preflight run 30356211886 and image build run 30356211985 all passed on the same exact head.
+  - Character ownership transfer is isolated behind a dedicated least-privilege Canary connection with explicit escrow, offline/session checks, deterministic locking, idempotency and actual-owner recovery.
+  - Platform-owned wallet balances use an append-oriented ledger with transactional available/reserved balances; Canary tournament coins and payment-provider processing are not used.
 derived:
-  - The branch is functionally complete; only the exact-final-head validation and governance merge/archive lifecycle remain.
+  - The repository and isolated staging-like evidence is sufficient to close the implementation task and remove its temporary validation workflow.
 unknown:
-  - Real production behavior until separately authorized production verification is executed.
+  - Real production behavior until the separately owned production verification in Issue #91 is explicitly authorized and executed.
 conflicts: []
 first_failure:
   marker: marketplace-mobile-overflow
-  evidence: full browser acceptance exposed document-width overflow in account and administrator tables at 390px; the final implementation contains table containment and stacked-account-table fixes
+  evidence: full browser acceptance initially found 390px document overflow in account and administrator tables; responsive containment was added and both critical and full exact-head acceptance then passed
 rejected_hypotheses:
   - Reuse Canary tournament coins; rejected because the field contract remains unresolved and no approved write boundary exists.
-  - Leave listed characters on seller accounts; rejected because the asset could be modified during an active auction.
-  - Treat cross-database settlement as atomic; rejected in favor of an explicit recoverable saga with actual-owner reconciliation.
+  - Leave listed characters on seller accounts; rejected because the auctioned asset could be modified after listing.
+  - Treat cross-database settlement as atomic; rejected in favor of a recoverable saga and actual-owner reconciliation.
 changed_paths:
   - app/Marketplace/**
   - app/Wallet/**
@@ -171,24 +143,20 @@ changed_paths:
   - docs/architecture/adr/0016-character-bazaar-wallet-and-escrow.md
   - docs/contracts/CHARACTER_TRANSFER_CONTRACT.md
   - docs/operations/MARKETPLACE_OPERATIONS.md
+  - docs/agents/tasks/archive/OTERYN-20260728-character-bazaar.md
+  - docs/agents/ACTIVE_WORK.md
 validation:
-  - command: CI run 30352387523
+  - command: exact-head required workflow set on eabdd0ecbd617678c0a338e1c68229c638e4af06
     result: PASS
-    evidence: formatting, PHPStan and full PHPUnit suite succeeded on implementation head 4ab78864b336d76aa6d9b3e4b8135fbf8a4a7365
-  - command: Acceptance E2E and Visual UX run 30352387358
+    evidence: all eleven required PR workflows completed successfully before merge
+  - command: PR #270 squash merge
     result: PASS
-    evidence: critical smoke, portability, responsive, resilience and accessibility profiles succeeded on implementation head 4ab78864b336d76aa6d9b3e4b8135fbf8a4a7365
-  - command: Portal Acceptance Contract run 30352387498
-    result: PASS
-    evidence: strict delivered-surface ledger and account lifecycle succeeded
-  - command: exact final head workflows
-    result: NOT_RUN
-    evidence: the current exact head includes the final responsive containment and checkpoint correction and is awaiting a complete workflow result set
+    evidence: GitHub merged PR #270 as 0f19656e0875d0a10b22002ac0e096deb20e94d8 and closed Issue #269 as completed
 blockers:
-  - exact final head checks must all pass before PR readiness and merge
-next_action: Wait for every exact-head workflow on the current PR head, remediate any failure, then mark PR #270 ready and merge only after all checks pass.
+  - none
+next_action: Keep production verification and go-live claims isolated to the separately authorized Issue #91 workflow.
 ```
 
-## Notes
+## Boundary
 
-Product references supplied by the owner are interaction references only. The Oteryn implementation uses the existing responsive shell, localization and accessibility conventions rather than copying third-party visual assets or markup. Repository and isolated acceptance evidence does not establish production correctness.
+This archive closes repository implementation and isolated staging-like acceptance only. It does not claim that the merge is deployed to production and does not establish `PRODUCTION_PROVEN` status.
