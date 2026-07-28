@@ -7,8 +7,8 @@ use App\GameCatalog\Application\PublicRead\PublicCatalogContext;
 final readonly class PublicCatalogCreaturePage
 {
     /**
-     * @param list<PublicCatalogCreatureCard> $creatures
-     * @param list<string> $bestiaryClasses
+     * @param  list<PublicCatalogCreatureCard>  $creatures
+     * @param  list<string>  $bestiaryClasses
      */
     public function __construct(
         public PublicCatalogContext $context,

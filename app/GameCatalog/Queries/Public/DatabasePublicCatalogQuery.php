@@ -450,7 +450,7 @@ final readonly class DatabasePublicCatalogQuery
     }
 
     /**
-     * @param list<object> $rows
+     * @param  list<object>  $rows
      * @return list<PublicCatalogLootEntry>
      */
     private function lootEntries(array $rows, string $entityType): array

@@ -5,8 +5,8 @@ namespace App\GameCatalog\Queries\Public;
 final readonly class PublicCatalogItemDetail
 {
     /**
-     * @param list<string> $vocations
-     * @param list<PublicCatalogLootEntry> $sources
+     * @param  list<string>  $vocations
+     * @param  list<PublicCatalogLootEntry>  $sources
      */
     public function __construct(
         public string $slug,

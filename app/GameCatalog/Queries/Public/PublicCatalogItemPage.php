@@ -7,9 +7,9 @@ use App\GameCatalog\Application\PublicRead\PublicCatalogContext;
 final readonly class PublicCatalogItemPage
 {
     /**
-     * @param list<PublicCatalogItemCard> $items
-     * @param list<string> $categories
-     * @param list<string> $weaponTypes
+     * @param  list<PublicCatalogItemCard>  $items
+     * @param  list<string>  $categories
+     * @param  list<string>  $weaponTypes
      */
     public function __construct(
         public PublicCatalogContext $context,
