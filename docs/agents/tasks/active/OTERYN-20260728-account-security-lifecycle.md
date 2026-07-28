@@ -103,8 +103,8 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-07-28T20:12:16Z
-head: 0bd36cf86de2028872690f4d05669cf0ecf1d3cb
+updated_at: 2026-07-28T20:28:00Z
+head: 29469896eda1181fb8e3b106d30f5a8e4b81f469
 branch: feat/OTERYN-20260728-account-security-lifecycle
 pr: 283
 status: validating
@@ -146,7 +146,7 @@ owned_paths:
   - docs/agents/ACTIVE_WORK.md
   - docs/agents/tasks/active/OTERYN-20260728-account-security-lifecycle.md
 proven:
-  - PR #283 is open and draft on branch feat/OTERYN-20260728-account-security-lifecycle; implementation and durable documentation are complete in the branch tree represented by parent head 0bd36cf86de2028872690f4d05669cf0ecf1d3cb.
+  - PR #283 is open, draft and mergeable on branch feat/OTERYN-20260728-account-security-lifecycle after merge commit 29469896eda1181fb8e3b106d30f5a8e4b81f469 synchronized current main without discarding either branch.
   - Platform-owned registered web sessions support bounded inventory plus owner-scoped targeted, current and all-other revocation; stale or revoked sessions are invalidated before protected controllers execute.
   - Primary-email change uses current-password validation, new-address confirmation, previous-address cancellation/recovery, bounded expiry/cooldown, single-use replay denial and global web/game authorization revocation.
   - Account privacy controls default private and are persisted and audited server-side.
@@ -162,15 +162,15 @@ derived:
   - Trust derives from authenticated Platform Identity, registered session state and the ready server-resolved binding; no browser identifier establishes Canary or session ownership.
   - Repository and isolated staging-like evidence can support merge review but cannot establish production deployment or PRODUCTION_PROVEN status.
 unknown:
-  - Exact-final-head workflow conclusions for the checkpoint commit are pending.
+  - Exact-final-head workflow conclusions for the checkpoint-fix commit are not yet available.
   - Production deployment state, production-only configuration and direct production verification remain outside repository evidence and Issue #276.
 conflicts: []
 first_failure:
   marker: phpstan-test-helper-method-not-found
-  evidence: CI run 30393906804 found one PHPStan error because the new test called assertSessionHas on the test class; commit a3e080411baf64dc0c7b73dd61421898a6cc7387 replaced it with a direct typed session assertion, after which focused format/static diagnostics passed on subsequent code and ledger heads.
+  evidence: CI run 30393906804 found one PHPStan error because the new test called assertSessionHas on the test class; commit a3e080411baf64dc0c7b73dd61421898a6cc7387 replaced it with a direct typed session assertion.
 rejected_hypotheses:
   - Account-security localization can be satisfied by hardcoded Polish copy; rejected because the delivered implementation uses complete EN/PL dictionaries, scoped locale persistence, localized domain/validation outcomes and locale-preserving notification links.
-  - A revoked registered session may continue into a protected controller; rejected by feature regression and browser acceptance design that expects redirect to login before controller execution.
+  - A revoked registered session may continue into a protected controller; rejected by feature regression and browser acceptance that requires redirect to login before controller execution.
   - First-slice termination should delete, unlink or transfer Canary data; rejected by the immutable binding contract, data-ownership boundary and explicit operations runbook.
   - Email-code MFA should be silently treated as a delivered second factor; rejected by the durable security decision that email is already the recovery channel.
 changed_paths:
@@ -218,12 +218,12 @@ validation:
   - command: Agent Governance, Synology preflight, image build, DB outage, edge-security and game-auth concurrency through code and ledger head 8acb003378fed7bc343e04d6236616ad4680c398
     result: PASS
     evidence: all six focused governance, infrastructure and security workflows concluded success; longer workflows were superseded by later documentation commits rather than failing.
-  - command: exact-final-head workflows for this checkpoint commit
-    result: PENDING
-    evidence: CI, strict Portal Acceptance Contract, complete zero-retry account lifecycle, E2E/Visual UX, Phase 7 and focused workflows must conclude on the single checkpoint head before review.
+  - command: exact-final-head workflows for the checkpoint-fix commit
+    result: NOT_RUN
+    evidence: run conclusions are not yet available; the preceding merge-head governance run failed only because this item used the unsupported result PENDING.
 blockers:
-  - Exact-final-head workflow conclusions are pending for the checkpoint commit.
-next_action: Run every required workflow on this checkpoint head; if all pass, record the validated head in the checkpoint, mark PR #283 ready for review and leave review/merge as the sole remaining action.
+  - Exact-final-head workflow conclusions are not yet available for the checkpoint-fix commit.
+next_action: Run every required workflow on this checkpoint-fix head; if all pass, record the validated head in the checkpoint, mark PR #283 ready for review and leave review/merge as the sole remaining action.
 ```
 
 ## Boundaries
