@@ -146,7 +146,10 @@ final class DuplicateJsonKeyDetector
             }
 
             if ($character === '\\') {
-                $escaped = $json[$this->offset++] ?? null;
+                if ($this->offset >= $this->length) {
+                    throw new RuntimeException('Invalid JSON escape.');
+                }
+                $escaped = $json[$this->offset++];
                 if ($escaped === 'u') {
                     if ($this->offset + 4 > $this->length) {
                         throw new RuntimeException('Invalid JSON unicode escape.');

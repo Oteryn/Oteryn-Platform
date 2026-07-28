@@ -2,13 +2,15 @@
 
 namespace App\GameCatalog\Application\PublicRead;
 
+use App\GameCatalog\Application\Configuration\CatalogConfiguration;
+use App\GameCatalog\Infrastructure\Persistence\CatalogDatabaseRow;
 use Illuminate\Support\Facades\DB;
 
 final class PublicCatalogContextResolver
 {
     public function resolve(): ?PublicCatalogContext
     {
-        $profileKey = (string) config('game-catalog.public_profile_key', 'public');
+        $profileKey = CatalogConfiguration::string('game-catalog.public_profile_key', 'public');
         $row = DB::table('game_catalog_profiles as profiles')
             ->join('game_catalog_snapshots as snapshots', 'snapshots.id', '=', 'profiles.active_snapshot_id')
             ->join('game_catalog_releases as target_release', 'target_release.id', '=', 'profiles.target_release_id')
@@ -37,18 +39,20 @@ final class PublicCatalogContextResolver
             return null;
         }
 
+        $databaseRow = CatalogDatabaseRow::from($row);
+
         return new PublicCatalogContext(
-            profileId: (int) $row->profile_id,
-            profileKey: (string) $row->profile_key,
-            profileName: (string) $row->profile_name,
-            snapshotId: (int) $row->snapshot_id,
-            snapshotSha256: (string) $row->snapshot_sha256,
-            targetRelease: (string) $row->target_release,
-            runtimeRelease: (string) $row->runtime_release,
-            contentTargetRelease: (string) $row->content_target_release,
-            verifiedThroughRelease: (string) $row->verified_release,
-            containsThroughRelease: $row->contains_release === null ? null : (string) $row->contains_release,
-            generatedAt: (string) $row->generated_at,
+            profileId: $databaseRow->int('profile_id'),
+            profileKey: $databaseRow->string('profile_key'),
+            profileName: $databaseRow->string('profile_name'),
+            snapshotId: $databaseRow->int('snapshot_id'),
+            snapshotSha256: $databaseRow->string('snapshot_sha256'),
+            targetRelease: $databaseRow->string('target_release'),
+            runtimeRelease: $databaseRow->string('runtime_release'),
+            contentTargetRelease: $databaseRow->string('content_target_release'),
+            verifiedThroughRelease: $databaseRow->string('verified_release'),
+            containsThroughRelease: $databaseRow->nullableString('contains_release'),
+            generatedAt: $databaseRow->string('generated_at'),
         );
     }
 }

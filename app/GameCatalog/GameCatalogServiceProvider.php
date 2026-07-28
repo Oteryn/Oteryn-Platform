@@ -4,6 +4,7 @@ namespace App\GameCatalog;
 
 use App\GameCatalog\Application\Activation\CatalogActivationService;
 use App\GameCatalog\Application\Activation\VisibilityProjector;
+use App\GameCatalog\Application\Configuration\CatalogConfiguration;
 use App\GameCatalog\Application\Diff\CatalogSnapshotDiffService;
 use App\GameCatalog\Application\Import\CatalogImportService;
 use App\GameCatalog\Application\Import\CatalogSemanticValidator;
@@ -29,7 +30,7 @@ final class GameCatalogServiceProvider extends ServiceProvider
 
         $this->app->singleton(DuplicateJsonKeyDetector::class, fn (): DuplicateJsonKeyDetector => new DuplicateJsonKeyDetector(128));
         $this->app->singleton(BundledJsonSchemaValidator::class, fn (): BundledJsonSchemaValidator => new BundledJsonSchemaValidator(
-            maximumFindings: (int) config('game-catalog.limits.validation_findings', 2_000),
+            maximumFindings: CatalogConfiguration::positiveInt('game-catalog.limits.validation_findings', 2_000),
         ));
         $this->app->singleton(CatalogSemanticValidator::class);
         $this->app->singleton(CatalogSnapshotValidator::class);
