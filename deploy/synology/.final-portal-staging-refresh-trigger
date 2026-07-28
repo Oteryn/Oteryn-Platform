@@ -1,4 +1,0 @@
-Issue #261 exact-SHA Synology staging refresh trigger.
-This revision forces Platform and Gateway image publication for the corrected in-container verifier merge SHA.
-The one-shot then dispatches the guarded deployment and records sanitized PASS evidence.
-Remove after Issue #261 and the parent portal-acceptance task are archived.
