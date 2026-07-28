@@ -101,6 +101,7 @@ final class MarketplaceModuleTest extends TestCase
         $seller = $this->createIdentity('bid-seller@example.com');
         $firstBidder = $this->createIdentity('bid-one@example.com');
         $secondBidder = $this->createIdentity('bid-two@example.com');
+        $this->readyBinding($seller, 200);
         $this->readyBinding($firstBidder, 201);
         $this->readyBinding($secondBidder, 202);
         $auction = $this->createActiveAuction($seller);
@@ -123,8 +124,12 @@ final class MarketplaceModuleTest extends TestCase
         self::assertSame(AuctionBid::STATUS_OUTBID, AuctionBid::query()->where('bidder_identity_id', $firstBidder->id)->value('status'));
         self::assertSame(AuctionBid::STATUS_LEADING, AuctionBid::query()->where('bidder_identity_id', $secondBidder->id)->value('status'));
 
-        $this->expectException(MarketplaceException::class);
-        $action->execute($seller, $auction->refresh(), 300, (string) Str::uuid());
+        try {
+            $action->execute($seller, $auction->refresh(), 300, (string) Str::uuid());
+            self::fail('A seller must not bid on their own auction.');
+        } catch (MarketplaceException $exception) {
+            self::assertSame('self_bid_forbidden', $exception->reason);
+        }
     }
 
     public function test_admin_wallet_adjustment_requires_mfa_permission_and_is_audited(): void
@@ -170,13 +175,15 @@ final class MarketplaceModuleTest extends TestCase
 
     private function createActiveAuction(Identity $seller): CharacterAuction
     {
+        $playerId = 1_000_000 + $seller->id;
+
         return CharacterAuction::query()->create([
             'listing_request_id' => (string) Str::uuid(),
             'seller_identity_id' => $seller->id,
             'seller_canary_account_id' => 1001,
             'escrow_canary_account_id' => 9999,
-            'player_id' => random_int(10_000, 99_999),
-            'active_player_id' => random_int(100_000, 999_999),
+            'player_id' => $playerId,
+            'active_player_id' => $playerId,
             'player_name' => 'Aurelia Test',
             'level' => 321,
             'vocation' => 4,
