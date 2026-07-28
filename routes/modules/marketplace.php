@@ -8,6 +8,10 @@ use App\Marketplace\Http\MarketplaceWatchController;
 use App\Marketplace\Http\PublicMarketplaceController;
 use Illuminate\Support\Facades\Route;
 
+if (! config('marketplace.enabled')) {
+    return;
+}
+
 Route::get('/bazaar', [PublicMarketplaceController::class, 'index'])->name('marketplace.index');
 Route::get('/bazaar/{auction}', [PublicMarketplaceController::class, 'show'])->name('marketplace.show');
 
