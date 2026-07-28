@@ -10,6 +10,7 @@ use App\Identity\Models\IdentityEmailChangeRequest;
 use App\Identity\Support\IdentitySecret;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
+use LogicException;
 
 final class RecoverIdentityEmailChange
 {
@@ -57,9 +58,11 @@ final class RecoverIdentityEmailChange
                     throw new EmailChangeRejected('The previous email address cannot be restored automatically.');
                 }
 
+                $cooldownDays = $this->boundedConfig('identity_security.email_change.cooldown_days', 1, 90);
+
                 $identity->forceFill([
                     'email' => $change->old_email,
-                    'email_change_available_at' => now()->addDays((int) config('identity_security.email_change.cooldown_days', 7)),
+                    'email_change_available_at' => now()->addDays($cooldownDays),
                 ])->save();
                 $change->forceFill(['recovered_at' => now()])->save();
 
@@ -72,5 +75,15 @@ final class RecoverIdentityEmailChange
         } catch (QueryException $exception) {
             throw new EmailChangeRejected('The previous email address cannot be restored automatically.', previous: $exception);
         }
+    }
+
+    private function boundedConfig(string $key, int $minimum, int $maximum): int
+    {
+        $value = config($key);
+        if (! is_int($value) || $value < $minimum || $value > $maximum) {
+            throw new LogicException("Invalid bounded identity security configuration: {$key}.");
+        }
+
+        return $value;
     }
 }
