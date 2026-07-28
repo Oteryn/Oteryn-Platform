@@ -17,11 +17,11 @@ final class CancelIdentityTermination
         return DB::transaction(function () use ($identity): Identity {
             $locked = Identity::query()->lockForUpdate()->find($identity->id);
             if (! $locked instanceof Identity || $locked->terminated_at !== null) {
-                throw new AccountTerminationRejected('The termination request cannot be cancelled.');
+                throw new AccountTerminationRejected(__('identity.errors.termination_cannot_cancel'));
             }
 
             if (! $locked->hasPendingTermination()) {
-                throw new AccountTerminationRejected('No pending termination request exists.');
+                throw new AccountTerminationRejected(__('identity.errors.termination_none_pending'));
             }
 
             $locked->forceFill([
