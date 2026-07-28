@@ -31,6 +31,7 @@
     <link rel="stylesheet" href="{{ asset('css/brand-art.css') }}">
     <link rel="stylesheet" href="{{ asset('css/public-shell.css') }}">
     <link rel="stylesheet" href="{{ asset('css/marketplace.css') }}">
+    <link rel="stylesheet" href="{{ asset('css/marketplace-responsive.css') }}">
     @stack('styles')
 </head>
 <body class="public-body">
