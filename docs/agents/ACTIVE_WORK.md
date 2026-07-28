@@ -4,7 +4,7 @@ Convenience index only. Individual active task records, live PRs and Git state a
 
 ## Active tasks
 
-- `OTERYN-20260728-character-bazaar` — Issue #269 / draft PR #270 on `feat/OTERYN-20260728-character-bazaar`; owns Marketplace, Wallet, operation-specific Canary character transfer, responsive Character Bazaar surfaces and acceptance closure.
+- `OTERYN-20260728-character-bazaar` — Issue #269 / draft PR #270 on `feat/OTERYN-20260728-character-bazaar`; implementation is complete and exact-final-head validation is running for Marketplace, Wallet, operation-specific Canary character transfer, responsive Character Bazaar surfaces and acceptance closure.
 
 ## Closed acceptance and release-preparation follow-ups
 
