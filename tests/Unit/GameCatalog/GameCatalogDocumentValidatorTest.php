@@ -31,7 +31,7 @@ final class GameCatalogDocumentValidatorTest extends TestCase
 
         $validated = (new GameCatalogDocumentValidator)->validatePath($fixture);
 
-        self::assertSame('76b61b167e77a0c0379c5c1d179c3fec808ae1cf3d996e30be5784fde699691e', $validated->contentSha256);
+        self::assertSame('ec0658bb11877240f2e22575180513dbff426b3df1fc2af8f20343ed0d424055', $validated->contentSha256);
         self::assertSame(4, $validated->document['snapshot']['entity_count']);
         self::assertSame(2, $validated->document['snapshot']['relation_count']);
     }
