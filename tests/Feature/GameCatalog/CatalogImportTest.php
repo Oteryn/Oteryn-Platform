@@ -7,6 +7,7 @@ use App\GameCatalog\Application\Import\CatalogSnapshotValidator;
 use App\GameCatalog\Application\Import\ValidatedCatalogSnapshot;
 use App\GameCatalog\Domain\Exceptions\CatalogValidationException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
 use JsonException;
 use RuntimeException;
@@ -97,20 +98,14 @@ final class CatalogImportTest extends TestCase
 
     public function test_operator_commands_validate_and_import_without_activation(): void
     {
-        $validateCommand = $this->artisan('game-catalog:validate', ['path' => $this->fixturePath()]);
-        if (is_int($validateCommand)) {
-            throw new RuntimeException('The validation command did not return a test command instance.');
-        }
-        $validateCommand->assertSuccessful();
+        $validateExitCode = Artisan::call('game-catalog:validate', ['path' => $this->fixturePath()]);
+        self::assertSame(0, $validateExitCode, Artisan::output());
 
-        $importCommand = $this->artisan('game-catalog:import', ['path' => $this->fixturePath()]);
-        if (is_int($importCommand)) {
-            throw new RuntimeException('The import command did not return a test command instance.');
-        }
-        $importCommand
-            ->expectsOutputToContain('without activation')
-            ->assertSuccessful();
+        $importExitCode = Artisan::call('game-catalog:import', ['path' => $this->fixturePath()]);
+        $importOutput = Artisan::output();
 
+        self::assertSame(0, $importExitCode, $importOutput);
+        self::assertStringContainsString('without activation', $importOutput);
         self::assertSame(1, DB::table('game_catalog_snapshots')->where('status', 'validated')->count());
         self::assertSame(0, DB::table('game_catalog_profiles')->whereNotNull('active_snapshot_id')->count());
     }
