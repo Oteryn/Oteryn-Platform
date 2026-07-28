@@ -25,21 +25,21 @@ final class FinalizeIdentityTerminations extends Command
             return self::INVALID;
         }
 
-        $identityIds = Identity::query()
+        $identities = Identity::query()
             ->whereNull('terminated_at')
             ->whereNotNull('termination_scheduled_for')
             ->where('termination_scheduled_for', '<=', now())
             ->orderBy('id')
             ->limit($limit)
-            ->pluck('id');
+            ->get(['id']);
 
         $finalized = 0;
         $blocked = 0;
         $failed = 0;
 
-        foreach ($identityIds as $identityId) {
+        foreach ($identities as $identity) {
             try {
-                if ($finalize->execute((int) $identityId)) {
+                if ($finalize->execute($identity->id)) {
                     $finalized++;
                 }
             } catch (AccountTerminationRejected) {
@@ -51,7 +51,7 @@ final class FinalizeIdentityTerminations extends Command
 
         $this->info(sprintf(
             'Processed %d due termination request(s): %d finalized, %d blocked, %d failed.',
-            $identityIds->count(),
+            $identities->count(),
             $finalized,
             $blocked,
             $failed,
