@@ -183,6 +183,6 @@ final class AccountSecurityLifecycleTest extends TestCase
         return Identity::query()->create([
             'email' => $email,
             'password' => Hash::make('Correct-password-123!'),
-        ]);
+        ])->refresh();
     }
 }
