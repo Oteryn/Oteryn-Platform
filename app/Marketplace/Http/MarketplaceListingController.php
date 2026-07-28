@@ -55,6 +55,7 @@ final class MarketplaceListingController
         $identity = $request->user();
         abort_unless($identity instanceof Identity, 403);
 
+        /** @var array{player_id: int, duration_days: int, starting_bid: int, buy_now_price?: int|null, request_id: string} $validated */
         $validated = $request->validate([
             'player_id' => ['required', 'integer', 'min:1'],
             'duration_days' => ['required', 'integer'],
@@ -66,11 +67,11 @@ final class MarketplaceListingController
         try {
             $auction = $this->create->execute(
                 $identity,
-                (int) $validated['player_id'],
-                (int) $validated['duration_days'],
-                (int) $validated['starting_bid'],
-                isset($validated['buy_now_price']) ? (int) $validated['buy_now_price'] : null,
-                (string) $validated['request_id'],
+                $validated['player_id'],
+                $validated['duration_days'],
+                $validated['starting_bid'],
+                $validated['buy_now_price'] ?? null,
+                $validated['request_id'],
             );
         } catch (MarketplaceException $exception) {
             return back()->withInput()->withErrors(['marketplace' => $exception->getMessage()]);
