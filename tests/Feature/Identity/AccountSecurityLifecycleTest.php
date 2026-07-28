@@ -31,7 +31,7 @@ final class AccountSecurityLifecycleTest extends TestCase
         $this->post(route('identity.login.store'), [
             'email' => $identity->email,
             'password' => 'Correct-password-123!',
-        ])->assertRedirect(route('account.overview'));
+        ])->assertRedirect('/');
 
         $currentSessionId = session()->get(WebSessionState::REGISTRY_ID_KEY);
         self::assertIsString($currentSessionId);
