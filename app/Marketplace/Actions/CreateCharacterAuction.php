@@ -37,19 +37,26 @@ final class CreateCharacterAuction
             throw new MarketplaceException('binding_not_ready', 'Your game account must be ready before listing a character.');
         }
 
-        $escrowAccountId = (int) config('marketplace.escrow_canary_account_id', 0);
-        if ($escrowAccountId <= 0 || $escrowAccountId === $binding->canary_account_id) {
+        $configuredEscrowAccountId = config('marketplace.escrow_canary_account_id', 0);
+        if (! is_int($configuredEscrowAccountId)
+            || $configuredEscrowAccountId <= 0
+            || $configuredEscrowAccountId === $binding->canary_account_id) {
             throw new MarketplaceException('invalid_escrow_configuration', 'Character Bazaar escrow is not configured.');
         }
 
         $allowedDurations = config('marketplace.allowed_duration_days', [1, 3, 7]);
-        if (! is_array($allowedDurations) || ! in_array($durationDays, $allowedDurations, true)) {
+        if (! is_array($allowedDurations)
+            || array_filter($allowedDurations, static fn (mixed $duration): bool => ! is_int($duration)) !== []
+            || ! in_array($durationDays, $allowedDurations, true)) {
             throw new MarketplaceException('invalid_duration', 'Select an available auction duration.');
         }
 
-        $minimumStartingBid = (int) config('marketplace.minimum_starting_bid', 100);
-        if ($startingBid < $minimumStartingBid) {
-            throw new MarketplaceException('starting_bid_too_low', "The starting bid must be at least {$minimumStartingBid} Oteryn Coins.");
+        $configuredMinimumStartingBid = config('marketplace.minimum_starting_bid', 100);
+        if (! is_int($configuredMinimumStartingBid) || $configuredMinimumStartingBid < 1) {
+            throw new MarketplaceException('invalid_marketplace_configuration', 'The marketplace minimum starting bid configuration is invalid.');
+        }
+        if ($startingBid < $configuredMinimumStartingBid) {
+            throw new MarketplaceException('starting_bid_too_low', "The starting bid must be at least {$configuredMinimumStartingBid} Oteryn Coins.");
         }
 
         if ($buyNowPrice !== null && $buyNowPrice < $startingBid) {
@@ -66,7 +73,7 @@ final class CreateCharacterAuction
             $auction = DB::transaction(function () use (
                 $seller,
                 $binding,
-                $escrowAccountId,
+                $configuredEscrowAccountId,
                 $snapshot,
                 $durationDays,
                 $startingBid,
@@ -80,7 +87,7 @@ final class CreateCharacterAuction
                     'listing_request_id' => $requestId,
                     'seller_identity_id' => $seller->id,
                     'seller_canary_account_id' => $binding->canary_account_id,
-                    'escrow_canary_account_id' => $escrowAccountId,
+                    'escrow_canary_account_id' => $configuredEscrowAccountId,
                     'player_id' => $snapshot->playerId,
                     'active_player_id' => $snapshot->playerId,
                     'player_name' => $snapshot->name,
