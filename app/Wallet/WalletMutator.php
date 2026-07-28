@@ -5,15 +5,20 @@ namespace App\Wallet;
 use App\Marketplace\Exceptions\MarketplaceException;
 use App\Wallet\Models\WalletAccount;
 use App\Wallet\Models\WalletLedgerEntry;
+use Illuminate\Support\Facades\DB;
 
 final class WalletMutator
 {
     public function lock(int $identityId): WalletAccount
     {
-        WalletAccount::query()->firstOrCreate(
-            ['identity_id' => $identityId],
-            ['available_balance' => 0, 'reserved_balance' => 0],
-        );
+        $now = now();
+        DB::table('wallet_accounts')->insertOrIgnore([
+            'identity_id' => $identityId,
+            'available_balance' => 0,
+            'reserved_balance' => 0,
+            'created_at' => $now,
+            'updated_at' => $now,
+        ]);
 
         $wallet = WalletAccount::query()
             ->whereKey($identityId)
@@ -28,7 +33,7 @@ final class WalletMutator
     }
 
     /**
-     * @param array<string, bool|int|string|null> $metadata
+     * @param  array<string, bool|int|string|null>  $metadata
      */
     public function applyLocked(
         WalletAccount $wallet,
