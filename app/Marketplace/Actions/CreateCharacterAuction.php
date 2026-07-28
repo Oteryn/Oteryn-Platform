@@ -9,6 +9,7 @@ use App\Marketplace\Exceptions\MarketplaceException;
 use App\Marketplace\Models\CharacterAuction;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
+use Throwable;
 
 final class CreateCharacterAuction
 {
@@ -100,6 +101,10 @@ final class CreateCharacterAuction
                 ]);
             }, 3);
         } catch (QueryException $exception) {
+            if (! $this->isDuplicateKey($exception)) {
+                throw new MarketplaceException('dependency_unavailable', 'The marketplace database is temporarily unavailable.');
+            }
+
             $recovered = CharacterAuction::query()->where('listing_request_id', $requestId)->first();
             if ($recovered instanceof CharacterAuction && $recovered->seller_identity_id === $seller->id) {
                 return $recovered;
@@ -124,21 +129,34 @@ final class CreateCharacterAuction
                 'updated_at' => now(),
             ]);
         } catch (MarketplaceException $exception) {
-            CharacterAuction::query()->whereKey($auction->id)->update([
-                'status' => CharacterAuction::STATUS_RECOVERY_REQUIRED,
-                'saga_state' => CharacterAuction::SAGA_RECOVERY_REQUIRED,
-                'failure_code' => $exception->reason,
-                'lock_version' => $auction->lock_version + 1,
-                'updated_at' => now(),
-            ]);
+            $this->markRecovery($auction, $exception->reason);
 
             throw $exception;
+        } catch (Throwable) {
+            $this->markRecovery($auction, 'platform_persistence_unavailable');
+
+            throw new MarketplaceException('dependency_unavailable', 'The listing entered recovery because its escrow state could not be persisted.');
         }
 
         return $auction->refresh();
     }
 
-    /** @param array<string, int|string|null> $snapshot */
+    private function markRecovery(CharacterAuction $auction, string $reason): void
+    {
+        try {
+            CharacterAuction::query()->whereKey($auction->id)->update([
+                'status' => CharacterAuction::STATUS_RECOVERY_REQUIRED,
+                'saga_state' => CharacterAuction::SAGA_RECOVERY_REQUIRED,
+                'failure_code' => $reason,
+                'lock_version' => $auction->lock_version + 1,
+                'updated_at' => now(),
+            ]);
+        } catch (Throwable) {
+            report(new MarketplaceException('recovery_state_persistence_failed', 'The listing recovery state could not be persisted.'));
+        }
+    }
+
+    /** @param  array<string, int|string|null>  $snapshot */
     private function snapshotInt(array $snapshot, string $key): int
     {
         $value = $snapshot[$key] ?? null;
@@ -147,5 +165,14 @@ final class CreateCharacterAuction
         }
 
         return (int) $value;
+    }
+
+    private function isDuplicateKey(QueryException $exception): bool
+    {
+        $driverCode = $exception->errorInfo[1] ?? null;
+
+        return (string) $exception->getCode() === '23000'
+            && (is_int($driverCode) || is_string($driverCode))
+            && (int) $driverCode === 1062;
     }
 }
