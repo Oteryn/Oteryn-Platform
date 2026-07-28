@@ -29,12 +29,12 @@ Deliver the Platform half of the first production-quality version-aware Oteryn G
 
 ## Acceptance criteria
 
-- [ ] Shared fixture and schema hash validation are byte-identical with `blakinio/canary`.
-- [ ] Storage, import, activation, rollback and verification commands satisfy the merged architecture and import contract.
+- [x] Shared fixture and schema hash validation are byte-identical with `blakinio/canary`.
+- [x] Storage, import, activation, rollback and verification commands satisfy the merged architecture and import contract.
 - [ ] Public item, weapon, creature and visible-loot routes are version/completeness/availability gated.
 - [ ] Administrator surfaces use exact RBAC permissions, confirmed MFA, CSRF and bounded audit events.
 - [ ] Focused, repository-required and cross-repository E2E validation pass on the final head.
-- [ ] No production deployment or production profile activation occurs.
+- [x] No production deployment or production profile activation occurs.
 
 ## Ownership
 
@@ -75,9 +75,7 @@ modules:
 dependencies:
   - CAN-20260728-game-catalog-exporter-slice-1
   - oteryn.game-catalog schema version 1.0.0
-blockers:
-  - PR #270 currently owns shared permission, localized routing, layout and routes/console paths; do not edit them until reconciled.
-  - Local PHP/Node execution is unavailable in the current sandbox; CI evidence is required for executable validation.
+blockers: []
 cross_repository_tasks:
   - CAN-20260728-game-catalog-exporter-slice-1
 ```
@@ -105,8 +103,8 @@ production_activation: forbidden
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-07-28T11:28:00+02:00
-head: b98edaaf77b9f9d1541cb5b684efa8c045a1091a
+updated_at: 2026-07-28T19:26:00+02:00
+head: a6dd3726b9e14a81ae7504d911933b7ece3dd4db
 branch: feat/OTERYN-20260728-game-catalog-slice-1
 pr: 272
 status: implementing
@@ -142,77 +140,97 @@ owned_paths:
   - tools/game-catalog/**
   - scripts/acceptance/**/*game-catalog*
 proven:
-  - main contains architecture merge commit 8aa1fc29dd13895efb2a7006204a6b88105e6972
+  - PR 270 merged into main and the Game Catalog branch is synchronized through main commit 3993263a002010ac8511a1c6e9fcccfb597adc1c
   - Platform and Canary schema files have identical Git blob SHA a3c239a6d61385edde0b06f72cdf781f4ce58df3
-  - Game Catalog Contract run 30342833946 passed the expected schema SHA-256 and shared fixture
-  - PR #270 does not own bootstrap/providers.php or dedicated GameCatalog paths
-  - persistence covers releases, immutable snapshots, profiles, stable entities, identifiers, typed item/creature/loot records, import runs/findings, projected visibility, translations, Wiki links, overrides and audit events
-  - fixed-schema validation checks the registered schema hash, file limits, syntax, duplicate JSON keys, Draft 2020-12 keywords used by schema v1 and semantic integrity
-  - importer deduplicates by content hash and writes an inactive validated snapshot in one transaction
-  - validation and persistence failures do not change active profile state
-  - validation/import commands are registered through GameCatalogServiceProvider
-  - draft PR #272 tracks this task
-  - production deployment and production activation are excluded
+  - the deterministic Canary exporter and both repository contract gates use schema version 1.0.0 and expected SHA-256 099a8373ff2b0017cc2b321991662dc4e4783b626391aa7a110a6db0559d146b
+  - Platform persistence covers releases, immutable snapshots, profiles, stable entities, identifiers, typed item, creature and loot records, import runs, findings, projected visibility, translations, Wiki links, overrides and audit events
+  - fixed-schema validation enforces the registered schema hash, file limits, JSON syntax, duplicate keys, supported Draft 2020-12 keywords and semantic integrity
+  - transactional import deduplicates by content hash and publishes only an inactive validated snapshot
+  - activation, rollback, visibility projection, snapshot diff and verification are profile-scoped and transactionally tested
+  - rejected validation, persistence and activation attempts preserve previously active public state
+  - focused Game Catalog formatting and level-10 static analysis are enforced by a dedicated pull-request workflow
+  - production deployment and production profile activation remain excluded
+  - draft PR 272 tracks the Platform implementation
+
 derived:
-  - isolated persistence/import/provider work proceeds without editing PR #270-owned paths
-  - public queries can use precomputed profile entity/relation projections rather than raw snapshot evaluation
+  - public reads can use precomputed profile entity and relation projections without evaluating raw snapshot policy per request
+  - merged Character Bazaar integration removes the previous shared-path ownership blocker
+  - shared routing, RBAC and layout integration can now proceed against current main conventions
 unknown:
-  - PHP migration, format, static-analysis and focused-test results for current head
-  - final shared routing/RBAC/layout integration shape after PR #270 lands or explicit ownership reconciliation
+  - final public item, weapon, creature and visible-loot route behavior and visual acceptance
+  - final administrator snapshot, profile, finding and visibility inspection behavior
+  - cross-repository E2E using a generated staging-only Canary snapshot
   - complete historical content and availability facts listed by the architecture
-conflicts:
-  - PR #270 overlap remains limited to shared permission, localized routing, console and layout aggregation paths
+conflicts: []
 first_failure:
-  marker: checkpoint-validation
-  evidence: Agent Governance run 30342833669 failed before the initial workflow path was added to changed_paths
+  marker: resolved-command-output-capture
+  evidence: CI run 30382093117 exposed a PendingCommand output-capture mismatch; commit 21b0297c50f763ae5b808d95b0dc1c9f1a2646d3 replaced it with direct Artisan exit-code and output assertions
 rejected_hypotheses:
   - external wiki data is authoritative
   - imported snapshots activate automatically
   - unknown values may be converted to zero or guessed
+  - a passing focused contract check substitutes for full repository CI
 changed_paths:
   - .github/workflows/game-catalog-contract.yml
+  - app/GameCatalog/Application/Activation/CatalogActivationResult.php
+  - app/GameCatalog/Application/Activation/CatalogActivationService.php
+  - app/GameCatalog/Application/Activation/VisibilityProjectionResult.php
+  - app/GameCatalog/Application/Activation/VisibilityProjector.php
+  - app/GameCatalog/Application/Configuration/CatalogConfiguration.php
+  - app/GameCatalog/Application/Diff/CatalogSnapshotDiff.php
+  - app/GameCatalog/Application/Diff/CatalogSnapshotDiffService.php
   - app/GameCatalog/Application/Import/CatalogImportResult.php
   - app/GameCatalog/Application/Import/CatalogImportService.php
   - app/GameCatalog/Application/Import/CatalogSemanticValidator.php
   - app/GameCatalog/Application/Import/CatalogSnapshotValidator.php
   - app/GameCatalog/Application/Import/ValidatedCatalogSnapshot.php
+  - app/GameCatalog/Application/PublicRead/PublicCatalogContext.php
+  - app/GameCatalog/Application/PublicRead/PublicCatalogContextResolver.php
+  - app/GameCatalog/Application/Verification/CatalogVerificationResult.php
+  - app/GameCatalog/Application/Verification/CatalogVerificationService.php
+  - app/GameCatalog/Console/ActivateCatalogCommand.php
+  - app/GameCatalog/Console/DiffCatalogCommand.php
   - app/GameCatalog/Console/ImportCatalogCommand.php
+  - app/GameCatalog/Console/RollbackCatalogCommand.php
   - app/GameCatalog/Console/ValidateCatalogCommand.php
+  - app/GameCatalog/Console/VerifyCatalogCommand.php
   - app/GameCatalog/Domain/CatalogValidationFinding.php
   - app/GameCatalog/Domain/Exceptions/CatalogValidationException.php
   - app/GameCatalog/GameCatalogServiceProvider.php
   - app/GameCatalog/Infrastructure/Json/BundledJsonSchemaValidator.php
   - app/GameCatalog/Infrastructure/Json/DuplicateJsonKeyDetector.php
+  - app/GameCatalog/Infrastructure/Persistence/CatalogDatabaseRow.php
   - bootstrap/providers.php
   - config/game-catalog.php
   - database/migrations/2026_07_28_110000_create_game_catalog_tables.php
+  - database/migrations/2026_07_28_110100_add_game_catalog_profile_policies.php
   - docs/agents/tasks/active/OTERYN-20260728-game-catalog-slice-1.md
+  - tests/Feature/GameCatalog/CatalogActivationTest.php
   - tests/Feature/GameCatalog/CatalogImportTest.php
   - tests/Fixtures/GameCatalog/v1/minimal-snapshot.json
   - tests/Unit/GameCatalog/DuplicateJsonKeyDetectorTest.php
   - tools/game-catalog/validate_contract_fixture.py
 validation:
-  - command: GitHub repository and main-head inspection
+  - command: GitHub schema blob comparison across Platform and Canary
     result: PASS
-    evidence: main contains 8aa1fc29dd13895efb2a7006204a6b88105e6972
-  - command: GitHub schema blob comparison
+    evidence: both v1 schema paths resolve to blob a3c239a6d61385edde0b06f72cdf781f4ce58df3
+  - command: Canary CI and Game Catalog Contract
     result: PASS
-    evidence: both schema paths resolve to blob a3c239a6d61385edde0b06f72cdf781f4ce58df3
-  - command: Game Catalog Contract
+    evidence: workflow runs 30345311203 and 30345310976 succeeded on Canary implementation head 018e0e69ca0890c36fcd062cb48eab283ee76edf
+  - command: Platform Game Catalog Contract after main synchronization
     result: PASS
-    evidence: workflow run 30342833946
-  - command: open PR ownership inspection
-    result: PASS_WITH_CONFLICT_RECORDED
-    evidence: PR #270 changed-file inventory reviewed at head 8a1cd49d490d45b2c0ed4253d53975739cd60c4a
-  - command: Platform final-head CI
-    result: QUEUED
-    evidence: current implementation head b98edaaf77b9f9d1541cb5b684efa8c045a1091a awaits workflow dispatch
+    evidence: workflow run 30382689429 completed validation, Pint and focused PHPStan successfully on head a6dd3726b9e14a81ae7504d911933b7ece3dd4db
+  - command: Platform repository CI after main synchronization
+    result: PASS
+    evidence: workflow run 30382693692 completed Composer validation, audit, Pint, full PHPStan and 413 PHPUnit tests successfully
+  - command: branch synchronization with current main
+    result: PASS
+    evidence: compare reports behind_by 0 with merge base 3993263a002010ac8511a1c6e9fcccfb597adc1c
   - command: local checkout/build/test
     result: NOT_RUN
-    evidence: sandbox DNS cannot resolve github.com
-blockers:
-  - shared integration paths remain held pending reconciliation with PR #270
-next_action: Inspect Platform final-head CI, fix the first migration, syntax, schema or importer failure, then implement profile activation visibility projections and rollback.
+    evidence: repository checkout is unavailable in the sandbox; executable evidence was collected from repository CI
+blockers: []
+next_action: Implement localized public item, weapon, creature and visible-loot query routes against projected visibility, then add focused public acceptance tests before administrator surfaces.
 ```
 
 ## Deferred child tasks
