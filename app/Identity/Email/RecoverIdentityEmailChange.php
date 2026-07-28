@@ -1,0 +1,89 @@
+<?php
+
+namespace App\Identity\Email;
+
+use App\Audit\SecurityEventRecorder;
+use App\Identity\Actions\RevokeIdentityGameAuthorizations;
+use App\Identity\Actions\RevokeIdentityWebSessions;
+use App\Identity\Models\Identity;
+use App\Identity\Models\IdentityEmailChangeRequest;
+use App\Identity\Support\IdentitySecret;
+use Illuminate\Database\QueryException;
+use Illuminate\Support\Facades\DB;
+use LogicException;
+
+final class RecoverIdentityEmailChange
+{
+    public function __construct(
+        private readonly RevokeIdentityWebSessions $webSessions,
+        private readonly RevokeIdentityGameAuthorizations $gameAuthorizations,
+        private readonly SecurityEventRecorder $securityEvents,
+    ) {}
+
+    /** @return 'cancelled'|'recovered' */
+    public function execute(string $token): string
+    {
+        try {
+            return DB::transaction(function () use ($token): string {
+                $change = IdentityEmailChangeRequest::query()
+                    ->where('recovery_token_hash', IdentitySecret::hash($token))
+                    ->lockForUpdate()
+                    ->first();
+
+                if (! $change instanceof IdentityEmailChangeRequest) {
+                    throw new EmailChangeRejected(__('identity.errors.email_recovery_invalid'));
+                }
+
+                if ($change->isPending()) {
+                    $change->forceFill(['cancelled_at' => now()])->save();
+                    $this->securityEvents->recordIdentityEmailChangeCancelled($change->identity_id);
+
+                    return 'cancelled';
+                }
+
+                if (! $change->isRecoverable()) {
+                    throw new EmailChangeRejected(__('identity.errors.email_recovery_invalid'));
+                }
+
+                $identity = Identity::query()->lockForUpdate()->find($change->identity_id);
+                if (! $identity instanceof Identity || $identity->terminated_at !== null) {
+                    throw new EmailChangeRejected(__('identity.errors.email_recovery_invalid'));
+                }
+
+                $oldEmailInUse = Identity::query()
+                    ->where('email', $change->old_email)
+                    ->whereKeyNot($identity->id)
+                    ->exists();
+                if ($oldEmailInUse) {
+                    throw new EmailChangeRejected(__('identity.errors.previous_email_unrestorable'));
+                }
+
+                $cooldownDays = $this->boundedConfig('identity_security.email_change.cooldown_days', 1, 90);
+
+                $identity->forceFill([
+                    'email' => $change->old_email,
+                    'email_change_available_at' => now()->addDays($cooldownDays),
+                ])->save();
+                $change->forceFill(['recovered_at' => now()])->save();
+
+                $this->webSessions->execute($identity);
+                $this->gameAuthorizations->execute($identity);
+                $this->securityEvents->recordIdentityEmailChangeRecovered($identity->id);
+
+                return 'recovered';
+            });
+        } catch (QueryException $exception) {
+            throw new EmailChangeRejected(__('identity.errors.previous_email_unrestorable'), previous: $exception);
+        }
+    }
+
+    private function boundedConfig(string $key, int $minimum, int $maximum): int
+    {
+        $value = config($key);
+        if (! is_int($value) || $value < $minimum || $value > $maximum) {
+            throw new LogicException("Invalid bounded identity security configuration: {$key}.");
+        }
+
+        return $value;
+    }
+}

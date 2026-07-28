@@ -40,17 +40,18 @@ Convenience index only. Individual active task records, live PRs and Git state a
 - PR #233 / `e3e94dae03e0468d71f911ad41e597bb5d802eb3` — temporary final-staging workflows and trigger removed after all required cleanup checks passed.
 - PR #234 / `4131a34b8c5f1092a2d0b8fb1bb56785f217b194` — closed Issue #145 state and the single remaining archival action persisted in the final-staging checkpoint.
 - PR #235 / `cab40863bd5058209cdcbee1342a54acc814ec01` — final public-staging task record archived and `ACTIVE_WORK` cleared.
-- PR #236 / `ee8293d8bbf33f0e74757ec1ced70e30c53de` — deterministic reserved-domain DNS, TLS, Cloudflare/WAF/Access and authenticated-origin emulation merged with exact-SHA `STAGING_PROVEN` evidence.
+- PR #236 / `ee8293d8bbf33c9bc89ca105a0273728bb222f4d` — deterministic reserved-domain DNS, TLS, Cloudflare/WAF/Access and authenticated-origin emulation merged with exact-SHA `STAGING_PROVEN` evidence.
 - PR #237 / `f5aeb2e80d4692b3ee6309cc3454aa20697721f2` — edge-security emulation task archived and `ACTIVE_WORK` cleared.
 - PR #239 / `50d917acd7fde333f0e74757ec1ced70e30c53de` — local Synology production-target preflight merged; live run `30275482522` proved host/runtime/storage/binding/health/least-privilege/Redis/rollback and isolated restore boundaries as `STAGING_PROVEN`.
 - PR #245 / `458d447a35aa87dd1b13fa16e120e9b9fb9c21ec` — Synology target-preflight lifecycle archived; permanent manual revalidation remains available.
 - PR #246 / `9af2624e68061d52f861068976a38fe67abc4b5a` — first Issue #240 runtime slice merged: Account Center character inventory/states, readable vocations, approved character guild presentation, obsolete public preview removal and fail-closed completeness matrix.
 - PR #247 / `4e8a11a9b76aeaaa59a5dcc38bcd8a8e2fa54b39` — machine-enforced portal route/evidence ledger and complete zero-retry account lifecycle merged; bounded module gaps are now explicit.
 - PR #253 / `f9301792cfc82956aa4af792283c18bcbaf2c28e` — complete Download Center public/admin/localization/failure-recovery lifecycle merged with Chromium, Firefox and WebKit evidence; Downloads is `covered`.
-- PR #255 / `7e0fe46b57be4cf19900adefbada7133da47bb21` — complete Events public/admin/localization/conflict lifecycle merged with Chromium desktop/tablet/mobile and bounded public Firefox/WebKit evidence; Events is `covered`.
+- PR #255 / `7e0fe46db04c8d9c61082d4a7451352bf084013` — complete Events public/admin/localization/conflict lifecycle merged with Chromium desktop/tablet/mobile and bounded public Firefox/WebKit evidence; Events is `covered`.
 - PR #259 / `d08062c653a137e1359b5626fda635b170704cd8` — complete Announcements public/admin/localization lifecycle merged after every exact-head workflow passed; Announcements is `covered`.
 - PR #260 / `436d30e56bbf2821d01372a8aec15ec1a3ffca30` — Support/Legal, Editorial Media and Wiki public/admin final acceptance closure merged; strict delivered-surface ledger and all exact-head workflows passed, and Issue #240 is closed.
 - PR #265 / `dd48947a0c6328dc5d361f9953c221df343ecb4d` — comprehensive exact-head portal E2E audit and harness remediations merged after critical, full, contract, module, stability, soak, CI and governance gates passed on tested SHA `a5929d0725d6a99069abbc2faa42022d843e560d`.
+- PR #267 / `583cae5f430998b2bbdf5e60b59d93f09ec6f4c8` — exact Platform and Gateway images deployed through the guarded Synology staging workflow; one-shot run `30335134588`, deployment run `30335161092` and in-container portal runtime verification all passed.
 
 ## Current project phase
 
@@ -74,7 +75,7 @@ Repository and staging evidence remains valid only for its documented boundaries
 - **Production Go-Live Gate: PENDING PRODUCTION VERIFICATION**
 - **Production Verification: REQUIRED BEFORE GO-LIVE**
 
-The latest verified final-portal staging refresh identity is `ef6d03e0b7c6ed0ecf40e6e108b81358c9b64b1b` from PR #264. Later marketplace and audit evidence is repository/isolated-acceptance proof unless a deployment-specific record says otherwise. No repository, staging, local-target or emulation evidence may be promoted to `PRODUCTION_PROVEN`.
+The latest verified final-portal staging refresh identity is `583cae5f430998b2bbdf5e60b59d93f09ec6f4c8` from PR #267 and deployment run `30335161092`. Later marketplace and audit evidence is repository/isolated-acceptance proof unless a deployment-specific record says otherwise. No repository, staging, local-target or emulation evidence may be promoted to `PRODUCTION_PROVEN`.
 
 ## Next work
 

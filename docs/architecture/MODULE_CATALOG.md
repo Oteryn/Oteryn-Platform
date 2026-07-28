@@ -11,7 +11,7 @@ This catalog defines module responsibilities and dependency boundaries.
 
 | Module | Status | Owns | Must not own |
 |---|---|---|---|
-| Identity | AVAILABLE | Platform web authentication policy, credentials lifecycle, sessions, MFA, recovery | Payments, game runtime, arbitrary character mutations |
+| Identity | AVAILABLE | Platform web authentication policy, credentials lifecycle, registered sessions, MFA, confirmed email changes, privacy, recovery and Platform termination | Payments, game runtime, arbitrary Canary account or character mutations |
 | Accounts | AVAILABLE | Greenfield account provisioning/binding and future explicitly contracted account-level operations | Canary password verification logic, undocumented shared writes, game runtime |
 | Characters | AVAILABLE | Contract-approved web-triggered character operations; currently create plus Character Bazaar ownership transfer | Direct undocumented Canary writes; uncontracted rename/delete |
 | PublicGameData | AVAILABLE | Read models/queries for characters, guilds, highscores, online/status | Privileged mutations |
@@ -23,7 +23,7 @@ This catalog defines module responsibilities and dependency boundaries.
 | Integration | AVAILABLE | Implemented Canary read/write adapters, schema translation, contract enforcement; future login bridge remains separate | Product policy that belongs in domain modules |
 | Wallet | IMPLEMENTING | Oteryn Coins available/reserved projection and append-oriented idempotent ledger | Canary coins, payment-provider settlement, arbitrary balance edits |
 | Marketplace | IMPLEMENTING | Character Bazaar listings, escrow saga, bids, watches, settlement, history and recovery policy | Canary gameplay state, generic character mutation, payment-provider commerce |
-| Notifications | PLANNED | Email and asynchronous user notifications | Core auth decisions, payment settlement |
+| Notifications | AVAILABLE | Password recovery and localized account-security email notifications | Core auth decisions, token validation, payment settlement |
 | PlatformAPI | PLANNED | Stable first-party API endpoints and API-specific auth/limits | Duplicating business logic from modules |
 | Payments | PLANNED-LATER | Provider adapters, payments, webhook handling and regulated commerce when approved | Identity core, direct dependency from basic account creation/login, Oteryn Coins gameplay marketplace policy |
 
@@ -33,26 +33,47 @@ This catalog defines module responsibilities and dependency boundaries.
 
 - login/logout;
 - Platform credential hashing and lifecycle;
-- session creation, rotation and revocation;
+- registered web-session creation, rotation, inventory and owner-scoped revocation;
 - password reset/change;
-- email verification if later enabled by product policy;
+- confirmed primary-email change with old-address cancellation/recovery and cooldown;
 - MFA/TOTP and recovery codes;
-- authentication rate limiting;
+- account privacy/status controls;
+- verifier-only high-assurance recovery key lifecycle;
+- bounded Platform termination request, cancellation and finalization;
+- English and Polish account-security presentation and notification links;
+- authentication and sensitive-mutation rate limiting;
 - security-sensitive Identity audit events.
 
 ### Current available boundary
 
-The Platform web Identity authority provides registration, framework-hashed credentials, login/logout, revocable web sessions, password recovery/change, rate limiting, security-event recording and opt-in web MFA.
+The Platform web Identity authority provides registration, framework-hashed credentials, login/logout, revocable registered web sessions, password recovery/change, rate limiting, security-event recording and opt-in web MFA.
+
+The account-security lifecycle additionally provides:
+
+- new-address confirmation and previous-address cancellation/recovery for primary-email changes;
+- single-use token, cooldown and global web/game authorization revocation policy;
+- active browser-session inventory with current, targeted and all-other revocation;
+- private-by-default account-association and public-status controls;
+- one active recovery key displayed once and stored only as a keyed verifier;
+- recovery-key rotation, revocation, use and replay denial, including password/MFA reset;
+- Platform termination grace period, cancellation and idempotent due finalization;
+- scoped session-backed `en`/`pl` localization for protected and token account-security routes.
 
 Phase 5 makes Platform Identity the ownership authority for supported greenfield game accounts, but it does not mean native Canary/external login-server game authentication has already been replaced by Platform authorization.
 
 ### Invariants
 
 - one authoritative Platform Identity policy for supported product users;
-- user credentials never stored reversibly;
-- security-sensitive changes may revoke Platform web sessions;
+- user credentials and raw recovery keys are never stored reversibly;
+- email-change, recovery-key and termination operations revoke the exact Platform web/game authorization state defined by policy;
+- browser-supplied session, Canary account or token-adjacent identifiers never establish ownership;
+- stale or revoked registered sessions are invalidated before protected controller execution;
+- account-security audit metadata excludes raw passwords, session IDs, email/reset tokens, MFA secrets, recovery keys and complete source addresses;
 - privileged/Admin routes combine authentication, explicit authorization and `mfa.confirmed`;
 - MFA never grants authorization by itself;
+- email-code MFA is intentionally not adopted while email remains the recovery channel;
+- the ready Platform-to-Canary binding remains immutable without a separate operation contract;
+- Platform termination does not delete, unlink, rebind or transfer Canary-owned accounts or characters;
 - game-login compatibility/migration remains contract-driven.
 
 ## Accounts
@@ -74,7 +95,9 @@ Phase 5 implements:
 - non-user sink credential compatibility representation;
 - fail-closed effective-grant verification and real MariaDB integration coverage.
 
-Existing Canary account claim/import, account deletion, unlink/rebind/transfer and broader account profile mutations are not implied by `AVAILABLE` and require separate contracts.
+The Identity account-security lifecycle may disable and anonymize Platform login while preserving this binding. It does not mutate the bound Canary account.
+
+Existing Canary account claim/import, Canary account deletion, unlink/rebind/transfer and broader Canary account profile mutations are not implied by `AVAILABLE` and require separate contracts.
 
 ### Invariants
 
@@ -305,7 +328,7 @@ Phase 6 merged through PRs #44 and #45 and provides:
 
 ### Current available boundary
 
-Identity security events remain append-oriented security primitives.
+Identity security events remain append-oriented security primitives. The account-security lifecycle adds bounded events for email-change request/confirmation/cancellation/recovery, session revocation, privacy changes, recovery-key generation/revocation/use and termination request/cancellation/finalization.
 
 Phase 6 adds:
 
@@ -318,7 +341,7 @@ The Wiki foundation reuses the same recorder for bounded article lifecycle, cont
 
 Character Bazaar records administrator wallet adjustment and recovery actions. Wallet mutation and its administrator audit row commit in the same Platform transaction; unrestricted reason text and character snapshot bodies are excluded from audit metadata.
 
-Audit storage is not a replacement for infrastructure/application logs and must never contain raw credentials, session/reset tokens or MFA secrets.
+Audit storage is not a replacement for infrastructure/application logs and must never contain raw credentials, session/reset/email tokens, complete registered-session identifiers, MFA secrets, raw recovery keys or complete source addresses.
 
 ## Integration
 
@@ -422,14 +445,18 @@ The Character Bazaar task provides:
 
 ## Notifications
 
-Initial use cases:
+### Current available boundary
 
-- email verification if later enabled;
+Implemented email use cases include:
+
 - password reset;
-- security alerts;
-- future marketplace outbid/completion notifications after an explicitly reviewed asynchronous delivery slice.
+- new-address confirmation for primary-email changes;
+- old-address cancellation/recovery notice for primary-email changes;
+- English and Polish account-security subjects, copy, actions and locale-preserving token links.
 
-Mail delivery should be asynchronous once queue infrastructure exists, while security tokens remain owned by Identity use cases and marketplace state remains owned by Marketplace.
+Mail delivery should be asynchronous once queue infrastructure exists. Security tokens and locale selection remain owned by Identity use cases; Notifications formats and transports messages but does not validate tokens, authorize account changes or own Marketplace state.
+
+Future marketplace outbid/completion notifications require an explicitly reviewed asynchronous delivery slice.
 
 ## PlatformAPI
 

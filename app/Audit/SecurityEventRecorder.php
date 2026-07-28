@@ -14,6 +14,10 @@ final class SecurityEventRecorder
 
     public const IDENTITY_WEB_SESSIONS_REVOKED = 'identity.web_sessions_revoked';
 
+    public const IDENTITY_WEB_SESSION_REVOKED = 'identity.web_session_revoked';
+
+    public const IDENTITY_OTHER_WEB_SESSIONS_REVOKED = 'identity.other_web_sessions_revoked';
+
     public const IDENTITY_WEB_SESSION_REJECTED = 'identity.web_session_rejected';
 
     public const IDENTITY_GAME_AUTHORIZATIONS_REVOKED = 'identity.game_authorizations_revoked';
@@ -29,6 +33,28 @@ final class SecurityEventRecorder
     public const IDENTITY_MFA_RECOVERY_CODE_USED = 'identity.mfa_recovery_code_used';
 
     public const IDENTITY_MFA_DISABLED = 'identity.mfa_disabled';
+
+    public const IDENTITY_EMAIL_CHANGE_REQUESTED = 'identity.email_change_requested';
+
+    public const IDENTITY_EMAIL_CHANGE_CONFIRMED = 'identity.email_change_confirmed';
+
+    public const IDENTITY_EMAIL_CHANGE_CANCELLED = 'identity.email_change_cancelled';
+
+    public const IDENTITY_EMAIL_CHANGE_RECOVERED = 'identity.email_change_recovered';
+
+    public const IDENTITY_PRIVACY_UPDATED = 'identity.privacy_updated';
+
+    public const IDENTITY_RECOVERY_KEY_GENERATED = 'identity.recovery_key_generated';
+
+    public const IDENTITY_RECOVERY_KEY_REVOKED = 'identity.recovery_key_revoked';
+
+    public const IDENTITY_RECOVERY_KEY_USED = 'identity.recovery_key_used';
+
+    public const IDENTITY_TERMINATION_REQUESTED = 'identity.termination_requested';
+
+    public const IDENTITY_TERMINATION_CANCELLED = 'identity.termination_cancelled';
+
+    public const IDENTITY_TERMINATION_FINALIZED = 'identity.termination_finalized';
 
     public const GAME_LOGIN_TICKET_ISSUED = 'game_auth.ticket_issued';
 
@@ -60,6 +86,16 @@ final class SecurityEventRecorder
     public function recordIdentityWebSessionsRevoked(int $identityId): void
     {
         $this->record($identityId, self::IDENTITY_WEB_SESSIONS_REVOKED);
+    }
+
+    public function recordIdentityWebSessionRevoked(int $identityId): void
+    {
+        $this->record($identityId, self::IDENTITY_WEB_SESSION_REVOKED);
+    }
+
+    public function recordIdentityOtherWebSessionsRevoked(int $identityId): void
+    {
+        $this->record($identityId, self::IDENTITY_OTHER_WEB_SESSIONS_REVOKED);
     }
 
     public function recordIdentityWebSessionRejected(int $identityId): void
@@ -100,6 +136,61 @@ final class SecurityEventRecorder
     public function recordIdentityMfaDisabled(int $identityId): void
     {
         $this->record($identityId, self::IDENTITY_MFA_DISABLED);
+    }
+
+    public function recordIdentityEmailChangeRequested(int $identityId): void
+    {
+        $this->record($identityId, self::IDENTITY_EMAIL_CHANGE_REQUESTED);
+    }
+
+    public function recordIdentityEmailChangeConfirmed(int $identityId): void
+    {
+        $this->record($identityId, self::IDENTITY_EMAIL_CHANGE_CONFIRMED);
+    }
+
+    public function recordIdentityEmailChangeCancelled(int $identityId): void
+    {
+        $this->record($identityId, self::IDENTITY_EMAIL_CHANGE_CANCELLED);
+    }
+
+    public function recordIdentityEmailChangeRecovered(int $identityId): void
+    {
+        $this->record($identityId, self::IDENTITY_EMAIL_CHANGE_RECOVERED);
+    }
+
+    public function recordIdentityPrivacyUpdated(int $identityId): void
+    {
+        $this->record($identityId, self::IDENTITY_PRIVACY_UPDATED);
+    }
+
+    public function recordIdentityRecoveryKeyGenerated(int $identityId): void
+    {
+        $this->record($identityId, self::IDENTITY_RECOVERY_KEY_GENERATED);
+    }
+
+    public function recordIdentityRecoveryKeyRevoked(int $identityId): void
+    {
+        $this->record($identityId, self::IDENTITY_RECOVERY_KEY_REVOKED);
+    }
+
+    public function recordIdentityRecoveryKeyUsed(int $identityId): void
+    {
+        $this->record($identityId, self::IDENTITY_RECOVERY_KEY_USED);
+    }
+
+    public function recordIdentityTerminationRequested(int $identityId): void
+    {
+        $this->record($identityId, self::IDENTITY_TERMINATION_REQUESTED);
+    }
+
+    public function recordIdentityTerminationCancelled(int $identityId): void
+    {
+        $this->record($identityId, self::IDENTITY_TERMINATION_CANCELLED);
+    }
+
+    public function recordIdentityTerminationFinalized(int $identityId): void
+    {
+        $this->record($identityId, self::IDENTITY_TERMINATION_FINALIZED);
     }
 
     public function recordGameLoginTicketIssued(int $identityId): void

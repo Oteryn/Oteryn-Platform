@@ -70,9 +70,9 @@ test('@portal-account Flow 4 — MFA valid, invalid, replay, recovery single-use
     await page.goto('/mfa');
     await expect(page).toHaveURL(/\/login$/u);
 
-    const staleResponse = await stalePage.goto('/mfa');
-    expect(staleResponse?.status()).toBe(403);
-    await expect(stalePage.getByRole('heading', { name: 'You do not have access to this page' })).toBeVisible();
+    await stalePage.goto('/mfa');
+    await expect(stalePage).toHaveURL(/\/login$/u);
+    await expect(stalePage.getByRole('heading', { name: 'Sign in to Oteryn Platform' })).toBeVisible();
 
     await login(page, email, password);
     await expect(page).toHaveURL(/\/mfa$/u);
