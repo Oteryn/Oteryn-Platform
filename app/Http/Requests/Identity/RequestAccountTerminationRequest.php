@@ -7,6 +7,7 @@ use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\Validator;
+use LogicException;
 
 final class RequestAccountTerminationRequest extends FormRequest
 {
@@ -20,7 +21,7 @@ final class RequestAccountTerminationRequest extends FormRequest
     {
         return [
             'current_password' => ['required', 'string', 'max:1024'],
-            'confirmation' => ['required', 'string', Rule::in([(string) config('identity_security.termination.confirmation_phrase', 'TERMINATE')])],
+            'confirmation' => ['required', 'string', Rule::in([$this->confirmationPhrase()])],
         ];
     }
 
@@ -28,9 +29,20 @@ final class RequestAccountTerminationRequest extends FormRequest
     {
         $validator->after(function (Validator $validator): void {
             $identity = $this->user();
-            if ($identity instanceof Identity && ! Hash::check((string) $this->input('current_password'), $identity->password)) {
+            $password = $this->input('current_password');
+            if ($identity instanceof Identity && (! is_string($password) || ! Hash::check($password, $identity->password))) {
                 $validator->errors()->add('current_password', 'The current password is invalid.');
             }
         });
+    }
+
+    private function confirmationPhrase(): string
+    {
+        $phrase = config('identity_security.termination.confirmation_phrase');
+        if (! is_string($phrase) || $phrase === '') {
+            throw new LogicException('The account termination confirmation phrase is invalid.');
+        }
+
+        return $phrase;
     }
 }
