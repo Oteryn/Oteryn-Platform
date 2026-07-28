@@ -26,7 +26,7 @@ final class AccountWebSessionController
         if (! $revoked) {
             return redirect()
                 ->route('identity.account-security.show')
-                ->withErrors(['session' => 'The selected session is no longer active.']);
+                ->withErrors(['session' => __('identity.errors.selected_session_inactive')]);
         }
 
         $securityEvents->recordIdentityWebSessionRevoked($identity->id);
@@ -36,12 +36,12 @@ final class AccountWebSessionController
 
             return redirect()
                 ->route('identity.login.create')
-                ->with('status', 'This session has been revoked. Sign in again to continue.');
+                ->with('status', __('identity.status.session_revoked_sign_in'));
         }
 
         return redirect()
             ->route('identity.account-security.show')
-            ->with('status', 'The selected session has been revoked.');
+            ->with('status', __('identity.status.session_revoked'));
     }
 
     public function destroyOthers(
@@ -60,6 +60,6 @@ final class AccountWebSessionController
 
         return redirect()
             ->route('identity.account-security.show')
-            ->with('status', 'All other active sessions have been revoked.');
+            ->with('status', __('identity.status.other_sessions_revoked'));
     }
 }
