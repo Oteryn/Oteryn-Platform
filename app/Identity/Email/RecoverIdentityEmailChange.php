@@ -31,7 +31,7 @@ final class RecoverIdentityEmailChange
                     ->first();
 
                 if (! $change instanceof IdentityEmailChangeRequest) {
-                    throw new EmailChangeRejected('The email recovery link is invalid or has expired.');
+                    throw new EmailChangeRejected(__('identity.errors.email_recovery_invalid'));
                 }
 
                 if ($change->isPending()) {
@@ -42,12 +42,12 @@ final class RecoverIdentityEmailChange
                 }
 
                 if (! $change->isRecoverable()) {
-                    throw new EmailChangeRejected('The email recovery link is invalid or has expired.');
+                    throw new EmailChangeRejected(__('identity.errors.email_recovery_invalid'));
                 }
 
                 $identity = Identity::query()->lockForUpdate()->find($change->identity_id);
                 if (! $identity instanceof Identity || $identity->terminated_at !== null) {
-                    throw new EmailChangeRejected('The email recovery link is invalid or has expired.');
+                    throw new EmailChangeRejected(__('identity.errors.email_recovery_invalid'));
                 }
 
                 $oldEmailInUse = Identity::query()
@@ -55,7 +55,7 @@ final class RecoverIdentityEmailChange
                     ->whereKeyNot($identity->id)
                     ->exists();
                 if ($oldEmailInUse) {
-                    throw new EmailChangeRejected('The previous email address cannot be restored automatically.');
+                    throw new EmailChangeRejected(__('identity.errors.previous_email_unrestorable'));
                 }
 
                 $cooldownDays = $this->boundedConfig('identity_security.email_change.cooldown_days', 1, 90);
@@ -73,7 +73,7 @@ final class RecoverIdentityEmailChange
                 return 'recovered';
             });
         } catch (QueryException $exception) {
-            throw new EmailChangeRejected('The previous email address cannot be restored automatically.', previous: $exception);
+            throw new EmailChangeRejected(__('identity.errors.previous_email_unrestorable'), previous: $exception);
         }
     }
 
