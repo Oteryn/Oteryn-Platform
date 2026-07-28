@@ -9,6 +9,7 @@ use App\Cms\PublicNewsQuery;
 use App\Cms\PublicPageQuery;
 use App\Events\Queries\EventCalendarQuery;
 use App\Localization\PublicLocale;
+use App\Marketplace\Queries\PublicCharacterAuctionQuery;
 use App\Wiki\Queries\Public\PublicWikiQuery;
 use OverflowException;
 
@@ -20,6 +21,7 @@ final readonly class PublicSitemapQuery
         private PublicPageQuery $pages,
         private EditorialPageQuery $editorialPages,
         private EventCalendarQuery $events,
+        private PublicCharacterAuctionQuery $marketplace,
         private PublicWikiQuery $wiki,
     ) {}
 
@@ -59,6 +61,12 @@ final readonly class PublicSitemapQuery
                     }
                 }
 
+                if (config('marketplace.enabled')) {
+                    foreach ($this->marketplace->sitemapIds() as $auctionId) {
+                        $urls[] = route('marketplace.show', ['locale' => $locale, 'auction' => $auctionId]);
+                    }
+                }
+
                 $wikiSlugs = $this->wiki->sitemapSlugs($locale);
                 foreach ($wikiSlugs['categories'] as $slug) {
                     $urls[] = route('wiki.category', ['locale' => $locale, 'slug' => $slug]);
@@ -83,7 +91,7 @@ final readonly class PublicSitemapQuery
     /** @return list<string> */
     private function staticRouteNames(): array
     {
-        return [
+        $routeNames = [
             'localized.home',
             'news.index',
             'game.highscores.index',
@@ -94,5 +102,11 @@ final readonly class PublicSitemapQuery
             'downloads.index',
             'wiki.index',
         ];
+
+        if (config('marketplace.enabled')) {
+            $routeNames[] = 'marketplace.index';
+        }
+
+        return $routeNames;
     }
 }

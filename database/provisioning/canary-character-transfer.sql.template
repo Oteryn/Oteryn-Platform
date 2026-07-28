@@ -1,0 +1,42 @@
+-- Oteryn Platform -> Canary Character Bazaar transfer least-privilege template.
+--
+-- TEMPLATE ONLY: do not execute automatically and never commit rendered secrets.
+-- Replace every {{...}} placeholder out-of-band during a reviewed deployment.
+--
+-- This credential is intentionally separate from the read-only, provisioning,
+-- character-create and Canary game-process credentials.
+--
+-- Approved operation contract:
+--   docs/contracts/CHARACTER_TRANSFER_CONTRACT.md
+
+CREATE USER IF NOT EXISTS '{{OTERYN_CANARY_CHARACTER_TRANSFER_DB_USER}}'@'{{OTERYN_CANARY_CHARACTER_TRANSFER_DB_HOST}}'
+    IDENTIFIED BY '{{OTERYN_CANARY_CHARACTER_TRANSFER_DB_PASSWORD}}';
+
+ALTER USER '{{OTERYN_CANARY_CHARACTER_TRANSFER_DB_USER}}'@'{{OTERYN_CANARY_CHARACTER_TRANSFER_DB_HOST}}'
+    IDENTIFIED BY '{{OTERYN_CANARY_CHARACTER_TRANSFER_DB_PASSWORD}}';
+
+REVOKE ALL PRIVILEGES, GRANT OPTION
+    FROM '{{OTERYN_CANARY_CHARACTER_TRANSFER_DB_USER}}'@'{{OTERYN_CANARY_CHARACTER_TRANSFER_DB_HOST}}';
+
+GRANT SELECT (`id`)
+    ON `{{CANARY_DB_NAME}}`.`accounts`
+    TO '{{OTERYN_CANARY_CHARACTER_TRANSFER_DB_USER}}'@'{{OTERYN_CANARY_CHARACTER_TRANSFER_DB_HOST}}';
+
+GRANT SELECT (
+    `id`, `name`, `account_id`, `deletion`, `level`, `vocation`, `experience`,
+    `sex`, `maglevel`, `skill_fist`, `skill_club`, `skill_sword`, `skill_axe`,
+    `skill_dist`, `skill_shielding`, `skill_fishing`, `looktype`, `lookaddons`,
+    `lookhead`, `lookbody`, `looklegs`, `lookfeet`, `town_id`, `lastlogin`, `lastlogout`
+), UPDATE (`account_id`)
+    ON `{{CANARY_DB_NAME}}`.`players`
+    TO '{{OTERYN_CANARY_CHARACTER_TRANSFER_DB_USER}}'@'{{OTERYN_CANARY_CHARACTER_TRANSFER_DB_HOST}}';
+
+GRANT SELECT (`player_id`, `account_id`, `status`, `expires_at`)
+    ON `{{CANARY_DB_NAME}}`.`cluster_sessions`
+    TO '{{OTERYN_CANARY_CHARACTER_TRANSFER_DB_USER}}'@'{{OTERYN_CANARY_CHARACTER_TRANSFER_DB_HOST}}';
+
+-- Review-only confirmation. Never record rendered secrets in Git/task history.
+SHOW GRANTS FOR '{{OTERYN_CANARY_CHARACTER_TRANSFER_DB_USER}}'@'{{OTERYN_CANARY_CHARACTER_TRANSFER_DB_HOST}}';
+
+-- After configuring application environment variables, run:
+--   php artisan canary:verify-character-transfer-db-privileges

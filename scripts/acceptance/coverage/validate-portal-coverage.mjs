@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 const coverageRoot = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(coverageRoot, '../../..');
 const manifestPath = path.join(coverageRoot, 'portal-coverage-manifest.json');
+const surfaceFragmentRoot = path.join(coverageRoot, 'surfaces');
 const strict = process.argv.includes('--strict');
 const manifestOnly = process.argv.includes('--manifest-only');
 
@@ -19,6 +20,29 @@ function readJson(file) {
     errors.push(`Cannot parse ${path.relative(repoRoot, file)}: ${error.message}`);
     return null;
   }
+}
+
+function readSurfaceFragments() {
+  if (!fs.existsSync(surfaceFragmentRoot)) return [];
+
+  const fragments = [];
+  for (const entry of fs.readdirSync(surfaceFragmentRoot, { withFileTypes: true })
+    .filter((candidate) => candidate.isFile() && candidate.name.endsWith('.json'))
+    .sort((left, right) => left.name.localeCompare(right.name))) {
+    const file = path.join(surfaceFragmentRoot, entry.name);
+    const value = readJson(file);
+    if (value === null) continue;
+
+    const surfaces = Array.isArray(value) ? value : value.surfaces;
+    if (!Array.isArray(surfaces) || surfaces.length === 0) {
+      errors.push(`${path.relative(repoRoot, file)} must contain a non-empty surface array.`);
+      continue;
+    }
+
+    fragments.push(...surfaces);
+  }
+
+  return fragments;
 }
 
 function requireStringArray(surface, field) {
@@ -40,6 +64,8 @@ const manifest = readJson(manifestPath);
 if (!manifest) {
   process.exitCode = 1;
 } else {
+  manifest.surfaces = [...(Array.isArray(manifest.surfaces) ? manifest.surfaces : []), ...readSurfaceFragments()];
+
   if (manifest.schema_version !== 1) errors.push('portal coverage schema_version must be 1.');
   if (!Array.isArray(manifest.allowed_statuses) || manifest.allowed_statuses.length === 0) {
     errors.push('allowed_statuses must be a non-empty array.');

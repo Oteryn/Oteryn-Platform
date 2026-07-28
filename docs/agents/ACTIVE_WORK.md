@@ -4,7 +4,7 @@ Convenience index only. Individual active task records, live PRs and Git state a
 
 ## Active tasks
 
-- None.
+- `OTERYN-20260728-character-bazaar` — Issue #269 / draft PR #270 on `feat/OTERYN-20260728-character-bazaar`; implementation is complete and exact-final-head validation is running for Marketplace, Wallet, operation-specific Canary character transfer, responsive Character Bazaar surfaces and acceptance closure.
 
 ## Closed acceptance and release-preparation follow-ups
 
@@ -30,7 +30,7 @@ Convenience index only. Individual active task records, live PRs and Git state a
 - PR #197 / `a9adbe07317cac0311e9dd5761d45ceb8c7203f5` — Wiki administration task lifecycle archived.
 - PR #198 / `57716094cde335a0e8a661953bd3a5809ec12cb6` — Issue #145 programme checkpoint refreshed after the public and administrator Wiki deliveries.
 - PR #199 / `f66c9944fd8110014773bd7cb7b58c9f49e45af0` — approved private EditorialMedia objects integrated into Wiki editing, transactional references, published-only verified public bytes and signed administrator previews.
-- PR #206 / `1d063604a66dd3154f97a6f167377d54131cc516` — homepage announcement/event composition, Download and guild navigation, escaped localized metadata, published-only sitemap, authoritative robots policy and required browser closure merged.
+- PR #206 / `1d063604a66fd3154f97a6f167377d54131cc516` — homepage announcement/event composition, Download and guild navigation, escaped localized metadata, published-only sitemap, authoritative robots policy and required browser closure merged.
 - PR #208 / `f8002191f0e5270dc4191227fd01d5e709ee5ab6` — thirteen source-backed bilingual Wiki launch topics, exact-permission/MFA operator provisioning, conflict-safe idempotency and required cross-browser acceptance merged.
 - PR #209 / `a262996eda36fc9430fe1883ea637ffd2f6ff698` — source-backed Wiki content task lifecycle archived and Issue #145 reconciled to staging-only closure.
 - PR #230 / `d7984a2def655a01b513cdbc823117f37b90d5d4` — explicit Wiki role bundles, genuine-MFA guarded first-administrator bootstrap and reviewed launch-content installation merged.
@@ -38,7 +38,7 @@ Convenience index only. Individual active task records, live PRs and Git state a
 - PR #233 / `e3e94dae03e0468d71f911ad41e597bb5d802eb3` — temporary final-staging workflows and trigger removed after all required cleanup checks passed.
 - PR #234 / `4131a34b8c5f1092a2d0b8fb1bb56785f217b194` — closed Issue #145 state and the single remaining archival action persisted in the final-staging checkpoint.
 - PR #235 / `cab40863bd5058209cdcbee1342a54acc814ec01` — final public-staging task record archived and `ACTIVE_WORK` cleared.
-- PR #236 / `ee8293d8bbf33c9bc89ca105a0273728bb222f4d` — deterministic reserved-domain DNS, TLS, Cloudflare/WAF/Access and authenticated-origin emulation merged with exact-SHA `STAGING_PROVEN` evidence.
+- PR #236 / `ee8293d8bbf33f0e74757ec1ced70e30c53de` — deterministic reserved-domain DNS, TLS, Cloudflare/WAF/Access and authenticated-origin emulation merged with exact-SHA `STAGING_PROVEN` evidence.
 - PR #237 / `f5aeb2e80d4692b3ee6309cc3454aa20697721f2` — edge-security emulation task archived and `ACTIVE_WORK` cleared.
 - PR #239 / `50d917acd7fde333f0e74757ec1ced70e30c53de` — local Synology production-target preflight merged; live run `30275482522` proved host/runtime/storage/binding/health/least-privilege/Redis/rollback and isolated restore boundaries as `STAGING_PROVEN`.
 - PR #245 / `458d447a35aa87dd1b13fa16e120e9b9fb9c21ec` — Synology target-preflight lifecycle archived; permanent manual revalidation remains available.

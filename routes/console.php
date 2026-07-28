@@ -5,13 +5,16 @@ use App\Accounts\Exceptions\CanaryAccountProvisioningException;
 use App\Accounts\Models\IdentityCanaryAccount;
 use App\Admin\AdminRoleManager;
 use App\CanaryIntegration\CanaryCharacterCreateDatabasePrivilegeVerifier;
+use App\CanaryIntegration\CanaryCharacterTransferDatabasePrivilegeVerifier;
 use App\CanaryIntegration\CanaryDatabasePrivilegeVerifier;
 use App\CanaryIntegration\CanaryProvisioningDatabasePrivilegeVerifier;
 use App\Identity\Models\Identity;
 use App\Identity\Support\CanonicalEmail;
+use App\Marketplace\Actions\ReconcileCharacterAuctions;
 use App\Operations\ProductionConfigurationVerifier;
 use Illuminate\Foundation\Inspiring;
 use Illuminate\Support\Facades\Artisan;
+use Illuminate\Support\Facades\Schedule;
 
 Artisan::command('inspire', function () {
     $this->comment(Inspiring::quote());
@@ -113,6 +116,65 @@ Artisan::command('canary:verify-character-create-db-privileges', function () {
     return 0;
 })->purpose('Verify the dedicated Canary character-create credential least-privilege boundary');
 
+Artisan::command('canary:verify-character-transfer-db-privileges', function () {
+    try {
+        $violations = app(CanaryCharacterTransferDatabasePrivilegeVerifier::class)->inspect();
+    } catch (Throwable) {
+        $this->error('Unable to inspect the Canary character-transfer database privilege boundary.');
+
+        return 1;
+    }
+
+    if ($violations !== []) {
+        $this->error('Canary character-transfer database privilege boundary verification failed.');
+
+        foreach ($violations as $violation) {
+            $this->line("- {$violation}");
+        }
+
+        return 1;
+    }
+
+    $this->info('Canary character-transfer database privilege boundary verified: approved column-level SELECT and players.account_id UPDATE only.');
+
+    return 0;
+})->purpose('Verify the dedicated Character Bazaar transfer credential least-privilege boundary');
+
+Artisan::command('marketplace:reconcile {--limit=100}', function () {
+    $limitOption = $this->option('limit');
+    $limit = is_int($limitOption) || is_string($limitOption)
+        ? filter_var($limitOption, FILTER_VALIDATE_INT, [
+            'options' => [
+                'min_range' => 1,
+                'max_range' => 1000,
+            ],
+        ])
+        : false;
+
+    if ($limit === false) {
+        $this->error('The --limit option must be an integer between 1 and 1000.');
+
+        return 1;
+    }
+
+    try {
+        $result = app(ReconcileCharacterAuctions::class)->run($limit);
+    } catch (Throwable) {
+        $this->error('Character Bazaar reconciliation could not be completed.');
+
+        return 1;
+    }
+
+    $this->info(sprintf(
+        'Processed %d auction(s): %d terminal, %d recovery required.',
+        $result['processed'],
+        $result['completed'],
+        $result['recovery_required'],
+    ));
+
+    return $result['recovery_required'] === 0 ? 0 : 2;
+})->purpose('Reconcile pending Character Bazaar escrow, cancellation and settlement operations');
+
 Artisan::command('canary:provision-pending-accounts {--limit=100}', function () {
     $limitOption = $this->option('limit');
     $limit = is_int($limitOption) || is_string($limitOption)
@@ -187,3 +249,7 @@ Artisan::command('admin:bootstrap {email}', function () {
 
     return 0;
 })->purpose('Assign the one-time first platform_admin role to an MFA-confirmed Platform Identity');
+
+Schedule::command('marketplace:reconcile --limit=100')
+    ->everyMinute()
+    ->withoutOverlapping(5);

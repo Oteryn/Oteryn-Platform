@@ -30,6 +30,8 @@ final class AdminPermission
 
     public const MANAGE_SUPPORT_CONTENT = 'support.content.manage';
 
+    public const MANAGE_MARKETPLACE = 'marketplace.manage';
+
     public const WIKI_ACCESS = 'wiki.access';
 
     public const MANAGE_WIKI_ARTICLES = 'wiki.articles.manage';
@@ -57,6 +59,7 @@ final class AdminPermission
             self::MANAGE_EVENTS,
             self::PUBLISH_EVENTS,
             self::MANAGE_SUPPORT_CONTENT,
+            self::MANAGE_MARKETPLACE,
             self::WIKI_ACCESS,
             self::MANAGE_WIKI_ARTICLES,
             self::MANAGE_WIKI_CATEGORIES,

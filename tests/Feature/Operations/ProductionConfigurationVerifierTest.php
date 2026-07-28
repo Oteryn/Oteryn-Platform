@@ -22,6 +22,16 @@ final class ProductionConfigurationVerifierTest extends TestCase
             'mail.default' => 'smtp',
             'mail.mailers.smtp.transport' => 'smtp',
             'mail.from.address' => 'noreply@oteryn.com',
+            'marketplace.enabled' => true,
+            'marketplace.escrow_canary_account_id' => 9999,
+            'marketplace.allowed_duration_days' => [1, 3, 7],
+            'marketplace.minimum_starting_bid' => 100,
+            'marketplace.minimum_bid_increment' => 10,
+            'marketplace.commission_basis_points' => 1000,
+            'marketplace.escrow_quiescence_seconds' => 30,
+            'marketplace.public_bid_history_limit' => 20,
+            'marketplace.character_limit' => 10,
+            'database.connections.canary_character_transfer.username' => 'oteryn_character_transfer',
         ]);
     }
 
@@ -112,6 +122,29 @@ final class ProductionConfigurationVerifierTest extends TestCase
 
         config(['mail.from.address' => 'noreply@example.test']);
         $this->assertViolation('MAIL_FROM_ADDRESS must not use a reserved test domain.');
+    }
+
+    public function test_enabled_marketplace_requires_valid_escrow_and_transfer_configuration(): void
+    {
+        config(['marketplace.escrow_canary_account_id' => 0]);
+        $this->assertViolation('MARKETPLACE_ESCROW_CANARY_ACCOUNT_ID must be a positive Canary account ID.');
+
+        config([
+            'marketplace.escrow_canary_account_id' => 9999,
+            'database.connections.canary_character_transfer.username' => 'root',
+        ]);
+        $this->assertViolation('The dedicated Canary character-transfer database username must be configured and must not be root.');
+    }
+
+    public function test_disabled_marketplace_does_not_require_transfer_prerequisites(): void
+    {
+        config([
+            'marketplace.enabled' => false,
+            'marketplace.escrow_canary_account_id' => 0,
+            'database.connections.canary_character_transfer.username' => 'root',
+        ]);
+
+        self::assertSame([], app(ProductionConfigurationVerifier::class)->inspect());
     }
 
     public function test_command_fails_closed_without_printing_application_key(): void

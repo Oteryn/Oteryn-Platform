@@ -1,0 +1,246 @@
+[
+  {
+    "id": "marketplace.public-catalogue-and-detail",
+    "owner": "Marketplace",
+    "status": "covered",
+    "route_names": [
+      "legacy.marketplace.index",
+      "legacy.marketplace.show",
+      "marketplace.index",
+      "marketplace.show"
+    ],
+    "roles": [
+      "guest",
+      "authenticated"
+    ],
+    "states": [
+      "active-catalogue",
+      "filtered",
+      "empty",
+      "auction-detail",
+      "immutable-snapshot",
+      "bid-history-empty",
+      "completed-or-expired-history-detail",
+      "not-found",
+      "localized-en",
+      "localized-pl",
+      "private-saga-states-hidden"
+    ],
+    "viewports": [
+      "desktop-1440x1000",
+      "tablet-820x1180",
+      "mobile-390x844"
+    ],
+    "browsers": [
+      "chromium-primary",
+      "bounded-portability"
+    ],
+    "evidence_layers": [
+      "feature",
+      "playwright",
+      "responsive",
+      "accessibility",
+      "localization",
+      "seo",
+      "security"
+    ],
+    "evidence": [
+      {
+        "file": "tests/Feature/Marketplace/MarketplaceModuleTest.php",
+        "markers": [
+          "test_public_catalogue_detail_and_localized_routes_render_safe_snapshot_data"
+        ]
+      },
+      {
+        "file": "scripts/acceptance/tests/marketplace-acceptance.spec.mjs",
+        "markers": [
+          "@portal-marketplace-public catalogue detail filters localization responsive layout and accessibility"
+        ]
+      }
+    ],
+    "gaps": []
+  },
+  {
+    "id": "marketplace.authenticated-auction-lifecycle",
+    "owner": "Marketplace / Wallet / CanaryIntegration",
+    "status": "covered",
+    "route_names": [
+      "marketplace.account",
+      "marketplace.listing.create",
+      "marketplace.listing.store",
+      "marketplace.listing.cancel",
+      "marketplace.bids.store",
+      "marketplace.purchase",
+      "marketplace.watch.store",
+      "marketplace.watch.destroy"
+    ],
+    "roles": [
+      "guest",
+      "authenticated-binding-not-ready",
+      "authenticated-ready-binding",
+      "seller",
+      "bidder",
+      "winner"
+    ],
+    "states": [
+      "dashboard-empty",
+      "wallet-available-and-reserved",
+      "watch-add-remove",
+      "listing-validation",
+      "escrow-pending",
+      "quiescence-wait",
+      "active",
+      "bid-leading",
+      "outbid-release",
+      "self-bid-denied",
+      "buy-now-settlement",
+      "seller-cancellation",
+      "no-bid-expiry",
+      "completed",
+      "history",
+      "dependency-unavailable",
+      "recovery-required",
+      "exact-idempotent-replay",
+      "idempotency-conflict",
+      "dead-link-free-private-states"
+    ],
+    "viewports": [
+      "desktop-1440x1000",
+      "tablet-820x1180",
+      "mobile-390x844"
+    ],
+    "browsers": [
+      "chromium-primary",
+      "bounded-portability"
+    ],
+    "evidence_layers": [
+      "feature",
+      "database-integration",
+      "contract",
+      "playwright",
+      "responsive",
+      "accessibility",
+      "security",
+      "concurrency"
+    ],
+    "evidence": [
+      {
+        "file": "tests/Feature/Marketplace/MarketplaceModuleTest.php",
+        "markers": [
+          "test_listing_moves_owned_offline_character_to_escrow_and_activates_after_quiescence",
+          "test_direct_bids_reserve_release_and_reject_self_bidding_idempotently"
+        ]
+      },
+      {
+        "file": "tests/Feature/Marketplace/MarketplaceIdempotencyTest.php",
+        "markers": [
+          "test_listing_request_replay_requires_the_exact_original_payload",
+          "test_bid_request_replay_requires_the_exact_amount_and_operation_type",
+          "test_wallet_adjustment_replay_is_exact_and_audited_once"
+        ]
+      },
+      {
+        "file": "tests/Feature/Marketplace/MarketplaceSettlementRecoveryTest.php",
+        "markers": [
+          "test_buy_now_transfers_character_and_settles_reserved_coins_exactly_once",
+          "test_user_cancellation_and_no_bid_expiry_return_character_to_seller",
+          "test_recovery_resumes_transfer_success_before_platform_persistence",
+          "test_recovery_cancels_before_transfer_and_finishes_wallet_after_winner_transfer"
+        ]
+      },
+      {
+        "file": "tests/Feature/Marketplace/CanaryCharacterTransferMariaDbIntegrationTest.php",
+        "markers": [
+          "test_exact_grants_snapshot_transfer_idempotency_session_and_quota_match_contract"
+        ]
+      },
+      {
+        "file": "tests/Feature/Marketplace/CanaryCharacterTransferConcurrencyMariaDbTest.php",
+        "markers": [
+          "test_competing_transfers_serialize_and_only_one_target_wins"
+        ]
+      },
+      {
+        "file": "scripts/acceptance/tests/marketplace-acceptance.spec.mjs",
+        "markers": [
+          "@portal-marketplace-account authenticated watch bid wallet reservation complete state matrix and authorization journey"
+        ]
+      }
+    ],
+    "gaps": []
+  },
+  {
+    "id": "marketplace.admin-wallet-and-recovery",
+    "owner": "Marketplace / Wallet / Admin / Audit",
+    "status": "covered",
+    "route_names": [
+      "admin.marketplace.index",
+      "admin.marketplace.wallet.adjust",
+      "admin.marketplace.auctions.recover"
+    ],
+    "roles": [
+      "guest",
+      "authenticated-no-mfa",
+      "mfa-confirmed-no-permission",
+      "marketplace-manager"
+    ],
+    "states": [
+      "permission-denied",
+      "wallet-not-found",
+      "wallet-inspection",
+      "positive-adjustment",
+      "negative-adjustment",
+      "validation",
+      "exact-idempotent-replay",
+      "idempotency-conflict",
+      "audit",
+      "recovery-queue-empty",
+      "recovery-retry",
+      "ownership-conflict"
+    ],
+    "viewports": [
+      "desktop-1440x1000",
+      "tablet-820x1180",
+      "mobile-390x844"
+    ],
+    "browsers": [
+      "chromium-primary"
+    ],
+    "evidence_layers": [
+      "feature",
+      "playwright",
+      "responsive",
+      "accessibility",
+      "security",
+      "audit",
+      "operations"
+    ],
+    "evidence": [
+      {
+        "file": "tests/Feature/Marketplace/MarketplaceModuleTest.php",
+        "markers": [
+          "test_admin_wallet_adjustment_requires_mfa_permission_and_is_audited"
+        ]
+      },
+      {
+        "file": "tests/Feature/Marketplace/MarketplaceIdempotencyTest.php",
+        "markers": [
+          "test_wallet_adjustment_replay_is_exact_and_audited_once"
+        ]
+      },
+      {
+        "file": "scripts/acceptance/tests/marketplace-acceptance.spec.mjs",
+        "markers": [
+          "@portal-marketplace-admin MFA permission wallet adjustment ledger and recovery queue surface"
+        ]
+      },
+      {
+        "file": "docs/operations/MARKETPLACE_OPERATIONS.md",
+        "markers": [
+          "CHARACTER BAZAAR RECOVERY RUNBOOK"
+        ]
+      }
+    ],
+    "gaps": []
+  }
+]
