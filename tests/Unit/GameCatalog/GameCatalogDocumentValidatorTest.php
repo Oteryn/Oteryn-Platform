@@ -123,10 +123,20 @@ final class GameCatalogDocumentValidatorTest extends TestCase
     /** @param array<string, mixed> $document */
     private function writeDocument(array $document): string
     {
+        foreach ($document['entities'] as &$entity) {
+            if (isset($entity['data']['attributes']) && $entity['data']['attributes'] === []) {
+                $entity['data']['attributes'] = (object) [];
+            }
+        }
+        unset($entity);
+
         $path = tempnam(sys_get_temp_dir(), 'oteryn-catalog-');
         self::assertIsString($path);
         $this->temporaryFiles[] = $path;
-        file_put_contents($path, json_encode($document, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES)."\n");
+        file_put_contents(
+            $path,
+            json_encode($document, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE)."\n",
+        );
 
         return $path;
     }
