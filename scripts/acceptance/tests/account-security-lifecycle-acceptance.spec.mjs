@@ -148,8 +148,8 @@ test('@portal-account account security lifecycle covers sessions, privacy, verif
   const confirmationLinkPromise = waitForEmailChangeLink(changedEmail, '/email-change/confirm/');
   const recoveryLinkPromise = waitForEmailChangeLink(email, '/email-change/recover/');
   const primaryEmail = page.locator('section[aria-labelledby="primary-email-heading"]');
-  await primaryEmail.getByLabel('New email address').fill(changedEmail);
-  await primaryEmail.getByLabel('Confirm new email address').fill(changedEmail);
+  await primaryEmail.getByLabel('New email address', { exact: true }).fill(changedEmail);
+  await primaryEmail.getByLabel('Confirm new email address', { exact: true }).fill(changedEmail);
   await primaryEmail.getByLabel('Current password').fill(password);
   await primaryEmail.getByRole('button', { name: 'Send confirmation links' }).click();
   await expect(page.getByRole('status')).toContainText('Check the new email address to confirm the change.');
