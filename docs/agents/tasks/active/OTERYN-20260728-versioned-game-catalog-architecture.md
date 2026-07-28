@@ -67,11 +67,11 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-07-28T07:23:00Z
+updated_at: 2026-07-28T07:28:00Z
 head: tracked-by-live-pr
 branch: docs/OTERYN-20260728-versioned-game-catalog-architecture
 pr: https://github.com/blakinio/Oteryn-Platform/pull/271
-status: ready-for-review
+status: ready
 context_routes:
   - architecture
   - public-game-data
@@ -104,8 +104,8 @@ unknown:
   - exact sprite rendering source approved for public use
 conflicts: []
 first_failure:
-  marker: none
-  evidence: none
+  marker: Agent Governance run 30338256757 checkpoint-validation
+  evidence: checkpoint used unsupported status ready-for-review; governance contract permits ready
 rejected_hypotheses:
   - Store every item, creature, NPC and quest as an ordinary Wiki article.
   - Treat external wikis as the production source of truth.
@@ -128,6 +128,9 @@ validation:
   - command: parse proposed schema as JSON and calculate SHA-256
     result: PASS
     evidence: JSON valid; SHA-256 099a8373ff2b0017cc2b321991662dc4e4783b626391aa7a110a6db0559d146b
+  - command: Agent Governance run 30338256757
+    result: FAIL
+    evidence: unsupported checkpoint status ready-for-review; corrected to ready in this commit
 blockers:
   - none
 next_action: Review Oteryn Platform PR #271 together with Canary PR #989 and either accept schema v1 or request a coordinated versioned correction.
