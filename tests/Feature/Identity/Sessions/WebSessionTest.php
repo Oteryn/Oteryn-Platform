@@ -5,6 +5,7 @@ namespace Tests\Feature\Identity\Sessions;
 use App\Audit\SecurityEventRecorder;
 use App\Identity\Actions\RevokeIdentityWebSessions;
 use App\Identity\Models\Identity;
+use App\Identity\Models\IdentityWebSession;
 use App\Identity\Sessions\WebSessionState;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Auth;
@@ -149,6 +150,27 @@ final class WebSessionTest extends TestCase
             'identity_id' => $identity->id,
             'event_type' => SecurityEventRecorder::IDENTITY_WEB_SESSIONS_REVOKED,
         ]);
+        $this->assertDatabaseHas('identity_security_events', [
+            'identity_id' => $identity->id,
+            'event_type' => SecurityEventRecorder::IDENTITY_WEB_SESSION_REJECTED,
+        ]);
+    }
+
+    public function test_revoked_registered_session_is_rejected_before_a_protected_route_runs(): void
+    {
+        $identity = $this->createIdentity();
+        $this->login($identity);
+
+        $registeredSessionId = session()->get(WebSessionState::REGISTRY_ID_KEY);
+        self::assertIsString($registeredSessionId);
+        IdentityWebSession::query()
+            ->whereKey($registeredSessionId)
+            ->update(['revoked_at' => now(), 'updated_at' => now()]);
+
+        $this->get(route('account.overview'))
+            ->assertRedirect(route('identity.login.create'));
+        $this->assertGuest('web');
+
         $this->assertDatabaseHas('identity_security_events', [
             'identity_id' => $identity->id,
             'event_type' => SecurityEventRecorder::IDENTITY_WEB_SESSION_REJECTED,
