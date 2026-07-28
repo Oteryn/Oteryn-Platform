@@ -122,6 +122,15 @@
     border-radius: 0.65rem;
 }
 
+.table-wrap {
+    min-width: 0;
+    max-width: 100%;
+    overflow-x: auto;
+    overscroll-behavior-inline: contain;
+    border: 1px solid var(--border-color, #d8d2c4);
+    border-radius: 0.7rem;
+}
+
 .admin-subnav {
     display: flex;
     flex-wrap: wrap;
