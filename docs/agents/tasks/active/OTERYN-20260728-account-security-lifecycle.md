@@ -104,11 +104,11 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-07-28T13:45:00Z
-head: 3993263a002010ac8511a1c6e9fcccfb597adc1c
+updated_at: 2026-07-28T17:52:49Z
+head: 544912954cbc3c07657182d0923042aaea26f27b
 branch: feat/OTERYN-20260728-account-security-lifecycle
-pr: none
-status: investigating
+pr: 283
+status: validating
 context_routes:
   - agent-governance
   - architecture
@@ -122,45 +122,83 @@ owned_paths:
   - app/Identity/**
   - app/Accounts/**
   - app/Http/Controllers/Identity/**
+  - app/Http/Middleware/**Session**
   - app/Http/Requests/Identity/**
   - app/Mail/Identity/**
   - app/Notifications/Identity/**
   - database/migrations/*identity*
+  - routes/**identity**
   - resources/views/identity/**
   - resources/views/account/**
+  - lang/{en,pl}/identity.php
+  - config/identity_security.php
   - tests/**/Identity/**
   - scripts/acceptance/tests/*account*security*
   - docs/architecture/adr/*account-security*
   - docs/operations/*ACCOUNT*SECURITY*
   - docs/agents/tasks/active/OTERYN-20260728-account-security-lifecycle.md
 proven:
-  - Issue #276 is the highest-priority required account-security gap produced by the merged product-completeness benchmark.
-  - Current main already provides registration, login/logout, password recovery/change, global session revocation, TOTP MFA with recovery codes and an immutable one-to-one Platform Identity to greenfield Canary account binding.
-  - The current Accounts contract explicitly excludes account deletion and unlink or rebind unless a separate operation contract is approved.
-  - Generic continuation does not authorize Canary repository writes or production verification.
+  - PR #283 is open, draft and mergeable on branch feat/OTERYN-20260728-account-security-lifecycle at head 544912954cbc3c07657182d0923042aaea26f27b.
+  - The branch implements Platform-owned active-session persistence and targeted revocation, verified email change with old-address recovery, privacy controls, non-destructive termination and a verifier-only recovery-key lifecycle.
+  - Browser-supplied identifiers do not establish session ownership, recovery keys are stored only as keyed verifiers, and termination preserves the immutable Canary binding and Canary-owned account and character data.
+  - Canary and login-server schema or session compatibility is unchanged; blakinio/canary remains read-only and no cross-repository rollout is required.
+  - No secret or production-only credential is committed; rollback is the reversible PR branch plus reversible Platform migrations, and production deployment remains unverified.
+  - Exact-head format diagnostics run 30368928083 produced one Pint patch limited to tests/Feature/Identity/AccountSecurityLifecycleTest.php.
+  - Exact-head static diagnostics run 30368933274 passed; Agent Governance, Synology preflight, image build, DB outage, edge-security and game-auth concurrency workflows also passed on this head.
 derived:
-  - Most adopted lifecycle data can remain Platform-owned, while exceptional binding changes must stay deny-by-default unless exact Canary ownership safety can be proven.
+  - The current first failure is formatting rather than PHPStan, and the exact artifact patch is the smallest safe next change before broader test diagnosis.
+  - The trust boundary remains Platform Identity and web-session state; authorization must continue to derive the authenticated Identity server-side and security-sensitive mutations must revoke or rotate sessions deterministically.
 unknown:
-  - Exact current session persistence schema and targeted-revocation extension point.
-  - Exact Identity model fields, route organization, security-event schema and notification primitives.
-  - Whether termination can safely finalize as Platform login disablement while preserving the immutable Canary binding and retained audit records.
+  - Whether PHPUnit and focused account-security tests pass after the formatter gate is cleared.
+  - The downstream root causes of Phase 7 run 30368933723 and Portal Acceptance Contract run 30368933745 after formatting is fixed.
+  - Whether the cancelled acceptance run 30368928203 will expose additional browser, localization or responsive failures on a clean exact head.
+  - Production deployment state and production-only configuration remain outside repository evidence.
 conflicts: []
 first_failure:
-  marker: account-lifecycle-contract-gap
-  evidence: the current delivered account contract revokes sessions globally but lacks user-visible session inventory, email change, privacy, termination and high-assurance recovery-key lifecycle
+  marker: pint-format-account-security-lifecycle-test
+  evidence: CI run 30368933735 failed at Check formatting; artifact 8692009680 from diagnostics run 30368928083 imports EmailChangeRejected and replaces two fully-qualified exception references.
 rejected_hypotheses:
-  - Delete the bound Canary account during first-slice termination; rejected because no authorized cross-repository deletion contract exists.
-  - Add email-code MFA automatically; rejected pending an explicit security decision because email is already the recovery channel.
-  - Permit user-driven unlink or rebind from a browser-supplied Canary account identifier; rejected because it would undermine server-authoritative ownership.
+  - PHPStan is still the current first failure; rejected because exact-head static diagnostics run 30368933274 passed.
+  - First-slice termination should delete or unlink Canary data; rejected because the immutable binding contract and repository authorization permit no such mutation.
+  - Email-code MFA should be added as a second factor; rejected by the durable ADR because email is already the recovery channel.
 changed_paths:
+  - app/Identity/**
+  - app/Http/Controllers/Identity/**
+  - app/Http/Middleware/EnsureIdentitySessionIsCurrent.php
+  - app/Http/Requests/Identity/**
+  - app/Mail/Identity/**
+  - app/Notifications/Identity/**
+  - app/Console/Commands/FinalizeIdentityTerminations.php
+  - database/migrations/*identity*
+  - routes/web.php
+  - resources/views/identity/**
+  - config/identity_security.php
+  - tests/Feature/Identity/AccountSecurityLifecycleTest.php
+  - tests/Unit/Identity/**
+  - docs/architecture/adr/0017-account-security-lifecycle.md
   - docs/agents/tasks/active/OTERYN-20260728-account-security-lifecycle.md
 validation:
-  - command: active-task and open-PR overlap search
+  - command: Account Security Format Diagnostics run 30368928083
     result: PASS
-    evidence: no open PR matched Issue #276 or the account-security lifecycle scope before branch creation
+    evidence: artifact 8692009680 identifies exactly one Pint-managed test file.
+  - command: Account Security Static Diagnostics run 30368933274
+    result: PASS
+    evidence: PHPStan diagnostics completed successfully on exact head 544912954cbc3c07657182d0923042aaea26f27b.
+  - command: CI run 30368933735
+    result: FAIL
+    evidence: Check formatting failed before static analysis and PHPUnit.
+  - command: Agent Governance run 30368928038 and infrastructure/security focused workflows on exact head
+    result: PASS
+    evidence: governance, Synology preflight, image build, DB outage, edge-security and game-auth concurrency concluded success.
+  - command: Phase 7 run 30368933723 and Portal Acceptance Contract run 30368933745
+    result: FAIL
+    evidence: downstream failures remain to inspect after the formatter gate is cleared.
+  - command: Acceptance E2E and Visual UX run 30368928203
+    result: BLOCKED
+    evidence: run was cancelled before exact-head account-security acceptance evidence completed.
 blockers:
-  - exact session and binding implementation discovery is required before runtime changes
-next_action: Inspect current Identity routes, models, session storage, security events, notifications and account binding state, then record the adopted lifecycle design in an ADR before implementation.
+  - Exact head is not merge-ready because CI currently stops at the Pint formatting gate and downstream validation remains unresolved.
+next_action: Apply the exact Pint patch from artifact 8692009680 to tests/Feature/Identity/AccountSecurityLifecycleTest.php, then verify the new exact-head CI progresses past Check formatting.
 ```
 
 ## Boundaries
