@@ -21,6 +21,15 @@ final class UpdateAccountPrivacyRequest extends FormRequest
         ];
     }
 
+    /** @return array<string, string> */
+    public function messages(): array
+    {
+        return [
+            'public_account_association.boolean' => __('identity.validation.privacy_boolean'),
+            'public_status_visible.boolean' => __('identity.validation.privacy_boolean'),
+        ];
+    }
+
     /** @return array{public_account_association: bool, public_status_visible: bool} */
     public function privacy(): array
     {
