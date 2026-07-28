@@ -23,7 +23,7 @@
                 <tr>
                     <td><a href="{{ route('admin.game-catalog.snapshots.show', $snapshot->id) }}">#{{ $snapshot->id }}</a></td>
                     <td>{{ $snapshot->status }}</td>
-                    <td><code>{{ \Illuminate\Support\Str::limit($snapshot->content_sha256, 24, '…') }}</code></td>
+                    <td><code>{{ $snapshot->content_sha256 }}</code></td>
                     <td>{{ $snapshot->runtime_release }}</td>
                     <td>{{ $snapshot->content_target_release }}</td>
                     <td>{{ $snapshot->verified_content_through_release }}</td>
