@@ -98,9 +98,12 @@ final class CrossRepositoryGameCatalogTest extends TestCase
 
         $profile = DB::table('game_catalog_profiles')->where('id', $profileId)->first();
         $this->assertNotNull($profile);
-        $this->assertSame($baseline->snapshotId, (int) $profile->active_snapshot_id);
-        $this->assertSame(3, (int) $profile->lock_version);
-        $this->assertSame(0, (int) $profile->public_enabled);
+        $this->assertSame(
+            $baseline->snapshotId,
+            $this->integerDatabaseValue($profile->active_snapshot_id, 'active snapshot'),
+        );
+        $this->assertSame(3, $this->integerDatabaseValue($profile->lock_version, 'profile lock version'));
+        $this->assertSame(0, $this->integerDatabaseValue($profile->public_enabled, 'public enabled flag'));
 
         $this->assertSame(
             ['snapshot.activate', 'snapshot.activate', 'snapshot.rollback'],
@@ -152,7 +155,7 @@ final class CrossRepositoryGameCatalogTest extends TestCase
             throw new RuntimeException("{$path} is not a JSON object.");
         }
 
-        return $decoded;
+        return $this->stringKeyedArray($decoded, "JSON document {$path}");
     }
 
     /**
@@ -166,7 +169,23 @@ final class CrossRepositoryGameCatalogTest extends TestCase
             throw new RuntimeException('The generated Canary document has no snapshot metadata object.');
         }
 
-        return $snapshot;
+        return $this->stringKeyedArray($snapshot, 'snapshot metadata');
+    }
+
+    /**
+     * @param  array<mixed, mixed>  $value
+     * @return array<string, mixed>
+     */
+    private function stringKeyedArray(array $value, string $description): array
+    {
+        foreach (array_keys($value) as $key) {
+            if (! is_string($key)) {
+                throw new RuntimeException("The {$description} must use string object keys.");
+            }
+        }
+
+        /** @var array<string, mixed> $value */
+        return $value;
     }
 
     private function sha256(string $path): string
