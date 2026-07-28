@@ -132,11 +132,11 @@ final class CanaryCharacterTransferConcurrencyMariaDbTest extends TestCase
             touch($goPath);
 
             foreach ($pids as $pid) {
-                $status = 0;
-                $waitedPid = pcntl_waitpid($pid, $status);
+                $waitStatus = 0;
+                $waitedPid = pcntl_waitpid($pid, $waitStatus);
                 self::assertSame($pid, $waitedPid);
-                self::assertTrue(pcntl_wifexited($status));
-                self::assertSame(0, pcntl_wexitstatus($status));
+                self::assertTrue(pcntl_wifexited($waitStatus));
+                self::assertSame(0, pcntl_wexitstatus($waitStatus));
             }
 
             $statuses = [];
@@ -146,9 +146,9 @@ final class CanaryCharacterTransferConcurrencyMariaDbTest extends TestCase
                 self::assertIsString($contents);
                 $decoded = json_decode($contents, true, flags: JSON_THROW_ON_ERROR);
                 self::assertIsArray($decoded);
-                $status = $decoded['status'] ?? null;
-                self::assertIsString($status);
-                $statuses[] = $status;
+                $resultStatus = $decoded['status'] ?? null;
+                self::assertIsString($resultStatus);
+                $statuses[] = $resultStatus;
             }
 
             sort($statuses, SORT_STRING);
