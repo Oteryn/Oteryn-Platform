@@ -4,25 +4,32 @@ namespace App\GameCatalog\Application\Import;
 
 use App\GameCatalog\Domain\CatalogValidationFinding;
 
+/**
+ * @phpstan-import-type CatalogPayload from ValidatedCatalogSnapshot
+ * @phpstan-import-type CatalogRelease from ValidatedCatalogSnapshot
+ * @phpstan-import-type CatalogSnapshotMetadata from ValidatedCatalogSnapshot
+ * @phpstan-import-type CatalogEntity from ValidatedCatalogSnapshot
+ * @phpstan-import-type CatalogRelation from ValidatedCatalogSnapshot
+ */
 final class CatalogSemanticValidator
 {
     /**
-     * @param  array<string, mixed>  $payload
+     * @param  CatalogPayload  $payload
      * @return list<CatalogValidationFinding>
      */
     public function validate(array $payload): array
     {
         $findings = [];
-        $releases = $this->validateReleases($payload['releases'] ?? [], $findings);
-        $entityTypes = $this->validateEntities($payload['entities'] ?? [], $releases, $findings);
-        $this->validateRelations($payload['relations'] ?? [], $releases, $entityTypes, $findings);
-        $this->validateSnapshot($payload['snapshot'] ?? [], $payload, $releases, $findings);
+        $releases = $this->validateReleases($payload['releases'], $findings);
+        $entityTypes = $this->validateEntities($payload['entities'], $releases, $findings);
+        $this->validateRelations($payload['relations'], $releases, $entityTypes, $findings);
+        $this->validateSnapshot($payload['snapshot'], $payload, $releases, $findings);
 
         return $findings;
     }
 
     /**
-     * @param  list<array<string, mixed>>  $releaseRows
+     * @param  list<CatalogRelease>  $releaseRows
      * @param  list<CatalogValidationFinding>  $findings
      * @return array<string, int>
      */
@@ -57,7 +64,7 @@ final class CatalogSemanticValidator
     }
 
     /**
-     * @param  list<array<string, mixed>>  $entities
+     * @param  list<CatalogEntity>  $entities
      * @param  array<string, int>  $releases
      * @param  list<CatalogValidationFinding>  $findings
      * @return array<string, string>
@@ -120,7 +127,7 @@ final class CatalogSemanticValidator
     }
 
     /**
-     * @param  list<array<string, mixed>>  $relations
+     * @param  list<CatalogRelation>  $relations
      * @param  array<string, int>  $releases
      * @param  array<string, string>  $entityTypes
      * @param  list<CatalogValidationFinding>  $findings
@@ -174,8 +181,8 @@ final class CatalogSemanticValidator
     }
 
     /**
-     * @param  array<string, mixed>  $snapshot
-     * @param  array<string, mixed>  $payload
+     * @param  CatalogSnapshotMetadata  $snapshot
+     * @param  CatalogPayload  $payload
      * @param  array<string, int>  $releases
      * @param  list<CatalogValidationFinding>  $findings
      */
@@ -194,7 +201,7 @@ final class CatalogSemanticValidator
             'verified_content_through_release',
             'contains_content_through_release',
         ] as $field) {
-            $value = $snapshot[$field] ?? null;
+            $value = $snapshot[$field];
             if ($value !== null && ! isset($releases[$value])) {
                 $findings[] = $this->finding('semantic.snapshot_release_reference', "Snapshot references unknown release '{$value}'.", '$.snapshot.'.$field);
             }
@@ -218,9 +225,7 @@ final class CatalogSemanticValidator
         }
     }
 
-    /**
-     * @param  list<CatalogValidationFinding>  $findings
-     */
+    /** @param list<CatalogValidationFinding> $findings */
     private function validateSourcePath(?string $sourcePath, string $path, array &$findings): void
     {
         if ($sourcePath === null) {

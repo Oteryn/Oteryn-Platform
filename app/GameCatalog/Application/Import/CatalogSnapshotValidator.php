@@ -2,6 +2,7 @@
 
 namespace App\GameCatalog\Application\Import;
 
+use App\GameCatalog\Application\Configuration\CatalogConfiguration;
 use App\GameCatalog\Domain\CatalogValidationFinding;
 use App\GameCatalog\Domain\Exceptions\CatalogValidationException;
 use App\GameCatalog\Infrastructure\Json\BundledJsonSchemaValidator;
@@ -10,6 +11,7 @@ use JsonException;
 use RuntimeException;
 use Throwable;
 
+/** @phpstan-import-type CatalogPayload from ValidatedCatalogSnapshot */
 final class CatalogSnapshotValidator
 {
     public function __construct(
@@ -20,9 +22,9 @@ final class CatalogSnapshotValidator
 
     public function validate(string $path, ?string $expectedSha256 = null): ValidatedCatalogSnapshot
     {
-        $schemaPath = (string) config('game-catalog.schema_path');
-        $expectedSchemaSha256 = (string) config('game-catalog.expected_schema_sha256');
-        $maximumFileBytes = (int) config('game-catalog.limits.file_bytes', 268_435_456);
+        $schemaPath = CatalogConfiguration::string('game-catalog.schema_path');
+        $expectedSchemaSha256 = CatalogConfiguration::string('game-catalog.expected_schema_sha256');
+        $maximumFileBytes = CatalogConfiguration::positiveInt('game-catalog.limits.file_bytes', 268_435_456);
 
         $this->assertRegularReadableFile($schemaPath, 'The bundled Game Catalog schema is unavailable.');
         $schemaSha256 = hash_file('sha256', $schemaPath);
@@ -96,7 +98,7 @@ final class CatalogSnapshotValidator
 
         try {
             $duplicates = $this->duplicateJsonKeyDetector->find($contents);
-        } catch (Throwable $exception) {
+        } catch (Throwable) {
             throw new CatalogValidationException(
                 findings: [new CatalogValidationFinding('error', 'input.json_scan_failed', 'The JSON object-key scan failed.', '$')],
                 contentSha256: $contentSha256,
@@ -104,7 +106,7 @@ final class CatalogSnapshotValidator
             );
         }
         if ($duplicates !== []) {
-            $maximumFindings = (int) config('game-catalog.limits.validation_findings', 2_000);
+            $maximumFindings = CatalogConfiguration::positiveInt('game-catalog.limits.validation_findings', 2_000);
             $findings = [];
             foreach (array_slice($duplicates, 0, $maximumFindings) as $duplicate) {
                 $findings[] = new CatalogValidationFinding('error', 'input.duplicate_json_key', 'Duplicate JSON object key.', $duplicate);
@@ -123,7 +125,7 @@ final class CatalogSnapshotValidator
             );
         }
 
-        if (! is_array($payload)) {
+        if (! is_array($payload) || array_is_list($payload)) {
             throw new CatalogValidationException(
                 findings: [new CatalogValidationFinding('error', 'schema.root', 'The Game Catalog snapshot root must be an object.', '$')],
                 contentSha256: $contentSha256,
@@ -141,6 +143,8 @@ final class CatalogSnapshotValidator
             throw new CatalogValidationException($schemaFindings, $contentSha256, $fileSize);
         }
 
+        $this->assertSchemaValidatedPayload($payload);
+
         $semanticFindings = $this->semanticValidator->validate($payload);
         if ($semanticFindings !== []) {
             throw new CatalogValidationException($semanticFindings, $contentSha256, $fileSize);
@@ -152,6 +156,38 @@ final class CatalogSnapshotValidator
             fileSize: $fileSize,
             sourceLabel: basename($path),
         );
+    }
+
+    /**
+     * The bundled fixed schema has already validated every nested field before
+     * this assertion is reached. These top-level checks keep the static type
+     * boundary explicit and fail closed if the schema validator contract ever
+     * changes unexpectedly.
+     *
+     * @param array<string, mixed> $payload
+     * @phpstan-assert CatalogPayload $payload
+     */
+    private function assertSchemaValidatedPayload(array $payload): void
+    {
+        $snapshot = $payload['snapshot'] ?? null;
+        $releases = $payload['releases'] ?? null;
+        $entities = $payload['entities'] ?? null;
+        $relations = $payload['relations'] ?? null;
+
+        if (
+            ! is_string($payload['contract'] ?? null)
+            || ! is_string($payload['schema_version'] ?? null)
+            || ! is_array($snapshot)
+            || array_is_list($snapshot)
+            || ! is_array($releases)
+            || ! array_is_list($releases)
+            || ! is_array($entities)
+            || ! array_is_list($entities)
+            || ! is_array($relations)
+            || ! array_is_list($relations)
+        ) {
+            throw new RuntimeException('The schema-validated Game Catalog payload has an unexpected PHP shape.');
+        }
     }
 
     private function assertRegularReadableFile(string $path, string $message): void
