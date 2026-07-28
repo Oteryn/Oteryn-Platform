@@ -16,7 +16,7 @@ final class CatalogProfileVerifier
         }
 
         $snapshotId = (int) $profile->active_snapshot_id;
-        $snapshot = DB::table('game_catalog_snapshots')->whereKey($snapshotId)->first();
+        $snapshot = DB::table('game_catalog_snapshots')->where('id', $snapshotId)->first();
         if ($snapshot === null || $snapshot->status !== 'validated') {
             throw new RuntimeException('Active Game Catalog snapshot is missing or not validated.');
         }
