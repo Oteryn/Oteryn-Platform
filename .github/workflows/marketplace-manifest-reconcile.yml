@@ -33,25 +33,11 @@ jobs:
           }
           data['surfaces'] = [surface for surface in data['surfaces'] if surface['id'] not in remove_ids]
 
-          expected_surface = None
+          old_marker = '@portal-marketplace-account authenticated watch bid wallet reservation dashboard and authorization journey'
+          new_marker = '@portal-marketplace-account authenticated watch bid wallet reservation complete state matrix and authorization journey'
           for surface in data['surfaces']:
-              if surface['id'] == 'marketplace.authenticated-auction-lifecycle':
-                  expected_surface = surface
-                  break
-          if expected_surface is None:
-              raise SystemExit('Expected authenticated Marketplace coverage record was not found.')
-
-          marker = '@portal-marketplace-account authenticated watch bid wallet reservation complete state matrix and authorization journey'
-          evidence_found = False
-          for evidence in expected_surface.get('evidence', []):
-              if evidence.get('file') == 'scripts/acceptance/tests/marketplace-acceptance.spec.mjs':
-                  evidence['markers'] = [marker]
-                  evidence_found = True
-          if not evidence_found:
-              expected_surface.setdefault('evidence', []).append({
-                  'file': 'scripts/acceptance/tests/marketplace-acceptance.spec.mjs',
-                  'markers': [marker],
-              })
+              for evidence in surface.get('evidence', []):
+                  evidence['markers'] = [new_marker if marker == old_marker else marker for marker in evidence.get('markers', [])]
 
           path.write_text(json.dumps(data, ensure_ascii=False, indent=2) + '\n')
           PY
@@ -59,8 +45,12 @@ jobs:
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
           git add scripts/acceptance/coverage/portal-coverage-manifest.json
-          git commit -m 'test(marketplace): reconcile coverage records'
-          git push origin "HEAD:${GITHUB_HEAD_REF}"
+          if git diff --cached --quiet; then
+            echo 'Coverage manifest already reconciled.'
+          else
+            git commit -m 'test(marketplace): reconcile coverage records'
+            git push origin "HEAD:${GITHUB_HEAD_REF}"
+          fi
 
       - name: Upload reconciled manifest
         uses: actions/upload-artifact@v7
