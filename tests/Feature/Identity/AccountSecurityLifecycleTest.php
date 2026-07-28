@@ -85,7 +85,7 @@ final class AccountSecurityLifecycleTest extends TestCase
             ->assertHeader('Content-Language', 'pl')
             ->assertSee('Bezpieczeństwo i cykl życia')
             ->assertSee('Brak aktywnego klucza odzyskiwania.');
-        $this->assertSessionHas(SetIdentityLocale::SESSION_KEY, 'pl');
+        self::assertSame('pl', session()->get(SetIdentityLocale::SESSION_KEY));
 
         $this->post(route('identity.email-change.store'), [
             'email' => 'localized-new@example.test',
