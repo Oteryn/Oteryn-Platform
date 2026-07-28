@@ -4,10 +4,11 @@ Convenience index only. Individual active task records, live PRs and Git state a
 
 ## Active tasks
 
-- `OTERYN-20260728-character-bazaar` — Issue #269 / draft PR #270 on `feat/OTERYN-20260728-character-bazaar`; implementation is complete and exact-final-head validation is running for Marketplace, Wallet, operation-specific Canary character transfer, responsive Character Bazaar surfaces and acceptance closure.
+- None.
 
 ## Closed acceptance and release-preparation follow-ups
 
+- PR #270 / `0f19656e0875d0a10b22002ac0e096deb20e94d8` — complete Character Bazaar, Platform wallet ledger, least-privilege Canary escrow/settlement and exact-head responsive/browser/database/security validation merged; Issue #269 closed.
 - PR #67 / `517968539bdfd7d189677b669bf0899c35fccec1` — issues #68-#70 closed with exact-SHA production-like browser acceptance evidence classified `STAGING_PROVEN`.
 - PR #73 / `06d8d94aafd73de996eb4ea93705e8a45fbadafb` — issue #71 closed with controlled Platform DB outage evidence classified `STAGING_PROVEN` for that staging failure path only.
 - PR #74 / `24eaa4ca5e38bb255db95a989c0ff02e954360f3` — issue #72 closed; focused CMS publication-state and privileged-audit regressions found no runtime defect.
