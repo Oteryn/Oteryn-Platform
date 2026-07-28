@@ -96,9 +96,9 @@ cross_repository_tasks:
 ## Context checkpoint
 
 ```yaml
-checkpoint_version: 2
-updated_at: 2026-07-28T11:40:00Z
-head: c67355c54af25af0324bb92335d432821329d03a
+checkpoint_version: 1
+updated_at: 2026-07-28T11:45:00Z
+head: e9a341bc27019aa6acfff7b69aeaee2aa28fe792
 branch: feat/OTERYN-20260728-character-bazaar
 pr: 270
 status: validating
@@ -164,11 +164,11 @@ validation:
     result: PASS
     evidence: strict delivered-surface ledger and account lifecycle succeeded
   - command: exact final head workflows
-    result: RUNNING
-    evidence: c67355c54af25af0324bb92335d432821329d03a includes the final mobile table containment fix
+    result: NOT_RUN
+    evidence: the current exact head includes the final responsive containment and checkpoint correction and is awaiting a complete workflow result set
 blockers:
   - exact final head checks must all pass before PR readiness and merge
-next_action: Wait for every exact-head workflow on c67355c54af25af0324bb92335d432821329d03a, remediate any failure, then mark PR #270 ready and merge only after all checks pass.
+next_action: Wait for every exact-head workflow on the current PR head, remediate any failure, then mark PR #270 ready and merge only after all checks pass.
 ```
 
 ## Notes
