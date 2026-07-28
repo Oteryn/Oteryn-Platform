@@ -1,0 +1,25 @@
+-- Review and replace placeholders before execution. Keep credentials outside Git.
+-- This principal may only inspect the exact Character Bazaar transfer surface and
+-- update players.account_id. It must not receive table-level privileges.
+
+CREATE USER IF NOT EXISTS 'oteryn_character_transfer'@'OTERYN_APP_HOST' IDENTIFIED BY 'INJECTED_SECRET';
+
+GRANT SELECT (`id`)
+ON `canary`.`accounts`
+TO 'oteryn_character_transfer'@'OTERYN_APP_HOST';
+
+GRANT SELECT (
+    `id`, `name`, `account_id`, `deletion`, `level`, `vocation`, `experience`,
+    `sex`, `maglevel`, `skill_fist`, `skill_club`, `skill_sword`, `skill_axe`,
+    `skill_dist`, `skill_shielding`, `skill_fishing`, `looktype`, `lookaddons`,
+    `lookhead`, `lookbody`, `looklegs`, `lookfeet`, `town_id`, `lastlogin`, `lastlogout`
+), UPDATE (`account_id`)
+ON `canary`.`players`
+TO 'oteryn_character_transfer'@'OTERYN_APP_HOST';
+
+GRANT SELECT (`player_id`, `account_id`, `status`, `expires_at`)
+ON `canary`.`cluster_sessions`
+TO 'oteryn_character_transfer'@'OTERYN_APP_HOST';
+
+-- Do not add GRANT OPTION, INSERT, DELETE, DDL, table-level SELECT/UPDATE,
+-- account credentials, coin columns or session mutation privileges.
