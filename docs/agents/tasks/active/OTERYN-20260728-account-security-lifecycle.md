@@ -43,7 +43,7 @@ Close Issue #276 with a secure Platform-owned account lifecycle: confirmed prima
 - [x] English/Polish account-security UI covers desktop, tablet and mobile, including success, empty, validation, authorization, expired-token and recovery states.
 - [x] Focused unit, feature, database/concurrency and zero-retry browser acceptance coverage exists for every adopted lifecycle.
 - [x] Module catalog, data ownership, security architecture, operations guidance and product-completeness ledger are updated without claiming production verification.
-- [ ] Every required exact-final-head workflow passes before merge.
+- [x] Every required exact-final-head workflow passes before merge.
 
 ## Ownership
 
@@ -103,11 +103,11 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-07-28T20:28:00Z
-head: 29469896eda1181fb8e3b106d30f5a8e4b81f469
+updated_at: 2026-07-28T20:40:00Z
+head: 9aa04d483bb02c6918ccb70aee418334ea13566f
 branch: feat/OTERYN-20260728-account-security-lifecycle
 pr: 283
-status: validating
+status: reviewing
 context_routes:
   - agent-governance
   - architecture
@@ -146,30 +146,29 @@ owned_paths:
   - docs/agents/ACTIVE_WORK.md
   - docs/agents/tasks/active/OTERYN-20260728-account-security-lifecycle.md
 proven:
-  - PR #283 is open, draft and mergeable on branch feat/OTERYN-20260728-account-security-lifecycle after merge commit 29469896eda1181fb8e3b106d30f5a8e4b81f469 synchronized current main without discarding either branch.
-  - Platform-owned registered web sessions support bounded inventory plus owner-scoped targeted, current and all-other revocation; stale or revoked sessions are invalidated before protected controllers execute.
-  - Primary-email change uses current-password validation, new-address confirmation, previous-address cancellation/recovery, bounded expiry/cooldown, single-use replay denial and global web/game authorization revocation.
-  - Account privacy controls default private and are persisted and audited server-side.
-  - One active high-assurance recovery key is displayed once, stored only as a keyed verifier and supports rotation, revocation, single use, password/MFA reset and replay denial.
-  - Platform account termination uses explicit confirmation, dependency guards, a bounded grace period, cancellation and idempotent finalization while preserving the immutable Canary binding and Canary-owned account and character data.
+  - PR #283 is open, draft and mergeable after merge commit 29469896eda1181fb8e3b106d30f5a8e4b81f469 synchronized current main without discarding either branch.
+  - Primary-email change, registered-session inventory/revocation, privacy controls, verifier-only recovery keys and bounded Platform termination are implemented with owner-scoped authorization, replay denial and bounded audit metadata.
+  - Stale or revoked registered sessions are invalidated before protected controllers execute.
+  - English and Polish account-security presentation covers protected, guest and token surfaces, validation/domain errors, locale-preserving notifications and desktop/tablet/mobile responsive states.
+  - Guest redirects preserve an allowlisted account-security locale in the Platform session before rendering login; the direct feature regression and zero-retry Polish browser scenario pass.
   - Email-code MFA is intentionally not adopted because email remains the recovery channel; self-service Canary import, unlink, rebind or transfer is intentionally not applicable without a separate reviewed operation contract.
-  - English and Polish account-security presentation covers protected, guest and token surfaces, validation/domain errors, notification links and desktop/tablet/mobile responsive states.
   - Module catalog, data ownership, security architecture, account-security operations runbook, portal acceptance matrix, project state and the 43-capability product-completeness ledger are updated without a production claim.
-  - Product-completeness account capability status is now 9 implemented, 8 partial, 25 missing and 1 not applicable; required remaining benchmark gaps remain #277, #279 and #280, with #278 required before commerce activation and #281 owning knowledge expansion.
+  - Product-completeness status is 9 implemented, 8 partial, 25 missing and 1 not applicable; required remaining benchmark gaps are #277, #279 and #280, with #278 required before commerce activation and #281 owning knowledge expansion.
+  - All 12 required workflows passed on exact tested head 9aa04d483bb02c6918ccb70aee418334ea13566f.
   - Canary and login-server schema or session compatibility is unchanged; blakinio/canary remains read-only and no cross-repository rollout is required.
 derived:
-  - The implementation, localization and documentation slices requested by Issue #276 are closed in the repository tree; only exact-final-head workflow completion remains before review.
+  - Issue #276 is complete for the approved Platform-owned boundary and ready for human review.
   - Trust derives from authenticated Platform Identity, registered session state and the ready server-resolved binding; no browser identifier establishes Canary or session ownership.
   - Repository and isolated staging-like evidence can support merge review but cannot establish production deployment or PRODUCTION_PROVEN status.
 unknown:
-  - Exact-final-head workflow conclusions for the checkpoint-fix commit are not yet available.
   - Production deployment state, production-only configuration and direct production verification remain outside repository evidence and Issue #276.
 conflicts: []
 first_failure:
   marker: phpstan-test-helper-method-not-found
-  evidence: CI run 30393906804 found one PHPStan error because the new test called assertSessionHas on the test class; commit a3e080411baf64dc0c7b73dd61421898a6cc7387 replaced it with a direct typed session assertion.
+  evidence: CI run 30393906804 found one PHPStan error because the new test called assertSessionHas on the test class; the test was corrected to use a direct typed session assertion.
 rejected_hypotheses:
   - Account-security localization can be satisfied by hardcoded Polish copy; rejected because the delivered implementation uses complete EN/PL dictionaries, scoped locale persistence, localized domain/validation outcomes and locale-preserving notification links.
+  - Route middleware ordering alone always preserves locale through a guest redirect; rejected by zero-retry browser evidence, then fixed with an allowlisted session write in redirectGuestsTo and a direct feature regression.
   - A revoked registered session may continue into a protected controller; rejected by feature regression and browser acceptance that requires redirect to login before controller execution.
   - First-slice termination should delete, unlink or transfer Canary data; rejected by the immutable binding contract, data-ownership boundary and explicit operations runbook.
   - Email-code MFA should be silently treated as a delivered second factor; rejected by the durable security decision that email is already the recovery channel.
@@ -209,21 +208,29 @@ changed_paths:
   - docs/agents/ACTIVE_WORK.md
   - docs/agents/tasks/active/OTERYN-20260728-account-security-lifecycle.md
 validation:
-  - command: Account Security Format Diagnostics runs through code and ledger head 8acb003378fed7bc343e04d6236616ad4680c398
+  - command: Agent Governance run 30396919622
     result: PASS
-    evidence: focused formatting diagnostics concluded success after the localization and ledger changes.
-  - command: Account Security Static Diagnostics through code and ledger head 8acb003378fed7bc343e04d6236616ad4680c398
+    evidence: checkpoint schema and repository governance passed on 9aa04d483bb02c6918ccb70aee418334ea13566f.
+  - command: CI run 30396919016
     result: PASS
-    evidence: focused PHPStan diagnostics concluded success after the test-helper correction.
-  - command: Agent Governance, Synology preflight, image build, DB outage, edge-security and game-auth concurrency through code and ledger head 8acb003378fed7bc343e04d6236616ad4680c398
+    evidence: Composer validation and audit, Pint, PHPStan and full PHPUnit passed, including the localized guest-redirect regression.
+  - command: Portal Acceptance Contract run 30396917405
     result: PASS
-    evidence: all six focused governance, infrastructure and security workflows concluded success; longer workflows were superseded by later documentation commits rather than failing.
-  - command: exact-final-head workflows for the checkpoint-fix commit
-    result: NOT_RUN
-    evidence: run conclusions are not yet available; the preceding merge-head governance run failed only because this item used the unsupported result PENDING.
-blockers:
-  - Exact-final-head workflow conclusions are not yet available for the checkpoint-fix commit.
-next_action: Run every required workflow on this checkpoint-fix head; if all pass, record the validated head in the checkpoint, mark PR #283 ready for review and leave review/merge as the sole remaining action.
+    evidence: strict portal/product ledgers and complete zero-retry account lifecycle passed, including Polish responsive, authorization, validation and expired-token states.
+  - command: Acceptance E2E and Visual UX run 30396916220
+    result: PASS
+    evidence: complete E2E and visual UX workflow passed.
+  - command: Phase 7 Production-Like Validation run 30396920761
+    result: PASS
+    evidence: production-like migration, privilege, Redis, SMTP, security, backup/restore and release validation passed.
+  - command: Account Security Format Diagnostics run 30396918762 and Static Diagnostics run 30396920714
+    result: PASS
+    evidence: focused formatting and static-analysis diagnostics passed.
+  - command: Synology preflight 30396920059, image build 30396917557, DB outage 30396916404, edge security 30396916207 and game-auth concurrency 30396916401
+    result: PASS
+    evidence: every required infrastructure, failure-path and concurrency workflow passed on the exact tested head.
+blockers: []
+next_action: Review and merge PR #283; after merge archive this task record and close Issue #276.
 ```
 
 ## Boundaries
