@@ -1,5 +1,9 @@
 <?php
 
+if (! config('marketplace.enabled')) {
+    return ['header' => [], 'footer' => []];
+}
+
 return [
     'header' => [
         ['label' => 'Character Bazaar', 'route' => 'marketplace.index', 'active' => 'marketplace.*', 'priority' => 45],
