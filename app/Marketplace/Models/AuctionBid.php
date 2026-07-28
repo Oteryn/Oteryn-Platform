@@ -30,6 +30,8 @@ final class AuctionBid extends Model
 
     public const STATUS_RELEASED = 'released';
 
+    protected $table = 'character_auction_bids';
+
     /** @var list<string> */
     protected $fillable = [
         'request_id',
