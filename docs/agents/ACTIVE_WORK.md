@@ -4,7 +4,7 @@ Convenience index only. Individual active task records, live PRs and Git state a
 
 ## Active tasks
 
-- None.
+- `OTERYN-20260728-product-completeness-benchmark` — Issue #268 on `audit/OTERYN-20260728-product-completeness-benchmark`; auditing actual Oteryn routes, states and workflows against Tibia/RubinOT/OTS benchmarks, producing an evidence-linked capability matrix and explicit required-gap backlog.
 
 ## Closed acceptance and release-preparation follow-ups
 
@@ -63,6 +63,7 @@ Repository and staging evidence remains valid only for its documented boundaries
 
 - **Production Readiness: STAGING_PROVEN for previously documented boundaries**
 - **Portal Completeness: COMPLETE AGAINST THE VERSIONED DELIVERED-SURFACE CONTRACT (Issue #240 closed)**
+- **Product Completeness Benchmark: IN PROGRESS (Issue #268)**
 - **Functional Acceptance: comprehensive exact-head critical/full/contract/module/stability/soak audit passed through PR #265**
 - **Visual / UX Acceptance: automated responsive/accessibility profiles and exploratory visual contact-sheet audit passed on the PR #265 exact head**
 - **Public Website Expansion Programme: implementation and machine-ledger closure merged**
@@ -71,11 +72,11 @@ Repository and staging evidence remains valid only for its documented boundaries
 - **Production Go-Live Gate: PENDING PRODUCTION VERIFICATION**
 - **Production Verification: REQUIRED BEFORE GO-LIVE**
 
-The latest verified final-portal staging refresh identity is `ef6d03e0b7c6ed0ecf40e6e108b81358c9b64b1b` from PR #264. The later PR #265 evidence is repository/isolated-acceptance proof and is not a claim that its merge SHA is deployed to staging. No repository, staging, local-target or emulation evidence may be promoted to `PRODUCTION_PROVEN`.
+The latest verified final-portal staging refresh identity is `ef6d03e0b7c6ed0ecf40e6e108b81358c9b64b1b` from PR #264. Later marketplace and audit evidence is repository/isolated-acceptance proof unless a deployment-specific record says otherwise. No repository, staging, local-target or emulation evidence may be promoted to `PRODUCTION_PROVEN`.
 
 ## Next work
 
-Issue #244 separately owns audited homepage-template selection. Issue #91 remains the separate real Production Go-Live tracker. The completed audit report records bounded follow-ups for reusable profile precedence, stale core project-state documentation and the nonfunctional soak wrapper.
+Issue #268 owns the benchmark-based product-completeness audit. Issue #244 separately owns audited homepage-template selection. Issue #91 remains the separate real Production Go-Live tracker.
 
 ## Remaining cross-repository dependency
 

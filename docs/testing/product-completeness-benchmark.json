@@ -1,0 +1,831 @@
+{
+  "schema_version": 1,
+  "audit_issue": 268,
+  "baseline_sha": "0a9a00014f55d7b2146d4ab151cd2a1b7c5bcd3d",
+  "generated_at": "2026-07-28T13:10:00Z",
+  "claim_boundary": "This ledger compares current repository and isolated staging-like evidence with external product benchmarks. It does not establish production deployment or PRODUCTION_PROVEN status.",
+  "allowed_delivery_statuses": [
+    "implemented",
+    "partial",
+    "missing",
+    "untested",
+    "not_applicable"
+  ],
+  "allowed_relevance": [
+    "required",
+    "planned",
+    "optional_differentiator",
+    "not_applicable"
+  ],
+  "allowed_evidence_levels": [
+    "repository_contract",
+    "feature_test",
+    "integration_test",
+    "browser_acceptance",
+    "staging_like",
+    "production"
+  ],
+  "capabilities": [
+    {
+      "id": "account.password-recovery",
+      "domain": "account",
+      "capability": "Temporary or recovery-password lifecycle",
+      "relevance": "required",
+      "delivery_status": "implemented",
+      "rationale": "Oteryn uses expiring single-use password-reset tokens rather than issuing a temporary plaintext password, and password reset/change revokes existing sessions.",
+      "oteryn_evidence": [
+        {
+          "file": "scripts/acceptance/coverage/portal-coverage-manifest.json",
+          "marker": "identity.password-lifecycle",
+          "level": "repository_contract"
+        },
+        {
+          "file": "scripts/acceptance/tests/password-recovery-acceptance.spec.mjs",
+          "marker": "@portal-account Flow 3b",
+          "level": "browser_acceptance"
+        }
+      ],
+      "benchmark_sources": [
+        "https://www.tibia.com/account/"
+      ],
+      "gap_issues": []
+    },
+    {
+      "id": "account.high-assurance-recovery-artifact",
+      "domain": "account",
+      "capability": "Recovery key purchase, issue, use and revocation",
+      "relevance": "planned",
+      "delivery_status": "missing",
+      "rationale": "Password-reset email and MFA recovery codes exist, but Oteryn has no separately issued account-recovery artifact with lifecycle and revocation semantics.",
+      "oteryn_evidence": [],
+      "benchmark_sources": [
+        "https://www.tibia.com/account/"
+      ],
+      "gap_issues": [
+        "#276"
+      ]
+    },
+    {
+      "id": "account.email-change",
+      "domain": "account",
+      "capability": "Confirmed email change with cooldown and recovery",
+      "relevance": "required",
+      "delivery_status": "missing",
+      "rationale": "No account route or delivered-surface contract supports primary-email change, confirmation, cooldown or cancellation.",
+      "oteryn_evidence": [],
+      "benchmark_sources": [
+        "https://www.tibia.com/account/"
+      ],
+      "gap_issues": [
+        "#276"
+      ]
+    },
+    {
+      "id": "account.session-inventory-revocation",
+      "domain": "account",
+      "capability": "Active-session inventory and targeted remote revocation",
+      "relevance": "required",
+      "delivery_status": "partial",
+      "rationale": "Security-sensitive password and MFA changes revoke all sessions, but users cannot inspect active sessions or revoke one remote session selectively.",
+      "oteryn_evidence": [
+        {
+          "file": "scripts/acceptance/coverage/portal-coverage-manifest.json",
+          "marker": "all-existing-sessions-revoked",
+          "level": "repository_contract"
+        }
+      ],
+      "benchmark_sources": [
+        "https://www.tibia.com/account/"
+      ],
+      "gap_issues": [
+        "#276"
+      ]
+    },
+    {
+      "id": "account.connected-game-account-binding",
+      "domain": "account",
+      "capability": "Connected-account inventory and safe unlink or rebind",
+      "relevance": "required",
+      "delivery_status": "partial",
+      "rationale": "The account overview exposes the immutable Platform-to-Canary provisioning state, but no exceptional unlink, rebind or imported-account workflow exists.",
+      "oteryn_evidence": [
+        {
+          "file": "scripts/acceptance/coverage/portal-coverage-manifest.json",
+          "marker": "account.overview-provisioning",
+          "level": "repository_contract"
+        },
+        {
+          "file": "scripts/acceptance/coverage/portal-coverage-manifest.json",
+          "marker": "existing-canary-account-import-claim",
+          "level": "repository_contract"
+        }
+      ],
+      "benchmark_sources": [
+        "https://rubinot.com.br/",
+        "https://www.tibia.com/account/"
+      ],
+      "gap_issues": [
+        "#276"
+      ]
+    },
+    {
+      "id": "account.mfa-method-management",
+      "domain": "account",
+      "capability": "Authenticator-app and email-code second-factor management",
+      "relevance": "required",
+      "delivery_status": "partial",
+      "rationale": "TOTP enrollment, challenge, disable and single-use recovery codes are complete; email-code MFA is not implemented and requires an explicit product/security decision.",
+      "oteryn_evidence": [
+        {
+          "file": "scripts/acceptance/coverage/portal-coverage-manifest.json",
+          "marker": "identity.mfa-lifecycle",
+          "level": "repository_contract"
+        },
+        {
+          "file": "scripts/acceptance/tests/mfa-security-acceptance.spec.mjs",
+          "marker": "@portal-account Flow 4",
+          "level": "browser_acceptance"
+        }
+      ],
+      "benchmark_sources": [
+        "https://www.tibia.com/account/"
+      ],
+      "gap_issues": [
+        "#276"
+      ]
+    },
+    {
+      "id": "account.badges-loyalty-status",
+      "domain": "account",
+      "capability": "Account badges, loyalty and status presentation",
+      "relevance": "optional_differentiator",
+      "delivery_status": "missing",
+      "rationale": "No code-owned account badge or loyalty/status model is delivered; Oteryn must first define which statuses have product meaning.",
+      "oteryn_evidence": [],
+      "benchmark_sources": [
+        "https://www.tibia.com/account/",
+        "https://rubinot.com.br/"
+      ],
+      "gap_issues": [
+        "#276"
+      ]
+    },
+    {
+      "id": "account.privacy-controls",
+      "domain": "account",
+      "capability": "Account-level public-profile privacy controls",
+      "relevance": "required",
+      "delivery_status": "missing",
+      "rationale": "There is no account surface for controlling public account association or privacy-sensitive profile fields.",
+      "oteryn_evidence": [],
+      "benchmark_sources": [
+        "https://www.tibia.com/community/?subtopic=characters",
+        "https://rubinot.com.br/"
+      ],
+      "gap_issues": [
+        "#276"
+      ]
+    },
+    {
+      "id": "account.termination",
+      "domain": "account",
+      "capability": "Account termination with grace period, cancellation and audit",
+      "relevance": "required",
+      "delivery_status": "missing",
+      "rationale": "Account termination is explicitly listed as not delivered and irreversible Canary deletion remains outside the approved boundary.",
+      "oteryn_evidence": [],
+      "benchmark_sources": [
+        "https://www.tibia.com/account/"
+      ],
+      "gap_issues": [
+        "#276"
+      ]
+    },
+    {
+      "id": "character.public-information",
+      "domain": "character",
+      "capability": "Owner-editable public character information or comment",
+      "relevance": "required",
+      "delivery_status": "missing",
+      "rationale": "The public character view is read-only and no authorized owner-edit route exists.",
+      "oteryn_evidence": [],
+      "benchmark_sources": [
+        "https://www.tibia.com/community/?subtopic=characters",
+        "https://rubinot.com.br/"
+      ],
+      "gap_issues": [
+        "#277"
+      ]
+    },
+    {
+      "id": "character.privacy",
+      "domain": "character",
+      "capability": "Character-level public visibility and account-association controls",
+      "relevance": "required",
+      "delivery_status": "missing",
+      "rationale": "Oteryn has no owner-controlled hidden fields or account-association privacy state.",
+      "oteryn_evidence": [],
+      "benchmark_sources": [
+        "https://www.tibia.com/community/?subtopic=characters",
+        "https://rubinot.com.br/"
+      ],
+      "gap_issues": [
+        "#277"
+      ]
+    },
+    {
+      "id": "character.achievement-display",
+      "domain": "character",
+      "capability": "Selectable publicly displayed achievements",
+      "relevance": "planned",
+      "delivery_status": "missing",
+      "rationale": "No structured achievement read model or owner selection exists in the current public profile.",
+      "oteryn_evidence": [],
+      "benchmark_sources": [
+        "https://www.tibia.com/community/?subtopic=characters",
+        "https://tibia.fandom.com/wiki/Achievements"
+      ],
+      "gap_issues": [
+        "#277",
+        "#281"
+      ]
+    },
+    {
+      "id": "character.public-profile-completeness",
+      "domain": "character",
+      "capability": "Complete public character profile",
+      "relevance": "required",
+      "delivery_status": "partial",
+      "rationale": "Current detail exposes only active name, level, vocation and guild name; deaths, house, achievements, comment and privacy-aware account information are absent.",
+      "oteryn_evidence": [
+        {
+          "file": "app/PublicGameData/CanaryGameDataRepository.php",
+          "marker": "guild.name as guild_name",
+          "level": "repository_contract"
+        },
+        {
+          "file": "scripts/acceptance/coverage/portal-coverage-manifest.json",
+          "marker": "public.game-data",
+          "level": "repository_contract"
+        }
+      ],
+      "benchmark_sources": [
+        "https://www.tibia.com/community/?subtopic=characters",
+        "https://rubinot.com.br/"
+      ],
+      "gap_issues": [
+        "#277",
+        "#280"
+      ]
+    },
+    {
+      "id": "character.deletion-restore",
+      "domain": "character",
+      "capability": "Character deletion, grace period and restore lifecycle",
+      "relevance": "required",
+      "delivery_status": "missing",
+      "rationale": "Character deletion and restoration are explicitly not delivered and require a new cross-repository mutation contract.",
+      "oteryn_evidence": [],
+      "benchmark_sources": [
+        "https://www.tibia.com/account/",
+        "https://www.tibia.com/community/?subtopic=characters"
+      ],
+      "gap_issues": [
+        "#277"
+      ]
+    },
+    {
+      "id": "character.rename",
+      "domain": "character",
+      "capability": "Character rename with reservation, cooldown and history",
+      "relevance": "required",
+      "delivery_status": "missing",
+      "rationale": "Character rename is explicitly not delivered and needs consistency across login, guild, Bazaar and public-data surfaces.",
+      "oteryn_evidence": [],
+      "benchmark_sources": [
+        "https://www.tibia.com/account/"
+      ],
+      "gap_issues": [
+        "#277"
+      ]
+    },
+    {
+      "id": "character.world-transfer",
+      "domain": "character",
+      "capability": "Character or world transfer service",
+      "relevance": "planned",
+      "delivery_status": "missing",
+      "rationale": "Bazaar transfers account ownership inside the current server boundary, but no world/channel transfer product exists.",
+      "oteryn_evidence": [],
+      "benchmark_sources": [
+        "https://www.tibia.com/account/"
+      ],
+      "gap_issues": [
+        "#277"
+      ]
+    },
+    {
+      "id": "character.main-selection",
+      "domain": "character",
+      "capability": "Main-character selection",
+      "relevance": "optional_differentiator",
+      "delivery_status": "missing",
+      "rationale": "Oteryn does not currently use a main-character concept; adoption depends on community/profile product policy.",
+      "oteryn_evidence": [],
+      "benchmark_sources": [
+        "https://www.tibia.com/account/"
+      ],
+      "gap_issues": [
+        "#277"
+      ]
+    },
+    {
+      "id": "character.guild-house-account-linkage",
+      "domain": "character",
+      "capability": "Guild, house and account linkage with visibility rules",
+      "relevance": "required",
+      "delivery_status": "partial",
+      "rationale": "Guild name and membership are visible, but house and privacy-aware account association are not represented and guild management is absent.",
+      "oteryn_evidence": [
+        {
+          "file": "app/PublicGameData/CanaryGameDataRepository.php",
+          "marker": "leftJoin('guild_membership as membership'",
+          "level": "repository_contract"
+        }
+      ],
+      "benchmark_sources": [
+        "https://www.tibia.com/community/?subtopic=characters",
+        "https://www.tibia.com/community/?subtopic=guilds"
+      ],
+      "gap_issues": [
+        "#277",
+        "#280"
+      ]
+    },
+    {
+      "id": "commerce.premium-vip",
+      "domain": "commerce",
+      "capability": "Premium or VIP purchase and expiry",
+      "relevance": "planned",
+      "delivery_status": "missing",
+      "rationale": "No customer premium/VIP product, entitlement or expiry lifecycle exists.",
+      "oteryn_evidence": [],
+      "benchmark_sources": [
+        "https://www.tibia.com/account/",
+        "https://rubinot.com.br/"
+      ],
+      "gap_issues": [
+        "#278"
+      ]
+    },
+    {
+      "id": "commerce.coin-purchase-balance-delivery",
+      "domain": "commerce",
+      "capability": "Coin purchase, balance and entitlement delivery",
+      "relevance": "planned",
+      "delivery_status": "partial",
+      "rationale": "The Platform wallet and Bazaar reservations are implemented, but customers cannot purchase coins and no provider-delivery lifecycle exists.",
+      "oteryn_evidence": [
+        {
+          "file": "scripts/acceptance/coverage/surfaces/marketplace.json",
+          "marker": "wallet-available-and-reserved",
+          "level": "repository_contract"
+        }
+      ],
+      "benchmark_sources": [
+        "https://www.tibia.com/account/",
+        "https://rubinot.com.br/"
+      ],
+      "gap_issues": [
+        "#278"
+      ]
+    },
+    {
+      "id": "commerce.game-code-redemption",
+      "domain": "commerce",
+      "capability": "Game-code or voucher redemption",
+      "relevance": "planned",
+      "delivery_status": "missing",
+      "rationale": "No signed or single-use redemption-code model and no customer redemption surface exists.",
+      "oteryn_evidence": [],
+      "benchmark_sources": [
+        "https://www.tibia.com/account/"
+      ],
+      "gap_issues": [
+        "#278"
+      ]
+    },
+    {
+      "id": "commerce.products-ready-to-use",
+      "domain": "commerce",
+      "capability": "Purchased products ready to use",
+      "relevance": "planned",
+      "delivery_status": "missing",
+      "rationale": "There is no purchased-product queue, activation state or entitlement-consumption workflow.",
+      "oteryn_evidence": [],
+      "benchmark_sources": [
+        "https://www.tibia.com/account/"
+      ],
+      "gap_issues": [
+        "#278"
+      ]
+    },
+    {
+      "id": "commerce.customer-histories",
+      "domain": "commerce",
+      "capability": "Payment, store, coin, service and voucher histories",
+      "relevance": "planned",
+      "delivery_status": "partial",
+      "rationale": "Bazaar auction and wallet-ledger history exist, but there are no customer payment, store, service or voucher histories.",
+      "oteryn_evidence": [
+        {
+          "file": "scripts/acceptance/coverage/surfaces/marketplace.json",
+          "marker": "history",
+          "level": "repository_contract"
+        }
+      ],
+      "benchmark_sources": [
+        "https://www.tibia.com/account/",
+        "https://rubinot.com.br/"
+      ],
+      "gap_issues": [
+        "#278"
+      ]
+    },
+    {
+      "id": "commerce.provider-webhook-refunds-chargebacks",
+      "domain": "commerce",
+      "capability": "Provider checkout, webhook verification, refunds and chargebacks",
+      "relevance": "planned",
+      "delivery_status": "missing",
+      "rationale": "No payment provider is integrated; this complete security lifecycle is mandatory before any commercial activation.",
+      "oteryn_evidence": [],
+      "benchmark_sources": [
+        "https://www.tibia.com/account/",
+        "https://rubinot.com.br/"
+      ],
+      "gap_issues": [
+        "#278"
+      ]
+    },
+    {
+      "id": "support.tickets",
+      "domain": "support",
+      "capability": "Authenticated support-ticket lifecycle",
+      "relevance": "required",
+      "delivery_status": "missing",
+      "rationale": "Oteryn publishes support content but has no ticket creation, reply, status or closure workflow.",
+      "oteryn_evidence": [],
+      "benchmark_sources": [
+        "https://www.tibia.com/support/?subtopic=gethelp",
+        "https://rubinot.com.br/"
+      ],
+      "gap_issues": [
+        "#279"
+      ]
+    },
+    {
+      "id": "support.report-history-limits",
+      "domain": "support",
+      "capability": "User report history and pending-report limits",
+      "relevance": "required",
+      "delivery_status": "missing",
+      "rationale": "The report-a-bug page is informational CMS content; there is no authenticated report queue, history or pending limit.",
+      "oteryn_evidence": [],
+      "benchmark_sources": [
+        "https://www.tibia.com/support/?subtopic=gethelp"
+      ],
+      "gap_issues": [
+        "#279"
+      ]
+    },
+    {
+      "id": "support.enforcement-history",
+      "domain": "support",
+      "capability": "Punishment and rule-violation history",
+      "relevance": "required",
+      "delivery_status": "missing",
+      "rationale": "No account-visible enforcement record, acknowledgement or appeal state exists.",
+      "oteryn_evidence": [],
+      "benchmark_sources": [
+        "https://www.tibia.com/support/?subtopic=gethelp"
+      ],
+      "gap_issues": [
+        "#279"
+      ]
+    },
+    {
+      "id": "support.notifications",
+      "domain": "support",
+      "capability": "Ticket, report and enforcement notifications",
+      "relevance": "required",
+      "delivery_status": "missing",
+      "rationale": "No notification state exists because the underlying support and enforcement lifecycles are absent.",
+      "oteryn_evidence": [],
+      "benchmark_sources": [
+        "https://www.tibia.com/support/?subtopic=gethelp",
+        "https://rubinot.com.br/"
+      ],
+      "gap_issues": [
+        "#279"
+      ]
+    },
+    {
+      "id": "public.character-search-detail",
+      "domain": "public",
+      "capability": "Character search and detail completeness",
+      "relevance": "required",
+      "delivery_status": "partial",
+      "rationale": "Name search and a basic active-character detail are delivered, but the read model is not benchmark-complete.",
+      "oteryn_evidence": [
+        {
+          "file": "app/Http/Controllers/PublicGameData/PublicGameDataController.php",
+          "marker": "public function characterSearch",
+          "level": "repository_contract"
+        },
+        {
+          "file": "scripts/acceptance/coverage/portal-coverage-manifest.json",
+          "marker": "Flow 6b — public game data",
+          "level": "browser_acceptance"
+        }
+      ],
+      "benchmark_sources": [
+        "https://www.tibia.com/community/?subtopic=characters",
+        "https://rubinot.com.br/"
+      ],
+      "gap_issues": [
+        "#277",
+        "#280"
+      ]
+    },
+    {
+      "id": "public.guild-detail-administration",
+      "domain": "public",
+      "capability": "Guild directory, detail and administration",
+      "relevance": "required",
+      "delivery_status": "partial",
+      "rationale": "Read-only guild detail and members are delivered, but no directory/search or authorized guild-management workflow exists.",
+      "oteryn_evidence": [
+        {
+          "file": "app/PublicGameData/CanaryGameDataRepository.php",
+          "marker": "public function findGuild",
+          "level": "repository_contract"
+        }
+      ],
+      "benchmark_sources": [
+        "https://www.tibia.com/community/?subtopic=guilds",
+        "https://rubinot.com.br/"
+      ],
+      "gap_issues": [
+        "#280"
+      ]
+    },
+    {
+      "id": "public.highscores",
+      "domain": "public",
+      "capability": "Highscores categories and filters",
+      "relevance": "required",
+      "delivery_status": "partial",
+      "rationale": "Only level highscores sorted by level and name are implemented; category, vocation and world/channel filters are absent.",
+      "oteryn_evidence": [
+        {
+          "file": "app/PublicGameData/CanaryGameDataRepository.php",
+          "marker": "public function levelHighscores",
+          "level": "repository_contract"
+        }
+      ],
+      "benchmark_sources": [
+        "https://www.tibia.com/community/?subtopic=highscores",
+        "https://rubinot.com.br/"
+      ],
+      "gap_issues": [
+        "#280"
+      ]
+    },
+    {
+      "id": "public.deaths-transfers-kills",
+      "domain": "public",
+      "capability": "Latest deaths, transfers and kill statistics",
+      "relevance": "required",
+      "delivery_status": "missing",
+      "rationale": "No delivered public routes or acceptance surfaces expose deaths, transfer history or kill statistics.",
+      "oteryn_evidence": [],
+      "benchmark_sources": [
+        "https://www.tibia.com/community/?subtopic=killstatistics",
+        "https://www.tibia.com/community/?subtopic=characters"
+      ],
+      "gap_issues": [
+        "#277",
+        "#280"
+      ]
+    },
+    {
+      "id": "public.polls",
+      "domain": "public",
+      "capability": "Community polls",
+      "relevance": "optional_differentiator",
+      "delivery_status": "missing",
+      "rationale": "No poll model or public/admin lifecycle is delivered; this is optional for the initial Oteryn release.",
+      "oteryn_evidence": [],
+      "benchmark_sources": [
+        "https://www.tibia.com/community/",
+        "https://rubinot.com.br/"
+      ],
+      "gap_issues": [
+        "#280"
+      ]
+    },
+    {
+      "id": "public.public-enforcement",
+      "domain": "public",
+      "capability": "Public bans or punishment information",
+      "relevance": "optional_differentiator",
+      "delivery_status": "missing",
+      "rationale": "No public enforcement view exists; any future delivery requires explicit privacy and moderation policy.",
+      "oteryn_evidence": [],
+      "benchmark_sources": [
+        "https://www.tibia.com/support/?subtopic=gethelp",
+        "https://rubinot.com.br/"
+      ],
+      "gap_issues": [
+        "#279",
+        "#280"
+      ]
+    },
+    {
+      "id": "public.character-bazaar",
+      "domain": "public",
+      "capability": "Character Bazaar public and authenticated lifecycle",
+      "relevance": "required",
+      "delivery_status": "implemented",
+      "rationale": "PR #270 delivered public discovery, immutable snapshots, watch/list/bid/buy/history, wallet reservation, escrow settlement and administrator recovery.",
+      "oteryn_evidence": [
+        {
+          "file": "scripts/acceptance/coverage/surfaces/marketplace.json",
+          "marker": "marketplace.public-catalogue-and-detail",
+          "level": "repository_contract"
+        },
+        {
+          "file": "scripts/acceptance/tests/marketplace-acceptance.spec.mjs",
+          "marker": "@portal-marketplace-public catalogue detail filters localization responsive layout and accessibility",
+          "level": "browser_acceptance"
+        }
+      ],
+      "benchmark_sources": [
+        "https://www.tibia.com/charactertrade/?subtopic=currentcharactertrades",
+        "https://rubinot.com.br/bazaar"
+      ],
+      "gap_issues": []
+    },
+    {
+      "id": "public.online-server-status",
+      "domain": "public",
+      "capability": "Online-player and server/channel status",
+      "relevance": "required",
+      "delivery_status": "implemented",
+      "rationale": "Read-only online players and configured server/channel runtime states include empty, unavailable and restoration coverage.",
+      "oteryn_evidence": [
+        {
+          "file": "app/PublicGameData/CanaryGameDataRepository.php",
+          "marker": "public function onlineCharacters",
+          "level": "repository_contract"
+        },
+        {
+          "file": "scripts/acceptance/coverage/portal-coverage-manifest.json",
+          "marker": "dependency-restored",
+          "level": "browser_acceptance"
+        }
+      ],
+      "benchmark_sources": [
+        "https://www.tibia.com/community/?subtopic=worlds",
+        "https://rubinot.com.br/"
+      ],
+      "gap_issues": []
+    },
+    {
+      "id": "knowledge.creatures-items",
+      "domain": "knowledge",
+      "capability": "Server-backed creatures, items, equipment and loot catalogues",
+      "relevance": "planned",
+      "delivery_status": "missing",
+      "rationale": "The Wiki supports editorial categories/articles but no authoritative server-backed creature/item/loot entities or availability snapshot.",
+      "oteryn_evidence": [],
+      "benchmark_sources": [
+        "https://wiki.rubinot.com/en/",
+        "https://tibia.fandom.com/wiki/List_of_Creatures",
+        "https://tibiopedia.pl/items/weapons"
+      ],
+      "gap_issues": [
+        "#281"
+      ]
+    },
+    {
+      "id": "knowledge.spells-quests-npcs-achievements",
+      "domain": "knowledge",
+      "capability": "Structured spells, quests, NPCs and achievements",
+      "relevance": "planned",
+      "delivery_status": "missing",
+      "rationale": "Some reviewed editorial launch articles may discuss these subjects, but no complete structured server-backed catalogues exist.",
+      "oteryn_evidence": [],
+      "benchmark_sources": [
+        "https://wiki.rubinot.com/en/",
+        "https://tibia.fandom.com/wiki/"
+      ],
+      "gap_issues": [
+        "#281"
+      ]
+    },
+    {
+      "id": "knowledge.maps",
+      "domain": "knowledge",
+      "capability": "Maps and interactive maps",
+      "relevance": "optional_differentiator",
+      "delivery_status": "missing",
+      "rationale": "No map or interactive-map surface is delivered; it is valuable but not required for the initial portal launch.",
+      "oteryn_evidence": [],
+      "benchmark_sources": [
+        "https://wiki.rubinot.com/en/map",
+        "https://tibia.fandom.com/wiki/Mapper"
+      ],
+      "gap_issues": [
+        "#281"
+      ]
+    },
+    {
+      "id": "knowledge.hunting-calculators",
+      "domain": "knowledge",
+      "capability": "Hunting-place guides and calculators",
+      "relevance": "optional_differentiator",
+      "delivery_status": "missing",
+      "rationale": "No structured hunting-place or calculation tools exist; these should follow authoritative item/creature/player-data foundations.",
+      "oteryn_evidence": [],
+      "benchmark_sources": [
+        "https://wiki.rubinot.com/en/",
+        "https://tibiopedia.pl/"
+      ],
+      "gap_issues": [
+        "#281"
+      ]
+    },
+    {
+      "id": "knowledge.battle-pass-presets-huntfinder",
+      "domain": "knowledge",
+      "capability": "Battle pass, equipment presets, Huntfinder and linked tasks",
+      "relevance": "optional_differentiator",
+      "delivery_status": "missing",
+      "rationale": "These server-specific engagement and discovery tools are optional differentiators and require separate product contracts.",
+      "oteryn_evidence": [],
+      "benchmark_sources": [
+        "https://wiki.rubinot.com/en/huntfinder",
+        "https://wiki.rubinot.com/en/"
+      ],
+      "gap_issues": [
+        "#281"
+      ]
+    },
+    {
+      "id": "knowledge.world-transfer-docs",
+      "domain": "knowledge",
+      "capability": "World-transfer documentation",
+      "relevance": "planned",
+      "delivery_status": "missing",
+      "rationale": "Documentation is premature until Oteryn defines and implements a supported transfer service and operational contract.",
+      "oteryn_evidence": [],
+      "benchmark_sources": [
+        "https://www.tibia.com/account/",
+        "https://wiki.rubinot.com/en/"
+      ],
+      "gap_issues": [
+        "#277",
+        "#281"
+      ]
+    },
+    {
+      "id": "knowledge.server-specific-systems-events",
+      "domain": "knowledge",
+      "capability": "Server-specific systems, items and annual events",
+      "relevance": "planned",
+      "delivery_status": "partial",
+      "rationale": "The Wiki and Events modules can publish reviewed localized content, but there is no complete versioned catalogue tied to authoritative Oteryn server availability.",
+      "oteryn_evidence": [
+        {
+          "file": "scripts/acceptance/coverage/portal-coverage-manifest.json",
+          "marker": "wiki.public",
+          "level": "repository_contract"
+        },
+        {
+          "file": "scripts/acceptance/coverage/portal-coverage-manifest.json",
+          "marker": "events.public-admin",
+          "level": "repository_contract"
+        }
+      ],
+      "benchmark_sources": [
+        "https://wiki.rubinot.com/en/",
+        "https://tibia.fandom.com/wiki/Events"
+      ],
+      "gap_issues": [
+        "#281"
+      ]
+    }
+  ]
+}

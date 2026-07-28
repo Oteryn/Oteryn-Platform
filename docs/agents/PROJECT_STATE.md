@@ -1,200 +1,163 @@
 # Oteryn Platform Project State
 
-This file is the compact authoritative entry point for "where are we now?". It is not a replacement for live Git/PR/task verification.
+This file is the compact authoritative entry point for “where are we now?”. Live Git, PR, issue, task and exact-SHA evidence remain authoritative when they are newer.
 
 ## Last architecture-state update
 
-2026-07-21
+2026-07-28
 
-## Current phase
+## Engineering phase state
 
 - **Phase 0 — Architecture and agent bootstrap: COMPLETE**
 - **Phase 1 — Laravel application bootstrap: COMPLETE**
 - **Phase 2 — Canary/login authentication discovery for current implementation boundaries: COMPLETE**
 - **Phase 3 — Identity foundation: COMPLETE**
-- **Phase 4 — Public website and read-only game data: COMPLETE**
-- **Phase 5 — Account and character management: COMPLETE**
-- **Phase 6 — CMS, Admin, RBAC and Audit: COMPLETE**
-- **Phase 7 — Production hardening and operations: COMPLETE**
+- **Phase 4 — Public website and read-only game data: COMPLETE for the delivered route contract**
+- **Phase 5 — Account and character management: COMPLETE for the delivered route contract**
+- **Phase 6 — CMS, Admin, RBAC and Audit: COMPLETE for the delivered route contract**
+- **Phase 7 — Production hardening and operations: COMPLETE as an engineering milestone**
 
-The E2E coverage-hardening programme is a continuous verification track. It does not reopen a completed delivery phase.
+These phase statements do not claim benchmark product completeness. Issue #268 audits capabilities that can be absent from an otherwise green delivered-surface contract.
 
 ## Operational release state
 
-- **Production Readiness: STAGING_PROVEN**
+- **Production Readiness: STAGING_PROVEN for documented boundaries**
+- **Delivered Portal Route Contract: COMPLETE AND MACHINE ENFORCED**
+- **Benchmark Product Completeness: NOT COMPLETE; AUDIT IN PROGRESS IN #268**
 - **Production Go-Live Gate: PENDING PRODUCTION VERIFICATION**
 - **Production Verification: REQUIRED BEFORE GO-LIVE**
 
-ADR 0007 separates Phase 7 engineering/hardening completion from final production go-live verification. ADR 0008 defines risk-based continuous E2E validation beyond the acceptance baseline. Repository/staging evidence never substitutes for direct production verification.
+Repository, isolated acceptance, Synology preflight and staging-like evidence never substitute for direct verification of the exact deployed production release.
 
-## Current architecture state
+## Current architecture
 
 Oteryn Platform is a Laravel 13 / PHP 8.5 modular monolith with Platform-owned Identity and application persistence.
 
-Supported game accounts are greenfield only:
+Supported game accounts remain greenfield and use the immutable current binding model:
 
 `1 Platform Identity <-> 1 Canary accounts.id`
 
-Existing Canary accounts are not imported or claimed.
+Existing Canary accounts are not imported or claimed. The browser does not communicate directly with Canary or Freqtrade-like private runtimes. Shared state changes use explicit operation-specific contracts and credentials.
 
-Platform web authentication remains separate from the still-unimplemented authoritative game-login bridge.
+## Delivered product surfaces
 
-## Phase 7 engineering/hardening completed
+### Identity and accounts
 
-- PR #48 / `676a77590e3ec93bcad0247b3065d203ac209c40` — production topology evidence baseline.
-- PR #49 / `0f876d4f2209399a85cafcff1623d8e6c810b914` — fail-closed provider-independent production configuration verifier.
-- PR #50 / `3973774727c35aea22d0a646f479a0ff079042cc` — required Composer advisory scanning and bounded Dependabot updates.
-- PR #54 / `eb358a245f35fda1865f13e329c07ef0f4850d2f` — CSP and browser security headers without unsafe inline/eval allowances.
-- PR #55 / `b6650966fe877a0e7872f29606b32b6394dde99f` — server-generated request correlation and bounded request-completion logging.
-- PR #56 / `ae659089bb288dd467f5e2f163ffb7d731e35cec` — production-readiness checklist, incident/recovery runbook and Phase 7 handover.
-- PR #63 / `61f72ddda5c253f26c7d59aa7b6fce3506f120dc` — controlled production-like validation harness and staging evidence closure.
-- ADR 0007 — durable separation of Phase 7 engineering completion from the Production Go-Live Gate.
+- registration, login and logout;
+- password reset/change with expiring single-use tokens and session revocation;
+- TOTP MFA, replay protection and recovery codes;
+- account overview with pending, ready, recoverable, conflict and missing provisioning states;
+- bounded provisioning retry;
+- character creation for a ready immutable binding.
 
-## Phase 7 controlled production-like validation
+Not yet benchmark-complete: email change, active-session inventory/targeted revocation, exceptional unlink/rebind, privacy controls, account termination and high-assurance recovery-artifact decisions. Tracker: #276.
 
-The production-like path proves, within its controlled staging boundary:
+### Public portal and game data
 
-- clean deployment, migrations, controlled rollback, interrupted-release isolation and redeploy;
-- provider-independent production configuration guardrails;
-- effective MariaDB least-privilege principals for generic read-only, provisioning and character creation;
-- prohibited cross-surface writes and privilege fail-closed behavior;
-- runtime Redis ACL/key/command boundaries and missing/malformed/unavailable dependency semantics;
-- SMTP delivery through a real test SMTP service and unavailable-mail behavior;
-- exact-SHA critical feature/integration regressions across Identity, admin/RBAC/CMS, account/binding, character and public game-data surfaces;
-- running health, CSP/security headers, Secure/HttpOnly cookies, request correlation, JSON request-completion logging and representative sensitive-error/log behavior;
-- production-like MariaDB backup/clean restore/integrity/restored-environment smoke.
+- localized home, navigation, SEO, news and managed pages;
+- character name search and basic active-character detail;
+- read-only guild detail and members;
+- level highscores;
+- online players and configured server/channel status;
+- explicit empty, not-found, unavailable and restoration states.
 
-Detailed evidence is maintained in `docs/operations/PRODUCTION_LIKE_VALIDATION_EVIDENCE.md`. Staging recovery measurements are not production RTO/RPO claims.
+Not yet benchmark-complete: rich character profiles, guild directory/administration, highscore categories/filters, deaths, transfer history and kill statistics. Trackers: #277 and #280.
 
-## Continuous E2E coverage hardening
+### CMS and community publishing
 
-ADR 0008 plus `docs/testing/E2E_COVERAGE_ROADMAP.md` define the additive continuous-verification programme beyond the already `STAGING_PROVEN` functional acceptance baseline.
+- News, Managed Pages, Downloads, Events and Announcements public/admin/localization lifecycles;
+- typed Support/Legal content administration;
+- Editorial Media private storage, integrity validation and reference protection;
+- first-party Wiki public search/category/article flows plus editor/reviewer/publisher, revisions, signed preview and media integration;
+- reviewed bilingual launch content.
 
-Merged slices:
+Static support content is not an authenticated ticket/report/moderation system. Tracker: #279. The Wiki is editorially complete for delivered articles but lacks authoritative server-backed creature/item/loot/gameplay catalogues. Tracker: #281.
 
-- PR #94 / `26ff602696c597aac0833415b0a47af5d427a52d` — bounded Chromium/Firefox/WebKit portability, representative desktop/tablet/mobile journeys and browser-visible session/ownership security checks.
-- PR #99 / `21d67c7e7edb533f9765ff96417f2ab2fbb1aea8` — existing-data migration, candidate smoke, old-code rollback smoke against the post-upgrade database and candidate redeploy validation.
-- PR #102 / `ee235cbbdd379a5047fede98ff79a0e35e22ce76` — exact response `X-Request-ID` to structured request-completion log correlation.
-- PR #106 / `8030f98d7280c16705f34f2d29c8ebd7fc85f285` — zero-retry Chromium public dependency recovery for Canary read grants and Redis `HMGET` ACL restoration.
-- PR #111 / `740d9879b341d98e4cf0ef0e7f076b43cd86cdaf` — required bounded keyboard/focus accessibility plus reusable acceptance execution, scheduled/manual three-iteration stability measurement and bounded read-only public soak calibration.
+### Character Bazaar and Wallet
 
-PR #111 final head `66a1acb2fd508210c3bbd941ac1036a73af9be32`, synchronized with the then-current `main`, passed:
+PR #270 merged the complete first Character Bazaar as `0f19656e0875d0a10b22002ac0e096deb20e94d8`.
 
-- CI run `29855146602`;
-- Agent Governance run `29855146606`;
-- Platform DB Outage Validation run `29855146617`;
-- Phase 7 Production-Like Validation run `29855146614`;
-- Acceptance E2E and Visual UX run `29855146601`.
+Delivered boundaries:
 
-The required pull-request `critical` profile now composes:
+- public localized catalogue, filters, immutable snapshots and bounded bid history;
+- authenticated watchlist, listing, bidding, buy-now, cancellation and history;
+- Platform-owned Oteryn Coins wallet with append-oriented ledger and available/reserved balances;
+- transactional bid reservation and deterministic outbid release;
+- dedicated least-privilege Canary character-transfer connection;
+- non-login escrow account, session/offline/quota checks, deterministic locking and idempotency;
+- recoverable cross-database listing/cancellation/settlement saga;
+- MFA/permission/audit-protected administrator wallet adjustment and recovery queue;
+- desktop/tablet/mobile, accessibility, real-MariaDB concurrency and full browser acceptance.
 
-- primary Chromium smoke;
-- bounded Chromium/Firefox/WebKit portability;
-- bounded desktop/tablet/mobile responsive validation;
-- bounded Chromium public dependency resilience;
-- bounded Chromium keyboard/focus accessibility interaction.
+The wallet is not a payment system. Customer coin purchase, premium/VIP, products, webhooks, refunds and chargebacks remain #278. Canary tournament coins are not used.
 
-The `full` profile requires the full primary Chromium baseline plus resilience and accessibility before it can claim `FUNCTIONAL_ACCEPTANCE_STAGING_PROVEN` or execute the visual/accessibility collector.
+## Delivered-surface acceptance contract
 
-The merged stability workflow runs three fresh isolated zero-retry `critical` jobs on its scheduled/manual cadence. The merged soak workflow runs a bounded read-only Chromium public-surface soak and records navigation-time, Laravel process-tree RSS and Redis key-count calibration metrics without arbitrary performance thresholds.
+The route/state ledger is `scripts/acceptance/coverage/portal-coverage-manifest.json` plus sorted fragments under `scripts/acceptance/coverage/surfaces/`.
 
-Their first scheduled/manual runtime measurements remain pending. This is intentional: they are non-blocking evidence profiles until measured variance justifies stronger gates.
+The strict contract proves:
 
-Concurrency, locking, uniqueness, ambiguous commits and core data-integrity invariants remain primarily real-database integration concerns; browser E2E is added only for unique composed user-visible outcomes.
+- every delivered named route is classified exactly once or explicitly excluded as a framework/support endpoint;
+- owned surfaces declare roles, states, viewports, browsers and evidence layers;
+- evidence files and stable markers exist;
+- strict closure fails for delivered surfaces left `partial` or `planned`.
 
-All continuous-hardening evidence remains staging/repository evidence. It does not change the Production Go-Live Gate.
+The Character Bazaar fragment adds public, authenticated and administrator marketplace surfaces.
 
-## Production Go-Live Gate
+## Product-completeness benchmark
 
-The authoritative fail-closed gate is `docs/operations/PRODUCTION_READINESS_CHECKLIST.md`.
+Issue #268 is tracked by:
 
-PR #92 / `c18432df6b387932aa04e1eb269677c9078d9063` prepared `docs/operations/PRODUCTION_VERIFICATION_EVIDENCE.md` as the non-secret execution record for issue #91. The record does not itself prove production; every production-specific fact starts as `UNKNOWN` until directly verified against the exact deployed release.
+- `docs/testing/PRODUCT_COMPLETENESS_BENCHMARK.md`;
+- `docs/testing/product-completeness-benchmark.json`;
+- `scripts/acceptance/coverage/validate-product-completeness.mjs`.
 
-Controlled staging cannot prove the final production:
+The baseline classifies 43 Tibia/RubinOT/OTS benchmark capabilities:
 
-- exact deployed Oteryn Platform SHA and relevant Canary/login-server versions;
-- DNS/edge/TLS/WAF/origin exposure and ingress controls;
-- production Platform DB topology/isolation/credentials/backup/restore;
-- production Canary SQL effective grants;
-- production runtime Redis ACL/network/TLS/freshness monitoring;
-- effective session/cache/queue topology;
-- production mail delivery/monitoring;
-- centralized logs/metrics/alerts/on-call;
-- actual provider deployment/migration/rollback mechanism;
-- final critical production smoke/E2E against the exact deployed SHA.
+- 3 implemented;
+- 11 partial;
+- 29 missing;
+- 23 required, 13 planned and 7 optional/differentiator.
 
-These facts remain `UNKNOWN` until directly proven in the final production environment. `STAGING_PROVEN` or repository evidence does not promote them to `PRODUCTION_PROVEN`.
+Focused backlog:
 
-The authoritative Platform game-login bridge remains a separately authorized cross-repository requirement. If Platform-originated game login is part of launch scope, the go-live gate remains blocked until that requirement is resolved and proven end to end.
+- #276 — account security and lifecycle;
+- #277 — character management and public profiles;
+- #278 — premium, coins and entitlement commerce;
+- #279 — tickets, reports and enforcement history;
+- #280 — community statistics and guild workflows;
+- #281 — server-backed Wiki/gameplay catalogues.
 
-## Repository-verifiable operations gates
+A green route contract must not be described as product complete while required benchmark gaps remain.
 
-Available commands:
+## Production hardening and evidence
 
-```text
-php artisan production:verify-configuration
-php artisan canary:verify-db-privileges
-php artisan canary:verify-provisioning-db-privileges
-php artisan canary:verify-character-create-db-privileges
-```
+The repository has controlled evidence for clean migrations, rollback/redeploy, least-privilege database principals, Redis ACL behavior, test SMTP, security headers/cookies, request correlation, backup/restore smoke, dependency outage/recovery and browser portability/responsive/accessibility profiles.
 
-Required CI includes strict Composer validation/install, Composer advisory audit, Pint, PHPStan and full tests.
+The authoritative production gate remains `docs/operations/PRODUCTION_READINESS_CHECKLIST.md` and issue #91. Direct production facts remain unknown until verified, including:
 
-Passing these proves only their documented boundaries and the environment in which they are executed.
+- exact deployed Platform, Gateway and Canary identities;
+- production DNS/edge/TLS/WAF/origin and private ingress;
+- production database topology, effective grants, backup and dated restore evidence;
+- production Redis, session/cache/queue and mail topology;
+- logs, metrics, alerts and on-call ownership;
+- actual deployment/migration/rollback mechanism;
+- final mutation-authorized production smoke.
 
-## Implemented Identity/admin/shared-write boundary
-
-- secure Platform registration/login/logout;
-- revocable Platform web sessions;
-- password recovery/change with session revocation;
-- TOTP MFA and recovery codes;
-- explicit deny-by-default administrator RBAC;
-- privileged routes require `auth` + `mfa.confirmed` + exact permission;
-- privileged CMS/role mutations are audited;
-- bounded public game-data reads;
-- generic Canary SQL remains read-only;
-- exactly two approved shared-write credentials: `canary_provisioning` and `canary_character_create`.
-
-Deferred and not authorized:
-
-- existing-account claim/import;
-- character deletion/soft deletion;
-- character rename;
-- irreversible Canary account deletion;
-- exceptional unlink/rebind/transfer.
+A deployment-targeted preflight previously failed closed before network or mutation because required production Environment metadata, controlled credentials, backup evidence identification and explicit mutation authorization were absent. Generic continuation does not authorize production action.
 
 ## Game-login boundary
 
-Platform-originated users still require a separately authorized authoritative game-login bridge before game login can use Platform credential authority.
-
-Expected external scope remains primarily `opentibiabr/login-server`; `blakinio/canary` changes require separate explicit authorization if needed by the selected protocol.
-
-No Canary/login-server repository was modified by Phase 7 work, production-verification preparation or the E2E continuous-hardening tasks.
+Repository and exact-revision E2E work has hardened the native-auth direction, but production activation remains separately gated. Cross-repository writes to Canary or a login server require explicit user authorization and a coordinated contract/rollout.
 
 ## Current active task
 
-None.
+`OTERYN-20260728-product-completeness-benchmark` on draft PR #275, resolving Issue #268.
 
-Repository/staging E2E implementation hardening is closed through PR #111. Scheduled stability/soak workflows now accumulate further non-blocking evidence over time.
+## Recommended sequence
 
-## Recommended next work
-
-Do not add more repository/staging E2E solely to increase test count. Review scheduled repeat/soak evidence when it becomes available and promote thresholds only after measured variance justifies them.
-
-Independently, resume issue #91 only when the exact final deployed production SHA, explicit production deployment/verification authorization and access to collect sanitized production evidence are available.
-
-## High-priority remaining unknowns
-
-- authoritative Platform game-login assertion/session protocol and rollout if required for launch scope;
-- first three-iteration zero-retry critical stability result after PR #111;
-- first bounded public soak latency/RSS/Redis-key baseline after PR #111;
-- long-term Firefox/WebKit, resilience and accessibility flakiness beyond current exact-SHA evidence;
-- deployed production edge/origin/network/TLS topology;
-- production runtime Redis ACL/endpoint provisioning;
-- production database, mail, session/cache and queue topology;
-- production backup/restore/deployment/rollback mechanisms;
-- centralized production logging/metrics/alerting;
-- exact production Cloudflare Access/admin-hostname choice, if adopted;
-- current Canary tournament-coin schema/code naming conflict.
-
-Payments remain deferred.
+1. Merge the evidence-linked product-completeness audit only after its machine ledger and exact-head checks pass.
+2. Deliver required gaps as bounded tasks: #276, #277, #279 and #280.
+3. Keep #278 disabled until a dedicated payment ADR, threat model and provider lifecycle are reviewed.
+4. Build #281 from authoritative Oteryn server availability, never by copying third-party datasets or prose.
+5. Resume #91 only after explicit production deployment/verification authorization and required production evidence access exist.
