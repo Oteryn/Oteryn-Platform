@@ -13,9 +13,9 @@ use Illuminate\Support\Carbon;
  * @property int $auction_id
  * @property int $bidder_identity_id
  * @property int $amount
+ * @property bool $is_buy_now
  * @property string $status
  * @property Carbon $placed_at
- * @property Carbon|null $updated_at
  */
 final class AuctionBid extends Model
 {
@@ -29,14 +29,13 @@ final class AuctionBid extends Model
 
     public const STATUS_RELEASED = 'released';
 
-    protected $table = 'character_auction_bids';
-
     /** @var list<string> */
     protected $fillable = [
         'request_id',
         'auction_id',
         'bidder_identity_id',
         'amount',
+        'is_buy_now',
         'status',
         'placed_at',
         'updated_at',
@@ -61,6 +60,7 @@ final class AuctionBid extends Model
             'auction_id' => 'integer',
             'bidder_identity_id' => 'integer',
             'amount' => 'integer',
+            'is_buy_now' => 'boolean',
             'placed_at' => 'datetime',
             'updated_at' => 'datetime',
         ];
