@@ -9,6 +9,7 @@ use App\Marketplace\Exceptions\MarketplaceException;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
 use PDO;
+use PDOStatement;
 use Tests\TestCase;
 
 final class CanaryCharacterTransferMariaDbIntegrationTest extends TestCase
@@ -257,10 +258,14 @@ final class CanaryCharacterTransferMariaDbIntegrationTest extends TestCase
             self::fail('MariaDB root connection is unavailable.');
         }
 
-        $value = $this->root->query(
+        $statement = $this->root->query(
             'SELECT `account_id` FROM `'.self::DATABASE.'`.`players` WHERE `id` = '.$playerId,
-        )?->fetchColumn();
+        );
+        if (! $statement instanceof PDOStatement) {
+            self::fail('MariaDB player owner query could not be prepared.');
+        }
 
+        $value = $statement->fetchColumn();
         if (! is_int($value) && ! is_string($value)) {
             self::fail('MariaDB player owner query returned an invalid value.');
         }
