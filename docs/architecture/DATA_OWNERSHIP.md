@@ -22,6 +22,11 @@ Expected examples:
 - platform roles/permissions if not mapped to a shared account field;
 - audit events;
 - MFA metadata;
+- Platform Identity credentials and password-reset state;
+- Platform registered web-session records and revocation state;
+- primary-email change requests, cooldown and old-address recovery state;
+- account privacy flags and Platform termination state;
+- recovery-key verifier, generation, use and revocation state;
 - platform-specific user preferences;
 - platform notification metadata;
 - Character Bazaar auctions, bids, watchlists, saga state and immutable listing snapshots;
@@ -116,18 +121,22 @@ Character Bazaar v1 requires no Canary schema migration. It uses the verified ex
 
 ## Identity data special rule
 
-Credentials and game-login compatibility require explicit ownership discovery before implementation.
+Platform Identity is the authority for supported web-user credentials and the Platform-owned account-security lifecycle. The following are Platform-owned and migrated only by Oteryn Platform:
 
-Questions that must be answered:
+- password hash and password-reset token lifecycle;
+- MFA secret/recovery-code state;
+- registered web-session inventory, generation and revocation timestamps;
+- confirmed primary-email change requests, cooldown and old-address recovery windows;
+- account privacy preferences;
+- verifier-only high-assurance recovery key state;
+- Platform termination request, grace period, cancellation and anonymization state;
+- bounded Identity security-event metadata.
 
-- Which table/system is authoritative for account credentials?
-- Which hashing formats are accepted by login-server/Canary?
-- Can the platform migrate hashes transparently?
-- Which component creates game sessions/tokens?
-- Which component revokes them?
-- What happens to active sessions after password/MFA/account-state changes?
+The authenticated Identity and its ready server-resolved binding establish the user-scoped Canary account relationship. Browser-supplied Canary account IDs, web-session IDs or email-change identifiers never establish ownership.
 
-Until answered, agents must not implement a speculative credential migration.
+Account-security operations may revoke Platform web sessions and the separately contracted game-authorization generation. They do not delete, unlink, rebind or transfer the bound Canary account or any Canary-owned character data. Platform termination disables and anonymizes Platform login while preserving the immutable binding for audit and safety.
+
+Any new cross-system credential, game-session or account-binding mutation still requires an explicit contract defining ownership, compatibility, rollout and rollback. The delivered lifecycle does not prove that native Canary/external login-server authentication has been replaced by Platform authorization.
 
 ## Character data special rule
 
@@ -193,11 +202,11 @@ Payment providers, coin purchasing, refunds and chargebacks remain outside Chara
 
 ### Secret
 
-Passwords, password hashes where exposure increases attack value, session tokens, reset tokens, MFA secrets, private keys, provider secrets.
+Passwords, password hashes where exposure increases attack value, session tokens, reset tokens, email-change tokens, MFA secrets, raw recovery keys, private keys, provider secrets.
 
 ### Sensitive personal/security data
 
-Email addresses, IP/security history, account security events.
+Email addresses, protected source-address fingerprints, registered session metadata, account security events, recovery-key verifier and termination history.
 
 ### Internal operational
 
