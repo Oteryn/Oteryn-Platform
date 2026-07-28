@@ -4,6 +4,7 @@ use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
+use RuntimeException;
 
 return new class extends Migration
 {
@@ -12,6 +13,12 @@ return new class extends Migration
         'support.tickets.manage',
         'support.reports.manage',
         'support.enforcement.manage',
+    ];
+
+    /** @var list<string> */
+    private const ROLE_KEYS = [
+        'security_admin',
+        'platform_admin',
     ];
 
     public function up(): void
@@ -43,7 +50,10 @@ return new class extends Migration
             $table->text('body');
             $table->timestamps();
 
-            $table->index(['support_ticket_id', 'visibility', 'created_at']);
+            $table->index(
+                ['support_ticket_id', 'visibility', 'created_at'],
+                'support_msg_ticket_visibility_created_idx',
+            );
         });
 
         Schema::create('player_reports', function (Blueprint $table): void {
@@ -124,14 +134,13 @@ return new class extends Migration
             ]);
         }
 
-        $permissionIds = DB::table('admin_permissions')->whereIn('key', self::PERMISSIONS)->pluck('id', 'key');
-        $roleIds = DB::table('admin_roles')->whereIn('key', ['security_admin', 'platform_admin'])->pluck('id', 'key');
+        foreach (self::ROLE_KEYS as $roleKey) {
+            $roleId = $this->requiredId('admin_roles', 'key', $roleKey);
 
-        foreach (['security_admin', 'platform_admin'] as $roleKey) {
             foreach (self::PERMISSIONS as $permission) {
                 DB::table('admin_role_permissions')->insertOrIgnore([
-                    'role_id' => $roleIds[$roleKey],
-                    'permission_id' => $permissionIds[$permission],
+                    'role_id' => $roleId,
+                    'permission_id' => $this->requiredId('admin_permissions', 'key', $permission),
                 ]);
             }
         }
@@ -139,8 +148,18 @@ return new class extends Migration
 
     public function down(): void
     {
-        $permissionIds = DB::table('admin_permissions')->whereIn('key', self::PERMISSIONS)->pluck('id');
-        DB::table('admin_role_permissions')->whereIn('permission_id', $permissionIds)->delete();
+        $permissionIds = [];
+        foreach (DB::table('admin_permissions')->whereIn('key', self::PERMISSIONS)->pluck('id') as $permissionId) {
+            if (is_int($permissionId)) {
+                $permissionIds[] = $permissionId;
+            } elseif (is_string($permissionId) && ctype_digit($permissionId)) {
+                $permissionIds[] = (int) $permissionId;
+            }
+        }
+
+        if ($permissionIds !== []) {
+            DB::table('admin_role_permissions')->whereIn('permission_id', $permissionIds)->delete();
+        }
         DB::table('admin_permissions')->whereIn('key', self::PERMISSIONS)->delete();
 
         Schema::dropIfExists('support_notification_deliveries');
@@ -148,5 +167,20 @@ return new class extends Migration
         Schema::dropIfExists('player_reports');
         Schema::dropIfExists('support_ticket_messages');
         Schema::dropIfExists('support_tickets');
+    }
+
+    private function requiredId(string $table, string $keyColumn, string $key): int
+    {
+        $id = DB::table($table)->where($keyColumn, $key)->value('id');
+
+        if (is_int($id)) {
+            return $id;
+        }
+
+        if (is_string($id) && ctype_digit($id)) {
+            return (int) $id;
+        }
+
+        throw new RuntimeException("Required RBAC record {$key} is missing.");
     }
 };
