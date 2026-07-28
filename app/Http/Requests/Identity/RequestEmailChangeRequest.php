@@ -7,6 +7,7 @@ use App\Identity\Support\CanonicalEmail;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Validation\Validator;
+use LogicException;
 
 final class RequestEmailChangeRequest extends FormRequest
 {
@@ -32,7 +33,8 @@ final class RequestEmailChangeRequest extends FormRequest
                 return;
             }
 
-            if (! Hash::check((string) $this->input('current_password'), $identity->password)) {
+            $password = $this->input('current_password');
+            if (! is_string($password) || ! Hash::check($password, $identity->password)) {
                 $validator->errors()->add('current_password', 'The current password is invalid.');
             }
 
@@ -45,6 +47,11 @@ final class RequestEmailChangeRequest extends FormRequest
 
     public function canonicalEmail(): string
     {
-        return CanonicalEmail::normalize((string) $this->validated('email'));
+        $email = $this->validated('email');
+        if (! is_string($email)) {
+            throw new LogicException('The validated email change address is not a string.');
+        }
+
+        return CanonicalEmail::normalize($email);
     }
 }
