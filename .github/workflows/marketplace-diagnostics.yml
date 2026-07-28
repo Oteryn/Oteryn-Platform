@@ -48,8 +48,11 @@ jobs:
       - name: Install dependencies
         run: composer install --no-interaction --prefer-dist --no-progress
 
-      - name: Generate application key
-        run: php artisan key:generate
+      - name: Prepare application environment
+        shell: bash
+        run: |
+          cp .env.example .env
+          php artisan key:generate
 
       - name: Capture formatter patch
         shell: bash
