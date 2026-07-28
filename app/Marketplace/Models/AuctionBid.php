@@ -16,6 +16,7 @@ use Illuminate\Support\Carbon;
  * @property bool $is_buy_now
  * @property string $status
  * @property Carbon $placed_at
+ * @property Carbon|null $updated_at
  */
 final class AuctionBid extends Model
 {
