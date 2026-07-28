@@ -44,8 +44,29 @@ final class WalletMutator
         ?int $auctionId = null,
         array $metadata = [],
     ): bool {
-        if (WalletLedgerEntry::query()->where('idempotency_key', $idempotencyKey)->exists()) {
+        $normalizedMetadata = $metadata === [] ? null : $metadata;
+        $existing = WalletLedgerEntry::query()
+            ->where('idempotency_key', $idempotencyKey)
+            ->first();
+
+        if ($existing instanceof WalletLedgerEntry) {
+            if ($existing->identity_id !== $wallet->identity_id
+                || $existing->operation_type !== $operationType
+                || $existing->available_delta !== $availableDelta
+                || $existing->reserved_delta !== $reservedDelta
+                || $existing->auction_id !== $auctionId
+                || $existing->metadata !== $normalizedMetadata) {
+                throw new MarketplaceException('idempotency_conflict', 'The wallet operation identifier is already in use.');
+            }
+
             return false;
+        }
+
+        if ($availableDelta > 0 && $wallet->available_balance > PHP_INT_MAX - $availableDelta) {
+            throw new MarketplaceException('wallet_balance_limit', 'The wallet balance limit would be exceeded.');
+        }
+        if ($reservedDelta > 0 && $wallet->reserved_balance > PHP_INT_MAX - $reservedDelta) {
+            throw new MarketplaceException('wallet_balance_limit', 'The wallet balance limit would be exceeded.');
         }
 
         $available = $wallet->available_balance + $availableDelta;
@@ -70,7 +91,7 @@ final class WalletMutator
             'reserved_delta' => $reservedDelta,
             'auction_id' => $auctionId,
             'idempotency_key' => $idempotencyKey,
-            'metadata' => $metadata === [] ? null : $metadata,
+            'metadata' => $normalizedMetadata,
             'created_at' => now(),
         ]);
 
