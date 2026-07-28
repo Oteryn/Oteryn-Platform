@@ -4,7 +4,7 @@ Convenience index only. Individual active task records, live PRs and Git state a
 
 ## Active tasks
 
-- `OTERYN-20260728-account-security-lifecycle` — Issue #276 on `feat/OTERYN-20260728-account-security-lifecycle`; discovering and implementing confirmed email change, active-session management, privacy/status controls, bounded termination, high-assurance recovery and explicit deny-by-default binding/MFA decisions.
+- `OTERYN-20260728-account-security-lifecycle` — Issue #276 on `feat/OTERYN-20260728-account-security-lifecycle`; implementation, EN/PL acceptance and architecture/operations/product-ledger closure are complete on the branch and exact-final-head validation is in progress before PR #283 review.
 
 ## Closed acceptance and release-preparation follow-ups
 
@@ -64,21 +64,21 @@ Repository and staging evidence remains valid only for its documented boundaries
 
 - **Production Readiness: STAGING_PROVEN for previously documented boundaries**
 - **Portal Completeness: COMPLETE AGAINST THE VERSIONED DELIVERED-SURFACE CONTRACT (Issue #240 closed)**
-- **Product Completeness Benchmark: COMPLETE AS AN AUDIT; REQUIRED PRODUCT GAPS REMAIN OPEN (#276-#281)**
+- **Product Completeness Benchmark: COMPLETE AS AN AUDIT; REQUIRED PRODUCT GAPS REMAIN OPEN (#277-#281, with #278 required before commerce activation)**
 - **Benchmark Product Completeness: NOT YET ACHIEVED**
-- **Functional Acceptance: comprehensive exact-head critical/full/contract/module/stability/soak audit passed through PR #275**
-- **Visual / UX Acceptance: automated responsive/accessibility profiles and exploratory visual validation passed on the PR #275 exact head**
+- **Functional Acceptance: comprehensive exact-head critical/full/contract/module/stability/soak audit passed through PR #275; PR #283 exact-final-head validation is in progress**
+- **Visual / UX Acceptance: automated responsive/accessibility profiles and exploratory visual validation passed on the PR #275 exact head; account-security EN/PL D/T/M evidence is being finalized in PR #283**
 - **Public Website Expansion Programme: implementation and machine-ledger closure merged**
 - **Emulated Edge Security: STAGING_PROVEN**
 - **Synology Production Target Preflight: STAGING_PROVEN**
 - **Production Go-Live Gate: PENDING PRODUCTION VERIFICATION**
 - **Production Verification: REQUIRED BEFORE GO-LIVE**
 
-The latest verified final-portal staging refresh identity is `ef6d03e0b7c6ed0ecf40e6e108b81358c9b64b1b` from PR #264. Later marketplace and audit evidence is repository/isolated-acceptance proof unless a deployment-specific record says otherwise. No repository, staging, local-target or emulation evidence may be promoted to `PRODUCTION_PROVEN`.
+The latest verified final-portal staging refresh identity is `ef6d03e0b7c6ed0ecf40e6e108b81358c9b64b1b` from PR #264. Later marketplace, account-security and audit evidence is repository/isolated-acceptance proof unless a deployment-specific record says otherwise. No repository, staging, local-target or emulation evidence may be promoted to `PRODUCTION_PROVEN`.
 
 ## Next work
 
-The highest-priority required benchmark gaps are #276 account security/lifecycle, #277 character management/profile, #279 support/moderation and #280 community data. Issue #278 is mandatory before commercial activation, #281 owns server-backed knowledge expansion, #244 separately owns the homepage-template selector and #91 remains the separate real Production Go-Live tracker.
+After PR #283 review, the highest-priority required benchmark gaps are #277 character management/profile, #279 support/moderation and #280 community data. Issue #278 is mandatory before commercial activation, #281 owns server-backed knowledge expansion, #244 separately owns the homepage-template selector and #91 remains the separate real Production Go-Live tracker.
 
 ## Remaining cross-repository dependency
 
