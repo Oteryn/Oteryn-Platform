@@ -5,10 +5,12 @@ namespace App\Providers;
 use App\Accounts\Contracts\CanaryAccountProvisioningGateway;
 use App\CanaryIntegration\CanaryAccountProvisioner;
 use App\CanaryIntegration\CanaryCharacterCreator;
+use App\CanaryIntegration\CanaryCharacterTransfer;
 use App\Characters\Contracts\CanaryCharacterCreationGateway;
 use App\GameAuth\OAuth\RequirePublicClientPkceS256;
 use App\Identity\Mfa\PendingMfaLogin;
 use App\Identity\Support\CanonicalEmail;
+use App\Marketplace\Contracts\CanaryCharacterTransferGateway;
 use App\Wiki\Application\Rendering\WikiMarkdownRenderer;
 use App\Wiki\Application\Search\WikiSearch;
 use App\Wiki\Infrastructure\Rendering\CommonMarkWikiRenderer;
@@ -32,6 +34,7 @@ class AppServiceProvider extends ServiceProvider
     {
         $this->app->bind(CanaryAccountProvisioningGateway::class, CanaryAccountProvisioner::class);
         $this->app->bind(CanaryCharacterCreationGateway::class, CanaryCharacterCreator::class);
+        $this->app->bind(CanaryCharacterTransferGateway::class, CanaryCharacterTransfer::class);
         $this->app->bind(WikiMarkdownRenderer::class, CommonMarkWikiRenderer::class);
         $this->app->bind(WikiSearch::class, DatabaseWikiSearch::class);
         $this->app->bind(PublicWikiQuery::class, DatabasePublicWikiQuery::class);
@@ -129,6 +132,18 @@ class AppServiceProvider extends ServiceProvider
 
         RateLimiter::for('character-create', function (Request $request): Limit {
             return Limit::perMinute(5)->by($this->authenticatedIdentitySourceKey($request));
+        });
+
+        RateLimiter::for('marketplace-listing', function (Request $request): Limit {
+            return Limit::perMinute(3)->by($this->authenticatedIdentitySourceKey($request));
+        });
+
+        RateLimiter::for('marketplace-bid', function (Request $request): Limit {
+            return Limit::perMinute(20)->by($this->authenticatedIdentitySourceKey($request));
+        });
+
+        RateLimiter::for('marketplace-watch', function (Request $request): Limit {
+            return Limit::perMinute(30)->by($this->authenticatedIdentitySourceKey($request));
         });
 
         RateLimiter::for('game-auth-ticket-issue', function (Request $request): Limit {
