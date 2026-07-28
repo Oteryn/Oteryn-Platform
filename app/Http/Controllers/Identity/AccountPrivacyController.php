@@ -27,6 +27,6 @@ final class AccountPrivacyController
 
         return redirect()
             ->route('identity.account-security.show')
-            ->with('status', 'Account privacy settings have been updated.');
+            ->with('status', __('identity.status.privacy_updated'));
     }
 }
