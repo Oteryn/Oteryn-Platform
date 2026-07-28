@@ -166,7 +166,7 @@ final class BundledJsonSchemaValidator
         }
 
         foreach ($defined as $name => $propertySchema) {
-            if (! is_string($name) || ! is_array($propertySchema)) {
+            if (! is_array($propertySchema)) {
                 throw new RuntimeException('The bundled schema contains an invalid property definition.');
             }
             $propertySchema = $this->stringKeyedSchema($propertySchema, 'The bundled schema contains an invalid property definition.');

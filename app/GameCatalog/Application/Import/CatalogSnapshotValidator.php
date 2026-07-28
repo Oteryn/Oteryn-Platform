@@ -164,7 +164,7 @@ final class CatalogSnapshotValidator
      * boundary explicit and fail closed if the schema validator contract ever
      * changes unexpectedly.
      *
-     * @param array<string, mixed> $payload
+     * @param array<mixed, mixed> $payload
      * @phpstan-assert CatalogPayload $payload
      */
     private function assertSchemaValidatedPayload(array $payload): void

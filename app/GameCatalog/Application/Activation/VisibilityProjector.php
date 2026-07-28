@@ -97,9 +97,6 @@ final class VisibilityProjector
                 /** @var list<array{profile_id: int, entity_snapshot_id: int, visible: bool, reason_code: string, computed_at: CarbonImmutable}> $insert */
                 $insert = [];
                 foreach ($rows as $row) {
-                    if (! is_object($row)) {
-                        throw new RuntimeException('Game Catalog entity projection query returned an invalid row.');
-                    }
                     $entityRow = CatalogDatabaseRow::from($row);
                     $entityId = $entityRow->int('entity_id');
                     $introducedOrder = $entityRow->nullableInt('introduced_order');
@@ -169,9 +166,6 @@ final class VisibilityProjector
                 /** @var list<array{profile_id: int, relation_snapshot_id: int, visible: bool, reason_code: string, computed_at: CarbonImmutable}> $insert */
                 $insert = [];
                 foreach ($rows as $row) {
-                    if (! is_object($row)) {
-                        throw new RuntimeException('Game Catalog relation projection query returned an invalid row.');
-                    }
                     $relationRow = CatalogDatabaseRow::from($row);
                     $relationId = $relationRow->int('relation_snapshot_id');
                     $introducedOrder = $relationRow->nullableInt('introduced_order');
