@@ -54,6 +54,7 @@ final class AdminMarketplaceController
         $actor = $request->user();
         abort_unless($actor instanceof Identity, 403);
 
+        /** @var array{email: string, amount: int, reason: string, request_id: string} $validated */
         $validated = $request->validate([
             'email' => ['required', 'email:rfc', 'max:255'],
             'amount' => ['required', 'integer', 'min:-1000000000', 'max:1000000000', 'not_in:0'],
@@ -61,7 +62,7 @@ final class AdminMarketplaceController
             'request_id' => ['required', 'uuid'],
         ]);
 
-        $target = Identity::query()->where('email', CanonicalEmail::normalize((string) $validated['email']))->first();
+        $target = Identity::query()->where('email', CanonicalEmail::normalize($validated['email']))->first();
         if (! $target instanceof Identity) {
             return back()->withInput()->withErrors(['email' => 'No Platform Identity exists for this email address.']);
         }
@@ -70,9 +71,9 @@ final class AdminMarketplaceController
             $this->adjustWallet->execute(
                 $actor,
                 $target,
-                (int) $validated['amount'],
-                (string) $validated['reason'],
-                (string) $validated['request_id'],
+                $validated['amount'],
+                $validated['reason'],
+                $validated['request_id'],
             );
         } catch (MarketplaceException $exception) {
             return back()->withInput()->withErrors(['marketplace' => $exception->getMessage()]);
