@@ -5,6 +5,7 @@ namespace App\GameCatalog\Http\Admin;
 use App\GameCatalog\Application\Diff\CatalogSnapshotDiff;
 use App\GameCatalog\Application\Diff\CatalogSnapshotDiffService;
 use Illuminate\Contracts\View\View;
+use Illuminate\Database\Query\Builder;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use RuntimeException;
@@ -98,6 +99,11 @@ final class AdminGameCatalogController
                 ->orderByDesc('id')
                 ->limit(100)
                 ->get(),
+            'auditEvents' => DB::table('game_catalog_audit_events')
+                ->where('snapshot_id', $snapshot)
+                ->orderByDesc('id')
+                ->limit(100)
+                ->get(),
         ]);
     }
 
@@ -153,16 +159,22 @@ final class AdminGameCatalogController
                     'projection.reason_code',
                     'projection.computed_at',
                 ]),
+            'auditEvents' => DB::table('game_catalog_audit_events')
+                ->where('profile_id', $profile)
+                ->orderByDesc('id')
+                ->limit(100)
+                ->get(),
         ]);
     }
 
     public function findings(Request $request): View
     {
-        /** @var array{severity?: string|null, snapshot_id?: int|null} $validated */
+        /** @var array{severity?: string|null, snapshot_id?: int|string|null} $validated */
         $validated = $request->validate([
             'severity' => ['nullable', 'string', 'in:error,warning,info'],
             'snapshot_id' => ['nullable', 'integer', 'min:1'],
         ]);
+        $snapshotId = $this->nullablePositiveInteger($validated['snapshot_id'] ?? null);
 
         $query = DB::table('game_catalog_validation_findings as findings')
             ->leftJoin('game_catalog_snapshots as snapshots', 'snapshots.id', '=', 'findings.snapshot_id')
@@ -171,13 +183,13 @@ final class AdminGameCatalogController
         if (isset($validated['severity']) && is_string($validated['severity'])) {
             $query->where('findings.severity', $validated['severity']);
         }
-        if (isset($validated['snapshot_id']) && is_int($validated['snapshot_id'])) {
-            $query->where('findings.snapshot_id', $validated['snapshot_id']);
+        if ($snapshotId !== null) {
+            $query->where('findings.snapshot_id', $snapshotId);
         }
 
         return view('game-catalog.admin.findings', [
             'selectedSeverity' => $validated['severity'] ?? '',
-            'selectedSnapshotId' => $validated['snapshot_id'] ?? null,
+            'selectedSnapshotId' => $snapshotId,
             'findings' => $query->limit(200)->get([
                 'findings.id',
                 'findings.snapshot_id',
@@ -195,32 +207,34 @@ final class AdminGameCatalogController
 
     public function diff(Request $request, CatalogSnapshotDiffService $diffService): View
     {
-        /** @var array{snapshot_a?: int|null, snapshot_b?: int|null} $validated */
+        /** @var array{snapshot_a?: int|string|null, snapshot_b?: int|string|null} $validated */
         $validated = $request->validate([
             'snapshot_a' => ['nullable', 'integer', 'min:1', 'required_with:snapshot_b'],
             'snapshot_b' => ['nullable', 'integer', 'min:1', 'required_with:snapshot_a', 'different:snapshot_a'],
         ]);
+        $snapshotA = $this->nullablePositiveInteger($validated['snapshot_a'] ?? null);
+        $snapshotB = $this->nullablePositiveInteger($validated['snapshot_b'] ?? null);
 
         $diff = null;
         $diffError = null;
-        if (isset($validated['snapshot_a'], $validated['snapshot_b']) && is_int($validated['snapshot_a']) && is_int($validated['snapshot_b'])) {
+        if ($snapshotA !== null && $snapshotB !== null) {
             try {
-                $diff = $diffService->diff($validated['snapshot_a'], $validated['snapshot_b']);
+                $diff = $diffService->diff($snapshotA, $snapshotB);
             } catch (RuntimeException $exception) {
                 $diffError = $exception->getMessage();
             }
         }
 
         return view('game-catalog.admin.diff', [
-            'selectedSnapshotA' => $validated['snapshot_a'] ?? null,
-            'selectedSnapshotB' => $validated['snapshot_b'] ?? null,
+            'selectedSnapshotA' => $snapshotA,
+            'selectedSnapshotB' => $snapshotB,
             'snapshots' => DB::table('game_catalog_snapshots')->orderByDesc('id')->limit(100)->get(['id', 'content_sha256', 'status']),
             'diff' => $diff instanceof CatalogSnapshotDiff ? $diff : null,
             'diffError' => $diffError,
         ]);
     }
 
-    private function snapshotQuery(): \Illuminate\Database\Query\Builder
+    private function snapshotQuery(): Builder
     {
         return DB::table('game_catalog_snapshots as snapshots')
             ->join('game_catalog_releases as runtime_release', 'runtime_release.id', '=', 'snapshots.runtime_release_id')
@@ -248,7 +262,7 @@ final class AdminGameCatalogController
             ]);
     }
 
-    private function profileQuery(): \Illuminate\Database\Query\Builder
+    private function profileQuery(): Builder
     {
         return DB::table('game_catalog_profiles as profiles')
             ->join('game_catalog_releases as target_release', 'target_release.id', '=', 'profiles.target_release_id')
@@ -271,5 +285,20 @@ final class AdminGameCatalogController
                 'active_snapshot.content_sha256 as active_snapshot_sha256',
                 'active_snapshot.status as active_snapshot_status',
             ]);
+    }
+
+    private function nullablePositiveInteger(mixed $value): ?int
+    {
+        if ($value === null || $value === '') {
+            return null;
+        }
+        if (is_int($value) && $value > 0) {
+            return $value;
+        }
+        if (is_string($value) && preg_match('/^[1-9][0-9]*$/D', $value) === 1) {
+            return (int) $value;
+        }
+
+        throw new RuntimeException('Expected a positive integer query value after validation.');
     }
 }
