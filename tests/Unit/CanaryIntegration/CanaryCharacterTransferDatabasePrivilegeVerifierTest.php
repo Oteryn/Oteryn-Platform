@@ -22,7 +22,7 @@ final class CanaryCharacterTransferDatabasePrivilegeVerifierTest extends TestCas
         $grants[] = "GRANT SELECT (`password`) ON `canary`.`accounts` TO 'oteryn_character_transfer'@'%'";
         $grants[] = "GRANT DELETE ON `canary`.`players` TO 'oteryn_character_transfer'@'%'";
 
-        $violations = (new CanaryCharacterTransferDatabasePrivilegeVerifier)->verify('canary', $grants);
+        $violations = (new CanaryCharacterTransferDatabasePrivilegeVerifier)->verify('canary', array_values($grants));
 
         self::assertNotSame([], $violations);
     }
@@ -33,7 +33,7 @@ final class CanaryCharacterTransferDatabasePrivilegeVerifierTest extends TestCas
         $grants[] = "GRANT UPDATE (`name`) ON `canary`.`players` TO 'oteryn_character_transfer'@'%'";
         $grants[] = "GRANT SELECT (`id`) ON `canary`.`accounts` TO 'oteryn_character_transfer'@'%' WITH GRANT OPTION";
 
-        $violations = (new CanaryCharacterTransferDatabasePrivilegeVerifier)->verify('canary', $grants);
+        $violations = (new CanaryCharacterTransferDatabasePrivilegeVerifier)->verify('canary', array_values($grants));
 
         self::assertNotSame([], $violations);
     }
@@ -43,7 +43,7 @@ final class CanaryCharacterTransferDatabasePrivilegeVerifierTest extends TestCas
         $grants = $this->validGrants();
         $grants[3] = str_replace(', `expires_at`', '', $grants[3]);
 
-        $violations = (new CanaryCharacterTransferDatabasePrivilegeVerifier)->verify('canary', $grants);
+        $violations = (new CanaryCharacterTransferDatabasePrivilegeVerifier)->verify('canary', array_values($grants));
 
         self::assertContains('Missing approved SELECT privilege for cluster_sessions.expires_at.', $violations);
     }
