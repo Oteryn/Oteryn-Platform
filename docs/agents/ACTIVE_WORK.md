@@ -4,17 +4,19 @@ Convenience index only. Individual active task records, live PRs and Git state a
 
 ## Active tasks
 
-- None.
+- `OTERYN-20260728-support-moderation-lifecycle` — Issue #279 authenticated tickets, bounded reports, moderator queues, enforcement history, notifications, retention/privacy and responsive acceptance.
 
 ## Closed acceptance and release-preparation follow-ups
 
+- PR #285 / `285eb5f89b8f83752fa4d5798bb242136b7b9ae6` — archived the completed account-security lifecycle task after Issue #276 closure.
+- PR #283 / `28faad47f95df10d1a9b437a16a1be91556671c6` — complete Platform-owned email change, registered-session inventory/revocation, privacy controls, verifier-only recovery key, bounded termination and EN/PL responsive acceptance merged; Issue #276 closed.
 - PR #275 / `c365920b5ad672c9c3be9968d8a51132d3862859` — evidence-linked Tibia/RubinOT/OTS product-completeness benchmark, 43-capability machine ledger and focused gap backlog #276-#281 merged; Issue #268 closed without claiming product or production completeness.
 - PR #270 / `0f19656e0875d0a10b22002ac0e096deb20e94d8` — complete Character Bazaar, Platform wallet ledger, least-privilege Canary escrow/settlement and exact-head responsive/browser/database/security validation merged; Issue #269 closed.
 - PR #67 / `517968539bdfd7d189677b669bf0899c35fccec1` — issues #68-#70 closed with exact-SHA production-like browser acceptance evidence classified `STAGING_PROVEN`.
 - PR #73 / `06d8d94aafd73de996eb4ea93705e8a45fbadafb` — issue #71 closed with controlled Platform DB outage evidence classified `STAGING_PROVEN` for that staging failure path only.
 - PR #74 / `24eaa4ca5e38bb255db95a989c0ff02e954360f3` — issue #72 closed; focused CMS publication-state and privileged-audit regressions found no runtime defect.
 - PR #75 / `4fc6fcccea00bdd8d7679595b92d189cb572dd35` — final Functional Acceptance matrix reconciliation merged; FAV-01 through FAV-05 are closed for the delivered staging-verifiable scope.
-- PR #77 / `1e6e21f0963406d4e58c39b347a49cfa4529bd1c` — delivered-surface UI/UX remediation merged with clean browser Visual/Accessibility evidence.
+- PR #77 / `1e6e21f0963406d4e58c1ced70e30c53de` — delivered-surface UI/UX remediation merged with clean browser Visual/Accessibility evidence.
 - PR #86 / `5d3628f8c6ba2e454246f24947ebe08ca93cf684` — issue #81 closed; authenticated Account Overview and provisioning-status UX delivered with full production-like browser evidence.
 - PR #92 / `c18432df6b387932aa04e1eb269677c9078d9063` — fail-closed non-secret Production Go-Live verification evidence packet prepared; actual production execution remains issue #91.
 - PR #94 / `26ff602696c597aac0833415b0a47af5d427a52d` — risk-based E2E architecture plus required bounded Chromium/Firefox/WebKit portability, desktop/tablet/mobile responsive and representative browser-security coverage merged.
@@ -65,7 +67,7 @@ Repository and staging evidence remains valid only for its documented boundaries
 
 - **Production Readiness: STAGING_PROVEN for previously documented boundaries**
 - **Portal Completeness: COMPLETE AGAINST THE VERSIONED DELIVERED-SURFACE CONTRACT (Issue #240 closed)**
-- **Product Completeness Benchmark: COMPLETE AS AN AUDIT; REQUIRED PRODUCT GAPS REMAIN OPEN (#276-#281)**
+- **Product Completeness Benchmark: COMPLETE AS AN AUDIT; REQUIRED PRODUCT GAPS REMAIN OPEN (#277-#281)**
 - **Benchmark Product Completeness: NOT YET ACHIEVED**
 - **Functional Acceptance: comprehensive exact-head critical/full/contract/module/stability/soak audit passed through PR #275**
 - **Visual / UX Acceptance: automated responsive/accessibility profiles and exploratory visual validation passed on the PR #275 exact head**
@@ -79,7 +81,7 @@ The latest verified final-portal staging refresh identity is `583cae5f430998b2bb
 
 ## Next work
 
-The highest-priority required benchmark gaps are #276 account security/lifecycle, #277 character management/profile, #279 support/moderation and #280 community data. Issue #278 is mandatory before commercial activation, #281 owns server-backed knowledge expansion, #244 separately owns the homepage-template selector and #91 remains the separate real Production Go-Live tracker.
+The highest-priority required benchmark gaps are #277 character management/profile, #279 support/moderation and #280 community data. Issue #278 is mandatory before commercial activation, #281 is actively owned by the versioned Game Catalog work, #244 separately owns the homepage-template selector and #91 remains the separate real Production Go-Live tracker.
 
 ## Remaining cross-repository dependency
 
