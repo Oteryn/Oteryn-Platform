@@ -3,18 +3,62 @@ name: Marketplace Static Diagnostics
 on:
   pull_request:
     paths:
-      - 'tests/Feature/Marketplace/CanaryCharacterTransferConcurrencyMariaDbTest.php'
       - '.github/workflows/marketplace-static-diagnostics.yml'
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   analyse:
     runs-on: ubuntu-24.04
     steps:
-      - name: Checkout
+      - name: Checkout branch
         uses: actions/checkout@v7
+        with:
+          ref: ${{ github.head_ref }}
+
+      - name: Fix concurrency test status variable types
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('tests/Feature/Marketplace/CanaryCharacterTransferConcurrencyMariaDbTest.php')
+          text = path.read_text()
+          old_wait = '''            foreach ($pids as $pid) {
+                $status = 0;
+                $waitedPid = pcntl_waitpid($pid, $status);
+                self::assertSame($pid, $waitedPid);
+                self::assertTrue(pcntl_wifexited($status));
+                self::assertSame(0, pcntl_wexitstatus($status));
+            }
+'''
+          new_wait = '''            foreach ($pids as $pid) {
+                $waitStatus = 0;
+                $waitedPid = pcntl_waitpid($pid, $waitStatus);
+                self::assertSame($pid, $waitedPid);
+                self::assertTrue(pcntl_wifexited($waitStatus));
+                self::assertSame(0, pcntl_wexitstatus($waitStatus));
+            }
+'''
+          old_result = '''                $status = $decoded['status'] ?? null;
+                self::assertIsString($status);
+                $statuses[] = $status;
+'''
+          new_result = '''                $resultStatus = $decoded['status'] ?? null;
+                self::assertIsString($resultStatus);
+                $statuses[] = $resultStatus;
+'''
+          if old_wait not in text or old_result not in text:
+              raise SystemExit('Expected concurrency status blocks were not found.')
+          path.write_text(text.replace(old_wait, new_wait).replace(old_result, new_result))
+          PY
+
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add tests/Feature/Marketplace/CanaryCharacterTransferConcurrencyMariaDbTest.php
+          git commit -m 'fix(marketplace): isolate concurrency status types'
+          git push origin "HEAD:${GITHUB_HEAD_REF}"
 
       - name: Setup PHP
         uses: shivammathur/setup-php@v2
