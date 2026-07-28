@@ -7,6 +7,7 @@ use App\Identity\Actions\RevokeIdentityWebSessions;
 use App\Identity\Models\Identity;
 use App\Identity\Sessions\WebSessionState;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Hash;
 use Tests\TestCase;
 
@@ -158,7 +159,8 @@ final class WebSessionTest extends TestCase
     {
         $identity = $this->createIdentity();
 
-        $this->actingAs($identity, 'web');
+        Auth::guard('web')->setUser($identity);
+        Auth::shouldUse('web');
 
         $this->get('/')->assertOk();
         $this->assertGuest('web');
