@@ -2,11 +2,19 @@
 
 namespace App\GameCatalog;
 
+use App\GameCatalog\Application\Activation\CatalogActivationService;
+use App\GameCatalog\Application\Activation\VisibilityProjector;
+use App\GameCatalog\Application\Diff\CatalogSnapshotDiffService;
 use App\GameCatalog\Application\Import\CatalogImportService;
 use App\GameCatalog\Application\Import\CatalogSemanticValidator;
 use App\GameCatalog\Application\Import\CatalogSnapshotValidator;
+use App\GameCatalog\Application\Verification\CatalogVerificationService;
+use App\GameCatalog\Console\ActivateCatalogCommand;
+use App\GameCatalog\Console\DiffCatalogCommand;
 use App\GameCatalog\Console\ImportCatalogCommand;
+use App\GameCatalog\Console\RollbackCatalogCommand;
 use App\GameCatalog\Console\ValidateCatalogCommand;
+use App\GameCatalog\Console\VerifyCatalogCommand;
 use App\GameCatalog\Infrastructure\Json\BundledJsonSchemaValidator;
 use App\GameCatalog\Infrastructure\Json\DuplicateJsonKeyDetector;
 use Illuminate\Contracts\Foundation\Application;
@@ -25,9 +33,18 @@ final class GameCatalogServiceProvider extends ServiceProvider
         ));
         $this->app->singleton(CatalogSemanticValidator::class);
         $this->app->singleton(CatalogSnapshotValidator::class);
+        $this->app->singleton(VisibilityProjector::class);
+        $this->app->singleton(CatalogSnapshotDiffService::class);
+        $this->app->singleton(CatalogVerificationService::class);
         $this->app->singleton(CatalogImportService::class, function (Application $app): CatalogImportService {
             return new CatalogImportService(
                 validator: $app->make(CatalogSnapshotValidator::class),
+                database: DB::connection(),
+            );
+        });
+        $this->app->singleton(CatalogActivationService::class, function (Application $app): CatalogActivationService {
+            return new CatalogActivationService(
+                visibilityProjector: $app->make(VisibilityProjector::class),
                 database: DB::connection(),
             );
         });
@@ -39,6 +56,10 @@ final class GameCatalogServiceProvider extends ServiceProvider
             $this->commands([
                 ValidateCatalogCommand::class,
                 ImportCatalogCommand::class,
+                ActivateCatalogCommand::class,
+                RollbackCatalogCommand::class,
+                DiffCatalogCommand::class,
+                VerifyCatalogCommand::class,
             ]);
         }
     }
