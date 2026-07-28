@@ -24,6 +24,22 @@ final class RecoverWithIdentityKeyRequest extends FormRequest
         ];
     }
 
+    /** @return array<string, string> */
+    public function messages(): array
+    {
+        return [
+            'email.required' => __('identity.validation.email_required'),
+            'email.string' => __('identity.validation.email_invalid'),
+            'email.email' => __('identity.validation.email_invalid'),
+            'email.max' => __('identity.validation.email_too_long'),
+            'recovery_key.required' => __('identity.validation.recovery_key_required'),
+            'recovery_key.string' => __('identity.validation.recovery_key_required'),
+            'recovery_key.max' => __('identity.validation.recovery_key_too_long'),
+            'password.required' => __('identity.validation.new_password_required'),
+            'password.confirmed' => __('identity.validation.new_password_confirmation'),
+        ];
+    }
+
     public function canonicalEmail(): string
     {
         return CanonicalEmail::normalize($this->validatedString('email'));
