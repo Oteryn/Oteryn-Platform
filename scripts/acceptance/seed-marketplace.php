@@ -95,7 +95,7 @@ $snapshot = static function (int $playerId, string $name): array {
 };
 
 /**
- * @param array<string, mixed> $overrides
+ * @param  array<string, mixed>  $overrides
  */
 $createAuction = static function (
     Identity $owner,
