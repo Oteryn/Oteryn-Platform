@@ -1,0 +1,117 @@
+name: Game Catalog Contract
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/game-catalog-contract.yml'
+      - 'app/GameCatalog/**'
+      - 'bootstrap/providers.php'
+      - 'config/game-catalog.php'
+      - 'database/migrations/*game_catalog*.php'
+      - 'resources/schemas/game-catalog/**'
+      - 'tests/Fixtures/GameCatalog/**'
+      - 'tests/Feature/GameCatalog/**'
+      - 'tests/Unit/GameCatalog/**'
+      - 'tools/game-catalog/**'
+  pull_request:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/game-catalog-contract.yml'
+      - 'app/GameCatalog/**'
+      - 'bootstrap/providers.php'
+      - 'config/game-catalog.php'
+      - 'database/migrations/*game_catalog*.php'
+      - 'resources/schemas/game-catalog/**'
+      - 'tests/Fixtures/GameCatalog/**'
+      - 'tests/Feature/GameCatalog/**'
+      - 'tests/Unit/GameCatalog/**'
+      - 'tools/game-catalog/**'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: game-catalog-contract-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate-contract:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Install contract validator dependency
+        run: python3 -m pip install --disable-pip-version-check --no-cache-dir 'jsonschema==4.26.0'
+
+      - name: Compile contract validator
+        run: python3 -m py_compile tools/game-catalog/validate_contract_fixture.py
+
+      - name: Validate schema and shared fixture
+        run: >-
+          python3 tools/game-catalog/validate_contract_fixture.py
+          --schema resources/schemas/game-catalog/v1/game-catalog-snapshot.schema.json
+          --fixture tests/Fixtures/GameCatalog/v1/minimal-snapshot.json
+
+  static-analysis:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.5'
+          coverage: none
+          extensions: pdo_mysql, pcntl, gd
+          tools: composer:v2
+
+      - name: Install dependencies from lockfile
+        run: composer install --no-interaction --prefer-dist --no-progress --quiet
+
+      - name: Check Game Catalog formatting
+        shell: bash
+        run: |
+          set -o pipefail
+          mkdir -p artifacts/ci
+          vendor/bin/pint --test --format=json \
+            app/GameCatalog \
+            bootstrap/providers.php \
+            config/game-catalog.php \
+            database/migrations/2026_07_28_110000_create_game_catalog_tables.php \
+            database/migrations/2026_07_28_110100_add_game_catalog_profile_policies.php \
+            tests/Feature/GameCatalog \
+            tests/Unit/GameCatalog \
+            2>&1 | tee artifacts/ci/game-catalog-pint.json
+
+      - name: Analyse Game Catalog slice
+        shell: bash
+        run: |
+          set -o pipefail
+          vendor/bin/phpstan analyse \
+            app/GameCatalog \
+            bootstrap/providers.php \
+            config/game-catalog.php \
+            database/migrations/2026_07_28_110000_create_game_catalog_tables.php \
+            database/migrations/2026_07_28_110100_add_game_catalog_profile_policies.php \
+            tests/Feature/GameCatalog \
+            tests/Unit/GameCatalog \
+            --memory-limit=1G \
+            --no-progress \
+            --error-format=raw \
+            2>&1 | tee artifacts/ci/game-catalog-phpstan.txt
+
+      - name: Upload Game Catalog diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: game-catalog-ci-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            artifacts/ci/game-catalog-pint.json
+            artifacts/ci/game-catalog-phpstan.txt
+          if-no-files-found: warn
+          retention-days: 7
