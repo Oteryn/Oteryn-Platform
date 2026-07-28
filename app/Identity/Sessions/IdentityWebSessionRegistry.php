@@ -44,6 +44,13 @@ final class IdentityWebSessionRegistry
             ->first();
     }
 
+    public function currentId(Request $request): ?string
+    {
+        $registryId = $request->session()->get(WebSessionState::REGISTRY_ID_KEY);
+
+        return is_string($registryId) && $registryId !== '' ? $registryId : null;
+    }
+
     public function touch(IdentityWebSession $session): void
     {
         $intervalSeconds = config('identity_security.sessions.touch_interval_seconds');
@@ -58,16 +65,21 @@ final class IdentityWebSessionRegistry
         $session->forceFill(['last_seen_at' => now()])->save();
     }
 
-    public function revokeCurrent(Request $request): void
+    public function revokeCurrent(Request $request, ?Identity $identity = null): void
     {
-        $registryId = $request->session()->get(WebSessionState::REGISTRY_ID_KEY);
-        if (! is_string($registryId) || $registryId === '') {
+        $registryId = $this->currentId($request);
+        if ($registryId === null) {
             return;
         }
 
-        IdentityWebSession::query()
-            ->whereKey($registryId)
-            ->whereNull('revoked_at')
+        $query = IdentityWebSession::query()->whereKey($registryId);
+        if ($identity instanceof Identity) {
+            $query->where('identity_id', $identity->id);
+        } else {
+            return;
+        }
+
+        $query->whereNull('revoked_at')
             ->update(['revoked_at' => now(), 'updated_at' => now()]);
     }
 
