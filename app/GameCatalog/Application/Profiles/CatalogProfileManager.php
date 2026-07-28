@@ -21,7 +21,10 @@ final readonly class CatalogProfileManager
         ?int $actorIdentityId,
     ): VisibilityProjectionResult|null {
         return DB::transaction(function () use ($profileId, $targetReleaseKey, $completeOnly, $publicEnabled, $actorIdentityId): ?VisibilityProjectionResult {
-            $profile = DB::table('game_catalog_profiles')->whereKey($profileId)->lockForUpdate()->first();
+            $profile = DB::table('game_catalog_profiles')
+                ->where('id', $profileId)
+                ->lockForUpdate()
+                ->first();
             if ($profile === null) {
                 throw new RuntimeException('Game Catalog profile does not exist.');
             }
@@ -49,7 +52,7 @@ final readonly class CatalogProfileManager
                 }
             }
 
-            DB::table('game_catalog_profiles')->whereKey($profileId)->update([
+            DB::table('game_catalog_profiles')->where('id', $profileId)->update([
                 'target_release_id' => $target->id,
                 'complete_only' => $completeOnly,
                 'public_enabled' => $publicEnabled,
