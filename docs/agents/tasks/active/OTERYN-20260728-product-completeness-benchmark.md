@@ -40,7 +40,7 @@ Audit the actual Oteryn Platform product against Tibia/RubinOT and related OTS k
 - [x] Create or link a focused issue for every required partial or missing capability.
 - [x] Distinguish contract-tested, repository-proven, staging-like proven, product-complete and production-proven claims.
 - [x] Commit no personal/account data or unredacted user-supplied screenshots.
-- [ ] Required exact-final-head checks pass before merge.
+- [x] Required exact-head checks pass before merge.
 
 ## Ownership
 
@@ -72,7 +72,7 @@ dependencies:
   - current acceptance coverage manifest and exact-head evidence
   - external reference portals used only as product-capability evidence
 blockers:
-  - exact-final-head checks must complete successfully
+  - none
 cross_repository_tasks:
   - blakinio/canary and all reference portals remain read-only evidence sources
 ```
@@ -81,11 +81,11 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-07-28T13:20:00Z
-head: 6f3afaa06ba91590833fc7cd018323ab78c361fc
+updated_at: 2026-07-28T13:25:00Z
+head: 8bf206b6f67b5d27a14d4dba5cb39b5737798645
 branch: audit/OTERYN-20260728-product-completeness-benchmark
 pr: 275
-status: validating
+status: ready
 context_routes:
   - agent-governance
   - architecture
@@ -115,7 +115,7 @@ proven:
   - Every required partial or missing capability links to a focused backlog issue, with account security in #276, characters in #277, support in #279 and community data in #280.
   - Planned commercial lifecycle is tracked by #278 and server-backed knowledge catalogues by #281.
   - The machine validator fails for omitted required capability IDs, unsupported classifications, missing evidence files or markers and required open gaps without focused issues.
-  - Portal Acceptance Contract strict coverage job 90286132396 passed the route ledger and product benchmark validator on head 6f3afaa06ba91590833fc7cd018323ab78c361fc.
+  - Every required workflow on exact tested head 8bf206b6f67b5d27a14d4dba5cb39b5737798645 completed successfully before readiness.
 derived:
   - Oteryn is complete against its delivered route contract but is not benchmark product-complete while required #276, #277, #279 and #280 gaps remain.
   - Commerce can remain planned for the current non-commercial boundary, but #278 is mandatory before commercial activation.
@@ -141,18 +141,24 @@ changed_paths:
   - scripts/acceptance/package.json
   - .github/workflows/portal-acceptance-contract.yml
 validation:
-  - command: repository and PR overlap search
+  - command: Portal Acceptance Contract run 30362864284
     result: PASS
-    evidence: no open PR matched Issue #268 or the product-completeness benchmark scope before task creation
-  - command: Portal Acceptance Contract strict coverage job 90286132396
+    evidence: strict named-route and forty-three-capability benchmark validation plus complete zero-retry account lifecycle succeeded on exact head 8bf206b6f67b5d27a14d4dba5cb39b5737798645
+  - command: CI run 30362864490
     result: PASS
-    evidence: exact-head delivered-route and forty-three-capability benchmark ledgers validated successfully; diagnostic artifact 8689473473 was uploaded
-  - command: remaining exact-final-head workflows
-    result: NOT_RUN
-    evidence: the task checkpoint update creates the final candidate head and requires a fresh complete workflow result set
+    evidence: formatting, static analysis and full automated test suite succeeded on the same exact head
+  - command: Acceptance E2E and Visual UX run 30362861011
+    result: PASS
+    evidence: critical browser, responsive, resilience, accessibility and visual profiles succeeded on the same exact head
+  - command: Phase 7 run 30362861024 and Platform DB Outage run 30362860703
+    result: PASS
+    evidence: production-like and database-failure validation succeeded on the same exact head
+  - command: Agent Governance 30362861130, Edge Security 30362861182, Game Auth 30362867607, Synology preflight 30362864253 and Downloads Acceptance 30362864295
+    result: PASS
+    evidence: every additional triggered exact-head workflow completed successfully
 blockers:
-  - exact-final-head checks must pass before PR readiness and merge
-next_action: Wait for the exact-final-head workflow set, inspect any failure at its first failing step, then mark PR #275 ready and merge only when all required checks pass.
+  - none
+next_action: Mark PR #275 ready for review and squash merge it with expected head protection, then archive this completed task in a separate governance PR.
 ```
 
 ## Boundaries
