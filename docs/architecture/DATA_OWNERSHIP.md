@@ -24,7 +24,9 @@ Expected examples:
 - MFA metadata;
 - platform-specific user preferences;
 - platform notification metadata;
-- future payment ledger and provider records.
+- Character Bazaar auctions, bids, watchlists, saga state and immutable listing snapshots;
+- Oteryn Coins wallet accounts, reservations and append-oriented ledger entries;
+- future payment-provider records.
 
 ### Canary-owned
 
@@ -36,10 +38,14 @@ Potential examples may include game runtime/world state and gameplay-owned playe
 
 Both components require access, but one component remains the semantic owner and the contract defines allowed operations.
 
-Likely candidates requiring discovery:
+Confirmed operation-specific examples:
 
-- accounts;
-- players/characters;
+- greenfield Canary account provisioning;
+- greenfield Canary character creation;
+- Character Bazaar reassignment of the single `players.account_id` ownership field through `docs/contracts/CHARACTER_TRANSFER_CONTRACT.md`.
+
+Other candidates requiring discovery include:
+
 - guild membership;
 - bans/account status;
 - game login sessions/tokens.
@@ -80,8 +86,11 @@ Target production direction:
 - platform migration owner: allowed only for platform-owned schema and approved migrations;
 - application runtime credential: least privileges required by the platform;
 - read-only game-data credential where architecture permits separation;
+- operation-specific Canary write credentials for provisioning, character creation and Character Bazaar transfer;
 - Canary uses its own credential;
 - no shared root/admin database credential in application configuration.
+
+The Character Bazaar transfer principal is restricted to approved column-level reads on `accounts`, `players` and `cluster_sessions`, plus `UPDATE (account_id)` on `players`. It cannot read credentials/coins, update other player fields or write sessions.
 
 Exact credential split depends on final deployment/database topology.
 
@@ -103,6 +112,8 @@ A required shared schema change must:
 - define rollback/backward compatibility;
 - coordinate both repositories when atomic behavior is required.
 
+Character Bazaar v1 requires no Canary schema migration. It uses the verified existing `players.account_id`, `accounts.id` and `cluster_sessions` schema at the pinned evidence revision.
+
 ## Identity data special rule
 
 Credentials and game-login compatibility require explicit ownership discovery before implementation.
@@ -120,7 +131,7 @@ Until answered, agents must not implement a speculative credential migration.
 
 ## Character data special rule
 
-Before web character creation/deletion/rename, verify:
+Before web character creation/deletion/rename or ownership transfer, verify:
 
 - required columns/defaults;
 - name uniqueness and normalization rules;
@@ -131,13 +142,52 @@ Before web character creation/deletion/rename, verify:
 - foreign keys and dependent rows;
 - Canary caches/runtime assumptions.
 
+### Character Bazaar transfer boundary
+
+Canary remains the semantic owner of the character and all gameplay-dependent rows keyed by `player_id`. The Platform may change only `players.account_id` through the dedicated transfer contract.
+
+The transfer operation:
+
+- resolves source and target account IDs server-side;
+- locks source/target accounts and the player deterministically;
+- requires `deletion = 0`;
+- rejects any `cluster_sessions` row for the character;
+- enforces the normal target account quota except for the dedicated escrow account;
+- is idempotent when the expected target already owns the character;
+- never changes name, skills, inventory, guild, house, market or session state.
+
+A listing is not public merely because the first transfer succeeds. Platform-owned saga state waits for the configured quiescence interval and reconfirms escrow ownership plus absence of a cluster session before activation.
+
+## Character Bazaar and wallet data
+
+Primary Platform-owned tables:
+
+- `character_auctions` — seller/winner Identity references, immutable public-safe character snapshot, auction terms, state machine and recovery code;
+- `character_auction_bids` — immutable request identity, bidder, amount and bounded status lifecycle;
+- `character_auction_watches` — user preference relation;
+- `wallet_accounts` — transactionally maintained available/reserved projection;
+- `wallet_ledger_entries` — append-oriented signed deltas and unique idempotency keys.
+
+Rules:
+
+- browser-supplied Canary account IDs never establish ownership;
+- Oteryn Coins are not a Canary coin field, character bank balance or payment-provider balance;
+- the ledger is the financial mutation trace; cached wallet balances are updated in the same transaction;
+- available and reserved balances cannot become negative;
+- the current leading bid alone remains reserved;
+- outbid release, purchase settlement, seller proceeds and administrator adjustments use deterministic idempotency keys;
+- administrator adjustments require confirmed MFA, exact permission and an audit event committed in the same Platform transaction;
+- cross-database ownership and wallet settlement use a durable idempotent saga rather than claiming distributed ACID.
+
 ## Future financial data
 
-Future coins/payment balances are platform-owned business data unless a later ADR says otherwise.
+Oteryn Coins and future payment balances are Platform-owned business data unless a later ADR says otherwise.
 
 Use an immutable/append-oriented ledger as the source of financial history. A cached balance may exist, but mutation must remain transactional and auditable.
 
-Do not reuse a generic mutable `premium_points` field as the sole financial source of truth without a deliberate ADR and threat/concurrency analysis.
+Do not reuse a generic mutable `premium_points`, Canary coin or tournament-coin field as the sole financial source of truth without a deliberate ADR and threat/concurrency analysis.
+
+Payment providers, coin purchasing, refunds and chargebacks remain outside Character Bazaar v1 and require a separate payment threat model and reconciliation contract.
 
 ## Data classification
 
@@ -151,10 +201,10 @@ Email addresses, IP/security history, account security events.
 
 ### Internal operational
 
-Admin audit records, integration errors, deployment metadata.
+Admin audit records, integration errors, deployment metadata, marketplace saga failure codes and wallet idempotency keys.
 
 ### Public game data
 
-Character/guild/highscore data explicitly intended for public display.
+Character/guild/highscore data explicitly intended for public display, including the allowlisted immutable Character Bazaar snapshot. Canary account IDs, sessions, IPs and credentials are never public snapshot fields.
 
 Classification affects logging, access, retention and export behavior.
