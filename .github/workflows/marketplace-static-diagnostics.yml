@@ -3,6 +3,7 @@ name: Marketplace Static Diagnostics
 on:
   pull_request:
     paths:
+      - 'tests/Feature/Marketplace/CanaryCharacterTransferConcurrencyMariaDbTest.php'
       - '.github/workflows/marketplace-static-diagnostics.yml'
 
 permissions:
