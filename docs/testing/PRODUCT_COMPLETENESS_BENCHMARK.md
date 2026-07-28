@@ -7,31 +7,34 @@
 - Machine-readable ledger: `docs/testing/product-completeness-benchmark.json`
 - Delivered-surface contract: `scripts/acceptance/coverage/portal-coverage-manifest.json` plus sorted fragments under `scripts/acceptance/coverage/surfaces/`
 - Character Bazaar delivery: PR #270, merge `0f19656e0875d0a10b22002ac0e096deb20e94d8`
+- Account-security lifecycle delivery: PR #283
 
 ## Verdict
 
 The current Oteryn delivered-surface contract is broad and its declared routes have exact repository and isolated staging-like acceptance evidence. That is not the same as product completeness against Tibia/RubinOT-style account, character, commerce, support, community-data and knowledge ecosystems.
 
-At this baseline the benchmark ledger contains **43 capabilities**:
+The benchmark ledger contains **43 capabilities**:
 
 | Delivery status | Count |
 |---|---:|
-| Implemented | 3 |
-| Partial | 11 |
-| Missing | 29 |
+| Implemented | 9 |
+| Partial | 8 |
+| Missing | 25 |
 | Untested | 0 |
-| Not applicable | 0 |
+| Not applicable | 1 |
 
 Relevance classification:
 
 | Relevance | Count |
 |---|---:|
-| Required | 23 |
+| Required | 22 |
 | Planned | 13 |
 | Optional / differentiator | 7 |
-| Not applicable | 0 |
+| Not applicable | 1 |
 
-**Oteryn must not claim benchmark product completeness while required partial or missing capabilities remain open.** The principal required-gap trackers are #276, #277, #279 and #280. Commerce is intentionally planned rather than part of the current non-commercial launch boundary, but #278 is mandatory before any commercial activation. Structured server-backed Wiki expansion is tracked by #281.
+**Oteryn must not claim benchmark product completeness while required partial or missing capabilities remain open.** The principal required-gap trackers are #277, #279 and #280. Commerce is intentionally planned rather than part of the current non-commercial launch boundary, but #278 is mandatory before any commercial activation. Structured server-backed Wiki expansion is tracked by #281.
+
+Issue #276 now has a delivered account-security lifecycle for the approved Platform boundary. It does not authorize Canary account unlink/rebind, native game-account deletion, character deletion or production deployment.
 
 This report does not establish deployment to production or `PRODUCTION_PROVEN` status. Production verification remains independently owned by #91.
 
@@ -61,7 +64,7 @@ Relevance meanings:
 
 ## Current delivered route and state inventory
 
-The inventory below is based on the exact named-route contract rather than screenshots or menu labels. Every delivered surface includes its declared authorization roles and relevant empty, validation, denial, not-found, dependency or recovery states.
+The inventory is based on the exact named-route contract rather than screenshots or menu labels. Every delivered surface includes declared authorization roles and relevant empty, validation, denial, not-found, dependency or recovery states.
 
 | Surface | Current delivery | Principal states and boundaries |
 |---|---|---|
@@ -69,6 +72,7 @@ The inventory below is based on the exact named-route contract rather than scree
 | Password recovery and change | Covered | SMTP delivery, reset success, invalid/expired token, replay denial, wrong current password, global session revocation |
 | TOTP MFA lifecycle | Covered | enrollment, QR provisioning, confirmation, challenge, invalid code, replay denial, recovery-code single use, disable, session invalidation |
 | Account overview and Canary provisioning | Covered | ready, pending, recoverable, conflict, missing, retry, internal identifiers hidden |
+| Account security and lifecycle | Covered | EN/PL, confirmed email change and old-address recovery, cooldown, active-session inventory, targeted/current/all-other revocation, privacy, recovery-key issue/revoke/use/replay denial, termination grace/cancel/finalize, stale-session redirect |
 | Character creation and visibility | Covered | validation, reserved/duplicate name, quota, ownership injection denial, idempotent outcome, public visibility |
 | Public home and SEO | Covered | available, empty, stale, dependency unavailable, EN/PL, published-only sitemap/robots |
 | Public news and managed pages | Covered | published, empty, not found, unpublished hidden, long content, EN/PL |
@@ -87,7 +91,7 @@ The inventory below is based on the exact named-route contract rather than scree
 | Character Bazaar account lifecycle | Covered | wallet/reservation, watch, validation, escrow, bid/outbid, buy-now, cancel/expiry, history, recovery, idempotency |
 | Character Bazaar administration | Covered | MFA/permission denial, wallet lookup/adjustment, ledger/audit, empty recovery queue, bounded retry, ownership conflict |
 
-The route contract proves that delivered surfaces are classified. It does not prove that absent account, character, support, commerce or community capabilities are acceptable omissions.
+The route contract proves that delivered surfaces are classified. It does not prove that absent character, support, commerce or community capabilities are acceptable omissions.
 
 ## Benchmark results by domain
 
@@ -96,24 +100,24 @@ The route contract proves that delivered surfaces are classified. It does not pr
 Implemented:
 
 - secure token-based password recovery/change with token replay denial and global session revocation;
-- TOTP enrollment/challenge/disable and recovery codes, although method choice is incomplete;
-- immutable 1:1 Platform Identity to greenfield Canary account binding with visible provisioning state.
+- TOTP enrollment/challenge/disable and recovery codes; email-code MFA is intentionally not adopted because email is the recovery channel;
+- immutable `1 Platform Identity <-> 1 Canary account` greenfield binding with visible provisioning state;
+- confirmed primary-email change, new-address confirmation, old-address cancellation/recovery, cooldown and global authorization revocation;
+- active registered-session inventory with owner-scoped targeted, current and all-other revocation;
+- account-level public-association and status privacy controls that default to private;
+- verifier-only high-assurance recovery key generation, rotation, revocation, single use and replay denial;
+- bounded Platform account termination with grace period, cancellation, audited finalization and preservation of Canary-owned data;
+- English and Polish account-security UI, validation, token errors and notification links.
 
-Required gaps:
+Policy decision classified `not_applicable`:
 
-- primary email change confirmation, cooldown and cancellation;
-- active-session inventory and targeted remote revocation;
-- safe exceptional game-account unlink/rebind and connected-account inventory;
-- account privacy controls;
-- account termination with retention/grace/cancellation/audit.
+- self-service Canary account unlink/rebind/transfer. The ready binding remains immutable because no safe user-facing mutation contract exists; exceptional mutation requires a separately reviewed operation contract.
 
-Planned or optional gaps:
+Optional remaining gap:
 
-- separately issued high-assurance recovery artifact;
-- email-code MFA decision;
-- account badges/loyalty/status model.
+- account badges/loyalty/status presentation.
 
-Tracker: **#276**.
+Issue #276 is delivered for the approved Platform-owned scope. Native Canary account lifecycle or a future exceptional binding operation remains a separate contract, not a hidden gap in this delivered surface.
 
 ### Character management and public profile
 
@@ -219,7 +223,7 @@ Tracker: **#281**.
 
 | Priority boundary | Issue | Scope |
 |---|---|---|
-| Required account/security completeness | #276 | Email, sessions, binding lifecycle, privacy, termination and recovery-method decisions |
+| Delivered account/security lifecycle | #276 | Confirmed email, sessions, privacy, recovery key, termination and explicit MFA/binding policy |
 | Required character/profile completeness | #277 | Public profile editing/privacy, delete/restore, rename, linkage and transfer policy |
 | Required support/moderation completeness | #279 | Tickets, reports, enforcement history and notifications |
 | Required community-data completeness | #280 | Rich profiles, guild workflows, highscore filters, deaths and statistics |

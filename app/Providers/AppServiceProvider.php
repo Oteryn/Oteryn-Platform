@@ -108,6 +108,34 @@ class AppServiceProvider extends ServiceProvider
             return Limit::perMinute(5)->by($this->authenticatedIdentitySourceKey($request));
         });
 
+        RateLimiter::for('identity-email-change', function (Request $request): Limit {
+            return Limit::perHour(3)->by($this->authenticatedIdentitySourceKey($request));
+        });
+
+        RateLimiter::for('identity-email-token', function (Request $request): Limit {
+            return Limit::perMinute(10)->by($this->routeTokenSourceKey($request));
+        });
+
+        RateLimiter::for('identity-session-revoke', function (Request $request): Limit {
+            return Limit::perMinute(10)->by($this->authenticatedIdentitySourceKey($request));
+        });
+
+        RateLimiter::for('identity-security-mutation', function (Request $request): Limit {
+            return Limit::perMinute(10)->by($this->authenticatedIdentitySourceKey($request));
+        });
+
+        RateLimiter::for('identity-recovery-key-manage', function (Request $request): Limit {
+            return Limit::perHour(5)->by($this->authenticatedIdentitySourceKey($request));
+        });
+
+        RateLimiter::for('identity-recovery-key-use', function (Request $request): Limit {
+            return Limit::perHour(5)->by($this->emailSourceKey($request));
+        });
+
+        RateLimiter::for('identity-termination', function (Request $request): Limit {
+            return Limit::perHour(3)->by($this->authenticatedIdentitySourceKey($request));
+        });
+
         RateLimiter::for('identity-mfa-challenge', function (Request $request): Limit {
             $sourceIp = $request->ip() ?? 'unknown';
 
@@ -205,6 +233,14 @@ class AppServiceProvider extends ServiceProvider
         return is_int($pendingIdentityId) || is_string($pendingIdentityId)
             ? hash('sha256', (string) $pendingIdentityId)
             : 'unknown';
+    }
+
+    private function routeTokenSourceKey(Request $request): string
+    {
+        $token = $request->route('token');
+        $tokenKey = is_string($token) && $token !== '' ? hash('sha256', $token) : 'missing';
+
+        return $tokenKey.'|'.($request->ip() ?? 'unknown');
     }
 
     private function bearerSourceKey(Request $request): string

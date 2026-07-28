@@ -114,9 +114,9 @@ test('@portal-account Flow 3b — password recovery uses real SMTP, revokes old 
     await resetPage.getByRole('button', { name: 'Reset password' }).click();
     await expect(resetPage.getByRole('status')).toContainText('Your password has been reset. Sign in again.');
 
-    const invalidatedSessionResponse = await page.goto('/mfa');
-    expect(invalidatedSessionResponse?.status()).toBe(403);
-    await expect(page.getByRole('heading', { name: 'You do not have access to this page' })).toBeVisible();
+    await page.goto('/mfa');
+    await expect(page).toHaveURL(/\/login$/u);
+    await expect(page.getByRole('heading', { name: 'Sign in to Oteryn Platform' })).toBeVisible();
 
     await resetPage.getByLabel('Email').fill(email);
     await resetPage.getByLabel('Password').fill(originalPassword);

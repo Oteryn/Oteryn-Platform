@@ -53,9 +53,16 @@
                         {{ $identity->hasConfirmedMfa() ? 'Enabled' : 'Not enabled' }}
                     </span>
                 </dd>
+                <dt>Termination</dt>
+                <dd>
+                    <span class="badge {{ $identity->hasPendingTermination() ? 'badge-warning' : 'badge-success' }}">
+                        {{ $identity->hasPendingTermination() ? 'Grace period active' : 'Not requested' }}
+                    </span>
+                </dd>
             </dl>
             <div class="action-row">
-                <a class="button button-secondary" href="{{ route('identity.mfa.settings') }}">Manage security</a>
+                <a class="button" href="{{ route('identity.account-security.show') }}">Manage account security</a>
+                <a class="button button-secondary" href="{{ route('identity.mfa.settings') }}">Manage authenticator</a>
                 <a class="button button-secondary" href="{{ route('identity.password.change.create') }}">Change password</a>
             </div>
         </section>

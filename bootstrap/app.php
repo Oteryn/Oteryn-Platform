@@ -10,6 +10,8 @@ use App\Http\Middleware\RequireAdminPermission;
 use App\Http\Middleware\SecurityHeaders;
 use App\Http\Middleware\SetPublicLocale;
 use App\Http\Middleware\TrustConfiguredProxies;
+use App\Identity\Localization\SetIdentityLocale;
+use Illuminate\Auth\Middleware\Authenticate;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
@@ -34,9 +36,18 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->append(DetectPublicLocaleFromPath::class);
         $middleware->append(RequestCorrelation::class);
         $middleware->append(PreventSensitiveGameAuthResponseCaching::class);
-        $middleware->redirectGuestsTo('/login');
+        $middleware->redirectGuestsTo(function (Request $request): string {
+            $requestedLocale = $request->query('locale');
+            if (is_string($requestedLocale) && in_array($requestedLocale, ['en', 'pl'], true)) {
+                $request->session()->put(SetIdentityLocale::SESSION_KEY, $requestedLocale);
+            }
+
+            return '/login';
+        });
         $middleware->redirectUsersTo('/');
         $middleware->appendToGroup('web', EnsureIdentitySessionIsCurrent::class);
+        $middleware->prependToPriorityList(Authenticate::class, SetIdentityLocale::class);
+        $middleware->prependToPriorityList(Authenticate::class, EnsureIdentitySessionIsCurrent::class);
         $middleware->appendToGroup('web', SecurityHeaders::class);
         $middleware->alias([
             'mfa.confirmed' => EnsureConfirmedMfa::class,
@@ -54,9 +65,11 @@ return Application::configure(basePath: dirname(__DIR__))
         $exceptions->respond(function (Response $response): Response {
             $request = request();
             $response->headers->set('Content-Language', app()->getLocale());
+            if ($request->is('api/*') || $request->is('internal/*')) {
+                $response->headers->set('Cache-Control', 'no-store, private');
+                $response->headers->set('Pragma', 'no-cache');
+            }
 
-            return PreventSensitiveGameAuthResponseCaching::appliesTo($request)
-                ? PreventSensitiveGameAuthResponseCaching::apply($response)
-                : $response;
+            return $response;
         });
     })->create();

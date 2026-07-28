@@ -47,6 +47,9 @@ Security-critical surfaces include:
 - Revoke or rotate sessions after password reset/change, MFA reset or other security-sensitive state changes according to explicit policy.
 - Session cookies must use appropriate Secure, HttpOnly and SameSite behavior for production deployment.
 - Do not expose session IDs in URLs or logs.
+- Registered Platform web sessions are ownership-scoped server-side; browser-supplied identifiers never establish ownership.
+- A revoked, expired or generation-stale registered session must be invalidated before a protected controller executes and redirected to login; public routes may continue only as a guest request.
+- Account surfaces may display only bounded browser/timestamp summaries. Raw source addresses are not user-visible and complete network identifiers do not enter audit metadata.
 
 ### MFA
 
@@ -59,12 +62,29 @@ Target requirement:
 - recovery/reset procedures treated as privileged security actions;
 - audit events for enrollment/reset/disable operations.
 
+Oteryn uses authenticator-app TOTP as the delivered second factor. Email-code MFA is not adopted in the account-security lifecycle because the same email channel is already used for recovery; treating that channel as an independent second factor would weaken the intended assurance boundary.
+
 ### Recovery and verification
 
 - reset/verification tokens must be cryptographically strong, time-limited and single-purpose;
 - avoid account enumeration through materially different public responses;
 - rate-limit recovery attempts;
 - successful reset should apply the defined session revocation policy.
+
+### Account security lifecycle
+
+The delivered Platform-owned lifecycle additionally requires:
+
+- primary-email changes must be confirmed at the new address and independently cancellable or recoverable from the previous address during a bounded window;
+- confirmation and old-address recovery are single-use, rate-limited and revoke every Platform web session and game authorization;
+- email-change cooldown prevents rapid repeated identity-channel replacement;
+- privacy flags default to private and are read server-side by any public-profile consumer;
+- a high-assurance recovery key is shown once, stored only as a keyed verifier and becomes unusable after rotation, revocation or successful use;
+- successful recovery-key use resets password and MFA and revokes every Platform web session and game authorization;
+- Platform account termination uses a grace period, explicit confirmation, cancellation and audited finalization;
+- finalization disables and anonymizes Platform login but never deletes, unlinks, rebinds or transfers Canary-owned accounts or characters;
+- the ready Platform-to-Canary binding remains immutable unless a separate reviewed operation contract authorizes a narrowly scoped exceptional mutation;
+- security UI, validation, token errors and notification links support exactly English and Polish without persisting raw security tokens as locale state.
 
 ## Authorization and RBAC
 
@@ -150,6 +170,10 @@ Apply application-level limits at minimum to:
 - login;
 - registration;
 - password reset;
+- primary-email change request, confirmation and recovery;
+- registered-session revocation;
+- recovery-key generation, revocation and use;
+- account-termination request and cancellation;
 - email verification resend;
 - MFA verification/recovery;
 - public search endpoints if abused;
@@ -165,7 +189,11 @@ Audit security-relevant events such as:
 - sensitive account state changes;
 - MFA enrollment/reset/disable;
 - password reset completion;
-- session revocation actions;
+- email change request, confirmation, cancellation and recovery;
+- targeted and all-other session revocation actions;
+- privacy setting changes;
+- recovery-key generation, revocation and use;
+- account-termination request, cancellation and finalization;
 - future payment/ledger administrative actions.
 
 Phase 7 application-side request correlation uses a fresh server-generated UUID for every Laravel-handled request. The application does not trust a browser-supplied `X-Request-ID` as authoritative correlation evidence.
@@ -185,9 +213,11 @@ An optional JSON-to-stderr channel exists for deployment environments that colle
 Never record:
 
 - raw passwords;
-- session tokens;
-- reset tokens;
+- session tokens or complete registered-session identifiers;
+- reset or email-change tokens;
 - MFA secrets;
+- raw recovery keys;
+- complete source addresses;
 - payment credentials;
 - unnecessary personal data.
 
@@ -255,6 +285,7 @@ A production release must not be called security-ready until at least:
 - administrator MFA is enforced;
 - critical routes have authorization tests;
 - password reset/revocation behavior is tested;
+- email-change, registered-session, recovery-key and termination behavior is tested in both supported locales;
 - origin/database exposure is reviewed;
 - secrets handling is verified;
 - browser security headers are regression-tested and deployed TLS/HSTS posture is reviewed against the actual topology;

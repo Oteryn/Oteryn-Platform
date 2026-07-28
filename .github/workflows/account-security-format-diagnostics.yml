@@ -1,0 +1,52 @@
+name: Account Security Format Diagnostics
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/account-security-format-diagnostics.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  format-diagnostics:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout exact head
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.5'
+          coverage: none
+          tools: composer:v2
+
+      - name: Install dependencies
+        run: composer install --no-interaction --prefer-dist --no-progress
+
+      - name: Build Pint diagnostics
+        run: |
+          vendor/bin/pint
+          mkdir -p artifacts/account-security-format
+          git diff --binary > artifacts/account-security-format/pint.patch
+          git diff --name-only > artifacts/account-security-format/files.txt
+          while IFS= read -r file; do
+            if [ -f "$file" ]; then
+              mkdir -p "artifacts/account-security-format/formatted/$(dirname "$file")"
+              cp "$file" "artifacts/account-security-format/formatted/$file"
+            fi
+          done < artifacts/account-security-format/files.txt
+
+      - name: Upload Pint diagnostics
+        uses: actions/upload-artifact@v7
+        with:
+          name: account-security-format-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/account-security-format
+          if-no-files-found: error
+          retention-days: 3
