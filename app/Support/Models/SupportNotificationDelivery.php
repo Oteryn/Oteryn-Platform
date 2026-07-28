@@ -18,6 +18,7 @@ final class SupportNotificationDelivery extends Model
         'event_key',
         'related_type',
         'related_id',
+        'locale',
         'status',
         'attempts',
         'last_error_code',
