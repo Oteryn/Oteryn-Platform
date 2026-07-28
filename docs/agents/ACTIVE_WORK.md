@@ -4,7 +4,7 @@ Convenience index only. Individual active task records, live PRs and Git state a
 
 ## Active tasks
 
-- None.
+- `OTERYN-20260728-account-security-lifecycle` — Issue #276 on `feat/OTERYN-20260728-account-security-lifecycle`; discovering and implementing confirmed email change, active-session management, privacy/status controls, bounded termination, high-assurance recovery and explicit deny-by-default binding/MFA decisions.
 
 ## Closed acceptance and release-preparation follow-ups
 
