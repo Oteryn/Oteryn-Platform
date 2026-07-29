@@ -6,14 +6,14 @@ on:
       - chore/OTERYN-20260729-game-catalog-first-scope-closeout
     paths:
       - '.github/workflows/one-shot-game-catalog-closeout.yml'
-      - 'tools/agents/reconcile_game_catalog_closeout.py'
+      - 'tools/agents/fix_game_catalog_closeout_reconciliation.py'
   pull_request:
     branches:
       - main
     types: [opened, reopened, synchronize]
     paths:
       - '.github/workflows/one-shot-game-catalog-closeout.yml'
-      - 'tools/agents/reconcile_game_catalog_closeout.py'
+      - 'tools/agents/fix_game_catalog_closeout_reconciliation.py'
 
 permissions:
   contents: write
@@ -30,8 +30,8 @@ jobs:
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Reconcile gap ownership and human ledgers
-        run: python tools/agents/reconcile_game_catalog_closeout.py
+      - name: Align counts and remaining trackers
+        run: python tools/agents/fix_game_catalog_closeout_reconciliation.py
 
       - name: Validate reconciled ledgers and checkpoint
         run: |
@@ -40,11 +40,11 @@ jobs:
           python tools/agents/test_checkpoint.py
           ! grep -R '"#281"' docs/testing/product-completeness-benchmark.json
 
-      - name: Commit reconciliation
+      - name: Commit corrected reconciliation
         run: |
           set -euo pipefail
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add docs/testing/product-completeness-benchmark.json docs/testing/PRODUCT_COMPLETENESS_BENCHMARK.md docs/agents/PROJECT_STATE.md docs/agents/ACTIVE_WORK.md docs/agents/tasks/active/OTERYN-20260729-game-catalog-first-scope-closeout.md
-          git commit -m 'docs(catalog): reconcile first-scope gap ownership'
+          git add docs/testing/PRODUCT_COMPLETENESS_BENCHMARK.md docs/agents/PROJECT_STATE.md
+          git commit -m 'docs(catalog): align closeout counts and trackers'
           git push origin HEAD:chore/OTERYN-20260729-game-catalog-first-scope-closeout
