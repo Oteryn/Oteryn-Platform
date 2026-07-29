@@ -43,7 +43,9 @@ final class UpdateCharacterProfilePreferenceRequest extends FormRequest
      */
     public function preferences(): array
     {
-        $comment = preg_replace('/[[:cntrl:]]+/u', '', (string) $this->input('public_comment', ''));
+        $rawComment = $this->input('public_comment');
+        $comment = is_string($rawComment) ? $rawComment : '';
+        $comment = preg_replace('/[[:cntrl:]]+/u', '', $comment);
         $comment = trim(is_string($comment) ? $comment : '');
 
         return [
