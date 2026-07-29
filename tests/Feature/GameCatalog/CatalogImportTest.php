@@ -6,7 +6,6 @@ use App\GameCatalog\Application\Import\CatalogImportService;
 use App\GameCatalog\Application\Import\CatalogSnapshotValidator;
 use App\GameCatalog\Application\Import\ValidatedCatalogSnapshot;
 use App\GameCatalog\Domain\Exceptions\CatalogValidationException;
-use Illuminate\Database\Migrations\Migration;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
@@ -118,11 +117,12 @@ final class CatalogImportTest extends TestCase
     {
         app(CatalogImportService::class)->import($this->fixtureV12Path());
         $migration = require base_path('database/migrations/2026_07_29_174500_add_game_catalog_loot_chance_model.php');
-        self::assertInstanceOf(Migration::class, $migration);
+        $down = [$migration, 'down'];
+        self::assertIsCallable($down);
 
         $this->expectException(RuntimeException::class);
         $this->expectExceptionMessage('runtime-threshold rows exist');
-        $migration->down();
+        $down();
     }
 
     public function test_semantically_invalid_relation_is_rejected_without_partial_catalogue_state(): void
