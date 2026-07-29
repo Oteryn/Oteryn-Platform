@@ -1,0 +1,153 @@
+name: One-shot Support Final Checkpoint
+
+on:
+  pull_request:
+    branches:
+      - feat/OTERYN-20260728-support-moderation-lifecycle
+    types: [opened, reopened, synchronize]
+
+permissions:
+  contents: write
+
+jobs:
+  finalize-checkpoint:
+    if: github.head_ref == 'trigger/support-final-checkpoint' && github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout support branch
+        uses: actions/checkout@v7
+        with:
+          ref: feat/OTERYN-20260728-support-moderation-lifecycle
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Write ready checkpoint
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          path = Path('docs/agents/tasks/active/OTERYN-20260728-support-moderation-lifecycle.md')
+          text = path.read_text(encoding='utf-8')
+          text = text.replace('- [ ] Every required exact-final-head workflow passes before merge.', '- [x] Every required exact-final-head workflow passes before merge.')
+          checkpoint = '''```yaml
+          checkpoint_version: 1
+          updated_at: 2026-07-29T08:36:00Z
+          head: e03fe5f9bf6954e2e6382590e4bb3ea991e30f85
+          branch: feat/OTERYN-20260728-support-moderation-lifecycle
+          pr: 293
+          status: ready
+          context_routes:
+            - agent-governance
+            - architecture
+            - auth-identity
+            - admin-rbac
+            - database
+            - security
+            - web-cms
+            - testing
+          owned_paths:
+            - app/Support/**
+            - app/Notifications/Support/**
+            - app/Console/Commands/PruneSupportRetention.php
+            - database/migrations/*support*
+            - routes/modules/support.php
+            - resources/views/{support,admin/support,admin/moderation}/**
+            - lang/{en,pl}/support.php
+            - config/support.php
+            - tests/Feature/Support/**
+            - scripts/acceptance/**support*moderation*
+            - docs/architecture/adr/*support-moderation*
+            - docs/architecture/{MODULE_CATALOG,DATA_OWNERSHIP,SECURITY_ARCHITECTURE}.md
+            - docs/operations/SUPPORT_MODERATION_LIFECYCLE.md
+            - docs/testing/{PRODUCT_COMPLETENESS_BENCHMARK.md,product-completeness-benchmark.json,PORTAL_ACCEPTANCE_COVERAGE_MATRIX.md}
+            - docs/agents/{PROJECT_STATE,ACTIVE_WORK}.md
+            - docs/agents/tasks/active/OTERYN-20260728-support-moderation-lifecycle.md
+          proven:
+            - Exact documentation head e03fe5f9bf6954e2e6382590e4bb3ea991e30f85 is based on main c1edc2cc1f5f8298a10582352dddb177bbaa58b3 and preserves the merged Game Catalog.
+            - Authenticated owner-scoped tickets, bounded reports, Platform enforcement/appeals, notification delivery state and retention are implemented with additive Platform-owned schema.
+            - User IDOR boundaries, moderator-private fields, exact support permissions, confirmed MFA, optimistic locking, bounded audit metadata and no-Canary-write behavior are covered by feature tests.
+            - CI run 30435418799 passed Composer validation/audit, formatting, PHPStan and the full PHP test suite at the exact documentation head.
+            - Support Moderation Acceptance run 30435418795 passed focused regressions and six zero-retry Chromium scenarios across desktop, tablet and mobile.
+            - Portal Acceptance Contract run 30435418852 passed the complete zero-retry account lifecycle plus strict route and product-ledger closure.
+            - Acceptance E2E and Visual UX run 30435418753 passed; Phase 7 run 30435418895 passed.
+            - Agent Governance run 30435418768, Edge Security run 30435418764, DB Outage run 30435418736, Game Auth concurrency run 30435418743, Synology Preflight run 30435418746, Support Legal run 30435418763 and Build Images run 30435418728 passed.
+            - Trust boundary: browser input never establishes ownership or moderator authority; authenticated Platform Identity ownership and exact permission plus confirmed MFA are authoritative.
+            - Canary/login-server schema, sessions and native enforcement remain unchanged; Canary is read-only for this lifecycle.
+            - The additive Platform migration has no Canary rollback requirement; dropping live Platform support tables requires retention and data review.
+            - No secret, production credential, production-only configuration or personal-data artifact is committed.
+          derived:
+            - Issue #279 satisfies its approved Platform-only scope and is ready to merge.
+            - Product completeness remains false because required character/profile and community-data gaps #277 and #280 remain.
+          unknown: []
+          conflicts: []
+          first_failure:
+            marker: none
+            evidence: Every required exact-head workflow listed in validation passed at e03fe5f9bf6954e2e6382590e4bb3ea991e30f85.
+          rejected_hypotheses:
+            - Static support/legal content satisfies Issue #279: rejected by the authenticated lifecycle and issue contract.
+            - Platform enforcement should mutate Canary bans: rejected because no approved cross-repository mutation contract exists.
+            - Browser acceptance should raise production login limits: rejected; isolated tests clear only acceptance cache while production limits remain unchanged.
+          changed_paths:
+            - app/Support/**
+            - app/Notifications/Support/**
+            - app/Console/Commands/PruneSupportRetention.php
+            - app/Providers/AppServiceProvider.php
+            - app/Admin/AdminPermission.php
+            - config/support.php
+            - database/migrations/2026_07_28_211000_create_support_moderation_tables.php
+            - routes/modules/support.php
+            - resources/views/support/**
+            - resources/views/admin/{support,moderation}/**
+            - lang/{en,pl}/support.php
+            - public/css/support.css
+            - tests/Feature/Support/SupportModerationLifecycleTest.php
+            - scripts/acceptance/**support*moderation*
+            - docs/architecture/**support*moderation*
+            - docs/operations/SUPPORT_MODERATION_LIFECYCLE.md
+            - docs/testing/{PRODUCT_COMPLETENESS_BENCHMARK.md,product-completeness-benchmark.json,PORTAL_ACCEPTANCE_COVERAGE_MATRIX.md}
+            - docs/agents/{PROJECT_STATE,ACTIVE_WORK}.md
+          validation:
+            - command: CI run 30435418799
+              result: PASS
+              evidence: Composer metadata/audit, Pint, PHPStan and full PHP tests passed at e03fe5f9bf6954e2e6382590e4bb3ea991e30f85.
+            - command: Support Moderation Acceptance run 30435418795
+              result: PASS
+              evidence: Focused PHP regressions and zero-retry desktop/tablet/mobile Chromium passed.
+            - command: Portal Acceptance Contract run 30435418852
+              result: PASS
+              evidence: Complete account lifecycle and strict route/product ledgers passed.
+            - command: Acceptance E2E and Visual UX run 30435418753
+              result: PASS
+              evidence: Functional, responsive, visual and accessibility acceptance passed.
+            - command: Remaining required exact-head workflows
+              result: PASS
+              evidence: Phase7 30435418895; Governance 30435418768; Edge 30435418764; DB outage 30435418736; Game Auth 30435418743; Synology 30435418746; Support Legal 30435418763; Build 30435418728.
+          blockers: []
+          next_action: Mark PR #293 ready and squash-merge it.
+          ```'''
+          checkpoint = '\n'.join(line[10:] if line.startswith('          ') else line for line in checkpoint.splitlines())
+          text = re.sub(r'```yaml\ncheckpoint_version:.*?\n```', checkpoint, text, count=1, flags=re.S)
+          path.write_text(text, encoding='utf-8')
+          PY
+
+      - name: Validate checkpoint
+        shell: bash
+        run: |
+          set -euo pipefail
+          python tools/agents/checkpoint.py docs/agents/tasks/active/OTERYN-20260728-support-moderation-lifecycle.md --require-checkpoint
+          python tools/agents/test_checkpoint.py
+
+      - name: Commit checkpoint and remove workflow
+        shell: bash
+        run: |
+          set -euo pipefail
+          git rm .github/workflows/one-shot-support-final-checkpoint.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git commit -m 'docs(support): finalize exact-head checkpoint'
+          git push origin HEAD:feat/OTERYN-20260728-support-moderation-lifecycle
