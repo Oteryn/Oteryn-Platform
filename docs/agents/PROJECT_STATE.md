@@ -23,7 +23,7 @@ These phase statements do not claim benchmark product completeness. The complete
 
 - **Production Readiness: STAGING_PROVEN for documented boundaries**
 - **Delivered Portal Route Contract: COMPLETE AND MACHINE ENFORCED**
-- **Benchmark Product Completeness: NOT COMPLETE; AUDIT COMPLETE WITH REQUIRED GAPS #277, #279 AND #280 STILL OPEN**
+- **Benchmark Product Completeness: NOT COMPLETE; AUDIT COMPLETE WITH REQUIRED GAPS #277 AND #280 STILL OPEN**
 - **Production Go-Live Gate: PENDING PRODUCTION VERIFICATION**
 - **Production Verification: REQUIRED BEFORE GO-LIVE**
 
@@ -79,7 +79,17 @@ Not yet benchmark-complete: rich character profiles, guild directory/administrat
 - first-party Wiki public search/category/article flows plus editor/reviewer/publisher, revisions, signed preview and media integration;
 - reviewed bilingual launch content.
 
-Static support content is not an authenticated ticket/report/moderation system. Tracker: #279. The Wiki is editorially complete for delivered articles but lacks authoritative server-backed creature/item/loot/gameplay catalogues. Tracker: #281.
+Authenticated owner-scoped tickets, bounded reports, exact-MFA/RBAC moderation, Platform enforcement/appeals, notifications and retention are delivered through PR #293. Canary ban mutation and attachments remain excluded. The Wiki is editorially complete for delivered articles but lacks authoritative server-backed creature/item/loot/gameplay catalogues. Tracker: #281.
+
+### Support and moderation
+
+- authenticated owner-scoped ticket creation, detail, reply and explicit close/reopen lifecycle;
+- bounded player/content/guild reports with pending limits, idempotency, history and public-safe outcomes;
+- exact-permission confirmed-MFA moderator ticket/report/enforcement queues;
+- Platform-owned warnings/restrictions/suspensions with acknowledgement and appeal states;
+- deterministic notification delivery status, bounded audit metadata and configurable retention;
+- English/Polish desktop/tablet/mobile acceptance;
+- no Canary ban mutation and no support attachments.
 
 ### Character Bazaar and Wallet
 
@@ -122,9 +132,9 @@ The completed Issue #268 audit is tracked by:
 
 The current ledger classifies 43 Tibia/RubinOT/OTS benchmark capabilities:
 
-- 9 implemented;
+- 14 implemented;
 - 8 partial;
-- 25 missing;
+- 20 missing;
 - 1 not applicable;
 - 22 required, 13 planned, 7 optional/differentiator and 1 not applicable.
 
@@ -136,9 +146,8 @@ Open focused backlog:
 
 - #277 — character management and public profiles;
 - #278 — premium, coins and entitlement commerce;
-- #279 — tickets, reports and enforcement history;
 - #280 — community statistics and guild workflows;
-- #281 — server-backed Wiki/gameplay catalogues.
+- #281 — first versioned item/weapon/creature/loot Game Catalog slice delivered; further catalogues remain.
 
 A green route contract must not be described as product complete while required benchmark gaps remain.
 
@@ -164,11 +173,11 @@ Repository and exact-revision E2E work has hardened the native-auth direction, b
 
 ## Current active task
 
-None.
+`OTERYN-20260728-support-moderation-lifecycle` in PR #293 is validating final documentation and exact-head gates.
 
 ## Recommended sequence
 
-1. Deliver the remaining required benchmark gaps as bounded tasks: #277, #279 and #280.
+1. Deliver the remaining required benchmark gaps as bounded tasks: #277 and #280.
 2. Keep #278 disabled until a dedicated payment ADR, threat model and provider lifecycle are reviewed.
 3. Build #281 from authoritative Oteryn server availability, never by copying third-party datasets or prose.
 4. Resume #91 only after explicit production deployment/verification authorization and required production evidence access exist.

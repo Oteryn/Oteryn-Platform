@@ -36,7 +36,8 @@ Product benchmark delivery states are different: `implemented`, `partial`, `miss
 | Complete Downloads lifecycle | `npm --prefix scripts/acceptance run test:downloads` plus `test:downloads-portability` | Executes public/admin/localization/failure-recovery in Chromium and bounded public reads in Firefox/WebKit | Required by `Downloads Acceptance` for owned changes |
 | Complete Events lifecycle | `npx playwright test --config=playwright.events.config.mjs` from `scripts/acceptance` | Executes public EN/PL calendar/detail states and exact MFA/RBAC administrator lifecycle on Chromium D/T/M plus public Firefox/WebKit with zero retries | Required by `Events Acceptance` |
 | Complete Announcements lifecycle | `npx playwright test --config=playwright.announcements.config.mjs` from `scripts/acceptance` | Executes public active-window/localization states and exact MFA/RBAC administrator create, publish, translation, stale recovery, conflict and audit lifecycle | Required by `Announcements Acceptance` |
-| Complete Support/Legal content lifecycle | `npx playwright test --config=playwright.support-legal.config.mjs` from `scripts/acceptance` | Executes typed public CMS routes, EN/PL isolation, legal versions, approved links and exact MFA/RBAC administrator translation/audit lifecycle | Required by `Support Legal Acceptance`; does not claim tickets/moderation |
+| Complete Support/Legal content lifecycle | `npx playwright test --config=playwright.support-legal.config.mjs` from `scripts/acceptance` | Executes typed public CMS routes, EN/PL isolation, legal versions, approved links and exact MFA/RBAC administrator translation/audit lifecycle | Required by `Support Legal Acceptance` |
+| Complete Support Moderation lifecycle | `npx playwright test --config=playwright.support-moderation.config.mjs` from `scripts/acceptance` plus focused PHP tests | Executes owner tickets/reports/enforcement, moderator queues, exact MFA/RBAC, notifications, privacy and desktop/tablet/mobile EN/PL states with zero retries | Required by `Support Moderation Acceptance` |
 | Complete Editorial Media lifecycle | `npx playwright test --config=playwright.editorial-media.config.mjs` from `scripts/acceptance` | Executes exact MFA/RBAC, malformed and safe upload, private content, integrity display, reference lock, deletion and bounded audit | Required by `Editorial Media Acceptance` |
 | Complete Wiki reconciliation lifecycle | `npx playwright test --config=playwright.wiki-reconciliation.config.mjs` from `scripts/acceptance` | Executes public route/search/error/recovery/localization and administrator validation, preview, conflict, publish/unpublish, revision restore, archive and audit | Required by `Wiki Reconciliation Acceptance` |
 | Strict delivered-surface and benchmark-ledger closure | `npm --prefix scripts/acceptance run test:coverage-contract:strict` | Validates every delivered route and the complete Issue #268 capability ledger | Required by `Portal Acceptance Contract` |
@@ -85,6 +86,20 @@ The delivered account profile is primary-Chromium only because it contains reset
 
 Character Bazaar concurrency and cross-database failure safety are proved at the smallest deterministic layer. Browser tests do not claim to reproduce database races; they prove composed navigation, authorization, visible state and recovery affordances. Bazaar ownership transfer does not imply general character rename/delete/restore/world-transfer products.
 
+## Support and moderation lifecycle matrix
+
+| Capability | Required states / abuse boundaries | Primary proof | Browser evidence |
+|---|---|---|---|
+| User tickets | create/list/detail, idempotency, owner-only IDOR denial, reply, close/reopen, open limit | Feature/domain + migration | `support-moderation-acceptance.spec.mjs` |
+| Player/content/guild reports | bounded category/target/evidence, pending limit, idempotency, owner history, safe outcome | Feature/domain | support moderation lifecycle |
+| Moderator queues | guest/no-MFA/no-permission denial, exact ticket/report/enforcement permission, public/private fields | Feature/security/RBAC | support moderation lifecycle |
+| Enforcement and appeals | warning/restriction/suspension, acknowledgement, appeal request/review/outcome, Platform-only boundary | Feature/domain/audit | support moderation lifecycle |
+| Notifications | pending/sent/failed state, locale, failure isolation from domain commit | Feature + test SMTP | support moderation lifecycle |
+| Retention and privacy | dry-run, ticket/report prune, enforcement anonymization, no private bodies in audit | Command/domain tests | visible privacy boundary |
+| Responsive/accessibility | EN/PL desktop/tablet/mobile, no horizontal overflow, semantic forms/tables and keyboard reachability | CSS + Playwright | two zero-retry scenarios across three viewports |
+
+The lifecycle persists only Platform-owned records. It does not mutate Canary bans, accept file attachments or expose reporter identity and moderator-private notes outside exact authorized administrator surfaces.
+
 ## Portal surface status
 
 | Surface group | Current coverage | Required dimensions | Product-boundary note |
@@ -99,13 +114,15 @@ Character Bazaar concurrency and cross-database failure safety are proved at the
 | Homepage, navigation and SEO | `covered` | available/empty/stale/unavailable, EN/PL, sitemap/robots; D/T/M; bounded engines | Template selector remains #244 |
 | News and managed public pages | `covered` | published/hidden/empty/not-found/long/localized; D/M | None in delivered contract |
 | Public game data | `covered` for current read model | search/detail/index, pagination/empty/not-found, Redis/Canary failure and recovery; D/T/M | Benchmark completeness remains #280 |
-| Core Admin, RBAC, CMS and Audit | `covered` | guest/no-MFA/no-permission/exact roles, mutations, publish/hide, audit and final-admin protection; D/T/M | No moderation/ticket administration |
+| Core Admin, RBAC, CMS and Audit | `covered` | guest/no-MFA/no-permission/exact roles, mutations, publish/hide, audit and final-admin protection; D/T/M | Support moderation uses three exact permissions |
 | Public/admin localization core | `covered` | EN/PL, missing/incomplete/draft/published/stale, route-preserving switch | Account security uses a scoped session locale because its routes are not public locale prefixes |
 | Downloads | `covered` | public/admin/localization/URL-policy/failure-recovery/audit; D/T/M; bounded engines | None in delivered contract |
 | Events | `covered` | public lifecycle, localization, RBAC, conflict and audit; D/T/M; bounded engines | Server-backed annual-event catalogue remains #281 |
 | Announcements | `covered` | time windows, escaping, localization, RBAC, conflict and audit; D/T/M; bounded engines | None in delivered contract |
-| Support and legal content | `covered` | typed CMS routes, publication, legal version, approved links, translation and audit | Operational support/moderation is missing in #279 |
-| Public Wiki | `covered` | article/category/search/error/recovery/EN/PL; D/T/M; bounded engines | Structured server-backed catalogues remain #281 |
+| Support and legal content | `covered` | typed CMS routes, publication, legal version, approved links, translation and audit | Separate from authenticated support records |
+| Authenticated support and moderation | `covered` | owner tickets/reports/enforcement, exact MFA/RBAC moderator queues, notifications, retention, privacy, EN/PL; D/T/M | Canary ban mutation and attachments excluded |
+| Public Wiki | `covered` | article/category/search/error/recovery/EN/PL; D/T/M; bounded engines | Editorial content remains separate from Game Catalog |
+| Game Catalog | `covered` | active item/weapon/creature/loot projections, visibility, provenance, EN/PL, admin MFA/RBAC; D/T/M | First #281 slice; NPC/quest/spawn/history remain |
 | Wiki administration | `covered` | draft/review/publish/archive/revision/conflict/preview/audit; D/T/M; bounded engines | Data ingestion/provenance remains #281 |
 | Editorial Media administration | `covered` | upload/integrity/private bytes/reference lock/delete/denial/audit; D/T/M | None in delivered contract |
 | Media/preview supporting endpoints | `supporting_endpoint` | publication/reference/signature/integrity/authorization | Existing feature/storage and consumer-browser evidence |
@@ -116,9 +133,9 @@ The machine-readable delivered-surface manifest is authoritative for route class
 
 The Issue #268 benchmark classifies 43 capabilities:
 
-- 9 implemented;
+- 14 implemented;
 - 8 partial;
-- 25 missing;
+- 20 missing;
 - 1 not applicable;
 - 22 required, 13 planned, 7 optional/differentiator and 1 not applicable.
 
@@ -127,9 +144,9 @@ Focused backlog ownership:
 - #276 — delivered Platform-owned account security and lifecycle;
 - #277 — character management and public profiles;
 - #278 — premium, coins and entitlement commerce;
-- #279 — tickets, reports and enforcement;
+- #279 — delivered tickets, reports, enforcement, notifications and retention;
 - #280 — community statistics and guild workflows;
-- #281 — server-backed Wiki/gameplay catalogues.
+- #281 — first Game Catalog slice delivered; further server-backed gameplay catalogues remain.
 
 Required partial/missing capabilities prevent a product-complete claim even while every currently delivered route remains `covered`.
 
