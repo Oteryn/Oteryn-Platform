@@ -9,7 +9,12 @@
 
     <header class="page-header">
         <p class="eyebrow">{{ __('community.profile.title') }}</p>
-        <h1>{{ $character['name'] }}</h1>
+        <h1>
+            {{ $character['name'] }}
+            @if ($is_main_character)
+                <span class="badge badge-success">{{ __('character_profiles.public.main_character') }}</span>
+            @endif
+        </h1>
         <p class="muted">{{ __('community.profile.description') }}</p>
     </header>
 
@@ -35,7 +40,9 @@
             <div class="stat">
                 <dt>{{ __('public.game.guild') }}</dt>
                 <dd>
-                    @if ($character['guild_name'] !== null)
+                    @if (! $visibility['guild'])
+                        {{ __('character_profiles.public.guild_private') }}
+                    @elseif ($character['guild_name'] !== null)
                         <a href="{{ route('game.guilds.show', ['name' => $character['guild_name']]) }}">{{ $character['guild_name'] }}</a>
                         @if ($character['guild_rank'] !== null)
                             <span class="muted">· {{ $character['guild_rank'] }}</span>
@@ -48,7 +55,9 @@
             <div class="stat">
                 <dt>{{ __('community.profile.house') }}</dt>
                 <dd>
-                    @if ($house !== null)
+                    @if (! $visibility['house'])
+                        {{ __('character_profiles.public.house_private') }}
+                    @elseif ($house !== null)
                         {{ $house['name'] }} · {{ __('community.profile.house_size') }} {{ $localeFormatter->number($house['size']) }}
                     @else
                         {{ __('community.profile.no_house') }}
@@ -86,58 +95,70 @@
 
     <section class="card" aria-labelledby="character-skills-heading">
         <h2 id="character-skills-heading">{{ __('community.profile.skills') }}</h2>
-        <div class="table-region" tabindex="0">
-            <table class="table-compact">
-                <thead>
-                <tr>
-                    <th scope="col">{{ __('community.profile.skill') }}</th>
-                    <th scope="col">{{ __('community.profile.value') }}</th>
-                </tr>
-                </thead>
-                <tbody>
-                @foreach ($character['skills'] as $skill => $value)
+        @if (! $visibility['skills'])
+            <p class="muted">{{ __('character_profiles.public.skills_private') }}</p>
+        @else
+            <div class="table-region" tabindex="0">
+                <table class="table-compact">
+                    <thead>
                     <tr>
-                        <td>{{ __('community.skills.'.$skill) }}</td>
-                        <td>{{ $localeFormatter->number($value) }}</td>
+                        <th scope="col">{{ __('community.profile.skill') }}</th>
+                        <th scope="col">{{ __('community.profile.value') }}</th>
                     </tr>
-                @endforeach
-                </tbody>
-            </table>
-        </div>
+                    </thead>
+                    <tbody>
+                    @foreach ($character['skills'] as $skill => $value)
+                        <tr>
+                            <td>{{ __('community.skills.'.$skill) }}</td>
+                            <td>{{ $localeFormatter->number($value) }}</td>
+                        </tr>
+                    @endforeach
+                    </tbody>
+                </table>
+            </div>
+        @endif
     </section>
 
     <div class="community-grid">
         <section class="card" aria-labelledby="character-deaths-heading">
             <h2 id="character-deaths-heading">{{ __('community.profile.recent_deaths') }}</h2>
-            <ul class="community-event-list">
-                @forelse ($deaths as $death)
-                    <li>
-                        <strong>{{ __('community.profile.killed_by', ['killer' => $death->killed_by]) }}</strong>
-                        <span>{{ __('community.profile.killed_at_level', ['level' => $localeFormatter->number((int) $death->level)]) }}</span>
-                        <time datetime="{{ \Carbon\CarbonImmutable::createFromTimestampUTC((int) $death->time)->toIso8601String() }}">
-                            {{ $localeFormatter->dateTime(\Carbon\CarbonImmutable::createFromTimestampUTC((int) $death->time)) }}
-                        </time>
-                    </li>
-                @empty
-                    <li>{{ __('community.profile.no_deaths') }}</li>
-                @endforelse
-            </ul>
-            <a class="button button-secondary" href="{{ route('game.deaths.index') }}">{{ __('community.deaths.title') }}</a>
+            @if (! $visibility['deaths'])
+                <p class="muted">{{ __('character_profiles.public.deaths_private') }}</p>
+            @else
+                <ul class="community-event-list">
+                    @forelse ($deaths as $death)
+                        <li>
+                            <strong>{{ __('community.profile.killed_by', ['killer' => $death->killed_by]) }}</strong>
+                            <span>{{ __('community.profile.killed_at_level', ['level' => $localeFormatter->number((int) $death->level)]) }}</span>
+                            <time datetime="{{ \Carbon\CarbonImmutable::createFromTimestampUTC((int) $death->time)->toIso8601String() }}">
+                                {{ $localeFormatter->dateTime(\Carbon\CarbonImmutable::createFromTimestampUTC((int) $death->time)) }}
+                            </time>
+                        </li>
+                    @empty
+                        <li>{{ __('community.profile.no_deaths') }}</li>
+                    @endforelse
+                </ul>
+                <a class="button button-secondary" href="{{ route('game.deaths.index') }}">{{ __('community.deaths.title') }}</a>
+            @endif
         </section>
 
         <section class="card" aria-labelledby="character-kills-heading">
             <h2 id="character-kills-heading">{{ __('community.profile.kill_statistics') }}</h2>
-            <p>{{ trans_choice('community.profile.player_kills', $kills['count'], ['count' => $localeFormatter->number($kills['count'])]) }}</p>
-            @if ($kills['recent']->isNotEmpty())
-                <h3>{{ __('community.profile.recent_victims') }}</h3>
-                <ul class="community-event-list">
-                    @foreach ($kills['recent'] as $kill)
-                        <li>
-                            <a href="{{ route('game.characters.show', ['name' => $kill->victim_name]) }}">{{ $kill->victim_name }}</a>
-                            <span>{{ __('community.profile.killed_at_level', ['level' => $localeFormatter->number((int) $kill->victim_level)]) }}</span>
-                        </li>
-                    @endforeach
-                </ul>
+            @if (! $visibility['kills'])
+                <p class="muted">{{ __('character_profiles.public.kills_private') }}</p>
+            @else
+                <p>{{ trans_choice('community.profile.player_kills', $kills['count'], ['count' => $localeFormatter->number($kills['count'])]) }}</p>
+                @if ($kills['recent']->isNotEmpty())
+                    <h3>{{ __('community.profile.recent_victims') }}</h3>
+                    <ul class="community-event-list">
+                        @foreach ($kills['recent'] as $kill)
+                            <li>
+                                <a href="{{ route('game.characters.show', ['name' => $kill->victim_name]) }}">{{ $kill->victim_name }}</a>
+                                <span>{{ __('community.profile.killed_at_level', ['level' => $localeFormatter->number((int) $kill->victim_level)]) }}</span>
+                            </li>
+                        @endforeach
+                    </ul>
+                @endif
             @endif
         </section>
     </div>
