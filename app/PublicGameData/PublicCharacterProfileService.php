@@ -6,6 +6,7 @@ use App\Accounts\Models\IdentityCanaryAccount;
 use App\Identity\Models\Identity;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Collection;
+use stdClass;
 
 final class PublicCharacterProfileService
 {
@@ -14,10 +15,10 @@ final class PublicCharacterProfileService
     /**
      * @return array{
      *     character: array<string, mixed>,
-     *     house: array<string, mixed>|null,
-     *     deaths: Collection<int, object>,
-     *     kills: array{count: int, recent: Collection<int, object>},
-     *     related_characters: Collection<int, object>,
+     *     house: array{name: string, size: int}|null,
+     *     deaths: Collection<int, stdClass>,
+     *     kills: array{count: int, recent: Collection<int, stdClass>},
+     *     related_characters: Collection<int, stdClass>,
      *     account_association_public: bool,
      *     status: array{online: bool, last_login: CarbonImmutable|null, last_logout: CarbonImmutable|null}|null
      * }|null
@@ -30,7 +31,31 @@ final class PublicCharacterProfileService
             return null;
         }
 
-        $identity = $this->identityForCanaryAccount((int) $record->account_id);
+        /**
+         * @var object{
+         *     id: int,
+         *     name: string,
+         *     account_id: int,
+         *     level: int,
+         *     vocation: int,
+         *     maglevel: int,
+         *     lastlogin: int,
+         *     lastlogout: int,
+         *     comment: string,
+         *     boss_points: int,
+         *     skill_fist: int,
+         *     skill_club: int,
+         *     skill_sword: int,
+         *     skill_axe: int,
+         *     skill_dist: int,
+         *     skill_shielding: int,
+         *     skill_fishing: int,
+         *     guild_name: mixed,
+         *     guild_rank: mixed
+         * } $record
+         */
+        $identity = $this->identityForCanaryAccount($record->account_id);
+        /** @var Collection<int, stdClass> $relatedCharacters */
         $relatedCharacters = collect();
         $accountAssociationPublic = false;
         $status = null;
@@ -40,53 +65,56 @@ final class PublicCharacterProfileService
 
             if ($accountAssociationPublic) {
                 $relatedCharacters = $this->gameData->publicCharactersForAccount(
-                    (int) $record->account_id,
-                    (int) $record->id,
+                    $record->account_id,
+                    $record->id,
                     CommunityDataPolicy::profileRelatedCharacterLimit(),
                 );
             }
 
             if ($identity->public_status_visible) {
                 $status = [
-                    'online' => $this->gameData->isCharacterOnline((int) $record->id),
-                    'last_login' => $this->timestamp((int) $record->lastlogin),
-                    'last_logout' => $this->timestamp((int) $record->lastlogout),
+                    'online' => $this->gameData->isCharacterOnline($record->id),
+                    'last_login' => $this->timestamp($record->lastlogin),
+                    'last_logout' => $this->timestamp($record->lastlogout),
                 ];
             }
         }
 
-        $house = $this->gameData->houseForPlayer((int) $record->id);
+        $house = $this->gameData->houseForPlayer($record->id);
+        if ($house !== null) {
+            /** @var object{name: string, size: int} $house */
+        }
 
         return [
             'character' => [
-                'name' => (string) $record->name,
-                'level' => (int) $record->level,
-                'vocation' => (int) $record->vocation,
-                'magic_level' => (int) $record->maglevel,
-                'comment' => trim((string) $record->comment),
-                'boss_points' => (int) $record->boss_points,
+                'name' => $record->name,
+                'level' => $record->level,
+                'vocation' => $record->vocation,
+                'magic_level' => $record->maglevel,
+                'comment' => trim($record->comment),
+                'boss_points' => $record->boss_points,
                 'guild_name' => is_string($record->guild_name) && $record->guild_name !== '' ? $record->guild_name : null,
                 'guild_rank' => is_string($record->guild_rank) && $record->guild_rank !== '' ? $record->guild_rank : null,
                 'skills' => [
-                    'fist' => (int) $record->skill_fist,
-                    'club' => (int) $record->skill_club,
-                    'sword' => (int) $record->skill_sword,
-                    'axe' => (int) $record->skill_axe,
-                    'distance' => (int) $record->skill_dist,
-                    'shielding' => (int) $record->skill_shielding,
-                    'fishing' => (int) $record->skill_fishing,
+                    'fist' => $record->skill_fist,
+                    'club' => $record->skill_club,
+                    'sword' => $record->skill_sword,
+                    'axe' => $record->skill_axe,
+                    'distance' => $record->skill_dist,
+                    'shielding' => $record->skill_shielding,
+                    'fishing' => $record->skill_fishing,
                 ],
             ],
             'house' => $house === null ? null : [
-                'name' => (string) $house->name,
-                'size' => (int) $house->size,
+                'name' => $house->name,
+                'size' => $house->size,
             ],
             'deaths' => $this->gameData->deathsForPlayer(
-                (int) $record->id,
+                $record->id,
                 CommunityDataPolicy::profileDeathLimit(),
             ),
             'kills' => $this->gameData->killSummary(
-                (string) $record->name,
+                $record->name,
                 CommunityDataPolicy::profileRecentKillLimit(),
             ),
             'related_characters' => $relatedCharacters,
