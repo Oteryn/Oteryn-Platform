@@ -1,0 +1,55 @@
+name: One-shot Character Profile Documentation Reconciliation
+
+on:
+  push:
+    branches:
+      - feat/OTERYN-20260729-character-profile-preferences
+    paths:
+      - '.github/workflows/one-shot-character-profile-documentation.yml'
+      - 'tools/agents/reconcile_character_profile_preferences.py'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: one-shot-character-profile-documentation
+  cancel-in-progress: false
+
+jobs:
+  reconcile:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout feature branch
+        uses: actions/checkout@v7
+        with:
+          ref: feat/OTERYN-20260729-character-profile-preferences
+          fetch-depth: 0
+
+      - name: Reconcile machine and human documentation
+        run: python tools/agents/reconcile_character_profile_preferences.py
+
+      - name: Validate ledgers and checkpoint parser
+        run: |
+          node scripts/acceptance/coverage/validate-product-completeness.mjs
+          node scripts/acceptance/coverage/validate-portal-coverage.mjs
+          python tools/agents/checkpoint.py docs/agents/tasks/active/OTERYN-20260729-character-profile-preferences.md --require-checkpoint
+          python tools/agents/test_checkpoint.py
+
+      - name: Commit durable reconciliation and remove one-shot files
+        run: |
+          set -euo pipefail
+          rm -f .github/workflows/one-shot-character-profile-documentation.yml
+          rm -f tools/agents/reconcile_character_profile_preferences.py
+          rm -rf tools/agents/__pycache__
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add docs/agents/PROJECT_STATE.md \
+            docs/architecture/DATA_OWNERSHIP.md \
+            docs/architecture/MODULE_CATALOG.md \
+            docs/architecture/SECURITY_ARCHITECTURE.md \
+            docs/testing/PRODUCT_COMPLETENESS_BENCHMARK.md \
+            docs/testing/product-completeness-benchmark.json \
+            .github/workflows/one-shot-character-profile-documentation.yml \
+            tools/agents/reconcile_character_profile_preferences.py
+          git commit -m 'docs(characters): reconcile profile preference delivery'
+          git push origin HEAD:feat/OTERYN-20260729-character-profile-preferences
