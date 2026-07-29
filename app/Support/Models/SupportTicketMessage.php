@@ -9,10 +9,13 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 final class SupportTicketMessage extends Model
 {
     public const AUTHOR_USER = 'user';
+
     public const AUTHOR_STAFF = 'staff';
+
     public const AUTHOR_SYSTEM = 'system';
 
     public const VISIBILITY_PUBLIC = 'public';
+
     public const VISIBILITY_INTERNAL = 'internal';
 
     /** @var list<string> */
