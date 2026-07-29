@@ -80,10 +80,8 @@ final class PublicCharacterProfileService
             }
         }
 
+        /** @var object{name: string, size: int}|null $house */
         $house = $this->gameData->houseForPlayer($record->id);
-        if ($house !== null) {
-            /** @var object{name: string, size: int} $house */
-        }
 
         return [
             'character' => [
