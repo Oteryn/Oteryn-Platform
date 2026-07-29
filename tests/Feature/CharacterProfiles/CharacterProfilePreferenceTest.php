@@ -198,6 +198,44 @@ final class CharacterProfilePreferenceTest extends TestCase
             ->count());
     }
 
+    public function test_account_privacy_remains_the_upper_bound(): void
+    {
+        $identity = $this->identityWithBinding(7001, false, false);
+        $this->seedCharacters();
+        $this->loginAsCurrentIdentity($identity);
+
+        $this->put(route('account.characters.profile.update', ['name' => 'Alpha Knight']), [
+            'public_comment' => 'Account privacy upper bound',
+            'show_account_association' => '1',
+            'show_status' => '1',
+            'show_guild' => '1',
+            'show_house' => '1',
+            'show_skills' => '1',
+            'show_deaths' => '1',
+            'show_kills' => '1',
+        ])->assertRedirect();
+
+        $this->get(route('game.characters.show', ['name' => 'Alpha Knight']))
+            ->assertOk()
+            ->assertSee('Account association is private.')
+            ->assertSee('Status details are private.')
+            ->assertDontSee('Beta Druid')
+            ->assertDontSee('Online');
+    }
+
+    public function test_ownership_dependency_failure_returns_sanitized_unavailable_state(): void
+    {
+        $identity = $this->identityWithBinding(7001, false, false);
+        $this->seedCharacters();
+        $this->loginAsCurrentIdentity($identity);
+        Schema::connection('canary')->drop('players');
+
+        $this->get(route('account.characters.profile.edit', ['name' => 'Alpha Knight']))
+            ->assertStatus(503)
+            ->assertDontSee('SQLSTATE')
+            ->assertDontSee('canary_account_id');
+    }
+
     public function test_non_owner_cannot_view_or_update_preferences(): void
     {
         $identity = $this->identityWithBinding(9001, false, false);
