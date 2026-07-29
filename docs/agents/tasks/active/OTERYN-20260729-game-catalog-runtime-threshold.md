@@ -22,18 +22,18 @@ Add consumer-first Game Catalog schema 1.2 support for exact Canary runtime loot
 
 ## Acceptance criteria
 
-- [ ] Define a durable schema 1.2 loot model with an explicit versioned model identifier, configured threshold, and declared roll maximum.
-- [ ] Keep schema 1.0.0 and 1.1.0 bytes and hashes unchanged.
-- [ ] Reject mixed, incomplete, unsupported, or out-of-range loot model payloads fail closed.
-- [ ] Import schema 1.2 snapshots transactionally and inactive by default.
-- [ ] Persist threshold-model rows without clamping or synthesizing a probability fraction.
-- [ ] Preserve existing rational-probability rows and stored schema 1.0/1.1 activation/rollback behavior.
-- [ ] Present the model truthfully in public/admin reads; never render a threshold greater than the roll maximum as a percentage above 100%.
-- [ ] Add a backward-compatible migration with a tested rollback guard when threshold rows cannot be represented by the old table.
-- [ ] Pin a byte-identical shared schema and sanitized fixture across Platform and Canary in consumer-first order.
-- [ ] Pass focused schema, import, migration, public-read, static-analysis, and exact-head CI.
-- [ ] Update the import contract, module catalogue, ADR, changelog, and cross-repository checkpoint.
-- [ ] Do not import, activate, deploy, or mutate a production snapshot.
+- [x] Define a durable schema 1.2 loot model with an explicit versioned model identifier, configured threshold, and declared roll maximum.
+- [x] Keep schema 1.0.0 and 1.1.0 bytes and hashes unchanged.
+- [x] Reject mixed, incomplete, unsupported, or out-of-range loot model payloads fail closed.
+- [x] Import schema 1.2 snapshots transactionally and inactive by default.
+- [x] Persist threshold-model rows without clamping or synthesizing a probability fraction.
+- [x] Preserve existing rational-probability rows and stored schema 1.0/1.1 activation/rollback behavior.
+- [x] Present the model truthfully in public/admin reads; never render a threshold greater than the roll maximum as a percentage above 100%.
+- [x] Add a backward-compatible migration with a tested rollback guard when threshold rows cannot be represented by the old table.
+- [x] Pin a byte-identical shared schema and sanitized fixture across Platform and Canary in consumer-first order.
+- [x] Pass focused schema, import, migration, public-read, static-analysis, and exact-head CI.
+- [x] Update the import contract, module catalogue, ADR, changelog, and cross-repository checkpoint.
+- [x] Do not import, activate, deploy, or mutate a production snapshot.
 
 ## Ownership
 
@@ -65,7 +65,7 @@ dependencies:
   - OTS-20260728-game-catalog-v1
   - CAN-20260729-game-catalog-loot-integrity
 blockers:
-  - Canary PR 1010 must prove endpoint integrity and preserve all 92 runtime thresholds before producer schema work begins.
+  - Canary producer schema work must wait for Platform PR 310 to merge.
 cross_repository_tasks:
   - CAN-20260729-game-catalog-loot-threshold-schema
 ```
@@ -74,11 +74,11 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-07-29T17:50:17Z
-head: e911c3633da8d0789941f83fa728a2b89c97f6e1
+updated_at: 2026-07-29T18:03:30Z
+head: 8f83e4c2655fc0febad00e7433c10f06165ce306
 branch: feat/OTERYN-20260729-game-catalog-runtime-threshold
 pr: 310
-status: implementing
+status: ready
 context_routes:
   - agent-governance
   - architecture
@@ -108,16 +108,18 @@ proven:
   - Platform PR 309 archived the stale architecture owner and merged as c6d1ce417f226f529637109296c81cc52d2012f7.
   - Schema 1.2 is pinned locally as SHA-256 a9fa1e3c6366a90d61005796511c344ced9c39594ed676276279a5917287c6de.
   - The schema 1.2 fixture is pinned locally as SHA-256 42b832954f9aa68cf7e2465351f92266771b8132d9634757391d010eaec84855 and contains a valid threshold 12 over roll maximum 10.
+  - Canary Game Catalog run 30476329935 proves zero dangling endpoints and preserves exactly 92 configured thresholds above the schema 1.1 denominator without publishing invalid output.
+  - Platform schema 1.2 validates the explicit canary_dynamic_threshold_v1 model and persists threshold 12 with roll maximum 10 without a rational probability.
+  - Legacy schema 1.0 and 1.1 hashes remain pinned and unchanged.
 derived:
   - Schema 1.2 must distinguish a contextual runtime threshold from legacy rational probability instead of reinterpreting old fields.
   - Consumer-first rollout requires Platform support before Canary emits schema 1.2.
-unknown:
-  - Exact Canary PR 1010 default-datapack runtime result.
+unknown: []
 conflicts:
   - Schema 1.1 probability semantics cannot represent every configured Canary runtime threshold.
 first_failure:
-  marker: schema-1.1-loot-probability
-  evidence: Numerator values above denominator fail both producer and consumer semantic validation even though Canary runtime retains them.
+  marker: none
+  evidence: Initial PHPStan findings in runs 30477260530 and 30477651768 were corrected; exact implementation-head contract and CI now pass.
 rejected_hypotheses:
   - Clamp threshold to roll maximum because that loses configured runtime evidence.
   - Increase one denominator because ordinary threshold meaning would change.
@@ -150,12 +152,16 @@ validation:
     result: PASS
     evidence: Both JSON documents parse and match their registered hashes.
   - command: focused PHP, schema and migration validation
-    result: NOT_RUN
-    evidence: Local environment has no PHP runtime or jsonschema package; exact-head CI will install pinned dependencies.
-blockers:
-  - Canary PR 1010 exact-head Game Catalog runtime proof is still running.
-  - Platform exact-head schema, PHP, migration and static-analysis workflows have not run on the implementation.
-next_action: Publish the schema 1.2 implementation to draft PR 310 and inspect exact-head workflow results before any Canary producer change.
+    result: PASS
+    evidence: Game Catalog Contract run 30477778313 passed schema validation, fixture validation, formatting, and PHPStan on 8f83e4c2655fc0febad00e7433c10f06165ce306.
+  - command: CI 30477777513
+    result: PASS
+    evidence: Full formatting, static analysis, and repository tests passed on 8f83e4c2655fc0febad00e7433c10f06165ce306.
+  - command: Platform supporting workflows
+    result: PASS
+    evidence: Agent Governance 30477777508, Platform DB Outage 30477778758, Edge Security 30477777682, Game Auth Concurrency 30477777627, Synology build 30477777579, Phase 7 30477777532, Acceptance E2E 30477777494, and Portal Acceptance 30477777641 passed on the same head.
+blockers: []
+next_action: Publish this final checkpoint, require every exact-final-head workflow, audit reviews and base drift, then squash-merge PR 310 before creating the Canary producer task.
 ```
 
 ## Notes
