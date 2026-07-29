@@ -8,7 +8,6 @@ Convenience index only. Individual active task records, live PRs and Git state a
 
 ## Closed acceptance and release-preparation follow-ups
 
-- PR #285 / `285eb5f89b8f83752fa4d5798bb242136b7b9ae6` — archived the completed account-security lifecycle task after Issue #276 closure.
 - PR #283 / `28faad47f95df10d1a9b437a16a1be91556671c6` — complete Platform-owned account-security lifecycle, EN/PL responsive acceptance, strict product-ledger reconciliation and exact-final-head validation merged; Issue #276 closed without Canary mutation or a production-verification claim.
 - PR #275 / `c365920b5ad672c9c3be9968d8a51132d3862859` — evidence-linked Tibia/RubinOT/OTS product-completeness benchmark, 43-capability machine ledger and focused gap backlog #276-#281 merged; Issue #268 closed without claiming product or production completeness.
 - PR #270 / `0f19656e0875d0a10b22002ac0e096deb20e94d8` — complete Character Bazaar, Platform wallet ledger, least-privilege Canary escrow/settlement and exact-head responsive/browser/database/security validation merged; Issue #269 closed.
