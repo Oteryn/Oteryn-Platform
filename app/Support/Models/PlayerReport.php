@@ -26,13 +26,19 @@ use Illuminate\Support\Carbon;
 final class PlayerReport extends Model
 {
     public const TYPE_PLAYER = 'player';
+
     public const TYPE_CONTENT = 'content';
+
     public const TYPE_GUILD = 'guild';
 
     public const STATUS_SUBMITTED = 'submitted';
+
     public const STATUS_REVIEWING = 'reviewing';
+
     public const STATUS_ACTIONED = 'actioned';
+
     public const STATUS_REJECTED = 'rejected';
+
     public const STATUS_CLOSED = 'closed';
 
     /** @var list<string> */
