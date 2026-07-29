@@ -56,13 +56,14 @@ if ($command === 'reset') {
 if ($command === 'seed-identity') {
     $email = $argv[2] ?? '';
     $password = $argv[3] ?? '';
-    $recoveryCode = $argv[4] ?? '';
+    $recoveryCodeCsv = $argv[4] ?? '';
     $mfaConfirmed = ($argv[5] ?? '') === 'confirmed';
     $permissionCsv = $argv[6] ?? '';
     $permissions = array_values(array_filter(array_map('trim', explode(',', $permissionCsv))));
+    $recoveryCodes = array_values(array_filter(array_map('trim', explode(',', $recoveryCodeCsv))));
 
     if ($email === '' || $password === '') {
-        $fail('Usage: seed-identity <email> <password> <recovery-code> <confirmed|unconfirmed> <permission-csv>', 2);
+        $fail('Usage: seed-identity <email> <password> <recovery-code-csv> <confirmed|unconfirmed> <permission-csv>', 2);
     }
 
     $identity = Identity::query()->updateOrCreate(
@@ -81,12 +82,16 @@ if ($command === 'seed-identity') {
     ];
 
     if ($mfaConfirmed) {
-        if ($recoveryCode === '') {
-            $fail('A recovery code is required for a confirmed-MFA identity.');
+        if ($recoveryCodes === []) {
+            $fail('At least one recovery code is required for a confirmed-MFA identity.');
         }
+
         $normalizer = new MfaRecoveryCodes;
         $attributes['two_factor_secret'] = (new Google2FA)->generateSecretKey();
-        $attributes['two_factor_recovery_codes'] = [Hash::make($normalizer->normalize($recoveryCode))];
+        $attributes['two_factor_recovery_codes'] = array_map(
+            static fn (string $recoveryCode): string => Hash::make($normalizer->normalize($recoveryCode)),
+            $recoveryCodes,
+        );
         $attributes['two_factor_confirmed_at'] = now();
     }
 
@@ -128,6 +133,7 @@ if ($command === 'seed-identity') {
         'identity_id' => $identity->id,
         'email' => $identity->email,
         'mfa_confirmed' => $mfaConfirmed,
+        'recovery_code_count' => count($recoveryCodes),
         'permissions' => $permissions,
     ]);
 }
