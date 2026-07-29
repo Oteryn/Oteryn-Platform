@@ -249,6 +249,8 @@ final class CharacterProfilePreferenceTest extends TestCase
                 'account_id' => 7001,
                 'level' => 90,
                 'vocation' => 2,
+                'lastlogin' => 0,
+                'lastlogout' => 0,
                 'comment' => 'Sibling comment',
                 'deletion' => 0,
             ],
