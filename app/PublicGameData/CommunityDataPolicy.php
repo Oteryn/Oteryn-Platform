@@ -6,7 +6,7 @@ use InvalidArgumentException;
 
 final class CommunityDataPolicy
 {
-    /** @var array<string, string> */
+    /** @var array<string, literal-string> */
     private const HIGHSCORE_COLUMNS = [
         'level' => 'level',
         'experience' => 'experience',
@@ -26,6 +26,7 @@ final class CommunityDataPolicy
         return array_keys(self::HIGHSCORE_COLUMNS);
     }
 
+    /** @return literal-string */
     public static function highscoreColumn(string $category): string
     {
         $column = self::HIGHSCORE_COLUMNS[$category] ?? null;
