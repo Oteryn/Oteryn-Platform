@@ -56,7 +56,7 @@ owned_paths:
   - docs/architecture/MODULE_CATALOG.md
   - docs/architecture/adr/0019-game-catalog-runtime-loot-thresholds.md
   - docs/architecture/adr/README.md
-  - docs/agents/tasks/active/OTERYN-20260729-game-catalog-runtime-threshold.md
+  - docs/agents/tasks/archive/OTERYN-20260729-game-catalog-runtime-threshold.md
   - CHANGELOG.md
 modules:
   - Game Catalog
@@ -65,7 +65,7 @@ dependencies:
   - OTS-20260728-game-catalog-v1
   - CAN-20260729-game-catalog-loot-integrity
 blockers:
-  - Canary producer schema work must wait for Platform PR 310 to merge.
+  - none; Platform PR 310 and the ordered Canary producer PR 1012 are merged
 cross_repository_tasks:
   - CAN-20260729-game-catalog-loot-threshold-schema
 ```
@@ -74,8 +74,8 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-07-29T18:03:30Z
-head: 8f83e4c2655fc0febad00e7433c10f06165ce306
+updated_at: 2026-07-29T18:10:25Z
+head: 2c3591b7133a14c4d8dff94894465df6db478a61
 branch: feat/OTERYN-20260729-game-catalog-runtime-threshold
 pr: 310
 status: ready
@@ -99,7 +99,7 @@ owned_paths:
   - docs/contracts/GAME_CATALOG_IMPORT_CONTRACT.md
   - docs/architecture/MODULE_CATALOG.md
   - docs/architecture/adr/0019-game-catalog-runtime-loot-thresholds.md
-  - docs/agents/tasks/active/OTERYN-20260729-game-catalog-runtime-threshold.md
+  - docs/agents/tasks/archive/OTERYN-20260729-game-catalog-runtime-threshold.md
 proven:
   - Platform schema 1.0 and 1.1 accept only chance_numerator and chance_denominator and semantic validation rejects numerator above denominator.
   - Existing persistence and public DTOs require and render a rational numerator/denominator pair.
@@ -111,6 +111,8 @@ proven:
   - Canary Game Catalog run 30476329935 proves zero dangling endpoints and preserves exactly 92 configured thresholds above the schema 1.1 denominator without publishing invalid output.
   - Platform schema 1.2 validates the explicit canary_dynamic_threshold_v1 model and persists threshold 12 with roll maximum 10 without a rational probability.
   - Legacy schema 1.0 and 1.1 hashes remain pinned and unchanged.
+  - Platform PR 310 squash-merged as 2a97d0a04f1d6ecc02f4ec52b8aba1839a0ac77b.
+  - Ordered Canary producer PR 1012 subsequently squash-merged as daf6553426a57c8474a372160b2f1e3b4536b171 without staging or production activation.
 derived:
   - Schema 1.2 must distinguish a contextual runtime threshold from legacy rational probability instead of reinterpreting old fields.
   - Consumer-first rollout requires Platform support before Canary emits schema 1.2.
@@ -139,7 +141,7 @@ changed_paths:
   - docs/contracts/GAME_CATALOG_IMPORT_CONTRACT.md
   - docs/architecture/MODULE_CATALOG.md
   - docs/architecture/adr/0019-game-catalog-runtime-loot-thresholds.md
-  - docs/agents/tasks/active/OTERYN-20260729-game-catalog-runtime-threshold.md
+  - docs/agents/tasks/archive/OTERYN-20260729-game-catalog-runtime-threshold.md
   - CHANGELOG.md
 validation:
   - command: repository and open-PR overlap search
@@ -151,19 +153,27 @@ validation:
   - command: parse schema and fixture JSON and verify pinned SHA-256
     result: PASS
     evidence: Both JSON documents parse and match their registered hashes.
-  - command: focused PHP, schema and migration validation
+  - command: Game Catalog Contract 30478274397
     result: PASS
-    evidence: Game Catalog Contract run 30477778313 passed schema validation, fixture validation, formatting, and PHPStan on 8f83e4c2655fc0febad00e7433c10f06165ce306.
-  - command: CI 30477777513
+    evidence: Schema validation, fixture validation, formatting, and PHPStan passed on 2c3591b7133a14c4d8dff94894465df6db478a61.
+  - command: CI 30478274427
     result: PASS
-    evidence: Full formatting, static analysis, and repository tests passed on 8f83e4c2655fc0febad00e7433c10f06165ce306.
+    evidence: Full formatting, static analysis, and repository tests passed on the exact final head.
   - command: Platform supporting workflows
     result: PASS
-    evidence: Agent Governance 30477777508, Platform DB Outage 30477778758, Edge Security 30477777682, Game Auth Concurrency 30477777627, Synology build 30477777579, Phase 7 30477777532, Acceptance E2E 30477777494, and Portal Acceptance 30477777641 passed on the same head.
+    evidence: Agent Governance 30478274395, Platform DB Outage 30478274408, Edge Security 30478274386, Game Auth Concurrency 30478274424, Synology build 30478274446, Phase 7 30478274425, Acceptance E2E 30478274428, and Portal Acceptance 30478274393 passed on the same exact head.
 blockers: []
-next_action: Publish this final checkpoint, require every exact-final-head workflow, audit reviews and base drift, then squash-merge PR 310 before creating the Canary producer task.
+next_action: Keep production import and activation gated; continue the separate Canary definition-loader stability task before staging.
 ```
 
 ## Notes
 
 The versioned model identifier will bind the runtime algorithm in the contract. The snapshot carries configured threshold evidence, not a claim of one context-free effective drop probability. Production import and activation remain excluded.
+
+## Lifecycle completion
+
+- Feature PR: #310.
+- Feature head: `2c3591b7133a14c4d8dff94894465df6db478a61`.
+- Merge commit: `2a97d0a04f1d6ecc02f4ec52b8aba1839a0ac77b`.
+- Merged at: `2026-07-29T18:10:25Z`.
+- This record was moved from `tasks/active` in a separate post-merge documentation change.
