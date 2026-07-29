@@ -9,7 +9,9 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 final class SupportNotificationDelivery extends Model
 {
     public const STATUS_PENDING = 'pending';
+
     public const STATUS_SENT = 'sent';
+
     public const STATUS_FAILED = 'failed';
 
     /** @var list<string> */
