@@ -22,14 +22,19 @@ final class CharacterProfilePreferenceService
     public function editState(Identity $identity, string $name): array
     {
         $character = $this->ownedActiveCharacter($identity, $name);
+        $playerId = $this->positiveInteger($character->id);
+        if ($playerId === null) {
+            throw new CharacterProfileNotOwned;
+        }
+
         $preference = CharacterProfilePreference::query()
             ->where('identity_id', $identity->id)
-            ->where('canary_player_id', (int) $character->id)
+            ->where('canary_player_id', $playerId)
             ->first();
 
         return [
             'character' => $character,
-            'preference' => $preference ?? $this->newPreference($identity->id, (int) $character->id),
+            'preference' => $preference ?? $this->newPreference($identity->id, $playerId),
         ];
     }
 
@@ -55,13 +60,18 @@ final class CharacterProfilePreferenceService
             }
 
             $character = $this->ownedActiveCharacter($lockedIdentity, $name);
-            $playerId = (int) $character->id;
+            $playerId = $this->positiveInteger($character->id);
+            if ($playerId === null) {
+                throw new CharacterProfileNotOwned;
+            }
+
             $preference = CharacterProfilePreference::query()
                 ->where('identity_id', $lockedIdentity->id)
                 ->where('canary_player_id', $playerId)
                 ->lockForUpdate()
                 ->first();
-            $wasMain = $preference?->is_main_character ?? false;
+            $wasMain = $preference instanceof CharacterProfilePreference
+                && $preference->is_main_character;
 
             if ($attributes['is_main_character']) {
                 CharacterProfilePreference::query()
@@ -92,11 +102,32 @@ final class CharacterProfilePreferenceService
         }
 
         $character = $this->gameData->findActiveCharacter($name);
-        if (! $character instanceof stdClass || (int) $character->account_id !== $accountId) {
+        if (! $character instanceof stdClass) {
+            throw new CharacterProfileNotOwned;
+        }
+
+        $characterAccountId = $this->positiveInteger($character->account_id);
+        $playerId = $this->positiveInteger($character->id);
+        if ($characterAccountId !== $accountId || $playerId === null) {
             throw new CharacterProfileNotOwned;
         }
 
         return $character;
+    }
+
+    private function positiveInteger(mixed $value): ?int
+    {
+        if (is_int($value)) {
+            return $value > 0 ? $value : null;
+        }
+
+        if (is_string($value) && ctype_digit($value)) {
+            $parsed = (int) $value;
+
+            return $parsed > 0 ? $parsed : null;
+        }
+
+        return null;
     }
 
     private function newPreference(int $identityId, int $playerId): CharacterProfilePreference
