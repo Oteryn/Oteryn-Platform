@@ -32,7 +32,7 @@ return new class extends Migration
     public function down(): void
     {
         if (DB::table('game_catalog_snapshots')->whereNull('verified_content_through_release_id')->exists()) {
-            throw new \RuntimeException('Cannot restore the non-null Game Catalog verified-content boundary while unknown boundaries exist.');
+            throw new RuntimeException('Cannot restore the non-null Game Catalog verified-content boundary while unknown boundaries exist.');
         }
 
         if (! $this->usesSqlite()) {
