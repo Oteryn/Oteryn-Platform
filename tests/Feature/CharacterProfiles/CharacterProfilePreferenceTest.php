@@ -173,7 +173,8 @@ final class CharacterProfilePreferenceTest extends TestCase
             'is_main_character' => '1',
         ])->assertRedirect();
 
-        self::assertFalse($alpha->fresh()->is_main_character);
+        $alpha->refresh();
+        self::assertFalse($alpha->is_main_character);
         self::assertTrue(CharacterProfilePreference::query()->where('canary_player_id', 2)->firstOrFail()->is_main_character);
 
         $this->get(route('game.characters.show', ['name' => 'Alpha Knight']))
