@@ -15,8 +15,8 @@
 --   existing dedicated account. Review the account identity and deployment
 --   impact before executing this template in any environment.
 -- - The current allowlist is derived from app/PublicGameData/CanaryGameDataRepository.php.
---   It is exactly: players, guilds, guild_membership, guild_ranks, channels,
---   cluster_sessions.
+--   It is exactly: players, guilds, guild_membership, guild_ranks, houses,
+--   player_deaths, channels, cluster_sessions.
 -- - Do not pre-grant future tables. When application code starts reading another
 --   Canary table, update this template, the contract, and the verifier together.
 
@@ -36,6 +36,10 @@ GRANT SELECT ON `{{CANARY_DB_NAME}}`.`guilds`
 GRANT SELECT ON `{{CANARY_DB_NAME}}`.`guild_membership`
     TO '{{OTERYN_CANARY_DB_USER}}'@'{{OTERYN_CANARY_DB_HOST}}';
 GRANT SELECT ON `{{CANARY_DB_NAME}}`.`guild_ranks`
+    TO '{{OTERYN_CANARY_DB_USER}}'@'{{OTERYN_CANARY_DB_HOST}}';
+GRANT SELECT ON `{{CANARY_DB_NAME}}`.`houses`
+    TO '{{OTERYN_CANARY_DB_USER}}'@'{{OTERYN_CANARY_DB_HOST}}';
+GRANT SELECT ON `{{CANARY_DB_NAME}}`.`player_deaths`
     TO '{{OTERYN_CANARY_DB_USER}}'@'{{OTERYN_CANARY_DB_HOST}}';
 GRANT SELECT ON `{{CANARY_DB_NAME}}`.`channels`
     TO '{{OTERYN_CANARY_DB_USER}}'@'{{OTERYN_CANARY_DB_HOST}}';
