@@ -3,6 +3,19 @@
     gap: 1.5rem;
 }
 
+.community-page > *,
+.community-page section,
+.community-page dl,
+.community-page .stat-grid,
+.community-page .table-region {
+    max-width: 100%;
+    min-width: 0;
+}
+
+.community-page .stat-grid {
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 12rem), 1fr));
+}
+
 .community-filter {
     display: grid;
     gap: 1rem;
