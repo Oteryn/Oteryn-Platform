@@ -144,8 +144,10 @@
 
     <section class="card" aria-labelledby="character-account-heading">
         <h2 id="character-account-heading">{{ __('community.profile.account_characters') }}</h2>
-        @if ($related_characters->isEmpty())
+        @if (! $account_association_public)
             <p class="muted">{{ __('community.profile.account_private') }}</p>
+        @elseif ($related_characters->isEmpty())
+            <p class="muted">{{ __('community.profile.no_related_characters') }}</p>
         @else
             <ul class="community-character-list">
                 @foreach ($related_characters as $related)
