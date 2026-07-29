@@ -18,6 +18,8 @@ final class CanaryDatabasePrivilegeVerifier
         'guilds',
         'guild_membership',
         'guild_ranks',
+        'houses',
+        'player_deaths',
         'channels',
         'cluster_sessions',
     ];
