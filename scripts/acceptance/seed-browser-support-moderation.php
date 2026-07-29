@@ -5,6 +5,7 @@ declare(strict_types=1);
 use App\Identity\Mfa\MfaRecoveryCodes;
 use App\Identity\Models\Identity;
 use Illuminate\Contracts\Console\Kernel;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use PragmaRX\Google2FA\Google2FA;
@@ -38,6 +39,7 @@ $integerId = static function (mixed $value, string $label) use ($fail): int {
 };
 
 $reset = static function (): void {
+    Cache::flush();
     DB::table('support_notification_deliveries')->delete();
     DB::table('support_ticket_messages')->delete();
     DB::table('support_tickets')->delete();
