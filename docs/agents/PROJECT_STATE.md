@@ -174,7 +174,7 @@ Repository and exact-revision E2E work has hardened the native-auth direction, b
 
 ## Current active task
 
-None.
+`OTERYN-20260729-community-data-completeness` in the Issue #280 implementation PR is inventorying the authoritative read-only Canary/community-data contract.
 
 ## Recommended sequence
 

@@ -4,7 +4,7 @@ Convenience index only. Individual active task records, live PRs and Git state a
 
 ## Active tasks
 
-- None.
+- `OTERYN-20260729-community-data-completeness` — Issue #280 highscore categories/filters, rich privacy-aware profiles, deaths/kill statistics, guild directory/workflow policy and responsive read-only acceptance.
 
 ## Closed acceptance and release-preparation follow-ups
 
