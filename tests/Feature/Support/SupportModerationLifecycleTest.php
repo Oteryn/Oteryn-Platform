@@ -81,7 +81,8 @@ final class SupportModerationLifecycleTest extends TestCase
             'status' => SupportTicket::STATUS_CLOSED,
             'lock_version' => $ticket->lock_version,
         ])->assertRedirect();
-        self::assertSame(SupportTicket::STATUS_CLOSED, $ticket->fresh()->status);
+        $ticket->refresh();
+        self::assertSame(SupportTicket::STATUS_CLOSED, $ticket->status);
     }
 
     public function test_ticket_moderation_requires_mfa_and_exact_permission_and_hides_internal_notes(): void
@@ -296,9 +297,11 @@ final class SupportModerationLifecycleTest extends TestCase
         $delivery = SupportNotificationDelivery::query()->firstOrFail();
         app(SupportNotificationDeliveryService::class)->deliver($delivery->id);
 
-        self::assertSame(SupportTicket::STATUS_RESOLVED, $ticket->fresh()->status);
-        self::assertSame(SupportNotificationDelivery::STATUS_FAILED, $delivery->fresh()->status);
-        self::assertSame('notifiable_unavailable', $delivery->fresh()->last_error_code);
+        $ticket->refresh();
+        $delivery->refresh();
+        self::assertSame(SupportTicket::STATUS_RESOLVED, $ticket->status);
+        self::assertSame(SupportNotificationDelivery::STATUS_FAILED, $delivery->status);
+        self::assertSame('notifiable_unavailable', $delivery->last_error_code);
     }
 
     public function test_retention_supports_dry_run_then_deletes_or_anonymizes_only_expired_records(): void
@@ -366,14 +369,16 @@ final class SupportModerationLifecycleTest extends TestCase
         ], $pruner->execute(true));
         self::assertNotNull($ticket->fresh());
         self::assertNotNull($report->fresh());
-        self::assertSame('Old private enforcement note', $record->fresh()->moderator_notes);
+        $record->refresh();
+        self::assertSame('Old private enforcement note', $record->moderator_notes);
 
         $pruner->execute();
         self::assertNull($ticket->fresh());
         self::assertNull($report->fresh());
-        self::assertNull($record->fresh()->moderator_notes);
-        self::assertNull($record->fresh()->appeal_message);
-        self::assertSame('Retained public reason', $record->fresh()->public_reason);
+        $record->refresh();
+        self::assertNull($record->moderator_notes);
+        self::assertNull($record->appeal_message);
+        self::assertSame('Retained public reason', $record->public_reason);
     }
 
     private function createIdentity(string $email, bool $confirmedMfa = true): Identity
