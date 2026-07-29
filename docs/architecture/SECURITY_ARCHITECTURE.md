@@ -320,3 +320,8 @@ Public community reads use a dedicated Canary credential with direct `SELECT` on
 Public profile assembly applies Platform privacy flags before presentation and excludes internal Identity/binding IDs, account IDs, email, IP data, runtime lease internals, raw death participant payloads, house coordinates and moderator-only enforcement data. Highscore sort columns come from a fixed application allowlist, while category/vocation inputs are validated against bounded enumerations.
 
 Canary/Platform query failures render localized `503` states without SQL or credential disclosure. Empty and not-found responses are never used to hide dependency failure. Guild administration, public enforcement publication and every Canary mutation remain outside this read-only boundary.
+
+
+## Character profile preference security
+
+Character-profile management is authenticated and owner-scoped by server-resolved ready binding plus current read-only Canary ownership. Browser-supplied player/account identifiers do not authorize writes. Public comments are length-bounded, control-normalized and escaped at render time; audit events exclude comment content. Account privacy remains an upper bound, hidden sibling associations are filtered and generic dependency failures do not disclose SQL details. Main-character selection locks the Identity row and real-MariaDB race acceptance must leave exactly one main. No Canary mutation is authorized.

@@ -78,11 +78,15 @@
         @if ($overview['characters_state'] === 'available')
             <div class="card-grid">
                 @foreach ($overview['characters'] as $character)
+                    @php($profilePreference = $profilePreferences->get((int) $character->id))
                     <article class="card">
                         <h3>
                             <a href="{{ route('game.characters.show', ['name' => $character->name]) }}">
                                 {{ $character->name }}
                             </a>
+                            @if ($profilePreference?->is_main_character)
+                                <span class="badge badge-success">{{ __('character_profiles.main_badge') }}</span>
+                            @endif
                         </h3>
                         <dl>
                             <dt>Level</dt>
@@ -90,9 +94,15 @@
                             <dt>Vocation</dt>
                             <dd>{{ $characterPresentation->vocationName((int) $character->vocation) }}</dd>
                         </dl>
+                        <p class="muted">
+                            {{ $profilePreference === null ? __('character_profiles.defaults') : __('character_profiles.customized') }}
+                        </p>
                         <div class="action-row">
                             <a class="button button-secondary" href="{{ route('game.characters.show', ['name' => $character->name]) }}">
                                 View public profile
+                            </a>
+                            <a class="button" href="{{ route('account.characters.profile.edit', ['name' => $character->name]) }}">
+                                {{ __('character_profiles.manage') }}
                             </a>
                         </div>
                     </article>

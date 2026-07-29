@@ -1,0 +1,70 @@
+{
+  "surfaces": [
+    {
+      "id": "identity.character-profile-preferences",
+      "owner": "CharacterProfiles",
+      "status": "covered",
+      "route_names": [
+        "account.characters.profile.edit",
+        "account.characters.profile.update"
+      ],
+      "roles": [
+        "guest",
+        "authenticated"
+      ],
+      "states": [
+        "guest-redirect",
+        "owner-defaults",
+        "owner-customized",
+        "non-owner-not-found",
+        "bounded-comment-validation",
+        "escaped-public-comment",
+        "account-privacy-upper-bound",
+        "per-character-section-visibility",
+        "related-character-filtering",
+        "single-main-character-replacement",
+        "dependency-unavailable",
+        "localized-en",
+        "localized-pl"
+      ],
+      "viewports": [
+        "desktop-1440x1000",
+        "tablet-820x1180",
+        "mobile-390x844"
+      ],
+      "browsers": [
+        "chromium-primary"
+      ],
+      "evidence_layers": [
+        "contract",
+        "feature",
+        "playwright",
+        "database-integration",
+        "responsive",
+        "accessibility",
+        "localization",
+        "resilience",
+        "security"
+      ],
+      "evidence": [
+        {
+          "file": "tests/Feature/CharacterProfiles/CharacterProfilePreferenceTest.php",
+          "markers": [
+            "test_guest_cannot_manage_character_profile_preferences",
+            "test_missing_preferences_preserve_existing_public_profile_behavior",
+            "test_owner_can_update_escaped_comment_visibility_and_main_character",
+            "test_non_owner_cannot_view_or_update_preferences",
+            "test_comment_length_is_bounded"
+          ]
+        },
+        {
+          "file": "scripts/acceptance/tests/community-data-acceptance.spec.mjs",
+          "markers": [
+            "@portal-community complete rankings, privacy-aware profile, owner preferences, deaths, guild search, localization, resilience and responsive lifecycle"
+          ]
+        }
+      ],
+      "gaps": []
+    }
+  ]
+}

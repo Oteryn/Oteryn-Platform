@@ -64,6 +64,7 @@ The ready Platform-to-Canary binding remains immutable. Self-service import, unl
 
 - localized home, navigation, SEO, news and managed pages;
 - character name search and privacy-aware server-backed character profiles;
+- authenticated Platform-owned character comments, per-character visibility controls and optional main-character selection;
 - fixed-allowlist highscore categories with supported vocation filtering, truthful global scope and bounded pagination;
 - latest deaths and bounded player-kill statistics;
 - read-only guild directory, search, detail, ranks and members;
@@ -73,7 +74,7 @@ The ready Platform-to-Canary binding remains immutable. Self-service import, unl
 
 PR #298 merged the approved read-only community-data boundary as `7533b12b1e1c6d266c6bf5a8800e584fad23a01e` after all 11 exact-final-head workflows passed. Canary mutation, guild administration, selectable achievements, world-transfer history, polls and public enforcement publication remain excluded until authoritative ownership and privacy contracts exist.
 
-Still not benchmark-complete: owner-editable character information, character-level privacy, selected achievements, deletion/restore, rename, controlled transfer and optional main-character policy remain #277. Customer commerce remains #278. Structured authoritative spell/NPC/quest/achievement catalogues remain #301, while optional map/hunt/discovery decisions remain #302.
+Still not benchmark-complete: Issue #307 delivers owner-editable Platform comments, character-level privacy and optional main-character selection, while selected achievements, deletion/restore, rename and controlled transfer remain #277. Customer commerce remains #278. Structured authoritative spell/NPC/quest/achievement catalogues remain #301, while optional map/hunt/discovery decisions remain #302.
 
 ### CMS and community publishing
 
@@ -124,7 +125,7 @@ The strict contract proves:
 - evidence files and stable markers exist;
 - strict closure fails for delivered surfaces left `partial` or `planned`.
 
-The account-security fragment adds guest/authenticated EN/PL email, session, privacy, recovery-key and termination states. The Character Bazaar fragment adds public, authenticated and administrator marketplace surfaces. The community-data fragment adds highscore, profile, deaths, guild, localization, dependency-failure/recovery and responsive states.
+The account-security fragment adds guest/authenticated EN/PL email, session, privacy, recovery-key and termination states. The Character Bazaar fragment adds public, authenticated and administrator marketplace surfaces. The community-data and character-profile fragments add highscore, profile, owner-preference, main-character race, deaths, guild, localization, dependency-failure/recovery and responsive states.
 
 ## Product-completeness benchmark
 
@@ -136,9 +137,9 @@ The completed Issue #268 audit is tracked by:
 
 The current ledger classifies 43 Tibia/RubinOT/OTS benchmark capabilities:
 
-- 20 implemented;
+- 23 implemented;
 - 3 partial;
-- 17 missing;
+- 14 missing;
 - 3 not applicable;
 - 22 required, 13 planned, 5 optional/differentiator and 3 not applicable.
 
@@ -147,7 +148,8 @@ Completed focused slices:
 - #276 — Platform-owned account security and lifecycle, merged in PR #283;
 - #279 — Platform-owned support and moderation lifecycle, merged in PR #293;
 - #280 — read-only community statistics and guild discovery with privacy-aware profiles, merged in PR #298;
-- #281 — first versioned item/weapon/creature/loot Game Catalog scope delivered by PR #272 and evidence ownership closed by PR #303.
+- #281 — first versioned item/weapon/creature/loot Game Catalog scope delivered by PR #272 and evidence ownership closed by PR #303;
+- #307 — Platform-owned character comments, per-character privacy and optional main-character selection in PR #308.
 
 Open focused backlog:
 
@@ -180,11 +182,11 @@ Repository and exact-revision E2E work has hardened the native-auth direction, b
 
 ## Current active task
 
-None. Issue #281 is closed and its closeout task is archived. Start the next benchmark slice only through a new active task and separate pull request.
+`OTERYN-20260729-character-profile-preferences` in draft PR #308 delivers Issue #307, the Platform-owned profile-preference slice of parent #277, without Canary mutation.
 
 ## Recommended sequence
 
-1. Deliver a Platform-owned #277 slice for per-character privacy and optional main-character preference without Canary mutation.
+1. Complete PR #308 / Issue #307 exact-head evidence and archive its task; keep parent #277 open for separately contracted mutation lifecycles.
 2. Define explicit operation-specific contracts before implementing character rename, deletion, restoration or transfer.
 3. Keep #278 disabled until a dedicated payment ADR, threat model and provider lifecycle are reviewed.
 4. Start #301 only after an additive authoritative producer contract is approved; treat #302 as optional product discovery.
@@ -197,3 +199,8 @@ PR #298 completed Issue #280's approved read-only boundary: categorized/vocation
 ## Game Catalog first-scope closeout
 
 PR #303 completed Issue #281's accepted first scope by reconciling the versioned item/weapon/creature/loot delivery from PR #272 with the 43-capability benchmark. Exact final head `7c6bd2b46f3c29d5a2bd4862d59614fcaec423bc` passed all eight required workflows before squash merge `e1df0608eb6a8321f47fe51da65233a613a27b25`. Deferred spells/NPCs/quests/achievements remain #301, optional map/hunt/discovery decisions remain #302, and no runtime, Canary, producer, activation or production change occurred.
+
+
+## Character profile preferences candidate
+
+Draft PR #308 implements the Platform-owned Issue #307 slice: bounded escaped owner comments, per-character effective visibility, filtered related-character association, optional single main-character selection, audit events, real-MariaDB race evidence and EN/PL desktop/tablet/mobile browser acceptance. Canary remains read-only; rename, deletion, restore, transfer and selected achievements remain outside this contract, and no production claim is made.

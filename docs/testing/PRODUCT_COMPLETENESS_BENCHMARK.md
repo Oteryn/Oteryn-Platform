@@ -12,6 +12,7 @@
 - Support/moderation lifecycle delivery: PR #293
 - Community-data completeness delivery: PR #298
 - First Game Catalog scope closure: PR #303 (PR #272 delivery evidence)
+- Character profile preferences candidate: PR #308 / Issue #307
 
 ## Verdict
 
@@ -21,9 +22,9 @@ The benchmark ledger contains **43 capabilities**:
 
 | Delivery status | Count |
 |---|---:|
-| Implemented | 20 |
+| Implemented | 23 |
 | Partial | 3 |
-| Missing | 17 |
+| Missing | 14 |
 | Untested | 0 |
 | Not applicable | 3 |
 
@@ -36,7 +37,7 @@ Relevance classification:
 | Optional / differentiator | 5 |
 | Not applicable | 3 |
 
-**Oteryn must not claim benchmark product completeness while required partial or missing capabilities remain open.** The principal remaining required-gap tracker is #277. Commerce is intentionally planned rather than part of the current non-commercial launch boundary, but #278 is mandatory before any commercial activation. Structured spell/NPC/quest/achievement expansion is tracked by #301, while optional maps and hunt/discovery planning is tracked by #302.
+**Oteryn must not claim benchmark product completeness while required partial or missing capabilities remain open.** Issue #307 delivers the Platform-owned comment, character privacy and optional main-character portion of #277; deletion/restore, rename, transfer and authoritative achievements remain open. Commerce is intentionally planned rather than part of the current non-commercial launch boundary, but #278 is mandatory before any commercial activation. Structured spell/NPC/quest/achievement expansion is tracked by #301, while optional maps and hunt/discovery planning is tracked by #302.
 
 Issues #276, #279 and #280 now have delivered Platform-owned account-security, support/moderation and read-only community-data lifecycles for their approved boundaries. Issue #281's first authoritative Game Catalog scope was delivered by PR #272; closing that scope does not implement or authorize the #301/#302 follow-ups, Canary account unlink/rebind, native game-account deletion, character deletion or production deployment.
 
@@ -75,7 +76,7 @@ The inventory is based on the exact named-route contract rather than screenshots
 | Identity registration, login and logout | Covered | initial, validation, duplicate email, invalid credentials, redirect, logout, protected-route redirect |
 | Password recovery and change | Covered | SMTP delivery, reset success, invalid/expired token, replay denial, wrong current password, global session revocation |
 | TOTP MFA lifecycle | Covered | enrollment, QR provisioning, confirmation, challenge, invalid code, replay denial, recovery-code single use, disable, session invalidation |
-| Account overview and Canary provisioning | Covered | ready, pending, recoverable, conflict, missing, retry, internal identifiers hidden |
+| Account overview and Canary provisioning | Covered | ready, pending, recoverable, conflict, missing, retry, internal identifiers hidden, per-character public-profile management and optional main-character state |
 | Account security and lifecycle | Covered | EN/PL, confirmed email change and old-address recovery, cooldown, active-session inventory, targeted/current/all-other revocation, privacy, recovery-key issue/revoke/use/replay denial, termination grace/cancel/finalize, stale-session redirect |
 | Character creation and visibility | Covered | validation, reserved/duplicate name, quota, ownership injection denial, idempotent outcome, public visibility |
 | Public home and SEO | Covered | available, empty, stale, dependency unavailable, EN/PL, published-only sitemap/robots |
@@ -127,26 +128,26 @@ Issue #276 is delivered for the approved Platform-owned scope. Native Canary acc
 
 ### Character management and public profile
 
-Implemented subset:
+Implemented:
 
 - character creation with validation, quotas, ownership controls and public visibility;
-- privacy-aware public character profile with approved comment, skills, guild/rank, house, deaths, kill statistics, related characters and status;
+- privacy-aware public character profile with skills, guild/rank, house, deaths, kill statistics, related characters and status;
+- authenticated owner-editable Platform comments with bounded plain-text validation, escaped rendering and audit;
+- per-character visibility that can narrow account association, status, guild, house, skills, deaths and kill statistics while account-level privacy remains the upper bound;
+- optional single main-character selection serialized by Identity-row locking and proven by a real-MariaDB concurrent race;
 - Character Bazaar ownership transfer through escrow, which is not a world-transfer or general owner-management service.
 
 Required gaps:
 
-- editable public information/comment and moderation-safe rendering;
-- character privacy controls;
 - deletion grace period and restore;
-- rename with history/cooldown and cross-surface consistency;
+- rename with history/cooldown and cross-surface consistency.
 
-Planned/optional gaps:
+Planned gaps:
 
 - world or channel transfer;
-- achievement selection;
-- main-character selection.
+- achievement selection after an authoritative source exists.
 
-Tracker: **#277** for owner-editable character mutations and character-specific policy. The approved public read model is delivered through PR #298.
+Issue **#307** delivers the Platform-owned profile-preference portion of **#277**. Parent #277 remains open only for the mutation/achievement lifecycles above; no Canary write is authorized by this slice.
 
 ### Commerce and entitlement
 
@@ -231,7 +232,7 @@ These optional/product-decision capabilities are tracked by **#302**. Third-part
 | Priority boundary | Issue | Scope |
 |---|---|---|
 | Delivered account/security lifecycle | #276 | Confirmed email, sessions, privacy, recovery key, termination and explicit MFA/binding policy |
-| Required character/profile completeness | #277 | Public profile editing/privacy, delete/restore, rename, linkage and transfer policy |
+| Required remaining character lifecycle | #277 | Delete/restore, rename, authoritative achievements and controlled world/channel transfer contracts; profile editing/privacy/main selection are delivered by #307 |
 | Delivered support/moderation lifecycle | #279 | Platform tickets, reports, enforcement history, notifications, retention and privacy |
 | Delivered community-data completeness | #280 | Read-only rich profiles, guild directory/search/detail, highscore filters, deaths/statistics and explicit exclusions |
 | Mandatory before commercial activation | #278 | Premium, coins, products, provider/webhook/refund/chargeback lifecycle |

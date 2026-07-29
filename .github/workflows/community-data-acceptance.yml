@@ -6,21 +6,33 @@ on:
       - main
     paths:
       - 'app/CanaryIntegration/CanaryDatabasePrivilegeVerifier.php'
+      - 'app/CharacterProfiles/**'
+      - 'app/Http/Controllers/CharacterProfiles/**'
       - 'app/Http/Controllers/PublicGameData/**'
+      - 'app/Http/Requests/CharacterProfiles/**'
       - 'app/Localization/LocalizedPublicRouteRegistrar.php'
       - 'app/PublicGameData/**'
+      - 'database/migrations/*character_profile_preferences*.php'
       - 'database/provisioning/canary-readonly.sql.template'
+      - 'lang/en/character_profiles.php'
       - 'lang/en/community.php'
+      - 'lang/pl/character_profiles.php'
       - 'lang/pl/community.php'
       - 'public/css/community.css'
       - 'resources/navigation/public/**'
       - 'resources/views/game/**'
+      - 'resources/views/identity/account/**'
+      - 'routes/modules/character-profile-preferences.php'
       - 'routes/modules/public-game-statistics.php'
+      - 'scripts/acceptance/assert-character-profile-concurrency.php'
       - 'scripts/acceptance/bootstrap-production-like.sh'
       - 'scripts/acceptance/playwright.community-data.config.mjs'
       - 'scripts/acceptance/seed-community-data.php'
+      - 'scripts/acceptance/update-character-profile-preference.php'
       - 'scripts/acceptance/tests/community-data-acceptance.spec.mjs'
+      - 'scripts/acceptance/coverage/surfaces/character-profile-preferences.json'
       - 'scripts/acceptance/coverage/surfaces/community-data-completeness.json'
+      - 'tests/Feature/CharacterProfiles/CharacterProfilePreferenceTest.php'
       - 'tests/Feature/PublicGameData/CommunityDataCompletenessTest.php'
       - 'tests/Unit/CanaryIntegration/CanaryDatabasePrivilegeVerifierTest.php'
       - '.github/workflows/community-data-acceptance.yml'
@@ -29,21 +41,33 @@ on:
       - main
     paths:
       - 'app/CanaryIntegration/CanaryDatabasePrivilegeVerifier.php'
+      - 'app/CharacterProfiles/**'
+      - 'app/Http/Controllers/CharacterProfiles/**'
       - 'app/Http/Controllers/PublicGameData/**'
+      - 'app/Http/Requests/CharacterProfiles/**'
       - 'app/Localization/LocalizedPublicRouteRegistrar.php'
       - 'app/PublicGameData/**'
+      - 'database/migrations/*character_profile_preferences*.php'
       - 'database/provisioning/canary-readonly.sql.template'
+      - 'lang/en/character_profiles.php'
       - 'lang/en/community.php'
+      - 'lang/pl/character_profiles.php'
       - 'lang/pl/community.php'
       - 'public/css/community.css'
       - 'resources/navigation/public/**'
       - 'resources/views/game/**'
+      - 'resources/views/identity/account/**'
+      - 'routes/modules/character-profile-preferences.php'
       - 'routes/modules/public-game-statistics.php'
+      - 'scripts/acceptance/assert-character-profile-concurrency.php'
       - 'scripts/acceptance/bootstrap-production-like.sh'
       - 'scripts/acceptance/playwright.community-data.config.mjs'
       - 'scripts/acceptance/seed-community-data.php'
+      - 'scripts/acceptance/update-character-profile-preference.php'
       - 'scripts/acceptance/tests/community-data-acceptance.spec.mjs'
+      - 'scripts/acceptance/coverage/surfaces/character-profile-preferences.json'
       - 'scripts/acceptance/coverage/surfaces/community-data-completeness.json'
+      - 'tests/Feature/CharacterProfiles/CharacterProfilePreferenceTest.php'
       - 'tests/Feature/PublicGameData/CommunityDataCompletenessTest.php'
       - 'tests/Unit/CanaryIntegration/CanaryDatabasePrivilegeVerifierTest.php'
       - '.github/workflows/community-data-acceptance.yml'
@@ -171,15 +195,28 @@ jobs:
       - name: Verify exact read-only Canary grants
         run: php artisan canary:verify-db-privileges
 
-      - name: Execute focused community regressions
+      - name: Execute focused community and profile regressions
         env:
           APP_ENV: testing
           SESSION_DRIVER: array
           CACHE_STORE: array
-        run: php artisan test tests/Feature/PublicGameData/CommunityDataCompletenessTest.php tests/Unit/CanaryIntegration/CanaryDatabasePrivilegeVerifierTest.php
+        run: php artisan test tests/Feature/CharacterProfiles/CharacterProfilePreferenceTest.php tests/Feature/PublicGameData/CommunityDataCompletenessTest.php tests/Unit/CanaryIntegration/CanaryDatabasePrivilegeVerifierTest.php
 
       - name: Restore privacy-aware community fixture after database-reset tests
         run: php scripts/acceptance/seed-community-data.php
+
+      - name: Prove single-main-character concurrency on real MariaDB
+        run: |
+          php scripts/acceptance/update-character-profile-preference.php 'Acceptance Hero' >/tmp/profile-hero.json &
+          hero_pid=$!
+          php scripts/acceptance/update-character-profile-preference.php 'Acceptance Guildmate' >/tmp/profile-guildmate.json &
+          guildmate_pid=$!
+          wait "$hero_pid"
+          wait "$guildmate_pid"
+          cat /tmp/profile-hero.json
+          cat /tmp/profile-guildmate.json
+          php scripts/acceptance/assert-character-profile-concurrency.php
+          php scripts/acceptance/seed-community-data.php
 
       - name: Start exact-SHA Laravel HTTP runtime
         run: |
@@ -207,14 +244,14 @@ jobs:
           cat > artifacts/acceptance/community-data-evidence.json <<JSON
           {
             "exact_tested_sha": "$ACCEPTANCE_SHA",
-            "profile": "community-data-completeness",
+            "profile": "community-data-and-character-profile-preferences",
             "projects": ["community-data-chromium-desktop", "community-data-chromium-tablet", "community-data-chromium-mobile"],
             "viewports": ["desktop-1440x1000", "tablet-820x1180", "mobile-390x844"],
             "retries": 0,
             "runtime": "real Laravel HTTP",
             "platform_database": "MariaDB 11.8 isolated acceptance schema",
             "canary_boundary": "dedicated direct-table SELECT grants only",
-            "proof_boundary": "highscore categories and vocation filters, global-scope truthfulness, privacy-aware rich profiles, deaths, kill statistics, guild search, localization, dependency failure/recovery and responsive layout",
+            "proof_boundary": "highscores, privacy-aware profiles, Platform-owned owner preferences, escaped comments, per-character visibility, single-main-character race, deaths, kill statistics, guild search, localization, dependency failure/recovery and responsive layout",
             "production_claim": "none"
           }
           JSON

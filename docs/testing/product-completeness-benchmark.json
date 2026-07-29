@@ -2,7 +2,7 @@
   "schema_version": 1,
   "audit_issue": 268,
   "baseline_sha": "0a9a00014f55d7b2146d4ab151cd2a1b7c5bcd3d",
-  "generated_at": "2026-07-29T15:58:00Z",
+  "generated_at": "2026-07-29T20:16:57Z",
   "claim_boundary": "This ledger compares current repository and isolated staging-like evidence with external product benchmarks. It does not establish production deployment or PRODUCTION_PROVEN status.",
   "allowed_delivery_statuses": [
     "implemented",
@@ -244,32 +244,60 @@
       "domain": "character",
       "capability": "Owner-editable public character information or comment",
       "relevance": "required",
-      "delivery_status": "missing",
-      "rationale": "The public character view is read-only and no authorized owner-edit route exists.",
-      "oteryn_evidence": [],
+      "delivery_status": "implemented",
+      "rationale": "Authenticated owners can store a bounded Platform-owned plain-text public comment after current read-only Canary ownership verification; public rendering is escaped and audited without updating players.comment.",
+      "oteryn_evidence": [
+        {
+          "file": "docs/contracts/CHARACTER_PROFILE_PREFERENCES_CONTRACT.md",
+          "marker": "Effective privacy",
+          "level": "repository_contract"
+        },
+        {
+          "file": "tests/Feature/CharacterProfiles/CharacterProfilePreferenceTest.php",
+          "marker": "test_owner_can_update_escaped_comment_visibility_and_main_character",
+          "level": "feature_test"
+        },
+        {
+          "file": "scripts/acceptance/tests/community-data-acceptance.spec.mjs",
+          "marker": "@portal-community complete rankings, privacy-aware profile, owner preferences, deaths, guild search, localization, resilience and responsive lifecycle",
+          "level": "browser_acceptance"
+        }
+      ],
       "benchmark_sources": [
         "https://www.tibia.com/community/?subtopic=characters",
         "https://rubinot.com.br/"
       ],
-      "gap_issues": [
-        "#277"
-      ]
+      "gap_issues": []
     },
     {
       "id": "character.privacy",
       "domain": "character",
       "capability": "Character-level public visibility and account-association controls",
       "relevance": "required",
-      "delivery_status": "missing",
-      "rationale": "Oteryn has no owner-controlled hidden character fields; account-level defaults now exist but character-specific policy and presentation remain absent.",
-      "oteryn_evidence": [],
+      "delivery_status": "implemented",
+      "rationale": "Per-character controls independently narrow account association, status, guild, house, skills, deaths and kill statistics. Account-level privacy remains an upper bound and hidden sibling characters are excluded from related-character presentation.",
+      "oteryn_evidence": [
+        {
+          "file": "docs/contracts/CHARACTER_PROFILE_PREFERENCES_CONTRACT.md",
+          "marker": "Effective privacy",
+          "level": "repository_contract"
+        },
+        {
+          "file": "tests/Feature/CharacterProfiles/CharacterProfilePreferenceTest.php",
+          "marker": "test_owner_can_update_escaped_comment_visibility_and_main_character",
+          "level": "feature_test"
+        },
+        {
+          "file": "scripts/acceptance/tests/community-data-acceptance.spec.mjs",
+          "marker": "@portal-community complete rankings, privacy-aware profile, owner preferences, deaths, guild search, localization, resilience and responsive lifecycle",
+          "level": "browser_acceptance"
+        }
+      ],
       "benchmark_sources": [
         "https://www.tibia.com/community/?subtopic=characters",
         "https://rubinot.com.br/"
       ],
-      "gap_issues": [
-        "#277"
-      ]
+      "gap_issues": []
     },
     {
       "id": "character.achievement-display",
@@ -294,21 +322,21 @@
       "capability": "Complete public character profile",
       "relevance": "required",
       "delivery_status": "implemented",
-      "rationale": "The read-only profile now presents approved comment, level/vocation, magic and selected skills, boss points, guild/rank, house, bounded deaths and player-kill statistics, with Platform privacy flags governing account association and status disclosure.",
+      "rationale": "The profile presents the approved server-backed read model plus an escaped Platform-owned owner comment, effective per-character privacy, related-character filtering and optional main-character presentation without exposing private identifiers.",
       "oteryn_evidence": [
         {
-          "file": "docs/contracts/PUBLIC_COMMUNITY_DATA_CONTRACT.md",
-          "marker": "Allowed public reads",
+          "file": "docs/contracts/CHARACTER_PROFILE_PREFERENCES_CONTRACT.md",
+          "marker": "Effective privacy",
           "level": "repository_contract"
         },
         {
-          "file": "tests/Feature/PublicGameData/CommunityDataCompletenessTest.php",
-          "marker": "test_character_profile_applies_private_defaults_then_public_account_and_status_flags",
+          "file": "tests/Feature/CharacterProfiles/CharacterProfilePreferenceTest.php",
+          "marker": "test_owner_can_update_escaped_comment_visibility_and_main_character",
           "level": "feature_test"
         },
         {
           "file": "scripts/acceptance/tests/community-data-acceptance.spec.mjs",
-          "marker": "@portal-community complete rankings, privacy-aware profile, deaths, guild search, localization, resilience and responsive lifecycle",
+          "marker": "@portal-community complete rankings, privacy-aware profile, owner preferences, deaths, guild search, localization, resilience and responsive lifecycle",
           "level": "browser_acceptance"
         }
       ],
@@ -369,15 +397,29 @@
       "domain": "character",
       "capability": "Main-character selection",
       "relevance": "optional_differentiator",
-      "delivery_status": "missing",
-      "rationale": "Oteryn does not currently use a main-character concept; adoption depends on community/profile product policy.",
-      "oteryn_evidence": [],
+      "delivery_status": "implemented",
+      "rationale": "Oteryn adopts an optional one-main-character preference per Platform Identity. Identity-row locking serializes replacement, and real-MariaDB acceptance proves that two concurrent selections leave exactly one main row.",
+      "oteryn_evidence": [
+        {
+          "file": "docs/contracts/CHARACTER_PROFILE_PREFERENCES_CONTRACT.md",
+          "marker": "Effective privacy",
+          "level": "repository_contract"
+        },
+        {
+          "file": ".github/workflows/community-data-acceptance.yml",
+          "marker": "Prove single-main-character concurrency on real MariaDB",
+          "level": "integration_test"
+        },
+        {
+          "file": "scripts/acceptance/tests/community-data-acceptance.spec.mjs",
+          "marker": "@portal-community complete rankings, privacy-aware profile, owner preferences, deaths, guild search, localization, resilience and responsive lifecycle",
+          "level": "browser_acceptance"
+        }
+      ],
       "benchmark_sources": [
         "https://www.tibia.com/account/"
       ],
-      "gap_issues": [
-        "#277"
-      ]
+      "gap_issues": []
     },
     {
       "id": "character.guild-house-account-linkage",
@@ -385,21 +427,21 @@
       "capability": "Guild, house and account linkage with visibility rules",
       "relevance": "required",
       "delivery_status": "implemented",
-      "rationale": "Public character detail now links guild/rank and public house summary and discloses related account characters only through the private-by-default Platform account-association flag.",
+      "rationale": "Guild/rank, house and related account characters are presented through explicit per-character visibility. Account association remains private unless both the account-level upper bound and the viewed/sibling character preferences permit disclosure.",
       "oteryn_evidence": [
         {
-          "file": "docs/contracts/PUBLIC_COMMUNITY_DATA_CONTRACT.md",
-          "marker": "Allowed public reads",
+          "file": "docs/contracts/CHARACTER_PROFILE_PREFERENCES_CONTRACT.md",
+          "marker": "Effective privacy",
           "level": "repository_contract"
         },
         {
-          "file": "tests/Feature/PublicGameData/CommunityDataCompletenessTest.php",
-          "marker": "test_character_profile_applies_private_defaults_then_public_account_and_status_flags",
+          "file": "tests/Feature/CharacterProfiles/CharacterProfilePreferenceTest.php",
+          "marker": "test_owner_can_update_escaped_comment_visibility_and_main_character",
           "level": "feature_test"
         },
         {
           "file": "scripts/acceptance/tests/community-data-acceptance.spec.mjs",
-          "marker": "@portal-community complete rankings, privacy-aware profile, deaths, guild search, localization, resilience and responsive lifecycle",
+          "marker": "@portal-community complete rankings, privacy-aware profile, owner preferences, deaths, guild search, localization, resilience and responsive lifecycle",
           "level": "browser_acceptance"
         }
       ],

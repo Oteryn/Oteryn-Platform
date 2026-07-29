@@ -3,6 +3,7 @@
 namespace App\PublicGameData;
 
 use App\Accounts\Models\IdentityCanaryAccount;
+use App\CharacterProfiles\Models\CharacterProfilePreference;
 use App\Identity\Models\Identity;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Collection;
@@ -20,7 +21,9 @@ final class PublicCharacterProfileService
      *     kills: array{count: int, recent: Collection<int, stdClass>},
      *     related_characters: Collection<int, stdClass>,
      *     account_association_public: bool,
-     *     status: array{online: bool, last_login: CarbonImmutable|null, last_logout: CarbonImmutable|null}|null
+     *     status: array{online: bool, last_login: CarbonImmutable|null, last_logout: CarbonImmutable|null}|null,
+     *     visibility: array{guild: bool, house: bool, skills: bool, deaths: bool, kills: bool},
+     *     is_main_character: bool
      * }|null
      */
     public function find(string $name): ?array
@@ -54,34 +57,85 @@ final class PublicCharacterProfileService
          *     guild_rank: mixed
          * } $record
          */
+        $playerId = $this->positiveInteger($record->id);
+        if ($playerId === null) {
+            return null;
+        }
+
         $identity = $this->identityForCanaryAccount($record->account_id);
+        $preference = null;
+        /** @var Collection<int|string, CharacterProfilePreference> $preferencesByPlayer */
+        $preferencesByPlayer = collect();
         /** @var Collection<int, stdClass> $relatedCharacters */
         $relatedCharacters = collect();
         $accountAssociationPublic = false;
         $status = null;
 
         if ($identity !== null && ! $identity->isTerminated()) {
-            $accountAssociationPublic = $identity->public_account_association;
+            $preferencesByPlayer = CharacterProfilePreference::query()
+                ->where('identity_id', $identity->id)
+                ->get()
+                ->keyBy('canary_player_id');
+            $candidatePreference = $preferencesByPlayer->get($playerId);
+            $preference = $candidatePreference instanceof CharacterProfilePreference ? $candidatePreference : null;
+
+            $showAccountAssociation = ! $preference instanceof CharacterProfilePreference
+                || $preference->show_account_association;
+            $accountAssociationPublic = $identity->public_account_association && $showAccountAssociation;
 
             if ($accountAssociationPublic) {
-                $relatedCharacters = $this->gameData->publicCharactersForAccount(
-                    $record->account_id,
-                    $record->id,
-                    CommunityDataPolicy::profileRelatedCharacterLimit(),
-                );
+                $relatedCharacters = $this->gameData->activeCharactersForAccount($record->account_id)
+                    ->filter(function (stdClass $character) use ($playerId): bool {
+                        $candidatePlayerId = $this->positiveInteger($character->id);
+
+                        return $candidatePlayerId !== null && $candidatePlayerId !== $playerId;
+                    })
+                    ->filter(function (stdClass $character) use ($preferencesByPlayer): bool {
+                        $candidatePlayerId = $this->positiveInteger($character->id);
+                        if ($candidatePlayerId === null) {
+                            return false;
+                        }
+
+                        $siblingPreference = $preferencesByPlayer->get($candidatePlayerId);
+
+                        return ! $siblingPreference instanceof CharacterProfilePreference
+                            || $siblingPreference->show_account_association;
+                    })
+                    ->take(CommunityDataPolicy::profileRelatedCharacterLimit())
+                    ->values();
             }
 
-            if ($identity->public_status_visible) {
+            $showStatus = ! $preference instanceof CharacterProfilePreference || $preference->show_status;
+            if ($identity->public_status_visible && $showStatus) {
                 $status = [
-                    'online' => $this->gameData->isCharacterOnline($record->id),
+                    'online' => $this->gameData->isCharacterOnline($playerId),
                     'last_login' => $this->timestamp($record->lastlogin),
                     'last_logout' => $this->timestamp($record->lastlogout),
                 ];
             }
         }
 
+        $visibility = [
+            'guild' => ! $preference instanceof CharacterProfilePreference || $preference->show_guild,
+            'house' => ! $preference instanceof CharacterProfilePreference || $preference->show_house,
+            'skills' => ! $preference instanceof CharacterProfilePreference || $preference->show_skills,
+            'deaths' => ! $preference instanceof CharacterProfilePreference || $preference->show_deaths,
+            'kills' => ! $preference instanceof CharacterProfilePreference || $preference->show_kills,
+        ];
+        $comment = $preference instanceof CharacterProfilePreference
+            ? trim((string) $preference->public_comment)
+            : trim($record->comment);
+
         /** @var object{name: string, size: int}|null $house */
-        $house = $this->gameData->houseForPlayer($record->id);
+        $house = $visibility['house'] ? $this->gameData->houseForPlayer($playerId) : null;
+        /** @var Collection<int, stdClass> $emptyEvents */
+        $emptyEvents = collect();
+        $deaths = $visibility['deaths']
+            ? $this->gameData->deathsForPlayer($playerId, CommunityDataPolicy::profileDeathLimit())
+            : $emptyEvents;
+        $kills = $visibility['kills']
+            ? $this->gameData->killSummary($record->name, CommunityDataPolicy::profileRecentKillLimit())
+            : ['count' => 0, 'recent' => $emptyEvents];
 
         return [
             'character' => [
@@ -89,10 +143,10 @@ final class PublicCharacterProfileService
                 'level' => $record->level,
                 'vocation' => $record->vocation,
                 'magic_level' => $record->maglevel,
-                'comment' => trim($record->comment),
+                'comment' => $comment,
                 'boss_points' => $record->boss_points,
-                'guild_name' => is_string($record->guild_name) && $record->guild_name !== '' ? $record->guild_name : null,
-                'guild_rank' => is_string($record->guild_rank) && $record->guild_rank !== '' ? $record->guild_rank : null,
+                'guild_name' => $visibility['guild'] && is_string($record->guild_name) && $record->guild_name !== '' ? $record->guild_name : null,
+                'guild_rank' => $visibility['guild'] && is_string($record->guild_rank) && $record->guild_rank !== '' ? $record->guild_rank : null,
                 'skills' => [
                     'fist' => $record->skill_fist,
                     'club' => $record->skill_club,
@@ -107,17 +161,14 @@ final class PublicCharacterProfileService
                 'name' => $house->name,
                 'size' => $house->size,
             ],
-            'deaths' => $this->gameData->deathsForPlayer(
-                $record->id,
-                CommunityDataPolicy::profileDeathLimit(),
-            ),
-            'kills' => $this->gameData->killSummary(
-                $record->name,
-                CommunityDataPolicy::profileRecentKillLimit(),
-            ),
+            'deaths' => $deaths,
+            'kills' => $kills,
             'related_characters' => $relatedCharacters,
             'account_association_public' => $accountAssociationPublic,
             'status' => $status,
+            'visibility' => $visibility,
+            'is_main_character' => $preference instanceof CharacterProfilePreference
+                && $preference->is_main_character,
         ];
     }
 
@@ -133,6 +184,21 @@ final class PublicCharacterProfileService
         }
 
         return Identity::query()->find($binding->identity_id);
+    }
+
+    private function positiveInteger(mixed $value): ?int
+    {
+        if (is_int($value)) {
+            return $value > 0 ? $value : null;
+        }
+
+        if (is_string($value) && ctype_digit($value)) {
+            $parsed = (int) $value;
+
+            return $parsed > 0 ? $parsed : null;
+        }
+
+        return null;
     }
 
     private function timestamp(int $epoch): ?CarbonImmutable

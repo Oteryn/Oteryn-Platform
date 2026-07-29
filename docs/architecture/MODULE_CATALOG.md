@@ -545,3 +545,8 @@ Guild administration, world/channel transfer history, selectable achievements, p
 - public output excludes Identity email/IDs, Canary account IDs, raw death participants, house coordinates, runtime leases and moderator data;
 - dependency failure returns localized sanitized `503`, never fabricated empty data;
 - collections use bounded limits, deterministic ordering and documented index expectations.
+
+
+## Character Profile Preferences
+
+The CharacterProfiles module owns authenticated management of Platform-stored character comments, per-character public visibility and optional main-character selection. It verifies ownership from the immutable ready binding plus a fresh read-only Canary character lookup on every edit/update, records bounded audit events and projects effective privacy into PublicGameData. It does not mutate Canary or implement rename, delete, restore, transfer or achievements. Contract: `docs/contracts/CHARACTER_PROFILE_PREFERENCES_CONTRACT.md`.
