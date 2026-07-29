@@ -35,13 +35,13 @@ Persist the reviewed architecture, cross-repository contract and bounded impleme
 - [x] Store an implementation prompt that a new agent can execute without chat history.
 - [x] Add the proposed schema v1 and prove byte identity with Canary.
 - [x] Open the draft architecture PR.
-- [ ] Review and accept both architecture PRs and the shared contract.
+- [x] Review and accept both architecture PRs and the shared contract.
 
 ## Ownership
 
 ```yaml
 owned_paths:
-  - docs/agents/tasks/active/OTERYN-20260728-versioned-game-catalog-architecture.md
+  - docs/agents/tasks/archive/OTERYN-20260728-versioned-game-catalog-architecture.md
   - docs/architecture/GAME_CATALOG_ARCHITECTURE.md
   - docs/architecture/adr/0016-versioned-game-catalog-snapshots.md
   - docs/architecture/adr/README.md
@@ -67,8 +67,8 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-07-28T07:28:00Z
-head: tracked-by-live-pr
+updated_at: 2026-07-29T17:35:00Z
+head: d7d1e505a6cc12f67eaaa2a824c58ebfb2bbea06
 branch: docs/OTERYN-20260728-versioned-game-catalog-architecture
 pr: https://github.com/blakinio/Oteryn-Platform/pull/271
 status: ready
@@ -80,7 +80,7 @@ context_routes:
   - admin-rbac
   - testing
 owned_paths:
-  - docs/agents/tasks/active/OTERYN-20260728-versioned-game-catalog-architecture.md
+  - docs/agents/tasks/archive/OTERYN-20260728-versioned-game-catalog-architecture.md
   - docs/architecture/GAME_CATALOG_ARCHITECTURE.md
   - docs/architecture/adr/0016-versioned-game-catalog-snapshots.md
   - docs/architecture/adr/README.md
@@ -94,6 +94,8 @@ proven:
   - Current public Wiki routes contain a generic /wiki/{slug} route, so catalogue routes must be registered before it.
   - Platform and Canary schema files have the same Git blob SHA a3c239a6d61385edde0b06f72cdf781f4ce58df3.
   - The shared schema content SHA-256 is 099a8373ff2b0017cc2b321991662dc4e4783b626391aa7a110a6db0559d146b.
+  - Platform PR 271 squash-merged as 8aa1fc29dd13895efb2a7006204a6b88105e6972 on 2026-07-28T07:35:53Z.
+  - Canary PR 989 merged as 4afd98e5b3d9cf0ce50aca73c697bedcd9ecbc9e.
 derived:
   - The Platform requires a dedicated GameCatalog module and immutable imported snapshots.
   - Entity and relation version ranges must be independent.
@@ -112,7 +114,7 @@ rejected_hypotheses:
   - Represent Tibia versions as floating-point numbers.
 changed_paths:
   - docs/agents/prompts/OTERYN_GAME_CATALOG_IMPLEMENTATION_PROMPT.md
-  - docs/agents/tasks/active/OTERYN-20260728-versioned-game-catalog-architecture.md
+  - docs/agents/tasks/archive/OTERYN-20260728-versioned-game-catalog-architecture.md
   - docs/architecture/GAME_CATALOG_ARCHITECTURE.md
   - docs/architecture/adr/0016-versioned-game-catalog-snapshots.md
   - docs/architecture/adr/README.md
@@ -133,9 +135,15 @@ validation:
     evidence: unsupported checkpoint status ready-for-review; corrected to ready in this commit
 blockers:
   - none
-next_action: Review Oteryn Platform PR #271 together with Canary PR #989 and either accept schema v1 or request a coordinated versioned correction.
+next_action: Continue Game Catalog work only through a new non-overlapping active task and versioned cross-repository contract.
 ```
 
 ## Notes
 
 This task records architecture only. It does not import a snapshot, add migrations, expose new routes, deploy, or modify Canary runtime behavior.
+
+## Completion
+
+- Platform PR #271 merged as `8aa1fc29dd13895efb2a7006204a6b88105e6972`.
+- Canary counterpart PR #989 merged as `4afd98e5b3d9cf0ce50aca73c697bedcd9ecbc9e`.
+- This lifecycle change only moves the completed record out of active ownership.
