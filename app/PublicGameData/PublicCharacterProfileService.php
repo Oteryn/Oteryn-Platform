@@ -18,6 +18,7 @@ final class PublicCharacterProfileService
      *     deaths: Collection<int, object>,
      *     kills: array{count: int, recent: Collection<int, object>},
      *     related_characters: Collection<int, object>,
+     *     account_association_public: bool,
      *     status: array{online: bool, last_login: CarbonImmutable|null, last_logout: CarbonImmutable|null}|null
      * }|null
      */
@@ -31,10 +32,13 @@ final class PublicCharacterProfileService
 
         $identity = $this->identityForCanaryAccount((int) $record->account_id);
         $relatedCharacters = collect();
+        $accountAssociationPublic = false;
         $status = null;
 
         if ($identity !== null && ! $identity->isTerminated()) {
-            if ($identity->public_account_association) {
+            $accountAssociationPublic = $identity->public_account_association;
+
+            if ($accountAssociationPublic) {
                 $relatedCharacters = $this->gameData->publicCharactersForAccount(
                     (int) $record->account_id,
                     (int) $record->id,
@@ -86,6 +90,7 @@ final class PublicCharacterProfileService
                 CommunityDataPolicy::profileRecentKillLimit(),
             ),
             'related_characters' => $relatedCharacters,
+            'account_association_public' => $accountAssociationPublic,
             'status' => $status,
         ];
     }
