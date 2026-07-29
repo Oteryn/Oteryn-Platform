@@ -57,6 +57,11 @@ final class PublicCharacterProfileService
          *     guild_rank: mixed
          * } $record
          */
+        $playerId = $this->positiveInteger($record->id);
+        if ($playerId === null) {
+            return null;
+        }
+
         $identity = $this->identityForCanaryAccount($record->account_id);
         $preference = null;
         /** @var Collection<int|string, CharacterProfilePreference> $preferencesByPlayer */
@@ -71,17 +76,27 @@ final class PublicCharacterProfileService
                 ->where('identity_id', $identity->id)
                 ->get()
                 ->keyBy('canary_player_id');
-            $candidatePreference = $preferencesByPlayer->get((int) $record->id);
+            $candidatePreference = $preferencesByPlayer->get($playerId);
             $preference = $candidatePreference instanceof CharacterProfilePreference ? $candidatePreference : null;
 
-            $accountAssociationPublic = $identity->public_account_association
-                && ($preference?->show_account_association ?? true);
+            $showAccountAssociation = ! $preference instanceof CharacterProfilePreference
+                || $preference->show_account_association;
+            $accountAssociationPublic = $identity->public_account_association && $showAccountAssociation;
 
             if ($accountAssociationPublic) {
                 $relatedCharacters = $this->gameData->activeCharactersForAccount($record->account_id)
-                    ->filter(static fn (stdClass $character): bool => (int) $character->id !== (int) $record->id)
+                    ->filter(function (stdClass $character) use ($playerId): bool {
+                        $candidatePlayerId = $this->positiveInteger($character->id);
+
+                        return $candidatePlayerId !== null && $candidatePlayerId !== $playerId;
+                    })
                     ->filter(function (stdClass $character) use ($preferencesByPlayer): bool {
-                        $siblingPreference = $preferencesByPlayer->get((int) $character->id);
+                        $candidatePlayerId = $this->positiveInteger($character->id);
+                        if ($candidatePlayerId === null) {
+                            return false;
+                        }
+
+                        $siblingPreference = $preferencesByPlayer->get($candidatePlayerId);
 
                         return ! $siblingPreference instanceof CharacterProfilePreference
                             || $siblingPreference->show_account_association;
@@ -90,9 +105,10 @@ final class PublicCharacterProfileService
                     ->values();
             }
 
-            if ($identity->public_status_visible && ($preference?->show_status ?? true)) {
+            $showStatus = ! $preference instanceof CharacterProfilePreference || $preference->show_status;
+            if ($identity->public_status_visible && $showStatus) {
                 $status = [
-                    'online' => $this->gameData->isCharacterOnline($record->id),
+                    'online' => $this->gameData->isCharacterOnline($playerId),
                     'last_login' => $this->timestamp($record->lastlogin),
                     'last_logout' => $this->timestamp($record->lastlogout),
                 ];
@@ -100,24 +116,26 @@ final class PublicCharacterProfileService
         }
 
         $visibility = [
-            'guild' => $preference?->show_guild ?? true,
-            'house' => $preference?->show_house ?? true,
-            'skills' => $preference?->show_skills ?? true,
-            'deaths' => $preference?->show_deaths ?? true,
-            'kills' => $preference?->show_kills ?? true,
+            'guild' => ! $preference instanceof CharacterProfilePreference || $preference->show_guild,
+            'house' => ! $preference instanceof CharacterProfilePreference || $preference->show_house,
+            'skills' => ! $preference instanceof CharacterProfilePreference || $preference->show_skills,
+            'deaths' => ! $preference instanceof CharacterProfilePreference || $preference->show_deaths,
+            'kills' => ! $preference instanceof CharacterProfilePreference || $preference->show_kills,
         ];
-        $comment = $preference === null
-            ? trim($record->comment)
-            : trim((string) $preference->public_comment);
+        $comment = $preference instanceof CharacterProfilePreference
+            ? trim((string) $preference->public_comment)
+            : trim($record->comment);
 
         /** @var object{name: string, size: int}|null $house */
-        $house = $visibility['house'] ? $this->gameData->houseForPlayer($record->id) : null;
+        $house = $visibility['house'] ? $this->gameData->houseForPlayer($playerId) : null;
+        /** @var Collection<int, stdClass> $emptyEvents */
+        $emptyEvents = collect();
         $deaths = $visibility['deaths']
-            ? $this->gameData->deathsForPlayer($record->id, CommunityDataPolicy::profileDeathLimit())
-            : collect();
+            ? $this->gameData->deathsForPlayer($playerId, CommunityDataPolicy::profileDeathLimit())
+            : $emptyEvents;
         $kills = $visibility['kills']
             ? $this->gameData->killSummary($record->name, CommunityDataPolicy::profileRecentKillLimit())
-            : ['count' => 0, 'recent' => collect()];
+            : ['count' => 0, 'recent' => $emptyEvents];
 
         return [
             'character' => [
@@ -149,7 +167,8 @@ final class PublicCharacterProfileService
             'account_association_public' => $accountAssociationPublic,
             'status' => $status,
             'visibility' => $visibility,
-            'is_main_character' => $preference?->is_main_character ?? false,
+            'is_main_character' => $preference instanceof CharacterProfilePreference
+                && $preference->is_main_character,
         ];
     }
 
@@ -165,6 +184,21 @@ final class PublicCharacterProfileService
         }
 
         return Identity::query()->find($binding->identity_id);
+    }
+
+    private function positiveInteger(mixed $value): ?int
+    {
+        if (is_int($value)) {
+            return $value > 0 ? $value : null;
+        }
+
+        if (is_string($value) && ctype_digit($value)) {
+            $parsed = (int) $value;
+
+            return $parsed > 0 ? $parsed : null;
+        }
+
+        return null;
     }
 
     private function timestamp(int $epoch): ?CarbonImmutable
