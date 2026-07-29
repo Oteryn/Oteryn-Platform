@@ -147,7 +147,7 @@ Completed focused slices:
 - #276 — Platform-owned account security and lifecycle, merged in PR #283;
 - #279 — Platform-owned support and moderation lifecycle, merged in PR #293;
 - #280 — read-only community statistics and guild discovery with privacy-aware profiles, merged in PR #298;
-- #281 — first versioned item/weapon/creature/loot Game Catalog scope delivered by PR #272; evidence closeout is PR #303.
+- #281 — first versioned item/weapon/creature/loot Game Catalog scope delivered by PR #272 and evidence ownership closed by PR #303.
 
 Open focused backlog:
 
@@ -180,12 +180,12 @@ Repository and exact-revision E2E work has hardened the native-auth direction, b
 
 ## Current active task
 
-`OTERYN-20260729-game-catalog-first-scope-closeout` in PR #303 is reconciling Issue #281 to the first Game Catalog scope already delivered by PR #272 and assigning every deferred capability to #277, #301 or #302.
+None. Issue #281 is closed and its closeout task is archived. Start the next benchmark slice only through a new active task and separate pull request.
 
 ## Recommended sequence
 
-1. Complete the #281 first-scope evidence closeout without promoting #301/#302 capabilities.
-2. Deliver #277 as bounded Platform-owned slices and require explicit operation-specific contracts before any Canary mutation.
+1. Deliver a Platform-owned #277 slice for per-character privacy and optional main-character preference without Canary mutation.
+2. Define explicit operation-specific contracts before implementing character rename, deletion, restoration or transfer.
 3. Keep #278 disabled until a dedicated payment ADR, threat model and provider lifecycle are reviewed.
 4. Start #301 only after an additive authoritative producer contract is approved; treat #302 as optional product discovery.
 5. Resume #91 only after explicit production deployment/verification authorization and required production evidence access exist.
@@ -193,3 +193,7 @@ Repository and exact-revision E2E work has hardened the native-auth direction, b
 ## Community data delivery
 
 PR #298 completed Issue #280's approved read-only boundary: categorized/vocation highscores, privacy-aware rich profiles, latest deaths/kill statistics, guild directory search/detail, direct-table grant verification and EN/PL zero-retry desktop/tablet/mobile acceptance. Exact final head `45efd2a8f0162df22313e141e973c6a8c3ffb5d1` passed all 11 required workflows before squash merge `7533b12b1e1c6d266c6bf5a8800e584fad23a01e`. Canary mutation, guild administration, transfer history, polls and public enforcement publication remain explicitly excluded, and no production-verification claim was made.
+
+## Game Catalog first-scope closeout
+
+PR #303 completed Issue #281's accepted first scope by reconciling the versioned item/weapon/creature/loot delivery from PR #272 with the 43-capability benchmark. Exact final head `7c6bd2b46f3c29d5a2bd4862d59614fcaec423bc` passed all eight required workflows before squash merge `e1df0608eb6a8321f47fe51da65233a613a27b25`. Deferred spells/NPCs/quests/achievements remain #301, optional map/hunt/discovery decisions remain #302, and no runtime, Canary, producer, activation or production change occurred.
