@@ -1,0 +1,83 @@
+name: One-shot Community Test Fixture Alignment
+
+on:
+  push:
+    branches:
+      - feat/OTERYN-20260729-community-data-completeness
+    paths:
+      - '.github/workflows/one-shot-community-test-fixture.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  align:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: feat/OTERYN-20260729-community-data-completeness
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extend legacy public game data fixture
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path('tests/Feature/PublicGameData/PublicGameDataTest.php')
+          text = path.read_text(encoding='utf-8')
+
+          text = text.replace(
+              'use Illuminate\\Database\\Schema\\Blueprint;\n',
+              'use Illuminate\\Database\\Schema\\Blueprint;\nuse Illuminate\\Foundation\\Testing\\RefreshDatabase;\n',
+          )
+          text = text.replace(
+              'class PublicGameDataTest extends TestCase\n{\n',
+              'class PublicGameDataTest extends TestCase\n{\n    use RefreshDatabase;\n\n',
+          )
+          text = text.replace(
+              "            $table->unsignedBigInteger('experience')->default(0);\n            $table->integer('vocation')->default(0);\n            $table->bigInteger('deletion')->default(0);",
+              "            $table->unsignedBigInteger('experience')->default(0);\n            $table->integer('vocation')->default(0);\n            $table->integer('maglevel')->default(0);\n            $table->bigInteger('lastlogin')->default(0);\n            $table->bigInteger('lastlogout')->default(0);\n            $table->integer('boss_points')->default(0);\n            $table->string('comment')->default('');\n            $table->integer('skill_fist')->default(10);\n            $table->integer('skill_club')->default(10);\n            $table->integer('skill_sword')->default(10);\n            $table->integer('skill_axe')->default(10);\n            $table->integer('skill_dist')->default(10);\n            $table->integer('skill_shielding')->default(10);\n            $table->integer('skill_fishing')->default(10);\n            $table->bigInteger('deletion')->default(0);",
+          )
+          marker = '''        Schema::connection('canary')->create('channels', function (Blueprint $table): void {'''
+          addition = '''        Schema::connection('canary')->create('houses', function (Blueprint $table): void {
+              $table->integer('id');
+              $table->integer('channel_id')->default(1);
+              $table->integer('owner')->default(0);
+              $table->string('name');
+              $table->integer('size')->default(0);
+              $table->primary(['channel_id', 'id']);
+          });
+
+          Schema::connection('canary')->create('player_deaths', function (Blueprint $table): void {
+              $table->integer('player_id');
+              $table->bigInteger('time');
+              $table->integer('level');
+              $table->string('killed_by');
+              $table->boolean('is_player')->default(false);
+          });
+
+          '''
+          if "create('houses'" not in text:
+              text = text.replace(marker, addition + marker)
+
+          path.write_text(text, encoding='utf-8')
+          PY
+
+      - name: Validate syntax
+        run: php -l tests/Feature/PublicGameData/PublicGameDataTest.php
+
+      - name: Commit aligned fixture and remove workflow
+        run: |
+          set -euo pipefail
+          git rm .github/workflows/one-shot-community-test-fixture.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add tests/Feature/PublicGameData/PublicGameDataTest.php
+          git commit -m 'test(public-data): align legacy fixture with community schema'
+          git push origin HEAD:feat/OTERYN-20260729-community-data-completeness
