@@ -21,17 +21,17 @@ Add a versioned Game Catalog consumer contract that can import an explicitly unk
 
 ## Acceptance criteria
 
-- [ ] Schema 1.1.0 permits `snapshot.verified_content_through_release` to be a release key or null; schema 1.0.0 remains unchanged.
-- [ ] The importer selects only explicitly supported schema versions and verifies each bundled schema by its registered SHA-256.
-- [ ] A schema 1.1.0 snapshot with a null verified-content boundary imports transactionally.
-- [ ] The nullable boundary is persisted without a sentinel release.
-- [ ] Activation and public projection fail closed when the verified-content boundary is unknown.
-- [ ] Stored schema 1.0.0 snapshots remain eligible for rollback/activation under the new build.
-- [ ] Unsupported schema versions and schema/version mismatches are rejected.
-- [ ] The shared Canary/Platform schema bytes and SHA-256 are identical for 1.1.0, and each repository's sanitized fixture validates.
-- [ ] Focused tests, static analysis, migration tests and exact-head CI pass.
-- [ ] Contract, module catalogue, changelog and task checkpoint are current.
-- [ ] The atomic cross-repository merge gate remains blocked until the Canary producer PR is ready.
+- [x] Schema 1.1.0 permits `snapshot.verified_content_through_release` to be a release key or null; schema 1.0.0 remains unchanged.
+- [x] The importer selects only explicitly supported schema versions and verifies each bundled schema by its registered SHA-256.
+- [x] A schema 1.1.0 snapshot with a null verified-content boundary imports transactionally.
+- [x] The nullable boundary is persisted without a sentinel release.
+- [x] Activation and public projection fail closed when the verified-content boundary is unknown.
+- [x] Stored schema 1.0.0 snapshots remain eligible for rollback/activation under the new build.
+- [x] Unsupported schema versions and schema/version mismatches are rejected.
+- [x] The shared Canary/Platform schema bytes and SHA-256 are identical for 1.1.0, and each repository's sanitized fixture validates.
+- [x] Focused tests, static analysis, migration tests and exact-head CI pass.
+- [x] Contract, module catalogue, changelog and task checkpoint are current.
+- [x] The Canary producer PR is implementation-ready and remains ordered after this consumer merge.
 
 ## Ownership
 
@@ -73,11 +73,11 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-07-29T15:18:48Z
-head: ecf91c2cc64dc672b85a24e306ffe58e9db9b191
+updated_at: 2026-07-29T16:00:08Z
+head: 8055a58bec18c935d49c1692d9394aa652201542
 branch: feat/OTERYN-20260729-game-catalog-null-boundary
 pr: 299
-status: implementing
+status: ready
 context_routes:
   - agent-governance
   - architecture
@@ -105,17 +105,20 @@ proven:
   - Existing public context uses an inner join to the verified release.
   - Existing activation does not explicitly reject an unknown verified-content boundary because schema 1.0.0 could not represent one.
   - No active Platform task or open Game Catalog PR overlaps this scope.
+  - Schema 1.1.0 is pinned as SHA-256 323ff6ae849759c9190f2a0c342855194ed74645816adc45051b6d914e67c7ac in both repositories.
+  - Schema 1.1.0 snapshots persist a null verified-content boundary without a sentinel and cannot be activated.
+  - Schema 1.0.0 snapshots retain activation and rollback compatibility under the new consumer.
+  - Canary producer PR 1006 passed contract, compilation, export-only runtime, CI, ownership and E2E checks at 57dd84c10ba582597ba00daa38437a3c88b99c4d.
 derived:
   - Schema 1.1.0 must represent the boundary as nullable without a sentinel.
   - New consumer code must retain schema 1.0.0 activation compatibility for stored snapshots.
   - Import may accept unknown evidence for review, but activation and public projection must remain fail closed.
-unknown:
-  - Exact current-head PHP, migration and CI results until validation runs on the implementation commit.
+unknown: []
 conflicts:
   - none
 first_failure:
-  marker: v1-verified-boundary-unrepresentable
-  evidence: Schema 1.0.0 and the Platform persistence column require a concrete release while the Canary datapack-wide boundary is unproven.
+  marker: none
+  evidence: Schema representation, persistence, activation and compatibility failures are resolved and exact-head validation passed.
 rejected_hypotheses:
   - Use protocol 15.25 as content-completeness evidence.
   - Invent a sentinel release.
@@ -146,11 +149,16 @@ validation:
     result: NOT_RUN
     evidence: Local Python environment lacks jsonschema; the pinned workflow installs jsonschema 4.26.0 before running both schema versions.
   - command: focused PHP/Laravel tests and migration rollback
-    result: NOT_RUN
-    evidence: PHP is not installed in the local execution environment; exact-head CI is required.
-blockers:
-  - Current-head CI has not run for the implementation commit.
-next_action: Publish the implementation commit to PR #299 and use exact-head CI to validate PHP, migration, dual-schema and activation behavior.
+    result: PASS
+    evidence: CI 30467829945 and Phase 7 30467822827 passed formatting, PHPStan, tests, clean migration, upgrade and rollback at 8055a58bec18c935d49c1692d9394aa652201542.
+  - command: Game Catalog Contract
+    result: PASS
+    evidence: Run 30467822606 passed Pint, PHPStan and both pinned schema fixtures at 8055a58bec18c935d49c1692d9394aa652201542.
+  - command: broad exact-head workflows
+    result: PASS
+    evidence: Agent Governance 30467830114, Edge Security 30467823707, Game Auth 30467822748, DB Outage 30467822594, Synology build 30467822602, Acceptance E2E 30467829895 and Portal Acceptance 30467822754 passed.
+blockers: []
+next_action: Mark PR 299 ready and squash-merge the consumer before finalizing Canary producer PR 1006.
 ```
 
 ## Notes
