@@ -7,6 +7,7 @@ use App\Identity\Models\Identity;
 use App\Support\Models\SupportTicket;
 use App\Support\Models\SupportTicketMessage;
 use App\Support\Notifications\SupportNotificationDeliveryService;
+use App\Support\SupportConfiguration;
 use DomainException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -50,7 +51,7 @@ final class ManageSupportTicket
                 ->where('identity_id', $lockedIdentity->id)
                 ->whereNotIn('status', [SupportTicket::STATUS_RESOLVED, SupportTicket::STATUS_CLOSED])
                 ->count();
-            if ($openCount >= (int) config('support.tickets.open_limit_per_identity', 10)) {
+            if ($openCount >= SupportConfiguration::positiveInteger('support.tickets.open_limit_per_identity', 10)) {
                 throw new DomainException('The open support-ticket limit has been reached.');
             }
 
