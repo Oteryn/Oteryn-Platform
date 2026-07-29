@@ -8,6 +8,7 @@ Convenience index only. Individual active task records, live PRs and Git state a
 
 ## Closed acceptance and release-preparation follow-ups
 
+- PR #272 / `94259f6c5aa1e9cfcd86ad6e11c29fa42fc90491` — version-aware Game Catalog importer, activation/rollback, public item/weapon/creature/loot projections, secured administrator inspection and generated Canary cross-repository MariaDB lifecycle merged after every exact-final-head workflow passed; no production deployment or production profile activation occurred.
 - PR #283 / `28faad47f95df10d1a9b437a16a1be91556671c6` — complete Platform-owned account-security lifecycle, EN/PL responsive acceptance, strict product-ledger reconciliation and exact-final-head validation merged; Issue #276 closed without Canary mutation or a production-verification claim.
 - PR #275 / `c365920b5ad672c9c3be9968d8a51132d3862859` — evidence-linked Tibia/RubinOT/OTS product-completeness benchmark, 43-capability machine ledger and focused gap backlog #276-#281 merged; Issue #268 closed without claiming product or production completeness.
 - PR #270 / `0f19656e0875d0a10b22002ac0e096deb20e94d8` — complete Character Bazaar, Platform wallet ledger, least-privilege Canary escrow/settlement and exact-head responsive/browser/database/security validation merged; Issue #269 closed.
@@ -76,7 +77,7 @@ Repository and staging evidence remains valid only for its documented boundaries
 - **Production Go-Live Gate: PENDING PRODUCTION VERIFICATION**
 - **Production Verification: REQUIRED BEFORE GO-LIVE**
 
-The latest verified final-portal staging refresh identity is `583cae5f430998b2bbdf5e60b59d93f09ec6f4c8` from PR #267 and deployment run `30335161092`. Later marketplace, account-security and audit evidence is repository/isolated-acceptance proof unless a deployment-specific record says otherwise. No repository, staging, local-target or emulation evidence may be promoted to `PRODUCTION_PROVEN`.
+The latest verified final-portal staging refresh identity is `583cae5f430998b2bbdf5e60b59d93f09ec6f4c8` from PR #267 and deployment run `30335161092`. Later marketplace, account-security, Game Catalog and audit evidence is repository/isolated-acceptance proof unless a deployment-specific record says otherwise. No repository, staging, local-target or emulation evidence may be promoted to `PRODUCTION_PROVEN`.
 
 ## Next work
 
