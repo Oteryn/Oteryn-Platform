@@ -75,21 +75,21 @@ class PublicGameDataTest extends TestCase
         });
 
         Schema::connection('canary')->create('houses', function (Blueprint $table): void {
-    $table->integer('id');
-    $table->integer('channel_id')->default(1);
-    $table->integer('owner')->default(0);
-    $table->string('name');
-    $table->integer('size')->default(0);
-    $table->primary(['channel_id', 'id']);
-});
+            $table->integer('id');
+            $table->integer('channel_id')->default(1);
+            $table->integer('owner')->default(0);
+            $table->string('name');
+            $table->integer('size')->default(0);
+            $table->primary(['channel_id', 'id']);
+        });
 
-Schema::connection('canary')->create('player_deaths', function (Blueprint $table): void {
-    $table->integer('player_id');
-    $table->bigInteger('time');
-    $table->integer('level');
-    $table->string('killed_by');
-    $table->boolean('is_player')->default(false);
-});
+        Schema::connection('canary')->create('player_deaths', function (Blueprint $table): void {
+            $table->integer('player_id');
+            $table->bigInteger('time');
+            $table->integer('level');
+            $table->string('killed_by');
+            $table->boolean('is_player')->default(false);
+        });
 
         Schema::connection('canary')->create('channels', function (Blueprint $table): void {
             $table->integer('id')->primary();
