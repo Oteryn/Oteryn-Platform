@@ -37,6 +37,24 @@ const portabilityMatches = [
   '**/portability-critical.spec.mjs',
   '**/public-wiki*.spec.mjs',
   '**/admin-wiki*.spec.mjs',
+  '**/public-game-catalog-acceptance.spec.mjs',
+  '**/homepage-navigation-seo.spec.mjs',
+];
+
+const responsiveMatches = [
+  '**/responsive-critical.spec.mjs',
+  '**/public-wiki*.spec.mjs',
+  '**/admin-wiki*.spec.mjs',
+  '**/public-game-catalog-acceptance.spec.mjs',
+  '**/admin-game-catalog-acceptance.spec.mjs',
+  '**/homepage-navigation-seo.spec.mjs',
+];
+
+const accessibilityMatches = [
+  '**/accessibility-critical.spec.mjs',
+  '**/admin-wiki-editorial-media.spec.mjs',
+  '**/public-game-catalog-acceptance.spec.mjs',
+  '**/admin-game-catalog-acceptance.spec.mjs',
   '**/homepage-navigation-seo.spec.mjs',
 ];
 
@@ -119,7 +137,7 @@ export default defineConfig({
     },
     {
       name: 'responsive-desktop',
-      testMatch: ['**/responsive-critical.spec.mjs', '**/public-wiki*.spec.mjs', '**/admin-wiki*.spec.mjs', '**/homepage-navigation-seo.spec.mjs'],
+      testMatch: responsiveMatches,
       use: {
         browserName: 'chromium',
         viewport: desktopViewport,
@@ -127,7 +145,7 @@ export default defineConfig({
     },
     {
       name: 'responsive-tablet',
-      testMatch: ['**/responsive-critical.spec.mjs', '**/public-wiki*.spec.mjs', '**/admin-wiki*.spec.mjs', '**/homepage-navigation-seo.spec.mjs'],
+      testMatch: responsiveMatches,
       use: {
         browserName: 'chromium',
         viewport: tabletViewport,
@@ -136,7 +154,7 @@ export default defineConfig({
     },
     {
       name: 'responsive-mobile',
-      testMatch: ['**/responsive-critical.spec.mjs', '**/public-wiki*.spec.mjs', '**/admin-wiki*.spec.mjs', '**/homepage-navigation-seo.spec.mjs'],
+      testMatch: responsiveMatches,
       use: {
         browserName: 'chromium',
         viewport: mobileViewport,
@@ -154,7 +172,7 @@ export default defineConfig({
     },
     {
       name: 'accessibility-chromium',
-      testMatch: ['**/accessibility-critical.spec.mjs', '**/admin-wiki-editorial-media.spec.mjs', '**/homepage-navigation-seo.spec.mjs'],
+      testMatch: accessibilityMatches,
       use: {
         browserName: 'chromium',
         viewport: desktopViewport,

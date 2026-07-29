@@ -43,6 +43,7 @@
             <p class="admin-nav-group">Access</p>
             <a href="{{ route('admin.roles.index') }}" @if(request()->routeIs('admin.roles.*')) aria-current="page" @endif>Roles</a>
             <p class="admin-nav-group">Operations</p>
+            <a href="{{ route('admin.game-catalog.index') }}" @if(request()->routeIs('admin.game-catalog.*')) aria-current="page" @endif>Game Catalog</a>
             @if (config('marketplace.enabled'))
                 <a href="{{ route('admin.marketplace.index') }}" @if(request()->routeIs('admin.marketplace.*')) aria-current="page" @endif>Character Bazaar</a>
             @endif
@@ -60,6 +61,7 @@
                 <a href="{{ route('admin.media.index') }}" @if(request()->routeIs('admin.media.*')) aria-current="page" @endif>Editorial media</a>
                 <a href="{{ route('admin.wiki.index') }}" @if(request()->routeIs('admin.wiki.*')) aria-current="page" @endif>Wiki</a>
                 <a href="{{ route('admin.roles.index') }}" @if(request()->routeIs('admin.roles.*')) aria-current="page" @endif>Roles</a>
+                <a href="{{ route('admin.game-catalog.index') }}" @if(request()->routeIs('admin.game-catalog.*')) aria-current="page" @endif>Game Catalog</a>
                 @if (config('marketplace.enabled'))
                     <a href="{{ route('admin.marketplace.index') }}" @if(request()->routeIs('admin.marketplace.*')) aria-current="page" @endif>Character Bazaar</a>
                 @endif

@@ -13,6 +13,31 @@ set -euo pipefail
 : "${CANARY_RUNTIME_REDIS_USERNAME:?CANARY_RUNTIME_REDIS_USERNAME is required}"
 : "${CANARY_RUNTIME_REDIS_PASSWORD:?CANARY_RUNTIME_REDIS_PASSWORD is required}"
 
+bootstrap_stage="preflight"
+bootstrap_diagnostic_file="${ACCEPTANCE_BOOTSTRAP_DIAGNOSTIC_FILE:-artifacts/acceptance/bootstrap-production-like.json}"
+
+write_bootstrap_diagnostic() {
+    local result="$1"
+    local exit_code="$2"
+
+    mkdir -p "$(dirname "$bootstrap_diagnostic_file")"
+    printf '{"exact_tested_sha":"%s","stage":"%s","result":"%s","exit_code":%s}\n' \
+        "${ACCEPTANCE_SHA:-local-unknown}" \
+        "$bootstrap_stage" \
+        "$result" \
+        "$exit_code" \
+        > "$bootstrap_diagnostic_file"
+}
+
+on_bootstrap_error() {
+    local exit_code=$?
+    trap - ERR
+    write_bootstrap_diagnostic failure "$exit_code"
+    exit "$exit_code"
+}
+
+trap on_bootstrap_error ERR
+
 if [[ ! "$DB_DATABASE" =~ ^[A-Za-z0-9_]*acceptance[A-Za-z0-9_]*$ ]]; then
     echo "Refusing to recreate a Platform database whose name is not acceptance-scoped." >&2
     exit 1
@@ -23,6 +48,7 @@ if [[ ! "$CANARY_DB_DATABASE" =~ ^[A-Za-z0-9_]*acceptance[A-Za-z0-9_]*$ ]]; then
     exit 1
 fi
 
+bootstrap_stage="mariadb-readiness"
 for attempt in $(seq 1 30); do
     if mariadb --protocol=tcp -h127.0.0.1 -uroot -p"$MARIADB_ROOT_PASSWORD" -e 'SELECT 1' >/dev/null 2>&1; then
         break
@@ -30,6 +56,7 @@ for attempt in $(seq 1 30); do
     sleep 1
 done
 
+bootstrap_stage="platform-and-canary-schema"
 mariadb --protocol=tcp -h127.0.0.1 -uroot -p"$MARIADB_ROOT_PASSWORD" <<SQL
 DROP DATABASE IF EXISTS \`$DB_DATABASE\`;
 CREATE DATABASE \`$DB_DATABASE\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
@@ -155,6 +182,7 @@ INSERT INTO \`$CANARY_DB_DATABASE\`.cluster_sessions (player_id, channel_id, sta
 VALUES (9001, 1, 'ONLINE', ROUND(UNIX_TIMESTAMP(CURRENT_TIMESTAMP(3)) * 1000) + 3600000);
 SQL
 
+bootstrap_stage="canary-readonly-principal"
 sed \
     -e "s|{{OTERYN_CANARY_DB_USER}}|$CANARY_DB_USERNAME|g" \
     -e 's|{{OTERYN_CANARY_DB_HOST}}|%|g' \
@@ -163,6 +191,7 @@ sed \
     database/provisioning/canary-readonly.sql.template \
     | mariadb --protocol=tcp -h127.0.0.1 -uroot -p"$MARIADB_ROOT_PASSWORD" >/dev/null
 
+bootstrap_stage="canary-provisioning-principal"
 sed \
     -e "s|{{OTERYN_CANARY_PROVISIONING_DB_USER}}|$CANARY_PROVISIONING_DB_USERNAME|g" \
     -e 's|{{OTERYN_CANARY_PROVISIONING_DB_HOST}}|%|g' \
@@ -171,6 +200,7 @@ sed \
     database/provisioning/canary-provisioning.sql.template \
     | mariadb --protocol=tcp -h127.0.0.1 -uroot -p"$MARIADB_ROOT_PASSWORD" >/dev/null
 
+bootstrap_stage="canary-character-create-principal"
 sed \
     -e "s|{{OTERYN_CANARY_CHARACTER_CREATE_DB_USER}}|$CANARY_CHARACTER_CREATE_DB_USERNAME|g" \
     -e 's|{{OTERYN_CANARY_CHARACTER_CREATE_DB_HOST}}|%|g' \
@@ -179,11 +209,28 @@ sed \
     database/provisioning/canary-character-create.sql.template \
     | mariadb --protocol=tcp -h127.0.0.1 -uroot -p"$MARIADB_ROOT_PASSWORD" >/dev/null
 
+bootstrap_stage="canary-runtime-redis"
 redis-cli ACL SETUSER "$CANARY_RUNTIME_REDIS_USERNAME" reset on ">$CANARY_RUNTIME_REDIS_PASSWORD" resetkeys '~cluster:channel:*:runtime' -@all +hmget +pttl +ping +select >/dev/null
 redis-cli HSET cluster:channel:1:runtime channel_id 1 status ONLINE players_online 1 >/dev/null
 redis-cli PEXPIRE cluster:channel:1:runtime 3600000 >/dev/null
 
+bootstrap_stage="laravel-config-clear"
 php artisan config:clear --no-interaction
-php artisan migrate:fresh --force --no-interaction
+
+bootstrap_stage="platform-migrate-fresh"
+migration_log="/tmp/oteryn-acceptance-platform-migrate-fresh.log"
+if ! php artisan migrate:fresh --force --no-interaction >"$migration_log" 2>&1; then
+    mkdir -p artifacts/acceptance
+    tail -n 160 "$migration_log" > artifacts/acceptance/platform-migrate-fresh.log
+    cat artifacts/acceptance/platform-migrate-fresh.log >&2
+    write_bootstrap_diagnostic failure 1
+    trap - ERR
+    exit 1
+fi
+rm -f "$migration_log"
+
+bootstrap_stage="complete"
+write_bootstrap_diagnostic success 0
+trap - ERR
 
 echo "Acceptance production-like dependencies are ready for exact SHA ${ACCEPTANCE_SHA:-local-unknown}."
