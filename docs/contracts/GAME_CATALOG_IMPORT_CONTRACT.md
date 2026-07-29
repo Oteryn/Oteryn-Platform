@@ -3,6 +3,7 @@
 Status: Proposed  
 Contract ID: `oteryn.game-catalog`  
 Initial schema version: `1.0.0`  
+Current additive schema version: `1.1.0`
 Producer: `blakinio/canary`  
 Consumer: `blakinio/Oteryn-Platform`
 
@@ -64,7 +65,7 @@ canary_commit_sha
 protocol_profile
 runtime_release
 content_target_release
-verified_content_through_release
+verified_content_through_release nullable in schema 1.1.0
 appearances_sha256
 ```
 
@@ -80,6 +81,8 @@ producer_build_id
 A commit SHA must be a complete lowercase hexadecimal Git SHA supported by the schema. Hashes must use lowercase hexadecimal SHA-256.
 
 Protocol, runtime and content versions are independent facts. The consumer must not replace one with another.
+
+Schema `1.0.0` requires `verified_content_through_release` to reference a release. Schema `1.1.0` permits null when no reviewed datapack-wide completeness boundary exists. Null means unknown, never complete. The consumer may import such a snapshot for inactive review, but must reject activation and public projection until a concrete verified boundary is present.
 
 ## 6. Release records
 
@@ -350,12 +353,14 @@ Canonical schema path in Platform:
 
 ```text
 resources/schemas/game-catalog/v1/game-catalog-snapshot.schema.json
+resources/schemas/game-catalog/v1.1/game-catalog-snapshot.schema.json
 ```
 
 Matching Canary path:
 
 ```text
 schemas/game-catalog/v1/game-catalog-snapshot.schema.json
+schemas/game-catalog/v1.1/game-catalog-snapshot.schema.json
 ```
 
 The implementation programme must prove the two files have identical SHA-256 values. A schema change requires:
@@ -383,15 +388,15 @@ Canary validates or generates the fixture. Platform imports it and proves the ex
 
 ## 19. Rollout order
 
-Additive rollout:
+Schema `1.1.0` uses a consumer-first-safe rollout:
 
-1. merge compatible architecture and contract records;
-2. merge Platform storage/import support without public activation;
-3. merge Canary exporter;
-4. generate and review a staging snapshot;
-5. activate a non-production profile and validate rollback;
-6. add public items and creatures surfaces;
-7. add NPCs, quests, map availability and historical profiles as separate slices.
+1. merge Platform dual-schema validation and nullable inactive persistence while retaining stored `1.0.0` activation/rollback compatibility;
+2. merge Canary `1.1.0` output support;
+3. generate and review a schema `1.1.0` staging snapshot;
+4. require a concrete verified boundary before any non-production activation;
+5. add NPCs, quests, map availability and historical profiles as separate slices.
+
+An older consumer rejects `1.1.0` fail closed. A newer consumer continues to validate and activate retained `1.0.0` snapshots. Producer `1.1.0` output must not be routed to an older consumer.
 
 No production deployment or profile activation is authorized by this contract.
 

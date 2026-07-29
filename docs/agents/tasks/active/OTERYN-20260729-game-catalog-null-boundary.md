@@ -3,7 +3,7 @@ task_id: OTERYN-20260729-game-catalog-null-boundary
 required_reads:
   - AGENTS.md
   - docs/agents/CONTEXT_HANDOFF.md
-  - docs/contracts/GAME_CATALOG_EXPORT_CONTRACT.md
+  - docs/contracts/GAME_CATALOG_IMPORT_CONTRACT.md
   - docs/architecture/MODULE_CATALOG.md
   - docs/architecture/TEST_STRATEGY.md
 search_first:
@@ -28,7 +28,7 @@ Add a versioned Game Catalog consumer contract that can import an explicitly unk
 - [ ] Activation and public projection fail closed when the verified-content boundary is unknown.
 - [ ] Stored schema 1.0.0 snapshots remain eligible for rollback/activation under the new build.
 - [ ] Unsupported schema versions and schema/version mismatches are rejected.
-- [ ] The shared Canary/Platform schema and fixture hashes are byte-identical for 1.1.0.
+- [ ] The shared Canary/Platform schema bytes and SHA-256 are identical for 1.1.0, and each repository's sanitized fixture validates.
 - [ ] Focused tests, static analysis, migration tests and exact-head CI pass.
 - [ ] Contract, module catalogue, changelog and task checkpoint are current.
 - [ ] The atomic cross-repository merge gate remains blocked until the Canary producer PR is ready.
@@ -64,7 +64,7 @@ modules:
 dependencies:
   - OTS-20260728-game-catalog-v1
 blockers:
-  - Canary schema 1.1.0 producer task must be ready before either side merges.
+  - Consumer CI must pass before Canary schema 1.1.0 producer output may merge.
 cross_repository_tasks:
   - CAN-20260729-game-catalog-schema-1-1
 ```
@@ -74,10 +74,10 @@ cross_repository_tasks:
 ```yaml
 checkpoint_version: 1
 updated_at: 2026-07-29T15:18:48Z
-head: 2d7c02fb8c73bb38f9a7031f8cb49aa6d9f1912d
+head: ecf91c2cc64dc672b85a24e306ffe58e9db9b191
 branch: feat/OTERYN-20260729-game-catalog-null-boundary
-pr: pending
-status: investigating
+pr: 299
+status: implementing
 context_routes:
   - agent-governance
   - architecture
@@ -110,7 +110,7 @@ derived:
   - New consumer code must retain schema 1.0.0 activation compatibility for stored snapshots.
   - Import may accept unknown evidence for review, but activation and public projection must remain fail closed.
 unknown:
-  - Exact final schema and fixture SHA-256 values until both repositories generate the same bytes.
+  - Exact current-head PHP, migration and CI results until validation runs on the implementation commit.
 conflicts:
   - none
 first_failure:
@@ -121,14 +121,36 @@ rejected_hypotheses:
   - Invent a sentinel release.
   - Mutate schema 1.0.0 in place.
 changed_paths:
+  - .github/workflows/game-catalog-contract.yml
+  - app/GameCatalog/**
+  - config/game-catalog.php
+  - database/migrations/2026_07_29_152000_make_game_catalog_verified_content_boundary_nullable.php
+  - resources/schemas/game-catalog/v1.1/game-catalog-snapshot.schema.json
+  - resources/views/game-catalog/admin/**
+  - tests/Feature/GameCatalog/**
+  - tests/Fixtures/GameCatalog/v1.1/minimal-snapshot.json
+  - tools/game-catalog/validate_contract_fixture.py
+  - docs/architecture/MODULE_CATALOG.md
+  - docs/architecture/adr/0018-game-catalog-unknown-verified-boundary.md
+  - docs/contracts/GAME_CATALOG_IMPORT_CONTRACT.md
+  - CHANGELOG.md
   - docs/agents/tasks/active/OTERYN-20260729-game-catalog-null-boundary.md
 validation:
   - command: overlap search
     result: PASS
     evidence: No active Platform task or open Game Catalog PR matched on 2026-07-29.
+  - command: Canary pinned snapshot validator against Platform schema 1.1.0 fixture
+    result: PASS
+    evidence: Schema SHA-256 323ff6ae849759c9190f2a0c342855194ed74645816adc45051b6d914e67c7ac and fixture SHA-256 6b809e339cdf2c933c032a32e06e649d277eafb84ce9c5e1681d6b29ead4e61a validated locally.
+  - command: python3 tools/game-catalog/validate_contract_fixture.py
+    result: NOT_RUN
+    evidence: Local Python environment lacks jsonschema; the pinned workflow installs jsonschema 4.26.0 before running both schema versions.
+  - command: focused PHP/Laravel tests and migration rollback
+    result: NOT_RUN
+    evidence: PHP is not installed in the local execution environment; exact-head CI is required.
 blockers:
-  - Atomic merge is held until the Canary producer task is ready.
-next_action: Publish the draft PR and implement versioned dual-schema validation plus nullable persistence and activation guards.
+  - Current-head CI has not run for the implementation commit.
+next_action: Publish the implementation commit to PR #299 and use exact-head CI to validate PHP, migration, dual-schema and activation behavior.
 ```
 
 ## Notes

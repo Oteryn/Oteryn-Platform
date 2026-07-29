@@ -371,6 +371,29 @@ Character Bazaar records administrator wallet adjustment and recovery actions. W
 
 Audit storage is not a replacement for infrastructure/application logs and must never contain raw credentials, session/reset/email tokens, complete registered-session identifiers, MFA secrets, raw recovery keys or complete source addresses.
 
+## Game Catalog
+
+### Responsibilities
+
+- validate versioned deterministic Canary catalogue snapshots against pinned byte-identical schemas;
+- import immutable snapshots transactionally and inactive by default;
+- preserve release, completeness, availability and provenance facts without inventing missing evidence;
+- activate and roll back only compatible snapshots with a concrete verified-content boundary;
+- project public item, creature and loot visibility fail closed.
+
+### Current available boundary
+
+Schema `1.0.0` remains supported for retained imports and rollback. Schema `1.1.0` additionally represents an unknown `verified_content_through_release` as null. Such snapshots may be imported for review but cannot be activated or exposed publicly.
+
+### Invariants
+
+- schema bytes and hashes are pinned per supported version;
+- null verified-content means unknown, never complete;
+- unsupported schema versions, malformed snapshots and schema/hash mismatches fail closed;
+- import never activates automatically;
+- activation failure preserves the prior active snapshot and projections;
+- production import or activation requires a separate environment-gated task.
+
 ## Integration
 
 ### Responsibilities

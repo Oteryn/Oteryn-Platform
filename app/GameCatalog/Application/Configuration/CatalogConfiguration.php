@@ -47,4 +47,36 @@ final class CatalogConfiguration
 
         return $result;
     }
+
+    /** @return array{path: string, sha256: string}|null */
+    public static function schemaContract(string $version): ?array
+    {
+        $schemas = config('game-catalog.schemas', []);
+        if (! is_array($schemas) || array_is_list($schemas)) {
+            throw new LogicException("Game Catalog configuration 'game-catalog.schemas' must be a version-keyed map.");
+        }
+
+        foreach ($schemas as $configuredVersion => $contract) {
+            if (
+                ! is_string($configuredVersion)
+                || $configuredVersion === ''
+                || ! is_array($contract)
+                || array_is_list($contract)
+                || ! is_string($contract['path'] ?? null)
+                || $contract['path'] === ''
+                || ! is_string($contract['sha256'] ?? null)
+                || preg_match('/^[0-9a-f]{64}$/D', $contract['sha256']) !== 1
+            ) {
+                throw new LogicException("Game Catalog configuration 'game-catalog.schemas' contains an invalid contract.");
+            }
+        }
+
+        $contract = $schemas[$version] ?? null;
+        if ($contract === null) {
+            return null;
+        }
+
+        /** @var array{path: string, sha256: string} $contract */
+        return $contract;
+    }
 }
