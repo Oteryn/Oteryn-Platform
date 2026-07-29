@@ -182,11 +182,11 @@ Repository and exact-revision E2E work has hardened the native-auth direction, b
 
 ## Current active task
 
-`OTERYN-20260729-character-profile-preferences` in draft PR #308 delivers Issue #307, the Platform-owned profile-preference slice of parent #277, without Canary mutation.
+None. PR #308 completed Issue #307 and its task is archived; parent #277 remains open for separately contracted mutation and achievement work.
 
 ## Recommended sequence
 
-1. Complete PR #308 / Issue #307 exact-head evidence and archive its task; keep parent #277 open for separately contracted mutation lifecycles.
+1. Continue parent #277 only through a new bounded task after selecting an explicitly authorized mutation or authoritative achievement scope.
 2. Define explicit operation-specific contracts before implementing character rename, deletion, restoration or transfer.
 3. Keep #278 disabled until a dedicated payment ADR, threat model and provider lifecycle are reviewed.
 4. Start #301 only after an additive authoritative producer contract is approved; treat #302 as optional product discovery.
@@ -201,6 +201,6 @@ PR #298 completed Issue #280's approved read-only boundary: categorized/vocation
 PR #303 completed Issue #281's accepted first scope by reconciling the versioned item/weapon/creature/loot delivery from PR #272 with the 43-capability benchmark. Exact final head `7c6bd2b46f3c29d5a2bd4862d59614fcaec423bc` passed all eight required workflows before squash merge `e1df0608eb6a8321f47fe51da65233a613a27b25`. Deferred spells/NPCs/quests/achievements remain #301, optional map/hunt/discovery decisions remain #302, and no runtime, Canary, producer, activation or production change occurred.
 
 
-## Character profile preferences candidate
+## Character profile preferences delivery
 
-Draft PR #308 implements the Platform-owned Issue #307 slice: bounded escaped owner comments, per-character effective visibility, filtered related-character association, optional single main-character selection, audit events, real-MariaDB race evidence and EN/PL desktop/tablet/mobile browser acceptance. Canary remains read-only; rename, deletion, restore, transfer and selected achievements remain outside this contract, and no production claim is made.
+PR #308 completed the Platform-owned Issue #307 slice as merge `86847d0068e470274b6c3ee5523fe41cbb9663af`. Exact final head `3797a094cfa522f5147d624786f49fee5027c77b` passed all 11 required workflows, including real-MariaDB main-character concurrency and zero-retry EN/PL desktop/tablet/mobile browser acceptance. Canary remained read-only; rename, deletion, restore, transfer and selected achievements remain outside this contract under parent #277, and no production claim was made.

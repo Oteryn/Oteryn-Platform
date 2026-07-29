@@ -4,10 +4,11 @@ Convenience index only. Individual active task records, live PRs and Git state a
 
 ## Active tasks
 
-- `OTERYN-20260729-character-profile-preferences` — deliver Issue #307 Platform-owned owner comments, per-character field visibility and one-main-character preference without Canary mutation; parent #277 remains open for rename/delete/restore/transfer.
+- None.
 
 ## Closed acceptance and release-preparation follow-ups
 
+- PR #308 / `86847d0068e470274b6c3ee5523fe41cbb9663af` — delivered Platform-owned character comments, per-character privacy and optional main-character selection after all 11 exact-final-head workflows passed; Issue #307 closed while Canary remained read-only and parent #277 stayed open.
 - PR #303 / `e1df0608eb6a8321f47fe51da65233a613a27b25` — reconciled Issue #281 to the authoritative item/weapon/creature/loot Game Catalog scope delivered by PR #272, preserved unsupported knowledge gaps under #277/#301/#302 and closed #281 after all eight exact-final-head workflows passed; no runtime, Canary, external-repository or production mutation occurred.
 - PR #300 / `7f2c37ca2a2447623705f60dffc08a34b9c755d3` — archived the completed community-data task, cleared ACTIVE_WORK and reconciled project state after Issue #280 closure.
 - PR #298 / `7533b12b1e1c6d266c6bf5a8800e584fad23a01e` — bounded read-only highscore categories, privacy-aware rich character profiles, latest deaths/kill statistics, guild directory/search, explicit optional-feature policy and EN/PL responsive acceptance merged after every exact-final-head workflow passed; Issue #280 closed without Canary mutation or a production-verification claim.
@@ -85,7 +86,7 @@ The latest verified final-portal staging refresh identity is `583cae5f430998b2bb
 
 ## Next work
 
-The active task delivers Issue #307 as the Platform-owned privacy/comment/main-character slice of parent #277. Remaining implementation trackers are #277 character mutation lifecycle, #301 authoritative structured catalogue expansion and #302 optional knowledge/discovery planning. Issue #278 is mandatory before commercial activation; #244 and #91 remain separate presentation and production trackers.
+No task is currently active. PR #308 completed Issue #307; parent #277 remains open for separately contracted mutation and achievement work. Remaining implementation trackers are #277 character mutation lifecycle, #301 authoritative structured catalogue expansion and #302 optional knowledge/discovery planning. Issue #278 is mandatory before commercial activation; #244 and #91 remain separate presentation and production trackers.
 
 ## Remaining cross-repository dependency
 

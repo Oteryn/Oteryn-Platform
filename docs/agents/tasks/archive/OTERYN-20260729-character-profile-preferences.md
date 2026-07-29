@@ -39,8 +39,8 @@ Deliver Issue #307, the Platform-owned character-profile slice of parent Issue #
 - [x] Rename, delete, restore, transfer, whole-profile hiding and achievements remain explicitly outside this slice.
 - [x] Unit/feature, real-MariaDB ownership/concurrency and zero-retry browser evidence pass on the exact final head.
 - [x] Product, route, architecture, security and operations ledgers are updated only after evidence exists.
-- [ ] PR merges and Issue #307 closes; parent Issue #277 remains open for the unapproved mutation lifecycles.
-- [ ] Task is archived in a separate documentation PR.
+- [x] PR merges and Issue #307 closes; parent Issue #277 remains open for the unapproved mutation lifecycles.
+- [x] Task is archived in a separate documentation PR.
 
 ## Ownership
 
@@ -75,7 +75,7 @@ owned_paths:
   - docs/testing/PORTAL_ACCEPTANCE_COVERAGE_MATRIX.md
   - docs/agents/PROJECT_STATE.md
   - docs/agents/ACTIVE_WORK.md
-  - docs/agents/tasks/active/OTERYN-20260729-character-profile-preferences.md
+  - docs/agents/tasks/archive/OTERYN-20260729-character-profile-preferences.md
 modules:
   - CharacterProfiles
   - Identity
@@ -97,11 +97,11 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-07-29T20:50:00Z
-head: d2e611f1c110e57d6cfec5dffedd930eee99aab6
+updated_at: 2026-07-29T21:45:00Z
+head: 3797a094cfa522f5147d624786f49fee5027c77b
 branch: feat/OTERYN-20260729-character-profile-preferences
 pr: 308
-status: validating
+status: ready
 context_routes:
   - agent-governance
   - architecture
@@ -123,9 +123,7 @@ owned_paths:
   - resources/views/game/character.blade.php
   - lang/{en,pl}/character_profiles.php
   - tests/Feature/CharacterProfiles/**
-  - scripts/acceptance/seed-community-data.php
-  - scripts/acceptance/update-character-profile-preference.php
-  - scripts/acceptance/assert-character-profile-concurrency.php
+  - scripts/acceptance/**character-profile**
   - scripts/acceptance/tests/community-data-acceptance.spec.mjs
   - scripts/acceptance/coverage/surfaces/character-profile-preferences.json
   - .github/workflows/community-data-acceptance.yml
@@ -134,36 +132,31 @@ owned_paths:
   - docs/architecture/{MODULE_CATALOG,DATA_OWNERSHIP,SECURITY_ARCHITECTURE}.md
   - docs/testing/{PRODUCT_COMPLETENESS_BENCHMARK.md,product-completeness-benchmark.json}
   - docs/agents/{PROJECT_STATE,ACTIVE_WORK}.md
-  - docs/agents/tasks/active/OTERYN-20260729-character-profile-preferences.md
+  - docs/agents/tasks/archive/OTERYN-20260729-character-profile-preferences.md
 proven:
-  - Character profile preferences are Platform-owned and store one row per Identity and Canary player ID; the additive migration cascades with the Platform Identity and never mutates Canary.
-  - Every edit/update repeats current ownership proof from the ready immutable binding and a read-only active Canary character lookup; missing, foreign and dependency-failure states fail closed without exposing identifiers or SQL details.
-  - A missing preference row preserves the delivered public profile; a stored row owns the bounded escaped public comment and can narrow account association, status, guild, house, skills, deaths and kill statistics.
-  - Account-level public_account_association and public_status_visible remain upper bounds; feature tests prove per-character opt-in cannot expose related characters or status when those account flags are disabled.
-  - Related-character projection excludes sibling preferences that hide account association and never emits Platform Identity, Canary account or internal binding identifiers.
-  - Main-character replacement locks the Identity row, demotes any prior main and is bounded by the unique identity/player row key.
-  - Community Data run 30489605994 passed focused owner/non-owner, validation, privacy-upper-bound and sanitized-unavailable tests; its two concurrent real-MariaDB processes left exactly one main character and its zero-retry Chromium desktop/tablet/mobile lifecycle passed in EN/PL.
-  - CI run 30489605987 passed Pint, Composer audit, PHPStan and the full test suite at d2e611f1c110e57d6cfec5dffedd930eee99aab6.
-  - Portal Acceptance run 30489605983 passed strict route/product ledgers with 43 capabilities classified as 23 implemented, 3 partial, 14 missing and 3 not applicable, then passed the complete zero-retry account lifecycle.
-  - Phase 7 run 30489606055 passed clean migration, least privilege, failure semantics, exact-SHA regressions, backup/restore, upgrade, rollback and redeploy without a production claim.
-  - Acceptance E2E and Visual UX run 30489605985 passed browser portability, responsive, dependency resilience and keyboard accessibility profiles.
-  - Edge 30489606033, Game Auth 30489606000, DB Outage 30489606038, Synology preflight 30489606077, image build 30489606022 and Governance 30489606030 all passed at the same exact head.
+  - Platform-owned character profile preferences store a bounded escaped owner comment, per-character field visibility and an optional main-character selection without mutating Canary.
+  - Every edit and update revalidates the ready immutable Identity-to-Canary binding and current active character ownership through the read-only Canary connection; foreign, stale and unavailable states fail closed.
+  - Account-level association and status privacy remain upper bounds, hidden siblings are excluded from related-character output and no Platform or Canary internal identifiers are exposed.
+  - Identity-row locking and the real-MariaDB race test leave at most one main character per Identity.
+  - Exact final head 3797a094cfa522f5147d624786f49fee5027c77b passed all 11 required workflows: CI 30490007511, Agent Governance 30490007484, Portal Acceptance Contract 30490007458, Community Data Acceptance 30490007443, Phase 7 Production-Like Validation 30490007483, Platform DB Outage Validation 30490007507, Edge Security Emulation 30490007432, Game Auth Ticket Concurrency 30490007493, Acceptance E2E and Visual UX 30490007509, Synology Production Target Preflight 30490007537 and Build Synology Staging Images 30490007474.
+  - Community Data Acceptance proved owner and non-owner behavior, privacy upper bounds, sanitized unavailable states, two concurrent real-MariaDB main-character writers and the complete zero-retry Chromium desktop/tablet/mobile lifecycle in English and Polish.
+  - Product and route ledgers passed with 43 capabilities classified as 23 implemented, 3 partial, 14 missing and 3 not applicable.
+  - PR #308 was squash-merged as 86847d0068e470274b6c3ee5523fe41cbb9663af and Issue #307 closed as completed; parent Issue #277 remains open for excluded mutation and achievement lifecycles.
 derived:
-  - Issue #307 can close independently because its complete Platform-owned lifecycle is proven while parent #277 retains explicit ownership of rename, deletion/restore, controlled world/channel transfer and authoritative achievement selection.
-  - The new public profile fields do not require sitemap/search/cache invalidation because this slice never hides the entire character and only changes rendered owner-controlled fields at request time.
+  - Issue #307 is complete for its approved Platform-owned boundary and requires no Canary or production follow-up.
+  - Rename, deletion/restore, world or channel transfer and authoritative achievement selection remain separate Issue #277 work requiring explicit contracts and authorization.
 unknown:
-  - Whether the evidence-only checkpoint commit exposes any additional governance or exact-head regression.
+  - Actual production deployment identity, database state, latency and recovery behavior remain unverified.
 conflicts: []
 first_failure:
   marker: none
-  evidence: All required workflows passed at exact head d2e611f1c110e57d6cfec5dffedd930eee99aab6. The prior broad Online text assertion was narrowed to the actual visible-status markup and then passed CI and Community Data.
+  evidence: Every required exact-final-head workflow passed before PR #308 merged.
 rejected_hypotheses:
-  - Store owner comments in Canary players.comment.
-  - Reuse a generic Canary UPDATE principal.
-  - Treat a stored preference row as ownership proof.
+  - Store owner comments or visibility preferences in Canary players data.
+  - Reuse a generic Canary write principal for profile preferences.
+  - Treat a stored preference row or browser-supplied identifier as ownership proof.
   - Allow character-level opt-in to override account-level privacy.
-  - Close parent Issue #277 after only this Platform-owned slice.
-  - Hide entire profiles without reconciling search, highscores, guild, deaths and sitemap leakage.
+  - Close parent Issue #277 after only the Platform-owned profile slice.
 changed_paths:
   - app/CharacterProfiles/**
   - app/Http/Controllers/CharacterProfiles/**
@@ -174,62 +167,33 @@ changed_paths:
   - routes/modules/character-profile-preferences.php
   - resources/views/identity/account/**
   - resources/views/game/character.blade.php
-  - lang/en/character_profiles.php
-  - lang/pl/character_profiles.php
+  - lang/{en,pl}/character_profiles.php
   - tests/Feature/CharacterProfiles/CharacterProfilePreferenceTest.php
-  - scripts/acceptance/seed-community-data.php
-  - scripts/acceptance/update-character-profile-preference.php
-  - scripts/acceptance/assert-character-profile-concurrency.php
+  - scripts/acceptance/**character-profile**
   - scripts/acceptance/tests/community-data-acceptance.spec.mjs
   - scripts/acceptance/coverage/surfaces/character-profile-preferences.json
   - .github/workflows/community-data-acceptance.yml
   - docs/contracts/CHARACTER_PROFILE_PREFERENCES_CONTRACT.md
   - docs/operations/CHARACTER_PROFILE_PREFERENCES.md
-  - docs/architecture/MODULE_CATALOG.md
-  - docs/architecture/DATA_OWNERSHIP.md
-  - docs/architecture/SECURITY_ARCHITECTURE.md
-  - docs/testing/PRODUCT_COMPLETENESS_BENCHMARK.md
-  - docs/testing/product-completeness-benchmark.json
-  - docs/agents/PROJECT_STATE.md
-  - docs/agents/ACTIVE_WORK.md
-  - docs/agents/tasks/active/OTERYN-20260729-character-profile-preferences.md
+  - docs/architecture/{MODULE_CATALOG,DATA_OWNERSHIP,SECURITY_ARCHITECTURE}.md
+  - docs/testing/{PRODUCT_COMPLETENESS_BENCHMARK.md,product-completeness-benchmark.json}
+  - docs/agents/{PROJECT_STATE,ACTIVE_WORK}.md
+  - docs/agents/tasks/archive/OTERYN-20260729-character-profile-preferences.md
 validation:
-  - command: composer audit --locked --no-interaction
+  - command: Required exact-final-head workflow suite
     result: PASS
-    evidence: CI 30489605987.
-  - command: vendor/bin/pint --test
-    result: PASS
-    evidence: CI 30489605987.
-  - command: vendor/bin/phpstan analyse --memory-limit=1G
-    result: PASS
-    evidence: CI 30489605987.
-  - command: php artisan test
-    result: PASS
-    evidence: CI 30489605987 passed the complete suite, including account privacy upper-bound and sanitized ownership dependency failure.
-  - command: focused CharacterProfiles and CommunityData feature tests
-    result: PASS
-    evidence: Community Data 30489605994.
-  - command: concurrent main-character selection using two PHP processes on real MariaDB
-    result: PASS
-    evidence: Community Data 30489605994 left exactly one main preference row.
-  - command: zero-retry owner/public profile browser matrix on desktop, tablet and mobile
-    result: PASS
-    evidence: Community Data 30489605994 passed all three Chromium projects with isolated fixtures and EN/PL assertions.
+    evidence: All 11 workflow runs listed under proven completed successfully at 3797a094cfa522f5147d624786f49fee5027c77b before merge.
   - command: node scripts/acceptance/coverage/validate-product-completeness.mjs
     result: PASS
-    evidence: Portal Acceptance 30489605983 validated all 43 capabilities at 23 implemented, 3 partial, 14 missing and 3 not applicable.
+    evidence: Portal Acceptance Contract 30490007458 validated all 43 capabilities.
   - command: node scripts/acceptance/coverage/validate-portal-coverage.mjs
     result: PASS
-    evidence: Portal Acceptance 30489605983 classified both new owner routes and all required evidence markers.
-  - command: Required exact-head workflow suite
+    evidence: Portal Acceptance Contract 30490007458 validated route ownership and stable evidence markers.
+  - command: python tools/agents/test_checkpoint.py
     result: PASS
-    evidence: All 11 workflow runs listed under proven completed successfully at d2e611f1c110e57d6cfec5dffedd930eee99aab6.
-  - command: Required exact-final-head workflow suite
-    result: NOT_RUN
-    evidence: Pending on this evidence-only checkpoint commit.
-blockers:
-  - none
-next_action: Run all required workflows on this evidence-only checkpoint head; if every exact-final-head gate passes, update PR #308 with evidence, mark it ready, merge with expected-head protection, verify Issue #307 closes and parent #277 remains open, then archive the task separately.
+    evidence: Agent Governance 30490007484 passed on the exact final head.
+blockers: []
+next_action: Continue parent Issue #277 only through a new bounded active task and separate pull request with explicit authorization for any Canary mutation; no further action remains for Issue #307.
 ```
 
 ## Boundaries
