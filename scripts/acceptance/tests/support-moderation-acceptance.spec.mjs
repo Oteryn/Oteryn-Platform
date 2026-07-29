@@ -42,6 +42,9 @@ async function signIn(page, identity) {
     expect(recoveryCode, `No unused MFA recovery code remains for ${identity.email}`).toBeTruthy();
     await completeMfaChallenge(page, recoveryCode);
     identity.nextRecoveryCode += 1;
+  } else {
+    await page.waitForURL((url) => url.pathname !== '/login');
+    await page.waitForLoadState('domcontentloaded');
   }
 }
 
