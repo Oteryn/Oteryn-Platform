@@ -4,10 +4,11 @@ Convenience index only. Individual active task records, live PRs and Git state a
 
 ## Active tasks
 
-- None.
+- `OTERYN-20260729-game-catalog-first-scope-closeout` — reconcile Issue #281 to the Game Catalog first scope delivered by PR #272 and move unsupported planned/optional knowledge capabilities to #301/#302 without changing their delivery status.
 
 ## Closed acceptance and release-preparation follow-ups
 
+- PR #300 / `7f2c37ca2a2447623705f60dffc08a34b9c755d3` — archived the completed community-data task, cleared ACTIVE_WORK and reconciled project state after Issue #280 closure.
 - PR #298 / `7533b12b1e1c6d266c6bf5a8800e584fad23a01e` — bounded read-only highscore categories, privacy-aware rich character profiles, latest deaths/kill statistics, guild directory/search, explicit optional-feature policy and EN/PL responsive acceptance merged after every exact-final-head workflow passed; Issue #280 closed without Canary mutation or a production-verification claim.
 - PR #293 / `02aa4ab8180c0e9cecb0d42bc1f8f5af6db640a1` — complete Platform-owned support/moderation lifecycle with owner tickets, bounded reports, exact-MFA/RBAC moderator queues, enforcement/appeals, notifications, retention/privacy and EN/PL responsive acceptance merged; Issue #279 closed without Canary mutation, attachments or a production-verification claim.
 - PR #272 / `94259f6c5aa1e9cfcd86ad6e11c29fa42fc90491` — version-aware Game Catalog importer, activation/rollback, public item/weapon/creature/loot projections, secured administrator inspection and generated Canary cross-repository MariaDB lifecycle merged after every exact-final-head workflow passed; no production deployment or production profile activation occurred.
@@ -16,7 +17,7 @@ Convenience index only. Individual active task records, live PRs and Git state a
 - PR #270 / `0f19656e0875d0a10b22002ac0e096deb20e94d8` — complete Character Bazaar, Platform wallet ledger, least-privilege Canary escrow/settlement and exact-head responsive/browser/database/security validation merged; Issue #269 closed.
 - PR #67 / `517968539bdfd7d189677b669bf0899c35fccec1` — issues #68-#70 closed with exact-SHA production-like browser acceptance evidence classified `STAGING_PROVEN`.
 - PR #73 / `06d8d94aafd73de996eb4ea93705e8a45fbadafb` — issue #71 closed with controlled Platform DB outage evidence classified `STAGING_PROVEN` for that staging failure path only.
-- PR #74 / `24eaa4ca5e38bb255db95a989c0ff02e954360f3` — issue #72 closed; focused CMS publication-state and privileged-audit regressions found no runtime defect.
+- PR #74 / `24eaa4ca5e38bb255db95b92d189cb572dd35` — issue #72 closed; focused CMS publication-state and privileged-audit regressions found no runtime defect.
 - PR #75 / `4fc6fcccea00bdd8d7679595b92d189cb572dd35` — final Functional Acceptance matrix reconciliation merged; FAV-01 through FAV-05 are closed for the delivered staging-verifiable scope.
 - PR #77 / `1e6e21f0963406d4e58c39b347a49cfa4529bd1c` — delivered-surface UI/UX remediation merged with clean browser Visual/Accessibility evidence.
 - PR #86 / `5d3628f8c6ba2e454246f24947ebe08ca93cf684` — issue #81 closed; authenticated Account Overview and provisioning-status UX delivered with full production-like browser evidence.
@@ -69,7 +70,7 @@ Repository and staging evidence remains valid only for its documented boundaries
 
 - **Production Readiness: STAGING_PROVEN for previously documented boundaries**
 - **Portal Completeness: COMPLETE AGAINST THE VERSIONED DELIVERED-SURFACE CONTRACT (Issue #240 closed)**
-- **Product Completeness Benchmark: COMPLETE AS AN AUDIT; REQUIRED PRODUCT GAPS REMAIN OPEN (#277, #278 and #281, with #278 required before commerce activation)**
+- **Product Completeness Benchmark: COMPLETE AS AN AUDIT; REQUIRED PRODUCT GAP #277 REMAINS OPEN, #278 IS MANDATORY BEFORE COMMERCE, AND #281 IS IN FIRST-SCOPE CLOSEOUT**
 - **Benchmark Product Completeness: NOT YET ACHIEVED**
 - **Functional Acceptance: community-data exact-head CI, strict ledgers and zero-retry lifecycle passed through PR #298**
 - **Visual / UX Acceptance: community-data English/Polish desktop/tablet/mobile evidence and complete E2E/Visual UX passed through PR #298**
@@ -83,7 +84,7 @@ The latest verified final-portal staging refresh identity is `583cae5f430998b2bb
 
 ## Next work
 
-The remaining required benchmark gaps are #277 character management/profile and #281 server-backed knowledge expansion. Issue #278 is mandatory before commercial activation, #244 separately owns the homepage-template selector and #91 remains the separate real Production Go-Live tracker.
+The active closeout reconciles #281 to its delivered first Game Catalog scope. Remaining implementation trackers are #277 character management/profile, #301 authoritative structured catalogue expansion and #302 optional knowledge/discovery planning. Issue #278 is mandatory before commercial activation; #244 and #91 remain separate presentation and production trackers.
 
 ## Remaining cross-repository dependency
 
