@@ -1,15 +1,29 @@
 @extends('game.layout')
 
-@section('title', __('public.game.guild_directory'))
-@section('page-class', 'page-shell-wide')
+@section('title', __('community.guilds.title'))
+@section('page-class', 'page-shell-wide community-page')
 
 @section('content')
     @inject('localeFormatter', 'App\Localization\LocaleFormatter')
+
     <div class="page-header">
         <p class="eyebrow">{{ __('public.game.community') }}</p>
-        <h1>{{ __('public.game.guild_directory') }}</h1>
-        <p class="muted">{{ __('public.game.guild_directory_description') }}</p>
+        <h1>{{ __('community.guilds.title') }}</h1>
+        <p class="muted">{{ __('community.guilds.description') }}</p>
     </div>
+
+    <form class="card community-filter" method="get" action="{{ route('game.guilds.index') }}" role="search">
+        <label>
+            <span>{{ __('community.guilds.search_label') }}</span>
+            <input name="q" type="search" maxlength="80" value="{{ $search ?? '' }}" placeholder="{{ __('community.guilds.search_placeholder') }}">
+        </label>
+        <div class="action-row">
+            <button class="button" type="submit">{{ __('community.guilds.search') }}</button>
+            @if ($search !== null)
+                <a class="button button-secondary" href="{{ route('game.guilds.index') }}">{{ __('community.guilds.clear') }}</a>
+            @endif
+        </div>
+    </form>
 
     <div class="card">
         <div class="table-region" tabindex="0" aria-label="{{ __('public.game.guild_directory_table') }}">
@@ -24,10 +38,10 @@
                 @forelse ($guilds as $guild)
                     <tr>
                         <td><a href="{{ route('game.guilds.show', ['name' => $guild->name]) }}">{{ $guild->name }}</a></td>
-                        <td>{{ $localeFormatter->number($guild->active_member_count) }}</td>
+                        <td>{{ $localeFormatter->number((int) $guild->active_member_count) }}</td>
                     </tr>
                 @empty
-                    <tr><td colspan="2">{{ __('public.game.no_guilds') }}</td></tr>
+                    <tr><td colspan="2">{{ __('community.guilds.empty') }}</td></tr>
                 @endforelse
                 </tbody>
             </table>
@@ -49,4 +63,9 @@
             </nav>
         @endif
     </div>
+
+    <section class="card" aria-labelledby="guild-policy-heading">
+        <h2 id="guild-policy-heading">{{ __('community.policy.title') }}</h2>
+        <p>{{ __('community.guilds.read_only_policy') }}</p>
+    </section>
 @endsection
