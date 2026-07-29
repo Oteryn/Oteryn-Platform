@@ -74,11 +74,11 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-07-29T17:43:44Z
-head: c6d1ce417f226f529637109296c81cc52d2012f7
+updated_at: 2026-07-29T17:50:17Z
+head: e911c3633da8d0789941f83fa728a2b89c97f6e1
 branch: feat/OTERYN-20260729-game-catalog-runtime-threshold
-pr: none
-status: investigating
+pr: 310
+status: implementing
 context_routes:
   - agent-governance
   - architecture
@@ -106,11 +106,12 @@ proven:
   - Canary runtime compares a configured loot threshold after runtime modifiers against its loot roll.
   - Canary baseline evidence contains 92 configured thresholds above the declared roll maximum.
   - Platform PR 309 archived the stale architecture owner and merged as c6d1ce417f226f529637109296c81cc52d2012f7.
+  - Schema 1.2 is pinned locally as SHA-256 a9fa1e3c6366a90d61005796511c344ced9c39594ed676276279a5917287c6de.
+  - The schema 1.2 fixture is pinned locally as SHA-256 42b832954f9aa68cf7e2465351f92266771b8132d9634757391d010eaec84855 and contains a valid threshold 12 over roll maximum 10.
 derived:
   - Schema 1.2 must distinguish a contextual runtime threshold from legacy rational probability instead of reinterpreting old fields.
   - Consumer-first rollout requires Platform support before Canary emits schema 1.2.
 unknown:
-  - Final shared schema hash and fixture hash.
   - Exact Canary PR 1010 default-datapack runtime result.
 conflicts:
   - Schema 1.1 probability semantics cannot represent every configured Canary runtime threshold.
@@ -122,14 +123,39 @@ rejected_hypotheses:
   - Increase one denominator because ordinary threshold meaning would change.
   - Mutate schema 1.1 in place because pinned bytes and stored compatibility must remain stable.
 changed_paths:
+  - .github/workflows/game-catalog-contract.yml
+  - app/GameCatalog/Application/Import/**
+  - app/GameCatalog/Queries/Public/**
+  - config/game-catalog.php
+  - database/migrations/2026_07_29_174500_add_game_catalog_loot_chance_model.php
+  - resources/schemas/game-catalog/v1.2/**
+  - resources/views/game-catalog/**
+  - lang/*/game_catalog.php
+  - tests/Fixtures/GameCatalog/v1.2/**
+  - tests/Feature/GameCatalog/**
+  - tools/game-catalog/validate_contract_fixture.py
+  - docs/contracts/GAME_CATALOG_IMPORT_CONTRACT.md
+  - docs/architecture/MODULE_CATALOG.md
+  - docs/architecture/adr/0019-game-catalog-runtime-loot-thresholds.md
   - docs/agents/tasks/active/OTERYN-20260729-game-catalog-runtime-threshold.md
+  - CHANGELOG.md
 validation:
   - command: repository and open-PR overlap search
     result: PASS
     evidence: No active Game Catalog task or open implementation PR overlaps this scope after PR 309.
+  - command: python3 -m py_compile tools/game-catalog/validate_contract_fixture.py
+    result: PASS
+    evidence: Contract validator compiles.
+  - command: parse schema and fixture JSON and verify pinned SHA-256
+    result: PASS
+    evidence: Both JSON documents parse and match their registered hashes.
+  - command: focused PHP, schema and migration validation
+    result: NOT_RUN
+    evidence: Local environment has no PHP runtime or jsonschema package; exact-head CI will install pinned dependencies.
 blockers:
   - Canary PR 1010 exact-head Game Catalog runtime proof is still running.
-next_action: Open a draft consumer PR with this ownership checkpoint, then implement the schema 1.2 fixture and migration/import model without touching Canary.
+  - Platform exact-head schema, PHP, migration and static-analysis workflows have not run on the implementation.
+next_action: Publish the schema 1.2 implementation to draft PR 310 and inspect exact-head workflow results before any Canary producer change.
 ```
 
 ## Notes

@@ -1,0 +1,271 @@
+{
+  "contract": "oteryn.game-catalog",
+  "entities": [
+    {
+      "availability": "encounterable",
+      "canonical_key": "creature:fixture-rat",
+      "completeness": "complete",
+      "data": {
+        "armor": 5,
+        "attacks": [],
+        "attributes": {
+          "fixture": true
+        },
+        "bestiary_class": "fixture",
+        "bestiary_occurrence": 1,
+        "bestiary_race": "fixture",
+        "bestiary_to_kill": 5,
+        "charm_points": 1,
+        "defense": 3,
+        "defenses": [],
+        "description": "Synthetic contract fixture creature.",
+        "elements": [],
+        "experience": 25,
+        "health": 100,
+        "immunities": [],
+        "is_boss": false,
+        "is_reward_boss": false,
+        "look_type": 21,
+        "max_health": 100,
+        "mitigation": null,
+        "name": "Fixture Rat",
+        "race_id": 1,
+        "speed": 120
+      },
+      "enabled": true,
+      "identifiers": [
+        {
+          "namespace": "fixture.creature_id",
+          "value": "fixture-rat"
+        }
+      ],
+      "introduced_in": "15.20",
+      "removed_in": null,
+      "runtime_present": true,
+      "source_path": "catalog/fixtures/minimal-snapshot.json",
+      "type": "creature"
+    },
+    {
+      "availability": "encounterable",
+      "canonical_key": "creature:partial-fixture-beast",
+      "completeness": "partial",
+      "data": {
+        "armor": 8,
+        "attacks": [],
+        "attributes": {
+          "fixture": true,
+          "partial_reason": "intentional-test-record"
+        },
+        "bestiary_class": null,
+        "bestiary_occurrence": null,
+        "bestiary_race": null,
+        "bestiary_to_kill": null,
+        "charm_points": null,
+        "defense": 6,
+        "defenses": [],
+        "description": "Synthetic partial contract fixture creature.",
+        "elements": [],
+        "experience": 50,
+        "health": 200,
+        "immunities": [],
+        "is_boss": false,
+        "is_reward_boss": false,
+        "look_type": 22,
+        "max_health": 200,
+        "mitigation": null,
+        "name": "Partial Fixture Beast",
+        "race_id": 2,
+        "speed": 110
+      },
+      "enabled": true,
+      "identifiers": [
+        {
+          "namespace": "fixture.creature_id",
+          "value": "partial-fixture-beast"
+        }
+      ],
+      "introduced_in": "15.20",
+      "removed_in": null,
+      "runtime_present": true,
+      "source_path": "catalog/fixtures/minimal-snapshot.json",
+      "type": "creature"
+    },
+    {
+      "availability": "obtainable",
+      "canonical_key": "item:fixture-sword",
+      "completeness": "complete",
+      "data": {
+        "armor": null,
+        "attack": 10,
+        "attributes": {
+          "fixture": true,
+          "hands": 1
+        },
+        "category": "weapons",
+        "client_id": 2001,
+        "defense": 5,
+        "description": "Synthetic contract fixture item.",
+        "element_type": null,
+        "element_value": null,
+        "extra_defense": 1,
+        "image_key": null,
+        "imbuement_slots": 1,
+        "minimum_level": 10,
+        "name": "Fixture Sword",
+        "pickupable": true,
+        "range": 1,
+        "server_id": 1001,
+        "slot_position": 48,
+        "stackable": false,
+        "upgrade_classification": 1,
+        "vocations": [
+          "fixture"
+        ],
+        "ware_id": null,
+        "weapon_type": "sword",
+        "weight": 2500
+      },
+      "enabled": true,
+      "identifiers": [
+        {
+          "namespace": "fixture.item_id",
+          "value": "fixture-sword"
+        }
+      ],
+      "introduced_in": "15.20",
+      "removed_in": null,
+      "runtime_present": true,
+      "source_path": "catalog/fixtures/minimal-snapshot.json",
+      "type": "item"
+    },
+    {
+      "availability": "obtainable",
+      "canonical_key": "item:future-fixture-shield",
+      "completeness": "complete",
+      "data": {
+        "armor": null,
+        "attack": null,
+        "attributes": {
+          "fixture": true
+        },
+        "category": "shields",
+        "client_id": 2002,
+        "defense": 12,
+        "description": "Synthetic future contract fixture item.",
+        "element_type": null,
+        "element_value": null,
+        "extra_defense": 0,
+        "image_key": null,
+        "imbuement_slots": 0,
+        "minimum_level": 20,
+        "name": "Future Fixture Shield",
+        "pickupable": true,
+        "range": null,
+        "server_id": 1002,
+        "slot_position": 48,
+        "stackable": false,
+        "upgrade_classification": 1,
+        "vocations": null,
+        "ware_id": null,
+        "weapon_type": "shield",
+        "weight": 3200
+      },
+      "enabled": true,
+      "identifiers": [
+        {
+          "namespace": "fixture.item_id",
+          "value": "future-fixture-shield"
+        }
+      ],
+      "introduced_in": "15.21",
+      "removed_in": null,
+      "runtime_present": true,
+      "source_path": "catalog/fixtures/minimal-snapshot.json",
+      "type": "item"
+    }
+  ],
+  "relations": [
+    {
+      "canonical_key": "loot:fixture-rat:fixture-sword",
+      "completeness": "complete",
+      "data": {
+        "chance_model": "canary_dynamic_threshold_v1",
+        "chance_threshold": 12,
+        "roll_maximum": 10,
+        "minimum_count": 1,
+        "maximum_count": 1,
+        "container_path": null,
+        "condition_data": null
+      },
+      "enabled": true,
+      "introduced_in": "15.20",
+      "removed_in": null,
+      "source": "creature:fixture-rat",
+      "source_path": "catalog/fixtures/minimal-snapshot.json",
+      "target": "item:fixture-sword",
+      "type": "creature_loot"
+    },
+    {
+      "canonical_key": "loot:fixture-rat:fixture-sword:2",
+      "completeness": "complete",
+      "data": {
+        "chance_model": "canary_dynamic_threshold_v1",
+        "chance_threshold": 1,
+        "roll_maximum": 20,
+        "minimum_count": 2,
+        "maximum_count": 2,
+        "container_path": "bag[0]",
+        "condition_data": {
+          "fixture": true
+        }
+      },
+      "enabled": true,
+      "introduced_in": "15.21",
+      "removed_in": null,
+      "source": "creature:fixture-rat",
+      "source_path": "catalog/fixtures/minimal-snapshot.json",
+      "target": "item:fixture-sword",
+      "type": "creature_loot"
+    }
+  ],
+  "releases": [
+    {
+      "build": null,
+      "display_label": "15.20",
+      "key": "15.20",
+      "major": 15,
+      "minor": 20,
+      "patch": 0,
+      "protocol_family": "fixture",
+      "release_order": 152000,
+      "released_at": null
+    },
+    {
+      "build": null,
+      "display_label": "15.21",
+      "key": "15.21",
+      "major": 15,
+      "minor": 21,
+      "patch": 0,
+      "protocol_family": "fixture",
+      "release_order": 152100,
+      "released_at": null
+    }
+  ],
+  "schema_version": "1.2.0",
+  "snapshot": {
+    "appearances_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "canary_commit_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "contains_content_through_release": "15.21",
+    "content_target_release": "15.20",
+    "datapack_commit_sha": null,
+    "entity_count": 4,
+    "generated_at": "2026-01-01T00:00:00Z",
+    "map_sha256": null,
+    "producer_build_id": "shared-fixture-v1",
+    "protocol_profile": "fixture-protocol",
+    "relation_count": 2,
+    "runtime_release": "15.20",
+    "verified_content_through_release": "15.21"
+  }
+}

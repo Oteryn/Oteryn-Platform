@@ -3,7 +3,7 @@
 Status: Proposed  
 Contract ID: `oteryn.game-catalog`  
 Initial schema version: `1.0.0`  
-Current additive schema version: `1.1.0`
+Current additive schema version: `1.2.0`
 Producer: `blakinio/canary`  
 Consumer: `blakinio/Oteryn-Platform`
 
@@ -65,7 +65,7 @@ canary_commit_sha
 protocol_profile
 runtime_release
 content_target_release
-verified_content_through_release nullable in schema 1.1.0
+verified_content_through_release nullable in schema 1.1.0 and later
 appearances_sha256
 ```
 
@@ -262,6 +262,8 @@ Rules:
 
 ## 11. Loot payload
 
+Schemas `1.0.0` and `1.1.0` use a bounded rational probability:
+
 ```text
 chance_numerator
 chance_denominator
@@ -278,6 +280,22 @@ Rules:
 - counts are bounded non-negative integers;
 - `maximum_count >= minimum_count`;
 - the consumer must not assume one universal denominator.
+
+Schema `1.2.0` uses the versioned Canary runtime-threshold model:
+
+```text
+chance_model = canary_dynamic_threshold_v1
+chance_threshold
+roll_maximum
+minimum_count
+maximum_count
+container_path nullable
+condition_data nullable
+```
+
+For this model, `chance_threshold` is the exact configured runtime threshold and may exceed `roll_maximum`. `roll_maximum` is the selected export profile's declared base roll ceiling; it is not an upper bound on the configured threshold. Canary applies runtime rate, schedule, dynamic and other contextual modifiers before comparing the roll against an adjusted threshold. Therefore threshold divided by roll maximum is not exported or displayed as one context-free effective probability.
+
+Schema 1.2 rejects legacy probability fields in threshold records, and schemas 1.0/1.1 reject threshold-model fields. Platform persists the representations separately and never clamps or synthesizes one from the other.
 
 ## 12. Determinism
 
@@ -354,6 +372,7 @@ Canonical schema path in Platform:
 ```text
 resources/schemas/game-catalog/v1/game-catalog-snapshot.schema.json
 resources/schemas/game-catalog/v1.1/game-catalog-snapshot.schema.json
+resources/schemas/game-catalog/v1.2/game-catalog-snapshot.schema.json
 ```
 
 Matching Canary path:
@@ -361,6 +380,7 @@ Matching Canary path:
 ```text
 schemas/game-catalog/v1/game-catalog-snapshot.schema.json
 schemas/game-catalog/v1.1/game-catalog-snapshot.schema.json
+schemas/game-catalog/v1.2/game-catalog-snapshot.schema.json
 ```
 
 The implementation programme must prove the two files have identical SHA-256 values. A schema change requires:
@@ -383,6 +403,7 @@ The first implementation fixture must contain:
 - one partial creature;
 - one visible loot relation;
 - one future loot relation.
+- for schema 1.2, at least one valid configured threshold greater than its roll maximum.
 
 Canary validates or generates the fixture. Platform imports it and proves the expected visibility for at least two profiles or target releases.
 
@@ -397,6 +418,15 @@ Schema `1.1.0` uses a consumer-first-safe rollout:
 5. add NPCs, quests, map availability and historical profiles as separate slices.
 
 An older consumer rejects `1.1.0` fail closed. A newer consumer continues to validate and activate retained `1.0.0` snapshots. Producer `1.1.0` output must not be routed to an older consumer.
+
+Schema `1.2.0` also uses consumer-first rollout:
+
+1. merge Platform schema, persistence, rollback guard and truthful read support;
+2. merge a separate Canary producer task with byte-identical schema and fixture files;
+3. require a full default-datapack export with no dangling endpoints or probability coercion;
+4. review the inactive snapshot before any staging activation.
+
+An older consumer rejects `1.2.0` fail closed. A newer consumer retains schema 1.0/1.1 import and rollback compatibility.
 
 No production deployment or profile activation is authorized by this contract.
 

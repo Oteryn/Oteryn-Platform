@@ -68,6 +68,7 @@ return [
     'chance' => 'Szansa',
     'count' => 'Liczba',
     'chance_ratio' => ':numerator / :denominator',
+    'chance_threshold' => 'skonfigurowany próg :threshold / maksimum losowania :maximum (zależny od kontekstu)',
     'count_single' => ':count',
     'count_range' => ':minimum–:maximum',
     'back_to_items' => 'Wróć do przedmiotów',
