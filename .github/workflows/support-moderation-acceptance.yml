@@ -186,6 +186,11 @@ jobs:
         run: bash scripts/acceptance/bootstrap-production-like.sh
 
       - name: Execute focused database and security regressions
+        env:
+          APP_ENV: testing
+          SESSION_DRIVER: array
+          CACHE_STORE: array
+          MAIL_MAILER: array
         run: php artisan test tests/Feature/Support/SupportModerationLifecycleTest.php
 
       - name: Start exact-SHA Laravel HTTP runtime
