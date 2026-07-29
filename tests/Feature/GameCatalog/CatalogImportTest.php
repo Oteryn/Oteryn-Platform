@@ -6,6 +6,7 @@ use App\GameCatalog\Application\Import\CatalogImportService;
 use App\GameCatalog\Application\Import\CatalogSnapshotValidator;
 use App\GameCatalog\Application\Import\ValidatedCatalogSnapshot;
 use App\GameCatalog\Domain\Exceptions\CatalogValidationException;
+use Illuminate\Database\Migrations\Migration;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
@@ -84,8 +85,10 @@ final class CatalogImportTest extends TestCase
         self::assertSame('canary_dynamic_threshold_v1', $loot->chance_model);
         self::assertNull($loot->chance_numerator);
         self::assertNull($loot->chance_denominator);
-        self::assertSame(12, (int) $loot->chance_threshold);
-        self::assertSame(10, (int) $loot->roll_maximum);
+        self::assertIsInt($loot->chance_threshold);
+        self::assertIsInt($loot->roll_maximum);
+        self::assertSame(12, $loot->chance_threshold);
+        self::assertSame(10, $loot->roll_maximum);
     }
 
     public function test_schema_12_rejects_mixed_probability_and_threshold_payloads(): void
@@ -115,6 +118,7 @@ final class CatalogImportTest extends TestCase
     {
         app(CatalogImportService::class)->import($this->fixtureV12Path());
         $migration = require base_path('database/migrations/2026_07_29_174500_add_game_catalog_loot_chance_model.php');
+        self::assertInstanceOf(Migration::class, $migration);
 
         $this->expectException(RuntimeException::class);
         $this->expectExceptionMessage('runtime-threshold rows exist');

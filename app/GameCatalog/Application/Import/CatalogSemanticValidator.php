@@ -171,11 +171,7 @@ final class CatalogSemanticValidator
             $this->validateSourcePath($relation['source_path'], $path.'.source_path', $findings);
 
             $data = $relation['data'];
-            if (isset($data['chance_model'])) {
-                if ($data['chance_model'] !== 'canary_dynamic_threshold_v1') {
-                    $findings[] = $this->finding('semantic.loot_chance_model', 'Loot chance model is unsupported.', $path.'.data.chance_model');
-                }
-            } elseif ($data['chance_numerator'] > $data['chance_denominator']) {
+            if (! isset($data['chance_model']) && $data['chance_numerator'] > $data['chance_denominator']) {
                 $findings[] = $this->finding('semantic.loot_probability', 'Loot chance numerator cannot exceed its denominator.', $path.'.data');
             }
             if ($data['minimum_count'] > $data['maximum_count']) {
