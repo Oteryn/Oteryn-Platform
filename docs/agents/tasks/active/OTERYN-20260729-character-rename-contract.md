@@ -79,10 +79,10 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-07-29T21:55:00Z
-head: f90bb8075b300569b7d493c84f0080e6b3295c35
+updated_at: 2026-07-29T21:58:00Z
+head: 5347aaa9dabd4277c071f46ea9ff9753f91d26c9
 branch: docs/OTERYN-20260729-character-rename-contract
-pr: none
+pr: 328
 status: investigating
 context_routes:
   - agent-governance
@@ -102,10 +102,11 @@ owned_paths:
   - docs/agents/{PROJECT_STATE,ACTIVE_WORK}.md
   - docs/agents/tasks/active/OTERYN-20260729-character-rename-contract.md
 proven:
-  - PR #308 completed and archived Issue #307 as the Platform-owned comment, per-character privacy and main-character slice; parent Issue #277 remains open.
-  - Issue #324 is open for read-only character-rename contract discovery and explicitly excludes Canary writes or runtime activation.
+  - PR #308 completed Issue #307 as the Platform-owned comment, per-character privacy and main-character slice; PR #318 archived that task as merge f90bb8075b300569b7d493c84f0080e6b3295c35 after all seven archive-head workflows passed.
+  - Parent Issue #277 remains open and Issue #324 is open for read-only character-rename contract discovery with draft PR #328.
   - Root repository policy permits autonomous writes only in blakinio/Oteryn-Platform and requires blakinio/canary to remain read-only without separate authorization.
   - Current durable contracts require an operation-specific owner, exact fields, authorization, locking, compatibility, rollout and rollback before any Canary mutation.
+  - One-shot initialization run 30494263055 registered the active task in ACTIVE_WORK and PROJECT_STATE, validated all active checkpoints and removed its temporary files.
 derived:
   - Character rename cannot safely proceed as an implementation task until authoritative Canary naming and runtime behavior plus all affected Platform projections are reconciled.
   - A documentation-only discovery task can reduce uncertainty without provisioning credentials or mutating either runtime.
@@ -116,17 +117,25 @@ unknown:
 conflicts: []
 first_failure:
   marker: none
-  evidence: Discovery has not started; no implementation or validation failure exists.
+  evidence: Discovery has not started; initialization and checkpoint validation passed.
 rejected_hypotheses:
   - Reuse the Character Bazaar account_id transfer principal for name mutation.
   - Assume generic TFS/MyAAC rename behavior is authoritative for Oteryn Canary.
   - Implement a browser rename endpoint before proving runtime, dependent-reference and rollback semantics.
 changed_paths:
+  - docs/agents/ACTIVE_WORK.md
+  - docs/agents/PROJECT_STATE.md
   - docs/agents/tasks/active/OTERYN-20260729-character-rename-contract.md
 validation:
-  - command: not-run
-    result: NOT_RUN
-    evidence: Task initialization only.
+  - command: python tools/agents/checkpoint.py docs/agents/tasks/active/OTERYN-20260729-character-rename-contract.md --require-checkpoint
+    result: PASS
+    evidence: One-shot initialization run 30494263055.
+  - command: python tools/agents/checkpoint.py --tasks docs/agents/tasks/active --require-checkpoint
+    result: PASS
+    evidence: One-shot initialization run 30494263055.
+  - command: python tools/agents/test_checkpoint.py
+    result: PASS
+    evidence: One-shot initialization run 30494263055.
 blockers:
   - No Canary mutation implementation is authorized; discovery and contract documentation remain unblocked.
 next_action: Inspect current blakinio/canary schema and source read-only for players.name ownership, uniqueness, normalization, online/session restrictions, dependent references and runtime cache behavior, then map those facts to affected Oteryn Platform surfaces.
