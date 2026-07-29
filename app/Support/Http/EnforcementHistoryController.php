@@ -42,10 +42,10 @@ final class EnforcementHistoryController
         ManageEnforcementRecord $records,
     ): RedirectResponse {
         $identity = $this->identity($request);
-        $validated = $request->validate(['lock_version' => ['required', 'integer', 'min:1']]);
+        $request->validate(['lock_version' => ['required', 'integer', 'min:1']]);
 
         try {
-            $records->acknowledge($identity, $enforcementRecord, (int) $validated['lock_version']);
+            $records->acknowledge($identity, $enforcementRecord, $request->integer('lock_version'));
         } catch (DomainException $exception) {
             throw new ConflictHttpException($exception->getMessage(), $exception);
         }
