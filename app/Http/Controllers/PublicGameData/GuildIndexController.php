@@ -15,6 +15,7 @@ final class GuildIndexController
 
     public function __invoke(Request $request): View|Response
     {
+        /** @var array{q?: mixed} $validated */
         $validated = $request->validate([
             'q' => ['nullable', 'string', 'max:'.CommunityDataPolicy::guildSearchLimit()],
         ]);
