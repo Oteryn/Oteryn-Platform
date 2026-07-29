@@ -116,7 +116,7 @@ return new class extends Migration
             $table->timestamps();
 
             $table->unique(['identity_id', 'event_key', 'related_type', 'related_id'], 'support_notification_unique');
-            $table->index(['identity_id', 'status', 'created_at']);
+            $table->index(['identity_id', 'status', 'created_at'], 'support_delivery_identity_status_created_idx');
         });
 
         $now = now();
