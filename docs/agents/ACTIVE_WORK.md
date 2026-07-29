@@ -4,10 +4,11 @@ Convenience index only. Individual active task records, live PRs and Git state a
 
 ## Active tasks
 
-- `OTERYN-20260729-game-catalog-first-scope-closeout` — reconcile Issue #281 to the Game Catalog first scope delivered by PR #272 and move unsupported planned/optional knowledge capabilities to #301/#302 without changing their delivery status.
+- None.
 
 ## Closed acceptance and release-preparation follow-ups
 
+- PR #303 / `e1df0608eb6a8321f47fe51da65233a613a27b25` — reconciled Issue #281 to the authoritative item/weapon/creature/loot Game Catalog scope delivered by PR #272, preserved unsupported knowledge gaps under #277/#301/#302 and closed #281 after all eight exact-final-head workflows passed; no runtime, Canary, external-repository or production mutation occurred.
 - PR #300 / `7f2c37ca2a2447623705f60dffc08a34b9c755d3` — archived the completed community-data task, cleared ACTIVE_WORK and reconciled project state after Issue #280 closure.
 - PR #298 / `7533b12b1e1c6d266c6bf5a8800e584fad23a01e` — bounded read-only highscore categories, privacy-aware rich character profiles, latest deaths/kill statistics, guild directory/search, explicit optional-feature policy and EN/PL responsive acceptance merged after every exact-final-head workflow passed; Issue #280 closed without Canary mutation or a production-verification claim.
 - PR #293 / `02aa4ab8180c0e9cecb0d42bc1f8f5af6db640a1` — complete Platform-owned support/moderation lifecycle with owner tickets, bounded reports, exact-MFA/RBAC moderator queues, enforcement/appeals, notifications, retention/privacy and EN/PL responsive acceptance merged; Issue #279 closed without Canary mutation, attachments or a production-verification claim.
@@ -70,7 +71,7 @@ Repository and staging evidence remains valid only for its documented boundaries
 
 - **Production Readiness: STAGING_PROVEN for previously documented boundaries**
 - **Portal Completeness: COMPLETE AGAINST THE VERSIONED DELIVERED-SURFACE CONTRACT (Issue #240 closed)**
-- **Product Completeness Benchmark: COMPLETE AS AN AUDIT; REQUIRED PRODUCT GAP #277 REMAINS OPEN, #278 IS MANDATORY BEFORE COMMERCE, AND #281 IS IN FIRST-SCOPE CLOSEOUT**
+- **Product Completeness Benchmark: COMPLETE AS AN AUDIT; REQUIRED PRODUCT GAP #277 REMAINS OPEN, #278 IS MANDATORY BEFORE COMMERCE, #281 FIRST SCOPE IS COMPLETE, AND #301/#302 TRACK DEFERRED KNOWLEDGE**
 - **Benchmark Product Completeness: NOT YET ACHIEVED**
 - **Functional Acceptance: community-data exact-head CI, strict ledgers and zero-retry lifecycle passed through PR #298**
 - **Visual / UX Acceptance: community-data English/Polish desktop/tablet/mobile evidence and complete E2E/Visual UX passed through PR #298**
@@ -84,7 +85,7 @@ The latest verified final-portal staging refresh identity is `583cae5f430998b2bb
 
 ## Next work
 
-The active closeout reconciles #281 to its delivered first Game Catalog scope. Remaining implementation trackers are #277 character management/profile, #301 authoritative structured catalogue expansion and #302 optional knowledge/discovery planning. Issue #278 is mandatory before commercial activation; #244 and #91 remain separate presentation and production trackers.
+The remaining benchmark implementation trackers are #277 character management/profile, #301 authoritative structured catalogue expansion and #302 optional knowledge/discovery planning. Issue #278 is mandatory before commercial activation; #244 and #91 remain separate presentation and production trackers.
 
 ## Remaining cross-repository dependency
 
