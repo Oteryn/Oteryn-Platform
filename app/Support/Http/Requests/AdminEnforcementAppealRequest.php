@@ -4,6 +4,7 @@ namespace App\Support\Http\Requests;
 
 use App\Identity\Models\Identity;
 use App\Support\Models\EnforcementRecord;
+use App\Support\SupportConfiguration;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 
@@ -23,7 +24,7 @@ final class AdminEnforcementAppealRequest extends FormRequest
                 EnforcementRecord::APPEAL_ACCEPTED,
                 EnforcementRecord::APPEAL_REJECTED,
             ])],
-            'appeal_outcome' => ['nullable', 'string', 'max:'.config('support.enforcement.appeal_max_length', 4000)],
+            'appeal_outcome' => ['nullable', 'string', 'max:'.SupportConfiguration::positiveInteger('support.enforcement.appeal_max_length', 4000)],
             'lock_version' => ['required', 'integer', 'min:1'],
         ];
     }
