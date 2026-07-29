@@ -1,6 +1,6 @@
 # ADR 0018: Represent an unknown Game Catalog verified boundary explicitly
 
-Status: Accepted  
+Status: Accepted
 Date: 2026-07-29
 
 ## Context
