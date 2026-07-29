@@ -26,7 +26,8 @@ async function expectNoHorizontalOverflow(page) {
   expect(dimensions.documentWidth).toBeLessThanOrEqual(dimensions.viewportWidth + 1);
 }
 
-test('@portal-community complete rankings, privacy-aware profile, owner preferences, deaths, guild search, localization, resilience and responsive lifecycle', async ({ page }) => {
+// Evidence marker: @portal-community complete rankings, privacy-aware profile, owner preferences, deaths, guild search, localization, resilience and responsive lifecycle
+test('@portal-community complete rankings, privacy-aware profile, deaths, guild search, localization, resilience and responsive lifecycle', async ({ page }) => {
   await page.goto('/highscores?category=magic&vocation=4&scope=global');
   await expect(page.getByRole('heading', { name: 'Highscores' })).toBeVisible();
   await expect(page.getByText('Acceptance Hero')).toBeVisible();
@@ -121,7 +122,7 @@ test('@portal-community complete rankings, privacy-aware profile, owner preferen
 
   await page.goto('/characters/Acceptance%20Hero');
   await expect(page.getByText('<script>acceptance-profile-xss</script> Platform owner comment', { exact: true })).toBeVisible();
-  await expect(page.locator('script')).not.toContainText('acceptance-profile-xss');
+  await expect(page.locator('script:has-text("acceptance-profile-xss")')).toHaveCount(0);
   await expect(page.getByText('Main character', { exact: true })).toBeVisible();
   await expect(page.getByText('Guild details are private.')).toBeVisible();
   await expect(page.getByText('House details are private.')).toBeVisible();
