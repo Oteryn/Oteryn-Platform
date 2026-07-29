@@ -3,7 +3,6 @@
 namespace App\CharacterProfiles;
 
 use App\Accounts\Models\IdentityCanaryAccount;
-use App\Audit\SecurityEventRecorder;
 use App\CharacterProfiles\Models\CharacterProfilePreference;
 use App\Identity\Models\Identity;
 use App\PublicGameData\CanaryGameDataRepository;
@@ -14,7 +13,7 @@ final class CharacterProfilePreferenceService
 {
     public function __construct(
         private readonly CanaryGameDataRepository $gameData,
-        private readonly SecurityEventRecorder $securityEvents,
+        private readonly CharacterProfileEventRecorder $events,
     ) {}
 
     /**
@@ -36,7 +35,7 @@ final class CharacterProfilePreferenceService
 
     /**
      * @param  array{
-     *     public_comment: string,
+     *     public_comment: string|null,
      *     show_account_association: bool,
      *     show_status: bool,
      *     show_guild: bool,
@@ -75,18 +74,15 @@ final class CharacterProfilePreferenceService
             $preference ??= $this->newPreference($lockedIdentity->id, $playerId);
             $preference->forceFill($attributes)->save();
 
-            $this->securityEvents->recordCharacterProfilePreferencesUpdated($lockedIdentity->id);
+            $this->events->recordPreferencesUpdated($lockedIdentity->id);
             if ($attributes['is_main_character'] && ! $wasMain) {
-                $this->securityEvents->recordMainCharacterSelected($lockedIdentity->id);
+                $this->events->recordMainCharacterSelected($lockedIdentity->id);
             }
 
             return $preference;
         }, 3);
     }
 
-    /**
-     * @return stdClass
-     */
     private function ownedActiveCharacter(Identity $identity, string $name): stdClass
     {
         $binding = IdentityCanaryAccount::query()->whereKey($identity->id)->first();
