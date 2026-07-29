@@ -30,6 +30,12 @@ final class AdminPermission
 
     public const MANAGE_SUPPORT_CONTENT = 'support.content.manage';
 
+    public const MANAGE_SUPPORT_TICKETS = 'support.tickets.manage';
+
+    public const MANAGE_SUPPORT_REPORTS = 'support.reports.manage';
+
+    public const MANAGE_SUPPORT_ENFORCEMENT = 'support.enforcement.manage';
+
     public const MANAGE_MARKETPLACE = 'marketplace.manage';
 
     public const GAME_CATALOG_ACCESS = 'game_catalog.access';
@@ -73,6 +79,9 @@ final class AdminPermission
             self::MANAGE_EVENTS,
             self::PUBLISH_EVENTS,
             self::MANAGE_SUPPORT_CONTENT,
+            self::MANAGE_SUPPORT_TICKETS,
+            self::MANAGE_SUPPORT_REPORTS,
+            self::MANAGE_SUPPORT_ENFORCEMENT,
             self::MANAGE_MARKETPLACE,
             self::GAME_CATALOG_ACCESS,
             self::VIEW_GAME_CATALOG_SNAPSHOTS,

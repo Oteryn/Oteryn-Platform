@@ -10,6 +10,7 @@
     <link rel="stylesheet" href="{{ asset('css/wiki-admin.css') }}">
     <link rel="stylesheet" href="{{ asset('css/marketplace.css') }}">
     <link rel="stylesheet" href="{{ asset('css/marketplace-responsive.css') }}">
+    <link rel="stylesheet" href="{{ asset('css/support.css') }}">
     @stack('head')
 </head>
 <body class="admin-body">
@@ -42,6 +43,10 @@
             <a href="{{ route('admin.wiki.index') }}" @if(request()->routeIs('admin.wiki.*')) aria-current="page" @endif>Wiki</a>
             <p class="admin-nav-group">Access</p>
             <a href="{{ route('admin.roles.index') }}" @if(request()->routeIs('admin.roles.*')) aria-current="page" @endif>Roles</a>
+            <p class="admin-nav-group">Support</p>
+            <a href="{{ route('admin.support.tickets.index', ['locale' => app()->getLocale()]) }}" @if(request()->routeIs('admin.support.tickets.*')) aria-current="page" @endif>{{ __('support.nav.admin_tickets') }}</a>
+            <a href="{{ route('admin.moderation.reports.index', ['locale' => app()->getLocale()]) }}" @if(request()->routeIs('admin.moderation.reports.*')) aria-current="page" @endif>{{ __('support.nav.admin_reports') }}</a>
+            <a href="{{ route('admin.moderation.enforcement.index', ['locale' => app()->getLocale()]) }}" @if(request()->routeIs('admin.moderation.enforcement.*')) aria-current="page" @endif>{{ __('support.nav.admin_enforcement') }}</a>
             <p class="admin-nav-group">Operations</p>
             <a href="{{ route('admin.game-catalog.index') }}" @if(request()->routeIs('admin.game-catalog.*')) aria-current="page" @endif>Game Catalog</a>
             @if (config('marketplace.enabled'))
@@ -61,6 +66,9 @@
                 <a href="{{ route('admin.media.index') }}" @if(request()->routeIs('admin.media.*')) aria-current="page" @endif>Editorial media</a>
                 <a href="{{ route('admin.wiki.index') }}" @if(request()->routeIs('admin.wiki.*')) aria-current="page" @endif>Wiki</a>
                 <a href="{{ route('admin.roles.index') }}" @if(request()->routeIs('admin.roles.*')) aria-current="page" @endif>Roles</a>
+                <a href="{{ route('admin.support.tickets.index', ['locale' => app()->getLocale()]) }}" @if(request()->routeIs('admin.support.tickets.*')) aria-current="page" @endif>{{ __('support.nav.admin_tickets') }}</a>
+                <a href="{{ route('admin.moderation.reports.index', ['locale' => app()->getLocale()]) }}" @if(request()->routeIs('admin.moderation.reports.*')) aria-current="page" @endif>{{ __('support.nav.admin_reports') }}</a>
+                <a href="{{ route('admin.moderation.enforcement.index', ['locale' => app()->getLocale()]) }}" @if(request()->routeIs('admin.moderation.enforcement.*')) aria-current="page" @endif>{{ __('support.nav.admin_enforcement') }}</a>
                 <a href="{{ route('admin.game-catalog.index') }}" @if(request()->routeIs('admin.game-catalog.*')) aria-current="page" @endif>Game Catalog</a>
                 @if (config('marketplace.enabled'))
                     <a href="{{ route('admin.marketplace.index') }}" @if(request()->routeIs('admin.marketplace.*')) aria-current="page" @endif>Character Bazaar</a>

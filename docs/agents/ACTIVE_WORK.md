@@ -4,7 +4,7 @@ Convenience index only. Individual active task records, live PRs and Git state a
 
 ## Active tasks
 
-- None.
+- `OTERYN-20260728-support-moderation-lifecycle` — Issue #279 authenticated tickets, bounded reports, moderator queues, enforcement history, notifications, retention/privacy and responsive acceptance.
 
 ## Closed acceptance and release-preparation follow-ups
 
