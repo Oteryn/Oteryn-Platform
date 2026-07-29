@@ -7,6 +7,7 @@
     <title>@yield('title') · {{ config('app.name') }}</title>
     <link rel="stylesheet" href="{{ asset('css/app.css') }}">
     <link rel="stylesheet" href="{{ asset('css/mfa.css') }}">
+    <link rel="stylesheet" href="{{ asset('css/support.css') }}">
 </head>
 <body class="identity-body">
 <a class="skip-link" href="#main-content">{{ __('identity.layout.skip_to_content') }}</a>
