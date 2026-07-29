@@ -46,14 +46,14 @@ test('@portal-community complete rankings, privacy-aware profile, deaths, guild 
 
   await page.goto('/deaths');
   await expect(page.getByRole('heading', { name: 'Latest deaths' })).toBeVisible();
-  await expect(page.getByText('Acceptance Hero')).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Acceptance Hero', exact: true })).toBeVisible();
   await expect(page.getByText('Acceptance Dragon')).toBeVisible();
   await expect(page.getByText(/no authoritative world-transfer source/u)).toBeVisible();
   await expectNoHorizontalOverflow(page);
 
   await page.goto('/guilds?q=Acceptance');
   await expect(page.getByRole('heading', { name: 'Guild directory' })).toBeVisible();
-  await expect(page.getByText('Acceptance Guild')).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Acceptance Guild', exact: true })).toBeVisible();
   await expect(page.getByText(/Guild administration is not exposed by the Platform/u)).toBeVisible();
   await expectNoHorizontalOverflow(page);
 
