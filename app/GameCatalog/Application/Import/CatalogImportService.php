@@ -374,10 +374,14 @@ final class CatalogImportService
             ]);
 
             $data = $relation['data'];
+            $runtimeThreshold = isset($data['chance_model']);
             DB::table('game_catalog_loot_snapshots')->insert([
                 'relation_snapshot_id' => $relationSnapshotId,
-                'chance_numerator' => $data['chance_numerator'],
-                'chance_denominator' => $data['chance_denominator'],
+                'chance_model' => $runtimeThreshold ? $data['chance_model'] : 'rational_probability',
+                'chance_numerator' => $runtimeThreshold ? null : $data['chance_numerator'],
+                'chance_denominator' => $runtimeThreshold ? null : $data['chance_denominator'],
+                'chance_threshold' => $runtimeThreshold ? $data['chance_threshold'] : null,
+                'roll_maximum' => $runtimeThreshold ? $data['roll_maximum'] : null,
                 'minimum_count' => $data['minimum_count'],
                 'maximum_count' => $data['maximum_count'],
                 'container_path' => $data['container_path'],

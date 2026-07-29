@@ -4,6 +4,12 @@ All notable architecture- and behavior-level changes to Oteryn Platform should b
 
 ## Unreleased
 
+### Game Catalog schema 1.2 — 2026-07-29
+
+- Added version-pinned `canary_dynamic_threshold_v1` loot chance support.
+- Preserved configured thresholds and declared roll maxima without clamping or false percentage rendering.
+- Kept schema 1.0/1.1 rational rows compatible and added a rollback guard for unrepresentable threshold rows.
+
 ### Game Catalog schema 1.1 — 2026-07-29
 
 - Added version-pinned schema `1.1.0` support for an explicitly unknown verified-content boundary.

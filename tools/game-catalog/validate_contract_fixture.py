@@ -273,10 +273,18 @@ def _validate_fixture_semantics(
         _require(relation["source"] in entity_key_set, f"{owner}: dangling source endpoint")
         _require(relation["target"] in entity_key_set, f"{owner}: dangling target endpoint")
         data = relation["data"]
-        _require(
-            0 <= data["chance_numerator"] <= data["chance_denominator"],
-            f"{owner}: invalid loot probability",
-        )
+        if expected_schema_version == "1.2.0":
+            _require(
+                data["chance_model"] == "canary_dynamic_threshold_v1",
+                f"{owner}: unsupported loot chance model",
+            )
+            _require(data["chance_threshold"] >= 0, f"{owner}: invalid loot threshold")
+            _require(data["roll_maximum"] > 0, f"{owner}: invalid loot roll maximum")
+        else:
+            _require(
+                0 <= data["chance_numerator"] <= data["chance_denominator"],
+                f"{owner}: invalid loot probability",
+            )
         _require(
             data["minimum_count"] <= data["maximum_count"],
             f"{owner}: maximum_count is below minimum_count",

@@ -71,6 +71,21 @@ final class PublicGameCatalogTest extends TestCase
         $this->get('/en/wiki/creatures?bestiary_class[]=fixture')->assertUnprocessable();
     }
 
+    public function test_runtime_threshold_is_presented_as_contextual_configuration(): void
+    {
+        $this->activatePublicProfile('15.20', $this->fixtureV12Path());
+
+        $this->get('/en/wiki/creatures/fixture-rat')
+            ->assertOk()
+            ->assertSee('configured threshold 12 / roll maximum 10 (contextual)')
+            ->assertDontSee('120%');
+
+        $this->get('/pl/wiki/items/fixture-sword')
+            ->assertOk()
+            ->assertSee('skonfigurowany próg 12 / maksimum losowania 10 (zależny od kontekstu)')
+            ->assertDontSee('120%');
+    }
+
     public function test_approved_translation_controls_public_name_and_slug_but_stale_translation_does_not(): void
     {
         $this->activatePublicProfile('15.20');
@@ -121,9 +136,9 @@ final class PublicGameCatalogTest extends TestCase
         $this->get('/en/wiki/items/fixture-sword')->assertNotFound();
     }
 
-    private function activatePublicProfile(string $releaseKey): void
+    private function activatePublicProfile(string $releaseKey, ?string $fixturePath = null): void
     {
-        $snapshot = app(CatalogImportService::class)->import($this->fixturePath());
+        $snapshot = app(CatalogImportService::class)->import($fixturePath ?? $this->fixturePath());
         $now = CarbonImmutable::now('UTC');
 
         DB::table('game_catalog_profiles')->insert([
@@ -149,6 +164,11 @@ final class PublicGameCatalogTest extends TestCase
     private function fixturePath(): string
     {
         return base_path('tests/Fixtures/GameCatalog/v1/minimal-snapshot.json');
+    }
+
+    private function fixtureV12Path(): string
+    {
+        return base_path('tests/Fixtures/GameCatalog/v1.2/minimal-snapshot.json');
     }
 
     private function databaseInt(mixed $value): int

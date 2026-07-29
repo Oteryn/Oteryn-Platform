@@ -67,6 +67,64 @@ final class CatalogImportTest extends TestCase
             ->value('schema_version'));
     }
 
+    public function test_schema_12_import_preserves_runtime_threshold_without_a_probability_fraction(): void
+    {
+        $validated = app(CatalogSnapshotValidator::class)->validate($this->fixtureV12Path());
+        self::assertSame('1.2.0', $validated->payload['schema_version']);
+        self::assertSame('a9fa1e3c6366a90d61005796511c344ced9c39594ed676276279a5917287c6de', $validated->schemaSha256);
+
+        $result = app(CatalogImportService::class)->import($this->fixtureV12Path());
+        $loot = DB::table('game_catalog_loot_snapshots')
+            ->join('game_catalog_relation_snapshots', 'game_catalog_relation_snapshots.id', '=', 'game_catalog_loot_snapshots.relation_snapshot_id')
+            ->where('game_catalog_relation_snapshots.snapshot_id', $result->snapshotId)
+            ->orderBy('game_catalog_relation_snapshots.canonical_key')
+            ->first();
+
+        self::assertNotNull($loot);
+        self::assertSame('canary_dynamic_threshold_v1', $loot->chance_model);
+        self::assertNull($loot->chance_numerator);
+        self::assertNull($loot->chance_denominator);
+        self::assertIsInt($loot->chance_threshold);
+        self::assertIsInt($loot->roll_maximum);
+        self::assertSame(12, $loot->chance_threshold);
+        self::assertSame(10, $loot->roll_maximum);
+    }
+
+    public function test_schema_12_rejects_mixed_probability_and_threshold_payloads(): void
+    {
+        $path = $this->temporarySnapshot(function (array &$payload): void {
+            unset($payload['relations'][0]['data']['chance_model']);
+            $payload['relations'][0]['data']['chance_numerator'] = 12;
+            $payload['relations'][0]['data']['chance_denominator'] = 10;
+        }, $this->fixtureV12Path());
+
+        try {
+            app(CatalogImportService::class)->import($path);
+            self::fail('Expected the mixed loot chance payload to be rejected.');
+        } catch (CatalogValidationException $exception) {
+            self::assertContains('schema.required', array_map(
+                static fn ($finding): string => $finding->code,
+                $exception->findings,
+            ));
+        } finally {
+            @unlink($path);
+        }
+
+        self::assertSame(0, DB::table('game_catalog_snapshots')->count());
+    }
+
+    public function test_loot_chance_model_migration_rollback_blocks_unrepresentable_rows(): void
+    {
+        app(CatalogImportService::class)->import($this->fixtureV12Path());
+        $migration = require base_path('database/migrations/2026_07_29_174500_add_game_catalog_loot_chance_model.php');
+        $down = [$migration, 'down'];
+        self::assertIsCallable($down);
+
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('runtime-threshold rows exist');
+        $down();
+    }
+
     public function test_semantically_invalid_relation_is_rejected_without_partial_catalogue_state(): void
     {
         $path = $this->temporarySnapshot(function (array &$payload): void {
@@ -137,11 +195,16 @@ final class CatalogImportTest extends TestCase
         return base_path('tests/Fixtures/GameCatalog/v1.1/minimal-snapshot.json');
     }
 
+    private function fixtureV12Path(): string
+    {
+        return base_path('tests/Fixtures/GameCatalog/v1.2/minimal-snapshot.json');
+    }
+
     /** @param callable(CatalogPayload&): void $mutate */
-    private function temporarySnapshot(callable $mutate): string
+    private function temporarySnapshot(callable $mutate, ?string $fixturePath = null): string
     {
         try {
-            $contents = file_get_contents($this->fixturePath());
+            $contents = file_get_contents($fixturePath ?? $this->fixturePath());
             if (! is_string($contents)) {
                 throw new RuntimeException('The shared Game Catalog fixture could not be read.');
             }

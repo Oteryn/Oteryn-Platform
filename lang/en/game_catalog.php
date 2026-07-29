@@ -68,6 +68,7 @@ return [
     'chance' => 'Chance',
     'count' => 'Count',
     'chance_ratio' => ':numerator / :denominator',
+    'chance_threshold' => 'configured threshold :threshold / roll maximum :maximum (contextual)',
     'count_single' => ':count',
     'count_range' => ':minimum–:maximum',
     'back_to_items' => 'Back to items',

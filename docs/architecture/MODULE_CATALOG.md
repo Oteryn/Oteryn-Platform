@@ -383,13 +383,15 @@ Audit storage is not a replacement for infrastructure/application logs and must 
 
 ### Current available boundary
 
-Schema `1.0.0` remains supported for retained imports and rollback. Schema `1.1.0` additionally represents an unknown `verified_content_through_release` as null. Such snapshots may be imported for review but cannot be activated or exposed publicly.
+Schema `1.0.0` remains supported for retained imports and rollback. Schema `1.1.0` additionally represents an unknown `verified_content_through_release` as null. Schema `1.2.0` preserves exact Canary `canary_dynamic_threshold_v1` loot thresholds and declared roll maxima without presenting contextual thresholds as static probabilities. Unknown-boundary snapshots may be imported for review but cannot be activated or exposed publicly.
 
 ### Invariants
 
 - schema bytes and hashes are pinned per supported version;
 - null verified-content means unknown, never complete;
 - unsupported schema versions, malformed snapshots and schema/hash mismatches fail closed;
+- legacy rational loot probabilities and contextual runtime thresholds remain distinct persisted models;
+- threshold values are never clamped or rendered as percentages;
 - import never activates automatically;
 - activation failure preserves the prior active snapshot and projections;
 - production import or activation requires a separate environment-gated task.

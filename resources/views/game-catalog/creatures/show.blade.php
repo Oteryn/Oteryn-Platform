@@ -48,7 +48,11 @@
                 @foreach ($creature->loot as $loot)
                     <li>
                         <a href="{{ route('game-catalog.items.show', ['slug' => $loot->slug]) }}">{{ $loot->name }}</a>
-                        <span>{{ __('game_catalog.chance') }}: {{ __('game_catalog.chance_ratio', ['numerator' => $loot->chanceNumerator, 'denominator' => $loot->chanceDenominator]) }}</span>
+                        @if ($loot->chanceModel === 'rational_probability')
+                            <span>{{ __('game_catalog.chance') }}: {{ __('game_catalog.chance_ratio', ['numerator' => $loot->chanceNumerator, 'denominator' => $loot->chanceDenominator]) }}</span>
+                        @else
+                            <span>{{ __('game_catalog.chance') }}: {{ __('game_catalog.chance_threshold', ['threshold' => $loot->chanceThreshold, 'maximum' => $loot->rollMaximum]) }}</span>
+                        @endif
                         <span>{{ __('game_catalog.count') }}: {{ $loot->minimumCount === $loot->maximumCount ? __('game_catalog.count_single', ['count' => $loot->minimumCount]) : __('game_catalog.count_range', ['minimum' => $loot->minimumCount, 'maximum' => $loot->maximumCount]) }}</span>
                     </li>
                 @endforeach
