@@ -23,15 +23,23 @@ use Illuminate\Support\Carbon;
 final class SupportTicket extends Model
 {
     public const STATUS_OPEN = 'open';
+
     public const STATUS_WAITING_USER = 'waiting_user';
+
     public const STATUS_WAITING_STAFF = 'waiting_staff';
+
     public const STATUS_RESOLVED = 'resolved';
+
     public const STATUS_CLOSED = 'closed';
 
     public const CATEGORY_ACCOUNT = 'account';
+
     public const CATEGORY_CHARACTER = 'character';
+
     public const CATEGORY_TECHNICAL = 'technical';
+
     public const CATEGORY_PAYMENT = 'payment';
+
     public const CATEGORY_OTHER = 'other';
 
     /** @var list<string> */
