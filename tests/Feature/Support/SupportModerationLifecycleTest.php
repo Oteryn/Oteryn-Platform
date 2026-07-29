@@ -3,8 +3,6 @@
 namespace Tests\Feature\Support;
 
 use App\Identity\Models\Identity;
-use App\Support\Actions\ManageEnforcementRecord;
-use App\Support\Actions\ManagePlayerReport;
 use App\Support\Actions\ManageSupportTicket;
 use App\Support\Models\EnforcementRecord;
 use App\Support\Models\PlayerReport;
