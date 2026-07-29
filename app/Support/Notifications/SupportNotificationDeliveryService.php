@@ -11,10 +11,15 @@ use Throwable;
 final class SupportNotificationDeliveryService
 {
     public const TICKET_REPLY = 'ticket_reply';
+
     public const TICKET_STATUS = 'ticket_status';
+
     public const REPORT_OUTCOME = 'report_outcome';
+
     public const ENFORCEMENT_CREATED = 'enforcement_created';
+
     public const ENFORCEMENT_UPDATED = 'enforcement_updated';
+
     public const APPEAL_OUTCOME = 'appeal_outcome';
 
     public function queue(
