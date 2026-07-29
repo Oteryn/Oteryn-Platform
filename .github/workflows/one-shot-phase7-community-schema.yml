@@ -33,21 +33,14 @@ jobs:
           path = Path('.github/workflows/phase7-production-like-validation.yml')
           text = path.read_text(encoding='utf-8')
 
-          old_columns = '''              pronoun BIGINT NOT NULL DEFAULT 0,
-              istutorial BIGINT NOT NULL DEFAULT 0,'''
-          new_columns = '''              pronoun BIGINT NOT NULL DEFAULT 0,
-              lastlogin BIGINT UNSIGNED NOT NULL DEFAULT 0,
-              lastlogout BIGINT UNSIGNED NOT NULL DEFAULT 0,
-              boss_points BIGINT NOT NULL DEFAULT 0,
-              comment VARCHAR(255) NOT NULL DEFAULT '',
-              istutorial BIGINT NOT NULL DEFAULT 0,'''
+          old_columns = "              pronoun BIGINT NOT NULL DEFAULT 0,\n              istutorial BIGINT NOT NULL DEFAULT 0,"
+          new_columns = "              pronoun BIGINT NOT NULL DEFAULT 0,\n              lastlogin BIGINT UNSIGNED NOT NULL DEFAULT 0,\n              lastlogout BIGINT UNSIGNED NOT NULL DEFAULT 0,\n              boss_points BIGINT NOT NULL DEFAULT 0,\n              comment VARCHAR(255) NOT NULL DEFAULT '',\n              istutorial BIGINT NOT NULL DEFAULT 0,"
           if old_columns not in text and new_columns not in text:
               raise SystemExit('Phase 7 players column anchor not found')
           text = text.replace(old_columns, new_columns, 1)
 
-          old_tables = '''          CREATE TABLE IF NOT EXISTS canary.guild_ranks (id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY);
-          CREATE TABLE IF NOT EXISTS canary.channels (id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY);'''
-          new_tables = '''          CREATE TABLE IF NOT EXISTS canary.guild_ranks (id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY);
+          old_tables = "          CREATE TABLE IF NOT EXISTS canary.guild_ranks (id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY);\n          CREATE TABLE IF NOT EXISTS canary.channels (id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY);"
+          new_tables = """          CREATE TABLE IF NOT EXISTS canary.guild_ranks (id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY);
           CREATE TABLE IF NOT EXISTS canary.houses (
               id BIGINT UNSIGNED NOT NULL,
               channel_id BIGINT UNSIGNED NOT NULL DEFAULT 1,
@@ -67,7 +60,7 @@ jobs:
               INDEX player_deaths_time_index (time),
               INDEX player_deaths_killed_by_index (killed_by)
           );
-          CREATE TABLE IF NOT EXISTS canary.channels (id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY);'''
+          CREATE TABLE IF NOT EXISTS canary.channels (id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY);"""
           if old_tables not in text and new_tables not in text:
               raise SystemExit('Phase 7 table anchor not found')
           text = text.replace(old_tables, new_tables, 1)
