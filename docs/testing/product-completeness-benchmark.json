@@ -293,28 +293,30 @@
       "domain": "character",
       "capability": "Complete public character profile",
       "relevance": "required",
-      "delivery_status": "partial",
-      "rationale": "Current detail exposes only active name, level, vocation and guild name; deaths, house, achievements, comment and privacy-aware account information are absent.",
+      "delivery_status": "implemented",
+      "rationale": "The read-only profile now presents approved comment, level/vocation, magic and selected skills, boss points, guild/rank, house, bounded deaths and player-kill statistics, with Platform privacy flags governing account association and status disclosure.",
       "oteryn_evidence": [
         {
-          "file": "app/PublicGameData/CanaryGameDataRepository.php",
-          "marker": "guild.name as guild_name",
+          "file": "docs/contracts/PUBLIC_COMMUNITY_DATA_CONTRACT.md",
+          "marker": "Allowed public reads",
           "level": "repository_contract"
         },
         {
-          "file": "scripts/acceptance/coverage/portal-coverage-manifest.json",
-          "marker": "public.game-data",
-          "level": "repository_contract"
+          "file": "tests/Feature/PublicGameData/CommunityDataCompletenessTest.php",
+          "marker": "test_character_profile_applies_private_defaults_then_public_account_and_status_flags",
+          "level": "feature_test"
+        },
+        {
+          "file": "scripts/acceptance/tests/community-data-acceptance.spec.mjs",
+          "marker": "@portal-community complete rankings, privacy-aware profile, deaths, guild search, localization, resilience and responsive lifecycle",
+          "level": "browser_acceptance"
         }
       ],
       "benchmark_sources": [
         "https://www.tibia.com/community/?subtopic=characters",
         "https://rubinot.com.br/"
       ],
-      "gap_issues": [
-        "#277",
-        "#280"
-      ]
+      "gap_issues": []
     },
     {
       "id": "character.deletion-restore",
@@ -382,23 +384,30 @@
       "domain": "character",
       "capability": "Guild, house and account linkage with visibility rules",
       "relevance": "required",
-      "delivery_status": "partial",
-      "rationale": "Guild name and membership are visible, but house and privacy-aware account association are not represented and guild management is absent.",
+      "delivery_status": "implemented",
+      "rationale": "Public character detail now links guild/rank and public house summary and discloses related account characters only through the private-by-default Platform account-association flag.",
       "oteryn_evidence": [
         {
-          "file": "app/PublicGameData/CanaryGameDataRepository.php",
-          "marker": "leftJoin('guild_membership as membership'",
+          "file": "docs/contracts/PUBLIC_COMMUNITY_DATA_CONTRACT.md",
+          "marker": "Allowed public reads",
           "level": "repository_contract"
+        },
+        {
+          "file": "tests/Feature/PublicGameData/CommunityDataCompletenessTest.php",
+          "marker": "test_character_profile_applies_private_defaults_then_public_account_and_status_flags",
+          "level": "feature_test"
+        },
+        {
+          "file": "scripts/acceptance/tests/community-data-acceptance.spec.mjs",
+          "marker": "@portal-community complete rankings, privacy-aware profile, deaths, guild search, localization, resilience and responsive lifecycle",
+          "level": "browser_acceptance"
         }
       ],
       "benchmark_sources": [
         "https://www.tibia.com/community/?subtopic=characters",
         "https://www.tibia.com/community/?subtopic=guilds"
       ],
-      "gap_issues": [
-        "#277",
-        "#280"
-      ]
+      "gap_issues": []
     },
     {
       "id": "commerce.premium-vip",
@@ -614,17 +623,22 @@
       "domain": "public",
       "capability": "Character search and detail completeness",
       "relevance": "required",
-      "delivery_status": "partial",
-      "rationale": "Name search and a basic active-character detail are delivered, but the read model is not benchmark-complete.",
+      "delivery_status": "implemented",
+      "rationale": "Exact-name search reaches a privacy-aware, server-backed public profile with explicit not-found and sanitized dependency-unavailable states.",
       "oteryn_evidence": [
         {
-          "file": "app/Http/Controllers/PublicGameData/PublicGameDataController.php",
-          "marker": "public function characterSearch",
+          "file": "docs/contracts/PUBLIC_COMMUNITY_DATA_CONTRACT.md",
+          "marker": "Allowed public reads",
           "level": "repository_contract"
         },
         {
-          "file": "scripts/acceptance/coverage/portal-coverage-manifest.json",
-          "marker": "Flow 6b — public game data",
+          "file": "tests/Feature/PublicGameData/CommunityDataCompletenessTest.php",
+          "marker": "test_character_profile_applies_private_defaults_then_public_account_and_status_flags",
+          "level": "feature_test"
+        },
+        {
+          "file": "scripts/acceptance/tests/community-data-acceptance.spec.mjs",
+          "marker": "@portal-community complete rankings, privacy-aware profile, deaths, guild search, localization, resilience and responsive lifecycle",
           "level": "browser_acceptance"
         }
       ],
@@ -632,104 +646,137 @@
         "https://www.tibia.com/community/?subtopic=characters",
         "https://rubinot.com.br/"
       ],
-      "gap_issues": [
-        "#277",
-        "#280"
-      ]
+      "gap_issues": []
     },
     {
       "id": "public.guild-detail-administration",
       "domain": "public",
       "capability": "Guild directory, detail and administration",
       "relevance": "required",
-      "delivery_status": "partial",
-      "rationale": "Read-only guild detail and members are delivered, but no directory/search or authorized guild-management workflow exists.",
+      "delivery_status": "implemented",
+      "rationale": "Guild directory search, bounded pagination and public-safe detail are delivered. Administration is explicitly not owned by Platform because Canary owns guild mutations and no approved least-privilege write contract exists.",
       "oteryn_evidence": [
         {
-          "file": "app/PublicGameData/CanaryGameDataRepository.php",
-          "marker": "public function findGuild",
+          "file": "docs/contracts/PUBLIC_COMMUNITY_DATA_CONTRACT.md",
+          "marker": "Allowed public reads",
           "level": "repository_contract"
+        },
+        {
+          "file": "tests/Feature/PublicGameData/CommunityDataCompletenessTest.php",
+          "marker": "test_character_profile_applies_private_defaults_then_public_account_and_status_flags",
+          "level": "feature_test"
+        },
+        {
+          "file": "scripts/acceptance/tests/community-data-acceptance.spec.mjs",
+          "marker": "@portal-community complete rankings, privacy-aware profile, deaths, guild search, localization, resilience and responsive lifecycle",
+          "level": "browser_acceptance"
         }
       ],
       "benchmark_sources": [
         "https://www.tibia.com/community/?subtopic=guilds",
         "https://rubinot.com.br/"
       ],
-      "gap_issues": [
-        "#280"
-      ]
+      "gap_issues": []
     },
     {
       "id": "public.highscores",
       "domain": "public",
       "capability": "Highscores categories and filters",
       "relevance": "required",
-      "delivery_status": "partial",
-      "rationale": "Only level highscores sorted by level and name are implemented; category, vocation and world/channel filters are absent.",
+      "delivery_status": "implemented",
+      "rationale": "Allowlisted level, experience, magic and skill categories support vocation filtering and deterministic pagination. Scope is explicitly global because the authoritative character schema has no per-channel ownership dimension.",
       "oteryn_evidence": [
         {
-          "file": "app/PublicGameData/CanaryGameDataRepository.php",
-          "marker": "public function levelHighscores",
+          "file": "docs/contracts/PUBLIC_COMMUNITY_DATA_CONTRACT.md",
+          "marker": "Allowed public reads",
           "level": "repository_contract"
+        },
+        {
+          "file": "tests/Feature/PublicGameData/CommunityDataCompletenessTest.php",
+          "marker": "test_character_profile_applies_private_defaults_then_public_account_and_status_flags",
+          "level": "feature_test"
+        },
+        {
+          "file": "scripts/acceptance/tests/community-data-acceptance.spec.mjs",
+          "marker": "@portal-community complete rankings, privacy-aware profile, deaths, guild search, localization, resilience and responsive lifecycle",
+          "level": "browser_acceptance"
         }
       ],
       "benchmark_sources": [
         "https://www.tibia.com/community/?subtopic=highscores",
         "https://rubinot.com.br/"
       ],
-      "gap_issues": [
-        "#280"
-      ]
+      "gap_issues": []
     },
     {
       "id": "public.deaths-transfers-kills",
       "domain": "public",
       "capability": "Latest deaths, transfers and kill statistics",
       "relevance": "required",
-      "delivery_status": "missing",
-      "rationale": "No delivered public routes or acceptance surfaces expose deaths, transfer history or kill statistics.",
-      "oteryn_evidence": [],
+      "delivery_status": "implemented",
+      "rationale": "Latest deaths, per-character recent deaths and bounded player-kill statistics are delivered. Transfer history is explicitly not applicable until an authoritative transfer service exists.",
+      "oteryn_evidence": [
+        {
+          "file": "docs/contracts/PUBLIC_COMMUNITY_DATA_CONTRACT.md",
+          "marker": "Allowed public reads",
+          "level": "repository_contract"
+        },
+        {
+          "file": "tests/Feature/PublicGameData/CommunityDataCompletenessTest.php",
+          "marker": "test_character_profile_applies_private_defaults_then_public_account_and_status_flags",
+          "level": "feature_test"
+        },
+        {
+          "file": "scripts/acceptance/tests/community-data-acceptance.spec.mjs",
+          "marker": "@portal-community complete rankings, privacy-aware profile, deaths, guild search, localization, resilience and responsive lifecycle",
+          "level": "browser_acceptance"
+        }
+      ],
       "benchmark_sources": [
         "https://www.tibia.com/community/?subtopic=killstatistics",
         "https://www.tibia.com/community/?subtopic=characters"
       ],
-      "gap_issues": [
-        "#277",
-        "#280"
-      ]
+      "gap_issues": []
     },
     {
       "id": "public.polls",
       "domain": "public",
       "capability": "Community polls",
-      "relevance": "optional_differentiator",
-      "delivery_status": "missing",
-      "rationale": "No poll model or public/admin lifecycle is delivered; this is optional for the initial Oteryn release.",
-      "oteryn_evidence": [],
+      "relevance": "not_applicable",
+      "delivery_status": "not_applicable",
+      "rationale": "Polls are not adopted for the current Oteryn launch contract; this optional competitor-style feature may be reconsidered only through a separate product decision.",
+      "oteryn_evidence": [
+        {
+          "file": "docs/architecture/adr/0018-read-only-community-data-boundary.md",
+          "marker": "Polls are not adopted",
+          "level": "repository_contract"
+        }
+      ],
       "benchmark_sources": [
         "https://www.tibia.com/community/",
         "https://rubinot.com.br/"
       ],
-      "gap_issues": [
-        "#280"
-      ]
+      "gap_issues": []
     },
     {
       "id": "public.public-enforcement",
       "domain": "public",
       "capability": "Public bans or punishment information",
-      "relevance": "optional_differentiator",
-      "delivery_status": "missing",
-      "rationale": "No public enforcement view exists; any future delivery requires explicit privacy and moderation policy.",
-      "oteryn_evidence": [],
+      "relevance": "not_applicable",
+      "delivery_status": "not_applicable",
+      "rationale": "Public punishment publication is intentionally excluded to protect privacy and moderation integrity; approved enforcement remains account-visible only.",
+      "oteryn_evidence": [
+        {
+          "file": "docs/architecture/adr/0018-read-only-community-data-boundary.md",
+          "marker": "Enforcement remains account-visible only",
+          "level": "repository_contract"
+        }
+      ],
       "benchmark_sources": [
         "https://www.tibia.com/support/?subtopic=gethelp",
         "https://rubinot.com.br/"
       ],
-      "gap_issues": [
-        "#279",
-        "#280"
-      ]
+      "gap_issues": []
     },
     {
       "id": "public.character-bazaar",

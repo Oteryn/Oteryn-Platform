@@ -233,3 +233,11 @@ Admin audit records, integration errors, deployment metadata, marketplace saga f
 Character/guild/highscore data explicitly intended for public display, including the allowlisted immutable Character Bazaar snapshot. Canary account IDs, sessions, IPs and credentials are never public snapshot fields.
 
 Classification affects logging, access, retention and export behavior.
+
+## Public community read ownership
+
+Canary owns character levels, vocation, experience, magic/skill values, comments, boss points, guild membership/ranks, houses, deaths and runtime leases. Oteryn Platform reads the approved subset through the dedicated direct-table `SELECT` principal and does not copy these values into a competing mutable source of truth.
+
+Platform Identity owns `public_account_association` and `public_status_visible`. A ready server-resolved Identity-to-Canary binding is required before related characters or status timestamps may be disclosed. Browser-supplied account, Identity or player identifiers are never ownership evidence.
+
+The current character model is global across channels. Per-channel highscore ownership, world-transfer history and selectable achievements have no authoritative current source and remain explicitly unavailable rather than inferred. Canary continues to own guild mutations; Platform delivers directory/search/detail only.

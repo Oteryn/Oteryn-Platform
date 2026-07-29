@@ -312,3 +312,11 @@ A production release must not be called security-ready until at least:
 - security-sensitive audit events are available;
 - request correlation is available and deployed logging/alerting handling is verified against the actual production sink;
 - known critical/high security findings are resolved or explicitly accepted by the owner.
+
+## Public community data controls
+
+Public community reads use a dedicated Canary credential with direct `SELECT` only on `players`, `guilds`, `guild_membership`, `guild_ranks`, `houses`, `player_deaths`, `channels` and `cluster_sessions`. Effective grants are verified without write probes; schema-wide, role-indirect, grant-option and write privileges fail closed.
+
+Public profile assembly applies Platform privacy flags before presentation and excludes internal Identity/binding IDs, account IDs, email, IP data, runtime lease internals, raw death participant payloads, house coordinates and moderator-only enforcement data. Highscore sort columns come from a fixed application allowlist, while category/vocation inputs are validated against bounded enumerations.
+
+Canary/Platform query failures render localized `503` states without SQL or credential disclosure. Empty and not-found responses are never used to hide dependency failure. Guild administration, public enforcement publication and every Canary mutation remain outside this read-only boundary.

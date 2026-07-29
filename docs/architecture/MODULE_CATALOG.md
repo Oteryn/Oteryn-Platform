@@ -497,3 +497,26 @@ No payment-provider implementation belongs in the current core platform or Chara
 Future requirements include provider abstraction, signed webhook verification, provider-event idempotency, immutable provider/financial ledgers, reconciliation, refunds/chargebacks, tax/legal review and explicit separation from Oteryn Coins gameplay policy.
 
 Payments must not become a dependency of basic Identity/account creation/login, and must not reuse Canary mutable coin fields as the provider settlement source of truth.
+
+## PublicGameData community completeness
+
+### Complete community read boundary
+
+ADR 0018 and `docs/contracts/PUBLIC_COMMUNITY_DATA_CONTRACT.md` extend the available read-only boundary with:
+
+- allowlisted level, experience, magic and skill highscores with vocation filtering and explicit global scope;
+- privacy-aware character profiles containing approved comment, skills, guild/rank, house, deaths and kill statistics;
+- related-account characters and status timestamps only when Platform Identity privacy flags permit disclosure;
+- latest-death pagination and guild directory search/detail with deterministic empty, not-found and unavailable states;
+- direct-table `SELECT` grants for `houses` and `player_deaths`, with no Canary write capability.
+
+Guild administration, world/channel transfer history, selectable achievements, polls and public enforcement publication are not owned by this boundary. They require separate authoritative product, ownership and security contracts.
+
+### Community invariants
+
+- browser input never establishes account association, status visibility or guild authority;
+- highscore columns are selected only from a server-side allowlist;
+- characters are ranked globally because the authoritative schema stores no per-channel character ownership;
+- public output excludes Identity email/IDs, Canary account IDs, raw death participants, house coordinates, runtime leases and moderator data;
+- dependency failure returns localized sanitized `503`, never fabricated empty data;
+- collections use bounded limits, deterministic ordering and documented index expectations.

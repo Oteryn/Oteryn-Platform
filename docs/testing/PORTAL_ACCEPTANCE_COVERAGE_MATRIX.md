@@ -193,3 +193,9 @@ The matrix does not claim:
 - rich highscore categories, deaths, kill statistics or guild administration;
 - payment-provider coin purchasing, webshop, premium or entitlement commerce;
 - authoritative server-backed creature/item/loot catalogues, interactive maps or Huntfinder-like tooling.
+
+## Community data completeness
+
+Issue #280 adds exact-shape evidence for allowlisted highscore categories/vocation filters, explicit global scope, privacy-aware rich profiles, latest deaths, kill statistics, guild directory search/detail and localized dependency failure/recovery. `scripts/acceptance/coverage/surfaces/community-data-completeness.json` classifies the new localized deaths routes; existing public game-data routes retain their single manifest owner and gain focused feature/browser evidence through `CommunityDataCompletenessTest` and the zero-retry desktop/tablet/mobile Community Data workflow.
+
+Canary remains read-only. Guild administration, transfer history, achievements without an authoritative source, polls and public enforcement are explicit contract decisions rather than silently missing route states.
