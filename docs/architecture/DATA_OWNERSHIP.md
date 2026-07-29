@@ -241,3 +241,10 @@ Canary owns character levels, vocation, experience, magic/skill values, comments
 Platform Identity owns `public_account_association` and `public_status_visible`. A ready server-resolved Identity-to-Canary binding is required before related characters or status timestamps may be disclosed. Browser-supplied account, Identity or player identifiers are never ownership evidence.
 
 The current character model is global across channels. Per-channel highscore ownership, world-transfer history and selectable achievements have no authoritative current source and remain explicitly unavailable rather than inferred. Canary continues to own guild mutations; Platform delivers directory/search/detail only.
+
+
+## Character profile preference ownership
+
+Platform owns `character_profile_preferences`: the owner-authored public comment, per-character visibility flags and optional main-character selection. Canary remains the source of current character identity, account ownership and gameplay/profile facts. Every management write re-resolves the ready binding and reads the active Canary character before changing Platform state; stored player IDs never become ownership proof.
+
+Account-level association and status flags are disclosure upper bounds. Per-character preferences may only narrow them. Platform comments are bounded plain text rendered escaped and do not update `players.comment`. Main-character replacement locks the Platform Identity row, writes atomically and is proven under concurrent real-MariaDB processes. This boundary authorizes no Canary rename, deletion, restore, transfer, achievement or generic player update.
