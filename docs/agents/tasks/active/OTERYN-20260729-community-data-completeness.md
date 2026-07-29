@@ -61,6 +61,7 @@ owned_paths:
   - public/css/community.css
   - tests/Unit/CanaryIntegration/CanaryDatabasePrivilegeVerifierTest.php
   - tests/Feature/PublicGameData/**
+  - tests/Feature/PublicPortal/PublicPortalExtensionTest.php
   - scripts/acceptance/tests/*community*
   - scripts/acceptance/coverage/**community**
   - docs/architecture/adr/*community*
@@ -93,8 +94,8 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-07-29T14:00:00Z
-head: 2be0d3f3cd4784492519bb4619c1ea6483642753
+updated_at: 2026-07-29T14:10:00Z
+head: abc9a8398f59aea892910c7a72e3ca54dfec0291
 branch: feat/OTERYN-20260729-community-data-completeness
 pr: 298
 status: validating
@@ -117,7 +118,7 @@ owned_paths:
   - resources/navigation/public/**
   - lang/{en,pl}/community.php
   - public/css/community.css
-  - tests/Feature/PublicGameData/**
+  - tests/Feature/{PublicGameData,PublicPortal}/**
   - tests/Unit/CanaryIntegration/CanaryDatabasePrivilegeVerifierTest.php
   - scripts/acceptance/**community**
   - docs/architecture/adr/0018-read-only-community-data-boundary.md
@@ -135,6 +136,8 @@ proven:
   - The dedicated Canary principal remains direct-table SELECT only and now explicitly requires houses and player_deaths; schema-wide and write grants fail verification.
   - ADR 0018, the public community data contract and operations runbook record transfer, achievement, polls and public-enforcement policy boundaries.
   - Product and route ledgers were reconciled and their local validators passed in the one-shot reconciliation workflow before commit 2be0d3f3cd4784492519bb4619c1ea6483642753.
+  - CI run 30459055958 passed Composer validation/audit, formatting and PHPStan before identifying two legacy test-contract mismatches.
+  - Focused Community Data regressions passed on candidate 2d732f2543cdeecb9ef833b63f673266ecb38d7c before the legacy fixture and navigation fixes.
 derived:
   - Issue #280 is implemented for its approved read-only boundary, pending required exact-final-head workflow evidence and merge.
   - Remaining required product completeness work is Issue #277; Issue #278 remains mandatory before commerce activation and Issue #281 owns further server-backed knowledge expansion.
@@ -142,8 +145,8 @@ unknown:
   - Actual production MariaDB grants, indexes, latency, deployed code identity and recovery behavior remain unverified.
 conflicts: []
 first_failure:
-  marker: pending-exact-head-validation
-  evidence: The complete candidate is committed, but exact-final-head CI, Community Data, portal, visual and production-like workflows have not yet all completed.
+  marker: repaired-legacy-public-game-data-contracts
+  evidence: CI run 30459055958 failed only PublicGameDataTest's pre-expansion Canary fixture and PublicPortalExtensionTest's pre-Deaths navigation list; both were updated before candidate abc9a8398f59aea892910c7a72e3ca54dfec0291.
 rejected_hypotheses:
   - Third-party Tibia or wiki schemas can be treated as authoritative for Oteryn.
   - Characters may be filtered by channel when the authoritative player schema stores no channel ownership.
@@ -157,7 +160,7 @@ changed_paths:
   - resources/{views/game,navigation/public}/**
   - lang/{en,pl}/community.php
   - public/css/community.css
-  - tests/{Feature/PublicGameData,Unit/CanaryIntegration}/**
+  - tests/{Feature/PublicGameData,Feature/PublicPortal,Unit/CanaryIntegration}/**
   - scripts/acceptance/**community**
   - scripts/acceptance/bootstrap-production-like.sh
   - docs/{architecture,contracts,operations,testing}/**community**
@@ -172,11 +175,14 @@ validation:
   - command: python tools/agents/test_checkpoint.py
     result: PASS
     evidence: One-shot reconciliation validated the shared checkpoint parser tests.
+  - command: CI run 30459055958
+    result: FAIL
+    evidence: Two legacy test fixtures were stale after the approved route/schema expansion; code formatting and PHPStan passed and both test mismatches are repaired.
   - command: Required exact-head workflow suite
     result: NOT_RUN
-    evidence: Pending on the new validation checkpoint commit.
+    evidence: Pending on the post-repair checkpoint commit.
 blockers: []
-next_action: Inspect every exact-head workflow for the validation checkpoint commit, fix the first reproducible failure, then repeat until all required gates pass.
+next_action: Validate the post-repair exact head across CI, Community Data, portal, visual and production-like workflows; fix only the first reproducible remaining failure.
 ```
 
 ## Boundaries
