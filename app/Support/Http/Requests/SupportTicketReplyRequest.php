@@ -3,6 +3,7 @@
 namespace App\Support\Http\Requests;
 
 use App\Identity\Models\Identity;
+use App\Support\SupportConfiguration;
 use Illuminate\Foundation\Http\FormRequest;
 
 final class SupportTicketReplyRequest extends FormRequest
@@ -16,7 +17,7 @@ final class SupportTicketReplyRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'body' => ['required', 'string', 'max:'.config('support.tickets.message_max_length', 8000)],
+            'body' => ['required', 'string', 'max:'.SupportConfiguration::positiveInteger('support.tickets.message_max_length', 8000)],
             'internal' => ['sometimes', 'boolean'],
             'lock_version' => ['required', 'integer', 'min:1'],
         ];
