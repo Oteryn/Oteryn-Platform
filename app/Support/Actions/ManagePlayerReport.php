@@ -6,6 +6,7 @@ use App\Audit\AdminAuditRecorder;
 use App\Identity\Models\Identity;
 use App\Support\Models\PlayerReport;
 use App\Support\Notifications\SupportNotificationDeliveryService;
+use App\Support\SupportConfiguration;
 use DomainException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -57,7 +58,7 @@ final class ManagePlayerReport
                 ->where('reporter_identity_id', $lockedReporter->id)
                 ->whereIn('status', [PlayerReport::STATUS_SUBMITTED, PlayerReport::STATUS_REVIEWING])
                 ->count();
-            if ($pendingCount >= (int) config('support.reports.pending_limit_per_identity', 5)) {
+            if ($pendingCount >= SupportConfiguration::positiveInteger('support.reports.pending_limit_per_identity', 5)) {
                 throw new DomainException('The pending report limit has been reached.');
             }
 
