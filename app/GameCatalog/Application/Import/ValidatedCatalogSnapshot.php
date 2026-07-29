@@ -108,7 +108,7 @@ namespace App\GameCatalog\Application\Import;
  *   data: CatalogCreatureData
  * }
  * @phpstan-type CatalogEntity CatalogItemEntity|CatalogCreatureEntity
- * @phpstan-type CatalogLootData array{
+ * @phpstan-type CatalogRationalLootData array{
  *   chance_numerator: int,
  *   chance_denominator: int,
  *   minimum_count: int,
@@ -116,6 +116,16 @@ namespace App\GameCatalog\Application\Import;
  *   container_path: string|null,
  *   condition_data: array<array-key, mixed>|null
  * }
+ * @phpstan-type CatalogRuntimeThresholdLootData array{
+ *   chance_model: 'canary_dynamic_threshold_v1',
+ *   chance_threshold: int,
+ *   roll_maximum: int,
+ *   minimum_count: int,
+ *   maximum_count: int,
+ *   container_path: string|null,
+ *   condition_data: array<array-key, mixed>|null
+ * }
+ * @phpstan-type CatalogLootData CatalogRationalLootData|CatalogRuntimeThresholdLootData
  * @phpstan-type CatalogRelation array{
  *   type: 'creature_loot',
  *   canonical_key: string,

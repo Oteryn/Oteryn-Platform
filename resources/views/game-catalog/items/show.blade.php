@@ -48,7 +48,11 @@
                 @foreach ($item->sources as $source)
                     <li>
                         <a href="{{ route('game-catalog.creatures.show', ['slug' => $source->slug]) }}">{{ $source->name }}</a>
-                        <span>{{ __('game_catalog.chance') }}: {{ __('game_catalog.chance_ratio', ['numerator' => $source->chanceNumerator, 'denominator' => $source->chanceDenominator]) }}</span>
+                        @if ($source->chanceModel === 'rational_probability')
+                            <span>{{ __('game_catalog.chance') }}: {{ __('game_catalog.chance_ratio', ['numerator' => $source->chanceNumerator, 'denominator' => $source->chanceDenominator]) }}</span>
+                        @else
+                            <span>{{ __('game_catalog.chance') }}: {{ __('game_catalog.chance_threshold', ['threshold' => $source->chanceThreshold, 'maximum' => $source->rollMaximum]) }}</span>
+                        @endif
                         <span>{{ __('game_catalog.count') }}: {{ $source->minimumCount === $source->maximumCount ? __('game_catalog.count_single', ['count' => $source->minimumCount]) : __('game_catalog.count_range', ['minimum' => $source->minimumCount, 'maximum' => $source->maximumCount]) }}</span>
                     </li>
                 @endforeach
