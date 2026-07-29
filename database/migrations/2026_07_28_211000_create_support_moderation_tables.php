@@ -180,6 +180,6 @@ return new class extends Migration
             return (int) $id;
         }
 
-        throw new \RuntimeException("Required RBAC record {$key} is missing.");
+        throw new RuntimeException("Required RBAC record {$key} is missing.");
     }
 };
