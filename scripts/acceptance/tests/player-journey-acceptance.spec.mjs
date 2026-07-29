@@ -56,10 +56,11 @@ test('@portal-account Flows 1-2 — new and returning player complete the produc
 
   await page.goto(`/characters/${encodeURIComponent(character)}`);
   await expect(page.getByRole('heading', { name: character })).toBeVisible();
-  await expect(page.locator('dt').filter({ hasText: 'Level' })).toBeVisible();
-  await expect(page.locator('dd').filter({ hasText: '8' }).first()).toBeVisible();
-  await expect(page.locator('dt').filter({ hasText: 'Vocation' })).toBeVisible();
-  await expect(page.locator('dd').filter({ hasText: 'Knight' }).first()).toBeVisible();
+  const overview = page.getByRole('region', { name: 'Overview' });
+  await expect(overview.getByText('Level', { exact: true })).toBeVisible();
+  await expect(overview.getByText('8', { exact: true })).toBeVisible();
+  await expect(overview.getByText('Vocation', { exact: true })).toBeVisible();
+  await expect(overview.getByText('Knight', { exact: true })).toBeVisible();
 
   await logout(page);
   await login(page, email, password);
