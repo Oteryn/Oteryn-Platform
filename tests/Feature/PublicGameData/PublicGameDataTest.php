@@ -3,12 +3,15 @@
 namespace Tests\Feature\PublicGameData;
 
 use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Tests\TestCase;
 
 class PublicGameDataTest extends TestCase
 {
+    use RefreshDatabase;
+
     protected function setUp(): void
     {
         parent::setUp();
@@ -30,6 +33,18 @@ class PublicGameDataTest extends TestCase
             $table->integer('level')->default(1);
             $table->unsignedBigInteger('experience')->default(0);
             $table->integer('vocation')->default(0);
+            $table->integer('maglevel')->default(0);
+            $table->bigInteger('lastlogin')->default(0);
+            $table->bigInteger('lastlogout')->default(0);
+            $table->integer('boss_points')->default(0);
+            $table->string('comment')->default('');
+            $table->integer('skill_fist')->default(10);
+            $table->integer('skill_club')->default(10);
+            $table->integer('skill_sword')->default(10);
+            $table->integer('skill_axe')->default(10);
+            $table->integer('skill_dist')->default(10);
+            $table->integer('skill_shielding')->default(10);
+            $table->integer('skill_fishing')->default(10);
             $table->bigInteger('deletion')->default(0);
         });
 
@@ -58,6 +73,23 @@ class PublicGameDataTest extends TestCase
             $table->integer('rank_id');
             $table->string('nick')->nullable();
         });
+
+        Schema::connection('canary')->create('houses', function (Blueprint $table): void {
+    $table->integer('id');
+    $table->integer('channel_id')->default(1);
+    $table->integer('owner')->default(0);
+    $table->string('name');
+    $table->integer('size')->default(0);
+    $table->primary(['channel_id', 'id']);
+});
+
+Schema::connection('canary')->create('player_deaths', function (Blueprint $table): void {
+    $table->integer('player_id');
+    $table->bigInteger('time');
+    $table->integer('level');
+    $table->string('killed_by');
+    $table->boolean('is_player')->default(false);
+});
 
         Schema::connection('canary')->create('channels', function (Blueprint $table): void {
             $table->integer('id')->primary();
