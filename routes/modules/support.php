@@ -51,30 +51,30 @@ Route::middleware([SetIdentityLocale::class, 'auth'])
         Route::get('/tickets', [SupportTicketController::class, 'index'])->name('support.tickets.index');
         Route::get('/tickets/create', [SupportTicketController::class, 'create'])->name('support.tickets.create');
         Route::post('/tickets', [SupportTicketController::class, 'store'])
-            ->middleware('throttle:6,1')
+            ->middleware('throttle:support-ticket-create')
             ->name('support.tickets.store');
         Route::get('/tickets/{supportTicket}', [SupportTicketController::class, 'show'])->name('support.tickets.show');
         Route::post('/tickets/{supportTicket}/reply', [SupportTicketController::class, 'reply'])
-            ->middleware('throttle:12,1')
+            ->middleware('throttle:support-ticket-reply')
             ->name('support.tickets.reply');
         Route::put('/tickets/{supportTicket}/status', [SupportTicketController::class, 'status'])
-            ->middleware('throttle:12,1')
+            ->middleware('throttle:support-ticket-status')
             ->name('support.tickets.status');
 
         Route::get('/reports', [PlayerReportController::class, 'index'])->name('support.reports.index');
         Route::get('/reports/create', [PlayerReportController::class, 'create'])->name('support.reports.create');
         Route::post('/reports', [PlayerReportController::class, 'store'])
-            ->middleware('throttle:3,1')
+            ->middleware('throttle:support-report-submit')
             ->name('support.reports.store');
         Route::get('/reports/{playerReport}', [PlayerReportController::class, 'show'])->name('support.reports.show');
 
         Route::get('/enforcement', [EnforcementHistoryController::class, 'index'])->name('support.enforcement.index');
         Route::get('/enforcement/{enforcementRecord}', [EnforcementHistoryController::class, 'show'])->name('support.enforcement.show');
         Route::post('/enforcement/{enforcementRecord}/acknowledge', [EnforcementHistoryController::class, 'acknowledge'])
-            ->middleware('throttle:12,1')
+            ->middleware('throttle:support-enforcement-acknowledge')
             ->name('support.enforcement.acknowledge');
         Route::post('/enforcement/{enforcementRecord}/appeal', [EnforcementHistoryController::class, 'appeal'])
-            ->middleware('throttle:3,1')
+            ->middleware('throttle:support-enforcement-appeal')
             ->name('support.enforcement.appeal');
     });
 
