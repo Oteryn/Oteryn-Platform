@@ -19,23 +19,29 @@ function fixture(...args) {
 
 function seedIdentity(label, { confirmedMfa = false, permissions = [] } = {}) {
   const email = uniqueEmail(label);
-  const recoveryCode = `MOD-${label.toUpperCase().replace(/[^A-Z0-9]/gu, '').slice(0, 14)}-01`;
+  const recoveryCodes = [1, 2].map(
+    (sequence) => `MOD-${label.toUpperCase().replace(/[^A-Z0-9]/gu, '').slice(0, 14)}-${String(sequence).padStart(2, '0')}`,
+  );
   const result = fixture(
     'seed-identity',
     email,
     password,
-    recoveryCode,
+    recoveryCodes.join(','),
     confirmedMfa ? 'confirmed' : 'unconfirmed',
     permissions.join(','),
   );
 
-  return { ...result, password, recoveryCode, confirmedMfa };
+  return { ...result, password, recoveryCodes, nextRecoveryCode: 0, confirmedMfa };
 }
 
 async function signIn(page, identity) {
+  await page.goto('/login?locale=en');
   await login(page, identity.email, identity.password);
   if (identity.confirmedMfa) {
-    await completeMfaChallenge(page, identity.recoveryCode);
+    const recoveryCode = identity.recoveryCodes[identity.nextRecoveryCode];
+    expect(recoveryCode, `No unused MFA recovery code remains for ${identity.email}`).toBeTruthy();
+    await completeMfaChallenge(page, recoveryCode);
+    identity.nextRecoveryCode += 1;
   }
 }
 
