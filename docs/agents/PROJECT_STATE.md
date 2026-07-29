@@ -4,7 +4,7 @@ This file is the compact authoritative entry point for “where are we now?”. 
 
 ## Last architecture-state update
 
-2026-07-28
+2026-07-29
 
 ## Engineering phase state
 
@@ -17,13 +17,13 @@ This file is the compact authoritative entry point for “where are we now?”. 
 - **Phase 6 — CMS, Admin, RBAC and Audit: COMPLETE for the delivered route contract**
 - **Phase 7 — Production hardening and operations: COMPLETE as an engineering milestone**
 
-These phase statements do not claim benchmark product completeness. Issue #268 audits capabilities that can be absent from an otherwise green delivered-surface contract.
+These phase statements do not claim benchmark product completeness. The completed Issue #268 audit tracks capabilities that can be absent from an otherwise green delivered-surface contract.
 
 ## Operational release state
 
 - **Production Readiness: STAGING_PROVEN for documented boundaries**
 - **Delivered Portal Route Contract: COMPLETE AND MACHINE ENFORCED**
-- **Benchmark Product Completeness: NOT COMPLETE; AUDIT IN PROGRESS IN #268**
+- **Benchmark Product Completeness: NOT COMPLETE; AUDIT COMPLETE WITH REQUIRED GAPS #277, #279 AND #280 STILL OPEN**
 - **Production Go-Live Gate: PENDING PRODUCTION VERIFICATION**
 - **Production Verification: REQUIRED BEFORE GO-LIVE**
 
@@ -55,6 +55,8 @@ Existing Canary accounts are not imported or claimed. The browser does not commu
 - bounded Platform account termination with grace, cancellation and idempotent finalization that preserves Canary-owned data;
 - English and Polish account-security UI, validation, token errors and notification links;
 - character creation for a ready immutable binding.
+
+PR #283 merged the complete approved account-security lifecycle as `28faad47f95df10d1a9b437a16a1be91556671c6` after all 12 exact-final-head workflows passed.
 
 The ready Platform-to-Canary binding remains immutable. Self-service import, unlink, rebind or transfer is intentionally not applicable without a separately reviewed operation contract. Email-code MFA is intentionally not adopted because email is the recovery channel. Optional account badge/loyalty/status presentation remains absent.
 
@@ -112,7 +114,7 @@ The account-security fragment adds guest/authenticated EN/PL email, session, pri
 
 ## Product-completeness benchmark
 
-Issue #268 is tracked by:
+The completed Issue #268 audit is tracked by:
 
 - `docs/testing/PRODUCT_COMPLETENESS_BENCHMARK.md`;
 - `docs/testing/product-completeness-benchmark.json`;
@@ -126,9 +128,12 @@ The current ledger classifies 43 Tibia/RubinOT/OTS benchmark capabilities:
 - 1 not applicable;
 - 22 required, 13 planned, 7 optional/differentiator and 1 not applicable.
 
-Focused backlog:
+Completed focused slice:
 
-- #276 — delivered Platform-owned account security and lifecycle;
+- #276 — Platform-owned account security and lifecycle, merged in PR #283.
+
+Open focused backlog:
+
 - #277 — character management and public profiles;
 - #278 — premium, coins and entitlement commerce;
 - #279 — tickets, reports and enforcement history;
@@ -159,12 +164,11 @@ Repository and exact-revision E2E work has hardened the native-auth direction, b
 
 ## Current active task
 
-`OTERYN-20260728-account-security-lifecycle` on draft PR #283, resolving Issue #276 for the approved Platform-owned boundary.
+None.
 
 ## Recommended sequence
 
-1. Review and merge PR #283 only after exact-final-head CI, strict portal coverage and zero-retry browser acceptance pass.
-2. Deliver remaining required benchmark gaps as bounded tasks: #277, #279 and #280.
-3. Keep #278 disabled until a dedicated payment ADR, threat model and provider lifecycle are reviewed.
-4. Build #281 from authoritative Oteryn server availability, never by copying third-party datasets or prose.
-5. Resume #91 only after explicit production deployment/verification authorization and required production evidence access exist.
+1. Deliver the remaining required benchmark gaps as bounded tasks: #277, #279 and #280.
+2. Keep #278 disabled until a dedicated payment ADR, threat model and provider lifecycle are reviewed.
+3. Build #281 from authoritative Oteryn server availability, never by copying third-party datasets or prose.
+4. Resume #91 only after explicit production deployment/verification authorization and required production evidence access exist.
