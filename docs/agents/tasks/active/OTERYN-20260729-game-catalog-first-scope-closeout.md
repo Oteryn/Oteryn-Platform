@@ -32,8 +32,8 @@ Close Issue #281 for the first server-backed Game Catalog scope already delivere
 - [x] Verify that PR #272 satisfies Issue #281's first-scope acceptance for versioned current-server availability, item/creature attributes, exact loot links and public/admin/localization browser lifecycle.
 - [x] Create a dedicated tracker for authoritative spell, NPC, quest and achievement catalogues.
 - [x] Create a separate discovery tracker for optional maps, hunting tools and server-specific discovery capabilities.
-- [ ] Reassign every machine-ledger `#281` gap reference to the correct remaining owner without changing delivery status unsupported by evidence.
-- [ ] Reconcile the human-readable benchmark, PROJECT_STATE and ACTIVE_WORK with the split scope.
+- [x] Reassign every machine-ledger `#281` gap reference to the correct remaining owner without changing delivery status unsupported by evidence.
+- [x] Reconcile the human-readable benchmark, PROJECT_STATE and ACTIVE_WORK with the split scope.
 - [ ] Validate product-ledger, checkpoint and governance contracts on the exact head.
 - [ ] Merge the closeout PR and close Issue #281 without claiming production deployment or completion of deferred capabilities.
 - [ ] Archive this task in a separate documentation PR after merge.
@@ -68,8 +68,8 @@ checkpoint_version: 1
 updated_at: 2026-07-29T15:46:00Z
 head: 7f2c37ca2a2447623705f60dffc08a34b9c755d3
 branch: chore/OTERYN-20260729-game-catalog-first-scope-closeout
-pr: none
-status: investigating
+pr: 303
+status: validating
 context_routes:
   - agent-governance
   - architecture
@@ -91,24 +91,34 @@ proven:
 derived:
   - Closing #281 for its delivered first scope is accurate only if all remaining ledger references are moved to #277, #301 or #302 and their current delivery statuses remain unchanged.
 unknown:
-  - Whether the human-readable benchmark contains additional narrative references to #281 outside the machine-ledger capability rows.
+  - Whether any exact-head repository validator exposes an additional stale #281 ownership reference outside the reconciled files.
 conflicts: []
 first_failure:
-  marker: none
-  evidence: No validation has run on the closeout branch yet.
+  marker: pending-exact-head-validation
+  evidence: Ledger ownership and human-state reconciliation are committed; exact-head repository workflows have not completed yet.
 rejected_hypotheses:
   - Closing #281 means spells, NPCs, quests, achievements, maps or hunting tools are implemented.
   - Third-party wiki data can fill missing authoritative server contracts.
   - A closeout task authorizes Canary producer changes.
 changed_paths:
   - docs/agents/tasks/active/OTERYN-20260729-game-catalog-first-scope-closeout.md
+  - docs/testing/product-completeness-benchmark.json
+  - docs/testing/PRODUCT_COMPLETENESS_BENCHMARK.md
+  - docs/agents/PROJECT_STATE.md
+  - docs/agents/ACTIVE_WORK.md
 validation:
-  - command: not-run
+  - command: node scripts/acceptance/coverage/validate-product-completeness.mjs
+    result: PASS
+    evidence: The temporary closeout reconciler validated all 43 capability records after gap-owner reassignment.
+  - command: python tools/agents/checkpoint.py docs/agents/tasks/active/OTERYN-20260729-game-catalog-first-scope-closeout.md --require-checkpoint
+    result: PASS
+    evidence: The active checkpoint satisfies the shared version-1 contract.
+  - command: Required exact-head workflow suite
     result: NOT_RUN
-    evidence: Ledger and project-state reconciliation has not been committed yet.
+    evidence: Pending normal user-authored cleanup/checkpoint head after temporary reconciler removal.
 blockers:
   - none
-next_action: Reassign all machine-ledger #281 gap references to #277, #301 or #302 while preserving current delivery statuses and evidence.
+next_action: Remove the temporary reconciler and workflow, validate the resulting exact head and fix only the first reproducible failure.
 ```
 
 ## Notes
