@@ -5,6 +5,7 @@ namespace App\Support\Retention;
 use App\Support\Models\EnforcementRecord;
 use App\Support\Models\PlayerReport;
 use App\Support\Models\SupportTicket;
+use App\Support\SupportConfiguration;
 use Illuminate\Support\Facades\DB;
 
 final class PruneSupportRetention
@@ -12,9 +13,9 @@ final class PruneSupportRetention
     /** @return array{tickets_deleted: int, reports_deleted: int, enforcement_anonymized: int} */
     public function execute(bool $dryRun = false): array
     {
-        $ticketCutoff = now()->subDays((int) config('support.tickets.retention_days_after_close', 730));
-        $reportCutoff = now()->subDays((int) config('support.reports.retention_days_after_close', 730));
-        $enforcementCutoff = now()->subDays((int) config('support.enforcement.retention_days_after_expiry', 1095));
+        $ticketCutoff = now()->subDays(SupportConfiguration::positiveInteger('support.tickets.retention_days_after_close', 730));
+        $reportCutoff = now()->subDays(SupportConfiguration::positiveInteger('support.reports.retention_days_after_close', 730));
+        $enforcementCutoff = now()->subDays(SupportConfiguration::positiveInteger('support.enforcement.retention_days_after_expiry', 1095));
 
         $ticketQuery = SupportTicket::query()
             ->whereIn('status', [SupportTicket::STATUS_RESOLVED, SupportTicket::STATUS_CLOSED])
