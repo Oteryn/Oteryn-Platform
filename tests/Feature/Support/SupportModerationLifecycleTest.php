@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\Support;
 
+use App\Identity\Localization\SetIdentityLocale;
 use App\Identity\Models\Identity;
 use App\Support\Actions\ManageSupportTicket;
 use App\Support\Models\EnforcementRecord;
@@ -13,6 +14,7 @@ use App\Support\Notifications\SupportNotificationDeliveryService;
 use App\Support\Retention\PruneSupportRetention;
 use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Routing\Middleware\ThrottleRequests;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Notification;
@@ -27,7 +29,12 @@ final class SupportModerationLifecycleTest extends TestCase
     public function test_guest_redirects_preserve_locale_and_user_routes_require_authentication(): void
     {
         $this->get(route('support.tickets.index', ['locale' => 'pl']))
-            ->assertRedirect(route('identity.login.create', ['locale' => 'pl']));
+            ->assertRedirect('/login');
+        self::assertSame('pl', session()->get(SetIdentityLocale::SESSION_KEY));
+        $this->get('/login')
+            ->assertOk()
+            ->assertHeader('Content-Language', 'pl')
+            ->assertSee('Zaloguj');
 
         $this->get(route('support.reports.index'))->assertRedirect();
         $this->get(route('support.enforcement.index'))->assertRedirect();
@@ -142,6 +149,7 @@ final class SupportModerationLifecycleTest extends TestCase
 
     public function test_reports_are_bounded_idempotent_private_and_moderated_with_public_safe_outcomes(): void
     {
+        $this->withoutMiddleware(ThrottleRequests::class);
         Notification::fake();
         config(['support.reports.pending_limit_per_identity' => 1]);
         $reporter = $this->createIdentity('reporter@example.com');
@@ -206,6 +214,31 @@ final class SupportModerationLifecycleTest extends TestCase
             'event_key' => SupportNotificationDeliveryService::REPORT_OUTCOME,
             'related_id' => $report->public_id,
         ]);
+    }
+
+    public function test_report_submission_route_is_rate_limited(): void
+    {
+        config(['support.reports.pending_limit_per_identity' => 10]);
+        $reporter = $this->createIdentity('rate-limited-reporter@example.com');
+
+        for ($attempt = 1; $attempt <= 3; $attempt++) {
+            $this->actingAs($reporter)->post(route('support.reports.store'), [
+                'request_key' => (string) Str::uuid(),
+                'report_type' => PlayerReport::TYPE_PLAYER,
+                'category' => 'cheating',
+                'target_reference' => "Rate target {$attempt}",
+                'evidence_summary' => null,
+            ])->assertRedirect();
+        }
+
+        $this->actingAs($reporter)->post(route('support.reports.store'), [
+            'request_key' => (string) Str::uuid(),
+            'report_type' => PlayerReport::TYPE_PLAYER,
+            'category' => 'cheating',
+            'target_reference' => 'Rate target 4',
+            'evidence_summary' => null,
+        ])->assertStatus(429);
+        self::assertSame(3, PlayerReport::query()->count());
     }
 
     public function test_enforcement_history_is_owner_scoped_appealable_audited_and_platform_only(): void
