@@ -4,11 +4,14 @@ namespace App\Http\Controllers\PublicGameData;
 
 use App\PublicGameData\CanaryChannelRuntimeService;
 use App\PublicGameData\CanaryGameDataRepository;
+use App\PublicGameData\CommunityDataPolicy;
+use App\PublicGameData\PublicCharacterProfileService;
 use Illuminate\Contracts\View\View;
 use Illuminate\Database\QueryException;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
-use Symfony\Component\HttpKernel\Exception\ServiceUnavailableHttpException;
+use Illuminate\Http\Response;
+use Illuminate\Validation\Rule;
 use UnexpectedValueException;
 
 final class PublicGameDataController
@@ -16,52 +19,94 @@ final class PublicGameDataController
     public function __construct(
         private readonly CanaryGameDataRepository $gameData,
         private readonly CanaryChannelRuntimeService $runtime,
+        private readonly PublicCharacterProfileService $profiles,
     ) {}
 
-    public function highscores(): View
+    public function highscores(Request $request): View|Response
     {
+        $validated = $request->validate([
+            'category' => ['nullable', 'string', Rule::in(CommunityDataPolicy::highscoreCategories())],
+            'vocation' => ['nullable', 'integer', Rule::in(CommunityDataPolicy::vocationIds())],
+            'scope' => ['nullable', 'string', Rule::in(['global'])],
+        ]);
+        $category = is_string($validated['category'] ?? null) ? $validated['category'] : 'level';
+        $vocation = is_int($validated['vocation'] ?? null) ? $validated['vocation'] : null;
+
+        try {
+            $players = $this->gameData->highscores($category, $vocation);
+        } catch (QueryException) {
+            return $this->unavailable('community.highscores.title');
+        }
+
         return view('game.highscores', [
-            'players' => $this->gameData->levelHighscores(),
+            'players' => $players,
+            'category' => $category,
+            'vocation' => $vocation,
+            'categories' => CommunityDataPolicy::highscoreCategories(),
+            'vocations' => CommunityDataPolicy::vocationIds(),
         ]);
     }
 
     public function characterSearch(Request $request): RedirectResponse
     {
-        $request->validate([
+        $validated = $request->validate([
             'name' => ['required', 'string', 'max:255'],
         ]);
-        $name = $request->input('name');
+        $name = $validated['name'] ?? null;
 
         if (! is_string($name)) {
             abort(422);
         }
 
         return redirect()->route('game.characters.show', [
-            'name' => $name,
+            'name' => trim($name),
         ]);
     }
 
-    public function character(string $name): View
+    public function character(string $name): View|Response
     {
-        $character = $this->gameData->findActiveCharacter($name);
+        try {
+            $profile = $this->profiles->find($name);
+        } catch (QueryException) {
+            return $this->unavailable('community.profile.title');
+        }
 
-        abort_if($character === null, 404);
+        abort_if($profile === null, 404);
 
-        return view('game.character', ['character' => $character]);
+        return view('game.character', $profile);
     }
 
-    public function guild(string $name): View
+    public function deaths(): View|Response
     {
-        $result = $this->gameData->findGuild($name);
+        try {
+            $deaths = $this->gameData->latestDeaths();
+        } catch (QueryException) {
+            return $this->unavailable('community.deaths.title');
+        }
+
+        return view('game.deaths', ['deaths' => $deaths]);
+    }
+
+    public function guild(string $name): View|Response
+    {
+        try {
+            $result = $this->gameData->findGuild($name);
+        } catch (QueryException) {
+            return $this->unavailable('community.guilds.title');
+        }
 
         abort_if($result === null, 404);
 
         return view('game.guild', $result);
     }
 
-    public function servers(): View
+    public function servers(): View|Response
     {
-        $channels = $this->gameData->configuredChannels();
+        try {
+            $channels = $this->gameData->configuredChannels();
+        } catch (QueryException) {
+            return $this->unavailable('public.game.servers_title');
+        }
 
         /** @var list<int> */
         $channelIds = $channels
@@ -90,18 +135,21 @@ final class PublicGameDataController
         ]);
     }
 
-    public function online(): View
+    public function online(): View|Response
     {
         try {
             $characters = $this->gameData->onlineCharacters();
-        } catch (QueryException $exception) {
-            throw new ServiceUnavailableHttpException(
-                null,
-                'Online character data is temporarily unavailable.',
-                $exception,
-            );
+        } catch (QueryException) {
+            return $this->unavailable('public.game.online_title');
         }
 
         return view('game.online', ['characters' => $characters]);
+    }
+
+    private function unavailable(string $titleKey): Response
+    {
+        return response()->view('game.unavailable', [
+            'title' => __($titleKey),
+        ], 503);
     }
 }
