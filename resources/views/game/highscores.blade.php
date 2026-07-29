@@ -91,4 +91,4 @@
             </nav>
         @endif
     </div>
-@endSection
+@endsection
