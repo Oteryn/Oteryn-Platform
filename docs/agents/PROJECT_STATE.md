@@ -23,7 +23,7 @@ These phase statements do not claim benchmark product completeness. The complete
 
 - **Production Readiness: STAGING_PROVEN for documented boundaries**
 - **Delivered Portal Route Contract: COMPLETE AND MACHINE ENFORCED**
-- **Benchmark Product Completeness: NOT COMPLETE; AUDIT COMPLETE WITH REQUIRED GAPS #277 AND #280 STILL OPEN**
+- **Benchmark Product Completeness: NOT COMPLETE; REQUIRED GAPS #277, #278 AND #281 REMAIN OPEN**
 - **Production Go-Live Gate: PENDING PRODUCTION VERIFICATION**
 - **Production Verification: REQUIRED BEFORE GO-LIVE**
 
@@ -63,13 +63,17 @@ The ready Platform-to-Canary binding remains immutable. Self-service import, unl
 ### Public portal and game data
 
 - localized home, navigation, SEO, news and managed pages;
-- character name search and basic active-character detail;
-- read-only guild detail and members;
-- level highscores;
+- character name search and privacy-aware server-backed character profiles;
+- fixed-allowlist highscore categories with supported vocation filtering, truthful global scope and bounded pagination;
+- latest deaths and bounded player-kill statistics;
+- read-only guild directory, search, detail, ranks and members;
+- public house summary and private-by-default account association/status disclosure;
 - online players and configured server/channel status;
-- explicit empty, not-found, unavailable and restoration states.
+- explicit validation, empty, not-found, unavailable, restoration and responsive states.
 
-Not yet benchmark-complete: rich character profiles, guild directory/administration, highscore categories/filters, deaths, transfer history and kill statistics. Trackers: #277 and #280.
+PR #298 merged the approved read-only community-data boundary as `7533b12b1e1c6d266c6bf5a8800e584fad23a01e` after all 11 exact-final-head workflows passed. Canary mutation, guild administration, selectable achievements, world-transfer history, polls and public enforcement publication remain excluded until authoritative ownership and privacy contracts exist.
+
+Still not benchmark-complete: owner-editable character information, character-level privacy, selected achievements, deletion/restore, rename, controlled transfer and optional main-character policy remain #277. Customer commerce remains #278, and further authoritative server-backed catalogues remain #281.
 
 ### CMS and community publishing
 
@@ -79,7 +83,7 @@ Not yet benchmark-complete: rich character profiles, guild directory/administrat
 - first-party Wiki public search/category/article flows plus editor/reviewer/publisher, revisions, signed preview and media integration;
 - reviewed bilingual launch content.
 
-Authenticated owner-scoped tickets, bounded reports, exact-MFA/RBAC moderation, Platform enforcement/appeals, notifications and retention are delivered through PR #293. PR #293 squash-merged as `02aa4ab8180c0e9cecb0d42bc1f8f5af6db640a1` after all exact-final-head workflows passed. Canary ban mutation and attachments remain excluded. The Wiki is editorially complete for delivered articles but lacks authoritative server-backed creature/item/loot/gameplay catalogues. Tracker: #281.
+Authenticated owner-scoped tickets, bounded reports, exact-MFA/RBAC moderation, Platform enforcement/appeals, notifications and retention are delivered through PR #293. PR #293 squash-merged as `02aa4ab8180c0e9cecb0d42bc1f8f5af6db640a1` after all exact-final-head workflows passed. Canary ban mutation and attachments remain excluded. The Wiki is editorially complete for delivered articles but lacks complete authoritative server-backed creature/item/loot/gameplay catalogues. Tracker: #281.
 
 ### Support and moderation
 
@@ -120,7 +124,7 @@ The strict contract proves:
 - evidence files and stable markers exist;
 - strict closure fails for delivered surfaces left `partial` or `planned`.
 
-The account-security fragment adds guest/authenticated EN/PL email, session, privacy, recovery-key and termination states. The Character Bazaar fragment adds public, authenticated and administrator marketplace surfaces.
+The account-security fragment adds guest/authenticated EN/PL email, session, privacy, recovery-key and termination states. The Character Bazaar fragment adds public, authenticated and administrator marketplace surfaces. The community-data fragment adds highscore, profile, deaths, guild, localization, dependency-failure/recovery and responsive states.
 
 ## Product-completeness benchmark
 
@@ -132,22 +136,22 @@ The completed Issue #268 audit is tracked by:
 
 The current ledger classifies 43 Tibia/RubinOT/OTS benchmark capabilities:
 
-- 14 implemented;
-- 8 partial;
-- 20 missing;
+- 20 implemented;
+- 3 partial;
+- 19 missing;
 - 1 not applicable;
 - 22 required, 13 planned, 7 optional/differentiator and 1 not applicable.
 
-Completed focused slice:
+Completed focused slices:
 
-- #276 — Platform-owned account security and lifecycle, merged in PR #283.
-- #279 — Platform-owned support and moderation lifecycle, merged in PR #293.
+- #276 — Platform-owned account security and lifecycle, merged in PR #283;
+- #279 — Platform-owned support and moderation lifecycle, merged in PR #293;
+- #280 — read-only community statistics and guild discovery with privacy-aware profiles, merged in PR #298.
 
 Open focused backlog:
 
 - #277 — character management and public profiles;
 - #278 — premium, coins and entitlement commerce;
-- #280 — community statistics and guild workflows;
 - #281 — first versioned item/weapon/creature/loot Game Catalog slice delivered; further catalogues remain.
 
 A green route contract must not be described as product complete while required benchmark gaps remain.
@@ -174,15 +178,15 @@ Repository and exact-revision E2E work has hardened the native-auth direction, b
 
 ## Current active task
 
-`OTERYN-20260729-community-data-completeness` in the Issue #280 implementation PR is inventorying the authoritative read-only Canary/community-data contract.
+None. Issue #280 is complete and its task is archived. Start the next benchmark slice only through a new active task and separate pull request.
 
 ## Recommended sequence
 
-1. Deliver the remaining required benchmark gaps as bounded tasks: #277 and #280.
+1. Deliver #277 as a bounded character-management task, defining explicit operation-specific contracts before any Canary mutation.
 2. Keep #278 disabled until a dedicated payment ADR, threat model and provider lifecycle are reviewed.
-3. Build #281 from authoritative Oteryn server availability, never by copying third-party datasets or prose.
+3. Continue #281 from authoritative Oteryn server availability, never by copying third-party datasets or prose.
 4. Resume #91 only after explicit production deployment/verification authorization and required production evidence access exist.
 
-## Community data delivery candidate
+## Community data delivery
 
-PR #298 implements Issue #280's approved read-only boundary: categorized/vocation highscores, privacy-aware rich profiles, latest deaths/kill statistics, guild directory search/detail, direct-table grant verification and EN/PL zero-retry desktop/tablet/mobile acceptance. Canary mutation, guild administration, transfer history, polls and public enforcement publication remain explicitly excluded. Final repository claims require every exact-head workflow to pass and the PR to merge.
+PR #298 completed Issue #280's approved read-only boundary: categorized/vocation highscores, privacy-aware rich profiles, latest deaths/kill statistics, guild directory search/detail, direct-table grant verification and EN/PL zero-retry desktop/tablet/mobile acceptance. Exact final head `45efd2a8f0162df22313e141e973c6a8c3ffb5d1` passed all 11 required workflows before squash merge `7533b12b1e1c6d266c6bf5a8800e584fad23a01e`. Canary mutation, guild administration, transfer history, polls and public enforcement publication remain explicitly excluded, and no production-verification claim was made.
