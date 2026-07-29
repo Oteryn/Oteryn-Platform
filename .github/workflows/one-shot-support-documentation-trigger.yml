@@ -11,7 +11,7 @@ permissions:
 
 jobs:
   reconcile:
-    if: github.head_ref == 'main' && github.actor != 'github-actions[bot]'
+    if: github.head_ref == 'trigger/support-documentation' && github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
