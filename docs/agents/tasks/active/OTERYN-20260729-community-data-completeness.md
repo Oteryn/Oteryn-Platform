@@ -94,8 +94,8 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-07-29T14:18:00Z
-head: ddea5e49e1b210e3f48338a729394be644003ed5
+updated_at: 2026-07-29T14:36:00Z
+head: 3c743a883b4c9eb78a433499e01140fb4abb3881
 branch: feat/OTERYN-20260729-community-data-completeness
 pr: 298
 status: validating
@@ -136,9 +136,9 @@ proven:
   - The dedicated Canary principal remains direct-table SELECT only and explicitly requires houses and player_deaths; schema-wide and write grants fail verification.
   - ADR 0018, the public community data contract and operations runbook record transfer, achievement, polls and public-enforcement policy boundaries.
   - Product and route ledgers were reconciled and their local validators passed in the one-shot reconciliation workflow before commit 2be0d3f3cd4784492519bb4619c1ea6483642753.
-  - CI run 30459055958 passed Composer validation/audit, formatting and PHPStan before identifying two legacy test-contract mismatches; both fixtures were updated.
-  - Community Data run 30459055188 passed provisioning, exact read-only grants and focused PHP regressions; its browser failure was traced to RefreshDatabase removing the acceptance binding, and the workflow now restores the fixture after tests.
-  - Pint formatted the generated legacy PublicGameData fixture before candidate ddea5e49e1b210e3f48338a729394be644003ed5.
+  - CI run 30460368821 passed Composer validation/audit, Pint, PHPStan and the complete PHPUnit suite at exact head 4570f6504c26e2e95a7afcccb203cfd1fbb40832.
+  - Community Data provisioning, direct-grant verification and focused PHP regressions passed before a strict browser locator identified duplicate visible Online labels; the locator is now scoped to the Public status region.
+  - Phase 7 failure at run 30460365720 was isolated to its synthetic schema fixture; the exact approved houses/player_deaths and profile columns are now provisioned without changing Canary or production data.
 derived:
   - Issue #280 is implemented for its approved read-only boundary, pending required exact-final-head workflow evidence and merge.
   - Remaining required product completeness work is Issue #277; Issue #278 remains mandatory before commerce activation and Issue #281 owns further server-backed knowledge expansion.
@@ -146,8 +146,8 @@ unknown:
   - Actual production MariaDB grants, indexes, latency, deployed code identity and recovery behavior remain unverified.
 conflicts: []
 first_failure:
-  marker: pending-post-repair-exact-head-validation
-  evidence: The stale fixtures, navigation contract, acceptance seed ordering and generated indentation are repaired; a normal user-authored checkpoint commit now triggers every required workflow.
+  marker: pending-clean-exact-head-validation
+  evidence: Functional regressions, browser locator and Phase 7 fixture are repaired; the helper workflow is removed and a clean user-authored checkpoint commit will trigger all required gates.
 rejected_hypotheses:
   - Third-party Tibia or wiki schemas can be treated as authoritative for Oteryn.
   - Characters may be filtered by channel when the authoritative player schema stores no channel ownership.
@@ -164,6 +164,7 @@ changed_paths:
   - tests/{Feature/PublicGameData,Feature/PublicPortal,Unit/CanaryIntegration}/**
   - scripts/acceptance/**community**
   - scripts/acceptance/bootstrap-production-like.sh
+  - .github/workflows/{community-data-acceptance,phase7-production-like-validation}.yml
   - docs/{architecture,contracts,operations,testing}/**community**
   - docs/agents/{PROJECT_STATE,ACTIVE_WORK}.md
 validation:
@@ -176,17 +177,20 @@ validation:
   - command: python tools/agents/test_checkpoint.py
     result: PASS
     evidence: One-shot reconciliation validated the shared checkpoint parser tests.
-  - command: CI run 30459055958
+  - command: CI run 30460368821
+    result: PASS
+    evidence: Composer metadata/audit, Pint, PHPStan and the full PHPUnit suite passed at 4570f6504c26e2e95a7afcccb203cfd1fbb40832.
+  - command: Phase 7 run 30460365720
     result: FAIL
-    evidence: Two legacy test fixtures were stale after the approved route/schema expansion; code formatting and PHPStan passed and both test mismatches are repaired.
-  - command: Community Data run 30459055188
+    evidence: Synthetic Canary schema omitted the newly required houses table; the Phase 7 fixture is now aligned.
+  - command: Community Data run 30460827156
     result: FAIL
-    evidence: Focused regressions passed; the browser seed was reset by RefreshDatabase and is now restored after tests.
+    evidence: All database/grant/PHP stages passed; Playwright strict mode found multiple Online labels and the locator is now region-scoped.
   - command: Required exact-head workflow suite
     result: NOT_RUN
-    evidence: Pending on the new normal checkpoint commit.
+    evidence: Pending on this clean checkpoint commit.
 blockers: []
-next_action: Validate the normal post-repair exact head across CI, Community Data, portal, visual and production-like workflows; fix only the first reproducible remaining failure.
+next_action: Validate the clean exact head across CI, Community Data, portal, visual and production-like workflows; fix only the first reproducible remaining failure.
 ```
 
 ## Boundaries
