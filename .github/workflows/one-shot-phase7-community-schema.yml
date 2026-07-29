@@ -1,0 +1,91 @@
+name: One-shot Phase 7 Community Schema Alignment
+
+on:
+  push:
+    branches:
+      - feat/OTERYN-20260729-community-data-completeness
+    paths:
+      - '.github/workflows/one-shot-phase7-community-schema.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  align:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: feat/OTERYN-20260729-community-data-completeness
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extend Phase 7 synthetic Canary schema
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path('.github/workflows/phase7-production-like-validation.yml')
+          text = path.read_text(encoding='utf-8')
+
+          old_columns = '''              pronoun BIGINT NOT NULL DEFAULT 0,
+              istutorial BIGINT NOT NULL DEFAULT 0,'''
+          new_columns = '''              pronoun BIGINT NOT NULL DEFAULT 0,
+              lastlogin BIGINT UNSIGNED NOT NULL DEFAULT 0,
+              lastlogout BIGINT UNSIGNED NOT NULL DEFAULT 0,
+              boss_points BIGINT NOT NULL DEFAULT 0,
+              comment VARCHAR(255) NOT NULL DEFAULT '',
+              istutorial BIGINT NOT NULL DEFAULT 0,'''
+          if old_columns not in text and new_columns not in text:
+              raise SystemExit('Phase 7 players column anchor not found')
+          text = text.replace(old_columns, new_columns, 1)
+
+          old_tables = '''          CREATE TABLE IF NOT EXISTS canary.guild_ranks (id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY);
+          CREATE TABLE IF NOT EXISTS canary.channels (id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY);'''
+          new_tables = '''          CREATE TABLE IF NOT EXISTS canary.guild_ranks (id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY);
+          CREATE TABLE IF NOT EXISTS canary.houses (
+              id BIGINT UNSIGNED NOT NULL,
+              channel_id BIGINT UNSIGNED NOT NULL DEFAULT 1,
+              owner BIGINT UNSIGNED NOT NULL DEFAULT 0,
+              name VARCHAR(255) NOT NULL,
+              size BIGINT NOT NULL DEFAULT 0,
+              PRIMARY KEY (channel_id, id),
+              INDEX houses_owner_index (owner)
+          );
+          CREATE TABLE IF NOT EXISTS canary.player_deaths (
+              player_id BIGINT UNSIGNED NOT NULL,
+              time BIGINT UNSIGNED NOT NULL DEFAULT 0,
+              level BIGINT NOT NULL DEFAULT 1,
+              killed_by VARCHAR(255) NOT NULL,
+              is_player TINYINT NOT NULL DEFAULT 0,
+              INDEX player_deaths_player_time_index (player_id, time),
+              INDEX player_deaths_time_index (time),
+              INDEX player_deaths_killed_by_index (killed_by)
+          );
+          CREATE TABLE IF NOT EXISTS canary.channels (id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY);'''
+          if old_tables not in text and new_tables not in text:
+              raise SystemExit('Phase 7 table anchor not found')
+          text = text.replace(old_tables, new_tables, 1)
+
+          path.write_text(text, encoding='utf-8')
+          PY
+
+      - name: Validate workflow syntax landmarks
+        run: |
+          grep -q 'CREATE TABLE IF NOT EXISTS canary.houses' .github/workflows/phase7-production-like-validation.yml
+          grep -q 'CREATE TABLE IF NOT EXISTS canary.player_deaths' .github/workflows/phase7-production-like-validation.yml
+          grep -q 'comment VARCHAR(255)' .github/workflows/phase7-production-like-validation.yml
+
+      - name: Commit alignment and remove workflow
+        run: |
+          set -euo pipefail
+          git rm .github/workflows/one-shot-phase7-community-schema.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add .github/workflows/phase7-production-like-validation.yml
+          git commit -m 'ci(phase7): align community data schema fixture'
+          git push origin HEAD:feat/OTERYN-20260729-community-data-completeness
