@@ -1,6 +1,7 @@
 @extends('game.layout')
 
-@section('title', __('community.highscores.title'))
+@php($highscoreTitle = $category === 'level' && $vocation === null ? __('public.game.highscores_title') : __('community.highscores.title'))
+@section('title', $highscoreTitle)
 @section('page-class', 'page-shell-wide community-page')
 
 @section('content')
@@ -9,7 +10,7 @@
 
     <div class="page-header">
         <p class="eyebrow">{{ __('public.game.rankings') }}</p>
-        <h1>{{ __('community.highscores.title') }}</h1>
+        <h1>{{ $highscoreTitle }}</h1>
         <p class="muted">{{ __('community.highscores.description') }}</p>
     </div>
 
@@ -48,7 +49,7 @@
     </form>
 
     <div class="card">
-        <div class="table-region" tabindex="0" aria-label="{{ __('community.highscores.title') }}">
+        <div class="table-region" tabindex="0" aria-label="{{ $highscoreTitle }}">
             <table class="table-compact">
                 <thead>
                 <tr>
@@ -69,7 +70,7 @@
                         <td>{{ $characterPresentation->vocationName((int) $player->vocation) }}</td>
                     </tr>
                 @empty
-                    <tr><td colspan="5">{{ __('community.highscores.empty') }}</td></tr>
+                    <tr><td colspan="5">{{ __('public.game.no_characters') }}</td></tr>
                 @endforelse
                 </tbody>
             </table>
