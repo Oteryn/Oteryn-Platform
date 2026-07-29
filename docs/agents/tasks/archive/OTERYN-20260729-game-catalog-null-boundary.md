@@ -57,14 +57,14 @@ owned_paths:
   - docs/contracts/GAME_CATALOG_EXPORT_CONTRACT.md
   - docs/architecture/MODULE_CATALOG.md
   - docs/architecture/adr/**
-  - docs/agents/tasks/active/OTERYN-20260729-game-catalog-null-boundary.md
+  - docs/agents/tasks/archive/OTERYN-20260729-game-catalog-null-boundary.md
   - CHANGELOG.md
 modules:
   - Game Catalog
 dependencies:
   - OTS-20260728-game-catalog-v1
 blockers:
-  - Consumer CI must pass before Canary schema 1.1.0 producer output may merge.
+  - none for the merged Platform consumer; Canary producer rollout remains separately authorized work
 cross_repository_tasks:
   - CAN-20260729-game-catalog-schema-1-1
 ```
@@ -73,7 +73,7 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-07-29T16:00:08Z
+updated_at: 2026-07-29T16:42:00Z
 head: 8055a58bec18c935d49c1692d9394aa652201542
 branch: feat/OTERYN-20260729-game-catalog-null-boundary
 pr: 299
@@ -97,32 +97,31 @@ owned_paths:
   - docs/contracts/GAME_CATALOG_EXPORT_CONTRACT.md
   - docs/architecture/MODULE_CATALOG.md
   - docs/architecture/adr/**
-  - docs/agents/tasks/active/OTERYN-20260729-game-catalog-null-boundary.md
+  - docs/agents/tasks/archive/OTERYN-20260729-game-catalog-null-boundary.md
   - CHANGELOG.md
 proven:
-  - Platform main stores verified_content_through_release_id as a non-null foreign key.
-  - Platform main accepts only schema 1.0.0 and verifies one bundled schema hash.
-  - Existing public context uses an inner join to the verified release.
-  - Existing activation does not explicitly reject an unknown verified-content boundary because schema 1.0.0 could not represent one.
-  - No active Platform task or open Game Catalog PR overlaps this scope.
   - Schema 1.1.0 is pinned as SHA-256 323ff6ae849759c9190f2a0c342855194ed74645816adc45051b6d914e67c7ac in both repositories.
-  - Schema 1.1.0 snapshots persist a null verified-content boundary without a sentinel and cannot be activated.
+  - Schema 1.1.0 snapshots persist a null verified-content boundary without a sentinel and cannot be activated or publicly projected.
   - Schema 1.0.0 snapshots retain activation and rollback compatibility under the new consumer.
-  - Canary producer PR 1006 passed contract, compilation, export-only runtime, CI, ownership and E2E checks at 57dd84c10ba582597ba00daa38437a3c88b99c4d.
+  - Unsupported schema versions and schema/version mismatches fail closed.
+  - Canary producer PR #1006 passed contract, compilation, export-only runtime, CI, ownership and E2E checks at 57dd84c10ba582597ba00daa38437a3c88b99c4d and remains a separately controlled producer rollout.
+  - Exact Platform head 8055a58bec18c935d49c1692d9394aa652201542 passed CI 30467829945, Phase 7 30467822827, Game Catalog Contract 30467822606, Agent Governance 30467830114, Edge Security 30467823707, Game Auth 30467822748, DB Outage 30467822594, Synology build 30467822602, Acceptance E2E 30467829895 and Portal Acceptance 30467822754.
+  - PR #299 squash-merged as b2b2871eed0375e22d48de5dd4947fe29c2bb974 on 2026-07-29.
 derived:
-  - Schema 1.1.0 must represent the boundary as nullable without a sentinel.
-  - New consumer code must retain schema 1.0.0 activation compatibility for stored snapshots.
-  - Import may accept unknown evidence for review, but activation and public projection must remain fail closed.
-unknown: []
-conflicts:
-  - none
+  - The Platform consumer safely accepts reviewable unknown evidence but keeps activation and public projection unavailable until the producer supplies an authoritative release boundary.
+  - The merged Platform task is complete independently of whether the separately controlled Canary producer is later merged or deployed.
+unknown:
+  - Canary PR #1006 merge/deployment state after its validated head.
+  - Actual production import, activation and selected profile identity.
+conflicts: []
 first_failure:
   marker: none
-  evidence: Schema representation, persistence, activation and compatibility failures are resolved and exact-head validation passed.
+  evidence: Schema representation, persistence, activation and compatibility failures were resolved and all required exact-head validation passed before merge.
 rejected_hypotheses:
   - Use protocol 15.25 as content-completeness evidence.
   - Invent a sentinel release.
   - Mutate schema 1.0.0 in place.
+  - Treat an implementation-ready Canary PR as authorization to merge or deploy it.
 changed_paths:
   - .github/workflows/game-catalog-contract.yml
   - app/GameCatalog/**
@@ -137,30 +136,22 @@ changed_paths:
   - docs/architecture/adr/0018-game-catalog-unknown-verified-boundary.md
   - docs/contracts/GAME_CATALOG_IMPORT_CONTRACT.md
   - CHANGELOG.md
-  - docs/agents/tasks/active/OTERYN-20260729-game-catalog-null-boundary.md
+  - docs/agents/tasks/archive/OTERYN-20260729-game-catalog-null-boundary.md
 validation:
-  - command: overlap search
-    result: PASS
-    evidence: No active Platform task or open Game Catalog PR matched on 2026-07-29.
-  - command: Canary pinned snapshot validator against Platform schema 1.1.0 fixture
-    result: PASS
-    evidence: Schema SHA-256 323ff6ae849759c9190f2a0c342855194ed74645816adc45051b6d914e67c7ac and fixture SHA-256 6b809e339cdf2c933c032a32e06e649d277eafb84ce9c5e1681d6b29ead4e61a validated locally.
   - command: python3 tools/game-catalog/validate_contract_fixture.py
-    result: NOT_RUN
-    evidence: Local Python environment lacks jsonschema; the pinned workflow installs jsonschema 4.26.0 before running both schema versions.
+    result: PASS
+    evidence: Game Catalog Contract run 30467822606 installed the pinned validator and passed both supported schema fixtures.
   - command: focused PHP/Laravel tests and migration rollback
     result: PASS
     evidence: CI 30467829945 and Phase 7 30467822827 passed formatting, PHPStan, tests, clean migration, upgrade and rollback at 8055a58bec18c935d49c1692d9394aa652201542.
-  - command: Game Catalog Contract
-    result: PASS
-    evidence: Run 30467822606 passed Pint, PHPStan and both pinned schema fixtures at 8055a58bec18c935d49c1692d9394aa652201542.
   - command: broad exact-head workflows
     result: PASS
     evidence: Agent Governance 30467830114, Edge Security 30467823707, Game Auth 30467822748, DB Outage 30467822594, Synology build 30467822602, Acceptance E2E 30467829895 and Portal Acceptance 30467822754 passed.
-blockers: []
-next_action: Mark PR 299 ready and squash-merge the consumer before finalizing Canary producer PR 1006.
+blockers:
+  - none
+next_action: Keep Canary PR #1006 read-only unless separately authorized; continue Oteryn Platform work under a new non-overlapping task.
 ```
 
 ## Notes
 
-Coordination ID: `OTS-20260728-game-catalog-v1`. No production import or activation is authorized by this task.
+Coordination ID: `OTS-20260728-game-catalog-v1`. No production import, activation or external-repository write was authorized by this task.
