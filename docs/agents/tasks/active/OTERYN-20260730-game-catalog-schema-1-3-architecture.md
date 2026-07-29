@@ -7,7 +7,7 @@ agent: chatgpt
 branch: docs/OTERYN-20260730-game-catalog-schema-1-3-architecture
 base_branch: main
 created: 2026-07-29T22:25:00Z
-updated: 2026-07-29T22:36:00Z
+updated: 2026-07-29T22:53:00Z
 risk: medium
 ---
 
@@ -27,11 +27,11 @@ Define the consumer-first schema `1.3.0` NPC/shop architecture without registeri
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-07-29T22:36:00Z
-head: 7576bb61078a2e29eee7747dce26ab124b5cb2ed
+updated_at: 2026-07-29T22:53:00Z
+head: b7f996bb130b09998cfce427eb789f0072047ba8
 branch: docs/OTERYN-20260730-game-catalog-schema-1-3-architecture
 pr: 332
-status: validating
+status: ready
 context_routes:
   - architecture
   - public-game-data
@@ -56,6 +56,7 @@ proven:
   - Final Canary Npcs/NpcType/ShopBlock state is the proposed runtime authority.
   - The extension schema and fixture validate with zero Draft 2020-12 errors.
   - Semantic checks pass and negative duplicate, dangling, identity and count cases fail as expected.
+  - Exact-head b7f996bb130b09998cfce427eb789f0072047ba8 passed Agent Governance, CI, Edge Security Emulation, Platform DB Outage Validation, Game Auth Ticket Concurrency and Phase 7 Production-Like Validation.
 derived:
   - Platform must implement the complete strict consumer before Canary producer support.
   - Registration does not prove NPC encounterability or item obtainability.
@@ -77,10 +78,9 @@ validation:
   - command: Draft202012Validator and semantic fixture checks
     result: PASS
     evidence: valid proposal clean; negative cases detected.
-  - command: exact-head PR 332 CI
-    result: NOT_RUN
-    evidence: pending.
-blockers:
-  - exact-head PR 332 workflow and review evidence pending.
-next_action: Verify exact-head CI and review findings for PR 332, then mark the task ready if they pass.
+  - command: exact-head b7f996bb130b09998cfce427eb789f0072047ba8 workflow matrix
+    result: PASS
+    evidence: all six Platform workflows completed successfully.
+blockers: []
+next_action: Review and merge PR 332, then start the independent Platform schema 1.3 inactive consumer task.
 ```
