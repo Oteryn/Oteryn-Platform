@@ -4,10 +4,11 @@ Convenience index only. Individual active task records, live PRs and Git state a
 
 ## Active tasks
 
-- None.
+- `OTERYN-20260729-character-rename-contract` — deliver Issue #324 read-only discovery and the operation-specific Canary-safe rename contract under parent #277; no Canary mutation or runtime activation is authorized.
 
 ## Closed acceptance and release-preparation follow-ups
 
+- PR #318 / `f90bb8075b300569b7d493c84f0080e6b3295c35` — archived the completed Issue #307 character-profile preference task, cleared ACTIVE_WORK and reconciled PROJECT_STATE after all seven archive-head workflows passed.
 - PR #308 / `86847d0068e470274b6c3ee5523fe41cbb9663af` — delivered Platform-owned character comments, per-character privacy and optional main-character selection after all 11 exact-final-head workflows passed; Issue #307 closed while Canary remained read-only and parent #277 stayed open.
 - PR #303 / `e1df0608eb6a8321f47fe51da65233a613a27b25` — reconciled Issue #281 to the authoritative item/weapon/creature/loot Game Catalog scope delivered by PR #272, preserved unsupported knowledge gaps under #277/#301/#302 and closed #281 after all eight exact-final-head workflows passed; no runtime, Canary, external-repository or production mutation occurred.
 - PR #300 / `7f2c37ca2a2447623705f60dffc08a34b9c755d3` — archived the completed community-data task, cleared ACTIVE_WORK and reconciled project state after Issue #280 closure.

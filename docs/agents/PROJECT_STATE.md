@@ -182,11 +182,11 @@ Repository and exact-revision E2E work has hardened the native-auth direction, b
 
 ## Current active task
 
-None. PR #308 completed Issue #307 and its task is archived; parent #277 remains open for separately contracted mutation and achievement work.
+`OTERYN-20260729-character-rename-contract` in Issue #324 is the active read-only discovery task for the operation-specific character-rename contract under parent #277; no Canary mutation is authorized.
 
 ## Recommended sequence
 
-1. Continue parent #277 only through a new bounded task after selecting an explicitly authorized mutation or authoritative achievement scope.
+1. Complete Issue #324 read-only rename-contract discovery and decide whether a safe authorized implementation path exists before any Canary write task starts.
 2. Define explicit operation-specific contracts before implementing character rename, deletion, restoration or transfer.
 3. Keep #278 disabled until a dedicated payment ADR, threat model and provider lifecycle are reviewed.
 4. Start #301 only after an additive authoritative producer contract is approved; treat #302 as optional product discovery.
