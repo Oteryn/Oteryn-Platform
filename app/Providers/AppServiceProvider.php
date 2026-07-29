@@ -174,6 +174,30 @@ class AppServiceProvider extends ServiceProvider
             return Limit::perMinute(30)->by($this->authenticatedIdentitySourceKey($request));
         });
 
+        RateLimiter::for('support-ticket-create', function (Request $request): Limit {
+            return Limit::perMinute(6)->by($this->authenticatedIdentitySourceKey($request));
+        });
+
+        RateLimiter::for('support-ticket-reply', function (Request $request): Limit {
+            return Limit::perMinute(12)->by($this->authenticatedIdentitySourceKey($request));
+        });
+
+        RateLimiter::for('support-ticket-status', function (Request $request): Limit {
+            return Limit::perMinute(12)->by($this->authenticatedIdentitySourceKey($request));
+        });
+
+        RateLimiter::for('support-report-submit', function (Request $request): Limit {
+            return Limit::perMinute(3)->by($this->authenticatedIdentitySourceKey($request));
+        });
+
+        RateLimiter::for('support-enforcement-acknowledge', function (Request $request): Limit {
+            return Limit::perMinute(12)->by($this->authenticatedIdentitySourceKey($request));
+        });
+
+        RateLimiter::for('support-enforcement-appeal', function (Request $request): Limit {
+            return Limit::perMinute(3)->by($this->authenticatedIdentitySourceKey($request));
+        });
+
         RateLimiter::for('game-auth-ticket-issue', function (Request $request): Limit {
             return Limit::perMinute(5)->by($this->bearerSourceKey($request));
         });
