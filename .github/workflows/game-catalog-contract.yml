@@ -17,6 +17,7 @@ on:
       - 'tests/Unit/GameCatalog/**'
       - 'tools/game-catalog/**'
       - 'docs/agents/tasks/active/OTERYN-20260728-game-catalog-slice-1.md'
+      - 'docs/agents/tasks/active/OTERYN-20260729-game-catalog-null-boundary.md'
   pull_request:
     branches:
       - main
@@ -33,6 +34,7 @@ on:
       - 'tests/Unit/GameCatalog/**'
       - 'tools/game-catalog/**'
       - 'docs/agents/tasks/active/OTERYN-20260728-game-catalog-slice-1.md'
+      - 'docs/agents/tasks/active/OTERYN-20260729-game-catalog-null-boundary.md'
 
 permissions:
   contents: read
@@ -55,10 +57,16 @@ jobs:
         run: python3 -m py_compile tools/game-catalog/validate_contract_fixture.py
 
       - name: Validate schema and shared fixture
-        run: >-
-          python3 tools/game-catalog/validate_contract_fixture.py
-          --schema resources/schemas/game-catalog/v1/game-catalog-snapshot.schema.json
-          --fixture tests/Fixtures/GameCatalog/v1/minimal-snapshot.json
+        run: |
+          python3 tools/game-catalog/validate_contract_fixture.py \
+            --schema resources/schemas/game-catalog/v1/game-catalog-snapshot.schema.json \
+            --fixture tests/Fixtures/GameCatalog/v1/minimal-snapshot.json
+          python3 tools/game-catalog/validate_contract_fixture.py \
+            --schema resources/schemas/game-catalog/v1.1/game-catalog-snapshot.schema.json \
+            --fixture tests/Fixtures/GameCatalog/v1.1/minimal-snapshot.json \
+            --expected-schema-version 1.1.0 \
+            --expected-schema-sha256 323ff6ae849759c9190f2a0c342855194ed74645816adc45051b6d914e67c7ac \
+            --expected-fixture-sha256 6b809e339cdf2c933c032a32e06e649d277eafb84ce9c5e1681d6b29ead4e61a
 
   static-analysis:
     runs-on: ubuntu-latest
@@ -89,6 +97,7 @@ jobs:
             database/migrations/2026_07_28_110000_create_game_catalog_tables.php \
             database/migrations/2026_07_28_110100_add_game_catalog_profile_policies.php \
             database/migrations/2026_07_28_110200_add_game_catalog_permissions.php \
+            database/migrations/2026_07_29_152000_make_game_catalog_verified_content_boundary_nullable.php \
             tests/Feature/GameCatalog \
             tests/Integration/GameCatalog \
             tests/Unit/GameCatalog \
@@ -105,6 +114,7 @@ jobs:
             database/migrations/2026_07_28_110000_create_game_catalog_tables.php \
             database/migrations/2026_07_28_110100_add_game_catalog_profile_policies.php \
             database/migrations/2026_07_28_110200_add_game_catalog_permissions.php \
+            database/migrations/2026_07_29_152000_make_game_catalog_verified_content_boundary_nullable.php \
             tests/Feature/GameCatalog \
             tests/Integration/GameCatalog \
             tests/Unit/GameCatalog \

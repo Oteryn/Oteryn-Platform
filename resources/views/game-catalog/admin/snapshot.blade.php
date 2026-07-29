@@ -26,7 +26,7 @@
             <div><dt>Protocol profile</dt><dd>{{ $snapshot->protocol_profile }}</dd></div>
             <div><dt>Runtime release</dt><dd>{{ $snapshot->runtime_release }}</dd></div>
             <div><dt>Content target</dt><dd>{{ $snapshot->content_target_release }}</dd></div>
-            <div><dt>Verified through</dt><dd>{{ $snapshot->verified_content_through_release }}</dd></div>
+            <div><dt>Verified through</dt><dd>{{ $snapshot->verified_content_through_release ?? 'unknown' }}</dd></div>
             <div><dt>Contains through</dt><dd>{{ $snapshot->contains_content_through_release ?? 'not declared' }}</dd></div>
             <div><dt>Counts</dt><dd>{{ $snapshot->entity_count }} entities / {{ $snapshot->relation_count }} relations</dd></div>
             <div><dt>Generated</dt><dd>{{ $snapshot->generated_at }}</dd></div>

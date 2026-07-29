@@ -68,7 +68,7 @@ final class CatalogImportService
                     'validation_summary' => $this->json([
                         'errors' => 0,
                         'warnings' => 0,
-                        'schema_sha256' => CatalogConfiguration::string('game-catalog.expected_schema_sha256'),
+                        'schema_sha256' => $validated->schemaSha256,
                         'entity_count' => count($validated->payload['entities']),
                         'relation_count' => count($validated->payload['relations']),
                     ]),
@@ -188,7 +188,9 @@ final class CatalogImportService
             'protocol_profile' => $snapshot['protocol_profile'],
             'runtime_release_id' => $releaseIds[$snapshot['runtime_release']],
             'content_target_release_id' => $releaseIds[$snapshot['content_target_release']],
-            'verified_content_through_release_id' => $releaseIds[$snapshot['verified_content_through_release']],
+            'verified_content_through_release_id' => $snapshot['verified_content_through_release'] === null
+                ? null
+                : $releaseIds[$snapshot['verified_content_through_release']],
             'contains_content_through_release_id' => $snapshot['contains_content_through_release'] === null
                 ? null
                 : $releaseIds[$snapshot['contains_content_through_release']],

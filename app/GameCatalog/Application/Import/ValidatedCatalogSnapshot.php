@@ -21,7 +21,7 @@ namespace App\GameCatalog\Application\Import;
  *   protocol_profile: string,
  *   runtime_release: string,
  *   content_target_release: string,
- *   verified_content_through_release: string,
+ *   verified_content_through_release: string|null,
  *   contains_content_through_release: string|null,
  *   appearances_sha256: string,
  *   map_sha256: string|null,
@@ -143,6 +143,7 @@ final readonly class ValidatedCatalogSnapshot
     public function __construct(
         public array $payload,
         public string $contentSha256,
+        public string $schemaSha256,
         public int $fileSize,
         public string $sourceLabel,
     ) {}

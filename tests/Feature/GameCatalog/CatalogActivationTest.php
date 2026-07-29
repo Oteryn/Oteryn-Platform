@@ -20,7 +20,16 @@ final class CatalogActivationTest extends TestCase
 
     public function test_visibility_differs_by_target_release_and_activation_is_profile_scoped(): void
     {
-        $snapshot = app(CatalogImportService::class)->import($this->fixturePath());
+        $path = $this->temporarySnapshot(function (array &$payload): void {
+            $payload['snapshot']['verified_content_through_release'] = '15.21';
+        });
+
+        try {
+            $snapshot = app(CatalogImportService::class)->import($path);
+        } finally {
+            @unlink($path);
+        }
+
         $currentProfile = $this->createProfile('public-current', '15.20');
         $futureProfile = $this->createProfile('public-future', '15.21');
         $untouchedProfile = $this->createProfile('public-untouched', '15.20');
@@ -157,6 +166,23 @@ final class CatalogActivationTest extends TestCase
         self::assertSame(2, DB::table('game_catalog_profile_relations')->where('profile_id', $profileId)->whereIn('reason_code', ['source_hidden', 'outside_release'])->count());
     }
 
+    public function test_unknown_verified_content_boundary_cannot_be_activated(): void
+    {
+        $snapshot = app(CatalogImportService::class)->import($this->fixtureV11Path());
+        $profileId = $this->createProfile('unknown-boundary', '15.20');
+
+        try {
+            app(CatalogActivationService::class)->activate($snapshot->snapshotId, 'unknown-boundary');
+            self::fail('Expected activation with an unknown verified-content boundary to fail.');
+        } catch (RuntimeException $exception) {
+            self::assertStringContainsString('no verified-content boundary', $exception->getMessage());
+        }
+
+        self::assertNull(DB::table('game_catalog_profiles')->where('id', $profileId)->value('active_snapshot_id'));
+        self::assertSame(0, DB::table('game_catalog_profile_entities')->where('profile_id', $profileId)->count());
+        self::assertSame(0, DB::table('game_catalog_profile_relations')->where('profile_id', $profileId)->count());
+    }
+
     private function createProfile(string $key, string $releaseKey): int
     {
         $now = CarbonImmutable::now('UTC');
@@ -194,6 +220,11 @@ final class CatalogActivationTest extends TestCase
     private function fixturePath(): string
     {
         return base_path('tests/Fixtures/GameCatalog/v1/minimal-snapshot.json');
+    }
+
+    private function fixtureV11Path(): string
+    {
+        return base_path('tests/Fixtures/GameCatalog/v1.1/minimal-snapshot.json');
     }
 
     /** @param callable(CatalogPayload&): void $mutate */

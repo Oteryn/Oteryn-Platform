@@ -26,7 +26,7 @@
                     <td><code>{{ $snapshot->content_sha256 }}</code></td>
                     <td>{{ $snapshot->runtime_release }}</td>
                     <td>{{ $snapshot->content_target_release }}</td>
-                    <td>{{ $snapshot->verified_content_through_release }}</td>
+                    <td>{{ $snapshot->verified_content_through_release ?? 'unknown' }}</td>
                     <td>{{ $snapshot->entity_count }} entities / {{ $snapshot->relation_count }} relations</td>
                     <td>{{ $snapshot->imported_at }}</td>
                 </tr>
