@@ -1,0 +1,27 @@
+name: One-shot Character Rename Resume
+
+on:
+  pull_request:
+    branches:
+      - tooling/OTERYN-20260729-resume-character-rename
+    paths:
+      - '.resume-trigger-character-rename'
+
+permissions:
+  contents: read
+
+jobs:
+  resume:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout active task branch
+        uses: actions/checkout@v7
+        with:
+          ref: docs/OTERYN-20260729-character-rename-contract
+          fetch-depth: 1
+
+      - name: Generate compact continuation prompt
+        run: |
+          echo '__RESUME_STDOUT_BEGIN__'
+          python tools/agents/resume.py --task docs/agents/tasks/active/OTERYN-20260729-character-rename-contract.md
+          echo '__RESUME_STDOUT_END__'
