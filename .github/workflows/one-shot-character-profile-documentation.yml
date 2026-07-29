@@ -33,6 +33,16 @@ jobs:
           ref: feat/OTERYN-20260729-character-profile-preferences
           fetch-depth: 0
 
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.5'
+          coverage: none
+          tools: composer:v2
+
+      - name: Install application dependencies
+        run: composer install --no-interaction --prefer-dist --no-progress
+
       - name: Reconcile machine and human documentation
         run: python tools/agents/reconcile_character_profile_preferences.py
 
