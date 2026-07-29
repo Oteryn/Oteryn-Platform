@@ -94,8 +94,8 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-07-29T14:36:00Z
-head: 3c743a883b4c9eb78a433499e01140fb4abb3881
+updated_at: 2026-07-29T15:22:00Z
+head: e08096a16f22966b3e53659011883d832dd5cad6
 branch: feat/OTERYN-20260729-community-data-completeness
 pr: 298
 status: validating
@@ -135,19 +135,20 @@ proven:
   - Guild directory/search/detail, latest deaths and kill statistics use deterministic pagination, limits and ordering; guild administration remains outside Platform without an approved Canary mutation contract.
   - The dedicated Canary principal remains direct-table SELECT only and explicitly requires houses and player_deaths; schema-wide and write grants fail verification.
   - ADR 0018, the public community data contract and operations runbook record transfer, achievement, polls and public-enforcement policy boundaries.
-  - Product and route ledgers were reconciled and their local validators passed in the one-shot reconciliation workflow before commit 2be0d3f3cd4784492519bb4619c1ea6483642753.
-  - CI run 30460368821 passed Composer validation/audit, Pint, PHPStan and the complete PHPUnit suite at exact head 4570f6504c26e2e95a7afcccb203cfd1fbb40832.
-  - Community Data provisioning, direct-grant verification and focused PHP regressions passed before a strict browser locator identified duplicate visible Online labels; the locator is now scoped to the Public status region.
-  - Phase 7 failure at run 30460365720 was isolated to its synthetic schema fixture; the exact approved houses/player_deaths and profile columns are now provisioned without changing Canary or production data.
+  - Product and route ledgers were reconciled and their local validators passed before the exact-head workflow suite.
+  - Exact code head e08096a16f22966b3e53659011883d832dd5cad6 passed all 11 required workflows: CI 30465058633, Agent Governance 30465058599, Portal Acceptance Contract 30465058219, Acceptance E2E and Visual UX 30465058238, Community Data Acceptance 30465058497, Phase 7 Production-Like Validation 30465058279, Platform DB Outage Validation 30465058335, Edge Security Emulation 30465058261, Game Auth Ticket Concurrency 30465058256, Synology Production Target Preflight 30465058417 and Build Synology Staging Images 30465058309.
+  - Community Data Acceptance run 30465058497 passed real MariaDB provisioning, exact direct-table read grants, focused PHP regressions and zero-retry Chromium desktop/tablet/mobile including privacy, dependency failure/recovery and horizontal-overflow checks.
+  - Phase 7 run 30465058279 passed synthetic production-like schema provisioning, least-privilege and fail-closed database verification, Redis/SMTP/configuration checks, full regressions, restore and deployment lifecycle evidence.
+  - Portal Acceptance run 30465058219 passed the strict machine ledgers and complete zero-retry account lifecycle after the public character Level locator was scoped to the Overview region with exact text matching.
 derived:
-  - Issue #280 is implemented for its approved read-only boundary, pending required exact-final-head workflow evidence and merge.
+  - Issue #280 is implemented for its approved read-only boundary, pending a final documentation-only exact-head workflow pass and merge.
   - Remaining required product completeness work is Issue #277; Issue #278 remains mandatory before commerce activation and Issue #281 owns further server-backed knowledge expansion.
 unknown:
   - Actual production MariaDB grants, indexes, latency, deployed code identity and recovery behavior remain unverified.
 conflicts: []
 first_failure:
-  marker: pending-clean-exact-head-validation
-  evidence: Functional regressions, browser locator and Phase 7 fixture are repaired; the helper workflow is removed and a clean user-authored checkpoint commit will trigger all required gates.
+  marker: none
+  evidence: Every required workflow passed at exact code head e08096a16f22966b3e53659011883d832dd5cad6; only the final documentation checkpoint requires exact-head revalidation before merge.
 rejected_hypotheses:
   - Third-party Tibia or wiki schemas can be treated as authoritative for Oteryn.
   - Characters may be filtered by channel when the authoritative player schema stores no channel ownership.
@@ -163,6 +164,7 @@ changed_paths:
   - public/css/community.css
   - tests/{Feature/PublicGameData,Feature/PublicPortal,Unit/CanaryIntegration}/**
   - scripts/acceptance/**community**
+  - scripts/acceptance/tests/player-journey-acceptance.spec.mjs
   - scripts/acceptance/bootstrap-production-like.sh
   - .github/workflows/{community-data-acceptance,phase7-production-like-validation}.yml
   - docs/{architecture,contracts,operations,testing}/**community**
@@ -170,27 +172,21 @@ changed_paths:
 validation:
   - command: node scripts/acceptance/coverage/validate-product-completeness.mjs
     result: PASS
-    evidence: One-shot reconciliation validated the updated 43-capability machine ledger before committing it.
+    evidence: Portal Acceptance run 30465058219 validated the updated 43-capability machine ledger at e08096a16f22966b3e53659011883d832dd5cad6.
   - command: node scripts/acceptance/coverage/validate-portal-coverage.mjs --manifest-only
     result: PASS
-    evidence: One-shot reconciliation validated fragment shape, stable evidence markers and unique route ownership before committing it.
+    evidence: Portal Acceptance run 30465058219 validated fragment shape, stable evidence markers and unique route ownership at e08096a16f22966b3e53659011883d832dd5cad6.
   - command: python tools/agents/test_checkpoint.py
     result: PASS
-    evidence: One-shot reconciliation validated the shared checkpoint parser tests.
-  - command: CI run 30460368821
+    evidence: Agent Governance run 30465058599 passed at e08096a16f22966b3e53659011883d832dd5cad6.
+  - command: Required code-head workflow suite
     result: PASS
-    evidence: Composer metadata/audit, Pint, PHPStan and the full PHPUnit suite passed at 4570f6504c26e2e95a7afcccb203cfd1fbb40832.
-  - command: Phase 7 run 30460365720
-    result: FAIL
-    evidence: Synthetic Canary schema omitted the newly required houses table; the Phase 7 fixture is now aligned.
-  - command: Community Data run 30460827156
-    result: FAIL
-    evidence: All database/grant/PHP stages passed; Playwright strict mode found multiple Online labels and the locator is now region-scoped.
-  - command: Required exact-head workflow suite
+    evidence: All 11 required workflow runs listed under proven completed successfully at e08096a16f22966b3e53659011883d832dd5cad6.
+  - command: Required exact-final-head workflow suite
     result: NOT_RUN
-    evidence: Pending on this clean checkpoint commit.
+    evidence: This documentation-only checkpoint commit must pass the complete required workflow suite before merge.
 blockers: []
-next_action: Validate the clean exact head across CI, Community Data, portal, visual and production-like workflows; fix only the first reproducible remaining failure.
+next_action: Validate this documentation-only exact head across every required workflow; if all pass, mark PR #298 ready, update its closing evidence, merge with the exact head and archive the completed task.
 ```
 
 ## Boundaries
