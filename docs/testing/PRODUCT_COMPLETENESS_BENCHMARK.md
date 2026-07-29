@@ -34,7 +34,7 @@ Relevance classification:
 | Required | 22 |
 | Planned | 13 |
 | Optional / differentiator | 5 |
-| Not applicable | 1 |
+| Not applicable | 3 |
 
 **Oteryn must not claim benchmark product completeness while required partial or missing capabilities remain open.** The principal remaining required-gap tracker is #277. Commerce is intentionally planned rather than part of the current non-commercial launch boundary, but #278 is mandatory before any commercial activation. Structured spell/NPC/quest/achievement expansion is tracked by #301, while optional maps and hunt/discovery planning is tracked by #302.
 

@@ -73,7 +73,7 @@ The ready Platform-to-Canary binding remains immutable. Self-service import, unl
 
 PR #298 merged the approved read-only community-data boundary as `7533b12b1e1c6d266c6bf5a8800e584fad23a01e` after all 11 exact-final-head workflows passed. Canary mutation, guild administration, selectable achievements, world-transfer history, polls and public enforcement publication remain excluded until authoritative ownership and privacy contracts exist.
 
-Still not benchmark-complete: owner-editable character information, character-level privacy, selected achievements, deletion/restore, rename, controlled transfer and optional main-character policy remain #277. Customer commerce remains #278, and further authoritative server-backed catalogues remain #281.
+Still not benchmark-complete: owner-editable character information, character-level privacy, selected achievements, deletion/restore, rename, controlled transfer and optional main-character policy remain #277. Customer commerce remains #278. Structured authoritative spell/NPC/quest/achievement catalogues remain #301, while optional map/hunt/discovery decisions remain #302.
 
 ### CMS and community publishing
 
@@ -140,20 +140,20 @@ The current ledger classifies 43 Tibia/RubinOT/OTS benchmark capabilities:
 - 3 partial;
 - 17 missing;
 - 3 not applicable;
-- 22 required, 13 planned, 7 optional/differentiator and 1 not applicable.
+- 22 required, 13 planned, 5 optional/differentiator and 3 not applicable.
 
 Completed focused slices:
 
 - #276 — Platform-owned account security and lifecycle, merged in PR #283;
 - #279 — Platform-owned support and moderation lifecycle, merged in PR #293;
-- #280 — read-only community statistics and guild discovery with privacy-aware profiles, merged in PR #298.
+- #280 — read-only community statistics and guild discovery with privacy-aware profiles, merged in PR #298;
+- #281 — first versioned item/weapon/creature/loot Game Catalog scope delivered by PR #272; evidence closeout is PR #303.
 
 Open focused backlog:
 
 - #277 — character management and public profiles;
 - #278 — premium, coins and entitlement commerce;
-- #281 — first versioned item/weapon/creature/loot Game Catalog scope delivered by PR #272; closeout is PR #303.
-- #301 — authoritative spell/NPC/quest/achievement catalogue expansion.
+- #301 — authoritative spell/NPC/quest/achievement catalogue expansion;
 - #302 — optional maps, hunt tools and server-specific discovery planning.
 
 A green route contract must not be described as product complete while required benchmark gaps remain.
