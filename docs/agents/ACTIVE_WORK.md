@@ -4,10 +4,11 @@ Convenience index only. Individual active task records, live PRs and Git state a
 
 ## Active tasks
 
-- `OTERYN-20260729-community-data-completeness` — Issue #280 highscore categories/filters, rich privacy-aware profiles, deaths/kill statistics, guild directory/workflow policy and responsive read-only acceptance.
+- None.
 
 ## Closed acceptance and release-preparation follow-ups
 
+- PR #298 / `7533b12b1e1c6d266c6bf5a8800e584fad23a01e` — bounded read-only highscore categories, privacy-aware rich character profiles, latest deaths/kill statistics, guild directory/search, explicit optional-feature policy and EN/PL responsive acceptance merged after every exact-final-head workflow passed; Issue #280 closed without Canary mutation or a production-verification claim.
 - PR #293 / `02aa4ab8180c0e9cecb0d42bc1f8f5af6db640a1` — complete Platform-owned support/moderation lifecycle with owner tickets, bounded reports, exact-MFA/RBAC moderator queues, enforcement/appeals, notifications, retention/privacy and EN/PL responsive acceptance merged; Issue #279 closed without Canary mutation, attachments or a production-verification claim.
 - PR #272 / `94259f6c5aa1e9cfcd86ad6e11c29fa42fc90491` — version-aware Game Catalog importer, activation/rollback, public item/weapon/creature/loot projections, secured administrator inspection and generated Canary cross-repository MariaDB lifecycle merged after every exact-final-head workflow passed; no production deployment or production profile activation occurred.
 - PR #283 / `28faad47f95df10d1a9b437a16a1be91556671c6` — complete Platform-owned account-security lifecycle, EN/PL responsive acceptance, strict product-ledger reconciliation and exact-final-head validation merged; Issue #276 closed without Canary mutation or a production-verification claim.
@@ -68,21 +69,21 @@ Repository and staging evidence remains valid only for its documented boundaries
 
 - **Production Readiness: STAGING_PROVEN for previously documented boundaries**
 - **Portal Completeness: COMPLETE AGAINST THE VERSIONED DELIVERED-SURFACE CONTRACT (Issue #240 closed)**
-- **Product Completeness Benchmark: COMPLETE AS AN AUDIT; REQUIRED PRODUCT GAPS REMAIN OPEN (#277-#281, with #278 required before commerce activation)**
+- **Product Completeness Benchmark: COMPLETE AS AN AUDIT; REQUIRED PRODUCT GAPS REMAIN OPEN (#277, #278 and #281, with #278 required before commerce activation)**
 - **Benchmark Product Completeness: NOT YET ACHIEVED**
-- **Functional Acceptance: account-security exact-head CI, strict ledger and zero-retry lifecycle passed through PR #283**
-- **Visual / UX Acceptance: account-security English/Polish desktop/tablet/mobile evidence and complete E2E/Visual UX passed through PR #283**
+- **Functional Acceptance: community-data exact-head CI, strict ledgers and zero-retry lifecycle passed through PR #298**
+- **Visual / UX Acceptance: community-data English/Polish desktop/tablet/mobile evidence and complete E2E/Visual UX passed through PR #298**
 - **Public Website Expansion Programme: implementation and machine-ledger closure merged**
 - **Emulated Edge Security: STAGING_PROVEN**
 - **Synology Production Target Preflight: STAGING_PROVEN**
 - **Production Go-Live Gate: PENDING PRODUCTION VERIFICATION**
 - **Production Verification: REQUIRED BEFORE GO-LIVE**
 
-The latest verified final-portal staging refresh identity is `583cae5f430998b2bbdf5e60b59d93f09ec6f4c8` from PR #267 and deployment run `30335161092`. Later marketplace, account-security, Game Catalog and audit evidence is repository/isolated-acceptance proof unless a deployment-specific record says otherwise. No repository, staging, local-target or emulation evidence may be promoted to `PRODUCTION_PROVEN`.
+The latest verified final-portal staging refresh identity is `583cae5f430998b2bbdf5e60b59d93f09ec6f4c8` from PR #267 and deployment run `30335161092`. Later marketplace, account-security, Game Catalog, support/moderation and community-data evidence is repository/isolated-acceptance proof unless a deployment-specific record says otherwise. No repository, staging, local-target or emulation evidence may be promoted to `PRODUCTION_PROVEN`.
 
 ## Next work
 
-The remaining required benchmark gaps are #277 character management/profile and #280 community data. Issue #278 is mandatory before commercial activation, #281 owns server-backed knowledge expansion, #244 separately owns the homepage-template selector and #91 remains the separate real Production Go-Live tracker.
+The remaining required benchmark gaps are #277 character management/profile and #281 server-backed knowledge expansion. Issue #278 is mandatory before commercial activation, #244 separately owns the homepage-template selector and #91 remains the separate real Production Go-Live tracker.
 
 ## Remaining cross-repository dependency
 

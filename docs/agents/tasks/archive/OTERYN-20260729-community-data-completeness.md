@@ -42,7 +42,7 @@ Close Issue #280 with bounded read-only community data: supported highscore cate
 - [x] English/Polish desktop, tablet and mobile UI covers success, empty, validation, unavailable, restored and not-found states.
 - [x] Unit, feature, real-MariaDB/query-contract and zero-retry browser evidence cover privacy, filters, pagination, resilience and responsive/accessibility behavior.
 - [x] Route and product-completeness ledgers are updated only after exact evidence exists.
-- [ ] Every required exact-final-head workflow passes before merge.
+- [x] Every required exact-final-head workflow passes before merge.
 
 ## Ownership
 
@@ -75,7 +75,7 @@ owned_paths:
   - docs/testing/PORTAL_ACCEPTANCE_COVERAGE_MATRIX.md
   - docs/agents/PROJECT_STATE.md
   - docs/agents/ACTIVE_WORK.md
-  - docs/agents/tasks/active/OTERYN-20260729-community-data-completeness.md
+  - docs/agents/tasks/archive/OTERYN-20260729-community-data-completeness.md
 modules:
   - PublicGameData
   - Identity
@@ -87,18 +87,18 @@ dependencies:
   - current localized public portal and acceptance harness
 blockers: []
 cross_repository_tasks:
-  - none; this task is read-only and does not modify Canary
+  - none; this task is read-only and did not modify Canary
 ```
 
 ## Context checkpoint
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-07-29T15:22:00Z
-head: e08096a16f22966b3e53659011883d832dd5cad6
+updated_at: 2026-07-29T15:31:00Z
+head: 45efd2a8f0162df22313e141e973c6a8c3ffb5d1
 branch: feat/OTERYN-20260729-community-data-completeness
 pr: 298
-status: validating
+status: ready
 context_routes:
   - agent-governance
   - architecture
@@ -126,29 +126,30 @@ owned_paths:
   - docs/operations/PUBLIC_COMMUNITY_DATA.md
   - docs/testing/{PRODUCT_COMPLETENESS_BENCHMARK.md,product-completeness-benchmark.json,PORTAL_ACCEPTANCE_COVERAGE_MATRIX.md}
   - docs/agents/{PROJECT_STATE,ACTIVE_WORK}.md
-  - docs/agents/tasks/active/OTERYN-20260729-community-data-completeness.md
+  - docs/agents/tasks/archive/OTERYN-20260729-community-data-completeness.md
 proven:
-  - Authoritative Canary source inspection confirms global players, approved highscore fields, comments, boss points, guild membership/ranks, houses, player_deaths and runtime leases; no authoritative per-channel character ownership, selectable-achievement source or world-transfer history exists.
+  - Authoritative Canary source inspection confirmed global players, approved highscore fields, comments, boss points, guild membership/ranks, houses, player_deaths and runtime leases; no authoritative per-channel character ownership, selectable-achievement source or world-transfer history exists.
   - Highscore sort columns are selected only from a fixed server-side allowlist and category/vocation inputs are bounded.
   - Public profile assembly resolves the ready Identity-to-Canary binding server-side and applies private-by-default account-association and status flags before disclosure.
   - Public output excludes Platform Identity email/IDs, Canary account IDs, raw death participant payloads, house coordinates, runtime lease internals and moderator-only enforcement data.
   - Guild directory/search/detail, latest deaths and kill statistics use deterministic pagination, limits and ordering; guild administration remains outside Platform without an approved Canary mutation contract.
   - The dedicated Canary principal remains direct-table SELECT only and explicitly requires houses and player_deaths; schema-wide and write grants fail verification.
   - ADR 0018, the public community data contract and operations runbook record transfer, achievement, polls and public-enforcement policy boundaries.
-  - Product and route ledgers were reconciled and their local validators passed before the exact-head workflow suite.
-  - Exact code head e08096a16f22966b3e53659011883d832dd5cad6 passed all 11 required workflows: CI 30465058633, Agent Governance 30465058599, Portal Acceptance Contract 30465058219, Acceptance E2E and Visual UX 30465058238, Community Data Acceptance 30465058497, Phase 7 Production-Like Validation 30465058279, Platform DB Outage Validation 30465058335, Edge Security Emulation 30465058261, Game Auth Ticket Concurrency 30465058256, Synology Production Target Preflight 30465058417 and Build Synology Staging Images 30465058309.
-  - Community Data Acceptance run 30465058497 passed real MariaDB provisioning, exact direct-table read grants, focused PHP regressions and zero-retry Chromium desktop/tablet/mobile including privacy, dependency failure/recovery and horizontal-overflow checks.
-  - Phase 7 run 30465058279 passed synthetic production-like schema provisioning, least-privilege and fail-closed database verification, Redis/SMTP/configuration checks, full regressions, restore and deployment lifecycle evidence.
-  - Portal Acceptance run 30465058219 passed the strict machine ledgers and complete zero-retry account lifecycle after the public character Level locator was scoped to the Overview region with exact text matching.
+  - Product and route ledgers were reconciled and their validators passed before merge.
+  - Exact final head 45efd2a8f0162df22313e141e973c6a8c3ffb5d1 passed all 11 required workflows: CI 30465570268, Agent Governance 30465570432, Portal Acceptance Contract 30465570230, Acceptance E2E and Visual UX 30465570219, Community Data Acceptance 30465570663, Phase 7 Production-Like Validation 30465570562, Platform DB Outage Validation 30465570777, Edge Security Emulation 30465570280, Game Auth Ticket Concurrency 30465570748, Synology Production Target Preflight 30465570542 and Build Synology Staging Images 30465570799.
+  - Community Data Acceptance run 30465570663 passed real MariaDB provisioning, exact direct-table read grants, focused PHP regressions and zero-retry Chromium desktop/tablet/mobile including privacy, dependency failure/recovery and horizontal-overflow checks.
+  - Phase 7 run 30465570562 passed synthetic production-like schema provisioning, least-privilege and fail-closed database verification, Redis/SMTP/configuration checks, full regressions, restore and deployment lifecycle evidence.
+  - Portal Acceptance run 30465570230 passed the strict machine ledgers and complete zero-retry account lifecycle.
+  - PR #298 was squash-merged as 7533b12b1e1c6d266c6bf5a8800e584fad23a01e and Issue #280 closed as completed on 2026-07-29.
 derived:
-  - Issue #280 is implemented for its approved read-only boundary, pending a final documentation-only exact-head workflow pass and merge.
-  - Remaining required product completeness work is Issue #277; Issue #278 remains mandatory before commerce activation and Issue #281 owns further server-backed knowledge expansion.
+  - Issue #280 is complete for its approved read-only boundary.
+  - Remaining required product completeness work includes Issue #277; Issue #278 remains mandatory before commerce activation and Issue #281 owns further server-backed knowledge expansion.
 unknown:
   - Actual production MariaDB grants, indexes, latency, deployed code identity and recovery behavior remain unverified.
 conflicts: []
 first_failure:
   marker: none
-  evidence: Every required workflow passed at exact code head e08096a16f22966b3e53659011883d832dd5cad6; only the final documentation checkpoint requires exact-head revalidation before merge.
+  evidence: Every required exact-final-head workflow passed before PR #298 merged.
 rejected_hypotheses:
   - Third-party Tibia or wiki schemas can be treated as authoritative for Oteryn.
   - Characters may be filtered by channel when the authoritative player schema stores no channel ownership.
@@ -172,23 +173,20 @@ changed_paths:
 validation:
   - command: node scripts/acceptance/coverage/validate-product-completeness.mjs
     result: PASS
-    evidence: Portal Acceptance run 30465058219 validated the updated 43-capability machine ledger at e08096a16f22966b3e53659011883d832dd5cad6.
+    evidence: Portal Acceptance run 30465570230 validated the updated 43-capability machine ledger at exact final head 45efd2a8f0162df22313e141e973c6a8c3ffb5d1.
   - command: node scripts/acceptance/coverage/validate-portal-coverage.mjs --manifest-only
     result: PASS
-    evidence: Portal Acceptance run 30465058219 validated fragment shape, stable evidence markers and unique route ownership at e08096a16f22966b3e53659011883d832dd5cad6.
+    evidence: Portal Acceptance run 30465570230 validated fragment shape, stable evidence markers and unique route ownership at exact final head 45efd2a8f0162df22313e141e973c6a8c3ffb5d1.
   - command: python tools/agents/test_checkpoint.py
     result: PASS
-    evidence: Agent Governance run 30465058599 passed at e08096a16f22966b3e53659011883d832dd5cad6.
-  - command: Required code-head workflow suite
-    result: PASS
-    evidence: All 11 required workflow runs listed under proven completed successfully at e08096a16f22966b3e53659011883d832dd5cad6.
+    evidence: Agent Governance run 30465570432 passed at exact final head 45efd2a8f0162df22313e141e973c6a8c3ffb5d1.
   - command: Required exact-final-head workflow suite
-    result: NOT_RUN
-    evidence: This documentation-only checkpoint commit must pass the complete required workflow suite before merge.
+    result: PASS
+    evidence: All 11 required workflow runs listed under proven completed successfully before merge.
 blockers: []
-next_action: Validate this documentation-only exact head across every required workflow; if all pass, mark PR #298 ready, update its closing evidence, merge with the exact head and archive the completed task.
+next_action: Continue the benchmark backlog with Issue #277 under a new active task and separate pull request; no further action remains for Issue #280.
 ```
 
 ## Boundaries
 
-This task owns public read models and presentation only. It does not mutate Canary, expose private Identity or moderator data, invent unavailable server facts, or claim production deployment.
+This task delivered public read models and presentation only. It did not mutate Canary, expose private Identity or moderator data, invent unavailable server facts, or claim production deployment.
