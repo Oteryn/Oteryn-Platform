@@ -16,6 +16,7 @@ This catalog defines module responsibilities and dependency boundaries.
 | Characters | AVAILABLE | Contract-approved web-triggered character operations; currently create plus Character Bazaar ownership transfer | Direct undocumented Canary writes; uncontracted rename/delete |
 | PublicGameData | AVAILABLE | Read models/queries for characters, guilds, highscores, online/status | Privileged mutations |
 | CMS | AVAILABLE | Public content reads and permission-scoped Platform content management | Identity policy, game state, rich/upload surfaces without explicit security controls |
+| Support | AVAILABLE | Platform tickets, reports, enforcement records, notifications, retention and privacy-safe user/moderator presentation | Canary ban mutation, file attachments, disclosure of reporter identity or private moderator notes |
 | EditorialMedia | IMPLEMENTING | Private normalized raster-image objects, integrity metadata, bounded consumer references and administrator lifecycle | Public/executable uploads, arbitrary documents, consumer-specific publication rules |
 | Wiki | IMPLEMENTING | Localized Wiki articles, categories, lifecycle, optimistic locking and append-only revisions | Generic CMS pages, public activation before release criteria, arbitrary HTML, media/search without separate reviewed slices |
 | Admin | AVAILABLE | Admin UI, explicit RBAC/policies, privileged Platform use cases | Bypassing domain/application invariants or granting implicit wildcard authority |
@@ -23,7 +24,7 @@ This catalog defines module responsibilities and dependency boundaries.
 | Integration | AVAILABLE | Implemented Canary read/write adapters, schema translation, contract enforcement; future login bridge remains separate | Product policy that belongs in domain modules |
 | Wallet | IMPLEMENTING | Oteryn Coins available/reserved projection and append-oriented idempotent ledger | Canary coins, payment-provider settlement, arbitrary balance edits |
 | Marketplace | IMPLEMENTING | Character Bazaar listings, escrow saga, bids, watches, settlement, history and recovery policy | Canary gameplay state, generic character mutation, payment-provider commerce |
-| Notifications | AVAILABLE | Password recovery and localized account-security email notifications | Core auth decisions, token validation, payment settlement |
+| Notifications | AVAILABLE | Password recovery, localized account-security email and deterministic support/moderation delivery state | Core auth decisions, token validation, domain rollback on mail failure, payment settlement |
 | PlatformAPI | PLANNED | Stable first-party API endpoints and API-specific auth/limits | Duplicating business logic from modules |
 | Payments | PLANNED-LATER | Provider adapters, payments, webhook handling and regulated commerce when approved | Identity core, direct dependency from basic account creation/login, Oteryn Coins gameplay marketplace policy |
 
@@ -279,6 +280,33 @@ No public Wiki route, navigation contribution, renderer, search service, media u
 - future HTTP administration must combine `auth`, `mfa.confirmed` and that exact permission;
 - article bodies and category descriptions are excluded from audit metadata;
 - public activation remains a separately reviewed later slice.
+
+## Support and Moderation
+
+### Responsibilities
+
+- authenticated owner-scoped support tickets and public messages;
+- bounded player, content and guild reports;
+- exact-permission moderator queues and private notes;
+- Platform-owned account-visible enforcement, acknowledgement and appeal state;
+- deterministic notification delivery records;
+- configurable retention, pruning/anonymization and privacy-safe audit metadata.
+
+### Current available boundary
+
+The delivered lifecycle provides server-generated public identifiers, idempotent request keys, owner-scoped reads, optimistic locking, explicit report transitions, exact `support.tickets.manage`, `support.reports.manage` and `support.enforcement.manage` permissions behind confirmed MFA, EN/PL desktop/tablet/mobile UI and isolated mail-delivery failure state.
+
+Support attachments are disabled. Canary remains authoritative for native game bans and account status; no support action writes Canary data.
+
+### Invariants
+
+- browser-supplied Identity, reporter, owner or target identifiers never establish authorization;
+- user views never expose reporter identity, another user's records, moderator-private notes or internal audit data;
+- privileged mutations require authentication, confirmed MFA, one exact permission, row locking/version checks and bounded audit metadata;
+- notification failure never rolls back a committed support transition;
+- raw ticket bodies, report evidence, appeal bodies and moderator notes do not enter audit metadata;
+- pruning/anonymization follows configured Platform retention and never deletes Canary-owned data;
+- file attachments and Canary ban mutation require separate reviewed contracts.
 
 ## Admin
 

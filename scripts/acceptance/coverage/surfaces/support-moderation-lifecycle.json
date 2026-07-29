@@ -1,0 +1,116 @@
+{
+  "surfaces": [
+    {
+      "id": "support.moderation-lifecycle",
+      "owner": "Support / Moderation",
+      "status": "covered",
+      "route_names": [
+        "support.tickets.index",
+        "support.tickets.create",
+        "support.tickets.store",
+        "support.tickets.show",
+        "support.tickets.reply",
+        "support.tickets.status",
+        "support.reports.index",
+        "support.reports.create",
+        "support.reports.store",
+        "support.reports.show",
+        "support.enforcement.index",
+        "support.enforcement.show",
+        "support.enforcement.acknowledge",
+        "support.enforcement.appeal",
+        "admin.support.tickets.index",
+        "admin.support.tickets.show",
+        "admin.support.tickets.reply",
+        "admin.support.tickets.status",
+        "admin.moderation.reports.index",
+        "admin.moderation.reports.show",
+        "admin.moderation.reports.update",
+        "admin.moderation.enforcement.index",
+        "admin.moderation.enforcement.create",
+        "admin.moderation.enforcement.store",
+        "admin.moderation.enforcement.show",
+        "admin.moderation.enforcement.edit",
+        "admin.moderation.enforcement.update",
+        "admin.moderation.enforcement.appeal"
+      ],
+      "roles": [
+        "guest",
+        "authenticated-owner",
+        "authenticated-non-owner",
+        "authenticated-no-mfa",
+        "mfa-confirmed-no-permission",
+        "support-ticket-manager",
+        "support-report-manager",
+        "support-enforcement-manager"
+      ],
+      "states": [
+        "empty",
+        "validation",
+        "idempotent-create",
+        "pending-limit",
+        "owner-only-detail",
+        "user-reply",
+        "staff-public-reply",
+        "staff-private-note",
+        "open-waiting-resolved-closed",
+        "player-content-guild-report",
+        "public-safe-report-outcome",
+        "moderator-private-report-note",
+        "warning-restriction-suspension",
+        "acknowledgement",
+        "appeal-request-review-outcome",
+        "optimistic-lock-conflict",
+        "notification-pending-sent-failed",
+        "retention-dry-run-prune-anonymize",
+        "attachments-explicitly-disabled",
+        "localized-en",
+        "localized-pl",
+        "permission-denied",
+        "audit-visible-without-private-bodies",
+        "platform-only-no-canary-ban-mutation"
+      ],
+      "viewports": [
+        "desktop-1440x1000",
+        "tablet-820x1180",
+        "mobile-390x844"
+      ],
+      "browsers": [
+        "chromium-primary"
+      ],
+      "evidence_layers": [
+        "feature",
+        "database-integration",
+        "playwright",
+        "responsive",
+        "accessibility",
+        "localization",
+        "security",
+        "audit",
+        "smtp",
+        "retention"
+      ],
+      "evidence": [
+        {
+          "file": "tests/Feature/Support/SupportModerationLifecycleTest.php",
+          "markers": [
+            "test_ticket_lifecycle_is_idempotent_owner_scoped_and_conflict_safe",
+            "test_ticket_moderation_requires_mfa_and_exact_permission_and_hides_internal_notes",
+            "test_reports_are_bounded_idempotent_private_and_moderated_with_public_safe_outcomes",
+            "test_enforcement_history_is_owner_scoped_appealable_audited_and_platform_only",
+            "test_notification_failure_does_not_rollback_ticket_status",
+            "test_retention_supports_dry_run_then_deletes_or_anonymizes_only_expired_records"
+          ]
+        },
+        {
+          "file": "scripts/acceptance/tests/support-moderation-acceptance.spec.mjs",
+          "markers": [
+            "@portal-support-moderation guest, MFA, exact-permission and object-ownership boundaries fail closed",
+            "@portal-support-moderation complete user, moderator, notification, privacy, localization and responsive lifecycle"
+          ]
+        }
+      ],
+      "gaps": []
+    }
+  ]
+}

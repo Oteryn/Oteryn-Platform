@@ -8,6 +8,8 @@
 - Delivered-surface contract: `scripts/acceptance/coverage/portal-coverage-manifest.json` plus sorted fragments under `scripts/acceptance/coverage/surfaces/`
 - Character Bazaar delivery: PR #270, merge `0f19656e0875d0a10b22002ac0e096deb20e94d8`
 - Account-security lifecycle delivery: PR #283
+- First Game Catalog delivery: PR #272
+- Support/moderation lifecycle delivery candidate: PR #293
 
 ## Verdict
 
@@ -17,9 +19,9 @@ The benchmark ledger contains **43 capabilities**:
 
 | Delivery status | Count |
 |---|---:|
-| Implemented | 9 |
+| Implemented | 14 |
 | Partial | 8 |
-| Missing | 25 |
+| Missing | 20 |
 | Untested | 0 |
 | Not applicable | 1 |
 
@@ -32,9 +34,9 @@ Relevance classification:
 | Optional / differentiator | 7 |
 | Not applicable | 1 |
 
-**Oteryn must not claim benchmark product completeness while required partial or missing capabilities remain open.** The principal required-gap trackers are #277, #279 and #280. Commerce is intentionally planned rather than part of the current non-commercial launch boundary, but #278 is mandatory before any commercial activation. Structured server-backed Wiki expansion is tracked by #281.
+**Oteryn must not claim benchmark product completeness while required partial or missing capabilities remain open.** The principal required-gap trackers are #277 and #280. Commerce is intentionally planned rather than part of the current non-commercial launch boundary, but #278 is mandatory before any commercial activation. Structured server-backed Wiki expansion is tracked by #281.
 
-Issue #276 now has a delivered account-security lifecycle for the approved Platform boundary. It does not authorize Canary account unlink/rebind, native game-account deletion, character deletion or production deployment.
+Issues #276 and #279 now have delivered Platform-owned account-security and support/moderation lifecycles for their approved boundaries. It does not authorize Canary account unlink/rebind, native game-account deletion, character deletion or production deployment.
 
 This report does not establish deployment to production or `PRODUCTION_PROVEN` status. Production verification remains independently owned by #91.
 
@@ -82,9 +84,11 @@ The inventory is based on the exact named-route contract rather than screenshots
 | Downloads | Covered | empty/current/filter, validation, draft/publish, URL denial, dependency recovery, audit, EN/PL |
 | Events | Covered | empty/upcoming/active/archived/cancelled/not found, draft/publish, stale conflict, permission denial, audit, EN/PL |
 | Announcements | Covered | no active/active/future/expired/draft, escaped text, localization staleness, conflict, permission and audit |
-| Support and legal content | Covered as CMS content only | published/unpublished/missing, legal version, approved links, validation, permission, EN/PL; no ticket or moderation lifecycle |
+| Support and legal content | Covered | published/unpublished/missing, legal version, approved links, validation, permission and EN/PL |
+| Authenticated support and moderation | Covered | owner-scoped tickets/reports/enforcement history, moderator queues, MFA/RBAC, notifications, retention, privacy, EN/PL and D/T/M |
 | Public Wiki | Covered | home/category/article/search, empty/invalid search, not found, unavailable/recovery, EN/PL |
 | Wiki administration | Covered | draft/review/publish/unpublish/archive, revision restore, stale conflict, signed preview, permission and audit |
+| Game Catalog | Covered for first server-backed slice | immutable import, activation/rollback, active item/weapon/creature/loot projections, provenance, admin inspection and D/T/M |
 | Editorial media administration | Covered | empty/upload/validation/integrity rejection/delete/reference protection/permission |
 | Media and Wiki preview endpoints | Supporting endpoints | authorized, unreferenced, draft hidden, integrity failure, invalid signature, not found |
 | Character Bazaar public catalogue/detail | Covered | active/filter/empty/detail/immutable snapshot/history/not found/EN/PL/private saga hidden |
@@ -161,17 +165,18 @@ Tracker: **#278**. This issue is a mandatory gate before enabling commercial pay
 
 ### Support, moderation and enforcement
 
-Static localized support/legal/report-a-bug pages are complete as CMS content. They do not provide operational support or moderation.
+Implemented:
 
-Missing required lifecycle:
+- authenticated owner-scoped ticket creation, listing, detail, replies and explicit close/reopen states;
+- bounded player, content and guild reports with idempotency, pending limits, owner history and public-safe outcomes;
+- exact-permission, confirmed-MFA administrator queues for tickets, reports and enforcement;
+- Platform-owned account-visible warning, restriction and suspension history with acknowledgement and appeals;
+- deterministic pending/sent/failed notification delivery state with failure isolation;
+- bounded audit metadata, optimistic locking, configurable retention/pruning and privacy-safe EN/PL responsive presentation.
 
-- authenticated tickets, replies, statuses and closure;
-- report submission, user history and pending limits;
-- moderator queues and outcomes;
-- account-visible warning/punishment/rule-violation history;
-- ticket/report/enforcement notifications and privacy-safe audit.
+Canary remains authoritative for game-server bans. This lifecycle does not mutate Canary ban or account-status tables, and support attachments remain disabled until a separately reviewed secure upload model exists.
 
-Tracker: **#279**.
+Issue **#279** is delivered for the approved Platform-owned boundary.
 
 ### Public and community data
 
@@ -198,13 +203,17 @@ Tracker: **#280**, with character mutation/profile overlap in **#277** and enfor
 
 ### Knowledge and tooling ecosystem
 
-The current Wiki has a strong public/editorial workflow, localization, revisions, signed previews and media controls. Its content model is primarily editorial, not an authoritative server-backed gameplay catalogue.
+The Wiki retains its public/editorial workflow, while PR #272 adds the first authoritative versioned server-backed Game Catalog foundation.
 
-Planned foundation:
+Implemented first foundation:
 
-- Oteryn-available creatures/monsters;
-- items, weapons and equipment with exact server parameters;
-- loot relations between creatures and items;
+- immutable versioned snapshots with provenance, explicit activation and rollback;
+- active-profile Oteryn items, weapons, creatures and visible loot/reverse-source relations;
+- public EN/PL responsive reads and exact-permission confirmed-MFA administrator inspection.
+
+Remaining planned expansion:
+
+- complete historical introduction/removal and availability evidence;
 - structured spells, quests, NPCs and achievements where contracts exist;
 - versioned source revision and provenance so removed server content cannot remain silently current;
 - server-specific systems/items/events and world-transfer documentation when applicable.
@@ -225,10 +234,10 @@ Tracker: **#281**.
 |---|---|---|
 | Delivered account/security lifecycle | #276 | Confirmed email, sessions, privacy, recovery key, termination and explicit MFA/binding policy |
 | Required character/profile completeness | #277 | Public profile editing/privacy, delete/restore, rename, linkage and transfer policy |
-| Required support/moderation completeness | #279 | Tickets, reports, enforcement history and notifications |
+| Delivered support/moderation lifecycle | #279 | Platform tickets, reports, enforcement history, notifications, retention and privacy |
 | Required community-data completeness | #280 | Rich profiles, guild workflows, highscore filters, deaths and statistics |
 | Mandatory before commercial activation | #278 | Premium, coins, products, provider/webhook/refund/chargeback lifecycle |
-| Planned knowledge-platform expansion | #281 | Server-backed creature/item/loot and gameplay catalogues, then optional tooling |
+| Partially delivered knowledge-platform expansion | #281 | First creature/item/loot catalogue delivered; structured NPC/quest/spawn/history and optional tooling remain |
 | Separate presentation enhancement | #244 | Audited administrator homepage-template selector |
 | Separate production gate | #91 | Exact deployed production verification; not satisfied by this audit |
 

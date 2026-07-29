@@ -100,6 +100,20 @@ Minimum direction:
 
 Potential roles/permissions are not final until an RBAC ADR/task defines them.
 
+### Support and moderation lifecycle
+
+The delivered Platform-only support boundary requires:
+
+- owner-scoped ticket, report and enforcement queries using server-resolved Identity ownership;
+- separate exact administrator permissions for ticket, report and enforcement mutations, always composed with authentication and confirmed MFA;
+- server-generated public identifiers, idempotent request keys and deterministic row locking/optimistic version checks;
+- strict separation between user-visible fields and moderator-private notes/reporter metadata;
+- bounded category, body, target, pending/open-count and application rate limits;
+- audit metadata limited to identifiers, categories, status, booleans and lock versions, never private bodies or complete network identifiers;
+- notification delivery failure recorded independently after the domain transaction;
+- configurable retention with supported pruning/anonymization rather than direct SQL;
+- no attachment upload and no Canary ban mutation without separate reviewed contracts.
+
 ## Browser security
 
 - CSRF protection remains enabled for browser state-changing requests.
@@ -177,6 +191,9 @@ Apply application-level limits at minimum to:
 - email verification resend;
 - MFA verification/recovery;
 - public search endpoints if abused;
+- support ticket create/reply/status;
+- player/content/guild report submission;
+- enforcement acknowledgement/appeal and administrator moderation mutations;
 - expensive API endpoints.
 
 Cloudflare limits may supplement, not replace, application limits.
@@ -194,6 +211,7 @@ Audit security-relevant events such as:
 - privacy setting changes;
 - recovery-key generation, revocation and use;
 - account-termination request, cancellation and finalization;
+- support ticket replies/status changes, report outcomes and enforcement/appeal changes;
 - future payment/ledger administrative actions.
 
 Phase 7 application-side request correlation uses a fresh server-generated UUID for every Laravel-handled request. The application does not trust a browser-supplied `X-Request-ID` as authoritative correlation evidence.

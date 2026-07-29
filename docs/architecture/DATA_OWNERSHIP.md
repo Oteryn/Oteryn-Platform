@@ -29,6 +29,7 @@ Expected examples:
 - recovery-key verifier, generation, use and revocation state;
 - platform-specific user preferences;
 - platform notification metadata;
+- support tickets/messages, player/content/guild reports, Platform enforcement records and support notification delivery state;
 - Character Bazaar auctions, bids, watchlists, saga state and immutable listing snapshots;
 - Oteryn Coins wallet accounts, reservations and append-oriented ledger entries;
 - future payment-provider records.
@@ -188,6 +189,21 @@ Rules:
 - administrator adjustments require confirmed MFA, exact permission and an audit event committed in the same Platform transaction;
 - cross-database ownership and wallet settlement use a durable idempotent saga rather than claiming distributed ACID.
 
+## Support and moderation data
+
+Platform owns the additive support schema and lifecycle:
+
+- `support_tickets` and `support_ticket_messages`;
+- `player_reports`;
+- `enforcement_records`;
+- `support_notification_deliveries`.
+
+Public ULIDs are routing references, not ownership proof. Identity relations and moderator permissions are resolved server-side. User reads exclude internal ticket notes, reporter identity outside the owner view, moderator notes and administrator audit metadata.
+
+Platform enforcement records are communication and workflow records only. They do not mutate or supersede Canary-owned bans, account status or game runtime enforcement. Any future synchronization requires an explicit cross-repository contract, rollout order, least-privilege credential and rollback plan.
+
+Retention may delete old closed ticket/report records and anonymize expired enforcement reasons through the supported command. It never deletes Canary-owned data and must preserve the configured audit/privacy boundary.
+
 ## Future financial data
 
 Oteryn Coins and future payment balances are Platform-owned business data unless a later ADR says otherwise.
@@ -206,7 +222,7 @@ Passwords, password hashes where exposure increases attack value, session tokens
 
 ### Sensitive personal/security data
 
-Email addresses, protected source-address fingerprints, registered session metadata, account security events, recovery-key verifier and termination history.
+Email addresses, protected source-address fingerprints, registered session metadata, account security events, recovery-key verifier, termination history, ticket/report/appeal content and enforcement history.
 
 ### Internal operational
 
