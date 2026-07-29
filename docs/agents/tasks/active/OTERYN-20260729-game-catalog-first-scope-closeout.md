@@ -34,7 +34,7 @@ Close Issue #281 for the first server-backed Game Catalog scope already delivere
 - [x] Create a separate discovery tracker for optional maps, hunting tools and server-specific discovery capabilities.
 - [x] Reassign every machine-ledger `#281` gap reference to the correct remaining owner without changing delivery status unsupported by evidence.
 - [x] Reconcile the human-readable benchmark, PROJECT_STATE and ACTIVE_WORK with the split scope.
-- [ ] Validate product-ledger, checkpoint and governance contracts on the exact head.
+- [x] Validate product-ledger, checkpoint and governance contracts on the exact head.
 - [ ] Merge the closeout PR and close Issue #281 without claiming production deployment or completion of deferred capabilities.
 - [ ] Archive this task in a separate documentation PR after merge.
 
@@ -65,8 +65,8 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-07-29T16:12:00Z
-head: 5ed5d6dd10f742cc1043e59605d82be609f8fdbf
+updated_at: 2026-07-29T16:25:00Z
+head: b768ec2ee100d4d456da198667318221674cf5d8
 branch: chore/OTERYN-20260729-game-catalog-first-scope-closeout
 pr: 303
 status: validating
@@ -92,15 +92,18 @@ proven:
   - Relevance counts are derived from the same 43-capability ledger as 22 required, 13 planned, 5 optional/differentiator and 3 not applicable.
   - Run 30468955280 passed the product-completeness validator, checkpoint validator and checkpoint parser tests and confirmed that no #281 gap owner remains in the machine JSON.
   - Main commit b2b2871eed0375e22d48de5dd4947fe29c2bb974 from PR #299 was merged into the feature branch through sync PR #304 without overlap in the five closeout-owned files.
+  - Exact head b768ec2ee100d4d456da198667318221674cf5d8 passed all eight required workflows: CI 30469570448, Agent Governance 30469570280, Portal Acceptance Contract 30469570289, Phase 7 Production-Like Validation 30469571639, Platform DB Outage Validation 30469570081, Edge Security Emulation 30469570753, Game Auth Ticket Concurrency 30469569923 and Synology Production Target Preflight 30469570196.
+  - Portal Acceptance run 30469570289 passed both strict portal/product ledger validation and the complete zero-retry account lifecycle.
+  - Phase 7 run 30469571639 passed production-like schema, privilege, failure, regression, restore and deployment lifecycle validation without a production claim.
 derived:
   - Closing #281 for its delivered first scope is accurate because unsupported capabilities remain missing or partial under explicit follow-up ownership rather than being promoted.
   - The closeout changes governance and benchmark ownership only; it does not alter the Game Catalog runtime, schema, producer, activation or public profile.
 unknown:
-  - Whether the final exact-head repository workflows expose an additional stale ownership or checkpoint issue.
+  - Whether the final evidence-only exact head exposes any additional governance issue.
 conflicts: []
 first_failure:
-  marker: pending-exact-head-validation
-  evidence: Local ledger and checkpoint validators passed; the clean synchronized documentation-only head has not completed all required repository workflows yet.
+  marker: none
+  evidence: Every required workflow passed at exact head b768ec2ee100d4d456da198667318221674cf5d8; this evidence-only commit requires the final exact-head rerun before merge.
 rejected_hypotheses:
   - Closing #281 means spells, NPCs, quests, achievements, maps or hunting tools are implemented.
   - Third-party wiki data can fill missing authoritative server contracts.
@@ -115,22 +118,22 @@ changed_paths:
 validation:
   - command: node scripts/acceptance/coverage/validate-product-completeness.mjs
     result: PASS
-    evidence: Run 30468955280 validated all 43 capability records and reported no errors after gap-owner reassignment.
+    evidence: Portal Acceptance run 30469570289 validated all 43 capability records and reported no errors after gap-owner reassignment.
   - command: python tools/agents/checkpoint.py docs/agents/tasks/active/OTERYN-20260729-game-catalog-first-scope-closeout.md --require-checkpoint
     result: PASS
-    evidence: Run 30468955280 validated the active checkpoint against shared contract version 1.
+    evidence: Agent Governance run 30469570280 validated the active checkpoint against shared contract version 1.
   - command: python tools/agents/test_checkpoint.py
     result: PASS
-    evidence: Run 30468955280 passed all 9 checkpoint parser tests.
-  - command: grep for #281 gap owner in machine ledger
+    evidence: Agent Governance run 30469570280 passed the checkpoint parser tests.
+  - command: Required exact-head workflow suite
     result: PASS
-    evidence: No #281 gap owner remains in docs/testing/product-completeness-benchmark.json.
+    evidence: All eight workflow runs listed under proven completed successfully at b768ec2ee100d4d456da198667318221674cf5d8.
   - command: Required exact-final-head workflow suite
     result: NOT_RUN
-    evidence: Pending on the normal user-authored documentation checkpoint commit.
+    evidence: Pending on this evidence-only checkpoint commit.
 blockers:
   - none
-next_action: Validate the clean synchronized exact head across every required workflow; fix only the first reproducible failure, then mark PR #303 ready and merge with expected-head protection.
+next_action: Validate this evidence-only exact head across every required workflow; if all pass, mark PR #303 ready, merge with expected-head protection, verify Issue #281 closure and archive the task.
 ```
 
 ## Notes
