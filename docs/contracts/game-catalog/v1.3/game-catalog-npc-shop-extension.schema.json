@@ -1,0 +1,545 @@
+{
+  "$comment": "Architecture-only strict extension schema. It validates the proposed NPC/shop additions and uses explicit legacy placeholders. It is not the complete canonical schema and must not be registered as consumer support.",
+  "$defs": {
+    "canonicalKey": {
+      "maxLength": 180,
+      "minLength": 3,
+      "pattern": "^[a-z][a-z0-9_-]*:[a-z0-9][a-z0-9._-]*$",
+      "type": "string"
+    },
+    "completeness": {
+      "enum": [
+        "complete",
+        "partial",
+        "unverified",
+        "disabled",
+        "missing_dependencies"
+      ]
+    },
+    "currencyEndpoint": {
+      "additionalProperties": false,
+      "properties": {
+        "item": {
+          "$ref": "#/$defs/itemCanonicalKey"
+        },
+        "server_id": {
+          "maximum": 65535,
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "item",
+        "server_id"
+      ],
+      "type": "object"
+    },
+    "identifier": {
+      "additionalProperties": false,
+      "properties": {
+        "namespace": {
+          "maxLength": 80,
+          "minLength": 1,
+          "pattern": "^[a-z][a-z0-9._-]*$",
+          "type": "string"
+        },
+        "value": {
+          "maxLength": 160,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "namespace",
+        "value"
+      ],
+      "type": "object"
+    },
+    "itemCanonicalKey": {
+      "maxLength": 180,
+      "minLength": 6,
+      "pattern": "^item:[a-z0-9][a-z0-9._-]*$",
+      "type": "string"
+    },
+    "legacyEntityPlaceholder": {
+      "$comment": "The complete canonical schema must replace this placeholder with the byte-for-byte retained 1.2 item and creature definitions.",
+      "properties": {
+        "type": {
+          "enum": [
+            "item",
+            "creature"
+          ]
+        }
+      },
+      "required": [
+        "type"
+      ],
+      "type": "object"
+    },
+    "legacyRelationPlaceholder": {
+      "$comment": "The complete canonical schema must replace this placeholder with the byte-for-byte retained 1.2 creature_loot definition.",
+      "properties": {
+        "type": {
+          "const": "creature_loot"
+        }
+      },
+      "required": [
+        "type"
+      ],
+      "type": "object"
+    },
+    "npc": {
+      "additionalProperties": false,
+      "properties": {
+        "availability": {
+          "enum": [
+            "encounterable",
+            "quest_only",
+            "event_only",
+            "scripted_only",
+            "registered_only",
+            "admin_only",
+            "unreachable",
+            "unknown"
+          ]
+        },
+        "canonical_key": {
+          "$ref": "#/$defs/npcCanonicalKey"
+        },
+        "completeness": {
+          "$ref": "#/$defs/completeness"
+        },
+        "data": {
+          "additionalProperties": false,
+          "properties": {
+            "aliases": {
+              "items": {
+                "maxLength": 200,
+                "minLength": 1,
+                "type": "string"
+              },
+              "maxItems": 64,
+              "type": "array",
+              "uniqueItems": true
+            },
+            "attributes": {
+              "maxProperties": 128,
+              "type": "object"
+            },
+            "currency": {
+              "$ref": "#/$defs/currencyEndpoint"
+            },
+            "display_name": {
+              "maxLength": 200,
+              "minLength": 1,
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "name_description": {
+              "maxLength": 500,
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "registration_status": {
+              "enum": [
+                "runtime_registered",
+                "historical_only",
+                "unknown"
+              ]
+            },
+            "registry_key": {
+              "maxLength": 200,
+              "minLength": 1,
+              "pattern": "^[^\\x00-\\x1f\\x7f]+$",
+              "type": "string"
+            },
+            "runtime_name": {
+              "maxLength": 200,
+              "minLength": 1,
+              "type": "string"
+            },
+            "type_name": {
+              "maxLength": 200,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          "required": [
+            "registry_key",
+            "runtime_name",
+            "display_name",
+            "type_name",
+            "name_description",
+            "aliases",
+            "registration_status",
+            "currency",
+            "attributes"
+          ],
+          "type": "object"
+        },
+        "enabled": {
+          "type": "boolean"
+        },
+        "identifiers": {
+          "items": {
+            "$ref": "#/$defs/identifier"
+          },
+          "maxItems": 32,
+          "type": "array",
+          "uniqueItems": true
+        },
+        "introduced_in": {
+          "$ref": "#/$defs/nullableRelease"
+        },
+        "removed_in": {
+          "$ref": "#/$defs/nullableRelease"
+        },
+        "runtime_present": {
+          "type": "boolean"
+        },
+        "source_path": {
+          "$ref": "#/$defs/sourcePath"
+        },
+        "type": {
+          "const": "npc"
+        }
+      },
+      "required": [
+        "type",
+        "canonical_key",
+        "introduced_in",
+        "removed_in",
+        "completeness",
+        "availability",
+        "runtime_present",
+        "enabled",
+        "identifiers",
+        "source_path",
+        "data"
+      ],
+      "type": "object"
+    },
+    "npcBuyOffer": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/shopRelationCommon"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "availability": {
+              "enum": [
+                "available",
+                "conditional",
+                "registered_only",
+                "disabled",
+                "unknown"
+              ]
+            },
+            "canonical_key": {
+              "maxLength": 320,
+              "minLength": 20,
+              "pattern": "^shop:npc:[a-z0-9][a-z0-9._-]*:buy:item:[a-z0-9][a-z0-9._-]*:[0-9]+(?:\\.[0-9]+)*$",
+              "type": "string"
+            },
+            "completeness": {
+              "$ref": "#/$defs/completeness"
+            },
+            "data": {
+              "$ref": "#/$defs/shopOfferData"
+            },
+            "enabled": {
+              "type": "boolean"
+            },
+            "introduced_in": {
+              "$ref": "#/$defs/nullableRelease"
+            },
+            "removed_in": {
+              "$ref": "#/$defs/nullableRelease"
+            },
+            "source": {
+              "$ref": "#/$defs/npcCanonicalKey"
+            },
+            "source_path": {
+              "$ref": "#/$defs/sourcePath"
+            },
+            "target": {
+              "$ref": "#/$defs/itemCanonicalKey"
+            },
+            "type": {
+              "const": "npc_buy_offer"
+            }
+          },
+          "type": "object"
+        }
+      ]
+    },
+    "npcCanonicalKey": {
+      "maxLength": 180,
+      "minLength": 5,
+      "pattern": "^npc:[a-z0-9][a-z0-9._-]*$",
+      "type": "string"
+    },
+    "npcSellOffer": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/shopRelationCommon"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "availability": {
+              "enum": [
+                "available",
+                "conditional",
+                "registered_only",
+                "disabled",
+                "unknown"
+              ]
+            },
+            "canonical_key": {
+              "maxLength": 320,
+              "minLength": 20,
+              "pattern": "^shop:npc:[a-z0-9][a-z0-9._-]*:sell:item:[a-z0-9][a-z0-9._-]*:[0-9]+(?:\\.[0-9]+)*$",
+              "type": "string"
+            },
+            "completeness": {
+              "$ref": "#/$defs/completeness"
+            },
+            "data": {
+              "$ref": "#/$defs/shopOfferData"
+            },
+            "enabled": {
+              "type": "boolean"
+            },
+            "introduced_in": {
+              "$ref": "#/$defs/nullableRelease"
+            },
+            "removed_in": {
+              "$ref": "#/$defs/nullableRelease"
+            },
+            "source": {
+              "$ref": "#/$defs/npcCanonicalKey"
+            },
+            "source_path": {
+              "$ref": "#/$defs/sourcePath"
+            },
+            "target": {
+              "$ref": "#/$defs/itemCanonicalKey"
+            },
+            "type": {
+              "const": "npc_sell_offer"
+            }
+          },
+          "type": "object"
+        }
+      ]
+    },
+    "nullableRelease": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/releaseKey"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "releaseKey": {
+      "maxLength": 32,
+      "minLength": 1,
+      "pattern": "^[0-9]+(?:\\.[0-9]+){1,3}(?:[-+][A-Za-z0-9.-]+)?$",
+      "type": "string"
+    },
+    "shopOfferData": {
+      "additionalProperties": false,
+      "properties": {
+        "attributes": {
+          "maxProperties": 64,
+          "type": "object"
+        },
+        "currency": {
+          "$ref": "#/$defs/currencyEndpoint"
+        },
+        "item_name": {
+          "maxLength": 200,
+          "type": "string"
+        },
+        "item_subtype": {
+          "maximum": 2147483647,
+          "minimum": -2147483648,
+          "type": "integer"
+        },
+        "price_amount": {
+          "maximum": 4294967295,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "priced_item_count": {
+          "const": 1
+        },
+        "runtime_path": {
+          "items": {
+            "maximum": 4294967295,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "maxItems": 32,
+          "minItems": 1,
+          "type": "array"
+        },
+        "storage_requirement": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/storageRequirement"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "runtime_path",
+        "item_name",
+        "item_subtype",
+        "priced_item_count",
+        "price_amount",
+        "currency",
+        "storage_requirement",
+        "attributes"
+      ],
+      "type": "object"
+    },
+    "shopRelationCommon": {
+      "properties": {
+        "availability": {
+          "enum": [
+            "available",
+            "conditional",
+            "registered_only",
+            "disabled",
+            "unknown"
+          ]
+        },
+        "completeness": {
+          "$ref": "#/$defs/completeness"
+        },
+        "enabled": {
+          "type": "boolean"
+        },
+        "introduced_in": {
+          "$ref": "#/$defs/nullableRelease"
+        },
+        "removed_in": {
+          "$ref": "#/$defs/nullableRelease"
+        },
+        "source": {
+          "$ref": "#/$defs/npcCanonicalKey"
+        },
+        "source_path": {
+          "$ref": "#/$defs/sourcePath"
+        },
+        "target": {
+          "$ref": "#/$defs/itemCanonicalKey"
+        }
+      },
+      "required": [
+        "type",
+        "canonical_key",
+        "source",
+        "target",
+        "introduced_in",
+        "removed_in",
+        "completeness",
+        "availability",
+        "enabled",
+        "source_path",
+        "data"
+      ],
+      "type": "object"
+    },
+    "sourcePath": {
+      "maxLength": 512,
+      "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$)).*$",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "storageRequirement": {
+      "additionalProperties": false,
+      "properties": {
+        "key": {
+          "maximum": 2147483647,
+          "minimum": -2147483648,
+          "type": "integer"
+        },
+        "value": {
+          "maximum": 2147483647,
+          "minimum": -2147483648,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "key",
+        "value"
+      ],
+      "type": "object"
+    }
+  },
+  "$id": "https://schemas.oteryn.local/game-catalog/proposals/v1.3/game-catalog-npc-shop-extension.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": true,
+  "properties": {
+    "contract": {
+      "const": "oteryn.game-catalog"
+    },
+    "entities": {
+      "items": {
+        "oneOf": [
+          {
+            "$ref": "#/$defs/npc"
+          },
+          {
+            "$ref": "#/$defs/legacyEntityPlaceholder"
+          }
+        ]
+      },
+      "maxItems": 200000,
+      "type": "array"
+    },
+    "relations": {
+      "items": {
+        "oneOf": [
+          {
+            "$ref": "#/$defs/npcBuyOffer"
+          },
+          {
+            "$ref": "#/$defs/npcSellOffer"
+          },
+          {
+            "$ref": "#/$defs/legacyRelationPlaceholder"
+          }
+        ]
+      },
+      "maxItems": 1000000,
+      "type": "array"
+    },
+    "schema_version": {
+      "const": "1.3.0"
+    }
+  },
+  "required": [
+    "contract",
+    "schema_version",
+    "entities",
+    "relations"
+  ],
+  "title": "Oteryn Game Catalog v1.3 NPC and shop extension proposal",
+  "type": "object"
+}
