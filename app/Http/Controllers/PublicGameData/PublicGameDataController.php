@@ -24,6 +24,7 @@ final class PublicGameDataController
 
     public function highscores(Request $request): View|Response
     {
+        /** @var array{category?: mixed, vocation?: mixed, scope?: mixed} $validated */
         $validated = $request->validate([
             'category' => ['nullable', 'string', Rule::in(CommunityDataPolicy::highscoreCategories())],
             'vocation' => ['nullable', 'integer', Rule::in(CommunityDataPolicy::vocationIds())],
@@ -49,6 +50,7 @@ final class PublicGameDataController
 
     public function characterSearch(Request $request): RedirectResponse
     {
+        /** @var array{name?: mixed} $validated */
         $validated = $request->validate([
             'name' => ['required', 'string', 'max:255'],
         ]);
