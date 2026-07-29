@@ -6,12 +6,18 @@ on:
       - feat/OTERYN-20260728-game-catalog-slice-1
     paths:
       - '.github/workflows/catalog-staging-transfer-patch.yml'
+  pull_request:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/catalog-staging-transfer-patch.yml'
 
 permissions:
   contents: write
 
 jobs:
   patch:
+    if: github.event_name == 'push' || github.event.pull_request.number == 272
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
