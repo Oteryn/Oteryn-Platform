@@ -11,6 +11,7 @@ test.setTimeout(180_000);
 test.describe.configure({ retries: 0, mode: 'serial' });
 
 test.beforeEach(async ({ page }) => {
+  runBinary('php', ['scripts/acceptance/seed-community-data.php']);
   page.__acceptanceDiagnostics = installDiagnostics(page);
 });
 
