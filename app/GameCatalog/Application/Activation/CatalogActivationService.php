@@ -46,6 +46,7 @@ final class CatalogActivationService
 
             $snapshot = DB::table('game_catalog_snapshots as snapshots')
                 ->join('game_catalog_releases as content_target', 'content_target.id', '=', 'snapshots.content_target_release_id')
+                ->leftJoin('game_catalog_releases as verified_content', 'verified_content.id', '=', 'snapshots.verified_content_through_release_id')
                 ->leftJoin('game_catalog_releases as contains_content', 'contains_content.id', '=', 'snapshots.contains_content_through_release_id')
                 ->where('snapshots.id', $snapshotId)
                 ->first([
@@ -57,6 +58,7 @@ final class CatalogActivationService
                     'snapshots.entity_count',
                     'snapshots.relation_count',
                     'content_target.release_order as content_target_order',
+                    'verified_content.release_order as verified_content_order',
                     'contains_content.release_order as contains_content_order',
                 ]);
 
@@ -69,7 +71,7 @@ final class CatalogActivationService
             }
             if (
                 $snapshotRow->string('contract_version') !== CatalogConfiguration::string('game-catalog.contract')
-                || $snapshotRow->string('schema_version') !== CatalogConfiguration::string('game-catalog.schema_version')
+                || CatalogConfiguration::schemaContract($snapshotRow->string('schema_version')) === null
             ) {
                 throw new RuntimeException('The Game Catalog snapshot contract is incompatible with this Platform build.');
             }
@@ -82,6 +84,13 @@ final class CatalogActivationService
                 ?? $snapshotRow->int('content_target_order');
             if ($profileRow->int('target_release_order') > $contentBoundary) {
                 throw new RuntimeException('The Game Catalog snapshot does not declare content through the profile target release.');
+            }
+            $verifiedBoundary = $snapshotRow->nullableInt('verified_content_order');
+            if ($verifiedBoundary === null) {
+                throw new RuntimeException('The Game Catalog snapshot has no verified-content boundary and cannot be activated.');
+            }
+            if ($profileRow->int('target_release_order') > $verifiedBoundary) {
+                throw new RuntimeException('The Game Catalog snapshot is not verified through the profile target release.');
             }
 
             $persistedEntityCount = DB::table('game_catalog_entity_snapshots')->where('snapshot_id', $snapshotId)->count();

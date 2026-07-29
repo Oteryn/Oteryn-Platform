@@ -22,19 +22,7 @@ final class CatalogSnapshotValidator
 
     public function validate(string $path, ?string $expectedSha256 = null): ValidatedCatalogSnapshot
     {
-        $schemaPath = CatalogConfiguration::string('game-catalog.schema_path');
-        $expectedSchemaSha256 = CatalogConfiguration::string('game-catalog.expected_schema_sha256');
         $maximumFileBytes = CatalogConfiguration::positiveInt('game-catalog.limits.file_bytes', 268_435_456);
-
-        $this->assertRegularReadableFile($schemaPath, 'The bundled Game Catalog schema is unavailable.');
-        $schemaSha256 = hash_file('sha256', $schemaPath);
-        if (! is_string($schemaSha256) || ! hash_equals($expectedSchemaSha256, $schemaSha256)) {
-            throw $this->failure(
-                code: 'contract.schema_hash_mismatch',
-                message: 'The bundled Game Catalog schema does not match the registered contract hash.',
-                path: '$schema',
-            );
-        }
 
         $this->assertRegularReadableFile($path, 'The Game Catalog snapshot path must be a readable regular file.');
         $fileSize = filesize($path);
@@ -133,6 +121,34 @@ final class CatalogSnapshotValidator
             );
         }
 
+        $schemaVersion = $payload['schema_version'] ?? null;
+        if (! is_string($schemaVersion) || $schemaVersion === '') {
+            throw new CatalogValidationException(
+                findings: [new CatalogValidationFinding('error', 'contract.schema_version_missing', 'The Game Catalog schema version is missing.', '$.schema_version')],
+                contentSha256: $contentSha256,
+                fileSize: $fileSize,
+            );
+        }
+        $schemaContract = CatalogConfiguration::schemaContract($schemaVersion);
+        if ($schemaContract === null) {
+            throw new CatalogValidationException(
+                findings: [new CatalogValidationFinding('error', 'contract.schema_version_unsupported', 'The Game Catalog schema version is not supported by this Platform build.', '$.schema_version')],
+                contentSha256: $contentSha256,
+                fileSize: $fileSize,
+            );
+        }
+        $schemaPath = $schemaContract['path'];
+        $expectedSchemaSha256 = $schemaContract['sha256'];
+        $this->assertRegularReadableFile($schemaPath, 'The bundled Game Catalog schema is unavailable.');
+        $schemaSha256 = hash_file('sha256', $schemaPath);
+        if (! is_string($schemaSha256) || ! hash_equals($expectedSchemaSha256, $schemaSha256)) {
+            throw new CatalogValidationException(
+                findings: [new CatalogValidationFinding('error', 'contract.schema_hash_mismatch', 'The bundled Game Catalog schema does not match the registered contract hash.', '$schema')],
+                contentSha256: $contentSha256,
+                fileSize: $fileSize,
+            );
+        }
+
         $schemaContents = file_get_contents($schemaPath);
         if (! is_string($schemaContents)) {
             throw new RuntimeException('The bundled Game Catalog schema could not be read after its hash was verified.');
@@ -153,6 +169,7 @@ final class CatalogSnapshotValidator
         return new ValidatedCatalogSnapshot(
             payload: $payload,
             contentSha256: $contentSha256,
+            schemaSha256: $schemaSha256,
             fileSize: $fileSize,
             sourceLabel: basename($path),
         );

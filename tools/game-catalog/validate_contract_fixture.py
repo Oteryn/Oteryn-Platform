@@ -196,11 +196,14 @@ def _visible_relations(
     return visible
 
 
-def _validate_fixture_semantics(fixture: Any) -> dict[str, list[str]]:
+def _validate_fixture_semantics(
+    fixture: Any,
+    expected_schema_version: str,
+) -> dict[str, list[str]]:
     _require(isinstance(fixture, dict), "fixture root must be an object")
     _require(fixture.get("contract") == EXPECTED_CONTRACT, "unexpected contract ID")
     _require(
-        fixture.get("schema_version") == EXPECTED_SCHEMA_VERSION,
+        fixture.get("schema_version") == expected_schema_version,
         "unexpected schema version",
     )
 
@@ -337,6 +340,10 @@ def _parse_args(argv: Iterable[str]) -> argparse.Namespace:
     parser.add_argument("--schema", type=Path, required=True)
     parser.add_argument("--fixture", type=Path, required=True)
     parser.add_argument(
+        "--expected-schema-version",
+        default=EXPECTED_SCHEMA_VERSION,
+    )
+    parser.add_argument(
         "--expected-schema-sha256",
         default=EXPECTED_SCHEMA_SHA256,
     )
@@ -365,7 +372,7 @@ def main(argv: Iterable[str] = sys.argv[1:]) -> int:
         )
 
         _schema_validate(schema, fixture)
-        visibility = _validate_fixture_semantics(fixture)
+        visibility = _validate_fixture_semantics(fixture, args.expected_schema_version)
     except (ContractValidationError, OSError) as exc:
         print(f"game-catalog contract validation failed: {exc}", file=sys.stderr)
         return 1
@@ -374,7 +381,7 @@ def main(argv: Iterable[str] = sys.argv[1:]) -> int:
         json.dumps(
             {
                 "contract": EXPECTED_CONTRACT,
-                "schema_version": EXPECTED_SCHEMA_VERSION,
+                "schema_version": args.expected_schema_version,
                 "schema_sha256": schema_sha,
                 "fixture_sha256": fixture_sha,
                 "visibility": visibility,

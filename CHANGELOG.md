@@ -4,6 +4,13 @@ All notable architecture- and behavior-level changes to Oteryn Platform should b
 
 ## Unreleased
 
+### Game Catalog schema 1.1 — 2026-07-29
+
+- Added version-pinned schema `1.1.0` support for an explicitly unknown verified-content boundary.
+- Preserved schema `1.0.0` activation and rollback compatibility.
+- Allowed inactive import of unknown-boundary snapshots while blocking activation and public projection until a concrete verified release exists.
+- Made the persisted verified-content release nullable without introducing a sentinel release.
+
 ### Architecture bootstrap — 2026-07-18
 
 - Established Oteryn Platform as the planned first-party replacement for MyAAC.

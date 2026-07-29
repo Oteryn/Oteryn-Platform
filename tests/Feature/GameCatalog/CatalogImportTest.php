@@ -50,6 +50,23 @@ final class CatalogImportTest extends TestCase
         self::assertSame('validated', DB::table('game_catalog_snapshots')->value('status'));
     }
 
+    public function test_schema_11_import_persists_unknown_verified_content_boundary_without_a_sentinel(): void
+    {
+        $validated = app(CatalogSnapshotValidator::class)->validate($this->fixtureV11Path());
+        self::assertSame('1.1.0', $validated->payload['schema_version']);
+        self::assertNull($validated->payload['snapshot']['verified_content_through_release']);
+        self::assertSame('323ff6ae849759c9190f2a0c342855194ed74645816adc45051b6d914e67c7ac', $validated->schemaSha256);
+
+        $result = app(CatalogImportService::class)->import($this->fixtureV11Path());
+
+        self::assertNull(DB::table('game_catalog_snapshots')
+            ->where('id', $result->snapshotId)
+            ->value('verified_content_through_release_id'));
+        self::assertSame('1.1.0', DB::table('game_catalog_snapshots')
+            ->where('id', $result->snapshotId)
+            ->value('schema_version'));
+    }
+
     public function test_semantically_invalid_relation_is_rejected_without_partial_catalogue_state(): void
     {
         $path = $this->temporarySnapshot(function (array &$payload): void {
@@ -85,7 +102,7 @@ final class CatalogImportTest extends TestCase
             app(CatalogImportService::class)->import($path);
             self::fail('Expected the unsupported schema version to be rejected.');
         } catch (CatalogValidationException $exception) {
-            self::assertContains('schema.const', array_map(
+            self::assertContains('contract.schema_version_unsupported', array_map(
                 static fn ($finding): string => $finding->code,
                 $exception->findings,
             ));
@@ -113,6 +130,11 @@ final class CatalogImportTest extends TestCase
     private function fixturePath(): string
     {
         return base_path('tests/Fixtures/GameCatalog/v1/minimal-snapshot.json');
+    }
+
+    private function fixtureV11Path(): string
+    {
+        return base_path('tests/Fixtures/GameCatalog/v1.1/minimal-snapshot.json');
     }
 
     /** @param callable(CatalogPayload&): void $mutate */

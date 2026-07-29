@@ -239,7 +239,7 @@ final class AdminGameCatalogController
         return DB::table('game_catalog_snapshots as snapshots')
             ->join('game_catalog_releases as runtime_release', 'runtime_release.id', '=', 'snapshots.runtime_release_id')
             ->join('game_catalog_releases as content_target', 'content_target.id', '=', 'snapshots.content_target_release_id')
-            ->join('game_catalog_releases as verified_release', 'verified_release.id', '=', 'snapshots.verified_content_through_release_id')
+            ->leftJoin('game_catalog_releases as verified_release', 'verified_release.id', '=', 'snapshots.verified_content_through_release_id')
             ->leftJoin('game_catalog_releases as contains_release', 'contains_release.id', '=', 'snapshots.contains_content_through_release_id')
             ->orderByDesc('snapshots.id')
             ->select([
