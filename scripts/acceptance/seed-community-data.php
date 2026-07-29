@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use App\Accounts\Models\IdentityCanaryAccount;
+use App\CharacterProfiles\Models\CharacterProfilePreference;
 use App\Identity\Models\Identity;
 use Illuminate\Contracts\Console\Kernel;
 use Illuminate\Support\Facades\Hash;
@@ -41,9 +42,14 @@ IdentityCanaryAccount::query()->updateOrCreate(
     ],
 );
 
+CharacterProfilePreference::query()
+    ->where('identity_id', $identity->id)
+    ->delete();
+
 fwrite(STDOUT, json_encode([
     'identity_id' => $identity->id,
     'canary_account_id' => 9001,
     'public_account_association' => true,
     'public_status_visible' => true,
+    'character_profile_preferences_reset' => true,
 ], JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES).PHP_EOL);
