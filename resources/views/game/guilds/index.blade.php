@@ -41,7 +41,7 @@
                         <td>{{ $localeFormatter->number((int) $guild->active_member_count) }}</td>
                     </tr>
                 @empty
-                    <tr><td colspan="2">{{ __('community.guilds.empty') }}</td></tr>
+                    <tr><td colspan="2">{{ $search === null ? __('public.game.no_guilds') : __('community.guilds.empty') }}</td></tr>
                 @endforelse
                 </tbody>
             </table>
