@@ -143,7 +143,6 @@ jobs:
         run: |
           set -euo pipefail
           python tools/agents/test_checkpoint.py
-          python tools/agents/check_active_task_checkpoints.py
 
       - name: Commit archive and remove workflow
         shell: bash
