@@ -4,6 +4,7 @@ namespace App\Support\Http\Requests;
 
 use App\Identity\Models\Identity;
 use App\Support\Models\SupportTicket;
+use App\Support\SupportConfiguration;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 
@@ -20,8 +21,8 @@ final class SupportTicketCreateRequest extends FormRequest
         return [
             'request_key' => ['required', 'uuid', 'max:64'],
             'category' => ['required', 'string', Rule::in(SupportTicket::categories())],
-            'subject' => ['required', 'string', 'max:'.config('support.tickets.subject_max_length', 160)],
-            'body' => ['required', 'string', 'max:'.config('support.tickets.message_max_length', 8000)],
+            'subject' => ['required', 'string', 'max:'.SupportConfiguration::positiveInteger('support.tickets.subject_max_length', 160)],
+            'body' => ['required', 'string', 'max:'.SupportConfiguration::positiveInteger('support.tickets.message_max_length', 8000)],
         ];
     }
 }
