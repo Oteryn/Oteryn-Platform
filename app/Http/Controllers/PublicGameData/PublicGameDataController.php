@@ -31,7 +31,10 @@ final class PublicGameDataController
             'scope' => ['nullable', 'string', Rule::in(['global'])],
         ]);
         $category = is_string($validated['category'] ?? null) ? $validated['category'] : 'level';
-        $vocation = is_int($validated['vocation'] ?? null) ? $validated['vocation'] : null;
+        $vocationInput = $validated['vocation'] ?? null;
+        $vocation = is_int($vocationInput)
+            ? $vocationInput
+            : (is_string($vocationInput) && ctype_digit($vocationInput) ? (int) $vocationInput : null);
 
         try {
             $players = $this->gameData->highscores($category, $vocation);
