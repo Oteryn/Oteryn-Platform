@@ -168,9 +168,6 @@ jobs:
       - name: Provision isolated production-like dependencies
         run: bash scripts/acceptance/bootstrap-production-like.sh
 
-      - name: Seed privacy-aware community fixture
-        run: php scripts/acceptance/seed-community-data.php
-
       - name: Verify exact read-only Canary grants
         run: php artisan canary:verify-db-privileges
 
@@ -180,6 +177,9 @@ jobs:
           SESSION_DRIVER: array
           CACHE_STORE: array
         run: php artisan test tests/Feature/PublicGameData/CommunityDataCompletenessTest.php tests/Unit/CanaryIntegration/CanaryDatabasePrivilegeVerifierTest.php
+
+      - name: Restore privacy-aware community fixture after database-reset tests
+        run: php scripts/acceptance/seed-community-data.php
 
       - name: Start exact-SHA Laravel HTTP runtime
         run: |
