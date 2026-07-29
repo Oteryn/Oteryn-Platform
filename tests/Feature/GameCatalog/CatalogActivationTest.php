@@ -20,7 +20,16 @@ final class CatalogActivationTest extends TestCase
 
     public function test_visibility_differs_by_target_release_and_activation_is_profile_scoped(): void
     {
-        $snapshot = app(CatalogImportService::class)->import($this->fixturePath());
+        $path = $this->temporarySnapshot(function (array &$payload): void {
+            $payload['snapshot']['verified_content_through_release'] = '15.21';
+        });
+
+        try {
+            $snapshot = app(CatalogImportService::class)->import($path);
+        } finally {
+            @unlink($path);
+        }
+
         $currentProfile = $this->createProfile('public-current', '15.20');
         $futureProfile = $this->createProfile('public-future', '15.21');
         $untouchedProfile = $this->createProfile('public-untouched', '15.20');
