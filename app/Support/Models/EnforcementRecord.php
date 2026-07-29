@@ -28,17 +28,25 @@ use Illuminate\Support\Carbon;
 final class EnforcementRecord extends Model
 {
     public const CATEGORY_WARNING = 'warning';
+
     public const CATEGORY_RESTRICTION = 'restriction';
+
     public const CATEGORY_SUSPENSION = 'suspension';
 
     public const STATUS_ACTIVE = 'active';
+
     public const STATUS_EXPIRED = 'expired';
+
     public const STATUS_REVOKED = 'revoked';
 
     public const APPEAL_NONE = 'none';
+
     public const APPEAL_REQUESTED = 'requested';
+
     public const APPEAL_REVIEWING = 'reviewing';
+
     public const APPEAL_ACCEPTED = 'accepted';
+
     public const APPEAL_REJECTED = 'rejected';
 
     /** @var list<string> */
