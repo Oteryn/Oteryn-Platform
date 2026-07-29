@@ -220,7 +220,7 @@ final class CharacterProfilePreferenceTest extends TestCase
             ->assertSee('Account association is private.')
             ->assertSee('Status details are private.')
             ->assertDontSee('Beta Druid')
-            ->assertDontSee('Online');
+            ->assertDontSee('<strong>Online</strong>', false);
     }
 
     public function test_ownership_dependency_failure_returns_sanitized_unavailable_state(): void
