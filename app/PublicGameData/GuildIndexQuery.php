@@ -13,7 +13,7 @@ final class GuildIndexQuery
     /**
      * @return LengthAwarePaginator<int, stdClass>
      */
-    public function paginate(): LengthAwarePaginator
+    public function paginate(?string $search = null): LengthAwarePaginator
     {
         $activeMemberships = DB::connection('canary')
             ->table('guild_membership as membership')
@@ -22,7 +22,7 @@ final class GuildIndexQuery
             ->groupBy('membership.guild_id')
             ->selectRaw('membership.guild_id, COUNT(*) as active_member_count');
 
-        return DB::connection('canary')
+        $query = DB::connection('canary')
             ->table('guilds as guild')
             ->leftJoinSub(
                 $activeMemberships,
@@ -32,9 +32,19 @@ final class GuildIndexQuery
                 'guild.id',
             )
             ->select(['guild.name'])
-            ->selectRaw('COALESCE(active_members.active_member_count, 0) as active_member_count')
+            ->selectRaw('COALESCE(active_members.active_member_count, 0) as active_member_count');
+
+        if ($search !== null && $search !== '') {
+            $escaped = addcslashes($search, '\\%_');
+            $query->where('guild.name', 'like', "%{$escaped}%");
+        }
+
+        $guilds = $query
             ->orderBy('guild.name')
             ->orderBy('guild.id')
             ->paginate(self::PER_PAGE);
+        $guilds->withQueryString();
+
+        return $guilds;
     }
 }

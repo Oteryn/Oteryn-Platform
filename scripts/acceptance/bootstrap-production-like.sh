@@ -100,6 +100,10 @@ CREATE TABLE \`$CANARY_DB_DATABASE\`.players (
     cap BIGINT NOT NULL DEFAULT 0,
     sex BIGINT NOT NULL DEFAULT 0,
     pronoun BIGINT NOT NULL DEFAULT 0,
+    lastlogin BIGINT UNSIGNED NOT NULL DEFAULT 0,
+    lastlogout BIGINT UNSIGNED NOT NULL DEFAULT 0,
+    boss_points BIGINT NOT NULL DEFAULT 0,
+    comment VARCHAR(255) NOT NULL DEFAULT '',
     istutorial BIGINT NOT NULL DEFAULT 0,
     skill_fist BIGINT NOT NULL DEFAULT 10,
     skill_fist_tries BIGINT NOT NULL DEFAULT 0,
@@ -116,7 +120,10 @@ CREATE TABLE \`$CANARY_DB_DATABASE\`.players (
     skill_fishing BIGINT NOT NULL DEFAULT 10,
     skill_fishing_tries BIGINT NOT NULL DEFAULT 0,
     deletion BIGINT NOT NULL DEFAULT 0,
-    INDEX players_account_id_index (account_id)
+    INDEX players_account_id_index (account_id),
+    INDEX players_vocation_index (vocation),
+    INDEX players_level_index (level),
+    INDEX players_magic_index (maglevel)
 );
 
 CREATE TABLE \`$CANARY_DB_DATABASE\`.guilds (
@@ -142,7 +149,34 @@ CREATE TABLE \`$CANARY_DB_DATABASE\`.guild_membership (
     player_id BIGINT UNSIGNED NOT NULL,
     guild_id BIGINT UNSIGNED NOT NULL,
     rank_id BIGINT UNSIGNED NOT NULL,
-    nick VARCHAR(255) NOT NULL DEFAULT ''
+    nick VARCHAR(255) NOT NULL DEFAULT '',
+    INDEX guild_membership_guild_index (guild_id)
+);
+
+CREATE TABLE \`$CANARY_DB_DATABASE\`.houses (
+    id BIGINT UNSIGNED NOT NULL,
+    channel_id BIGINT UNSIGNED NOT NULL DEFAULT 1,
+    owner BIGINT UNSIGNED NOT NULL DEFAULT 0,
+    name VARCHAR(255) NOT NULL,
+    size BIGINT NOT NULL DEFAULT 0,
+    PRIMARY KEY (channel_id, id),
+    INDEX houses_owner_index (owner)
+);
+
+CREATE TABLE \`$CANARY_DB_DATABASE\`.player_deaths (
+    player_id BIGINT UNSIGNED NOT NULL,
+    time BIGINT UNSIGNED NOT NULL DEFAULT 0,
+    level BIGINT NOT NULL DEFAULT 1,
+    killed_by VARCHAR(255) NOT NULL,
+    is_player TINYINT NOT NULL DEFAULT 0,
+    mostdamage_by VARCHAR(100) NOT NULL DEFAULT '',
+    mostdamage_is_player TINYINT NOT NULL DEFAULT 0,
+    unjustified TINYINT NOT NULL DEFAULT 0,
+    mostdamage_unjustified TINYINT NOT NULL DEFAULT 0,
+    participants TEXT NOT NULL,
+    INDEX player_deaths_player_time_index (player_id, time),
+    INDEX player_deaths_time_index (time),
+    INDEX player_deaths_killed_by_index (killed_by)
 );
 
 CREATE TABLE \`$CANARY_DB_DATABASE\`.channels (
@@ -161,21 +195,36 @@ CREATE TABLE \`$CANARY_DB_DATABASE\`.cluster_sessions (
     player_id BIGINT UNSIGNED NOT NULL,
     channel_id BIGINT UNSIGNED NOT NULL,
     status VARCHAR(32) NOT NULL,
-    expires_at BIGINT NOT NULL
+    expires_at BIGINT NOT NULL,
+    INDEX cluster_sessions_player_status_expiry_index (player_id, status, expires_at)
 );
 
 INSERT INTO \`$CANARY_DB_DATABASE\`.accounts (id, name, password, email, creation)
 VALUES (9001, 'acceptance-public-account', 'not-a-user-credential', 'sink@example.invalid', 0);
-INSERT INTO \`$CANARY_DB_DATABASE\`.players (id, name, account_id, level, vocation, deletion)
+INSERT INTO \`$CANARY_DB_DATABASE\`.players (
+    id, name, account_id, level, vocation, experience, maglevel, lastlogin, lastlogout,
+    boss_points, comment, skill_fist, skill_club, skill_sword, skill_axe, skill_dist,
+    skill_shielding, skill_fishing, deletion
+)
 VALUES
-    (9001, 'Acceptance Hero', 9001, 42, 4, 0),
-    (9002, 'Acceptance Guildmate', 9001, 35, 3, 0);
+    (9001, 'Acceptance Hero', 9001, 42, 4, 4200000, 12, UNIX_TIMESTAMP() - 300, UNIX_TIMESTAMP() - 900, 77, 'A deterministic public hero comment.', 35, 45, 80, 50, 60, 75, 20, 0),
+    (9002, 'Acceptance Guildmate', 9001, 35, 3, 2500000, 8, UNIX_TIMESTAMP() - 600, UNIX_TIMESTAMP() - 1200, 20, 'A second public character.', 30, 40, 45, 35, 78, 65, 18, 0),
+    (9003, 'Acceptance Victim', 9001, 30, 2, 1500000, 18, UNIX_TIMESTAMP() - 1800, UNIX_TIMESTAMP() - 2400, 5, '', 20, 25, 30, 20, 40, 35, 15, 0);
 INSERT INTO \`$CANARY_DB_DATABASE\`.guilds (id, name, ownerid, level, creationdata, motd, residence, points)
 VALUES (9001, 'Acceptance Guild', 9001, 3, 0, 'Deterministic acceptance guild', 1, 100);
 INSERT INTO \`$CANARY_DB_DATABASE\`.guild_ranks (id, guild_id, name, level)
 VALUES (9001, 9001, 'Leader', 3), (9002, 9001, 'Member', 1);
 INSERT INTO \`$CANARY_DB_DATABASE\`.guild_membership (player_id, guild_id, rank_id, nick)
 VALUES (9001, 9001, 9001, ''), (9002, 9001, 9002, 'Acceptance');
+INSERT INTO \`$CANARY_DB_DATABASE\`.houses (id, channel_id, owner, name, size)
+VALUES (100, 1, 9001, 'Acceptance Hall', 42);
+INSERT INTO \`$CANARY_DB_DATABASE\`.player_deaths (
+    player_id, time, level, killed_by, is_player, mostdamage_by, mostdamage_is_player,
+    unjustified, mostdamage_unjustified, participants
+)
+VALUES
+    (9001, UNIX_TIMESTAMP() - 120, 42, 'Acceptance Dragon', 0, 'Acceptance Dragon', 0, 0, 0, '[]'),
+    (9003, UNIX_TIMESTAMP() - 60, 30, 'Acceptance Hero', 1, 'Acceptance Hero', 1, 0, 0, '[]');
 INSERT INTO \`$CANARY_DB_DATABASE\`.channels (id, name, pvp_type, max_players, maintenance, maintenance_message, enabled, sort_order)
 VALUES (1, 'Acceptance', 'open', 1000, 0, NULL, 1, 1);
 INSERT INTO \`$CANARY_DB_DATABASE\`.cluster_sessions (player_id, channel_id, status, expires_at)

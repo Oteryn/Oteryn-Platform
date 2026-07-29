@@ -29,6 +29,7 @@ final readonly class LocalizedPublicRouteRegistrar
             'game.characters.show' => '/characters/{name}',
             'game.guilds.index' => '/guilds',
             'game.guilds.show' => '/guilds/{name}',
+            'game.deaths.index' => '/deaths',
             'game.online.index' => '/online',
             'game.servers.index' => '/servers',
             'events.index' => '/events',

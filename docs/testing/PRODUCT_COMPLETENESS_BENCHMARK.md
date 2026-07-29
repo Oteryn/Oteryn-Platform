@@ -9,7 +9,8 @@
 - Character Bazaar delivery: PR #270, merge `0f19656e0875d0a10b22002ac0e096deb20e94d8`
 - Account-security lifecycle delivery: PR #283
 - First Game Catalog delivery: PR #272
-- Support/moderation lifecycle delivery candidate: PR #293
+- Support/moderation lifecycle delivery: PR #293
+- Community-data completeness delivery candidate: PR #298
 
 ## Verdict
 
@@ -19,11 +20,11 @@ The benchmark ledger contains **43 capabilities**:
 
 | Delivery status | Count |
 |---|---:|
-| Implemented | 14 |
-| Partial | 8 |
-| Missing | 20 |
+| Implemented | 20 |
+| Partial | 3 |
+| Missing | 17 |
 | Untested | 0 |
-| Not applicable | 1 |
+| Not applicable | 3 |
 
 Relevance classification:
 
@@ -31,10 +32,10 @@ Relevance classification:
 |---|---:|
 | Required | 22 |
 | Planned | 13 |
-| Optional / differentiator | 7 |
+| Optional / differentiator | 5 |
 | Not applicable | 1 |
 
-**Oteryn must not claim benchmark product completeness while required partial or missing capabilities remain open.** The principal required-gap trackers are #277 and #280. Commerce is intentionally planned rather than part of the current non-commercial launch boundary, but #278 is mandatory before any commercial activation. Structured server-backed Wiki expansion is tracked by #281.
+**Oteryn must not claim benchmark product completeness while required partial or missing capabilities remain open.** The principal remaining required-gap tracker is #277. Commerce is intentionally planned rather than part of the current non-commercial launch boundary, but #278 is mandatory before any commercial activation. Structured server-backed Wiki expansion is tracked by #281.
 
 Issues #276 and #279 now have delivered Platform-owned account-security and support/moderation lifecycles for their approved boundaries. It does not authorize Canary account unlink/rebind, native game-account deletion, character deletion or production deployment.
 
@@ -78,7 +79,7 @@ The inventory is based on the exact named-route contract rather than screenshots
 | Character creation and visibility | Covered | validation, reserved/duplicate name, quota, ownership injection denial, idempotent outcome, public visibility |
 | Public home and SEO | Covered | available, empty, stale, dependency unavailable, EN/PL, published-only sitemap/robots |
 | Public news and managed pages | Covered | published, empty, not found, unpublished hidden, long content, EN/PL |
-| Public game data | Covered for delivered read model | highscores, character search/detail, guild detail, online, servers, pagination, empty, not found, dependency unavailable/restored |
+| Public game data | Covered for complete approved read model | categorized/vocation highscores, privacy-aware character profiles, guild directory/search/detail, deaths/kill statistics, online, servers, pagination, empty, not found, dependency unavailable/restored |
 | Core admin, RBAC, CMS and audit | Covered | guest/no-MFA/no-permission denial, exact role assignment/removal, final-admin protection, publication and audit |
 | Localization administration | Covered | EN/PL, missing/incomplete/draft/published/stale translation and route-preserving switch |
 | Downloads | Covered | empty/current/filter, validation, draft/publish, URL denial, dependency recovery, audit, EN/PL |
@@ -128,17 +129,15 @@ Issue #276 is delivered for the approved Platform-owned scope. Native Canary acc
 Implemented subset:
 
 - character creation with validation, quotas, ownership controls and public visibility;
-- basic active-character public detail containing name, level, vocation and guild name;
+- privacy-aware public character profile with approved comment, skills, guild/rank, house, deaths, kill statistics, related characters and status;
 - Character Bazaar ownership transfer through escrow, which is not a world-transfer or general owner-management service.
 
 Required gaps:
 
 - editable public information/comment and moderation-safe rendering;
 - character privacy controls;
-- complete public profile including applicable deaths, house, achievements and account linkage;
 - deletion grace period and restore;
 - rename with history/cooldown and cross-surface consistency;
-- complete guild/house/account visibility rules.
 
 Planned/optional gaps:
 
@@ -146,7 +145,7 @@ Planned/optional gaps:
 - achievement selection;
 - main-character selection.
 
-Trackers: **#277**, with public read-model overlap in **#280**.
+Tracker: **#277** for owner-editable character mutations and character-specific policy. The approved public read model is delivered through PR #298.
 
 ### Commerce and entitlement
 
@@ -184,22 +183,19 @@ Implemented:
 
 - online players and server/channel status with dependency recovery states;
 - Character Bazaar public/account/admin lifecycle;
-- basic character, guild and level-highscore reads.
+- allowlisted highscore categories with vocation filtering and truthful global scope;
+- privacy-aware complete public character profiles with guild, house, deaths and kill statistics;
+- guild directory/search and public-safe detail;
+- latest deaths with localized empty, unavailable and recovery states.
 
-Required partial or missing capabilities:
+Explicit product/ownership decisions:
 
-- complete character search/detail read model;
-- guild directory/search and authorized guild administration;
-- highscores categories and filters beyond level;
-- latest deaths and relevant kill statistics;
-- transfer history when transfer is introduced.
+- guild administration remains outside Platform until Canary approves a least-privilege mutation contract;
+- transfer history is not applicable until an authoritative transfer service exists;
+- polls are not adopted for the current launch contract;
+- public punishment publication is excluded; enforcement remains account-visible only.
 
-Optional policy-dependent capabilities:
-
-- polls;
-- public ban/punishment information.
-
-Tracker: **#280**, with character mutation/profile overlap in **#277** and enforcement ownership in **#279**.
+Issue **#280** is delivered for the approved read-only boundary through PR #298, pending final exact-head merge.
 
 ### Knowledge and tooling ecosystem
 
@@ -235,7 +231,7 @@ Tracker: **#281**.
 | Delivered account/security lifecycle | #276 | Confirmed email, sessions, privacy, recovery key, termination and explicit MFA/binding policy |
 | Required character/profile completeness | #277 | Public profile editing/privacy, delete/restore, rename, linkage and transfer policy |
 | Delivered support/moderation lifecycle | #279 | Platform tickets, reports, enforcement history, notifications, retention and privacy |
-| Required community-data completeness | #280 | Rich profiles, guild workflows, highscore filters, deaths and statistics |
+| Delivered community-data completeness | #280 | Read-only rich profiles, guild directory/search/detail, highscore filters, deaths/statistics and explicit exclusions |
 | Mandatory before commercial activation | #278 | Premium, coins, products, provider/webhook/refund/chargeback lifecycle |
 | Partially delivered knowledge-platform expansion | #281 | First creature/item/loot catalogue delivered; structured NPC/quest/spawn/history and optional tooling remain |
 | Separate presentation enhancement | #244 | Audited administrator homepage-template selector |

@@ -174,7 +174,7 @@ Repository and exact-revision E2E work has hardened the native-auth direction, b
 
 ## Current active task
 
-None.
+`OTERYN-20260729-community-data-completeness` in the Issue #280 implementation PR is inventorying the authoritative read-only Canary/community-data contract.
 
 ## Recommended sequence
 
@@ -182,3 +182,7 @@ None.
 2. Keep #278 disabled until a dedicated payment ADR, threat model and provider lifecycle are reviewed.
 3. Build #281 from authoritative Oteryn server availability, never by copying third-party datasets or prose.
 4. Resume #91 only after explicit production deployment/verification authorization and required production evidence access exist.
+
+## Community data delivery candidate
+
+PR #298 implements Issue #280's approved read-only boundary: categorized/vocation highscores, privacy-aware rich profiles, latest deaths/kill statistics, guild directory search/detail, direct-table grant verification and EN/PL zero-retry desktop/tablet/mobile acceptance. Canary mutation, guild administration, transfer history, polls and public enforcement publication remain explicitly excluded. Final repository claims require every exact-head workflow to pass and the PR to merge.

@@ -1,0 +1,121 @@
+.community-page {
+    display: grid;
+    gap: 1.5rem;
+}
+
+.community-page > *,
+.community-page section,
+.community-page dl,
+.community-page .stat-grid,
+.community-page .table-region {
+    max-width: 100%;
+    min-width: 0;
+}
+
+.community-page .stat-grid {
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 12rem), 1fr));
+}
+
+.community-filter {
+    display: grid;
+    gap: 1rem;
+}
+
+.community-filter .form-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 16rem), 1fr));
+    gap: 1rem;
+}
+
+.community-filter label {
+    display: grid;
+    gap: 0.45rem;
+    min-width: 0;
+}
+
+.community-filter input,
+.community-filter select {
+    width: 100%;
+    min-width: 0;
+}
+
+.community-policy-note {
+    margin: 0;
+    max-width: 76ch;
+}
+
+.community-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 20rem), 1fr));
+    gap: 1rem;
+}
+
+.community-preserved-text {
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+}
+
+.community-detail-list {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0.75rem;
+    margin: 0;
+}
+
+.community-detail-list > div {
+    display: grid;
+    grid-template-columns: minmax(8rem, 0.45fr) minmax(0, 1fr);
+    gap: 0.75rem;
+}
+
+.community-detail-list dt {
+    font-weight: 700;
+}
+
+.community-detail-list dd {
+    margin: 0;
+    overflow-wrap: anywhere;
+}
+
+.community-event-list,
+.community-character-list {
+    display: grid;
+    gap: 0.75rem;
+    margin: 0 0 1rem;
+    padding: 0;
+    list-style: none;
+}
+
+.community-event-list li,
+.community-character-list li {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 0.35rem 0.75rem;
+    padding-bottom: 0.75rem;
+    border-bottom: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.12));
+    overflow-wrap: anywhere;
+}
+
+.community-event-list time,
+.community-character-list span {
+    color: var(--text-muted, inherit);
+}
+
+.community-unavailable {
+    max-width: 48rem;
+    margin-inline: auto;
+}
+
+@media (max-width: 640px) {
+    .community-detail-list > div {
+        grid-template-columns: 1fr;
+        gap: 0.2rem;
+    }
+
+    .community-event-list li,
+    .community-character-list li {
+        align-items: flex-start;
+        flex-direction: column;
+    }
+}
