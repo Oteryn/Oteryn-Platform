@@ -10,7 +10,8 @@
 - Account-security lifecycle delivery: PR #283
 - First Game Catalog delivery: PR #272
 - Support/moderation lifecycle delivery: PR #293
-- Community-data completeness delivery candidate: PR #298
+- Community-data completeness delivery: PR #298
+- First Game Catalog scope closure: PR #303 (PR #272 delivery evidence)
 
 ## Verdict
 
@@ -33,11 +34,11 @@ Relevance classification:
 | Required | 22 |
 | Planned | 13 |
 | Optional / differentiator | 5 |
-| Not applicable | 1 |
+| Not applicable | 3 |
 
-**Oteryn must not claim benchmark product completeness while required partial or missing capabilities remain open.** The principal remaining required-gap tracker is #277. Commerce is intentionally planned rather than part of the current non-commercial launch boundary, but #278 is mandatory before any commercial activation. Structured server-backed Wiki expansion is tracked by #281.
+**Oteryn must not claim benchmark product completeness while required partial or missing capabilities remain open.** The principal remaining required-gap tracker is #277. Commerce is intentionally planned rather than part of the current non-commercial launch boundary, but #278 is mandatory before any commercial activation. Structured spell/NPC/quest/achievement expansion is tracked by #301, while optional maps and hunt/discovery planning is tracked by #302.
 
-Issues #276 and #279 now have delivered Platform-owned account-security and support/moderation lifecycles for their approved boundaries. It does not authorize Canary account unlink/rebind, native game-account deletion, character deletion or production deployment.
+Issues #276, #279 and #280 now have delivered Platform-owned account-security, support/moderation and read-only community-data lifecycles for their approved boundaries. Issue #281's first authoritative Game Catalog scope was delivered by PR #272; closing that scope does not implement or authorize the #301/#302 follow-ups, Canary account unlink/rebind, native game-account deletion, character deletion or production deployment.
 
 This report does not establish deployment to production or `PRODUCTION_PROVEN` status. Production verification remains independently owned by #91.
 
@@ -96,7 +97,7 @@ The inventory is based on the exact named-route contract rather than screenshots
 | Character Bazaar account lifecycle | Covered | wallet/reservation, watch, validation, escrow, bid/outbid, buy-now, cancel/expiry, history, recovery, idempotency |
 | Character Bazaar administration | Covered | MFA/permission denial, wallet lookup/adjustment, ledger/audit, empty recovery queue, bounded retry, ownership conflict |
 
-The route contract proves that delivered surfaces are classified. It does not prove that absent character, support, commerce or community capabilities are acceptable omissions.
+The route contract proves that delivered surfaces are classified. It does not prove that absent character, commerce or knowledge capabilities are acceptable omissions.
 
 ## Benchmark results by domain
 
@@ -195,34 +196,35 @@ Explicit product/ownership decisions:
 - polls are not adopted for the current launch contract;
 - public punishment publication is excluded; enforcement remains account-visible only.
 
-Issue **#280** is delivered for the approved read-only boundary through PR #298, pending final exact-head merge.
+Issue **#280** is delivered for the approved read-only boundary through merged PR #298 (`7533b12b1e1c6d266c6bf5a8800e584fad23a01e`).
 
 ### Knowledge and tooling ecosystem
 
-The Wiki retains its public/editorial workflow, while PR #272 adds the first authoritative versioned server-backed Game Catalog foundation.
+The Wiki retains its public/editorial workflow, while PR #272 delivered the first authoritative versioned server-backed Game Catalog scope required by Issue #281.
 
-Implemented first foundation:
+Delivered first scope:
 
 - immutable versioned snapshots with provenance, explicit activation and rollback;
-- active-profile Oteryn items, weapons, creatures and visible loot/reverse-source relations;
-- public EN/PL responsive reads and exact-permission confirmed-MFA administrator inspection.
+- active-profile Oteryn items, weapons, creatures and exact visible loot/reverse-source relations;
+- public EN/PL responsive reads and exact-permission confirmed-MFA administrator inspection;
+- generated Canary artifact verification and MariaDB import, activation, candidate activation and rollback evidence.
+
+Issue **#281** is complete for that first scope through PR #272. Closure does not promote unsupported capabilities or change production state.
 
 Remaining planned expansion:
 
-- complete historical introduction/removal and availability evidence;
-- structured spells, quests, NPCs and achievements where contracts exist;
-- versioned source revision and provenance so removed server content cannot remain silently current;
-- server-specific systems/items/events and world-transfer documentation when applicable.
+- structured spells, quests, NPCs and achievements only when additive authoritative producer/consumer contracts exist — **#301**;
+- world-transfer documentation only when the owner-management and transfer service is defined — **#277**;
+- complete historical introduction/removal, spawn, availability and provenance expansion as separately bounded contract work.
 
-Optional differentiators after the foundation:
+Optional differentiators and product discovery:
 
 - maps and interactive maps;
 - hunting-place discovery and calculators;
-- equipment presets;
-- Huntfinder-like matching and linked tasks;
-- battle-pass and other server-specific engagement systems.
+- equipment presets, Huntfinder-like matching and linked tasks;
+- battle-pass and other server-specific engagement/system catalogues.
 
-Tracker: **#281**.
+These optional/product-decision capabilities are tracked by **#302**. Third-party pages remain UX references only and are not Oteryn availability proof.
 
 ## Gap backlog and priority
 
@@ -233,10 +235,11 @@ Tracker: **#281**.
 | Delivered support/moderation lifecycle | #279 | Platform tickets, reports, enforcement history, notifications, retention and privacy |
 | Delivered community-data completeness | #280 | Read-only rich profiles, guild directory/search/detail, highscore filters, deaths/statistics and explicit exclusions |
 | Mandatory before commercial activation | #278 | Premium, coins, products, provider/webhook/refund/chargeback lifecycle |
-| Partially delivered knowledge-platform expansion | #281 | First creature/item/loot catalogue delivered; structured NPC/quest/spawn/history and optional tooling remain |
+| Delivered first server-backed Game Catalog scope | #281 | Versioned item/weapon/creature/loot catalogue delivered by PR #272; closeout preserves deferred boundaries |
+| Planned structured catalogue expansion | #301 | Authoritative spells, NPCs, quests, achievements and exact cross-links |
+| Optional knowledge/discovery planning | #302 | Maps, hunt tools, presets and server-specific discovery/product decisions |
 | Separate presentation enhancement | #244 | Audited administrator homepage-template selector |
 | Separate production gate | #91 | Exact deployed production verification; not satisfied by this audit |
-
 ## External benchmark references
 
 Primary references used to define capabilities rather than to copy code, markup, prose or assets:

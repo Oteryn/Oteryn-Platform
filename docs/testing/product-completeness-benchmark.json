@@ -2,7 +2,7 @@
   "schema_version": 1,
   "audit_issue": 268,
   "baseline_sha": "0a9a00014f55d7b2146d4ab151cd2a1b7c5bcd3d",
-  "generated_at": "2026-07-28T20:05:26Z",
+  "generated_at": "2026-07-29T15:58:00Z",
   "claim_boundary": "This ledger compares current repository and isolated staging-like evidence with external product benchmarks. It does not establish production deployment or PRODUCTION_PROVEN status.",
   "allowed_delivery_statuses": [
     "implemented",
@@ -285,7 +285,7 @@
       ],
       "gap_issues": [
         "#277",
-        "#281"
+        "#301"
       ]
     },
     {
@@ -872,7 +872,7 @@
         "https://tibia.fandom.com/wiki/"
       ],
       "gap_issues": [
-        "#281"
+        "#301"
       ]
     },
     {
@@ -888,7 +888,7 @@
         "https://tibia.fandom.com/wiki/Mapper"
       ],
       "gap_issues": [
-        "#281"
+        "#302"
       ]
     },
     {
@@ -904,7 +904,7 @@
         "https://tibiopedia.pl/"
       ],
       "gap_issues": [
-        "#281"
+        "#302"
       ]
     },
     {
@@ -920,7 +920,7 @@
         "https://wiki.rubinot.com/en/"
       ],
       "gap_issues": [
-        "#281"
+        "#302"
       ]
     },
     {
@@ -936,8 +936,7 @@
         "https://wiki.rubinot.com/en/"
       ],
       "gap_issues": [
-        "#277",
-        "#281"
+        "#277"
       ]
     },
     {
@@ -964,7 +963,7 @@
         "https://tibia.fandom.com/wiki/Events"
       ],
       "gap_issues": [
-        "#281"
+        "#302"
       ]
     }
   ]
