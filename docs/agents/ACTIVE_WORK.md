@@ -4,10 +4,11 @@ Convenience index only. Individual active task records, live PRs and Git state a
 
 ## Active tasks
 
-- `OTERYN-20260728-support-moderation-lifecycle` — Issue #279 authenticated tickets, bounded reports, moderator queues, enforcement history, notifications, retention/privacy and responsive acceptance.
+- None.
 
 ## Closed acceptance and release-preparation follow-ups
 
+- PR #293 / `02aa4ab8180c0e9cecb0d42bc1f8f5af6db640a1` — complete Platform-owned support/moderation lifecycle with owner tickets, bounded reports, exact-MFA/RBAC moderator queues, enforcement/appeals, notifications, retention/privacy and EN/PL responsive acceptance merged; Issue #279 closed without Canary mutation, attachments or a production-verification claim.
 - PR #272 / `94259f6c5aa1e9cfcd86ad6e11c29fa42fc90491` — version-aware Game Catalog importer, activation/rollback, public item/weapon/creature/loot projections, secured administrator inspection and generated Canary cross-repository MariaDB lifecycle merged after every exact-final-head workflow passed; no production deployment or production profile activation occurred.
 - PR #283 / `28faad47f95df10d1a9b437a16a1be91556671c6` — complete Platform-owned account-security lifecycle, EN/PL responsive acceptance, strict product-ledger reconciliation and exact-final-head validation merged; Issue #276 closed without Canary mutation or a production-verification claim.
 - PR #275 / `c365920b5ad672c9c3be9968d8a51132d3862859` — evidence-linked Tibia/RubinOT/OTS product-completeness benchmark, 43-capability machine ledger and focused gap backlog #276-#281 merged; Issue #268 closed without claiming product or production completeness.
@@ -81,7 +82,7 @@ The latest verified final-portal staging refresh identity is `583cae5f430998b2bb
 
 ## Next work
 
-The highest-priority required benchmark gaps are #277 character management/profile, #279 support/moderation and #280 community data. Issue #278 is mandatory before commercial activation, #281 owns server-backed knowledge expansion, #244 separately owns the homepage-template selector and #91 remains the separate real Production Go-Live tracker.
+The remaining required benchmark gaps are #277 character management/profile and #280 community data. Issue #278 is mandatory before commercial activation, #281 owns server-backed knowledge expansion, #244 separately owns the homepage-template selector and #91 remains the separate real Production Go-Live tracker.
 
 ## Remaining cross-repository dependency
 

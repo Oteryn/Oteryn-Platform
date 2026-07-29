@@ -79,7 +79,7 @@ Not yet benchmark-complete: rich character profiles, guild directory/administrat
 - first-party Wiki public search/category/article flows plus editor/reviewer/publisher, revisions, signed preview and media integration;
 - reviewed bilingual launch content.
 
-Authenticated owner-scoped tickets, bounded reports, exact-MFA/RBAC moderation, Platform enforcement/appeals, notifications and retention are delivered through PR #293. Canary ban mutation and attachments remain excluded. The Wiki is editorially complete for delivered articles but lacks authoritative server-backed creature/item/loot/gameplay catalogues. Tracker: #281.
+Authenticated owner-scoped tickets, bounded reports, exact-MFA/RBAC moderation, Platform enforcement/appeals, notifications and retention are delivered through PR #293. PR #293 squash-merged as `02aa4ab8180c0e9cecb0d42bc1f8f5af6db640a1` after all exact-final-head workflows passed. Canary ban mutation and attachments remain excluded. The Wiki is editorially complete for delivered articles but lacks authoritative server-backed creature/item/loot/gameplay catalogues. Tracker: #281.
 
 ### Support and moderation
 
@@ -141,6 +141,7 @@ The current ledger classifies 43 Tibia/RubinOT/OTS benchmark capabilities:
 Completed focused slice:
 
 - #276 — Platform-owned account security and lifecycle, merged in PR #283.
+- #279 — Platform-owned support and moderation lifecycle, merged in PR #293.
 
 Open focused backlog:
 
@@ -173,7 +174,7 @@ Repository and exact-revision E2E work has hardened the native-auth direction, b
 
 ## Current active task
 
-`OTERYN-20260728-support-moderation-lifecycle` in PR #293 is validating final documentation and exact-head gates.
+None.
 
 ## Recommended sequence
 
