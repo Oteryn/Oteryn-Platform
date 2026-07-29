@@ -1,0 +1,44 @@
+name: One-shot Pint Community Fixture
+
+on:
+  push:
+    branches:
+      - feat/OTERYN-20260729-community-data-completeness
+    paths:
+      - '.github/workflows/one-shot-pint-community-fixture.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  format:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: feat/OTERYN-20260729-community-data-completeness
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.5'
+          coverage: none
+          tools: composer:v2
+
+      - run: composer install --no-interaction --prefer-dist --no-progress
+
+      - name: Format exact fixture
+        run: vendor/bin/pint tests/Feature/PublicGameData/PublicGameDataTest.php
+
+      - name: Commit formatting and remove workflow
+        run: |
+          set -euo pipefail
+          git rm .github/workflows/one-shot-pint-community-fixture.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add tests/Feature/PublicGameData/PublicGameDataTest.php
+          git commit -m 'style(public-data): format legacy community fixture'
+          git push origin HEAD:feat/OTERYN-20260729-community-data-completeness
