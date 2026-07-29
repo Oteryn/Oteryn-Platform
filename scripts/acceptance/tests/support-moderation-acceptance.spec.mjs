@@ -69,7 +69,7 @@ test.afterEach(async ({ page }, testInfo) => {
 
 test('@portal-support-moderation guest, MFA, exact-permission and object-ownership boundaries fail closed', async ({ page }) => {
   await page.goto('/support/tickets?locale=pl');
-  await expect(page).toHaveURL(/\/login\?locale=pl$/u);
+  await expect(page).toHaveURL(/\/login$/u);
   await expect(page.getByRole('heading', { name: 'Zaloguj się do Oteryn Platform' })).toBeVisible();
 
   await page.goto('/admin/support/tickets');
@@ -231,7 +231,7 @@ test('@portal-support-moderation complete user, moderator, notification, privacy
   await logout(page);
 
   await signIn(page, moderator);
-  await page.goto(`/admin/moderation/enforcement?locale=en`);
+  await page.goto('/admin/moderation/enforcement?locale=en');
   const enforcementRow = page.getByRole('row').filter({ hasText: `#${user.identity_id}` });
   await enforcementRow.getByRole('link', { name: 'View' }).click();
   await chooseOption(page, 'Appeal status', 'accepted');
