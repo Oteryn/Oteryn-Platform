@@ -38,7 +38,7 @@ test('@portal-community complete rankings, privacy-aware profile, deaths, guild 
   await expect(page.getByText('Acceptance Hall')).toBeVisible();
   await expect(page.getByText('Acceptance Dragon')).toBeVisible();
   await expect(page.getByText('Acceptance Guildmate')).toBeVisible();
-  await expect(page.getByText('Online', { exact: true })).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Public status' }).getByText('Online', { exact: true })).toBeVisible();
   await expect(page.getByText(/1 recorded player kill/u)).toBeVisible();
   await expect(page.locator('body')).not.toContainText('sink@example.invalid');
   await expect(page.locator('body')).not.toContainText('9001');
