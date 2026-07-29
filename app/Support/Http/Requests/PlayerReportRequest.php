@@ -5,6 +5,7 @@ namespace App\Support\Http\Requests;
 use App\Identity\Models\Identity;
 use App\Support\Actions\ManagePlayerReport;
 use App\Support\Models\PlayerReport;
+use App\Support\SupportConfiguration;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\Validator;
@@ -25,8 +26,8 @@ final class PlayerReportRequest extends FormRequest
             'request_key' => ['required', 'uuid', 'max:64'],
             'report_type' => ['required', 'string', Rule::in(PlayerReport::types())],
             'category' => ['required', 'string', Rule::in($categories)],
-            'target_reference' => ['required', 'string', 'max:'.config('support.reports.target_max_length', 160)],
-            'evidence_summary' => ['nullable', 'string', 'max:'.config('support.reports.evidence_max_length', 4000)],
+            'target_reference' => ['required', 'string', 'max:'.SupportConfiguration::positiveInteger('support.reports.target_max_length', 160)],
+            'evidence_summary' => ['nullable', 'string', 'max:'.SupportConfiguration::positiveInteger('support.reports.evidence_max_length', 4000)],
         ];
     }
 
