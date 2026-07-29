@@ -146,11 +146,14 @@ jobs:
           --health-retries=20
     env:
       CANARY_REPOSITORY: blakinio/canary
-      CANARY_HEAD_SHA: c090e8d6a68730fcf0147105be03c37f3f19d1cb
-      CANARY_SOURCE_RUN_ID: '30397134686'
-      CANARY_SOURCE_ARTIFACT_ID: '8703438753'
-      CANARY_SOURCE_ARTIFACT_DIGEST: sha256:72fb2a99e60e1adc581c807e354ca37a0b06e197d918896c3eefd36af3a01ce8
-      CANARY_STAGING_RELEASE_TAG: game-catalog-staging-pr-991-c090e8d6
+      CANARY_HEAD_SHA: 84b089f9a919bb85773798584e5b0205e2e5895c
+      CANARY_SOURCE_RUN_ID: '30427617799'
+      CANARY_SOURCE_ARTIFACT_ID: '8714331268'
+      CANARY_SOURCE_ARTIFACT_DIGEST: sha256:e389915bff1f79e21cbb7b112717550587d3a556afa11e707c0036ba8b2aa5a6
+      CANARY_STAGING_BRANCH: staging/game-catalog-84b089f9
+      CANARY_STAGING_PATH: staging/game-catalog/84b089f9
+      CANARY_STAGING_PAYLOAD_SHA256: cb462adfe988bd903df4c051d86d30faeb1af051ac62f42ef8a2c18ffa97b0b4
+      CANARY_STAGING_CHUNK_COUNT: '7'
       APP_ENV: testing
       APP_DEBUG: 'false'
       APP_KEY: base64:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
@@ -181,33 +184,39 @@ jobs:
       - name: Install application dependencies
         run: composer install --no-interaction --prefer-dist --no-progress --quiet
 
-      - name: Download and verify public Canary staging prerelease
+      - name: Download and verify exact Canary staging payload
         shell: bash
         run: |
           set -euo pipefail
           download_dir='artifacts/game-catalog-cross-repo/download'
-          mkdir -p "${download_dir}/extracted"
-          release_base="https://github.com/${CANARY_REPOSITORY}/releases/download/${CANARY_STAGING_RELEASE_TAG}"
+          extracted_dir="${download_dir}/extracted"
+          mkdir -p "${extracted_dir}"
+          encoded_ref='staging%2Fgame-catalog-84b089f9'
+          api_base="https://api.github.com/repos/${CANARY_REPOSITORY}/contents/${CANARY_STAGING_PATH}"
 
           curl --fail --location --silent --show-error \
-            "${release_base}/game-catalog-export-smoke.zip" \
-            --output "${download_dir}/game-catalog-export-smoke.zip"
-          curl --fail --location --silent --show-error \
-            "${release_base}/game-catalog-export-smoke.zip.sha256" \
-            --output "${download_dir}/game-catalog-export-smoke.zip.sha256"
+            --header 'Accept: application/vnd.github.raw+json' \
+            --header 'X-GitHub-Api-Version: 2022-11-28' \
+            "${api_base}/manifest.json?ref=${encoded_ref}" \
+            --output "${download_dir}/manifest.json"
 
-          (
-            cd "${download_dir}"
-            sha256sum --check game-catalog-export-smoke.zip.sha256
-          )
-          unzip -q "${download_dir}/game-catalog-export-smoke.zip" \
-            -d "${download_dir}/extracted"
+          for index in $(seq -f '%02g' 0 $((CANARY_STAGING_CHUNK_COUNT - 1))); do
+            curl --fail --location --silent --show-error \
+              --header 'Accept: application/vnd.github.raw+json' \
+              --header 'X-GitHub-Api-Version: 2022-11-28' \
+              "${api_base}/payload.b64.part-${index}?ref=${encoded_ref}" \
+              --output "${download_dir}/payload.b64.part-${index}"
+          done
 
-          baseline="$(find "${download_dir}/extracted" -type f -name game-catalog-baseline.json -print -quit)"
-          candidate="$(find "${download_dir}/extracted" -type f -name game-catalog.json -print -quit)"
-          provenance="$(find "${download_dir}/extracted" -type f -name provenance.json -print -quit)"
-          if [[ -z "${baseline}" || -z "${candidate}" || -z "${provenance}" ]]; then
-            echo 'The public Canary staging release is incomplete.' >&2
+          cat "${download_dir}"/payload.b64.part-* | base64 --decode > "${download_dir}/payload.zip"
+          echo "${CANARY_STAGING_PAYLOAD_SHA256}  ${download_dir}/payload.zip" | sha256sum --check -
+          unzip -q "${download_dir}/payload.zip" -d "${extracted_dir}"
+
+          baseline="$(find "${extracted_dir}" -type f -name game-catalog-baseline.json -print -quit)"
+          candidate="$(find "${extracted_dir}" -type f -name game-catalog.json -print -quit)"
+          provenance="${download_dir}/manifest.json"
+          if [[ -z "${baseline}" || -z "${candidate}" || ! -f "${provenance}" ]]; then
+            echo 'The exact Canary staging payload is incomplete.' >&2
             exit 1
           fi
 
@@ -231,7 +240,9 @@ jobs:
 
           expected_sha = os.environ['CANARY_HEAD_SHA']
           assert provenance == {
+              'base64_chunk_count': int(os.environ['CANARY_STAGING_CHUNK_COUNT']),
               'contract': 'oteryn.game-catalog',
+              'payload_sha256': os.environ['CANARY_STAGING_PAYLOAD_SHA256'],
               'production_activation': False,
               'schema_version': '1.0.0',
               'source_artifact_digest': os.environ['CANARY_SOURCE_ARTIFACT_DIGEST'],
@@ -286,7 +297,8 @@ jobs:
               'canary_workflow_run_id': int(os.environ['CANARY_SOURCE_RUN_ID']),
               'canary_artifact_id': int(os.environ['CANARY_SOURCE_ARTIFACT_ID']),
               'canary_artifact_digest': os.environ['CANARY_SOURCE_ARTIFACT_DIGEST'],
-              'canary_staging_release_tag': os.environ['CANARY_STAGING_RELEASE_TAG'],
+              'canary_staging_branch': os.environ['CANARY_STAGING_BRANCH'],
+              'canary_staging_payload_sha256': os.environ['CANARY_STAGING_PAYLOAD_SHA256'],
               'baseline_generated_at': baseline['snapshot']['generated_at'],
               'candidate_generated_at': candidate['snapshot']['generated_at'],
               'entity_count': candidate['snapshot']['entity_count'],
