@@ -1,0 +1,65 @@
+{
+  "surfaces": [
+    {
+      "id": "public.community-deaths-and-policy",
+      "owner": "PublicGameData",
+      "status": "covered",
+      "route_names": [
+        "legacy.game.deaths.index",
+        "game.deaths.index"
+      ],
+      "roles": [
+        "guest",
+        "authenticated"
+      ],
+      "states": [
+        "latest-deaths",
+        "empty",
+        "bounded-pagination",
+        "dependency-unavailable",
+        "dependency-restored",
+        "localized-en",
+        "localized-pl",
+        "transfer-history-explicitly-not-applicable",
+        "polls-explicitly-not-adopted",
+        "public-enforcement-explicitly-excluded"
+      ],
+      "viewports": [
+        "desktop-1440x1000",
+        "tablet-820x1180",
+        "mobile-390x844"
+      ],
+      "browsers": [
+        "chromium-primary"
+      ],
+      "evidence_layers": [
+        "contract",
+        "feature",
+        "playwright",
+        "database-integration",
+        "responsive",
+        "accessibility",
+        "localization",
+        "resilience",
+        "security"
+      ],
+      "evidence": [
+        {
+          "file": "tests/Feature/PublicGameData/CommunityDataCompletenessTest.php",
+          "markers": [
+            "test_latest_deaths_guild_search_localization_and_read_only_policy_are_explicit",
+            "test_dependency_failure_returns_localized_503_without_sql_details",
+            "test_complete_community_surfaces_remain_read_only"
+          ]
+        },
+        {
+          "file": "scripts/acceptance/tests/community-data-acceptance.spec.mjs",
+          "markers": [
+            "@portal-community complete rankings, privacy-aware profile, deaths, guild search, localization, resilience and responsive lifecycle"
+          ]
+        }
+      ],
+      "gaps": []
+    }
+  ]
+}
