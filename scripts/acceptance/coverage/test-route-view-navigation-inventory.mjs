@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import {
   loadRepositoryInputs,
   validateRouteViewNavigationInventory,
-} from './validate-route-view-navigation-repository.mjs';
+} from './validate-route-view-navigation-contract.mjs';
 
 function cloneInputs() {
   const baseline = loadRepositoryInputs();
@@ -53,12 +53,7 @@ expectFailure('invalid schema version', ({ contract }) => {
 }, 'schema_version must be 1');
 
 expectFailure('unowned runtime route', ({ runtimeRoutes }) => {
-  runtimeRoutes.push({
-    method: 'GET|HEAD',
-    uri: 'fixture/unowned',
-    name: 'fixture.unowned',
-    action: 'Closure',
-  });
+  runtimeRoutes.push({ method: 'GET|HEAD', uri: 'fixture/unowned', name: 'fixture.unowned', action: 'Closure' });
 }, 'Named Laravel route is not owned by the portal manifest');
 
 expectFailure('duplicate portal route ownership', ({ manifestSurfaces }) => {
@@ -86,11 +81,7 @@ expectFailure('orphan page-like Blade view', ({ views }) => {
 
 expectFailure('broken navigation route', ({ navigationReferences }) => {
   const source = structuredClone(navigationReferences[0].source);
-  navigationReferences.push({
-    route_name: 'fixture.missing-navigation-route',
-    kind: 'contextual',
-    source,
-  });
+  navigationReferences.push({ route_name: 'fixture.missing-navigation-route', kind: 'contextual', source });
 }, 'Navigation source references unknown named route');
 
 expectFailure('rendered route without reachability evidence', ({ navigationReferences, contract }) => {
@@ -115,12 +106,7 @@ expectFailure('stale route override', ({ contract }) => {
 }, 'route override matches no exact runtime route');
 
 expectFailure('unclassified readable route', ({ runtimeRoutes, manifestSurfaces, routeBindings }) => {
-  runtimeRoutes.push({
-    method: 'GET|HEAD',
-    uri: 'fixture/unclassified',
-    name: 'fixture.unclassified',
-    action: 'Closure',
-  });
+  runtimeRoutes.push({ method: 'GET|HEAD', uri: 'fixture/unclassified', name: 'fixture.unclassified', action: 'Closure' });
   manifestSurfaces[0].route_names.push('fixture.unclassified');
   routeBindings.set('fixture.unclassified', { views: [], redirect: null });
 }, 'GET/HEAD route cannot be classified');
