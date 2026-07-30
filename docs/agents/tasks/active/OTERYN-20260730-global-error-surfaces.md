@@ -29,15 +29,15 @@ Deliver Issue #353 as one bounded application-error UX slice: dedicated localize
 
 ## Acceptance criteria
 
-- [ ] Dedicated `419`, `429` and `500` views extend the existing error layout.
-- [ ] English and Polish title, heading and body copy is explicit and fail-safe.
-- [ ] Real browser behavior produces exact `404`, `419`, `429` and `500` responses without test-only routes.
-- [ ] Every page has noindex metadata, visible code/heading, recovery action, keyboard reachability and no document-level horizontal overflow.
-- [ ] The `429` flow proves the existing login limiter with bounded retry metadata and no key disclosure.
-- [ ] The `500` flow runs with `APP_DEBUG=false`, leaks no exception/path/SQL/database/credential data and restores the removed dependency in guaranteed cleanup.
-- [ ] A machine-readable evidence contract remains tied to exact executable markers, projects and retries `0`.
-- [ ] Focused feature, browser and repository-required checks pass on the exact final head.
-- [ ] Parent #326 remains open for other surfaces and permutations.
+- [x] Dedicated `419`, `429` and `500` views extend the existing error layout.
+- [x] English and Polish title, heading and body copy is explicit and fail-safe.
+- [x] Real browser behavior produces exact `404`, `419`, `429` and `500` responses without test-only routes.
+- [x] Every page has noindex metadata, visible code/heading, recovery action, keyboard reachability and no document-level horizontal overflow.
+- [x] The `429` flow proves the existing login limiter with bounded retry metadata and no key disclosure.
+- [x] The `500` flow runs with `APP_DEBUG=false`, leaks no exception/path/SQL/database/credential data and restores the removed dependency in guaranteed cleanup.
+- [x] A machine-readable evidence contract remains tied to exact executable markers, projects and retries `0`.
+- [x] Focused feature, browser and repository-required checks pass on the exact runtime head.
+- [x] Parent #326 remains open for other surfaces and permutations.
 
 ## Ownership
 
@@ -75,8 +75,8 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-07-30T10:37:00Z
-head: 3ad092245c1c08719e3a19fd11e3d6a4e03b55a2
+updated_at: 2026-07-30T10:45:00Z
+head: 35d3e5725c63aa108714241743e0d6f9f2622962
 branch: feat/OTERYN-20260730-global-error-surfaces
 pr: 354
 status: validating
@@ -101,22 +101,24 @@ owned_paths:
   - scripts/acceptance/tests/error-state-acceptance.spec.mjs
   - .github/workflows/error-state-acceptance.yml
 proven:
-  - Main has dedicated branded localized 404 and 503 views extending resources/views/errors/layout.blade.php.
-  - Main had no dedicated 419, 429 or 500 view before this task, so those statuses used framework fallback rendering.
+  - Dedicated branded EN/PL 419, 429 and 500 views extend the dependency-light error layout and provide explicit non-success copy, noindex metadata and recovery actions.
   - A real cross-site browser form produces HTTP 419; same-origin form submissions are intentionally admitted by Laravel 13 request-origin verification before token comparison.
   - The global locale detector resolves only normalized en/pl values and renders an early TokenMismatchException through the branded 419 view with an explicit Content-Language header.
   - The real login form carries locale on its POST action, allowing the existing limiter to render localized 429 responses even when throttle middleware executes before route locale middleware.
-  - Error State Acceptance run 30535139418 passed the complete EN/PL desktop/tablet/mobile zero-retry matrix on exact head 3ad092245c1c08719e3a19fd11e3d6a4e03b55a2.
-  - The 500 harness restores the exact Blade source and clears compiled views in a guaranteed finally path; limiter cache is cleared before and after every bounded 429 sequence.
-  - Active PRs #348/#349 own viewport/browser dimension-ledger paths, not the paths claimed here.
+  - Error State Acceptance run 30535407447 passed real 404, cross-site 419, existing login-limiter 429 and non-debug 500/restoration for EN/PL on Chromium desktop, tablet and mobile with retries fixed at zero.
+  - The 429 response exposes only bounded Retry-After metadata and does not disclose the limiter email/key; its cache state is cleared before and after every sequence.
+  - The 500 harness temporarily removes the exact highscore Blade dependency, proves no exception/path/SQL/database/credential disclosure, restores it in finally and proves the route returns to HTTP 200.
+  - The machine-readable evidence contract binds exact statuses, triggers, assertions, locales, projects, viewports, marker, runtime, retry policy and nonclaims; the executable spec fails closed when it drifts.
+  - CI, Agent Governance, Portal Acceptance Contract, Acceptance E2E and Visual UX, Error State Acceptance, Edge Security Emulation, Game Auth Ticket Concurrency, Platform DB Outage Validation, Phase 7 Production-Like Validation and Build Synology Staging Images all passed on exact runtime head 35d3e5725c63aa108714241743e0d6f9f2622962.
+  - Parent Issue #326 remains open; this slice is isolated/CI evidence and does not establish staging or production completeness.
 derived:
   - A dedicated error-state acceptance profile is safer and more truthful than adding global error flows to a domain-specific Community Data profile.
 unknown:
-  - Exact-head result after reconciling the trusted-proxy expected login action with its required locale query.
+  - Final documentation-head workflow outcome and review state before merge.
 conflicts: []
 first_failure:
-  marker: repository-regression-suite
-  evidence: CI run 30535139426 passed formatting and static analysis, then failed only TrustedProxySchemeTest because the expected secure login action omitted the newly required ?locale=en query.
+  marker: browser-and-regression-contracts
+  evidence: Governance run 30533366864 rejected unsupported IN_PROGRESS; CI run 30533519881 rejected a dynamic view-string; runs 30533677029/30533912431/30534134012 exposed Laravel 13 same-origin request-forgery semantics; run 30534749960 isolated pre-route Polish 429 locale loss; CI run 30535139426 isolated the obsolete trusted-proxy login-action expectation. Every root cause was corrected on a changed head without retries or weakened assertions.
 rejected_hypotheses:
   - Add test-only routes that directly return or abort with target statuses.
   - Treat status-only HTTP client assertions as proof of the rendered browser UX.
@@ -134,18 +136,43 @@ changed_paths:
   - lang/en/errors.php
   - lang/pl/errors.php
   - tests/Feature/Errors/LocalizedErrorSurfaceTest.php
+  - tests/Feature/Security/TrustedProxySchemeTest.php
   - scripts/acceptance/coverage/error-state-evidence.json
   - scripts/acceptance/playwright.error-states.config.mjs
   - scripts/acceptance/tests/error-state-acceptance.spec.mjs
   - .github/workflows/error-state-acceptance.yml
 validation:
-  - command: Error State Acceptance run 30535139418
+  - command: Error State Acceptance run 30535407447
     result: PASS
-    evidence: exact head 3ad092245c1c08719e3a19fd11e3d6a4e03b55a2; real 404, cross-site 419, localized limiter 429 and non-debug 500/recovery on Chromium desktop, tablet and mobile with retries 0.
-  - command: CI run 30535139426
-    result: FAIL
-    evidence: only TrustedProxySchemeTest retained the obsolete login action expectation without locale.
+    evidence: exact runtime head 35d3e5725c63aa108714241743e0d6f9f2622962; real Laravel HTTP, isolated MariaDB/Redis, EN/PL, Chromium desktop/tablet/mobile and retries 0.
+  - command: CI run 30535407424
+    result: PASS
+    evidence: exact runtime head 35d3e5725c63aa108714241743e0d6f9f2622962; formatting, static analysis and complete test suite passed.
+  - command: Agent Governance run 30535407415
+    result: PASS
+    evidence: exact runtime head 35d3e5725c63aa108714241743e0d6f9f2622962.
+  - command: Portal Acceptance Contract run 30535407355
+    result: PASS
+    evidence: exact runtime head 35d3e5725c63aa108714241743e0d6f9f2622962; strict coverage and complete account lifecycle passed.
+  - command: Acceptance E2E and Visual UX run 30535407472
+    result: PASS
+    evidence: exact runtime head 35d3e5725c63aa108714241743e0d6f9f2622962.
+  - command: Edge Security Emulation run 30535407382
+    result: PASS
+    evidence: exact runtime head 35d3e5725c63aa108714241743e0d6f9f2622962.
+  - command: Game Auth Ticket Concurrency run 30535407359
+    result: PASS
+    evidence: exact runtime head 35d3e5725c63aa108714241743e0d6f9f2622962.
+  - command: Platform DB Outage Validation run 30535407383
+    result: PASS
+    evidence: exact runtime head 35d3e5725c63aa108714241743e0d6f9f2622962.
+  - command: Phase 7 Production-Like Validation run 30535407375
+    result: PASS
+    evidence: exact runtime head 35d3e5725c63aa108714241743e0d6f9f2622962; staging-like evidence only, not production proof.
+  - command: Build Synology Staging Images run 30535407357
+    result: PASS
+    evidence: exact runtime head 35d3e5725c63aa108714241743e0d6f9f2622962; images built only, not deployed.
 blockers:
   - none
-next_action: Update the trusted-proxy regression to require the secure external HTTPS login action with the normalized locale query, then rerun exact-head validation.
+next_action: Apply the final-gate label, verify every required workflow on the documentation head, reconcile review state and squash-merge PR #354 without closing parent Issue #326.
 ```
