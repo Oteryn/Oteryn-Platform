@@ -2,7 +2,10 @@ import { defineConfig } from '@playwright/test';
 
 const baseURL = process.env.ACCEPTANCE_BASE_URL ?? 'http://127.0.0.1:8080';
 const outputDir = process.env.ACCEPTANCE_OUTPUT_DIR ?? '../../artifacts/acceptance/content-scale-test-results';
-const contentScaleSpec = '**/content-scale-acceptance.spec.mjs';
+const contentScaleSpecs = [
+  '**/content-scale-acceptance.spec.mjs',
+  '**/content-scale-events-acceptance.spec.mjs',
+];
 
 export default defineConfig({
   testDir: './tests',
@@ -28,17 +31,17 @@ export default defineConfig({
   projects: [
     {
       name: 'content-scale-chromium-desktop',
-      testMatch: contentScaleSpec,
+      testMatch: contentScaleSpecs,
       use: { browserName: 'chromium', viewport: { width: 1440, height: 1000 } },
     },
     {
       name: 'content-scale-chromium-tablet',
-      testMatch: contentScaleSpec,
+      testMatch: contentScaleSpecs,
       use: { browserName: 'chromium', viewport: { width: 820, height: 1180 }, hasTouch: true },
     },
     {
       name: 'content-scale-chromium-mobile',
-      testMatch: contentScaleSpec,
+      testMatch: contentScaleSpecs,
       use: { browserName: 'chromium', viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true },
     },
   ],
