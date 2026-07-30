@@ -65,8 +65,8 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-07-30T18:15:00Z
-head: 560d16feb130c740e52712068c3f1eca1dbec59b
+updated_at: 2026-07-30T19:20:00Z
+head: 8f5cf4746b22158647925a41d12bc63c30b3b489
 branch: test/OTERYN-20260730-long-content-large-results
 pr: 363
 status: implementing
@@ -89,8 +89,8 @@ proven:
   - The canonical manifest explicitly declares pagination on public.game-data across public highscores, character, guild, online and server routes.
   - All 18 delivered manifest surfaces now have an explicit inventory classification in PORTAL_CONTENT_SCALE_EVIDENCE.json.
   - The inventory ledger deliberately leaves executable evidence mappings empty.
-  - Exact-SHA CI, Phase 7, DB outage, Game Auth and Edge Security passed on 560d16feb130c740e52712068c3f1eca1dbec59b.
-  - Agent Governance failed only because checkpoint_version was 2 while the governance contract requires 1.
+  - Exact-SHA CI, Phase 7, DB outage, Game Auth and Edge Security passed on 8f5cf4746b22158647925a41d12bc63c30b3b489.
+  - Agent Governance on 8f5cf4746b22158647925a41d12bc63c30b3b489 failed only because validation result PARTIAL is not a supported checkpoint value.
 derived:
   - Wiki, CMS, localization, support/legal, events, announcements and downloads require bounded long-content review because they render managed localized text.
   - Public game data, Wiki indexes/search, administrator indexes, events, downloads and EditorialMedia require bounded collection review.
@@ -111,10 +111,10 @@ validation:
   - command: repository manifest inventory review
     result: PASS
     evidence: all 18 delivered manifest surfaces classified exactly once in the new inventory ledger
-  - command: exact-SHA CI on 560d16feb130c740e52712068c3f1eca1dbec59b
-    result: PARTIAL
-    evidence: CI and non-governance workflows passed; Agent Governance failed on checkpoint_version mismatch now corrected
+  - command: exact-SHA CI on 8f5cf4746b22158647925a41d12bc63c30b3b489
+    result: FAIL
+    evidence: CI and non-governance workflows passed; Agent Governance rejected unsupported validation result PARTIAL, now corrected to FAIL
 blockers:
-  - New exact-SHA workflow results are required after the governance correction.
+  - New exact-SHA workflow results are required after the checkpoint result correction.
 next_action: Inspect the highest-value existing specs for public.news-and-managed-pages and public.game-data, then bind only exact markers that exercise deterministic long content or multi-page collections.
 ```
