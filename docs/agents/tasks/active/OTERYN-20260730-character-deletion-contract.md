@@ -74,8 +74,8 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-07-30T07:42:00Z
-head: ffd3fa0de4c5094bff7a7a238cabbbc074c99bf9
+updated_at: 2026-07-30T07:53:00Z
+head: 3dd59d6b1ecadfda9f3192422a32ecc745073044
 branch: docs/OTERYN-20260730-character-deletion-contract
 pr: 343
 status: ready
@@ -132,19 +132,19 @@ changed_paths:
 validation:
   - command: python tools/agents/checkpoint.py docs/agents/tasks/active/OTERYN-20260730-character-deletion-contract.md --require-checkpoint
     result: PASS
-    evidence: Agent Governance run 30523680493 succeeded on content head ffd3fa0de4c5094bff7a7a238cabbbc074c99bf9.
+    evidence: Agent Governance run 30523680493 succeeded on pre-rebase content head ffd3fa0de4c5094bff7a7a238cabbbc074c99bf9; exact rebased-head rerun is required before merge.
   - command: python tools/agents/checkpoint.py --tasks docs/agents/tasks/active --require-checkpoint
     result: PASS
-    evidence: Agent Governance run 30523680493 succeeded on content head ffd3fa0de4c5094bff7a7a238cabbbc074c99bf9.
+    evidence: Agent Governance run 30523680493 succeeded on pre-rebase content head ffd3fa0de4c5094bff7a7a238cabbbc074c99bf9; exact rebased-head rerun is required before merge.
   - command: python tools/agents/test_checkpoint.py
     result: PASS
-    evidence: Agent Governance run 30523680493 succeeded on content head ffd3fa0de4c5094bff7a7a238cabbbc074c99bf9.
+    evidence: Agent Governance run 30523680493 succeeded on pre-rebase content head ffd3fa0de4c5094bff7a7a238cabbbc074c99bf9; exact rebased-head rerun is required before merge.
   - command: documentation/path/link review
     result: PASS
-    evidence: changed-path inspection is limited to the four declared unique deletion-contract paths; CI run 30523680483 and full final-gate workflows succeeded on content head ffd3fa0de4c5094bff7a7a238cabbbc074c99bf9.
+    evidence: changed-path inspection remains limited to the four declared unique deletion-contract paths after rebase; exact rebased-head CI is required before merge.
 blockers:
   - Issue #344 requires separately authorized Canary implementation before Issue #317 runtime work; this discovery PR itself is unblocked.
-next_action: Verify all final-gate workflows succeed on the rebased exact head, then squash-merge PR #343 and archive the task record in a separate governance PR.
+next_action: Verify all final-gate workflows succeed on the exact checkpoint head created from this pin, then squash-merge PR #343 and archive the task record in a separate governance PR.
 ```
 
 ## Boundaries
