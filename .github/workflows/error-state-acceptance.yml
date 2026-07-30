@@ -13,6 +13,7 @@ on:
       - 'lang/pl/errors.php'
       - 'resources/views/errors/**'
       - 'resources/views/game/highscores.blade.php'
+      - 'resources/views/identity/login.blade.php'
       - 'routes/web.php'
       - 'scripts/acceptance/bootstrap-production-like.sh'
       - 'scripts/acceptance/coverage/error-state-evidence.json'
@@ -33,6 +34,7 @@ on:
       - 'lang/pl/errors.php'
       - 'resources/views/errors/**'
       - 'resources/views/game/highscores.blade.php'
+      - 'resources/views/identity/login.blade.php'
       - 'routes/web.php'
       - 'scripts/acceptance/bootstrap-production-like.sh'
       - 'scripts/acceptance/coverage/error-state-evidence.json'
@@ -207,7 +209,7 @@ jobs:
             "runtime": "real Laravel HTTP",
             "platform_database": "MariaDB 11.8 isolated acceptance schema",
             "cache": "isolated file cache with deterministic limiter cleanup",
-            "proof_boundary": "branded localized 404, browser CSRF 419, existing login limiter 429, non-debug internal 500 and deterministic restoration",
+            "proof_boundary": "branded localized 404, cross-site request-forgery 419, existing localized login limiter 429, non-debug internal 500 and deterministic restoration",
             "production_claim": "none"
           }
           JSON
