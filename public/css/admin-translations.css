@@ -21,6 +21,18 @@ section[aria-labelledby="english-source-heading"] > p {
     overflow-wrap: anywhere;
 }
 
+.content-source {
+    max-width: 100%;
+    margin: 0;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+}
+
+.content-source .content-body {
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+}
+
 .translation-form-actions {
     position: relative;
     z-index: 1;
