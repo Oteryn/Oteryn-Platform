@@ -14,7 +14,7 @@
         ])
     </div>
 
-    <form class="form-stack" method="POST" action="{{ route('identity.login.store') }}">
+    <form class="form-stack" method="POST" action="{{ route('identity.login.store', ['locale' => app()->getLocale()]) }}">
         @csrf
         <div class="form-field">
             <label for="email">{{ __('identity.login.email') }}</label>
