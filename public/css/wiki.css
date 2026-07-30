@@ -163,8 +163,17 @@
 }
 
 .wiki-image-placeholder {
+    display: block;
+    max-width: 100%;
+    min-height: 4rem;
+    margin-block: clamp(1rem, 3vw, 1.75rem);
+    padding: 1rem;
+    border: 1px dashed var(--border);
+    border-radius: .35rem;
+    background: rgb(8 11 14 / .55);
     color: var(--text-muted);
     font-style: italic;
+    overflow-wrap: anywhere;
 }
 
 .wiki-editorial-image {
