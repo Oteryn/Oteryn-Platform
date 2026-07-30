@@ -163,6 +163,16 @@ test('@wiki-media exact Wiki editor discovers inserts previews and publishes pri
     await expectNoHorizontalOverflow(publicPage);
 
     editorialMediaFixture('remove-files', String(seeded.media_id));
+
+    await page.goto('/admin/wiki/articles/create');
+    await page.getByLabel('Search approved images').fill(String(seeded.media_id));
+    await page.getByRole('button', { name: 'Search', exact: true }).click();
+    const missingPickerCard = page.locator('.wiki-media-card').filter({ hasText: `Media ${seeded.media_id}` });
+    const missingPickerFallback = missingPickerCard.getByRole('img', { name: mediaLabel });
+    await expect(missingPickerFallback).toBeVisible();
+    await expect(missingPickerFallback).toContainText(`Preview unavailable: ${mediaLabel}`);
+    await expect(missingPickerCard.locator('img')).toHaveCount(0);
+
     await publicPage.goto(`/en/wiki/${articleSlug}`);
     const missingPublicFallback = publicPage.getByRole('img', { name: mediaLabel });
     await expect(missingPublicFallback).toBeVisible();
