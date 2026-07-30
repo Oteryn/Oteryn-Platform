@@ -52,6 +52,8 @@ DB::transaction(static function () use ($existingIds): void {
     Event::query()->whereIn('id', $existingIds)->delete();
 });
 
+DB::statement('ALTER TABLE events AUTO_INCREMENT = 9100');
+
 $now = now()->startOfMinute();
 $scaleIds = [];
 
