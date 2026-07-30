@@ -1,0 +1,44 @@
+name: Game Catalog Format Debug
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/game-catalog-format-debug.yml'
+      - 'app/GameCatalog/**'
+      - 'tests/Feature/GameCatalog/CatalogV13ConsumerTest.php'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: game-catalog-format-debug-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  formatter-diff:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.5'
+          coverage: none
+          tools: composer:v2
+      - run: composer install --no-interaction --prefer-dist --no-progress --quiet
+      - name: Print exact Pint diff
+        shell: bash
+        run: |
+          set -euo pipefail
+          vendor/bin/pint \
+            app/GameCatalog/Application/Activation/CatalogActivationService.php \
+            app/GameCatalog/Application/Import/CatalogImportService.php \
+            app/GameCatalog/Application/Import/CatalogSemanticValidator.php \
+            tests/Feature/GameCatalog/CatalogV13ConsumerTest.php
+          git diff -- \
+            app/GameCatalog/Application/Activation/CatalogActivationService.php \
+            app/GameCatalog/Application/Import/CatalogImportService.php \
+            app/GameCatalog/Application/Import/CatalogSemanticValidator.php \
+            tests/Feature/GameCatalog/CatalogV13ConsumerTest.php
+          test -z "$(git status --short --untracked-files=no)"
