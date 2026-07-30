@@ -13,7 +13,7 @@ $app->make(Kernel::class)->bootstrap();
 
 $disk = Storage::disk('editorial_media');
 $existing = DB::table('editorial_media')
-    ->where('storage_path', 'like', 'originals/content-scale-media-%')
+    ->where('original_name', 'like', 'content-scale-%')
     ->get(['id', 'storage_path', 'thumbnail_path']);
 $existingIds = $existing->pluck('id')->map(static fn (mixed $id): int => (int) $id)->all();
 
@@ -46,8 +46,10 @@ $longAlt = 'Content scale editorial media boundary '.implode(' ', array_map(
 ));
 
 for ($index = 1; $index <= 25; $index++) {
-    $storagePath = sprintf('originals/content-scale-media-%03d.png', $index);
-    $thumbnailPath = sprintf('thumbnails/content-scale-media-%03d.png', $index);
+    $storageKey = hash('sha256', sprintf('content-scale-media-%03d', $index));
+    $hashedPath = substr($storageKey, 0, 2).'/'.substr($storageKey, 2, 48).'.png';
+    $storagePath = 'originals/'.$hashedPath;
+    $thumbnailPath = 'thumbnails/'.$hashedPath;
     $disk->put($storagePath, $bytes);
     $disk->put($thumbnailPath, $bytes);
 
