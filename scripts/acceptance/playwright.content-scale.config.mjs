@@ -5,6 +5,7 @@ const outputDir = process.env.ACCEPTANCE_OUTPUT_DIR ?? '../../artifacts/acceptan
 const contentScaleSpecs = [
   '**/content-scale-acceptance.spec.mjs',
   '**/content-scale-events-acceptance.spec.mjs',
+  '**/content-scale-wiki-acceptance.spec.mjs',
 ];
 
 export default defineConfig({
