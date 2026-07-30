@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use App\Announcements\Models\SiteAnnouncement;
 use App\Cms\Editorial\EditorialContentType;
 use App\Cms\Editorial\EditorialPageKey;
 use App\Cms\Models\EditorialTranslation;
@@ -32,6 +33,17 @@ $polishBody = 'Polska granica długiej treści '.implode(' ', array_map(
 ));
 $publishedAt = now()->subMinute();
 
+for ($index = 1; $index <= 26; $index++) {
+    NewsPost::query()->updateOrCreate(
+        ['slug' => sprintf('acceptance-scale-news-%03d', $index)],
+        [
+            'title' => sprintf('Content Scale News %03d', $index),
+            'body' => sprintf('Bounded administrator pagination fixture %03d.', $index),
+            'published_at' => $publishedAt->copy()->subSeconds($index),
+        ],
+    );
+}
+
 $news = NewsPost::query()->updateOrCreate(
     ['slug' => 'acceptance-long-localized-news'],
     [
@@ -40,6 +52,7 @@ $news = NewsPost::query()->updateOrCreate(
         'published_at' => $publishedAt,
     ],
 );
+$news->touch();
 $news->refresh();
 
 $page = ManagedPage::query()->updateOrCreate(
@@ -85,9 +98,58 @@ foreach ([
     );
 }
 
+for ($index = 1; $index <= 26; $index++) {
+    SiteAnnouncement::query()->updateOrCreate(
+        ['title' => sprintf('Content Scale Announcement %03d', $index)],
+        [
+            'body' => sprintf('Bounded announcement pagination fixture %03d.', $index),
+            'severity' => SiteAnnouncement::SEVERITY_INFO,
+            'starts_at' => $publishedAt->copy()->subHour(),
+            'ends_at' => $publishedAt->copy()->addHour(),
+            'publication_state' => SiteAnnouncement::STATE_DRAFT,
+            'action_label' => null,
+            'action_url' => null,
+            'lock_version' => 1,
+        ],
+    );
+}
+
+$announcement = SiteAnnouncement::query()->updateOrCreate(
+    ['title' => $englishTitle],
+    [
+        'body' => $englishBody,
+        'severity' => SiteAnnouncement::SEVERITY_WARNING,
+        'starts_at' => $publishedAt->copy()->subHour(),
+        'ends_at' => $publishedAt->copy()->addHour(),
+        'publication_state' => SiteAnnouncement::STATE_PUBLISHED,
+        'action_label' => null,
+        'action_url' => null,
+        'lock_version' => 1,
+    ],
+);
+$announcement->touch();
+$announcement->refresh();
+
+EditorialTranslation::query()->updateOrCreate(
+    [
+        'content_type' => EditorialContentType::SiteAnnouncement->value,
+        'content_id' => $announcement->getKey(),
+        'locale' => 'pl',
+    ],
+    [
+        'title' => $polishTitle,
+        'body' => $polishBody,
+        'action_label' => null,
+        'source_updated_at' => $announcement->updated_at,
+        'published_at' => $publishedAt,
+    ],
+);
+
 fwrite(STDOUT, json_encode([
+    'news_id' => $news->id,
     'news_slug' => $news->slug,
     'page_slug' => $page->slug,
+    'announcement_id' => $announcement->id,
     'english_title' => $englishTitle,
     'polish_title' => $polishTitle,
     'english_body' => $englishBody,
