@@ -28,13 +28,13 @@ Deliver Issue #362 as a bounded fail-closed audit and evidence contract for appl
 ## Acceptance criteria
 
 - [x] Every delivered rendered surface has an explicit applicability classification.
-- [ ] Applicable long-content and large-collection states map to exact executable evidence.
-- [ ] Deterministic fixtures exercise long EN/PL values and bounded multi-page collections through real routes and data paths.
-- [ ] Evidence verifies readable wrapping, table/card containment, stable pagination and no document-level horizontal overflow.
-- [ ] Referenced evidence files, stable markers, Playwright projects and npm profiles exist.
-- [ ] Missing mappings, unknown consumers, orphan evidence and unjustified exclusions fail deterministically.
-- [ ] Strict Portal Acceptance executes the validator and negative fixtures.
-- [ ] Parent #326 and production nonclaims remain open.
+- [x] Applicable long-content and large-collection states map to exact executable evidence.
+- [x] Deterministic fixtures exercise long EN/PL values and bounded multi-page collections through real routes and data paths.
+- [x] Evidence verifies readable wrapping, table/card containment, stable pagination and no document-level horizontal overflow.
+- [x] Referenced evidence files, stable markers, Playwright projects and npm profiles exist.
+- [x] Missing mappings, unknown consumers, orphan evidence and unjustified exclusions fail deterministically.
+- [x] Strict Portal Acceptance executes the validator and negative fixtures.
+- [x] Parent #326 and production nonclaims remain open.
 
 ## Ownership
 
@@ -48,7 +48,7 @@ owned_paths:
   - scripts/acceptance/coverage/test-portal-content-scale-evidence.mjs
   - scripts/acceptance/package.json
   - .github/workflows/portal-acceptance-contract.yml
-  - bounded acceptance fixtures and browser specs selected after inventory
+  - bounded acceptance fixtures, browser specs and narrow runtime containment repairs selected after inventory
 modules:
   - Testing
   - AgentGovernance
@@ -66,65 +66,97 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-07-30T20:49:00Z
-head: a9f5c4e42bf3b950f9e1b9352a0efa748d12b2bd
+updated_at: 2026-07-30T23:24:00Z
+head: 0b39f5dbb81b157887b446b752f444f4648d4b86
 branch: test/OTERYN-20260730-long-content-large-results
 pr: 363
-status: implementing
+status: validating
 context_routes:
   - agent-governance
   - testing
   - architecture
 owned_paths:
   - docs/agents/tasks/active/OTERYN-20260730-long-content-large-results.md
-  - docs/agents/PROJECT_STATE.md
   - docs/testing/PORTAL_CONTENT_SCALE_EVIDENCE.json
   - docs/testing/PRODUCT_COMPLETENESS_FRONTEND_AUDIT_2026-07-30.md
   - scripts/acceptance/coverage/validate-portal-content-scale-evidence.mjs
   - scripts/acceptance/coverage/test-portal-content-scale-evidence.mjs
   - scripts/acceptance/package.json
-  - .github/workflows/portal-acceptance-contract.yml
+  - scripts/acceptance/playwright.content-scale.config.mjs
+  - scripts/acceptance/seed-content-scale*.php
+  - scripts/acceptance/tests/content-scale*-acceptance.spec.mjs
+  - .github/workflows/content-scale-acceptance.yml
+  - public/css/admin-translations.css
+  - public/css/events-content.css
+  - resources/views/admin/translations/form.blade.php
+  - resources/views/events/show.blade.php
 proven:
-  - Live PR #363 remains open as a draft and mergeable, with implementation and ledger head a9f5c4e42bf3b950f9e1b9352a0efa748d12b2bd before this checkpoint-only commit.
-  - All 18 delivered manifest surfaces remain classified exactly once in PORTAL_CONTENT_SCALE_EVIDENCE.json.
-  - The public.game-data stress scenario now measures real multi-line wrapping for the long highscore name, long character heading and long public comment, verifies their component bounds, and verifies table-region scroll containment.
-  - The zero-retry Community Data matrix passed across desktop 1440x1000, tablet 820x1180 and mobile 390x844 on exact SHA a9f5c4e42bf3b950f9e1b9352a0efa748d12b2bd in workflow run 30580686304.
-  - PORTAL_CONTENT_SCALE_EVIDENCE.json records the public.game-data executable profile, exact markers, bounded 76-row fixture, validated workflow reference and no remaining gap for that mapped surface.
-  - Direct inspection of admin-acceptance.spec.mjs, public-localization.spec.mjs and smoke.spec.mjs found only short CMS bodies and shell localization evidence for public.news-and-managed-pages; no deterministic long EN/PL managed-content evidence exists there.
+  - Live PR #363 remains open as a draft and mergeable, with head 0b39f5dbb81b157887b446b752f444f4648d4b86 before this checkpoint update.
+  - PORTAL_CONTENT_SCALE_EVIDENCE.json schema version 2 classifies all 18 delivered surfaces exactly once and maps all 12 applicable consumers through two executable profiles and six evidence groups with zero gaps.
+  - The dedicated Content Scale profile exercises long English source values, fresh Polish translations, bounded multi-page collections and valid private media bytes through real Laravel routes and isolated MariaDB/Redis dependencies.
+  - The complete zero-retry Content Scale matrix passed all 15 desktop, tablet and mobile browser tests on exact SHA 04a45d6ff311610fdcc4b323e7541f34f49f1d6d in workflow run 30589498015.
+  - The public.game-data mapping remains backed by the 76-row zero-retry Community Data matrix on exact SHA eea11818520996aa6575e8059b8f140248ced1ac in workflow run 30580307178.
+  - Strict Portal Acceptance passed schema version 2 and all 14 deterministic negative fixtures on exact SHA ce50779cb7283fd8d417119b65c90ad1f9bab1bb in workflow run 30589893066.
+  - Inventory execution found and repaired a genuine mobile event-detail heading containment defect; the final event assertions passed without weakening component or document-overflow requirements.
+  - Long translation-source markup and CSS now expose measurable wrapped text while preserving preformatted semantics and form containment.
+  - The frontend completeness audit records the bounded Issue #362 closure and preserves the parent #326, product-completeness, staging and production nonclaims.
 derived:
-  - The bounded public.game-data scale slice now proves readable wrapping, component containment, stable pagination and no document-level horizontal overflow at all three required viewports.
-  - public.news-and-managed-pages is the next highest-value missing executable mapping because the canonical manifest explicitly declares long-content there.
+  - Issue #362 acceptance criteria are implemented for the versioned delivered-surface contract and exact mapped synthetic boundaries.
+  - Parent #326 must remain open because unrelated authorization, validation, error, browser-engine and other state permutations are outside this slice.
 unknown:
-  - Which existing CMS localization write path is the smallest deterministic route for creating and publishing long English and Polish news or managed-page content.
-  - Which remaining candidate surfaces already contain sufficient deterministic scale fixtures and exact viewport assertions.
+  - Whether every required workflow passes on the final documentation/checkpoint head.
 conflicts: []
 first_failure:
-  marker: public news long EN/PL evidence
-  evidence: PORTAL_CONTENT_SCALE_EVIDENCE.json reviewed_unmapped_surfaces.public.news-and-managed-pages still lists the missing deterministic bilingual fixture and wrapping, containment and route-overflow assertions.
+  marker: final exact-head validation
+  evidence: the implementation and strict-contract heads are green, but documentation and checkpoint commits require current-head workflow observation before readiness.
 rejected_hypotheses:
   - Treat broad responsive smoke evidence as proof of long localized values and large paginated datasets on every surface.
   - Treat candidate applicability classification as executable evidence.
   - Treat CSS overflow-wrap declarations as executable proof without measured rendered lines and component bounds.
-  - Treat the existing short CMS lifecycle values and localization shell checks as proof of public.news-and-managed-pages long-content behavior.
+  - Treat short CMS lifecycle values or localization shell checks as proof of long managed content.
+  - Treat one visible page as proof of stable bounded pagination.
+  - Weaken containment assertions after the mobile Events defect; the runtime was repaired instead.
 changed_paths:
+  - .github/workflows/content-scale-acceptance.yml
   - docs/agents/tasks/active/OTERYN-20260730-long-content-large-results.md
   - docs/testing/PORTAL_CONTENT_SCALE_EVIDENCE.json
+  - docs/testing/PRODUCT_COMPLETENESS_FRONTEND_AUDIT_2026-07-30.md
+  - public/css/admin-translations.css
+  - public/css/events-content.css
+  - resources/views/admin/translations/form.blade.php
+  - resources/views/events/show.blade.php
+  - scripts/acceptance/content-scale-fixture-wrapper.php
+  - scripts/acceptance/coverage/test-portal-content-scale-evidence.mjs
+  - scripts/acceptance/coverage/validate-portal-content-scale-evidence.mjs
   - scripts/acceptance/package.json
+  - scripts/acceptance/playwright.content-scale.config.mjs
+  - scripts/acceptance/seed-content-scale-events.impl.php
+  - scripts/acceptance/seed-content-scale-events.php
+  - scripts/acceptance/seed-content-scale-media.impl.php
+  - scripts/acceptance/seed-content-scale-media.php
+  - scripts/acceptance/seed-content-scale-wiki.impl.php
+  - scripts/acceptance/seed-content-scale-wiki.php
+  - scripts/acceptance/seed-content-scale.impl.php
+  - scripts/acceptance/seed-content-scale.php
   - scripts/acceptance/tests/community-data-acceptance.spec.mjs
+  - scripts/acceptance/tests/content-scale-acceptance.spec.mjs
+  - scripts/acceptance/tests/content-scale-events-acceptance.spec.mjs
+  - scripts/acceptance/tests/content-scale-media-acceptance.spec.mjs
+  - scripts/acceptance/tests/content-scale-wiki-acceptance.spec.mjs
 validation:
-  - command: required-read and SEARCH_FIRST inspection
+  - command: Content Scale Acceptance workflow run 30589498015 on 04a45d6ff311610fdcc4b323e7541f34f49f1d6d
     result: PASS
-    evidence: required governance/testing documents, Issues #362/#326, current PRs and highest-value public CMS/game-data specs inspected directly
-  - command: exact-SHA Community Data Acceptance workflow run 30580686304 on a9f5c4e42bf3b950f9e1b9352a0efa748d12b2bd
+    evidence: all 15 zero-retry Chromium desktop/tablet/mobile tests passed against real Laravel HTTP, isolated MariaDB/Redis and deterministic fixtures
+  - command: Community Data Acceptance workflow run 30580307178 on eea11818520996aa6575e8059b8f140248ced1ac
     result: PASS
-    evidence: focused regressions, real MariaDB concurrency, real Laravel HTTP runtime and the complete zero-retry desktop/tablet/mobile Playwright matrix all passed
-  - command: repository content-scale ledger retrieval after validated mapping write
+    evidence: 76-row long-value and stable page-two scenario passed across desktop, tablet and mobile
+  - command: Portal Acceptance Contract workflow run 30589893066 on ce50779cb7283fd8d417119b65c90ad1f9bab1bb
     result: PASS
-    evidence: PORTAL_CONTENT_SCALE_EVIDENCE.json is valid retrievable JSON with public.game-data remaining_gaps empty and public.news-and-managed-pages still fail-closed as reviewed unmapped
-  - command: broader exact-SHA GitHub workflow set on a9f5c4e42bf3b950f9e1b9352a0efa748d12b2bd
+    evidence: strict route/product/dimension/media/content-scale validators and all 14 content-scale negative fixtures passed
+  - command: exact-final-head workflow set
     result: NOT_RUN
-    evidence: Agent Governance, Edge Security Emulation and Community Data Acceptance passed; remaining workflows were queued or in progress when checkpointed
+    evidence: current documentation/checkpoint head requires fresh workflow observation
 blockers:
   - none
-next_action: Inspect the existing CMS and localization write path, then add deterministic long English and Polish news or managed-page fixtures with exact three-viewport wrapping, containment and document-overflow assertions before mapping public.news-and-managed-pages.
+next_action: Observe the exact-final-head workflows after this checkpoint commit; fix the first failure if any, otherwise mark PR #363 ready and close Issue #362 while leaving parent #326 open.
 ```
