@@ -1,0 +1,60 @@
+{
+  "schema_version": 1,
+  "repository": "blakinio/Oteryn-Platform",
+  "default_lane": "oteryn-platform-core",
+  "task_globs": [
+    "docs/agents/tasks/active/*.md",
+    "docs/agents/tasks/*.md"
+  ],
+  "execution": {
+    "checkpoint_interval_minutes": 30,
+    "lease_minutes": 45,
+    "stale_after_minutes": 45,
+    "barrier_mode": "wave",
+    "max_interactive_interruptions": 0
+  },
+  "lanes": [
+    {
+      "id": "oteryn-platform-bazaar",
+      "label": "Character Bazaar and economy",
+      "match_keywords": [
+        "character-bazaar",
+        "character bazaar",
+        "bazaar",
+        "auction",
+        "buy-now",
+        "buy now",
+        "bid",
+        "escrow"
+      ]
+    },
+    {
+      "id": "oteryn-platform-auth",
+      "label": "Identity, authentication and sessions",
+      "match_keywords": [
+        "identity",
+        "auth",
+        "oauth",
+        "session",
+        "ticket",
+        "mfa",
+        "password"
+      ]
+    },
+    {
+      "id": "oteryn-platform-content",
+      "label": "Content, search and large-result workflows",
+      "match_keywords": [
+        "content",
+        "search",
+        "large-results",
+        "large results",
+        "catalog"
+      ]
+    },
+    {
+      "id": "oteryn-platform-core",
+      "label": "Platform core and uncategorized work"
+    }
+  ]
+}
