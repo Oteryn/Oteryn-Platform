@@ -34,7 +34,7 @@ final class TrustedProxySchemeTest extends TestCase
         $response->assertOk();
 
         self::assertSame(
-            'https://platform.oteryn.test/login',
+            'https://platform.oteryn.test/login?locale=en',
             $this->loginFormAction($response),
         );
     }
@@ -57,6 +57,7 @@ final class TrustedProxySchemeTest extends TestCase
 
         self::assertSame($configuredScheme, parse_url($action, PHP_URL_SCHEME));
         self::assertNotSame('attacker.example.test', parse_url($action, PHP_URL_HOST));
+        self::assertSame('locale=en', parse_url($action, PHP_URL_QUERY));
     }
 
     /**

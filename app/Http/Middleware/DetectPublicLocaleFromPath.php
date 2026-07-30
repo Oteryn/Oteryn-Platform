@@ -5,6 +5,7 @@ namespace App\Http\Middleware;
 use App\Localization\PublicLocale;
 use Closure;
 use Illuminate\Http\Request;
+use Illuminate\Session\TokenMismatchException;
 use Illuminate\Support\Facades\URL;
 use Symfony\Component\HttpFoundation\Response;
 
@@ -16,12 +17,28 @@ final readonly class DetectPublicLocaleFromPath
     {
         $segment = $request->segment(1);
         $locale = is_string($segment) ? $this->locales->normalize($segment) : null;
+
+        if ($locale === null && $request->query->has('locale')) {
+            $requestedLocale = $request->query('locale');
+            abort_unless(is_string($requestedLocale), 404);
+
+            $locale = $this->locales->normalize($requestedLocale);
+            abort_unless(is_string($locale), 404);
+        }
+
         $locale ??= $this->locales->default();
 
         app()->setLocale($locale);
         URL::defaults(['locale' => $locale]);
 
-        $response = $next($request);
+        try {
+            $response = $next($request);
+        } catch (TokenMismatchException) {
+            return response()
+                ->view('errors.419', status: 419)
+                ->header('Content-Language', $locale);
+        }
+
         abort_unless($response instanceof Response, 500);
 
         return $response;
