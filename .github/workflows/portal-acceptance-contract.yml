@@ -71,7 +71,7 @@ jobs:
       - name: Generate ephemeral application key
         run: echo "APP_KEY=$(php -r 'echo "base64:".base64_encode(random_bytes(32));')" >> "$GITHUB_ENV"
 
-      - name: Validate strict machine-enforced portal and product coverage ledgers
+      - name: Validate strict portal, product and backend/frontend coverage ledgers
         run: |
           mkdir -p artifacts/portal-coverage
           set -o pipefail
