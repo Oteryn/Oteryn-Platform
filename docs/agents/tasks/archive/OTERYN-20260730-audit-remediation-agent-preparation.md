@@ -37,13 +37,14 @@ Prepare a durable standalone implementation-agent prompt that consumes confirmed
 - [x] Every implementation slice requires focused tests, exact-final-head CI, truthful benchmark reconciliation and task archival after merge.
 - [x] User-facing capability closure requires backend/domain behavior, reachable frontend integration and applicable zero-retry browser evidence.
 - [x] The prompt does not authorize a single broad PR covering unrelated audit findings.
+- [x] PR #336 merged and this preparation task is archived separately.
 
 ## Ownership
 
 ```yaml
 owned_paths:
   - docs/agents/prompts/OTERYN-PRODUCT-AUDIT-REMEDIATION-AGENT-PROMPT.md
-  - docs/agents/tasks/active/OTERYN-20260730-audit-remediation-agent-preparation.md
+  - docs/agents/tasks/archive/OTERYN-20260730-audit-remediation-agent-preparation.md
 modules:
   - Agent Governance
   - Product Completeness
@@ -61,65 +62,65 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-07-30T06:35:00Z
-head: 71596dd1b65948d1075e33de2df0246be20a3cbb
+updated_at: 2026-07-30T06:40:00Z
+head: 0364834d5541f512bed9a5dedf9b149f06513c37
 branch: docs/OTERYN-20260730-audit-remediation-agent
 pr: 336
-status: validating
+status: completed
 context_routes:
   - agent-governance
   - architecture
   - testing
 owned_paths:
   - docs/agents/prompts/OTERYN-PRODUCT-AUDIT-REMEDIATION-AGENT-PROMPT.md
-  - docs/agents/tasks/active/OTERYN-20260730-audit-remediation-agent-preparation.md
+  - docs/agents/tasks/archive/OTERYN-20260730-audit-remediation-agent-preparation.md
 proven:
-  - The product-completeness audit PR #315 has an exact-head evidence history, creates bounded remediation issues and now includes a dedicated backend/frontend integration addendum; it is not yet merged.
-  - PR #328 actively owns read-only discovery and architecture for the character-rename contract.
-  - Repository policy requires one bounded task branch and early draft PR per substantial implementation.
-  - PR #336 contains only the standalone remediation prompt and its dedicated preparation task record.
-  - The prompt enforces sequential bounded delivery, dynamic ownership checks, three-layer user-facing completion evidence and explicit Canary/payment/production stop conditions.
-  - Exact head 71596dd1b65948d1075e33de2df0246be20a3cbb passed all six required workflows.
+  - PR #336 introduced the durable audit-remediation implementation-agent prompt and changed only its prompt and preparation task record.
+  - The prompt consumes the merged product audit, frontend integration addendum, machine benchmark ledger, live issues, task records, PRs and exact-SHA evidence.
+  - It enforces one bounded task/branch/PR at a time, dynamic ownership checks and explicit prioritization of required gaps.
+  - It requires backend/domain behavior, reachable frontend integration and applicable zero-retry browser evidence before a user-facing capability can be marked implemented.
+  - It keeps Canary and external repositories read-only without explicit current-task authorization and blocks payment or production activation without required decisions and evidence.
+  - Final exact head 0364834d5541f512bed9a5dedf9b149f06513c37 passed all six required workflows.
+  - PR #336 was squash-merged as cae57033ddc32f1c243bb19104cf56a5ce71d080.
 derived:
-  - A remediation coordinator must dispatch one issue at a time rather than own broad runtime paths itself.
-  - The durable prompt can be prepared independently because it owns only its prompt and task record.
+  - The remediation agent is ready to be launched after it verifies the live audit/ownership state.
+  - The agent must skip any issue already owned by another active task, including rename work while PR #328 remains active.
 unknown:
   - Which audit remediation issue will be the first unblocked implementation after PR #315 merges and current ownership is rechecked.
 conflicts: []
 first_failure:
   marker: none
-  evidence: none
+  evidence: All required exact-final-head workflows passed before merge.
 rejected_hypotheses:
   - One agent should implement every audit finding in one PR; rejected because it violates bounded-task, ownership and reviewability rules.
   - A backend-only change may close a user-facing audit finding; rejected by the audit's backend/frontend/integrated-browser evidence rule.
   - The remediation prompt may authorize Canary or production writes implicitly; rejected by repository safety policy.
 changed_paths:
   - docs/agents/prompts/OTERYN-PRODUCT-AUDIT-REMEDIATION-AGENT-PROMPT.md
-  - docs/agents/tasks/active/OTERYN-20260730-audit-remediation-agent-preparation.md
+  - docs/agents/tasks/archive/OTERYN-20260730-audit-remediation-agent-preparation.md
 validation:
-  - command: Agent Governance run 30519807705
+  - command: Agent Governance run 30519975463
     result: PASS
-    evidence: exact head 71596dd1b65948d1075e33de2df0246be20a3cbb
-  - command: CI run 30519807690
+    evidence: exact head 0364834d5541f512bed9a5dedf9b149f06513c37
+  - command: CI run 30519975489
     result: PASS
-    evidence: exact head 71596dd1b65948d1075e33de2df0246be20a3cbb
-  - command: Edge Security Emulation run 30519807677
+    evidence: exact head 0364834d5541f512bed9a5dedf9b149f06513c37
+  - command: Edge Security Emulation run 30519975461
     result: PASS
-    evidence: exact head 71596dd1b65948d1075e33de2df0246be20a3cbb
-  - command: Game Auth Ticket Concurrency run 30519807685
+    evidence: exact head 0364834d5541f512bed9a5dedf9b149f06513c37
+  - command: Game Auth Ticket Concurrency run 30519975471
     result: PASS
-    evidence: exact head 71596dd1b65948d1075e33de2df0246be20a3cbb
-  - command: Platform DB Outage Validation run 30519807683
+    evidence: exact head 0364834d5541f512bed9a5dedf9b149f06513c37
+  - command: Platform DB Outage Validation run 30519975490
     result: PASS
-    evidence: exact head 71596dd1b65948d1075e33de2df0246be20a3cbb
-  - command: Phase 7 Production-Like Validation run 30519807678
+    evidence: exact head 0364834d5541f512bed9a5dedf9b149f06513c37
+  - command: Phase 7 Production-Like Validation run 30519975501
     result: PASS
-    evidence: exact head 71596dd1b65948d1075e33de2df0246be20a3cbb
-blockers:
-  - none
-next_action: Verify required checks on this final documentation-only checkpoint head, then mark PR #336 ready, squash-merge it and archive this preparation task.
+    evidence: exact head 0364834d5541f512bed9a5dedf9b149f06513c37
+blockers: []
+next_action: Launch the remediation agent from `docs/agents/prompts/OTERYN-PRODUCT-AUDIT-REMEDIATION-AGENT-PROMPT.md` after verifying PR #315 and all live ownership state; no further preparation work remains.
 ```
 
 ## Notes
 
-This task prepares the reusable agent entry point only. It does not implement an audit finding, mutate Canary, select a payment provider or deploy to production.
+This task prepared the reusable agent entry point only. It did not implement an audit finding, mutate Canary, select a payment provider or deploy to production.
