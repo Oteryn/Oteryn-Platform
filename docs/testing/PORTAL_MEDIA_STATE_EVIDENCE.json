@@ -1,1 +1,255 @@
-PLACEHOLDER
+{
+  "schema_version": 1,
+  "issue": 357,
+  "parent_issue": 326,
+  "description": "Fail-closed media applicability and rendered-state evidence for every delivered portal surface. Supporting media endpoints are never promoted to visible fallback UX evidence.",
+  "required_rendered_states": [
+    "normal",
+    "missing",
+    "broken_or_integrity_failed",
+    "no_image"
+  ],
+  "surfaces": [
+    {
+      "id": "identity.registration-login-session",
+      "classification": "not_applicable",
+      "rationale": "Authentication forms render text, controls and validation feedback without a repository-managed image or editorial-media consumer."
+    },
+    {
+      "id": "identity.password-lifecycle",
+      "classification": "not_applicable",
+      "rationale": "Password recovery, reset and authenticated password-change forms render text and controls without repository-managed media."
+    },
+    {
+      "id": "identity.mfa-lifecycle",
+      "classification": "not_applicable",
+      "rationale": "The MFA provisioning QR code is security enrollment output, not EditorialMedia, Wiki content or a managed-image fallback surface governed by this contract."
+    },
+    {
+      "id": "account.overview-provisioning",
+      "classification": "not_applicable",
+      "rationale": "Account overview and provisioning states render textual status, controls and identifiers without repository-managed media consumption."
+    },
+    {
+      "id": "account.character-creation-and-visibility",
+      "classification": "not_applicable",
+      "rationale": "Character creation and public visibility preferences render forms and textual state without repository-managed media."
+    },
+    {
+      "id": "identity.account-security-lifecycle",
+      "classification": "not_applicable",
+      "rationale": "Sessions, privacy, email recovery, recovery keys and termination surfaces render security controls and text without managed editorial media."
+    },
+    {
+      "id": "identity.character-profile-preferences",
+      "classification": "not_applicable",
+      "rationale": "Character profile preferences and public visibility controls do not render repository-managed editorial media."
+    },
+    {
+      "id": "public.home-and-seo",
+      "classification": "not_applicable",
+      "rationale": "The public home and SEO shell currently render composed text, navigation and metadata without a managed-image consumer."
+    },
+    {
+      "id": "public.news-and-managed-pages",
+      "classification": "not_applicable",
+      "rationale": "Current CMS news and managed-page contracts render escaped or sanitized text content and do not establish managed-image rendering."
+    },
+    {
+      "id": "public.game-data",
+      "classification": "not_applicable",
+      "rationale": "Public highscores, characters, guilds, online and server views render tabular or textual runtime data without repository-managed media."
+    },
+    {
+      "id": "admin.core-rbac-cms-audit",
+      "classification": "not_applicable",
+      "rationale": "Core administration, RBAC, CMS metadata and audit views do not currently establish a rendered managed-image consumer."
+    },
+    {
+      "id": "public.localization-core",
+      "classification": "not_applicable",
+      "rationale": "Localization editing and route-preserving locale switching do not independently consume or render managed media."
+    },
+    {
+      "id": "public.community-deaths-and-policy",
+      "classification": "not_applicable",
+      "rationale": "Community rankings, profiles, deaths, guild discovery and policy states render text and tables without repository-managed media."
+    },
+    {
+      "id": "downloads.public-admin-localization",
+      "classification": "not_applicable",
+      "rationale": "Download artifacts are externally linked and are explicitly not uploaded, fetched, proxied or rendered as managed media by the portal."
+    },
+    {
+      "id": "events.public-admin",
+      "classification": "not_applicable",
+      "rationale": "Current event fields and browser evidence establish textual calendar and administration content without a repository-managed image contract."
+    },
+    {
+      "id": "announcements.admin-localization-home-composition",
+      "classification": "not_applicable",
+      "rationale": "Announcements are escaped plain-text home composition and do not expose a managed-image contract."
+    },
+    {
+      "id": "support-legal.public-admin-localization",
+      "classification": "not_applicable",
+      "rationale": "Support and legal content establish approved links and textual publication states, not managed-image rendering."
+    },
+    {
+      "id": "marketplace.public-catalogue-and-detail",
+      "classification": "not_applicable",
+      "rationale": "The current Marketplace catalogue and detail views render character-auction facts, filters and prices without repository-managed image fields."
+    },
+    {
+      "id": "marketplace.authenticated-auction-lifecycle",
+      "classification": "not_applicable",
+      "rationale": "Watch, bid, wallet reservation and settlement screens render transactional text and controls without managed media consumption."
+    },
+    {
+      "id": "marketplace.admin-wallet-and-recovery",
+      "classification": "not_applicable",
+      "rationale": "Administrator wallet adjustment, ledger and recovery surfaces render privileged textual data and controls without managed media."
+    },
+    {
+      "id": "support.moderation-lifecycle",
+      "classification": "not_applicable",
+      "rationale": "Support cases, moderation actions, private notes, appeals and notifications render text and controls without repository-managed images."
+    },
+    {
+      "id": "game-catalog.public-items-creatures-and-loot",
+      "classification": "not_applicable",
+      "rationale": "The delivered Game Catalog projections render item, creature and loot facts as text and links; no sprite or managed-image field is currently delivered."
+    },
+    {
+      "id": "game-catalog.administrator-inspection",
+      "classification": "not_applicable",
+      "rationale": "Administrator Game Catalog inspection renders snapshot, finding and diff metadata without a user-visible managed-image consumer."
+    },
+    {
+      "id": "wiki.public",
+      "classification": "media_consumer",
+      "states": {
+        "normal": {
+          "status": "evidenced",
+          "evidence": {
+            "file": "scripts/acceptance/tests/admin-wiki-editorial-media.spec.mjs",
+            "markers": [
+              "@wiki-media exact Wiki editor discovers inserts previews and publishes private EditorialMedia responsively",
+              "const publicImage = page.getByRole('img', { name: mediaLabel });"
+            ],
+            "profile": "standard-responsive",
+            "projects": [
+              "responsive-desktop",
+              "responsive-tablet",
+              "responsive-mobile"
+            ]
+          }
+        },
+        "missing": {
+          "status": "gap",
+          "reason": "No rendered public-Wiki assertion currently proves a stable user-visible fallback when a referenced media record or stored object is missing."
+        },
+        "broken_or_integrity_failed": {
+          "status": "gap",
+          "reason": "Supporting endpoint integrity failures are covered, but no rendered public-Wiki fallback is asserted after an already-referenced object fails decoding or integrity checks."
+        },
+        "no_image": {
+          "status": "gap",
+          "reason": "No explicit browser assertion currently proves the published Wiki article layout when its Markdown contains no managed image token."
+        }
+      }
+    },
+    {
+      "id": "wiki.admin-editorial-lifecycle",
+      "classification": "media_consumer",
+      "states": {
+        "normal": {
+          "status": "evidenced",
+          "evidence": {
+            "file": "scripts/acceptance/tests/admin-wiki-editorial-media.spec.mjs",
+            "markers": [
+              "@wiki-media exact Wiki editor discovers inserts previews and publishes private EditorialMedia responsively",
+              "await expect(mediaCard.getByRole('img', { name: mediaLabel })).toBeVisible();",
+              "const previewImage = preview.getByRole('img', { name: mediaLabel });"
+            ],
+            "profile": "standard-responsive",
+            "projects": [
+              "responsive-desktop",
+              "responsive-tablet",
+              "responsive-mobile"
+            ]
+          }
+        },
+        "missing": {
+          "status": "gap",
+          "reason": "No executable administrator Wiki assertion currently proves a visible fallback for a missing thumbnail or signed preview object."
+        },
+        "broken_or_integrity_failed": {
+          "status": "gap",
+          "reason": "Upload and endpoint integrity rejection are covered, but the rendered Wiki editor and signed-preview fallback for a corrupt existing object are not asserted."
+        },
+        "no_image": {
+          "status": "gap",
+          "reason": "No explicit browser assertion currently proves the Wiki editor and signed-preview layout when the draft contains no selected or embedded image."
+        }
+      }
+    },
+    {
+      "id": "editorial-media.admin",
+      "classification": "media_consumer",
+      "states": {
+        "normal": {
+          "status": "evidenced",
+          "evidence": {
+            "file": "scripts/acceptance/tests/editorial-media-acceptance.spec.mjs",
+            "markers": [
+              "@portal-editorial-media manager validates, uploads, privately previews, protects references, deletes and audits",
+              "const previewImage = uploadedRow.getByRole('img', { name: uploadedAlt });"
+            ],
+            "profile": "editorial-media-responsive",
+            "projects": [
+              "editorial-media-chromium-desktop",
+              "editorial-media-chromium-tablet",
+              "editorial-media-chromium-mobile"
+            ]
+          }
+        },
+        "missing": {
+          "status": "gap",
+          "reason": "No rendered media-library assertion currently proves a stable visible fallback for a database record whose stored object is missing."
+        },
+        "broken_or_integrity_failed": {
+          "status": "gap",
+          "reason": "Malformed upload rejection is evidenced, but an already-listed corrupt object and its rendered library fallback are not yet asserted."
+        },
+        "no_image": {
+          "status": "evidenced",
+          "evidence": {
+            "file": "scripts/acceptance/tests/editorial-media-acceptance.spec.mjs",
+            "markers": [
+              "@portal-editorial-media manager validates, uploads, privately previews, protects references, deletes and audits",
+              "await expect(page.getByRole('heading', { name: 'No editorial images' })).toBeVisible();"
+            ],
+            "profile": "editorial-media-responsive",
+            "projects": [
+              "editorial-media-chromium-desktop",
+              "editorial-media-chromium-tablet",
+              "editorial-media-chromium-mobile"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": "browser-supporting-media-preview-endpoints",
+      "classification": "supporting_endpoint",
+      "rationale": "Protected content, thumbnail and signed-preview routes deliver media bytes for Wiki and Editorial Media consumers. Their HTTP authorization and integrity behavior supports, but never substitutes for, rendered fallback evidence."
+    }
+  ],
+  "nonclaims": [
+    "This contract does not prove missing or broken fallback states that remain explicitly marked as gaps.",
+    "Supporting endpoint responses are not treated as visible fallback UX evidence.",
+    "Parent Issue #326 remains open for the remaining exhaustive state matrix.",
+    "No staging, production or Canary behavior is claimed."
+  ]
+}
