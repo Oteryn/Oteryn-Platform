@@ -68,11 +68,11 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-07-30T16:32:00Z
-head: e4393d5889521e31d1a202608daf2d8483bb231c
+updated_at: 2026-07-30T20:19:00Z
+head: 35f39b48233b186502cbdcc05aec7ffc40e78fc7
 branch: test/OTERYN-20260730-route-view-navigation-reachability
 pr: 361
-status: investigating
+status: blocked
 context_routes:
   - agent-governance
   - testing
@@ -89,34 +89,49 @@ owned_paths:
   - scripts/acceptance/package.json
   - .github/workflows/portal-acceptance-contract.yml
 proven:
-  - Strict portal coverage classifies every delivered named route and verifies stable browser evidence markers.
-  - The current manifest does not declare route kind, exact rendered page view or navigation reachability.
-  - The current validator does not enumerate page-like Blade files or prove that declared navigation route names exist.
-  - A source-derived inventory now enumerates the exact Laravel route table, literal production route/view references and page-like Blade candidates.
-  - The initial gate fails only on literal named-route or Blade-view references that do not exist; dormant-page candidates remain report-only until explicitly classified.
-  - Main at task start is 55ba8840a7de6556b6b173f587179f986a5a68e1.
+  - PR 361 is open, draft and mergeable on branch test/OTERYN-20260730-route-view-navigation-reachability; the recorded implementation head is 35f39b48233b186502cbdcc05aec7ffc40e78fc7.
+  - The source-derived inventory reports 240 named Laravel routes, 121 Blade views, 394 literal route references and 242 literal view references with zero broken named-route references and zero missing Blade view references.
+  - Sixteen page-like Blade candidates lack a literal view reference; the set includes Laravel error views, framework or dynamically selected views, MFA and recovery response views, unavailable views, support editorial rendering and home-preview.blade.php.
+  - The analyzer was corrected to exclude object method route calls such as request route parameters and to parse the second argument of Route::view; strict Portal Acceptance passes on the recorded head in run 30562698972.
+  - Agent Governance 30562698977, CI 30562698998, Portal Acceptance Contract 30562698972, Phase 7 Production-Like Validation 30562698868, Platform DB Outage Validation 30562698889, Edge Security Emulation 30562698890, Game Auth Ticket Concurrency 30562698914 and Downloads Acceptance 30562698944 pass on the recorded head.
+  - Acceptance E2E and Visual UX run 30562698853 fails in the responsive-mobile profile because admin-wiki-administration.spec.mjs cannot find role status containing Wiki article published after publishing an article.
+  - The current PR changes only the active task record, scripts/acceptance/coverage/validate-route-view-navigation.mjs and scripts/acceptance/package.json.
+  - The affected trust boundary is acceptance inventory tooling only; runtime authentication, authorization, sessions, schema, Canary compatibility, secrets and production configuration are unchanged, and no rollback is required.
 derived:
-  - Route existence and browser evidence are insufficient to prove that a rendered page is reachable or that no page-like template is dormant.
+  - No broken named-route reference or missing Blade view is currently confirmed by the source inventory.
+  - The sixteen unreferenced candidates require explicit convention-driven, dynamically-rendered, intentionally-direct or dormant classification before the route/view/navigation contract can be complete.
+  - PR readiness is blocked until the current required responsive-mobile Wiki failure is classified and resolved or isolated through a separate narrow repair.
 unknown:
-  - Exact inventory output and whether any current literal navigation/view reference is broken.
-  - Which unreferenced page-like candidates are true dormant pages versus bounded framework or convention-driven templates.
+  - Whether any of the sixteen unreferenced candidates is a true dormant page rather than a framework, convention-driven, dynamic-response or intentionally direct-entry view.
+  - Whether the responsive-mobile Wiki publication failure is reproducible and caused by this task, stale shared test state, or an unrelated existing acceptance defect.
 conflicts: []
 first_failure:
-  marker: route coverage lacks route-kind, page-view and navigation-entry fields
-  evidence: scripts/acceptance/coverage/portal-coverage-manifest.json and validate-portal-coverage.mjs
+  marker: responsive-mobile admin Wiki publication does not expose role status containing Wiki article published
+  evidence: Acceptance E2E and Visual UX run 30562698853, job 90939481510, responsive-critical step failure in admin-wiki-administration.spec.mjs line 46
 rejected_hypotheses:
-  - Infer reachability from a browser marker alone.
-  - Require action endpoints, layouts, partials, components, mail or error templates to have standalone navigation.
-  - Fail immediately on every unreferenced Blade candidate before classifying framework/convention-driven templates.
+  - Treat every route string call as a Laravel route helper reference: object route parameter calls produced false positives and were excluded by the corrected parser.
+  - Treat every unreferenced Blade candidate as dormant: the reported set contains error conventions and controller or framework-selected response views.
 changed_paths:
   - docs/agents/tasks/active/OTERYN-20260730-route-view-navigation-reachability.md
   - scripts/acceptance/coverage/validate-route-view-navigation.mjs
   - scripts/acceptance/package.json
 validation:
-  - command: GitHub Actions on initial inventory checkpoint
-    result: NOT_RUN
-    evidence: exact workflow set will run on the updated draft PR head
+  - command: Agent Governance run 30562698977
+    result: PASS
+    evidence: checkpoint-validation completed successfully on recorded head 35f39b48233b186502cbdcc05aec7ffc40e78fc7
+  - command: Portal Acceptance Contract run 30562698972
+    result: PASS
+    evidence: strict portal coverage closure completed successfully on the recorded head
+  - command: CI run 30562698998
+    result: PASS
+    evidence: repository CI completed successfully on the recorded head
+  - command: Acceptance E2E and Visual UX run 30562698853
+    result: FAIL
+    evidence: responsive-mobile admin Wiki publication status assertion failed in job 90939481510
+  - command: Phase 7, DB outage, edge security, game-auth concurrency and downloads workflows
+    result: PASS
+    evidence: runs 30562698868, 30562698889, 30562698890, 30562698914 and 30562698944 completed successfully
 blockers:
-  - none
-next_action: Inspect the exact inventory report, isolate the first true mismatch and then introduce the strict route-kind/page-view/navigation contract plus negative fixtures.
+  - Required Acceptance E2E and Visual UX run 30562698853 fails on the recorded head.
+next_action: Inspect the failure artifact and focused logs for Acceptance E2E run 30562698853, reproduce or classify the responsive-mobile Wiki publication status failure, and either fix it in scope or open a separate narrow repair before continuing the sixteen-candidate reachability classification.
 ```
