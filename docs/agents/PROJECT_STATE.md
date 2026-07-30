@@ -25,7 +25,7 @@ These phase statements do not claim benchmark product completeness. Issue #268 a
 - **Delivered Portal Route Contract: COMPLETE AND MACHINE ENFORCED**
 - **Benchmark Product Completeness: NOT COMPLETE; REQUIRED CHARACTER GAPS #317/#319 REMAIN, AND #321/#322 ARE MANDATORY BEFORE COMMERCE**
 - **Backend–Frontend Promotion Enforcement: COMPLETE IN #340 / PR #341**
-- **Viewport/Browser Evidence Linkage: IMPLEMENTED IN #347 / PR #349; FINAL MERGE PENDING**
+- **Viewport/Browser Evidence Linkage: COMPLETE IN #347 / PR #349**
 - **Public Game-Data Stress/500 Slice: COMPLETE IN #350 / PR #351**
 - **Exhaustive Backend–Frontend Evidence: NOT COMPLETE; PARENT #326 REMAINS OPEN**
 - **Production Go-Live Gate: PENDING PRODUCTION VERIFICATION**
@@ -137,7 +137,7 @@ PR #315 established an additional product-level rule: a user-facing capability i
 
 PR #341 completed Issue #340 as merge `90035fa764f4477ebcffd9410075dc342972be42`. The fail-closed cross-ledger gate now gives every canonical product capability explicit backend, frontend and integration status; integrated claims reference exact covered portal surfaces with Playwright markers; non-UI exceptions require rationale; deterministic negative fixtures reject backend-only promotion and inconsistent evidence. Exact final head `4c29c21f448d3f17b169450a7a2667b9b2ca327a` passed all nine authoritative workflows, including strict Portal Acceptance, complete zero-retry account lifecycle and full Visual UX.
 
-Issue #347 / PR #349 implements the next fail-closed layer. Exactly 27 dimension records map all delivered surfaces to 13 executable profile groups; all 23 critical rendered surfaces must have blocking zero-retry Chromium desktop/tablet/mobile evidence; Firefox/WebKit is either executable or explicitly excluded with a bounded risk rationale. Eight negative fixtures reject missing dimensions, projects, markers, browser IDs, rationale, orphan records and non-blocking critical evidence. The implementation evidence head `611b130fb50a1fb2661b890b7f80a70675dad58d` passed all nine authoritative workflows before the branch was restacked on current `main`.
+PR #349 completed Issue #347 as merge `30b9c4767b137cde3035a5529410c7d9add2d5ba`. Exactly 27 dimension records map all delivered surfaces to 13 executable profile groups; all 23 critical rendered surfaces require blocking zero-retry Chromium desktop/tablet/mobile evidence; Firefox/WebKit is either executable or explicitly excluded with a bounded risk rationale. Eight negative fixtures reject missing dimensions, projects, markers, browser IDs, rationale, orphan records and non-blocking critical evidence. Exact final head `f1524e767107afbf542d0d82e29a0f89eada1fc5` passed all nine authoritative workflows, including strict Portal Acceptance, complete zero-retry Account Lifecycle and full Visual UX.
 
 The dimension work also corrected two truthful frontend-evidence problems: tablet/mobile localization now asserts the visible responsive language/navigation links instead of hidden desktop elements, and Marketplace no longer claims generic bounded portability without an executable Firefox/WebKit profile.
 
@@ -177,6 +177,7 @@ Completed focused slices:
 - #307 — Platform-owned character comments, per-character privacy and optional main-character selection in PR #308;
 - #268 reconciliation — detailed product and frontend audit merged in PR #315 as `94b3457f4bb5b9aa73639a698c70ebb233940288` after all eight required workflows passed on exact head `92935a76e559d8716773ebec5d1a04264051cfa1`;
 - #340 — backend/frontend/integration promotion enforcement merged in PR #341 as `90035fa764f4477ebcffd9410075dc342972be42` after all nine authoritative final-head workflows passed;
+- #347 — exact viewport/browser evidence linkage merged in PR #349 as `30b9c4767b137cde3035a5529410c7d9add2d5ba` after all nine authoritative final-head workflows passed;
 - #350 — public game-data long-value, large-result, real-500 and recovery evidence merged in PR #351 as `923933222050999fec368bc2db1be6e546f13c12`.
 
 Open focused backlog:
@@ -192,7 +193,6 @@ Open focused backlog:
 - #301 — authoritative spell/NPC/quest/achievement catalogue expansion;
 - #302 — optional maps, hunt tools and server-specific discovery planning;
 - #325 — optional loyalty/badge/status presentation;
-- #347 — exact viewport/browser evidence linkage in PR #349 until merged;
 - #326 — remaining exhaustive delivered-screen/browser/visual/state matrix.
 
 A green route or API contract must not be described as product complete while required benchmark or frontend gaps remain.
@@ -219,17 +219,16 @@ Repository and exact-revision E2E work has hardened the native-auth direction, b
 
 ## Current active task
 
-`OTERYN-20260730-viewport-browser-evidence-dimensions` in Issue #347 / PR #349 owns only the exact viewport/browser evidence contract, validators, focused fixture tests and responsive localization evidence corrections. It does not own the remaining #326 state/data/error/media matrix or product UI feature implementation. Live active task records and open PRs remain authoritative for parallel work, including PR #328 for the character-rename contract.
+No active task currently owns the next remaining #326 screen/state/data/error/media evidence slice. Live active task records and open PRs remain authoritative for parallel work, including PR #328 for the character-rename contract.
 
 ## Recommended sequence
 
-1. Complete #347 / PR #349 exact-final-head validation and merge the dimension-evidence gate.
-2. Continue parent #326 with separately owned screen/state/data/error/media evidence slices; do not duplicate completed public game-data #350.
-3. Continue required character deletion/restore #317 and rename #319 only after operation-specific Canary contracts and authorization exist; do not overlap PR #328.
-4. Decide authoritative world ownership before #320 and deliver #323 only after #301 provides earned-achievement truth.
-5. Keep commerce disabled until #321 payment security/provider decisions and #322 entitlement lifecycle are complete.
-6. Treat #302/#325 as optional product discovery.
-7. Resume #91 only after explicit production deployment/verification authorization and required production evidence access exist.
+1. Select and execute the next separately owned #326 screen/state/data/error/media evidence slice; do not duplicate completed #340, #347 or public game-data #350.
+2. Continue required character deletion/restore #317 and rename #319 only after operation-specific Canary contracts and authorization exist; do not overlap PR #328.
+3. Decide authoritative world ownership before #320 and deliver #323 only after #301 provides earned-achievement truth.
+4. Keep commerce disabled until #321 payment security/provider decisions and #322 entitlement lifecycle are complete.
+5. Treat #302/#325 as optional product discovery.
+6. Resume #91 only after explicit production deployment/verification authorization and required production evidence access exist.
 
 ## Community data delivery
 
