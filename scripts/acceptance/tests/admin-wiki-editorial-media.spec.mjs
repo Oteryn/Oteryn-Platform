@@ -118,7 +118,9 @@ test('@wiki-media exact Wiki editor discovers inserts previews and publishes pri
   await preview.close();
 
   await page.getByRole('button', { name: 'Submit for review' }).click();
+  await expect(page.getByRole('status')).toContainText('Wiki article submitted for review.');
   await page.getByRole('button', { name: 'Publish', exact: true }).click();
+  await expect(page.getByRole('status')).toContainText('Wiki article published.');
 
   await context.clearCookies();
   await page.goto(`/en/wiki/${articleSlug}`);
