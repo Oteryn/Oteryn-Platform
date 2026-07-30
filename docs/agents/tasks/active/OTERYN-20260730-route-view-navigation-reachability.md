@@ -68,11 +68,11 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-07-30T16:30:00Z
-head: 8c20e2abfb84b557a95c75fb139be264d7ed0e4d
+updated_at: 2026-07-30T16:32:00Z
+head: e4393d5889521e31d1a202608daf2d8483bb231c
 branch: test/OTERYN-20260730-route-view-navigation-reachability
 pr: 361
-status: auditing
+status: investigating
 context_routes:
   - agent-governance
   - testing
