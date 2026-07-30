@@ -4,278 +4,141 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const coverageRoot = path.dirname(fileURLToPath(import.meta.url));
 const defaultRepoRoot = path.resolve(coverageRoot, '../../..');
-const requiredViewports = [
-  'desktop-1440x1000',
-  'tablet-820x1180',
-  'mobile-390x844',
-];
-const requiredAssertions = [
-  'readable_wrapping',
-  'component_containment',
-  'stable_bounded_pagination',
-  'no_document_horizontal_overflow',
-];
-const classificationValues = [
-  'candidate_long_content',
-  'candidate_large_collection',
-  'candidate_both',
-  'not_applicable',
-  'supporting_endpoint',
-];
+const requiredViewports = ['desktop-1440x1000', 'tablet-820x1180', 'mobile-390x844'];
+const requiredAssertions = ['readable_wrapping', 'component_containment', 'stable_bounded_pagination', 'no_document_horizontal_overflow'];
+const classifications = ['long_content_consumer', 'large_collection_consumer', 'long_content_and_large_collection_consumer', 'not_applicable', 'supporting_endpoint'];
 
-function readJson(file) {
-  return JSON.parse(fs.readFileSync(file, 'utf8'));
-}
-
-function nonEmptyString(value) {
-  return typeof value === 'string' && value.trim() !== '';
-}
-
-function stringArray(value) {
-  return Array.isArray(value) && value.length > 0 && value.every(nonEmptyString);
-}
-
-function sameStringSet(actual, expected) {
+function readJson(file) { return JSON.parse(fs.readFileSync(file, 'utf8')); }
+function nonEmpty(value) { return typeof value === 'string' && value.trim() !== ''; }
+function stringArray(value) { return Array.isArray(value) && value.length > 0 && value.every(nonEmpty); }
+function sameSet(actual, expected) {
   return Array.isArray(actual)
     && actual.length === expected.length
     && JSON.stringify([...actual].sort()) === JSON.stringify([...expected].sort());
 }
-
 function expectedAssertions(classification) {
-  if (classification === 'candidate_long_content') {
-    return ['readable_wrapping', 'component_containment', 'no_document_horizontal_overflow'];
-  }
-  if (classification === 'candidate_large_collection') {
-    return ['component_containment', 'stable_bounded_pagination', 'no_document_horizontal_overflow'];
-  }
-  if (classification === 'candidate_both') return requiredAssertions;
+  if (classification === 'long_content_consumer') return ['readable_wrapping', 'component_containment', 'no_document_horizontal_overflow'];
+  if (classification === 'large_collection_consumer') return ['component_containment', 'stable_bounded_pagination', 'no_document_horizontal_overflow'];
+  if (classification === 'long_content_and_large_collection_consumer') return requiredAssertions;
   return [];
 }
-
-function safeFile(repoRoot, owner, relativeFile, errors) {
-  if (!nonEmptyString(relativeFile)) {
-    errors.push(`${owner} must define a repository-relative file.`);
-    return null;
-  }
-
-  const absolute = path.resolve(repoRoot, relativeFile);
-  if (!absolute.startsWith(`${repoRoot}${path.sep}`)) {
-    errors.push(`${owner} file escapes repository root: ${relativeFile}`);
-    return null;
-  }
-  if (!fs.existsSync(absolute) || !fs.statSync(absolute).isFile()) {
-    errors.push(`${owner} references missing file ${relativeFile}.`);
-    return null;
-  }
-
+function isConsumer(classification) { return classification.endsWith('_consumer'); }
+function safeFile(repoRoot, owner, relative, errors) {
+  if (!nonEmpty(relative)) { errors.push(`${owner} must define a repository-relative file.`); return null; }
+  const absolute = path.resolve(repoRoot, relative);
+  if (!absolute.startsWith(`${repoRoot}${path.sep}`)) { errors.push(`${owner} escapes repository root: ${relative}`); return null; }
+  if (!fs.existsSync(absolute) || !fs.statSync(absolute).isFile()) { errors.push(`${owner} references missing file ${relative}.`); return null; }
   return absolute;
 }
 
-function validateMapping(repoRoot, id, classification, mapping, packageScripts, errors) {
-  const owner = `content scale mapping ${id}`;
-  const expected = expectedAssertions(classification);
-
-  const fixtureFile = safeFile(repoRoot, `${owner} fixture`, mapping?.fixture?.file, errors);
-  const evidenceRelativeFile = mapping?.fixture?.evidence_file ?? mapping?.fixture?.file;
-  const evidenceFile = safeFile(repoRoot, `${owner} evidence`, evidenceRelativeFile, errors);
-
-  if (!nonEmptyString(mapping?.fixture?.marker)) {
-    errors.push(`${owner} must define a stable evidence marker.`);
-  } else if (evidenceFile !== null && !fs.readFileSync(evidenceFile, 'utf8').includes(mapping.fixture.marker)) {
-    errors.push(`${owner} evidence marker is missing from ${evidenceRelativeFile}: ${mapping.fixture.marker}`);
+function validateProfile(repoRoot, id, profile, packageScripts, errors) {
+  const owner = `content scale profile ${id}`;
+  if (!nonEmpty(profile?.npm_profile) || !nonEmpty(packageScripts?.[profile.npm_profile])) errors.push(`${owner} references unknown npm profile ${JSON.stringify(profile?.npm_profile)}.`);
+  const config = safeFile(repoRoot, `${owner} config`, profile?.config_file, errors);
+  const workflow = safeFile(repoRoot, `${owner} workflow`, profile?.workflow_file, errors);
+  const configSource = config ? fs.readFileSync(config, 'utf8') : '';
+  const workflowSource = workflow ? fs.readFileSync(workflow, 'utf8') : '';
+  if (!stringArray(profile?.projects) || profile.projects.length !== 3) errors.push(`${owner} must define exactly three Playwright projects.`);
+  else for (const project of profile.projects) {
+    if (!configSource.includes(`name: '${project}'`) && !configSource.includes(`name: "${project}"`)) errors.push(`${owner} project ${project} is not declared in ${profile.config_file}.`);
   }
-
-  if (!stringArray(mapping?.fixture?.routes)) {
-    errors.push(`${owner} must define at least one real rendered route.`);
-  }
-
-  if (classification !== 'candidate_long_content') {
-    if (!Number.isInteger(mapping?.fixture?.bounded_rows) || mapping.fixture.bounded_rows < 2) {
-      errors.push(`${owner} large-collection fixture must define bounded_rows of at least 2.`);
-    }
-  }
-
-  const execution = mapping?.execution;
-  if (!nonEmptyString(execution?.npm_profile) || !nonEmptyString(packageScripts?.[execution.npm_profile])) {
-    errors.push(`${owner} references an unknown npm profile ${JSON.stringify(execution?.npm_profile)}.`);
-  }
-
-  const configFile = safeFile(repoRoot, `${owner} config`, execution?.config_file, errors);
-  const workflowFile = safeFile(repoRoot, `${owner} workflow`, execution?.workflow_file, errors);
-  const configSource = configFile === null ? '' : fs.readFileSync(configFile, 'utf8');
-  const workflowSource = workflowFile === null ? '' : fs.readFileSync(workflowFile, 'utf8');
-
-  if (!stringArray(execution?.projects) || execution.projects.length !== requiredViewports.length) {
-    errors.push(`${owner} must define exactly three Playwright projects.`);
-  } else {
-    for (const project of execution.projects) {
-      if (!configSource.includes(`name: '${project}'`) && !configSource.includes(`name: "${project}"`)) {
-        errors.push(`${owner} project ${project} is not declared in ${execution.config_file}.`);
-      }
-    }
-  }
-
-  if (!sameStringSet(execution?.viewports, requiredViewports)) {
-    errors.push(`${owner} must declare the exact required viewport set.`);
-  }
-  if (execution?.retries !== 0 || !configSource.includes('retries: 0')) {
-    errors.push(`${owner} must remain zero retry in both contract and Playwright config.`);
-  }
-  if (!nonEmptyString(execution?.workflow_marker) || !workflowSource.includes(execution.workflow_marker)) {
-    errors.push(`${owner} workflow invocation marker is missing from ${execution?.workflow_file}.`);
-  }
-  if (nonEmptyString(execution?.npm_profile) && nonEmptyString(execution?.config_file)) {
-    const command = packageScripts?.[execution.npm_profile] ?? '';
-    if (!command.includes(path.basename(execution.config_file))) {
-      errors.push(`${owner} npm profile does not execute ${execution.config_file}.`);
-    }
-  }
-  if (!nonEmptyString(execution?.runtime)) errors.push(`${owner} must describe its real runtime boundary.`);
-  if (!/^[0-9a-f]{40}$/u.test(execution?.validated_sha ?? '')) {
-    errors.push(`${owner} must record a full validated SHA.`);
-  }
-  if (!Number.isInteger(execution?.validated_workflow_run_id) || execution.validated_workflow_run_id < 1) {
-    errors.push(`${owner} must record a positive validated workflow run id.`);
-  }
-
-  if (!sameStringSet(mapping?.assertions, expected)) {
-    errors.push(`${owner} assertions must exactly match ${JSON.stringify(expected)}.`);
-  }
-  if (!stringArray(mapping?.proven_assertions)) {
-    errors.push(`${owner} must define concrete proven assertions.`);
-  }
-  if (!Array.isArray(mapping?.remaining_gaps) || mapping.remaining_gaps.length !== 0) {
-    errors.push(`${owner} must have zero remaining_gaps before it is mapped.`);
-  }
-
-  return fixtureFile !== null && evidenceFile !== null;
+  if (!sameSet(profile?.viewports, requiredViewports)) errors.push(`${owner} must declare the exact required viewport set.`);
+  if (profile?.retries !== 0 || !configSource.includes('retries: 0')) errors.push(`${owner} must remain zero retry in contract and config.`);
+  if (!nonEmpty(profile?.workflow_marker) || !workflowSource.includes(profile.workflow_marker)) errors.push(`${owner} workflow marker is missing from ${profile?.workflow_file}.`);
+  const command = packageScripts?.[profile?.npm_profile] ?? '';
+  if (nonEmpty(profile?.config_file) && !command.includes(path.basename(profile.config_file))) errors.push(`${owner} npm profile does not execute ${profile.config_file}.`);
+  if (!nonEmpty(profile?.runtime)) errors.push(`${owner} must describe the real runtime boundary.`);
+  if (!/^[0-9a-f]{40}$/u.test(profile?.validated_sha ?? '')) errors.push(`${owner} must record a full validated SHA.`);
+  if (!Number.isInteger(profile?.validated_workflow_run_id) || profile.validated_workflow_run_id < 1) errors.push(`${owner} must record a positive workflow run id.`);
 }
 
-export function validatePortalContentScaleEvidence({
-  contract,
-  manifestSurfaces,
-  packageScripts,
-  repoRoot = defaultRepoRoot,
-}) {
+function validateEvidenceGroup(repoRoot, id, group, errors) {
+  const owner = `content scale evidence group ${id}`;
+  safeFile(repoRoot, `${owner} fixture`, group?.fixture_file, errors);
+  const evidence = safeFile(repoRoot, `${owner} evidence`, group?.evidence_file, errors);
+  if (!nonEmpty(group?.marker)) errors.push(`${owner} must define a stable marker.`);
+  else if (evidence && !fs.readFileSync(evidence, 'utf8').includes(group.marker)) errors.push(`${owner} marker is missing from ${group.evidence_file}: ${group.marker}`);
+  if (!stringArray(group?.routes)) errors.push(`${owner} must define at least one real route.`);
+  if ('bounded_rows' in (group ?? {}) && (!Number.isInteger(group.bounded_rows) || group.bounded_rows < 2)) errors.push(`${owner} bounded_rows must be an integer of at least 2.`);
+}
+
+export function validatePortalContentScaleEvidence({ contract, manifestSurfaces, packageScripts, repoRoot = defaultRepoRoot }) {
   const errors = [];
   const warnings = [];
+  if (contract?.schema_version !== 2) errors.push('portal content scale schema_version must be 2.');
+  if (contract?.status !== 'complete') errors.push('portal content scale status must be complete.');
+  if (!sameSet(contract?.classification_values, classifications)) errors.push('portal content scale classification_values do not match the final contract values.');
+  if (!Array.isArray(contract?.nonclaims) || contract.nonclaims.length < 3 || !contract.nonclaims.every(nonEmpty)) errors.push('portal content scale evidence must preserve at least three explicit nonclaims.');
 
-  if (contract?.schema_version !== 1) errors.push('portal content scale schema_version must be 1.');
-  if (!['partial', 'complete'].includes(contract?.status)) {
-    errors.push('portal content scale status must be partial or complete.');
-  }
-  if (!sameStringSet(contract?.classification_values, classificationValues)) {
-    errors.push('portal content scale classification_values do not match the supported contract values.');
-  }
-  if (!Array.isArray(contract?.nonclaims) || contract.nonclaims.length < 3 || !contract.nonclaims.every(nonEmptyString)) {
-    errors.push('portal content scale evidence must preserve at least three explicit nonclaims.');
-  }
+  const evidence = contract?.evidence_contract ?? {};
+  if (evidence.status !== 'complete') errors.push('evidence_contract status must be complete.');
+  if (!sameSet(evidence.required_viewports, requiredViewports)) errors.push('required_viewports must match desktop, tablet and mobile.');
+  if (!sameSet(evidence.required_assertions, requiredAssertions)) errors.push('required_assertions must match the exact scale contract.');
 
-  const evidenceContract = contract?.evidence_contract;
-  if (evidenceContract?.status !== contract?.status) {
-    errors.push('evidence_contract status must match the top-level contract status.');
-  }
-  if (!sameStringSet(evidenceContract?.required_viewports, requiredViewports)) {
-    errors.push('required_viewports must match the exact desktop, tablet and mobile contract.');
-  }
-  if (!sameStringSet(evidenceContract?.required_assertions, requiredAssertions)) {
-    errors.push('required_assertions must match the exact content-scale assertion contract.');
-  }
-
-  const manifestById = new Map();
+  const manifest = new Map();
   for (const surface of Array.isArray(manifestSurfaces) ? manifestSurfaces : []) {
-    if (!nonEmptyString(surface?.id)) {
-      errors.push('Every portal manifest surface must have a stable id.');
-      continue;
-    }
-    if (manifestById.has(surface.id)) errors.push(`Duplicate portal manifest surface id: ${surface.id}`);
-    manifestById.set(surface.id, surface);
+    if (!nonEmpty(surface?.id)) { errors.push('Every portal manifest surface must have a stable id.'); continue; }
+    if (manifest.has(surface.id)) errors.push(`Duplicate portal manifest surface id: ${surface.id}`);
+    manifest.set(surface.id, surface);
   }
-
   const records = contract?.surfaces && typeof contract.surfaces === 'object' ? contract.surfaces : {};
-  const recordIds = Object.keys(records);
-  for (const id of manifestById.keys()) {
-    if (!(id in records)) errors.push(`Missing content scale classification for portal surface: ${id}`);
-  }
-  for (const id of recordIds) {
-    if (!manifestById.has(id)) errors.push(`Content scale classification references unknown portal surface: ${id}`);
-  }
+  for (const id of manifest.keys()) if (!(id in records)) errors.push(`Missing content scale classification for portal surface: ${id}`);
+  for (const id of Object.keys(records)) if (!manifest.has(id)) errors.push(`Content scale classification references unknown portal surface: ${id}`);
 
-  const candidateIds = [];
+  const consumers = [];
   for (const [id, record] of Object.entries(records)) {
     const classification = record?.classification;
-    const manifest = manifestById.get(id);
-    if (!classificationValues.includes(classification)) {
-      errors.push(`${id} has unsupported content scale classification ${JSON.stringify(classification)}.`);
-      continue;
-    }
-    if (!nonEmptyString(record?.rationale) || record.rationale.trim().length < 40) {
-      errors.push(`${id} requires a bounded classification rationale of at least 40 characters.`);
-    }
-
-    if (manifest?.status === 'supporting_endpoint') {
-      if (classification !== 'supporting_endpoint') errors.push(`${id} must remain supporting_endpoint.`);
-      continue;
-    }
-    if (classification === 'supporting_endpoint') {
-      errors.push(`${id} cannot be supporting_endpoint because the manifest declares a rendered surface.`);
-      continue;
-    }
-    if (classification.startsWith('candidate_')) candidateIds.push(id);
+    if (!classifications.includes(classification)) { errors.push(`${id} has unsupported classification ${JSON.stringify(classification)}.`); continue; }
+    if (!nonEmpty(record?.rationale) || record.rationale.trim().length < 40) errors.push(`${id} requires a bounded rationale of at least 40 characters.`);
+    const manifestSurface = manifest.get(id);
+    if (manifestSurface?.status === 'supporting_endpoint' && classification !== 'supporting_endpoint') errors.push(`${id} must remain supporting_endpoint.`);
+    if (manifestSurface?.status !== 'supporting_endpoint' && classification === 'supporting_endpoint') errors.push(`${id} cannot be supporting_endpoint.`);
+    if (isConsumer(classification)) consumers.push(id);
   }
 
-  const mapped = evidenceContract?.mapped_surfaces && typeof evidenceContract.mapped_surfaces === 'object'
-    ? evidenceContract.mapped_surfaces
-    : {};
-  const gaps = evidenceContract?.gap_surfaces && typeof evidenceContract.gap_surfaces === 'object'
-    ? evidenceContract.gap_surfaces
-    : {};
+  const profiles = evidence.profiles && typeof evidence.profiles === 'object' ? evidence.profiles : {};
+  const groups = evidence.evidence_groups && typeof evidence.evidence_groups === 'object' ? evidence.evidence_groups : {};
+  const mapped = evidence.mapped_surfaces && typeof evidence.mapped_surfaces === 'object' ? evidence.mapped_surfaces : {};
+  const gaps = evidence.gap_surfaces && typeof evidence.gap_surfaces === 'object' ? evidence.gap_surfaces : {};
+  if (Object.keys(gaps).length !== 0) errors.push(`complete content scale closure requires zero gap surfaces; found ${Object.keys(gaps).length}.`);
 
-  for (const id of Object.keys(mapped)) {
-    if (!candidateIds.includes(id)) errors.push(`Orphan content scale mapping references non-candidate surface: ${id}`);
-    if (id in gaps) errors.push(`${id} cannot be both mapped and an explicit gap.`);
-  }
-  for (const id of Object.keys(gaps)) {
-    if (!candidateIds.includes(id)) errors.push(`Orphan content scale gap references non-candidate surface: ${id}`);
-  }
+  for (const [id, profile] of Object.entries(profiles)) validateProfile(repoRoot, id, profile, packageScripts, errors);
+  for (const [id, group] of Object.entries(groups)) validateEvidenceGroup(repoRoot, id, group, errors);
+  for (const id of Object.keys(mapped)) if (!consumers.includes(id)) errors.push(`Orphan content scale mapping references non-consumer surface: ${id}`);
 
-  for (const id of candidateIds) {
-    const classified = Number(id in mapped) + Number(id in gaps);
-    if (classified !== 1) {
-      errors.push(`${id} must be classified exactly once as mapped or gap; found ${classified}.`);
-      continue;
+  const usedProfiles = new Set();
+  const usedGroups = new Set();
+  for (const id of consumers) {
+    const mapping = mapped[id];
+    if (!mapping) { errors.push(`Missing executable content scale mapping for consumer surface: ${id}`); continue; }
+    if (!nonEmpty(mapping.profile) || !(mapping.profile in profiles)) errors.push(`${id} references unknown content scale profile ${JSON.stringify(mapping.profile)}.`);
+    else usedProfiles.add(mapping.profile);
+    if (!stringArray(mapping.evidence_groups)) errors.push(`${id} must reference at least one evidence group.`);
+    else for (const groupId of mapping.evidence_groups) {
+      if (!(groupId in groups)) errors.push(`${id} references unknown evidence group ${groupId}.`);
+      else usedGroups.add(groupId);
     }
-
-    const classification = records[id].classification;
-    const expected = expectedAssertions(classification);
-    if (id in mapped) {
-      validateMapping(repoRoot, id, classification, mapped[id], packageScripts, errors);
-      continue;
-    }
-
-    const gap = gaps[id];
-    if (!nonEmptyString(gap?.reason) || gap.reason.trim().length < 80) {
-      errors.push(`${id} gap requires a bounded reason of at least 80 characters.`);
-    }
-    if (!sameStringSet(gap?.missing, expected)) {
-      errors.push(`${id} gap missing assertions must exactly match ${JSON.stringify(expected)}.`);
+    const expected = expectedAssertions(records[id].classification);
+    if (!sameSet(mapping.assertions, expected)) errors.push(`${id} assertions must exactly match ${JSON.stringify(expected)}.`);
+    if (!stringArray(mapping.proven_assertions)) errors.push(`${id} must define concrete proven assertions.`);
+    if (!Array.isArray(mapping.remaining_gaps) || mapping.remaining_gaps.length !== 0) errors.push(`${id} must have zero remaining_gaps.`);
+    if (expected.includes('stable_bounded_pagination')) {
+      const hasBoundedGroup = Array.isArray(mapping.evidence_groups) && mapping.evidence_groups.some((groupId) => Number.isInteger(groups[groupId]?.bounded_rows) && groups[groupId].bounded_rows >= 2);
+      if (!hasBoundedGroup) errors.push(`${id} requires at least one bounded large-collection evidence group.`);
     }
   }
-
-  if (contract?.status === 'complete' && Object.keys(gaps).length !== 0) {
-    errors.push(`complete content scale closure requires zero gap surfaces; found ${Object.keys(gaps).length}.`);
-  }
-  if (contract?.status === 'partial' && Object.keys(gaps).length === 0) {
-    warnings.push('partial content scale contract has no explicit gap surfaces.');
-  }
+  for (const id of Object.keys(profiles)) if (!usedProfiles.has(id)) errors.push(`Orphan content scale profile is not referenced: ${id}`);
+  for (const id of Object.keys(groups)) if (!usedGroups.has(id)) errors.push(`Orphan content scale evidence group is not referenced: ${id}`);
 
   return {
     schema_version: contract?.schema_version ?? null,
     status: contract?.status ?? null,
-    portal_surface_count: manifestById.size,
-    classified_surface_count: recordIds.length,
-    candidate_surface_count: candidateIds.length,
+    portal_surface_count: manifest.size,
+    classified_surface_count: Object.keys(records).length,
+    consumer_surface_count: consumers.length,
     mapped_surface_count: Object.keys(mapped).length,
+    profile_count: Object.keys(profiles).length,
+    evidence_group_count: Object.keys(groups).length,
     gap_surface_count: Object.keys(gaps).length,
     errors,
     warnings,
@@ -285,7 +148,6 @@ export function validatePortalContentScaleEvidence({
 export function loadRepositoryInputs(repoRoot = defaultRepoRoot) {
   const manifest = readJson(path.join(repoRoot, 'scripts/acceptance/coverage/portal-coverage-manifest.json'));
   const packageJson = readJson(path.join(repoRoot, 'scripts/acceptance/package.json'));
-
   return {
     contract: readJson(path.join(repoRoot, 'docs/testing/PORTAL_CONTENT_SCALE_EVIDENCE.json')),
     manifestSurfaces: Array.isArray(manifest.surfaces) ? manifest.surfaces : [],
@@ -297,22 +159,10 @@ export function loadRepositoryInputs(repoRoot = defaultRepoRoot) {
 const invokedPath = process.argv[1] ? pathToFileURL(path.resolve(process.argv[1])).href : null;
 if (invokedPath === import.meta.url) {
   let report;
-  try {
-    report = validatePortalContentScaleEvidence(loadRepositoryInputs());
-  } catch (error) {
-    report = {
-      schema_version: null,
-      status: null,
-      portal_surface_count: 0,
-      classified_surface_count: 0,
-      candidate_surface_count: 0,
-      mapped_surface_count: 0,
-      gap_surface_count: 0,
-      errors: [`Cannot validate portal content scale evidence: ${error.message}`],
-      warnings: [],
-    };
+  try { report = validatePortalContentScaleEvidence(loadRepositoryInputs()); }
+  catch (error) {
+    report = { schema_version: null, status: null, portal_surface_count: 0, classified_surface_count: 0, consumer_surface_count: 0, mapped_surface_count: 0, profile_count: 0, evidence_group_count: 0, gap_surface_count: 0, errors: [`Cannot validate portal content scale evidence: ${error.message}`], warnings: [] };
   }
-
   process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
   if (report.errors.length > 0) process.exitCode = 1;
 }
