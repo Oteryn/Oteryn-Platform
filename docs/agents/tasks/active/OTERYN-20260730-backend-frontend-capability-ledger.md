@@ -13,7 +13,7 @@ required_reads:
   - docs/testing/product-completeness-benchmark.json
   - scripts/acceptance/coverage/portal-coverage-manifest.json
 search_first:
-  - Issue #326 and open PRs touching product or portal coverage validation
+  - Issue #326, Issue #340 and open PRs touching product or portal coverage validation
   - existing product and portal coverage validators before adding a new contract
   - active task ownership for scripts/acceptance/coverage and docs/testing
 optional_reads:
@@ -25,7 +25,7 @@ optional_reads:
 
 ## Goal
 
-Deliver the first bounded remediation slice of #326: a machine-readable, fail-closed backend–frontend capability ledger linked to the existing 43-capability product benchmark and portal surface manifest.
+Deliver the first bounded remediation slice of #326 through Issue #340: a machine-readable, fail-closed backend–frontend capability ledger linked to the existing 43-capability product benchmark and portal surface manifest.
 
 ## Acceptance criteria
 
@@ -66,11 +66,11 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-07-30T07:00:00Z
-head: d88db988f342d1c8b085244cf8d9d49d80d7d1c4
+updated_at: 2026-07-30T07:15:00Z
+head: 3207c99d00440d04530b0701b59ffe8ce69971fd
 branch: test/OTERYN-20260730-backend-frontend-capability-ledger
-pr: null
-status: implementing
+pr: 341
+status: validating
 context_routes:
   - agent-governance
   - testing
@@ -89,22 +89,38 @@ owned_paths:
 proven:
   - PR #315 merged the mandatory backend/frontend/browser implementation rule.
   - Existing portal validation classifies every named route and verifies surface evidence markers.
-  - Existing product validation does not yet require explicit backend/frontend/integration records for all 43 capabilities.
+  - Existing product validation did not require explicit backend/frontend/integration records for all 43 capabilities.
+  - The new ledger contains 43 records and the validator cross-checks canonical IDs, layer statuses, exact covered surface IDs and stable Playwright markers.
+  - Negative fixtures cover backend-only promotion, unknown surfaces, missing non-UI rationale, product/layer contradiction and missing records.
 derived:
   - A separate cross-ledger validator is the smallest safe slice and avoids rewriting runtime modules.
+  - This slice must leave the remaining every-screen/browser/state matrix open in parent #326.
 unknown:
-  - Exact first failing invariant until the new validator is executed in CI.
+  - Whether the corrected exact surface IDs and checkpoint pass the next exact-head CI suite.
 conflicts: []
-first_failure: null
+first_failure:
+  marker: backend-frontend-unknown-surface-ids
+  evidence: Portal Acceptance run 30521949405 on head d0416600deeca89261d9ea038baeab5f326c2489 rejected three descriptive surface names; commit 4069d96724534ced45c9817467a873af21f2e494 replaced them with exact manifest IDs.
 rejected_hypotheses:
   - Treat feature or API evidence alone as frontend implementation proof.
+  - Treat descriptive labels as exact portal surface IDs.
   - Close #326 with this first ledger slice.
 changed_paths:
+  - .github/workflows/portal-acceptance-contract.yml
+  - docs/agents/ACTIVE_WORK.md
   - docs/agents/tasks/active/OTERYN-20260730-backend-frontend-capability-ledger.md
+  - docs/testing/PRODUCT_COMPLETENESS_FRONTEND_AUDIT_2026-07-30.md
+  - docs/testing/product-backend-frontend-completeness.json
+  - scripts/acceptance/coverage/test-backend-frontend-completeness.mjs
+  - scripts/acceptance/coverage/validate-backend-frontend-completeness.mjs
+  - scripts/acceptance/package.json
 validation:
-  - command: GitHub Actions exact-head validation
-    result: NOT_RUN
-    evidence: implementation has not yet been committed.
+  - command: Portal Acceptance strict coverage run 30521949405
+    result: FAIL
+    evidence: validator correctly rejected three unknown surface IDs on head d0416600deeca89261d9ea038baeab5f326c2489.
+  - command: corrected exact-head GitHub Actions suite
+    result: IN_PROGRESS
+    evidence: current branch validation after exact surface reconciliation.
 blockers: []
-next_action: Add the cross-ledger schema, validator and focused negative fixture tests, then run the strict Portal Acceptance contract.
+next_action: Confirm the corrected strict validator and negative fixtures pass, then reconcile PROJECT_STATE and final exact-head evidence.
 ```
