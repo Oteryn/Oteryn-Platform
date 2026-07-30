@@ -25,6 +25,7 @@ These phase statements do not claim benchmark product completeness. Issue #268 a
 - **Delivered Portal Route Contract: COMPLETE AND MACHINE ENFORCED**
 - **Benchmark Product Completeness: NOT COMPLETE; REQUIRED CHARACTER GAPS #317/#319 REMAIN, AND #321/#322 ARE MANDATORY BEFORE COMMERCE**
 - **Exhaustive Backend–Frontend Evidence: NOT COMPLETE; #326 REMAINS OPEN**
+- **Backend–Frontend Promotion Enforcement: IMPLEMENTING IN #340 / PR #341**
 - **Production Go-Live Gate: PENDING PRODUCTION VERIFICATION**
 - **Production Verification: REQUIRED BEFORE GO-LIVE**
 
@@ -130,7 +131,9 @@ The account-security fragment adds guest/authenticated EN/PL email, session, pri
 
 PR #315 established an additional product-level rule: a user-facing capability is `IMPLEMENTED` only when backend/domain behavior, a reachable frontend connected to the real route and applicable zero-retry browser evidence are all present. Backend-only delivery remains `PARTIAL`; frontend files without reliable integrated evidence remain `UNTESTED`.
 
-Broad responsive, portability, resilience and accessibility evidence exists, but it is not a universal every-route/every-state/browser Cartesian matrix. #326 owns the remaining exhaustive visual/state evidence and machine-enforcement closure.
+Issue #340 / PR #341 implements the first fail-closed cross-ledger gate: every canonical product capability receives explicit backend, frontend and integration status; integrated claims reference exact covered portal surfaces with Playwright markers; non-UI exceptions require rationale; deterministic negative fixtures reject backend-only promotion and inconsistent evidence.
+
+Broad responsive, portability, resilience and accessibility evidence exists, but it is not a universal every-route/every-state/browser Cartesian matrix. #326 owns the remaining exhaustive visual/state evidence after #340.
 
 ## Product-completeness benchmark
 
@@ -138,10 +141,12 @@ The completed Issue #268 audit and merged PR #315 reconciliation are tracked by:
 
 - `docs/testing/PRODUCT_COMPLETENESS_BENCHMARK.md`;
 - `docs/testing/product-completeness-benchmark.json`;
+- `docs/testing/product-backend-frontend-completeness.json`;
 - `docs/testing/PRODUCT_COMPLETENESS_AUDIT_2026-07-29.md`;
 - `docs/testing/PRODUCT_COMPLETENESS_FRONTEND_AUDIT_2026-07-30.md`;
 - `docs/testing/PRODUCT_COMPLETENESS_AUDIT_2026-07-29_VALIDATION.md`;
-- `scripts/acceptance/coverage/validate-product-completeness.mjs`.
+- `scripts/acceptance/coverage/validate-product-completeness.mjs`;
+- `scripts/acceptance/coverage/validate-backend-frontend-completeness.mjs`.
 
 The current canonical ledger classifies 43 Tibia/RubinOT/OTS benchmark capabilities:
 
@@ -175,7 +180,8 @@ Open focused backlog:
 - #301 — authoritative spell/NPC/quest/achievement catalogue expansion;
 - #302 — optional maps, hunt tools and server-specific discovery planning;
 - #325 — optional loyalty/badge/status presentation;
-- #326 — exhaustive delivered-screen backend/frontend/visual/state matrix and CI enforcement.
+- #326 — exhaustive delivered-screen backend/frontend/visual/state matrix and CI enforcement;
+- #340 — first machine-enforced backend/frontend capability-ledger slice of #326, active in PR #341.
 
 A green route or API contract must not be described as product complete while required benchmark or frontend gaps remain.
 
@@ -201,16 +207,17 @@ Repository and exact-revision E2E work has hardened the native-auth direction, b
 
 ## Current active task
 
-No product-completeness audit task remains active after PR #315. Live active task records and open PRs remain authoritative for parallel work, including PR #328 for the character-rename contract.
+`OTERYN-20260730-backend-frontend-capability-ledger` in Issue #340 / PR #341 owns only the machine-readable cross-ledger, validator, focused negative fixtures, strict workflow integration and associated audit/governance records. It does not own product UI implementation or the remaining parent #326 matrix.
 
 ## Recommended sequence
 
-1. Deliver a bounded machine-enforced backend–frontend capability ledger under #326 so a backend-only user-facing capability cannot be marked `IMPLEMENTED`.
-2. Continue required character deletion/restore #317 and rename #319 only after operation-specific Canary contracts and authorization exist; do not overlap PR #328.
-3. Decide authoritative world ownership before #320 and deliver #323 only after #301 provides earned-achievement truth.
-4. Keep commerce disabled until #321 payment security/provider decisions and #322 entitlement lifecycle are complete.
-5. Treat #302/#325 as optional product discovery and continue the remaining every-screen visual/state evidence under #326.
-6. Resume #91 only after explicit production deployment/verification authorization and required production evidence access exist.
+1. Complete #340 / PR #341 exact-head validation and merge the fail-closed backend–frontend promotion gate.
+2. Continue the remaining every-rendered-screen/browser/state evidence under parent #326 as separate bounded tasks.
+3. Continue required character deletion/restore #317 and rename #319 only after operation-specific Canary contracts and authorization exist; do not overlap PR #328.
+4. Decide authoritative world ownership before #320 and deliver #323 only after #301 provides earned-achievement truth.
+5. Keep commerce disabled until #321 payment security/provider decisions and #322 entitlement lifecycle are complete.
+6. Treat #302/#325 as optional product discovery.
+7. Resume #91 only after explicit production deployment/verification authorization and required production evidence access exist.
 
 ## Community data delivery
 

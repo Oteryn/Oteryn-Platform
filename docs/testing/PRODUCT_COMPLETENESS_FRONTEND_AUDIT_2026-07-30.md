@@ -12,6 +12,8 @@ Audited `main`: `f90bb8075b300569b7d493c84f0080e6b3295c35`
 
 Audit pull request: #315
 
+Machine-enforcement issue: #340 under parent #326
+
 ## Mandatory integrated-delivery rule
 
 A user-facing capability may be classified `IMPLEMENTED` only when all of the following are proven:
@@ -46,6 +48,20 @@ The audit must record these columns for every user-facing capability:
 | Final classification | lowest truthful status across backend, frontend and evidence |
 
 The authoritative frontend inventory is built from actual named routes and rendered views, then reconciled with `scripts/acceptance/coverage/portal-coverage-manifest.json` and fragments under `scripts/acceptance/coverage/surfaces/`. Menu entries and documentation claims are not implementation proof.
+
+## Machine-enforced cross-ledger slice
+
+Issue #340 introduces the first fail-closed implementation of this rule:
+
+- `docs/testing/product-backend-frontend-completeness.json` contains exactly one backend/frontend/integration record for every canonical product capability;
+- `scripts/acceptance/coverage/validate-backend-frontend-completeness.mjs` cross-checks those records against `docs/testing/product-completeness-benchmark.json` and the actual portal surface manifest/fragments;
+- user-facing product capabilities marked `implemented` must have backend, frontend and integration statuses all `implemented`;
+- integrated records must reference existing `covered` surfaces with stable Playwright evidence markers;
+- machine-to-machine or background capabilities without a standalone screen require a bounded `exception_reason`;
+- `scripts/acceptance/coverage/test-backend-frontend-completeness.mjs` proves deterministic rejection of backend-only promotion, unknown surfaces, missing exception rationale, cross-ledger status contradiction and missing records;
+- strict Portal Acceptance runs the product, route and backend/frontend validators on the exact PR SHA.
+
+This enforcement closes only the cross-ledger promotion risk. It does not close the remaining every-rendered-screen, every-state, every-browser or production matrix owned by parent #326.
 
 ## Current backend–frontend reconciliation
 
