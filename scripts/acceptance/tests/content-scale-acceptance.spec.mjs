@@ -89,6 +89,22 @@ async function expectLongDetail(page, { path, locale, title, body }) {
   await expectNoHorizontalOverflow(page);
 }
 
+async function expectLongHomepageNews(page, { locale, title, body }) {
+  const response = await page.goto(`/${locale}`);
+  expect(response?.status()).toBe(200);
+  await expect(page.locator('html')).toHaveAttribute('lang', locale);
+
+  const newsPanel = page.locator('.production-news-panel');
+  const newsArticle = newsPanel.locator('.production-news-list article').filter({ hasText: title }).first();
+  const titleLink = newsArticle.getByRole('link', { name: title, exact: true });
+  const excerpt = newsArticle.locator('p').last();
+
+  await expect(excerpt).toContainText(body.slice(0, 80));
+  await expectReadableWrappingAndContainment(titleLink, 'article');
+  await expectReadableWrappingAndContainment(excerpt, 'article');
+  await expectNoHorizontalOverflow(page);
+}
+
 // Evidence marker: @portal-content-scale long bilingual news and managed pages wrap and remain contained
 test(contentScaleMarker, async ({ page }) => {
   const fixture = page.__contentScaleFixture;
@@ -126,5 +142,17 @@ test(contentScaleMarker, async ({ page }) => {
       title: localized.title,
       body: localized.body,
     });
+
+    await expectLongHomepageNews(page, localized);
+
+    await expectLongDetail(page, {
+      path: `/${localized.locale}/legal/terms`,
+      locale: localized.locale,
+      title: localized.title,
+      body: localized.body,
+    });
   }
+
+  expect(page.__acceptanceDiagnostics.pageErrors).toEqual([]);
+  expect(page.__acceptanceDiagnostics.serverErrors).toEqual([]);
 });
