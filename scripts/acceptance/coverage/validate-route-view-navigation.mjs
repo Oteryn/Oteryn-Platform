@@ -106,7 +106,9 @@ for (const file of sourceFiles) {
   const content = fs.readFileSync(file, 'utf8');
   addLiteralMatches(routeReferences, file, content, /(?<!->)(?<!::)\broute\(\s*(['"])([^'"]+)\1/gu, 2);
   addLiteralMatches(viewReferences, file, content, /(?<!->)(?<!::)\bview\(\s*(['"])([^'"]+)\1/gu, 2);
+  addLiteralMatches(viewReferences, file, content, /->view\(\s*(['"])([^'"]+)\1/gu, 2);
   addLiteralMatches(viewReferences, file, content, /\bView::make\(\s*(['"])([^'"]+)\1/gu, 2);
+  addLiteralMatches(viewReferences, file, content, /\bPassport::authorizationView\(\s*(['"])([^'"]+)\1/gu, 2);
   addLiteralMatches(viewReferences, file, content, /Route::view\(\s*[^,]+,\s*(['"])([^'"]+)\1/gu, 2);
   addLiteralMatches(viewReferences, file, content, /@(?:extends|include|includeIf|includeWhen|includeUnless|component)\(\s*(['"])([^'"]+)\1/gu, 2);
   addLiteralMatches(viewReferences, file, content, /@each\(\s*(['"])([^'"]+)\1/gu, 2);
