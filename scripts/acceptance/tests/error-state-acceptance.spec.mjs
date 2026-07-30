@@ -110,27 +110,22 @@ async function prove404(page, locale, projectSlug) {
 }
 
 async function prove419(page, locale) {
-  await page.goto(`/login?locale=${locale}`);
+  await page.goto(`/register?locale=${locale}`);
 
   const responsePromise = page.waitForResponse((response) => {
     const url = new URL(response.url());
-    return response.request().method() === 'POST' && url.pathname === '/login';
+    return response.request().method() === 'POST' && url.pathname === '/register';
   });
 
   await page.evaluate((selectedLocale) => {
     const form = document.createElement('form');
     form.method = 'POST';
-    form.action = `/login?locale=${encodeURIComponent(selectedLocale)}`;
+    form.action = `/register?locale=${encodeURIComponent(selectedLocale)}`;
 
-    for (const [name, value] of [
-      ['email', 'csrf-error-probe@example.test'],
-      ['password', 'AcceptancePassword!234'],
-    ]) {
-      const input = document.createElement('input');
-      input.name = name;
-      input.value = value;
-      form.append(input);
-    }
+    const email = document.createElement('input');
+    email.name = 'email';
+    email.value = 'csrf-error-probe@example.test';
+    form.append(email);
 
     document.body.append(form);
     form.submit();
