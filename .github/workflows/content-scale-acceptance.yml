@@ -8,27 +8,37 @@ on:
       - 'app/Announcements/**'
       - 'app/Cms/**'
       - 'app/Downloads/**'
+      - 'app/EditorialMedia/**'
+      - 'app/Events/**'
+      - 'app/Http/Controllers/Admin/AdminEditorialMediaController.php'
       - 'app/Http/Controllers/Admin/AdminEditorialTranslationController.php'
       - 'app/Http/Controllers/Cms/**'
       - 'app/Http/Controllers/Downloads/**'
       - 'app/Localization/**'
+      - 'app/Wiki/**'
       - 'database/migrations/*editorial_translations*'
       - 'public/css/**'
       - 'resources/views/home.blade.php'
       - 'resources/views/news/**'
       - 'resources/views/pages/**'
       - 'resources/views/downloads/**'
+      - 'resources/views/events/**'
+      - 'resources/views/wiki/**'
       - 'resources/views/admin/announcements/**'
       - 'resources/views/admin/downloads/**'
+      - 'resources/views/admin/events/**'
+      - 'resources/views/admin/media/**'
       - 'resources/views/admin/news/**'
       - 'resources/views/admin/translations/**'
+      - 'resources/views/admin/wiki/**'
       - 'routes/**'
       - 'scripts/acceptance/bootstrap-production-like.sh'
       - 'scripts/acceptance/package.json'
       - 'scripts/acceptance/playwright.content-scale.config.mjs'
       - 'scripts/acceptance/seed-browser-announcements.php'
-      - 'scripts/acceptance/seed-content-scale.php'
-      - 'scripts/acceptance/tests/content-scale-acceptance.spec.mjs'
+      - 'scripts/acceptance/seed-browser-wiki-reconciliation.php'
+      - 'scripts/acceptance/seed-content-scale*.php'
+      - 'scripts/acceptance/tests/content-scale*-acceptance.spec.mjs'
       - 'docs/testing/PORTAL_CONTENT_SCALE_EVIDENCE.json'
       - '.github/workflows/content-scale-acceptance.yml'
   push:
@@ -38,27 +48,37 @@ on:
       - 'app/Announcements/**'
       - 'app/Cms/**'
       - 'app/Downloads/**'
+      - 'app/EditorialMedia/**'
+      - 'app/Events/**'
+      - 'app/Http/Controllers/Admin/AdminEditorialMediaController.php'
       - 'app/Http/Controllers/Admin/AdminEditorialTranslationController.php'
       - 'app/Http/Controllers/Cms/**'
       - 'app/Http/Controllers/Downloads/**'
       - 'app/Localization/**'
+      - 'app/Wiki/**'
       - 'database/migrations/*editorial_translations*'
       - 'public/css/**'
       - 'resources/views/home.blade.php'
       - 'resources/views/news/**'
       - 'resources/views/pages/**'
       - 'resources/views/downloads/**'
+      - 'resources/views/events/**'
+      - 'resources/views/wiki/**'
       - 'resources/views/admin/announcements/**'
       - 'resources/views/admin/downloads/**'
+      - 'resources/views/admin/events/**'
+      - 'resources/views/admin/media/**'
       - 'resources/views/admin/news/**'
       - 'resources/views/admin/translations/**'
+      - 'resources/views/admin/wiki/**'
       - 'routes/**'
       - 'scripts/acceptance/bootstrap-production-like.sh'
       - 'scripts/acceptance/package.json'
       - 'scripts/acceptance/playwright.content-scale.config.mjs'
       - 'scripts/acceptance/seed-browser-announcements.php'
-      - 'scripts/acceptance/seed-content-scale.php'
-      - 'scripts/acceptance/tests/content-scale-acceptance.spec.mjs'
+      - 'scripts/acceptance/seed-browser-wiki-reconciliation.php'
+      - 'scripts/acceptance/seed-content-scale*.php'
+      - 'scripts/acceptance/tests/content-scale*-acceptance.spec.mjs'
       - 'docs/testing/PORTAL_CONTENT_SCALE_EVIDENCE.json'
       - '.github/workflows/content-scale-acceptance.yml'
   workflow_dispatch:
@@ -74,7 +94,7 @@ jobs:
   content-scale:
     name: Long bilingual content matrix
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 40
     services:
       mariadb:
         image: mariadb:11.8
@@ -213,8 +233,8 @@ jobs:
             "retries": 0,
             "runtime": "real Laravel HTTP",
             "platform_database": "MariaDB 11.8 isolated acceptance schema",
-            "fixture": "deterministic long English source, fresh Polish editorial translations and bounded 27-row administrator collections",
-            "proof_boundary": "homepage composition, news, managed/legal pages, Download Center, CMS translation editor, administrator tables, pagination, wrapping, containment and document-level overflow",
+            "fixture": "deterministic long EN/PL content, valid private media bytes and bounded multi-page collections",
+            "proof_boundary": "homepage, CMS, localization, Downloads, Events, Announcements, Support/Legal, Wiki, Editorial Media, administrator tables, pagination, wrapping, containment and document-level overflow",
             "production_claim": "none"
           }
           JSON
