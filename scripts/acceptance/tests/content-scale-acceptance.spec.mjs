@@ -292,7 +292,7 @@ test(adminScaleMarker, async ({ page }) => {
   expect(response?.status()).toBe(200);
   const sourceSection = page.locator('section[aria-labelledby="english-source-heading"]');
   const sourceTitle = sourceSection.getByText(fixture.english_title, { exact: true });
-  const sourceBody = sourceSection.locator('pre.content-body');
+  const sourceBody = sourceSection.locator('.content-body');
   await expect(sourceBody).toHaveText(fixture.english_body);
   await expectReadableWrappingAndContainment(sourceTitle, 'section');
   await expectReadableWrappingAndContainment(sourceBody, 'section');
