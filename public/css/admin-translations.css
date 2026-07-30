@@ -29,6 +29,8 @@ section[aria-labelledby="english-source-heading"] > p {
 }
 
 .content-source .content-body {
+    display: block;
+    max-width: 100%;
     white-space: pre-wrap;
     overflow-wrap: anywhere;
 }
