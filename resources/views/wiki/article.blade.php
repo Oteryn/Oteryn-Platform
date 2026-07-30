@@ -7,6 +7,7 @@
 
 @push('head')
     <meta name="description" content="{{ \Illuminate\Support\Str::limit($article->summary, 155) }}">
+    <script src="{{ asset('js/media-fallbacks.js') }}" defer></script>
 @endpush
 @push('styles')
     <link rel="stylesheet" href="{{ asset('css/wiki.css') }}">
