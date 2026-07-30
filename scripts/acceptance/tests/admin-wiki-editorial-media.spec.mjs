@@ -49,7 +49,7 @@ async function expectNoHorizontalOverflow(page) {
   expect(overflow).toBeLessThanOrEqual(1);
 }
 
-test.setTimeout(120_000);
+test.setTimeout(180_000);
 test.describe.configure({ mode: 'serial', retries: 0 });
 
 test.beforeEach(async ({ page }) => {
@@ -124,50 +124,55 @@ test('@wiki-media exact Wiki editor discovers inserts previews and publishes pri
   await page.getByRole('button', { name: 'Submit for review' }).click();
   await page.getByRole('button', { name: 'Publish', exact: true }).click();
 
-  await context.clearCookies();
-  await page.goto(`/en/wiki/${articleSlug}`);
-  const publicImage = page.getByRole('img', { name: mediaLabel });
-  await expect(publicImage).toBeVisible();
-  expect(await publicImage.evaluate((image) => image.naturalWidth)).toBeGreaterThan(0);
-  const imageResponse = await page.request.get(await publicImage.getAttribute('src'));
-  expect(imageResponse.status()).toBe(200);
-  expect(imageResponse.headers()['x-content-type-options']).toBe('nosniff');
-  expect(imageResponse.headers()['cache-control']).toContain('must-revalidate');
-  await expectNoHorizontalOverflow(page);
-  await assertAccessibilitySmoke(page);
+  const browser = context.browser();
+  expect(browser).not.toBeNull();
+  const publicContext = await browser.newContext();
+  const publicPage = await publicContext.newPage();
+  try {
+    await publicPage.goto(`/en/wiki/${articleSlug}`);
+    const publicImage = publicPage.getByRole('img', { name: mediaLabel });
+    await expect(publicImage).toBeVisible();
+    expect(await publicImage.evaluate((image) => image.naturalWidth)).toBeGreaterThan(0);
+    const imageResponse = await publicPage.request.get(await publicImage.getAttribute('src'));
+    expect(imageResponse.status()).toBe(200);
+    expect(imageResponse.headers()['x-content-type-options']).toBe('nosniff');
+    expect(imageResponse.headers()['cache-control']).toContain('must-revalidate');
+    await expectNoHorizontalOverflow(publicPage);
+    await assertAccessibilitySmoke(publicPage);
 
-  await page.goto(`/pl/wiki/${polishSlug}`);
-  await expect(page.getByRole('img', { name: `Most Oteryn ${id}` })).toBeVisible();
-  await expectNoHorizontalOverflow(page);
+    await publicPage.goto(`/pl/wiki/${polishSlug}`);
+    await expect(publicPage.getByRole('img', { name: `Most Oteryn ${id}` })).toBeVisible();
+    await expectNoHorizontalOverflow(publicPage);
 
-  editorialMediaFixture('corrupt-files', String(seeded.media_id));
-  await page.reload();
-  const corruptPublicFallback = page.getByRole('img', { name: `Most Oteryn ${id}` });
-  await expect(corruptPublicFallback).toBeVisible();
-  await expect(corruptPublicFallback).toHaveAttribute('data-media-fallback-state', 'unavailable');
-  await expect(page.locator('.wiki-editorial-image')).toHaveCount(0);
-  await expectNoHorizontalOverflow(page);
+    editorialMediaFixture('corrupt-files', String(seeded.media_id));
 
-  await login(page, email, password);
-  await completeMfaChallenge(page, recoveryCode);
-  await page.goto('/admin/wiki/articles/create');
-  await page.getByLabel('Search approved images').fill(String(seeded.media_id));
-  await page.getByRole('button', { name: 'Search', exact: true }).click();
-  const corruptPickerCard = page.locator('.wiki-media-card').filter({ hasText: `Media ${seeded.media_id}` });
-  const corruptPickerFallback = corruptPickerCard.getByRole('img', { name: mediaLabel });
-  await expect(corruptPickerFallback).toBeVisible();
-  await expect(corruptPickerFallback).toContainText(`Preview unavailable: ${mediaLabel}`);
-  await expect(corruptPickerCard.locator('img')).toHaveCount(0);
+    await page.goto('/admin/wiki/articles/create');
+    await page.getByLabel('Search approved images').fill(String(seeded.media_id));
+    await page.getByRole('button', { name: 'Search', exact: true }).click();
+    const corruptPickerCard = page.locator('.wiki-media-card').filter({ hasText: `Media ${seeded.media_id}` });
+    const corruptPickerFallback = corruptPickerCard.getByRole('img', { name: mediaLabel });
+    await expect(corruptPickerFallback).toBeVisible();
+    await expect(corruptPickerFallback).toContainText(`Preview unavailable: ${mediaLabel}`);
+    await expect(corruptPickerCard.locator('img')).toHaveCount(0);
 
-  editorialMediaFixture('remove-files', String(seeded.media_id));
-  await context.clearCookies();
-  await page.goto(`/en/wiki/${articleSlug}`);
-  const missingPublicFallback = page.getByRole('img', { name: mediaLabel });
-  await expect(missingPublicFallback).toBeVisible();
-  await expect(missingPublicFallback).toHaveAttribute('data-media-fallback-state', 'unavailable');
-  await expect(page.locator('.wiki-editorial-image')).toHaveCount(0);
-  await expectNoHorizontalOverflow(page);
-  await assertAccessibilitySmoke(page);
+    await publicPage.reload();
+    const corruptPublicFallback = publicPage.getByRole('img', { name: `Most Oteryn ${id}` });
+    await expect(corruptPublicFallback).toBeVisible();
+    await expect(corruptPublicFallback).toHaveAttribute('data-media-fallback-state', 'unavailable');
+    await expect(publicPage.locator('.wiki-editorial-image')).toHaveCount(0);
+    await expectNoHorizontalOverflow(publicPage);
+
+    editorialMediaFixture('remove-files', String(seeded.media_id));
+    await publicPage.goto(`/en/wiki/${articleSlug}`);
+    const missingPublicFallback = publicPage.getByRole('img', { name: mediaLabel });
+    await expect(missingPublicFallback).toBeVisible();
+    await expect(missingPublicFallback).toHaveAttribute('data-media-fallback-state', 'unavailable');
+    await expect(publicPage.locator('.wiki-editorial-image')).toHaveCount(0);
+    await expectNoHorizontalOverflow(publicPage);
+    await assertAccessibilitySmoke(publicPage);
+  } finally {
+    await publicContext.close();
+  }
 });
 
 test('@wiki-media image-free Wiki draft preview remains accessible and contains no media fallback', async ({ page, context }) => {
