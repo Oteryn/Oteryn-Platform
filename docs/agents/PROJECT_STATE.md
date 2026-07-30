@@ -24,8 +24,8 @@ These phase statements do not claim benchmark product completeness. Issue #268 a
 - **Production Readiness: STAGING_PROVEN for documented boundaries**
 - **Delivered Portal Route Contract: COMPLETE AND MACHINE ENFORCED**
 - **Benchmark Product Completeness: NOT COMPLETE; REQUIRED CHARACTER GAPS #317/#319 REMAIN, AND #321/#322 ARE MANDATORY BEFORE COMMERCE**
-- **Exhaustive Backend–Frontend Evidence: NOT COMPLETE; #326 REMAINS OPEN**
-- **Backend–Frontend Promotion Enforcement: IMPLEMENTING IN #340 / PR #341**
+- **Backend–Frontend Promotion Enforcement: COMPLETE IN #340 / PR #341**
+- **Exhaustive Backend–Frontend Evidence: NOT COMPLETE; PARENT #326 REMAINS OPEN**
 - **Production Go-Live Gate: PENDING PRODUCTION VERIFICATION**
 - **Production Verification: REQUIRED BEFORE GO-LIVE**
 
@@ -131,7 +131,7 @@ The account-security fragment adds guest/authenticated EN/PL email, session, pri
 
 PR #315 established an additional product-level rule: a user-facing capability is `IMPLEMENTED` only when backend/domain behavior, a reachable frontend connected to the real route and applicable zero-retry browser evidence are all present. Backend-only delivery remains `PARTIAL`; frontend files without reliable integrated evidence remain `UNTESTED`.
 
-Issue #340 / PR #341 implements the first fail-closed cross-ledger gate: every canonical product capability receives explicit backend, frontend and integration status; integrated claims reference exact covered portal surfaces with Playwright markers; non-UI exceptions require rationale; deterministic negative fixtures reject backend-only promotion and inconsistent evidence.
+PR #341 completed Issue #340 as merge `90035fa764f4477ebcffd9410075dc342972be42`. The fail-closed cross-ledger gate now gives every canonical product capability explicit backend, frontend and integration status; integrated claims reference exact covered portal surfaces with Playwright markers; non-UI exceptions require rationale; deterministic negative fixtures reject backend-only promotion and inconsistent evidence. Exact final head `4c29c21f448d3f17b169450a7a2667b9b2ca327a` passed all nine authoritative workflows, including strict Portal Acceptance, complete zero-retry account lifecycle and full Visual UX.
 
 Broad responsive, portability, resilience and accessibility evidence exists, but it is not a universal every-route/every-state/browser Cartesian matrix. #326 owns the remaining exhaustive visual/state evidence after #340.
 
@@ -165,7 +165,8 @@ Completed focused slices:
 - #280 — read-only community statistics and guild discovery with privacy-aware profiles, merged in PR #298;
 - #281 — first versioned item/weapon/creature/loot Game Catalog scope delivered by PR #272 and evidence ownership closed by PR #303;
 - #307 — Platform-owned character comments, per-character privacy and optional main-character selection in PR #308;
-- #268 reconciliation — detailed product and frontend audit merged in PR #315 as `94b3457f4bb5b9aa73639a698c70ebb233940288` after all eight required workflows passed on exact head `92935a76e559d8716773ebec5d1a04264051cfa1`.
+- #268 reconciliation — detailed product and frontend audit merged in PR #315 as `94b3457f4bb5b9aa73639a698c70ebb233940288` after all eight required workflows passed on exact head `92935a76e559d8716773ebec5d1a04264051cfa1`;
+- #340 — backend/frontend/integration promotion enforcement merged in PR #341 as `90035fa764f4477ebcffd9410075dc342972be42` after all nine authoritative final-head workflows passed.
 
 Open focused backlog:
 
@@ -180,8 +181,7 @@ Open focused backlog:
 - #301 — authoritative spell/NPC/quest/achievement catalogue expansion;
 - #302 — optional maps, hunt tools and server-specific discovery planning;
 - #325 — optional loyalty/badge/status presentation;
-- #326 — exhaustive delivered-screen backend/frontend/visual/state matrix and CI enforcement;
-- #340 — first machine-enforced backend/frontend capability-ledger slice of #326, active in PR #341.
+- #326 — remaining exhaustive delivered-screen/browser/visual/state matrix.
 
 A green route or API contract must not be described as product complete while required benchmark or frontend gaps remain.
 
@@ -207,17 +207,16 @@ Repository and exact-revision E2E work has hardened the native-auth direction, b
 
 ## Current active task
 
-`OTERYN-20260730-backend-frontend-capability-ledger` in Issue #340 / PR #341 owns only the machine-readable cross-ledger, validator, focused negative fixtures, strict workflow integration and associated audit/governance records. It does not own product UI implementation or the remaining parent #326 matrix.
+No backend/frontend capability-ledger task remains active after PR #341. Live active task records and open PRs remain authoritative for parallel work, including PR #328 for the character-rename contract.
 
 ## Recommended sequence
 
-1. Complete #340 / PR #341 exact-head validation and merge the fail-closed backend–frontend promotion gate.
-2. Continue the remaining every-rendered-screen/browser/state evidence under parent #326 as separate bounded tasks.
-3. Continue required character deletion/restore #317 and rename #319 only after operation-specific Canary contracts and authorization exist; do not overlap PR #328.
-4. Decide authoritative world ownership before #320 and deliver #323 only after #301 provides earned-achievement truth.
-5. Keep commerce disabled until #321 payment security/provider decisions and #322 entitlement lifecycle are complete.
-6. Treat #302/#325 as optional product discovery.
-7. Resume #91 only after explicit production deployment/verification authorization and required production evidence access exist.
+1. Continue the remaining every-rendered-screen/browser/state evidence under parent #326 as separate bounded tasks.
+2. Continue required character deletion/restore #317 and rename #319 only after operation-specific Canary contracts and authorization exist; do not overlap PR #328.
+3. Decide authoritative world ownership before #320 and deliver #323 only after #301 provides earned-achievement truth.
+4. Keep commerce disabled until #321 payment security/provider decisions and #322 entitlement lifecycle are complete.
+5. Treat #302/#325 as optional product discovery.
+6. Resume #91 only after explicit production deployment/verification authorization and required production evidence access exist.
 
 ## Community data delivery
 
