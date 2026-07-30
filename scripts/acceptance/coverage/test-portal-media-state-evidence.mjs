@@ -3,36 +3,47 @@ import {
   loadRepositoryInputs,
   validatePortalMediaStateEvidence,
 } from './validate-portal-media-state-evidence.mjs';
+import { validatePortalMediaStrictClosure } from './validate-portal-media-strict-closure.mjs';
 
 function clone(value) {
   return structuredClone(value);
 }
 
-function expectFailure(name, mutate, expectedMarker) {
+function mutatedInputs(mutate) {
   const baseline = loadRepositoryInputs();
-  const contract = clone(baseline.contract);
-  const manifestSurfaces = clone(baseline.manifestSurfaces);
-  const dimensionContract = clone(baseline.dimensionContract);
-  const dimensionSurfaces = clone(baseline.dimensionSurfaces);
-
-  mutate({ contract, manifestSurfaces, dimensionContract, dimensionSurfaces });
-
-  const report = validatePortalMediaStateEvidence({
-    contract,
-    manifestSurfaces,
-    dimensionContract,
-    dimensionSurfaces,
+  const inputs = {
+    contract: clone(baseline.contract),
+    manifestSurfaces: clone(baseline.manifestSurfaces),
+    dimensionContract: clone(baseline.dimensionContract),
+    dimensionSurfaces: clone(baseline.dimensionSurfaces),
     repoRoot: baseline.repoRoot,
-  });
+  };
+
+  mutate(inputs);
+
+  return inputs;
+}
+
+function expectFailure(name, mutate, expectedMarker) {
+  const report = validatePortalMediaStateEvidence(mutatedInputs(mutate));
   assert.ok(
     report.errors.some((error) => error.includes(expectedMarker)),
     `${name} did not fail with ${JSON.stringify(expectedMarker)}.\n${JSON.stringify(report, null, 2)}`,
   );
 }
 
+function expectStrictFailure(name, mutate, expectedMarker) {
+  const report = validatePortalMediaStrictClosure(mutatedInputs(mutate));
+  assert.ok(
+    report.errors.some((error) => error.includes(expectedMarker)),
+    `${name} did not fail strict closure with ${JSON.stringify(expectedMarker)}.\n${JSON.stringify(report, null, 2)}`,
+  );
+}
+
 const baseline = loadRepositoryInputs();
-const baselineReport = validatePortalMediaStateEvidence(baseline);
+const baselineReport = validatePortalMediaStrictClosure(baseline);
 assert.deepEqual(baselineReport.errors, [], JSON.stringify(baselineReport, null, 2));
+assert.equal(baselineReport.strict_closure, true, JSON.stringify(baselineReport, null, 2));
 assert.equal(baselineReport.gap_state_count, 0, JSON.stringify(baselineReport, null, 2));
 
 expectFailure('missing portal classification', ({ contract }) => {
@@ -87,11 +98,24 @@ expectFailure('unbounded non-media rationale', ({ contract }) => {
   surface.rationale = 'not media';
 }, 'not_applicable classification requires a bounded rationale');
 
+expectStrictFailure('strict closure flag removed', ({ contract }) => {
+  contract.strict_closure = false;
+}, 'strict_closure must be true');
+
+expectStrictFailure('bounded gap reintroduced after strict closure', ({ contract }) => {
+  const surface = contract.surfaces.find((record) => record.id === 'wiki.public');
+  surface.states.missing = {
+    status: 'gap',
+    reason: 'This deliberately reintroduced gap has a sufficiently bounded explanation but must still fail strict closure.',
+  };
+}, 'strict portal media closure requires zero gap states');
+
 process.stdout.write(`${JSON.stringify({
   portal_surfaces: baselineReport.portal_surface_count,
   media_consumers: baselineReport.media_consumer_count,
   evidenced_states: baselineReport.evidenced_state_count,
   explicit_gaps: baselineReport.gap_state_count,
-  negative_fixtures: 9,
+  negative_fixtures: 11,
+  strict_closure: baselineReport.strict_closure,
   status: 'pass',
 }, null, 2)}\n`);
