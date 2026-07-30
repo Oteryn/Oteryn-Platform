@@ -1,7 +1,9 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "issue": 360,
-  "description": "Bounded classifications for page-like Blade files that are intentionally not discoverable through a literal production view reference. Every new or stale record fails the route/view/navigation validator.",
+  "description": "Fail-closed route kind, rendered-view, navigation/direct-entry and unreferenced page classifications for Issue #360.",
+  "route_kind_overrides": [],
+  "direct_entry_routes": [],
   "unreferenced_page_classifications": [
     {
       "path": "resources/views/errors/403.blade.php",
