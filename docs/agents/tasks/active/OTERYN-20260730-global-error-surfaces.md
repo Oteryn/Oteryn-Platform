@@ -14,7 +14,7 @@ required_reads:
   - resources/views/errors/404.blade.php
   - resources/views/errors/503.blade.php
 search_first:
-  - Issue #353, parent #326 and open PRs touching error views, public translations or acceptance workflow paths
+  - Issue #353, parent #326 and open PRs touching error views, locale detection or acceptance workflow paths
   - existing CSRF, rate-limiter and non-debug internal-error behavior
 optional_reads:
   - docs/testing/PORTAL_ACCEPTANCE_COVERAGE_MATRIX.md
@@ -44,11 +44,12 @@ Deliver Issue #353 as one bounded application-error UX slice: dedicated localize
 ```yaml
 owned_paths:
   - docs/agents/tasks/active/OTERYN-20260730-global-error-surfaces.md
+  - app/Http/Middleware/DetectPublicLocaleFromPath.php
   - resources/views/errors/419.blade.php
   - resources/views/errors/429.blade.php
   - resources/views/errors/500.blade.php
-  - lang/en/public.php
-  - lang/pl/public.php
+  - lang/en/errors.php
+  - lang/pl/errors.php
   - tests/Feature/Errors/LocalizedErrorSurfaceTest.php
   - scripts/acceptance/coverage/error-state-evidence.json
   - scripts/acceptance/playwright.error-states.config.mjs
@@ -72,11 +73,11 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-07-30T09:53:00Z
-head: eda893990dccca6ffe65549e224f908299d90750
+updated_at: 2026-07-30T10:01:00Z
+head: 1516a2aa77fb621787268a39d0f6a863a70e921e
 branch: feat/OTERYN-20260730-global-error-surfaces
-pr: none
-status: implementing
+pr: 354
+status: validating
 context_routes:
   - agent-governance
   - testing
@@ -84,11 +85,12 @@ context_routes:
   - identity
 owned_paths:
   - docs/agents/tasks/active/OTERYN-20260730-global-error-surfaces.md
+  - app/Http/Middleware/DetectPublicLocaleFromPath.php
   - resources/views/errors/419.blade.php
   - resources/views/errors/429.blade.php
   - resources/views/errors/500.blade.php
-  - lang/en/public.php
-  - lang/pl/public.php
+  - lang/en/errors.php
+  - lang/pl/errors.php
   - tests/Feature/Errors/LocalizedErrorSurfaceTest.php
   - scripts/acceptance/coverage/error-state-evidence.json
   - scripts/acceptance/playwright.error-states.config.mjs
@@ -96,15 +98,17 @@ owned_paths:
   - .github/workflows/error-state-acceptance.yml
 proven:
   - Main has dedicated branded localized 404 and 503 views extending resources/views/errors/layout.blade.php.
-  - Main has no resources/views/errors/419.blade.php, 429.blade.php or 500.blade.php, so those statuses use framework fallback rendering.
-  - The existing smoke suite proves only the numeric 419 response through page.request and does not prove a browser-rendered localized error surface.
+  - Main had no dedicated 419, 429 or 500 view before this task, so those statuses used framework fallback rendering.
+  - The existing smoke suite proved only the numeric 419 response through page.request and did not prove a browser-rendered localized error surface.
   - Existing identity login rate limiting provides a real bounded 429 path without introducing a test-only endpoint.
-  - Temporarily removing an exact Blade dependency after clearing compiled views is already proven to generate a genuine non-debug 500 in the isolated acceptance runtime.
+  - The global locale detector now accepts only normalized en/pl query values before route middleware, allowing pre-route CSRF errors to preserve an explicitly requested locale while invalid values fail closed.
+  - The dedicated acceptance profile triggers real unmatched-route 404, missing-CSRF 419, login-limiter 429 and non-debug missing-view 500 behavior for EN/PL at desktop, tablet and mobile with retries fixed at zero.
+  - The 500 harness restores the exact Blade source and clears compiled views in a guaranteed finally path; limiter cache is cleared before and after every bounded 429 sequence.
   - Active PRs #348/#349 own viewport/browser dimension-ledger paths, not the paths claimed here.
 derived:
   - A dedicated error-state acceptance profile is safer and more truthful than adding global error flows to a domain-specific Community Data profile.
 unknown:
-  - Whether locale session persistence is sufficient for Polish 419/429/500 rendering without exception-level locale routing changes.
+  - First exact-head workflow outcome for the new Error State Acceptance profile.
 conflicts: []
 first_failure:
   marker: none
@@ -115,11 +119,22 @@ rejected_hypotheses:
   - Attach global error states to an unrelated named-route surface in the portal route manifest.
 changed_paths:
   - docs/agents/tasks/active/OTERYN-20260730-global-error-surfaces.md
+  - app/Http/Middleware/DetectPublicLocaleFromPath.php
+  - resources/views/errors/419.blade.php
+  - resources/views/errors/429.blade.php
+  - resources/views/errors/500.blade.php
+  - lang/en/errors.php
+  - lang/pl/errors.php
+  - tests/Feature/Errors/LocalizedErrorSurfaceTest.php
+  - scripts/acceptance/coverage/error-state-evidence.json
+  - scripts/acceptance/playwright.error-states.config.mjs
+  - scripts/acceptance/tests/error-state-acceptance.spec.mjs
+  - .github/workflows/error-state-acceptance.yml
 validation:
-  - command: not-run
-    result: NOT_RUN
-    evidence: implementation not yet committed
+  - command: Error State Acceptance and repository workflows
+    result: IN_PROGRESS
+    evidence: first exact-head runs started from PR #354.
 blockers:
   - none
-next_action: Open a draft PR, implement localized error views and a dedicated real-browser error-state acceptance profile.
+next_action: Inspect every failing exact-head workflow step, fix the root cause and repeat validation only on a changed head.
 ```
