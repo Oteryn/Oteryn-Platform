@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
-  "status": "inventory",
-  "description": "Bounded inventory of delivered portal surfaces that may consume long localized content or bounded large collections. Candidate classification is not executable evidence and does not close Issue #362 or parent #326.",
+  "status": "partial",
+  "description": "Bounded inventory and exact executable mappings for delivered portal surfaces that may consume long localized content or bounded large collections. Candidate classification is not executable evidence and does not close Issue #362 or parent #326.",
   "classification_values": [
     "candidate_long_content",
     "candidate_large_collection",
@@ -84,7 +84,7 @@
     }
   },
   "evidence_contract": {
-    "status": "not_implemented",
+    "status": "partial",
     "required_viewports": [
       "desktop-1440x1000",
       "tablet-820x1180",
@@ -96,10 +96,66 @@
       "stable_bounded_pagination",
       "no_document_horizontal_overflow"
     ],
-    "mapped_surfaces": {}
+    "mapped_surfaces": {
+      "public.game-data": {
+        "fixture": {
+          "file": "scripts/acceptance/tests/community-data-acceptance.spec.mjs",
+          "marker": "@portal-community-stress long values multi-page results internal 500 containment and recovery",
+          "bounded_rows": 76,
+          "routes": [
+            "/highscores",
+            "/highscores?page=2",
+            "/characters/{longName}"
+          ]
+        },
+        "execution": {
+          "npm_profile": "test:community-data",
+          "config_file": "scripts/acceptance/playwright.community-data.config.mjs",
+          "workflow_file": ".github/workflows/community-data-acceptance.yml",
+          "workflow_marker": "npx playwright test --config=playwright.community-data.config.mjs",
+          "projects": [
+            "community-data-chromium-desktop",
+            "community-data-chromium-tablet",
+            "community-data-chromium-mobile"
+          ],
+          "retries": 0,
+          "runtime": "real-laravel-http-with-isolated-mariadb-and-redis"
+        },
+        "proven_assertions": [
+          "deterministic-long-character-name-visible",
+          "deterministic-long-public-comment-visible",
+          "more-than-fifty-active-characters",
+          "second-page-visible",
+          "stable-level-ordering-places-matrix-character-050-on-page-two",
+          "no-document-horizontal-overflow-on-page-one-page-two-and-character-detail"
+        ],
+        "remaining_gaps": [
+          "No exact assertion proves readable multi-line wrapping rather than visibility alone.",
+          "No exact component-level bounding-box or scroll-containment assertion exists."
+        ]
+      }
+    },
+    "reviewed_unmapped_surfaces": {
+      "public.news-and-managed-pages": {
+        "inspected_files": [
+          "scripts/acceptance/tests/admin-acceptance.spec.mjs",
+          "scripts/acceptance/tests/public-localization.spec.mjs",
+          "scripts/acceptance/tests/smoke.spec.mjs"
+        ],
+        "reason": "Existing CMS evidence creates and renders only short English values, while localization evidence verifies shell navigation rather than long managed EN/PL bodies.",
+        "missing": [
+          "deterministic long English managed content",
+          "deterministic long Polish translation",
+          "readable wrapping assertion",
+          "component containment assertion",
+          "document-level horizontal overflow assertion on the long-content routes"
+        ]
+      }
+    }
   },
   "nonclaims": [
     "Candidate classification is not proof that the state has been exercised.",
+    "The public.game-data mapping does not yet prove readable wrapping or component-level containment.",
     "No unbounded dataset, performance, staging, production or Canary behavior is proven.",
     "Issue #362 and parent #326 remain open until executable mappings and fail-closed validation are complete."
   ]
