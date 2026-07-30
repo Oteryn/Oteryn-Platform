@@ -126,7 +126,8 @@ test('@wiki-media exact Wiki editor discovers inserts previews and publishes pri
 
   const browser = context.browser();
   expect(browser).not.toBeNull();
-  const publicContext = await browser.newContext();
+  const baseURL = new URL(page.url()).origin;
+  const publicContext = await browser.newContext({ baseURL });
   const publicPage = await publicContext.newPage();
   try {
     await publicPage.goto(`/en/wiki/${articleSlug}`);
