@@ -3,6 +3,7 @@
 @section('title', $article === null ? 'Create Wiki article' : 'Edit Wiki article')
 
 @push('head')
+    <script src="{{ asset('js/media-fallbacks.js') }}" defer></script>
     <script src="{{ asset('js/wiki-admin-media.js') }}" defer></script>
 @endpush
 
