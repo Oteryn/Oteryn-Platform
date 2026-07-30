@@ -65,6 +65,7 @@
     image.alt = item.alt_text;
     image.loading = 'lazy';
     image.decoding = 'async';
+    image.dataset.mediaFallback = 'admin';
     card.append(image);
 
     const details = document.createElement('div');
