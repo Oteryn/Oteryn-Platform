@@ -80,7 +80,8 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-07-30T16:05:00Z
+updated_at: 2026-07-30T16:10:00Z
+head: 45d00342c0ac7e5b8a5591a10e9cae74c4e42288
 implementation_head: 45d00342c0ac7e5b8a5591a10e9cae74c4e42288
 branch: test/OTERYN-20260730-media-fallback-evidence
 pr: 358
@@ -167,7 +168,7 @@ validation:
     result: PASS
     evidence: complete zero-retry Chromium desktop/tablet/mobile lifecycle including missing and corrupt stored objects
   - command: GitHub Actions on final documentation checkpoint
-    result: PENDING
+    result: NOT_RUN
     evidence: exact final workflow run set must complete before ready-for-review or merge
 blockers:
   - none
