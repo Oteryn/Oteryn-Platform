@@ -1,0 +1,106 @@
+{
+  "schema_version": 1,
+  "status": "inventory",
+  "description": "Bounded inventory of delivered portal surfaces that may consume long localized content or bounded large collections. Candidate classification is not executable evidence and does not close Issue #362 or parent #326.",
+  "classification_values": [
+    "candidate_long_content",
+    "candidate_large_collection",
+    "candidate_both",
+    "not_applicable",
+    "supporting_endpoint"
+  ],
+  "surfaces": {
+    "identity.registration-login-session": {
+      "classification": "not_applicable",
+      "rationale": "Bounded authentication forms and status messages; no user-managed long body or collection route is declared."
+    },
+    "identity.password-lifecycle": {
+      "classification": "not_applicable",
+      "rationale": "Bounded password forms and recovery status messages; no long body or collection route is declared."
+    },
+    "identity.mfa-lifecycle": {
+      "classification": "not_applicable",
+      "rationale": "Bounded MFA forms, QR provisioning and recovery-code state; no long body or paginated collection route is declared."
+    },
+    "account.overview-provisioning": {
+      "classification": "not_applicable",
+      "rationale": "Bounded account binding and provisioning status surface."
+    },
+    "account.character-creation-and-visibility": {
+      "classification": "not_applicable",
+      "rationale": "Bounded character creation form and visibility outcome; public collection consumers are owned by public.game-data."
+    },
+    "public.home-and-seo": {
+      "classification": "candidate_long_content",
+      "rationale": "Homepage composes managed announcements and published content; long localized composition and document overflow require explicit evidence before closure."
+    },
+    "public.news-and-managed-pages": {
+      "classification": "candidate_long_content",
+      "rationale": "The canonical manifest explicitly declares a long-content state for public news and managed pages."
+    },
+    "public.game-data": {
+      "classification": "candidate_large_collection",
+      "rationale": "The canonical manifest explicitly declares pagination across highscores, character search, guild, online and server routes."
+    },
+    "admin.core-rbac-cms-audit": {
+      "classification": "candidate_both",
+      "rationale": "CMS editors consume long managed bodies, while news, pages, roles and audit index routes can render bounded collections."
+    },
+    "public.localization-core": {
+      "classification": "candidate_long_content",
+      "rationale": "Translation editors consume localized managed-page and news bodies; EN/PL long-value containment requires explicit evidence."
+    },
+    "downloads.public-admin-localization": {
+      "classification": "candidate_both",
+      "rationale": "Public/admin release collections and localized release text are rendered through delivered routes."
+    },
+    "events.public-admin": {
+      "classification": "candidate_both",
+      "rationale": "Calendar/index routes render event collections and event detail/editor routes can consume localized descriptive content."
+    },
+    "announcements.admin-localization-home-composition": {
+      "classification": "candidate_both",
+      "rationale": "Administrator announcement collections and long localized announcement text are consumed directly and through homepage composition."
+    },
+    "support-legal.public-admin-localization": {
+      "classification": "candidate_long_content",
+      "rationale": "Support, rules, terms, privacy and cookie pages are managed localized document surfaces."
+    },
+    "wiki.public": {
+      "classification": "candidate_both",
+      "rationale": "Article bodies consume long content; index, category and search-result routes consume bounded collections."
+    },
+    "wiki.admin-editorial-lifecycle": {
+      "classification": "candidate_both",
+      "rationale": "Article/category administration consumes long editorial bodies and collection indexes."
+    },
+    "editorial-media.admin": {
+      "classification": "candidate_large_collection",
+      "rationale": "The delivered media index renders a bounded collection; binary resource content is outside this ledger."
+    },
+    "browser-supporting-media-preview-endpoints": {
+      "classification": "supporting_endpoint",
+      "rationale": "Resource endpoints do not independently render document layout; evidence belongs to their rendered consumers."
+    }
+  },
+  "evidence_contract": {
+    "status": "not_implemented",
+    "required_viewports": [
+      "desktop-1440x1000",
+      "tablet-820x1180",
+      "mobile-390x844"
+    ],
+    "required_assertions": [
+      "readable_wrapping",
+      "component_containment",
+      "stable_bounded_pagination",
+      "no_document_horizontal_overflow"
+    ],
+    "mapped_surfaces": {}
+  },
+  "nonclaims": [
+    "Candidate classification is not proof that the state has been exercised.",
+    "No unbounded dataset, performance, staging, production or Canary behavior is proven.",
+    "Issue #362 and parent #326 remain open until executable mappings and fail-closed validation are complete."
+  ]
+}
