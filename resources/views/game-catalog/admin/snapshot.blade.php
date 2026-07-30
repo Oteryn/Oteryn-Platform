@@ -34,6 +34,19 @@
         </dl>
     </section>
 
+    <section class="card" aria-labelledby="snapshot-typed-summary-heading">
+        <h2 id="snapshot-typed-summary-heading">Typed candidate summary</h2>
+        <dl class="catalog-detail-list">
+            @foreach ($entityTypeCounts as $row)
+                <div><dt>Entity {{ $row->entity_type }}</dt><dd>{{ $row->record_count }}</dd></div>
+            @endforeach
+            @foreach ($relationTypeCounts as $row)
+                <div><dt>Relation {{ $row->relation_type }}</dt><dd>{{ $row->record_count }}</dd></div>
+            @endforeach
+            <div><dt>Unknown or unverified entities</dt><dd>{{ $unknownOrUnverifiedEntityCount }}</dd></div>
+        </dl>
+    </section>
+
     <section aria-labelledby="snapshot-visibility-heading">
         <h2 id="snapshot-visibility-heading">Profile visibility summary</h2>
         <div class="table-wrap">
@@ -84,7 +97,7 @@
         <h2 id="snapshot-relations-heading">Relations <span class="muted">(bounded to 200)</span></h2>
         <div class="table-wrap">
             <table>
-                <thead><tr><th>Canonical key</th><th>Type</th><th>Source</th><th>Target</th><th>Introduced</th><th>Removed</th><th>Completeness</th><th>Enabled</th></tr></thead>
+                <thead><tr><th>Canonical key</th><th>Type</th><th>Source</th><th>Target</th><th>Introduced</th><th>Removed</th><th>Completeness</th><th>Availability</th><th>Enabled</th></tr></thead>
                 <tbody>
                 @forelse ($relations as $relation)
                     <tr>
@@ -95,10 +108,11 @@
                         <td>{{ $relation->introduced_release ?? 'unknown' }}</td>
                         <td>{{ $relation->removed_release ?? 'not removed' }}</td>
                         <td>{{ $relation->completeness }}</td>
+                        <td>{{ $relation->availability ?? 'not applicable' }}</td>
                         <td>{{ $relation->enabled ? 'yes' : 'no' }}</td>
                     </tr>
                 @empty
-                    <tr><td colspan="8">This snapshot contains no relations.</td></tr>
+                    <tr><td colspan="9">This snapshot contains no relations.</td></tr>
                 @endforelse
                 </tbody>
             </table>
