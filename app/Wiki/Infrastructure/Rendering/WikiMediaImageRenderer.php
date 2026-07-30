@@ -40,6 +40,7 @@ final readonly class WikiMediaImageRenderer implements NodeRendererInterface
             'alt' => $altText,
             'loading' => 'lazy',
             'decoding' => 'async',
+            'data-media-fallback' => 'wiki',
         ], '', true);
     }
 }
