@@ -79,11 +79,11 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-07-30T10:20:00Z
-head: 243dc2688c153bcd591f619d35216baded80340c
+updated_at: 2026-07-30T10:50:00Z
+head: efa34b63d3834e14e4b4f05333db80b5825b9892
 branch: test/OTERYN-20260730-viewport-browser-evidence-dimensions
 pr: 349
-status: validating
+status: ready
 context_routes:
   - agent-governance
   - testing
@@ -119,11 +119,13 @@ proven:
   - The responsive suite then exposed hidden desktop language/navigation locators on tablet/mobile. The test now requires visible language and Aktualności links through the real responsive menu.
   - Implementation evidence head 611b130fb50a1fb2661b890b7f80a70675dad58d passed all nine authoritative workflows, including strict dimension closure, eight negative fixtures, full Visual UX and complete zero-retry account lifecycle.
   - The branch was restacked onto current main eda893990dccca6ffe65549e224f908299d90750 without overwriting the separately merged Issue #350 / PR #351 public game-data stress and 500-recovery evidence.
+  - Restacked documentation head efa34b63d3834e14e4b4f05333db80b5825b9892 passed all nine authoritative workflows, including strict Portal Acceptance, full Visual UX and complete zero-retry Account Lifecycle.
 derived:
   - Exact dimension linkage can be closed without asserting the remaining every-state, long-data, 500 and media-failure Cartesian matrix.
   - Direct module projects, standard representative portability, test-controlled viewport loops and explicit risk exclusions must remain distinguishable in evidence.
 unknown:
-  - The documentation/restacked final head still requires a fresh exact-head workflow set before PR #349 may be marked ready or merged.
+  - Remaining state/data/error/media permutations for other delivered surfaces under parent #326.
+  - Direct exact-release production behavior remains unverified.
 conflicts: []
 first_failure:
   marker: critical-test-controlled-viewport-classification
@@ -155,34 +157,34 @@ changed_paths:
   - scripts/acceptance/tests/responsive-critical.spec.mjs
   - scripts/acceptance/package.json
 validation:
-  - command: Agent Governance run 30533411297
+  - command: Agent Governance run 30534561641
     result: PASS
-    evidence: implementation evidence head 611b130fb50a1fb2661b890b7f80a70675dad58d.
-  - command: CI run 30533410756
+    evidence: exact restacked documentation head efa34b63d3834e14e4b4f05333db80b5825b9892.
+  - command: CI run 30534561731
     result: PASS
-    evidence: implementation evidence head; formatting, static analysis and full tests passed.
-  - command: Portal Acceptance Contract run 30533410929
+    evidence: exact restacked documentation head; formatting, static analysis and full tests passed.
+  - command: Portal Acceptance Contract run 30534561703
     result: PASS
-    evidence: 27/27 dimension records, 13 executable profiles, 23 critical surfaces, Chromium desktop/tablet/mobile closure, eight negative fixtures and complete zero-retry account lifecycle passed.
-  - command: Acceptance E2E and Visual UX run 30533411097
+    evidence: strict route/product/backend-frontend/dimension ledgers, eight dimension fixtures and complete zero-retry account lifecycle passed.
+  - command: Acceptance E2E and Visual UX run 30534561639
     result: PASS
     evidence: Chromium smoke, Firefox/WebKit portability, responsive desktop/tablet/mobile including visible localization navigation, resilience and keyboard accessibility passed.
-  - command: Downloads Acceptance run 30533410575
+  - command: Downloads Acceptance run 30534561631
     result: PASS
-    evidence: implementation evidence head.
-  - command: Phase 7 Production-Like Validation run 30533410826
+    evidence: exact restacked documentation head.
+  - command: Phase 7 Production-Like Validation run 30534561637
     result: PASS
-    evidence: implementation evidence head; staging-like boundary only.
-  - command: Platform DB Outage Validation run 30533411163
+    evidence: exact restacked documentation head; staging-like boundary only.
+  - command: Platform DB Outage Validation run 30534561753
     result: PASS
-    evidence: implementation evidence head.
-  - command: Edge Security Emulation run 30533410591
+    evidence: exact restacked documentation head.
+  - command: Edge Security Emulation run 30534561724
     result: PASS
-    evidence: implementation evidence head.
-  - command: Game Auth Ticket Concurrency run 30533410656
+    evidence: exact restacked documentation head.
+  - command: Game Auth Ticket Concurrency run 30534561649
     result: PASS
-    evidence: implementation evidence head.
+    evidence: exact restacked documentation head.
 blockers:
   - none
-next_action: Run the complete exact-head workflow set on the restacked documentation head, record final evidence, mark PR #349 ready and merge Issue #347 without closing parent #326.
+next_action: Confirm the checkpoint-only final head checks, mark PR #349 ready, update its exact evidence summary and merge Issue #347 without closing parent #326.
 ```
