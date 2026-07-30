@@ -1,0 +1,77 @@
+{
+  "schema_version": 1,
+  "description": "Canonical risk-based mappings from declared portal viewport and browser dimensions to executable Playwright projects and npm profiles. This contract proves dimension linkage, not the remaining every-state Cartesian matrix or production behavior.",
+  "viewport_dimensions": {
+    "desktop-1440x1000": {
+      "playwright_projects": ["chromium-primary"],
+      "npm_profiles": ["test"],
+      "browser_engine": "chromium",
+      "width": 1440,
+      "height": 1000
+    },
+    "tablet-820x1180": {
+      "playwright_projects": ["responsive-tablet"],
+      "npm_profiles": ["test:responsive"],
+      "browser_engine": "chromium",
+      "width": 820,
+      "height": 1180
+    },
+    "mobile-390x844": {
+      "playwright_projects": ["responsive-mobile"],
+      "npm_profiles": ["test:responsive"],
+      "browser_engine": "chromium",
+      "width": 390,
+      "height": 844
+    }
+  },
+  "browser_dimensions": {
+    "chromium-primary": {
+      "playwright_projects": ["chromium-primary"],
+      "npm_profiles": ["test"],
+      "engines": ["chromium"]
+    },
+    "bounded-portability": {
+      "playwright_projects": ["portability-chromium", "portability-firefox", "portability-webkit"],
+      "npm_profiles": ["test:portability"],
+      "engines": ["chromium", "firefox", "webkit"],
+      "rationale": "Representative non-secret critical flows are exercised across all three engines; secret-sensitive complete account lifecycle remains Chromium-only under ADR 0008."
+    },
+    "firefox-bounded": {
+      "playwright_projects": ["portability-firefox"],
+      "npm_profiles": ["test:portability"],
+      "engines": ["firefox"]
+    },
+    "webkit-bounded": {
+      "playwright_projects": ["portability-webkit"],
+      "npm_profiles": ["test:portability"],
+      "engines": ["webkit"]
+    },
+    "downloads-firefox-bounded": {
+      "playwright_projects": ["downloads-portability-firefox"],
+      "npm_profiles": ["test:downloads-portability"],
+      "engines": ["firefox"]
+    },
+    "downloads-webkit-bounded": {
+      "playwright_projects": ["downloads-portability-webkit"],
+      "npm_profiles": ["test:downloads-portability"],
+      "engines": ["webkit"]
+    }
+  },
+  "critical_rendered_surfaces": [
+    "identity.registration-login-session",
+    "public.home-and-seo"
+  ],
+  "critical_required_viewports": [
+    "desktop-1440x1000",
+    "tablet-820x1180",
+    "mobile-390x844"
+  ],
+  "surface_evidence_policy": {
+    "covered_status": "covered",
+    "supporting_statuses": ["supporting_endpoint", "not_delivered"],
+    "required_evidence_layer": "playwright",
+    "required_file_prefix": "scripts/acceptance/tests/",
+    "minimum_stable_markers": 1,
+    "non_rendered_rationale_field": "dimension_exclusion_rationale"
+  }
+}
