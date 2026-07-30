@@ -88,6 +88,63 @@ final class CatalogV13ConsumerTest extends TestCase
         $this->assertRejected($path, 'semantic.shop_canonical_identity');
     }
 
+    public function test_schema_13_rejection_preserves_the_prior_active_snapshot(): void
+    {
+        $baseline = app(CatalogImportService::class)->import(
+            base_path('tests/Fixtures/GameCatalog/v1/minimal-snapshot.json'),
+        );
+        $releaseId = $this->integerDatabaseValue(
+            DB::table('game_catalog_releases')->where('key', '15.20')->value('id'),
+        );
+        $now = CarbonImmutable::now('UTC');
+        DB::table('game_catalog_profiles')->insert([
+            'key' => 'schema-13-rejection-guard',
+            'name' => 'Schema 1.3 rejection guard',
+            'target_release_id' => $releaseId,
+            'active_snapshot_id' => null,
+            'protocol_profile' => 'fixture-protocol',
+            'complete_only' => true,
+            'completeness_policy_key' => 'complete-only',
+            'availability_policy_key' => 'public-proven',
+            'validation_policy_key' => 'validated-snapshot',
+            'public_enabled' => true,
+            'allow_backports' => false,
+            'lock_version' => 0,
+            'created_at' => $now,
+            'updated_at' => $now,
+        ]);
+        app(CatalogActivationService::class)->activate($baseline->snapshotId, 'schema-13-rejection-guard');
+        $projectionCount = DB::table('game_catalog_profile_entities')->count();
+        self::assertGreaterThan(0, $projectionCount);
+
+        $path = $this->temporarySnapshot(function (array &$payload): void {
+            $payload['relations'][1]['data']['currency']['item'] = 'item:missing-currency';
+        });
+        try {
+            app(CatalogImportService::class)->import($path);
+            self::fail('Expected the invalid schema 1.3 candidate to be rejected.');
+        } catch (CatalogValidationException $exception) {
+            self::assertContains(
+                'semantic.dangling_currency',
+                array_map(static fn ($finding): string => $finding->code, $exception->findings),
+            );
+        } finally {
+            @unlink($path);
+        }
+
+        self::assertSame(
+            $baseline->snapshotId,
+            $this->integerDatabaseValue(
+                DB::table('game_catalog_profiles')
+                    ->where('key', 'schema-13-rejection-guard')
+                    ->value('active_snapshot_id'),
+            ),
+        );
+        self::assertSame(1, DB::table('game_catalog_snapshots')->count());
+        self::assertSame($projectionCount, DB::table('game_catalog_profile_entities')->count());
+        self::assertSame(1, DB::table('game_catalog_import_runs')->where('status', 'rejected')->count());
+    }
+
     public function test_schema_13_is_inactive_import_only_even_with_a_profile(): void
     {
         $snapshot = app(CatalogImportService::class)->import($this->fixturePath());
