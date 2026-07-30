@@ -4,7 +4,7 @@ Convenience index only. Individual active task records, live PRs and Git state a
 
 ## Active tasks
 
-- None.
+- `OTERYN-20260729-product-completeness-reconciliation` / PR #315 — exact-SHA reconciliation of Issue #268 after PR #308, detailed audit report, bounded gap issues and governance-state cleanup. Owned paths are limited to the audit/benchmark and agent-state documentation listed in the task record.
 
 ## Closed acceptance and release-preparation follow-ups
 
@@ -72,21 +72,21 @@ Repository and staging evidence remains valid only for its documented boundaries
 
 - **Production Readiness: STAGING_PROVEN for previously documented boundaries**
 - **Portal Completeness: COMPLETE AGAINST THE VERSIONED DELIVERED-SURFACE CONTRACT (Issue #240 closed)**
-- **Product Completeness Benchmark: COMPLETE AS AN AUDIT; REQUIRED PRODUCT GAP #277 REMAINS OPEN, #278 IS MANDATORY BEFORE COMMERCE, #281 FIRST SCOPE IS COMPLETE, AND #301/#302 TRACK DEFERRED KNOWLEDGE**
+- **Product Completeness Audit: RECONCILING ON PR #315; REQUIRED GAPS #317/#319, PLANNED CHARACTER WORK #320/#323, COMMERCE #321/#322 AND KNOWLEDGE #301/#302 REMAIN**
 - **Benchmark Product Completeness: NOT YET ACHIEVED**
-- **Functional Acceptance: community-data exact-head CI, strict ledgers and zero-retry lifecycle passed through PR #298**
-- **Visual / UX Acceptance: community-data English/Polish desktop/tablet/mobile evidence and complete E2E/Visual UX passed through PR #298**
+- **Functional Acceptance: exact-final-head CI and zero-retry lifecycle passed through PR #308**
+- **Visual / UX Acceptance: broad exact-head evidence passed through PR #308; exhaustive every-screen/state closure remains #326**
 - **Public Website Expansion Programme: implementation and machine-ledger closure merged**
 - **Emulated Edge Security: STAGING_PROVEN**
 - **Synology Production Target Preflight: STAGING_PROVEN**
 - **Production Go-Live Gate: PENDING PRODUCTION VERIFICATION**
 - **Production Verification: REQUIRED BEFORE GO-LIVE**
 
-The latest verified final-portal staging refresh identity is `583cae5f430998b2bbdf5e60b59d93f09ec6f4c8` from PR #267 and deployment run `30335161092`. Later marketplace, account-security, Game Catalog, support/moderation and community-data evidence is repository/isolated-acceptance proof unless a deployment-specific record says otherwise. No repository, staging, local-target or emulation evidence may be promoted to `PRODUCTION_PROVEN`.
+The latest verified final-portal staging refresh identity is `583cae5f430998b2bbdf5e60b59d93f09ec6f4c8` from PR #267 and deployment run `30335161092`. Later marketplace, account-security, Game Catalog, support/moderation, community-data and profile-preference evidence is repository/isolated-acceptance proof unless a deployment-specific record says otherwise. No repository, staging, local-target or emulation evidence may be promoted to `PRODUCTION_PROVEN`.
 
 ## Next work
 
-No task is currently active. PR #308 completed Issue #307; parent #277 remains open for separately contracted mutation and achievement work. Remaining implementation trackers are #277 character mutation lifecycle, #301 authoritative structured catalogue expansion and #302 optional knowledge/discovery planning. Issue #278 is mandatory before commercial activation; #244 and #91 remain separate presentation and production trackers.
+Complete PR #315 exact-head validation and merge its durable audit/governance reconciliation. Product implementation remains explicitly split across #317, #319, #320, #321, #322, #323 and #301; optional discovery remains #302/#325, exhaustive visual/state evidence remains #326, and direct production verification remains #91.
 
 ## Remaining cross-repository dependency
 
