@@ -45,33 +45,60 @@
       "playwright_projects": ["portability-webkit"],
       "npm_profiles": ["test:portability"],
       "engines": ["webkit"]
-    },
-    "downloads-firefox-bounded": {
-      "playwright_projects": ["downloads-portability-firefox"],
-      "npm_profiles": ["test:downloads-portability"],
-      "engines": ["firefox"]
-    },
-    "downloads-webkit-bounded": {
-      "playwright_projects": ["downloads-portability-webkit"],
-      "npm_profiles": ["test:downloads-portability"],
-      "engines": ["webkit"]
     }
   },
+  "browser_dimension_patterns": [
+    {
+      "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*-chromium-desktop$",
+      "playwright_projects": ["chromium-primary"],
+      "npm_profiles": ["test"],
+      "engines": ["chromium"]
+    },
+    {
+      "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*-chromium-tablet$",
+      "playwright_projects": ["responsive-tablet"],
+      "npm_profiles": ["test:responsive"],
+      "engines": ["chromium"]
+    },
+    {
+      "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*-chromium-mobile$",
+      "playwright_projects": ["responsive-mobile"],
+      "npm_profiles": ["test:responsive"],
+      "engines": ["chromium"]
+    },
+    {
+      "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*-firefox-desktop$",
+      "playwright_projects": ["portability-firefox"],
+      "npm_profiles": ["test:portability"],
+      "engines": ["firefox"]
+    },
+    {
+      "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*-webkit-desktop$",
+      "playwright_projects": ["portability-webkit"],
+      "npm_profiles": ["test:portability"],
+      "engines": ["webkit"]
+    }
+  ],
   "critical_rendered_surfaces": [
     "identity.registration-login-session",
-    "public.home-and-seo"
+    "public.home-and-seo",
+    "admin.core-rbac-cms-audit"
   ],
   "critical_required_viewports": [
     "desktop-1440x1000",
     "tablet-820x1180",
     "mobile-390x844"
   ],
+  "supporting_surface_exclusions": {
+    "browser-supporting-media-preview-endpoints": {
+      "rationale": "Resource delivery, thumbnails and signed previews are supporting HTTP endpoints. Their browser behavior is proven through rendered Wiki and EditorialMedia consumers rather than a standalone page matrix."
+    }
+  },
   "surface_evidence_policy": {
     "covered_status": "covered",
     "supporting_statuses": ["supporting_endpoint", "not_delivered"],
     "required_evidence_layer": "playwright",
     "required_file_prefix": "scripts/acceptance/tests/",
-    "minimum_stable_markers": 1,
-    "non_rendered_rationale_field": "dimension_exclusion_rationale"
+    "minimum_stable_markers": 1
   }
 }
