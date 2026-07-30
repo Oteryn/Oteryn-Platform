@@ -93,83 +93,52 @@ namespace App\GameCatalog\Application\Import;
  *   currency: CatalogCurrencyEndpoint,
  *   attributes: array<array-key, mixed>
  * }
- * @phpstan-type CatalogEntityCommon array{
- *   canonical_key: string,
- *   introduced_in: string|null,
- *   removed_in: string|null,
- *   completeness: string,
- *   availability: string,
- *   runtime_present: bool,
- *   enabled: bool,
- *   identifiers: list<CatalogIdentifier>,
- *   source_path: string|null
+ * @phpstan-type CatalogItemEntity array{
+ *   type: 'item', canonical_key: string, introduced_in: string|null, removed_in: string|null,
+ *   completeness: string, availability: string, runtime_present: bool, enabled: bool,
+ *   identifiers: list<CatalogIdentifier>, source_path: string|null, data: CatalogItemData
  * }
- * @phpstan-type CatalogItemEntity CatalogEntityCommon&array{type: 'item', data: CatalogItemData}
- * @phpstan-type CatalogCreatureEntity CatalogEntityCommon&array{type: 'creature', data: CatalogCreatureData}
- * @phpstan-type CatalogNpcEntity CatalogEntityCommon&array{type: 'npc', data: CatalogNpcData}
+ * @phpstan-type CatalogCreatureEntity array{
+ *   type: 'creature', canonical_key: string, introduced_in: string|null, removed_in: string|null,
+ *   completeness: string, availability: string, runtime_present: bool, enabled: bool,
+ *   identifiers: list<CatalogIdentifier>, source_path: string|null, data: CatalogCreatureData
+ * }
+ * @phpstan-type CatalogNpcEntity array{
+ *   type: 'npc', canonical_key: string, introduced_in: string|null, removed_in: string|null,
+ *   completeness: string, availability: string, runtime_present: bool, enabled: bool,
+ *   identifiers: list<CatalogIdentifier>, source_path: string|null, data: CatalogNpcData
+ * }
  * @phpstan-type CatalogEntity CatalogItemEntity|CatalogCreatureEntity|CatalogNpcEntity
  * @phpstan-type CatalogRationalLootData array{
- *   chance_numerator: int,
- *   chance_denominator: int,
- *   minimum_count: int,
- *   maximum_count: int,
- *   container_path: string|null,
- *   condition_data: array<array-key, mixed>|null
+ *   chance_numerator: int, chance_denominator: int, minimum_count: int, maximum_count: int,
+ *   container_path: string|null, condition_data: array<array-key, mixed>|null
  * }
  * @phpstan-type CatalogRuntimeThresholdLootData array{
- *   chance_model: 'canary_dynamic_threshold_v1',
- *   chance_threshold: int,
- *   roll_maximum: int,
- *   minimum_count: int,
- *   maximum_count: int,
- *   container_path: string|null,
+ *   chance_model: 'canary_dynamic_threshold_v1', chance_threshold: int, roll_maximum: int,
+ *   minimum_count: int, maximum_count: int, container_path: string|null,
  *   condition_data: array<array-key, mixed>|null
  * }
  * @phpstan-type CatalogLootData CatalogRationalLootData|CatalogRuntimeThresholdLootData
  * @phpstan-type CatalogStorageRequirement array{key: int, value: int}
  * @phpstan-type CatalogShopOfferData array{
- *   runtime_path: list<int>,
- *   item_name: string,
- *   item_subtype: int,
- *   priced_item_count: 1,
- *   price_amount: int,
- *   currency: CatalogCurrencyEndpoint,
- *   storage_requirement: CatalogStorageRequirement|null,
- *   attributes: array<array-key, mixed>
+ *   runtime_path: list<int>, item_name: string, item_subtype: int, priced_item_count: 1,
+ *   price_amount: int, currency: CatalogCurrencyEndpoint,
+ *   storage_requirement: CatalogStorageRequirement|null, attributes: array<array-key, mixed>
  * }
  * @phpstan-type CatalogLootRelation array{
- *   type: 'creature_loot',
- *   canonical_key: string,
- *   source: string,
- *   target: string,
- *   introduced_in: string|null,
- *   removed_in: string|null,
- *   completeness: string,
- *   enabled: bool,
- *   source_path: string|null,
- *   data: CatalogLootData
+ *   type: 'creature_loot', canonical_key: string, source: string, target: string,
+ *   introduced_in: string|null, removed_in: string|null, completeness: string,
+ *   enabled: bool, source_path: string|null, data: CatalogLootData
  * }
  * @phpstan-type CatalogShopRelation array{
- *   type: 'npc_buy_offer'|'npc_sell_offer',
- *   canonical_key: string,
- *   source: string,
- *   target: string,
- *   introduced_in: string|null,
- *   removed_in: string|null,
- *   completeness: string,
- *   availability: string,
- *   enabled: bool,
- *   source_path: string|null,
- *   data: CatalogShopOfferData
+ *   type: 'npc_buy_offer'|'npc_sell_offer', canonical_key: string, source: string, target: string,
+ *   introduced_in: string|null, removed_in: string|null, completeness: string,
+ *   availability: string, enabled: bool, source_path: string|null, data: CatalogShopOfferData
  * }
  * @phpstan-type CatalogRelation CatalogLootRelation|CatalogShopRelation
  * @phpstan-type CatalogPayload array{
- *   contract: string,
- *   schema_version: string,
- *   snapshot: CatalogSnapshotMetadata,
- *   releases: list<CatalogRelease>,
- *   entities: list<CatalogEntity>,
- *   relations: list<CatalogRelation>
+ *   contract: string, schema_version: string, snapshot: CatalogSnapshotMetadata,
+ *   releases: list<CatalogRelease>, entities: list<CatalogEntity>, relations: list<CatalogRelation>
  * }
  */
 final readonly class ValidatedCatalogSnapshot
