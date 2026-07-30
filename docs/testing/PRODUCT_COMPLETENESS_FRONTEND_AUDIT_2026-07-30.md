@@ -12,7 +12,7 @@ Audited `main`: `f90bb8075b300569b7d493c84f0080e6b3295c35`
 
 Audit pull request: #315
 
-Machine-enforcement issue: #340 under parent #326
+Machine-enforcement issues: #340 and #347 under parent #326
 
 ## Mandatory integrated-delivery rule
 
@@ -51,7 +51,7 @@ The authoritative frontend inventory is built from actual named routes and rende
 
 ## Machine-enforced cross-ledger slice
 
-Issue #340 introduces the first fail-closed implementation of this rule:
+Issue #340 introduced the first fail-closed implementation of this rule:
 
 - `docs/testing/product-backend-frontend-completeness.json` contains exactly one backend/frontend/integration record for every canonical product capability;
 - `scripts/acceptance/coverage/validate-backend-frontend-completeness.mjs` cross-checks those records against `docs/testing/product-completeness-benchmark.json` and the actual portal surface manifest/fragments;
@@ -62,6 +62,24 @@ Issue #340 introduces the first fail-closed implementation of this rule:
 - strict Portal Acceptance runs the product, route and backend/frontend validators on the exact PR SHA.
 
 This enforcement closes only the cross-ledger promotion risk. It does not close the remaining every-rendered-screen, every-state, every-browser or production matrix owned by parent #326.
+
+## Machine-enforced viewport and browser dimension slice
+
+Issue #347 / PR #349 adds the next fail-closed frontend-evidence layer:
+
+- `scripts/acceptance/coverage/portal-evidence-dimensions.json` and four fragments contain exactly 27 records, matching all delivered portal surfaces including the supporting media endpoints;
+- 13 executable profile groups identify exact Playwright configuration files, project names, browser engines, viewport dimensions, blocking workflow invocations and zero-retry evidence;
+- all 23 critical rendered surfaces must prove Chromium desktop `1440x1000`, tablet `820x1180` and mobile `390x844` through either an exact project mapping or an exact test-controlled viewport marker;
+- every declared browser/profile identifier must map to an executable project and exact stable marker;
+- Firefox/WebKit coverage must be executable, or the surface must contain a bounded risk-based exclusion rationale for secret-bearing, destructive or high-mutation flows;
+- six general dimension fixtures plus two critical-viewport fixtures fail closed on missing mobile evidence, unknown projects or browser identifiers, missing rationale, missing markers, orphan records, missing tablet execution and non-blocking critical evidence;
+- the strict Portal Acceptance entrypoint now runs the dimension validators and all eight negative fixtures.
+
+The implementation evidence head `611b130fb50a1fb2661b890b7f80a70675dad58d` passed Agent Governance `30533411297`, CI `30533410756`, Portal Acceptance Contract `30533410929`, Acceptance E2E and Visual UX `30533411097`, Downloads Acceptance `30533410575`, Phase 7 Production-Like Validation `30533410826`, Platform DB Outage Validation `30533411163`, Edge Security Emulation `30533410591` and Game Auth Ticket Concurrency `30533410656`.
+
+The new responsive execution found two real evidence defects in the test harness: tablet/mobile localization initially selected hidden desktop language and navigation elements. The assertions now require the visible language and `Aktualności` links through the actual responsive menu. Marketplace also no longer declares generic `bounded-portability` without an executable Firefox/WebKit profile; its responsive Chromium proof and explicit risk-based portability exclusion are recorded truthfully.
+
+This slice proves exact dimension linkage, not every state/data/error/media permutation. Issue #350 / PR #351 separately proved long values, pagination beyond 50 rows, a genuine non-debug Laravel `500` and deterministic recovery for public game data. Parent #326 remains open for every other unproven rendered-screen state permutation.
 
 ## Current backend–frontend reconciliation
 
@@ -123,7 +141,7 @@ Every new user-facing implementation issue must include:
 
 ## Remaining frontend evidence gap
 
-Issue #326 remains required because current browser evidence is broad but does not yet prove the complete Cartesian matrix of every rendered screen against every requested viewport, engine, long-data, 500, missing-image and broken-image state.
+Issue #326 remains required because current browser evidence is broad but does not yet prove the complete Cartesian matrix of every rendered screen against every requested state, long-data, 500, missing-image and broken-image condition. Issue #347 makes declared viewport/browser evidence exact; it does not infer unexecuted state permutations from a dimension-level pass.
 
 This gap does not invalidate the integrated flows already proven. It prevents claiming exhaustive frontend completeness and requires any unproven surface/state to remain `PARTIAL` or `UNTESTED` rather than being inferred from backend coverage.
 
