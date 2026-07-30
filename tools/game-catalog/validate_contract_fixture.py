@@ -29,6 +29,11 @@ PUBLIC_CREATURE_AVAILABILITY = {
     "event_only",
     "quest_only",
 }
+PUBLIC_ENTITY_AVAILABILITY = {
+    "item": PUBLIC_ITEM_AVAILABILITY,
+    "creature": PUBLIC_CREATURE_AVAILABILITY,
+    "npc": set(),
+}
 
 
 class ContractValidationError(ValueError):
@@ -78,7 +83,10 @@ def _schema_validate(schema: Any, fixture: Any) -> None:
 
     Draft202012Validator.check_schema(schema)
     errors = sorted(
-        Draft202012Validator(schema, format_checker=Draft202012Validator.FORMAT_CHECKER).iter_errors(fixture),
+        Draft202012Validator(
+            schema,
+            format_checker=Draft202012Validator.FORMAT_CHECKER,
+        ).iter_errors(fixture),
         key=lambda error: tuple(str(part) for part in error.absolute_path),
     )
     if errors:
@@ -89,7 +97,9 @@ def _schema_validate(schema: Any, fixture: Any) -> None:
                 path += f"[{part}]" if isinstance(part, int) else f".{part}"
             rendered.append(f"{path}: {error.message}")
         suffix = "" if len(errors) <= 20 else f"; {len(errors) - 20} additional errors"
-        raise ContractValidationError("JSON Schema validation failed: " + " | ".join(rendered) + suffix)
+        raise ContractValidationError(
+            "JSON Schema validation failed: " + " | ".join(rendered) + suffix
+        )
 
 
 def _safe_relative_source_path(value: Any, owner: str) -> None:
@@ -102,7 +112,11 @@ def _safe_relative_source_path(value: Any, owner: str) -> None:
     _require(".." not in path.parts, f"{owner}: source_path must not contain '..'")
 
 
-def _release_order(releases: dict[str, dict[str, Any]], key: str | None, owner: str) -> int | None:
+def _release_order(
+    releases: dict[str, dict[str, Any]],
+    key: str | None,
+    owner: str,
+) -> int | None:
     if key is None:
         return None
     _require(key in releases, f"{owner}: unknown release reference {key!r}")
@@ -149,11 +163,12 @@ def _visible_entities(
 ) -> set[str]:
     visible: set[str] = set()
     for entity in fixture["entities"]:
-        availability = (
-            PUBLIC_ITEM_AVAILABILITY
-            if entity["type"] == "item"
-            else PUBLIC_CREATURE_AVAILABILITY
+        entity_type = entity["type"]
+        _require(
+            entity_type in PUBLIC_ENTITY_AVAILABILITY,
+            f"{entity['canonical_key']}: unsupported entity type {entity_type!r}",
         )
+        availability = PUBLIC_ENTITY_AVAILABILITY[entity_type]
         if (
             entity["runtime_present"]
             and entity["enabled"]
@@ -179,6 +194,13 @@ def _visible_relations(
 ) -> set[str]:
     visible: set[str] = set()
     for relation in fixture["relations"]:
+        relation_type = relation["type"]
+        _require(
+            relation_type in {"creature_loot", "npc_buy_offer", "npc_sell_offer"},
+            f"{relation['canonical_key']}: unsupported relation type {relation_type!r}",
+        )
+        if relation_type != "creature_loot":
+            continue
         if (
             relation["enabled"]
             and relation["completeness"] == "complete"
@@ -194,6 +216,96 @@ def _visible_relations(
         ):
             visible.add(relation["canonical_key"])
     return visible
+
+
+def _require_entity_type(
+    entities_by_key: dict[str, dict[str, Any]],
+    key: str,
+    expected_type: str,
+    owner: str,
+    role: str,
+) -> dict[str, Any]:
+    entity = entities_by_key[key]
+    _require(
+        entity["type"] == expected_type,
+        f"{owner}: {role} endpoint must be {expected_type}, got {entity['type']}",
+    )
+    return entity
+
+
+def _validate_currency_endpoint(
+    entities_by_key: dict[str, dict[str, Any]],
+    currency: dict[str, Any],
+    owner: str,
+) -> None:
+    currency_key = currency["item"]
+    _require(currency_key in entities_by_key, f"{owner}: dangling currency endpoint")
+    currency_entity = _require_entity_type(
+        entities_by_key,
+        currency_key,
+        "item",
+        owner,
+        "currency",
+    )
+    _require(
+        currency_entity["data"]["server_id"] == currency["server_id"],
+        f"{owner}: currency server_id does not match the referenced item",
+    )
+
+
+def _validate_loot_relation(
+    relation: dict[str, Any],
+    entities_by_key: dict[str, dict[str, Any]],
+    expected_schema_version: str,
+) -> None:
+    owner = relation["canonical_key"]
+    _require_entity_type(entities_by_key, relation["source"], "creature", owner, "source")
+    _require_entity_type(entities_by_key, relation["target"], "item", owner, "target")
+
+    data = relation["data"]
+    if expected_schema_version in {"1.2.0", "1.3.0"}:
+        _require(
+            data["chance_model"] == "canary_dynamic_threshold_v1",
+            f"{owner}: unsupported loot chance model",
+        )
+        _require(data["chance_threshold"] >= 0, f"{owner}: invalid loot threshold")
+        _require(data["roll_maximum"] > 0, f"{owner}: invalid loot roll maximum")
+    else:
+        _require(
+            0 <= data["chance_numerator"] <= data["chance_denominator"],
+            f"{owner}: invalid loot probability",
+        )
+    _require(
+        data["minimum_count"] <= data["maximum_count"],
+        f"{owner}: maximum_count is below minimum_count",
+    )
+
+
+def _validate_shop_relation(
+    relation: dict[str, Any],
+    entities_by_key: dict[str, dict[str, Any]],
+    expected_schema_version: str,
+) -> None:
+    owner = relation["canonical_key"]
+    _require(
+        expected_schema_version == "1.3.0",
+        f"{owner}: NPC shop relations require schema 1.3.0",
+    )
+    _require_entity_type(entities_by_key, relation["source"], "npc", owner, "source")
+    _require_entity_type(entities_by_key, relation["target"], "item", owner, "target")
+
+    data = relation["data"]
+    _require(data["priced_item_count"] == 1, f"{owner}: priced_item_count must be 1")
+    _require(data["price_amount"] > 0, f"{owner}: price_amount must be positive")
+    _validate_currency_endpoint(entities_by_key, data["currency"], owner)
+
+    direction = "buy" if relation["type"] == "npc_buy_offer" else "sell"
+    runtime_path = ".".join(str(part) for part in data["runtime_path"])
+    expected_key = f"shop:{relation['source']}:{direction}:{relation['target']}:{runtime_path}"
+    _require(
+        owner == expected_key,
+        f"{owner}: canonical key does not match source, target, direction and runtime path",
+    )
 
 
 def _validate_fixture_semantics(
@@ -221,7 +333,8 @@ def _validate_fixture_semantics(
     _require(len(release_keys) == len(set(release_keys)), "duplicate release key")
     _require(len(release_orders) == len(set(release_orders)), "duplicate release_order")
     expected_release_sort = sorted(
-        releases_list, key=lambda release: (release["release_order"], release["key"])
+        releases_list,
+        key=lambda release: (release["release_order"], release["key"]),
     )
     _require(releases_list == expected_release_sort, "releases are not deterministically sorted")
     releases = {release["key"]: release for release in releases_list}
@@ -244,23 +357,43 @@ def _validate_fixture_semantics(
         "entities are not deterministically sorted",
     )
 
+    entities_by_key = {entity["canonical_key"]: entity for entity in entities}
     for entity in entities:
         owner = entity["canonical_key"]
+        entity_type = entity["type"]
+        _require(
+            entity_type in {"item", "creature", "npc"},
+            f"{owner}: unsupported entity type {entity_type!r}",
+        )
+        _require(
+            owner.startswith(f"{entity_type}:"),
+            f"{owner}: canonical key does not match entity type {entity_type}",
+        )
         _validate_range(releases, entity["introduced_in"], entity["removed_in"], owner)
         _safe_relative_source_path(entity.get("source_path"), owner)
         identifiers = entity["identifiers"]
         _require(
-            identifiers == sorted(
-                identifiers, key=lambda identifier: (identifier["namespace"], identifier["value"])
+            identifiers
+            == sorted(
+                identifiers,
+                key=lambda identifier: (identifier["namespace"], identifier["value"]),
             ),
             f"{owner}: identifiers are not deterministically sorted",
         )
+        if entity_type == "npc":
+            _require(
+                expected_schema_version == "1.3.0",
+                f"{owner}: NPC entities require schema 1.3.0",
+            )
+            _validate_currency_endpoint(entities_by_key, entity["data"]["currency"], owner)
 
     relation_keys = [relation["canonical_key"] for relation in relations]
     _require(len(relation_keys) == len(set(relation_keys)), "duplicate relation canonical key")
     _require(
-        relations == sorted(
-            relations, key=lambda relation: (relation["type"], relation["canonical_key"])
+        relations
+        == sorted(
+            relations,
+            key=lambda relation: (relation["type"], relation["canonical_key"]),
         ),
         "relations are not deterministically sorted",
     )
@@ -272,35 +405,66 @@ def _validate_fixture_semantics(
         _safe_relative_source_path(relation.get("source_path"), owner)
         _require(relation["source"] in entity_key_set, f"{owner}: dangling source endpoint")
         _require(relation["target"] in entity_key_set, f"{owner}: dangling target endpoint")
-        data = relation["data"]
-        if expected_schema_version == "1.2.0":
-            _require(
-                data["chance_model"] == "canary_dynamic_threshold_v1",
-                f"{owner}: unsupported loot chance model",
-            )
-            _require(data["chance_threshold"] >= 0, f"{owner}: invalid loot threshold")
-            _require(data["roll_maximum"] > 0, f"{owner}: invalid loot roll maximum")
+
+        relation_type = relation["type"]
+        if relation_type == "creature_loot":
+            _validate_loot_relation(relation, entities_by_key, expected_schema_version)
+        elif relation_type in {"npc_buy_offer", "npc_sell_offer"}:
+            _validate_shop_relation(relation, entities_by_key, expected_schema_version)
         else:
-            _require(
-                0 <= data["chance_numerator"] <= data["chance_denominator"],
-                f"{owner}: invalid loot probability",
-            )
+            raise ContractValidationError(f"{owner}: unsupported relation type {relation_type!r}")
+
+    if expected_schema_version == "1.3.0":
+        _require(len(releases_list) >= 1, "fixture must contain at least one release")
         _require(
-            data["minimum_count"] <= data["maximum_count"],
-            f"{owner}: maximum_count is below minimum_count",
+            any(entity["type"] == "npc" for entity in entities),
+            "fixture must contain one NPC",
         )
+        _require(
+            any(relation["type"] == "npc_buy_offer" for relation in relations),
+            "fixture must contain one NPC buy offer",
+        )
+        _require(
+            any(relation["type"] == "npc_sell_offer" for relation in relations),
+            "fixture must contain one NPC sell offer",
+        )
+        target_release = snapshot["content_target_release"]
+        visible_entities = _visible_entities(fixture, releases, target_release)
+        visible_relations = _visible_relations(
+            fixture,
+            releases,
+            target_release,
+            visible_entities,
+        )
+        _require(
+            not visible_entities and not visible_relations,
+            "schema 1.3 fixture must remain inactive and unverified",
+        )
+        return {
+            f"{target_release}_entities": sorted(visible_entities),
+            f"{target_release}_relations": sorted(visible_relations),
+        }
 
     _require(len(releases_list) >= 2, "fixture must contain at least two releases")
     _require(
-        any(entity["type"] == "item" and entity["introduced_in"] == "15.21" for entity in entities),
+        any(
+            entity["type"] == "item" and entity["introduced_in"] == "15.21"
+            for entity in entities
+        ),
         "fixture must contain one future item",
     )
     _require(
-        any(entity["type"] == "creature" and entity["completeness"] == "complete" for entity in entities),
+        any(
+            entity["type"] == "creature" and entity["completeness"] == "complete"
+            for entity in entities
+        ),
         "fixture must contain one complete creature",
     )
     _require(
-        any(entity["type"] == "creature" and entity["completeness"] == "partial" for entity in entities),
+        any(
+            entity["type"] == "creature" and entity["completeness"] == "partial"
+            for entity in entities
+        ),
         "fixture must contain one partial creature",
     )
 
