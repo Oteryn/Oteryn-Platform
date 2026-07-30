@@ -96,6 +96,22 @@ Issue #357 / PR #358 adds a fail-closed media applicability and rendered-state l
 
 This media slice closes only the delivered managed-media state contract. It does not create image requirements for text-only surfaces, does not prove unrelated state permutations and does not close parent #326.
 
+## Machine-enforced route/view source slice
+
+Issue #360 / PR #361 now adds a bounded source-derived route and Blade-view closure:
+
+- the exact-head analyzer discovers 240 named Laravel routes, 156 GET-like routes, 121 Blade files, 394 literal named-route references and 254 literal view references;
+- literal references currently contain zero unknown named routes and zero missing Blade targets;
+- six page-like Blade files have no literal production view reference: the status-specific `403`, `404`, `429`, `500` and `503` error templates plus `home-preview.blade.php`;
+- the five error templates are explicitly classified as Laravel framework-convention views because exception rendering resolves `resources/views/errors/{status}.blade.php` without a literal `view()` call;
+- `home-preview.blade.php` is classified as a tracked retirement boundary under Issue #244 because it is a noindex design prototype with no delivered route, controller or parent-view reference;
+- `docs/testing/PORTAL_ROUTE_VIEW_NAVIGATION_EVIDENCE.json` is the bounded classification ledger for these source exceptions;
+- the validator fails on an unclassified page candidate, a stale record, duplicate ownership, an unsupported classification, weak rationale, missing evidence or an invalid tracked-retirement issue;
+- `scripts/acceptance/coverage/test-route-view-navigation.mjs` proves the fail-closed behavior with a deterministic negative fixture;
+- strict Portal Acceptance run `30586022880`, job `91017471882`, passed this contract on implementation head `d4fb7a019c495d41bee735fbfd82709d7f33a81d` with no unclassified candidates, no stale classifications and no errors.
+
+This slice does not yet complete Issue #360. The remaining work is to classify every named route by route kind, bind every rendered route to its exact view or rendering source, and prove global/contextual navigation or a bounded direct-entry rationale. Parent #326 remains open, and the independently reproducible responsive-mobile Wiki publication-status regression is tracked by Issue #365 rather than being attributed to this source-inventory tooling.
+
 ## Current backend–frontend reconciliation
 
 The following matrix records the current integrated boundary at the audited revision. `Integrated` means both backend and reachable frontend are present for the stated delivered scope. It does not imply exhaustive every-state visual proof; remaining exhaustive evidence is owned by #326.
