@@ -30,6 +30,7 @@ namespace App\GameCatalog\Application\Import;
  *   relation_count: int
  * }
  * @phpstan-type CatalogIdentifier array{namespace: string, value: string}
+ * @phpstan-type CatalogCurrencyEndpoint array{item: string, server_id: int}
  * @phpstan-type CatalogItemData array{
  *   server_id: int,
  *   client_id: int|null,
@@ -81,8 +82,18 @@ namespace App\GameCatalog\Application\Import;
  *   defenses: array<array-key, mixed>,
  *   attributes: array<array-key, mixed>
  * }
- * @phpstan-type CatalogItemEntity array{
- *   type: 'item',
+ * @phpstan-type CatalogNpcData array{
+ *   registry_key: string,
+ *   runtime_name: string,
+ *   display_name: string|null,
+ *   type_name: string,
+ *   name_description: string|null,
+ *   aliases: list<string>,
+ *   registration_status: string,
+ *   currency: CatalogCurrencyEndpoint,
+ *   attributes: array<array-key, mixed>
+ * }
+ * @phpstan-type CatalogEntityCommon array{
  *   canonical_key: string,
  *   introduced_in: string|null,
  *   removed_in: string|null,
@@ -91,23 +102,12 @@ namespace App\GameCatalog\Application\Import;
  *   runtime_present: bool,
  *   enabled: bool,
  *   identifiers: list<CatalogIdentifier>,
- *   source_path: string|null,
- *   data: CatalogItemData
+ *   source_path: string|null
  * }
- * @phpstan-type CatalogCreatureEntity array{
- *   type: 'creature',
- *   canonical_key: string,
- *   introduced_in: string|null,
- *   removed_in: string|null,
- *   completeness: string,
- *   availability: string,
- *   runtime_present: bool,
- *   enabled: bool,
- *   identifiers: list<CatalogIdentifier>,
- *   source_path: string|null,
- *   data: CatalogCreatureData
- * }
- * @phpstan-type CatalogEntity CatalogItemEntity|CatalogCreatureEntity
+ * @phpstan-type CatalogItemEntity CatalogEntityCommon&array{type: 'item', data: CatalogItemData}
+ * @phpstan-type CatalogCreatureEntity CatalogEntityCommon&array{type: 'creature', data: CatalogCreatureData}
+ * @phpstan-type CatalogNpcEntity CatalogEntityCommon&array{type: 'npc', data: CatalogNpcData}
+ * @phpstan-type CatalogEntity CatalogItemEntity|CatalogCreatureEntity|CatalogNpcEntity
  * @phpstan-type CatalogRationalLootData array{
  *   chance_numerator: int,
  *   chance_denominator: int,
@@ -126,7 +126,18 @@ namespace App\GameCatalog\Application\Import;
  *   condition_data: array<array-key, mixed>|null
  * }
  * @phpstan-type CatalogLootData CatalogRationalLootData|CatalogRuntimeThresholdLootData
- * @phpstan-type CatalogRelation array{
+ * @phpstan-type CatalogStorageRequirement array{key: int, value: int}
+ * @phpstan-type CatalogShopOfferData array{
+ *   runtime_path: list<int>,
+ *   item_name: string,
+ *   item_subtype: int,
+ *   priced_item_count: 1,
+ *   price_amount: int,
+ *   currency: CatalogCurrencyEndpoint,
+ *   storage_requirement: CatalogStorageRequirement|null,
+ *   attributes: array<array-key, mixed>
+ * }
+ * @phpstan-type CatalogLootRelation array{
  *   type: 'creature_loot',
  *   canonical_key: string,
  *   source: string,
@@ -138,6 +149,20 @@ namespace App\GameCatalog\Application\Import;
  *   source_path: string|null,
  *   data: CatalogLootData
  * }
+ * @phpstan-type CatalogShopRelation array{
+ *   type: 'npc_buy_offer'|'npc_sell_offer',
+ *   canonical_key: string,
+ *   source: string,
+ *   target: string,
+ *   introduced_in: string|null,
+ *   removed_in: string|null,
+ *   completeness: string,
+ *   availability: string,
+ *   enabled: bool,
+ *   source_path: string|null,
+ *   data: CatalogShopOfferData
+ * }
+ * @phpstan-type CatalogRelation CatalogLootRelation|CatalogShopRelation
  * @phpstan-type CatalogPayload array{
  *   contract: string,
  *   schema_version: string,
