@@ -27,14 +27,14 @@ Deliver Issue #357 as a bounded fail-closed audit, runtime fallback repair and e
 
 ## Acceptance criteria
 
-- [ ] Every covered rendered surface is explicitly classified as `media_consumer`, `not_applicable` or a justified supporting endpoint.
-- [ ] Every applicable normal, missing, broken/integrity-failed and no-image state maps to exact executable evidence.
-- [ ] Referenced evidence files, stable markers, Playwright projects and npm profiles exist.
-- [ ] Public Wiki, Wiki administration and administrator Editorial Media render a visible, accessible fallback when a referenced object is absent or fails integrity delivery.
-- [ ] Unknown consumers, missing mappings and orphan evidence fail deterministically.
-- [ ] Deterministic negative fixtures cover the contract failure modes.
-- [ ] Strict Portal Acceptance executes the validator and fixtures.
-- [ ] Parent #326 and all production nonclaims remain open.
+- [x] Every covered rendered surface is explicitly classified as `media_consumer`, `not_applicable` or a justified supporting endpoint.
+- [x] Every applicable normal, missing, broken/integrity-failed and no-image state maps to exact executable evidence.
+- [x] Referenced evidence files, stable markers, Playwright projects and npm profiles exist.
+- [x] Public Wiki, Wiki administration and administrator Editorial Media render a visible, accessible fallback when a referenced object is absent or fails integrity delivery.
+- [x] Unknown consumers, missing mappings and orphan evidence fail deterministically.
+- [x] Deterministic negative fixtures cover the contract failure modes.
+- [x] Strict Portal Acceptance executes the validator and fixtures.
+- [x] Parent #326 and all production nonclaims remain open.
 
 ## Ownership
 
@@ -57,6 +57,7 @@ owned_paths:
   - scripts/acceptance/tests/admin-wiki-editorial-media.spec.mjs
   - scripts/acceptance/tests/public-wiki-read-search.spec.mjs
   - scripts/acceptance/coverage/validate-portal-media-state-evidence.mjs
+  - scripts/acceptance/coverage/validate-portal-media-strict-closure.mjs
   - scripts/acceptance/coverage/test-portal-media-state-evidence.mjs
   - scripts/acceptance/package.json
   - .github/workflows/portal-acceptance-contract.yml
@@ -79,11 +80,11 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-07-30T15:45:00Z
-head: eee49db885f75f4e7a67b493ab611a57dbc2a17e
+updated_at: 2026-07-30T16:05:00Z
+implementation_head: 45d00342c0ac7e5b8a5591a10e9cae74c4e42288
 branch: test/OTERYN-20260730-media-fallback-evidence
 pr: 358
-status: implementing
+status: validating
 context_routes:
   - agent-governance
   - testing
@@ -107,47 +108,68 @@ owned_paths:
   - scripts/acceptance/tests/admin-wiki-editorial-media.spec.mjs
   - scripts/acceptance/tests/public-wiki-read-search.spec.mjs
   - scripts/acceptance/coverage/validate-portal-media-state-evidence.mjs
+  - scripts/acceptance/coverage/validate-portal-media-strict-closure.mjs
   - scripts/acceptance/coverage/test-portal-media-state-evidence.mjs
   - scripts/acceptance/package.json
   - .github/workflows/portal-acceptance-contract.yml
 proven:
-  - Parent Issue #326 explicitly requires missing/broken media states only on media-consuming surfaces.
-  - The delivered rendered media consumers are Public Wiki article media, Wiki administrator media discovery/preview and the administrator Editorial Media library; protected byte routes are supporting endpoints, not rendered UX.
-  - Missing or stale Wiki references already render a text placeholder through WikiMediaImageRenderer.
-  - A referenced Wiki object whose byte endpoint returns 404 or 503 remained a broken img element because no runtime error fallback was installed.
+  - Parent Issue #326 requires missing/broken media states only on actual media-consuming surfaces.
+  - Exactly three rendered consumers exist in the delivered inventory: Public Wiki article media, Wiki administrator media discovery/preview and the administrator Editorial Media library.
+  - All other canonical delivered surfaces have bounded not-applicable rationales; protected byte routes remain supporting endpoints rather than rendered UX.
+  - A referenced Wiki object whose byte endpoint returned 404 or 503 previously remained a broken img element.
   - Administrator media and Wiki picker thumbnails had the same broken-img behavior when storage was absent or integrity verification failed.
-  - The branch now marks Wiki and administrator images for a shared visible fallback and includes the initial fail-closed media evidence validator in strict acceptance.
+  - The shared capture-phase fallback now replaces failed images idempotently with visible role-img content, preserves authoritative alt text and exposes bounded administrator preview-unavailable copy.
+  - Deterministic acceptance fixtures remove stored objects or corrupt bytes without deleting metadata or references.
+  - Three consumers times four required states produce twelve exact evidence mappings and zero gaps.
+  - Strict closure requires strict_closure true, zero gaps and valid canonical surfaces, files, markers, profiles and projects.
+  - Eleven negative fixtures fail closed on missing/orphan classifications, supporting-endpoint promotion, missing states/markers, unknown profiles/projects, weak rationales, disabled strict closure and reintroduced gaps.
   - Existing zero-retry Chromium desktop/tablet/mobile profiles execute Editorial Media and responsive Wiki evidence.
   - Current main at task start is eb5736610f4554b196d870d88f4dea2b541db708.
 derived:
-  - One small shared client-side image-error fallback preserves localized alt authority for Wiki and exposes a bounded administrator preview-unavailable state without weakening private storage or integrity checks.
+  - The smallest truthful repair is one shared client-side image-error fallback plus exact rendered-state evidence; weakening private storage or integrity validation is unnecessary.
 unknown:
-  - Exact final browser and CI evidence on the repaired branch head.
+  - Exact final workflow set on the documentation checkpoint head.
 conflicts: []
 first_failure:
-  marker: broken referenced media remains an img element after byte delivery failure
+  marker: broken referenced media remained an img element after byte delivery failure
   evidence: original Wiki renderer, media library and Wiki picker emitted img elements without visible delivery-error replacement
 rejected_hypotheses:
   - Treat every rendered route as a media consumer.
   - Treat a successful image URL response as proof of visible fallback UX.
   - Treat protected media byte endpoints as standalone rendered surfaces.
+  - Weaken integrity failures into successful image responses.
 changed_paths:
+  - .github/workflows/portal-acceptance-contract.yml
   - app/Wiki/Infrastructure/Rendering/WikiMediaImageRenderer.php
   - docs/agents/tasks/active/OTERYN-20260730-media-fallback-evidence.md
   - docs/testing/PORTAL_MEDIA_STATE_EVIDENCE.json
+  - docs/testing/PRODUCT_COMPLETENESS_FRONTEND_AUDIT_2026-07-30.md
   - public/css/editorial-media-admin.css
   - public/css/wiki.css
   - public/js/media-fallbacks.js
+  - public/js/wiki-admin-media.js
   - resources/views/admin/media/index.blade.php
+  - resources/views/admin/wiki/articles/form.blade.php
   - resources/views/wiki/article.blade.php
   - scripts/acceptance/coverage/test-portal-media-state-evidence.mjs
   - scripts/acceptance/coverage/validate-portal-media-state-evidence.mjs
+  - scripts/acceptance/coverage/validate-portal-media-strict-closure.mjs
   - scripts/acceptance/package.json
+  - scripts/acceptance/seed-browser-editorial-media.php
+  - scripts/acceptance/tests/admin-wiki-editorial-media.spec.mjs
+  - scripts/acceptance/tests/editorial-media-acceptance.spec.mjs
+  - scripts/acceptance/tests/public-wiki-read-search.spec.mjs
 validation:
-  - command: GitHub Actions on c77425a6c3bff3e808a82421328102c3f2246cbc
+  - command: Strict Portal Acceptance on 5328a3c6dc535907e55a8dc1809c5bd9080428d8
     result: PASS
-    evidence: governance, CI, DB outage, edge, phase 7 and game-auth workflows passed for the initial audit-only head
+    evidence: strict portal coverage closure passed with zero media gaps and all negative fixtures
+  - command: Editorial Media Acceptance on 5328a3c6dc535907e55a8dc1809c5bd9080428d8
+    result: PASS
+    evidence: complete zero-retry Chromium desktop/tablet/mobile lifecycle including missing and corrupt stored objects
+  - command: GitHub Actions on final documentation checkpoint
+    result: PENDING
+    evidence: exact final workflow run set must complete before ready-for-review or merge
 blockers:
   - none
-next_action: Add deterministic missing/corrupt/no-image browser fixtures and assertions, then close every applicable media-state gap in the exact evidence contract.
+next_action: Require the exact final checkpoint workflow set to pass, reconcile reviews, update the PR evidence summary and merge without closing parent #326.
 ```
