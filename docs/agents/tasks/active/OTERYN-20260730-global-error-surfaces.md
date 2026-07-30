@@ -73,8 +73,8 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-07-30T10:01:00Z
-head: 1516a2aa77fb621787268a39d0f6a863a70e921e
+updated_at: 2026-07-30T10:09:00Z
+head: 9ebd6bf24c8cdacf296e36b087ff5e82ddc00126
 branch: feat/OTERYN-20260730-global-error-surfaces
 pr: 354
 status: validating
@@ -108,11 +108,11 @@ proven:
 derived:
   - A dedicated error-state acceptance profile is safer and more truthful than adding global error flows to a domain-specific Community Data profile.
 unknown:
-  - First exact-head workflow outcome for the new Error State Acceptance profile.
+  - First completed exact-head outcome for the new Error State Acceptance profile.
 conflicts: []
 first_failure:
-  marker: none
-  evidence: none
+  marker: checkpoint-validation:unsupported-result
+  evidence: Agent Governance run 30533366864 rejected validation result IN_PROGRESS; the repository contract permits only BLOCKED, FAIL, NOT_RUN or PASS.
 rejected_hypotheses:
   - Add test-only routes that directly return or abort with target statuses.
   - Treat status-only HTTP client assertions as proof of the rendered browser UX.
@@ -132,8 +132,8 @@ changed_paths:
   - .github/workflows/error-state-acceptance.yml
 validation:
   - command: Error State Acceptance and repository workflows
-    result: IN_PROGRESS
-    evidence: first exact-head runs started from PR #354.
+    result: NOT_RUN
+    evidence: prior heads were superseded while resolving review and governance findings; final exact-head runs are pending.
 blockers:
   - none
 next_action: Inspect every failing exact-head workflow step, fix the root cause and repeat validation only on a changed head.
