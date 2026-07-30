@@ -15,6 +15,7 @@ on:
       - 'routes/**'
       - 'scripts/acceptance/**'
       - 'docs/testing/PORTAL_MEDIA_STATE_EVIDENCE.json'
+      - 'docs/testing/ROUTE_VIEW_NAVIGATION_INVENTORY.json'
       - 'docs/testing/PRODUCT_COMPLETENESS_BENCHMARK.md'
       - 'docs/testing/product-completeness-benchmark.json'
       - 'docs/testing/product-backend-frontend-completeness.json'
