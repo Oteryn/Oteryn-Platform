@@ -2,6 +2,7 @@
   "schema_version": 1,
   "issue": 357,
   "parent_issue": 326,
+  "strict_closure": true,
   "description": "Fail-closed media applicability and rendered-state evidence for every delivered portal surface. Supporting media endpoints are never promoted to visible fallback UX evidence.",
   "required_rendered_states": [
     "normal",
@@ -135,7 +136,7 @@
             "file": "scripts/acceptance/tests/admin-wiki-editorial-media.spec.mjs",
             "markers": [
               "@wiki-media exact Wiki editor discovers inserts previews and publishes private EditorialMedia responsively",
-              "const publicImage = page.getByRole('img', { name: mediaLabel });"
+              "const publicImage = publicPage.getByRole('img', { name: mediaLabel });"
             ],
             "profile": "standard-responsive",
             "projects": [
@@ -146,16 +147,55 @@
           }
         },
         "missing": {
-          "status": "gap",
-          "reason": "No rendered public-Wiki assertion currently proves a stable user-visible fallback when a referenced media record or stored object is missing."
+          "status": "evidenced",
+          "evidence": {
+            "file": "scripts/acceptance/tests/admin-wiki-editorial-media.spec.mjs",
+            "markers": [
+              "editorialMediaFixture('remove-files', String(seeded.media_id));",
+              "const missingPublicFallback = publicPage.getByRole('img', { name: mediaLabel });",
+              "await expect(missingPublicFallback).toHaveAttribute('data-media-fallback-state', 'unavailable');"
+            ],
+            "profile": "standard-responsive",
+            "projects": [
+              "responsive-desktop",
+              "responsive-tablet",
+              "responsive-mobile"
+            ]
+          }
         },
         "broken_or_integrity_failed": {
-          "status": "gap",
-          "reason": "Supporting endpoint integrity failures are covered, but no rendered public-Wiki fallback is asserted after an already-referenced object fails decoding or integrity checks."
+          "status": "evidenced",
+          "evidence": {
+            "file": "scripts/acceptance/tests/admin-wiki-editorial-media.spec.mjs",
+            "markers": [
+              "editorialMediaFixture('corrupt-files', String(seeded.media_id));",
+              "const corruptPublicFallback = publicPage.getByRole('img', { name: `Most Oteryn ${id}` });",
+              "await expect(corruptPublicFallback).toHaveAttribute('data-media-fallback-state', 'unavailable');"
+            ],
+            "profile": "standard-responsive",
+            "projects": [
+              "responsive-desktop",
+              "responsive-tablet",
+              "responsive-mobile"
+            ]
+          }
         },
         "no_image": {
-          "status": "gap",
-          "reason": "No explicit browser assertion currently proves the published Wiki article layout when its Markdown contains no managed image token."
+          "status": "evidenced",
+          "evidence": {
+            "file": "scripts/acceptance/tests/public-wiki-read-search.spec.mjs",
+            "markers": [
+              "@wiki published bilingual reads search table of contents image-free layout and keyboard flow remain portable and responsive",
+              "await expect(page.locator('.wiki-editorial-image')).toHaveCount(0);",
+              "await expect(page.locator('.wiki-image-placeholder')).toHaveCount(0);"
+            ],
+            "profile": "standard-responsive",
+            "projects": [
+              "responsive-desktop",
+              "responsive-tablet",
+              "responsive-mobile"
+            ]
+          }
         }
       }
     },
@@ -181,16 +221,54 @@
           }
         },
         "missing": {
-          "status": "gap",
-          "reason": "No executable administrator Wiki assertion currently proves a visible fallback for a missing thumbnail or signed preview object."
+          "status": "evidenced",
+          "evidence": {
+            "file": "scripts/acceptance/tests/admin-wiki-editorial-media.spec.mjs",
+            "markers": [
+              "editorialMediaFixture('remove-files', String(seeded.media_id));",
+              "const missingPublicFallback = publicPage.getByRole('img', { name: mediaLabel });"
+            ],
+            "profile": "standard-responsive",
+            "projects": [
+              "responsive-desktop",
+              "responsive-tablet",
+              "responsive-mobile"
+            ]
+          }
         },
         "broken_or_integrity_failed": {
-          "status": "gap",
-          "reason": "Upload and endpoint integrity rejection are covered, but the rendered Wiki editor and signed-preview fallback for a corrupt existing object are not asserted."
+          "status": "evidenced",
+          "evidence": {
+            "file": "scripts/acceptance/tests/admin-wiki-editorial-media.spec.mjs",
+            "markers": [
+              "const corruptPickerFallback = corruptPickerCard.getByRole('img', { name: mediaLabel });",
+              "await expect(corruptPickerFallback).toContainText(`Preview unavailable: ${mediaLabel}`);",
+              "await expect(corruptPickerCard.locator('img')).toHaveCount(0);"
+            ],
+            "profile": "standard-responsive",
+            "projects": [
+              "responsive-desktop",
+              "responsive-tablet",
+              "responsive-mobile"
+            ]
+          }
         },
         "no_image": {
-          "status": "gap",
-          "reason": "No explicit browser assertion currently proves the Wiki editor and signed-preview layout when the draft contains no selected or embedded image."
+          "status": "evidenced",
+          "evidence": {
+            "file": "scripts/acceptance/tests/admin-wiki-editorial-media.spec.mjs",
+            "markers": [
+              "@wiki-media image-free Wiki draft preview remains accessible and contains no media fallback",
+              "await expect(preview.locator('.wiki-editorial-image')).toHaveCount(0);",
+              "await expect(preview.locator('.wiki-image-placeholder')).toHaveCount(0);"
+            ],
+            "profile": "standard-responsive",
+            "projects": [
+              "responsive-desktop",
+              "responsive-tablet",
+              "responsive-mobile"
+            ]
+          }
         }
       }
     },
@@ -215,12 +293,38 @@
           }
         },
         "missing": {
-          "status": "gap",
-          "reason": "No rendered media-library assertion currently proves a stable visible fallback for a database record whose stored object is missing."
+          "status": "evidenced",
+          "evidence": {
+            "file": "scripts/acceptance/tests/editorial-media-acceptance.spec.mjs",
+            "markers": [
+              "@portal-editorial-media missing and integrity-failed stored objects render accessible preview fallbacks",
+              "editorialMediaFixture('remove-files', String(missing.media_id));",
+              "await expect(fallback).toContainText(`Preview unavailable: ${altText}`);"
+            ],
+            "profile": "editorial-media-responsive",
+            "projects": [
+              "editorial-media-chromium-desktop",
+              "editorial-media-chromium-tablet",
+              "editorial-media-chromium-mobile"
+            ]
+          }
         },
         "broken_or_integrity_failed": {
-          "status": "gap",
-          "reason": "Malformed upload rejection is evidenced, but an already-listed corrupt object and its rendered library fallback are not yet asserted."
+          "status": "evidenced",
+          "evidence": {
+            "file": "scripts/acceptance/tests/editorial-media-acceptance.spec.mjs",
+            "markers": [
+              "editorialMediaFixture('corrupt-files', String(corrupt.media_id));",
+              "await expect(page.locator('[data-media-fallback-state=\"unavailable\"]')).toHaveCount(2);",
+              "await expect(row.locator('img')).toHaveCount(0);"
+            ],
+            "profile": "editorial-media-responsive",
+            "projects": [
+              "editorial-media-chromium-desktop",
+              "editorial-media-chromium-tablet",
+              "editorial-media-chromium-mobile"
+            ]
+          }
         },
         "no_image": {
           "status": "evidenced",
@@ -247,7 +351,7 @@
     }
   ],
   "nonclaims": [
-    "This contract does not prove missing or broken fallback states that remain explicitly marked as gaps.",
+    "This contract proves only the delivered managed-media consumers and does not create image requirements for non-media surfaces.",
     "Supporting endpoint responses are not treated as visible fallback UX evidence.",
     "Parent Issue #326 remains open for the remaining exhaustive state matrix.",
     "No staging, production or Canary behavior is claimed."
