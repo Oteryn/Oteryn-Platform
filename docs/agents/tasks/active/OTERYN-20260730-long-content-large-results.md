@@ -66,8 +66,8 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-07-30T20:35:00Z
-head: ec48b43491ef73252c27047cb8879cd2bd625e6c
+updated_at: 2026-07-30T20:49:00Z
+head: a9f5c4e42bf3b950f9e1b9352a0efa748d12b2bd
 branch: test/OTERYN-20260730-long-content-large-results
 pr: 363
 status: implementing
@@ -85,40 +85,46 @@ owned_paths:
   - scripts/acceptance/package.json
   - .github/workflows/portal-acceptance-contract.yml
 proven:
-  - Live PR #363 remains open as a draft and mergeable, with implementation head ec48b43491ef73252c27047cb8879cd2bd625e6c before this checkpoint-only commit.
+  - Live PR #363 remains open as a draft and mergeable, with implementation and ledger head a9f5c4e42bf3b950f9e1b9352a0efa748d12b2bd before this checkpoint-only commit.
   - All 18 delivered manifest surfaces remain classified exactly once in PORTAL_CONTENT_SCALE_EVIDENCE.json.
-  - The existing zero-retry community stress spec seeds 76 acceptance-only characters, renders a deterministic long character name and public comment, reaches page two with Matrix Character 050, and checks document-level horizontal overflow on desktop, tablet and mobile projects.
-  - public.game-data now maps to the exact community stress file, stable marker, Playwright config, three Chromium projects, workflow invocation and executable npm profile test:community-data.
+  - The public.game-data stress scenario now measures real multi-line wrapping for the long highscore name, long character heading and long public comment, verifies their component bounds, and verifies table-region scroll containment.
+  - The zero-retry Community Data matrix passed across desktop 1440x1000, tablet 820x1180 and mobile 390x844 on exact SHA a9f5c4e42bf3b950f9e1b9352a0efa748d12b2bd in workflow run 30580686304.
+  - PORTAL_CONTENT_SCALE_EVIDENCE.json records the public.game-data executable profile, exact markers, bounded 76-row fixture, validated workflow reference and no remaining gap for that mapped surface.
   - Direct inspection of admin-acceptance.spec.mjs, public-localization.spec.mjs and smoke.spec.mjs found only short CMS bodies and shell localization evidence for public.news-and-managed-pages; no deterministic long EN/PL managed-content evidence exists there.
 derived:
-  - Existing public.game-data evidence proves deterministic long-value visibility, bounded multi-page pagination, expected ordering and document-level overflow, but not readable multi-line wrapping or component-level containment.
-  - public.news-and-managed-pages requires a new deterministic long English and Polish managed-content fixture before it can be mapped truthfully.
+  - The bounded public.game-data scale slice now proves readable wrapping, component containment, stable pagination and no document-level horizontal overflow at all three required viewports.
+  - public.news-and-managed-pages is the next highest-value missing executable mapping because the canonical manifest explicitly declares long-content there.
 unknown:
-  - Whether the current public game-data runtime satisfies exact multi-line wrapping and component-containment assertions at all three required viewports.
+  - Which existing CMS localization write path is the smallest deterministic route for creating and publishing long English and Polish news or managed-page content.
   - Which remaining candidate surfaces already contain sufficient deterministic scale fixtures and exact viewport assertions.
 conflicts: []
 first_failure:
-  marker: executable wrapping and containment evidence
-  evidence: PORTAL_CONTENT_SCALE_EVIDENCE.json public.game-data remaining_gaps records the missing exact readable-wrapping and component-containment assertions.
+  marker: public news long EN/PL evidence
+  evidence: PORTAL_CONTENT_SCALE_EVIDENCE.json reviewed_unmapped_surfaces.public.news-and-managed-pages still lists the missing deterministic bilingual fixture and wrapping, containment and route-overflow assertions.
 rejected_hypotheses:
   - Treat broad responsive smoke evidence as proof of long localized values and large paginated datasets on every surface.
   - Treat candidate applicability classification as executable evidence.
+  - Treat CSS overflow-wrap declarations as executable proof without measured rendered lines and component bounds.
   - Treat the existing short CMS lifecycle values and localization shell checks as proof of public.news-and-managed-pages long-content behavior.
 changed_paths:
   - docs/agents/tasks/active/OTERYN-20260730-long-content-large-results.md
   - docs/testing/PORTAL_CONTENT_SCALE_EVIDENCE.json
   - scripts/acceptance/package.json
+  - scripts/acceptance/tests/community-data-acceptance.spec.mjs
 validation:
   - command: required-read and SEARCH_FIRST inspection
     result: PASS
     evidence: required governance/testing documents, Issues #362/#326, current PRs and highest-value public CMS/game-data specs inspected directly
-  - command: repository content-scale ledger retrieval after write
+  - command: exact-SHA Community Data Acceptance workflow run 30580686304 on a9f5c4e42bf3b950f9e1b9352a0efa748d12b2bd
     result: PASS
-    evidence: PORTAL_CONTENT_SCALE_EVIDENCE.json is valid retrievable JSON with one exact mapped surface and one reviewed unmapped surface
-  - command: exact-SHA GitHub workflow set on ec48b43491ef73252c27047cb8879cd2bd625e6c
+    evidence: focused regressions, real MariaDB concurrency, real Laravel HTTP runtime and the complete zero-retry desktop/tablet/mobile Playwright matrix all passed
+  - command: repository content-scale ledger retrieval after validated mapping write
+    result: PASS
+    evidence: PORTAL_CONTENT_SCALE_EVIDENCE.json is valid retrievable JSON with public.game-data remaining_gaps empty and public.news-and-managed-pages still fail-closed as reviewed unmapped
+  - command: broader exact-SHA GitHub workflow set on a9f5c4e42bf3b950f9e1b9352a0efa748d12b2bd
     result: NOT_RUN
-    evidence: nine workflows were queued or pending when checkpointed
+    evidence: Agent Governance, Edge Security Emulation and Community Data Acceptance passed; remaining workflows were queued or in progress when checkpointed
 blockers:
   - none
-next_action: Add exact readable-wrapping and component-containment assertions to the existing zero-retry community stress spec, then update its mapping only after the three-project matrix passes.
+next_action: Inspect the existing CMS and localization write path, then add deterministic long English and Polish news or managed-page fixtures with exact three-viewport wrapping, containment and document-overflow assertions before mapping public.news-and-managed-pages.
 ```
