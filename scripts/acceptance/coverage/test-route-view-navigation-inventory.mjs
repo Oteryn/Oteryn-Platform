@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import {
   loadRepositoryInputs,
   validateRouteViewNavigationInventory,
-} from './validate-route-view-navigation-inventory.mjs';
+} from './validate-route-view-navigation-repository.mjs';
 
 function cloneInputs() {
   const baseline = loadRepositoryInputs();
