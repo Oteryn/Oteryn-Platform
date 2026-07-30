@@ -11,6 +11,43 @@ import {
   runBinary,
 } from './helpers.mjs';
 
+const stressEvidenceMarker = '@portal-community-stress long values multi-page results internal 500 containment and recovery';
+const communityCoveragePath = path.join(
+  repoRoot,
+  'scripts/acceptance/coverage/surfaces/community-data-completeness.json',
+);
+const communityCoverage = JSON.parse(fs.readFileSync(communityCoveragePath, 'utf8'));
+const stressEvidence = communityCoverage.state_evidence_extensions?.find(
+  (entry) => entry.surface_id === 'public.game-data' && entry.issue === 350,
+);
+const requiredStressStates = [
+  'very-long-values',
+  'large-result-set-pagination',
+  'internal-error-500-contained',
+  'internal-error-restored',
+];
+
+if (!stressEvidence) {
+  throw new Error('Missing Issue #350 public.game-data state evidence extension.');
+}
+if (JSON.stringify(stressEvidence.states?.map((state) => state.id)) !== JSON.stringify(requiredStressStates)) {
+  throw new Error('Issue #350 state evidence extension does not define the exact required state order.');
+}
+if (stressEvidence.evidence?.file !== 'scripts/acceptance/tests/community-data-acceptance.spec.mjs') {
+  throw new Error('Issue #350 state evidence points at an unexpected evidence file.');
+}
+if (stressEvidence.evidence?.marker !== stressEvidenceMarker) {
+  throw new Error('Issue #350 state evidence marker does not match the executable browser marker.');
+}
+if (stressEvidence.retries !== 0) {
+  throw new Error('Issue #350 state evidence must remain zero retry.');
+}
+
+const currentSpec = fs.readFileSync(path.join(repoRoot, stressEvidence.evidence.file), 'utf8');
+if (!currentSpec.includes(stressEvidenceMarker)) {
+  throw new Error('Issue #350 executable browser marker is missing from the referenced evidence file.');
+}
+
 test.setTimeout(180_000);
 test.describe.configure({ retries: 0, mode: 'serial' });
 
@@ -201,7 +238,11 @@ test('@portal-community complete rankings, privacy-aware profile, deaths, guild 
 });
 
 // Evidence marker: @portal-community-stress long values multi-page results internal 500 containment and recovery
-test('@portal-community-stress long values, multi-page results, internal 500 containment and recovery', async ({ page }) => {
+test('@portal-community-stress long values, multi-page results, internal 500 containment and recovery', async ({ page }, testInfo) => {
+  expect(stressEvidence.projects).toContain(testInfo.project.name);
+  expect(stressEvidence.states.map((state) => state.id)).toEqual(requiredStressStates);
+  expect(process.env.APP_DEBUG).toBe('false');
+
   const database = acceptanceDatabaseContext();
   const longName = `Boundary ${Array.from({ length: 20 }, (_, index) => `Segment${String(index + 1).padStart(2, '0')}`).join(' ')}`;
   const longComment = `Long public profile boundary ${'C'.repeat(220)}`;
