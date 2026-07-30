@@ -7,5 +7,5 @@
 
 @section('actions')
     <a class="button" href="{{ route('home') }}">{{ __('errors.back_home') }}</a>
-    <a class="button button-secondary" href="{{ route('news.index') }}">{{ __('errors.browse_news') }}</a>
+    <a class="button button-secondary" href="{{ route('news.index', ['locale' => app()->getLocale()]) }}">{{ __('errors.browse_news') }}</a>
 @endsection
