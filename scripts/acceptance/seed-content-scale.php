@@ -8,6 +8,7 @@ use App\Cms\Editorial\EditorialPageKey;
 use App\Cms\Models\EditorialTranslation;
 use App\Cms\Models\ManagedPage;
 use App\Cms\Models\NewsPost;
+use App\Downloads\Models\ClientRelease;
 use Illuminate\Contracts\Console\Kernel;
 
 require dirname(__DIR__, 2).'/vendor/autoload.php';
@@ -31,6 +32,10 @@ $polishBody = 'Polska granica długiej treści '.implode(' ', array_map(
     static fn (int $index): string => sprintf('czytelny-segment-treści-%03d', $index),
     range(1, 100),
 ));
+$longFilename = 'oteryn-'.implode('-', array_map(
+    static fn (int $index): string => sprintf('artifact-segment-%02d', $index),
+    range(1, 14),
+)).'.zip';
 $publishedAt = now()->subMinute();
 
 for ($index = 1; $index <= 26; $index++) {
@@ -145,11 +150,66 @@ EditorialTranslation::query()->updateOrCreate(
     ],
 );
 
+for ($index = 1; $index <= 26; $index++) {
+    ClientRelease::query()->updateOrCreate(
+        ['version' => sprintf('content-scale-release-%03d', $index)],
+        [
+            'channel' => 'stable',
+            'release_notes' => sprintf('Bounded release pagination fixture %03d.', $index),
+            'published_at' => null,
+            'is_current' => false,
+        ],
+    );
+}
+
+$release = ClientRelease::query()->updateOrCreate(
+    ['version' => 'content-scale-current'],
+    [
+        'channel' => 'stable',
+        'release_notes' => $englishBody,
+        'published_at' => $publishedAt,
+        'is_current' => true,
+    ],
+);
+$release->touch();
+$release->refresh();
+$release->artifacts()->updateOrCreate(
+    [
+        'platform' => 'windows',
+        'architecture' => 'x86_64',
+    ],
+    [
+        'artifact_url' => 'https://downloads.example.test/content-scale-current.zip',
+        'filename' => $longFilename,
+        'size_bytes' => 1572864,
+        'sha256' => str_repeat('a', 64),
+        'is_enabled' => true,
+    ],
+);
+
+EditorialTranslation::query()->updateOrCreate(
+    [
+        'content_type' => EditorialContentType::ClientRelease->value,
+        'content_id' => $release->getKey(),
+        'locale' => 'pl',
+    ],
+    [
+        'title' => null,
+        'body' => $polishBody,
+        'action_label' => null,
+        'source_updated_at' => $release->updated_at,
+        'published_at' => $publishedAt,
+    ],
+);
+
 fwrite(STDOUT, json_encode([
     'news_id' => $news->id,
     'news_slug' => $news->slug,
     'page_slug' => $page->slug,
     'announcement_id' => $announcement->id,
+    'release_id' => $release->id,
+    'release_version' => $release->version,
+    'artifact_filename' => $longFilename,
     'english_title' => $englishTitle,
     'polish_title' => $polishTitle,
     'english_body' => $englishBody,
