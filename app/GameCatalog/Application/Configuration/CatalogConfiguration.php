@@ -48,7 +48,7 @@ final class CatalogConfiguration
         return $result;
     }
 
-    /** @return array{path: string, sha256: string}|null */
+    /** @return array{path: string, sha256: string, activatable: bool}|null */
     public static function schemaContract(string $version): ?array
     {
         $schemas = config('game-catalog.schemas', []);
@@ -66,6 +66,7 @@ final class CatalogConfiguration
                 || $contract['path'] === ''
                 || ! is_string($contract['sha256'] ?? null)
                 || preg_match('/^[0-9a-f]{64}$/D', $contract['sha256']) !== 1
+                || (isset($contract['activatable']) && ! is_bool($contract['activatable']))
             ) {
                 throw new LogicException("Game Catalog configuration 'game-catalog.schemas' contains an invalid contract.");
             }
@@ -76,7 +77,10 @@ final class CatalogConfiguration
             return null;
         }
 
-        /** @var array{path: string, sha256: string} $contract */
-        return $contract;
+        return [
+            'path' => $contract['path'],
+            'sha256' => $contract['sha256'],
+            'activatable' => $contract['activatable'] ?? true,
+        ];
     }
 }
