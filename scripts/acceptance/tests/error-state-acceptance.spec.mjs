@@ -10,6 +10,7 @@ import {
 } from './helpers.mjs';
 
 const evidenceMarker = '@portal-global-errors real localized 404 419 429 and 500 lifecycle';
+const appBaseURL = process.env.ACCEPTANCE_BASE_URL ?? 'http://127.0.0.1:8080';
 const evidencePath = path.join(repoRoot, 'scripts/acceptance/coverage/error-state-evidence.json');
 const evidence = JSON.parse(fs.readFileSync(evidencePath, 'utf8'));
 const expectedStatuses = [404, 419, 429, 500];
@@ -24,6 +25,9 @@ if (evidence.schema_version !== 1 || evidence.issue !== 353 || evidence.parent_i
 }
 if (JSON.stringify(evidence.statuses?.map((entry) => entry.code)) !== JSON.stringify(expectedStatuses)) {
   throw new Error('Global error evidence must define the exact 404, 419, 429 and 500 status order.');
+}
+if (evidence.statuses?.find((entry) => entry.code === 419)?.trigger !== 'cross-site-browser-form-with-invalid-csrf-token') {
+  throw new Error('Global error evidence must bind 419 to the real cross-site browser-form trigger.');
 }
 if (JSON.stringify(evidence.locales) !== JSON.stringify(['en', 'pl'])) {
   throw new Error('Global error evidence must cover exact English and Polish locales.');
@@ -110,17 +114,20 @@ async function prove404(page, locale, projectSlug) {
 }
 
 async function prove419(page, locale) {
-  await page.goto(`/register?locale=${locale}`);
+  const target = new URL(`/register?locale=${encodeURIComponent(locale)}`, appBaseURL).toString();
+  await page.goto('data:text/html,<title>Cross-site CSRF acceptance probe</title>');
 
   const responsePromise = page.waitForResponse((response) => {
     const url = new URL(response.url());
-    return response.request().method() === 'POST' && url.pathname === '/register';
+    return response.request().method() === 'POST'
+      && url.origin === new URL(appBaseURL).origin
+      && url.pathname === '/register';
   });
 
-  await page.evaluate((selectedLocale) => {
+  await page.evaluate((formTarget) => {
     const form = document.createElement('form');
     form.method = 'POST';
-    form.action = `/register?locale=${encodeURIComponent(selectedLocale)}`;
+    form.action = formTarget;
 
     for (const [name, value] of [
       ['_token', 'acceptance-explicitly-invalid-csrf-token'],
@@ -134,7 +141,7 @@ async function prove419(page, locale) {
 
     document.body.append(form);
     form.submit();
-  }, locale);
+  }, target);
 
   const response = await responsePromise;
   await page.waitForLoadState('domcontentloaded');
