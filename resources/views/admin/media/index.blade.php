@@ -2,6 +2,10 @@
 
 @section('title', 'Editorial media')
 
+@push('head')
+    <script src="{{ asset('js/media-fallbacks.js') }}" defer></script>
+@endpush
+
 @section('content')
     <div class="page-heading">
         <div>
@@ -80,6 +84,7 @@
                                         loading="lazy"
                                         decoding="async"
                                         class="admin-media-preview"
+                                        data-media-fallback="admin"
                                     >
                                 </a>
                             </td>
