@@ -54,12 +54,14 @@ final class LocalizedErrorSurfaceTest extends TestCase
         $this->get('/login?locale=pl')
             ->assertOk()
             ->assertHeader('Content-Language', 'pl')
-            ->assertSee('<html lang="pl">', false);
+            ->assertSee('<html lang="pl">', false)
+            ->assertSee('action="'.route('identity.login.store', ['locale' => 'pl']).'"', false);
 
         $this->get('/login?locale=en')
             ->assertOk()
             ->assertHeader('Content-Language', 'en')
-            ->assertSee('<html lang="en">', false);
+            ->assertSee('<html lang="en">', false)
+            ->assertSee('action="'.route('identity.login.store', ['locale' => 'en']).'"', false);
 
         $this->get('/login?locale=de')->assertNotFound();
     }
