@@ -39,6 +39,23 @@ final class AdminGameCatalogController
 
         return view('game-catalog.admin.snapshot', [
             'snapshot' => $record,
+            'entityTypeCounts' => DB::table('game_catalog_entity_snapshots as entity_snapshots')
+                ->join('game_catalog_entities as entities', 'entities.id', '=', 'entity_snapshots.entity_id')
+                ->where('entity_snapshots.snapshot_id', $snapshot)
+                ->groupBy('entities.entity_type')
+                ->orderBy('entities.entity_type')
+                ->get(['entities.entity_type', DB::raw('COUNT(*) as record_count')]),
+            'relationTypeCounts' => DB::table('game_catalog_relation_snapshots as relations')
+                ->where('relations.snapshot_id', $snapshot)
+                ->groupBy('relations.relation_type')
+                ->orderBy('relations.relation_type')
+                ->get(['relations.relation_type', DB::raw('COUNT(*) as record_count')]),
+            'unknownOrUnverifiedEntityCount' => DB::table('game_catalog_entity_snapshots')
+                ->where('snapshot_id', $snapshot)
+                ->where(function (Builder $query): void {
+                    $query->where('availability', 'unknown')->orWhere('completeness', 'unverified');
+                })
+                ->count(),
             'entities' => DB::table('game_catalog_entity_snapshots as entity_snapshots')
                 ->join('game_catalog_entities as entities', 'entities.id', '=', 'entity_snapshots.entity_id')
                 ->leftJoin('game_catalog_releases as introduced', 'introduced.id', '=', 'entity_snapshots.introduced_release_id')
@@ -71,6 +88,7 @@ final class AdminGameCatalogController
                     'relations.canonical_key',
                     'relations.relation_type',
                     'relations.completeness',
+                    'relations.availability',
                     'relations.enabled',
                     'relations.data_sha256',
                     'source.canonical_key as source_key',

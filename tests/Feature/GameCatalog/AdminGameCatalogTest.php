@@ -106,6 +106,29 @@ final class AdminGameCatalogTest extends TestCase
             ->assertSeeText('Compare snapshots');
     }
 
+    public function test_admin_catalog_previews_schema_13_typed_candidate_counts_without_activation(): void
+    {
+        $snapshot = app(CatalogImportService::class)->import(
+            base_path('tests/Fixtures/GameCatalog/v1.3/minimal-snapshot.json'),
+        );
+        $admin = $this->createIdentity('catalog-v13-admin@example.com', true);
+        $this->assignRole($admin, 'platform_admin');
+        $this->actingAsCurrent($admin);
+
+        $this->get('/admin/game-catalog/snapshots/'.$snapshot->snapshotId)
+            ->assertOk()
+            ->assertSeeText('Typed candidate summary')
+            ->assertSeeText('Entity npc')
+            ->assertSeeText('Relation npc_buy_offer')
+            ->assertSeeText('Relation npc_sell_offer')
+            ->assertSeeText('Unknown or unverified entities')
+            ->assertSeeText('conditional');
+
+        self::assertSame(0, DB::table('game_catalog_profiles')->whereNotNull('active_snapshot_id')->count());
+        self::assertSame(0, DB::table('game_catalog_profile_entities')->count());
+        self::assertSame(0, DB::table('game_catalog_profile_relations')->count());
+    }
+
     private function createPublicProfile(): int
     {
         $releaseId = $this->integerDatabaseValue(
