@@ -228,4 +228,4 @@ PR #303 completed Issue #281's accepted first scope by reconciling the versioned
 
 ## Character profile preferences delivery
 
-PR #308 completed the Platform-owned Issue #307 slice as merge `86847d0068470274b6c3ee5523fe41cbb9663af`. Exact final head `3797a094cfa522f5147d624786f49fee5027c77b` passed all 11 required workflows, including real-MariaDB main-character concurrency and zero-retry EN/PL desktop/tablet/mobile browser acceptance. Canary remained read-only; rename, deletion, restore, transfer and selected achievements remain outside this contract under parent #277, and no production claim was made.
+PR #308 completed the Platform-owned Issue #307 slice as merge `86847d0068e470274b6c3ee5523fe41cbb9663af`. Exact final head `3797a094cfa522f5147d624786f49fee5027c77b` passed all 11 required workflows, including real-MariaDB main-character concurrency and zero-retry EN/PL desktop/tablet/mobile browser acceptance. Canary remained read-only; rename, deletion, restore, transfer and selected achievements remain outside this contract under parent #277, and no production claim was made.
