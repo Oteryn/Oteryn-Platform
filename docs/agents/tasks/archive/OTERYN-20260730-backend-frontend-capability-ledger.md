@@ -19,7 +19,7 @@ required_reads:
 
 ## Result
 
-Issue #340 was completed by PR #341, squash-merged as `90035fa764f4477ebcffd9410075dc342972be42` from exact tested head `4c29c21f448d3f17b169450a7a2667b9b2ca327a`.
+Issue #340 was closed as completed after PR #341 squash-merged as `90035fa764f4477ebcffd9410075dc342972be42` from exact tested head `4c29c21f448d3f17b169450a7a2667b9b2ca327a`.
 
 The delivered gate prevents a future user-facing backend-only capability from being promoted to product `implemented`.
 
