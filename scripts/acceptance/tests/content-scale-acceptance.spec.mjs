@@ -1,13 +1,20 @@
 import { test, expect } from '@playwright/test';
 import {
   attachDiagnostics,
+  completeMfaChallenge,
   installDiagnostics,
+  login,
+  logout,
   runBinary,
 } from './helpers.mjs';
 
 const contentScaleMarker = '@portal-content-scale long bilingual news and managed pages wrap and remain contained';
+const adminScaleMarker = '@portal-content-scale-admin long CMS localization and bounded administrator pagination remain contained';
+const adminEmail = 'content-scale-administrator@example.test';
+const adminPassword = 'ContentScaleAdmin!234';
+const adminRecoveryCode = 'CONTENT-SCALE-ADMIN-01';
 
-test.setTimeout(120_000);
+test.setTimeout(180_000);
 test.describe.configure({ retries: 0, mode: 'serial' });
 
 test.beforeEach(async ({ page }) => {
@@ -74,6 +81,69 @@ async function expectReadableWrappingAndContainment(locator, containerSelector) 
   expect(metrics.elementRect.bottom).toBeLessThanOrEqual(metrics.containerRect.bottom + 1);
 }
 
+async function expectScrollableTableContainment(locator, regionSelector) {
+  const metrics = await locator.evaluate((element, selector) => {
+    const region = element.closest(selector);
+    const table = region?.querySelector('table');
+    if (!(region instanceof HTMLElement) || !(table instanceof HTMLTableElement)) {
+      throw new Error(`Expected table containment inside ${selector}.`);
+    }
+
+    const regionRect = region.getBoundingClientRect();
+    const tableRect = table.getBoundingClientRect();
+    const elementRect = element.getBoundingClientRect();
+
+    return {
+      overflowX: getComputedStyle(region).overflowX,
+      clientWidth: region.clientWidth,
+      scrollWidth: region.scrollWidth,
+      regionLeft: regionRect.left,
+      regionRight: regionRect.right,
+      tableLeft: tableRect.left,
+      tableRight: tableRect.right,
+      elementLeft: elementRect.left,
+      elementRight: elementRect.right,
+    };
+  }, regionSelector);
+
+  expect(['auto', 'scroll']).toContain(metrics.overflowX);
+  expect(metrics.scrollWidth).toBeGreaterThanOrEqual(metrics.clientWidth);
+  expect(metrics.tableLeft).toBeGreaterThanOrEqual(metrics.regionLeft - 1);
+  expect(metrics.tableRight).toBeLessThanOrEqual(metrics.regionLeft + metrics.scrollWidth + 1);
+  expect(metrics.elementLeft).toBeGreaterThanOrEqual(metrics.tableLeft - 1);
+  expect(metrics.elementRight).toBeLessThanOrEqual(metrics.tableRight + 1);
+}
+
+async function expectTextareaWrappingAndContainment(locator) {
+  await expect(locator).toBeVisible();
+
+  const metrics = await locator.evaluate((element) => {
+    const container = element.closest('.form-field');
+    if (!(element instanceof HTMLTextAreaElement) || !(container instanceof HTMLElement)) {
+      throw new Error('Expected a textarea contained by a form-field.');
+    }
+
+    const elementRect = element.getBoundingClientRect();
+    const containerRect = container.getBoundingClientRect();
+
+    return {
+      scrollWidth: element.scrollWidth,
+      clientWidth: element.clientWidth,
+      scrollHeight: element.scrollHeight,
+      clientHeight: element.clientHeight,
+      elementLeft: elementRect.left,
+      elementRight: elementRect.right,
+      containerLeft: containerRect.left,
+      containerRight: containerRect.right,
+    };
+  });
+
+  expect(metrics.scrollWidth).toBeLessThanOrEqual(metrics.clientWidth + 1);
+  expect(metrics.scrollHeight).toBeGreaterThan(metrics.clientHeight);
+  expect(metrics.elementLeft).toBeGreaterThanOrEqual(metrics.containerLeft - 1);
+  expect(metrics.elementRight).toBeLessThanOrEqual(metrics.containerRight + 1);
+}
+
 async function expectLongDetail(page, { path, locale, title, body }) {
   const response = await page.goto(path);
   expect(response?.status()).toBe(200);
@@ -89,7 +159,7 @@ async function expectLongDetail(page, { path, locale, title, body }) {
   await expectNoHorizontalOverflow(page);
 }
 
-async function expectLongHomepageNews(page, { locale, title, body }) {
+async function expectLongHomepageContent(page, { locale, title, body }) {
   const response = await page.goto(`/${locale}`);
   expect(response?.status()).toBe(200);
   await expect(page.locator('html')).toHaveAttribute('lang', locale);
@@ -102,7 +172,29 @@ async function expectLongHomepageNews(page, { locale, title, body }) {
   await expect(excerpt).toContainText(body.slice(0, 80));
   await expectReadableWrappingAndContainment(titleLink, 'article');
   await expectReadableWrappingAndContainment(excerpt, 'article');
+
+  const announcement = page.locator('[data-content-state="AVAILABLE"] .notice').filter({ hasText: title }).first();
+  const announcementHeading = announcement.getByRole('heading', { level: 3, name: title, exact: true });
+  const announcementBody = announcement.locator('p').last();
+  await expect(announcementBody).toHaveText(body);
+  await expectReadableWrappingAndContainment(announcementHeading, 'article.notice');
+  await expectReadableWrappingAndContainment(announcementBody, 'article.notice');
   await expectNoHorizontalOverflow(page);
+}
+
+async function signInAsContentScaleAdministrator(page) {
+  runBinary('php', [
+    'scripts/acceptance/seed-browser-announcements.php',
+    'seed-identity',
+    adminEmail,
+    adminPassword,
+    adminRecoveryCode,
+    'confirmed',
+    'cms.news.manage,portal.announcements.manage',
+  ]);
+
+  await login(page, adminEmail, adminPassword);
+  await completeMfaChallenge(page, adminRecoveryCode);
 }
 
 // Evidence marker: @portal-content-scale long bilingual news and managed pages wrap and remain contained
@@ -143,7 +235,7 @@ test(contentScaleMarker, async ({ page }) => {
       body: localized.body,
     });
 
-    await expectLongHomepageNews(page, localized);
+    await expectLongHomepageContent(page, localized);
 
     await expectLongDetail(page, {
       path: `/${localized.locale}/legal/terms`,
@@ -153,6 +245,56 @@ test(contentScaleMarker, async ({ page }) => {
     });
   }
 
+  expect(page.__acceptanceDiagnostics.pageErrors).toEqual([]);
+  expect(page.__acceptanceDiagnostics.serverErrors).toEqual([]);
+});
+
+// Evidence marker: @portal-content-scale-admin long CMS localization and bounded administrator pagination remain contained
+test(adminScaleMarker, async ({ page }) => {
+  const fixture = page.__contentScaleFixture;
+  await signInAsContentScaleAdministrator(page);
+
+  let response = await page.goto('/admin/news');
+  expect(response?.status()).toBe(200);
+  const longNewsCell = page.getByRole('cell', { name: fixture.english_title, exact: true });
+  await expectReadableWrappingAndContainment(longNewsCell, 'td');
+  await expectScrollableTableContainment(longNewsCell, '.table-region');
+  await expectNoHorizontalOverflow(page);
+
+  response = await page.goto('/admin/news?page=2');
+  expect(response?.status()).toBe(200);
+  await expect(page.getByRole('cell', { name: 'Content Scale News 002', exact: true })).toBeVisible();
+  await expect(page.getByRole('cell', { name: 'Content Scale News 001', exact: true })).toBeVisible();
+  await expectNoHorizontalOverflow(page);
+
+  response = await page.goto(`/admin/news/${fixture.news_id}/translations/pl`);
+  expect(response?.status()).toBe(200);
+  const sourceSection = page.locator('section[aria-labelledby="english-source-heading"]');
+  const sourceTitle = sourceSection.getByText(fixture.english_title, { exact: true });
+  const sourceBody = sourceSection.locator('pre.content-body');
+  await expect(sourceBody).toHaveText(fixture.english_body);
+  await expectReadableWrappingAndContainment(sourceTitle, 'section');
+  await expectReadableWrappingAndContainment(sourceBody, 'section');
+  await expect(page.getByLabel('Polish title')).toHaveValue(fixture.polish_title);
+  const polishBody = page.getByLabel('Polish content (plain text)');
+  await expect(polishBody).toHaveValue(fixture.polish_body);
+  await expectTextareaWrappingAndContainment(polishBody);
+  await expectNoHorizontalOverflow(page);
+
+  response = await page.goto('/admin/announcements');
+  expect(response?.status()).toBe(200);
+  const longAnnouncementCell = page.getByRole('cell', { name: fixture.english_title, exact: true });
+  await expectReadableWrappingAndContainment(longAnnouncementCell, 'td');
+  await expectScrollableTableContainment(longAnnouncementCell, '.table-wrap');
+  await expectNoHorizontalOverflow(page);
+
+  response = await page.goto('/admin/announcements?page=2');
+  expect(response?.status()).toBe(200);
+  await expect(page.getByRole('cell', { name: 'Content Scale Announcement 002', exact: true })).toBeVisible();
+  await expect(page.getByRole('cell', { name: 'Content Scale Announcement 001', exact: true })).toBeVisible();
+  await expectNoHorizontalOverflow(page);
+
+  await logout(page);
   expect(page.__acceptanceDiagnostics.pageErrors).toEqual([]);
   expect(page.__acceptanceDiagnostics.serverErrors).toEqual([]);
 });
