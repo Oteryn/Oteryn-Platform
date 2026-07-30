@@ -83,7 +83,7 @@ final class CatalogConfiguration
         $path = $contract['path'] ?? null;
         $sha256 = $contract['sha256'] ?? null;
         $activatable = $contract['activatable'] ?? true;
-        if (! is_string($path) || $path === '' || ! is_string($sha256) || ! is_bool($activatable)) {
+        if (! is_bool($activatable)) {
             throw new LogicException("Game Catalog schema contract '{$version}' is invalid.");
         }
 

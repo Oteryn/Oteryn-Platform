@@ -16,6 +16,11 @@ use Throwable;
  * @phpstan-import-type CatalogRelease from ValidatedCatalogSnapshot
  * @phpstan-import-type CatalogEntity from ValidatedCatalogSnapshot
  * @phpstan-import-type CatalogRelation from ValidatedCatalogSnapshot
+ * @phpstan-import-type CatalogItemData from ValidatedCatalogSnapshot
+ * @phpstan-import-type CatalogCreatureData from ValidatedCatalogSnapshot
+ * @phpstan-import-type CatalogNpcData from ValidatedCatalogSnapshot
+ * @phpstan-import-type CatalogLootData from ValidatedCatalogSnapshot
+ * @phpstan-import-type CatalogShopOfferData from ValidatedCatalogSnapshot
  */
 final class CatalogImportService
 {
@@ -156,7 +161,7 @@ final class CatalogImportService
         return $ids;
     }
 
-    /** @param array<string, mixed> $data */
+    /** @param CatalogItemData $data */
     private function persistItem(int $id, array $data): string
     {
         $row = $data;
@@ -168,7 +173,7 @@ final class CatalogImportService
         return $data['name'];
     }
 
-    /** @param array<string, mixed> $data */
+    /** @param CatalogCreatureData $data */
     private function persistCreature(int $id, array $data): string
     {
         $row = $data;
@@ -181,7 +186,7 @@ final class CatalogImportService
         return $data['name'];
     }
 
-    /** @param array<string, mixed> $data
+    /** @param CatalogNpcData $data
      * @param  array<string, int>  $entityIds
      */
     private function persistNpc(int $id, array $data, array $entityIds): string
@@ -220,7 +225,7 @@ final class CatalogImportService
         }
     }
 
-    /** @param array<string, mixed> $data */
+    /** @param CatalogLootData $data */
     private function persistLoot(int $id, array $data): void
     {
         $threshold = isset($data['chance_model']);
@@ -233,7 +238,7 @@ final class CatalogImportService
         ]);
     }
 
-    /** @param array<string, mixed> $data
+    /** @param CatalogShopOfferData $data
      * @param  array<string, int>  $entityIds
      */
     private function persistShopOffer(int $id, string $direction, array $data, array $entityIds): void

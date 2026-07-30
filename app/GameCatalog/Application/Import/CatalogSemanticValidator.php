@@ -10,6 +10,8 @@ use App\GameCatalog\Domain\CatalogValidationFinding;
  * @phpstan-import-type CatalogSnapshotMetadata from ValidatedCatalogSnapshot
  * @phpstan-import-type CatalogEntity from ValidatedCatalogSnapshot
  * @phpstan-import-type CatalogRelation from ValidatedCatalogSnapshot
+ * @phpstan-import-type CatalogLootRelation from ValidatedCatalogSnapshot
+ * @phpstan-import-type CatalogShopRelation from ValidatedCatalogSnapshot
  */
 final class CatalogSemanticValidator
 {
@@ -76,7 +78,11 @@ final class CatalogSemanticValidator
             if (isset($facts[$key])) {
                 $findings[] = $this->finding('semantic.duplicate_entity_key', "Duplicate canonical key '{$key}'.", $path.'.canonical_key');
             }
-            $facts[$key] = ['type' => $type, 'server_id' => $type === 'item' ? $entity['data']['server_id'] : null];
+            $serverId = null;
+            if ($entity['type'] === 'item') {
+                $serverId = $entity['data']['server_id'];
+            }
+            $facts[$key] = ['type' => $type, 'server_id' => $serverId];
             $current = [$type, $key];
             if ($previous !== null && $previous >= $current) {
                 $findings[] = $this->finding('semantic.entity_ordering', 'Entities must be sorted by type and canonical_key.', $path);
@@ -109,7 +115,7 @@ final class CatalogSemanticValidator
                 $findings[] = $this->finding('semantic.'.$type.'_key_namespace', ucfirst($type).' canonical keys must use the '.$type.' namespace.', $path.'.canonical_key');
             }
 
-            if ($type === 'npc') {
+            if ($entity['type'] === 'npc') {
                 $previousAlias = null;
                 foreach ($entity['data']['aliases'] as $aliasIndex => $alias) {
                     if ($previousAlias !== null && strcmp($previousAlias, $alias) >= 0) {
@@ -193,7 +199,7 @@ final class CatalogSemanticValidator
         }
     }
 
-    /** @param CatalogRelation $relation
+    /** @param CatalogLootRelation $relation
      * @param  array<string, array{type: string, server_id: int|null}>  $entities
      * @param  list<CatalogValidationFinding>  $findings
      */
@@ -214,7 +220,7 @@ final class CatalogSemanticValidator
         }
     }
 
-    /** @param CatalogRelation $relation
+    /** @param CatalogShopRelation $relation
      * @param  array<string, array{type: string, server_id: int|null}>  $entities
      * @param  list<CatalogValidationFinding>  $findings
      */

@@ -46,13 +46,15 @@ final class CatalogV13ConsumerTest extends TestCase
 
         $offers = DB::table('game_catalog_shop_offer_snapshots')->orderBy('direction')->get();
         self::assertCount(2, $offers);
-        self::assertSame('buy', $offers[0]->direction);
-        self::assertSame(100, $offers[0]->price_amount);
-        self::assertNull($offers[0]->storage_key);
-        self::assertSame('sell', $offers[1]->direction);
-        self::assertSame(50, $offers[1]->price_amount);
-        self::assertSame(1000, $offers[1]->storage_key);
-        self::assertSame(1, $offers[1]->storage_value);
+        $buy = $offers->firstWhere('direction', 'buy');
+        $sell = $offers->firstWhere('direction', 'sell');
+        self::assertNotNull($buy);
+        self::assertNotNull($sell);
+        self::assertSame(100, $buy->price_amount);
+        self::assertNull($buy->storage_key);
+        self::assertSame(50, $sell->price_amount);
+        self::assertSame(1000, $sell->storage_key);
+        self::assertSame(1, $sell->storage_value);
 
         $summary = DB::table('game_catalog_snapshots')->where('id', $result->snapshotId)->value('validation_summary');
         self::assertIsString($summary);
