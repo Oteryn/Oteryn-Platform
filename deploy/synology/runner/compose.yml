@@ -3,7 +3,7 @@ name: oteryn-deploy-runner
 services:
   runner:
     image: ${RUNNER_IMAGE:-ghcr.io/blakinio/oteryn-deploy-runner:main}
-    restart: unless-stopped
+    restart: always
     user: "0:0"
     environment:
       RUNNER_ALLOW_RUNASROOT: "1"
