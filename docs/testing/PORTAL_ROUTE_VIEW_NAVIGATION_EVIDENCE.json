@@ -1,0 +1,62 @@
+{
+  "schema_version": 1,
+  "issue": 360,
+  "description": "Bounded classifications for page-like Blade files that are intentionally not discoverable through a literal production view reference. Every new or stale record fails the route/view/navigation validator.",
+  "unreferenced_page_classifications": [
+    {
+      "path": "resources/views/errors/403.blade.php",
+      "classification": "framework_convention",
+      "rationale": "Laravel resolves the status-specific 403 error template by the resources/views/errors/{status}.blade.php exception-rendering convention, so no literal view() reference is expected.",
+      "evidence": [
+        "resources/views/errors/403.blade.php",
+        "Issue #360 framework/convention boundary"
+      ]
+    },
+    {
+      "path": "resources/views/errors/404.blade.php",
+      "classification": "framework_convention",
+      "rationale": "Laravel resolves the status-specific 404 error template by the resources/views/errors/{status}.blade.php exception-rendering convention, so no literal view() reference is expected.",
+      "evidence": [
+        "resources/views/errors/404.blade.php",
+        "PR #354 zero-retry global error-surface acceptance"
+      ]
+    },
+    {
+      "path": "resources/views/errors/429.blade.php",
+      "classification": "framework_convention",
+      "rationale": "Laravel resolves the status-specific 429 error template by the resources/views/errors/{status}.blade.php exception-rendering convention, so no literal view() reference is expected.",
+      "evidence": [
+        "resources/views/errors/429.blade.php",
+        "PR #354 zero-retry global error-surface acceptance"
+      ]
+    },
+    {
+      "path": "resources/views/errors/500.blade.php",
+      "classification": "framework_convention",
+      "rationale": "Laravel resolves the status-specific 500 error template by the resources/views/errors/{status}.blade.php exception-rendering convention, so no literal view() reference is expected.",
+      "evidence": [
+        "resources/views/errors/500.blade.php",
+        "PR #354 zero-retry global error-surface acceptance"
+      ]
+    },
+    {
+      "path": "resources/views/errors/503.blade.php",
+      "classification": "framework_convention",
+      "rationale": "Laravel resolves the status-specific 503 error template by the resources/views/errors/{status}.blade.php exception-rendering convention, so no literal view() reference is expected.",
+      "evidence": [
+        "resources/views/errors/503.blade.php",
+        "Issue #360 framework/convention boundary"
+      ]
+    },
+    {
+      "path": "resources/views/home-preview.blade.php",
+      "classification": "tracked_retirement",
+      "rationale": "This noindex design prototype has no delivered route, controller or parent-view reference and remains intentionally unreachable until the allowlisted authenticated homepage-template preview is implemented or the prototype is retired.",
+      "evidence": [
+        "resources/views/home-preview.blade.php",
+        "Issue #244 audited administrator homepage template selector"
+      ],
+      "tracking_issue": 244
+    }
+  ]
+}
