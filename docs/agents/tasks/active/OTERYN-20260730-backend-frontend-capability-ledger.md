@@ -65,8 +65,8 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-07-30T07:27:00Z
-head: 85a7a5174b2c67829388de4023dc3ee239a92d9c
+updated_at: 2026-07-30T07:29:00Z
+head: 8e6aa3ff7f5ca676e97bfb9f7d01f94d949116b0
 branch: test/OTERYN-20260730-backend-frontend-capability-ledger
 pr: 341
 status: ready
@@ -90,7 +90,7 @@ proven:
   - A user-facing product capability marked implemented now fails strict CI unless backend, frontend and integration statuses are all implemented.
   - Non-UI machine/background capabilities require bounded exception rationale.
   - Five deterministic negative fixtures cover backend-only promotion, unknown surfaces, missing non-UI rationale, product/layer contradiction and missing records.
-  - Strict Portal Acceptance run 30522494824 passed with 43 baseline capabilities, 27 portal surfaces, zero validation errors and five negative fixtures on head 85a7a5174b2c67829388de4023dc3ee239a92d9c.
+  - Strict Portal Acceptance run 30522494824 passed with 43 baseline capabilities, 27 portal surfaces, zero validation errors and five negative fixtures on evidence head 85a7a5174b2c67829388de4023dc3ee239a92d9c.
   - Complete zero-retry account lifecycle, full Visual UX, CI and all other required workflows passed on the same evidence head.
 derived:
   - This cross-ledger slice closes the backend-only promotion risk without rewriting runtime modules.
