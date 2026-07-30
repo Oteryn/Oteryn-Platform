@@ -33,6 +33,7 @@ function expectFailure(name, mutate, expectedMarker) {
 const baseline = loadRepositoryInputs();
 const baselineReport = validatePortalMediaStateEvidence(baseline);
 assert.deepEqual(baselineReport.errors, [], JSON.stringify(baselineReport, null, 2));
+assert.equal(baselineReport.gap_state_count, 0, JSON.stringify(baselineReport, null, 2));
 
 expectFailure('missing portal classification', ({ contract }) => {
   contract.surfaces = contract.surfaces.filter((surface) => surface.id !== 'public.home-and-seo');
@@ -75,7 +76,10 @@ expectFailure('unknown Playwright project', ({ contract }) => {
 
 expectFailure('unbounded gap reason', ({ contract }) => {
   const surface = contract.surfaces.find((record) => record.id === 'editorial-media.admin');
-  surface.states.missing.reason = 'missing';
+  surface.states.missing = {
+    status: 'gap',
+    reason: 'missing',
+  };
 }, 'gap requires a bounded reason');
 
 expectFailure('unbounded non-media rationale', ({ contract }) => {
