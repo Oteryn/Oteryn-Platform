@@ -81,6 +81,21 @@ The new responsive execution found two real evidence defects in the test harness
 
 This slice proves exact dimension linkage, not every state/data/error/media permutation. Issue #350 / PR #351 separately proved long values, pagination beyond 50 rows, a genuine non-debug Laravel `500` and deterministic recovery for public game data. Parent #326 remains open for every other unproven rendered-screen state permutation.
 
+## Machine-enforced rendered media-state slice
+
+Issue #357 / PR #358 adds a fail-closed media applicability and rendered-state layer:
+
+- every canonical delivered portal surface is classified as `media_consumer`, `not_applicable` or the bounded supporting media endpoint group;
+- the actual rendered consumer set is limited to public Wiki article media, the Wiki administrator media picker/preview lifecycle and the administrator Editorial Media library;
+- each of those three consumers maps `normal`, `missing`, `broken_or_integrity_failed` and `no_image` to exact zero-retry Chromium desktop, tablet and mobile browser markers;
+- a shared runtime fallback replaces a referenced image whose protected/public byte delivery fails, preserving alternative text and exposing a visible accessible unavailable-preview state rather than leaving a broken `<img>`;
+- deterministic fixtures remove stored objects or replace their bytes while retaining metadata, proving genuine missing-storage and integrity-failure behavior without test-only routes;
+- the strict closure validator requires `strict_closure: true`, zero media-state gaps, existing profiles/projects/files/markers and exact coverage of the canonical surface inventory;
+- eleven negative fixtures reject missing or orphan classifications, promoted supporting endpoints, omitted states, missing markers, unknown profiles/projects, weak rationales, a disabled strict flag and reintroduced gaps;
+- protected content/thumbnail routes remain supporting endpoint evidence and never substitute for visible rendered fallback UX.
+
+This media slice closes only the delivered managed-media state contract. It does not create image requirements for text-only surfaces, does not prove unrelated state permutations and does not close parent #326.
+
 ## Current backend–frontend reconciliation
 
 The following matrix records the current integrated boundary at the audited revision. `Integrated` means both backend and reachable frontend are present for the stated delivered scope. It does not imply exhaustive every-state visual proof; remaining exhaustive evidence is owned by #326.
@@ -141,7 +156,7 @@ Every new user-facing implementation issue must include:
 
 ## Remaining frontend evidence gap
 
-Issue #326 remains required because current browser evidence is broad but does not yet prove the complete Cartesian matrix of every rendered screen against every requested state, long-data, 500, missing-image and broken-image condition. Issue #347 makes declared viewport/browser evidence exact; it does not infer unexecuted state permutations from a dimension-level pass.
+Issue #326 remains required because current browser evidence is broad but does not yet prove the complete Cartesian matrix of every rendered screen against every requested state, long-data, 500, missing-image and broken-image condition. Issue #347 makes declared viewport/browser evidence exact; Issue #357 closes the managed-media slice only. Neither infers unrelated unexecuted state permutations from a dimension-level or media-level pass.
 
 This gap does not invalidate the integrated flows already proven. It prevents claiming exhaustive frontend completeness and requires any unproven surface/state to remain `PARTIAL` or `UNTESTED` rather than being inferred from backend coverage.
 

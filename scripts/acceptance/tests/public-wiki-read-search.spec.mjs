@@ -22,7 +22,7 @@ test.afterEach(async ({ page }, testInfo) => {
   await attachDiagnostics(testInfo, page.__acceptanceDiagnostics);
 });
 
-test('@wiki published bilingual reads search table of contents and keyboard flow remain portable and responsive', async ({ page }) => {
+test('@wiki published bilingual reads search table of contents image-free layout and keyboard flow remain portable and responsive', async ({ page }) => {
   const homeResponse = await page.goto('/en/wiki');
   expect(homeResponse?.status()).toBe(200);
   await expect(page.getByRole('heading', { level: 1, name: 'Wiki' })).toBeVisible();
@@ -43,6 +43,8 @@ test('@wiki published bilingual reads search table of contents and keyboard flow
   await expect(page.getByRole('heading', { level: 1, name: 'First login' })).toBeVisible();
   await expect(page.getByRole('complementary').getByRole('link', { name: 'Install the client' })).toHaveAttribute('href', '#install-the-client');
   await expect(page.locator('.wiki-table-scroll')).toBeVisible();
+  await expect(page.locator('.wiki-editorial-image')).toHaveCount(0);
+  await expect(page.locator('.wiki-image-placeholder')).toHaveCount(0);
   await expect(page.locator('link[rel="alternate"][hreflang="pl"]')).toHaveAttribute('href', /\/pl\/wiki\/pierwsze-logowanie$/u);
   await assertAccessibilitySmoke(page);
 
@@ -50,6 +52,8 @@ test('@wiki published bilingual reads search table of contents and keyboard flow
   expect(polishResponse?.status()).toBe(200);
   await expect(page.locator('html')).toHaveAttribute('lang', 'pl');
   await expect(page.getByRole('heading', { level: 1, name: 'Pierwsze logowanie' })).toBeVisible();
+  await expect(page.locator('.wiki-editorial-image')).toHaveCount(0);
+  await expect(page.locator('.wiki-image-placeholder')).toHaveCount(0);
   await expect(page.getByText('First login', { exact: true })).toHaveCount(0);
   await assertAccessibilitySmoke(page);
 });

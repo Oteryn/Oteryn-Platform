@@ -44,6 +44,23 @@ $integerId = static function (mixed $value, string $label) use ($fail): int {
     $fail("{$label} is unavailable after migrations.");
 };
 
+$mediaByArgument = static function (mixed $value) use ($integerId, $fail): EditorialMedia {
+    $mediaId = $integerId($value, 'Editorial Media id');
+    $media = EditorialMedia::query()->find($mediaId);
+    if (! $media instanceof EditorialMedia) {
+        $fail("Editorial Media {$mediaId} does not exist in the acceptance fixture.");
+    }
+
+    return $media;
+};
+
+$mediaPaths = static function (EditorialMedia $media): array {
+    return array_values(array_filter([
+        $media->storage_path,
+        $media->thumbnail_path,
+    ], static fn (mixed $path): bool => is_string($path) && $path !== ''));
+};
+
 $createPng = static function (string $path) use ($fail): void {
     $image = imagecreatetruecolor(320, 180);
     if (! $image instanceof GdImage) {
@@ -76,16 +93,13 @@ $removeUploadFixtures = static function (): void {
     }
 };
 
-$reset = static function () use ($removeUploadFixtures): void {
+$reset = static function () use ($removeUploadFixtures, $mediaPaths): void {
     $mediaItems = EditorialMedia::query()->get();
 
     DB::table('editorial_media_references')->delete();
 
     foreach ($mediaItems as $media) {
-        $paths = array_values(array_filter([
-            $media->storage_path,
-            $media->thumbnail_path,
-        ], static fn (mixed $path): bool => is_string($path) && $path !== ''));
+        $paths = $mediaPaths($media);
 
         if ($paths !== []) {
             Storage::disk($media->disk)->delete($paths);
@@ -248,6 +262,40 @@ if ($command === 'seed-referenced') {
     $json([
         'media_id' => $media->id,
         'alt_text' => $media->alt_text,
+    ]);
+}
+
+if ($command === 'remove-files') {
+    $media = $mediaByArgument($argv[2] ?? '');
+    $paths = $mediaPaths($media);
+    if ($paths === []) {
+        $fail('Editorial Media acceptance fixture has no stored paths to remove.');
+    }
+
+    Storage::disk($media->disk)->delete($paths);
+    $json([
+        'media_id' => $media->id,
+        'state' => 'missing',
+        'paths' => count($paths),
+    ]);
+}
+
+if ($command === 'corrupt-files') {
+    $media = $mediaByArgument($argv[2] ?? '');
+    $paths = $mediaPaths($media);
+    if ($paths === []) {
+        $fail('Editorial Media acceptance fixture has no stored paths to corrupt.');
+    }
+
+    $filesystem = Storage::disk($media->disk);
+    foreach ($paths as $path) {
+        $filesystem->put($path, 'corrupt-editorial-media-acceptance-object', ['visibility' => 'private']);
+    }
+
+    $json([
+        'media_id' => $media->id,
+        'state' => 'integrity_failed',
+        'paths' => count($paths),
     ]);
 }
 

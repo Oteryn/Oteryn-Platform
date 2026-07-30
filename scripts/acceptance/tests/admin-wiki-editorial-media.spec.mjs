@@ -18,6 +18,10 @@ function suffix() {
   return crypto.randomBytes(6).toString('hex');
 }
 
+function editorialMediaFixture(...args) {
+  return JSON.parse(runBinary('php', ['scripts/acceptance/seed-browser-editorial-media.php', ...args]));
+}
+
 function seedWikiMediaEditor(email, label) {
   runBinary('php', [
     'scripts/acceptance/seed-browser-admin.php',
@@ -45,7 +49,7 @@ async function expectNoHorizontalOverflow(page) {
   expect(overflow).toBeLessThanOrEqual(1);
 }
 
-test.setTimeout(120_000);
+test.setTimeout(180_000);
 test.describe.configure({ mode: 'serial', retries: 0 });
 
 test.beforeEach(async ({ page }) => {
@@ -120,19 +124,103 @@ test('@wiki-media exact Wiki editor discovers inserts previews and publishes pri
   await page.getByRole('button', { name: 'Submit for review' }).click();
   await page.getByRole('button', { name: 'Publish', exact: true }).click();
 
-  await context.clearCookies();
-  await page.goto(`/en/wiki/${articleSlug}`);
-  const publicImage = page.getByRole('img', { name: mediaLabel });
-  await expect(publicImage).toBeVisible();
-  expect(await publicImage.evaluate((image) => image.naturalWidth)).toBeGreaterThan(0);
-  const imageResponse = await page.request.get(await publicImage.getAttribute('src'));
-  expect(imageResponse.status()).toBe(200);
-  expect(imageResponse.headers()['x-content-type-options']).toBe('nosniff');
-  expect(imageResponse.headers()['cache-control']).toContain('must-revalidate');
-  await expectNoHorizontalOverflow(page);
-  await assertAccessibilitySmoke(page);
+  const browser = context.browser();
+  expect(browser).not.toBeNull();
+  const baseURL = new URL(page.url()).origin;
+  const publicContext = await browser.newContext({ baseURL });
+  const publicPage = await publicContext.newPage();
+  try {
+    await publicPage.goto(`/en/wiki/${articleSlug}`);
+    const publicImage = publicPage.getByRole('img', { name: mediaLabel });
+    await expect(publicImage).toBeVisible();
+    expect(await publicImage.evaluate((image) => image.naturalWidth)).toBeGreaterThan(0);
+    const imageResponse = await publicPage.request.get(await publicImage.getAttribute('src'));
+    expect(imageResponse.status()).toBe(200);
+    expect(imageResponse.headers()['x-content-type-options']).toBe('nosniff');
+    expect(imageResponse.headers()['cache-control']).toContain('must-revalidate');
+    await expectNoHorizontalOverflow(publicPage);
+    await assertAccessibilitySmoke(publicPage);
 
-  await page.goto(`/pl/wiki/${polishSlug}`);
-  await expect(page.getByRole('img', { name: `Most Oteryn ${id}` })).toBeVisible();
-  await expectNoHorizontalOverflow(page);
+    await publicPage.goto(`/pl/wiki/${polishSlug}`);
+    await expect(publicPage.getByRole('img', { name: `Most Oteryn ${id}` })).toBeVisible();
+    await expectNoHorizontalOverflow(publicPage);
+
+    editorialMediaFixture('corrupt-files', String(seeded.media_id));
+
+    await page.goto('/admin/wiki/articles/create');
+    await page.getByLabel('Search approved images').fill(String(seeded.media_id));
+    await page.getByRole('button', { name: 'Search', exact: true }).click();
+    const corruptPickerCard = page.locator('.wiki-media-card').filter({ hasText: `Media ${seeded.media_id}` });
+    const corruptPickerFallback = corruptPickerCard.getByRole('img', { name: mediaLabel });
+    await expect(corruptPickerFallback).toBeVisible();
+    await expect(corruptPickerFallback).toContainText(`Preview unavailable: ${mediaLabel}`);
+    await expect(corruptPickerCard.locator('img')).toHaveCount(0);
+
+    await publicPage.reload();
+    const corruptPublicFallback = publicPage.getByRole('img', { name: `Most Oteryn ${id}` });
+    await expect(corruptPublicFallback).toBeVisible();
+    await expect(corruptPublicFallback).toHaveAttribute('data-media-fallback-state', 'unavailable');
+    await expect(publicPage.locator('.wiki-editorial-image')).toHaveCount(0);
+    await expectNoHorizontalOverflow(publicPage);
+
+    editorialMediaFixture('remove-files', String(seeded.media_id));
+
+    await page.goto('/admin/wiki/articles/create');
+    await page.getByLabel('Search approved images').fill(String(seeded.media_id));
+    await page.getByRole('button', { name: 'Search', exact: true }).click();
+    const missingPickerCard = page.locator('.wiki-media-card').filter({ hasText: `Media ${seeded.media_id}` });
+    const missingPickerFallback = missingPickerCard.getByRole('img', { name: mediaLabel });
+    await expect(missingPickerFallback).toBeVisible();
+    await expect(missingPickerFallback).toContainText(`Preview unavailable: ${mediaLabel}`);
+    await expect(missingPickerCard.locator('img')).toHaveCount(0);
+
+    await publicPage.goto(`/en/wiki/${articleSlug}`);
+    const missingPublicFallback = publicPage.getByRole('img', { name: mediaLabel });
+    await expect(missingPublicFallback).toBeVisible();
+    await expect(missingPublicFallback).toHaveAttribute('data-media-fallback-state', 'unavailable');
+    await expect(publicPage.locator('.wiki-editorial-image')).toHaveCount(0);
+    await expectNoHorizontalOverflow(publicPage);
+    await assertAccessibilitySmoke(publicPage);
+  } finally {
+    await publicContext.close();
+  }
+});
+
+test('@wiki-media image-free Wiki draft preview remains accessible and contains no media fallback', async ({ page, context }) => {
+  const email = uniqueEmail('wiki-media-none');
+  const id = suffix();
+  seedWikiMediaEditor(email, `Unused approved image ${id}`);
+  const articleTitle = `Text only guide ${id}`;
+
+  runArtisan('cache:clear');
+  await login(page, email, password);
+  await completeMfaChallenge(page, recoveryCode);
+  await page.goto('/admin/wiki/articles/create');
+
+  await page.getByLabel('Content type').fill('guide');
+  await page.getByLabel('Display order').fill('6');
+  await page.getByLabel('Title').first().fill(articleTitle);
+  await page.getByLabel('Slug').first().fill(`text-only-guide-${id}`);
+  await page.getByLabel('Summary').first().fill('Image-free Wiki acceptance preview.');
+  await page.getByLabel('Markdown source').first().fill('# Text only\n\nThis article intentionally contains no media token.');
+  await page.getByLabel('Title').nth(1).fill(`Poradnik tekstowy ${id}`);
+  await page.getByLabel('Slug').nth(1).fill(`poradnik-tekstowy-${id}`);
+  await page.getByLabel('Summary').nth(1).fill('Podglad Wiki bez obrazu.');
+  await page.getByLabel('Markdown source').nth(1).fill('# Tylko tekst\n\nTen artykul celowo nie zawiera obrazu.');
+  await page.getByLabel('Change note').fill('Image-free acceptance evidence.');
+  await expect(page.getByLabel('Markdown source').first()).not.toHaveValue(/wiki-media:/u);
+  await expect(page.getByLabel('Markdown source').nth(1)).not.toHaveValue(/wiki-media:/u);
+  await page.getByRole('button', { name: 'Create draft' }).click();
+  await expect(page.getByRole('status')).toContainText('Wiki article draft created.');
+
+  const previewPromise = context.waitForEvent('page');
+  await page.getByRole('link', { name: 'Preview EN' }).click();
+  const preview = await previewPromise;
+  await preview.waitForLoadState();
+  await expect(preview.getByRole('heading', { name: articleTitle })).toBeVisible();
+  await expect(preview.locator('.wiki-editorial-image')).toHaveCount(0);
+  await expect(preview.locator('.wiki-image-placeholder')).toHaveCount(0);
+  await expectNoHorizontalOverflow(preview);
+  await assertAccessibilitySmoke(preview);
+  await preview.close();
 });
