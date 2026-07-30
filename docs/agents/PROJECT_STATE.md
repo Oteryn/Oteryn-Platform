@@ -25,6 +25,8 @@ These phase statements do not claim benchmark product completeness. Issue #268 a
 - **Delivered Portal Route Contract: COMPLETE AND MACHINE ENFORCED**
 - **Benchmark Product Completeness: NOT COMPLETE; REQUIRED CHARACTER GAPS #317/#319 REMAIN, AND #321/#322 ARE MANDATORY BEFORE COMMERCE**
 - **Backend–Frontend Promotion Enforcement: COMPLETE IN #340 / PR #341**
+- **Viewport/Browser Evidence Linkage: IMPLEMENTED IN #347 / PR #349; FINAL MERGE PENDING**
+- **Public Game-Data Stress/500 Slice: COMPLETE IN #350 / PR #351**
 - **Exhaustive Backend–Frontend Evidence: NOT COMPLETE; PARENT #326 REMAINS OPEN**
 - **Production Go-Live Gate: PENDING PRODUCTION VERIFICATION**
 - **Production Verification: REQUIRED BEFORE GO-LIVE**
@@ -76,6 +78,8 @@ The ready Platform-to-Canary binding remains immutable. Self-service import, unl
 
 PR #298 merged the approved read-only community-data boundary as `7533b12b1e1c6d266c6bf5a8800e584fad23a01e` after all 11 exact-final-head workflows passed. Canary mutation, guild administration, selectable achievements, world-transfer history, polls and public enforcement publication remain excluded until authoritative ownership and privacy contracts exist.
 
+PR #351 completed Issue #350 as merge `923933222050999fec368bc2db1be6e546f13c12`. Its zero-retry Chromium desktop/tablet/mobile scenario proves long externally sourced values, more than one 50-row result page, a genuine non-debug Laravel `500` without sensitive disclosure and deterministic recovery for the public game-data surface. This is one bounded #326 state slice, not universal state completeness.
+
 PR #308 completed owner-editable Platform comments, character-level privacy and optional main-character selection. Still not benchmark-complete: deletion/restore remains #317, rename remains #319, controlled world/channel transfer remains #320, and selected achievements depend on #301/#323. Customer commerce remains #321/#322 under parent #278. Structured authoritative spell/NPC/quest/achievement catalogues remain #301, while optional map/hunt/discovery decisions remain #302.
 
 ### CMS and community publishing
@@ -112,7 +116,7 @@ Delivered boundaries:
 - non-login escrow account, session/offline/quota checks, deterministic locking and idempotency;
 - recoverable cross-database listing/cancellation/settlement saga;
 - MFA/permission/audit-protected administrator wallet adjustment and recovery queue;
-- desktop/tablet/mobile, accessibility, real-MariaDB concurrency and full browser acceptance.
+- desktop/tablet/mobile Chromium acceptance, accessibility and real-MariaDB concurrency evidence.
 
 The wallet is not a payment system. Customer coin purchase, premium/VIP, products, signed provider events, refunds and chargebacks are split into #321 and #322 under parent #278. Canary tournament coins are not used.
 
@@ -133,7 +137,11 @@ PR #315 established an additional product-level rule: a user-facing capability i
 
 PR #341 completed Issue #340 as merge `90035fa764f4477ebcffd9410075dc342972be42`. The fail-closed cross-ledger gate now gives every canonical product capability explicit backend, frontend and integration status; integrated claims reference exact covered portal surfaces with Playwright markers; non-UI exceptions require rationale; deterministic negative fixtures reject backend-only promotion and inconsistent evidence. Exact final head `4c29c21f448d3f17b169450a7a2667b9b2ca327a` passed all nine authoritative workflows, including strict Portal Acceptance, complete zero-retry account lifecycle and full Visual UX.
 
-Broad responsive, portability, resilience and accessibility evidence exists, but it is not a universal every-route/every-state/browser Cartesian matrix. #326 owns the remaining exhaustive visual/state evidence after #340.
+Issue #347 / PR #349 implements the next fail-closed layer. Exactly 27 dimension records map all delivered surfaces to 13 executable profile groups; all 23 critical rendered surfaces must have blocking zero-retry Chromium desktop/tablet/mobile evidence; Firefox/WebKit is either executable or explicitly excluded with a bounded risk rationale. Eight negative fixtures reject missing dimensions, projects, markers, browser IDs, rationale, orphan records and non-blocking critical evidence. The implementation evidence head `611b130fb50a1fb2661b890b7f80a70675dad58d` passed all nine authoritative workflows before the branch was restacked on current `main`.
+
+The dimension work also corrected two truthful frontend-evidence problems: tablet/mobile localization now asserts the visible responsive language/navigation links instead of hidden desktop elements, and Marketplace no longer claims generic bounded portability without an executable Firefox/WebKit profile.
+
+Broad responsive, portability, resilience and accessibility evidence exists, but it is not a universal every-route/every-state/browser Cartesian matrix. #326 owns the remaining exhaustive visual/state evidence after #340, #347 and the completed public game-data #350 slice.
 
 ## Product-completeness benchmark
 
@@ -146,7 +154,9 @@ The completed Issue #268 audit and merged PR #315 reconciliation are tracked by:
 - `docs/testing/PRODUCT_COMPLETENESS_FRONTEND_AUDIT_2026-07-30.md`;
 - `docs/testing/PRODUCT_COMPLETENESS_AUDIT_2026-07-29_VALIDATION.md`;
 - `scripts/acceptance/coverage/validate-product-completeness.mjs`;
-- `scripts/acceptance/coverage/validate-backend-frontend-completeness.mjs`.
+- `scripts/acceptance/coverage/validate-backend-frontend-completeness.mjs`;
+- `scripts/acceptance/coverage/portal-evidence-dimensions.json`;
+- `scripts/acceptance/coverage/validate-dimension-evidence.mjs`.
 
 The current canonical ledger classifies 43 Tibia/RubinOT/OTS benchmark capabilities:
 
@@ -166,7 +176,8 @@ Completed focused slices:
 - #281 — first versioned item/weapon/creature/loot Game Catalog scope delivered by PR #272 and evidence ownership closed by PR #303;
 - #307 — Platform-owned character comments, per-character privacy and optional main-character selection in PR #308;
 - #268 reconciliation — detailed product and frontend audit merged in PR #315 as `94b3457f4bb5b9aa73639a698c70ebb233940288` after all eight required workflows passed on exact head `92935a76e559d8716773ebec5d1a04264051cfa1`;
-- #340 — backend/frontend/integration promotion enforcement merged in PR #341 as `90035fa764f4477ebcffd9410075dc342972be42` after all nine authoritative final-head workflows passed.
+- #340 — backend/frontend/integration promotion enforcement merged in PR #341 as `90035fa764f4477ebcffd9410075dc342972be42` after all nine authoritative final-head workflows passed;
+- #350 — public game-data long-value, large-result, real-500 and recovery evidence merged in PR #351 as `923933222050999fec368bc2db1be6e546f13c12`.
 
 Open focused backlog:
 
@@ -181,6 +192,7 @@ Open focused backlog:
 - #301 — authoritative spell/NPC/quest/achievement catalogue expansion;
 - #302 — optional maps, hunt tools and server-specific discovery planning;
 - #325 — optional loyalty/badge/status presentation;
+- #347 — exact viewport/browser evidence linkage in PR #349 until merged;
 - #326 — remaining exhaustive delivered-screen/browser/visual/state matrix.
 
 A green route or API contract must not be described as product complete while required benchmark or frontend gaps remain.
@@ -207,20 +219,23 @@ Repository and exact-revision E2E work has hardened the native-auth direction, b
 
 ## Current active task
 
-No backend/frontend capability-ledger task remains active after PR #341. Live active task records and open PRs remain authoritative for parallel work, including PR #328 for the character-rename contract.
+`OTERYN-20260730-viewport-browser-evidence-dimensions` in Issue #347 / PR #349 owns only the exact viewport/browser evidence contract, validators, focused fixture tests and responsive localization evidence corrections. It does not own the remaining #326 state/data/error/media matrix or product UI feature implementation. Live active task records and open PRs remain authoritative for parallel work, including PR #328 for the character-rename contract.
 
 ## Recommended sequence
 
-1. Continue the remaining every-rendered-screen/browser/state evidence under parent #326 as separate bounded tasks.
-2. Continue required character deletion/restore #317 and rename #319 only after operation-specific Canary contracts and authorization exist; do not overlap PR #328.
-3. Decide authoritative world ownership before #320 and deliver #323 only after #301 provides earned-achievement truth.
-4. Keep commerce disabled until #321 payment security/provider decisions and #322 entitlement lifecycle are complete.
-5. Treat #302/#325 as optional product discovery.
-6. Resume #91 only after explicit production deployment/verification authorization and required production evidence access exist.
+1. Complete #347 / PR #349 exact-final-head validation and merge the dimension-evidence gate.
+2. Continue parent #326 with separately owned screen/state/data/error/media evidence slices; do not duplicate completed public game-data #350.
+3. Continue required character deletion/restore #317 and rename #319 only after operation-specific Canary contracts and authorization exist; do not overlap PR #328.
+4. Decide authoritative world ownership before #320 and deliver #323 only after #301 provides earned-achievement truth.
+5. Keep commerce disabled until #321 payment security/provider decisions and #322 entitlement lifecycle are complete.
+6. Treat #302/#325 as optional product discovery.
+7. Resume #91 only after explicit production deployment/verification authorization and required production evidence access exist.
 
 ## Community data delivery
 
 PR #298 completed Issue #280's approved read-only boundary: categorized/vocation highscores, privacy-aware rich profiles, latest deaths/kill statistics, guild directory search/detail, direct-table grant verification and EN/PL zero-retry desktop/tablet/mobile acceptance. Exact final head `45efd2a8f0162df22313e141e973c6a8c3ffb5d1` passed all 11 required workflows before squash merge `7533b12b1e1c6d266c6bf5a8800e584fad23a01e`. Canary mutation, guild administration, transfer history, polls and public enforcement publication remain explicitly excluded, and no production-verification claim was made.
+
+PR #351 later added the bounded Issue #350 stress/error evidence without changing the delivered product boundary: 76 acceptance-only active characters proved deterministic page two, long values rendered without document-level overflow, a genuine non-debug 500 exposed no internal details, and restoration returned the same route to 200. Parent #326 remains open for other surfaces and permutations.
 
 ## Game Catalog first-scope closeout
 
