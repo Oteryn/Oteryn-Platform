@@ -16,10 +16,13 @@
     },
     {
       "code": 419,
-      "trigger": "browser-form-without-csrf-token",
+      "trigger": "cross-site-browser-form-with-invalid-csrf-token",
       "assertions": [
+        "real-cross-site-origin",
+        "request-forgery-rejected",
         "localized-branded-layout",
         "failed-request-not-reported-successful",
+        "token-and-email-not-disclosed",
         "noindex-nofollow",
         "keyboard-reachable-recovery-action",
         "no-document-horizontal-overflow"
