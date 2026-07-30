@@ -23,6 +23,7 @@ AUTHORITATIVE STATE:
 - The audit reconciliation is PR #315. Verify its live state first.
 - After PR #315 merges, read:
   - docs/testing/PRODUCT_COMPLETENESS_AUDIT_2026-07-29.md
+  - docs/testing/PRODUCT_COMPLETENESS_FRONTEND_AUDIT_2026-07-30.md
   - docs/testing/PRODUCT_COMPLETENESS_AUDIT_2026-07-29_VALIDATION.md
   - docs/testing/PRODUCT_COMPLETENESS_BENCHMARK.md
   - docs/testing/product-completeness-benchmark.json
@@ -37,7 +38,7 @@ MANDATORY READS AT PROGRAM START:
 - docs/agents/BUILD_TEST_MATRIX.md
 - docs/agents/CONTEXT_HANDOFF.md
 - docs/agents/tasks/TASK_TEMPLATE.md
-- the merged audit and benchmark files listed above when available
+- the merged audit, frontend integration audit and benchmark files listed above when available
 - the selected issue and its parent issue
 - the active task record and live PR for any overlapping work
 - task-routed architecture, security, data-ownership, contracts and test documents only
@@ -98,6 +99,7 @@ TASK START WORKFLOW:
 
 IMPLEMENTATION RULES:
 - Fix confirmed root causes; do not merely change audit labels or tests to hide a gap.
+- For a user-facing capability, do not claim IMPLEMENTED unless backend/domain behavior, reachable frontend integration and applicable zero-retry browser evidence are all proven. Backend-only delivery remains PARTIAL; frontend code without reliable integrated evidence remains UNTESTED.
 - Reuse existing Platform Identity, RBAC, confirmed MFA, Audit, notifications, locking, idempotency, localization and acceptance infrastructure.
 - Deny by default when ownership, authorization, dependency or shared-state evidence is ambiguous.
 - Browser-supplied Identity, account, player, operation or object identifiers never establish authorization.
@@ -133,7 +135,7 @@ VALIDATION WORKFLOW:
 2. Add regression tests for every fixed security/integrity defect where practical.
 3. Run migration rollback and isolated database validation for schema work.
 4. Run real MariaDB/Redis/SMTP or cross-repository contract evidence when the affected boundary requires it.
-5. Run zero-retry browser acceptance for changed user/admin surfaces with EN/PL and required viewports/browsers.
+5. Run zero-retry integrated browser acceptance for changed user/admin surfaces with EN/PL and required viewports/browsers; API/unit evidence alone cannot close a user-facing gap.
 6. Run the full applicable final validation exactly once on the final runtime-affecting head.
 7. Inspect workflow/job/step logs for every failure and fix root causes; do not blindly rerun identical failures.
 8. Never weaken, delete, bypass or relabel a required check merely to obtain green CI.
@@ -143,7 +145,7 @@ BENCHMARK RECONCILIATION:
 - Update PRODUCT_COMPLETENESS_BENCHMARK and its machine ledger only after implementation and exact evidence exist.
 - Do not mark a capability implemented because a task or PR exists.
 - Keep partial, missing, untested, not-applicable, contract-tested, staging-proven and production-proven distinctions truthful.
-- Update route/surface coverage only for actually delivered surfaces and states.
+- Update route/surface coverage only for actually delivered and integrated backend/frontend surfaces and states.
 - Do not close parent issues until every required child criterion is met or an exclusion has a durable approved rationale.
 
 MERGE GATE:
