@@ -228,7 +228,7 @@ async function prove500(page, locale) {
 
 // Evidence marker: @portal-global-errors real localized 404 419 429 and 500 lifecycle
 test('@portal-global-errors real localized 404, 419, 429 and 500 lifecycle', async ({ page }, testInfo) => {
-  expect(evidence.projects).toContain(testInfo.project.name);
+  test.skip(!evidence.projects.includes(testInfo.project.name), 'Dedicated Error State Acceptance projects only.');
   expect(process.env.APP_DEBUG).toBe('false');
 
   const projectSlug = testInfo.project.name.replaceAll(/[^a-z0-9]+/gu, '-');
