@@ -1,6 +1,7 @@
 {
   "schema_version": 1,
   "parent_issue": 326,
+  "implementation_issue": 340,
   "claim_boundary": "A user-facing capability is integrated only when backend behavior, reachable frontend, real-route integration and browser evidence are explicit. This ledger does not prove the remaining every-screen, every-state or production matrix.",
   "allowed_layer_statuses": ["implemented", "partial", "missing", "untested", "not_applicable"],
   "capabilities": [
@@ -39,13 +40,13 @@
     {"id":"public.character-search-detail","user_facing":true,"backend_status":"implemented","frontend_status":"implemented","integration_status":"implemented","surface_ids":["public.game-data"]},
     {"id":"public.guild-detail-administration","user_facing":true,"backend_status":"implemented","frontend_status":"implemented","integration_status":"implemented","surface_ids":["public.game-data"]},
     {"id":"public.highscores","user_facing":true,"backend_status":"implemented","frontend_status":"implemented","integration_status":"implemented","surface_ids":["public.game-data"]},
-    {"id":"public.deaths-transfers-kills","user_facing":true,"backend_status":"implemented","frontend_status":"implemented","integration_status":"implemented","surface_ids":["community.deaths-and-kill-statistics"]},
+    {"id":"public.deaths-transfers-kills","user_facing":true,"backend_status":"implemented","frontend_status":"implemented","integration_status":"implemented","surface_ids":["public.community-deaths-and-policy"]},
     {"id":"public.polls","user_facing":true,"backend_status":"not_applicable","frontend_status":"not_applicable","integration_status":"not_applicable","surface_ids":[],"exception_reason":"Polls are intentionally outside the approved launch product boundary."},
     {"id":"public.public-enforcement","user_facing":true,"backend_status":"not_applicable","frontend_status":"not_applicable","integration_status":"not_applicable","surface_ids":[],"exception_reason":"Public punishment publication is intentionally excluded for privacy and moderation integrity."},
-    {"id":"public.character-bazaar","user_facing":true,"backend_status":"implemented","frontend_status":"implemented","integration_status":"implemented","surface_ids":["marketplace.public-catalogue-and-detail","marketplace.authenticated-auction-lifecycle","marketplace.administration-and-recovery"]},
+    {"id":"public.character-bazaar","user_facing":true,"backend_status":"implemented","frontend_status":"implemented","integration_status":"implemented","surface_ids":["marketplace.public-catalogue-and-detail","marketplace.authenticated-auction-lifecycle","marketplace.admin-wallet-and-recovery"]},
     {"id":"public.online-server-status","user_facing":true,"backend_status":"implemented","frontend_status":"implemented","integration_status":"implemented","surface_ids":["public.game-data"]},
 
-    {"id":"knowledge.creatures-items","user_facing":true,"backend_status":"implemented","frontend_status":"implemented","integration_status":"implemented","surface_ids":["game-catalog.public-items-creatures-and-loot","game-catalog.administration"]},
+    {"id":"knowledge.creatures-items","user_facing":true,"backend_status":"implemented","frontend_status":"implemented","integration_status":"implemented","surface_ids":["game-catalog.public-items-creatures-and-loot","game-catalog.administrator-inspection"]},
     {"id":"knowledge.spells-quests-npcs-achievements","user_facing":true,"backend_status":"missing","frontend_status":"missing","integration_status":"missing","surface_ids":[]},
     {"id":"knowledge.maps","user_facing":true,"backend_status":"missing","frontend_status":"missing","integration_status":"missing","surface_ids":[]},
     {"id":"knowledge.hunting-calculators","user_facing":true,"backend_status":"missing","frontend_status":"missing","integration_status":"missing","surface_ids":[]},
