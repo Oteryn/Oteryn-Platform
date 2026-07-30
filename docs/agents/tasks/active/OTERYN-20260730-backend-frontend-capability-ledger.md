@@ -29,23 +29,22 @@ Deliver the first bounded remediation slice of #326 through Issue #340: a machin
 
 ## Acceptance criteria
 
-- [ ] Every canonical product capability has exactly one backend/frontend record.
-- [ ] Every user-facing `implemented` capability requires implemented backend, reachable frontend, integrated real-route behavior and browser evidence.
-- [ ] Backend-only user-facing capability cannot validate as `implemented`.
-- [ ] Frontend without reliable integrated browser evidence is classified `untested` or `partial`, never inferred as implemented.
-- [ ] Referenced portal surface IDs exist and are `covered` for integrated capabilities.
-- [ ] Supporting/API-only exceptions require a bounded rationale.
-- [ ] Missing, partial and not-applicable product statuses remain consistent across ledgers.
-- [ ] Strict Portal Acceptance executes the new validator with retries unaffected.
-- [ ] Focused negative fixtures prove the validator fails on backend-only and unknown-surface claims.
-- [ ] Documentation states that this slice does not close the remaining every-screen/browser/state matrix in #326.
+- [x] Every canonical product capability has exactly one backend/frontend record.
+- [x] Every user-facing `implemented` capability requires implemented backend, reachable frontend, integrated real-route behavior and browser evidence.
+- [x] Backend-only user-facing capability cannot validate as `implemented`.
+- [x] Frontend without reliable integrated browser evidence is classified `untested` or `partial`, never inferred as implemented.
+- [x] Referenced portal surface IDs exist and are `covered` for integrated capabilities.
+- [x] Supporting/API-only exceptions require a bounded rationale.
+- [x] Missing, partial and not-applicable product statuses remain consistent across ledgers.
+- [x] Strict Portal Acceptance executes the new validator with retries unaffected.
+- [x] Focused negative fixtures prove the validator fails on backend-only and unknown-surface claims.
+- [x] Documentation states that this slice does not close the remaining every-screen/browser/state matrix in #326.
 
 ## Ownership
 
 ```yaml
 owned_paths:
   - docs/agents/tasks/active/OTERYN-20260730-backend-frontend-capability-ledger.md
-  - docs/agents/ACTIVE_WORK.md
   - docs/agents/PROJECT_STATE.md
   - docs/testing/product-backend-frontend-completeness.json
   - docs/testing/PRODUCT_COMPLETENESS_FRONTEND_AUDIT_2026-07-30.md
@@ -66,11 +65,11 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-07-30T07:18:00Z
-head: 1513bacbea7f2af8b773517a3321be4d4e404862
+updated_at: 2026-07-30T07:27:00Z
+head: 85a7a5174b2c67829388de4023dc3ee239a92d9c
 branch: test/OTERYN-20260730-backend-frontend-capability-ledger
 pr: 341
-status: validating
+status: ready
 context_routes:
   - agent-governance
   - testing
@@ -78,7 +77,6 @@ context_routes:
   - public-portal
 owned_paths:
   - docs/agents/tasks/active/OTERYN-20260730-backend-frontend-capability-ledger.md
-  - docs/agents/ACTIVE_WORK.md
   - docs/agents/PROJECT_STATE.md
   - docs/testing/product-backend-frontend-completeness.json
   - docs/testing/PRODUCT_COMPLETENESS_FRONTEND_AUDIT_2026-07-30.md
@@ -88,15 +86,17 @@ owned_paths:
   - .github/workflows/portal-acceptance-contract.yml
 proven:
   - PR #315 merged the mandatory backend/frontend/browser implementation rule.
-  - Existing portal validation classifies every named route and verifies surface evidence markers.
-  - Existing product validation did not require explicit backend/frontend/integration records for all 43 capabilities.
-  - The new ledger contains 43 records and the validator cross-checks canonical IDs, layer statuses, exact covered surface IDs and stable Playwright markers.
-  - Negative fixtures cover backend-only promotion, unknown surfaces, missing non-UI rationale, product/layer contradiction and missing records.
+  - The new ledger contains exactly 43 records and the validator cross-checks canonical IDs, layer statuses, exact covered surface IDs and stable Playwright markers.
+  - A user-facing product capability marked implemented now fails strict CI unless backend, frontend and integration statuses are all implemented.
+  - Non-UI machine/background capabilities require bounded exception rationale.
+  - Five deterministic negative fixtures cover backend-only promotion, unknown surfaces, missing non-UI rationale, product/layer contradiction and missing records.
+  - Strict Portal Acceptance run 30522494824 passed with 43 baseline capabilities, 27 portal surfaces, zero validation errors and five negative fixtures on head 85a7a5174b2c67829388de4023dc3ee239a92d9c.
+  - Complete zero-retry account lifecycle, full Visual UX, CI and all other required workflows passed on the same evidence head.
 derived:
-  - A separate cross-ledger validator is the smallest safe slice and avoids rewriting runtime modules.
-  - This slice must leave the remaining every-screen/browser/state matrix open in parent #326.
+  - This cross-ledger slice closes the backend-only promotion risk without rewriting runtime modules.
+  - The remaining every-rendered-screen/browser/state Cartesian matrix stays open in parent #326.
 unknown:
-  - Whether the corrected exact surface IDs and checkpoint pass the next exact-head CI suite.
+  - Direct production behavior and the remaining exhaustive frontend-state matrix remain unverified.
 conflicts: []
 first_failure:
   marker: backend-frontend-unknown-surface-ids
@@ -107,7 +107,6 @@ rejected_hypotheses:
   - Close #326 with this first ledger slice.
 changed_paths:
   - .github/workflows/portal-acceptance-contract.yml
-  - docs/agents/ACTIVE_WORK.md
   - docs/agents/PROJECT_STATE.md
   - docs/agents/tasks/active/OTERYN-20260730-backend-frontend-capability-ledger.md
   - docs/testing/PRODUCT_COMPLETENESS_FRONTEND_AUDIT_2026-07-30.md
@@ -116,12 +115,36 @@ changed_paths:
   - scripts/acceptance/coverage/validate-backend-frontend-completeness.mjs
   - scripts/acceptance/package.json
 validation:
-  - command: Portal Acceptance strict coverage run 30521949405
-    result: FAIL
-    evidence: validator correctly rejected three unknown surface IDs on head d0416600deeca89261d9ea038baeab5f326c2489.
-  - command: corrected exact-head GitHub Actions suite
-    result: NOT_RUN
-    evidence: queued after exact surface and checkpoint reconciliation.
+  - command: GitHub Actions Agent Governance run 30522494811
+    result: PASS
+    evidence: exact evidence head 85a7a5174b2c67829388de4023dc3ee239a92d9c.
+  - command: GitHub Actions CI run 30522494844
+    result: PASS
+    evidence: exact evidence head; formatting, static analysis and full test suite passed.
+  - command: GitHub Actions Portal Acceptance Contract run 30522494824
+    result: PASS
+    evidence: strict route/product/backend-frontend ledgers, five negative fixtures and complete zero-retry account lifecycle passed.
+  - command: GitHub Actions Acceptance E2E and Visual UX run 30522494846
+    result: PASS
+    evidence: smoke, Chromium/Firefox/WebKit portability, responsive, resilience and keyboard accessibility profiles passed.
+  - command: GitHub Actions Downloads Acceptance run 30522498890
+    result: PASS
+    evidence: exact evidence head.
+  - command: GitHub Actions Phase 7 Production-Like Validation run 30522497002
+    result: PASS
+    evidence: exact evidence head; staging-like boundary only.
+  - command: GitHub Actions Platform DB Outage Validation run 30522494901
+    result: PASS
+    evidence: exact evidence head.
+  - command: GitHub Actions Edge Security Emulation run 30522497240
+    result: PASS
+    evidence: exact evidence head.
+  - command: GitHub Actions Game Auth Ticket Concurrency run 30522497077
+    result: PASS
+    evidence: exact evidence head.
+  - command: GitHub Actions Synology Production Target Preflight run 30522494895
+    result: PASS
+    evidence: exact evidence head; preflight is not production proof.
 blockers: []
-next_action: Confirm the corrected strict validator and negative fixtures pass, then reconcile final exact-head evidence.
+next_action: Confirm all required workflows on the final evidence-only head, mark PR #341 ready and merge Issue #340 without closing parent #326.
 ```

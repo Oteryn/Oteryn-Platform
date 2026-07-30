@@ -4,17 +4,17 @@ Convenience index only. Individual active task records, live PRs and Git state a
 
 ## Active tasks
 
-- `OTERYN-20260730-backend-frontend-capability-ledger` / Issue #340 — first bounded #326 slice enforcing the 43-capability backend, reachable-frontend, real-route integration and browser-evidence relationship in strict CI. Owned paths are limited to the task record, product frontend ledger, acceptance validators/workflow and associated audit/state documentation.
+None recorded by this index. Live active task files and pull requests remain authoritative when newer.
 
 ## Closed acceptance and release-preparation follow-ups
 
 - PR #315 / `94b3457f4bb5b9aa73639a698c70ebb233940288` — merged the exact-SHA Issue #268 product-completeness reconciliation, mandatory backend/frontend/browser implementation rule, detailed findings and bounded remediation backlog after all eight required workflows passed on head `92935a76e559d8716773ebec5d1a04264051cfa1`; no runtime, Canary, payment-provider or production mutation occurred.
 - PR #308 / `86847d0068e470274b6c3ee5523fe41cbb9663af` — delivered Platform-owned character comments, per-character privacy and optional main-character selection after all 11 exact-final-head workflows passed; Issue #307 closed while Canary remained read-only and parent #277 stayed open.
-- PR #303 / `e1df0608e470274b6c3ee5523fe41cbb9663af` — reconciled Issue #281 to the authoritative item/weapon/creature/loot Game Catalog scope delivered by PR #272, preserved unsupported knowledge gaps under #277/#301/#302 and closed #281 after all eight exact-final-head workflows passed; no runtime, Canary, external-repository or production mutation occurred.
+- PR #303 / `e1df0608eb6a8321f47fe51da65233a613a27b25` — reconciled Issue #281 to the authoritative item/weapon/creature/loot Game Catalog scope delivered by PR #272, preserved unsupported knowledge gaps under #277/#301/#302 and closed #281 after all eight exact-final-head workflows passed; no runtime, Canary, external-repository or production mutation occurred.
 - PR #300 / `7f2c37ca2a2447623705f60dffc08a34b9c755d3` — archived the completed community-data task, cleared ACTIVE_WORK and reconciled project state after Issue #280 closure.
 - PR #298 / `7533b12b1e1c6d266c6bf5a8800e584fad23a01e` — bounded read-only highscore categories, privacy-aware rich character profiles, latest deaths/kill statistics, guild directory/search, explicit optional-feature policy and EN/PL responsive acceptance merged after every exact-final-head workflow passed; Issue #280 closed without Canary mutation or a production-verification claim.
 - PR #293 / `02aa4ab8180c0e9cecb0d42bc1f8f5af6db640a1` — complete Platform-owned support/moderation lifecycle with owner tickets, bounded reports, exact-MFA/RBAC moderator queues, enforcement/appeals, notifications, retention/privacy and EN/PL responsive acceptance merged; Issue #279 closed without Canary mutation, attachments or a production-verification claim.
-- PR #272 / `94259f6c5aa1e9cfcd86ad6e11c29fa42fc90491` — version-aware Game Catalog importer, activation/rollback, public item/weapon/creature/loot projections, secured administrator inspection and generated Canary cross-repository MariaDB lifecycle merged after every exact-final-head workflows passed; no production deployment or production profile activation occurred.
+- PR #272 / `94259f6c5aa1e9cfcd86ad6e11c29fa42fc90491` — version-aware Game Catalog importer, activation/rollback, public item/weapon/creature/loot projections, secured administrator inspection and generated Canary cross-repository MariaDB lifecycle merged after every exact-final-head workflow passed; no production deployment or production profile activation occurred.
 - PR #283 / `28faad47f95df10d1a9b437a16a1be91556671c6` — complete Platform-owned account-security lifecycle, EN/PL responsive acceptance, strict product-ledger reconciliation and exact-final-head validation merged; Issue #276 closed without Canary mutation or a production-verification claim.
 - PR #275 / `c365920b5ad672c9c3be9968d8a51132d3862859` — evidence-linked Tibia/RubinOT/OTS product-completeness benchmark, 43-capability machine ledger and focused gap backlog #276-#281 merged; Issue #268 closed without claiming product or production completeness.
 - PR #270 / `0f19656e0875d0a10b22002ac0e096deb20e94d8` — complete Character Bazaar, Platform wallet ledger, least-privilege Canary escrow/settlement and exact-head responsive/browser/database/security validation merged; Issue #269 closed.
@@ -87,7 +87,7 @@ The latest verified final-portal staging refresh identity is `583cae5f430998b2bb
 
 ## Next work
 
-Implement Issue #340 as the first bounded #326 slice: enforce a 43-capability backend/frontend/integration/browser ledger in strict Portal Acceptance. This does not close the remaining every-screen/browser/state matrix. Direct production verification remains #91.
+Start one bounded, unowned audit-remediation slice. #319 is already owned by the rename-contract work; #317/#320 require operation-specific Canary contracts; #321/#322 require payment/product decisions. The next safe acceptance slice is the machine-enforced backend–frontend capability ledger under #326. Direct production verification remains #91.
 
 ## Remaining cross-repository dependency
 
