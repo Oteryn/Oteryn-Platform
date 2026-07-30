@@ -42,7 +42,7 @@ $longName = 'content-scale-'.implode('-', array_map(
 )).'.png';
 $longAlt = 'Content scale editorial media boundary '.implode(' ', array_map(
     static fn (int $index): string => sprintf('alternative-text-segment-%02d', $index),
-    range(1, 24),
+    range(1, 16),
 ));
 
 for ($index = 1; $index <= 25; $index++) {
