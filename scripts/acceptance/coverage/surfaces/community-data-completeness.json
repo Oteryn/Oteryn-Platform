@@ -118,8 +118,7 @@
         {
           "file": "scripts/acceptance/tests/community-data-acceptance.spec.mjs",
           "markers": [
-            "@portal-community complete rankings, privacy-aware profile, deaths, guild search, localization, resilience and responsive lifecycle",
-            "@portal-community-stress long values multi-page results internal 500 containment and recovery"
+            "@portal-community complete rankings, privacy-aware profile, deaths, guild search, localization, resilience and responsive lifecycle"
           ]
         }
       ],
