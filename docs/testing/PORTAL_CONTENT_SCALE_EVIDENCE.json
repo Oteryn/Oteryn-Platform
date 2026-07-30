@@ -121,11 +121,21 @@
             "content-scale-chromium-tablet",
             "content-scale-chromium-mobile"
           ],
+          "viewports": [
+            "desktop-1440x1000",
+            "tablet-820x1180",
+            "mobile-390x844"
+          ],
           "retries": 0,
           "runtime": "real-laravel-http-with-isolated-mariadb-and-redis",
           "validated_sha": "52f5440b9aeb510e4f1c8c8ac6167a3ba1c8fd4f",
           "validated_workflow_run_id": 30585258317
         },
+        "assertions": [
+          "readable_wrapping",
+          "component_containment",
+          "no_document_horizontal_overflow"
+        ],
         "proven_assertions": [
           "deterministic-long-English-news-and-managed-page-content",
           "deterministic-fresh-long-Polish-news-and-managed-page-translations",
@@ -158,11 +168,21 @@
             "community-data-chromium-tablet",
             "community-data-chromium-mobile"
           ],
+          "viewports": [
+            "desktop-1440x1000",
+            "tablet-820x1180",
+            "mobile-390x844"
+          ],
           "retries": 0,
           "runtime": "real-laravel-http-with-isolated-mariadb-and-redis",
           "validated_sha": "eea11818520996aa6575e8059b8f140248ced1ac",
           "validated_workflow_run_id": 30580307178
         },
+        "assertions": [
+          "component_containment",
+          "stable_bounded_pagination",
+          "no_document_horizontal_overflow"
+        ],
         "proven_assertions": [
           "deterministic-long-character-name-visible",
           "deterministic-long-public-comment-visible",
@@ -178,7 +198,94 @@
         "remaining_gaps": []
       }
     },
-    "reviewed_unmapped_surfaces": {}
+    "gap_surfaces": {
+      "public.home-and-seo": {
+        "reason": "No exact long-content fixture is bound to homepage composition yet; this remains an explicit evidence gap rather than an inferred responsive pass.",
+        "missing": [
+          "readable_wrapping",
+          "component_containment",
+          "no_document_horizontal_overflow"
+        ]
+      },
+      "admin.core-rbac-cms-audit": {
+        "reason": "No exact fixture currently proves long CMS values and multi-page administrator collections together across the required three Chromium viewports.",
+        "missing": [
+          "readable_wrapping",
+          "component_containment",
+          "stable_bounded_pagination",
+          "no_document_horizontal_overflow"
+        ]
+      },
+      "public.localization-core": {
+        "reason": "The public EN/PL routes are evidenced, but the administrator translation editor itself lacks exact long-value wrapping and containment assertions.",
+        "missing": [
+          "readable_wrapping",
+          "component_containment",
+          "no_document_horizontal_overflow"
+        ]
+      },
+      "downloads.public-admin-localization": {
+        "reason": "The delivered Download Center lifecycle is broad, but no exact bounded large collection and long localized release-text mapping has been verified for this contract.",
+        "missing": [
+          "readable_wrapping",
+          "component_containment",
+          "stable_bounded_pagination",
+          "no_document_horizontal_overflow"
+        ]
+      },
+      "events.public-admin": {
+        "reason": "The Events matrix covers lifecycle states, but deterministic long localized descriptions and a bounded multi-page event collection are not yet mapped here.",
+        "missing": [
+          "readable_wrapping",
+          "component_containment",
+          "stable_bounded_pagination",
+          "no_document_horizontal_overflow"
+        ]
+      },
+      "announcements.admin-localization-home-composition": {
+        "reason": "Existing announcement fixtures use short values and do not yet prove long bilingual ticker/editor wrapping or a bounded administrator collection.",
+        "missing": [
+          "readable_wrapping",
+          "component_containment",
+          "stable_bounded_pagination",
+          "no_document_horizontal_overflow"
+        ]
+      },
+      "support-legal.public-admin-localization": {
+        "reason": "Support and legal routes have EN/PL lifecycle evidence, but their current fixture values are short and lack measured wrapping and component bounds.",
+        "missing": [
+          "readable_wrapping",
+          "component_containment",
+          "no_document_horizontal_overflow"
+        ]
+      },
+      "wiki.public": {
+        "reason": "The public Wiki matrix covers read/search states, but no exact long article and bounded multi-page index or search-result fixture is mapped yet.",
+        "missing": [
+          "readable_wrapping",
+          "component_containment",
+          "stable_bounded_pagination",
+          "no_document_horizontal_overflow"
+        ]
+      },
+      "wiki.admin-editorial-lifecycle": {
+        "reason": "The Wiki administrator lifecycle is broad, but no exact long editor value and bounded multi-page article or category index evidence is mapped yet.",
+        "missing": [
+          "readable_wrapping",
+          "component_containment",
+          "stable_bounded_pagination",
+          "no_document_horizontal_overflow"
+        ]
+      },
+      "editorial-media.admin": {
+        "reason": "The media lifecycle proves upload and fallback states, but a bounded multi-page administrator media collection has not been exercised for this contract.",
+        "missing": [
+          "component_containment",
+          "stable_bounded_pagination",
+          "no_document_horizontal_overflow"
+        ]
+      }
+    }
   },
   "nonclaims": [
     "Candidate classification is not proof that the state has been exercised.",
