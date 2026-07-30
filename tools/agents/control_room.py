@@ -4,14 +4,14 @@
 from __future__ import annotations
 
 import argparse
-import glob
 import json
 import re
 import sys
+from collections.abc import Iterable
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Iterable
+from typing import cast
 
 
 ACTIVE_RAW = {
@@ -103,8 +103,8 @@ def parse_iso(value: str) -> datetime | None:
     except ValueError:
         return None
     if parsed.tzinfo is None:
-        parsed = parsed.replace(tzinfo=timezone.utc)
-    return parsed.astimezone(timezone.utc)
+        parsed = parsed.replace(tzinfo=UTC)
+    return parsed.astimezone(UTC)
 
 
 def scalar_map(text: str) -> dict[str, str]:
@@ -118,12 +118,12 @@ def scalar_map(text: str) -> dict[str, str]:
 
     match = re.search(r"(?m)^## Context checkpoint\s*$", text)
     if match:
-        remainder = text[match.end():]
+        remainder = text[match.end() :]
         fence = re.search(r"```(?:yaml|yml)\s*\n", remainder, re.IGNORECASE)
         if fence:
             block_end = remainder.find("```", fence.end())
             if block_end >= 0:
-                read_scalar_lines(remainder[fence.end():block_end].splitlines(), values)
+                read_scalar_lines(remainder[fence.end() : block_end].splitlines(), values)
 
     return values
 
@@ -140,14 +140,32 @@ def read_scalar_lines(lines: Iterable[str], values: dict[str, str]) -> None:
 
 
 def first_list_item(text: str, key: str) -> str:
-    pattern = re.compile(
-        rf"(?ms)^{re.escape(key)}:\s*\n(?P<body>(?:[ \t]+- .*(?:\n|$))*)"
-    )
+    pattern = re.compile(rf"(?ms)^{re.escape(key)}:\s*\n(?P<body>(?:[ \t]+- .*(?:\n|$))*)")
     match = pattern.search(text)
     if not match:
         return ""
     item = re.search(r"(?m)^[ \t]+- (.+)$", match.group("body"))
     return item.group(1).strip() if item else ""
+
+
+def string_list(value: object, label: str) -> list[str]:
+    if value is None:
+        return []
+    if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
+        raise ValueError(f"{label} must be a list of strings")
+    return cast(list[str], value)
+
+
+def object_map(value: object, label: str) -> dict[str, object]:
+    if not isinstance(value, dict) or not all(isinstance(key, str) for key in value):
+        raise ValueError(f"{label} must be an object")
+    return cast(dict[str, object], value)
+
+
+def object_map_list(value: object, label: str) -> list[dict[str, object]]:
+    if not isinstance(value, list):
+        raise ValueError(f"{label} must be a list")
+    return [object_map(item, f"{label} item") for item in value]
 
 
 def infer_task_id(path: Path, text: str, values: dict[str, str]) -> str:
@@ -172,23 +190,26 @@ def infer_lane(
     if explicit in valid_ids:
         return explicit
 
+    haystack = f"{task_id} {path.as_posix()} {text[:12000]}".casefold()
+    for lane in lanes:
+        lane_id = str(lane["id"])
+        keywords = [
+            item.casefold()
+            for item in string_list(lane.get("match_keywords"), "lane match_keywords")
+        ]
+        if any(keyword and keyword in haystack for keyword in keywords):
+            return lane_id
+
     upper_id = task_id.upper()
     matching: list[tuple[int, str]] = []
     for lane in lanes:
         lane_id = str(lane["id"])
-        for prefix in lane.get("task_prefixes", []):
-            prefix_value = str(prefix).upper()
+        for prefix in string_list(lane.get("task_prefixes"), "lane task_prefixes"):
+            prefix_value = prefix.upper()
             if upper_id.startswith(prefix_value + "-"):
                 matching.append((len(prefix_value), lane_id))
     if matching:
         return max(matching)[1]
-
-    haystack = f"{task_id} {path.as_posix()} {text[:12000]}".casefold()
-    for lane in lanes:
-        lane_id = str(lane["id"])
-        keywords = [str(item).casefold() for item in lane.get("match_keywords", [])]
-        if any(keyword and keyword in haystack for keyword in keywords):
-            return lane_id
     return default_lane
 
 
@@ -210,14 +231,16 @@ def normalize_state(raw_status: str, age_minutes: int | None, stale_after: int) 
 
 
 def load_tasks(config: dict[str, object], now: datetime, stale_after: int) -> list[Task]:
-    lanes = list(config.get("lanes", []))
+    lanes = object_map_list(config.get("lanes"), "lanes")
     if not lanes:
         raise ValueError("configuration must define at least one lane")
     default_lane = str(config.get("default_lane") or lanes[0]["id"])
-    task_globs = config.get("task_globs") or ["docs/agents/tasks/active/*.md"]
+    task_globs = string_list(config.get("task_globs"), "task_globs")
+    if not task_globs:
+        task_globs = ["docs/agents/tasks/active/*.md"]
     paths: set[Path] = set()
     for pattern in task_globs:
-        paths.update(Path(item) for item in glob.glob(str(pattern)))
+        paths.update(Path.cwd().glob(pattern))
 
     tasks: list[Task] = []
     for path in sorted(paths):
@@ -276,7 +299,9 @@ def task_dict(task: Task) -> dict[str, object]:
 
 
 def markdown(config: dict[str, object], tasks: list[Task], stale_after: int) -> str:
-    lanes = [str(lane["id"]) for lane in config["lanes"]]
+    lanes = [
+        str(lane["id"]) for lane in object_map_list(config.get("lanes"), "lanes")
+    ]
     lines = [
         f"# Control Room — {config.get('repository', 'repository')}",
         "",
@@ -320,10 +345,10 @@ def main() -> int:
     args = parse_args()
     config_path = Path(args.config)
     config = json.loads(config_path.read_text(encoding="utf-8"))
-    execution = config.get("execution", {})
+    execution = object_map(config.get("execution", {}), "execution")
     configured_stale = int(execution.get("stale_after_minutes", 45))
     stale_after = args.stale_after_minutes or configured_stale
-    now = parse_iso(args.now) if args.now else datetime.now(timezone.utc)
+    now = parse_iso(args.now) if args.now else datetime.now(UTC)
     if now is None:
         raise SystemExit("--now must be a valid ISO-8601 timestamp")
 
