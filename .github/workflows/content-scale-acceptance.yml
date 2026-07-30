@@ -5,19 +5,28 @@ on:
     branches:
       - main
     paths:
+      - 'app/Announcements/**'
       - 'app/Cms/**'
+      - 'app/Downloads/**'
       - 'app/Http/Controllers/Admin/AdminEditorialTranslationController.php'
       - 'app/Http/Controllers/Cms/**'
+      - 'app/Http/Controllers/Downloads/**'
       - 'app/Localization/**'
       - 'database/migrations/*editorial_translations*'
       - 'public/css/**'
+      - 'resources/views/home.blade.php'
       - 'resources/views/news/**'
       - 'resources/views/pages/**'
+      - 'resources/views/downloads/**'
+      - 'resources/views/admin/announcements/**'
+      - 'resources/views/admin/downloads/**'
+      - 'resources/views/admin/news/**'
       - 'resources/views/admin/translations/**'
       - 'routes/**'
       - 'scripts/acceptance/bootstrap-production-like.sh'
       - 'scripts/acceptance/package.json'
       - 'scripts/acceptance/playwright.content-scale.config.mjs'
+      - 'scripts/acceptance/seed-browser-announcements.php'
       - 'scripts/acceptance/seed-content-scale.php'
       - 'scripts/acceptance/tests/content-scale-acceptance.spec.mjs'
       - 'docs/testing/PORTAL_CONTENT_SCALE_EVIDENCE.json'
@@ -26,19 +35,28 @@ on:
     branches:
       - main
     paths:
+      - 'app/Announcements/**'
       - 'app/Cms/**'
+      - 'app/Downloads/**'
       - 'app/Http/Controllers/Admin/AdminEditorialTranslationController.php'
       - 'app/Http/Controllers/Cms/**'
+      - 'app/Http/Controllers/Downloads/**'
       - 'app/Localization/**'
       - 'database/migrations/*editorial_translations*'
       - 'public/css/**'
+      - 'resources/views/home.blade.php'
       - 'resources/views/news/**'
       - 'resources/views/pages/**'
+      - 'resources/views/downloads/**'
+      - 'resources/views/admin/announcements/**'
+      - 'resources/views/admin/downloads/**'
+      - 'resources/views/admin/news/**'
       - 'resources/views/admin/translations/**'
       - 'routes/**'
       - 'scripts/acceptance/bootstrap-production-like.sh'
       - 'scripts/acceptance/package.json'
       - 'scripts/acceptance/playwright.content-scale.config.mjs'
+      - 'scripts/acceptance/seed-browser-announcements.php'
       - 'scripts/acceptance/seed-content-scale.php'
       - 'scripts/acceptance/tests/content-scale-acceptance.spec.mjs'
       - 'docs/testing/PORTAL_CONTENT_SCALE_EVIDENCE.json'
@@ -94,6 +112,7 @@ jobs:
       CACHE_STORE: file
       QUEUE_CONNECTION: sync
       MAIL_MAILER: log
+      DOWNLOADS_ALLOWED_ARTIFACT_HOSTS: downloads.example.test
       DB_CONNECTION: mysql
       DB_HOST: 127.0.0.1
       DB_PORT: 3306
@@ -194,8 +213,8 @@ jobs:
             "retries": 0,
             "runtime": "real Laravel HTTP",
             "platform_database": "MariaDB 11.8 isolated acceptance schema",
-            "fixture": "deterministic long English source and fresh Polish editorial translation",
-            "proof_boundary": "news index, news detail and managed-page detail wrapping, component containment and document-level overflow",
+            "fixture": "deterministic long English source, fresh Polish editorial translations and bounded 27-row administrator collections",
+            "proof_boundary": "homepage composition, news, managed/legal pages, Download Center, CMS translation editor, administrator tables, pagination, wrapping, containment and document-level overflow",
             "production_claim": "none"
           }
           JSON
