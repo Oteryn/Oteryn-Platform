@@ -3,7 +3,7 @@ name: ${COMPOSE_PROJECT_NAME:-oteryn-staging}
 services:
   mariadb:
     image: mariadb:11.8
-    restart: unless-stopped
+    restart: always
     environment:
       MARIADB_DATABASE: ${CANARY_DB_NAME}
       MARIADB_USER: ${CANARY_DB_USER}
@@ -24,7 +24,7 @@ services:
 
   redis:
     image: redis:7.4-alpine
-    restart: unless-stopped
+    restart: always
     environment:
       REDIS_PASSWORD: ${REDIS_PASSWORD}
     command:
@@ -43,7 +43,7 @@ services:
 
   platform:
     image: ${PLATFORM_IMAGE}
-    restart: unless-stopped
+    restart: always
     environment:
       APP_NAME: ${APP_NAME}
       APP_ENV: ${APP_ENV}
@@ -103,7 +103,7 @@ services:
 
   canary:
     image: ${CANARY_IMAGE}
-    restart: unless-stopped
+    restart: always
     environment:
       CANARY_DB_HOST: mariadb
       CANARY_DB_PORT: 3306
@@ -160,7 +160,7 @@ services:
 
   internal-proxy:
     image: nginx:1.28-alpine
-    restart: unless-stopped
+    restart: always
     command: ["nginx", "-c", "/bootstrap/internal-nginx.conf", "-g", "daemon off;"]
     volumes:
       - bootstrap_files:/bootstrap:ro
@@ -180,7 +180,7 @@ services:
 
   gateway:
     image: ${GATEWAY_IMAGE}
-    restart: unless-stopped
+    restart: always
     environment:
       OTERYN_PLATFORM_BASE_URL: https://platform-internal:8443
       OTERYN_PLATFORM_SERVICE_TOKEN: ${OTERYN_PLATFORM_SERVICE_TOKEN}
