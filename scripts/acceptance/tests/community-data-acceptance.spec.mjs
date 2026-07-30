@@ -1,9 +1,13 @@
+import fs from 'node:fs';
+import path from 'node:path';
 import { test, expect } from '@playwright/test';
 import {
   attachDiagnostics,
   installDiagnostics,
   login,
   logout,
+  repoRoot,
+  runArtisan,
   runBinary,
 } from './helpers.mjs';
 
@@ -25,6 +29,58 @@ async function expectNoHorizontalOverflow(page) {
     viewportWidth: document.documentElement.clientWidth,
   }));
   expect(dimensions.documentWidth).toBeLessThanOrEqual(dimensions.viewportWidth + 1);
+}
+
+function acceptanceDatabaseContext() {
+  const rootPassword = process.env.MARIADB_ROOT_PASSWORD;
+  const canaryDb = process.env.CANARY_DB_DATABASE;
+
+  expect(rootPassword).toBeTruthy();
+  expect(canaryDb).toBeTruthy();
+
+  return { rootPassword, canaryDb };
+}
+
+function sqlString(value) {
+  return `'${value.replaceAll("'", "''")}'`;
+}
+
+function runCanarySql({ rootPassword, canaryDb }, sql) {
+  return runBinary('mariadb', [
+    '--protocol=tcp',
+    '-h127.0.0.1',
+    '-uroot',
+    `-p${rootPassword}`,
+    canaryDb,
+    '-e',
+    sql,
+  ]);
+}
+
+function resetStressRows(database) {
+  runCanarySql(database, [
+    'DELETE FROM cluster_sessions WHERE player_id BETWEEN 9100 AND 9199',
+    'DELETE FROM player_deaths WHERE player_id BETWEEN 9100 AND 9199',
+    'DELETE FROM guild_membership WHERE player_id BETWEEN 9100 AND 9199',
+    'DELETE FROM players WHERE id BETWEEN 9100 AND 9199',
+  ].join('; '));
+}
+
+function seedStressRows(database, longName, longComment) {
+  const generatedRows = Array.from({ length: 75 }, (_, index) => {
+    const id = 9100 + index;
+    const name = `Matrix Character ${String(index + 1).padStart(3, '0')}`;
+    const level = 5000 - index;
+
+    return `(${id}, ${sqlString(name)}, 9001, ${level}, 4, ${level * 1000}, '', 0)`;
+  });
+
+  generatedRows.push(`(9199, ${sqlString(longName)}, 9001, 9999, 4, 9999000, ${sqlString(longComment)}, 0)`);
+
+  runCanarySql(database, [
+    'INSERT INTO players (id, name, account_id, level, vocation, experience, comment, deletion) VALUES',
+    generatedRows.join(',\n'),
+  ].join('\n'));
 }
 
 // Evidence marker: @portal-community complete rankings, privacy-aware profile, owner preferences, deaths, guild search, localization, resilience and responsive lifecycle
@@ -142,4 +198,74 @@ test('@portal-community complete rankings, privacy-aware profile, deaths, guild 
   await expectNoHorizontalOverflow(page);
 
   await logout(page);
+});
+
+// Evidence marker: @portal-community-stress long values multi-page results internal 500 containment and recovery
+test('@portal-community-stress long values, multi-page results, internal 500 containment and recovery', async ({ page }) => {
+  const database = acceptanceDatabaseContext();
+  const longName = `Boundary ${Array.from({ length: 20 }, (_, index) => `Segment${String(index + 1).padStart(2, '0')}`).join(' ')}`;
+  const longComment = `Long public profile boundary ${'C'.repeat(220)}`;
+  const highscoreView = path.join(repoRoot, 'resources/views/game/highscores.blade.php');
+  const unavailableView = `${highscoreView}.acceptance-unavailable`;
+  let viewMoved = false;
+
+  resetStressRows(database);
+  seedStressRows(database, longName, longComment);
+
+  try {
+    await page.goto('/highscores');
+    await expect(page.getByRole('link', { name: longName, exact: true })).toBeVisible();
+    await expect(page.getByRole('link', { name: 'Next', exact: true })).toBeVisible();
+    await expectNoHorizontalOverflow(page);
+
+    await page.getByRole('link', { name: 'Next', exact: true }).click();
+    await expect(page.getByRole('link', { name: 'Matrix Character 050', exact: true })).toBeVisible();
+    await expectNoHorizontalOverflow(page);
+
+    await page.goto(`/characters/${encodeURIComponent(longName)}`);
+    await expect(page.getByRole('heading', { name: longName, exact: true })).toBeVisible();
+    await expect(page.getByText(longComment, { exact: true })).toBeVisible();
+    await expectNoHorizontalOverflow(page);
+
+    if (fs.existsSync(unavailableView)) {
+      fs.rmSync(unavailableView, { force: true });
+    }
+    fs.renameSync(highscoreView, unavailableView);
+    viewMoved = true;
+    runArtisan('view:clear');
+
+    const failedResponse = await page.goto('/highscores', { waitUntil: 'domcontentloaded' });
+    expect(failedResponse?.status()).toBe(500);
+
+    const errorBody = await page.locator('body').innerText();
+    expect(errorBody.trim()).not.toBe('');
+    for (const forbidden of [
+      'InvalidArgumentException',
+      'View [game.highscores] not found',
+      highscoreView,
+      database.canaryDb,
+      database.rootPassword,
+      'SQLSTATE',
+      'Stack trace',
+    ]) {
+      expect(errorBody).not.toContain(forbidden);
+    }
+
+    fs.renameSync(unavailableView, highscoreView);
+    viewMoved = false;
+    runArtisan('view:clear');
+
+    await page.goto('/highscores?page=2');
+    await expect(page.getByRole('link', { name: 'Matrix Character 050', exact: true })).toBeVisible();
+    await expectNoHorizontalOverflow(page);
+  } finally {
+    if (viewMoved && fs.existsSync(unavailableView) && !fs.existsSync(highscoreView)) {
+      fs.renameSync(unavailableView, highscoreView);
+    } else if (fs.existsSync(unavailableView) && fs.existsSync(highscoreView)) {
+      fs.rmSync(unavailableView, { force: true });
+    }
+
+    runArtisan('view:clear');
+    resetStressRows(database);
+  }
 });
