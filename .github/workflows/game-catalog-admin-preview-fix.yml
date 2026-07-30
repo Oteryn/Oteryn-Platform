@@ -1,0 +1,142 @@
+name: Game Catalog Admin Preview Fix
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/game-catalog-admin-preview-fix.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  apply-admin-preview:
+    if: github.repository == 'blakinio/Oteryn-Platform' && github.head_ref == 'feat/OTERYN-20260730-game-catalog-schema-1-3-consumer'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.5'
+          coverage: none
+          tools: composer:v2
+      - run: composer install --no-interaction --prefer-dist --no-progress --quiet
+      - name: Add typed candidate preview
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          def replace(path: str, old: str, new: str, count: int = 1) -> None:
+              target = Path(path)
+              text = target.read_text(encoding='utf-8')
+              actual = text.count(old)
+              if actual != count:
+                  raise RuntimeError(f'{path}: expected {count} occurrences, found {actual}')
+              target.write_text(text.replace(old, new, count), encoding='utf-8', newline='\n')
+
+          controller = 'app/GameCatalog/Http/Admin/AdminGameCatalogController.php'
+          replace(
+              controller,
+              "            'snapshot' => $record,\n            'entities' => DB::table('game_catalog_entity_snapshots as entity_snapshots')",
+              "            'snapshot' => $record,\n"
+              "            'entityTypeCounts' => DB::table('game_catalog_entity_snapshots as entity_snapshots')\n"
+              "                ->join('game_catalog_entities as entities', 'entities.id', '=', 'entity_snapshots.entity_id')\n"
+              "                ->where('entity_snapshots.snapshot_id', $snapshot)\n"
+              "                ->groupBy('entities.entity_type')\n"
+              "                ->orderBy('entities.entity_type')\n"
+              "                ->get(['entities.entity_type', DB::raw('COUNT(*) as record_count')]),\n"
+              "            'relationTypeCounts' => DB::table('game_catalog_relation_snapshots as relations')\n"
+              "                ->where('relations.snapshot_id', $snapshot)\n"
+              "                ->groupBy('relations.relation_type')\n"
+              "                ->orderBy('relations.relation_type')\n"
+              "                ->get(['relations.relation_type', DB::raw('COUNT(*) as record_count')]),\n"
+              "            'unknownOrUnverifiedEntityCount' => DB::table('game_catalog_entity_snapshots')\n"
+              "                ->where('snapshot_id', $snapshot)\n"
+              "                ->where(function (Builder $query): void {\n"
+              "                    $query->where('availability', 'unknown')->orWhere('completeness', 'unverified');\n"
+              "                })\n"
+              "                ->count(),\n"
+              "            'entities' => DB::table('game_catalog_entity_snapshots as entity_snapshots')",
+          )
+          replace(
+              controller,
+              "                    'relations.completeness',\n                    'relations.enabled',",
+              "                    'relations.completeness',\n                    'relations.availability',\n                    'relations.enabled',",
+          )
+
+          view = 'resources/views/game-catalog/admin/snapshot.blade.php'
+          replace(
+              view,
+              "    </section>\n\n    <section aria-labelledby=\"snapshot-visibility-heading\">",
+              "    </section>\n\n"
+              "    <section class=\"card\" aria-labelledby=\"snapshot-typed-summary-heading\">\n"
+              "        <h2 id=\"snapshot-typed-summary-heading\">Typed candidate summary</h2>\n"
+              "        <dl class=\"catalog-detail-list\">\n"
+              "            @foreach ($entityTypeCounts as $row)\n"
+              "                <div><dt>Entity {{ $row->entity_type }}</dt><dd>{{ $row->record_count }}</dd></div>\n"
+              "            @endforeach\n"
+              "            @foreach ($relationTypeCounts as $row)\n"
+              "                <div><dt>Relation {{ $row->relation_type }}</dt><dd>{{ $row->record_count }}</dd></div>\n"
+              "            @endforeach\n"
+              "            <div><dt>Unknown or unverified entities</dt><dd>{{ $unknownOrUnverifiedEntityCount }}</dd></div>\n"
+              "        </dl>\n"
+              "    </section>\n\n"
+              "    <section aria-labelledby=\"snapshot-visibility-heading\">",
+          )
+          replace(
+              view,
+              '<thead><tr><th>Canonical key</th><th>Type</th><th>Source</th><th>Target</th><th>Introduced</th><th>Removed</th><th>Completeness</th><th>Enabled</th></tr></thead>',
+              '<thead><tr><th>Canonical key</th><th>Type</th><th>Source</th><th>Target</th><th>Introduced</th><th>Removed</th><th>Completeness</th><th>Availability</th><th>Enabled</th></tr></thead>',
+          )
+          replace(
+              view,
+              "                        <td>{{ $relation->completeness }}</td>\n                        <td>{{ $relation->enabled ? 'yes' : 'no' }}</td>",
+              "                        <td>{{ $relation->completeness }}</td>\n                        <td>{{ $relation->availability ?? 'not applicable' }}</td>\n                        <td>{{ $relation->enabled ? 'yes' : 'no' }}</td>",
+          )
+          replace(view, '<tr><td colspan="8">This snapshot contains no relations.</td></tr>', '<tr><td colspan="9">This snapshot contains no relations.</td></tr>')
+
+          test = 'tests/Feature/GameCatalog/AdminGameCatalogTest.php'
+          marker = '    private function createPublicProfile(): int\n'
+          method = '''    public function test_admin_catalog_previews_schema_13_typed_candidate_counts_without_activation(): void
+    {
+        $snapshot = app(CatalogImportService::class)->import(
+            base_path('tests/Fixtures/GameCatalog/v1.3/minimal-snapshot.json'),
+        );
+        $admin = $this->createIdentity('catalog-v13-admin@example.com', true);
+        $this->assignRole($admin, 'platform_admin');
+        $this->actingAsCurrent($admin);
+
+        $this->get('/admin/game-catalog/snapshots/'.$snapshot->snapshotId)
+            ->assertOk()
+            ->assertSeeText('Typed candidate summary')
+            ->assertSeeText('Entity npc')
+            ->assertSeeText('Relation npc_buy_offer')
+            ->assertSeeText('Relation npc_sell_offer')
+            ->assertSeeText('Unknown or unverified entities')
+            ->assertSeeText('conditional');
+
+        self::assertSame(0, DB::table('game_catalog_profiles')->whereNotNull('active_snapshot_id')->count());
+        self::assertSame(0, DB::table('game_catalog_profile_entities')->count());
+        self::assertSame(0, DB::table('game_catalog_profile_relations')->count());
+    }
+
+'''
+          replace(test, marker, method + marker)
+          PY
+          vendor/bin/pint \
+            app/GameCatalog/Http/Admin/AdminGameCatalogController.php \
+            tests/Feature/GameCatalog/AdminGameCatalogTest.php
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add \
+            app/GameCatalog/Http/Admin/AdminGameCatalogController.php \
+            resources/views/game-catalog/admin/snapshot.blade.php \
+            tests/Feature/GameCatalog/AdminGameCatalogTest.php
+          git commit -m 'feat(catalog): preview schema 1.3 typed candidates'
+          git push origin HEAD:feat/OTERYN-20260730-game-catalog-schema-1-3-consumer
