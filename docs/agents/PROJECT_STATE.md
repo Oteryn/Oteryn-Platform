@@ -4,7 +4,7 @@ This file is the compact authoritative entry point for “where are we now?”. 
 
 ## Last architecture-state update
 
-2026-07-29
+2026-07-30
 
 ## Engineering phase state
 
@@ -17,13 +17,14 @@ This file is the compact authoritative entry point for “where are we now?”. 
 - **Phase 6 — CMS, Admin, RBAC and Audit: COMPLETE for the delivered route contract**
 - **Phase 7 — Production hardening and operations: COMPLETE as an engineering milestone**
 
-These phase statements do not claim benchmark product completeness. The completed Issue #268 audit and its 2026-07-29 reconciliation track capabilities that can be absent from an otherwise green delivered-surface contract.
+These phase statements do not claim benchmark product completeness. Issue #268 and its merged PR #315 reconciliation track backend, reachable frontend and browser-evidence capabilities that can be absent from an otherwise green delivered-surface contract.
 
 ## Operational release state
 
 - **Production Readiness: STAGING_PROVEN for documented boundaries**
 - **Delivered Portal Route Contract: COMPLETE AND MACHINE ENFORCED**
 - **Benchmark Product Completeness: NOT COMPLETE; REQUIRED CHARACTER GAPS #317/#319 REMAIN, AND #321/#322 ARE MANDATORY BEFORE COMMERCE**
+- **Exhaustive Backend–Frontend Evidence: NOT COMPLETE; #326 REMAINS OPEN**
 - **Production Go-Live Gate: PENDING PRODUCTION VERIFICATION**
 - **Production Verification: REQUIRED BEFORE GO-LIVE**
 
@@ -127,15 +128,19 @@ The strict contract proves:
 
 The account-security fragment adds guest/authenticated EN/PL email, session, privacy, recovery-key and termination states. The Character Bazaar fragment adds public, authenticated and administrator marketplace surfaces. The community-data and character-profile fragments add highscore, profile, owner-preference, main-character race, deaths, guild, localization, dependency-failure/recovery and responsive states.
 
-Broad responsive, portability, resilience and accessibility evidence exists, but it is not a universal every-route/every-state/browser Cartesian matrix. #326 owns the remaining exhaustive visual/state evidence closure.
+PR #315 established an additional product-level rule: a user-facing capability is `IMPLEMENTED` only when backend/domain behavior, a reachable frontend connected to the real route and applicable zero-retry browser evidence are all present. Backend-only delivery remains `PARTIAL`; frontend files without reliable integrated evidence remain `UNTESTED`.
+
+Broad responsive, portability, resilience and accessibility evidence exists, but it is not a universal every-route/every-state/browser Cartesian matrix. #326 owns the remaining exhaustive visual/state evidence and machine-enforcement closure.
 
 ## Product-completeness benchmark
 
-The completed Issue #268 audit and current reconciliation are tracked by:
+The completed Issue #268 audit and merged PR #315 reconciliation are tracked by:
 
 - `docs/testing/PRODUCT_COMPLETENESS_BENCHMARK.md`;
 - `docs/testing/product-completeness-benchmark.json`;
 - `docs/testing/PRODUCT_COMPLETENESS_AUDIT_2026-07-29.md`;
+- `docs/testing/PRODUCT_COMPLETENESS_FRONTEND_AUDIT_2026-07-30.md`;
+- `docs/testing/PRODUCT_COMPLETENESS_AUDIT_2026-07-29_VALIDATION.md`;
 - `scripts/acceptance/coverage/validate-product-completeness.mjs`.
 
 The current canonical ledger classifies 43 Tibia/RubinOT/OTS benchmark capabilities:
@@ -154,7 +159,8 @@ Completed focused slices:
 - #279 — Platform-owned support and moderation lifecycle, merged in PR #293;
 - #280 — read-only community statistics and guild discovery with privacy-aware profiles, merged in PR #298;
 - #281 — first versioned item/weapon/creature/loot Game Catalog scope delivered by PR #272 and evidence ownership closed by PR #303;
-- #307 — Platform-owned character comments, per-character privacy and optional main-character selection in PR #308.
+- #307 — Platform-owned character comments, per-character privacy and optional main-character selection in PR #308;
+- #268 reconciliation — detailed product and frontend audit merged in PR #315 as `94b3457f4bb5b9aa73639a698c70ebb233940288` after all eight required workflows passed on exact head `92935a76e559d8716773ebec5d1a04264051cfa1`.
 
 Open focused backlog:
 
@@ -169,9 +175,9 @@ Open focused backlog:
 - #301 — authoritative spell/NPC/quest/achievement catalogue expansion;
 - #302 — optional maps, hunt tools and server-specific discovery planning;
 - #325 — optional loyalty/badge/status presentation;
-- #326 — exhaustive delivered-screen visual/state matrix.
+- #326 — exhaustive delivered-screen backend/frontend/visual/state matrix and CI enforcement.
 
-A green route contract must not be described as product complete while required benchmark gaps remain.
+A green route or API contract must not be described as product complete while required benchmark or frontend gaps remain.
 
 ## Production hardening and evidence
 
@@ -195,15 +201,15 @@ Repository and exact-revision E2E work has hardened the native-auth direction, b
 
 ## Current active task
 
-`OTERYN-20260729-product-completeness-reconciliation` in PR #315 reconciles Issue #268 to current `main`, persists the detailed audit and issue split, and changes no runtime or production data.
+No product-completeness audit task remains active after PR #315. Live active task records and open PRs remain authoritative for parallel work, including PR #328 for the character-rename contract.
 
 ## Recommended sequence
 
-1. Complete PR #315 exact-head governance/CI validation and merge its documentation-only reconciliation.
-2. Implement required character deletion/restore #317 and rename #319 only after operation-specific Canary contracts and authorization exist.
+1. Deliver a bounded machine-enforced backend–frontend capability ledger under #326 so a backend-only user-facing capability cannot be marked `IMPLEMENTED`.
+2. Continue required character deletion/restore #317 and rename #319 only after operation-specific Canary contracts and authorization exist; do not overlap PR #328.
 3. Decide authoritative world ownership before #320 and deliver #323 only after #301 provides earned-achievement truth.
 4. Keep commerce disabled until #321 payment security/provider decisions and #322 entitlement lifecycle are complete.
-5. Treat #302/#325 as optional product discovery and close #326 with a machine-enforced every-screen visual/state matrix.
+5. Treat #302/#325 as optional product discovery and continue the remaining every-screen visual/state evidence under #326.
 6. Resume #91 only after explicit production deployment/verification authorization and required production evidence access exist.
 
 ## Community data delivery
