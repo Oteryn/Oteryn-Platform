@@ -96,6 +96,23 @@ Issue #357 / PR #358 adds a fail-closed media applicability and rendered-state l
 
 This media slice closes only the delivered managed-media state contract. It does not create image requirements for text-only surfaces, does not prove unrelated state permutations and does not close parent #326.
 
+## Machine-enforced long-content and large-collection slice
+
+Issue #362 / PR #363 adds a fail-closed content-scale applicability and evidence layer:
+
+- all 18 canonical delivered surfaces are classified exactly once as a long-content consumer, large-collection consumer, both, `not_applicable` or a supporting endpoint;
+- all 12 applicable consumers map to exact evidence groups and one of two executable zero-retry Chromium profiles;
+- the dedicated Content Scale profile exercises deterministic long English source values, fresh Polish translations, bounded multi-page collections and valid private media bytes on desktop `1440x1000`, tablet `820x1180` and mobile `390x844`;
+- the existing Community Data profile remains the exact source for the 76-row highscore/profile pagination contract;
+- executable evidence covers homepage composition, news, managed and legal pages, localization editors, Downloads, Events, Announcements, Wiki public/admin flows, administrator CMS tables and Editorial Media;
+- exact assertions require readable wrapping where text length is applicable, component or scroll-region containment, stable bounded pagination where collections are applicable and no document-level horizontal overflow;
+- schema version 2 requires 12/12 consumer mappings, known profiles, known evidence groups, existing files and markers, exact viewport sets, zero retries, full tested SHAs, workflow run IDs and zero remaining gaps;
+- fourteen deterministic negative fixtures reject missing or unknown classifications, missing mappings, non-consumer mappings, missing files or markers, unknown profiles or groups, assertion mismatch, unbounded collection claims, orphan profiles/groups, reintroduced gaps and invalid tested SHAs.
+
+The complete Content Scale implementation profile passed all 15 browser tests on exact head `04a45d6ff311610fdcc4b323e7541f34f49f1d6d` in workflow run `30589498015`. The inventory also exposed and repaired a genuine mobile event-heading containment defect and strengthened long translation-source containment without weakening the assertions.
+
+This slice closes Issue #362 only for the mapped synthetic long-content and bounded collection boundaries. It is not an unbounded load or performance test, does not prove unrelated Issue #326 state permutations, and makes no staging, production, Canary, schema, payment-provider or user-data claim.
+
 ## Current backend–frontend reconciliation
 
 The following matrix records the current integrated boundary at the audited revision. `Integrated` means both backend and reachable frontend are present for the stated delivered scope. It does not imply exhaustive every-state visual proof; remaining exhaustive evidence is owned by #326.
@@ -109,18 +126,18 @@ The following matrix records the current integrated boundary at the audited revi
 | Email change, sessions, privacy, recovery key and account termination | present | present | EN/PL account-security browser lifecycle | `IMPLEMENTED` |
 | Character creation | present | present | validation, quota, authorization and idempotent outcome | `IMPLEMENTED` |
 | Character profile preferences | present | present | owner update and public profile desktop/tablet/mobile evidence | `IMPLEMENTED` |
-| Home, navigation, SEO, news and managed pages | present | present | public and localization acceptance | `IMPLEMENTED` |
-| Highscores, character search/detail, guilds, online, servers, deaths and kills | present | present | community-data and dependency recovery acceptance | `IMPLEMENTED` |
-| Downloads | present | present | public/admin/localization and portability acceptance | `IMPLEMENTED` |
-| Events | present | present | public/admin desktop/tablet/mobile plus bounded portability | `IMPLEMENTED` |
-| Announcements | present | present | public/admin/localization and responsive acceptance | `IMPLEMENTED` |
-| Support and legal publishing | present | present | public/admin/EN/PL acceptance | `IMPLEMENTED` |
+| Home, navigation, SEO, news and managed pages | present | present | public, localization and exact long-content acceptance | `IMPLEMENTED` |
+| Highscores, character search/detail, guilds, online, servers, deaths and kills | present | present | community-data, large-result and dependency recovery acceptance | `IMPLEMENTED` |
+| Downloads | present | present | public/admin/localization, long-content, pagination and portability acceptance | `IMPLEMENTED` |
+| Events | present | present | public/admin long-content and bounded pagination plus portability | `IMPLEMENTED` |
+| Announcements | present | present | public/admin/localization, long-content and pagination acceptance | `IMPLEMENTED` |
+| Support and legal publishing | present | present | public/admin/EN/PL and long-document acceptance | `IMPLEMENTED` |
 | Tickets, reports, moderation, enforcement and appeals | present | present | user/moderator/notification/privacy responsive lifecycle | `IMPLEMENTED` |
-| Wiki public and editorial administration | present | present | public/admin/search/revision/media browser lifecycle | `IMPLEMENTED` |
+| Wiki public and editorial administration | present | present | long article, stable search pagination, editor and media browser lifecycle | `IMPLEMENTED` |
 | First Game Catalog scope: items, weapons, creatures and loot | present | present | public/admin/localization/responsive acceptance | `IMPLEMENTED` for the first scope |
 | Character Bazaar public, account and administrator flows | present | present | catalogue/listing/bidding/settlement/recovery acceptance | `IMPLEMENTED` |
-| Admin dashboard, RBAC, CMS and audit | present | present | guest/MFA/permission/CMS/audit browser acceptance | `IMPLEMENTED` for delivered operations |
-| Exhaustive error, long-data, media-failure and every-browser matrix | broad backend handling | broad frontend handling | not universal for every rendered route/state combination | `PARTIAL`; #326 |
+| Admin dashboard, RBAC, CMS and audit | present | present | guest/MFA/permission/CMS/audit plus bounded table evidence | `IMPLEMENTED` for delivered operations |
+| Exhaustive every-state, error and every-browser matrix | broad backend handling | broad frontend handling | long-data and managed-media slices are closed; unrelated permutations are not universal | `PARTIAL`; #326 |
 
 ## Confirmed capabilities without complete frontend
 
@@ -156,7 +173,7 @@ Every new user-facing implementation issue must include:
 
 ## Remaining frontend evidence gap
 
-Issue #326 remains required because current browser evidence is broad but does not yet prove the complete Cartesian matrix of every rendered screen against every requested state, long-data, 500, missing-image and broken-image condition. Issue #347 makes declared viewport/browser evidence exact; Issue #357 closes the managed-media slice only. Neither infers unrelated unexecuted state permutations from a dimension-level or media-level pass.
+Issue #326 remains required because current browser evidence still does not prove the complete Cartesian matrix of every rendered screen against every requested authorization, validation, conflict, empty, unavailable, not-found, rate-limit, CSRF, internal-error and browser-engine permutation. Issue #347 makes declared viewport/browser evidence exact, Issue #357 closes the managed-media slice and Issue #362 closes the applicable long-content and bounded large-collection slice. None of those slices infers unrelated unexecuted permutations.
 
 This gap does not invalidate the integrated flows already proven. It prevents claiming exhaustive frontend completeness and requires any unproven surface/state to remain `PARTIAL` or `UNTESTED` rather than being inferred from backend coverage.
 
