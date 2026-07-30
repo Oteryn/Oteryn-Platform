@@ -1,0 +1,97 @@
+{
+  "surfaces": [
+    {
+      "id": "marketplace.public-catalogue-and-detail",
+      "kind": "rendered",
+      "critical": false,
+      "evidence": [
+        {"id": "e1", "file": "scripts/acceptance/tests/marketplace-acceptance.spec.mjs", "markers": ["@portal-marketplace-public catalogue detail filters localization responsive layout and accessibility", "{ width: 1440, height: 1000 }"]},
+        {"id": "e2", "file": "scripts/acceptance/tests/marketplace-acceptance.spec.mjs", "markers": ["@portal-marketplace-public catalogue detail filters localization responsive layout and accessibility", "{ width: 820, height: 1180 }"]},
+        {"id": "e3", "file": "scripts/acceptance/tests/marketplace-acceptance.spec.mjs", "markers": ["@portal-marketplace-public catalogue detail filters localization responsive layout and accessibility", "{ width: 390, height: 844 }"]},
+        {"id": "e4", "file": "scripts/acceptance/tests/marketplace-acceptance.spec.mjs", "markers": ["@portal-marketplace-public catalogue detail filters localization responsive layout and accessibility"]}
+      ],
+      "viewports": {
+        "desktop-1440x1000": {"profile": "standard-primary", "project": "chromium-primary", "mode": "test-controlled", "evidence": "e1"},
+        "tablet-820x1180": {"profile": "standard-primary", "project": "chromium-primary", "mode": "test-controlled", "evidence": "e2"},
+        "mobile-390x844": {"profile": "standard-primary", "project": "chromium-primary", "mode": "test-controlled", "evidence": "e3"}
+      },
+      "browsers": {"chromium-primary": {"profile": "standard-primary", "projects": ["chromium-primary"], "evidence": "e4"}},
+      "portability": {"status": "excluded", "rationale": "The public catalogue is responsive in zero-retry Chromium, but the shared Marketplace spec also owns transactional authenticated flows and is not currently selected by Firefox/WebKit projects. Cross-engine expansion remains a separate measured-risk decision."}
+    },
+    {
+      "id": "marketplace.authenticated-auction-lifecycle",
+      "kind": "rendered",
+      "critical": false,
+      "evidence": [
+        {"id": "e1", "file": "scripts/acceptance/tests/marketplace-acceptance.spec.mjs", "markers": ["@portal-marketplace-account authenticated watch bid wallet reservation complete state matrix and authorization journey", "{ width: 1440, height: 1000 }"]},
+        {"id": "e2", "file": "scripts/acceptance/tests/marketplace-acceptance.spec.mjs", "markers": ["@portal-marketplace-account authenticated watch bid wallet reservation complete state matrix and authorization journey", "{ width: 820, height: 1180 }"]},
+        {"id": "e3", "file": "scripts/acceptance/tests/marketplace-acceptance.spec.mjs", "markers": ["@portal-marketplace-account authenticated watch bid wallet reservation complete state matrix and authorization journey", "{ width: 390, height: 844 }"]},
+        {"id": "e4", "file": "scripts/acceptance/tests/marketplace-acceptance.spec.mjs", "markers": ["@portal-marketplace-account authenticated watch bid wallet reservation complete state matrix and authorization journey"]}
+      ],
+      "viewports": {
+        "desktop-1440x1000": {"profile": "standard-primary", "project": "chromium-primary", "mode": "test-controlled", "evidence": "e1"},
+        "tablet-820x1180": {"profile": "standard-primary", "project": "chromium-primary", "mode": "test-controlled", "evidence": "e2"},
+        "mobile-390x844": {"profile": "standard-primary", "project": "chromium-primary", "mode": "test-controlled", "evidence": "e3"}
+      },
+      "browsers": {"chromium-primary": {"profile": "standard-primary", "projects": ["chromium-primary"], "evidence": "e4"}},
+      "portability": {"status": "excluded", "rationale": "Auction listing, bidding, wallet reservation and settlement are mutation-heavy and depend on exact transactional fixtures. The complete lifecycle remains Chromium-only; concurrency and integrity are primarily proven below the browser layer."}
+    },
+    {
+      "id": "marketplace.admin-wallet-and-recovery",
+      "kind": "rendered",
+      "critical": false,
+      "evidence": [
+        {"id": "e1", "file": "scripts/acceptance/tests/marketplace-acceptance.spec.mjs", "markers": ["@portal-marketplace-admin MFA permission wallet adjustment ledger and recovery queue surface", "{ width: 1440, height: 1000 }"]},
+        {"id": "e2", "file": "scripts/acceptance/tests/marketplace-acceptance.spec.mjs", "markers": ["@portal-marketplace-admin MFA permission wallet adjustment ledger and recovery queue surface", "{ width: 820, height: 1180 }"]},
+        {"id": "e3", "file": "scripts/acceptance/tests/marketplace-acceptance.spec.mjs", "markers": ["@portal-marketplace-admin MFA permission wallet adjustment ledger and recovery queue surface", "{ width: 390, height: 844 }"]},
+        {"id": "e4", "file": "scripts/acceptance/tests/marketplace-acceptance.spec.mjs", "markers": ["@portal-marketplace-admin MFA permission wallet adjustment ledger and recovery queue surface"]}
+      ],
+      "viewports": {
+        "desktop-1440x1000": {"profile": "standard-primary", "project": "chromium-primary", "mode": "test-controlled", "evidence": "e1"},
+        "tablet-820x1180": {"profile": "standard-primary", "project": "chromium-primary", "mode": "test-controlled", "evidence": "e2"},
+        "mobile-390x844": {"profile": "standard-primary", "project": "chromium-primary", "mode": "test-controlled", "evidence": "e3"}
+      },
+      "browsers": {"chromium-primary": {"profile": "standard-primary", "projects": ["chromium-primary"], "evidence": "e4"}},
+      "portability": {"status": "excluded", "rationale": "Administrator wallet adjustment and recovery are privileged mutation flows. They remain zero-retry Chromium with feature, audit and database evidence rather than being multiplied across browser engines."}
+    },
+    {
+      "id": "support.moderation-lifecycle",
+      "kind": "rendered",
+      "critical": true,
+      "evidence": [{"id": "e1", "file": "scripts/acceptance/tests/support-moderation-acceptance.spec.mjs", "markers": ["@portal-support-moderation complete user, moderator, notification, privacy, localization and responsive lifecycle"]}],
+      "viewports": {
+        "desktop-1440x1000": {"profile": "support-moderation-responsive", "project": "support-moderation-chromium-desktop", "mode": "project", "evidence": "e1"},
+        "tablet-820x1180": {"profile": "support-moderation-responsive", "project": "support-moderation-chromium-tablet", "mode": "project", "evidence": "e1"},
+        "mobile-390x844": {"profile": "support-moderation-responsive", "project": "support-moderation-chromium-mobile", "mode": "project", "evidence": "e1"}
+      },
+      "browsers": {"chromium-primary": {"profile": "support-moderation-responsive", "projects": ["support-moderation-chromium-desktop"], "evidence": "e1"}},
+      "portability": {"status": "excluded", "rationale": "Support and moderation includes private notes, enforcement actions, appeals and notification state. The full owner/moderator matrix remains zero-retry Chromium; authorization and privacy are additionally proven at feature level."}
+    },
+    {
+      "id": "game-catalog.public-items-creatures-and-loot",
+      "kind": "rendered",
+      "critical": true,
+      "evidence": [{"id": "e1", "file": "scripts/acceptance/tests/public-game-catalog-acceptance.spec.mjs", "markers": ["@portal-game-catalog public routes projections localization responsive layout and accessibility"]}],
+      "viewports": {
+        "desktop-1440x1000": {"profile": "standard-responsive", "project": "responsive-desktop", "mode": "project", "evidence": "e1"},
+        "tablet-820x1180": {"profile": "standard-responsive", "project": "responsive-tablet", "mode": "project", "evidence": "e1"},
+        "mobile-390x844": {"profile": "standard-responsive", "project": "responsive-mobile", "mode": "project", "evidence": "e1"}
+      },
+      "browsers": {"chromium-primary": {"profile": "standard-responsive", "projects": ["responsive-desktop"], "evidence": "e1"}},
+      "portability": {"status": "covered", "profile": "standard-portability", "projects": ["portability-firefox", "portability-webkit"], "evidence": "e1"}
+    },
+    {
+      "id": "game-catalog.administrator-inspection",
+      "kind": "rendered",
+      "critical": true,
+      "evidence": [{"id": "e1", "file": "scripts/acceptance/tests/admin-game-catalog-acceptance.spec.mjs", "markers": ["@portal-game-catalog-admin MFA RBAC snapshot profile finding diff responsive and accessibility inspection"]}],
+      "viewports": {
+        "desktop-1440x1000": {"profile": "standard-responsive", "project": "responsive-desktop", "mode": "project", "evidence": "e1"},
+        "tablet-820x1180": {"profile": "standard-responsive", "project": "responsive-tablet", "mode": "project", "evidence": "e1"},
+        "mobile-390x844": {"profile": "standard-responsive", "project": "responsive-mobile", "mode": "project", "evidence": "e1"}
+      },
+      "browsers": {"chromium-primary": {"profile": "standard-responsive", "projects": ["responsive-desktop"], "evidence": "e1"}},
+      "portability": {"status": "excluded", "rationale": "The administrator catalogue is a confirmed-MFA read-only inspection surface. Responsive and accessibility coverage is blocking Chromium; cross-engine administrator coverage is represented by the core admin portability profile."}
+    }
+  ]
+}

@@ -1,0 +1,126 @@
+{
+  "surfaces": [
+    {
+      "id": "identity.registration-login-session",
+      "kind": "rendered",
+      "critical": true,
+      "evidence": [
+        {"id": "e1", "file": "scripts/acceptance/tests/responsive-critical.spec.mjs", "markers": ["@responsive public homepage navigation footer and Identity entry forms stay usable without horizontal overflow"]},
+        {"id": "e2", "file": "scripts/acceptance/tests/account-lifecycle-acceptance.spec.mjs", "markers": ["@portal-account registration, duplicate identity, invalid login and protected account access"]},
+        {"id": "e3", "file": "scripts/acceptance/tests/portability-critical.spec.mjs", "markers": ["@portability Identity login logout and authenticated Account Overview remain portable"]}
+      ],
+      "viewports": {
+        "desktop-1440x1000": {"profile": "standard-responsive", "project": "responsive-desktop", "mode": "project", "evidence": "e1"},
+        "tablet-820x1180": {"profile": "standard-responsive", "project": "responsive-tablet", "mode": "project", "evidence": "e1"},
+        "mobile-390x844": {"profile": "standard-responsive", "project": "responsive-mobile", "mode": "project", "evidence": "e1"}
+      },
+      "browsers": {
+        "chromium-primary": {"profile": "account-lifecycle", "projects": ["chromium-primary"], "evidence": "e2"},
+        "bounded-portability": {"profile": "standard-portability", "projects": ["portability-firefox", "portability-webkit"], "evidence": "e3"}
+      },
+      "portability": {"status": "covered", "profile": "standard-portability", "projects": ["portability-firefox", "portability-webkit"], "evidence": "e3"}
+    },
+    {
+      "id": "identity.password-lifecycle",
+      "kind": "rendered",
+      "critical": true,
+      "evidence": [
+        {"id": "e1", "file": "scripts/acceptance/tests/responsive-critical.spec.mjs", "markers": ["@responsive public homepage navigation footer and Identity entry forms stay usable without horizontal overflow"]},
+        {"id": "e2", "file": "scripts/acceptance/tests/password-recovery-acceptance.spec.mjs", "markers": ["@portal-account Flow 3b"]}
+      ],
+      "viewports": {
+        "desktop-1440x1000": {"profile": "standard-responsive", "project": "responsive-desktop", "mode": "project", "evidence": "e1"},
+        "mobile-390x844": {"profile": "standard-responsive", "project": "responsive-mobile", "mode": "project", "evidence": "e1"}
+      },
+      "browsers": {"chromium-primary": {"profile": "account-lifecycle", "projects": ["chromium-primary"], "evidence": "e2"}},
+      "portability": {"status": "excluded", "rationale": "Password reset links, session revocation and password-change secrets remain in the complete zero-retry Chromium account lifecycle; cross-engine proof is intentionally representative rather than duplicating secret-bearing flows."}
+    },
+    {
+      "id": "identity.mfa-lifecycle",
+      "kind": "rendered",
+      "critical": true,
+      "evidence": [
+        {"id": "e1", "file": "scripts/acceptance/tests/responsive-critical.spec.mjs", "markers": ["@responsive MFA challenge and privileged administrator surface remain operable at representative viewports"]},
+        {"id": "e2", "file": "scripts/acceptance/tests/mfa-security-acceptance.spec.mjs", "markers": ["@portal-account Flow 4"]},
+        {"id": "e3", "file": "scripts/acceptance/tests/portability-critical.spec.mjs", "markers": ["@portability MFA-confirmed privileged access and seeded CMS public visibility remain portable"]}
+      ],
+      "viewports": {
+        "desktop-1440x1000": {"profile": "standard-responsive", "project": "responsive-desktop", "mode": "project", "evidence": "e1"},
+        "mobile-390x844": {"profile": "standard-responsive", "project": "responsive-mobile", "mode": "project", "evidence": "e1"}
+      },
+      "browsers": {
+        "chromium-primary": {"profile": "account-lifecycle", "projects": ["chromium-primary"], "evidence": "e2"},
+        "bounded-portability": {"profile": "standard-portability", "projects": ["portability-firefox", "portability-webkit"], "evidence": "e3"}
+      },
+      "portability": {"status": "covered", "profile": "standard-portability", "projects": ["portability-firefox", "portability-webkit"], "evidence": "e3"}
+    },
+    {
+      "id": "account.overview-provisioning",
+      "kind": "rendered",
+      "critical": true,
+      "evidence": [
+        {"id": "e1", "file": "scripts/acceptance/tests/responsive-critical.spec.mjs", "markers": ["@responsive authenticated homepage and Account Overview remain operable at representative viewports"]},
+        {"id": "e2", "file": "scripts/acceptance/tests/account-overview-acceptance.spec.mjs", "markers": ["@portal-account Account Overview"]},
+        {"id": "e3", "file": "scripts/acceptance/tests/portability-critical.spec.mjs", "markers": ["@portability Identity login logout and authenticated Account Overview remain portable"]}
+      ],
+      "viewports": {
+        "desktop-1440x1000": {"profile": "standard-responsive", "project": "responsive-desktop", "mode": "project", "evidence": "e1"},
+        "mobile-390x844": {"profile": "standard-responsive", "project": "responsive-mobile", "mode": "project", "evidence": "e1"}
+      },
+      "browsers": {
+        "chromium-primary": {"profile": "account-lifecycle", "projects": ["chromium-primary"], "evidence": "e2"},
+        "bounded-portability": {"profile": "standard-portability", "projects": ["portability-firefox", "portability-webkit"], "evidence": "e3"}
+      },
+      "portability": {"status": "covered", "profile": "standard-portability", "projects": ["portability-firefox", "portability-webkit"], "evidence": "e3"}
+    },
+    {
+      "id": "account.character-creation-and-visibility",
+      "kind": "rendered",
+      "critical": true,
+      "evidence": [
+        {"id": "e1", "file": "scripts/acceptance/tests/responsive-critical.spec.mjs", "markers": ["@responsive authenticated character creation form remains operable at representative viewports"]},
+        {"id": "e2", "file": "scripts/acceptance/tests/character-boundaries-acceptance.spec.mjs", "markers": ["@portal-account Flow 5b"]}
+      ],
+      "viewports": {
+        "desktop-1440x1000": {"profile": "standard-responsive", "project": "responsive-desktop", "mode": "project", "evidence": "e1"},
+        "mobile-390x844": {"profile": "standard-responsive", "project": "responsive-mobile", "mode": "project", "evidence": "e1"}
+      },
+      "browsers": {"chromium-primary": {"profile": "account-lifecycle", "projects": ["chromium-primary"], "evidence": "e2"}},
+      "portability": {"status": "excluded", "rationale": "Character creation performs account-bound mutation and ownership validation in the complete Chromium lifecycle; Firefox/WebKit remain covered only by safer representative Identity and Account Overview flows."}
+    },
+    {
+      "id": "identity.account-security-lifecycle",
+      "kind": "rendered",
+      "critical": true,
+      "evidence": [
+        {"id": "e1", "file": "scripts/acceptance/tests/account-security-lifecycle-acceptance.spec.mjs", "markers": ["@portal-account account security localization covers Polish responsive, validation, authorization and expired-token states", "{ width: 1440, height: 1000 }"]},
+        {"id": "e2", "file": "scripts/acceptance/tests/account-security-lifecycle-acceptance.spec.mjs", "markers": ["@portal-account account security localization covers Polish responsive, validation, authorization and expired-token states", "{ width: 820, height: 1180 }"]},
+        {"id": "e3", "file": "scripts/acceptance/tests/account-security-lifecycle-acceptance.spec.mjs", "markers": ["@portal-account account security localization covers Polish responsive, validation, authorization and expired-token states", "{ width: 390, height: 844 }"]},
+        {"id": "e4", "file": "scripts/acceptance/tests/account-security-lifecycle-acceptance.spec.mjs", "markers": ["@portal-account account security lifecycle covers sessions, privacy, verified email recovery, recovery keys and termination grace", "@portal-account account security localization covers Polish responsive, validation, authorization and expired-token states"]}
+      ],
+      "viewports": {
+        "desktop-1440x1000": {"profile": "account-lifecycle", "project": "chromium-primary", "mode": "test-controlled", "evidence": "e1"},
+        "tablet-820x1180": {"profile": "account-lifecycle", "project": "chromium-primary", "mode": "test-controlled", "evidence": "e2"},
+        "mobile-390x844": {"profile": "account-lifecycle", "project": "chromium-primary", "mode": "test-controlled", "evidence": "e3"}
+      },
+      "browsers": {"chromium-primary": {"profile": "account-lifecycle", "projects": ["chromium-primary"], "evidence": "e4"}},
+      "portability": {"status": "excluded", "rationale": "Email-change links, recovery keys, termination and session revocation contain secret-bearing or destructive transitions. They remain in the complete zero-retry Chromium account lifecycle with masked diagnostics."}
+    },
+    {
+      "id": "identity.character-profile-preferences",
+      "kind": "rendered",
+      "critical": true,
+      "evidence": [
+        {"id": "e1", "file": "scripts/acceptance/tests/community-data-acceptance.spec.mjs", "markers": ["@portal-community complete rankings, privacy-aware profile, deaths, guild search, localization, resilience and responsive lifecycle"]},
+        {"id": "e2", "file": "scripts/acceptance/tests/community-data-acceptance.spec.mjs", "markers": ["@portal-community complete rankings, privacy-aware profile, owner preferences, deaths, guild search, localization, resilience and responsive lifecycle"]}
+      ],
+      "viewports": {
+        "desktop-1440x1000": {"profile": "community-responsive", "project": "community-data-chromium-desktop", "mode": "project", "evidence": "e1"},
+        "tablet-820x1180": {"profile": "community-responsive", "project": "community-data-chromium-tablet", "mode": "project", "evidence": "e1"},
+        "mobile-390x844": {"profile": "community-responsive", "project": "community-data-chromium-mobile", "mode": "project", "evidence": "e1"}
+      },
+      "browsers": {"chromium-primary": {"profile": "community-responsive", "projects": ["community-data-chromium-desktop"], "evidence": "e2"}},
+      "portability": {"status": "excluded", "rationale": "Owner preference updates and the single-main-character race are stateful authenticated operations. Their browser proof remains zero-retry Chromium with real-MariaDB concurrency evidence."}
+    }
+  ]
+}

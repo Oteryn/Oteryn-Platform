@@ -32,8 +32,7 @@
       "mobile-390x844"
     ],
     "browsers": [
-      "chromium-primary",
-      "bounded-portability"
+      "chromium-primary"
     ],
     "evidence_layers": [
       "feature",
@@ -110,8 +109,7 @@
       "mobile-390x844"
     ],
     "browsers": [
-      "chromium-primary",
-      "bounded-portability"
+      "chromium-primary"
     ],
     "evidence_layers": [
       "feature",

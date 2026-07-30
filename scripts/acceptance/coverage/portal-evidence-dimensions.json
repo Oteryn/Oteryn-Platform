@@ -1,0 +1,185 @@
+{
+  "schema_version": 1,
+  "description": "Exact viewport and browser evidence linkage for every delivered portal surface. This contract proves declared execution dimensions, not every state/data/error permutation and not production.",
+  "allowed_viewports": [
+    "desktop-1440x1000",
+    "tablet-820x1180",
+    "mobile-390x844",
+    "resource-endpoint"
+  ],
+  "browser_contracts": {
+    "chromium-primary": ["chromium"],
+    "bounded-portability": ["firefox", "webkit"],
+    "firefox-bounded": ["firefox"],
+    "webkit-bounded": ["webkit"],
+    "events-chromium-desktop": ["chromium"],
+    "events-chromium-tablet": ["chromium"],
+    "events-chromium-mobile": ["chromium"],
+    "events-firefox-desktop": ["firefox"],
+    "events-webkit-desktop": ["webkit"],
+    "announcements-chromium-desktop": ["chromium"],
+    "announcements-chromium-tablet": ["chromium"],
+    "announcements-chromium-mobile": ["chromium"],
+    "announcements-firefox-desktop": ["firefox"],
+    "announcements-webkit-desktop": ["webkit"],
+    "http-contract": [],
+    "chromium-primary-where-rendered": ["chromium"]
+  },
+  "profiles": [
+    {
+      "id": "standard-responsive",
+      "config_file": "scripts/acceptance/playwright.config.mjs",
+      "blocking": true,
+      "zero_retry": {"file": "scripts/acceptance/playwright.config.mjs", "markers": ["forcedZeroRetryProfiles", "'critical'"]},
+      "invocation": {"file": ".github/workflows/acceptance-validation.yml", "markers": ["ACCEPTANCE_PROFILE: ${{ github.event_name == 'pull_request' && 'critical'", "npm --prefix scripts/acceptance run test:responsive"]},
+      "projects": [
+        {"name": "responsive-desktop", "browser": "chromium", "viewport": "desktop-1440x1000"},
+        {"name": "responsive-tablet", "browser": "chromium", "viewport": "tablet-820x1180"},
+        {"name": "responsive-mobile", "browser": "chromium", "viewport": "mobile-390x844"}
+      ]
+    },
+    {
+      "id": "standard-portability",
+      "config_file": "scripts/acceptance/playwright.config.mjs",
+      "blocking": true,
+      "zero_retry": {"file": "scripts/acceptance/playwright.config.mjs", "markers": ["forcedZeroRetryProfiles", "'critical'"]},
+      "invocation": {"file": ".github/workflows/acceptance-validation.yml", "markers": ["npm --prefix scripts/acceptance run test:portability"]},
+      "projects": [
+        {"name": "portability-chromium", "browser": "chromium", "viewport": "desktop-1440x1000"},
+        {"name": "portability-firefox", "browser": "firefox", "viewport": "desktop-1440x1000"},
+        {"name": "portability-webkit", "browser": "webkit", "viewport": "desktop-1440x1000"}
+      ]
+    },
+    {
+      "id": "account-lifecycle",
+      "config_file": "scripts/acceptance/playwright.config.mjs",
+      "blocking": true,
+      "zero_retry": {"file": ".github/workflows/portal-acceptance-contract.yml", "markers": ["ACCEPTANCE_ZERO_RETRIES: '1'"]},
+      "invocation": {"file": ".github/workflows/portal-acceptance-contract.yml", "markers": ["npm --prefix scripts/acceptance run test:account-lifecycle"]},
+      "projects": [{"name": "chromium-primary", "browser": "chromium", "viewport": "desktop-1440x1000"}]
+    },
+    {
+      "id": "standard-primary",
+      "config_file": "scripts/acceptance/playwright.config.mjs",
+      "blocking": false,
+      "projects": [{"name": "chromium-primary", "browser": "chromium", "viewport": "desktop-1440x1000"}]
+    },
+    {
+      "id": "downloads-lifecycle",
+      "config_file": "scripts/acceptance/playwright.config.mjs",
+      "blocking": true,
+      "zero_retry": {"file": "scripts/acceptance/tests/downloads-lifecycle-acceptance.spec.mjs", "markers": ["test.describe.configure({ retries: 0 })"]},
+      "invocation": {"file": ".github/workflows/downloads-acceptance.yml", "markers": ["npm --prefix scripts/acceptance run test:downloads"]},
+      "projects": [{"name": "chromium-primary", "browser": "chromium", "viewport": "desktop-1440x1000"}]
+    },
+    {
+      "id": "downloads-portability",
+      "config_file": "scripts/acceptance/playwright.config.mjs",
+      "blocking": true,
+      "zero_retry": {"file": ".github/workflows/downloads-acceptance.yml", "markers": ["ACCEPTANCE_ZERO_RETRIES: '1'"]},
+      "invocation": {"file": ".github/workflows/downloads-acceptance.yml", "markers": ["npm --prefix scripts/acceptance run test:downloads-portability"]},
+      "projects": [
+        {"name": "downloads-portability-firefox", "browser": "firefox", "viewport": "desktop-1440x1000"},
+        {"name": "downloads-portability-webkit", "browser": "webkit", "viewport": "desktop-1440x1000"}
+      ]
+    },
+    {
+      "id": "events-matrix",
+      "config_file": "scripts/acceptance/playwright.events.config.mjs",
+      "blocking": true,
+      "zero_retry": {"file": "scripts/acceptance/playwright.events.config.mjs", "markers": ["retries: 0"]},
+      "invocation": {"file": ".github/workflows/events-acceptance.yml", "markers": ["playwright.events.config.mjs"]},
+      "projects": [
+        {"name": "events-chromium-desktop", "browser": "chromium", "viewport": "desktop-1440x1000"},
+        {"name": "events-chromium-tablet", "browser": "chromium", "viewport": "tablet-820x1180"},
+        {"name": "events-chromium-mobile", "browser": "chromium", "viewport": "mobile-390x844"},
+        {"name": "events-firefox-desktop", "browser": "firefox", "viewport": "desktop-1440x1000"},
+        {"name": "events-webkit-desktop", "browser": "webkit", "viewport": "desktop-1440x1000"}
+      ]
+    },
+    {
+      "id": "announcements-matrix",
+      "config_file": "scripts/acceptance/playwright.announcements.config.mjs",
+      "blocking": true,
+      "zero_retry": {"file": "scripts/acceptance/playwright.announcements.config.mjs", "markers": ["retries: 0"]},
+      "invocation": {"file": ".github/workflows/announcements-acceptance.yml", "markers": ["playwright.announcements.config.mjs"]},
+      "projects": [
+        {"name": "announcements-chromium-desktop", "browser": "chromium", "viewport": "desktop-1440x1000"},
+        {"name": "announcements-chromium-tablet", "browser": "chromium", "viewport": "tablet-820x1180"},
+        {"name": "announcements-chromium-mobile", "browser": "chromium", "viewport": "mobile-390x844"},
+        {"name": "announcements-firefox-desktop", "browser": "firefox", "viewport": "desktop-1440x1000"},
+        {"name": "announcements-webkit-desktop", "browser": "webkit", "viewport": "desktop-1440x1000"}
+      ]
+    },
+    {
+      "id": "support-legal-matrix",
+      "config_file": "scripts/acceptance/playwright.support-legal.config.mjs",
+      "blocking": true,
+      "zero_retry": {"file": "scripts/acceptance/playwright.support-legal.config.mjs", "markers": ["retries: 0"]},
+      "invocation": {"file": ".github/workflows/support-legal-acceptance.yml", "markers": ["playwright.support-legal.config.mjs"]},
+      "projects": [
+        {"name": "support-legal-chromium-desktop", "browser": "chromium", "viewport": "desktop-1440x1000"},
+        {"name": "support-legal-chromium-tablet", "browser": "chromium", "viewport": "tablet-820x1180"},
+        {"name": "support-legal-chromium-mobile", "browser": "chromium", "viewport": "mobile-390x844"},
+        {"name": "support-legal-firefox-desktop", "browser": "firefox", "viewport": "desktop-1440x1000"},
+        {"name": "support-legal-webkit-desktop", "browser": "webkit", "viewport": "desktop-1440x1000"}
+      ]
+    },
+    {
+      "id": "wiki-matrix",
+      "config_file": "scripts/acceptance/playwright.wiki-reconciliation.config.mjs",
+      "blocking": true,
+      "zero_retry": {"file": "scripts/acceptance/playwright.wiki-reconciliation.config.mjs", "markers": ["retries: 0"]},
+      "invocation": {"file": ".github/workflows/wiki-reconciliation-acceptance.yml", "markers": ["playwright.wiki-reconciliation.config.mjs"]},
+      "projects": [
+        {"name": "wiki-reconciliation-chromium-desktop", "browser": "chromium", "viewport": "desktop-1440x1000"},
+        {"name": "wiki-reconciliation-chromium-tablet", "browser": "chromium", "viewport": "tablet-820x1180"},
+        {"name": "wiki-reconciliation-chromium-mobile", "browser": "chromium", "viewport": "mobile-390x844"},
+        {"name": "wiki-reconciliation-firefox-desktop", "browser": "firefox", "viewport": "desktop-1440x1000"},
+        {"name": "wiki-reconciliation-webkit-desktop", "browser": "webkit", "viewport": "desktop-1440x1000"}
+      ]
+    },
+    {
+      "id": "editorial-media-responsive",
+      "config_file": "scripts/acceptance/playwright.editorial-media.config.mjs",
+      "blocking": true,
+      "zero_retry": {"file": "scripts/acceptance/playwright.editorial-media.config.mjs", "markers": ["retries: 0"]},
+      "invocation": {"file": ".github/workflows/editorial-media-acceptance.yml", "markers": ["playwright.editorial-media.config.mjs"]},
+      "projects": [
+        {"name": "editorial-media-chromium-desktop", "browser": "chromium", "viewport": "desktop-1440x1000"},
+        {"name": "editorial-media-chromium-tablet", "browser": "chromium", "viewport": "tablet-820x1180"},
+        {"name": "editorial-media-chromium-mobile", "browser": "chromium", "viewport": "mobile-390x844"}
+      ]
+    },
+    {
+      "id": "community-responsive",
+      "config_file": "scripts/acceptance/playwright.community-data.config.mjs",
+      "blocking": true,
+      "zero_retry": {"file": "scripts/acceptance/playwright.community-data.config.mjs", "markers": ["retries: 0"]},
+      "invocation": {"file": ".github/workflows/community-data-acceptance.yml", "markers": ["playwright.community-data.config.mjs"]},
+      "projects": [
+        {"name": "community-data-chromium-desktop", "browser": "chromium", "viewport": "desktop-1440x1000"},
+        {"name": "community-data-chromium-tablet", "browser": "chromium", "viewport": "tablet-820x1180"},
+        {"name": "community-data-chromium-mobile", "browser": "chromium", "viewport": "mobile-390x844"}
+      ]
+    },
+    {
+      "id": "support-moderation-responsive",
+      "config_file": "scripts/acceptance/playwright.support-moderation.config.mjs",
+      "blocking": true,
+      "zero_retry": {"file": "scripts/acceptance/playwright.support-moderation.config.mjs", "markers": ["retries: 0"]},
+      "invocation": {"file": ".github/workflows/support-moderation-acceptance.yml", "markers": ["playwright.support-moderation.config.mjs"]},
+      "projects": [
+        {"name": "support-moderation-chromium-desktop", "browser": "chromium", "viewport": "desktop-1440x1000"},
+        {"name": "support-moderation-chromium-tablet", "browser": "chromium", "viewport": "tablet-820x1180"},
+        {"name": "support-moderation-chromium-mobile", "browser": "chromium", "viewport": "mobile-390x844"}
+      ]
+    }
+  ],
+  "surface_fragments": [
+    "portal-evidence-dimensions/identity.json",
+    "portal-evidence-dimensions/public-core.json",
+    "portal-evidence-dimensions/content.json",
+    "portal-evidence-dimensions/modules.json"
+  ]
+}

@@ -35,6 +35,7 @@ const configuredRetries = process.env.ACCEPTANCE_ZERO_RETRIES === '1'
 
 const portabilityMatches = [
   '**/portability-critical.spec.mjs',
+  '**/public-localization.spec.mjs',
   '**/public-wiki*.spec.mjs',
   '**/admin-wiki*.spec.mjs',
   '**/public-game-catalog-acceptance.spec.mjs',
@@ -43,6 +44,7 @@ const portabilityMatches = [
 
 const responsiveMatches = [
   '**/responsive-critical.spec.mjs',
+  '**/public-localization.spec.mjs',
   '**/public-wiki*.spec.mjs',
   '**/admin-wiki*.spec.mjs',
   '**/public-game-catalog-acceptance.spec.mjs',
