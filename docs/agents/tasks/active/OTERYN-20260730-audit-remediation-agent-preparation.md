@@ -26,15 +26,15 @@ Prepare a durable standalone implementation-agent prompt that consumes confirmed
 
 ## Acceptance criteria
 
-- [ ] A standalone remediation-agent prompt exists under `docs/agents/prompts/`.
-- [ ] The prompt treats the merged audit report, machine benchmark ledger, live issues, task records, PRs and exact-SHA evidence as authoritative rather than chat history.
-- [ ] The agent must select exactly one bounded remediation issue at a time and create a dedicated task branch, active task record and early draft PR.
-- [ ] The agent searches active tasks and open PRs before claiming paths and does not overlap PR #328 or another live implementation.
-- [ ] Required gaps are prioritized over planned and optional findings, with blockers and dependencies respected.
-- [ ] Writes remain limited to `blakinio/Oteryn-Platform`; Canary and other repositories remain read-only without explicit current-task authorization.
-- [ ] Payment-provider work, production deployment, production activation and irreversible external mutations remain blocked without explicit authorization and required architecture/security evidence.
-- [ ] Every implementation slice requires focused tests, exact-final-head CI, truthful benchmark reconciliation and task archival after merge.
-- [ ] The prompt does not authorize a single broad PR covering unrelated audit findings.
+- [x] A standalone remediation-agent prompt exists under `docs/agents/prompts/`.
+- [x] The prompt treats the merged audit report, machine benchmark ledger, live issues, task records, PRs and exact-SHA evidence as authoritative rather than chat history.
+- [x] The agent must select exactly one bounded remediation issue at a time and create a dedicated task branch, active task record and early draft PR.
+- [x] The agent searches active tasks and open PRs before claiming paths and does not overlap PR #328 or another live implementation.
+- [x] Required gaps are prioritized over planned and optional findings, with blockers and dependencies respected.
+- [x] Writes remain limited to `blakinio/Oteryn-Platform`; Canary and other repositories remain read-only without explicit current-task authorization.
+- [x] Payment-provider work, production deployment, production activation and irreversible external mutations remain blocked without explicit authorization and required architecture/security evidence.
+- [x] Every implementation slice requires focused tests, exact-final-head CI, truthful benchmark reconciliation and task archival after merge.
+- [x] The prompt does not authorize a single broad PR covering unrelated audit findings.
 
 ## Ownership
 
@@ -59,11 +59,11 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-07-30T06:18:00Z
-head: UNKNOWN
+updated_at: 2026-07-30T06:27:00Z
+head: e31f0db87d917de7d43b0efb2112cf1ed6d5f609
 branch: docs/OTERYN-20260730-audit-remediation-agent
-pr: none
-status: implementing
+pr: 336
+status: validating
 context_routes:
   - agent-governance
   - architecture
@@ -75,6 +75,8 @@ proven:
   - The product-completeness audit PR #315 has an exact-head green evidence set and creates bounded remediation issues, but is not yet merged.
   - PR #328 actively owns read-only discovery and architecture for the character-rename contract.
   - Repository policy requires one bounded task branch and early draft PR per substantial implementation.
+  - PR #336 contains only the standalone remediation prompt and its dedicated preparation task record.
+  - The prompt enforces sequential bounded delivery, dynamic ownership checks and explicit Canary/payment/production stop conditions.
 derived:
   - A remediation coordinator must dispatch one issue at a time rather than own broad runtime paths itself.
   - The durable prompt can be prepared independently because it owns only its prompt and task record.
@@ -88,14 +90,15 @@ rejected_hypotheses:
   - One agent should implement every audit finding in one PR; rejected because it violates bounded-task, ownership and reviewability rules.
   - The remediation prompt may authorize Canary or production writes implicitly; rejected by repository safety policy.
 changed_paths:
+  - docs/agents/prompts/OTERYN-PRODUCT-AUDIT-REMEDIATION-AGENT-PROMPT.md
   - docs/agents/tasks/active/OTERYN-20260730-audit-remediation-agent-preparation.md
 validation:
-  - command: focused governance and Markdown review
-    result: PENDING
-    evidence: prompt not yet created
+  - command: focused governance, ownership and Markdown content review
+    result: PASS
+    evidence: prompt follows the existing standalone-agent pattern, owns only two non-overlapping documentation paths and records exact safety/merge gates; GitHub checks remain pending on PR #336.
 blockers:
   - none
-next_action: Create the standalone remediation-agent prompt with dynamic audit consumption, priority, ownership, safety and exact-head delivery rules.
+next_action: Observe required checks on PR #336, fix any governance defect on the exact head, then merge and archive this preparation task before launching the remediation agent.
 ```
 
 ## Notes
