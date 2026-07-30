@@ -4,6 +4,7 @@ use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
+use RuntimeException;
 
 return new class extends Migration
 {
@@ -48,10 +49,10 @@ return new class extends Migration
     public function down(): void
     {
         if (Schema::hasTable('game_catalog_npc_snapshots') && DB::table('game_catalog_npc_snapshots')->exists()) {
-            throw new \RuntimeException('Cannot roll back Game Catalog NPC/shop persistence while NPC snapshot rows exist.');
+            throw new RuntimeException('Cannot roll back Game Catalog NPC/shop persistence while NPC snapshot rows exist.');
         }
         if (Schema::hasTable('game_catalog_shop_offer_snapshots') && DB::table('game_catalog_shop_offer_snapshots')->exists()) {
-            throw new \RuntimeException('Cannot roll back Game Catalog NPC/shop persistence while shop-offer rows exist.');
+            throw new RuntimeException('Cannot roll back Game Catalog NPC/shop persistence while shop-offer rows exist.');
         }
 
         Schema::dropIfExists('game_catalog_shop_offer_snapshots');
