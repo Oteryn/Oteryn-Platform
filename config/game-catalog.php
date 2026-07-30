@@ -20,7 +20,7 @@ return [
         ],
         '1.3.0' => [
             'path' => resource_path('schemas/game-catalog/v1.3/game-catalog-snapshot.schema.json'),
-            'sha256' => 'f0241a36b579cc29fb7ab99397bfbce2ead90f78e1045bfd56030620ea7be8fe',
+            'sha256' => '0282c0ce4b995e4aded440b148dd4eb8a96a441e9924da182a2df2a0f2eef8a8',
             'activatable' => false,
         ],
     ],
