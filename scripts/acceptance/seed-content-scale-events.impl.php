@@ -18,7 +18,7 @@ $englishTitle = implode(' ', array_map(
 ));
 $polishTitle = implode(' ', array_map(
     static fn (int $index): string => sprintf('PolskiSegmentWydarzenia%02d', $index),
-    range(1, 8),
+    range(1, 7),
 ));
 $englishSummary = 'English event summary boundary '.implode(' ', array_map(
     static fn (int $index): string => sprintf('summary-segment-%02d', $index),
@@ -26,7 +26,7 @@ $englishSummary = 'English event summary boundary '.implode(' ', array_map(
 ));
 $polishSummary = 'Polskie podsumowanie wydarzenia '.implode(' ', array_map(
     static fn (int $index): string => sprintf('segment-podsumowania-%02d', $index),
-    range(1, 24),
+    range(1, 18),
 ));
 $englishBody = 'English event body boundary '.implode(' ', array_map(
     static fn (int $index): string => sprintf('event-body-segment-%03d', $index),
