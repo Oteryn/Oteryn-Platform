@@ -109,8 +109,15 @@ test('@wiki-admin trusted editor creates, previews and publishes bilingual Wiki 
 
   await page.getByRole('button', { name: 'Submit for review' }).click();
   await expect(page.getByRole('status')).toContainText('Wiki article submitted for review.');
+
+  // The responsive editor loads the approved-media picker through authenticated thumbnail requests.
+  // Finish those session-bearing subresource requests before the next lifecycle POST so the
+  // publication flash survives deterministically through its redirect.
+  await page.waitForLoadState('networkidle');
+  await expect(page.getByRole('button', { name: 'Publish', exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Publish', exact: true }).click();
   await expect(page.getByRole('status')).toContainText('Wiki article published.');
+  await expect(page.getByText(/Status: Published/u)).toBeVisible();
 
   await page.goto(`/en/wiki/${articleSlug}`);
   await expect(page.getByRole('heading', { name: articleTitle })).toBeVisible();
