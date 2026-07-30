@@ -122,10 +122,15 @@ async function prove419(page, locale) {
     form.method = 'POST';
     form.action = `/register?locale=${encodeURIComponent(selectedLocale)}`;
 
-    const email = document.createElement('input');
-    email.name = 'email';
-    email.value = 'csrf-error-probe@example.test';
-    form.append(email);
+    for (const [name, value] of [
+      ['_token', 'acceptance-explicitly-invalid-csrf-token'],
+      ['email', 'csrf-error-probe@example.test'],
+    ]) {
+      const input = document.createElement('input');
+      input.name = name;
+      input.value = value;
+      form.append(input);
+    }
 
     document.body.append(form);
     form.submit();
@@ -135,6 +140,7 @@ async function prove419(page, locale) {
   await page.waitForLoadState('domcontentloaded');
   await expectErrorSurface(page, response, 419, locale);
   await expect(page.locator('body')).not.toContainText('csrf-error-probe@example.test');
+  await expect(page.locator('body')).not.toContainText('acceptance-explicitly-invalid-csrf-token');
 }
 
 async function prove429(page, locale, projectSlug) {
