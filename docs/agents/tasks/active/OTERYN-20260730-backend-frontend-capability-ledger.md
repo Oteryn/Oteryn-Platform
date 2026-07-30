@@ -66,8 +66,8 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-07-30T07:15:00Z
-head: 3207c99d00440d04530b0701b59ffe8ce69971fd
+updated_at: 2026-07-30T07:18:00Z
+head: 1513bacbea7f2af8b773517a3321be4d4e404862
 branch: test/OTERYN-20260730-backend-frontend-capability-ledger
 pr: 341
 status: validating
@@ -108,6 +108,7 @@ rejected_hypotheses:
 changed_paths:
   - .github/workflows/portal-acceptance-contract.yml
   - docs/agents/ACTIVE_WORK.md
+  - docs/agents/PROJECT_STATE.md
   - docs/agents/tasks/active/OTERYN-20260730-backend-frontend-capability-ledger.md
   - docs/testing/PRODUCT_COMPLETENESS_FRONTEND_AUDIT_2026-07-30.md
   - docs/testing/product-backend-frontend-completeness.json
@@ -119,8 +120,8 @@ validation:
     result: FAIL
     evidence: validator correctly rejected three unknown surface IDs on head d0416600deeca89261d9ea038baeab5f326c2489.
   - command: corrected exact-head GitHub Actions suite
-    result: IN_PROGRESS
-    evidence: current branch validation after exact surface reconciliation.
+    result: NOT_RUN
+    evidence: queued after exact surface and checkpoint reconciliation.
 blockers: []
-next_action: Confirm the corrected strict validator and negative fixtures pass, then reconcile PROJECT_STATE and final exact-head evidence.
+next_action: Confirm the corrected strict validator and negative fixtures pass, then reconcile final exact-head evidence.
 ```
