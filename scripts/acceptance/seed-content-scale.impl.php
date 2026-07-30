@@ -34,7 +34,7 @@ $polishBody = 'Polska granica długiej treści '.implode(' ', array_map(
 ));
 $longFilename = 'oteryn-'.implode('-', array_map(
     static fn (int $index): string => sprintf('artifact-segment-%02d', $index),
-    range(1, 14),
+    range(1, 8),
 )).'.zip';
 $publishedAt = now()->subMinute();
 
