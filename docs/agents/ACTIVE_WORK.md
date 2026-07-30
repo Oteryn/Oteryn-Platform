@@ -4,10 +4,11 @@ Convenience index only. Individual active task records, live PRs and Git state a
 
 ## Active tasks
 
-- `OTERYN-20260729-product-completeness-reconciliation` / PR #315 — exact-SHA reconciliation of Issue #268 after PR #308, detailed audit report, bounded gap issues and governance-state cleanup. Owned paths are limited to the audit/benchmark and agent-state documentation listed in the task record.
+None recorded by this index. Live active task files and pull requests remain authoritative when newer.
 
 ## Closed acceptance and release-preparation follow-ups
 
+- PR #315 / `94b3457f4bb5b9aa73639a698c70ebb233940288` — merged the exact-SHA Issue #268 product-completeness reconciliation, mandatory backend/frontend/browser implementation rule, detailed findings and bounded remediation backlog after all eight required workflows passed on head `92935a76e559d8716773ebec5d1a04264051cfa1`; no runtime, Canary, payment-provider or production mutation occurred.
 - PR #308 / `86847d0068e470274b6c3ee5523fe41cbb9663af` — delivered Platform-owned character comments, per-character privacy and optional main-character selection after all 11 exact-final-head workflows passed; Issue #307 closed while Canary remained read-only and parent #277 stayed open.
 - PR #303 / `e1df0608eb6a8321f47fe51da65233a613a27b25` — reconciled Issue #281 to the authoritative item/weapon/creature/loot Game Catalog scope delivered by PR #272, preserved unsupported knowledge gaps under #277/#301/#302 and closed #281 after all eight exact-final-head workflows passed; no runtime, Canary, external-repository or production mutation occurred.
 - PR #300 / `7f2c37ca2a2447623705f60dffc08a34b9c755d3` — archived the completed community-data task, cleared ACTIVE_WORK and reconciled project state after Issue #280 closure.
@@ -72,21 +73,21 @@ Repository and staging evidence remains valid only for its documented boundaries
 
 - **Production Readiness: STAGING_PROVEN for previously documented boundaries**
 - **Portal Completeness: COMPLETE AGAINST THE VERSIONED DELIVERED-SURFACE CONTRACT (Issue #240 closed)**
-- **Product Completeness Audit: RECONCILING ON PR #315; REQUIRED GAPS #317/#319, PLANNED CHARACTER WORK #320/#323, COMMERCE #321/#322 AND KNOWLEDGE #301/#302 REMAIN**
+- **Product Completeness Audit: MERGED IN PR #315; REQUIRED GAPS #317/#319, PLANNED CHARACTER WORK #320/#323, COMMERCE #321/#322 AND KNOWLEDGE #301/#302 REMAIN**
 - **Benchmark Product Completeness: NOT YET ACHIEVED**
-- **Functional Acceptance: exact-final-head CI and zero-retry lifecycle passed through PR #308**
-- **Visual / UX Acceptance: broad exact-head evidence passed through PR #308; exhaustive every-screen/state closure remains #326**
+- **Functional Acceptance: exact-final-head CI, strict route/product ledgers and zero-retry account lifecycle passed on PR #315 head `92935a76e559d8716773ebec5d1a04264051cfa1`**
+- **Visual / UX Acceptance: broad integrated backend/frontend evidence is recorded; exhaustive every-screen/state closure remains #326**
 - **Public Website Expansion Programme: implementation and machine-ledger closure merged**
 - **Emulated Edge Security: STAGING_PROVEN**
 - **Synology Production Target Preflight: STAGING_PROVEN**
 - **Production Go-Live Gate: PENDING PRODUCTION VERIFICATION**
 - **Production Verification: REQUIRED BEFORE GO-LIVE**
 
-The latest verified final-portal staging refresh identity is `583cae5f430998b2bbdf5e60b59d93f09ec6f4c8` from PR #267 and deployment run `30335161092`. Later marketplace, account-security, Game Catalog, support/moderation, community-data and profile-preference evidence is repository/isolated-acceptance proof unless a deployment-specific record says otherwise. No repository, staging, local-target or emulation evidence may be promoted to `PRODUCTION_PROVEN`.
+The latest verified final-portal staging refresh identity is `583cae5f430998b2bbdf5e60b59d93f09ec6f4c8` from PR #267 and deployment run `30335161092`. Later marketplace, account-security, Game Catalog, support/moderation, community-data, profile-preference and product-audit evidence is repository/isolated-acceptance proof unless a deployment-specific record says otherwise. No repository, staging, local-target or emulation evidence may be promoted to `PRODUCTION_PROVEN`.
 
 ## Next work
 
-Complete PR #315 exact-head validation and merge its durable audit/governance reconciliation. Product implementation remains explicitly split across #317, #319, #320, #321, #322, #323 and #301; optional discovery remains #302/#325, exhaustive visual/state evidence remains #326, and direct production verification remains #91.
+Start one bounded, unowned audit-remediation slice. #319 is already owned by the rename-contract work; #317/#320 require operation-specific Canary contracts; #321/#322 require payment/product decisions. The next safe acceptance slice is the machine-enforced backend–frontend capability ledger under #326. Direct production verification remains #91.
 
 ## Remaining cross-repository dependency
 
