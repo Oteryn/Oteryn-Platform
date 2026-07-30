@@ -225,8 +225,9 @@
           "evidence": {
             "file": "scripts/acceptance/tests/admin-wiki-editorial-media.spec.mjs",
             "markers": [
-              "editorialMediaFixture('remove-files', String(seeded.media_id));",
-              "const missingPublicFallback = publicPage.getByRole('img', { name: mediaLabel });"
+              "const missingPickerFallback = missingPickerCard.getByRole('img', { name: mediaLabel });",
+              "await expect(missingPickerFallback).toContainText(`Preview unavailable: ${mediaLabel}`);",
+              "await expect(missingPickerCard.locator('img')).toHaveCount(0);"
             ],
             "profile": "standard-responsive",
             "projects": [
