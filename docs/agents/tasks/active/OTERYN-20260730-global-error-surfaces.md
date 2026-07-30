@@ -45,6 +45,7 @@ Deliver Issue #353 as one bounded application-error UX slice: dedicated localize
 owned_paths:
   - docs/agents/tasks/active/OTERYN-20260730-global-error-surfaces.md
   - app/Http/Middleware/DetectPublicLocaleFromPath.php
+  - resources/views/identity/login.blade.php
   - resources/views/errors/419.blade.php
   - resources/views/errors/429.blade.php
   - resources/views/errors/500.blade.php
@@ -73,8 +74,8 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-07-30T10:09:00Z
-head: 9ebd6bf24c8cdacf296e36b087ff5e82ddc00126
+updated_at: 2026-07-30T10:31:00Z
+head: 12303ef044582a58054293c25354d6fadaa5d250
 branch: feat/OTERYN-20260730-global-error-surfaces
 pr: 354
 status: validating
@@ -86,6 +87,7 @@ context_routes:
 owned_paths:
   - docs/agents/tasks/active/OTERYN-20260730-global-error-surfaces.md
   - app/Http/Middleware/DetectPublicLocaleFromPath.php
+  - resources/views/identity/login.blade.php
   - resources/views/errors/419.blade.php
   - resources/views/errors/429.blade.php
   - resources/views/errors/500.blade.php
@@ -99,23 +101,25 @@ owned_paths:
 proven:
   - Main has dedicated branded localized 404 and 503 views extending resources/views/errors/layout.blade.php.
   - Main had no dedicated 419, 429 or 500 view before this task, so those statuses used framework fallback rendering.
-  - The existing smoke suite proved only the numeric 419 response through page.request and did not prove a browser-rendered localized error surface.
+  - A real cross-site browser form now produces HTTP 419; same-origin form submissions are intentionally admitted by Laravel 13 request-origin verification before token comparison.
+  - The global locale detector resolves only normalized en/pl values and renders an early TokenMismatchException through the branded 419 view with an explicit Content-Language header.
   - Existing identity login rate limiting provides a real bounded 429 path without introducing a test-only endpoint.
-  - The global locale detector now accepts only normalized en/pl query values before route middleware, allowing pre-route CSRF errors to preserve an explicitly requested locale while invalid values fail closed.
-  - The dedicated acceptance profile triggers real unmatched-route 404, missing-CSRF 419, login-limiter 429 and non-debug missing-view 500 behavior for EN/PL at desktop, tablet and mobile with retries fixed at zero.
+  - The login limiter can execute before route locale middleware, so the login POST action must carry the normalized locale explicitly for a localized 429.
   - The 500 harness restores the exact Blade source and clears compiled views in a guaranteed finally path; limiter cache is cleared before and after every bounded 429 sequence.
   - Active PRs #348/#349 own viewport/browser dimension-ledger paths, not the paths claimed here.
 derived:
   - A dedicated error-state acceptance profile is safer and more truthful than adding global error flows to a domain-specific Community Data profile.
 unknown:
-  - First completed exact-head outcome for the new Error State Acceptance profile.
+  - Exact-head result after the login form preserves locale on its POST action.
 conflicts: []
 first_failure:
-  marker: checkpoint-validation:unsupported-result
-  evidence: Agent Governance run 30533366864 rejected validation result IN_PROGRESS; the repository contract permits only BLOCKED, FAIL, NOT_RUN or PASS.
+  marker: browser-error-state-matrix
+  evidence: Runs 30533677029, 30533912431 and 30534134012 exposed Laravel 13 same-origin request-forgery behavior; run 30534749960 then proved 419 passed and isolated the remaining Polish 429 Content-Language mismatch.
 rejected_hypotheses:
   - Add test-only routes that directly return or abort with target statuses.
   - Treat status-only HTTP client assertions as proof of the rendered browser UX.
+  - A missing or invalid CSRF token on a same-origin Laravel 13 browser form necessarily yields 419; origin verification admits the request first.
+  - Session-only locale is sufficient for a throttle response that may execute before route locale middleware.
   - Attach global error states to an unrelated named-route surface in the portal route manifest.
 changed_paths:
   - docs/agents/tasks/active/OTERYN-20260730-global-error-surfaces.md
@@ -132,9 +136,9 @@ changed_paths:
   - .github/workflows/error-state-acceptance.yml
 validation:
   - command: Error State Acceptance and repository workflows
-    result: NOT_RUN
-    evidence: prior heads were superseded while resolving review and governance findings; final exact-head runs are pending.
+    result: FAIL
+    evidence: exact head 12303ef044582a58054293c25354d6fadaa5d250 passed real localized 419 and failed only the Polish 429 Content-Language assertion before the login form POST carried locale.
 blockers:
   - none
-next_action: Inspect every failing exact-head workflow step, fix the root cause and repeat validation only on a changed head.
+next_action: Preserve the normalized locale in the real login form POST action, cover it in focused tests and rerun exact-head validation.
 ```
