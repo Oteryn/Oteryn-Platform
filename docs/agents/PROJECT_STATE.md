@@ -17,13 +17,13 @@ This file is the compact authoritative entry point for “where are we now?”. 
 - **Phase 6 — CMS, Admin, RBAC and Audit: COMPLETE for the delivered route contract**
 - **Phase 7 — Production hardening and operations: COMPLETE as an engineering milestone**
 
-These phase statements do not claim benchmark product completeness. The completed Issue #268 audit tracks capabilities that can be absent from an otherwise green delivered-surface contract.
+These phase statements do not claim benchmark product completeness. The completed Issue #268 audit and its 2026-07-29 reconciliation track capabilities that can be absent from an otherwise green delivered-surface contract.
 
 ## Operational release state
 
 - **Production Readiness: STAGING_PROVEN for documented boundaries**
 - **Delivered Portal Route Contract: COMPLETE AND MACHINE ENFORCED**
-- **Benchmark Product Completeness: NOT COMPLETE; REQUIRED CHARACTER GAP #277 REMAINS OPEN AND #278 IS MANDATORY BEFORE COMMERCE**
+- **Benchmark Product Completeness: NOT COMPLETE; REQUIRED CHARACTER GAPS #317/#319 REMAIN, AND #321/#322 ARE MANDATORY BEFORE COMMERCE**
 - **Production Go-Live Gate: PENDING PRODUCTION VERIFICATION**
 - **Production Verification: REQUIRED BEFORE GO-LIVE**
 
@@ -58,7 +58,7 @@ Existing Canary accounts are not imported or claimed. The browser does not commu
 
 PR #283 merged the complete approved account-security lifecycle as `28faad47f95df10d1a9b437a16a1be91556671c6` after all 12 exact-final-head workflows passed.
 
-The ready Platform-to-Canary binding remains immutable. Self-service import, unlink, rebind or transfer is intentionally not applicable without a separately reviewed operation contract. Email-code MFA is intentionally not adopted because email is the recovery channel. Optional account badge/loyalty/status presentation remains absent.
+The ready Platform-to-Canary binding remains immutable. Self-service import, unlink, rebind or transfer is intentionally not applicable without a separately reviewed operation contract. Email-code MFA is intentionally not adopted because email is the recovery channel. Optional account badge/loyalty/status presentation is tracked by #325; premium status depends on #322.
 
 ### Public portal and game data
 
@@ -74,7 +74,7 @@ The ready Platform-to-Canary binding remains immutable. Self-service import, unl
 
 PR #298 merged the approved read-only community-data boundary as `7533b12b1e1c6d266c6bf5a8800e584fad23a01e` after all 11 exact-final-head workflows passed. Canary mutation, guild administration, selectable achievements, world-transfer history, polls and public enforcement publication remain excluded until authoritative ownership and privacy contracts exist.
 
-Still not benchmark-complete: Issue #307 delivers owner-editable Platform comments, character-level privacy and optional main-character selection, while selected achievements, deletion/restore, rename and controlled transfer remain #277. Customer commerce remains #278. Structured authoritative spell/NPC/quest/achievement catalogues remain #301, while optional map/hunt/discovery decisions remain #302.
+PR #308 completed owner-editable Platform comments, character-level privacy and optional main-character selection. Still not benchmark-complete: deletion/restore remains #317, rename remains #319, controlled world/channel transfer remains #320, and selected achievements depend on #301/#323. Customer commerce remains #321/#322 under parent #278. Structured authoritative spell/NPC/quest/achievement catalogues remain #301, while optional map/hunt/discovery decisions remain #302.
 
 ### CMS and community publishing
 
@@ -112,7 +112,7 @@ Delivered boundaries:
 - MFA/permission/audit-protected administrator wallet adjustment and recovery queue;
 - desktop/tablet/mobile, accessibility, real-MariaDB concurrency and full browser acceptance.
 
-The wallet is not a payment system. Customer coin purchase, premium/VIP, products, webhooks, refunds and chargebacks remain #278. Canary tournament coins are not used.
+The wallet is not a payment system. Customer coin purchase, premium/VIP, products, signed provider events, refunds and chargebacks are split into #321 and #322 under parent #278. Canary tournament coins are not used.
 
 ## Delivered-surface acceptance contract
 
@@ -127,21 +127,26 @@ The strict contract proves:
 
 The account-security fragment adds guest/authenticated EN/PL email, session, privacy, recovery-key and termination states. The Character Bazaar fragment adds public, authenticated and administrator marketplace surfaces. The community-data and character-profile fragments add highscore, profile, owner-preference, main-character race, deaths, guild, localization, dependency-failure/recovery and responsive states.
 
+Broad responsive, portability, resilience and accessibility evidence exists, but it is not a universal every-route/every-state/browser Cartesian matrix. #326 owns the remaining exhaustive visual/state evidence closure.
+
 ## Product-completeness benchmark
 
-The completed Issue #268 audit is tracked by:
+The completed Issue #268 audit and current reconciliation are tracked by:
 
 - `docs/testing/PRODUCT_COMPLETENESS_BENCHMARK.md`;
 - `docs/testing/product-completeness-benchmark.json`;
+- `docs/testing/PRODUCT_COMPLETENESS_AUDIT_2026-07-29.md`;
 - `scripts/acceptance/coverage/validate-product-completeness.mjs`.
 
-The current ledger classifies 43 Tibia/RubinOT/OTS benchmark capabilities:
+The current canonical ledger classifies 43 Tibia/RubinOT/OTS benchmark capabilities:
 
 - 23 implemented;
 - 3 partial;
 - 14 missing;
 - 3 not applicable;
 - 22 required, 13 planned, 5 optional/differentiator and 3 not applicable.
+
+The 2026-07-29 audit projects that two-axis ledger into the required vocabulary as 23 `IMPLEMENTED`, 3 `PARTIAL`, 2 `MISSING_REQUIRED`, 4 `MISSING_OPTIONAL`, 8 `PLANNED`, 3 `NOT_APPLICABLE`, 0 `UNTESTED` and 0 runtime `BROKEN` canonical capabilities. The expanded audit records additional evidence and documentation findings separately.
 
 Completed focused slices:
 
@@ -153,10 +158,18 @@ Completed focused slices:
 
 Open focused backlog:
 
-- #277 — character management and public profiles;
-- #278 — premium, coins and entitlement commerce;
+- #277 parent — character management/public-profile completion;
+- #317 — character deletion, grace and restore;
+- #319 — conflict-safe rename lifecycle;
+- #320 — controlled world/channel transfer product decision and service;
+- #323 — authoritative achievement selection, dependent on #301;
+- #278 parent — commerce;
+- #321 — provider-neutral payment security foundation;
+- #322 — products, entitlements, vouchers and histories;
 - #301 — authoritative spell/NPC/quest/achievement catalogue expansion;
-- #302 — optional maps, hunt tools and server-specific discovery planning.
+- #302 — optional maps, hunt tools and server-specific discovery planning;
+- #325 — optional loyalty/badge/status presentation;
+- #326 — exhaustive delivered-screen visual/state matrix.
 
 A green route contract must not be described as product complete while required benchmark gaps remain.
 
@@ -182,15 +195,16 @@ Repository and exact-revision E2E work has hardened the native-auth direction, b
 
 ## Current active task
 
-None. PR #308 completed Issue #307 and its task is archived; parent #277 remains open for separately contracted mutation and achievement work.
+`OTERYN-20260729-product-completeness-reconciliation` in PR #315 reconciles Issue #268 to current `main`, persists the detailed audit and issue split, and changes no runtime or production data.
 
 ## Recommended sequence
 
-1. Continue parent #277 only through a new bounded task after selecting an explicitly authorized mutation or authoritative achievement scope.
-2. Define explicit operation-specific contracts before implementing character rename, deletion, restoration or transfer.
-3. Keep #278 disabled until a dedicated payment ADR, threat model and provider lifecycle are reviewed.
-4. Start #301 only after an additive authoritative producer contract is approved; treat #302 as optional product discovery.
-5. Resume #91 only after explicit production deployment/verification authorization and required production evidence access exist.
+1. Complete PR #315 exact-head governance/CI validation and merge its documentation-only reconciliation.
+2. Implement required character deletion/restore #317 and rename #319 only after operation-specific Canary contracts and authorization exist.
+3. Decide authoritative world ownership before #320 and deliver #323 only after #301 provides earned-achievement truth.
+4. Keep commerce disabled until #321 payment security/provider decisions and #322 entitlement lifecycle are complete.
+5. Treat #302/#325 as optional product discovery and close #326 with a machine-enforced every-screen visual/state matrix.
+6. Resume #91 only after explicit production deployment/verification authorization and required production evidence access exist.
 
 ## Community data delivery
 
@@ -199,7 +213,6 @@ PR #298 completed Issue #280's approved read-only boundary: categorized/vocation
 ## Game Catalog first-scope closeout
 
 PR #303 completed Issue #281's accepted first scope by reconciling the versioned item/weapon/creature/loot delivery from PR #272 with the 43-capability benchmark. Exact final head `7c6bd2b46f3c29d5a2bd4862d59614fcaec423bc` passed all eight required workflows before squash merge `e1df0608eb6a8321f47fe51da65233a613a27b25`. Deferred spells/NPCs/quests/achievements remain #301, optional map/hunt/discovery decisions remain #302, and no runtime, Canary, producer, activation or production change occurred.
-
 
 ## Character profile preferences delivery
 
