@@ -9,12 +9,13 @@ import {
 const coverageRoot = path.dirname(fileURLToPath(import.meta.url));
 const defaultRepoRoot = path.resolve(coverageRoot, '../../..');
 
+function readPolicy(repoRoot, file) {
+  return JSON.parse(fs.readFileSync(path.join(repoRoot, 'docs/testing', file), 'utf8'));
+}
+
 export function loadRepositoryInputs(repoRoot = defaultRepoRoot) {
   const inputs = loadCompleteInputs(repoRoot);
-  const exceptions = JSON.parse(fs.readFileSync(
-    path.join(repoRoot, 'docs/testing/ROUTE_VIEW_NAVIGATION_ENDPOINT_EXCEPTIONS.json'),
-    'utf8',
-  ));
+  const exceptions = readPolicy(repoRoot, 'ROUTE_VIEW_NAVIGATION_ENDPOINT_EXCEPTIONS.json');
   if (exceptions.schema_version !== 1 || !Array.isArray(exceptions.route_overrides)) {
     throw new Error('Route/view/navigation endpoint exceptions must use schema_version 1 and route_overrides.');
   }
@@ -22,6 +23,18 @@ export function loadRepositoryInputs(repoRoot = defaultRepoRoot) {
     ...(inputs.contract.route_overrides ?? []),
     ...exceptions.route_overrides,
   ];
+
+  const delegated = readPolicy(repoRoot, 'ROUTE_VIEW_NAVIGATION_DELEGATED_BINDINGS.json');
+  if (delegated.schema_version !== 1 || !Array.isArray(delegated.bindings)) {
+    throw new Error('Delegated route/view bindings must use schema_version 1 and bindings.');
+  }
+  for (const entry of delegated.bindings) {
+    const binding = inputs.routeBindings.get(entry.route_name);
+    if (!binding) throw new Error(`Delegated binding references unknown route ${entry.route_name}.`);
+    if (!binding.views.some((view) => view.name === entry.view)) {
+      binding.views.push({ name: entry.view, source: entry.source });
+    }
+  }
   return inputs;
 }
 
