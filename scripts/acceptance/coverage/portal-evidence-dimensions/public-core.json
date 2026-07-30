@@ -1,0 +1,109 @@
+{
+  "surfaces": [
+    {
+      "id": "public.home-and-seo",
+      "kind": "rendered",
+      "critical": true,
+      "evidence": [
+        {"id": "e1", "file": "scripts/acceptance/tests/responsive-critical.spec.mjs", "markers": ["@responsive public homepage navigation footer and Identity entry forms stay usable without horizontal overflow"]},
+        {"id": "e2", "file": "scripts/acceptance/tests/portability-critical.spec.mjs", "markers": ["@portability public navigation and seeded game data work across browser engines"]}
+      ],
+      "viewports": {
+        "desktop-1440x1000": {"profile": "standard-responsive", "project": "responsive-desktop", "mode": "project", "evidence": "e1"},
+        "tablet-820x1180": {"profile": "standard-responsive", "project": "responsive-tablet", "mode": "project", "evidence": "e1"},
+        "mobile-390x844": {"profile": "standard-responsive", "project": "responsive-mobile", "mode": "project", "evidence": "e1"}
+      },
+      "browsers": {
+        "chromium-primary": {"profile": "standard-responsive", "projects": ["responsive-desktop"], "evidence": "e1"},
+        "firefox-bounded": {"profile": "standard-portability", "projects": ["portability-firefox"], "evidence": "e2"},
+        "webkit-bounded": {"profile": "standard-portability", "projects": ["portability-webkit"], "evidence": "e2"}
+      },
+      "portability": {"status": "covered", "profile": "standard-portability", "projects": ["portability-firefox", "portability-webkit"], "evidence": "e2"}
+    },
+    {
+      "id": "public.news-and-managed-pages",
+      "kind": "rendered",
+      "critical": true,
+      "evidence": [
+        {"id": "e1", "file": "scripts/acceptance/tests/responsive-critical.spec.mjs", "markers": ["@responsive public homepage navigation footer and Identity entry forms stay usable without horizontal overflow"]},
+        {"id": "e2", "file": "scripts/acceptance/tests/portability-critical.spec.mjs", "markers": ["@portability MFA-confirmed privileged access and seeded CMS public visibility remain portable"]}
+      ],
+      "viewports": {
+        "desktop-1440x1000": {"profile": "standard-responsive", "project": "responsive-desktop", "mode": "project", "evidence": "e1"},
+        "mobile-390x844": {"profile": "standard-responsive", "project": "responsive-mobile", "mode": "project", "evidence": "e1"}
+      },
+      "browsers": {
+        "chromium-primary": {"profile": "standard-responsive", "projects": ["responsive-desktop"], "evidence": "e1"},
+        "bounded-portability": {"profile": "standard-portability", "projects": ["portability-firefox", "portability-webkit"], "evidence": "e2"}
+      },
+      "portability": {"status": "covered", "profile": "standard-portability", "projects": ["portability-firefox", "portability-webkit"], "evidence": "e2"}
+    },
+    {
+      "id": "public.game-data",
+      "kind": "rendered",
+      "critical": true,
+      "evidence": [
+        {"id": "e1", "file": "scripts/acceptance/tests/responsive-critical.spec.mjs", "markers": ["@responsive public game data navigation and character discovery remain usable at representative viewports"]},
+        {"id": "e2", "file": "scripts/acceptance/tests/portability-critical.spec.mjs", "markers": ["@portability public navigation and seeded game data work across browser engines"]}
+      ],
+      "viewports": {
+        "desktop-1440x1000": {"profile": "standard-responsive", "project": "responsive-desktop", "mode": "project", "evidence": "e1"},
+        "tablet-820x1180": {"profile": "standard-responsive", "project": "responsive-tablet", "mode": "project", "evidence": "e1"},
+        "mobile-390x844": {"profile": "standard-responsive", "project": "responsive-mobile", "mode": "project", "evidence": "e1"}
+      },
+      "browsers": {
+        "chromium-primary": {"profile": "standard-responsive", "projects": ["responsive-desktop"], "evidence": "e1"},
+        "bounded-portability": {"profile": "standard-portability", "projects": ["portability-firefox", "portability-webkit"], "evidence": "e2"}
+      },
+      "portability": {"status": "covered", "profile": "standard-portability", "projects": ["portability-firefox", "portability-webkit"], "evidence": "e2"}
+    },
+    {
+      "id": "admin.core-rbac-cms-audit",
+      "kind": "rendered",
+      "critical": true,
+      "evidence": [
+        {"id": "e1", "file": "scripts/acceptance/tests/responsive-critical.spec.mjs", "markers": ["@responsive MFA challenge and privileged administrator surface remain operable at representative viewports"]},
+        {"id": "e2", "file": "scripts/acceptance/tests/portability-critical.spec.mjs", "markers": ["@portability MFA-confirmed privileged access and seeded CMS public visibility remain portable", "@portability MFA-confirmed user without administrator permission is denied fail closed"]},
+        {"id": "e3", "file": "scripts/acceptance/tests/portability-critical.spec.mjs", "markers": ["@portability MFA-confirmed privileged access and seeded CMS public visibility remain portable"]}
+      ],
+      "viewports": {
+        "desktop-1440x1000": {"profile": "standard-responsive", "project": "responsive-desktop", "mode": "project", "evidence": "e1"},
+        "tablet-820x1180": {"profile": "standard-responsive", "project": "responsive-tablet", "mode": "project", "evidence": "e1"},
+        "mobile-390x844": {"profile": "standard-responsive", "project": "responsive-mobile", "mode": "project", "evidence": "e1"}
+      },
+      "browsers": {
+        "chromium-primary": {"profile": "standard-responsive", "projects": ["responsive-desktop"], "evidence": "e1"},
+        "bounded-portability": {"profile": "standard-portability", "projects": ["portability-firefox", "portability-webkit"], "evidence": "e2"}
+      },
+      "portability": {"status": "covered", "profile": "standard-portability", "projects": ["portability-firefox", "portability-webkit"], "evidence": "e3"}
+    },
+    {
+      "id": "public.localization-core",
+      "kind": "rendered",
+      "critical": true,
+      "evidence": [{"id": "e1", "file": "scripts/acceptance/tests/public-localization.spec.mjs", "markers": ["@localization canonical English and Polish public shells remain truthful and navigable"]}],
+      "viewports": {
+        "desktop-1440x1000": {"profile": "standard-responsive", "project": "responsive-desktop", "mode": "project", "evidence": "e1"},
+        "mobile-390x844": {"profile": "standard-responsive", "project": "responsive-mobile", "mode": "project", "evidence": "e1"}
+      },
+      "browsers": {
+        "chromium-primary": {"profile": "standard-responsive", "projects": ["responsive-desktop"], "evidence": "e1"},
+        "bounded-portability": {"profile": "standard-portability", "projects": ["portability-firefox", "portability-webkit"], "evidence": "e1"}
+      },
+      "portability": {"status": "covered", "profile": "standard-portability", "projects": ["portability-firefox", "portability-webkit"], "evidence": "e1"}
+    },
+    {
+      "id": "public.community-deaths-and-policy",
+      "kind": "rendered",
+      "critical": true,
+      "evidence": [{"id": "e1", "file": "scripts/acceptance/tests/community-data-acceptance.spec.mjs", "markers": ["@portal-community complete rankings, privacy-aware profile, deaths, guild search, localization, resilience and responsive lifecycle"]}],
+      "viewports": {
+        "desktop-1440x1000": {"profile": "community-responsive", "project": "community-data-chromium-desktop", "mode": "project", "evidence": "e1"},
+        "tablet-820x1180": {"profile": "community-responsive", "project": "community-data-chromium-tablet", "mode": "project", "evidence": "e1"},
+        "mobile-390x844": {"profile": "community-responsive", "project": "community-data-chromium-mobile", "mode": "project", "evidence": "e1"}
+      },
+      "browsers": {"chromium-primary": {"profile": "community-responsive", "projects": ["community-data-chromium-desktop"], "evidence": "e1"}},
+      "portability": {"status": "excluded", "rationale": "The complete community fixture covers dependency recovery, privacy and responsive Chromium. Firefox/WebKit portability is represented by the core public game-data profile to avoid duplicating the larger stateful fixture."}
+    }
+  ]
+}

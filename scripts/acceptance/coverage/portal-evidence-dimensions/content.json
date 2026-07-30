@@ -1,0 +1,142 @@
+{
+  "surfaces": [
+    {
+      "id": "downloads.public-admin-localization",
+      "kind": "rendered",
+      "critical": true,
+      "evidence": [
+        {"id": "e1", "file": "scripts/acceptance/tests/downloads-lifecycle-acceptance.spec.mjs", "markers": ["@portal-downloads complete public, administrator, localization and recovery lifecycle", "const desktopViewport = { width: 1440, height: 1000 };"]},
+        {"id": "e2", "file": "scripts/acceptance/tests/downloads-lifecycle-acceptance.spec.mjs", "markers": ["@portal-downloads complete public, administrator, localization and recovery lifecycle", "const tabletViewport = { width: 820, height: 1180 };"]},
+        {"id": "e3", "file": "scripts/acceptance/tests/downloads-lifecycle-acceptance.spec.mjs", "markers": ["@portal-downloads complete public, administrator, localization and recovery lifecycle", "const mobileViewport = { width: 390, height: 844 };"]},
+        {"id": "e4", "file": "scripts/acceptance/tests/downloads-lifecycle-acceptance.spec.mjs", "markers": ["@portal-downloads complete public, administrator, localization and recovery lifecycle"]},
+        {"id": "e5", "file": "scripts/acceptance/tests/downloads-public-portability.spec.mjs", "markers": ["@portal-downloads-portability current public release renders in bounded browser engines"]}
+      ],
+      "viewports": {
+        "desktop-1440x1000": {"profile": "downloads-lifecycle", "project": "chromium-primary", "mode": "test-controlled", "evidence": "e1"},
+        "tablet-820x1180": {"profile": "downloads-lifecycle", "project": "chromium-primary", "mode": "test-controlled", "evidence": "e2"},
+        "mobile-390x844": {"profile": "downloads-lifecycle", "project": "chromium-primary", "mode": "test-controlled", "evidence": "e3"}
+      },
+      "browsers": {
+        "chromium-primary": {"profile": "downloads-lifecycle", "projects": ["chromium-primary"], "evidence": "e4"},
+        "firefox-bounded": {"profile": "downloads-portability", "projects": ["downloads-portability-firefox"], "evidence": "e5"},
+        "webkit-bounded": {"profile": "downloads-portability", "projects": ["downloads-portability-webkit"], "evidence": "e5"}
+      },
+      "portability": {"status": "covered", "profile": "downloads-portability", "projects": ["downloads-portability-firefox", "downloads-portability-webkit"], "evidence": "e5"}
+    },
+    {
+      "id": "events.public-admin",
+      "kind": "rendered",
+      "critical": true,
+      "evidence": [
+        {"id": "e1", "file": "scripts/acceptance/tests/events-admin-acceptance.spec.mjs", "markers": ["@portal-events administrator validation, create, publish, edit-to-draft, stale conflict and audit lifecycle"]},
+        {"id": "e2", "file": "scripts/acceptance/tests/events-public-acceptance.spec.mjs", "markers": ["@portal-events public calendar, detail, locale isolation, empty and not-found states"]}
+      ],
+      "viewports": {
+        "desktop-1440x1000": {"profile": "events-matrix", "project": "events-chromium-desktop", "mode": "project", "evidence": "e1"},
+        "tablet-820x1180": {"profile": "events-matrix", "project": "events-chromium-tablet", "mode": "project", "evidence": "e1"},
+        "mobile-390x844": {"profile": "events-matrix", "project": "events-chromium-mobile", "mode": "project", "evidence": "e1"}
+      },
+      "browsers": {
+        "events-chromium-desktop": {"profile": "events-matrix", "projects": ["events-chromium-desktop"], "evidence": "e1"},
+        "events-chromium-tablet": {"profile": "events-matrix", "projects": ["events-chromium-tablet"], "evidence": "e1"},
+        "events-chromium-mobile": {"profile": "events-matrix", "projects": ["events-chromium-mobile"], "evidence": "e1"},
+        "events-firefox-desktop": {"profile": "events-matrix", "projects": ["events-firefox-desktop"], "evidence": "e2"},
+        "events-webkit-desktop": {"profile": "events-matrix", "projects": ["events-webkit-desktop"], "evidence": "e2"}
+      },
+      "portability": {"status": "covered", "profile": "events-matrix", "projects": ["events-firefox-desktop", "events-webkit-desktop"], "evidence": "e2"}
+    },
+    {
+      "id": "announcements.admin-localization-home-composition",
+      "kind": "rendered",
+      "critical": true,
+      "evidence": [
+        {"id": "e1", "file": "scripts/acceptance/tests/announcements-admin-acceptance.spec.mjs", "markers": ["@portal-announcements administrator validation, publication, Polish translation, stale recovery, conflict and audit lifecycle"]},
+        {"id": "e2", "file": "scripts/acceptance/tests/announcements-public-acceptance.spec.mjs", "markers": ["@portal-announcements public none-active, active-window, expired, escaped and localized states"]}
+      ],
+      "viewports": {
+        "desktop-1440x1000": {"profile": "announcements-matrix", "project": "announcements-chromium-desktop", "mode": "project", "evidence": "e1"},
+        "tablet-820x1180": {"profile": "announcements-matrix", "project": "announcements-chromium-tablet", "mode": "project", "evidence": "e1"},
+        "mobile-390x844": {"profile": "announcements-matrix", "project": "announcements-chromium-mobile", "mode": "project", "evidence": "e1"}
+      },
+      "browsers": {
+        "announcements-chromium-desktop": {"profile": "announcements-matrix", "projects": ["announcements-chromium-desktop"], "evidence": "e1"},
+        "announcements-chromium-tablet": {"profile": "announcements-matrix", "projects": ["announcements-chromium-tablet"], "evidence": "e1"},
+        "announcements-chromium-mobile": {"profile": "announcements-matrix", "projects": ["announcements-chromium-mobile"], "evidence": "e1"},
+        "announcements-firefox-desktop": {"profile": "announcements-matrix", "projects": ["announcements-firefox-desktop"], "evidence": "e2"},
+        "announcements-webkit-desktop": {"profile": "announcements-matrix", "projects": ["announcements-webkit-desktop"], "evidence": "e2"}
+      },
+      "portability": {"status": "covered", "profile": "announcements-matrix", "projects": ["announcements-firefox-desktop", "announcements-webkit-desktop"], "evidence": "e2"}
+    },
+    {
+      "id": "support-legal.public-admin-localization",
+      "kind": "rendered",
+      "critical": true,
+      "evidence": [
+        {"id": "e1", "file": "scripts/acceptance/tests/support-legal-acceptance.spec.mjs", "markers": ["@portal-support-legal-public route-complete missing, unpublished, published, legal-version, approved-link and EN/PL isolation states", "@portal-support-legal-admin administrator validation, legal publication, Polish translation and bounded audit lifecycle"]},
+        {"id": "e2", "file": "scripts/acceptance/tests/support-legal-acceptance.spec.mjs", "markers": ["@portal-support-legal-public route-complete missing, unpublished, published, legal-version, approved-link and EN/PL isolation states"]}
+      ],
+      "viewports": {
+        "desktop-1440x1000": {"profile": "support-legal-matrix", "project": "support-legal-chromium-desktop", "mode": "project", "evidence": "e1"},
+        "tablet-820x1180": {"profile": "support-legal-matrix", "project": "support-legal-chromium-tablet", "mode": "project", "evidence": "e1"},
+        "mobile-390x844": {"profile": "support-legal-matrix", "project": "support-legal-chromium-mobile", "mode": "project", "evidence": "e1"}
+      },
+      "browsers": {
+        "chromium-primary": {"profile": "support-legal-matrix", "projects": ["support-legal-chromium-desktop"], "evidence": "e1"},
+        "bounded-portability": {"profile": "support-legal-matrix", "projects": ["support-legal-firefox-desktop", "support-legal-webkit-desktop"], "evidence": "e2"}
+      },
+      "portability": {"status": "covered", "profile": "support-legal-matrix", "projects": ["support-legal-firefox-desktop", "support-legal-webkit-desktop"], "evidence": "e2"}
+    },
+    {
+      "id": "wiki.public",
+      "kind": "rendered",
+      "critical": true,
+      "evidence": [{"id": "e1", "file": "scripts/acceptance/tests/wiki-reconciliation-acceptance.spec.mjs", "markers": ["@portal-wiki-public route-complete empty, read, search, invalid, not-found, unavailable, recovery and EN/PL states"]}],
+      "viewports": {
+        "desktop-1440x1000": {"profile": "wiki-matrix", "project": "wiki-reconciliation-chromium-desktop", "mode": "project", "evidence": "e1"},
+        "tablet-820x1180": {"profile": "wiki-matrix", "project": "wiki-reconciliation-chromium-tablet", "mode": "project", "evidence": "e1"},
+        "mobile-390x844": {"profile": "wiki-matrix", "project": "wiki-reconciliation-chromium-mobile", "mode": "project", "evidence": "e1"}
+      },
+      "browsers": {
+        "chromium-primary": {"profile": "wiki-matrix", "projects": ["wiki-reconciliation-chromium-desktop"], "evidence": "e1"},
+        "firefox-bounded": {"profile": "wiki-matrix", "projects": ["wiki-reconciliation-firefox-desktop"], "evidence": "e1"},
+        "webkit-bounded": {"profile": "wiki-matrix", "projects": ["wiki-reconciliation-webkit-desktop"], "evidence": "e1"}
+      },
+      "portability": {"status": "covered", "profile": "wiki-matrix", "projects": ["wiki-reconciliation-firefox-desktop", "wiki-reconciliation-webkit-desktop"], "evidence": "e1"}
+    },
+    {
+      "id": "wiki.admin-editorial-lifecycle",
+      "kind": "rendered",
+      "critical": true,
+      "evidence": [{"id": "e1", "file": "scripts/acceptance/tests/wiki-reconciliation-acceptance.spec.mjs", "markers": ["@portal-wiki-admin complete validation, draft, signed-preview, conflict, review, publish, unpublish, revision-restore, archive and audit lifecycle"]}],
+      "viewports": {
+        "desktop-1440x1000": {"profile": "wiki-matrix", "project": "wiki-reconciliation-chromium-desktop", "mode": "project", "evidence": "e1"},
+        "tablet-820x1180": {"profile": "wiki-matrix", "project": "wiki-reconciliation-chromium-tablet", "mode": "project", "evidence": "e1"},
+        "mobile-390x844": {"profile": "wiki-matrix", "project": "wiki-reconciliation-chromium-mobile", "mode": "project", "evidence": "e1"}
+      },
+      "browsers": {
+        "chromium-primary": {"profile": "wiki-matrix", "projects": ["wiki-reconciliation-chromium-desktop"], "evidence": "e1"},
+        "firefox-bounded": {"profile": "wiki-matrix", "projects": ["wiki-reconciliation-firefox-desktop"], "evidence": "e1"},
+        "webkit-bounded": {"profile": "wiki-matrix", "projects": ["wiki-reconciliation-webkit-desktop"], "evidence": "e1"}
+      },
+      "portability": {"status": "covered", "profile": "wiki-matrix", "projects": ["wiki-reconciliation-firefox-desktop", "wiki-reconciliation-webkit-desktop"], "evidence": "e1"}
+    },
+    {
+      "id": "editorial-media.admin",
+      "kind": "rendered",
+      "critical": true,
+      "evidence": [{"id": "e1", "file": "scripts/acceptance/tests/editorial-media-acceptance.spec.mjs", "markers": ["@portal-editorial-media manager validates, uploads, privately previews, protects references, deletes and audits"]}],
+      "viewports": {
+        "desktop-1440x1000": {"profile": "editorial-media-responsive", "project": "editorial-media-chromium-desktop", "mode": "project", "evidence": "e1"},
+        "tablet-820x1180": {"profile": "editorial-media-responsive", "project": "editorial-media-chromium-tablet", "mode": "project", "evidence": "e1"},
+        "mobile-390x844": {"profile": "editorial-media-responsive", "project": "editorial-media-chromium-mobile", "mode": "project", "evidence": "e1"}
+      },
+      "browsers": {"chromium-primary": {"profile": "editorial-media-responsive", "projects": ["editorial-media-chromium-desktop"], "evidence": "e1"}},
+      "portability": {"status": "excluded", "rationale": "Editorial Media includes privileged uploads, private previews and reference-protected deletion. Cross-engine coverage is represented by Wiki public/editor portability while the complete mutation lifecycle remains zero-retry Chromium."}
+    },
+    {
+      "id": "browser-supporting-media-preview-endpoints",
+      "kind": "supporting_endpoint",
+      "rationale": "These are HTTP resource and signed-preview endpoints consumed by rendered Wiki and Editorial Media surfaces. They are verified at feature/storage/security layer and through the authorized Chromium consumer rather than as standalone viewport pages."
+    }
+  ]
+}

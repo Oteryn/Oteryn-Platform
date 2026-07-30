@@ -101,6 +101,22 @@ test('@responsive public homepage navigation footer and Identity entry forms sta
   await assertAccessibilitySmoke(page);
 });
 
+test('@responsive public game data navigation and character discovery remain usable at representative viewports', async ({ page }) => {
+  seedVisualFixtures();
+
+  await page.goto('/highscores');
+  await expect(page.getByRole('heading', { name: 'Highscores' })).toBeVisible();
+  await expect(page.getByText('Acceptance Hero')).toBeVisible();
+  await assertAccessibilitySmoke(page);
+
+  await page.goto('/');
+  await page.getByLabel('Character name').fill('Acceptance Hero');
+  await page.getByRole('button', { name: 'Search' }).click();
+  await expect(page).toHaveURL(/\/characters\/Acceptance%20Hero$/u);
+  await expect(page.getByRole('heading', { name: 'Acceptance Hero' })).toBeVisible();
+  await assertAccessibilitySmoke(page);
+});
+
 test('@responsive authenticated homepage and Account Overview remain operable at representative viewports', async ({ page }) => {
   const email = uniqueEmail('responsive-account');
   seedReadyAccount(email);
@@ -114,6 +130,18 @@ test('@responsive authenticated homepage and Account Overview remain operable at
   await expect(page.getByRole('heading', { name: 'Account overview' })).toBeVisible();
   await expect(page.getByText('Ready', { exact: true })).toBeVisible();
   await expect(page.getByRole('link', { name: 'Create a character' })).toBeVisible();
+  await assertAccessibilitySmoke(page);
+});
+
+test('@responsive authenticated character creation form remains operable at representative viewports', async ({ page }) => {
+  const email = uniqueEmail('responsive-character');
+  seedReadyAccount(email);
+
+  await login(page, email, accountPassword);
+  await page.goto('/account');
+  await page.getByRole('link', { name: 'Create a character' }).click();
+  await expect(page.getByRole('heading', { name: 'Create a character' })).toBeVisible();
+  await expect(page.locator('main')).toBeVisible();
   await assertAccessibilitySmoke(page);
 });
 
