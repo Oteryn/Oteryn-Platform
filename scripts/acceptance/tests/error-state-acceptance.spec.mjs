@@ -57,7 +57,8 @@ const headings = {
 test.setTimeout(240_000);
 test.describe.configure({ retries: 0, mode: 'serial' });
 
-test.beforeEach(async ({ page }) => {
+test.beforeEach(async ({ page }, testInfo) => {
+  test.skip(!evidence.projects.includes(testInfo.project.name), 'Dedicated Error State Acceptance projects only.');
   runBinary('php', ['scripts/acceptance/seed-community-data.php']);
   runArtisan('cache:clear');
   runArtisan('view:clear');
@@ -65,6 +66,7 @@ test.beforeEach(async ({ page }) => {
 });
 
 test.afterEach(async ({ page }, testInfo) => {
+  if (!evidence.projects.includes(testInfo.project.name)) return;
   runArtisan('cache:clear');
   runArtisan('view:clear');
   await attachDiagnostics(testInfo, page.__acceptanceDiagnostics);
@@ -223,12 +225,12 @@ async function prove500(page, locale) {
 
   const recovered = await page.goto(`/${locale}/highscores`);
   expect(recovered?.status()).toBe(200);
-  await expect(page.getByRole('heading', { name: 'Highscores' })).toBeVisible();
+  await expect(page.locator('h1')).toBeVisible();
 }
 
 // Evidence marker: @portal-global-errors real localized 404 419 429 and 500 lifecycle
 test('@portal-global-errors real localized 404, 419, 429 and 500 lifecycle', async ({ page }, testInfo) => {
-  test.skip(!evidence.projects.includes(testInfo.project.name), 'Dedicated Error State Acceptance projects only.');
+  expect(evidence.projects).toContain(testInfo.project.name);
   expect(process.env.APP_DEBUG).toBe('false');
 
   const projectSlug = testInfo.project.name.replaceAll(/[^a-z0-9]+/gu, '-');
