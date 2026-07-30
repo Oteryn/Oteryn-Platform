@@ -10,6 +10,13 @@ const productionRoots = ['app', 'resources/views', 'routes']
   .map((entry) => path.join(repoRoot, entry))
   .filter((entry) => fs.existsSync(entry));
 const viewRoot = path.join(repoRoot, 'resources/views');
+const defaultEvidencePath = path.join(repoRoot, 'docs/testing/PORTAL_ROUTE_VIEW_NAVIGATION_EVIDENCE.json');
+const allowedViewClassifications = new Set([
+  'framework_convention',
+  'dynamic_response',
+  'direct_entry',
+  'tracked_retirement',
+]);
 
 function walk(root, predicate) {
   const files = [];
@@ -71,6 +78,83 @@ function isPageLikeView(file) {
   return true;
 }
 
+function evidencePathFromArguments() {
+  const argument = process.argv.slice(2).find((entry) => entry.startsWith('--evidence='));
+  if (!argument) return defaultEvidencePath;
+  const requested = argument.slice('--evidence='.length).trim();
+  return path.resolve(process.cwd(), requested);
+}
+
+function loadViewClassifications(file) {
+  const errors = [];
+  let document;
+
+  try {
+    document = JSON.parse(fs.readFileSync(file, 'utf8'));
+  } catch (error) {
+    return {
+      records: [],
+      errors: [`Cannot load route/view/navigation evidence ${relative(file)}: ${error.message}`],
+    };
+  }
+
+  if (document?.schema_version !== 1) {
+    errors.push(`Unsupported route/view/navigation evidence schema at ${relative(file)}; expected schema_version 1`);
+  }
+
+  if (!Array.isArray(document?.unreferenced_page_classifications)) {
+    errors.push(`Route/view/navigation evidence at ${relative(file)} must define unreferenced_page_classifications`);
+    return { records: [], errors };
+  }
+
+  const records = [];
+  const seenPaths = new Set();
+
+  for (const [index, record] of document.unreferenced_page_classifications.entries()) {
+    const marker = `${relative(file)}:unreferenced_page_classifications[${index}]`;
+    const recordErrors = [];
+    const recordPath = typeof record?.path === 'string' ? record.path.trim() : '';
+    const classification = typeof record?.classification === 'string' ? record.classification.trim() : '';
+    const rationale = typeof record?.rationale === 'string' ? record.rationale.trim() : '';
+    const evidence = Array.isArray(record?.evidence)
+      ? record.evidence.filter((entry) => typeof entry === 'string' && entry.trim() !== '')
+      : [];
+
+    if (recordPath === '' || path.isAbsolute(recordPath) || recordPath.includes('\\') || recordPath.split('/').includes('..')) {
+      recordErrors.push(`Invalid view classification path at ${marker}`);
+    }
+    if (recordPath !== '' && seenPaths.has(recordPath)) {
+      recordErrors.push(`Duplicate view classification ${recordPath}`);
+    }
+    if (!allowedViewClassifications.has(classification)) {
+      recordErrors.push(`Unsupported view classification ${classification || '<empty>'} for ${recordPath || marker}`);
+    }
+    if (rationale.length < 20) {
+      recordErrors.push(`Weak view classification rationale for ${recordPath || marker}`);
+    }
+    if (evidence.length === 0) {
+      recordErrors.push(`Missing view classification evidence for ${recordPath || marker}`);
+    }
+    if (classification === 'tracked_retirement' && (!Number.isInteger(record?.tracking_issue) || record.tracking_issue <= 0)) {
+      recordErrors.push(`Tracked retirement ${recordPath || marker} must reference a positive tracking_issue`);
+    }
+
+    if (recordPath !== '') seenPaths.add(recordPath);
+    errors.push(...recordErrors);
+    if (recordErrors.length > 0) continue;
+
+    records.push({
+      path: recordPath,
+      classification,
+      rationale,
+      evidence,
+      ...(classification === 'tracked_retirement' ? { tracking_issue: record.tracking_issue } : {}),
+    });
+  }
+
+  return { records, errors };
+}
+
 let routeList;
 try {
   routeList = JSON.parse(execFileSync('php', ['artisan', 'route:list', '--json'], {
@@ -129,6 +213,18 @@ const unreferencedPageCandidates = pageLikeViews
   })
   .map(relative);
 
+const classificationFile = evidencePathFromArguments();
+const classificationContract = loadViewClassifications(classificationFile);
+const candidateSet = new Set(unreferencedPageCandidates);
+const classificationByPath = new Map(classificationContract.records.map((record) => [record.path, record]));
+const unclassifiedPageCandidates = unreferencedPageCandidates
+  .filter((candidate) => !classificationByPath.has(candidate));
+const staleViewClassifications = classificationContract.records
+  .filter((record) => !candidateSet.has(record.path));
+const classifiedUnreferencedPages = unreferencedPageCandidates
+  .filter((candidate) => classificationByPath.has(candidate))
+  .map((candidate) => classificationByPath.get(candidate));
+
 const routeReferenceOwners = new Map();
 for (const reference of routeReferences) {
   const owners = routeReferenceOwners.get(reference.value) ?? [];
@@ -146,7 +242,8 @@ const getLikeRoutes = [...namedRoutes.entries()]
   .sort((left, right) => left.name.localeCompare(right.name));
 
 const report = {
-  schema_version: 1,
+  schema_version: 2,
+  classification_file: relative(classificationFile),
   named_route_count: namedRoutes.size,
   get_like_route_count: getLikeRoutes.length,
   literal_route_reference_count: routeReferences.length,
@@ -156,10 +253,16 @@ const report = {
   broken_route_references: brokenRouteReferences,
   broken_view_references: brokenViewReferences,
   unreferenced_page_candidates: unreferencedPageCandidates,
+  classified_unreferenced_pages: classifiedUnreferencedPages,
+  unclassified_page_candidates: unclassifiedPageCandidates,
+  stale_view_classifications: staleViewClassifications,
   get_like_routes: getLikeRoutes,
   errors: [
     ...brokenRouteReferences.map((reference) => `Unknown named route ${reference.value} at ${reference.file}:${reference.line}`),
     ...brokenViewReferences.map((reference) => `Missing Blade view ${reference.value} at ${reference.file}:${reference.line}`),
+    ...classificationContract.errors,
+    ...unclassifiedPageCandidates.map((candidate) => `Unclassified page-like Blade view ${candidate}`),
+    ...staleViewClassifications.map((record) => `Stale view classification ${record.path}: path is no longer an unreferenced page-like Blade candidate`),
   ],
 };
 
