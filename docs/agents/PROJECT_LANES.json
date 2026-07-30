@@ -54,10 +54,7 @@
     },
     {
       "id": "oteryn-platform-core",
-      "label": "Platform core and uncategorized work",
-      "task_prefixes": [
-        "OTERYN"
-      ]
+      "label": "Platform core and uncategorized work"
     }
   ]
 }
