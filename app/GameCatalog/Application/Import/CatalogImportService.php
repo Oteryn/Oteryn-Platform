@@ -32,6 +32,7 @@ final class CatalogImportService
         $existing = DB::table('game_catalog_snapshots')->where('content_sha256', $validated->contentSha256)->first(['id']);
         if ($existing !== null) {
             $snapshotId = CatalogDatabaseRow::from($existing)->int('id');
+
             return new CatalogImportResult($snapshotId, $this->recordDeduplicatedRun($validated, $snapshotId), $validated->contentSha256, true);
         }
         $runId = $this->startImportRun($validated);
@@ -52,12 +53,14 @@ final class CatalogImportService
                     'summary' => $this->json(['deduplicated' => false, 'snapshot_id' => $snapshotId, 'content_sha256' => $validated->contentSha256, 'entity_types' => $summary['entity_types'], 'relation_types' => $summary['relation_types']]),
                     'updated_at' => $now,
                 ]);
+
                 return $snapshotId;
             }, 3);
         } catch (Throwable $exception) {
             $this->recordPersistenceFailure($runId, $validated, $exception);
             throw $exception;
         }
+
         return new CatalogImportResult($snapshotId, $runId, $validated->contentSha256, false);
     }
 
@@ -76,6 +79,7 @@ final class CatalogImportService
                     'build' => $release['build'], 'release_order' => $release['release_order'], 'protocol_family' => $release['protocol_family'], 'released_at' => $releasedAt,
                     'created_at' => $now, 'updated_at' => $now,
                 ]);
+
                 continue;
             }
             $row = CatalogDatabaseRow::from($existing);
@@ -89,6 +93,7 @@ final class CatalogImportService
             }
             $ids[$release['key']] = $row->int('id');
         }
+
         return $ids;
     }
 
@@ -96,6 +101,7 @@ final class CatalogImportService
     private function persistSnapshot(ValidatedCatalogSnapshot $validated, array $releaseIds, CarbonImmutable $now): int
     {
         $s = $validated->payload['snapshot'];
+
         return (int) DB::table('game_catalog_snapshots')->insertGetId([
             'contract_version' => $validated->payload['contract'], 'schema_version' => $validated->payload['schema_version'], 'content_sha256' => $validated->contentSha256,
             'canary_commit_sha' => $s['canary_commit_sha'], 'datapack_commit_sha' => $s['datapack_commit_sha'], 'protocol_profile' => $s['protocol_profile'],
@@ -110,7 +116,7 @@ final class CatalogImportService
     }
 
     /** @param list<CatalogEntity> $entities
-     * @param array<string, int> $releaseIds
+     * @param  array<string, int>  $releaseIds
      * @return array<string, int>
      */
     private function persistEntities(int $snapshotId, array $entities, array $releaseIds, CarbonImmutable $now): array
@@ -146,6 +152,7 @@ final class CatalogImportService
             };
             $this->markTranslationsStaleWhenSourceNameChanged($entityId, $name);
         }
+
         return $ids;
     }
 
@@ -157,6 +164,7 @@ final class CatalogImportService
         $row['vocations'] = $data['vocations'] === null ? null : $this->json($data['vocations']);
         $row['attributes'] = $this->json($data['attributes']);
         DB::table('game_catalog_item_snapshots')->insert($row);
+
         return $data['name'];
     }
 
@@ -169,11 +177,12 @@ final class CatalogImportService
             $row[$field] = $this->json($data[$field]);
         }
         DB::table('game_catalog_creature_snapshots')->insert($row);
+
         return $data['name'];
     }
 
     /** @param array<string, mixed> $data
-     * @param array<string, int> $entityIds
+     * @param  array<string, int>  $entityIds
      */
     private function persistNpc(int $id, array $data, array $entityIds): string
     {
@@ -183,12 +192,13 @@ final class CatalogImportService
             'registration_status' => $data['registration_status'], 'currency_entity_id' => $entityIds[$data['currency']['item']],
             'currency_server_id' => $data['currency']['server_id'], 'attributes' => $this->json($data['attributes']),
         ]);
+
         return $data['display_name'] ?? $data['runtime_name'];
     }
 
     /** @param list<CatalogRelation> $relations
-     * @param array<string, int> $releaseIds
-     * @param array<string, int> $entityIds
+     * @param  array<string, int>  $releaseIds
+     * @param  array<string, int>  $entityIds
      */
     private function persistRelations(int $snapshotId, array $relations, array $releaseIds, array $entityIds, CarbonImmutable $now): void
     {
@@ -224,7 +234,7 @@ final class CatalogImportService
     }
 
     /** @param array<string, mixed> $data
-     * @param array<string, int> $entityIds
+     * @param  array<string, int>  $entityIds
      */
     private function persistShopOffer(int $id, string $direction, array $data, array $entityIds): void
     {
@@ -282,6 +292,7 @@ final class CatalogImportService
             $counts[$row['type']] = ($counts[$row['type']] ?? 0) + 1;
         }
         ksort($counts, SORT_STRING);
+
         return $counts;
     }
 
@@ -294,6 +305,7 @@ final class CatalogImportService
                 $unknown++;
             }
         }
+
         return ['errors' => 0, 'warnings' => 0, 'schema_sha256' => $validated->schemaSha256, 'entity_count' => count($validated->payload['entities']),
             'relation_count' => count($validated->payload['relations']), 'entity_types' => $this->typeCounts($validated->payload['entities']),
             'relation_types' => $this->typeCounts($validated->payload['relations']), 'unknown_or_unverified_entity_count' => $unknown];
@@ -308,6 +320,7 @@ final class CatalogImportService
     private function startImportRun(ValidatedCatalogSnapshot $validated): int
     {
         $now = CarbonImmutable::now('UTC');
+
         return (int) DB::table('game_catalog_import_runs')->insertGetId(['content_sha256' => $validated->contentSha256, 'snapshot_id' => null, 'status' => 'importing',
             'source_label' => $validated->sourceLabel, 'file_size' => $validated->fileSize, 'finding_count' => 0, 'started_at' => $now, 'finished_at' => null,
             'summary' => $this->json(['status' => 'importing']), 'created_at' => $now, 'updated_at' => $now]);
@@ -316,6 +329,7 @@ final class CatalogImportService
     private function recordDeduplicatedRun(ValidatedCatalogSnapshot $validated, int $snapshotId): int
     {
         $now = CarbonImmutable::now('UTC');
+
         return (int) DB::table('game_catalog_import_runs')->insertGetId(['content_sha256' => $validated->contentSha256, 'snapshot_id' => $snapshotId, 'status' => 'deduplicated',
             'source_label' => $validated->sourceLabel, 'file_size' => $validated->fileSize, 'finding_count' => 0, 'started_at' => $now, 'finished_at' => $now,
             'summary' => $this->json(['deduplicated' => true, 'snapshot_id' => $snapshotId]), 'created_at' => $now, 'updated_at' => $now]);
@@ -353,14 +367,24 @@ final class CatalogImportService
             'context' => $finding->context === [] ? null : $this->json($finding->context), 'created_at' => $now]);
     }
 
-    private function canonicalJson(mixed $value): string { return $this->json($this->sortRecursively($value)); }
+    private function canonicalJson(mixed $value): string
+    {
+        return $this->json($this->sortRecursively($value));
+    }
 
     private function sortRecursively(mixed $value): mixed
     {
-        if (! is_array($value)) { return $value; }
-        if (array_is_list($value)) { return array_map(fn (mixed $item): mixed => $this->sortRecursively($item), $value); }
+        if (! is_array($value)) {
+            return $value;
+        }
+        if (array_is_list($value)) {
+            return array_map(fn (mixed $item): mixed => $this->sortRecursively($item), $value);
+        }
         ksort($value, SORT_STRING);
-        foreach ($value as $key => $item) { $value[$key] = $this->sortRecursively($item); }
+        foreach ($value as $key => $item) {
+            $value[$key] = $this->sortRecursively($item);
+        }
+
         return $value;
     }
 

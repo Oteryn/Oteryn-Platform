@@ -92,6 +92,7 @@ final class CatalogActivationService
                 ]),
                 'created_at' => $computedAt,
             ]);
+
             return new CatalogActivationResult(
                 profileId: $profileRow->int('id'), profileKey: $profileRow->string('key'), snapshotId: $snapshotId,
                 previousSnapshotId: $profileRow->nullableInt('active_snapshot_id'), visibleEntityCount: $projection->visibleEntityCount,

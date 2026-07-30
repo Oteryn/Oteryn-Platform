@@ -29,7 +29,7 @@ final class CatalogSemanticValidator
     }
 
     /** @param list<CatalogRelease> $releaseRows
-     * @param list<CatalogValidationFinding> $findings
+     * @param  list<CatalogValidationFinding>  $findings
      * @return array<string, int>
      */
     private function validateReleases(array $releaseRows, array &$findings): array
@@ -60,8 +60,8 @@ final class CatalogSemanticValidator
     }
 
     /** @param list<CatalogEntity> $entities
-     * @param array<string, int> $releases
-     * @param list<CatalogValidationFinding> $findings
+     * @param  array<string, int>  $releases
+     * @param  list<CatalogValidationFinding>  $findings
      * @return array<string, array{type: string, server_id: int|null}>
      */
     private function validateEntities(array $entities, array $releases, array &$findings): array
@@ -124,8 +124,8 @@ final class CatalogSemanticValidator
     }
 
     /** @param list<CatalogEntity> $entities
-     * @param array<string, array{type: string, server_id: int|null}> $facts
-     * @param list<CatalogValidationFinding> $findings
+     * @param  array<string, array{type: string, server_id: int|null}>  $facts
+     * @param  list<CatalogValidationFinding>  $findings
      */
     private function validateEntityEndpoints(array $entities, array $facts, array &$findings): void
     {
@@ -138,10 +138,12 @@ final class CatalogSemanticValidator
             $currencyFact = $facts[$currency['item']] ?? null;
             if ($currencyFact === null) {
                 $findings[] = $this->finding('semantic.dangling_currency', "NPC currency '{$currency['item']}' is missing.", $path.'.item');
+
                 continue;
             }
             if ($currencyFact['type'] !== 'item') {
                 $findings[] = $this->finding('semantic.currency_type', 'NPC currency must resolve to an item.', $path.'.item');
+
                 continue;
             }
             if ($currencyFact['server_id'] !== $currency['server_id']) {
@@ -151,9 +153,9 @@ final class CatalogSemanticValidator
     }
 
     /** @param list<CatalogRelation> $relations
-     * @param array<string, int> $releases
-     * @param array<string, array{type: string, server_id: int|null}> $entities
-     * @param list<CatalogValidationFinding> $findings
+     * @param  array<string, int>  $releases
+     * @param  array<string, array{type: string, server_id: int|null}>  $entities
+     * @param  list<CatalogValidationFinding>  $findings
      */
     private function validateRelations(array $relations, array $releases, array $entities, array &$findings): void
     {
@@ -192,8 +194,8 @@ final class CatalogSemanticValidator
     }
 
     /** @param CatalogRelation $relation
-     * @param array<string, array{type: string, server_id: int|null}> $entities
-     * @param list<CatalogValidationFinding> $findings
+     * @param  array<string, array{type: string, server_id: int|null}>  $entities
+     * @param  list<CatalogValidationFinding>  $findings
      */
     private function validateLootRelation(array $relation, array $entities, string $path, array &$findings): void
     {
@@ -213,8 +215,8 @@ final class CatalogSemanticValidator
     }
 
     /** @param CatalogRelation $relation
-     * @param array<string, array{type: string, server_id: int|null}> $entities
-     * @param list<CatalogValidationFinding> $findings
+     * @param  array<string, array{type: string, server_id: int|null}>  $entities
+     * @param  list<CatalogValidationFinding>  $findings
      */
     private function validateShopRelation(array $relation, array $entities, string $path, array &$findings): void
     {
@@ -251,9 +253,9 @@ final class CatalogSemanticValidator
     }
 
     /** @param CatalogSnapshotMetadata $snapshot
-     * @param CatalogPayload $payload
-     * @param array<string, int> $releases
-     * @param list<CatalogValidationFinding> $findings
+     * @param  CatalogPayload  $payload
+     * @param  array<string, int>  $releases
+     * @param  list<CatalogValidationFinding>  $findings
      */
     private function validateSnapshot(array $snapshot, array $payload, array $releases, array &$findings): void
     {
@@ -272,7 +274,7 @@ final class CatalogSemanticValidator
     }
 
     /** @param array<string, int> $releases
-     * @param list<CatalogValidationFinding> $findings
+     * @param  list<CatalogValidationFinding>  $findings
      */
     private function validateRange(?string $introduced, ?string $removed, array $releases, string $path, array &$findings): void
     {

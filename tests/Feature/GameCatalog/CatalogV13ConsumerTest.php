@@ -157,6 +157,7 @@ final class CatalogV13ConsumerTest extends TestCase
         $path = tempnam(sys_get_temp_dir(), 'game-catalog-v13-');
         self::assertIsString($path);
         file_put_contents($path, $json);
+
         return $path;
     }
 
