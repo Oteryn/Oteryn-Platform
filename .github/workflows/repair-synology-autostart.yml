@@ -1,0 +1,72 @@
+name: Repair Synology Autostart
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/repair-synology-autostart.yml
+      - deploy/synology/compose.yml
+      - deploy/synology/runner/compose.yml
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: oteryn-synology-autostart-repair
+  cancel-in-progress: false
+
+jobs:
+  repair:
+    name: Enforce Docker restart policies
+    runs-on: oteryn-staging
+    timeout-minutes: 10
+
+    steps:
+      - name: Set persistent services to always restart
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+
+          resolve_one() {
+            local project="$1"
+            local service="$2"
+            mapfile -t matches < <(
+              docker ps -aq \
+                --filter "label=com.docker.compose.project=${project}" \
+                --filter "label=com.docker.compose.service=${service}"
+            )
+            if [[ "${#matches[@]}" -ne 1 ]]; then
+              echo "Expected exactly one ${project}/${service} container, found ${#matches[@]}" >&2
+              exit 1
+            fi
+            printf '%s\n' "${matches[0]}"
+          }
+
+          declare -a containers=()
+          containers+=("$(resolve_one oteryn-deploy-runner runner)")
+          for service in mariadb redis platform canary internal-proxy gateway; do
+            containers+=("$(resolve_one oteryn-staging "$service")")
+          done
+
+          docker update --restart=always "${containers[@]}" >/dev/null
+
+          for container in "${containers[@]}"; do
+            docker start "$container" >/dev/null
+          done
+
+          sleep 3
+          for container in "${containers[@]}"; do
+            policy="$(docker inspect --format '{{.HostConfig.RestartPolicy.Name}}' "$container")"
+            state="$(docker inspect --format '{{.State.Status}}' "$container")"
+            name="$(docker inspect --format '{{.Name}}' "$container")"
+            [[ "$policy" == "always" ]]
+            case "$state" in
+              running|restarting) ;;
+              *)
+                echo "${name}: unexpected state ${state}" >&2
+                exit 1
+                ;;
+            esac
+            printf '%s policy=%s state=%s\n' "$name" "$policy" "$state"
+          done
