@@ -97,6 +97,46 @@
       "no_document_horizontal_overflow"
     ],
     "mapped_surfaces": {
+      "public.news-and-managed-pages": {
+        "fixture": {
+          "file": "scripts/acceptance/seed-content-scale.php",
+          "evidence_file": "scripts/acceptance/tests/content-scale-acceptance.spec.mjs",
+          "marker": "@portal-content-scale long bilingual news and managed pages wrap and remain contained",
+          "routes": [
+            "/en/news",
+            "/pl/news",
+            "/en/news/{slug}",
+            "/pl/news/{slug}",
+            "/en/pages/{slug}",
+            "/pl/pages/{slug}"
+          ]
+        },
+        "execution": {
+          "npm_profile": "test:content-scale",
+          "config_file": "scripts/acceptance/playwright.content-scale.config.mjs",
+          "workflow_file": ".github/workflows/content-scale-acceptance.yml",
+          "workflow_marker": "npm --prefix scripts/acceptance run test:content-scale",
+          "projects": [
+            "content-scale-chromium-desktop",
+            "content-scale-chromium-tablet",
+            "content-scale-chromium-mobile"
+          ],
+          "retries": 0,
+          "runtime": "real-laravel-http-with-isolated-mariadb-and-redis",
+          "validated_sha": "52f5440b9aeb510e4f1c8c8ac6167a3ba1c8fd4f",
+          "validated_workflow_run_id": 30585258317
+        },
+        "proven_assertions": [
+          "deterministic-long-English-news-and-managed-page-content",
+          "deterministic-fresh-long-Polish-news-and-managed-page-translations",
+          "long-news-index-titles-wrap-within-cards",
+          "long-news-detail-headings-and-bodies-wrap-within-article-and-card",
+          "long-managed-page-headings-and-bodies-wrap-within-article-and-card",
+          "component-bounds-hold-on-English-and-Polish-routes",
+          "no-document-horizontal-overflow-on-all-six-routes"
+        ],
+        "remaining_gaps": []
+      },
       "public.game-data": {
         "fixture": {
           "file": "scripts/acceptance/tests/community-data-acceptance.spec.mjs",
@@ -138,23 +178,7 @@
         "remaining_gaps": []
       }
     },
-    "reviewed_unmapped_surfaces": {
-      "public.news-and-managed-pages": {
-        "inspected_files": [
-          "scripts/acceptance/tests/admin-acceptance.spec.mjs",
-          "scripts/acceptance/tests/public-localization.spec.mjs",
-          "scripts/acceptance/tests/smoke.spec.mjs"
-        ],
-        "reason": "Existing CMS evidence creates and renders only short English values, while localization evidence verifies shell navigation rather than long managed EN/PL bodies.",
-        "missing": [
-          "deterministic long English managed content",
-          "deterministic long Polish translation",
-          "readable wrapping assertion",
-          "component containment assertion",
-          "document-level horizontal overflow assertion on the long-content routes"
-        ]
-      }
-    }
+    "reviewed_unmapped_surfaces": {}
   },
   "nonclaims": [
     "Candidate classification is not proof that the state has been exercised.",
