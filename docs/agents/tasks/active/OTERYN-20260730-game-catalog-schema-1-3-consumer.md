@@ -74,7 +74,7 @@ cross_repository_tasks:
 ```yaml
 checkpoint_version: 1
 updated_at: 2026-07-30T20:19:00Z
-head: 5465d35e8d9b087a893bee05077614769d5d9e33
+head: ea5f4bf81430edd42d1438cb3b5bb48274dd8cff
 branch: feat/OTERYN-20260730-game-catalog-schema-1-3-consumer
 pr: 338
 status: validating
@@ -98,7 +98,7 @@ owned_paths:
   - tools/game-catalog/**
   - .github/workflows/game-catalog-*.yml
 proven:
-  - PR #338 is open, draft and mergeable on branch feat/OTERYN-20260730-game-catalog-schema-1-3-consumer; the substantive implementation head before this checkpoint is 5465d35e8d9b087a893bee05077614769d5d9e33.
+  - PR #338 is open, draft and mergeable on branch feat/OTERYN-20260730-game-catalog-schema-1-3-consumer; the validated handoff parent head is ea5f4bf81430edd42d1438cb3b5bb48274dd8cff.
   - Schema 1.3.0 and its fixture are pinned to SHA-256 0282c0ce4b995e4aded440b148dd4eb8a96a441e9924da182a2df2a0f2eef8a8 and c4fd9b187e001065f68d90f93dc67f71bb2ff745fc43c3e73110d49b23407ce7; Game Catalog Contract run 30522303950 job 90805246098 passed contract validation.
   - The current PR diff contains explicit item, creature and NPC entity dispatch, explicit loot and NPC shop relation dispatch, a reversible NPC/shop migration, an inactive-only activation guard and focused schema 1.3 consumer tests.
   - Game Catalog Contract run 30522303950 job 90805246155 passed Pint and failed PHPStan only in CatalogConfiguration.php lines 79, 83 and 84 because redundant array-shape checks are inferred as always true or always present.
@@ -148,6 +148,12 @@ validation:
   - command: Remaining PR workflow matrix on head a985131bcb675f6543430b6efbdef79449073560
     result: PASS
     evidence: eight non-catalog workflows completed successfully; CI failure is catalog-related
+  - command: python tools/agents/checkpoint.py docs/agents/tasks/active/OTERYN-20260730-game-catalog-schema-1-3-consumer.md --require-checkpoint
+    result: PASS
+    evidence: Compact Task Handoff run 30579099402 job 90994560993 step Validate active task checkpoint
+  - command: python tools/agents/resume.py --task docs/agents/tasks/active/OTERYN-20260730-game-catalog-schema-1-3-consumer.md
+    result: PASS
+    evidence: Compact Task Handoff run 30579099402 job 90994560993 step Generate compact resume prompt
 blockers:
   - No external blocker; current failures are task-code validation failures and local execution remains unavailable outside GitHub Actions.
 next_action: Replace the temporary write helpers with direct source edits that add discriminator-based schema 1.3 NPC/shop fixture validation and simplify CatalogConfiguration schema-contract typing, then rerun Game Catalog Contract and Game Catalog 1.3 Consumer on the exact new head.
