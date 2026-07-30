@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use App\Cms\Editorial\EditorialContentType;
+use App\Cms\Editorial\EditorialPageKey;
 use App\Cms\Models\EditorialTranslation;
 use App\Cms\Models\ManagedPage;
 use App\Cms\Models\NewsPost;
@@ -51,9 +52,22 @@ $page = ManagedPage::query()->updateOrCreate(
 );
 $page->refresh();
 
+$terms = ManagedPage::query()->updateOrCreate(
+    ['slug' => EditorialPageKey::Terms->managedPageSlug()],
+    [
+        'title' => $englishTitle,
+        'body' => $englishBody,
+        'legal_version' => '2026.1',
+        'legal_effective_date' => '2026-07-01',
+        'published_at' => $publishedAt,
+    ],
+);
+$terms->refresh();
+
 foreach ([
     [EditorialContentType::NewsPost, $news],
     [EditorialContentType::ManagedPage, $page],
+    [EditorialContentType::ManagedPage, $terms],
 ] as [$type, $source]) {
     EditorialTranslation::query()->updateOrCreate(
         [
