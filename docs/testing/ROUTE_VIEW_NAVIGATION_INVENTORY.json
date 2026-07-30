@@ -1,0 +1,57 @@
+{
+  "schema_version": 1,
+  "issue": 360,
+  "parent_issue": 326,
+  "strict_closure": true,
+  "description": "Fail-closed generated inventory for every delivered named route, rendered Blade page view and global/contextual navigation reference. Runtime route metadata and exact source markers are authoritative; this policy file contains only bounded classification exceptions.",
+  "route_kinds": [
+    "rendered_screen",
+    "form_action",
+    "redirect",
+    "resource_supporting",
+    "exception"
+  ],
+  "structural_view_segments": [
+    "components",
+    "partials",
+    "layouts",
+    "mail",
+    "emails",
+    "errors",
+    "vendor"
+  ],
+  "structural_view_basenames": [
+    "layout.blade.php"
+  ],
+  "route_overrides": [
+    {
+      "exact": "seo.robots",
+      "kind": "resource_supporting",
+      "rationale": "The robots endpoint is a machine-consumed plain-text policy resource rather than an interactive rendered portal screen or navigation destination."
+    }
+  ],
+  "direct_entry_routes": [
+    {
+      "exact": "identity.mfa.challenge.create",
+      "rationale": "The MFA challenge is reached by the authenticated login continuation and is intentionally not exposed as a normal global or contextual navigation destination."
+    },
+    {
+      "exact": "password.reset",
+      "rationale": "The password reset form is entered through a bounded expiring notification token and must not be linked from ordinary portal navigation without that token."
+    },
+    {
+      "exact": "identity.email-change.confirm.create",
+      "rationale": "The new-address confirmation screen is entered through a bounded signed token delivered to the pending address and is not a normal navigable portal page."
+    },
+    {
+      "exact": "identity.email-change.recover.create",
+      "rationale": "The old-address recovery screen is entered through a bounded recovery token and intentionally has no global or contextual navigation entry."
+    }
+  ],
+  "view_exclusions": [],
+  "nonclaims": [
+    "Repository route/view/navigation closure does not prove production deployment correctness or production reachability.",
+    "A route bound to a Blade view and navigation source does not prove every runtime state or browser permutation.",
+    "This contract performs no production, staging, Canary, schema, payment-provider or user-data mutation."
+  ]
+}
