@@ -182,6 +182,21 @@ async function expectLongHomepageContent(page, { locale, title, body }) {
   await expectNoHorizontalOverflow(page);
 }
 
+async function expectLongDownloadCenter(page, { locale, body, fixture }) {
+  const response = await page.goto(`/${locale}/download`);
+  expect(response?.status()).toBe(200);
+  await expect(page.locator('html')).toHaveAttribute('lang', locale);
+
+  const release = page.locator('article.card').filter({ hasText: fixture.release_version }).first();
+  const notes = release.locator('.prose-text');
+  const filename = release.getByRole('cell', { name: fixture.artifact_filename, exact: true });
+
+  await expect(notes).toHaveText(body);
+  await expectReadableWrappingAndContainment(notes, 'article.card');
+  await expectScrollableTableContainment(filename, '.table-region');
+  await expectNoHorizontalOverflow(page);
+}
+
 async function signInAsContentScaleAdministrator(page) {
   runBinary('php', [
     'scripts/acceptance/seed-browser-announcements.php',
@@ -190,7 +205,7 @@ async function signInAsContentScaleAdministrator(page) {
     adminPassword,
     adminRecoveryCode,
     'confirmed',
-    'cms.news.manage,portal.announcements.manage',
+    'cms.news.manage,portal.announcements.manage,downloads.manage',
   ]);
 
   await login(page, adminEmail, adminPassword);
@@ -243,6 +258,12 @@ test(contentScaleMarker, async ({ page }) => {
       title: localized.title,
       body: localized.body,
     });
+
+    await expectLongDownloadCenter(page, {
+      locale: localized.locale,
+      body: localized.body,
+      fixture,
+    });
   }
 
   expect(page.__acceptanceDiagnostics.pageErrors).toEqual([]);
@@ -292,6 +313,17 @@ test(adminScaleMarker, async ({ page }) => {
   expect(response?.status()).toBe(200);
   await expect(page.getByRole('cell', { name: 'Content Scale Announcement 002', exact: true })).toBeVisible();
   await expect(page.getByRole('cell', { name: 'Content Scale Announcement 001', exact: true })).toBeVisible();
+  await expectNoHorizontalOverflow(page);
+
+  response = await page.goto('/admin/downloads');
+  expect(response?.status()).toBe(200);
+  await expect(page.getByRole('cell', { name: fixture.release_version, exact: true })).toBeVisible();
+  await expectNoHorizontalOverflow(page);
+
+  response = await page.goto('/admin/downloads?page=2');
+  expect(response?.status()).toBe(200);
+  await expect(page.getByRole('cell', { name: 'content-scale-release-002', exact: true })).toBeVisible();
+  await expect(page.getByRole('cell', { name: 'content-scale-release-001', exact: true })).toBeVisible();
   await expectNoHorizontalOverflow(page);
 
   await logout(page);
