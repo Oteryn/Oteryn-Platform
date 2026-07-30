@@ -30,7 +30,13 @@ final class LocalizedErrorSurfaceTest extends TestCase
     ): void {
         app()->setLocale($locale);
 
-        $html = view('errors.'.$status)->render();
+        $viewName = match ($status) {
+            '419' => 'errors.419',
+            '429' => 'errors.429',
+            '500' => 'errors.500',
+            default => self::fail('Unsupported global error status fixture.'),
+        };
+        $html = view($viewName)->render();
 
         self::assertStringContainsString('<html lang="'.$locale.'">', $html);
         self::assertStringContainsString('<meta name="robots" content="noindex, nofollow">', $html);
