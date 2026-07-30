@@ -181,3 +181,40 @@ test('@portal-editorial-media manager validates, uploads, privately previews, pr
   expect(page.__acceptanceDiagnostics.pageErrors).toEqual([]);
   expect(page.__acceptanceDiagnostics.serverErrors).toEqual([]);
 });
+
+test('@portal-editorial-media missing and integrity-failed stored objects render accessible preview fallbacks', async ({ page }) => {
+  const manager = seedIdentity('editorial-media-fallback-manager', {
+    confirmedMfa: true,
+    permissions: ['media.manage'],
+  });
+  const missingAlt = `Missing Editorial Media ${Math.random().toString(16).slice(2, 10)}`;
+  const corruptAlt = `Corrupt Editorial Media ${Math.random().toString(16).slice(2, 10)}`;
+  const missing = editorialMediaFixture('seed-referenced', manager.email, missingAlt);
+  const corrupt = editorialMediaFixture('seed-referenced', manager.email, corruptAlt);
+  editorialMediaFixture('remove-files', String(missing.media_id));
+  editorialMediaFixture('corrupt-files', String(corrupt.media_id));
+
+  await signIn(page, manager);
+  await page.goto('/admin/media');
+
+  for (const altText of [missingAlt, corruptAlt]) {
+    const row = page.getByRole('row').filter({ hasText: altText });
+    await expect(row).toBeVisible();
+    const fallback = row.getByRole('img', { name: altText });
+    await expect(fallback).toBeVisible();
+    await expect(fallback).toContainText(`Preview unavailable: ${altText}`);
+    await expect(row.locator('img')).toHaveCount(0);
+  }
+
+  await expect(page.locator('[data-media-fallback-state="unavailable"]')).toHaveCount(2);
+  await assertAccessibilitySmoke(page);
+  await assertNoPageOverflow(page);
+  expect(page.__acceptanceDiagnostics.pageErrors).toEqual([]);
+  expect(page.__acceptanceDiagnostics.consoleErrors).toEqual([]);
+  expect(page.__acceptanceDiagnostics.serverErrors).toEqual([
+    {
+      status: 500,
+      url: expect.stringMatching(new RegExp(`/admin/media/${corrupt.media_id}/thumbnail$`, 'u')),
+    },
+  ]);
+});
