@@ -1,0 +1,78 @@
+{
+  "schema_version": 1,
+  "issue": 353,
+  "parent_issue": 326,
+  "surface_id": "application.global-errors",
+  "statuses": [
+    {
+      "code": 404,
+      "trigger": "unmatched-localized-route",
+      "assertions": [
+        "localized-branded-layout",
+        "noindex-nofollow",
+        "keyboard-reachable-recovery-action",
+        "no-document-horizontal-overflow"
+      ]
+    },
+    {
+      "code": 419,
+      "trigger": "browser-form-without-csrf-token",
+      "assertions": [
+        "localized-branded-layout",
+        "failed-request-not-reported-successful",
+        "noindex-nofollow",
+        "keyboard-reachable-recovery-action",
+        "no-document-horizontal-overflow"
+      ]
+    },
+    {
+      "code": 429,
+      "trigger": "existing-identity-login-rate-limiter",
+      "assertions": [
+        "localized-branded-layout",
+        "bounded-retry-after-header",
+        "limiter-key-and-email-not-disclosed",
+        "noindex-nofollow",
+        "keyboard-reachable-recovery-action",
+        "no-document-horizontal-overflow"
+      ]
+    },
+    {
+      "code": 500,
+      "trigger": "temporarily-unavailable-production-blade-view",
+      "assertions": [
+        "app-debug-false",
+        "localized-branded-layout",
+        "no-exception-path-sql-database-or-credential-disclosure",
+        "dependency-restored-in-finally",
+        "same-route-recovers",
+        "noindex-nofollow",
+        "keyboard-reachable-recovery-action",
+        "no-document-horizontal-overflow"
+      ]
+    }
+  ],
+  "locales": ["en", "pl"],
+  "projects": [
+    "error-states-chromium-desktop",
+    "error-states-chromium-tablet",
+    "error-states-chromium-mobile"
+  ],
+  "viewports": [
+    "desktop-1440x1000",
+    "tablet-820x1180",
+    "mobile-390x844"
+  ],
+  "retries": 0,
+  "runtime": "real-laravel-http-with-isolated-mariadb-and-redis",
+  "evidence": {
+    "file": "scripts/acceptance/tests/error-state-acceptance.spec.mjs",
+    "marker": "@portal-global-errors real localized 404 419 429 and 500 lifecycle"
+  },
+  "nonclaims": [
+    "not-every-application-error-code",
+    "not-parent-326-complete",
+    "not-staging-proven",
+    "not-production-proven"
+  ]
+}
