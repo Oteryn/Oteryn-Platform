@@ -1,4 +1,4 @@
-name: Game Catalog Validator Fix
+name: Compact Task Handoff
 
 on:
   pull_request:
@@ -6,142 +6,20 @@ on:
       - main
     paths:
       - '.github/workflows/game-catalog-validator-fix.yml'
+      - 'docs/agents/tasks/active/OTERYN-20260730-game-catalog-schema-1-3-consumer.md'
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  apply-validator-extension:
+  validate-and-resume:
     if: github.repository == 'blakinio/Oteryn-Platform' && github.head_ref == 'feat/OTERYN-20260730-game-catalog-schema-1-3-consumer'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
         with:
           ref: ${{ github.event.pull_request.head.sha }}
-          fetch-depth: 0
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-      - run: python3 -m pip install --disable-pip-version-check --no-cache-dir 'jsonschema==4.26.0'
-      - name: Extend exact fixture semantics
-        shell: bash
-        run: |
-          set -euo pipefail
-          python3 - <<'PY'
-          from pathlib import Path
-
-          path = Path('tools/game-catalog/validate_contract_fixture.py')
-          text = path.read_text(encoding='utf-8')
-          old = '''    entity_key_set = set(entity_keys)
-    for relation in relations:
-        owner = relation["canonical_key"]
-        _validate_range(releases, relation["introduced_in"], relation["removed_in"], owner)
-        _safe_relative_source_path(relation.get("source_path"), owner)
-        _require(relation["source"] in entity_key_set, f"{owner}: dangling source endpoint")
-        _require(relation["target"] in entity_key_set, f"{owner}: dangling target endpoint")
-        data = relation["data"]
-        if expected_schema_version == "1.2.0":
-            _require(
-                data["chance_model"] == "canary_dynamic_threshold_v1",
-                f"{owner}: unsupported loot chance model",
-            )
-            _require(data["chance_threshold"] >= 0, f"{owner}: invalid loot threshold")
-            _require(data["roll_maximum"] > 0, f"{owner}: invalid loot roll maximum")
-        else:
-            _require(
-                0 <= data["chance_numerator"] <= data["chance_denominator"],
-                f"{owner}: invalid loot probability",
-            )
-        _require(
-            data["minimum_count"] <= data["maximum_count"],
-            f"{owner}: maximum_count is below minimum_count",
-        )
-
-'''
-          new = '''    entity_by_key = {entity["canonical_key"]: entity for entity in entities}
-    entity_key_set = set(entity_keys)
-    for relation in relations:
-        owner = relation["canonical_key"]
-        _validate_range(releases, relation["introduced_in"], relation["removed_in"], owner)
-        _safe_relative_source_path(relation.get("source_path"), owner)
-        _require(relation["source"] in entity_key_set, f"{owner}: dangling source endpoint")
-        _require(relation["target"] in entity_key_set, f"{owner}: dangling target endpoint")
-        data = relation["data"]
-        if relation["type"] == "creature_loot":
-            _require(entity_by_key[relation["source"]]["type"] == "creature", f"{owner}: loot source is not a creature")
-            _require(entity_by_key[relation["target"]]["type"] == "item", f"{owner}: loot target is not an item")
-            if expected_schema_version in {"1.2.0", "1.3.0"}:
-                _require(
-                    data["chance_model"] == "canary_dynamic_threshold_v1",
-                    f"{owner}: unsupported loot chance model",
-                )
-                _require(data["chance_threshold"] >= 0, f"{owner}: invalid loot threshold")
-                _require(data["roll_maximum"] > 0, f"{owner}: invalid loot roll maximum")
-            else:
-                _require(
-                    0 <= data["chance_numerator"] <= data["chance_denominator"],
-                    f"{owner}: invalid loot probability",
-                )
-            _require(
-                data["minimum_count"] <= data["maximum_count"],
-                f"{owner}: maximum_count is below minimum_count",
-            )
-            continue
-
-        _require(expected_schema_version == "1.3.0", f"{owner}: unsupported relation type")
-        _require(relation["type"] in {"npc_buy_offer", "npc_sell_offer"}, f"{owner}: unsupported shop relation type")
-        _require(entity_by_key[relation["source"]]["type"] == "npc", f"{owner}: shop source is not an NPC")
-        _require(entity_by_key[relation["target"]]["type"] == "item", f"{owner}: shop target is not an item")
-        currency_key = data["currency"]["item"]
-        _require(currency_key in entity_by_key, f"{owner}: dangling currency endpoint")
-        _require(entity_by_key[currency_key]["type"] == "item", f"{owner}: currency endpoint is not an item")
-        _require(
-            entity_by_key[currency_key]["data"]["server_id"] == data["currency"]["server_id"],
-            f"{owner}: currency server_id mismatch",
-        )
-        direction = "buy" if relation["type"] == "npc_buy_offer" else "sell"
-        runtime_path = ".".join(str(part) for part in data["runtime_path"])
-        expected_key = f"shop:{relation['source']}:{direction}:{relation['target']}:{runtime_path}"
-        _require(owner == expected_key, f"{owner}: canonical shop identity mismatch")
-        _require(data["priced_item_count"] == 1, f"{owner}: unsupported priced item count")
-        _require(data["price_amount"] > 0, f"{owner}: invalid price")
-        conditioned = data["storage_requirement"] is not None
-        _require(
-            conditioned == (relation["availability"] == "conditional"),
-            f"{owner}: conditional availability does not match storage requirement",
-        )
-
-'''
-          if text.count(old) != 1:
-              raise RuntimeError('expected exactly one legacy relation semantic block')
-          text = text.replace(old, new, 1)
-          marker = '    _require(len(releases_list) >= 2, "fixture must contain at least two releases")\n'
-          branch = '''    if expected_schema_version == "1.3.0":
-        entity_types = sorted(entity["type"] for entity in entities)
-        relation_types = sorted(relation["type"] for relation in relations)
-        _require("npc" in entity_types, "schema 1.3 fixture must contain an NPC")
-        _require("npc_buy_offer" in relation_types, "schema 1.3 fixture must contain a buy offer")
-        _require("npc_sell_offer" in relation_types, "schema 1.3 fixture must contain a sell offer")
-        return {
-            "entity_types": entity_types,
-            "relation_types": relation_types,
-        }
-
-'''
-          if text.count(marker) != 1:
-              raise RuntimeError('expected exactly one legacy fixture assertion marker')
-          text = text.replace(marker, branch + marker, 1)
-          path.write_text(text, encoding='utf-8', newline='\n')
-          PY
-          python3 -m py_compile tools/game-catalog/validate_contract_fixture.py
-          python3 tools/game-catalog/validate_contract_fixture.py \
-            --schema resources/schemas/game-catalog/v1.3/game-catalog-snapshot.schema.json \
-            --fixture tests/Fixtures/GameCatalog/v1.3/minimal-snapshot.json \
-            --expected-schema-version 1.3.0 \
-            --expected-schema-sha256 0282c0ce4b995e4aded440b148dd4eb8a96a441e9924da182a2df2a0f2eef8a8 \
-            --expected-fixture-sha256 c4fd9b187e001065f68d90f93dc67f71bb2ff745fc43c3e73110d49b23407ce7
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add tools/game-catalog/validate_contract_fixture.py
-          git commit -m 'feat(catalog): validate schema 1.3 NPC shop fixture'
-          git push origin HEAD:feat/OTERYN-20260730-game-catalog-schema-1-3-consumer
+      - name: Validate active task checkpoint
+        run: python tools/agents/checkpoint.py docs/agents/tasks/active/OTERYN-20260730-game-catalog-schema-1-3-consumer.md --require-checkpoint
+      - name: Generate compact resume prompt
+        run: python tools/agents/resume.py --task docs/agents/tasks/active/OTERYN-20260730-game-catalog-schema-1-3-consumer.md
