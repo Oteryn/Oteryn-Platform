@@ -2,8 +2,98 @@
   "schema_version": 2,
   "issue": 360,
   "description": "Fail-closed route kind, rendered-view, navigation/direct-entry and unreferenced page classifications for Issue #360.",
-  "route_kind_overrides": [],
-  "direct_entry_routes": [],
+  "route_kind_overrides": [
+    {
+      "route": "admin.wiki.media.index",
+      "kind": "supporting_endpoint",
+      "rationale": "The authenticated Wiki media index returns the JSON media-picker payload used by the editorial screen and is not a standalone rendered page.",
+      "evidence": [
+        "app/Wiki/Http/Admin/AdminWikiMediaController.php:28-79",
+        "wiki.admin-editorial-lifecycle supporting endpoint ownership"
+      ]
+    },
+    {
+      "route": "seo.robots",
+      "kind": "supporting_endpoint",
+      "rationale": "The robots.txt route returns a machine-readable crawler policy resource and is not a user-facing rendered screen or navigation destination.",
+      "evidence": [
+        "app/Http/Controllers/PublicPortal/PublicRobotsController.php:9-33",
+        "public.home-and-seo resource endpoint ownership"
+      ]
+    },
+    {
+      "route": "seo.sitemap",
+      "kind": "supporting_endpoint",
+      "rationale": "The sitemap.xml route renders an XML discovery resource for crawlers; it is intentionally machine-discovered rather than linked as a portal screen.",
+      "evidence": [
+        "app/Http/Controllers/PublicPortal/PublicSitemapController.php:11-26",
+        "resources/views/seo/sitemap.blade.php"
+      ]
+    }
+  ],
+  "direct_entry_routes": [
+    {
+      "route": "identity.email-change.confirm.create",
+      "rationale": "This token-bound confirmation screen is entered from the one-time email-change confirmation link, not from persistent portal navigation.",
+      "evidence": [
+        "app/Http/Controllers/Identity/EmailChangeController.php:38-41",
+        "identity.account-security-lifecycle browser evidence"
+      ]
+    },
+    {
+      "route": "identity.email-change.recover.create",
+      "rationale": "This token-bound recovery screen is entered from the one-time email-change recovery link, not from persistent portal navigation.",
+      "evidence": [
+        "app/Http/Controllers/Identity/EmailChangeController.php:66-69",
+        "identity.account-security-lifecycle browser evidence"
+      ]
+    },
+    {
+      "route": "identity.mfa.challenge.create",
+      "rationale": "Authentication middleware routes an identity with a pending MFA session to this challenge screen; it is intentionally absent from normal navigation.",
+      "evidence": [
+        "app/Http/Controllers/Identity/Mfa/MfaChallengeController.php:18-30",
+        "identity.mfa-lifecycle browser evidence"
+      ]
+    },
+    {
+      "route": "identity.recovery-key.recover.create",
+      "rationale": "This unauthenticated account-recovery entry accepts the identity recovery key and is intentionally reached as a recovery workflow rather than account navigation.",
+      "evidence": [
+        "app/Http/Controllers/Identity/RecoveryKeyController.php:57-60",
+        "identity.account-security-lifecycle browser evidence"
+      ]
+    },
+    {
+      "route": "pages.show",
+      "rationale": "Managed public pages are selected by database-backed slug and linked from configured content/navigation data, so no single literal route reference can enumerate this dynamic screen.",
+      "evidence": [
+        "app/Http/Controllers/Cms/PublicPageController.php:13-22",
+        "public.news-and-managed-pages surface ownership"
+      ]
+    },
+    {
+      "route": "password.reset",
+      "rationale": "This token-bound password-reset screen is entered from the one-time recovery email link and is intentionally absent from persistent portal navigation.",
+      "evidence": [
+        "app/Http/Controllers/Identity/PasswordResetController.php:14-22",
+        "identity.password-lifecycle browser evidence"
+      ]
+    }
+  ],
+  "direct_entry_route_patterns": [
+    {
+      "prefix": "legacy.",
+      "canonical_route": "strip_prefix",
+      "require_same_action": true,
+      "require_same_views": true,
+      "rationale": "Locale-less compatibility aliases intentionally remain direct-entry routes for existing external deep links; internal navigation uses the matching canonical localized route.",
+      "evidence": [
+        "exact runtime route inspection",
+        "scripts/acceptance/coverage/portal-coverage-manifest.json"
+      ]
+    }
+  ],
   "unreferenced_page_classifications": [
     {
       "path": "resources/views/errors/403.blade.php",
