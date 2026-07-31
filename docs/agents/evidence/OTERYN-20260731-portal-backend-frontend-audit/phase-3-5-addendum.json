@@ -1,0 +1,52 @@
+{
+  "schema_version": 1,
+  "task_id": "OTERYN-20260731-portal-backend-frontend-audit",
+  "audit_target_sha": "b6f7b12a43aa72a52dc98c3fa07a7c4607fcb608",
+  "extends": "phase-3-5-state-browser-evidence.json",
+  "normalized_finding_totals": {
+    "HIGH": 1,
+    "MEDIUM": 5,
+    "LOW": 1
+  },
+  "finding": {
+    "id": "OTERYN-AUDIT-P35-007",
+    "title": "Invalid HTML pattern weakens native validation on Wiki key fields",
+    "fact_state": "PROVEN",
+    "severity": "MEDIUM",
+    "confidence": "HIGH",
+    "environment": ["REPO_MAIN", "CI_PROVEN_HISTORICAL"],
+    "surface": "wiki.admin-editorial-lifecycle",
+    "capability": "native client-side validation for category stable key and article content type",
+    "exact_sha": "b6f7b12a43aa72a52dc98c3fa07a7c4607fcb608",
+    "frontend_pattern": "[a-z0-9]+([._-][a-z0-9]+)*",
+    "frontend_locations": [
+      "resources/views/admin/wiki/categories/form.blade.php",
+      "resources/views/admin/wiki/articles/form.blade.php"
+    ],
+    "backend_regex": "^[a-z0-9]+(?:[._-][a-z0-9]+)*$",
+    "backend_locations": [
+      "app/Wiki/Http/Admin/Requests/AdminWikiCategoryRequest.php",
+      "app/Wiki/Http/Admin/Requests/AdminWikiArticleRequest.php"
+    ],
+    "historical_runs": [
+      {
+        "sha": "35f39b48233b186502cbdcc05aec7ffc40e78fc7",
+        "run_id": 30562698853,
+        "console_errors_per_viewport": 2,
+        "viewports": ["responsive-desktop", "responsive-tablet", "responsive-mobile"]
+      },
+      {
+        "sha": "fb1bbac96c0dcd0096aef55c2c8c752e453b6ddb",
+        "run_id": 30578806660,
+        "console_errors_per_viewport": 2,
+        "viewports": ["responsive-desktop", "responsive-tablet", "responsive-mobile"]
+      }
+    ],
+    "backend_status": "Laravel request validation enforces the intended grammar.",
+    "frontend_status": "Chromium historical evidence reports the HTML pattern as an invalid regular expression; identical literal remains on the frozen source.",
+    "current_runtime_reproduction": "NOT_RUN",
+    "impact": "Native invalid-input feedback can be disabled or unreliable and the administrator forms emit console errors; no backend validation bypass is proven.",
+    "recommendation": "Escape or reposition the hyphen and add a browser regression for patternMismatch and zero console errors.",
+    "shared_cause_with_issue_365": "NOT_PROVEN"
+  }
+}
