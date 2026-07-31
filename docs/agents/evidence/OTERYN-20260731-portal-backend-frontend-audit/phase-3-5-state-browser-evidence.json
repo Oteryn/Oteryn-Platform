@@ -1,0 +1,275 @@
+{
+  "schema_version": 1,
+  "task_id": "OTERYN-20260731-portal-backend-frontend-audit",
+  "phases": [3, 4, 5],
+  "audit_target_sha": "b6f7b12a43aa72a52dc98c3fa07a7c4607fcb608",
+  "direct_ci_source_sha": "fdb45a4325949d3ab1c4860e3a4527553f11c789",
+  "audit_target_runtime_equivalence": {
+    "fact_state": "DERIVED",
+    "reason": "Comparison from the direct CI source to the audit target changes only documentation and config/marketplace.php; the marketplace config blob is byte-identical at both SHAs.",
+    "restriction": "The direct CI remains CI_PROVEN only for fdb45a4325949d3ab1c4860e3a4527553f11c789 and is not relabelled as exact-target CI or deployment proof."
+  },
+  "strict_contract_run": {
+    "run_id": 30633216358,
+    "job_id": 91164376176,
+    "artifact_id": 8794204786,
+    "artifact_digest": "sha256:82daac38363f959c21019d3e570eff987366774886cf1e2f9b1afdf2e889a385",
+    "result": "PASS",
+    "route_inventory": {
+      "portal_surfaces": 27,
+      "manifest_named_route_assignments": 228,
+      "discovered_named_routes": 240,
+      "classified_runtime_routes": 228,
+      "route_kinds": {"rendered_screen":126,"form_action":76,"redirect":16,"resource_supporting":10,"exception":0},
+      "bound_views": 95,
+      "blade_views": 121,
+      "structural_views": 26,
+      "excluded_views": 2,
+      "orphan_views": 0,
+      "navigation_references": 400,
+      "direct_entry_routes": 30,
+      "errors": []
+    },
+    "product_capabilities": {"total":43,"implemented":23,"partial":3,"missing":14,"not_applicable":3,"errors":[]},
+    "backend_frontend": {"product_capabilities":43,"backend_frontend_capabilities":43,"portal_surfaces":27,"errors":[]},
+    "dimensions": {"surfaces":27,"profiles":13,"critical_surfaces":23,"required_viewports":["desktop-1440x1000","tablet-820x1180","mobile-390x844"],"derived_critical_viewport_mappings":6,"errors":[]},
+    "media": {"surfaces":27,"media_consumers":3,"supporting_endpoint_groups":1,"evidenced_states":12,"gap_states":0,"errors":[]},
+    "content_scale": {"classified_surfaces":18,"canonical_surfaces":27,"consumer_surfaces":12,"mapped_surfaces":12,"evidence_groups":6,"validator_errors":[]}
+  },
+  "critical_browser_run": {
+    "run_id": 30633216753,
+    "job_id": 91164367653,
+    "artifact_id": 8794373786,
+    "artifact_digest": "sha256:3dd06aeee7436d4eb9ba3ec23b5e3b8684e987d7f58dcc4a247b54df48f0adeb",
+    "exact_tested_sha": "fdb45a4325949d3ab1c4860e3a4527553f11c789",
+    "retries": 0,
+    "runtime": "real Laravel HTTP",
+    "dependencies": ["MariaDB 11.8 isolated Platform schema","MariaDB 11.8 isolated Canary schema","Redis 7.4 ACL","MailHog SMTP"],
+    "results": {
+      "smoke": {"tests":7,"failures":0},
+      "portability": {"tests":36,"failures":0,"projects":["Chromium","Firefox","WebKit"]},
+      "responsive": {"tests":42,"failures":0,"viewports":["1440x1000","820x1180","390x844"]},
+      "resilience": {"tests":2,"failures":0},
+      "accessibility": {"tests":9,"failures":0},
+      "full_primary_baseline": "SKIPPED",
+      "exploratory_visual": "SKIPPED",
+      "visual_contact_sheet": "SKIPPED"
+    },
+    "artifact_markers": ["AUTOMATED_E2E_CRITICAL_PASS","FULL_ACCEPTANCE_NOT_EXECUTED","VISUAL_UX_NOT_EXECUTED","PRODUCTION_SMOKE_PENDING"]
+  },
+  "state_contracts": {
+    "global_errors": {
+      "directly_mapped": [404,419,429,500],
+      "locales": ["en","pl"],
+      "viewports": ["1440x1000","820x1180","390x844"],
+      "retries": 0,
+      "checks": ["status","noindex","safe recovery","no horizontal overflow","no secret/path/SQL/stack disclosure"],
+      "http_503_global_matrix": "MISSING_FROM_DEDICATED_ERROR_CONTRACT",
+      "http_503_bounded_evidence": "Public online dependency failure and restoration are covered in resilience-chromium."
+    },
+    "media": {
+      "consumers": ["wiki.public","wiki.admin-editorial-lifecycle","editorial-media.admin"],
+      "supporting": ["browser-supporting-media-preview-endpoints"],
+      "states": ["normal","missing","broken_or_integrity_failed","no_image"],
+      "classified_surfaces": 27,
+      "evidence_records": 12,
+      "gaps": 0
+    },
+    "content_scale": {
+      "validator_scope": "base manifest only",
+      "classified_surfaces": 18,
+      "unclassified_fragment_surfaces": [
+        "identity.account-security-lifecycle",
+        "support.moderation-lifecycle",
+        "public.community-deaths-and-policy",
+        "marketplace.public-catalogue-and-detail",
+        "marketplace.authenticated-auction-lifecycle",
+        "marketplace.admin-wallet-and-recovery",
+        "game-catalog.public-items-creatures-and-loot",
+        "game-catalog.administrator-inspection",
+        "identity.character-profile-preferences"
+      ]
+    },
+    "accessibility": {
+      "zero_retry_tests": 9,
+      "covered_dimensions": ["keyboard navigation","visible focus","representative headings/landmarks/labels","selected application error recovery"],
+      "per_surface_fail_closed_matrix": "NOT_FOUND",
+      "reduced_motion_applicability": "UNKNOWN"
+    }
+  },
+  "surface_matrix_defaults": {
+    "surface_count": 27,
+    "viewport_contract": "MAPPED_IN_DIMENSION_CONTRACT",
+    "fresh_browser_evidence": "CI_PROVEN_AT_DIRECT_SOURCE_AND_DERIVED_RUNTIME_EQUIVALENCE_FOR_AUDIT_TARGET",
+    "accessibility_closure": "BOUNDED_NOT_FAIL_CLOSED_PER_SURFACE",
+    "audit_target_deployment": "UNKNOWN"
+  },
+  "content_scale_classified_surfaces": [
+    "identity.registration-login-session","identity.password-lifecycle","identity.mfa-lifecycle","account.overview-provisioning","account.character-creation-and-visibility","public.home-and-seo","public.news-and-managed-pages","public.game-data","admin.core-rbac-cms-audit","public.localization-core","downloads.public-admin-localization","events.public-admin","announcements.admin-localization-home-composition","support-legal.public-admin-localization","wiki.public","wiki.admin-editorial-lifecycle","editorial-media.admin","browser-supporting-media-preview-endpoints"
+  ],
+  "issue_365": {
+    "shared_cause": "NOT_PROVEN",
+    "historical_flash_loss": {
+      "fact_state": "PROVEN",
+      "environment": "CI_PROVEN",
+      "runs": [
+        {"sha":"35f39b48233b186502cbdcc05aec7ffc40e78fc7","run_id":30562698853,"job_id":90939481510,"artifact_id":8767657461},
+        {"sha":"fb1bbac96c0dcd0096aef55c2c8c752e453b6ddb","run_id":30578806660,"job_id":90993603962,"artifact_id":8773887288}
+      ],
+      "first_failure": "responsive-mobile expected role=status text Wiki article published, but no status element appeared within 10 seconds",
+      "durable_result": "The redirected article form displayed Published, version 3, and Unpublish to draft, proving publication succeeded while transient feedback was absent."
+    },
+    "historical_thumbnail_500": {
+      "fact_state": "PROVEN",
+      "environment": "CI_PROVEN",
+      "evidence_boundary": "Issue #365 preserves multiple HTTP 500 thumbnail responses during the same historical page load; no causal relationship to flash loss is proven."
+    },
+    "audit_target_reproduction": {
+      "fact_state": "UNKNOWN",
+      "result": "NOT_RUN",
+      "reason": "No checkout-capable Laravel/Playwright environment is available in this session."
+    }
+  },
+  "findings": [
+    {
+      "id":"OTERYN-AUDIT-P35-001",
+      "title":"Strict content-scale closure omits nine canonical fragment surfaces",
+      "fact_state":"PROVEN",
+      "severity":"MEDIUM",
+      "confidence":"HIGH",
+      "environment":"CI_PROVEN",
+      "surface":"nine module-fragment surfaces",
+      "capability":"long values, large bounded collections, pagination and wrapping applicability",
+      "exact_sha":"fdb45a4325949d3ab1c4860e3a4527553f11c789",
+      "backend_status":"not implicated",
+      "frontend_status":"delivered surfaces exist",
+      "integration_status":"content-scale evidence validator reads only base manifest surfaces",
+      "state_coverage":"18 of 27 surfaces classified by this contract",
+      "evidence":["run 30633216358 job 91164376176 artifact 8794204786","scripts/acceptance/coverage/validate-portal-content-scale-evidence.mjs"],
+      "impact":"The strict contract may pass while nine delivered surfaces have no explicit content-scale applicability or evidence classification.",
+      "recommendation":"Load canonical base plus sorted fragments and require one content-scale classification for all 27 surfaces.",
+      "suggested_followup_task":"one acceptance-evidence remediation task under #326",
+      "overlaps":[]
+    },
+    {
+      "id":"OTERYN-AUDIT-P35-002",
+      "title":"Dedicated global error browser matrix omits HTTP 503",
+      "fact_state":"PROVEN",
+      "severity":"MEDIUM",
+      "confidence":"HIGH",
+      "environment":"REPO_MAIN",
+      "surface":"application error pages",
+      "capability":"503 dependency unavailable and recovery state",
+      "exact_sha":"b6f7b12a43aa72a52dc98c3fa07a7c4607fcb608",
+      "backend_status":"503 error view exists",
+      "frontend_status":"localized 503 view exists",
+      "integration_status":"bounded online dependency 503 is tested, but 503 is absent from the dedicated EN/PL desktop/tablet/mobile error matrix",
+      "state_coverage":"404,419,429,500 mapped; 503 not globally mapped",
+      "evidence":["scripts/acceptance/coverage/error-state-evidence.json","scripts/acceptance/tests/error-state-acceptance.spec.mjs","resources/views/errors/503.blade.php","scripts/acceptance/tests/resilience-critical.spec.mjs"],
+      "impact":"The required global 503 noindex, recovery, responsive, overflow and disclosure properties can regress outside the single dependency scenario without failing this contract.",
+      "recommendation":"Add 503 to the existing deterministic global error evidence matrix without test-only routes.",
+      "suggested_followup_task":"same acceptance-evidence remediation task as P35-001",
+      "overlaps":["#326"]
+    },
+    {
+      "id":"OTERYN-AUDIT-P35-003",
+      "title":"Accessibility evidence is bounded but not fail-closed per delivered surface",
+      "fact_state":"DERIVED",
+      "severity":"MEDIUM",
+      "confidence":"MEDIUM",
+      "environment":"CI_PROVEN",
+      "surface":"all delivered rendered surfaces",
+      "capability":"keyboard, focus, landmarks, labels, announcements and reduced-motion applicability",
+      "exact_sha":"fdb45a4325949d3ab1c4860e3a4527553f11c789",
+      "backend_status":"not applicable",
+      "frontend_status":"representative accessibility tests pass",
+      "integration_status":"no one-record-per-surface fail-closed accessibility applicability ledger was found",
+      "state_coverage":"9 zero-retry tests; reduced-motion applicability remains UNKNOWN",
+      "evidence":["run 30633216753 job 91164367653 artifact 8794373786","scripts/acceptance/tests/accessibility-critical.spec.mjs"],
+      "impact":"A new or less-representative screen can remain absent from keyboard/focus/semantic classification while the bounded suite stays green.",
+      "recommendation":"Add an applicability/evidence record for each rendered surface, permitting explicit not-applicable reasons.",
+      "suggested_followup_task":"same acceptance-evidence remediation task as P35-001",
+      "overlaps":["#326"]
+    },
+    {
+      "id":"OTERYN-AUDIT-P35-004",
+      "title":"Critical browser artifact is broad but explicitly not exhaustive visual acceptance",
+      "fact_state":"PROVEN",
+      "severity":"INFO",
+      "confidence":"HIGH",
+      "environment":"CI_PROVEN",
+      "surface":"critical browser profile",
+      "capability":"full functional and visual closure",
+      "exact_sha":"fdb45a4325949d3ab1c4860e3a4527553f11c789",
+      "backend_status":"real Laravel runtime used",
+      "frontend_status":"critical smoke, portability, responsive, resilience and accessibility passed",
+      "integration_status":"full primary baseline and exploratory visual profiles were skipped",
+      "state_coverage":"AUTOMATED_E2E_CRITICAL_PASS only",
+      "evidence":["run 30633216753 job 91164367653 artifact 8794373786"],
+      "impact":"The artifact cannot support a claim that every screen/state received fresh visual inspection.",
+      "recommendation":"Retain the current bounded claim and run the complete audit-specific matrix before closure.",
+      "suggested_followup_task":"same audit task validation phase",
+      "overlaps":[]
+    },
+    {
+      "id":"OTERYN-AUDIT-P35-005",
+      "title":"Historical mobile Wiki publication loses transient success feedback after durable success",
+      "fact_state":"PROVEN",
+      "severity":"MEDIUM",
+      "confidence":"HIGH",
+      "environment":"CI_PROVEN",
+      "surface":"wiki.admin-editorial-lifecycle",
+      "capability":"publish success announcement",
+      "exact_sha":"35f39b48233b186502cbdcc05aec7ffc40e78fc7 and fb1bbac96c0dcd0096aef55c2c8c752e453b6ddb",
+      "backend_status":"publish POST and durable state succeeded",
+      "frontend_status":"redirected page lacked the expected role=status success message",
+      "integration_status":"publication integration succeeded but transient feedback was absent",
+      "state_coverage":"reproduced twice in responsive-mobile with zero retries",
+      "evidence":["runs 30562698853 and 30578806660","artifacts 8767657461 and 8773887288"],
+      "impact":"The editor receives no accessible confirmation although publication completed.",
+      "recommendation":"Reproduce independently on the frozen current target with request/session logs before assigning cause.",
+      "suggested_followup_task":"existing #365 after this audit",
+      "overlaps":["#365"]
+    },
+    {
+      "id":"OTERYN-AUDIT-P35-006",
+      "title":"Historical Wiki editorial thumbnail requests returned HTTP 500",
+      "fact_state":"PROVEN",
+      "severity":"HIGH",
+      "confidence":"HIGH",
+      "environment":"CI_PROVEN",
+      "surface":"wiki.admin-editorial-lifecycle and browser-supporting-media-preview-endpoints",
+      "capability":"approved-media thumbnail rendering",
+      "exact_sha":"35f39b48233b186502cbdcc05aec7ffc40e78fc7 and fb1bbac96c0dcd0096aef55c2c8c752e453b6ddb",
+      "backend_status":"historical thumbnail endpoint failures returned 500",
+      "frontend_status":"editor page fell back to preview-unavailable content for affected media",
+      "integration_status":"multiple failures occurred during the historical Wiki page load",
+      "state_coverage":"historical reproduction preserved by Issue #365; current-target state UNKNOWN",
+      "evidence":["Issue #365 preserved reproduction evidence","runs 30562698853 and 30578806660"],
+      "impact":"A core administrator media workflow experienced repeated server errors and unavailable previews.",
+      "recommendation":"Reproduce on the current target and inspect Laravel/server logs independently from the flash issue.",
+      "suggested_followup_task":"existing #365 after this audit",
+      "overlaps":["#365"]
+    },
+    {
+      "id":"OTERYN-AUDIT-P35-007",
+      "title":"Current audit target Wiki symptoms remain unverified",
+      "fact_state":"UNKNOWN",
+      "severity":"INFO",
+      "confidence":"HIGH",
+      "environment":"UNKNOWN",
+      "surface":"wiki.admin-editorial-lifecycle",
+      "capability":"Issue #365 current-main reproduction",
+      "exact_sha":"b6f7b12a43aa72a52dc98c3fa07a7c4607fcb608",
+      "backend_status":"UNKNOWN",
+      "frontend_status":"UNKNOWN",
+      "integration_status":"NOT_RUN",
+      "state_coverage":"historical evidence only",
+      "evidence":["connector-only environment limitation"],
+      "impact":"The audit cannot call either symptom fixed, not reproduced or still present on the target.",
+      "recommendation":"Run the focused zero-retry mobile Wiki scenario with sanitized application/server logs on the target SHA.",
+      "suggested_followup_task":"same audit task runtime validation phase",
+      "overlaps":["#365"]
+    }
+  ]
+}
