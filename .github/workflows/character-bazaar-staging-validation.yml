@@ -11,7 +11,6 @@ on:
       - 'deploy/synology/scripts/marketplace-staging.sh'
       - 'deploy/synology/.env.example'
       - '.github/workflows/character-bazaar-staging-control.yml'
-      - '.github/workflows/character-bazaar-staging-report.yml'
       - '.github/workflows/character-bazaar-staging-validation.yml'
       - 'docs/operations/MARKETPLACE_OPERATIONS.md'
       - 'docs/operations/MARKETPLACE_STAGING_ENABLEMENT.md'
@@ -25,7 +24,6 @@ on:
       - 'deploy/synology/scripts/marketplace-staging.sh'
       - 'deploy/synology/.env.example'
       - '.github/workflows/character-bazaar-staging-control.yml'
-      - '.github/workflows/character-bazaar-staging-report.yml'
       - '.github/workflows/character-bazaar-staging-validation.yml'
       - 'docs/operations/MARKETPLACE_OPERATIONS.md'
       - 'docs/operations/MARKETPLACE_STAGING_ENABLEMENT.md'
@@ -50,11 +48,8 @@ jobs:
         run: |
           set -euo pipefail
           bash -n deploy/synology/scripts/marketplace-staging.sh
-          for workflow in \
-            .github/workflows/character-bazaar-staging-control.yml \
-            .github/workflows/character-bazaar-staging-report.yml; do
-            ruby -e 'require "yaml"; abort("invalid workflow YAML") unless YAML.parse_file(ARGV.fetch(0))' "$workflow"
-          done
+          ruby -e 'require "yaml"; abort("invalid workflow YAML") unless YAML.parse_file(ARGV.fetch(0))' \
+            .github/workflows/character-bazaar-staging-control.yml
 
       - name: Validate guarded control contract
         run: |
@@ -65,32 +60,12 @@ jobs:
           grep -Fq 'environment: synology-staging' "$control"
           grep -Fq 'marketplace.env' "$control"
           grep -Fq 'marketplace-staging.sh prepare-rollback' "$control"
+          grep -Fq 'character-bazaar-staging-evidence.json' "$control"
+          grep -Fq 'production_environment_proven' "$control"
           if grep -Fq 'OTERYN_STAGING_CANARY_CHARACTER_TRANSFER_DB_PASSWORD' "$control"; then
             echo 'The transfer secret must be generated and retained only on the staging runner state volume.' >&2
             exit 1
           fi
-
-      - name: Validate sanitized evidence reporter contract
-        run: |
-          set -euo pipefail
-          report=.github/workflows/character-bazaar-staging-report.yml
-          grep -Fq 'Character Bazaar Staging Control' "$report"
-          grep -Fq "github.event.workflow_run.head_branch == 'main'" "$report"
-          grep -Fq 'actions: read' "$report"
-          grep -Fq 'issues: write' "$report"
-          grep -Fq 'production_environment_proven' "$report"
-          grep -Fq 'STAGING_PROVEN' "$report"
-          grep -Fq 'issues/368/comments' "$report"
-          for forbidden in \
-            CANARY_CHARACTER_TRANSFER_DB_PASSWORD \
-            MARKETPLACE_ESCROW_CANARY_ACCOUNT_ID \
-            MARIADB_ROOT_PASSWORD \
-            PLATFORM_DB_PASSWORD; do
-            if grep -Fq "$forbidden" "$report"; then
-              echo "Reporter contains forbidden secret or identifier field: $forbidden" >&2
-              exit 1
-            fi
-          done
 
       - name: Validate fail-closed Compose overlay
         run: |
