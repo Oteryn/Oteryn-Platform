@@ -56,17 +56,17 @@ cross_repository_tasks:
 ```yaml
 checkpoint_version: 1
 policy_version: 2
-phase: integrate
+phase: validate
 session_id: chat-20260731-character-bazaar-staging-refresh
 session_role: operator
 execution_mode: chat-github
 execution_reason: existing reviewed workflow can be triggered and observed through narrow GitHub changes
-updated_at: 2026-07-31T13:01:00Z
-lease_expires_at: 2026-07-31T13:46:00Z
-head: 3ae15819b623e49c37a7c66d3240577a4f03e191
+updated_at: 2026-07-31T13:06:00Z
+lease_expires_at: 2026-07-31T13:51:00Z
+head: 0fbe9ee49ea635a34c1de1a3f97585ad2bf85ab1
 branch: ops/OTERYN-20260731-character-bazaar-staging-refresh
-pr: none
-status: implementing
+pr: 376
+status: validating
 context_routes:
   - agent-governance
   - testing
@@ -79,8 +79,8 @@ context_growth: stable
 context_score: 6
 estimate_confidence: high
 decomposition_decision: single
-validation_level: focused
-heavy_validation_runs: 0
+validation_level: full
+heavy_validation_runs: 1
 session_rotation_count: 0
 stale_takeover_count: 0
 human_interruptions: 0
@@ -90,8 +90,9 @@ proven:
   - build workflow publishes exact SHA images for config changes
   - control workflow deploys only when the trusted-main merge message contains the Character Bazaar staging marker
   - no open PR owns config/marketplace.php or the Character Bazaar control paths
+  - PR #376 contains only the task record and a comment-only Marketplace refresh marker
 derived:
-  - one comment-only config refresh will trigger both exact image publication and the existing guarded control
+  - the trusted-main merge will trigger both exact image publication and the existing guarded control
 unknown:
   - exact trusted-main merge SHA until PR merge
   - final control run and evidence artifact identifiers
@@ -103,14 +104,18 @@ rejected_hypotheses:
   - rename staging as production
   - bypass the permanent Marketplace-aware rollback and reconciliation gate
 changed_paths:
+  - config/marketplace.php
   - docs/agents/tasks/active/OTERYN-20260731-character-bazaar-staging-refresh.md
 validation:
   - command: repository and workflow contract inspection
     result: PASS
     evidence: current main workflows and PR/open-path search
+  - command: exact-head GitHub Actions
+    result: RUNNING
+    evidence: PR #376
 blockers:
   - none
-next_action: commit the comment-only Marketplace refresh marker and open the exact-head PR
+next_action: verify every required workflow on the final PR head, then merge with the staging marker
 ```
 
 ## Notes
