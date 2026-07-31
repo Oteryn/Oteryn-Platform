@@ -48,6 +48,8 @@ owned_paths:
   - scripts/acceptance/coverage/test-portal-content-scale-evidence.mjs
   - scripts/acceptance/package.json
   - .github/workflows/portal-acceptance-contract.yml
+  - routes/modules/wiki.php
+  - scripts/acceptance/tests/admin-wiki-administration.spec.mjs
   - bounded acceptance fixtures, browser specs and narrow runtime containment repairs selected after inventory
 modules:
   - Testing
@@ -66,8 +68,8 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-07-30T23:24:00Z
-head: 0b39f5dbb81b157887b446b752f444f4648d4b86
+updated_at: 2026-07-31T07:18:39Z
+head: 6c1e910d36771f50da5eded93cc50274a90c62d2
 branch: test/OTERYN-20260730-long-content-large-results
 pr: 363
 status: validating
@@ -85,30 +87,36 @@ owned_paths:
   - scripts/acceptance/playwright.content-scale.config.mjs
   - scripts/acceptance/seed-content-scale*.php
   - scripts/acceptance/tests/content-scale*-acceptance.spec.mjs
+  - scripts/acceptance/tests/admin-wiki-administration.spec.mjs
   - .github/workflows/content-scale-acceptance.yml
   - public/css/admin-translations.css
   - public/css/events-content.css
   - resources/views/admin/translations/form.blade.php
   - resources/views/events/show.blade.php
+  - routes/modules/wiki.php
 proven:
-  - Live PR #363 remains open as a draft and mergeable, with head 0b39f5dbb81b157887b446b752f444f4648d4b86 before this checkpoint update.
+  - Live PR #363 remains open as a draft and mergeable, with implementation head 6c1e910d36771f50da5eded93cc50274a90c62d2 before this checkpoint update.
   - PORTAL_CONTENT_SCALE_EVIDENCE.json schema version 2 classifies all 18 delivered surfaces exactly once and maps all 12 applicable consumers through two executable profiles and six evidence groups with zero gaps.
   - The dedicated Content Scale profile exercises long English source values, fresh Polish translations, bounded multi-page collections and valid private media bytes through real Laravel routes and isolated MariaDB/Redis dependencies.
   - The complete zero-retry Content Scale matrix passed all 15 desktop, tablet and mobile browser tests on exact SHA 04a45d6ff311610fdcc4b323e7541f34f49f1d6d in workflow run 30589498015.
   - The public.game-data mapping remains backed by the 76-row zero-retry Community Data matrix on exact SHA eea11818520996aa6575e8059b8f140248ced1ac in workflow run 30580307178.
   - Strict Portal Acceptance passed schema version 2 and all 14 deterministic negative fixtures on exact SHA ce50779cb7283fd8d417119b65c90ad1f9bab1bb in workflow run 30589893066.
   - Inventory execution found and repaired a genuine mobile event-detail heading containment defect; the final event assertions passed without weakening component or document-overflow requirements.
-  - Long translation-source markup and CSS now expose measurable wrapped text while preserving preformatted semantics and form containment.
+  - Long translation-source markup and CSS expose measurable wrapped text while preserving preformatted semantics and form containment.
+  - Final-head Visual UX run 30590612058 on f8f3008600d5e6354a86f41a6f780b925cec7f12 reproduced one mobile Wiki lifecycle flash race while the durable article state was Published.
+  - The authenticated Wiki editor performs concurrent media-picker requests against the same session; routes/modules/wiki.php now applies Laravel route session blocking across the Wiki admin surface on implementation SHA 6c1e910d36771f50da5eded93cc50274a90c62d2 instead of weakening the success-message assertion.
+  - CI, Agent Governance, Content Scale Acceptance, Events Acceptance, Platform DB Outage Validation, Wiki Reconciliation Acceptance, Edge Security Emulation and Game Auth Ticket Concurrency passed on implementation SHA 6c1e910d36771f50da5eded93cc50274a90c62d2 before this checkpoint commit.
   - The frontend completeness audit records the bounded Issue #362 closure and preserves the parent #326, product-completeness, staging and production nonclaims.
 derived:
   - Issue #362 acceptance criteria are implemented for the versioned delivered-surface contract and exact mapped synthetic boundaries.
+  - Session serialization is the product-level repair for the observed Wiki flash-data race because the lifecycle POST, redirect GET and authenticated media requests share one mutable session.
   - Parent #326 must remain open because unrelated authorization, validation, error, browser-engine and other state permutations are outside this slice.
 unknown:
-  - Whether every required workflow passes on the final documentation/checkpoint head.
+  - Whether every required workflow passes on the exact checkpoint head created by this update.
 conflicts: []
 first_failure:
   marker: final exact-head validation
-  evidence: the implementation and strict-contract heads are green, but documentation and checkpoint commits require current-head workflow observation before readiness.
+  evidence: the implementation and focused contract heads are green, but this checkpoint commit requires current-head workflow observation before readiness.
 rejected_hypotheses:
   - Treat broad responsive smoke evidence as proof of long localized values and large paginated datasets on every surface.
   - Treat candidate applicability classification as executable evidence.
@@ -116,6 +124,8 @@ rejected_hypotheses:
   - Treat short CMS lifecycle values or localization shell checks as proof of long managed content.
   - Treat one visible page as proof of stable bounded pagination.
   - Weaken containment assertions after the mobile Events defect; the runtime was repaired instead.
+  - Remove the Wiki publication flash assertion or replace it only with the already-passing durable Published state.
+  - Extend Playwright timeouts to conceal concurrent session writes from the authenticated media picker.
 changed_paths:
   - .github/workflows/content-scale-acceptance.yml
   - docs/agents/tasks/active/OTERYN-20260730-long-content-large-results.md
@@ -125,6 +135,7 @@ changed_paths:
   - public/css/events-content.css
   - resources/views/admin/translations/form.blade.php
   - resources/views/events/show.blade.php
+  - routes/modules/wiki.php
   - scripts/acceptance/content-scale-fixture-wrapper.php
   - scripts/acceptance/coverage/test-portal-content-scale-evidence.mjs
   - scripts/acceptance/coverage/validate-portal-content-scale-evidence.mjs
@@ -138,6 +149,7 @@ changed_paths:
   - scripts/acceptance/seed-content-scale-wiki.php
   - scripts/acceptance/seed-content-scale.impl.php
   - scripts/acceptance/seed-content-scale.php
+  - scripts/acceptance/tests/admin-wiki-administration.spec.mjs
   - scripts/acceptance/tests/community-data-acceptance.spec.mjs
   - scripts/acceptance/tests/content-scale-acceptance.spec.mjs
   - scripts/acceptance/tests/content-scale-events-acceptance.spec.mjs
@@ -153,10 +165,16 @@ validation:
   - command: Portal Acceptance Contract workflow run 30589893066 on ce50779cb7283fd8d417119b65c90ad1f9bab1bb
     result: PASS
     evidence: strict route/product/dimension/media/content-scale validators and all 14 content-scale negative fixtures passed
-  - command: exact-final-head workflow set
+  - command: Acceptance E2E and Visual UX workflow run 30590612058 on f8f3008600d5e6354a86f41a6f780b925cec7f12
+    result: FAIL
+    evidence: exactly one responsive-mobile Wiki publication success alert was absent after a concurrent same-session media-picker race; the persisted article state was Published and all other scenarios passed
+  - command: implementation-head workflow set on 6c1e910d36771f50da5eded93cc50274a90c62d2
+    result: IN_PROGRESS
+    evidence: CI, governance, content-scale, events, DB-outage, Wiki reconciliation, edge-security and game-auth gates passed; remaining exact-head workflows were still running when this checkpoint was written
+  - command: exact-checkpoint-head workflow set
     result: NOT_RUN
-    evidence: current documentation/checkpoint head requires fresh workflow observation
+    evidence: this checkpoint update creates the final validation head
 blockers:
   - none
-next_action: Observe the exact-final-head workflows after this checkpoint commit; fix the first failure if any, otherwise mark PR #363 ready and close Issue #362 while leaving parent #326 open.
+next_action: Observe every required workflow on the exact checkpoint head; fix the first failure if any, otherwise mark PR #363 ready and close Issue #362 while leaving parent #326 open.
 ```
