@@ -41,7 +41,8 @@ Audit every currently delivered Oteryn Platform portal capability and determine,
 - [x] Execute or recover the staged static, application and browser validation evidence available for the frozen runtime code boundary.
 - [ ] Reproduce Issue #365 on the exact frozen audit target with focused Wiki execution and sanitized application/server logs.
 - [ ] Complete a fresh independent validator session and persist its separate validation artifact.
-- [x] Publish a sanitized consolidated report, machine-readable matrices and evidence index.
+- [x] Publish sanitized consolidated reports, machine-readable matrices, addenda and evidence index.
+- [x] Publish a self-contained validator packet for the two remaining acceptance criteria.
 - [x] Recommend the smallest safe remediation task set without implementing it.
 
 ## Ownership
@@ -61,6 +62,7 @@ dependencies:
   - current portal coverage and completeness ledgers
 blockers:
   - exact-target checkout/browser execution unavailable in the current session
+  - fresh independent validator session unavailable in the current session
 cross_repository_tasks:
   - none
 ```
@@ -79,13 +81,13 @@ cross_repository_tasks:
 checkpoint_version: 1
 policy_version: 2
 phase: validate
-session_id: chat-20260731-portal-audit-002
+session_id: chat-20260731-portal-audit-003
 session_role: investigator
-execution_mode: chat-github
-execution_reason: live GitHub source, workflow metadata and preserved sanitized CI artifacts were sufficient for repository, runtime-equivalent contract and historical browser reconciliation; exact-target execution requires a checkout-capable validator
-updated_at: 2026-07-31T17:34:00Z
+execution_mode: chat-github-artifact-review
+execution_reason: live GitHub inspection plus preserved CI artifacts support static, recovered runtime and historical browser reconciliation; exact-target focused execution still requires a checkout-capable validator
+updated_at: 2026-07-31T18:50:01Z
 lease_expires_at: null
-head: 60e6f962b14b417fc45d9754a84def2fb202147d
+head: 02b5326ddd02caa24464e103e21c990970673cd8
 branch: audit/OTERYN-20260731-portal-backend-frontend-audit
 pr: 381
 status: blocked
@@ -107,33 +109,32 @@ context_score: 12
 estimate_confidence: high
 decomposition_decision: phased
 decomposition_reason: one cohesive portal audit with shared inventory and severity normalization; remaining exact-target validation continues on the same task and PR
-validation_level: recovered-full-plus-static
+validation_level: recovered-full-plus-static-plus-artifact-deep-review
 heavy_validation_runs: 0
-session_rotation_count: 2
+session_rotation_count: 3
 stale_takeover_count: 0
-human_interruptions: 1
+human_interruptions: 2
 proven:
-  - frozen audit target is b6f7b12a43aa72a52dc98c3fa07a7c4607fcb608
+  - frozen audit target and current main are b6f7b12a43aa72a52dc98c3fa07a7c4607fcb608
   - canonical inventory contains 27 surface groups and 228 named-route assignments
-  - recovered Portal Acceptance Contract run 30633216358 job 91164376176 artifact 8794204786 passed on exact source fdb45a4325949d3ab1c4860e3a4527553f11c789
-  - recovered runtime inventory contains 240 named routes, 228 classified routes, 126 rendered screens, 95 bound views, 400 navigation references and zero orphan views
   - capability ledger contains 43 records: 23 implemented, 3 partial, 14 missing and 3 not applicable
   - no user-facing backend-only or frontend-only implemented promotion was found
+  - recovered Portal Acceptance Contract run 30633216358 job 91164376176 artifact 8794204786 passed on exact source fdb45a4325949d3ab1c4860e3a4527553f11c789
+  - recovered runtime inventory contains 240 named routes, 126 rendered screens, 95 bound views, 400 navigation references and zero orphan views
   - recovered critical browser run 30633216753 job 91164367653 artifact 8794373786 passed smoke 7/7, portability 36/36, responsive 42/42, resilience 2/2 and accessibility 9/9 with zero retries
-  - the direct browser artifact explicitly states full and visual acceptance were not executed
-  - media applicability is classified for all 27 surfaces with 12 required state-evidence records and zero media gap
-  - content-scale closure classifies 18 base-manifest surfaces and omits nine canonical fragment surfaces
-  - dedicated global error matrix covers 404, 419, 429 and 500 but omits 503
-  - no fail-closed one-record-per-rendered-surface accessibility applicability matrix was found
+  - direct browser artifact explicitly states full and visual acceptance were not executed
   - historical Wiki flash loss is proven on runs 30562698853 and 30578806660 while durable publication succeeded
-  - Issue #365 separately preserves historical thumbnail HTTP 500 responses; no shared cause with flash loss is proven
+  - historical Wiki thumbnail failures followed the same 9 desktop, 12 tablet and 16 mobile HTTP 500 response pattern in both preserved artifacts
+  - frozen source retains an invalid HTML pattern on Wiki category key and article content type fields while Laravel request validation independently enforces the intended grammar
+  - normalized findings are one HIGH, five MEDIUM and one LOW
+  - exact historical artifact hashes, detailed Issue #365 review and VALIDATOR_PACKET.md are persisted under the task evidence directory
+  - audit PR head 691544e2b0ef7aae6f452266cf3b4a7b1a170bdc passed all six emitted workflow families before the later evidence-only additions
   - latest exact staging evidence remains source 717977f252b09b9b2e979f8110b7f48b88682223, run 30633745660, job 91166065335 and artifact 8794683627
   - production remains unproven
-  - consolidated report and three phase matrices are indexed under docs/agents/evidence/OTERYN-20260731-portal-backend-frontend-audit/index.md
 derived:
   - runtime code at direct CI source fdb45a4325949d3ab1c4860e3a4527553f11c789 is equivalent to the frozen audit target because comparison changes only documentation and byte-identical Marketplace configuration
-  - content-scale and accessibility evidence architecture can omit a new or fragment surface while their bounded validators remain green
-  - one acceptance-evidence remediation task is sufficient for the content-scale, 503 and accessibility closure findings
+  - content-scale and accessibility evidence architecture can omit a new or fragment surface while bounded validators remain green
+  - the unchanged invalid HTML pattern is expected to preserve the historical Chromium console defect, but fresh frozen-target browser reproduction remains required
 unknown:
   - whether either Issue #365 symptom reproduces on the frozen target
   - exact deployed staging state of the frozen target
@@ -150,12 +151,13 @@ rejected_hypotheses:
   - ACTIVE_WORK.md alone is authoritative for active work
   - latest repository main automatically equals the proven staging source SHA
   - recovered CI can be relabelled as exact audit-target CI or deployment proof
-  - missing explicit tablet entries automatically prove absent tablet evidence
   - the Wiki flash loss and thumbnail 500 responses have one proven cause
   - broad critical browser success equals exhaustive every-screen visual acceptance
+  - invalid browser-native pattern validation implies a backend validation bypass
 changed_paths:
   - docs/agents/tasks/active/OTERYN-20260731-portal-backend-frontend-audit.md
   - docs/agents/reports/OTERYN-20260731-portal-backend-frontend-audit.md
+  - docs/agents/reports/OTERYN-20260731-portal-backend-frontend-audit-addendum.md
   - docs/agents/reports/OTERYN-20260731-portal-backend-frontend-audit-baseline.md
   - docs/agents/reports/OTERYN-20260731-portal-backend-frontend-audit-phase-1-inventory.md
   - docs/agents/reports/OTERYN-20260731-portal-backend-frontend-audit-phase-2-capabilities.md
@@ -165,6 +167,9 @@ changed_paths:
   - docs/agents/evidence/OTERYN-20260731-portal-backend-frontend-audit/phase-1-surface-inventory.json
   - docs/agents/evidence/OTERYN-20260731-portal-backend-frontend-audit/phase-2-capability-reconciliation.json
   - docs/agents/evidence/OTERYN-20260731-portal-backend-frontend-audit/phase-3-5-state-browser-evidence.json
+  - docs/agents/evidence/OTERYN-20260731-portal-backend-frontend-audit/phase-3-5-addendum.json
+  - docs/agents/evidence/OTERYN-20260731-portal-backend-frontend-audit/ISSUE_365_HISTORICAL_ARTIFACT_REVIEW.md
+  - docs/agents/evidence/OTERYN-20260731-portal-backend-frontend-audit/VALIDATOR_PACKET.md
 validation:
   - command: live GitHub repository, issues, open PRs, owned paths and frozen target preflight
     result: PASS
@@ -175,12 +180,15 @@ validation:
   - command: recovered critical browser profiles
     result: PASS
     evidence: run 30633216753 job 91164367653 artifact 8794373786; full and visual profiles were explicitly skipped
-  - command: audit PR #381 workflow families on head 220ae3d231d4269bf80fc51409f5b3b95a7975be
+  - command: historical Wiki artifact deep review
     result: PASS
-    evidence: runs 30648697391, 30648697395, 30648697408, 30648697440, 30648697392 and 30648697401
-  - command: historical Wiki reproduction evidence review
+    evidence: artifacts 8767657461 and 8773887288; hashes and exact per-viewport counts are recorded in ISSUE_365_HISTORICAL_ARTIFACT_REVIEW.md
+  - command: frozen-source Wiki HTML pattern and backend validation review
     result: PASS
-    evidence: runs 30562698853 and 30578806660, artifacts 8767657461 and 8773887288
+    evidence: P35-007 addendum and phase-3-5-addendum.json
+  - command: audit PR exact-head workflow families after final checkpoint
+    result: NOT_RUN
+    evidence: final checkpoint commit must emit and complete its own checks
   - command: focused frozen-target Wiki reproduction with application/server logs
     result: NOT_RUN
     evidence: no checkout-capable Laravel/Playwright environment
@@ -189,7 +197,7 @@ validation:
     evidence: fresh validator session unavailable in the current tool environment
 blockers:
   - exact-target checkout/browser execution and a fresh independent validator session are unavailable in the current tool environment
-next_action: start one fresh checkout-capable validator session on this same task, branch and frozen target to run the focused Issue #365 reproduction and independently validate the consolidated report
+next_action: start one fresh checkout-capable validator session using docs/agents/evidence/OTERYN-20260731-portal-backend-frontend-audit/VALIDATOR_PACKET.md on this same task, branch and frozen target
 ```
 
 ## Notes
