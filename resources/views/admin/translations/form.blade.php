@@ -41,7 +41,7 @@
             @if ($type->requiresTitle())
                 <p><strong>{{ $source->title }}</strong></p>
             @endif
-            <pre class="content-body">{{ $sourceBody }}</pre>
+            <pre class="content-source"><span class="content-body">{{ $sourceBody }}</span></pre>
             @if ($type === \App\Cms\Editorial\EditorialContentType::SiteAnnouncement && $source->action_label !== null)
                 <p><strong>Action label:</strong> {{ $source->action_label }}</p>
             @endif

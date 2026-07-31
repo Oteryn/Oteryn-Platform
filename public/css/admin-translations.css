@@ -16,6 +16,25 @@
     overflow: auto;
 }
 
+section[aria-labelledby="english-source-heading"] > p {
+    max-width: 70ch;
+    overflow-wrap: anywhere;
+}
+
+.content-source {
+    max-width: 100%;
+    margin: 0;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+}
+
+.content-source .content-body {
+    display: block;
+    max-width: 100%;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+}
+
 .translation-form-actions {
     position: relative;
     z-index: 1;

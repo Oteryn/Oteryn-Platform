@@ -49,6 +49,43 @@ async function expectNoHorizontalOverflow(page) {
   expect(overflow).toBeLessThanOrEqual(1);
 }
 
+function trackWikiMediaThumbnailRequests(page) {
+  const pending = new Set();
+  const isThumbnail = (request) => {
+    const pathname = new URL(request.url()).pathname;
+    return /^\/admin\/wiki\/media\/\d+\/thumbnail$/u.test(pathname);
+  };
+  const finish = (request) => pending.delete(request);
+
+  page.on('request', (request) => {
+    if (isThumbnail(request)) {
+      pending.add(request);
+    }
+  });
+  page.on('requestfinished', finish);
+  page.on('requestfailed', finish);
+
+  return () => pending.size;
+}
+
+async function waitForWikiMediaThumbnailIdle(page, pendingCount) {
+  await expect(page.locator('[data-wiki-media-status]'))
+    .toHaveText(/\d+ approved images? available\./u);
+
+  let idleSince = Date.now();
+  await expect.poll(
+    () => {
+      if (pendingCount() > 0) {
+        idleSince = Date.now();
+        return false;
+      }
+
+      return Date.now() - idleSince >= 750;
+    },
+    { timeout: 30_000, intervals: [100] },
+  ).toBe(true);
+}
+
 test.setTimeout(180_000);
 test.describe.configure({ mode: 'serial', retries: 0 });
 
@@ -61,6 +98,7 @@ test.afterEach(async ({ page }, testInfo) => {
 });
 
 test('@wiki-media exact Wiki editor discovers inserts previews and publishes private EditorialMedia responsively', async ({ page, context }) => {
+  const pendingThumbnailRequests = trackWikiMediaThumbnailRequests(page);
   const email = uniqueEmail('wiki-media');
   const id = suffix();
   const mediaLabel = `Oteryn acceptance bridge ${id}`;
@@ -122,7 +160,12 @@ test('@wiki-media exact Wiki editor discovers inserts previews and publishes pri
   await preview.close();
 
   await page.getByRole('button', { name: 'Submit for review' }).click();
-  await page.getByRole('button', { name: 'Publish', exact: true }).click();
+  const publishButton = page.getByRole('button', { name: 'Publish', exact: true });
+  await publishButton.scrollIntoViewIfNeeded();
+  await waitForWikiMediaThumbnailIdle(page, pendingThumbnailRequests);
+  await publishButton.click();
+  await expect(page.getByRole('status')).toContainText('Wiki article published.');
+  await expect(page.getByText(/Status:\s*Published/i)).toBeVisible();
 
   const browser = context.browser();
   expect(browser).not.toBeNull();
@@ -187,6 +230,7 @@ test('@wiki-media exact Wiki editor discovers inserts previews and publishes pri
 });
 
 test('@wiki-media image-free Wiki draft preview remains accessible and contains no media fallback', async ({ page, context }) => {
+  const pendingThumbnailRequests = trackWikiMediaThumbnailRequests(page);
   const email = uniqueEmail('wiki-media-none');
   const id = suffix();
   seedWikiMediaEditor(email, `Unused approved image ${id}`);
@@ -210,7 +254,10 @@ test('@wiki-media image-free Wiki draft preview remains accessible and contains 
   await page.getByLabel('Change note').fill('Image-free acceptance evidence.');
   await expect(page.getByLabel('Markdown source').first()).not.toHaveValue(/wiki-media:/u);
   await expect(page.getByLabel('Markdown source').nth(1)).not.toHaveValue(/wiki-media:/u);
-  await page.getByRole('button', { name: 'Create draft' }).click();
+  const createDraftButton = page.getByRole('button', { name: 'Create draft' });
+  await createDraftButton.scrollIntoViewIfNeeded();
+  await waitForWikiMediaThumbnailIdle(page, pendingThumbnailRequests);
+  await createDraftButton.click();
   await expect(page.getByRole('status')).toContainText('Wiki article draft created.');
 
   const previewPromise = context.waitForEvent('page');

@@ -4,9 +4,13 @@
 @section('description', $event['summary'])
 @section('og-type', 'article')
 
+@push('styles')
+    <link rel="stylesheet" href="{{ asset('css/events-content.css') }}">
+@endpush
+
 @section('content')
     @inject('localeFormatter', 'App\Localization\LocaleFormatter')
-    <article>
+    <article class="event-detail">
         <div class="page-header">
             <p class="eyebrow">{{ ucfirst($event['status']) }} {{ __('public.events.event') }}</p>
             <h1>{{ $event['title'] }}</h1>

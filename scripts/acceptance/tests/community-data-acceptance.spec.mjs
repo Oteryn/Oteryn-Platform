@@ -68,6 +68,86 @@ async function expectNoHorizontalOverflow(page) {
   expect(dimensions.documentWidth).toBeLessThanOrEqual(dimensions.viewportWidth + 1);
 }
 
+async function expectReadableWrappingAndContainment(
+  locator,
+  { containerSelector, expectedOverflowWrap = null },
+) {
+  await expect(locator).toBeVisible();
+
+  const metrics = await locator.evaluate((element, options) => {
+    const container = element.closest(options.containerSelector);
+    if (!(container instanceof HTMLElement)) {
+      throw new Error(`Expected ${options.containerSelector} containment for long-value evidence.`);
+    }
+
+    const range = document.createRange();
+    range.selectNodeContents(element);
+    const lineTops = [];
+    for (const rect of range.getClientRects()) {
+      if (rect.width <= 0 || rect.height <= 0) continue;
+      if (!lineTops.some((top) => Math.abs(top - rect.top) < 1)) lineTops.push(rect.top);
+    }
+
+    const elementRect = element.getBoundingClientRect();
+    const containerRect = container.getBoundingClientRect();
+    const style = getComputedStyle(element);
+
+    return {
+      lineCount: lineTops.length,
+      overflowWrap: style.overflowWrap,
+      elementRect: {
+        left: elementRect.left,
+        right: elementRect.right,
+        top: elementRect.top,
+        bottom: elementRect.bottom,
+      },
+      containerRect: {
+        left: containerRect.left,
+        right: containerRect.right,
+        top: containerRect.top,
+        bottom: containerRect.bottom,
+      },
+    };
+  }, { containerSelector });
+
+  expect(metrics.lineCount).toBeGreaterThanOrEqual(2);
+  expect(metrics.elementRect.left).toBeGreaterThanOrEqual(metrics.containerRect.left - 1);
+  expect(metrics.elementRect.right).toBeLessThanOrEqual(metrics.containerRect.right + 1);
+  expect(metrics.elementRect.top).toBeGreaterThanOrEqual(metrics.containerRect.top - 1);
+  expect(metrics.elementRect.bottom).toBeLessThanOrEqual(metrics.containerRect.bottom + 1);
+  if (expectedOverflowWrap !== null) expect(metrics.overflowWrap).toBe(expectedOverflowWrap);
+}
+
+async function expectScrollableTableContainment(locator) {
+  const metrics = await locator.evaluate((element) => {
+    const region = element.closest('.table-region');
+    const table = region?.querySelector('table');
+    if (!(region instanceof HTMLElement) || !(table instanceof HTMLTableElement)) {
+      throw new Error('Expected long highscore value inside a table-region table.');
+    }
+
+    const tableRect = table.getBoundingClientRect();
+    const elementRect = element.getBoundingClientRect();
+
+    return {
+      overflowX: getComputedStyle(region).overflowX,
+      clientWidth: region.clientWidth,
+      scrollWidth: region.scrollWidth,
+      tableWidth: tableRect.width,
+      elementLeft: elementRect.left,
+      elementRight: elementRect.right,
+      tableLeft: tableRect.left,
+      tableRight: tableRect.right,
+    };
+  });
+
+  expect(['auto', 'scroll']).toContain(metrics.overflowX);
+  expect(metrics.scrollWidth).toBeGreaterThanOrEqual(metrics.clientWidth);
+  expect(metrics.tableWidth).toBeLessThanOrEqual(metrics.scrollWidth + 1);
+  expect(metrics.elementLeft).toBeGreaterThanOrEqual(metrics.tableLeft - 1);
+  expect(metrics.elementRight).toBeLessThanOrEqual(metrics.tableRight + 1);
+}
+
 function acceptanceDatabaseContext() {
   const rootPassword = process.env.MARIADB_ROOT_PASSWORD;
   const canaryDb = process.env.CANARY_DB_DATABASE;
@@ -255,7 +335,12 @@ test('@portal-community-stress long values, multi-page results, internal 500 con
 
   try {
     await page.goto('/highscores');
-    await expect(page.getByRole('link', { name: longName, exact: true })).toBeVisible();
+    const longNameLink = page.getByRole('link', { name: longName, exact: true });
+    await expectReadableWrappingAndContainment(longNameLink, {
+      containerSelector: 'td',
+      expectedOverflowWrap: 'anywhere',
+    });
+    await expectScrollableTableContainment(longNameLink);
     await expect(page.getByRole('link', { name: 'Next', exact: true })).toBeVisible();
     await expectNoHorizontalOverflow(page);
 
@@ -264,8 +349,15 @@ test('@portal-community-stress long values, multi-page results, internal 500 con
     await expectNoHorizontalOverflow(page);
 
     await page.goto(`/characters/${encodeURIComponent(longName)}`);
-    await expect(page.getByRole('heading', { name: longName, exact: true })).toBeVisible();
-    await expect(page.getByText(longComment, { exact: true })).toBeVisible();
+    const longNameHeading = page.getByRole('heading', { name: longName, exact: true });
+    const longCommentText = page.getByText(longComment, { exact: true });
+    await expectReadableWrappingAndContainment(longNameHeading, {
+      containerSelector: '.page-header',
+    });
+    await expectReadableWrappingAndContainment(longCommentText, {
+      containerSelector: '.card',
+      expectedOverflowWrap: 'anywhere',
+    });
     await expectNoHorizontalOverflow(page);
 
     if (fs.existsSync(unavailableView)) {
