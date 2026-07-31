@@ -27,6 +27,9 @@ RUN apk add --no-cache \
 
 COPY --from=composer:2 /usr/bin/composer /usr/local/bin/composer
 COPY deploy/synology/docker/platform-media.ini /usr/local/etc/php/conf.d/zz-oteryn-media.ini
+COPY deploy/synology/docker/platform-entrypoint.sh /usr/local/bin/oteryn-platform-entrypoint
+RUN chmod 0755 /usr/local/bin/oteryn-platform-entrypoint \
+    && /usr/local/bin/oteryn-platform-entrypoint --self-test
 
 WORKDIR /var/www/html
 
@@ -52,4 +55,5 @@ USER www-data
 
 EXPOSE 8000
 
+ENTRYPOINT ["/usr/local/bin/oteryn-platform-entrypoint"]
 CMD ["php", "artisan", "serve", "--host=0.0.0.0", "--port=8000"]

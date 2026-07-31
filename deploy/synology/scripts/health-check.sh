@@ -117,6 +117,23 @@ docker exec "$platform_container" grep -q 'Scan with your authenticator app' /va
 docker exec "$platform_container" grep -q 'mfa-qr' /var/www/html/public/css/mfa.css
 echo "Verified QR-first MFA renderer, deployed assets and protected anonymous MFA boundary."
 
+public_login_html="$(docker run --rm \
+    --network host \
+    alpine:3.22 \
+    /bin/sh -ec \
+    "wget -qO- -T 5 \
+        --header='Host: oteryn.molehill.cloud' \
+        --header='X-Forwarded-Host: oteryn.molehill.cloud' \
+        --header='X-Forwarded-Proto: https' \
+        --header='X-Forwarded-Port: 443' \
+        'http://127.0.0.1:${PLATFORM_PORT}/login?locale=en'")"
+
+if ! grep -Fq 'action="https://oteryn.molehill.cloud/login?locale=en"' <<<"$public_login_html"; then
+    echo "Public HTTPS login form did not preserve the external HTTPS origin." >&2
+    exit 34
+fi
+echo "Verified public HTTPS login form action through the host-loopback proxy boundary."
+
 if ! docker run --rm \
     --network "container:${container_ids[canary]}" \
     alpine:3.22 \
@@ -134,4 +151,4 @@ if [[ "$CANARY_GAME_BIND_ADDRESS" != "127.0.0.1" ]]; then
     echo "Verified LAN game endpoint: ${CANARY_GAME_BIND_ADDRESS}:${CANARY_GAME_PORT}"
 fi
 
-echo "Platform, Gateway, Canary and MFA QR staging probes passed."
+echo "Platform, Gateway, Canary, public HTTPS login and MFA QR staging probes passed."
