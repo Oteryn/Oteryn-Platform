@@ -52,11 +52,11 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-07-31T21:35:00Z
-head: a1d1a3e31377511d45d9689892d0e927f53c6c81
+updated_at: 2026-07-31T21:33:00Z
+head: 60765475642d912ab91953b2e7714bf95ab9e583
 branch: docs/public-domain-role-contract-20260731
-pr: none
-status: implementing
+pr: 382
+status: validating
 context_routes:
   - agent-governance
   - architecture
@@ -69,10 +69,12 @@ owned_paths:
 proven:
   - The repository Synology topology binds Platform to 127.0.0.1:8000 and Game Gateway to 127.0.0.1:8080.
   - The repository owner designated https://oteryn.molehill.cloud for the website and https://login.oteryn.molehill.cloud for Game Gateway/login API.
+  - PR 382 contains exactly four authorized documentation paths.
 derived:
   - A durable public-endpoint contract and deployment note are the least ambiguous agent-facing sources of truth.
 unknown:
   - Independent external reachability of the login hostname is not claimed by this documentation task.
+  - Required CI conclusions for the latest PR head are not yet recorded.
 conflicts: []
 first_failure:
   marker: none
@@ -81,14 +83,20 @@ rejected_hypotheses:
   - Port 3031 belongs to Oteryn Platform.
   - The login hostname is the public website.
 changed_paths:
+  - deploy/synology/PUBLIC_ENDPOINTS.md
+  - docs/agents/REPOSITORY_MAP.md
   - docs/agents/tasks/active/OTERYN-20260731-public-domain-role-contract.md
+  - docs/contracts/PUBLIC_ENDPOINTS_CONTRACT.md
 validation:
+  - command: compare main...docs/public-domain-role-contract-20260731
+    result: PASS
+    evidence: branch is four commits ahead with exactly four authorized documentation paths
   - command: repository documentation review
     result: PASS
     evidence: hostname roles match the owner instruction and existing Synology runtime topology
 blockers:
   - none
-next_action: Add the endpoint contract, deployment note and repository-map reference, then open a documentation PR.
+next_action: Inspect PR 382 exact-head CI and keep the PR draft until required checks pass.
 ```
 
 ## Notes
