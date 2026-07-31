@@ -27,10 +27,13 @@ Environment identity is independent from evidence state: `REPO_MAIN`, `OPEN_PR_O
 | Frozen source target | PROVEN | REPO_MAIN | `b6f7b12a43aa72a52dc98c3fa07a7c4607fcb608` |
 | Direct strict/browser source | PROVEN | CI_PROVEN | `fdb45a4325949d3ab1c4860e3a4527553f11c789` |
 | Runtime equivalence to frozen target | DERIVED | REPO_MAIN | comparison changes documentation and byte-identical Marketplace config |
+| Historical Wiki flash loss | PROVEN | CI_PROVEN historical | exact heads `35f39b...` and `fb1bba...` |
+| Frozen-source flash remedy | PROVEN source | REPO_MAIN | commit `6c1e910...` session-serializes all admin Wiki routes |
+| Later related flash assertion | PROVEN | CI_PROVEN | run `30633216753` passes across engines/viewports on `fdb45a...` |
+| Original frozen-target flash scenario | PARTIALLY_PROVEN_REMEDIATED | DERIVED/UNKNOWN | durable scenario passes; original transient assertion removed and needs focused rerun |
 | Latest exact staging evidence | PROVEN | STAGING_PROVEN | source `717977f252b09b9b2e979f8110b7f48b88682223`; run `30633745660`; job `91166065335`; artifact `8794683627` |
 | Frozen target deployed to staging | UNKNOWN | UNKNOWN | no exact deployment proof |
 | Production release/availability | UNKNOWN | UNKNOWN | no direct exact-release evidence established |
-| Exact-target Issue #365 reproduction | UNKNOWN | UNKNOWN | focused run not executed |
 | Independent validator verdict | UNKNOWN | UNKNOWN | separate validator artifact pending |
 
 ## Canonical inventory
@@ -87,16 +90,16 @@ Results:
 
 The artifact explicitly records `FULL_ACCEPTANCE_NOT_EXECUTED`, `VISUAL_UX_NOT_EXECUTED` and `PRODUCTION_SMOKE_PENDING`.
 
-## Issue #365 corrected historical analysis
+## Issue #365 corrected analysis
 
-Reviewed exact artifacts:
+Reviewed exact historical artifacts:
 
 | Run | SHA | Job | Artifact | Verified ZIP SHA-256 |
 |---|---|---:|---:|---|
 | `30562698853` | `35f39b48233b186502cbdcc05aec7ffc40e78fc7` | `90939481510` | `8767657461` | `8af4dedd1e213108a2599df303f45de7bf22caf603c180f7607ad5d8395a85c6` |
 | `30578806660` | `fb1bbac96c0dcd0096aef55c2c8c752e453b6ddb` | `90993603962` | `8773887288` | `4a514e4a53d427599f07e0a22ad7cd918a154187e6ddd837e707ece2c14e96f2` |
 
-### Publication flash
+### Historical publication flash
 
 Both runs prove:
 
@@ -105,9 +108,21 @@ Both runs prove:
 - the redirected page showed `Published`, version 3 and `Unpublish to draft`;
 - durable publication succeeded.
 
-### Thumbnail traffic
+### Bounded remediation evidence
 
-Both runs recorded the same GET `/admin/wiki/media/{id}/thumbnail` pattern:
+The historical routes had no session blocking. Commit `6c1e910d36771f50da5eded93cc50274a90c62d2` added `->block()` to all admin Wiki routes, including thumbnail and publish requests.
+
+The later direct critical run on `fdb45a...` includes those exact route and Wiki media test blobs. It proves:
+
+- the general administration scenario passes across Chromium, Firefox, WebKit and desktop/tablet/mobile, but only asserts durable state;
+- the thumbnail-aware Wiki media publication scenario explicitly asserts `Wiki article published.` and durable `Published` state;
+- that explicit flash scenario passes across Chromium, Firefox, WebKit, desktop, tablet, mobile and accessibility Chromium with zero retries.
+
+This is strong but bounded remediation evidence. The original administration scenario removed the transient flash assertion, so exact focused confirmation remains required.
+
+### Thumbnail fixture leakage
+
+Both historical runs recorded the same GET `/admin/wiki/media/{id}/thumbnail` pattern:
 
 - desktop: 9 HTTP 500 responses across IDs 1, 3, 5;
 - tablet: 12 across IDs 1, 3, 5, 7;
@@ -118,11 +133,11 @@ Static source and exact report ordering explain these responses:
 1. `admin-wiki-editorial-media.spec.mjs` seeds media, intentionally corrupts and removes stored files, but leaves rows and performs no reset.
 2. Portability projects leave damaged odd-numbered rows 1, 3 and 5.
 3. Responsive administration runs before the corresponding Wiki media mutator in each viewport.
-4. The stale set therefore grows to 1/3/5, then 1/3/5/7, then 1/3/5/7/9.
-5. `WikiEditorialMediaFileResponse` detects the missing/integrity-failed object.
-6. The dedicated Editorial Media fallback test explicitly expects HTTP 500 for an intentionally corrupt thumbnail and verifies accessible fallback rendering.
+4. The stale set grows to 1/3/5, then 1/3/5/7, then 1/3/5/7/9.
+5. The integrity service rejects missing/corrupt bytes.
+6. The dedicated fallback test explicitly expects HTTP 500 for an intentionally corrupt thumbnail and verifies accessible fallback rendering.
 
-The historical 500s are thus `PROVEN` acceptance fixture leakage and expected integrity-failure traffic. They do not prove valid production media failure.
+The historical 500s are `PROVEN` acceptance fixture leakage and expected integrity-failure traffic. They do not prove valid production media failure.
 
 ### Invalid HTML pattern
 
@@ -138,7 +153,7 @@ No shared cause among fixture leakage, flash loss and invalid pattern errors is 
 | `OTERYN-AUDIT-P35-001` | MEDIUM | PROVEN | content-scale strict closure omits nine canonical fragment surfaces |
 | `OTERYN-AUDIT-P35-002` | MEDIUM | PROVEN | dedicated global error matrix omits HTTP 503 |
 | `OTERYN-AUDIT-P35-003` | MEDIUM | DERIVED | accessibility evidence is not fail-closed per rendered surface |
-| `OTERYN-AUDIT-P35-005` | MEDIUM | PROVEN historical CI | durable Wiki publication lacked transient accessible success feedback on mobile |
+| `OTERYN-AUDIT-P35-005` | MEDIUM | PROVEN historical; PARTIALLY_PROVEN_REMEDIATED | historical flash loss; serialized related scenario passes, original exact assertion pending |
 | `OTERYN-AUDIT-P35-007` | MEDIUM | PROVEN source + historical CI | invalid HTML pattern weakens native Wiki form validation and emits console errors |
 | `OTERYN-AUDIT-P1-001` | LOW | CONFLICT | `ACTIVE_WORK.md` conflicts with live PR/task state |
 
@@ -167,7 +182,9 @@ Totals: **0 HIGH, 6 MEDIUM, 1 LOW**.
 
 - `ISSUE_365_HISTORICAL_ARTIFACT_REVIEW.md` — exact hashes, per-viewport counts and original evidence boundaries.
 - `ISSUE_365_STATIC_CAUSE_ANALYSIS.md` — proven stale-fixture execution chain and severity correction.
+- `ISSUE_365_FLASH_REMEDIATION_EVIDENCE.md` — session-serialization commit and later bounded zero-retry flash evidence.
 - `VALIDATOR_PACKET.md` — exact frozen-target checkout, strict contract, focused Wiki probe, adversarial review and verdict contract.
+- `VALIDATOR_PACKET_ADDENDUM.md` — corrected clean/polluted procedure and verdict rules.
 - `INDEPENDENT_VALIDATION.md` — pending a fresh checkout-capable validator session.
 
 ## Open-PR boundary
@@ -184,8 +201,8 @@ GitHub API and preserved CI artifacts enabled source, runtime-contract and histo
 
 The audit remains `BLOCKED` until a fresh validator:
 
-- independently verifies the stale-fixture chain;
-- runs at least three clean isolated zero-retry Issue #365 probes;
+- independently verifies the stale-fixture chain and session-serialization remedy;
+- runs at least three clean isolated zero-retry original administration probes with the transient flash assertion restored ephemerally;
 - runs one controlled polluted comparison;
 - captures sanitized application/server logs;
 - publishes exactly one verdict: `VALIDATED`, `VALIDATED_WITH_CORRECTIONS`, or `REJECTED`.
