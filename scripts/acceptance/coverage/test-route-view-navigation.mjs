@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 
 const coverageRoot = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(coverageRoot, '../../..');
-const validatorPath = path.join(coverageRoot, 'validate-route-view-navigation.mjs');
+const runnerPath = path.join(coverageRoot, 'run-route-view-navigation.mjs');
 const evidencePath = path.join(repoRoot, 'docs/testing/PORTAL_ROUTE_VIEW_NAVIGATION_EVIDENCE.json');
 const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'oteryn-route-view-navigation-'));
 const fixturePath = path.join(fixtureRoot, 'invalid-route-view-navigation-evidence.json');
@@ -33,7 +33,7 @@ try {
 
   fs.writeFileSync(fixturePath, `${JSON.stringify(fixture, null, 2)}\n`);
 
-  const result = spawnSync(process.execPath, [validatorPath, `--evidence=${fixturePath}`], {
+  const result = spawnSync(process.execPath, [runnerPath, `--evidence=${fixturePath}`], {
     cwd: repoRoot,
     encoding: 'utf8',
     env: process.env,
