@@ -114,7 +114,6 @@ function inspectCallable(ReflectionFunctionAbstract $reflection, string $repoRoo
     ];
 }
 
-/** @return ReflectionFunctionAbstract|null */
 function reflectRouteAction(Route $route): ?ReflectionFunctionAbstract
 {
     $uses = $route->getAction('uses');
