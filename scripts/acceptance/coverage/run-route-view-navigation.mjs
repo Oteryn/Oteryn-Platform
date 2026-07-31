@@ -6,16 +6,23 @@ import { fileURLToPath } from 'node:url';
 const coverageRoot = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(coverageRoot, '../../..');
 const manifestPath = path.join(coverageRoot, 'portal-coverage-manifest.json');
-const evidencePath = path.join(repoRoot, 'docs/testing/PORTAL_ROUTE_VIEW_NAVIGATION_EVIDENCE.json');
+const defaultEvidencePath = path.join(repoRoot, 'docs/testing/PORTAL_ROUTE_VIEW_NAVIGATION_EVIDENCE.json');
 const surfaceRoot = path.join(coverageRoot, 'surfaces');
 const inspectorPath = path.join(coverageRoot, 'inspect-route-view-navigation.php');
 const originalReadFileSync = fs.readFileSync.bind(fs);
+
+function evidencePathFromArguments() {
+  const argument = process.argv.slice(2).find((entry) => entry.startsWith('--evidence='));
+  if (!argument) return defaultEvidencePath;
+  return path.resolve(process.cwd(), argument.slice('--evidence='.length).trim());
+}
 
 function asReadResult(content, options) {
   if (typeof options === 'string' || options?.encoding) return content;
   return Buffer.from(content);
 }
 
+const evidencePath = evidencePathFromArguments();
 const manifest = JSON.parse(originalReadFileSync(manifestPath, 'utf8'));
 const surfaces = [...(Array.isArray(manifest.surfaces) ? manifest.surfaces : [])];
 if (fs.existsSync(surfaceRoot)) {
