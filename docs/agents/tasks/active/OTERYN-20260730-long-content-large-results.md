@@ -44,7 +44,7 @@ updated_at: 2026-07-31T08:24:00Z
 head: a3a720e5d592ab870918566efd363b445a6b59a8
 branch: main
 pr: 363
-status: completed
+status: ready
 context_routes:
   - agent-governance
   - testing
