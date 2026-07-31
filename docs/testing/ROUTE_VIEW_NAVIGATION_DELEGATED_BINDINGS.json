@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "bindings": [
+    {
+      "route_name": "support.index",
+      "view": "support.editorial.show",
+      "source": {
+        "file": "app/Support/PublicEditorialPage.php",
+        "markers": [
+          "response()->view('support.editorial.show'",
+          "function render"
+        ]
+      }
+    },
+    {
+      "route_name": "support.report-a-bug",
+      "view": "support.editorial.show",
+      "source": {
+        "file": "app/Support/PublicEditorialPage.php",
+        "markers": [
+          "response()->view('support.editorial.show'",
+          "function render"
+        ]
+      }
+    }
+  ]
+}

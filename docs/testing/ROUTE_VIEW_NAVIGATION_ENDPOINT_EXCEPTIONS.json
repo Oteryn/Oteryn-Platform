@@ -1,0 +1,10 @@
+{
+  "schema_version": 1,
+  "route_overrides": [
+    {
+      "exact": "admin.wiki.media.index",
+      "kind": "resource_supporting",
+      "rationale": "The administrator Wiki media index returns a private JSON library consumed by the article editor rather than a standalone rendered portal screen or navigation destination."
+    }
+  ]
+}
