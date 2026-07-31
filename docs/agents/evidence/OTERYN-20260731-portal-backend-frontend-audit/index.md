@@ -87,7 +87,7 @@ Results:
 
 The artifact explicitly records `FULL_ACCEPTANCE_NOT_EXECUTED`, `VISUAL_UX_NOT_EXECUTED` and `PRODUCTION_SMOKE_PENDING`.
 
-## Issue #365 historical evidence
+## Issue #365 corrected historical analysis
 
 Reviewed exact artifacts:
 
@@ -96,23 +96,45 @@ Reviewed exact artifacts:
 | `30562698853` | `35f39b48233b186502cbdcc05aec7ffc40e78fc7` | `90939481510` | `8767657461` | `8af4dedd1e213108a2599df303f45de7bf22caf603c180f7607ad5d8395a85c6` |
 | `30578806660` | `fb1bbac96c0dcd0096aef55c2c8c752e453b6ddb` | `90993603962` | `8773887288` | `4a514e4a53d427599f07e0a22ad7cd918a154187e6ddd837e707ece2c14e96f2` |
 
+### Publication flash
+
 Both runs prove:
 
 - desktop and tablet completed the Wiki flow;
-- mobile alone lost the expected accessible publication flash while the redirected page showed `Published`, version 3 and `Unpublish to draft`;
-- repeated GET `/admin/wiki/media/{id}/thumbnail` HTTP 500 responses followed the same pattern in both runs:
-  - desktop 9 responses across IDs 1, 3, 5;
-  - tablet 12 across IDs 1, 3, 5, 7;
-  - mobile 16 across IDs 1, 3, 5, 7, 9;
-- two Chromium console errors per viewport came from invalid HTML pattern `[a-z0-9]+([._-][a-z0-9]+)*` on category-create and article-create pages.
+- mobile alone lost the expected accessible publication flash;
+- the redirected page showed `Published`, version 3 and `Unpublish to draft`;
+- durable publication succeeded.
 
-Frozen source retains the same invalid HTML pattern in the two administrator Wiki forms. Laravel request validation independently retains the intended regex. No shared cause among thumbnail failure, flash loss and pattern errors is proven.
+### Thumbnail traffic
+
+Both runs recorded the same GET `/admin/wiki/media/{id}/thumbnail` pattern:
+
+- desktop: 9 HTTP 500 responses across IDs 1, 3, 5;
+- tablet: 12 across IDs 1, 3, 5, 7;
+- mobile: 16 across IDs 1, 3, 5, 7, 9.
+
+Static source and exact report ordering explain these responses:
+
+1. `admin-wiki-editorial-media.spec.mjs` seeds media, intentionally corrupts and removes stored files, but leaves rows and performs no reset.
+2. Portability projects leave damaged odd-numbered rows 1, 3 and 5.
+3. Responsive administration runs before the corresponding Wiki media mutator in each viewport.
+4. The stale set therefore grows to 1/3/5, then 1/3/5/7, then 1/3/5/7/9.
+5. `WikiEditorialMediaFileResponse` detects the missing/integrity-failed object.
+6. The dedicated Editorial Media fallback test explicitly expects HTTP 500 for an intentionally corrupt thumbnail and verifies accessible fallback rendering.
+
+The historical 500s are thus `PROVEN` acceptance fixture leakage and expected integrity-failure traffic. They do not prove valid production media failure.
+
+### Invalid HTML pattern
+
+Both artifacts also recorded two Chromium console errors per viewport from `[a-z0-9]+([._-][a-z0-9]+)*`. Frozen source retains this pattern on category stable key and article content type fields. Laravel request validation independently retains the intended regex.
+
+No shared cause among fixture leakage, flash loss and invalid pattern errors is proven.
 
 ## Normalized finding index
 
 | Finding | Severity | State | Summary |
 |---|---|---|---|
-| `OTERYN-AUDIT-P35-006` | HIGH | PROVEN historical CI | Wiki editorial thumbnail requests returned repeated HTTP 500 responses |
+| `OTERYN-AUDIT-P35-006` | MEDIUM | PROVEN source + historical CI | Wiki acceptance profiles leak intentionally damaged EditorialMedia rows into later tests |
 | `OTERYN-AUDIT-P35-001` | MEDIUM | PROVEN | content-scale strict closure omits nine canonical fragment surfaces |
 | `OTERYN-AUDIT-P35-002` | MEDIUM | PROVEN | dedicated global error matrix omits HTTP 503 |
 | `OTERYN-AUDIT-P35-003` | MEDIUM | DERIVED | accessibility evidence is not fail-closed per rendered surface |
@@ -120,7 +142,7 @@ Frozen source retains the same invalid HTML pattern in the two administrator Wik
 | `OTERYN-AUDIT-P35-007` | MEDIUM | PROVEN source + historical CI | invalid HTML pattern weakens native Wiki form validation and emits console errors |
 | `OTERYN-AUDIT-P1-001` | LOW | CONFLICT | `ACTIVE_WORK.md` conflicts with live PR/task state |
 
-Totals: **1 HIGH, 5 MEDIUM, 1 LOW**.
+Totals: **0 HIGH, 6 MEDIUM, 1 LOW**.
 
 ## Durable artifacts
 
@@ -129,22 +151,23 @@ Totals: **1 HIGH, 5 MEDIUM, 1 LOW**.
 - `baseline.json` — frozen baseline, tooling constraints, open-PR and deployment boundaries.
 - `phase-1-surface-inventory.json` — canonical 27-surface inventory.
 - `phase-2-capability-reconciliation.json` — 43-capability backend/frontend/integration matrix.
-- `phase-3-5-state-browser-evidence.json` — state, browser, deployment and Issue #365 matrix.
-- `phase-3-5-addendum.json` — P35-007 and normalized totals.
+- `phase-3-5-state-browser-evidence.json` — original state/browser matrix.
+- `phase-3-5-addendum.json` — normalized severity override, P35-007 and corrected totals.
 
 ### Human-readable reports
 
-- `../../reports/OTERYN-20260731-portal-backend-frontend-audit.md` — consolidated current report.
+- `../../reports/OTERYN-20260731-portal-backend-frontend-audit.md` — corrected consolidated report.
 - `../../reports/OTERYN-20260731-portal-backend-frontend-audit-addendum.md` — detailed P35-007 source/history analysis.
 - `../../reports/OTERYN-20260731-portal-backend-frontend-audit-baseline.md`.
 - `../../reports/OTERYN-20260731-portal-backend-frontend-audit-phase-1-inventory.md`.
 - `../../reports/OTERYN-20260731-portal-backend-frontend-audit-phase-2-capabilities.md`.
 - `../../reports/OTERYN-20260731-portal-backend-frontend-audit-phase-3-5-states-browser.md`.
 
-### Validator handoff
+### Issue #365 and validator handoff
 
-- `ISSUE_365_HISTORICAL_ARTIFACT_REVIEW.md` — exact hashes, per-viewport counts and causality boundaries.
-- `VALIDATOR_PACKET.md` — exact frozen-target checkout, strict contract, three-run focused Wiki probe, adversarial finding review, unauthorized-change check and final verdict contract.
+- `ISSUE_365_HISTORICAL_ARTIFACT_REVIEW.md` — exact hashes, per-viewport counts and original evidence boundaries.
+- `ISSUE_365_STATIC_CAUSE_ANALYSIS.md` — proven stale-fixture execution chain and severity correction.
+- `VALIDATOR_PACKET.md` — exact frozen-target checkout, strict contract, focused Wiki probe, adversarial review and verdict contract.
 - `INDEPENDENT_VALIDATION.md` — pending a fresh checkout-capable validator session.
 
 ## Open-PR boundary
@@ -159,10 +182,12 @@ GitHub API and preserved CI artifacts enabled source, runtime-contract and histo
 
 ## Completion gate
 
-The audit remains `BLOCKED` until a fresh validator follows `VALIDATOR_PACKET.md`, executes at least three independent zero-retry focused Issue #365 probes on the exact frozen target with sanitized application/server logs, and publishes exactly one verdict:
+The audit remains `BLOCKED` until a fresh validator:
 
-- `VALIDATED`;
-- `VALIDATED_WITH_CORRECTIONS`;
-- `REJECTED`.
+- independently verifies the stale-fixture chain;
+- runs at least three clean isolated zero-retry Issue #365 probes;
+- runs one controlled polluted comparison;
+- captures sanitized application/server logs;
+- publishes exactly one verdict: `VALIDATED`, `VALIDATED_WITH_CORRECTIONS`, or `REJECTED`.
 
-`VALIDATED` is forbidden when the exact-target focused execution is absent or inconclusive. No merge, deployment or production action is authorized by this audit.
+`VALIDATED` is forbidden when exact-target focused execution is absent or inconclusive. No merge, deployment or production action is authorized by this audit.
