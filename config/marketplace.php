@@ -7,6 +7,7 @@ return [
     // Runtime environments are fail-closed. The isolated PHPUnit/acceptance
     // harnesses retain their deterministic fixture default. Every other runtime
     // requires the reviewed escrow, transfer credential, scheduler and control gate.
+    // Trusted-main staging refreshes still execute through that guarded control.
     'enabled' => (bool) env('MARKETPLACE_ENABLED', $isolatedTestDefault),
     'currency_name' => 'Oteryn Coins',
     'escrow_canary_account_id' => (int) env('MARKETPLACE_ESCROW_CANARY_ACCOUNT_ID', 0),
