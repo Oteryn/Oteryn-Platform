@@ -1,0 +1,70 @@
+name: Snapshot Public HTTPS Staging Deploy
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - .github/workflows/snapshot-public-https-deploy.yml
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  snapshot:
+    runs-on: ubuntu-latest
+    env:
+      TARGET_SHA: 6bfbc5f351758392d144baf0d2877a290ec69535
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Print exact trusted-main workflow state
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          import os
+          import urllib.request
+
+          repository = os.environ['GITHUB_REPOSITORY']
+          target_sha = os.environ['TARGET_SHA']
+          token = os.environ['GH_TOKEN']
+          required = {
+              'Build Synology Staging Images',
+              'Character Bazaar Staging Control',
+          }
+          request = urllib.request.Request(
+              f'https://api.github.com/repos/{repository}/actions/runs?head_sha={target_sha}&per_page=100',
+              headers={
+                  'Accept': 'application/vnd.github+json',
+                  'Authorization': f'Bearer {token}',
+                  'X-GitHub-Api-Version': '2022-11-28',
+                  'User-Agent': 'oteryn-public-https-deploy-snapshot',
+              },
+          )
+          with urllib.request.urlopen(request, timeout=20) as response:
+              payload = json.load(response)
+
+          latest = {}
+          for run in payload.get('workflow_runs', []):
+              if run.get('event') != 'push' or run.get('name') not in required:
+                  continue
+              name = run['name']
+              if name not in latest or run['id'] > latest[name]['id']:
+                  latest[name] = run
+
+          if set(latest) != required:
+              raise SystemExit(f'Missing expected workflow runs: {sorted(required - set(latest))}')
+
+          result = {
+              name: {
+                  'id': run['id'],
+                  'status': run['status'],
+                  'conclusion': run.get('conclusion'),
+                  'html_url': run['html_url'],
+              }
+              for name, run in sorted(latest.items())
+          }
+          print('PUBLIC_HTTPS_STAGING_SNAPSHOT ' + json.dumps(result, sort_keys=True))
+          PY
