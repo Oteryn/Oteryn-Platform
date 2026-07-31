@@ -24,7 +24,7 @@ function relativePath(string $file, string $repoRoot): string
 /**
  * @return array{views:list<array{name:string,file:string,line:int}>,sources:list<array{file:string,start_line:int,end_line:int,callable:string}>,has_redirect:bool,has_resource_response:bool,has_dynamic_view:bool}
  */
-function inspectCallable(ReflectionFunctionAbstract $reflection, string $repoRoot, array &$seen): array
+function inspectCallable(ReflectionFunctionAbstract $reflection, string $repoRoot, ArrayObject $seen): array
 {
     $file = $reflection->getFileName();
     $key = ($file ?: '<internal>').':'.$reflection->getStartLine().':'.$reflection->getName();
@@ -39,7 +39,7 @@ function inspectCallable(ReflectionFunctionAbstract $reflection, string $repoRoo
     }
     $seen[$key] = true;
 
-    if (! is_string($file) || ! is_file($file)) {
+    if (is_string($file) === false || is_file($file) === false) {
         return [
             'views' => [],
             'sources' => [],
@@ -65,7 +65,7 @@ function inspectCallable(ReflectionFunctionAbstract $reflection, string $repoRoo
         '/(?:View::make|response\(\)->view|->view)\s*\(\s*([\'\"])([^\'\"]+)\1/u',
     ];
     foreach ($viewPatterns as $pattern) {
-        if (! preg_match_all($pattern, $source, $matches, PREG_OFFSET_CAPTURE)) {
+        if (preg_match_all($pattern, $source, $matches, PREG_OFFSET_CAPTURE) < 1) {
             continue;
         }
         foreach ($matches[2] as [$name, $offset]) {
@@ -86,7 +86,7 @@ function inspectCallable(ReflectionFunctionAbstract $reflection, string $repoRoo
         $class = $reflection->getDeclaringClass();
         if (preg_match_all('/(?:\$this->|self::|static::)([A-Za-z_][A-Za-z0-9_]*)\s*\(/u', $source, $calledMethods)) {
             foreach (array_unique($calledMethods[1]) as $methodName) {
-                if ($methodName === $reflection->getName() || ! $class->hasMethod($methodName)) {
+                if ($methodName === $reflection->getName() || $class->hasMethod($methodName) === false) {
                     continue;
                 }
                 $nested = inspectCallable($class->getMethod($methodName), $repoRoot, $seen);
@@ -125,7 +125,7 @@ function reflectRouteAction(Route $route): ?ReflectionFunctionAbstract
         return new ReflectionMethod($uses[0], (string) $uses[1]);
     }
 
-    if (! is_string($uses) || $uses === '') {
+    if (is_string($uses) === false || $uses === '') {
         return null;
     }
 
@@ -143,7 +143,7 @@ function reflectRouteAction(Route $route): ?ReflectionFunctionAbstract
 
 $records = [];
 foreach ($app['router']->getRoutes() as $route) {
-    if (! $route instanceof Route) {
+    if (($route instanceof Route) === false) {
         continue;
     }
 
@@ -153,7 +153,7 @@ foreach ($app['router']->getRoutes() as $route) {
     }
 
     $reflection = reflectRouteAction($route);
-    $seen = [];
+    $seen = new ArrayObject;
     $inspection = $reflection
         ? inspectCallable($reflection, $repoRoot, $seen)
         : [
@@ -182,15 +182,14 @@ foreach ($app['router']->getRoutes() as $route) {
         ];
     }
 
-    $records[] = [
+    $records[] = array_merge([
         'name' => $name,
         'methods' => array_values(array_filter($route->methods(), static fn (string $method): bool => $method !== 'HEAD')),
         'uri' => $route->uri(),
         'action' => $route->getActionName(),
         'middleware' => array_values($route->gatherMiddleware()),
         'defaults' => $safeDefaults,
-        ...$inspection,
-    ];
+    ], $inspection);
 }
 
 usort($records, static fn (array $left, array $right): int => $left['name'] <=> $right['name']);
