@@ -2,7 +2,7 @@
 
 Task: `OTERYN-20260731-portal-backend-frontend-audit`  
 Frozen target: `b6f7b12a43aa72a52dc98c3fa07a7c4607fcb608`  
-This addendum extends the consolidated report and updates the normalized finding total to **one HIGH, five MEDIUM and one LOW**.
+This addendum extends the consolidated report. After the separate Issue #365 fixture-isolation correction, the normalized finding total is **zero HIGH, six MEDIUM and one LOW**.
 
 ## OTERYN-AUDIT-P35-007 — Invalid HTML pattern weakens native validation on two Wiki administrator fields
 
@@ -78,4 +78,4 @@ The pattern was identical across historical heads `35f39b...`, `fb1bba...` and t
 - the same literal remains in frozen source;
 - Laravel request validation still enforces the intended syntax, so there is no proven authorization, security or persisted-data bypass.
 
-The finding is independent from the publication-flash and thumbnail-500 symptoms. No shared cause is claimed.
+The finding is independent from the publication-flash symptom and the proven Wiki EditorialMedia fixture-isolation leak. No shared cause is claimed.
