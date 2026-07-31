@@ -30,41 +30,65 @@ jobs:
         run: |
           set -euo pipefail
 
+          response_file="$(mktemp)"
+          body_file="$(mktemp)"
+          trap 'rm -f "$response_file" "$body_file"' EXIT
+
+          query_result='success'
+          if ! gh api \
+            "repos/${GITHUB_REPOSITORY}/actions/runs?branch=main&per_page=100" \
+            >"$response_file" 2>/dev/null; then
+            query_result='failed'
+            printf '{"workflow_runs":[]}' >"$response_file"
+          fi
+
           latest="$(
-            gh api \
-              "repos/${GITHUB_REPOSITORY}/actions/workflows/character-bazaar-staging-control.yml/runs?branch=main&per_page=20" \
-              --jq '.workflow_runs | map(select(.event == "push" or .event == "workflow_dispatch")) | first | {id, status, conclusion, head_sha, event, run_attempt, created_at, updated_at, html_url}'
+            jq -c '
+              [
+                .workflow_runs[]
+                | select(.name == "Character Bazaar Staging Control")
+                | select(.event == "push" or .event == "workflow_dispatch")
+                | {id, status, conclusion, head_sha, event, run_attempt, created_at, updated_at, html_url}
+              ]
+              | first // {}
+            ' "$response_file"
           )"
 
           run_id="$(jq -r '.id // empty' <<<"$latest")"
-          if [[ -z "$run_id" ]]; then
-            echo 'No Character Bazaar staging control run exists on main.' >&2
-            exit 1
+          status="$(jq -r '.status // "not_found"' <<<"$latest")"
+          conclusion="$(jq -r '.conclusion // "pending"' <<<"$latest")"
+          head_sha="$(jq -r '.head_sha // "none"' <<<"$latest")"
+          event="$(jq -r '.event // "none"' <<<"$latest")"
+          run_attempt="$(jq -r '.run_attempt // "none"' <<<"$latest")"
+          created_at="$(jq -r '.created_at // "none"' <<<"$latest")"
+          updated_at="$(jq -r '.updated_at // "none"' <<<"$latest")"
+          run_url="$(jq -r '.html_url // ""' <<<"$latest")"
+
+          if [[ "$query_result" == 'failed' ]]; then
+            classification='STATUS_QUERY_FAILED'
+          elif [[ -z "$run_id" ]]; then
+            classification='CONTROL_RUN_NOT_FOUND'
+          else
+            case "${status}:${conclusion}" in
+              completed:success) classification='CONTROL_SUCCESS_REPORTED';;
+              completed:*) classification='STAGING_NOT_PROVEN';;
+              queued:*|in_progress:*|pending:*) classification='WAITING';;
+              *) classification='UNKNOWN';;
+            esac
           fi
 
-          status="$(jq -r '.status' <<<"$latest")"
-          conclusion="$(jq -r '.conclusion // "pending"' <<<"$latest")"
-          head_sha="$(jq -r '.head_sha' <<<"$latest")"
-          event="$(jq -r '.event' <<<"$latest")"
-          run_attempt="$(jq -r '.run_attempt' <<<"$latest")"
-          created_at="$(jq -r '.created_at' <<<"$latest")"
-          updated_at="$(jq -r '.updated_at' <<<"$latest")"
-          run_url="$(jq -r '.html_url' <<<"$latest")"
+          if [[ -n "$run_id" && -n "$run_url" ]]; then
+            run_display="[${run_id}](${run_url})"
+          else
+            run_display='none'
+          fi
 
-          case "${status}:${conclusion}" in
-            completed:success) classification='CONTROL_SUCCESS_REPORTED';;
-            completed:*) classification='STAGING_NOT_PROVEN';;
-            queued:*|in_progress:*|pending:*) classification='WAITING';;
-            *) classification='UNKNOWN';;
-          esac
-
-          body_file="$(mktemp)"
-          trap 'rm -f "$body_file"' EXIT
           cat >"$body_file" <<EOF
           ## Character Bazaar staging control status
 
           - classification: \`${classification}\`
-          - run: [${run_id}](${run_url})
+          - status-query: \`${query_result}\`
+          - run: ${run_display}
           - exact source SHA: \`${head_sha}\`
           - trigger: \`${event}\`
           - status: \`${status}\`
