@@ -10,8 +10,10 @@ on:
       - 'deploy/synology/compose.marketplace.yml'
       - 'deploy/synology/scripts/marketplace-staging.sh'
       - 'deploy/synology/.env.example'
+      - '.github/workflows/character-bazaar-staging-control.yml'
       - '.github/workflows/character-bazaar-staging-validation.yml'
       - 'docs/operations/MARKETPLACE_OPERATIONS.md'
+      - 'docs/operations/MARKETPLACE_STAGING_ENABLEMENT.md'
   push:
     branches:
       - main
@@ -21,8 +23,10 @@ on:
       - 'deploy/synology/compose.marketplace.yml'
       - 'deploy/synology/scripts/marketplace-staging.sh'
       - 'deploy/synology/.env.example'
+      - '.github/workflows/character-bazaar-staging-control.yml'
       - '.github/workflows/character-bazaar-staging-validation.yml'
       - 'docs/operations/MARKETPLACE_OPERATIONS.md'
+      - 'docs/operations/MARKETPLACE_STAGING_ENABLEMENT.md'
   workflow_dispatch:
 
 permissions:
@@ -40,8 +44,26 @@ jobs:
       - name: Checkout exact source
         uses: actions/checkout@v7
 
-      - name: Validate shell syntax
-        run: bash -n deploy/synology/scripts/marketplace-staging.sh
+      - name: Validate shell and workflow syntax
+        run: |
+          set -euo pipefail
+          bash -n deploy/synology/scripts/marketplace-staging.sh
+          ruby -e 'require "yaml"; abort("invalid workflow YAML") unless YAML.parse_file(ARGV.fetch(0))' \
+            .github/workflows/character-bazaar-staging-control.yml
+
+      - name: Validate guarded control contract
+        run: |
+          set -euo pipefail
+          control=.github/workflows/character-bazaar-staging-control.yml
+          grep -Fq "contains(github.event.head_commit.message, '[character-bazaar-staging]')" "$control"
+          grep -Fq 'group: synology-staging-deployment' "$control"
+          grep -Fq 'environment: synology-staging' "$control"
+          grep -Fq 'marketplace.env' "$control"
+          grep -Fq 'marketplace-staging.sh prepare-rollback' "$control"
+          if grep -Fq 'OTERYN_STAGING_CANARY_CHARACTER_TRANSFER_DB_PASSWORD' "$control"; then
+            echo 'The transfer secret must be generated and retained only on the staging runner state volume.' >&2
+            exit 1
+          fi
 
       - name: Validate fail-closed Compose overlay
         run: |
