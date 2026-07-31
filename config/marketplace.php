@@ -1,9 +1,13 @@
 <?php
 
-$defaultEnabled = env('APP_ENV', 'production') !== 'production';
+$environment = env('APP_ENV', 'production');
+$isolatedTestDefault = in_array($environment, ['testing', 'acceptance'], true);
 
 return [
-    'enabled' => (bool) env('MARKETPLACE_ENABLED', $defaultEnabled),
+    // Runtime environments are fail-closed. The isolated PHPUnit/acceptance
+    // harnesses retain their deterministic fixture default and deployments must
+    // opt in explicitly after every escrow, credential and scheduler prerequisite.
+    'enabled' => (bool) env('MARKETPLACE_ENABLED', $isolatedTestDefault),
     'currency_name' => 'Oteryn Coins',
     'escrow_canary_account_id' => (int) env('MARKETPLACE_ESCROW_CANARY_ACCOUNT_ID', 0),
     'allowed_duration_days' => [1, 3, 7],
