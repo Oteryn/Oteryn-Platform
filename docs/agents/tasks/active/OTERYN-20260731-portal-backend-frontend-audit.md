@@ -20,6 +20,9 @@ required_reads:
   - docs/agents/ACTIVE_WORK.md
   - docs/agents/BUILD_TEST_MATRIX.md
   - docs/architecture/TEST_STRATEGY.md
+  - docs/agents/evidence/OTERYN-20260731-portal-backend-frontend-audit/VALIDATOR_PACKET.md
+  - docs/agents/evidence/OTERYN-20260731-portal-backend-frontend-audit/VALIDATOR_PACKET_ADDENDUM.md
+  - docs/agents/evidence/OTERYN-20260731-portal-backend-frontend-audit/ISSUE_365_STATIC_CAUSE_ANALYSIS.md
 search_first:
   - current main exact SHA, active tasks, open PRs, owned paths and current CI
   - Issue #326 and Issue #365
@@ -35,15 +38,16 @@ Audit every currently delivered Oteryn Platform portal capability and determine,
 ## Acceptance criteria
 
 - [x] Record the exact `main` audit target SHA, tool/manifest baseline, open-PR delta and separately proven staging/production boundaries.
-- [x] Build one canonical delivered-surface inventory reconciled from route declarations, recovered runtime route evidence, rendered views/navigation, coverage manifests and product/backend-frontend ledgers.
+- [x] Build one canonical delivered-surface inventory reconciled from route declarations, recovered runtime evidence, views/navigation and machine ledgers.
 - [x] Classify every capability across backend, frontend, integration, states, browser evidence, deployment and final evidence state.
-- [x] Record conflicts, backend-only, frontend-only, unreachable, dormant and open-PR-only capabilities without promoting missing evidence to implementation proof.
-- [x] Execute or recover the staged static, application and browser validation evidence available for the frozen runtime code boundary.
-- [ ] Reproduce Issue #365 on the exact frozen audit target with focused Wiki execution and sanitized application/server logs.
-- [ ] Complete a fresh independent validator session and persist its separate validation artifact.
-- [x] Publish sanitized consolidated reports, machine-readable matrices, addenda and evidence index.
-- [x] Publish a self-contained validator packet for the two remaining acceptance criteria.
-- [x] Recommend the smallest safe remediation task set without implementing it.
+- [x] Record backend-only, frontend-only, unreachable, dormant and open-PR-only capabilities without false promotion.
+- [x] Recover the available strict application and critical browser evidence for the frozen runtime boundary.
+- [x] Deep-review both historical Issue #365 artifacts and preserve exact hashes, order and counts.
+- [x] Correct the historical thumbnail classification after proving acceptance fixture leakage.
+- [x] Publish consolidated reports, machine-readable matrices, static cause analysis and validator instructions.
+- [ ] Execute clean isolated and controlled polluted Issue #365 probes on the exact frozen target with sanitized logs.
+- [ ] Complete a fresh independent validator session and persist its separate verdict artifact.
+- [x] Recommend the smallest safe remediation set without implementing it.
 
 ## Ownership
 
@@ -59,21 +63,20 @@ modules:
 dependencies:
   - Issue #326
   - Issue #365
-  - current portal coverage and completeness ledgers
 blockers:
   - exact-target checkout/browser execution unavailable in the current session
-  - fresh independent validator session unavailable in the current session
+  - fresh independent validator identity unavailable in the current session
 cross_repository_tasks:
   - none
 ```
 
 ## Constraints
 
-- Audit-only: no changes to application, routes, views/assets, configuration, migrations/models, tests, workflows, product manifests, acceptance ledgers, dependencies or Canary.
-- Open-PR code is classified `OPEN_PR_ONLY` and never treated as `REPO_MAIN`.
+- Audit-only: no application, route, view/asset, configuration, migration/model, test, workflow, product/acceptance ledger, dependency or Canary changes.
+- Open-PR code remains `OPEN_PR_ONLY`.
 - Repository/CI evidence never implies staging or production deployment.
-- Production remains read-only and `UNKNOWN` unless direct exact-release evidence under Issue #91 exists.
-- Full logs, screenshots, traces and route dumps belong in sanitized evidence artifacts, not this checkpoint.
+- Production remains read-only and `UNKNOWN` without exact-release evidence.
+- Do not merge, deploy or repair findings in this task.
 
 ## Context checkpoint
 
@@ -84,10 +87,10 @@ phase: validate
 session_id: chat-20260731-portal-audit-003
 session_role: investigator
 execution_mode: chat-github-artifact-review
-execution_reason: live GitHub inspection plus preserved CI artifacts support static, recovered runtime and historical browser reconciliation; exact-target focused execution still requires a checkout-capable validator
-updated_at: 2026-07-31T18:50:01Z
+execution_reason: GitHub source plus preserved CI artifacts support static, recovered runtime and historical browser reconciliation; exact-target browser execution still requires a checkout-capable validator
+updated_at: 2026-07-31T19:00:00Z
 lease_expires_at: null
-head: 02b5326ddd02caa24464e103e21c990970673cd8
+head: 78559f4dc14bdcaf8fc9ec0258ac23a5b3485e40
 branch: audit/OTERYN-20260731-portal-backend-frontend-audit
 pr: 381
 status: blocked
@@ -115,45 +118,44 @@ session_rotation_count: 3
 stale_takeover_count: 0
 human_interruptions: 2
 proven:
-  - frozen audit target and current main are b6f7b12a43aa72a52dc98c3fa07a7c4607fcb608
-  - canonical inventory contains 27 surface groups and 228 named-route assignments
+  - frozen audit target is b6f7b12a43aa72a52dc98c3fa07a7c4607fcb608
+  - canonical inventory contains 27 surface groups and 228 manifest route assignments
   - capability ledger contains 43 records: 23 implemented, 3 partial, 14 missing and 3 not applicable
   - no user-facing backend-only or frontend-only implemented promotion was found
-  - recovered Portal Acceptance Contract run 30633216358 job 91164376176 artifact 8794204786 passed on exact source fdb45a4325949d3ab1c4860e3a4527553f11c789
+  - recovered Portal Acceptance Contract run 30633216358 job 91164376176 artifact 8794204786 passed on source fdb45a4325949d3ab1c4860e3a4527553f11c789
   - recovered runtime inventory contains 240 named routes, 126 rendered screens, 95 bound views, 400 navigation references and zero orphan views
   - recovered critical browser run 30633216753 job 91164367653 artifact 8794373786 passed smoke 7/7, portability 36/36, responsive 42/42, resilience 2/2 and accessibility 9/9 with zero retries
-  - direct browser artifact explicitly states full and visual acceptance were not executed
-  - historical Wiki flash loss is proven on runs 30562698853 and 30578806660 while durable publication succeeded
-  - historical Wiki thumbnail failures followed the same 9 desktop, 12 tablet and 16 mobile HTTP 500 response pattern in both preserved artifacts
-  - frozen source retains an invalid HTML pattern on Wiki category key and article content type fields while Laravel request validation independently enforces the intended grammar
-  - normalized findings are one HIGH, five MEDIUM and one LOW
-  - exact historical artifact hashes, detailed Issue #365 review and VALIDATOR_PACKET.md are persisted under the task evidence directory
-  - audit PR head 691544e2b0ef7aae6f452266cf3b4a7b1a170bdc passed all six emitted workflow families before the later evidence-only additions
+  - historical mobile Wiki publication lost accessible transient feedback while durable publication succeeded on runs 30562698853 and 30578806660
+  - Wiki media acceptance intentionally corrupts/removes stored objects, leaves rows without reset and exposes them to later projects
+  - exact historical ordering predicts and matches stale IDs 1/3/5, then 1/3/5/7, then 1/3/5/7/9 and response counts 9/12/16 in both runs
+  - the dedicated Editorial Media fallback test explicitly expects HTTP 500 for a deliberately corrupt thumbnail and verifies accessible fallback rendering
+  - historical thumbnail traffic therefore proves a MEDIUM acceptance isolation/evidence defect, not a HIGH valid-production-media failure
+  - frozen source retains an invalid HTML pattern on Wiki category key and article content type fields while Laravel request validation enforces the intended grammar
+  - normalized findings are zero HIGH, six MEDIUM and one LOW
   - latest exact staging evidence remains source 717977f252b09b9b2e979f8110b7f48b88682223, run 30633745660, job 91166065335 and artifact 8794683627
   - production remains unproven
 derived:
-  - runtime code at direct CI source fdb45a4325949d3ab1c4860e3a4527553f11c789 is equivalent to the frozen audit target because comparison changes only documentation and byte-identical Marketplace configuration
-  - content-scale and accessibility evidence architecture can omit a new or fragment surface while bounded validators remain green
-  - the unchanged invalid HTML pattern is expected to preserve the historical Chromium console defect, but fresh frozen-target browser reproduction remains required
+  - runtime code at direct CI source fdb45a4325949d3ab1c4860e3a4527553f11c789 is equivalent to frozen target because comparison changes only documentation and byte-identical Marketplace configuration
+  - order-dependent fixture leakage can contaminate unrelated browser diagnostics and request timing
+  - concurrent leaked thumbnail requests may have contributed to flash loss, but causality is not proven
 unknown:
-  - whether either Issue #365 symptom reproduces on the frozen target
+  - whether publication flash loss reproduces in a clean isolated frozen-target run
+  - whether controlled integrity-failure requests affect flash persistence
   - exact deployed staging state of the frozen target
   - exact production release and availability
-  - local installed PHP, Composer, Node and npm runtime versions
   - reduced-motion applicability per delivered surface
-  - result of a fresh independent exact-target validator session
+  - result of a fresh independent validator session
 conflicts:
-  - ACTIVE_WORK.md says no active tasks, while live open PRs include active task records and newer owned work
+  - ACTIVE_WORK.md says no active tasks while live open PRs include active task records and newer owned work
 first_failure:
   marker: strict content-scale contract classifies 18 of 27 canonical surfaces
   evidence: run 30633216358 job 91164376176 artifact 8794204786 and validate-portal-content-scale-evidence.mjs
 rejected_hypotheses:
-  - ACTIVE_WORK.md alone is authoritative for active work
-  - latest repository main automatically equals the proven staging source SHA
-  - recovered CI can be relabelled as exact audit-target CI or deployment proof
-  - the Wiki flash loss and thumbnail 500 responses have one proven cause
-  - broad critical browser success equals exhaustive every-screen visual acceptance
+  - historical thumbnail 500 responses prove valid production media fails
+  - the thumbnail traffic is random or unexplained
+  - the flash loss and thumbnail integrity failures have one proven cause
   - invalid browser-native pattern validation implies a backend validation bypass
+  - recovered CI can be relabelled as exact audit-target deployment proof
 changed_paths:
   - docs/agents/tasks/active/OTERYN-20260731-portal-backend-frontend-audit.md
   - docs/agents/reports/OTERYN-20260731-portal-backend-frontend-audit.md
@@ -169,37 +171,39 @@ changed_paths:
   - docs/agents/evidence/OTERYN-20260731-portal-backend-frontend-audit/phase-3-5-state-browser-evidence.json
   - docs/agents/evidence/OTERYN-20260731-portal-backend-frontend-audit/phase-3-5-addendum.json
   - docs/agents/evidence/OTERYN-20260731-portal-backend-frontend-audit/ISSUE_365_HISTORICAL_ARTIFACT_REVIEW.md
+  - docs/agents/evidence/OTERYN-20260731-portal-backend-frontend-audit/ISSUE_365_STATIC_CAUSE_ANALYSIS.md
   - docs/agents/evidence/OTERYN-20260731-portal-backend-frontend-audit/VALIDATOR_PACKET.md
+  - docs/agents/evidence/OTERYN-20260731-portal-backend-frontend-audit/VALIDATOR_PACKET_ADDENDUM.md
 validation:
-  - command: live GitHub repository, issues, open PRs, owned paths and frozen target preflight
+  - command: live GitHub source, routes, views, ledgers, issues, PRs and deployment-boundary review
     result: PASS
-    evidence: baseline and evidence index
+    evidence: consolidated report and evidence index
   - command: recovered Portal Acceptance Contract strict closure
     result: PASS
-    evidence: run 30633216358 job 91164376176 artifact 8794204786; finding P35-001 records the bounded content-scale scope
+    evidence: run 30633216358 job 91164376176 artifact 8794204786
   - command: recovered critical browser profiles
     result: PASS
-    evidence: run 30633216753 job 91164367653 artifact 8794373786; full and visual profiles were explicitly skipped
-  - command: historical Wiki artifact deep review
+    evidence: run 30633216753 job 91164367653 artifact 8794373786
+  - command: historical Issue #365 artifact hashes, diagnostics, JUnit ordering and responsive report analysis
     result: PASS
-    evidence: artifacts 8767657461 and 8773887288; hashes and exact per-viewport counts are recorded in ISSUE_365_HISTORICAL_ARTIFACT_REVIEW.md
-  - command: frozen-source Wiki HTML pattern and backend validation review
+    evidence: artifacts 8767657461 and 8773887288 plus ISSUE_365_HISTORICAL_ARTIFACT_REVIEW.md
+  - command: frozen-source fixture mutation, cleanup, response and fallback-contract analysis
     result: PASS
-    evidence: P35-007 addendum and phase-3-5-addendum.json
-  - command: audit PR exact-head workflow families after final checkpoint
+    evidence: ISSUE_365_STATIC_CAUSE_ANALYSIS.md and phase-3-5-addendum.json
+  - command: final audit PR exact-head workflow families
     result: NOT_RUN
-    evidence: final checkpoint commit must emit and complete its own checks
-  - command: focused frozen-target Wiki reproduction with application/server logs
+    evidence: this checkpoint commit must emit and complete its own checks
+  - command: clean isolated and controlled polluted frozen-target Wiki probes
     result: NOT_RUN
     evidence: no checkout-capable Laravel/Playwright environment
   - command: fresh independent exact-target validation
     result: NOT_RUN
-    evidence: fresh validator session unavailable in the current tool environment
+    evidence: independent validator session unavailable in current tool environment
 blockers:
   - exact-target checkout/browser execution and a fresh independent validator session are unavailable in the current tool environment
-next_action: start one fresh checkout-capable validator session using docs/agents/evidence/OTERYN-20260731-portal-backend-frontend-audit/VALIDATOR_PACKET.md on this same task, branch and frozen target
+next_action: start one fresh checkout-capable validator session using VALIDATOR_PACKET.md plus VALIDATOR_PACKET_ADDENDUM.md on the same task, branch and frozen target
 ```
 
 ## Notes
 
-The frozen audit target remains authoritative for classification. New `main` commits and open PRs are deltas. No implementation, merge, deployment or production action is authorized by this task.
+The frozen target remains authoritative. New `main` commits and open PRs are deltas. No implementation, merge, deployment or production action is authorized by this task.
