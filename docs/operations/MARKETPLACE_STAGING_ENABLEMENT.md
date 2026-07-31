@@ -2,45 +2,42 @@
 
 ## Status and boundary
 
-Character Bazaar application behavior was delivered by PR #270. This runbook covers only the missing Synology staging activation boundary.
+Character Bazaar application behavior was delivered by PR #270. This runbook covers only Synology staging activation and recovery.
 
-The repository package is fail-closed:
+The package is fail-closed:
 
-- `config/marketplace.php` enables Marketplace by default only in the isolated `testing` and `acceptance` harnesses;
 - normal local, staging and production runtimes require explicit `MARKETPLACE_ENABLED=true`;
-- `deploy/synology/compose.marketplace.yml` is a separate overlay, so the ordinary Synology deployment remains disabled;
-- the overlay adds no published port;
-- live staging secret changes and staging data mutation require a separate explicit user authorization;
+- `deploy/synology/compose.marketplace.yml` adds the private scheduler and transfer configuration without publishing a port;
+- staging mutations run only through `.github/workflows/character-bazaar-staging-control.yml`;
 - production is excluded.
 
-## Required exact runtime
+## Guarded control workflow
 
-Before any Marketplace control action, deploy the exact trusted-main Platform and Gateway images through `.github/workflows/deploy-synology-staging.yml` and verify the standard Synology health gate.
+The workflow accepts these actions:
 
-Do not run the Marketplace staging control against an older Platform image. The current image must contain:
+- `deploy-enable` — deploy an exact Platform/Gateway tag through the existing reviewed deploy script, then provision and enable Character Bazaar;
+- `enable` — provision or rotate the staging-only transfer principal and escrow sink, migrate, reconcile, enable routes and start the scheduler;
+- `verify` — verify the exact grants, unbound escrow identity, enabled Platform/scheduler environment and `/en/bazaar` route;
+- `prepare-rollback` — reconcile, reject non-terminal work, disable routes and remove the scheduler;
+- `rollback` — run `prepare-rollback` first and only then invoke the standard image rollback script.
 
-- `App\Marketplace\Actions\ReconcileCharacterAuctions`;
-- the `marketplace:reconcile` command and one-minute schedule;
-- the Character Bazaar migrations;
-- the character-transfer privilege verifier;
-- the reviewed transfer SQL template.
+The first trusted-main activation is marker-gated by `[character-bazaar-staging]`. Manual executions use `workflow_dispatch` and the `synology-staging` Environment. The workflow shares the `synology-staging-deployment` concurrency group with the standard deployment workflow.
 
-## Staging-only secret
+Once Character Bazaar is active, operators must use this Marketplace-aware workflow for Marketplace deploy, verification and rollback actions. Direct standard rollback is not an approved Marketplace recovery path because it does not perform the drain gate.
 
-The Synology staging Environment requires one new dedicated value:
+## Staging-only transfer secret
+
+The transfer password is generated with a cryptographically secure random source on the dedicated staging runner. It is never supplied through a browser, committed, printed or uploaded.
+
+The runner stores only these Marketplace control values in:
 
 ```text
-OTERYN_STAGING_CANARY_CHARACTER_TRANSFER_DB_PASSWORD
+${OTERYN_STAGING_STATE_DIR:-/var/lib/oteryn-staging-state}/marketplace.env
 ```
 
-Requirements:
+The file must remain mode `0600` inside the existing mode `0700` staging state directory. It contains the dedicated transfer password and reviewed Marketplace runtime identifiers. It must not contain unrelated Platform, Canary, root, service-token or user credentials.
 
-- randomly generated staging-only hex/alphanumeric value;
-- not reused from root, Canary, read-only, provisioning or character-create credentials;
-- never committed, printed, attached to artifacts or copied into task/PR text;
-- no production value may be used.
-
-Adding or changing this secret is a human approval gate. Repository validation does not create it.
+A prepared disabled state is written before the first database mutation. This preserves the generated credential for deterministic retry if a later enablement step fails. The final state is replaced atomically after the guarded action completes.
 
 ## Escrow identity
 
@@ -51,111 +48,83 @@ name: oteryn_bazaar_escrow
 creation marker: 1785456000
 ```
 
-The enable action must fail if the name already exists with another creation marker. On an explicitly authorized first enablement it creates the row with:
+The enable action fails if the name exists with another creation marker. On first authorized enablement it creates the row with:
 
 - empty email;
 - a generated one-way sink password hash whose plaintext is never retained;
 - no Platform Identity binding.
 
-Every authorized enablement rotates the sink hash. The account identifier is resolved from Canary and injected into both the Platform web process and Marketplace scheduler. The identifier is not accepted from browser input.
+Every authorized enablement rotates the sink hash. The Canary account identifier is resolved by the control script and injected into Platform and scheduler configuration; it is not accepted from browser input or recorded in shared evidence.
 
-## Compose boundary
+## Transfer privilege boundary
 
-Always combine the normal Synology manifest with the Marketplace overlay:
+The workflow renders `database/provisioning/canary-character-transfer.sql.template` only on staging and only with the dedicated operation-specific principal. The effective verifier must prove:
 
-```bash
-docker compose \
-  --env-file deploy/synology/.env \
-  -f deploy/synology/compose.yml \
-  -f deploy/synology/compose.marketplace.yml \
-  config --quiet
-```
+- `accounts.id` SELECT only;
+- approved `players` snapshot columns SELECT;
+- `players.account_id` UPDATE only;
+- approved `cluster_sessions` columns SELECT only;
+- no schema-wide privilege, wildcard write or grant option.
 
-The overlay provides:
+The principal may not reuse root, Canary game-process, read-only, provisioning or character-create credentials.
 
-- explicit Platform Marketplace/escrow/transfer environment;
-- one `marketplace-scheduler` process using the exact Platform image;
-- `php artisan schedule:work --no-interaction`;
-- shared Platform storage for the scheduler mutex and logs;
-- private-network-only database access;
-- no host bind.
+## Runtime sequence
 
-## Guarded actions
+The `enable` path performs this ordered sequence:
 
-`deploy/synology/scripts/marketplace-staging.sh` supports exactly three actions.
+1. verify the running Platform image contains the Marketplace implementation and recovery command;
+2. provision exact transfer grants;
+3. create or validate the reviewed escrow identity and rotate its sink hash;
+4. recreate Platform with Marketplace disabled;
+5. run migrations and verify effective grants;
+6. prove the escrow identity is unbound from Platform Identity records;
+7. run bounded reconciliation;
+8. recreate Platform with Marketplace enabled;
+9. start one `php artisan schedule:work --no-interaction` scheduler using the exact Platform image;
+10. refresh the private internal proxy after Platform recreation;
+11. verify scheduler state, grants, escrow configuration and `/en/bazaar`.
 
-### `enable`
+The scheduler shares Platform storage for mutex and logs, uses only the private Compose network and has no host port.
 
-This action mutates staging and must be separately authorized. It:
+## Rollback
 
-1. verifies the current Platform image contains the Marketplace implementation;
-2. renders the operation-specific transfer grants without logging the password;
-3. creates or validates the dedicated non-login escrow account;
-4. initially recreates Platform with Marketplace disabled;
-5. runs migrations and verifies effective transfer grants;
-6. proves the escrow account is not bound to a Platform Identity;
-7. runs a bounded reconciliation pass;
-8. recreates Platform with Marketplace enabled;
-9. starts the persistent scheduler;
-10. refreshes the internal proxy after the Platform container IP changes;
-11. verifies the public EN Bazaar route, scheduler state, grants and escrow configuration.
+`prepare-rollback` is mandatory before image rollback. It:
 
-### `verify`
-
-This is read-only with respect to application and Canary data. It resolves the reviewed escrow identity and verifies:
-
-- Platform and scheduler are running with Marketplace enabled;
-- both processes use a positive matching escrow identifier;
-- effective character-transfer grants remain exact;
-- the escrow account remains unbound;
-- `/en/bazaar` is reachable inside the Platform network namespace.
-
-### `prepare-rollback`
-
-This action changes staging runtime state and must be separately authorized. It:
-
-1. reconciles up to 1000 operations;
-2. rejects rollback while any active, pending or recovery-required auction remains;
-3. recreates Platform with Marketplace disabled;
-4. stops/removes the Marketplace scheduler;
+1. runs bounded reconciliation;
+2. rejects rollback while any `escrow_pending`, `active`, `settlement_pending`, `cancel_pending` or `recovery_required` auction exists;
+3. disables Marketplace routes;
+4. stops and removes the scheduler;
 5. refreshes the internal proxy;
-6. verifies Marketplace routes are absent.
+6. verifies the route is absent.
 
-Only after this action passes may the standard Synology image rollback workflow be used. Marketplace database migrations and ledger history are not rolled back automatically.
+Marketplace migrations, wallet ledger and auction history remain preserved. Never delete Marketplace rows or edit Canary ownership manually to force rollback.
 
-## Isolated validation
+## Evidence
 
-`.github/workflows/character-bazaar-staging-validation.yml` verifies on the exact PR head:
+The control workflow uploads sanitized evidence containing only:
 
-- shell syntax;
-- merged base/overlay Compose validity;
-- fail-closed Platform and scheduler defaults;
-- no scheduler host port;
-- exact Platform image reuse;
-- exact scheduler command and restart policy;
-- absence of checkout bind mounts;
-- fail-closed non-test runtime configuration.
+- action;
+- exact source SHA and workflow run ID;
+- exact Platform image reference;
+- enabled/disabled state;
+- scheduler count;
+- verifier and unbound-escrow PASS markers;
+- `STAGING_PROVEN` or `STAGING_CONTROLLED` classification;
+- `production_environment_proven: false`.
 
-This validation does not establish a deployed staging state and never establishes `PRODUCTION_PROVEN`.
+Do not include the transfer password, escrow account ID, user emails, Platform Identity IDs, Canary account IDs or raw database errors.
 
-## Evidence and stop conditions
-
-Record only sanitized evidence:
-
-- exact trusted-main SHA and exact deployed image tags;
-- workflow/run/job identifiers;
-- grant verifier PASS/FAIL;
-- escrow existence/unbound PASS/FAIL without account name beyond the reviewed constant or account ID if not needed;
-- scheduler and route PASS/FAIL;
-- first failure and one next action.
+## Stop conditions
 
 Stop immediately on:
 
-- missing or reused transfer credential;
-- current images not matching trusted main;
+- missing or unreadable runner state;
+- current image without Marketplace support;
 - escrow name/creation-marker conflict;
 - escrow Platform binding;
-- privilege-verifier failure;
-- reconciliation recovery-required result;
+- excessive or missing transfer privileges;
+- reconciliation exit `1` or `2`;
 - any non-terminal auction before rollback;
 - scheduler or route health failure.
+
+Repository CI and isolated staging-package validation do not prove live staging or production. Only a successful trusted-main control run may establish `STAGING_PROVEN`; it never establishes `PRODUCTION_PROVEN`.
