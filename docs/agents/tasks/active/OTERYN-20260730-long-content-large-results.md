@@ -40,9 +40,9 @@ Deliver Issue #362 as a bounded fail-closed audit and evidence contract for appl
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-07-31T08:22:00Z
-head: e10b308ffd1acca0907bbbc57e6cd33ac1544e4b
-branch: test/OTERYN-20260730-long-content-large-results
+updated_at: 2026-07-31T08:24:00Z
+head: a3a720e5d592ab870918566efd363b445a6b59a8
+branch: main
 pr: 363
 status: completed
 context_routes:
@@ -68,21 +68,21 @@ owned_paths:
   - resources/views/events/show.blade.php
   - routes/modules/wiki.php
 proven:
-  - PR #363 is open, mergeable and ready for review on validated SHA e10b308ffd1acca0907bbbc57e6cd33ac1544e4b.
+  - PR #363 merged into main as a3a720e5d592ab870918566efd363b445a6b59a8.
   - Issue #362 is closed as completed; parent Issue #326 remains open.
   - The evidence ledger classifies all 18 delivered surfaces and maps all 12 applicable consumers through two executable profiles and six evidence groups with zero gaps.
   - Deterministic fixtures cover long English values, fresh Polish translations and bounded multi-page collections through real Laravel routes and isolated dependencies.
   - A mobile event-detail heading containment defect was repaired without weakening assertions.
   - Wiki session writes are serialized, and tests wait for active authenticated thumbnail requests rather than lazy images outside the viewport.
-  - All 16 pull-request workflows passed on exact SHA e10b308ffd1acca0907bbbc57e6cd33ac1544e4b.
+  - All 16 pull-request workflows passed on exact implementation SHA e10b308ffd1acca0907bbbc57e6cd33ac1544e4b before merge.
 derived:
-  - Issue #362 acceptance criteria are complete for this bounded contract.
+  - Issue #362 acceptance criteria are complete and landed on main.
   - Parent #326 remains open for unrelated state permutations.
 unknown: []
 conflicts: []
 first_failure:
   marker: none
-  evidence: 16 of 16 exact-head workflows passed
+  evidence: 16 of 16 exact-head workflows passed before merge
 rejected_hypotheses:
   - Treat broad responsive smoke or CSS declarations as universal executable evidence.
   - Treat one visible page as proof of stable pagination.
@@ -126,5 +126,5 @@ validation:
     evidence: the 76-row long-value and stable page-two scenario passed on all three viewports
 blockers:
   - none
-next_action: Review and merge PR #363; keep parent Issue #326 open for unrelated completeness work.
+next_action: Continue parent Issue #326 through a separate bounded task.
 ```
