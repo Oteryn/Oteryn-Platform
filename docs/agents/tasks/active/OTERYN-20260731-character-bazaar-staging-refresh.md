@@ -61,9 +61,9 @@ session_id: chat-20260731-character-bazaar-staging-refresh
 session_role: operator
 execution_mode: chat-github
 execution_reason: existing reviewed workflow can be triggered and observed through narrow GitHub changes
-updated_at: 2026-07-31T13:06:00Z
-lease_expires_at: 2026-07-31T13:51:00Z
-head: 0fbe9ee49ea635a34c1de1a3f97585ad2bf85ab1
+updated_at: 2026-07-31T13:08:00Z
+lease_expires_at: 2026-07-31T13:53:00Z
+head: 0f4af60f53e9609d74b23032b00f1800ad785250
 branch: ops/OTERYN-20260731-character-bazaar-staging-refresh
 pr: 376
 status: validating
@@ -98,8 +98,8 @@ unknown:
   - final control run and evidence artifact identifiers
 conflicts: []
 first_failure:
-  marker: none
-  evidence: none
+  marker: unsupported checkpoint validation result RUNNING
+  evidence: Agent Governance run 30633102959 job 91163941883
 rejected_hypotheses:
   - rename staging as production
   - bypass the permanent Marketplace-aware rollback and reconciliation gate
@@ -111,11 +111,11 @@ validation:
     result: PASS
     evidence: current main workflows and PR/open-path search
   - command: exact-head GitHub Actions
-    result: RUNNING
-    evidence: PR #376
+    result: NOT_RUN
+    evidence: current final-head checks are pending after checkpoint repair
 blockers:
   - none
-next_action: verify every required workflow on the final PR head, then merge with the staging marker
+next_action: verify every required workflow on the repaired final PR head, then merge with the staging marker
 ```
 
 ## Notes
