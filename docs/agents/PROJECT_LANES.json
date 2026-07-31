@@ -1,5 +1,5 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "repository": "blakinio/Oteryn-Platform",
   "default_lane": "oteryn-platform-core",
   "task_globs": [
@@ -13,6 +13,113 @@
     "barrier_mode": "wave",
     "max_interactive_interruptions": 0
   },
+  "decomposition_policy": {
+    "objective": "minimum_task_count",
+    "default": "single",
+    "wall_time_is_not_split_trigger": true,
+    "prefer_before_split": [
+      "externalize_evidence",
+      "reduce_unrelated_scope",
+      "compact_checkpoint",
+      "finish_current_phase",
+      "rotate_session"
+    ],
+    "split_only_when": [
+      "independent_domains",
+      "conflicting_path_ownership",
+      "independent_acceptance_criteria",
+      "shared_context_cannot_be_reduced",
+      "safe_completion_remains_unlikely"
+    ]
+  },
+  "context_policy": {
+    "exact_token_estimate_required": false,
+    "assessment_dimensions": [
+      "scope_breadth",
+      "evidence_volume",
+      "history_dependency",
+      "iteration_uncertainty",
+      "parallel_hypotheses"
+    ],
+    "dimension_min": 0,
+    "dimension_max": 3,
+    "pressure_bands": {
+      "low": [0, 5],
+      "medium": [6, 9],
+      "high": [10, 12],
+      "unbounded": [13, 15]
+    },
+    "reassess_after": [
+      "discovery",
+      "first_full_execution",
+      "second_failed_repair_cycle",
+      "new_repository_or_independent_implementation"
+    ],
+    "high_pressure_action": "rotate_same_task_before_split"
+  },
+  "task_profiles": {
+    "discovery": {
+      "implementation_authorized": false,
+      "result_type": "decomposition"
+    },
+    "audit": {
+      "implementation_authorized": false,
+      "result_type": "findings"
+    },
+    "e2e": {
+      "implementation_authorized": "bounded",
+      "result_type": "execution_evidence"
+    },
+    "implementation": {
+      "implementation_authorized": true,
+      "result_type": "code"
+    },
+    "validation": {
+      "implementation_authorized": "repair_only_when_owned",
+      "result_type": "evidence"
+    }
+  },
+  "validation_policy": {
+    "focused_tests_during_work": true,
+    "component_gate_after_milestone": true,
+    "full_validation_timing": "after_coherent_implementation",
+    "heavy_validation_runs_expected": 1,
+    "max_full_attempts_per_session": 2,
+    "separate_validator_session": "preferred",
+    "full_logs_as_artifacts": true,
+    "analyze_first_relevant_failure_only": true,
+    "early_full_validation_triggers": [
+      "architecture_feasibility_unknown",
+      "build_system_changed",
+      "database_migration_changed",
+      "protocol_contract_changed",
+      "generated_output_changed",
+      "cross_repo_compatibility_primary_risk"
+    ]
+  },
+  "scope_expansion": {
+    "unrelated_findings": "record_only",
+    "product_defects": "recommendation_or_followup",
+    "architecture_change": "checkpoint_and_stop",
+    "minor_owned_fixes": "allowed_when_authorized"
+  },
+  "rollout": {
+    "policy_version": 2,
+    "new_tasks": "require_v2_fields",
+    "existing_tasks": "migrate_on_next_checkpoint",
+    "missing_fields": "warning_not_failure",
+    "enforcement_mode": "advisory"
+  },
+  "coordination_metrics": [
+    "active_tasks",
+    "active_sessions",
+    "legacy_tasks",
+    "session_rotations",
+    "task_splits",
+    "heavy_validation_runs",
+    "stale_takeovers",
+    "human_interruptions"
+  ],
   "lanes": [
     {
       "id": "oteryn-platform-bazaar",
