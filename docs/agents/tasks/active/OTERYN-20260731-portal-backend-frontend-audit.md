@@ -23,6 +23,7 @@ required_reads:
   - docs/agents/evidence/OTERYN-20260731-portal-backend-frontend-audit/VALIDATOR_PACKET.md
   - docs/agents/evidence/OTERYN-20260731-portal-backend-frontend-audit/VALIDATOR_PACKET_ADDENDUM.md
   - docs/agents/evidence/OTERYN-20260731-portal-backend-frontend-audit/ISSUE_365_STATIC_CAUSE_ANALYSIS.md
+  - docs/agents/evidence/OTERYN-20260731-portal-backend-frontend-audit/ISSUE_365_FLASH_REMEDIATION_EVIDENCE.md
 search_first:
   - current main exact SHA, active tasks, open PRs, owned paths and current CI
   - Issue #326 and Issue #365
@@ -37,14 +38,15 @@ Audit every currently delivered Oteryn Platform portal capability and determine,
 
 ## Acceptance criteria
 
-- [x] Record the exact `main` audit target SHA, tool/manifest baseline, open-PR delta and separately proven staging/production boundaries.
-- [x] Build one canonical delivered-surface inventory reconciled from route declarations, recovered runtime evidence, views/navigation and machine ledgers.
+- [x] Record the exact `main` audit target SHA, tool/manifest baseline, open-PR delta and staging/production boundaries.
+- [x] Build the canonical delivered-surface inventory from routes, recovered runtime evidence, views/navigation and machine ledgers.
 - [x] Classify every capability across backend, frontend, integration, states, browser evidence, deployment and final evidence state.
 - [x] Record backend-only, frontend-only, unreachable, dormant and open-PR-only capabilities without false promotion.
-- [x] Recover the available strict application and critical browser evidence for the frozen runtime boundary.
+- [x] Recover strict application and critical browser evidence for the frozen runtime boundary.
 - [x] Deep-review both historical Issue #365 artifacts and preserve exact hashes, order and counts.
 - [x] Correct the historical thumbnail classification after proving acceptance fixture leakage.
-- [x] Publish consolidated reports, machine-readable matrices, static cause analysis and validator instructions.
+- [x] Identify and bound the session-serialization remediation evidence for historical flash loss.
+- [x] Publish consolidated reports, machine-readable matrices, cause/remediation evidence and validator instructions.
 - [ ] Execute clean isolated and controlled polluted Issue #365 probes on the exact frozen target with sanitized logs.
 - [ ] Complete a fresh independent validator session and persist its separate verdict artifact.
 - [x] Recommend the smallest safe remediation set without implementing it.
@@ -88,9 +90,9 @@ session_id: chat-20260731-portal-audit-003
 session_role: investigator
 execution_mode: chat-github-artifact-review
 execution_reason: GitHub source plus preserved CI artifacts support static, recovered runtime and historical browser reconciliation; exact-target browser execution still requires a checkout-capable validator
-updated_at: 2026-07-31T19:00:00Z
+updated_at: 2026-07-31T19:15:00Z
 lease_expires_at: null
-head: 78559f4dc14bdcaf8fc9ec0258ac23a5b3485e40
+head: 7b435e01e8c3d6b870f006bead174f71f1f3a717
 branch: audit/OTERYN-20260731-portal-backend-frontend-audit
 pr: 381
 status: blocked
@@ -126,20 +128,26 @@ proven:
   - recovered runtime inventory contains 240 named routes, 126 rendered screens, 95 bound views, 400 navigation references and zero orphan views
   - recovered critical browser run 30633216753 job 91164367653 artifact 8794373786 passed smoke 7/7, portability 36/36, responsive 42/42, resilience 2/2 and accessibility 9/9 with zero retries
   - historical mobile Wiki publication lost accessible transient feedback while durable publication succeeded on runs 30562698853 and 30578806660
+  - historical heads lacked session blocking on administrator Wiki routes
+  - commit 6c1e910d36771f50da5eded93cc50274a90c62d2 adds session blocking to all administrator Wiki routes and is included in frozen source
+  - later direct source fdb45a uses the same blocking routes and Wiki media test blob as frozen source
+  - the Wiki media publication scenario explicitly asserts the publication flash and passes across Chromium, Firefox, WebKit, desktop, tablet, mobile and accessibility Chromium in run 30633216753
+  - the original administration scenario also passes across engines/viewports but no longer asserts the transient publication flash
+  - historical flash remediation is therefore PARTIALLY_PROVEN_REMEDIATED, not fully closed
   - Wiki media acceptance intentionally corrupts/removes stored objects, leaves rows without reset and exposes them to later projects
-  - exact historical ordering predicts and matches stale IDs 1/3/5, then 1/3/5/7, then 1/3/5/7/9 and response counts 9/12/16 in both runs
+  - historical ordering predicts and matches stale IDs 1/3/5, then 1/3/5/7, then 1/3/5/7/9 and response counts 9/12/16 in both runs
   - the dedicated Editorial Media fallback test explicitly expects HTTP 500 for a deliberately corrupt thumbnail and verifies accessible fallback rendering
-  - historical thumbnail traffic therefore proves a MEDIUM acceptance isolation/evidence defect, not a HIGH valid-production-media failure
+  - historical thumbnail traffic proves a MEDIUM acceptance isolation/evidence defect, not a HIGH valid-production-media failure
   - frozen source retains an invalid HTML pattern on Wiki category key and article content type fields while Laravel request validation enforces the intended grammar
   - normalized findings are zero HIGH, six MEDIUM and one LOW
   - latest exact staging evidence remains source 717977f252b09b9b2e979f8110b7f48b88682223, run 30633745660, job 91166065335 and artifact 8794683627
   - production remains unproven
 derived:
   - runtime code at direct CI source fdb45a4325949d3ab1c4860e3a4527553f11c789 is equivalent to frozen target because comparison changes only documentation and byte-identical Marketplace configuration
+  - session serialization is a strong candidate remediation for historical flash loss
   - order-dependent fixture leakage can contaminate unrelated browser diagnostics and request timing
-  - concurrent leaked thumbnail requests may have contributed to flash loss, but causality is not proven
 unknown:
-  - whether publication flash loss reproduces in a clean isolated frozen-target run
+  - publication flash in the exact original administration scenario on frozen target because the assertion was removed
   - whether controlled integrity-failure requests affect flash persistence
   - exact deployed staging state of the frozen target
   - exact production release and availability
@@ -154,6 +162,8 @@ rejected_hypotheses:
   - historical thumbnail 500 responses prove valid production media fails
   - the thumbnail traffic is random or unexplained
   - the flash loss and thumbnail integrity failures have one proven cause
+  - historical flash remediation has no later direct browser evidence
+  - related later flash evidence fully closes the original administration scenario
   - invalid browser-native pattern validation implies a backend validation bypass
   - recovered CI can be relabelled as exact audit-target deployment proof
 changed_paths:
@@ -172,6 +182,7 @@ changed_paths:
   - docs/agents/evidence/OTERYN-20260731-portal-backend-frontend-audit/phase-3-5-addendum.json
   - docs/agents/evidence/OTERYN-20260731-portal-backend-frontend-audit/ISSUE_365_HISTORICAL_ARTIFACT_REVIEW.md
   - docs/agents/evidence/OTERYN-20260731-portal-backend-frontend-audit/ISSUE_365_STATIC_CAUSE_ANALYSIS.md
+  - docs/agents/evidence/OTERYN-20260731-portal-backend-frontend-audit/ISSUE_365_FLASH_REMEDIATION_EVIDENCE.md
   - docs/agents/evidence/OTERYN-20260731-portal-backend-frontend-audit/VALIDATOR_PACKET.md
   - docs/agents/evidence/OTERYN-20260731-portal-backend-frontend-audit/VALIDATOR_PACKET_ADDENDUM.md
 validation:
@@ -190,6 +201,9 @@ validation:
   - command: frozen-source fixture mutation, cleanup, response and fallback-contract analysis
     result: PASS
     evidence: ISSUE_365_STATIC_CAUSE_ANALYSIS.md and phase-3-5-addendum.json
+  - command: session-serialization commit and later direct flash-asserting scenario analysis
+    result: PASS
+    evidence: ISSUE_365_FLASH_REMEDIATION_EVIDENCE.md, commit 6c1e910d36771f50da5eded93cc50274a90c62d2 and artifact 8794373786
   - command: final audit PR exact-head workflow families
     result: NOT_RUN
     evidence: this checkpoint commit must emit and complete its own checks
