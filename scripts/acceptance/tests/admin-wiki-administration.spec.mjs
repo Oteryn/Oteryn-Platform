@@ -116,9 +116,9 @@ test('@wiki-admin trusted editor creates, previews and publishes bilingual Wiki 
   await page.waitForLoadState('networkidle');
   await expect(page.getByRole('button', { name: 'Publish', exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Publish', exact: true }).click();
-  await expect(page.getByRole('status')).toContainText('Wiki article published.');
-  await expect(page.getByText(/Status:\s*Published/u)).toBeVisible();
+  await expect(page.getByText(/Status:\s*Published/i)).toBeVisible();
   await expect(page.getByRole('button', { name: 'Unpublish to draft' })).toBeVisible();
+  await expect(page.getByRole('status')).toContainText('Wiki article published.');
 
   await page.goto(`/en/wiki/${articleSlug}`);
   await expect(page.getByRole('heading', { name: articleTitle })).toBeVisible();
