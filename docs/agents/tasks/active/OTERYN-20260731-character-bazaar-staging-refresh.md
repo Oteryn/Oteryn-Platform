@@ -38,6 +38,7 @@ Deploy the current reviewed `main` release to the existing Synology staging envi
 ```yaml
 owned_paths:
   - config/marketplace.php
+  - .github/workflows/character-bazaar-staging-refresh-observer.yml
   - docs/agents/tasks/active/OTERYN-20260731-character-bazaar-staging-refresh.md
   - docs/agents/tasks/archive/OTERYN-20260731-character-bazaar-staging-refresh.md
 modules:
@@ -61,22 +62,23 @@ session_id: chat-20260731-character-bazaar-staging-refresh
 session_role: operator
 execution_mode: chat-github
 execution_reason: existing reviewed workflow can be triggered and observed through narrow GitHub changes
-updated_at: 2026-07-31T13:08:00Z
-lease_expires_at: 2026-07-31T13:53:00Z
-head: 0f4af60f53e9609d74b23032b00f1800ad785250
-branch: ops/OTERYN-20260731-character-bazaar-staging-refresh
-pr: 376
+updated_at: 2026-07-31T13:17:00Z
+lease_expires_at: 2026-07-31T14:02:00Z
+head: 717977f252b09b9b2e979f8110b7f48b88682223
+branch: ops/OTERYN-20260731-character-bazaar-staging-refresh-evidence
+pr: none
 status: validating
 context_routes:
   - agent-governance
   - testing
 owned_paths:
   - config/marketplace.php
+  - .github/workflows/character-bazaar-staging-refresh-observer.yml
   - docs/agents/tasks/active/OTERYN-20260731-character-bazaar-staging-refresh.md
   - docs/agents/tasks/archive/OTERYN-20260731-character-bazaar-staging-refresh.md
 context_pressure: medium
 context_growth: stable
-context_score: 6
+context_score: 7
 estimate_confidence: high
 decomposition_decision: single
 validation_level: full
@@ -85,37 +87,36 @@ session_rotation_count: 0
 stale_takeover_count: 0
 human_interruptions: 0
 proven:
-  - current main is 3ae15819b623e49c37a7c66d3240577a4f03e191
-  - prior exact Character Bazaar staging deploy-enable run 30623491990 passed
+  - PR #376 exact head fdb45a4325949d3ab1c4860e3a4527553f11c789 passed all ten required workflow families
+  - PR #376 merged with the trusted staging marker as 717977f252b09b9b2e979f8110b7f48b88682223
   - build workflow publishes exact SHA images for config changes
   - control workflow deploys only when the trusted-main merge message contains the Character Bazaar staging marker
-  - no open PR owns config/marketplace.php or the Character Bazaar control paths
-  - PR #376 contains only the task record and a comment-only Marketplace refresh marker
+  - the temporary observer is read-only and validates only sanitized control evidence
 derived:
-  - the trusted-main merge will trigger both exact image publication and the existing guarded control
+  - merge 717977f252b09b9b2e979f8110b7f48b88682223 triggered exact image publication and the permanent guarded control
 unknown:
-  - exact trusted-main merge SHA until PR merge
-  - final control run and evidence artifact identifiers
+  - final control run, control job and evidence artifact identifiers
 conflicts: []
 first_failure:
   marker: unsupported checkpoint validation result RUNNING
-  evidence: Agent Governance run 30633102959 job 91163941883
+  evidence: Agent Governance run 30633102959 job 91163941883; repaired on final PR head
 rejected_hypotheses:
   - rename staging as production
   - bypass the permanent Marketplace-aware rollback and reconciliation gate
 changed_paths:
   - config/marketplace.php
+  - .github/workflows/character-bazaar-staging-refresh-observer.yml
   - docs/agents/tasks/active/OTERYN-20260731-character-bazaar-staging-refresh.md
 validation:
   - command: repository and workflow contract inspection
     result: PASS
     evidence: current main workflows and PR/open-path search
-  - command: exact-head GitHub Actions
-    result: NOT_RUN
-    evidence: current final-head checks are pending after checkpoint repair
+  - command: exact-head GitHub Actions for PR #376
+    result: PASS
+    evidence: runs 30633216284, 30633216317, 30633216341, 30633216349, 30633216358, 30633216424, 30633216435, 30633216456, 30633216264 and 30633216753
 blockers:
   - none
-next_action: verify every required workflow on the repaired final PR head, then merge with the staging marker
+next_action: run the temporary read-only observer and capture the exact staging control artifact
 ```
 
 ## Notes
