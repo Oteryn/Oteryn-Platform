@@ -48,7 +48,7 @@ A localized `503` view exists, and public online dependency failure/restoration 
 
 ### Media
 
-All 27 surfaces are explicitly classified for media applicability. Only these rendered consumers require the complete media-state set:
+All 27 surfaces are explicitly classified for media applicability. Rendered consumers requiring the complete media-state set are:
 
 - `wiki.public`;
 - `wiki.admin-editorial-lifecycle`;
@@ -73,24 +73,54 @@ The validator can therefore pass without one explicit content-scale applicabilit
 
 Nine zero-retry accessibility tests passed. They cover representative keyboard navigation, visible focus, semantics and selected recovery paths. No fail-closed one-record-per-rendered-surface applicability/evidence matrix was found, and reduced-motion applicability remains `UNKNOWN`.
 
-## Issue #365
+## Issue #365 corrected analysis
 
-The two historical mobile reproductions remain independently proven:
+Historical artifacts:
 
 - SHA `35f39b48233b186502cbdcc05aec7ffc40e78fc7`, run `30562698853`, job `90939481510`, artifact `8767657461`;
 - SHA `fb1bbac96c0dcd0096aef55c2c8c752e453b6ddb`, run `30578806660`, job `90993603962`, artifact `8773887288`.
 
-In both runs the responsive-mobile test could not find the expected `role=status` publication message. The redirected form nevertheless displayed `Published`, version 3 and `Unpublish to draft`, proving durable publication succeeded while transient feedback was absent.
+### Publication feedback
 
-Issue #365 separately preserves multiple HTTP 500 thumbnail responses during the same historical page load. No shared cause between flash loss and thumbnail failure is proven.
+In both runs the responsive-mobile administration test could not find the expected `role=status` publication message. The redirected form nevertheless displayed `Published`, version 3 and `Unpublish to draft`, proving durable publication succeeded while transient feedback was absent.
 
-Neither symptom was executed on the frozen audit target in the current connector-only environment. Current-target status is `UNKNOWN`, not fixed, not reproduced or still present.
+### Thumbnail integrity-failure traffic
+
+Both runs recorded the same pattern during later Wiki administration tests:
+
+| Project | Damaged media IDs visible | HTTP 500 responses |
+|---|---|---:|
+| responsive desktop | 1, 3, 5 | 9 |
+| responsive tablet | 1, 3, 5, 7 | 12 |
+| responsive mobile | 1, 3, 5, 7, 9 | 16 |
+
+The source and exact report ordering explain the pattern:
+
+1. `admin-wiki-editorial-media.spec.mjs` seeds a media row.
+2. It intentionally corrupts and then removes stored objects for that row.
+3. It performs no EditorialMedia reset, so the row remains queryable.
+4. Portability projects leave damaged rows 1, 3 and 5.
+5. Responsive administration executes before the corresponding Wiki media mutator in each viewport, so the stale set grows by one odd ID after each project.
+6. `WikiEditorialMediaFileResponse` rejects missing/integrity-failed bytes.
+7. The dedicated Editorial Media fallback test explicitly expects HTTP 500 for a deliberately corrupt thumbnail and verifies accessible fallback rendering.
+
+Therefore the historical HTTP 500 traffic is a proven acceptance fixture-isolation defect and expected integrity-failure response, not proof that valid production thumbnails fail.
+
+### Invalid HTML pattern
+
+Both artifacts also recorded two Chromium console errors per viewport from the HTML pattern `[a-z0-9]+([._-][a-z0-9]+)*`. The identical literal remains in frozen source on the category stable-key and article content-type fields. Laravel request validation independently enforces the intended grammar.
+
+### Current-target boundary
+
+A clean isolated frozen-target Wiki run and a controlled polluted comparison were not executed in the current connector-only environment. Flash behavior remains `UNKNOWN` on the frozen target. The stale-fixture source defect is directly present on frozen source.
+
+No shared cause among fixture leakage, flash loss and invalid pattern errors is proven.
 
 ## Findings
 
-### HIGH — OTERYN-AUDIT-P35-006: Historical Wiki thumbnail HTTP 500 responses
+### MEDIUM — OTERYN-AUDIT-P35-006: Wiki media fixture isolation leak
 
-A core administrator media workflow produced repeated server errors and unavailable previews on two historical exact heads. Current-target status is unknown. Continue under existing Issue #365 and investigate thumbnail logs independently from session/flash behavior.
+The Wiki media spec leaves intentionally damaged media rows for later projects. This causes order-dependent diagnostics and repeated expected integrity-failure responses in unrelated lifecycle tests. Reset media fixtures before and after every Wiki media scenario, then test missing/corrupt fallback in a scoped controlled case.
 
 ### MEDIUM — OTERYN-AUDIT-P35-001: Content-scale closure omits nine surfaces
 
@@ -108,19 +138,34 @@ Representative accessibility evidence passes, but no complete per-surface applic
 
 Publication completed, but the accessible transient success announcement was absent in two zero-retry mobile runs.
 
+### MEDIUM — OTERYN-AUDIT-P35-007: Invalid Wiki HTML pattern
+
+Two administrator inputs contain an HTML pattern Chromium treats as an invalid regular expression. Native browser validation can be unreliable and the forms emit console errors, while server-side validation remains intact.
+
 ### INFO — OTERYN-AUDIT-P35-004: Critical browser evidence is not exhaustive visual acceptance
 
 The artifact states that full and visual profiles were skipped. Its claim must remain bounded.
 
-### INFO — OTERYN-AUDIT-P35-007: Current-target Wiki reproduction not run
+### INFO — Exact-target focused execution pending
 
-The frozen audit target cannot be classified for either Issue #365 symptom without a checkout-capable Laravel/Playwright run and sanitized logs.
+Clean isolated and controlled polluted exact-target probes remain unexecuted. This is an evidence boundary, not a separate numbered defect.
+
+## Corrected totals
+
+- HIGH: `0`;
+- MEDIUM: `6`;
+- LOW: `1` in Phase 1 governance evidence.
 
 ## Recommended remediation shape
 
 Use the smallest safe number of follow-ups:
 
 1. One acceptance-evidence remediation task under #326 for canonical fragment-aware content-scale closure, 503 inclusion and a fail-closed per-surface accessibility applicability matrix.
-2. Keep Issue #365 as the independent Wiki reproduction/defect task; do not combine session flash and thumbnail causes unless evidence proves a shared cause.
+2. Keep Issue #365 as the Wiki reproduction/defect task:
+   - add deterministic EditorialMedia reset around Wiki media tests;
+   - run three clean isolated zero-retry administration flows;
+   - run a separate controlled polluted comparison;
+   - classify publication feedback independently from integrity-failure traffic.
+3. Repair the two invalid HTML patterns with focused native validation and zero-console-error browser regression coverage.
 
 No implementation is authorized or performed by this audit.
