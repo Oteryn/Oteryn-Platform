@@ -11,6 +11,24 @@ The package is fail-closed:
 - staging mutations run only through `.github/workflows/character-bazaar-staging-control.yml`;
 - production is excluded.
 
+## Latest proven staging state
+
+Trusted-main control run `30623491990` completed successfully on 2026-07-31 with:
+
+- exact source SHA `d23293baed9641a7542f8bc1d33d19c13f8f5b5c`;
+- exact Platform image `ghcr.io/blakinio/oteryn-platform:sha-d23293baed9641a7542f8bc1d33d19c13f8f5b5c`;
+- exact matching Gateway tag;
+- approved immutable Canary image digest `sha256:784e5dbdcc64e311c48c51cd94aa206e2efa1e5eefb2f4ef40170d5aac55031f`;
+- Marketplace enabled;
+- exactly one running scheduler;
+- verified character-transfer effective privileges;
+- reviewed unbound non-login escrow identity;
+- zero auctions requiring recovery before enablement.
+
+Sanitized evidence artifact `8790910943` is named `character-bazaar-staging-d23293baed9641a7542f8bc1d33d19c13f8f5b5c-deploy-enable`, has digest `sha256:b3fc7a50f3431d9e1c8746d1df1e57ed7d70f8e484e35ceb4cbf12a3943b98fe`, and records `production_environment_proven: false`.
+
+This is `STAGING_PROVEN` only for the exact documented boundary. It is not production evidence.
+
 ## Guarded control workflow
 
 The workflow accepts these actions:
@@ -21,7 +39,7 @@ The workflow accepts these actions:
 - `prepare-rollback` — reconcile, reject non-terminal work, disable routes and remove the scheduler;
 - `rollback` — run `prepare-rollback` first and only then invoke the standard image rollback script.
 
-The first trusted-main activation is marker-gated by `[character-bazaar-staging]`. Manual executions use `workflow_dispatch` and the `synology-staging` Environment. The workflow shares the `synology-staging-deployment` concurrency group with the standard deployment workflow.
+The first trusted-main activation was marker-gated by `[character-bazaar-staging]`. Manual executions use `workflow_dispatch` and the `synology-staging` Environment. The workflow shares the `synology-staging-deployment` concurrency group with the standard deployment workflow.
 
 Once Character Bazaar is active, operators must use this Marketplace-aware workflow for Marketplace deploy, verification and rollback actions. Direct standard rollback is not an approved Marketplace recovery path because it does not perform the drain gate.
 
