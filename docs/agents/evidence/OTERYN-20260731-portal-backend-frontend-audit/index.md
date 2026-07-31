@@ -6,6 +6,7 @@
 - Audit target: `REPO_MAIN` SHA `b6f7b12a43aa72a52dc98c3fa07a7c4607fcb608`
 - Baseline time: `2026-07-31T16:43:00Z`
 - Branch: `audit/OTERYN-20260731-portal-backend-frontend-audit`
+- Draft PR: `#381`
 - Parent: Issue `#326`
 - Related defect evidence: Issue `#365`
 
@@ -28,9 +29,20 @@ Environment classes remain independent: `REPO_MAIN`, `OPEN_PR_ONLY`, `CI_PROVEN`
 | Latest exact staging deployment | PROVEN | STAGING_PROVEN | source `717977f252b09b9b2e979f8110b7f48b88682223`; run `30633745660`; job `91166065335`; artifact `8794683627` |
 | Audit-target deployment to staging | UNKNOWN | UNKNOWN | staging source predates audit target |
 | Production deployment and availability | UNKNOWN | UNKNOWN | no direct exact-release proof inspected under Issue #91 |
-| Current-main combined status contexts | PROVEN | CI_PROVEN | no legacy commit-status contexts returned for the audit target |
-| Current-main PR-triggered workflow runs | PROVEN | CI_PROVEN | no PR-triggered runs returned for the audit target by the connector endpoint |
 | Local checkout/runtime execution | UNKNOWN | UNKNOWN | current sandbox cannot resolve `github.com` |
+
+## Audit PR exact-head CI
+
+Audit PR head `220ae3d231d4269bf80fc51409f5b3b95a7975be` passed:
+
+- Phase 7 Production-Like Validation `30648697391`;
+- Agent Governance `30648697395`;
+- Game Auth Ticket Concurrency `30648697408`;
+- Edge Security Emulation `30648697440`;
+- Platform DB Outage Validation `30648697392`;
+- CI `30648697401`.
+
+The branch changed audit documentation only. These runs prove the checked application code plus audit documents at that PR head; they do not replace a fresh browser/route inventory run and do not prove deployment.
 
 ## Open PR delta inventory at baseline
 
@@ -43,8 +55,31 @@ Environment classes remain independent: `REPO_MAIN`, `OPEN_PR_ONLY`, `CI_PROVEN`
 | #189 | draft, open | Liquid20 evidence/retry docs | OPEN_PR_ONLY, outside portal implementation |
 | #182 | draft, open | Liquid20 retry operation | OPEN_PR_ONLY, outside portal implementation |
 | #116 | draft, open | scheduled E2E evidence collection task | OPEN_PR_ONLY |
+| #381 | draft, open | this audit record, reports and evidence only | OPEN_PR_ONLY audit artifact |
 
 PR #338 owns `scripts/acceptance/tests/admin-wiki-editorial-media.spec.mjs` and `resources/views/game-catalog/admin/snapshot.blade.php`; this audit does not edit those paths.
+
+## Phase 1 inventory evidence
+
+- Canonical surface count: `27`.
+- Manifest named-route assignments: `228`.
+- Base manifest surfaces: `18`.
+- Sorted module-fragment surfaces: `9` across six fragment files.
+- Rendered or rendered-with-resource groups: `26`.
+- Supporting endpoint groups: `1`.
+- Marketplace conditional surface groups: `3`.
+- Route/view policy: strict closure enabled, 30 bounded direct-entry routes, two explicit view exclusions.
+- Runtime `php artisan route:list --json`: `NOT_RUN`.
+- Exact-target route/view/navigation validator: `NOT_RUN`.
+
+Primary Phase 1 sources:
+
+- `routes/web.php`, `routes/localization.php`, `routes/api.php`, `routes/internal.php` and inspected module route files;
+- `app/Localization/LocalizedPublicRouteRegistrar.php`;
+- `scripts/acceptance/coverage/portal-coverage-manifest.json` plus six `surfaces/*.json` fragments;
+- `docs/testing/product-backend-frontend-completeness.json`;
+- `scripts/acceptance/coverage/portal-evidence-dimensions.json` plus four fragments;
+- `docs/testing/ROUTE_VIEW_NAVIGATION_INVENTORY.json` and endpoint/delegated exception files.
 
 ## Manifest/tool evidence
 
@@ -56,8 +91,9 @@ PR #338 owns `scripts/acceptance/tests/admin-wiki-editorial-media.spec.mjs` and 
 ## Artifacts
 
 - `baseline.json` — machine-readable baseline and environment classifications.
+- `phase-1-surface-inventory.json` — machine-readable 27-surface inventory and Phase 1 findings.
 - `../../reports/OTERYN-20260731-portal-backend-frontend-audit-baseline.md` — human-readable baseline report.
-- Phase 1 inventory matrix — pending Codex/full-checkout session.
+- `../../reports/OTERYN-20260731-portal-backend-frontend-audit-phase-1-inventory.md` — Phase 1 route/surface reconciliation report.
 - Final report — pending.
 - Independent validator artifact — pending.
 
