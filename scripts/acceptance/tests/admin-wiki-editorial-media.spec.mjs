@@ -49,6 +49,21 @@ async function expectNoHorizontalOverflow(page) {
   expect(overflow).toBeLessThanOrEqual(1);
 }
 
+async function waitForWikiMediaThumbnails(page) {
+  await expect(page.locator('[data-wiki-media-status]'))
+    .toHaveText(/\d+ approved images? available\./u);
+  await expect.poll(
+    () => page.locator('.wiki-media-card').evaluateAll((cards) => cards.length > 0 && cards.every((card) => {
+      const image = card.querySelector('img[data-media-fallback]');
+      const fallback = card.querySelector('[data-media-fallback-state="unavailable"]');
+
+      return fallback !== null
+        || (image instanceof HTMLImageElement && image.complete && image.naturalWidth > 0);
+    })),
+    { timeout: 30_000 },
+  ).toBe(true);
+}
+
 test.setTimeout(180_000);
 test.describe.configure({ mode: 'serial', retries: 0 });
 
@@ -196,6 +211,7 @@ test('@wiki-media image-free Wiki draft preview remains accessible and contains 
   await login(page, email, password);
   await completeMfaChallenge(page, recoveryCode);
   await page.goto('/admin/wiki/articles/create');
+  await waitForWikiMediaThumbnails(page);
 
   await page.getByLabel('Content type').fill('guide');
   await page.getByLabel('Display order').fill('6');
