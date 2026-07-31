@@ -1,7 +1,9 @@
 -- Oteryn Platform -> Canary Character Bazaar transfer least-privilege template.
 --
--- TEMPLATE ONLY: do not execute automatically and never commit rendered secrets.
--- Replace every {{...}} placeholder out-of-band during a reviewed deployment.
+-- TEMPLATE ONLY: never commit rendered secrets.
+-- Production rendering remains an out-of-band reviewed operation. The trusted-main
+-- Synology staging-control path may render it only after an explicit staging mutation
+-- authorization and must verify effective grants before enabling Marketplace routes.
 --
 -- This credential is intentionally separate from the read-only, provisioning,
 -- character-create and Canary game-process credentials.
