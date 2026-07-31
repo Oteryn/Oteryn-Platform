@@ -1,0 +1,81 @@
+name: Character Bazaar Staging Status Snapshot
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/character-bazaar-staging-status.yml'
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: read
+  issues: write
+
+concurrency:
+  group: character-bazaar-staging-status-${{ github.run_id }}
+  cancel-in-progress: false
+
+jobs:
+  snapshot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Publish sanitized latest control status
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          latest="$(
+            gh api \
+              "repos/${GITHUB_REPOSITORY}/actions/workflows/character-bazaar-staging-control.yml/runs?branch=main&per_page=20" \
+              --jq '.workflow_runs | map(select(.event == "push" or .event == "workflow_dispatch")) | first | {id, status, conclusion, head_sha, event, run_attempt, created_at, updated_at, html_url}'
+          )"
+
+          run_id="$(jq -r '.id // empty' <<<"$latest")"
+          if [[ -z "$run_id" ]]; then
+            echo 'No Character Bazaar staging control run exists on main.' >&2
+            exit 1
+          fi
+
+          status="$(jq -r '.status' <<<"$latest")"
+          conclusion="$(jq -r '.conclusion // "pending"' <<<"$latest")"
+          head_sha="$(jq -r '.head_sha' <<<"$latest")"
+          event="$(jq -r '.event' <<<"$latest")"
+          run_attempt="$(jq -r '.run_attempt' <<<"$latest")"
+          created_at="$(jq -r '.created_at' <<<"$latest")"
+          updated_at="$(jq -r '.updated_at' <<<"$latest")"
+          run_url="$(jq -r '.html_url' <<<"$latest")"
+
+          case "${status}:${conclusion}" in
+            completed:success) classification='CONTROL_SUCCESS_REPORTED';;
+            completed:*) classification='STAGING_NOT_PROVEN';;
+            queued:*|in_progress:*|pending:*) classification='WAITING';;
+            *) classification='UNKNOWN';;
+          esac
+
+          body_file="$(mktemp)"
+          trap 'rm -f "$body_file"' EXIT
+          cat >"$body_file" <<EOF
+          ## Character Bazaar staging control status
+
+          - classification: \`${classification}\`
+          - run: [${run_id}](${run_url})
+          - exact source SHA: \`${head_sha}\`
+          - trigger: \`${event}\`
+          - status: \`${status}\`
+          - conclusion: \`${conclusion}\`
+          - attempt: \`${run_attempt}\`
+          - created_at: \`${created_at}\`
+          - updated_at: \`${updated_at}\`
+          - production_environment_proven: \`false\`
+
+          This is a read-only status snapshot. \`STAGING_PROVEN\` still requires the completed reporter and sanitized evidence artifact.
+          EOF
+
+          gh api \
+            --method POST \
+            "repos/${GITHUB_REPOSITORY}/issues/368/comments" \
+            -F "body=@${body_file}"
