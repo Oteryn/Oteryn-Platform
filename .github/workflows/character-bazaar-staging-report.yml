@@ -1,0 +1,82 @@
+name: Character Bazaar Staging Report
+
+on:
+  workflow_run:
+    workflows:
+      - Character Bazaar Staging Control
+    types:
+      - completed
+
+permissions:
+  actions: read
+  contents: read
+  issues: write
+
+concurrency:
+  group: character-bazaar-staging-report-${{ github.event.workflow_run.id }}
+  cancel-in-progress: false
+
+jobs:
+  report:
+    if: >-
+      github.event.workflow_run.head_branch == 'main' &&
+      (github.event.workflow_run.event == 'push' || github.event.workflow_run.event == 'workflow_dispatch')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Publish sanitized Character Bazaar staging result
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CONTROL_RUN_ID: ${{ github.event.workflow_run.id }}
+          CONTROL_CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+          CONTROL_HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          CONTROL_EVENT: ${{ github.event.workflow_run.event }}
+          CONTROL_URL: ${{ github.event.workflow_run.html_url }}
+        run: |
+          set -euo pipefail
+
+          case "$CONTROL_CONCLUSION" in
+            success)
+              outcome='PASS'
+              classification='STAGING_PROVEN'
+              ;;
+            failure|cancelled|timed_out|action_required|stale)
+              outcome='FAIL'
+              classification='STAGING_NOT_PROVEN'
+              ;;
+            *)
+              outcome='UNKNOWN'
+              classification='STAGING_NOT_PROVEN'
+              ;;
+          esac
+
+          artifact_summary='none'
+          artifact_rows="$(
+            gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${CONTROL_RUN_ID}/artifacts?per_page=100" \
+              --jq '[.artifacts[] | select(.expired == false) | select(.name | startswith("character-bazaar-staging-")) | {id, name, size_in_bytes}]'
+          )"
+          artifact_count="$(jq 'length' <<<"$artifact_rows")"
+          if [[ "$artifact_count" -gt 0 ]]; then
+            artifact_summary="$(jq -r 'map("`" + .name + "` (artifact " + (.id|tostring) + ", " + (.size_in_bytes|tostring) + " bytes)") | join(", ")' <<<"$artifact_rows")"
+          fi
+
+          body_file="$(mktemp)"
+          trap 'rm -f "$body_file"' EXIT
+          cat >"$body_file" <<EOF
+          ## Character Bazaar Synology staging control: ${outcome}
+
+          - classification: \`${classification}\`
+          - exact source SHA: \`${CONTROL_HEAD_SHA}\`
+          - workflow run: [${CONTROL_RUN_ID}](${CONTROL_URL})
+          - trigger: \`${CONTROL_EVENT}\`
+          - conclusion: \`${CONTROL_CONCLUSION}\`
+          - sanitized evidence: ${artifact_summary}
+          - production_environment_proven: \`false\`
+
+          This report contains no transfer credential, escrow account ID, user identity, Canary account ID or raw database error.
+          EOF
+
+          gh api \
+            --method POST \
+            "repos/${GITHUB_REPOSITORY}/issues/368/comments" \
+            -F "body=@${body_file}"
