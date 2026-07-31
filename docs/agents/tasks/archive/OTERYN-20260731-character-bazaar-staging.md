@@ -39,21 +39,21 @@ result: STAGING_PROVEN
 production_environment_proven: false
 ```
 
-PR #270 already supplied the complete product implementation. This task closed only the smallest real gap: fail-closed Synology staging configuration, dedicated transfer/escrow controls, one scheduler, guarded recovery/rollback and exact deployed evidence.
+PR #270 supplied the complete product implementation. This task closed only the proven staging gap: fail-closed configuration, dedicated transfer and escrow controls, one scheduler, recovery-aware rollback and direct exact-release evidence.
 
 ## Acceptance criteria
 
 - [x] Runtime defaults are fail-closed outside isolated PHPUnit and acceptance environments.
-- [x] The Marketplace staging overlay supplies one private scheduler using the exact Platform image and no published port.
-- [x] The dedicated character-transfer principal is provisioned through the reviewed staging control and exact effective grants are verified.
-- [x] The random staging-only transfer credential is retained only in the protected runner state directory and never enters Git or evidence artifacts.
+- [x] The staging overlay supplies one private scheduler using the exact Platform image and no published port.
+- [x] The dedicated character-transfer principal is provisioned through the guarded staging control and exact effective grants are verified.
+- [x] The random staging-only transfer credential stays only in the protected runner state directory and never enters Git or evidence artifacts.
 - [x] The reviewed non-login escrow account is created or validated by immutable marker and verified unbound from Platform Identity.
-- [x] Enablement runs migrations, bounded reconciliation, exact-image Platform recreation, scheduler start, proxy refresh and live Bazaar route verification.
-- [x] Rollback control rejects non-terminal auctions and disables Marketplace before standard image rollback.
+- [x] Enablement runs migrations, bounded reconciliation, exact-image recreation, scheduler start, proxy refresh and live Bazaar route verification.
+- [x] Rollback rejects non-terminal auctions and disables Marketplace before standard image rollback.
 - [x] Existing EN/PL public, account and administrator UI plus desktop/tablet/mobile and accessibility evidence remains green.
 - [x] PR #368 exact-head repository, browser, database, deployment and production-like checks passed.
 - [x] Trusted-main control run `30623491990` completed successfully on exact source `d23293baed9641a7542f8bc1d33d19c13f8f5b5c`.
-- [x] Sanitized artifact `8790910943` directly proves Marketplace enabled, exactly one scheduler, verified transfer privileges and reviewed unbound non-login escrow identity.
+- [x] Artifact `8790910943` proves Marketplace enabled, exactly one scheduler, verified transfer privileges and reviewed unbound non-login escrow identity.
 - [x] No Canary repository write, payment provider, production mutation or `PRODUCTION_PROVEN` claim occurred.
 
 ## Final ownership
@@ -69,8 +69,6 @@ owned_paths:
   - deploy/synology/scripts/marketplace-staging.sh
   - docs/operations/MARKETPLACE_STAGING_ENABLEMENT.md
   - docs/agents/tasks/archive/OTERYN-20260731-character-bazaar-staging.md
-  - docs/agents/ACTIVE_WORK.md
-  - docs/agents/PROJECT_STATE.md
 modules:
   - Marketplace
   - Wallet
@@ -101,10 +99,10 @@ secret_or_production_configuration: one staging-only random transfer password is
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-07-31T11:00:00Z
+updated_at: 2026-07-31T11:06:00Z
 head: d23293baed9641a7542f8bc1d33d19c13f8f5b5c
-branch: main
-pr: 368
+branch: docs/OTERYN-20260731-character-bazaar-staging-closeout
+pr: 375
 status: ready
 context_routes:
   - agent-governance
@@ -125,30 +123,28 @@ owned_paths:
   - deploy/synology/scripts/marketplace-staging.sh
   - docs/operations/MARKETPLACE_STAGING_ENABLEMENT.md
   - docs/agents/tasks/archive/OTERYN-20260731-character-bazaar-staging.md
-  - docs/agents/ACTIVE_WORK.md
-  - docs/agents/PROJECT_STATE.md
 proven:
   - PR #270 merged the complete Character Bazaar product implementation as 0f19656e0875d0a10b22002ac0e096deb20e94d8.
   - PR #368 exact head 7964e70d804bb17ad0e6d361c95bb6ae775743be passed all ten authoritative repository, browser, database, security, deployment and production-like workflow families.
   - PR #368 merged the fail-closed staging package as 4f1ddf3816da04bd8f2aa18471ff35aebe853356.
-  - PR #370 merged the exact-image idempotent staging retrigger as d23293baed9641a7542f8bc1d33d19c13f8f5b5c after its complete exact-head workflow matrix passed.
-  - Character Bazaar Staging Control run 30623491990 completed successfully on the dedicated oteryn-synology-staging runner.
-  - The control resolved and deployed exact Platform and Gateway tag sha-d23293baed9641a7542f8bc1d33d19c13f8f5b5c while preserving the approved immutable Canary image.
-  - Standard staging health, loopback/LAN bindings, Gateway readiness, MFA boundary and World Registry checks passed before Marketplace enablement.
+  - PR #370 merged the exact-image idempotent staging retrigger as d23293baed9641a7542f8bc1d33d19c13f8f5b5c after its full exact-head matrix passed.
+  - Character Bazaar Staging Control run 30623491990 and job 91136549015 completed successfully on oteryn-synology-staging.
+  - Exact Platform and Gateway tag sha-d23293baed9641a7542f8bc1d33d19c13f8f5b5c was deployed while preserving the approved immutable Canary image.
+  - Standard staging health, bindings, Gateway readiness, MFA boundary and World Registry checks passed before Marketplace enablement.
   - Character-transfer effective grants passed the approved column-level SELECT plus players.account_id UPDATE verifier.
   - Pre-enable reconciliation processed zero auctions with zero recovery-required rows.
-  - The Marketplace scheduler was recreated and exactly one scheduler was running when evidence was emitted.
-  - Sanitized artifact 8790910943, digest sha256:b3fc7a50f3431d9e1c8746d1df1e57ed7d70f8e484e35ceb4cbf12a3943b98fe, records STAGING_PROVEN, marketplace_enabled true, scheduler_running_count 1, verified transfer privileges, reviewed unbound non-login escrow identity and production_environment_proven false.
+  - Exactly one Marketplace scheduler was running and live Bazaar verification passed.
+  - Artifact 8790910943, digest sha256:b3fc7a50f3431d9e1c8746d1df1e57ed7d70f8e484e35ceb4cbf12a3943b98fe, records STAGING_PROVEN, marketplace_enabled true, scheduler_running_count 1, verified transfer privileges, reviewed unbound non-login escrow identity and production_environment_proven false.
   - The ephemeral deployment environment was removed and GHCR logout completed after evidence upload.
 derived:
   - Character Bazaar is implemented and directly proven enabled on the documented Synology staging boundary.
-  - The smallest real gap is closed; no additional implementation, hardening or staging-enablement task remains.
+  - The smallest real gap is closed; no further implementation, hardening or staging-enablement task remains.
 unknown:
   - Real production behavior until Issue #91 receives separate explicit authorization and direct production evidence.
 conflicts: []
 first_failure:
   marker: none
-  evidence: final trusted-main staging control completed successfully; earlier observability limitations were resolved through a temporary read-only Actions inspection that was closed without merge
+  evidence: final trusted-main staging control completed successfully; earlier connector observability limitations were resolved by temporary read-only inspection closed without merge
 rejected_hypotheses:
   - Character Bazaar required reimplementation: PR #270 and current code proved the product slice already existed.
   - Repository CI established staging activation: only live control run 30623491990 and artifact 8790910943 established STAGING_PROVEN.
@@ -164,8 +160,6 @@ changed_paths:
   - deploy/synology/scripts/marketplace-staging.sh
   - docs/operations/MARKETPLACE_STAGING_ENABLEMENT.md
   - docs/agents/tasks/archive/OTERYN-20260731-character-bazaar-staging.md
-  - docs/agents/ACTIVE_WORK.md
-  - docs/agents/PROJECT_STATE.md
 validation:
   - command: PR #368 exact-head workflow matrix on 7964e70d804bb17ad0e6d361c95bb6ae775743be
     result: PASS
