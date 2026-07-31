@@ -13,19 +13,21 @@ The package is fail-closed:
 
 ## Latest proven staging state
 
-Trusted-main control run `30623491990` completed successfully on 2026-07-31 with:
+Trusted-main control run `30633745660` completed successfully on 2026-07-31 with:
 
-- exact source SHA `d23293baed9641a7542f8bc1d33d19c13f8f5b5c`;
-- exact Platform image `ghcr.io/blakinio/oteryn-platform:sha-d23293baed9641a7542f8bc1d33d19c13f8f5b5c`;
+- control job `91166065335` on runner `oteryn-synology-staging`;
+- exact source SHA `717977f252b09b9b2e979f8110b7f48b88682223`;
+- exact Platform image `ghcr.io/blakinio/oteryn-platform:sha-717977f252b09b9b2e979f8110b7f48b88682223`;
 - exact matching Gateway tag;
 - approved immutable Canary image digest `sha256:784e5dbdcc64e311c48c51cd94aa206e2efa1e5eefb2f4ef40170d5aac55031f`;
+- Platform, Gateway, Canary, MFA QR and World Registry staging probes passed;
 - Marketplace enabled;
 - exactly one running scheduler;
 - verified character-transfer effective privileges;
 - reviewed unbound non-login escrow identity;
-- zero auctions requiring recovery before enablement.
+- `0` auctions processed, with `0` terminal and `0` requiring recovery before enablement.
 
-Sanitized evidence artifact `8790910943` is named `character-bazaar-staging-d23293baed9641a7542f8bc1d33d19c13f8f5b5c-deploy-enable`, has digest `sha256:b3fc7a50f3431d9e1c8746d1df1e57ed7d70f8e484e35ceb4cbf12a3943b98fe`, and records `production_environment_proven: false`.
+Sanitized evidence artifact `8794683627` is named `character-bazaar-staging-717977f252b09b9b2e979f8110b7f48b88682223-deploy-enable`, has digest `sha256:e15a8cbc84da304f66c9e8bbc6c60d458c79c1e11f2848498daadd18db595213`, size `507` bytes, expires on `2026-08-14T13:26:30Z`, and records `production_environment_proven: false`.
 
 This is `STAGING_PROVEN` only for the exact documented boundary. It is not production evidence.
 
