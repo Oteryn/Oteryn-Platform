@@ -1,4 +1,0 @@
-services:
-  platform:
-    environment:
-      TRUSTED_PROXIES: ${TRUSTED_PROXIES:-127.0.0.1}
