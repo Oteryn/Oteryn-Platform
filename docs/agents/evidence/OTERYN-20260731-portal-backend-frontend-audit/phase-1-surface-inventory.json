@@ -1,0 +1,92 @@
+{
+  "schema_version": 1,
+  "task_id": "OTERYN-20260731-portal-backend-frontend-audit",
+  "phase": 1,
+  "audit_target_sha": "b6f7b12a43aa72a52dc98c3fa07a7c4607fcb608",
+  "generated_at": "2026-07-31T16:51:00Z",
+  "inventory_sources": [
+    "routes/web.php and sorted routes/modules/*.php",
+    "routes/localization.php and App\\Localization\\LocalizedPublicRouteRegistrar",
+    "scripts/acceptance/coverage/portal-coverage-manifest.json",
+    "scripts/acceptance/coverage/surfaces/*.json",
+    "docs/testing/product-backend-frontend-completeness.json",
+    "scripts/acceptance/coverage/portal-evidence-dimensions.json and fragments",
+    "docs/testing/ROUTE_VIEW_NAVIGATION_INVENTORY.json"
+  ],
+  "summary": {
+    "canonical_surface_count": 27,
+    "manifest_route_assignment_count": 228,
+    "rendered_or_rendered_with_resources": 26,
+    "supporting_endpoint_groups": 1,
+    "marketplace_conditional_surfaces": 3,
+    "runtime_route_list_status": "UNKNOWN_NOT_EXECUTED",
+    "exact_target_route_view_navigation_validation": "UNKNOWN_NOT_EXECUTED",
+    "all_surface_manifest_statuses": {
+      "covered": 26,
+      "supporting_endpoint": 1
+    }
+  },
+  "classification_rules": {
+    "static_route_declaration": "PROVEN where exact source was inspected",
+    "manifest_covered": "PROVEN repository claim, not independent runtime proof",
+    "browser_contract": "PROVEN mapping contract, not a fresh browser execution",
+    "deployment": "UNKNOWN for the audit target; older staging source is separately STAGING_PROVEN"
+  },
+  "surfaces": [
+    {"id":"identity.registration-login-session","owner":"Identity","manifest_route_count":5,"kind":"rendered","manifest_status":"covered","static_backend_route_status":"PROVEN_DECLARED","frontend_inventory_status":"REPOSITORY_CLAIM_COVERED","integration_status":"REPOSITORY_CLAIM_NOT_FRESHLY_EXECUTED","browser_dimension_contract":"PROVEN","portability_contract":"covered","exact_target_browser_execution":"UNKNOWN_NOT_RUN","audit_target_deployment":"UNKNOWN","fact_state":"PROVEN_STATIC_WITH_RUNTIME_UNKNOWN"},
+    {"id":"identity.password-lifecycle","owner":"Identity","manifest_route_count":6,"kind":"rendered","manifest_status":"covered","static_backend_route_status":"PROVEN_DECLARED","frontend_inventory_status":"REPOSITORY_CLAIM_COVERED","integration_status":"REPOSITORY_CLAIM_NOT_FRESHLY_EXECUTED","browser_dimension_contract":"PROVEN","portability_contract":"excluded","exact_target_browser_execution":"UNKNOWN_NOT_RUN","audit_target_deployment":"UNKNOWN","fact_state":"PROVEN_STATIC_WITH_RUNTIME_UNKNOWN"},
+    {"id":"identity.mfa-lifecycle","owner":"Identity","manifest_route_count":6,"kind":"rendered","manifest_status":"covered","static_backend_route_status":"PROVEN_DECLARED","frontend_inventory_status":"REPOSITORY_CLAIM_COVERED","integration_status":"REPOSITORY_CLAIM_NOT_FRESHLY_EXECUTED","browser_dimension_contract":"PROVEN","portability_contract":"covered","exact_target_browser_execution":"UNKNOWN_NOT_RUN","audit_target_deployment":"UNKNOWN","fact_state":"PROVEN_STATIC_WITH_RUNTIME_UNKNOWN"},
+    {"id":"account.overview-provisioning","owner":"Accounts","manifest_route_count":2,"kind":"rendered","manifest_status":"covered","static_backend_route_status":"PROVEN_DECLARED","frontend_inventory_status":"REPOSITORY_CLAIM_COVERED","integration_status":"REPOSITORY_CLAIM_NOT_FRESHLY_EXECUTED","browser_dimension_contract":"PROVEN","portability_contract":"covered","exact_target_browser_execution":"UNKNOWN_NOT_RUN","audit_target_deployment":"UNKNOWN","fact_state":"PROVEN_STATIC_WITH_RUNTIME_UNKNOWN"},
+    {"id":"account.character-creation-and-visibility","owner":"Accounts / Characters","manifest_route_count":2,"kind":"rendered","manifest_status":"covered","static_backend_route_status":"PROVEN_DECLARED","frontend_inventory_status":"REPOSITORY_CLAIM_COVERED","integration_status":"REPOSITORY_CLAIM_NOT_FRESHLY_EXECUTED","browser_dimension_contract":"PROVEN","portability_contract":"excluded","exact_target_browser_execution":"UNKNOWN_NOT_RUN","audit_target_deployment":"UNKNOWN","fact_state":"PROVEN_STATIC_WITH_RUNTIME_UNKNOWN"},
+    {"id":"public.home-and-seo","owner":"PublicPortal","manifest_route_count":4,"kind":"rendered+resources","manifest_status":"covered","static_backend_route_status":"PROVEN_DECLARED","frontend_inventory_status":"REPOSITORY_CLAIM_COVERED","integration_status":"REPOSITORY_CLAIM_NOT_FRESHLY_EXECUTED","browser_dimension_contract":"PROVEN","portability_contract":"covered","exact_target_browser_execution":"UNKNOWN_NOT_RUN","audit_target_deployment":"UNKNOWN","fact_state":"PROVEN_STATIC_WITH_RUNTIME_UNKNOWN"},
+    {"id":"public.news-and-managed-pages","owner":"CMS","manifest_route_count":6,"kind":"rendered","manifest_status":"covered","static_backend_route_status":"PROVEN_DECLARED","frontend_inventory_status":"REPOSITORY_CLAIM_COVERED","integration_status":"REPOSITORY_CLAIM_NOT_FRESHLY_EXECUTED","browser_dimension_contract":"PROVEN","portability_contract":"covered","exact_target_browser_execution":"UNKNOWN_NOT_RUN","audit_target_deployment":"UNKNOWN","fact_state":"PROVEN_STATIC_WITH_RUNTIME_UNKNOWN"},
+    {"id":"public.game-data","owner":"PublicGameData","manifest_route_count":14,"kind":"rendered","manifest_status":"covered","static_backend_route_status":"PROVEN_DECLARED","frontend_inventory_status":"REPOSITORY_CLAIM_COVERED","integration_status":"REPOSITORY_CLAIM_NOT_FRESHLY_EXECUTED","browser_dimension_contract":"PROVEN","portability_contract":"covered","exact_target_browser_execution":"UNKNOWN_NOT_RUN","audit_target_deployment":"UNKNOWN","fact_state":"PROVEN_STATIC_WITH_RUNTIME_UNKNOWN"},
+    {"id":"admin.core-rbac-cms-audit","owner":"Admin / CMS / RBAC / Audit","manifest_route_count":15,"kind":"rendered","manifest_status":"covered","static_backend_route_status":"PROVEN_DECLARED","frontend_inventory_status":"REPOSITORY_CLAIM_COVERED","integration_status":"REPOSITORY_CLAIM_NOT_FRESHLY_EXECUTED","browser_dimension_contract":"PROVEN","portability_contract":"covered","exact_target_browser_execution":"UNKNOWN_NOT_RUN","audit_target_deployment":"UNKNOWN","fact_state":"PROVEN_STATIC_WITH_RUNTIME_UNKNOWN"},
+    {"id":"public.localization-core","owner":"Localization","manifest_route_count":4,"kind":"rendered","manifest_status":"covered","static_backend_route_status":"PROVEN_DECLARED","frontend_inventory_status":"REPOSITORY_CLAIM_COVERED","integration_status":"REPOSITORY_CLAIM_NOT_FRESHLY_EXECUTED","browser_dimension_contract":"PROVEN","portability_contract":"covered","exact_target_browser_execution":"UNKNOWN_NOT_RUN","audit_target_deployment":"UNKNOWN","fact_state":"PROVEN_STATIC_WITH_RUNTIME_UNKNOWN"},
+    {"id":"downloads.public-admin-localization","owner":"Downloads","manifest_route_count":10,"kind":"rendered","manifest_status":"covered","static_backend_route_status":"PROVEN_DECLARED","frontend_inventory_status":"REPOSITORY_CLAIM_COVERED","integration_status":"REPOSITORY_CLAIM_NOT_FRESHLY_EXECUTED","browser_dimension_contract":"PROVEN","portability_contract":"covered","exact_target_browser_execution":"UNKNOWN_NOT_RUN","audit_target_deployment":"UNKNOWN","fact_state":"PROVEN_STATIC_WITH_RUNTIME_UNKNOWN"},
+    {"id":"events.public-admin","owner":"Events","manifest_route_count":10,"kind":"rendered","manifest_status":"covered","static_backend_route_status":"PROVEN_DECLARED","frontend_inventory_status":"REPOSITORY_CLAIM_COVERED","integration_status":"REPOSITORY_CLAIM_NOT_FRESHLY_EXECUTED","browser_dimension_contract":"PROVEN","portability_contract":"covered","exact_target_browser_execution":"UNKNOWN_NOT_RUN","audit_target_deployment":"UNKNOWN","fact_state":"PROVEN_STATIC_WITH_RUNTIME_UNKNOWN"},
+    {"id":"announcements.admin-localization-home-composition","owner":"Announcements","manifest_route_count":7,"kind":"rendered","manifest_status":"covered","static_backend_route_status":"PROVEN_DECLARED","frontend_inventory_status":"REPOSITORY_CLAIM_COVERED","integration_status":"REPOSITORY_CLAIM_NOT_FRESHLY_EXECUTED","browser_dimension_contract":"PROVEN","portability_contract":"covered","exact_target_browser_execution":"UNKNOWN_NOT_RUN","audit_target_deployment":"UNKNOWN","fact_state":"PROVEN_STATIC_WITH_RUNTIME_UNKNOWN"},
+    {"id":"support-legal.public-admin-localization","owner":"Support / CMS","manifest_route_count":21,"kind":"rendered","manifest_status":"covered","static_backend_route_status":"PROVEN_DECLARED","frontend_inventory_status":"REPOSITORY_CLAIM_COVERED","integration_status":"REPOSITORY_CLAIM_NOT_FRESHLY_EXECUTED","browser_dimension_contract":"PROVEN","portability_contract":"covered","exact_target_browser_execution":"UNKNOWN_NOT_RUN","audit_target_deployment":"UNKNOWN","fact_state":"PROVEN_STATIC_WITH_RUNTIME_UNKNOWN"},
+    {"id":"wiki.public","owner":"Wiki","manifest_route_count":8,"kind":"rendered","manifest_status":"covered","static_backend_route_status":"PROVEN_DECLARED","frontend_inventory_status":"REPOSITORY_CLAIM_COVERED","integration_status":"REPOSITORY_CLAIM_NOT_FRESHLY_EXECUTED","browser_dimension_contract":"PROVEN","portability_contract":"covered","exact_target_browser_execution":"UNKNOWN_NOT_RUN","audit_target_deployment":"UNKNOWN","fact_state":"PROVEN_STATIC_WITH_RUNTIME_UNKNOWN"},
+    {"id":"wiki.admin-editorial-lifecycle","owner":"Wiki","manifest_route_count":19,"kind":"rendered","manifest_status":"covered","static_backend_route_status":"PROVEN_DECLARED","frontend_inventory_status":"REPOSITORY_CLAIM_COVERED","integration_status":"REPOSITORY_CLAIM_NOT_FRESHLY_EXECUTED","browser_dimension_contract":"PROVEN","portability_contract":"covered","exact_target_browser_execution":"UNKNOWN_NOT_RUN","audit_target_deployment":"UNKNOWN","fact_state":"PROVEN_STATIC_WITH_RUNTIME_UNKNOWN"},
+    {"id":"editorial-media.admin","owner":"EditorialMedia","manifest_route_count":3,"kind":"rendered","manifest_status":"covered","static_backend_route_status":"PROVEN_DECLARED","frontend_inventory_status":"REPOSITORY_CLAIM_COVERED","integration_status":"REPOSITORY_CLAIM_NOT_FRESHLY_EXECUTED","browser_dimension_contract":"PROVEN","portability_contract":"excluded","exact_target_browser_execution":"UNKNOWN_NOT_RUN","audit_target_deployment":"UNKNOWN","fact_state":"PROVEN_STATIC_WITH_RUNTIME_UNKNOWN"},
+    {"id":"browser-supporting-media-preview-endpoints","owner":"Wiki / EditorialMedia","manifest_route_count":7,"kind":"supporting_endpoint","manifest_status":"supporting_endpoint","static_backend_route_status":"PROVEN_DECLARED","frontend_inventory_status":"SUPPORTING_ENDPOINT","integration_status":"REPOSITORY_CLAIM_NOT_FRESHLY_EXECUTED","browser_dimension_contract":"PROVEN","portability_contract":"not_applicable","exact_target_browser_execution":"UNKNOWN_NOT_RUN","audit_target_deployment":"UNKNOWN","fact_state":"PROVEN_STATIC_WITH_RUNTIME_UNKNOWN"},
+    {"id":"identity.account-security-lifecycle","owner":"Identity","manifest_route_count":15,"kind":"rendered","manifest_status":"covered","static_backend_route_status":"PROVEN_DECLARED","frontend_inventory_status":"REPOSITORY_CLAIM_COVERED","integration_status":"REPOSITORY_CLAIM_NOT_FRESHLY_EXECUTED","browser_dimension_contract":"PROVEN","portability_contract":"excluded","exact_target_browser_execution":"UNKNOWN_NOT_RUN","audit_target_deployment":"UNKNOWN","fact_state":"PROVEN_STATIC_WITH_RUNTIME_UNKNOWN"},
+    {"id":"support.moderation-lifecycle","owner":"Support / Moderation","manifest_route_count":28,"kind":"rendered","manifest_status":"covered","static_backend_route_status":"PROVEN_DECLARED","frontend_inventory_status":"REPOSITORY_CLAIM_COVERED","integration_status":"REPOSITORY_CLAIM_NOT_FRESHLY_EXECUTED","browser_dimension_contract":"PROVEN","portability_contract":"excluded","exact_target_browser_execution":"UNKNOWN_NOT_RUN","audit_target_deployment":"UNKNOWN","fact_state":"PROVEN_STATIC_WITH_RUNTIME_UNKNOWN"},
+    {"id":"public.community-deaths-and-policy","owner":"PublicGameData","manifest_route_count":2,"kind":"rendered","manifest_status":"covered","static_backend_route_status":"PROVEN_DECLARED","frontend_inventory_status":"REPOSITORY_CLAIM_COVERED","integration_status":"REPOSITORY_CLAIM_NOT_FRESHLY_EXECUTED","browser_dimension_contract":"PROVEN","portability_contract":"excluded","exact_target_browser_execution":"UNKNOWN_NOT_RUN","audit_target_deployment":"UNKNOWN","fact_state":"PROVEN_STATIC_WITH_RUNTIME_UNKNOWN"},
+    {"id":"marketplace.public-catalogue-and-detail","owner":"Marketplace","manifest_route_count":4,"kind":"rendered_conditional","manifest_status":"covered","static_backend_route_status":"PROVEN_DECLARED","frontend_inventory_status":"REPOSITORY_CLAIM_COVERED","integration_status":"REPOSITORY_CLAIM_NOT_FRESHLY_EXECUTED","browser_dimension_contract":"PROVEN","portability_contract":"excluded","exact_target_browser_execution":"UNKNOWN_NOT_RUN","audit_target_deployment":"UNKNOWN","fact_state":"PROVEN_STATIC_WITH_RUNTIME_UNKNOWN"},
+    {"id":"marketplace.authenticated-auction-lifecycle","owner":"Marketplace / Wallet / CanaryIntegration","manifest_route_count":8,"kind":"rendered_conditional","manifest_status":"covered","static_backend_route_status":"PROVEN_DECLARED","frontend_inventory_status":"REPOSITORY_CLAIM_COVERED","integration_status":"REPOSITORY_CLAIM_NOT_FRESHLY_EXECUTED","browser_dimension_contract":"PROVEN","portability_contract":"excluded","exact_target_browser_execution":"UNKNOWN_NOT_RUN","audit_target_deployment":"UNKNOWN","fact_state":"PROVEN_STATIC_WITH_RUNTIME_UNKNOWN"},
+    {"id":"marketplace.admin-wallet-and-recovery","owner":"Marketplace / Wallet / Admin / Audit","manifest_route_count":3,"kind":"rendered_conditional","manifest_status":"covered","static_backend_route_status":"PROVEN_DECLARED","frontend_inventory_status":"REPOSITORY_CLAIM_COVERED","integration_status":"REPOSITORY_CLAIM_NOT_FRESHLY_EXECUTED","browser_dimension_contract":"PROVEN","portability_contract":"excluded","exact_target_browser_execution":"UNKNOWN_NOT_RUN","audit_target_deployment":"UNKNOWN","fact_state":"PROVEN_STATIC_WITH_RUNTIME_UNKNOWN"},
+    {"id":"game-catalog.public-items-creatures-and-loot","owner":"GameCatalog","manifest_route_count":10,"kind":"rendered","manifest_status":"covered","static_backend_route_status":"PROVEN_DECLARED","frontend_inventory_status":"REPOSITORY_CLAIM_COVERED","integration_status":"REPOSITORY_CLAIM_NOT_FRESHLY_EXECUTED","browser_dimension_contract":"PROVEN","portability_contract":"covered","exact_target_browser_execution":"UNKNOWN_NOT_RUN","audit_target_deployment":"UNKNOWN","fact_state":"PROVEN_STATIC_WITH_RUNTIME_UNKNOWN"},
+    {"id":"game-catalog.administrator-inspection","owner":"GameCatalog / Admin / Security","manifest_route_count":7,"kind":"rendered","manifest_status":"covered","static_backend_route_status":"PROVEN_DECLARED","frontend_inventory_status":"REPOSITORY_CLAIM_COVERED","integration_status":"REPOSITORY_CLAIM_NOT_FRESHLY_EXECUTED","browser_dimension_contract":"PROVEN","portability_contract":"excluded","exact_target_browser_execution":"UNKNOWN_NOT_RUN","audit_target_deployment":"UNKNOWN","fact_state":"PROVEN_STATIC_WITH_RUNTIME_UNKNOWN"},
+    {"id":"identity.character-profile-preferences","owner":"CharacterProfiles","manifest_route_count":2,"kind":"rendered","manifest_status":"covered","static_backend_route_status":"PROVEN_DECLARED","frontend_inventory_status":"REPOSITORY_CLAIM_COVERED","integration_status":"REPOSITORY_CLAIM_NOT_FRESHLY_EXECUTED","browser_dimension_contract":"PROVEN","portability_contract":"excluded","exact_target_browser_execution":"UNKNOWN_NOT_RUN","audit_target_deployment":"UNKNOWN","fact_state":"PROVEN_STATIC_WITH_RUNTIME_UNKNOWN"}
+  ],
+  "intentional_non_surface_endpoints": [
+    {
+      "group": "game-auth API/internal",
+      "paths": [
+        "POST /api/v1/game-auth/tickets",
+        "POST /internal/v1/game-auth/tickets/redeem",
+        "GET /internal/v1/game-auth/accounts/{canaryAccountId}/login-context"
+      ],
+      "standalone_ui": "not_applicable",
+      "fact_state": "PROVEN",
+      "reason": "Machine/API and gateway-service contracts, not standalone rendered portal pages."
+    }
+  ],
+  "route_view_policy": {
+    "strict_closure": true,
+    "direct_entry_route_count_in_policy": 30,
+    "view_exclusions": [
+      {"view":"game-auth.oauth.authorize","classification":"protocol view exclusion"},
+      {"view":"home-preview","classification":"intentional noindex design-preview reference pending retirement"}
+    ],
+    "resource_overrides": ["seo.robots","seo.sitemap","admin.wiki.media.index"]
+  },
+  "phase_1_findings": [
+    {"id":"OTERYN-AUDIT-P1-001","title":"Active work index conflicts with live task and PR state","fact_state":"CONFLICT","severity":"LOW","confidence":"HIGH","environment":"REPO_MAIN","surface":"agent governance","capability":"work ownership inventory"},
+    {"id":"OTERYN-AUDIT-P1-002","title":"Exact-target runtime route/view/navigation closure is not executable in the current environment","fact_state":"UNKNOWN","severity":"INFO","confidence":"HIGH","environment":"UNKNOWN","surface":"all portal surfaces","capability":"runtime inventory proof"},
+    {"id":"OTERYN-AUDIT-P1-003","title":"Marketplace route reachability is environment-gated","fact_state":"PROVEN","severity":"INFO","confidence":"HIGH","environment":"REPO_MAIN","surface":"marketplace.*","capability":"route registration and deployment availability"},
+    {"id":"OTERYN-AUDIT-P1-004","title":"Home preview is an intentionally excluded dormant design reference","fact_state":"PROVEN","severity":"INFO","confidence":"HIGH","environment":"REPO_MAIN","surface":"home-preview","capability":"unreachable view inventory"}
+  ]
+}
