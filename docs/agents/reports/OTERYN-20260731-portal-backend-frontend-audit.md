@@ -16,11 +16,13 @@ The repository contains a broad, internally consistent portal implementation and
 - recovered strict route/view/navigation evidence with 240 discovered named routes, 126 rendered routes, 95 bound views, 400 navigation references and zero orphan views;
 - recovered zero-retry critical browser evidence across Chromium, Firefox, WebKit and desktop/tablet/mobile viewports.
 
-The portal is **not proven product-complete or production-complete**. The normalized finding set is:
+The portal is **not proven product-complete or production-complete**. The corrected normalized finding set is:
 
-- **1 HIGH**;
-- **5 MEDIUM**;
+- **0 HIGH**;
+- **6 MEDIUM**;
 - **1 LOW**.
+
+The historical Wiki thumbnail HTTP 500 traffic is explained by acceptance fixture leakage: prior tests intentionally corrupt or remove EditorialMedia files while leaving rows visible to later projects. It is a `MEDIUM` test-isolation/evidence defect, not a `HIGH` proven production failure for valid media.
 
 The audit remains `BLOCKED`, not `DONE`, because exact frozen-target Issue #365 reproduction and a fresh independent validator verdict have not been executed.
 
@@ -102,24 +104,28 @@ The artifact explicitly states `FULL_ACCEPTANCE_NOT_EXECUTED`, `VISUAL_UX_NOT_EX
 
 ## Findings
 
-### HIGH — OTERYN-AUDIT-P35-006
+### MEDIUM — OTERYN-AUDIT-P35-006
 
-**Historical Wiki editorial thumbnail requests returned HTTP 500.**
+**Wiki acceptance profiles leak intentionally damaged EditorialMedia rows into later tests.**
 
-Two exact zero-retry historical CI heads recorded deterministic GET failures on `/admin/wiki/media/{id}/thumbnail` during the administrator Wiki flow:
+The Wiki media acceptance spec seeds a media row, intentionally corrupts and removes its stored objects, and leaves the database row intact. Unlike the dedicated Editorial Media spec, it performs no reset before or after the test. Later browser projects query the global approved-media library and request thumbnails for those stale rows.
 
-| Project | HTTP 500 responses per run | Unique media IDs |
-|---|---:|---|
-| responsive desktop | 9 | 1, 3, 5 |
-| responsive tablet | 12 | 1, 3, 5, 7 |
-| responsive mobile | 16 | 1, 3, 5, 7, 9 |
+The exact historical execution order predicts and matches the observed accumulation in both runs:
 
-The same 9/12/16 pattern occurred in both preserved artifacts:
+| Administration project | Stale damaged media IDs | HTTP 500 responses |
+|---|---|---:|
+| responsive desktop | 1, 3, 5 | 9 |
+| responsive tablet | 1, 3, 5, 7 | 12 |
+| responsive mobile | 1, 3, 5, 7, 9 | 16 |
+
+Exact evidence:
 
 - run `30562698853`, job `90939481510`, artifact `8767657461`, SHA `35f39b48233b186502cbdcc05aec7ffc40e78fc7`;
 - run `30578806660`, job `90993603962`, artifact `8773887288`, SHA `fb1bbac96c0dcd0096aef55c2c8c752e453b6ddb`.
 
-Affected cards rendered `Preview unavailable`. Frozen-target reproduction remains `UNKNOWN`; no cause is assigned.
+`WikiEditorialMediaFileResponse` correctly detects missing/integrity-failed objects. The dedicated fallback test explicitly expects HTTP 500 for a deliberately corrupt thumbnail and verifies the accessible `Preview unavailable` fallback. Therefore these historical responses do not prove failure for valid production media.
+
+Impact: order-dependent acceptance evidence, repeated expected server-error diagnostics in unrelated Wiki lifecycle tests and possible interference with session-bearing request timing. A shared cause with the missing publication flash is not proven.
 
 ### MEDIUM — OTERYN-AUDIT-P35-001
 
@@ -172,11 +178,11 @@ The file reported no active tasks while live open PRs contained active task reco
 
 The audit does not claim a shared cause among:
 
-- thumbnail HTTP 500 responses;
+- acceptance fixture leakage and integrity-failure thumbnail traffic;
 - missing publication flash;
 - invalid HTML `pattern` console errors.
 
-Historical artifacts prove coexistence, not causality. Each symptom requires independent exact-target classification.
+The stale-fixture origin of the historical thumbnail traffic is proven. Whether concurrent leaked requests contributed to flash loss remains unproven and requires a controlled polluted-versus-clean comparison.
 
 ## Backend-only, frontend-only and unreachable inventory
 
@@ -213,9 +219,11 @@ No production operation was performed. No direct exact-release evidence satisfyi
    - fail-closed per-surface accessibility applicability/evidence.
 
 2. **Continue existing Issue #365; do not create a duplicate**
-   - run at least three focused zero-retry frozen-target Wiki probes;
+   - reset Wiki EditorialMedia fixtures before and after every Wiki media scenario;
+   - run at least three clean isolated zero-retry frozen-target Wiki probes;
+   - run a separate controlled polluted probe with exactly one missing/corrupt row;
    - capture sanitized publish redirect, session/application/server and thumbnail evidence;
-   - classify flash and thumbnail symptoms independently;
+   - classify flash behavior independently from the expected integrity-failure response;
    - repair only a proven cause.
 
 3. **Small Wiki administrator validation repair after validator classification**
@@ -227,15 +235,18 @@ No production operation was performed. No direct exact-release evidence satisfyi
 
 Status: `PENDING`.
 
-The required procedure is fully specified in:
+The required procedure is specified in:
 
-`docs/agents/evidence/OTERYN-20260731-portal-backend-frontend-audit/VALIDATOR_PACKET.md`
+- `docs/agents/evidence/OTERYN-20260731-portal-backend-frontend-audit/VALIDATOR_PACKET.md`;
+- `docs/agents/evidence/OTERYN-20260731-portal-backend-frontend-audit/ISSUE_365_STATIC_CAUSE_ANALYSIS.md`.
 
 A fresh checkout-capable validator must:
 
 - verify the frozen SHA and clean checkout;
 - rerun the strict repository contracts;
-- execute at least three independent zero-retry focused Wiki probes;
+- independently verify the stale-fixture execution chain;
+- execute at least three clean isolated zero-retry Wiki probes;
+- execute a controlled polluted comparison;
 - capture sanitized application/server evidence;
 - try to disprove every finding and sample lower-severity/nonclaim records;
 - verify all PR paths are audit-only;
