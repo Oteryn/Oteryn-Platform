@@ -33,6 +33,7 @@ Navigation map for autonomous agents. This is not an exhaustive inventory. Confi
 | Roadmap | `docs/architecture/ROADMAP.md` | Phased delivery order and exit gates. |
 | ADRs | `docs/architecture/adr/**` | Durable decisions and supersession history. |
 | Integration contracts | `docs/contracts/**` | Canary/login-server/shared schema/auth compatibility. |
+| Public endpoint roles | `docs/contracts/PUBLIC_ENDPOINTS_CONTRACT.md`, `deploy/synology/PUBLIC_ENDPOINTS.md` | Canonical mapping of `oteryn.molehill.cloud` to Platform WWW and `login.oteryn.molehill.cloud` to Game Gateway/login. |
 | Agent governance | `AGENTS.md`, `docs/agents/CONTEXT_*` | Coordination, routing and handoff rules. |
 
 ## Mandatory discovery for shared data/auth
@@ -43,6 +44,11 @@ Before implementing shared auth/account/character mutations, search/read:
 - `docs/contracts/CANARY_DATA_CONTRACT.md`;
 - `docs/architecture/DATA_OWNERSHIP.md`;
 - `docs/architecture/SECURITY_ARCHITECTURE.md`.
+
+For public-domain, Cloudflare Tunnel, website-origin or Game Gateway hostname work, also read:
+
+- `docs/contracts/PUBLIC_ENDPOINTS_CONTRACT.md`;
+- `deploy/synology/PUBLIC_ENDPOINTS.md`.
 
 Then verify the actual external repository/schema evidence. Documentation placeholders do not prove compatibility.
 
