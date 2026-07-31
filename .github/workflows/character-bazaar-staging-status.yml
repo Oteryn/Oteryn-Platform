@@ -1,5 +1,7 @@
 name: Character Bazaar Staging Status Snapshot
 
+# Read-only observer: this workflow never dispatches or mutates staging control.
+
 on:
   push:
     branches:
