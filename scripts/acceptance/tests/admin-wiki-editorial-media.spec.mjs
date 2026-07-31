@@ -137,7 +137,10 @@ test('@wiki-media exact Wiki editor discovers inserts previews and publishes pri
   await preview.close();
 
   await page.getByRole('button', { name: 'Submit for review' }).click();
+  await waitForWikiMediaThumbnails(page);
   await page.getByRole('button', { name: 'Publish', exact: true }).click();
+  await expect(page.getByRole('status')).toContainText('Wiki article published.');
+  await expect(page.getByText(/Status:\s*Published/i)).toBeVisible();
 
   const browser = context.browser();
   expect(browser).not.toBeNull();
