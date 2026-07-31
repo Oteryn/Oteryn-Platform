@@ -1,0 +1,141 @@
+{
+  "schema_version": 1,
+  "task_id": "OTERYN-20260731-portal-backend-frontend-audit",
+  "captured_at": "2026-07-31T16:43:00Z",
+  "audit_target": {
+    "branch": "main",
+    "sha": "b6f7b12a43aa72a52dc98c3fa07a7c4607fcb608",
+    "fact_state": "PROVEN",
+    "environment": "REPO_MAIN"
+  },
+  "audit_branch": "audit/OTERYN-20260731-portal-backend-frontend-audit",
+  "working_tree": {
+    "state": "UNKNOWN",
+    "reason": "No full checkout is available in the connector-only session."
+  },
+  "tooling": {
+    "php": {
+      "installed_version": "UNKNOWN",
+      "manifest_constraint": "^8.5",
+      "ci_version": "8.5",
+      "fact_state": "PROVEN"
+    },
+    "composer": {
+      "installed_version": "UNKNOWN",
+      "ci_version": "v2",
+      "fact_state": "PROVEN"
+    },
+    "node": {
+      "installed_version": "UNKNOWN",
+      "fact_state": "UNKNOWN"
+    },
+    "npm": {
+      "installed_version": "UNKNOWN",
+      "fact_state": "UNKNOWN"
+    },
+    "playwright": {
+      "installed_version": "UNKNOWN",
+      "manifest_version": "1.60.0",
+      "fact_state": "PROVEN"
+    }
+  },
+  "manifests": {
+    "composer_json_blob": "56c07a1586a6da7b5d1099af94bead477e2857ed",
+    "acceptance_package_json_blob": "4b8d84b927b2af6bccce70fcbe5d718d824039d0",
+    "ci_workflow_blob": "ee79e6b9c3679d32f5f8a50919863db8c0b1e680",
+    "lockfiles": "PENDING_PHASE_1_CHECKOUT"
+  },
+  "issues": {
+    "326": {
+      "state": "open",
+      "fact_state": "PROVEN"
+    },
+    "365": {
+      "state": "open",
+      "prior_reproduction_runs": [30562698853, 30578806660],
+      "current_main_reproduction": "NOT_RUN",
+      "fact_state": "PROVEN"
+    }
+  },
+  "open_prs": [
+    {
+      "number": 338,
+      "head_sha": "8baec8d66c1bab0b618684096300ab491dacacb4",
+      "classification": "OPEN_PR_ONLY",
+      "portal_relevance": "Game Catalog consumer/admin view and Wiki acceptance synchronization"
+    },
+    {
+      "number": 335,
+      "head_sha": "b79f9bdfd9f65fadb5006969b01b99e069591846",
+      "classification": "OPEN_PR_ONLY",
+      "portal_relevance": "Synology boot repair and runner recovery"
+    },
+    {
+      "number": 328,
+      "head_sha": "2cb3008e546a278552479f98409ef8abe2370071",
+      "classification": "OPEN_PR_ONLY",
+      "portal_relevance": "Character rename contract discovery"
+    },
+    {
+      "number": 218,
+      "head_sha": "ef4f504575cef807722e9dd7c9b8731fa7a0be62",
+      "classification": "OPEN_PR_ONLY",
+      "portal_relevance": "Outside portal implementation"
+    },
+    {
+      "number": 189,
+      "head_sha": "0d0f916fb6199986dd5a32a3912ea80aecb3177a",
+      "classification": "OPEN_PR_ONLY",
+      "portal_relevance": "Outside portal implementation"
+    },
+    {
+      "number": 182,
+      "head_sha": "8af22bb35b36f3792def644456e8886ffb11f8a6",
+      "classification": "OPEN_PR_ONLY",
+      "portal_relevance": "Outside portal implementation"
+    },
+    {
+      "number": 116,
+      "head_sha": "dbafc4de14f5e28e0aaa3b27d0813b1601818fb5",
+      "classification": "OPEN_PR_ONLY",
+      "portal_relevance": "Scheduled E2E evidence collection"
+    }
+  ],
+  "deployment": {
+    "staging": {
+      "source_sha": "717977f252b09b9b2e979f8110b7f48b88682223",
+      "workflow_run_id": 30633745660,
+      "job_id": 91166065335,
+      "artifact_id": 8794683627,
+      "fact_state": "PROVEN",
+      "environment": "STAGING_PROVEN",
+      "matches_audit_target": false
+    },
+    "production": {
+      "exact_release": "UNKNOWN",
+      "availability": "UNKNOWN",
+      "fact_state": "UNKNOWN",
+      "environment": "UNKNOWN"
+    }
+  },
+  "ci": {
+    "audit_target_combined_status_contexts": [],
+    "audit_target_pr_workflow_runs": [],
+    "fact_state": "PROVEN",
+    "interpretation": "No legacy commit-status contexts or PR-triggered workflow runs were returned by the inspected connector endpoints; this is not a claim that all push workflows were absent."
+  },
+  "conflicts": [
+    {
+      "id": "BASELINE-CONFLICT-001",
+      "sources": ["docs/agents/ACTIVE_WORK.md", "live open pull requests and task records"],
+      "description": "ACTIVE_WORK.md reports no active tasks while live open PRs contain active task records and owned paths.",
+      "fact_state": "CONFLICT"
+    }
+  ],
+  "first_failure": {
+    "classification": "infrastructure",
+    "command": "git ls-remote https://github.com/blakinio/Oteryn-Platform.git refs/heads/main",
+    "error": "Could not resolve host: github.com"
+  },
+  "next_action": "Start a Codex investigator session on the exact audit target to complete Phase 1 runtime inventory and the first full matrix."
+}
