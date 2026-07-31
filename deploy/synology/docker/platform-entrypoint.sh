@@ -76,9 +76,4 @@ if [ "$TRUSTED_PROXIES" = "*" ]; then
     exit 5
 fi
 
-# The Synology Platform origin is loopback-only and browser traffic terminates TLS
-# at the owner-designated Cloudflare Tunnel, so session cookies must remain secure.
-SESSION_SECURE_COOKIE=true
-export SESSION_SECURE_COOKIE
-
 exec "$@"
