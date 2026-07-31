@@ -1,0 +1,81 @@
+name: Character Bazaar Staging Inspect
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/character-bazaar-staging-inspect.yml'
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: read
+
+concurrency:
+  group: character-bazaar-staging-inspect-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Inspect sanitized control status
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts/marketplace
+
+          gh api \
+            "repos/${GITHUB_REPOSITORY}/actions/runs?branch=main&per_page=100" \
+            > /tmp/oteryn-workflow-runs.json
+
+          jq -c '
+            [
+              .workflow_runs[]
+              | select(.name == "Character Bazaar Staging Control")
+              | select(.event == "push" or .event == "workflow_dispatch")
+              | {
+                  id,
+                  status,
+                  conclusion,
+                  head_sha,
+                  event,
+                  run_attempt,
+                  created_at,
+                  updated_at,
+                  html_url
+                }
+            ]
+            | first // {
+                status: "not_found",
+                conclusion: null,
+                head_sha: null,
+                event: null,
+                run_attempt: null,
+                created_at: null,
+                updated_at: null,
+                html_url: null
+              }
+          ' /tmp/oteryn-workflow-runs.json \
+            | tee artifacts/marketplace/character-bazaar-control-status.json
+
+          if jq -e '.id != null' artifacts/marketplace/character-bazaar-control-status.json >/dev/null; then
+            run_id="$(jq -r '.id' artifacts/marketplace/character-bazaar-control-status.json)"
+            gh api \
+              "repos/${GITHUB_REPOSITORY}/actions/runs/${run_id}/artifacts?per_page=100" \
+              --jq '[.artifacts[] | select(.expired == false) | select(.name | startswith("character-bazaar-staging-")) | {id, name, size_in_bytes, expired}]' \
+              | tee artifacts/marketplace/character-bazaar-control-artifacts.json
+          else
+            printf '[]\n' | tee artifacts/marketplace/character-bazaar-control-artifacts.json
+          fi
+
+      - name: Upload sanitized inspection evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: character-bazaar-control-inspection-${{ github.event.pull_request.head.sha || github.sha }}
+          path: artifacts/marketplace/*.json
+          if-no-files-found: error
+          retention-days: 3
