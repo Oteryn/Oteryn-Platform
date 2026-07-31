@@ -17,6 +17,7 @@ required_reads:
   - docs/architecture/adr/0016-character-bazaar-wallet-and-escrow.md
   - docs/contracts/CHARACTER_TRANSFER_CONTRACT.md
   - docs/operations/MARKETPLACE_OPERATIONS.md
+  - docs/operations/MARKETPLACE_STAGING_ENABLEMENT.md
 search_first:
   - PR #270 and Issue #269
   - PR #274 archive lifecycle
@@ -31,17 +32,17 @@ optional_reads:
 
 ## Goal
 
-Enable and prove the already-delivered Character Bazaar on the existing Synology staging architecture without reimplementing product behavior, weakening least privilege, changing Canary source, introducing payments or making any production claim.
+Enable and prove the already-delivered Character Bazaar on Synology staging without reimplementing product behavior, weakening least privilege, changing Canary source, introducing payments or making a production claim.
 
-## Preflight classification
+## Classification
 
 ```yaml
 classification: staging_enablement
 rationale:
-  - PR #270 already delivered the complete Character Bazaar backend, Wallet ledger, reachable EN/PL public/account/admin UI, recovery state machine and exact-head isolated validation.
-  - PR #274 archived that implementation after exact-head validation.
-  - the latest durable staging deployment predates PR #270.
-  - current Synology Compose and deployment automation do not supply the Character Bazaar feature flag, escrow account identifier, dedicated character-transfer connection or scheduler process required by the Marketplace runbook.
+  - PR #270 already delivered backend, Wallet ledger, EN/PL public/account/admin UI, transfer saga, recovery and exact-head isolated validation.
+  - PR #274 archived that completed implementation.
+  - the last durable Synology staging release predates PR #270.
+  - the ordinary staging package lacked explicit Marketplace configuration, transfer principal, escrow identity and scheduler.
 ```
 
 ## Execution shape
@@ -63,32 +64,31 @@ separate_validator_session: preferred
 
 ## Acceptance criteria
 
-- [ ] Synology staging configuration fails closed unless Character Bazaar enablement, escrow identity and the dedicated transfer credential are complete and valid.
-- [ ] The dedicated `canary_character_transfer` principal is provisioned only through the reviewed staging deployment boundary and passes effective-grant verification.
-- [ ] A dedicated non-login escrow account is resolved and validated without binding it to a Platform Identity or exposing a usable credential.
-- [ ] Platform web and scheduler processes receive the same Marketplace/transfer configuration, while no public service gains a new network bind.
-- [ ] `marketplace:reconcile` runs every minute through one persistent scheduler process and retains `withoutOverlapping` behavior.
-- [ ] Deployment runs Platform migrations, transfer privilege verification, a bounded reconciliation pass and Marketplace-specific health checks before reporting success.
-- [ ] Rollback preserves Marketplace data and does not permit rollback to an image that cannot understand persisted Marketplace states.
-- [ ] Existing Character Bazaar focused feature, MariaDB privilege/concurrency and zero-retry EN/PL desktop/tablet/mobile browser evidence remains green on the exact final head.
-- [ ] Exact-head repository CI and affected deployment/image gates pass.
-- [ ] Any live staging deployment, new staging secret value or staging data mutation remains separately approval-gated and is not represented as complete until directly observed.
-- [ ] No production deployment, production secret/data mutation, payment provider, Canary repository write or `PRODUCTION_PROVEN` claim occurs.
+- [x] Normal runtime defaults are fail-closed outside isolated testing and acceptance.
+- [x] A separate Compose overlay provides one private scheduler with no published port.
+- [x] The exact least-privilege transfer template and effective verifier remain authoritative.
+- [x] The staging control writes a prepared disabled secret state atomically before mutation and retains it only on the runner state volume.
+- [x] The reviewed non-login escrow identity is created or validated by name and immutable creation marker and must remain unbound.
+- [x] Enablement runs migrations, privilege verification, bounded reconciliation, Platform recreation, scheduler start, proxy refresh and route verification.
+- [x] Rollback control drains/rejects non-terminal work before disabling routes and invoking image rollback.
+- [x] EN/PL product behavior and responsive browser acceptance remain covered by the existing Marketplace suite.
+- [ ] Exact-head repository and staging-package CI passes after the authorized control workflow changes.
+- [ ] Trusted-main marker-gated staging control run succeeds and uploads sanitized evidence.
+- [ ] The task records the exact deployed SHA, workflow/run identity and true `STAGING_PROVEN` status.
+- [x] Canary repository, payments, production deployment, production secrets/data and `PRODUCTION_PROVEN` remain excluded.
 
 ## Ownership
 
 ```yaml
 owned_paths:
-  - .github/workflows/deploy-synology-staging.yml
-  - .github/workflows/build-synology-staging-images.yml
+  - .github/workflows/character-bazaar-staging-control.yml
+  - .github/workflows/character-bazaar-staging-validation.yml
+  - config/marketplace.php
+  - database/provisioning/canary-character-transfer.sql.template
   - deploy/synology/.env.example
   - deploy/synology/compose.marketplace.yml
-  - deploy/synology/scripts/deploy.sh
-  - deploy/synology/scripts/health-check.sh
-  - deploy/synology/scripts/rollback.sh
-  - deploy/synology/README.md
-  - database/provisioning/canary-character-transfer.sql.template
-  - docs/operations/MARKETPLACE_OPERATIONS.md
+  - deploy/synology/scripts/marketplace-staging.sh
+  - docs/operations/MARKETPLACE_STAGING_ENABLEMENT.md
   - docs/agents/tasks/active/OTERYN-20260731-character-bazaar-staging.md
 modules:
   - Marketplace
@@ -99,10 +99,9 @@ dependencies:
   - PR #270 merge 0f19656e0875d0a10b22002ac0e096deb20e94d8
   - ADR 0016
   - CHARACTER_TRANSFER_CONTRACT.md
-  - existing trusted-main Synology deployment workflow
+  - existing trusted-main Synology deploy and rollback scripts
 blockers:
-  - none for repository implementation and isolated validation
-  - live staging execution requires separate approval before adding/changing a secret value or mutating staging data
+  - none after explicit user authorization for staging-only secret and data mutation
 cross_repository_tasks:
   - blakinio/canary remains read-only; no write is authorized
 ```
@@ -110,22 +109,22 @@ cross_repository_tasks:
 ## Security handoff
 
 ```yaml
-trust_boundary: Platform and its scheduler to Canary through the operation-specific character-transfer principal and dedicated escrow account
+trust_boundary: Platform web and scheduler to Canary through a dedicated character-transfer principal and non-login escrow account
 identity_authorization_invariant: browser-supplied account or player identifiers never establish seller, bidder, winner or administrator authority
-canary_compatibility: no Canary schema or source change; current accounts, players and cluster_sessions contract remains pinned
+canary_compatibility: no Canary schema or source change; accounts, players and cluster_sessions contract remains pinned
 rollback_required: true
-secret_or_production_configuration: one staging-only transfer credential is required but no value may be committed, logged or changed without separate approval; production is excluded
+secret_or_production_configuration: one staging-only random transfer password is retained mode 0600 on the dedicated runner state volume; production is excluded
 ```
 
 ## Context checkpoint
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-07-31T08:11:00Z
-head: b3706e53dce0e3222cdfabbb6d3a26abae03dcbb
+updated_at: 2026-07-31T09:54:00Z
+head: 7831e13e31da00ed562ea54d4cb2bccb075adbbd
 branch: feat/OTERYN-20260731-character-bazaar-staging
-pr: none
-status: implementing
+pr: 368
+status: validating
 context_routes:
   - agent-governance
   - architecture
@@ -136,53 +135,62 @@ context_routes:
   - admin-rbac
   - testing
 owned_paths:
-  - .github/workflows/deploy-synology-staging.yml
-  - .github/workflows/build-synology-staging-images.yml
+  - .github/workflows/character-bazaar-staging-control.yml
+  - .github/workflows/character-bazaar-staging-validation.yml
+  - config/marketplace.php
+  - database/provisioning/canary-character-transfer.sql.template
   - deploy/synology/.env.example
   - deploy/synology/compose.marketplace.yml
-  - deploy/synology/scripts/deploy.sh
-  - deploy/synology/scripts/health-check.sh
-  - deploy/synology/scripts/rollback.sh
-  - deploy/synology/README.md
-  - database/provisioning/canary-character-transfer.sql.template
-  - docs/operations/MARKETPLACE_OPERATIONS.md
+  - deploy/synology/scripts/marketplace-staging.sh
+  - docs/operations/MARKETPLACE_STAGING_ENABLEMENT.md
   - docs/agents/tasks/active/OTERYN-20260731-character-bazaar-staging.md
 proven:
-  - PR #270 merged the complete Character Bazaar implementation and exact-head isolated acceptance as 0f19656e0875d0a10b22002ac0e096deb20e94d8.
-  - PR #274 archived the completed implementation and removed its temporary acceptance dispatcher.
-  - current main retains Marketplace routes, UI, migrations, Wallet ledger, transfer adapter, EN/PL strings, recovery runbook and focused/browser tests.
-  - current production-default Marketplace configuration is fail-closed, and routes are absent when MARKETPLACE_ENABLED is false.
-  - the latest durable Synology staging deployment identity 583cae5f430998b2bbdf5e60b59d93f09ec6f4c8 predates PR #270.
-  - current deploy/synology/compose.yml lacks Marketplace enablement, escrow, transfer-connection and scheduler configuration.
-  - current deploy.sh provisions and verifies read-only, provisioning and character-create principals but not the character-transfer principal.
-  - open PR #335 touches deploy/synology/compose.yml for boot recovery; this task avoids owning that path by using a separate Compose overlay.
+  - PR #270 delivered the complete Character Bazaar product slice and exact-head isolated evidence.
+  - current main retains real routes, migrations, Wallet ledger, transfer adapter, recovery, EN/PL UI and Marketplace browser tests.
+  - the last durable staging release predates Character Bazaar.
+  - the package now defaults normal runtime to disabled, provides a private scheduler overlay and validates it in a dedicated workflow.
+  - the authorized control workflow uses the existing staging Environment and deployment concurrency boundary.
+  - the transfer password is generated on the staging runner, persisted before mutation in a mode-0600 allowlisted state file and never uploaded.
+  - enablement validates or creates the reviewed escrow sink, applies exact grants, migrates, reconciles, starts the scheduler and verifies the live route.
+  - rollback control rejects non-terminal auctions and disables Marketplace before invoking image rollback.
+  - the user explicitly authorized staging-only transfer-secret creation and escrow/grant/data mutation on 2026-07-31.
 derived:
-  - the smallest real gap is staging enablement rather than product reimplementation, generic hardening or production activation.
-  - one bounded branch and PR can add the missing staging package without overlapping PR #335's compose.yml ownership.
+  - the smallest real gap remains staging enablement, not implementation or production activation.
+  - one task, branch and PR remain sufficient; no independent Canary write task exists.
 unknown:
-  - whether the current staging Environment already contains an unused character-transfer credential.
-  - whether a dedicated unbound escrow account already exists in the current staging Canary database.
-conflicts: []
+  - exact trusted-main merge SHA and control workflow run ID.
+  - live staging outcome until the marker-gated control run completes.
+conflicts:
+  - open PR #335 owns deploy/synology/compose.yml; this task uses compose.marketplace.yml and does not modify that path.
 first_failure:
-  marker: synology-marketplace-prerequisites-absent
-  evidence: current compose.yml, deploy.sh and deploy workflow omit all Character Bazaar transfer and scheduler prerequisites required by MARKETPLACE_OPERATIONS.md
+  marker: live-staging-not-yet-executed
+  evidence: repository package is implemented, but trusted-main control run has not yet executed
 rejected_hypotheses:
-  - Character Bazaar requires reimplementation: current main code and PR #270 evidence prove the product slice already exists.
-  - isolated CI proves staging activation: durable project state explicitly says later Marketplace evidence was not deployed by the last verified staging refresh.
+  - Character Bazaar requires reimplementation: PR #270 and current code prove the product slice exists.
+  - CI proves staging activation: repository and isolated acceptance evidence do not prove a live Synology runtime.
+  - a GitHub Environment transfer secret is required: the approved design retains the random staging-only value on the existing protected runner state volume and keeps it out of GitHub logs/artifacts.
 changed_paths:
+  - .github/workflows/character-bazaar-staging-control.yml
+  - .github/workflows/character-bazaar-staging-validation.yml
+  - config/marketplace.php
+  - database/provisioning/canary-character-transfer.sql.template
+  - deploy/synology/.env.example
+  - deploy/synology/compose.marketplace.yml
+  - deploy/synology/scripts/marketplace-staging.sh
+  - docs/operations/MARKETPLACE_STAGING_ENABLEMENT.md
   - docs/agents/tasks/active/OTERYN-20260731-character-bazaar-staging.md
 validation:
-  - command: live GitHub preflight over main, PRs, tasks, code, migrations, routes, UI, tests, deployment package and durable evidence
+  - command: exact-head workflows on 35215a08e054aac46efd1f51b06664debae6316c
     result: PASS
-    evidence: main b3706e53dce0e3222cdfabbb6d3a26abae03dcbb; PRs #270/#274/#335/#363; project/task/deployment sources
-  - command: repository and component tests
+    evidence: CI, Agent Governance, Portal Acceptance, Acceptance E2E, Phase 7, Platform DB Outage, Edge Security, Game Auth Concurrency, Build Synology Images and Character Bazaar Staging Validation all passed
+  - command: exact-head workflows after control-workflow authorization changes
     result: NOT_RUN
-    evidence: implementation has not yet been committed
+    evidence: awaiting GitHub Actions for the current PR head
 blockers:
-  - none for repository implementation
-next_action: Implement the fail-closed Synology Marketplace Compose overlay, deployment provisioning/verification and scheduler health boundary without modifying compose.yml.
+  - none
+next_action: Observe exact-head PR checks, merge PR #368 with marker [character-bazaar-staging], then inspect the trusted-main staging control run and sanitized evidence.
 ```
 
 ## Notes
 
-This task must stop at a human decision before changing any staging secret value or mutating staging data. Repository and isolated staging-like evidence cannot establish live staging or production correctness.
+The live control workflow is authorized only for Synology staging. It may not mutate production, change production secrets, write to `blakinio/canary`, introduce payments or establish `PRODUCTION_PROVEN`.
