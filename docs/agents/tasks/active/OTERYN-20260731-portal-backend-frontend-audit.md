@@ -34,7 +34,7 @@ Audit every currently delivered Oteryn Platform portal capability and determine,
 
 ## Acceptance criteria
 
-- [ ] Record the exact `main` audit target SHA, tool/manifest baseline, open-PR delta and separately proven staging/production boundaries.
+- [x] Record the exact `main` audit target SHA, tool/manifest baseline, open-PR delta and separately proven staging/production boundaries.
 - [ ] Build one canonical delivered-surface inventory reconciled from runtime routes, rendered views/navigation, coverage manifests and product/backend-frontend ledgers.
 - [ ] Classify every capability across backend, frontend, integration, states, browser evidence, deployment and final evidence state.
 - [ ] Record conflicts, backend-only, frontend-only, unreachable, dormant and open-PR-only capabilities without promoting missing evidence to implementation proof.
@@ -79,15 +79,15 @@ checkpoint_version: 1
 policy_version: 2
 phase: investigate
 session_id: chat-20260731-portal-audit-001
-session_role: investigator
+session_role: coordinator-investigator
 execution_mode: codex
 execution_reason: complete route/runtime inventory, validators and browser reproduction require a full checkout and terminal/browser execution
-updated_at: 2026-07-31T16:43:00Z
-lease_expires_at: 2026-07-31T17:28:00Z
-head: b6f7b12a43aa72a52dc98c3fa07a7c4607fcb608
+updated_at: 2026-07-31T16:49:00Z
+lease_expires_at: 2026-07-31T16:49:00Z
+head: b9d32c22d99ffed27a22299b2fbe21228eb2ed0a
 branch: audit/OTERYN-20260731-portal-backend-frontend-audit
-pr: none
-status: investigating
+pr: 381
+status: ready
 context_routes:
   - agent-governance
   - testing
@@ -108,20 +108,21 @@ decomposition_decision: phased
 decomposition_reason: one cohesive portal audit with shared inventory and severity normalization; rotate sessions on the same task
 validation_level: focused
 heavy_validation_runs: 0
-session_rotation_count: 0
+session_rotation_count: 1
 stale_takeover_count: 0
 human_interruptions: 0
 proven:
   - audit target `main` is b6f7b12a43aa72a52dc98c3fa07a7c4607fcb608 at 2026-07-31T16:43:00Z
-  - the audit task record and branch did not exist before this session
+  - task branch audit/OTERYN-20260731-portal-backend-frontend-audit and draft PR #381 exist for audit-only records and evidence
   - Issue #326 is open and requires an exhaustive integrated backend/frontend/state/browser matrix
   - Issue #365 is open; earlier exact-head mobile runs proved missing transient Wiki publication flash and concurrent thumbnail HTTP 500 responses, but no common cause
-  - open PRs are #338, #335, #328, #218, #189, #182 and #116
+  - open PRs at baseline were #338, #335, #328, #218, #189, #182 and #116
   - PR #338 changes Game Catalog implementation, an admin view and `scripts/acceptance/tests/admin-wiki-editorial-media.spec.mjs`; it remains OPEN_PR_ONLY
   - latest exact staging evidence is source SHA 717977f252b09b9b2e979f8110b7f48b88682223 from control run 30633745660, job 91166065335 and sanitized artifact 8794683627
   - production was not modified by the latest staging refresh and has no direct exact-release proof in the inspected evidence
   - `composer.json` requires PHP ^8.5 and defines validate/audit/format/analyse/test commands; CI config uses PHP 8.5 and Composer v2
   - `scripts/acceptance/package.json` pins Playwright 1.60.0 and contains the requested strict, completeness, dimension, media, route-view-navigation, responsive, portability, resilience, accessibility and account-lifecycle commands
+  - baseline evidence is externalized in docs/agents/evidence/OTERYN-20260731-portal-backend-frontend-audit/index.md and baseline.json
 derived:
   - this remains one phased audit task, branch and draft PR because all surfaces share one canonical inventory and final severity/deduplication pass
   - current staging evidence must be evaluated separately from later main commits and cannot prove the audit target is deployed
@@ -135,23 +136,29 @@ conflicts:
   - ACTIVE_WORK.md says no active tasks, while live open PRs include active task records and newer owned work
 first_failure:
   marker: sandbox GitHub DNS resolution unavailable
-  evidence: `git ls-remote https://github.com/blakinio/Oteryn-Platform.git refs/heads/main` failed with `Could not resolve host: github.com`; live GitHub inspection and documentation writes continue through the GitHub connector
+  evidence: `git ls-remote https://github.com/blakinio/Oteryn-Platform.git refs/heads/main` failed with `Could not resolve host: github.com`; live GitHub inspection and documentation writes continued through the GitHub connector
 rejected_hypotheses:
   - ACTIVE_WORK.md alone is authoritative for active work
   - latest repository main automatically equals the proven staging source SHA
   - the Wiki flash loss and thumbnail 500 responses have one proven cause
 changed_paths:
   - docs/agents/tasks/active/OTERYN-20260731-portal-backend-frontend-audit.md
+  - docs/agents/reports/OTERYN-20260731-portal-backend-frontend-audit-baseline.md
+  - docs/agents/evidence/OTERYN-20260731-portal-backend-frontend-audit/index.md
+  - docs/agents/evidence/OTERYN-20260731-portal-backend-frontend-audit/baseline.json
 validation:
   - command: live GitHub repository, main history, issues, open PRs and owned-path preflight
     result: PASS
     evidence: exact identifiers recorded in the audit evidence index
-  - command: local checkout and runtime validators
+  - command: draft PR #381 changed-path review
+    result: PASS
+    evidence: audit branch contains only the task record, baseline report and evidence files before this checkpoint update
+  - command: local Control Room, checkpoint validator and runtime validators
     result: NOT_RUN
-    evidence: current sandbox cannot resolve github.com; requires Codex/full-checkout session
+    evidence: current sandbox cannot resolve github.com and has no full checkout; run first in the Codex investigator session
 blockers:
-  - local checkout, terminal validators and Playwright browser execution are unavailable in the current connector-only session
-next_action: start a Codex investigator session on this task and exact audit target SHA to complete Phase 1 runtime inventory and write the first full evidence matrix
+  - none
+next_action: start a Codex investigator session on task OTERYN-20260731-portal-backend-frontend-audit and audit target b6f7b12a43aa72a52dc98c3fa07a7c4607fcb608 to complete Phase 1 runtime inventory and write the first full evidence matrix
 ```
 
 ## Notes
