@@ -34,22 +34,32 @@ Route::middleware(['auth', 'mfa.confirmed', 'admin.permission:wiki.access'])
     ->prefix('admin/wiki')
     ->name('admin.wiki.')
     ->group(function (): void {
-        Route::get('/', AdminWikiController::class)->name('index');
-        Route::get('/articles', [AdminWikiArticleController::class, 'index'])->name('articles.index');
-        Route::get('/categories', [AdminWikiCategoryController::class, 'index'])->name('categories.index');
+        Route::get('/', AdminWikiController::class)->block()->name('index');
+        Route::get('/articles', [AdminWikiArticleController::class, 'index'])->block()->name('articles.index');
+        Route::get('/categories', [AdminWikiCategoryController::class, 'index'])->block()->name('categories.index');
 
         Route::middleware('admin.permission:wiki.articles.manage')->group(function (): void {
-            Route::get('/media', [AdminWikiMediaController::class, 'index'])->name('media.index');
+            Route::get('/media', [AdminWikiMediaController::class, 'index'])->block()->name('media.index');
             Route::get('/media/{editorialMedia}/thumbnail', [AdminWikiMediaController::class, 'thumbnail'])
                 ->whereNumber('editorialMedia')
+                ->block()
                 ->name('media.thumbnail');
-            Route::get('/articles/create', [AdminWikiArticleController::class, 'create'])->name('articles.create');
-            Route::post('/articles', [AdminWikiArticleController::class, 'store'])->name('articles.store');
-            Route::get('/articles/{article}/edit', [AdminWikiArticleController::class, 'edit'])->name('articles.edit');
-            Route::put('/articles/{article}', [AdminWikiArticleController::class, 'update'])->name('articles.update');
+            Route::get('/articles/create', [AdminWikiArticleController::class, 'create'])
+                ->block()
+                ->name('articles.create');
+            Route::post('/articles', [AdminWikiArticleController::class, 'store'])
+                ->block()
+                ->name('articles.store');
+            Route::get('/articles/{article}/edit', [AdminWikiArticleController::class, 'edit'])
+                ->block()
+                ->name('articles.edit');
+            Route::put('/articles/{article}', [AdminWikiArticleController::class, 'update'])
+                ->block()
+                ->name('articles.update');
             Route::get('/articles/{article}/preview/{locale}', [AdminWikiArticleController::class, 'preview'])
                 ->where('locale', 'en|pl')
                 ->middleware('signed')
+                ->block()
                 ->name('articles.preview');
             Route::get(
                 '/articles/{article}/preview-media/{locale}/{translation}/{editorialMedia}',
@@ -62,34 +72,49 @@ Route::middleware(['auth', 'mfa.confirmed', 'admin.permission:wiki.access'])
                     'editorialMedia' => '[0-9]+',
                 ])
                 ->middleware('signed')
+                ->block()
                 ->name('media.preview');
             Route::get('/articles/{article}/revisions', [AdminWikiArticleController::class, 'revisions'])
+                ->block()
                 ->name('articles.revisions');
             Route::post('/articles/{article}/submit-review', [AdminWikiLifecycleController::class, 'submitReview'])
+                ->block()
                 ->name('articles.submit-review');
             Route::post('/articles/{article}/return-draft', [AdminWikiLifecycleController::class, 'returnDraft'])
+                ->block()
                 ->name('articles.return-draft');
         });
 
         Route::middleware('admin.permission:wiki.publish')->group(function (): void {
             Route::post('/articles/{article}/publish', [AdminWikiLifecycleController::class, 'publish'])
+                ->block()
                 ->name('articles.publish');
             Route::post('/articles/{article}/unpublish', [AdminWikiLifecycleController::class, 'unpublish'])
+                ->block()
                 ->name('articles.unpublish');
             Route::post('/articles/{article}/archive', [AdminWikiLifecycleController::class, 'archive'])
+                ->block()
                 ->name('articles.archive');
             Route::post(
                 '/articles/{article}/revisions/{revision}/restore',
                 [AdminWikiArticleController::class, 'restore'],
-            )->name('articles.revisions.restore');
+            )
+                ->block()
+                ->name('articles.revisions.restore');
         });
 
         Route::middleware('admin.permission:wiki.categories.manage')->group(function (): void {
-            Route::get('/categories/create', [AdminWikiCategoryController::class, 'create'])->name('categories.create');
-            Route::post('/categories', [AdminWikiCategoryController::class, 'store'])->name('categories.store');
+            Route::get('/categories/create', [AdminWikiCategoryController::class, 'create'])
+                ->block()
+                ->name('categories.create');
+            Route::post('/categories', [AdminWikiCategoryController::class, 'store'])
+                ->block()
+                ->name('categories.store');
             Route::get('/categories/{category}/edit', [AdminWikiCategoryController::class, 'edit'])
+                ->block()
                 ->name('categories.edit');
             Route::put('/categories/{category}', [AdminWikiCategoryController::class, 'update'])
+                ->block()
                 ->name('categories.update');
         });
     });
