@@ -1,0 +1,124 @@
+name: Character Bazaar Staging Refresh Observer
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/character-bazaar-staging-refresh-observer.yml'
+      - 'docs/agents/tasks/active/OTERYN-20260731-character-bazaar-staging-refresh.md'
+
+permissions:
+  actions: read
+  contents: read
+
+concurrency:
+  group: character-bazaar-staging-refresh-observer-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  observe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TARGET_SHA: 717977f252b09b9b2e979f8110b7f48b88682223
+      EXPECTED_ARTIFACT: character-bazaar-staging-717977f252b09b9b2e979f8110b7f48b88682223-deploy-enable
+    steps:
+      - name: Observe exact trusted-main staging control
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          run_id=''
+          for attempt in $(seq 1 180); do
+            runs="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs?branch=main&event=push&per_page=100")"
+            run_id="$(jq -r --arg sha "$TARGET_SHA" '[.workflow_runs[] | select(.name == "Character Bazaar Staging Control" and .head_sha == $sha)] | first | .id // empty' <<<"$runs")"
+            if [[ -n "$run_id" ]]; then
+              break
+            fi
+            echo "Waiting for exact staging control run ($attempt/180)."
+            sleep 10
+          done
+          if [[ -z "$run_id" ]]; then
+            echo "Exact Character Bazaar staging control run was not found." >&2
+            exit 1
+          fi
+
+          conclusion=''
+          for attempt in $(seq 1 240); do
+            run="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${run_id}")"
+            status="$(jq -r '.status' <<<"$run")"
+            conclusion="$(jq -r '.conclusion // empty' <<<"$run")"
+            echo "Observed control run ${run_id}: ${status}/${conclusion:-pending}."
+            if [[ "$status" == 'completed' ]]; then
+              break
+            fi
+            sleep 10
+          done
+          if [[ "$conclusion" != 'success' ]]; then
+            echo "Exact staging control did not succeed: ${conclusion:-not-completed}." >&2
+            exit 1
+          fi
+
+          jobs="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${run_id}/jobs?per_page=100")"
+          control_job_id="$(jq -r '[.jobs[] | select(.name == "control")] | first | .id // empty' <<<"$jobs")"
+          runner_name="$(jq -r '[.jobs[] | select(.name == "control")] | first | .runner_name // empty' <<<"$jobs")"
+          if [[ -z "$control_job_id" ]]; then
+            echo 'Completed control run has no control job.' >&2
+            exit 1
+          fi
+
+          artifacts="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${run_id}/artifacts?per_page=100")"
+          artifact="$(jq -c --arg name "$EXPECTED_ARTIFACT" '[.artifacts[] | select(.expired == false and .name == $name)] | first // {}' <<<"$artifacts")"
+          artifact_id="$(jq -r '.id // empty' <<<"$artifact")"
+          artifact_digest="$(jq -r '.digest // "unavailable"' <<<"$artifact")"
+          artifact_size="$(jq -r '.size_in_bytes // 0' <<<"$artifact")"
+          artifact_expires="$(jq -r '.expires_at // "unknown"' <<<"$artifact")"
+          if [[ -z "$artifact_id" ]]; then
+            echo 'Expected sanitized staging evidence artifact was not found.' >&2
+            exit 1
+          fi
+
+          mkdir -p /tmp/oteryn-staging-evidence
+          gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts/${artifact_id}/zip" > /tmp/oteryn-staging-evidence.zip
+          unzip -q /tmp/oteryn-staging-evidence.zip -d /tmp/oteryn-staging-evidence
+          evidence_file=/tmp/oteryn-staging-evidence/character-bazaar-staging-evidence.json
+          test -s "$evidence_file"
+
+          python3 - "$evidence_file" "$TARGET_SHA" "$run_id" <<'PY'
+          import json
+          import sys
+          from pathlib import Path
+
+          path, target_sha, run_id = sys.argv[1:]
+          evidence = json.loads(Path(path).read_text())
+          expected = {
+              'classification': 'STAGING_PROVEN',
+              'action': 'deploy-enable',
+              'exact_source_sha': target_sha,
+              'workflow_run_id': run_id,
+              'marketplace_enabled': True,
+              'scheduler_running_count': 1,
+              'transfer_privileges': 'verified-by-guarded-action',
+              'escrow_identity': 'reviewed-unbound-non-login-account-verified',
+              'production_environment_proven': False,
+          }
+          failures = {
+              key: {'expected': value, 'actual': evidence.get(key)}
+              for key, value in expected.items()
+              if evidence.get(key) != value
+          }
+          platform_image = evidence.get('platform_image', '')
+          expected_image_suffix = f':sha-{target_sha}'
+          if not platform_image.endswith(expected_image_suffix):
+              failures['platform_image'] = {
+                  'expected_suffix': expected_image_suffix,
+                  'actual': platform_image,
+              }
+          if failures:
+              raise SystemExit('sanitized staging evidence mismatch: ' + json.dumps(failures, sort_keys=True))
+          print(json.dumps(evidence, sort_keys=True))
+          PY
+
+          echo "STAGING_REFRESH_PROVEN target_sha=${TARGET_SHA} run_id=${run_id} job_id=${control_job_id} runner=${runner_name} artifact_id=${artifact_id} artifact_digest=${artifact_digest} artifact_size=${artifact_size} artifact_expires=${artifact_expires}"
