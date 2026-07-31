@@ -169,7 +169,7 @@ validation:
     result: FAIL
     evidence: exactly one responsive-mobile Wiki publication success alert was absent after a concurrent same-session media-picker race; the persisted article state was Published and all other scenarios passed
   - command: implementation-head workflow set on 6c1e910d36771f50da5eded93cc50274a90c62d2
-    result: IN_PROGRESS
+    result: NOT_RUN
     evidence: CI, governance, content-scale, events, DB-outage, Wiki reconciliation, edge-security and game-auth gates passed; remaining exact-head workflows were still running when this checkpoint was written
   - command: exact-checkpoint-head workflow set
     result: NOT_RUN
