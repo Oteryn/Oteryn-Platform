@@ -20,6 +20,8 @@
 | Post-serialization original-flow source | `PROVEN / CI_PROVEN` | `6c1e910d36771f50da5eded93cc50274a90c62d2` |
 | Post-serialization result | `REPRODUCED_INTERMITTENT` | 1 PASS / 2 mobile reproductions |
 | Relation to frozen Wiki runtime | `DERIVED` | identical Wiki application/view/route runtime; test-suite composition differs |
+| Request-lifecycle mechanism family | `DERIVED / HIGH confidence` | old-document media request may age `status` before redirect GET |
+| Responsive lazy-scroll probe | `CONTROLLED_SYNTHETIC / DERIVED` | action-induced old-document lazy work is feasible and responsive |
 | Latest staging evidence | `PROVEN / STAGING_PROVEN` | `717977f252b09b9b2e979f8110b7f48b88682223` |
 | Frozen target deployed | `UNKNOWN` | no exact deployment proof |
 | Production | `UNKNOWN` | no exact-release evidence |
@@ -86,28 +88,43 @@ Therefore thumbnail HTTP 500 presence alone is not sufficient to remove publicat
 
 Detailed hashes, per-ID counts and extraction boundaries: `ISSUE_365_EMBEDDED_BROWSER_DIAGNOSTICS.md`.
 
-## Flash request-lifecycle analysis
+## Corrected flash request-lifecycle analysis
 
-Strongest source-backed mechanism: `DERIVED / HIGH confidence`.
+Strongest source-backed mechanism family: `DERIVED / HIGH confidence`.
 
 - publication success exists only as Laravel session flash;
-- the Wiki edit form immediately starts authenticated media-index and lazy thumbnail requests using the same session;
+- the old Wiki edit form contains authenticated native-lazy thumbnails before the publication controls;
 - Laravel ages flash data during session save;
-- `->block()` serializes same-session requests but does not assign redirect-document priority.
+- `->block()` serializes same-session requests but does not assign redirect-document priority;
+- a request created only by the newly redirected page cannot explain why its first server-rendered HTML already lacks the alert.
 
-A queued media-index or thumbnail request can therefore save the session before the redirected article-edit document and consume the one-request `status` lifetime. This explains durable publication with missing transient feedback and why session blocking plus client-side `networkidle` is not deterministic.
+The viable sequence is narrower: Playwright's far-down publication action may activate an old-document lazy thumbnail request; after the publish POST writes `status`, that queued request may acquire and save the session before the redirect GET, aging the flash.
 
-The mechanism is not promoted to `PROVEN`: exact request order was not preserved in the artifacts, and clean-versus-one-damaged-row causality remains unexecuted.
+This mechanism is not promoted to `PROVEN`: exact browser request-start, session-lock acquisition and session-save order were not preserved in attempts 3 and 4.
 
-Smallest later server-side candidate, not implemented by this audit: preserve only a pending `status` flash across authenticated Wiki media-index and thumbnail responses, then prove that the article-edit document consumes it exactly once.
+Detailed source chain and corrected boundary: `ISSUE_365_FLASH_REQUEST_LIFECYCLE_ANALYSIS.md`.
 
-Detailed source chain, Laravel lifecycle and validation requirements: `ISSUE_365_FLASH_REQUEST_LIFECYCLE_ANALYSIS.md`.
+## Controlled responsive lazy-scroll probe
+
+A local Chromium synthetic probe used 12 native-lazy images in a responsive 3/2/1-column grid with publication controls below the grid. Three samples per viewport and mode produced:
+
+| Profile | Initially loaded | New loads after direct click | New loads after pre-scroll + settle |
+|---|---:|---:|---:|
+| desktop | 12/12 | 0 | 0 |
+| tablet | 8/12 | 4 (`9–12`) | 0 |
+| mobile | 3/12 | 4 (`9–12`) | 0 |
+
+The mobile action moved the old document from the top to `scrollY=5437`; the four deferred images completed 12.9–17.9 ms after the click event. The pre-scroll control eliminated post-click lazy loads in every sample.
+
+This proves action-induced responsive lazy work is technically feasible after an earlier settled boundary. It does not prove Oteryn request or session ordering.
+
+Detailed method, limitations and required C1/C2 differential: `ISSUE_365_LAZY_SCROLL_SYNTHETIC_PROBE.md`.
 
 ## Issue #365 fixture boundary
 
 Historical 9/12/16 thumbnail HTTP 500 counts remain explained by intentionally damaged EditorialMedia rows leaking across acceptance projects. This remains a MEDIUM isolation/evidence defect and not proof that valid production media fails.
 
-The new post-fix attempts used fresh runners and service containers, but complete critical profile ordering can accumulate damaged rows inside an attempt. They prove reproduction under delivered suite ordering, not causality. A controlled exactly-one-row comparison remains missing.
+The post-fix attempts used fresh runners and service containers, but complete critical-profile ordering can accumulate damaged rows inside an attempt. They prove reproduction under delivered suite ordering, not causality. A controlled exactly-one-row comparison remains missing.
 
 ## Normalized findings
 
@@ -132,10 +149,11 @@ Totals: **0 HIGH, 6 MEDIUM, 1 LOW**.
 - `phase-3-5-addendum.json`
 - `ISSUE_365_HISTORICAL_ARTIFACT_REVIEW.md`
 - `ISSUE_365_STATIC_CAUSE_ANALYSIS.md`
-- `ISSUE_365_FLASH_REMEDIATION_EVIDENCE.md` — superseded where inconsistent by the post-fix evidence
+- `ISSUE_365_FLASH_REMEDIATION_EVIDENCE.md` — superseded where inconsistent by later evidence
 - `ISSUE_365_POST_FIX_RERUN_EVIDENCE.md`
 - `ISSUE_365_EMBEDDED_BROWSER_DIAGNOSTICS.md`
 - `ISSUE_365_FLASH_REQUEST_LIFECYCLE_ANALYSIS.md`
+- `ISSUE_365_LAZY_SCROLL_SYNTHETIC_PROBE.md`
 - `VALIDATOR_PACKET.md`
 - `VALIDATOR_PACKET_ADDENDUM.md`
 - `VALIDATOR_VERDICT.md`
@@ -146,8 +164,9 @@ Totals: **0 HIGH, 6 MEDIUM, 1 LOW**.
 `VALIDATED` remains forbidden until a mutable checkout-capable execution performs:
 
 1. exact frozen SHA with an ephemeral restored transient observer;
-2. clean isolation with EditorialMedia reset before each sample;
-3. one controlled comparison with exactly one missing/corrupt row;
-4. sanitized publish, session/request, thumbnail and application/server evidence.
+2. at least three clean isolated mobile samples;
+3. exactly one controlled missing/corrupt media row comparison;
+4. immediate-action versus pre-scroll request-order differential;
+5. sanitized browser request, server request, session-lock, flash-state and application evidence.
 
 No merge, deployment or production action is authorized.
