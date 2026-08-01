@@ -222,12 +222,12 @@ session_id: codex-20260801-linux-harness-001
 session_role: implementer
 execution_mode: codex
 execution_reason: bounded Linux environment discovery, multi-file harness implementation, and focused dry-run validation require a checkout and terminal
-updated_at: 2026-08-01T12:18:00Z
-lease_expires_at: 2026-08-01T13:03:00Z
-head: 448bdf20d52a271524fd4be5ffe8af785b79db7c
+updated_at: 2026-08-01T12:27:00Z
+lease_expires_at: null
+head: cabad487a139aaf0983dfc55cfb18d9f43720633
 branch: feat/OTERYN-20260801-official-linux-client-live-reference
 pr: 391
-status: validating
+status: blocked
 context_routes:
   - agent-governance
   - security
@@ -244,7 +244,7 @@ heavy_validation_runs: 0
 session_rotation_count: 0
 stale_takeover_count: 1
 human_interruptions: 1
-last_completed_step: reduced the first post-commit component failure to unchanged baseline synthetic fixtures and added a branch-diff regression repair
+last_completed_step: restacked onto current main and passed focused plus graphical synthetic no-network component validation at cabad487a139aaf0983dfc55cfb18d9f43720633
 owned_paths:
   - docs/agents/tasks/active/OTERYN-20260801-official-linux-client-live-reference.md
   - docs/agents/reports/OTERYN-20260801-official-linux-client-live-reference-plan.md
@@ -260,6 +260,7 @@ proven:
   - The WSL2 graphical fake-client component passed in a distinct loopback-only network namespace and retained only mode 0600 redacted JSON outside Git.
   - Eleven focused unit tests, Python compilation, manifest validation, workflow YAML parsing, checkpoint validation, tracked-file token scanning, and git diff checks pass.
   - origin/main advanced to ede1dfc44ae50da3e8d0b0b44d0fbe14f6c847dc only in non-overlapping Cloudflare, deployment, public-domain, and feature-test paths.
+  - The repaired branch was restacked onto origin/main and the exact code head cabad487a139aaf0983dfc55cfb18d9f43720633 passed the graphical synthetic no-network component gate.
 derived:
   - WSL2 is sufficient for deterministic synthetic harness validation but is not evidence that BattlEye supports virtualization.
   - A normal dedicated interactive Linux host remains the required fallback if the official client or BattlEye refuses WSL2 or virtualization.
@@ -270,8 +271,8 @@ unknown:
   - Whether the exact official client and BattlEye start unmodified in WSL2.
 conflicts: []
 first_failure:
-  marker: first post-commit synthetic component attempt reported tracked-files because generic token detection reclassified three unchanged repository test fixtures
-  evidence: safe filename-only diagnostic identified one archived task and two existing game-gateway tests; exact synthetic run values were absent
+  marker: official component preflight cannot prove encrypted storage and the approved private package identity is unavailable
+  evidence: official-mode preflight returned the expected HarnessError; no official executable or service was contacted
 rejected_hypotheses:
   - The current checkout was already the task repository: the initial workspace is blakinio/otclient, so a separate Oteryn-Platform checkout was created without modifying otclient.
   - The original checkpoint was valid: local and CI validation proved first_failure must be a mapping, and the checkpoint now passes contract v1.
@@ -307,9 +308,15 @@ validation:
   - command: focused branch-diff and retained-output secret-scan regression
     result: PASS
     evidence: exact values remain scanned across all tracked files while generic patterns fail only for the branch diff and new retained outputs
+  - command: exact-code-head focused suite at cabad487a139aaf0983dfc55cfb18d9f43720633
+    result: PASS
+    evidence: checkpoint contract v1, Python compilation, 12 unit tests, manifest schema, workflow YAML, and git diff checks passed
+  - command: exact-code-head WSL2/WSLg synthetic dry-run at cabad487a139aaf0983dfc55cfb18d9f43720633
+    result: PASS
+    evidence: distinct loopback-only namespace, denied TEST-NET connection, X11 mapped/destroyed lifecycle, exact-value and branch-diff scan, mode 0600 retained JSON, and cleanup all passed
 blockers:
   - A dedicated interactive Linux host with a provably encrypted private evidence volume and the owner-approved exact package identity is required for the official no-authentication component gate.
-next_action: Restack the repaired branch onto current origin/main, then rerun the synthetic component gate before pushing PR 391.
+next_action: On a dedicated interactive Linux host with a provably encrypted private evidence volume, populate the private approved identity and run the no-authentication official-component command.
 ```
 
 ## Final response contract

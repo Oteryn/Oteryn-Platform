@@ -91,9 +91,11 @@ arguments, local private paths, screenshots or captures.
 
 ### Heavy/exact-head validation
 
-Not yet run at this checkpoint. The repository commit and PR checks are the remaining repository
-gate. The official-client/BattlEye component launch is blocked locally by unavailable private
-package identity and unproven encrypted storage; it is not reported as successful.
+The restacked exact code head `cabad487a139aaf0983dfc55cfb18d9f43720633` passed the 12-test
+focused suite and the WSL2/WSLg graphical synthetic no-network component gate. Repository PR checks
+remain to be observed after push. The official-client/BattlEye component launch is blocked locally
+by unavailable private package identity and unproven encrypted storage; it is not reported as
+successful.
 
 ## Phase decision
 
