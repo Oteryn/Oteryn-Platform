@@ -118,7 +118,7 @@ status, headers, body = request(
     gateway_port,
     'GET',
     '/version',
-    headers={'Host': 'login.oteryn.molehill.cloud', 'Accept': 'application/json'},
+    headers={'Host': 'gateway.molehill.cloud', 'Accept': 'application/json'},
 )
 if status != 200:
     raise SystemExit(f'Gateway /version returned unexpected status: {status}')
@@ -140,7 +140,7 @@ status, headers, body = request(
     '/v1/login',
     body=b'{}',
     headers={
-        'Host': 'login.oteryn.molehill.cloud',
+        'Host': 'gateway.molehill.cloud',
         'Accept': 'application/json',
         'Content-Type': 'application/json',
     },
@@ -173,7 +173,7 @@ status, _, body = request(
     gateway_port,
     'GET',
     '/login?locale=en',
-    headers={'Host': 'login.oteryn.molehill.cloud', 'Accept': 'text/html'},
+    headers={'Host': 'gateway.molehill.cloud', 'Accept': 'text/html'},
 )
 if status != 404:
     raise SystemExit(f'Gateway non-contract /login route returned unexpected status: {status}')
