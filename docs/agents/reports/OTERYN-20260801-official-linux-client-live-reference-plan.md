@@ -194,3 +194,17 @@ Stop immediately when:
 - a material product, legal, account-risk or safety decision requires the owner.
 
 The worker checkpoints and exits instead of waiting for credentials or keeping a live session open.
+
+## Local-harness-readiness checkpoint (2026-08-01)
+
+The compact Python harness, schema/example, unit suite and Linux workflow are implemented under the
+declared owned paths. A WSL2/WSLg fake-client run proved the graphical lifecycle, distinct
+loopback-only network namespace, denied reserved-address connection, exact synthetic-secret scan and
+cleanup behavior without contacting the official service.
+
+This phase remains fail-closed with `external_service_execution_ready: false` because the current
+worker cannot prove host-volume encryption, the private official package and approved package hash
+are unavailable, and the official client/BattlEye component launch has therefore not run. The next
+phase must use a dedicated interactive Linux host with a provably encrypted private volume and the
+owner-approved exact package identity; it must run only the no-authentication component gate before
+any separate owner-gated live authorization.

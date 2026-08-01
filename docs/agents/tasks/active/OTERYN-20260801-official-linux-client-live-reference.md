@@ -217,54 +217,91 @@ Never persist credentials, authentication codes, cookies, session keys, account 
 ```yaml
 checkpoint_version: 1
 policy_version: 2
-phase: discover
-session_id: coordinator-20260801-live-reference-scope
-session_role: coordinator
-execution_mode: chat
-execution_reason: corrected the durable scope and created the implementation handoff
-updated_at: 2026-08-01T09:35:00Z
-lease_expires_at: null
-head: derive from live branch
+phase: local-harness-readiness
+session_id: codex-20260801-linux-harness-001
+session_role: implementer
+execution_mode: codex
+execution_reason: bounded Linux environment discovery, multi-file harness implementation, and focused dry-run validation require a checkout and terminal
+updated_at: 2026-08-01T12:08:00Z
+lease_expires_at: 2026-08-01T12:53:00Z
+head: 03ee1a231d60e7b847980df15b81f0a9bee0ade0
 branch: feat/OTERYN-20260801-official-linux-client-live-reference
-pr: pending
-status: active
+pr: 391
+status: validating
 context_routes:
-  - governance
+  - agent-governance
   - security
-  - e2e
-  - cross-repository
+  - testing
+  - ci-repair
 context_pressure: high
 context_growth: expected
-context_score: 9
+context_score: 11
 estimate_confidence: medium
 decomposition_decision: phased
 decomposition_reason: environment feasibility, harness implementation, live validation and analysis are sequential gates of one capability
-validation_level: none
+validation_level: component
 heavy_validation_runs: 0
 session_rotation_count: 0
-stale_takeover_count: 0
+stale_takeover_count: 1
 human_interruptions: 1
-last_completed_step: corrected the objective after confirming the archived task delivered only static analysis
-proven:
-  - The owner states that the intended objective included logging into the official game with the analyzed Linux client using an account they own and provide, then analyzing behavior for reproduction in the project-owned OTS.
-  - The archived OTERYN-20260727 task explicitly ended with official-service validation NOT_RUN and outside its authorization.
-  - PR 218 and its archive closeout PR 389 are already merged, so merged history should not be rewritten.
-derived:
-  - A follow-up active task is required to implement the missing live-reference capability.
-  - Cross-repository OTS implementation should be split after live evidence identifies bounded requirements.
-unknown:
-  - The final research host and whether BattlEye supports its graphical/virtualized environment.
-  - The exact secure credential-entry mechanism available on that host.
-  - Whether the official service accepts the bounded session in the selected environment.
-  - Which live observations can be obtained without prohibited hooking, injection or traffic modification.
-conflicts: []
-first_failure: null
-changed_paths:
+last_completed_step: implemented and locally validated the graphical synthetic no-network harness, leak scan, redacted manifest, and cleanup controls
+owned_paths:
   - docs/agents/tasks/active/OTERYN-20260801-official-linux-client-live-reference.md
   - docs/agents/reports/OTERYN-20260801-official-linux-client-live-reference-plan.md
-validation: []
-blockers: []
-next_action: Use a Codex discovery session to verify the isolated Linux research environment and implement the no-network dry-run harness before any owner-gated official login.
+  - docs/agents/reports/OTERYN-20260801-official-linux-client-live-observation.md
+  - tools/tibia-linux-reference/**
+  - .github/workflows/tibia-linux-live-reference.yml
+proven:
+  - PR 391 is an open draft from the approved repository to main at head 03ee1a231d60e7b847980df15b81f0a9bee0ade0 and changes only the two authorized planning paths.
+  - No other active task or open PR owns the declared harness, report, workflow, or checkpoint paths.
+  - The first relevant CI failure is Agent Governance checkpoint-validation because first_failure was null instead of the required mapping.
+  - The available Linux boundary is Ubuntu 26.04 x86-64 under WSL2 on Windows 11 Pro with WSLg DISPLAY and Wayland sockets and a visible GPU device.
+  - Unprivileged user and network namespaces work through unshare -Urn in the available Ubuntu environment.
+  - The WSL2 graphical fake-client component passed in a distinct loopback-only network namespace and retained only mode 0600 redacted JSON outside Git.
+  - Eleven focused unit tests, Python compilation, manifest validation, workflow YAML parsing, checkpoint validation, tracked-file token scanning, and git diff checks pass.
+derived:
+  - WSL2 is sufficient for deterministic synthetic harness validation but is not evidence that BattlEye supports virtualization.
+  - A normal dedicated interactive Linux host remains the required fallback if the official client or BattlEye refuses WSL2 or virtualization.
+  - external_service_execution_ready must remain false until encrypted storage, the exact approved package identity, and the no-authentication official component launch are proven.
+unknown:
+  - Whether the host C volume is encrypted; the current process cannot query BitLocker state and WSL2 cannot prove host-volume encryption.
+  - The private official client package path and approved package SHA-256 are unavailable in this checkout.
+  - Whether the exact official client and BattlEye start unmodified in WSL2.
+conflicts: []
+first_failure:
+  marker: official component preflight cannot prove encrypted storage and the approved private package identity is unavailable
+  evidence: WSL2 official-mode preflight returned the expected HarnessError; no official executable was launched
+rejected_hypotheses:
+  - The current checkout was already the task repository: the initial workspace is blakinio/otclient, so a separate Oteryn-Platform checkout was created without modifying otclient.
+  - The original checkpoint was valid: local and CI validation proved first_failure must be a mapping, and the checkpoint now passes contract v1.
+changed_paths:
+  - .github/workflows/tibia-linux-live-reference.yml
+  - docs/agents/reports/OTERYN-20260801-official-linux-client-live-observation.md
+  - docs/agents/tasks/active/OTERYN-20260801-official-linux-client-live-reference.md
+  - docs/agents/reports/OTERYN-20260801-official-linux-client-live-reference-plan.md
+  - tools/tibia-linux-reference/**
+validation:
+  - command: python tools/agents/checkpoint.py docs/agents/tasks/active/OTERYN-20260801-official-linux-client-live-reference.md --require-checkpoint
+    result: PASS
+    evidence: one task checkpoint validated against contract v1
+  - command: python3 -m compileall -q tools/tibia-linux-reference
+    result: PASS
+    evidence: all harness Python sources compiled under Ubuntu 26.04 Python 3.14.4
+  - command: PYTHONPATH=tools/tibia-linux-reference python3 -m unittest discover -s tools/tibia-linux-reference/tests -v
+    result: PASS
+    evidence: 11 focused preflight, identity, redaction, manifest, event, leak-scan, and cleanup tests passed
+  - command: python3 tools/tibia-linux-reference/run.py validate-manifest tools/tibia-linux-reference/examples/session-manifest.synthetic.json
+    result: PASS
+    evidence: redacted synthetic example passed schema v1 validation
+  - command: WSL2/WSLg synthetic dry-run
+    result: PASS
+    evidence: fake X11 client mapped and destroyed, TEST-NET connection was denied in a distinct loopback-only namespace, 1308 files were scanned, and cleanup passed
+  - command: official-mode preflight and exact identity component launch
+    result: BLOCKED
+    evidence: encryption cannot be proven and approved private package identity is unavailable; no official client or service was contacted
+blockers:
+  - A dedicated interactive Linux host with a provably encrypted private evidence volume and the owner-approved exact package identity is required for the official no-authentication component gate.
+next_action: Commit and push the coherent local-harness milestone, then verify PR 391 checks on the exact pushed head.
 ```
 
 ## Final response contract

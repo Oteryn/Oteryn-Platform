@@ -1,0 +1,7 @@
+{
+  "client_version": "REPLACE_WITH_APPROVED_VERSION",
+  "package_sha256": "REPLACE_WITH_64_LOWERCASE_HEX",
+  "executable_sha256": "8b25d65ece158723dbb50a1b592c1ec8a3247a650fcd2d299bebdfd133cb5752",
+  "elf_build_id": "a7256985ece88dc38f45b9248c6119c22359ae6a",
+  "package_source": "REPLACE_WITH_LAWFUL_SOURCE_CLASSIFICATION"
+}

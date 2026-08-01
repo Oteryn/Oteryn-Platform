@@ -1,0 +1,60 @@
+name: Tibia Linux Reference Harness
+
+on:
+  pull_request:
+    paths:
+      - tools/tibia-linux-reference/**
+      - docs/agents/reports/OTERYN-20260801-official-linux-client-live-observation.md
+      - .github/workflows/tibia-linux-live-reference.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  synthetic-no-network:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+
+      - name: Install isolated graphical-session dependency
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends xvfb
+
+      - name: Run focused syntax and unit checks
+        env:
+          PYTHONPATH: tools/tibia-linux-reference
+        run: |
+          python -m compileall -q tools/tibia-linux-reference
+          python -m unittest discover -s tools/tibia-linux-reference/tests -v
+          python tools/tibia-linux-reference/run.py validate-manifest \
+            tools/tibia-linux-reference/examples/session-manifest.synthetic.json
+
+      - name: Run synthetic graphical no-network component
+        env:
+          PYTHONPATH: tools/tibia-linux-reference
+        shell: bash
+        run: |
+          set +x
+          evidence_root="$RUNNER_TEMP/tibia-linux-reference"
+          install -d -m 700 "$evidence_root"
+          Xvfb :99 -screen 0 1024x768x24 -nolisten tcp -ac >"$RUNNER_TEMP/xvfb.log" 2>&1 &
+          xvfb_pid=$!
+          trap 'kill "$xvfb_pid" 2>/dev/null || true' EXIT
+          export DISPLAY=:99
+          python tools/tibia-linux-reference/run.py dry-run \
+            --repo-root "$GITHUB_WORKSPACE" \
+            --evidence-dir "$evidence_root"
+
+      - name: Verify no official or raw artifact is staged
+        shell: bash
+        run: |
+          test -z "$(git status --short --untracked-files=all)"
+          ! find "$RUNNER_TEMP/tibia-linux-reference" -type f \
+            \( -name '*.pcap' -o -name '*.png' -o -name '*.log' -o -name '*.bin' \) -print -quit | grep -q .
