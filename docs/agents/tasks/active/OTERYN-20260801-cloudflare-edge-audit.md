@@ -66,8 +66,8 @@ blockers:
 ## Context checkpoint
 
 ```yaml
-checkpoint_version: 3
-updated_at: 2026-08-01T16:56:00Z
+checkpoint_version: 1
+updated_at: 2026-08-01T16:58:00Z
 session_id: chatgpt-20260801-cloudflare-edge-audit-005
 policy_version: 2
 status: blocked
@@ -76,6 +76,7 @@ execution_mode: chat-github-connector
 context_pressure: low
 decomposition_decision: phased
 branch: docs/OTERYN-20260801-cloudflare-edge-read-complete
+head: de5f3728349983469e8fd071f7ead1ef40f02403
 source_main: ee38558a8420c8c32a8cfa92b69e60910e1695c5
 pr: 424
 context_routes:
@@ -119,21 +120,31 @@ conflicts:
 first_failure:
   marker: advanced-certificate-entitlement-missing
   evidence: run 30709108382 artifact 8821278907 reports advanced allocated 0 and used 0
+rejected_hypotheses:
+  - Cloudflare Access owns the public block; no Access application targets either canonical hostname.
+  - Tunnel or DNS drift remains the blocker; apply run 30700054602 converged both controls.
+  - Universal SSL can cover login.oteryn.molehill.cloud; both current Universal packs omit the multi-level hostname.
+  - The broad WAF block is host-scoped; sanitized preflight proves no host predicate.
+  - The observed 403 is an application response; the country-based Cloudflare block terminates requests before the origin.
 changed_paths:
   - docs/agents/tasks/active/OTERYN-20260801-cloudflare-edge-audit.md
   - docs/agents/reports/OTERYN-20260801-cloudflare-edge-audit.md
 validation:
   - command: PR #420 exact-head workflow suite
     result: PASS
+    evidence: exact head 3792b01c51e52b81fec7ea14ec249890f2b4c706 passed all applicable workflows before merge d4a3c0c56673ac1ff918f5be94d0b3be0bfe7ec3
   - command: PR #422 exact-head workflow suite
     result: PASS
+    evidence: exact head cfea22e63fc373b2f911dd181761ae845ece0bb3 passed all applicable workflows before merge 4dec2825a9375040dcee01a5dde5426d102ffe35
   - command: PR #425 exact-head workflow suite
     result: PASS
+    evidence: exact head 8897430bb89a8ead2812379f4bb45dd6808dfdf1 passed CI, Phase 7, Edge, DB, concurrency and Cloudflare audit before merge ee38558a8420c8c32a8cfa92b69e60910e1695c5
   - command: live permission-complete edge audit run 30708559130
     result: PASS
+    evidence: job 91391822768 uploaded artifact 8821103628 with digest sha256:95fe01f1ebeec45aabad5c0e5c71e7cea866224b6e1f9648674949b508321128 and mutation none
   - command: live fixed-scope apply preflight run 30709108382
     result: PASS
-    evidence: certificate quota and exact blocking rule were readable; rule fingerprint matched; no mutation
+    evidence: job 91393282575 uploaded artifact 8821278907 with digest sha256:520bdbf591388ff30bba4cce232be413bab671ff040b6fb619e2c933d4553559; quota and rule fingerprint were readable and mutation was none
 blockers:
   - Enable Advanced Certificate Manager for molehill.cloud through Cloudflare billing/dashboard.
   - Add Zone WAF Edit, Bot Management Edit, Zone Settings Edit and SSL and Certificates Edit to the zone-scoped dedicated token.
