@@ -1,0 +1,85 @@
+name: Issue 365 Synology Preflight
+
+on:
+  push:
+    branches:
+      - validation/issue365-synology-20260801
+    paths:
+      - .github/workflows/issue365-synology-preflight.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: issue365-synology-preflight
+  cancel-in-progress: false
+
+jobs:
+  preflight:
+    runs-on: [self-hosted, Linux, X64]
+    timeout-minutes: 20
+    steps:
+      - name: Runner identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "runner_name=${RUNNER_NAME:-unknown}"
+          echo "runner_os=${RUNNER_OS:-unknown}"
+          echo "runner_arch=${RUNNER_ARCH:-unknown}"
+          hostname || true
+          uname -a
+          id
+          df -h .
+          free -h || true
+
+      - name: Checkout exact frozen target
+        uses: actions/checkout@v7
+        with:
+          ref: b6f7b12a43aa72a52dc98c3fa07a7c4607fcb608
+          fetch-depth: 1
+          clean: true
+          persist-credentials: false
+
+      - name: Verify frozen identity and cleanliness
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "b6f7b12a43aa72a52dc98c3fa07a7c4607fcb608"
+          test -z "$(git status --porcelain=v1)"
+          git show --no-patch --format=fuller HEAD
+
+      - name: Runtime capability preflight
+        shell: bash
+        run: |
+          set -euo pipefail
+          fail=0
+          for cmd in git docker php composer node npm python3 sha256sum tar; do
+            if command -v "$cmd" >/dev/null 2>&1; then
+              echo "PASS $cmd: $(command -v "$cmd")"
+            else
+              echo "MISSING $cmd"
+              fail=1
+            fi
+          done
+          docker version || fail=1
+          docker info >/tmp/issue365-docker-info.txt || fail=1
+          php -v || fail=1
+          composer --version || fail=1
+          node --version || fail=1
+          npm --version || fail=1
+          python3 --version || fail=1
+          test "$fail" -eq 0
+
+      - name: Container smoke
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker run --rm alpine:3.22 sh -c 'echo synology-container-smoke-ok'
+
+      - name: Cleanup workspace
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          git reset --hard HEAD || true
+          git clean -ffdqx || true
