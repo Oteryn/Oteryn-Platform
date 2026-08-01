@@ -106,16 +106,16 @@ COMMON_ENV=(
     "GITHUB_STEP_SUMMARY=$SUMMARY_FILE"
 )
 
-audit_output="$(env "${COMMON_ENV[@]}" "$SCRIPT" audit)"
+audit_output="$(env "${COMMON_ENV[@]}" bash "$SCRIPT" audit)"
 [[ "$audit_output" != *test-token* ]] || fail_test 'audit output exposed the API token'
 state="$(curl --silent --show-error "http://127.0.0.1:${MOCK_PORT}/__state")"
 assert_jq "$state" '.mutations | length == 0' 'audit mode mutated Cloudflare state'
 
-if env "${COMMON_ENV[@]}" CLOUDFLARE_APPLY_CONFIRMATION=WRONG "$SCRIPT" apply >/dev/null 2>&1; then
+if env "${COMMON_ENV[@]}" CLOUDFLARE_APPLY_CONFIRMATION=WRONG bash "$SCRIPT" apply >/dev/null 2>&1; then
     fail_test 'apply accepted an invalid confirmation phrase'
 fi
 
-apply_output="$(env "${COMMON_ENV[@]}" CLOUDFLARE_APPLY_CONFIRMATION=APPLY-OTERYN-CLOUDFLARE "$SCRIPT" apply)"
+apply_output="$(env "${COMMON_ENV[@]}" CLOUDFLARE_APPLY_CONFIRMATION=APPLY-OTERYN-CLOUDFLARE bash "$SCRIPT" apply)"
 [[ "$apply_output" != *test-token* ]] || fail_test 'apply output exposed the API token'
 state="$(curl --silent --show-error "http://127.0.0.1:${MOCK_PORT}/__state")"
 assert_jq "$state" '.mutations == ["tunnel-put", "dns-post:oteryn.molehill.cloud", "dns-patch:login.oteryn.molehill.cloud"]' 'apply did not perform the expected bounded mutations'
@@ -126,7 +126,7 @@ assert_jq "$state" '.config.ingress[-1].service == "http_status:404"' 'apply did
 assert_jq "$state" '.dns["oteryn.molehill.cloud"].content == "123e4567-e89b-42d3-a456-426614174000.cfargotunnel.com" and .dns["oteryn.molehill.cloud"].proxied == true' 'apply did not create canonical WWW DNS'
 assert_jq "$state" '.dns["login.oteryn.molehill.cloud"].content == "123e4567-e89b-42d3-a456-426614174000.cfargotunnel.com" and .dns["login.oteryn.molehill.cloud"].proxied == true' 'apply did not reconcile canonical login DNS'
 
-env "${COMMON_ENV[@]}" CLOUDFLARE_APPLY_CONFIRMATION=APPLY-OTERYN-CLOUDFLARE "$SCRIPT" apply >/dev/null
+env "${COMMON_ENV[@]}" CLOUDFLARE_APPLY_CONFIRMATION=APPLY-OTERYN-CLOUDFLARE bash "$SCRIPT" apply >/dev/null
 state="$(curl --silent --show-error "http://127.0.0.1:${MOCK_PORT}/__state")"
 assert_jq "$state" '.mutations | length == 3' 'second apply was not idempotent'
 [[ "$(cat "$SUMMARY_FILE")" != *test-token* ]] || fail_test 'step summary exposed the API token'
