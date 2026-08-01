@@ -22,7 +22,6 @@ concurrency:
 jobs:
   preflight:
     runs-on: oteryn-staging
-    environment: synology-staging
     timeout-minutes: 20
     steps:
       - name: Runner identity
