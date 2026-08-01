@@ -29,4 +29,28 @@ load_oteryn_env_file() {
         printf -v "$key" '%s' "$value"
         export "$key"
     done < "$env_file"
+
+    # Character Bazaar Staging Control is the established public Synology
+    # deployment path. Migrate only its exact historical loopback values and
+    # reject every unexpected override before Docker Compose sees them.
+    if [[ "${GITHUB_WORKFLOW:-}" == "Character Bazaar Staging Control" ]]; then
+        case "${APP_URL:-}" in
+            https://oteryn.molehill.cloud|http://127.0.0.1:8000) ;;
+            *)
+                echo "Character Bazaar public staging APP_URL must be the canonical origin or the exact legacy loopback value." >&2
+                return 1
+                ;;
+        esac
+        case "${SESSION_SECURE_COOKIE:-}" in
+            true|false|'') ;;
+            *)
+                echo "Character Bazaar public staging SESSION_SECURE_COOKIE must be boolean." >&2
+                return 1
+                ;;
+        esac
+
+        APP_URL=https://oteryn.molehill.cloud
+        SESSION_SECURE_COOKIE=true
+        export APP_URL SESSION_SECURE_COOKIE
+    fi
 }
