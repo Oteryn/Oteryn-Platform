@@ -32,7 +32,7 @@ Repair the repository-owned public-domain defects proven by PR #387, deploy the 
 - [x] Marketplace Platform and scheduler use the canonical HTTPS origin and Secure cookies.
 - [x] Health checks cover Gateway identity, malformed login, private cache controls, canonical URLs and negative cross-routing.
 - [x] Cloudflare/DNS/Synology changes and rollback are documented without secrets.
-- [ ] The current exact head passes all required workflow families.
+- [x] The implementation exact head passes all required workflow families.
 - [ ] The merged image is deployed by Character Bazaar Staging Control with sanitized `STAGING_PROVEN` evidence.
 - [x] `PRODUCTION_PROVEN` remains false until Issue #91 is completed.
 
@@ -60,7 +60,7 @@ dependencies:
   - Character Bazaar Staging Control
   - Issue #91 production go-live gate
 blockers:
-  - none for repository validation, merge and bounded staging deployment
+  - none for repository merge and bounded staging deployment
 cross_repository_tasks:
   - none
 ```
@@ -69,7 +69,7 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-01T09:23:00Z
+updated_at: 2026-08-01T09:27:00Z
 session_id: chatgpt-20260801-public-domain-repair-002
 policy_version: 2
 phase: implementation_and_staging_verification
@@ -81,9 +81,9 @@ staging_deployment_authorization: PROVEN
 context_pressure: medium
 decomposition_decision: continue
 branch: fix/OTERYN-20260801-public-domain-repair
-head: 1440848ea0ad1eadd78f084f1f1c65c555f0e897
+head: d9eeb035335091fd7dbfbba7b7d5fc070aea5027
 pr: 388
-status: validating
+status: ready
 context_routes:
   - agent-governance
   - security
@@ -102,24 +102,22 @@ owned_paths:
   - docs/agents/reports/OTERYN-20260801-public-domain-repair.md
 proven:
   - Task-start main was 7dac56d3f3f4606be958c875f278edbe410e6b54.
-  - PR #387 source head c8ca2fc995fbbc4a0f3c7268872d3843db950af8 proved the first public failure as gateway-public-tls-handshake-failure.
+  - PR #387 source head c8ca2fc995fbbc4a0f3c7268872d3843db950af8 proved gateway-public-tls-handshake-failure as the first public failure.
   - Canonical routes remain WWW to loopback 8000 and Gateway to loopback 8080.
   - PR #335-owned compose.yml and boot-repair.sh remain untouched.
-  - The repository repair enforces canonical requestless URLs, Secure cookies and bounded Gateway/cross-routing checks.
+  - The repair enforces canonical requestless URLs, Secure cookies and bounded Gateway/cross-routing checks.
   - Character Bazaar Staging Control is the established Marketplace-aware live staging path.
-  - The Marketplace Compose override pins Platform and scheduler APP_URL to https://oteryn.molehill.cloud.
-  - The shared environment loader accepts only the canonical origin or exact historical loopback value for Character Bazaar Staging Control, rejects other overrides, then exports canonical HTTPS and Secure cookies.
+  - Marketplace Compose pins Platform and scheduler APP_URL to https://oteryn.molehill.cloud.
+  - The shared loader accepts only the canonical origin or exact historical loopback value for Character Bazaar Staging Control, rejects other overrides, then exports canonical HTTPS and Secure cookies.
   - A squash merge changing compose.marketplace.yml with [character-bazaar-staging] triggers exact-image publication and guarded staging deployment.
-  - Prior exact candidate 5b14f54c340360bca1c15dc3af7099da2628b3e5 passed all nine workflow families before the Marketplace-path gap was discovered.
-  - Character Bazaar Staging Validation 39, Synology Production Target Preflight 705, Platform DB Outage Validation 2958 and Game Auth Ticket Concurrency 2529 passed on 1440848ea0ad1eadd78f084f1f1c65c555f0e897.
-  - Agent Governance 3792 failed only because the checkpoint used unsupported result PENDING; this checkpoint changes it to NOT_RUN.
+  - Exact implementation head d9eeb035335091fd7dbfbba7b7d5fc070aea5027 passed all nine workflow families.
+  - CI 3995, Agent Governance 3795, Phase 7 3033, Build Synology Staging Images 1574, Edge Security 1454, Synology Preflight 706, DB Outage 2960, Bazaar Validation 40 and Auth Concurrency 2531 passed.
   - The owner explicitly authorized bounded staging deployment and the recorded reversible edge plan on 2026-08-01.
   - No Cloudflare, DNS, production, Canary or PR #387 evidence mutation occurred.
 derived:
   - The previous candidate repaired the standalone workflow but not the established Marketplace-aware staging path.
-  - The added Marketplace policy closes that gap without public origin exposure or broader proxy trust.
+  - The Marketplace policy closes that gap without public origin exposure or broader proxy trust.
 unknown:
-  - Final results of remaining workflow families on the post-checkpoint exact head.
   - Effective Cloudflare certificate, WAF, Access, bot, redirect and HSTS configuration.
   - Exact supported native-client minimum TLS version.
   - Whether the public edge changed independently after PR #387.
@@ -143,20 +141,17 @@ changed_paths:
   - docs/agents/tasks/active/OTERYN-20260801-public-domain-repair.md
   - docs/agents/reports/OTERYN-20260801-public-domain-repair.md
 validation:
-  - command: prior exact-head workflow suite on 5b14f54c340360bca1c15dc3af7099da2628b3e5
+  - command: required workflow suite on d9eeb035335091fd7dbfbba7b7d5fc070aea5027
     result: PASS
-    evidence: all nine required workflow families passed before the Marketplace-path correction
-  - command: required workflow suite on the current implementation and checkpoint
-    result: NOT_RUN
-    evidence: four families passed on 1440848ea0ad1eadd78f084f1f1c65c555f0e897; remaining and post-checkpoint runs are pending inspection
+    evidence: CI 3995, Governance 3795, Phase 7 3033, Images 1574, Edge 1454, Preflight 706, DB 2960, Bazaar 40 and Concurrency 2531
   - command: trusted-main image publication and Character Bazaar Staging Control deploy-enable
     result: NOT_RUN
-    evidence: requires green exact-head checks and squash merge with the guarded marker
+    evidence: requires squash merge with the guarded marker
 deployment_evidence: Historical run 30669701842 is STAGING_PROVEN only; the current candidate is not deployed yet.
 rollback: Repository rollback is PR revert; runtime deployment snapshots Platform, Gateway and Canary image references; external rollback restores recorded edge state.
 blockers:
-  - none for exact-head validation
-next_action: Inspect all workflow results on the new exact head, repair any failure, then squash merge with [character-bazaar-staging] and verify trusted-main image and staging-control runs.
+  - none for merge and staging deployment
+next_action: Pass checks on this documentation-only head, then squash merge with [character-bazaar-staging] and verify trusted-main image and staging-control runs.
 ```
 
 ## Report
