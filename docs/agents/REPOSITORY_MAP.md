@@ -33,7 +33,7 @@ Navigation map for autonomous agents. This is not an exhaustive inventory. Confi
 | Roadmap | `docs/architecture/ROADMAP.md` | Phased delivery order and exit gates. |
 | ADRs | `docs/architecture/adr/**` | Durable decisions and supersession history. |
 | Integration contracts | `docs/contracts/**` | Canary/login-server/shared schema/auth compatibility. |
-| Public endpoint roles | `docs/contracts/PUBLIC_ENDPOINTS_CONTRACT.md`, `deploy/synology/PUBLIC_ENDPOINTS.md` | Canonical mapping of `oteryn.molehill.cloud` to Platform WWW and `login.oteryn.molehill.cloud` to Game Gateway/login. |
+| Public endpoint roles | `docs/contracts/PUBLIC_ENDPOINTS_CONTRACT.md`, `deploy/synology/PUBLIC_ENDPOINTS.md` | Canonical mapping of `oteryn.molehill.cloud` to Platform WWW and `gateway.molehill.cloud` to Game Gateway/login; ADR 0020 records the hostname decision. |
 | Agent governance | `AGENTS.md`, `docs/agents/CONTEXT_*` | Coordination, routing and handoff rules. |
 
 ## Mandatory discovery for shared data/auth
@@ -48,7 +48,8 @@ Before implementing shared auth/account/character mutations, search/read:
 For public-domain, Cloudflare Tunnel, website-origin or Game Gateway hostname work, also read:
 
 - `docs/contracts/PUBLIC_ENDPOINTS_CONTRACT.md`;
-- `deploy/synology/PUBLIC_ENDPOINTS.md`.
+- `deploy/synology/PUBLIC_ENDPOINTS.md`;
+- `docs/architecture/adr/0020-use-single-level-gateway-public-hostname.md`.
 
 Then verify the actual external repository/schema evidence. Documentation placeholders do not prove compatibility.
 
