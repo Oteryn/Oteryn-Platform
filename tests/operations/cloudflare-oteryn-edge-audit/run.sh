@@ -24,22 +24,33 @@ export CLOUDFLARE_ACCOUNT_ID="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 export CLOUDFLARE_ZONE_ID="bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
 export CLOUDFLARE_EDGE_AUDIT_OUT="$tmp/out"
 python3 "$root/scripts/operations/cloudflare-oteryn-edge-audit.py"
-python3 - "$tmp/out/evidence.json" <<'PY'
+python3 "$root/scripts/operations/cloudflare-token-capability-audit.py"
+python3 - "$tmp/out/evidence.json" "$tmp/out/token-capability.json" <<'PY'
 import json, sys
-x=json.load(open(sys.argv[1]))
-assert x["mutation"] == "none"
-assert x["certificate_packs"]["active_exact_login_coverage"] is True
-assert x["zone_settings"]["security_level"]["value"] == "under_attack"
-assert x["ruleset_details"][0]["oteryn_matching_rules"][0]["matches_www"] is True
-assert x["bot_management"]["settings"]["fight_mode"] is True
-assert x["access_applications"]["oteryn_applications"][0]["domain"] == "oteryn.molehill.cloud"
+edge=json.load(open(sys.argv[1]))
+token=json.load(open(sys.argv[2]))
+assert edge["mutation"] == "none"
+assert edge["certificate_packs"]["active_exact_login_coverage"] is True
+assert edge["zone_settings"]["security_level"]["value"] == "under_attack"
+assert edge["ruleset_details"][0]["oteryn_matching_rules"][0]["matches_www"] is True
+assert edge["bot_management"]["settings"]["fight_mode"] is True
+assert edge["access_applications"]["oteryn_applications"][0]["domain"] == "oteryn.molehill.cloud"
+assert token["mutation"] == "none"
+assert token["self_details"]["state"] == "readable"
+assert token["self_details"]["has_account_api_tokens_read"] is True
+assert token["self_details"]["has_account_api_tokens_write"] is False
+assert token["permission_group_catalog"]["state"] == "readable"
 PY
-python3 - "$root/scripts/operations/cloudflare-oteryn-edge-audit.py" <<'PY'
+python3 - "$root/scripts/operations/cloudflare-oteryn-edge-audit.py" "$root/scripts/operations/cloudflare-token-capability-audit.py" <<'PY'
 import pathlib, sys
-source=pathlib.Path(sys.argv[1]).read_text()
-for method in ("POST","PUT","PATCH","DELETE"):
-    assert f'method="{method}"' not in source
-    assert f"method='{method}'" not in source
+for path in sys.argv[1:]:
+    source=pathlib.Path(path).read_text()
+    for method in ("POST","PUT","PATCH","DELETE"):
+        assert f'method="{method}"' not in source
+        assert f"method='{method}'" not in source
 PY
-python3 -m py_compile "$root/scripts/operations/cloudflare-oteryn-edge-audit.py" "$root/tests/operations/cloudflare-oteryn-edge-audit/mock_server.py"
-echo "Cloudflare edge audit tests passed."
+python3 -m py_compile \
+  "$root/scripts/operations/cloudflare-oteryn-edge-audit.py" \
+  "$root/scripts/operations/cloudflare-token-capability-audit.py" \
+  "$root/tests/operations/cloudflare-oteryn-edge-audit/mock_server.py"
+echo "Cloudflare edge and token capability audit tests passed."
