@@ -23,16 +23,17 @@ optional_reads:
 
 ## Goal
 
-Repair the repository-owned public-domain defects proven by PR #387, prepare exact operator changes for unavailable edge infrastructure, and validate the repair candidate without weakening proxy trust, origin isolation, authentication controls or sensitive-response caching.
+Repair the repository-owned public-domain defects proven by PR #387, deploy the exact repair to the established Marketplace-aware Synology staging path, and prepare exact reversible operator changes for edge infrastructure without weakening proxy trust, origin isolation, authentication controls or sensitive-response caching.
 
 ## Acceptance criteria
 
 - [x] Canonical requestless Platform URLs use `https://oteryn.molehill.cloud` while loopback origins remain private.
-- [x] Synology deployment inputs fail closed on a non-canonical public `APP_URL` for the public staging stack.
+- [x] The guarded public staging workflow rejects a non-canonical public `APP_URL`.
+- [x] The Marketplace-aware staging path pins the browser-facing Platform and scheduler to the canonical HTTPS origin and Secure cookies.
 - [x] Bounded staging health checks verify canonical requestless URLs, Gateway endpoint identity, no cross-routing and sensitive login response cache controls.
 - [x] Exact Cloudflare/DNS/Synology operator changes and rollback are documented without secrets.
-- [x] Focused, component and heavy repository validation pass on the exact repair candidate.
-- [x] External edge and staging evidence are recorded only when explicit access and authorization exist.
+- [ ] The new exact head passes all required workflow families.
+- [ ] The exact merged image is deployed through the established Marketplace-aware Synology staging control and produces sanitized `STAGING_PROVEN` evidence.
 - [x] `PRODUCTION_PROVEN` remains false until Issue #91 is completed.
 
 ## Ownership
@@ -42,6 +43,8 @@ owned_paths:
   - .github/workflows/deploy-synology-staging.yml
   - deploy/synology/.env.example
   - deploy/synology/README.md
+  - deploy/synology/compose.marketplace.yml
+  - deploy/synology/scripts/lib.sh
   - deploy/synology/scripts/health-check.sh
   - tests/Feature/PublicCanonicalUrlTest.php
   - docs/agents/tasks/active/OTERYN-20260801-public-domain-repair.md
@@ -55,10 +58,10 @@ modules:
 dependencies:
   - PR #387 source validation package
   - docs/contracts/PUBLIC_ENDPOINTS_CONTRACT.md
+  - Character Bazaar Staging Control
   - Issue #91 production go-live gate
 blockers:
-  - Cloudflare, DNS and Synology operator access is unavailable in this session.
-  - Explicit staging deployment authorization is absent.
+  - none for repository merge and bounded staging deployment
 cross_repository_tasks:
   - none
 ```
@@ -67,21 +70,21 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-01T09:00:00Z
-session_id: chatgpt-20260801-public-domain-repair-001
+updated_at: 2026-08-01T09:20:00Z
+session_id: chatgpt-20260801-public-domain-repair-002
 policy_version: 2
 phase: implementation_and_staging_verification
 execution_mode: chat-github-connector
 repository_mutation_authorization: PROVEN
 external_mutation_scope_authorization: PROVEN
 external_operator_access: UNKNOWN
-staging_deployment_authorization: UNKNOWN
+staging_deployment_authorization: PROVEN
 context_pressure: medium
-decomposition_decision: split
+decomposition_decision: continue
 branch: fix/OTERYN-20260801-public-domain-repair
-head: 20d57abc83f3fbdd13b644bd71d4aa19be3a00e1
+head: 6f413f2b6a7564d0a06ad7d5e0b29978544e338d
 pr: 388
-status: blocked
+status: validating
 context_routes:
   - agent-governance
   - security
@@ -92,12 +95,14 @@ owned_paths:
   - .github/workflows/deploy-synology-staging.yml
   - deploy/synology/.env.example
   - deploy/synology/README.md
+  - deploy/synology/compose.marketplace.yml
+  - deploy/synology/scripts/lib.sh
   - deploy/synology/scripts/health-check.sh
   - tests/Feature/PublicCanonicalUrlTest.php
   - docs/agents/tasks/active/OTERYN-20260801-public-domain-repair.md
   - docs/agents/reports/OTERYN-20260801-public-domain-repair.md
 proven:
-  - Live task-start main is 7dac56d3f3f4606be958c875f278edbe410e6b54.
+  - Task-start main was 7dac56d3f3f4606be958c875f278edbe410e6b54.
   - PR #387 is open and draft at c8ca2fc995fbbc4a0f3c7268872d3843db950af8 with PUBLIC DOMAIN LAUNCH BLOCKED / FAIL.
   - PR #387 first public failure is gateway-public-tls-handshake-failure.
   - PR #335 owns only deploy/synology/compose.yml and deploy/synology/scripts/boot-repair.sh; those paths remain unchanged by PR #388.
@@ -106,73 +111,57 @@ proven:
   - The repair preserves loopback origin bindings and enables Secure cookies for the guarded public staging workflow.
   - The repair adds requestless login, password-reset and signed-route canonical-origin regression coverage.
   - The repair extends Synology health checks for exact Gateway identity, bounded invalid login, private no-store headers, canonical requestless URLs and negative cross-routing.
-  - The sanitized external operator plan and rollback are recorded in docs/agents/reports/OTERYN-20260801-public-domain-repair.md.
-  - Exact repair candidate 20d57abc83f3fbdd13b644bd71d4aa19be3a00e1 passed all nine automatic workflows.
-  - No Cloudflare, DNS, Synology runtime, staging, production, Canary or PR #387 evidence mutation occurred.
+  - The established live staging deployment path is Character Bazaar Staging Control, not the standalone Deploy Synology Staging workflow.
+  - Historical Character Bazaar Staging Control rendered APP_URL=http://127.0.0.1:8000 and SESSION_SECURE_COOKIE=false before the Marketplace Compose override.
+  - The repair now pins Marketplace Platform and scheduler APP_URL to https://oteryn.molehill.cloud and keeps the final browser-facing Secure cookie override true.
+  - The shared environment loader permits only the exact canonical origin or the exact historical loopback value for Character Bazaar Staging Control, rejects unexpected overrides, and exports canonical HTTPS plus Secure cookies to all deployment scripts.
+  - Changing deploy/synology/compose.marketplace.yml activates the established push-path staging control when the squash merge commit includes [character-bazaar-staging].
+  - Exact repair candidate 5b14f54c340360bca1c15dc3af7099da2628b3e5 passed all nine automatic workflows before the Marketplace-path gap was found.
+  - The owner explicitly authorized the bounded staging deployment and recorded reversible edge plan on 2026-08-01.
+  - No Cloudflare, DNS, production, Canary or PR #387 evidence mutation occurred.
 derived:
-  - Repository-owned canonical URL and verification defects are repaired independently of unavailable edge access.
-  - External Gateway TLS, routing and Cloudflare policy failures remain blocked on operator access.
+  - The previous candidate repaired the standalone workflow but would not have corrected the established Marketplace-aware staging path.
+  - The added Marketplace Compose and loader policy close that staging-path gap without exposing loopback origins or broadening proxy trust.
+  - A squash merge titled with [character-bazaar-staging] will trigger exact-image publication and the established guarded staging deployment on main.
 unknown:
-  - Exact currently externally deployed Platform, Gateway and Canary identities.
-  - Effective Cloudflare certificate, WAF, Access, bot, redirect and HSTS configuration.
-  - Usable Cloudflare, DNS and Synology operator access in this session.
-  - Explicit approval for staging deployment of this candidate.
+  - Exact currently effective Cloudflare certificate, WAF, Access, bot, redirect and HSTS configuration.
   - Exact supported native-client minimum TLS version.
+  - Whether the public edge has been changed independently since PR #387.
+  - Results of required workflows on implementation head 6f413f2b6a7564d0a06ad7d5e0b29978544e338d.
 conflicts:
-  - Historical exact staging used loopback HTTP APP_URL while the canonical public application origin is HTTPS; the repository repair is validated but deployed state remains unverified.
+  - Historical Marketplace staging used a loopback APP_URL in its ephemeral file while the canonical public application origin is HTTPS; the final Compose layer and loader policy now resolve this deterministically.
 first_failure:
   marker: gateway-public-tls-handshake-failure
   evidence: PR #387 runs 30690877286 and 30690957415 failed TLS negotiation for login.oteryn.molehill.cloud before HTTP
 rejected_hypotheses:
-  - PR #335 does not own the selected repair paths except excluded compose.yml; its changed-file list is limited to compose.yml and boot-repair.sh.
+  - PR #335 does not own the selected repair paths; its changed-file list is limited to compose.yml and boot-repair.sh.
   - A broad proxy-trust change is not required; the existing exact Synology proxy trust remains unchanged.
+  - The standalone Deploy Synology Staging workflow alone is insufficient while Marketplace staging is enabled.
 changed_paths:
   - .github/workflows/deploy-synology-staging.yml
   - deploy/synology/.env.example
   - deploy/synology/README.md
+  - deploy/synology/compose.marketplace.yml
+  - deploy/synology/scripts/lib.sh
   - deploy/synology/scripts/health-check.sh
   - tests/Feature/PublicCanonicalUrlTest.php
   - docs/agents/tasks/active/OTERYN-20260801-public-domain-repair.md
   - docs/agents/reports/OTERYN-20260801-public-domain-repair.md
 validation:
-  - command: live repository, PR, branch and ownership preflight
+  - command: prior exact-head workflow suite on 5b14f54c340360bca1c15dc3af7099da2628b3e5
     result: PASS
-    evidence: main, PR #387, PR #335, scope ownership and canonical contracts verified
-  - command: Agent Governance run 30692696723 on 20d57abc83f3fbdd13b644bd71d4aa19be3a00e1
-    result: PASS
-    evidence: checkpoint validator tests and all active checkpoint validation passed
-  - command: CI run 30692696712 on 20d57abc83f3fbdd13b644bd71d4aa19be3a00e1
-    result: PASS
-    evidence: Composer validation and audit, Pint, PHPStan and PHPUnit passed
-  - command: Phase 7 Production-Like Validation run 30692696748 on 20d57abc83f3fbdd13b644bd71d4aa19be3a00e1
-    result: PASS
-    evidence: workflow completed successfully
-  - command: Build Synology Staging Images run 30692696736 on 20d57abc83f3fbdd13b644bd71d4aa19be3a00e1
-    result: PASS
-    evidence: workflow completed successfully without publishing PR images
-  - command: Edge Security Emulation run 30692696730 on 20d57abc83f3fbdd13b644bd71d4aa19be3a00e1
-    result: PASS
-    evidence: workflow completed successfully
-  - command: Synology Production Target Preflight run 30692696729 on 20d57abc83f3fbdd13b644bd71d4aa19be3a00e1
-    result: PASS
-    evidence: workflow completed successfully
-  - command: Platform DB Outage Validation run 30692696731 on 20d57abc83f3fbdd13b644bd71d4aa19be3a00e1
-    result: PASS
-    evidence: workflow completed successfully
-  - command: Character Bazaar Staging Validation run 30692696717 on 20d57abc83f3fbdd13b644bd71d4aa19be3a00e1
-    result: PASS
-    evidence: workflow completed successfully
-  - command: Game Auth Ticket Concurrency run 30692696710 on 20d57abc83f3fbdd13b644bd71d4aa19be3a00e1
-    result: PASS
-    evidence: workflow completed successfully
-  - command: external mutation access and staging authorization check
-    result: BLOCKED
-    evidence: no Cloudflare, DNS or Synology operator session and no explicit staging deployment approval
-deployment_evidence: Historical run 30669701842 is STAGING_PROVEN only; no PR #388 staging deployment was authorized or executed.
-rollback: Repository rollback is PR revert or branch reset; runtime image rollback remains available; external rollback restores the recorded certificate, tunnel, WAF, Access, bot, redirect and HSTS snapshots.
+    evidence: all nine required workflow families passed before the Marketplace-path correction
+  - command: required workflow suite on implementation head 6f413f2b6a7564d0a06ad7d5e0b29978544e338d
+    result: PENDING
+    evidence: GitHub Actions triggered by the new commits
+  - command: trusted-main image publication and Character Bazaar Staging Control deploy-enable
+    result: NOT_RUN
+    evidence: requires green exact-head checks followed by squash merge with the guarded marker
+deployment_evidence: Historical run 30669701842 is STAGING_PROVEN only; the current repair candidate has not yet been deployed.
+rollback: Repository rollback is PR revert; the runtime deployment snapshots Platform/Gateway/Canary image references and supports runtime-image rollback; external rollback restores the recorded certificate, tunnel, WAF, Access, bot, redirect and HSTS snapshots.
 blockers:
-  - External edge repair and staging deployment cannot run without usable operator access and explicit staging authorization.
-next_action: Provide usable Cloudflare, DNS and Synology operator access plus explicit staging authorization for the exact recorded edge plan and public verification.
+  - none for the next repository validation step
+next_action: Inspect all required workflow results for the new exact head, repair any failure, then squash merge with [character-bazaar-staging] and verify the trusted-main image and staging-control runs.
 ```
 
 ## Report
@@ -181,4 +170,4 @@ next_action: Provide usable Cloudflare, DNS and Synology operator access plus ex
 
 ## Notes
 
-No Cloudflare, DNS, Synology runtime, production, Canary or PR #387 evidence mutation occurred. External changes require recorded current state and rollback before execution.
+The repository and staging task may complete without claiming public edge or production proof. Cloudflare/DNS changes remain a separately evidenced operator action; `PUBLIC_DOMAIN_LAUNCH_READY` and `PRODUCTION_PROVEN` stay false until those external checks pass.
