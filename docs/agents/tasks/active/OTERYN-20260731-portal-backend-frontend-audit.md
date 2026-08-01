@@ -25,6 +25,7 @@ required_reads:
   - docs/agents/evidence/OTERYN-20260731-portal-backend-frontend-audit/VALIDATOR_VERDICT.md
   - docs/agents/evidence/OTERYN-20260731-portal-backend-frontend-audit/ISSUE_365_POST_FIX_RERUN_EVIDENCE.md
   - docs/agents/evidence/OTERYN-20260731-portal-backend-frontend-audit/ISSUE_365_EMBEDDED_BROWSER_DIAGNOSTICS.md
+  - docs/agents/evidence/OTERYN-20260731-portal-backend-frontend-audit/ISSUE_365_FLASH_REQUEST_LIFECYCLE_ANALYSIS.md
 search_first:
   - current main exact SHA, active task, PR head, ownership and CI
   - Issue #326 and Issue #365
@@ -49,6 +50,7 @@ Audit every delivered portal capability across backend, frontend, integration, s
 - [x] Execute a fresh current critical-profile rerun and persist a validator verdict.
 - [x] Execute three independent zero-retry post-serialization original-flow attempts and correct the remediation conclusion.
 - [x] Recover and preserve complete embedded browser diagnostics for both post-serialization reproductions.
+- [x] Derive and document the strongest source-backed request-lifecycle mechanism without implementing it.
 - [ ] Execute the exact frozen-target clean-isolated and exactly-one-damaged-row comparison with sanitized logs.
 - [x] Publish consolidated reports, machine-readable matrices and validator instructions.
 - [x] Recommend the smallest safe remediation set without implementing it.
@@ -89,10 +91,10 @@ phase: validate
 session_id: chat-20260801-portal-audit-autonomous-validator
 session_role: validator
 execution_mode: chat-github-actions-rerun-artifact-review
-execution_reason: existing GitHub Actions runners and embedded Playwright reports enabled fresh exact-source execution plus complete sanitized diagnostics; exact frozen custom observer and controlled one-row mutation remain unavailable
-updated_at: 2026-08-01T08:05:00Z
+execution_reason: existing GitHub Actions runners and embedded Playwright reports enabled fresh exact-source execution plus complete sanitized diagnostics; source and Laravel lifecycle inspection narrowed the flash mechanism; exact frozen custom observer and controlled one-row mutation remain unavailable
+updated_at: 2026-08-01T08:51:00Z
 lease_expires_at: null
-head: 65803fd9d8fedc7ecd86ab00061ab80ef94a7e05
+head: 3f3d07a37edf0031de26dd8e6bff49c9af39d9fa
 branch: audit/OTERYN-20260731-portal-backend-frontend-audit
 pr: 381
 status: blocked
@@ -114,11 +116,11 @@ context_score: 12
 estimate_confidence: high
 decomposition_decision: phased
 decomposition_reason: one cohesive audit; only the exact frozen clean-versus-controlled package remains
-validation_level: fresh-critical-plus-three-post-fix-original-flow-reruns-plus-embedded-diagnostics-plus-strict-plus-historical-review
+validation_level: fresh-critical-plus-three-post-fix-original-flow-reruns-plus-embedded-diagnostics-plus-request-lifecycle-analysis-plus-strict-plus-historical-review
 heavy_validation_runs: 4
 session_rotation_count: 4
 stale_takeover_count: 0
-human_interruptions: 6
+human_interruptions: 7
 validator_verdict: VALIDATED_WITH_CORRECTIONS
 proven:
   - frozen audit target is b6f7b12a43aa72a52dc98c3fa07a7c4607fcb608
@@ -144,7 +146,12 @@ proven:
   - stale media ID expansion is desktop 1/3/5 tablet 1/3/5/7 mobile 1/3/5/7/9 in both reproductions
   - desktop and tablet pass despite contaminated thumbnail traffic while mobile reproduces the flash loss
   - every original-flow project in both preserved reports records exactly two invalid-pattern console errors and zero page errors
+  - publish success is stored only as Laravel session flash and rendered only from session status
+  - the Wiki article form immediately starts authenticated same-session media-index and lazy thumbnail requests
+  - article edit media index thumbnail and publish routes all use the web session and session blocking
+  - Laravel framework 13 ages flash data during session save while session blocking supplies mutual exclusion rather than request priority
   - historical thumbnail traffic remains explained by intentionally damaged EditorialMedia fixture leakage
+  - exact head 3f3d07a37edf0031de26dd8e6bff49c9af39d9fa passed all six workflow families
   - normalized findings remain zero HIGH six MEDIUM and one LOW
   - production remains unproven
 derived:
@@ -152,7 +159,10 @@ derived:
   - session serialization may be useful concurrency control but is insufficient for deterministic remediation
   - complete critical-profile ordering can combine the flow with leaked damaged media rows
   - presence of thumbnail HTTP 500 responses alone is insufficient to remove publication feedback because contaminated desktop and tablet flows pass
+  - authenticated media-index or thumbnail requests can consume pending one-request status flash before the redirected edit document renders it
+  - the request-order flash-consumption mechanism has HIGH confidence but remains derived until exact sanitized ordering is captured
 unknown:
+  - exact request ordering in the preserved reproductions
   - exact frozen-target result with the transient observer restored ephemerally
   - clean isolated result after EditorialMedia reset before each sample
   - controlled behavior with exactly one missing or corrupt EditorialMedia row
@@ -171,6 +181,8 @@ rejected_hypotheses:
   - thumbnail traffic is random or unexplained
   - any thumbnail HTTP 500 presence necessarily removes publication feedback
   - session serialization deterministically remediates the original mobile flash defect
+  - session blocking guarantees the redirected document request saves before media subrequests
+  - client networkidle creates a deterministic server-side request order after publication
   - a passing related media scenario closes the original administration scenario
   - flash loss and thumbnail integrity failure have one proven cause
   - invalid native HTML pattern implies backend validation bypass
@@ -192,12 +204,18 @@ validation:
   - command: embedded Playwright report extraction and browser-diagnostics reconciliation
     result: PASS
     evidence: ISSUE_365_EMBEDDED_BROWSER_DIAGNOSTICS.md with hash-matched attempts 3 and 4
+  - command: source and Laravel flash request-lifecycle analysis
+    result: PASS
+    evidence: ISSUE_365_FLASH_REQUEST_LIFECYCLE_ANALYSIS.md
+  - command: exact-head repository workflow families
+    result: PASS
+    evidence: head 3f3d07a37edf0031de26dd8e6bff49c9af39d9fa and runs 30692433460 30692433459 30692433467 30692433465 30692433509 30692433483
   - command: audit evidence correction
     result: PASS
     evidence: ISSUE_365_POST_FIX_RERUN_EVIDENCE.md and corrected VALIDATOR_VERDICT.md
   - command: exact frozen clean isolated and controlled one-row package
     result: NOT_RUN
-    evidence: immutable workflow has no spec patch or controlled mutation input and local sandbox egress blocks checkout
+    evidence: immutable workflow has no spec patch or controlled mutation input local sandbox egress blocks checkout and Codex GitHub integration is not connected
 blockers:
   - exact frozen custom observer with clean reset and exactly-one-damaged-row comparison remains technically unavailable in current tool environment
 next_action: execute only the remaining exact frozen clean-versus-one-row package in a mutable checkout-capable validator and persist the result without implementation or deployment
