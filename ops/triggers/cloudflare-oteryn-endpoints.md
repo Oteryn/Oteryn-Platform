@@ -1,4 +1,4 @@
 # Cloudflare Oteryn endpoint trigger
 
-mode: audit
-confirmation:
+mode: apply
+confirmation: APPLY-OTERYN-CLOUDFLARE
