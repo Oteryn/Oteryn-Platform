@@ -111,6 +111,10 @@ required=[
     "ref: ${{ github.sha }}",
     "marker=\"$(cat ops/triggers/oteryn-public-edge-validation.md)\"",
     "mode: audit",
+    "audit_marker=$'# Oteryn public edge validation trigger\\n\\nmode: audit'",
+    "if [[ \"$marker\" == \"$audit_marker\" ]]; then",
+    "[[ \"$changed_files\" == 'ops/triggers/oteryn-public-edge-validation.md' ]]",
+    "An operational public edge audit PR may change only its marker.",
     "python3 scripts/operations/cloudflare-oteryn-edge-audit.py",
     "python3 scripts/operations/oteryn-public-edge-validation.py",
     "python3 scripts/operations/oteryn-public-edge-result.py",
@@ -122,8 +126,12 @@ required=[
 for item in required:
     if item not in workflow:
         raise SystemExit(f"missing workflow invariant: {item}")
-if marker != "# Oteryn public edge validation trigger\n\nmode: inert\n":
-    raise SystemExit("committed public edge marker is not inert")
+allowed_markers = {
+    "# Oteryn public edge validation trigger\n\nmode: inert\n",
+    "# Oteryn public edge validation trigger\n\nmode: audit\n",
+}
+if marker not in allowed_markers:
+    raise SystemExit("committed public edge marker is not exact inert or audit")
 for forbidden in (
     "cat cloudflare-edge-audit/evidence.json",
     "cat public-edge-validation/evidence.json",
