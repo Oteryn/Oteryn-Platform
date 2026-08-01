@@ -4,8 +4,11 @@ set -euo pipefail
 readonly CLOUDFLARE_API_BASE_URL="${CLOUDFLARE_API_BASE_URL:-https://api.cloudflare.com/client/v4}"
 readonly CURL_BIN="${CLOUDFLARE_CURL_BIN:-curl}"
 readonly WWW_HOST="oteryn.molehill.cloud"
-readonly LOGIN_HOST="login.oteryn.molehill.cloud"
+readonly GATEWAY_HOST="gateway.molehill.cloud"
+readonly LEGACY_GATEWAY_HOST="login.oteryn.molehill.cloud"
 readonly OUTPUT_PATH="${CLOUDFLARE_ZONE_EDGE_OUTPUT:-cloudflare-zone-edge-audit.json}"
+readonly EDGE_TOKEN="${CLOUDFLARE_API_TOKEN:-}"
+readonly ACCESS_TOKEN="${CLOUDFLARE_ACCESS_API_TOKEN:-${CLOUDFLARE_API_TOKEN:-}}"
 
 TEMP_FILES=()
 declare -A API_FILE=()
@@ -47,6 +50,7 @@ append_summary() {
 api_get() {
     local key="$1"
     local path="$2"
+    local token="${3:-$EDGE_TOKEN}"
     local response_file http_code
 
     response_file="$(mktemp)"
@@ -55,13 +59,18 @@ api_get() {
     API_STATE["$key"]="unknown"
     API_HTTP["$key"]="000"
 
+    if [[ -z "$token" ]]; then
+        API_STATE["$key"]="missing_token"
+        return 0
+    fi
+
     if ! http_code="$($CURL_BIN \
         --silent \
         --show-error \
         --connect-timeout 10 \
         --max-time 30 \
         --request GET \
-        --header "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
+        --header "Authorization: Bearer ${token}" \
         --header 'Content-Type: application/json' \
         --output "$response_file" \
         --write-out '%{http_code}' \
@@ -107,8 +116,8 @@ certificate_coverage() {
     local host="$2"
     jq -r --arg host "${host,,}" '
         def covers($pattern; $candidate):
-            ($pattern | ascii_downcase) as $p
-            | ($candidate | ascii_downcase) as $h
+            ($pattern | ascii_downcase | rtrimstr(".")) as $p
+            | ($candidate | ascii_downcase | rtrimstr(".")) as $h
             | if $p == $h then true
               elif ($p | startswith("*.")) then
                 ($p[2:]) as $suffix
@@ -166,14 +175,18 @@ ruleset_summary() {
         item="$(jq -c \
             --arg phase "$phase" \
             --arg www "$WWW_HOST" \
-            --arg login "$LOGIN_HOST" '
+            --arg gateway "$GATEWAY_HOST" \
+            --arg legacy "$LEGACY_GATEWAY_HOST" '
             def enabled_rules: [.result.rules[]? | select((.enabled // true) == true)];
-            def canonical_ref: ((.expression // "") | contains($www) or contains($login));
+            def quoted_host($host): ((.expression // "") | ascii_downcase | contains("\"" + ($host | ascii_downcase) + "\""));
+            def canonical_ref: (quoted_host($www) or quoted_host($gateway));
+            def retired_ref: quoted_host($legacy);
             {
               phase: $phase,
               enabled_rule_count: (enabled_rules | length),
               actions: (enabled_rules | group_by(.action // "unknown") | map({key: (.[0].action // "unknown"), value: length}) | from_entries),
               canonical_hostname_rule_count: (enabled_rules | map(select(canonical_ref)) | length),
+              retired_hostname_rule_count: (enabled_rules | map(select(retired_ref)) | length),
               canonical_challenge_or_block_count: (enabled_rules | map(select(canonical_ref and ((.action // "") | IN("challenge", "managed_challenge", "block")))) | length),
               noncanonical_or_global_challenge_count: (enabled_rules | map(select((canonical_ref | not) and ((.action // "") | IN("challenge", "managed_challenge")))) | length)
             }
@@ -202,9 +215,9 @@ ruleset_summary() {
 
 main() {
     local token_path token_status observed_at
-    local cert_www="unknown" cert_login="unknown" active_packs="null" pending_verifications="null"
-    local universal_enabled="null" settings_available=false
-    local ssl_value="null" min_tls="null" tls13="null" always_https="null"
+    local cert_www="unknown" cert_gateway="unknown" cert_legacy="unknown"
+    local active_packs="null" pending_verifications="null" universal_enabled="null"
+    local settings_available=false ssl_value="null" min_tls="null" tls13="null" always_https="null"
     local security_level="null" browser_check="null" challenge_ttl="null" hsts="null"
     local bot="null" access="null" pagerules="null" zone_rules account_rules
     local audit_complete output_json
@@ -216,7 +229,7 @@ main() {
     require_nonempty_env CLOUDFLARE_ZONE_ID
     validate_identifiers
 
-    if [[ "$CLOUDFLARE_API_TOKEN" == cfat_* ]]; then
+    if [[ "$EDGE_TOKEN" == cfat_* ]]; then
         token_path="/accounts/${CLOUDFLARE_ACCOUNT_ID}/tokens/verify"
     else
         token_path='/user/tokens/verify'
@@ -235,7 +248,7 @@ main() {
     api_get zone_rulesets "/zones/${CLOUDFLARE_ZONE_ID}/rulesets?per_page=50"
     api_get account_rulesets "/accounts/${CLOUDFLARE_ACCOUNT_ID}/rulesets?per_page=50"
     api_get bot_management "/zones/${CLOUDFLARE_ZONE_ID}/bot_management"
-    api_get access_apps "/accounts/${CLOUDFLARE_ACCOUNT_ID}/access/apps?per_page=50"
+    api_get access_apps "/accounts/${CLOUDFLARE_ACCOUNT_ID}/access/apps?per_page=50" "$ACCESS_TOKEN"
     api_get page_rules "/zones/${CLOUDFLARE_ZONE_ID}/pagerules?status=active&per_page=50"
 
     for key in certificate_packs zone_rulesets account_rulesets access_apps page_rules; do
@@ -244,7 +257,8 @@ main() {
 
     if [[ "${API_STATE[certificate_packs]}" == "available" ]]; then
         cert_www="$(certificate_coverage "${API_FILE[certificate_packs]}" "$WWW_HOST")"
-        cert_login="$(certificate_coverage "${API_FILE[certificate_packs]}" "$LOGIN_HOST")"
+        cert_gateway="$(certificate_coverage "${API_FILE[certificate_packs]}" "$GATEWAY_HOST")"
+        cert_legacy="$(certificate_coverage "${API_FILE[certificate_packs]}" "$LEGACY_GATEWAY_HOST")"
         active_packs="$(jq '[.result[]? | select((.status // "") == "active")] | length' "${API_FILE[certificate_packs]}")"
     fi
     if [[ "${API_STATE[universal_ssl]}" == "available" ]]; then
@@ -272,14 +286,23 @@ main() {
         bot="$(jq -c '{fight_mode: (.result.fight_mode // null), enable_js: (.result.enable_js // null), ai_bots_protection: (.result.ai_bots_protection // null), content_bots_protection: (.result.content_bots_protection // null)}' "${API_FILE[bot_management]}")"
     fi
     if [[ "${API_STATE[access_apps]}" == "available" ]]; then
-        access="$(jq -c --arg www "$WWW_HOST" --arg login "$LOGIN_HOST" '{matching_application_count: ([.result[]? | select(((.domain // "") | ascii_downcase | contains($www)) or ((.domain // "") | ascii_downcase | contains($login)))] | length)}' "${API_FILE[access_apps]}")"
+        access="$(jq -c --arg www "$WWW_HOST" --arg gateway "$GATEWAY_HOST" --arg legacy "$LEGACY_GATEWAY_HOST" '
+            def domain: ((.domain // "") | ascii_downcase);
+            {
+              matching_application_count: ([.result[]? | select((domain == $www) or (domain == $gateway) or (domain | startswith($www + "/")) or (domain | startswith($gateway + "/")))] | length),
+              retired_application_count: ([.result[]? | select((domain == $legacy) or (domain | startswith($legacy + "/")))] | length)
+            }
+        ' "${API_FILE[access_apps]}")"
     fi
     if [[ "${API_STATE[page_rules]}" == "available" ]]; then
-        pagerules="$(jq -c --arg www "$WWW_HOST" --arg login "$LOGIN_HOST" '
-            [.result[]? | select((.status // "active") == "active")
-              | select([.targets[]?.constraint.value // ""] | any(contains($www) or contains($login)))] as $matching
+        pagerules="$(jq -c --arg www "$WWW_HOST" --arg gateway "$GATEWAY_HOST" --arg legacy "$LEGACY_GATEWAY_HOST" '
+            def canonical_ref: ([.targets[]?.constraint.value // ""] | any(contains($www) or contains($gateway)));
+            def retired_ref: ([.targets[]?.constraint.value // ""] | any(contains($legacy)));
+            [.result[]? | select((.status // "active") == "active")] as $active
+            | [$active[] | select(canonical_ref)] as $matching
             | {
                 matching_rule_count: ($matching | length),
+                retired_rule_count: ([$active[] | select(retired_ref)] | length),
                 always_https_action_count: ([$matching[]?.actions[]? | select(.id == "always_use_https")] | length),
                 browser_check_action_count: ([$matching[]?.actions[]? | select(.id == "browser_check")] | length),
                 security_level_action_count: ([$matching[]?.actions[]? | select(.id == "security_level")] | length),
@@ -301,7 +324,8 @@ main() {
         --arg token_status "$token_status" \
         --argjson audit_complete "$audit_complete" \
         --arg cert_www "$cert_www" \
-        --arg cert_login "$cert_login" \
+        --arg cert_gateway "$cert_gateway" \
+        --arg cert_legacy "$cert_legacy" \
         --argjson active_packs "$active_packs" \
         --argjson pending_verifications "$pending_verifications" \
         --argjson universal_enabled "$universal_enabled" \
@@ -329,12 +353,14 @@ main() {
         --argjson access_api "$(state_object access_apps 'Access Apps and Policies Read')" \
         --argjson pagerules_api "$(state_object page_rules 'Page Rules Read')" '
         {
-          schema_version: 1,
+          schema_version: 2,
           observed_at: $observed_at,
           mutation: "none",
           secrets_emitted: false,
           token_status: $token_status,
           audit_complete: $audit_complete,
+          canonical_hosts: ["oteryn.molehill.cloud", "gateway.molehill.cloud"],
+          retired_hosts: ["login.oteryn.molehill.cloud"],
           api: {
             certificate_packs: $certificate_api,
             universal_ssl: $universal_api,
@@ -351,7 +377,8 @@ main() {
             universal_ssl_enabled: $universal_enabled,
             nonactive_verification_count: $pending_verifications,
             www_hostname_covered: $cert_www,
-            login_hostname_covered: $cert_login
+            gateway_hostname_covered: $cert_gateway,
+            legacy_gateway_hostname_covered: $cert_legacy
           },
           zone_settings: {
             available: $settings_available,
@@ -376,14 +403,15 @@ main() {
     append_summary '### Cloudflare Oteryn zone-edge audit'
     append_summary "- audit complete: \`${audit_complete}\`"
     append_summary "- certificate ${WWW_HOST}: \`${cert_www}\`"
-    append_summary "- certificate ${LOGIN_HOST}: \`${cert_login}\`"
+    append_summary "- certificate ${GATEWAY_HOST}: \`${cert_gateway}\`"
+    append_summary "- certificate retired ${LEGACY_GATEWAY_HOST}: \`${cert_legacy}\`"
     append_summary "- Always Use HTTPS: \`$(jq -r '.zone_settings.always_use_https // "unknown"' "$OUTPUT_PATH")\`"
     append_summary "- HSTS enabled: \`$(jq -r '.zone_settings.security_header.strict_transport_security.enabled // "unknown"' "$OUTPUT_PATH")\`"
     append_summary "- mutation: \`none\`"
     append_summary "- sanitized artifact: \`$(basename "$OUTPUT_PATH")\`"
 
-    printf 'audit_complete=%s certificate_www=%s certificate_login=%s mutation=none\n' \
-        "$audit_complete" "$cert_www" "$cert_login"
+    printf 'audit_complete=%s certificate_www=%s certificate_gateway=%s certificate_legacy_gateway=%s mutation=none\n' \
+        "$audit_complete" "$cert_www" "$cert_gateway" "$cert_legacy"
 }
 
 main "$@"
