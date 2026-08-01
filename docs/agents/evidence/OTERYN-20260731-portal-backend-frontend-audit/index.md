@@ -23,6 +23,7 @@
 | Request-lifecycle mechanism family | `DERIVED / HIGH confidence` | old-document media request may age `status` before redirect GET |
 | Responsive lazy-scroll probe | `CONTROLLED_SYNTHETIC / DERIVED` | action-induced old-document lazy work is feasible and responsive |
 | Exact execution procedure | `READY / NOT_EXECUTED` | fail-closed 12-sample frozen-target runbook |
+| Current execution environment | `PROVEN / BLOCKED_ENVIRONMENT` | no checkout/archive/dispatch path and no complete acceptance runtime |
 | Latest staging evidence | `PROVEN / STAGING_PROVEN` | `717977f252b09b9b2e979f8110b7f48b88682223` |
 | Frozen target deployed | `UNKNOWN` | no exact deployment proof |
 | Production | `UNKNOWN` | no exact-release evidence |
@@ -136,6 +137,21 @@ Detailed method, limitations and required C1/C2 differential: `ISSUE_365_LAZY_SC
 
 The runbook defines causal proof only when a matching-session old-document media request loads and ages publication `status` after the publish save but before redirect GET. Temporal coexistence alone is explicitly insufficient.
 
+## Current execution-environment preflight
+
+`ISSUE_365_EXECUTION_ENVIRONMENT_PREFLIGHT.md` records the fresh takeover preflight.
+
+Proven boundaries:
+
+- direct GitHub DNS/HTTPS is unavailable from the sandbox;
+- Composer, Docker and Codex CLI are absent;
+- the connected GitHub actions expose repository and workflow inspection but no repository archive, custom workflow dispatch, arbitrary runner command execution or Codex Cloud execution;
+- the exact-head Phase 7 artifact contains only two summary JSON files and no reusable checkout/runtime;
+- rerunning committed workflows cannot inject the untracked observer or custom 12-sample matrix;
+- committing a temporary probe or workflow would violate the task and runbook.
+
+The remaining blocker is therefore environmental rather than an unresolved instruction, CI failure or missing command specification.
+
 ## Issue #365 fixture boundary
 
 Historical 9/12/16 thumbnail HTTP 500 counts remain explained by intentionally damaged EditorialMedia rows leaking across acceptance projects. This remains a MEDIUM isolation/evidence defect and not proof that valid production media fails.
@@ -171,6 +187,7 @@ Totals: **0 HIGH, 6 MEDIUM, 1 LOW**.
 - `ISSUE_365_FLASH_REQUEST_LIFECYCLE_ANALYSIS.md`
 - `ISSUE_365_LAZY_SCROLL_SYNTHETIC_PROBE.md`
 - `ISSUE_365_EXACT_FROZEN_EXECUTION_RUNBOOK.md`
+- `ISSUE_365_EXECUTION_ENVIRONMENT_PREFLIGHT.md`
 - `VALIDATOR_PACKET.md`
 - `VALIDATOR_PACKET_ADDENDUM.md`
 - `VALIDATOR_VERDICT.md`
