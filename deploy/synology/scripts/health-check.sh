@@ -76,6 +76,98 @@ probe_url gateway 8080 /health "Gateway /health"
 probe_url gateway 8080 /ready "Gateway /ready"
 probe_url gateway 8080 /version "Gateway /version"
 
+expected_gateway_version="${GATEWAY_VERSION:-synology-staging}"
+python3 - "$PLATFORM_PORT" "$GATEWAY_PORT" "$expected_gateway_version" <<'PY'
+import http.client
+import json
+import sys
+
+platform_port = int(sys.argv[1])
+gateway_port = int(sys.argv[2])
+expected_gateway_version = sys.argv[3]
+
+
+def request(port, method, path, *, body=None, headers=None):
+    connection = http.client.HTTPConnection('127.0.0.1', port, timeout=5)
+    try:
+        connection.request(method, path, body=body, headers=headers or {})
+        response = connection.getresponse()
+        payload = response.read(8192)
+        return response.status, {key.lower(): value for key, value in response.getheaders()}, payload
+    finally:
+        connection.close()
+
+
+status, headers, body = request(
+    gateway_port,
+    'GET',
+    '/version',
+    headers={'Host': 'login.oteryn.molehill.cloud', 'Accept': 'application/json'},
+)
+if status != 200:
+    raise SystemExit(f'Gateway /version returned unexpected status: {status}')
+try:
+    version_payload = json.loads(body)
+except json.JSONDecodeError as exc:
+    raise SystemExit('Gateway /version did not return bounded JSON') from exc
+if version_payload != {
+    'service': 'oteryn-game-gateway',
+    'version': expected_gateway_version,
+}:
+    raise SystemExit('Gateway /version returned the wrong service identity or version')
+if not headers.get('content-type', '').lower().startswith('application/json'):
+    raise SystemExit('Gateway /version did not return application/json')
+
+status, headers, body = request(
+    gateway_port,
+    'POST',
+    '/v1/login',
+    body=b'{}',
+    headers={
+        'Host': 'login.oteryn.molehill.cloud',
+        'Accept': 'application/json',
+        'Content-Type': 'application/json',
+    },
+)
+if status != 400:
+    raise SystemExit(f'Bounded invalid Gateway login returned unexpected status: {status}')
+try:
+    login_payload = json.loads(body)
+except json.JSONDecodeError as exc:
+    raise SystemExit('Bounded invalid Gateway login did not return JSON') from exc
+if login_payload != {'error': 'invalid_request'}:
+    raise SystemExit('Bounded invalid Gateway login returned an unexpected body')
+cache_control = {token.strip().lower() for token in headers.get('cache-control', '').split(',')}
+required_cache_control = {'no-store', 'no-cache', 'must-revalidate', 'private'}
+if not required_cache_control.issubset(cache_control):
+    raise SystemExit('Gateway login response lost required private no-store cache controls')
+if headers.get('pragma', '').lower() != 'no-cache' or headers.get('expires') != '0':
+    raise SystemExit('Gateway login response lost legacy no-cache controls')
+
+status, _, body = request(
+    platform_port,
+    'GET',
+    '/version',
+    headers={'Host': 'oteryn.molehill.cloud', 'Accept': 'application/json'},
+)
+if b'oteryn-game-gateway' in body:
+    raise SystemExit('Platform port cross-routed to the Game Gateway')
+
+status, _, body = request(
+    gateway_port,
+    'GET',
+    '/login?locale=en',
+    headers={'Host': 'login.oteryn.molehill.cloud', 'Accept': 'text/html'},
+)
+if status != 404:
+    raise SystemExit(f'Gateway non-contract /login route returned unexpected status: {status}')
+body_lower = body.lower()
+if b'<form' in body_lower or b'oteryn platform' in body_lower:
+    raise SystemExit('Gateway port cross-routed to Platform content')
+
+print('Verified Gateway identity, bounded invalid login, private no-store headers and port isolation.')
+PY
+
 platform_container="${container_ids[platform]}"
 docker exec -i "$platform_container" php <<'PHP'
 <?php
@@ -134,6 +226,51 @@ if ! grep -Fq 'action="https://oteryn.molehill.cloud/login?locale=en"' <<<"$publ
 fi
 echo "Verified public HTTPS login form action through the host-loopback proxy boundary."
 
+docker exec -i "$platform_container" php <<'PHP'
+<?php
+require '/var/www/html/vendor/autoload.php';
+$app = require '/var/www/html/bootstrap/app.php';
+$kernel = $app->make(Illuminate\Contracts\Console\Kernel::class);
+$kernel->bootstrap();
+
+$expectedOrigin = 'https://oteryn.molehill.cloud';
+if (config('app.url') !== $expectedOrigin) {
+    fwrite(STDERR, "Deployed APP_URL is not the canonical public HTTPS origin.\n");
+    exit(35);
+}
+if (config('session.secure') !== true) {
+    fwrite(STDERR, "Deployed public staging session cookie is not Secure.\n");
+    exit(36);
+}
+
+$urls = [
+    route('identity.login.create', absolute: true),
+    route('password.reset', [
+        'token' => 'redacted-health-check-token',
+        'email' => 'controlled@example.invalid',
+    ], true),
+    Illuminate\Support\Facades\URL::temporarySignedRoute(
+        'admin.wiki.articles.preview',
+        now()->addMinutes(5),
+        ['article' => 1, 'locale' => 'en'],
+    ),
+];
+
+foreach ($urls as $url) {
+    $parts = parse_url($url);
+    if (! is_array($parts)
+        || ($parts['scheme'] ?? null) !== 'https'
+        || ($parts['host'] ?? null) !== 'oteryn.molehill.cloud'
+        || str_contains($url, '127.0.0.1')
+        || str_contains($url, 'localhost')) {
+        fwrite(STDERR, "Requestless URL generation escaped the canonical public origin.\n");
+        exit(37);
+    }
+}
+
+echo "Verified requestless login, password-reset and signed-route canonical origins.\n";
+PHP
+
 if ! docker run --rm \
     --network "container:${container_ids[canary]}" \
     alpine:3.22 \
@@ -151,4 +288,4 @@ if [[ "$CANARY_GAME_BIND_ADDRESS" != "127.0.0.1" ]]; then
     echo "Verified LAN game endpoint: ${CANARY_GAME_BIND_ADDRESS}:${CANARY_GAME_PORT}"
 fi
 
-echo "Platform, Gateway, Canary, public HTTPS login and MFA QR staging probes passed."
+echo "Platform, Gateway, Canary, canonical URL, cache-control, isolation and MFA QR staging probes passed."
