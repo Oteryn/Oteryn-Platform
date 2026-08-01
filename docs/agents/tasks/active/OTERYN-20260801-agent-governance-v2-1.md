@@ -55,8 +55,8 @@ Documentation and agent governance only. No application, database, authenticatio
 ```yaml
 checkpoint_version: 1
 policy_version: 2
-updated_at: 2026-08-02T00:10:00+02:00
-head: f46736e675a044640c434174797da27d549bd828
+updated_at: 2026-08-02T00:14:00+02:00
+head: 8d9361cdefb6796820b472005dfdc9a96fd35525
 branch: docs/agent-governance-v2-1-20260801
 pr: 442
 status: validating
@@ -78,7 +78,7 @@ heavy_validation_runs: 0
 session_rotation_count: 0
 stale_takeover_count: 0
 human_interruptions: 0
-last_completed_step: completed v2.1 contracts and proportionate documentation audit
+last_completed_step: normalized documentation E2E applicability evidence for repository checkpoint validation
 owned_paths:
   - docs/agents/PROMPTING_STANDARD.md
   - docs/agents/PROMPTING_HANDOVER.md
@@ -97,12 +97,12 @@ proven:
 derived:
   - The standard closes the observed backend-without-frontend and stale-PR/task failure modes.
 unknown:
-  - Exact-head required workflow results after this checkpoint commit.
+  - Exact-head required workflow results after this checkpoint repair.
   - Fresh final PR diff and review-thread state.
 conflicts: []
 first_failure:
-  marker: none
-  evidence: no exact-head failure classified yet
+  marker: checkpoint-validation-result-enum
+  evidence: Agent Governance run 30720649112 rejected NOT_APPLICABLE_WITH_REASON as a validation result; applicability is now represented by PASS plus an explicit reason in evidence.
 rejected_hypotheses:
   - encode durable rules only in chat
   - describe backend completion as complete user-facing delivery
@@ -124,8 +124,8 @@ validation:
     result: PASS
     evidence: all contract paths exist and completion rules agree
   - command: runtime E2E applicability review
-    result: NOT_APPLICABLE_WITH_REASON
-    evidence: no executable product behavior changed
+    result: PASS
+    evidence: NOT_APPLICABLE_WITH_REASON — no executable product behavior changed; path/content/lifecycle/CI validation remains required
 blockers: []
 next_action: verify exact-head required workflows and fresh PR review for PR 442, then merge and archive the task
 ```
