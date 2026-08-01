@@ -67,11 +67,11 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-01T14:15:00Z
-head: UNKNOWN
+updated_at: 2026-08-01T13:53:00Z
+head: 8188089a8e307d5480747868a8a55c90cca72698
 branch: agent/cloudflare-zone-edge-audit
-pr: none
-status: implementing
+pr: 409
+status: validating
 context_routes:
   - agent-governance
   - security
@@ -102,13 +102,21 @@ rejected_hypotheses:
   - Tunnel and DNS current state proves public edge readiness: direct public probes after convergence still fail.
 changed_paths:
   - docs/agents/tasks/active/OTERYN-20260801-cloudflare-zone-edge-audit.md
+  - .github/workflows/cloudflare-zone-edge-audit.yml
+  - scripts/operations/cloudflare-zone-edge-audit.sh
+  - tests/operations/cloudflare-zone-edge-audit/mock_curl.py
+  - tests/operations/cloudflare-zone-edge-audit/run.sh
+  - docs/operations/CLOUDFLARE_ZONE_EDGE_AUDIT.md
 validation:
   - command: repository Issue #91 PR #401 PR #387 and PR #405 preflight
     result: PASS
     evidence: bounded repository and live GitHub state inspected on 2026-08-01
+  - command: bash tests/operations/cloudflare-zone-edge-audit/run.sh
+    result: PASS
+    evidence: syntax, workflow boundary, dynamic GET-only request log, certificate wildcard semantics, sanitized output and token-redaction checks passed locally
 blockers:
   - live zone-edge API permissions are not yet proven
-next_action: implement the GET-only workflow script tests and operations contract, then execute it from protected main after merge
+next_action: inspect all PR 409 checks on the exact head, repair any failure, then merge only if the repository merge gate passes
 ```
 
 ## Notes
