@@ -58,6 +58,9 @@ jobs:
       - name: Reject legacy Gateway hostname reuse
         run: bash tests/operations/cloudflare-oteryn-endpoints/check-legacy-hostname.sh
 
+      - name: Validate trusted marker boundary
+        run: python3 tests/operations/cloudflare-oteryn-endpoints/check-marker-workflow.py
+
   manage:
     if: github.event_name == 'workflow_dispatch'
     needs: validate
