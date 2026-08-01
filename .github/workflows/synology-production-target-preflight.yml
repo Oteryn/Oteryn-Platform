@@ -150,3 +150,56 @@ jobs:
       - name: Remove local evidence file
         if: always()
         run: rm -f /tmp/synology-production-target-preflight-evidence.json
+
+  production-gate-readonly-inventory:
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/agent/production-go-live-gate'
+    runs-on: oteryn-staging
+    environment: synology-staging
+    timeout-minutes: 20
+    env:
+      OBSERVER_SOURCE_SHA: ${{ github.sha }}
+      OTERYN_PRODUCTION_GATE_EVIDENCE_PATH: /tmp/production-gate-synology-readonly.json
+
+    steps:
+      - name: Checkout exact observer source
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+
+      - name: Validate inventory source
+        run: python3 -m py_compile deploy/synology/scripts/production-gate-readonly-inventory.py
+
+      - name: Execute sanitized read-only inventory
+        run: python3 deploy/synology/scripts/production-gate-readonly-inventory.py
+
+      - name: Record bounded result
+        run: |
+          set -euo pipefail
+          evidence="$OTERYN_PRODUCTION_GATE_EVIDENCE_PATH"
+          release_sha="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["deployed_release_sha"])' "$evidence")"
+          runtime="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["runtime_classification"])' "$evidence")"
+          mariadb_restart="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["services"]["mariadb"]["restart_policy"])' "$evidence")"
+          cloudflared_count="$(python3 -c 'import json,sys; print(len(json.load(open(sys.argv[1]))["cloudflared_containers"]))' "$evidence")"
+          {
+            echo "### Production Gate Synology read-only inventory"
+            echo "- exact Platform/Gateway source SHA: `$release_sha`"
+            echo "- runtime classification: `$runtime`"
+            echo "- MariaDB restart policy: `$mariadb_restart`"
+            echo "- cloudflared containers visible through Docker: `$cloudflared_count`"
+            echo "- bounded local health probes: `PASS`"
+            echo "- database restore drill: `NOT_RUN`"
+            echo "- production mutation: `NONE`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload sanitized runtime inventory
+        uses: actions/upload-artifact@v4
+        with:
+          name: production-gate-synology-readonly-${{ github.run_id }}
+          path: /tmp/production-gate-synology-readonly.json
+          retention-days: 14
+          if-no-files-found: error
+
+      - name: Remove local evidence
+        if: always()
+        run: rm -f /tmp/production-gate-synology-readonly.json
