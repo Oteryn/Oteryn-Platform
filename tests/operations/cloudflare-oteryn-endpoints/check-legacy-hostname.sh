@@ -10,6 +10,7 @@ unexpected=()
 while IFS= read -r path; do
     [[ -n "$path" ]] || continue
     case "$path" in
+        docs/agents/evidence/* | \
         docs/agents/reports/* | \
         docs/agents/tasks/* | \
         docs/architecture/adr/0020-use-single-level-gateway-public-hostname.md | \
@@ -17,10 +18,13 @@ while IFS= read -r path; do
         deploy/synology/PUBLIC_ENDPOINTS.md | \
         docs/operations/CLOUDFLARE_EDGE_AUDIT.md | \
         docs/operations/CLOUDFLARE_ENDPOINT_MANAGEMENT.md | \
+        docs/operations/CLOUDFLARE_ZONE_EDGE_AUDIT.md | \
         scripts/operations/cloudflare-oteryn-edge-audit.py | \
         scripts/operations/cloudflare-oteryn-endpoints.sh | \
+        scripts/operations/cloudflare-zone-edge-audit.sh | \
         tests/operations/cloudflare-oteryn-edge-audit/* | \
-        tests/operations/cloudflare-oteryn-endpoints/*)
+        tests/operations/cloudflare-oteryn-endpoints/* | \
+        tests/operations/cloudflare-zone-edge-audit/*)
             ;;
         *)
             unexpected+=("$path")
