@@ -2,30 +2,23 @@
 
 Task: `OTERYN-20260731-portal-backend-frontend-audit`  
 Frozen target: `b6f7b12a43aa72a52dc98c3fa07a7c4607fcb608`  
-Classification: `DERIVED / HIGH confidence mechanism family`; exact trigger and request order remain unproven.
+Classification: `DERIVED / LOW confidence mechanism hypothesis`; root cause remains `UNKNOWN`.
 
 ## Corrected conclusion
 
-The strongest source-backed mechanism for the intermittent mobile publication-flash loss is **request-order consumption of Laravel flash data by an authenticated Wiki media request originating from the old article-edit document**.
+The intermittent responsive-mobile publication-flash loss remains directly reproduced after administrator Wiki session serialization, but the audit no longer assigns `HIGH confidence` to the old-document lazy-thumbnail race.
 
-The previous broader wording allowed requests started by the newly redirected page. That boundary is too broad: the alert is absent from the first rendered article-edit page after the redirect, so requests created only after that HTML arrives cannot be the primary reason its server render omitted `session('status')`.
+A source-faithful 18-sample Chromium probe copied the real Wiki form ordering, responsive geometry, media-card rules, large translation fields, exact Playwright viewports and native-lazy thumbnail attributes. It recorded **zero thumbnail request starts from the beginning of `Publish.click()` in every desktop, tablet and mobile sample**, both with direct action and explicit pre-scroll.
 
-The viable race window is:
+The earlier generic responsive probe placed the publication control immediately below the media grid. It proves only that actionability scrolling can activate lazy images in some layouts. The real form contains substantial content between the media picker and Lifecycle controls, so that generic result cannot support the causal weight previously assigned to it.
 
-1. the old article-edit document is open and apparently idle at its current scroll position;
-2. Playwright begins the far-down `Publish` action and scrolls that old document into position;
-3. the scroll may activate deferred lazy thumbnail requests from the old document;
-4. the publish POST acquires the session lock, writes the one-request `status` flash and releases the lock with the redirect response;
-5. a queued old-document media request may acquire the serialized session before the redirect GET, save it and age the flash;
-6. the redirect GET then renders durable publication state without the transient success alert.
+Detailed correction: `ISSUE_365_SOURCE_FAITHFUL_LAYOUT_PROBE.md` and `ISSUE_365_SOURCE_FAITHFUL_LAYOUT_PROBE.json`.
 
-Session blocking serializes same-session requests. It does not provide redirect-document priority or a proven fair queue order.
+## Proven source and runtime chain
 
-## Repository source chain
+### Publication feedback
 
-### Publication response
-
-`AdminWikiLifecycleController::publish()` delegates to `transition()`, which redirects to the article edit route with a flashed status:
+`AdminWikiLifecycleController::publish()` redirects with session flash:
 
 ```php
 return redirect()
@@ -33,11 +26,7 @@ return redirect()
     ->with('status', $message);
 ```
 
-The success message therefore exists only as Laravel session flash data.
-
-### Status rendering
-
-`resources/views/admin/layout.blade.php` renders the accessible alert only when `session('status')` exists:
+`resources/views/admin/layout.blade.php` renders the accessible success message only when `session('status')` exists:
 
 ```blade
 @if (session('status'))
@@ -45,93 +34,109 @@ The success message therefore exists only as Laravel session flash data.
 @endif
 ```
 
-There is no database-backed or redirect-parameter fallback for the transient message.
+There is no database-backed fallback for the transient message.
 
-### Old-document media request source
+### Media requests
 
-`resources/views/admin/wiki/articles/form.blade.php` exposes the authenticated media-index route and loads `public/js/wiki-admin-media.js`.
-
-The script immediately loads the index and creates thumbnail images with:
+The Wiki article form loads `public/js/wiki-admin-media.js`. The script performs an authenticated same-origin media-index fetch and creates thumbnail images with:
 
 - `loading="lazy"`;
 - `decoding="async"`;
-- authenticated same-origin thumbnail URLs.
+- private administrator thumbnail URLs.
 
-The responsive form places the media picker before the publication controls. Narrow layouts produce a taller one-column media grid, leaving more thumbnails deferred when the page is initially idle near the top.
+Article edit, media index, thumbnails and publication mutation use the administrator web session. The targeted source applies Laravel session blocking to these routes.
 
-### Route and session boundary
+### Laravel flash lifecycle
 
-Article edit, media index, thumbnails and publication mutation are administrator Wiki web routes. The targeted source applies `->block()` to them, so they use the same Laravel session and session lock rather than a stateless media path.
+The repository requires Laravel 13. Flash data is aged during session save. Session blocking provides mutual exclusion; it does not by itself prove redirect-document priority or deterministic preservation of `status`.
 
-`AdminWikiMediaController::index()` returns up to 12 rows and a private thumbnail URL for each row. `thumbnail()` returns the private media response. Both are session-bearing requests.
+This establishes that a same-session request can be relevant to flash lifetime. It does not identify the request that caused the preserved failures.
 
-## Laravel 13 flash lifecycle
+## Direct post-serialization evidence
 
-The repository requires `laravel/framework ^13.8`.
+Exact source: `6c1e910d36771f50da5eded93cc50274a90c62d2`.
 
-Laravel flash data is intended for the subsequent request. In Laravel 13 `Illuminate\Session\Store`:
+| Attempt | Job | Artifact | Responsive-mobile result |
+|---:|---:|---:|---|
+| 2 | `91342520692` | `8815321615` | PASS |
+| 3 | `91343023604` | `8815383351` | REPRODUCED |
+| 4 | `91343514611` | `8815457044` | REPRODUCED |
 
-- `flash()` stores the value and records the key in `_flash.new`;
-- session `save()` calls `ageFlashData()`;
-- `ageFlashData()` deletes `_flash.old`, moves `_flash.new` to `_flash.old`, and clears `_flash.new`.
+Both reproductions retained durable `Published`, version 3 and `Unpublish to draft` state. Desktop, tablet and Chromium/Firefox/WebKit portability passed.
 
-Consequently, after the publish response writes `status`, the next same-session request that saves the session can age or remove it even if that request is a JSON or image response rather than the redirect document.
+Correct state:
 
-`->block()` supplies mutual exclusion only. It does not specify that the redirect GET must acquire the lock before an already queued media request.
+```yaml
+historical_state: PROVEN
+post_serialization_state: REPRODUCED_INTERMITTENT
+current_remediation_state: NOT_PROVEN_REMEDIATED
+samples:
+  pass: 1
+  reproduced: 2
+```
 
-## Preserved execution timing
+## Preserved timing
 
-In the two mobile reproductions, the test started the publication action only 6–7 ms after the recorded `networkidle` step ended. The desktop and tablet actions also began only 5–6 ms after that boundary.
+The original test executes:
 
-The publication click itself took approximately:
+1. `Submit for review`;
+2. successful status assertion;
+3. `page.waitForLoadState('networkidle')`;
+4. visibility check for `Publish`;
+5. `Publish.click()`;
+6. publication status assertion.
+
+Recovered Playwright API steps show:
+
+| Attempt | Profile | `networkidle` | Publish click | Result |
+|---:|---|---:|---:|---|
+| 3 | desktop | 623 ms | 84 ms | PASS |
+| 3 | tablet | 662 ms | 74 ms | PASS |
+| 3 | mobile | 682 ms | 100 ms | REPRODUCED |
+| 4 | desktop | 793 ms | 75 ms | PASS |
+| 4 | tablet | 755 ms | 193 ms | PASS |
+| 4 | mobile | 643 ms | 100 ms | REPRODUCED |
+
+The visibility check begins 0–1 ms after `networkidle`; the click begins 4–6 ms later. These timings define the observation window but do not identify request initiation or session ordering.
+
+## Embedded diagnostics boundary
+
+The diagnostic collector records console errors, page errors, failed requests and HTTP responses with status at least 500. It does **not** record timestamps, initiator document, frame, `Referer`, request headers, navigation identity, correlation ID or session identity.
+
+Recovered results:
 
 | Attempt | Desktop | Tablet | Mobile |
-|---:|---:|---:|---:|
-| 3 | 84 ms | 74 ms | 100 ms |
-| 4 | 75 ms | 193 ms | 100 ms |
+|---:|---|---|---|
+| 3 | PASS; 9×500; 6 aborted requests | PASS; 12×500; 8 aborted | REPRODUCED; 16×500; 0 aborted |
+| 4 | PASS; 9×500; 6 aborted requests | PASS; 12×500; 8 aborted | REPRODUCED; 14×500; 0 aborted |
 
-`networkidle` therefore proves only that no qualifying request was active before the action began. It does not prove that Playwright's actionability scroll could not activate old-document lazy thumbnails during the click window.
+This proves viewport-dependent thumbnail completion/cancellation behavior. It also proves that HTTP 500 presence alone is insufficient to remove the publication flash. It does not show which document initiated any specific request or whether a thumbnail request consumed `status`.
 
-## Controlled synthetic responsive probe
+## Probe reconciliation
 
-A local Chromium probe reproduced the relevant browser behavior without using Oteryn HTTP or Laravel:
+### Generic responsive probe
 
-- 12 native lazy images;
-- responsive grid with 3 desktop, 2 tablet and 1 mobile column;
-- publication control below the grid;
-- three samples per viewport and mode.
+`ISSUE_365_LAZY_SCROLL_SYNTHETIC_PROBE.md` used a responsive image grid with the control immediately below it. Tablet and mobile direct action activated four deferred images; pre-scroll eliminated those starts.
 
-Results:
+Classification: `CONTROLLED_SYNTHETIC / GENERIC_FEASIBILITY`.
 
-| Profile | Initially loaded | New loads after direct click | New loads after pre-scroll + settle |
-|---|---:|---:|---:|
-| desktop | 12/12 | 0 | 0 |
-| tablet | 8/12 | 4 (`9–12`) | 0 |
-| mobile | 3/12 | 4 (`9–12`) | 0 |
+### Source-faithful layout probe
 
-The direct action moved the mobile viewport from the top to `scrollY=5437`; the four deferred images completed 12.9–17.9 ms after the click event. Explicitly pre-scrolling the control and settling before the click moved the lazy work out of the action window and eliminated post-click image loads in every sample.
+`ISSUE_365_SOURCE_FAITHFUL_LAYOUT_PROBE.md` used the real form ordering and relevant source geometry.
 
-This proves that the responsive Playwright action can create new old-document lazy-load work after an earlier settled boundary. It does **not** timestamp Oteryn request initiation, session-lock acquisition or flash consumption.
+| Profile | Initially started | New starts from action start |
+|---|---:|---:|
+| desktop | 12/12 | 0/3 samples |
+| tablet | 10/12 | 0/3 samples |
+| mobile | 4/12 | 0/3 samples |
 
-Detailed synthetic evidence: `ISSUE_365_LAZY_SCROLL_SYNTHETIC_PROBE.md`.
+The same zero result occurred after explicit pre-scroll.
 
-## Runtime evidence fit
+Classification: `CONTROLLED_SOURCE_FAITHFUL / DERIVED`.
 
-Three post-serialization attempts of run `30612399525` produced one mobile pass and two exact mobile reproductions.
+The source-faithful result outweighs the generic geometry for assessing the actual page. It does not reproduce the application defect and cannot prove impossibility in the real runtime, but it invalidates `HIGH confidence` for the specific action-induced old-document thumbnail chain.
 
-Attempts 3 and 4 retained durable `Published`, version 3 and `Unpublish to draft`, while the accessible publication status was absent. Desktop, tablet and all portability projects passed.
-
-Recovered diagnostics show:
-
-- desktop PASS with 9 thumbnail HTTP 500 responses;
-- tablet PASS with 12 thumbnail HTTP 500 responses;
-- mobile REPRODUCED with 16 and 14 thumbnail HTTP 500 responses;
-- no page errors in the original-flow projects;
-- zero Playwright failed-request entries in both mobile reproductions.
-
-This disproves the simple rule that any thumbnail 500 necessarily removes the flash. It remains consistent with request ordering: the relevant variable is whether an old-document session request is queued between the publish response and redirect GET, not merely whether a 500 exists.
-
-## Classification
+## Current classification
 
 ```yaml
 finding: OTERYN-AUDIT-P35-005
@@ -139,49 +144,66 @@ severity: MEDIUM
 historical_state: PROVEN
 post_serialization_state: REPRODUCED_INTERMITTENT
 current_remediation_state: NOT_PROVEN_REMEDIATED
-mechanism_family:
-  classification: DERIVED
-  confidence: HIGH
-  statement: an old-document authenticated media request may age pending publication status before the redirect GET renders
+root_cause:
+  classification: UNKNOWN
+mechanism_hypotheses:
+  old_document_media_request_ages_status:
+    classification: DERIVED
+    confidence: LOW
+    supporting_evidence:
+      - flash is session-only
+      - media reads share the administrator session
+      - mobile completes more contaminated thumbnail responses and aborts none
+    counterevidence:
+      - source-faithful 18-sample layout probe started zero thumbnails from Publish action start
+      - embedded diagnostics contain no request timing or initiator identity
+  other_session_request_or_flash_lifecycle_path:
+    classification: UNKNOWN
+  client_dom_removal_or_locator_error:
+    classification: LOW_PROBABILITY
+    reason: error context shows the first redirected document with durable Published state and no accessible status element
 proven:
-  - publication status is session flash only
-  - the old Wiki form creates authenticated lazy thumbnail requests
-  - all involved routes use the same web session and session blocking
-  - Laravel ages flash during session save
-  - the original mobile symptom reproduces after session blocking
-  - a controlled responsive Playwright action can activate deferred old-document lazy-image work after a prior settled boundary
+  - durable publication succeeds while transient accessible feedback can be absent
+  - session serialization does not remediate the defect deterministically
+  - thumbnail HTTP 500 presence alone is not sufficient
+  - viewport changes thumbnail completion and cancellation behavior
 not_proven:
-  - exact old-document thumbnail request start in attempts 3 and 4
-  - session-lock acquisition order in the reproductions
-  - whether one valid missing or corrupt thumbnail is sufficient
-  - whether integrity failure changes scheduling or lock timing
+  - the request that consumes or removes status
+  - exact session-lock and save order
   - exact frozen clean-isolated outcome
+  - exactly-one-corrupt-row behavior
+  - causal contribution of integrity-failure responses
 ```
 
-## Smallest safe remediation direction
+## Remediation boundary
 
 No implementation is authorized by this audit.
 
-The smallest later server-side candidate remains to ensure Wiki media-index and thumbnail responses do **not consume a pending publication `status` flash**. Any middleware must preserve only that intended key and must prove that the redirected article-edit document consumes it exactly once.
+The previous recommendation to preserve pending publication `status` specifically across Wiki media-index and thumbnail responses is now a **candidate requiring proof**, not the smallest proven repair. Implementing it before exact request/session correlation risks masking the symptom while leaving the actual lifecycle defect unchanged.
 
-Broader alternatives are:
+Any later implementation task must first identify the consuming request or framework path. Acceptable remedies may include:
 
-- use a read-only or non-aging session path for authenticated media reads;
-- decouple media authorization from the page session;
-- replace one-request session flash with a redirect-bound status representation.
+- preventing proven read-only subrequests from aging pending publication feedback;
+- decoupling proven media authorization from the mutable page session;
+- replacing one-request session flash with redirect-bound feedback;
+- correcting a different session lifecycle defect if instrumentation identifies one.
 
-Client-only `networkidle`, delayed clicks or retries are not production remediation. Explicit pre-scroll is a diagnostic control, not a user-facing fix.
+Client retries, delayed clicks, `networkidle` or pre-scroll remain diagnostic controls and are not production remediation.
 
 ## Required exact validation
 
-A mutable exact-target validator must pair the existing clean and exactly-one-damaged-row samples with:
+The exact frozen runbook remains necessary and must be hypothesis-neutral. Preserve the immediate/pre-scroll cells as controls, but do not assume they should differ.
 
-1. immediate `Publish` action after the current idle boundary;
-2. explicit pre-scroll of `Publish`, media settle, then publication;
-3. monotonic browser request-start and server request-entry timestamps;
-4. request route, media ID, `Referer`, correlation ID and originating document/navigation;
-5. session-lock acquire/release and session-save timestamps;
-6. sanitized `_flash.new`, `_flash.old` and `status` presence at session load/save boundaries;
-7. proof that the redirected document consumes the status exactly once.
+Required correlation:
 
-The exact validator packet remains required before promoting the audit verdict to `VALIDATED`.
+1. browser request start with frame, initiator and `Referer`;
+2. publish POST response and redirect navigation identity;
+3. response `X-Request-ID`;
+4. server entry and route identity;
+5. session-lock attempt/acquire/release;
+6. session load/save and sanitized `_flash.new`, `_flash.old`, `status` presence;
+7. exact clean and exactly-one-corrupt fixture proof;
+8. first redirected document status text and durable publication state;
+9. original framework hash restoration and empty final Git status.
+
+Causal promotion requires a complete matching-session chain. Temporal coexistence remains insufficient.
