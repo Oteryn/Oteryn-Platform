@@ -2,8 +2,9 @@ services:
   platform:
     environment:
       # Marketplace staging is browser-facing only through the canonical HTTPS
-      # Cloudflare Tunnel; keep session cookies secure even if a stale base env
-      # file still contains the historical loopback-only value.
+      # Cloudflare Tunnel. Override the historical loopback base environment
+      # at the final browser-facing Compose layer.
+      APP_URL: https://oteryn.molehill.cloud
       SESSION_SECURE_COOKIE: "true"
       MARKETPLACE_ENABLED: ${MARKETPLACE_ENABLED:-false}
       MARKETPLACE_ESCROW_CANARY_ACCOUNT_ID: ${MARKETPLACE_ESCROW_CANARY_ACCOUNT_ID:-0}
@@ -26,7 +27,7 @@ services:
       APP_ENV: ${APP_ENV}
       APP_KEY: ${APP_KEY}
       APP_DEBUG: ${APP_DEBUG}
-      APP_URL: ${APP_URL}
+      APP_URL: https://oteryn.molehill.cloud
       LOG_CHANNEL: stderr_json
       LOG_LEVEL: ${LOG_LEVEL}
       DB_CONNECTION: mysql
