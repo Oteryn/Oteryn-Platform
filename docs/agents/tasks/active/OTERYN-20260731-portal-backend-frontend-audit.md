@@ -27,6 +27,7 @@ required_reads:
   - docs/agents/evidence/OTERYN-20260731-portal-backend-frontend-audit/ISSUE_365_EMBEDDED_BROWSER_DIAGNOSTICS.md
   - docs/agents/evidence/OTERYN-20260731-portal-backend-frontend-audit/ISSUE_365_FLASH_REQUEST_LIFECYCLE_ANALYSIS.md
   - docs/agents/evidence/OTERYN-20260731-portal-backend-frontend-audit/ISSUE_365_LAZY_SCROLL_SYNTHETIC_PROBE.md
+  - docs/agents/evidence/OTERYN-20260731-portal-backend-frontend-audit/ISSUE_365_EXACT_FROZEN_EXECUTION_RUNBOOK.md
 search_first:
   - current main exact SHA, active task, PR head, ownership and CI
   - Issue #326 and Issue #365
@@ -54,7 +55,8 @@ Audit every delivered portal capability across backend, frontend, integration, s
 - [x] Correct the flash request boundary to old-document media work.
 - [x] Execute a controlled responsive lazy-scroll probe and persist its limitations.
 - [x] Add immediate-action versus pre-scroll differential instructions to the validator packet.
-- [ ] Execute the exact frozen-target clean-isolated, exactly-one-damaged-row and request-order differential with sanitized logs.
+- [x] Publish a fail-closed exact frozen-target 12-sample execution runbook with ephemeral lock/session instrumentation and cleanup proof.
+- [ ] Execute the exact frozen-target 12-sample clean/corrupt × immediate/pre-scroll matrix and persist sanitized correlated evidence.
 - [x] Publish consolidated reports, machine-readable matrices and validator instructions.
 - [x] Recommend the smallest safe remediation set without implementing it.
 
@@ -73,7 +75,7 @@ dependencies:
   - Issue #326
   - Issue #365
 blockers:
-  - exact custom frozen-target clean versus exactly-one-damaged-row and C1/C2 request-order package requires a mutable checkout-capable worker
+  - normative exact frozen 12-sample runbook requires a mutable checkout-capable worker with the production-like acceptance dependencies
 cross_repository_tasks:
   - none
 ```
@@ -93,11 +95,11 @@ policy_version: 2
 phase: validate
 session_id: chat-20260801-portal-audit-autonomous-validator
 session_role: validator
-execution_mode: chat-github-actions-artifact-review-plus-controlled-local-browser-probe
-execution_reason: existing GitHub Actions artifacts proved intermittent post-serialization reproduction; source and framework inspection narrowed the race to old-document media work; a controlled Chromium probe proved responsive action-induced lazy work is feasible; exact frozen request and session ordering remains unavailable
-updated_at: 2026-08-01T09:15:00Z
+execution_mode: chat-github-actions-artifact-review-plus-controlled-local-browser-probe-plus-runbook-authoring
+execution_reason: exact artifacts proved intermittent post-serialization reproduction; source and framework inspection narrowed the race to old-document media work; a controlled Chromium probe proved responsive action-induced lazy work is feasible; the remaining exact frozen execution is now specified as a fail-closed 12-sample procedure but cannot run in the current non-checkout environment
+updated_at: 2026-08-01T09:54:00Z
 lease_expires_at: null
-head: 7774ee9c5d4702cf14df2caa72e098002ba0d6c6
+head: b2510dd1afff8d39c947a17cbf4f7ae4e6897643
 branch: audit/OTERYN-20260731-portal-backend-frontend-audit
 pr: 381
 status: blocked
@@ -118,12 +120,12 @@ context_growth: stable
 context_score: 12
 estimate_confidence: high
 decomposition_decision: phased
-decomposition_reason: one cohesive audit; only the exact frozen clean controlled and request-order package remains
-validation_level: strict-plus-fresh-critical-plus-three-post-fix-reruns-plus-embedded-diagnostics-plus-corrected-lifecycle-plus-controlled-responsive-lazy-scroll
+decomposition_reason: one cohesive audit; only execution of the normative exact frozen 12-sample package remains
+validation_level: strict-plus-fresh-critical-plus-three-post-fix-reruns-plus-embedded-diagnostics-plus-corrected-lifecycle-plus-controlled-responsive-lazy-scroll-plus-exact-execution-runbook
 heavy_validation_runs: 4
 session_rotation_count: 4
 stale_takeover_count: 0
-human_interruptions: 8
+human_interruptions: 9
 validator_verdict: VALIDATED_WITH_CORRECTIONS
 proven:
   - frozen audit target is b6f7b12a43aa72a52dc98c3fa07a7c4607fcb608
@@ -155,7 +157,11 @@ proven:
   - controlled Chromium direct action loaded all 12 images before desktop click but only 8 tablet and 3 mobile
   - controlled tablet and mobile direct actions each completed four deferred images after click in all three samples
   - controlled pre-scroll plus settle produced zero post-click lazy loads for desktop tablet and mobile
-  - prior exact head 8d6365d95f53e88998bcb8e57b57252ab0493592 passed all six workflow families
+  - exact frozen execution runbook restores the historical observer only in an untracked test copy
+  - exact frozen execution runbook instruments lock attempt acquire release session load save and flash aging in the installed StartSession middleware without committing the observer
+  - exact frozen execution runbook requires 12 zero-retry samples across clean and exactly-one-corrupt fixtures plus immediate and pre-scroll modes
+  - exact frozen execution runbook requires original vendor hash restoration and empty Git status before evidence is accepted
+  - prior exact head 5fb18b370ffb8c53ac49b89ed23e894da6d4b949 passed all six workflow families
   - historical thumbnail traffic remains explained by intentionally damaged EditorialMedia fixture leakage
   - normalized findings remain zero HIGH six MEDIUM and one LOW
   - production remains unproven
@@ -165,13 +171,13 @@ derived:
   - thumbnail HTTP 500 presence alone is insufficient to remove publication feedback because contaminated desktop and tablet flows pass
   - Playwright publication action can activate deferred old-document responsive lazy work after a prior settled boundary
   - an old-document media request may queue behind publish POST then age pending status before redirect GET
-  - the corrected request-order mechanism family has HIGH confidence but remains derived until exact browser server lock and session ordering is captured
+  - the corrected request-order mechanism family has HIGH confidence but remains derived until the normative exact frozen execution captures browser server lock and session ordering
 unknown:
   - exact old-document thumbnail request start in preserved reproductions
   - exact session-lock acquisition and session-save order
   - exact frozen-target result with the transient observer restored ephemerally
   - clean isolated result after EditorialMedia reset before each sample
-  - controlled behavior with exactly one missing or corrupt EditorialMedia row
+  - controlled behavior with exactly one corrupt EditorialMedia row
   - causal contribution of integrity-failure responses
   - reason attempt 3 records 16 mobile 500 responses while attempt 4 records 14
   - clean valid-object thumbnail health
@@ -217,15 +223,18 @@ validation:
   - command: controlled responsive lazy-scroll browser probe
     result: PASS
     evidence: ISSUE_365_LAZY_SCROLL_SYNTHETIC_PROBE.md with 18 synthetic samples
+  - command: exact frozen execution procedure review
+    result: PASS
+    evidence: ISSUE_365_EXACT_FROZEN_EXECUTION_RUNBOOK.md and normative VALIDATOR_PACKET_ADDENDUM.md
   - command: prior exact-head repository workflow families
     result: PASS
-    evidence: head 8d6365d95f53e88998bcb8e57b57252ab0493592 and six successful workflow runs
-  - command: exact frozen clean isolated controlled one-row and C1 C2 request-order package
+    evidence: head 5fb18b370ffb8c53ac49b89ed23e894da6d4b949 and six successful workflow runs
+  - command: normative exact frozen 12-sample package
     result: NOT_RUN
-    evidence: immutable workflow has no ephemeral observer or controlled mutation input local egress blocks checkout and Codex GitHub integration is not connected
+    evidence: current environment has no mutable checkout or custom acceptance command execution path
 blockers:
-  - exact frozen custom observer with clean reset exactly-one-damaged-row and immediate-action versus pre-scroll request-order comparison remains technically unavailable in current tool environment
-next_action: execute only the remaining exact frozen A B and C validator package in a mutable checkout-capable worker and persist sanitized browser request server request session-lock and flash-state evidence without implementation or deployment
+  - normative exact frozen 12-sample runbook requires a mutable checkout-capable worker with the production-like acceptance dependencies
+next_action: execute ISSUE_365_EXACT_FROZEN_EXECUTION_RUNBOOK.md without committing its observers then persist the sanitized hash-complete result and restore an empty checkout
 ```
 
 ## Notes
