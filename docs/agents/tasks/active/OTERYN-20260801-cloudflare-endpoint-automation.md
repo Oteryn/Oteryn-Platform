@@ -21,14 +21,14 @@ Add a fail-closed, manually dispatched GitHub Actions workflow that can audit an
 
 ## Acceptance criteria
 
-- [ ] Workflow runs only from `main` and uses the protected `production-cloudflare` environment.
-- [ ] `audit` performs token, account, zone, tunnel, ingress and DNS checks without mutation.
-- [ ] `apply` requires an exact confirmation phrase and only upserts the two canonical Oteryn hostnames.
-- [ ] Existing unrelated tunnel ingress rules and the existing final catch-all rule are preserved.
-- [ ] Existing unrelated DNS records are preserved; conflicting records fail closed.
-- [ ] Secrets and token values are never printed, committed or uploaded as artifacts.
-- [ ] Workflow/script configuration receives focused deterministic validation before readiness.
-- [ ] No live Cloudflare mutation occurs as part of this pull request.
+- [x] Workflow runs only from `main` and uses the protected `production-cloudflare` environment.
+- [x] `audit` performs token, account, zone, tunnel, ingress and DNS checks without mutation.
+- [x] `apply` requires an exact confirmation phrase and only upserts the two canonical Oteryn hostnames.
+- [x] Existing unrelated tunnel ingress rules and the existing final catch-all rule are preserved.
+- [x] Existing unrelated DNS records are preserved; conflicting records fail closed.
+- [x] Secrets and token values are never printed, committed or uploaded as artifacts.
+- [x] Workflow/script configuration receives focused deterministic validation before readiness.
+- [x] No live Cloudflare mutation occurs as part of this pull request.
 
 ## Ownership
 
@@ -47,7 +47,7 @@ dependencies:
   - docs/contracts/PUBLIC_ENDPOINTS_CONTRACT.md
   - GitHub environment production-cloudflare
 blockers:
-  - none
+  - final-head GitHub checks pending
 cross_repository_tasks:
   - none
 ```
@@ -56,11 +56,11 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-01T11:35:00Z
-head: 2b0271d6704a70cd2ee43780e6f6ceb3c58d4789
+updated_at: 2026-08-01T11:49:00Z
+head: 4b926be7c2c02970301d90aecb08c3e96762455b
 branch: ops/cloudflare-oteryn-endpoints
-pr: none
-status: implementing
+pr: 401
+status: validating
 context_routes:
   - testing
   - security
@@ -72,29 +72,49 @@ owned_paths:
   - docs/agents/tasks/active/OTERYN-20260801-cloudflare-endpoint-automation.md
 proven:
   - Repository contract maps oteryn.molehill.cloud to http://127.0.0.1:8000 and login.oteryn.molehill.cloud to http://127.0.0.1:8080.
-  - Cloudflare API supports token verification, tunnel/configuration reads and writes, and DNS record reads and writes through the documented v4 endpoints.
+  - Cloudflare API supports token verification, remote tunnel configuration reads and writes, and DNS record reads and writes through documented v4 endpoints.
   - OWNER-CONFIRMED GitHub environment production-cloudflare contains CLOUDFLARE_API_TOKEN and the three required ID variables and permits main.
+  - PR 401 contains only the six declared workflow, script, test, operations-documentation and task-record paths.
+  - Deterministic local mock validation proves audit performs zero mutations, apply performs only one tunnel PUT plus bounded canonical DNS upserts, and a second apply is idempotent.
+  - The workflow has no arbitrary Cloudflare resource inputs and no live Cloudflare action can run from a pull-request event.
 derived:
-  - A fixed-hostname manual workflow can provide narrower authority than arbitrary Cloudflare API inputs.
+  - The merged workflow will expose a narrower and more reviewable mutation path than manually supplying arbitrary Cloudflare API requests.
 unknown:
-  - Whether the supplied token and identifiers authenticate successfully against the intended Cloudflare account, zone and tunnel.
-  - Whether the selected tunnel is remotely managed and what its current live ingress and DNS state are.
+  - Whether the supplied token and identifiers authenticate successfully against the intended live Cloudflare account, zone and tunnel.
+  - Whether the selected live tunnel is remotely managed and what its current ingress and DNS drift are.
 conflicts: []
 first_failure:
   marker: none
   evidence: none
-rejected_hypotheses: []
+rejected_hypotheses:
+  - A tunnel PUT must overwrite unrelated routes: the reconciler preserves top-level configuration, unrelated ingress order and the existing final catch-all, with deterministic regression coverage.
 changed_paths:
+  - .github/workflows/cloudflare-oteryn-endpoints.yml
   - docs/agents/tasks/active/OTERYN-20260801-cloudflare-endpoint-automation.md
+  - docs/operations/CLOUDFLARE_ENDPOINT_MANAGEMENT.md
+  - scripts/operations/cloudflare-oteryn-endpoints.sh
+  - tests/operations/cloudflare-oteryn-endpoints/mock_cloudflare.py
+  - tests/operations/cloudflare-oteryn-endpoints/run.sh
 validation:
-  - command: not-run
+  - command: bash tests/operations/cloudflare-oteryn-endpoints/run.sh
+    result: PASS
+    evidence: local deterministic unit and mock-API audit/apply/idempotency suite
+  - command: ruby -e 'require "yaml"; YAML.load_file(ARGV[0])' .github/workflows/cloudflare-oteryn-endpoints.yml
+    result: PASS
+    evidence: workflow YAML parsed successfully in the authored package
+  - command: GitHub Actions on PR 401 final head
     result: NOT_RUN
-    evidence: implementation not yet created
+    evidence: final task-checkpoint commit not yet evaluated
 blockers:
-  - none
-next_action: Open a draft pull request and implement the fixed-scope audit/apply workflow without executing it against Cloudflare.
+  - final-head GitHub checks pending
+next_action: Inspect every path-applicable GitHub check on PR 401 final head and fix the first root-cause failure, or mark the task ready if all pass.
 ```
 
 ## Notes
 
-The workflow must not accept arbitrary hostnames, service URLs, zone IDs, account IDs or tunnel IDs as dispatch inputs. Live `apply` execution remains a separate explicit owner action after merge and review.
+- Trust boundary: GitHub Actions receives one Cloudflare API token only inside the `production-cloudflare` environment and calls fixed Cloudflare v4 endpoints.
+- Authentication/authorization invariant: only the protected environment secret authenticates API calls; repository dispatch inputs cannot select arbitrary Cloudflare resources.
+- Canary/schema/session compatibility: unchanged.
+- Rollback: no automatic delete exists; a partial bounded apply is audited and converged by rerun, while immediate value restoration remains a Cloudflare dashboard action.
+- Production-only configuration: the token and IDs stay outside Git; no secret value is read back or recorded in the task, PR, logs or artifacts.
+- Live `apply` execution remains a separate explicit owner action after merge and review.
