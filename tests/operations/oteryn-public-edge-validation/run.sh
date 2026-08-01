@@ -8,6 +8,8 @@ trap 'rm -rf "$TMP"' EXIT
 VALIDATOR="$ROOT/scripts/operations/oteryn-public-edge-validation.py"
 SUMMARIZER="$ROOT/scripts/operations/oteryn-public-edge-result.py"
 FIXTURE="$ROOT/tests/operations/oteryn-public-edge-validation/pass-fixture.json"
+WORKFLOW="$ROOT/.github/workflows/oteryn-public-edge-validation.yml"
+MARKER="$ROOT/ops/triggers/oteryn-public-edge-validation.md"
 
 python3 -m py_compile "$VALIDATOR" "$SUMMARIZER"
 
@@ -91,5 +93,45 @@ for path in "$VALIDATOR" "$SUMMARIZER"; do
     exit 1
   fi
 done
+
+python3 - "$WORKFLOW" "$MARKER" <<'PY'
+from pathlib import Path
+import sys
+workflow=Path(sys.argv[1]).read_text(encoding="utf-8")
+marker=Path(sys.argv[2]).read_text(encoding="utf-8")
+required=[
+    "pull_request:",
+    "push:",
+    "branches:\n      - main",
+    "ops/triggers/oteryn-public-edge-validation.md",
+    "if: github.event_name == 'push'",
+    "environment: production-cloudflare",
+    "CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_EDGE_AUDIT_TOKEN }}",
+    "CLOUDFLARE_ACCESS_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}",
+    "ref: ${{ github.sha }}",
+    "marker=\"$(cat ops/triggers/oteryn-public-edge-validation.md)\"",
+    "mode: audit",
+    "python3 scripts/operations/cloudflare-oteryn-edge-audit.py",
+    "python3 scripts/operations/oteryn-public-edge-validation.py",
+    "python3 scripts/operations/oteryn-public-edge-result.py",
+    "issues: write",
+    "ISSUE_NUMBER: '91'",
+    "Only bounded status fields are published.",
+    "Propagate collector execution failure",
+]
+for item in required:
+    if item not in workflow:
+        raise SystemExit(f"missing workflow invariant: {item}")
+if marker != "# Oteryn public edge validation trigger\n\nmode: inert\n":
+    raise SystemExit("committed public edge marker is not inert")
+for forbidden in (
+    "cat cloudflare-edge-audit/evidence.json",
+    "cat public-edge-validation/evidence.json",
+    "body=\"$(cat cloudflare-edge-audit/evidence.json)\"",
+    "body=\"$(cat public-edge-validation/evidence.json)\"",
+):
+    if forbidden in workflow:
+        raise SystemExit(f"raw evidence could reach issue comment: {forbidden}")
+PY
 
 echo "Oteryn bounded public edge validation tests passed."
