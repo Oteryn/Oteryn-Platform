@@ -8,13 +8,13 @@ required_reads:
   - docs/operations/CLOUDFLARE_ENDPOINT_MANAGEMENT.md
   - docs/operations/CLOUDFLARE_EDGE_AUDIT.md
 search_first:
-  - PR #401 Cloudflare endpoint automation
-  - PR #402 account token verification fix
-  - Cloudflare audit run 30699270139
-  - Cloudflare apply run 30700054602
-  - public revalidation run 30701140509
+  - merged PR #406
+  - marker PR #408
+  - Cloudflare edge audit run 30702383389 and artifact 8819238641
+  - overlapping Cloudflare zone-edge PRs
 optional_reads:
   - docs/agents/tasks/active/OTERYN-20260801-public-domain-repair.md
+  - Issue #91
 ---
 
 # OTERYN-20260801-cloudflare-edge-audit
@@ -26,14 +26,15 @@ Execute a protected read-only audit of the remaining Cloudflare edge controls af
 ## Acceptance criteria
 
 - [x] Audit implementation uses GET requests only.
-- [x] Exact certificate coverage for `login.oteryn.molehill.cloud` is evaluated.
-- [x] Redirect, Rulesets/WAF, Bot, Access, selected TLS settings and HSTS state are inspected when permissions allow.
+- [x] Certificate coverage, zone settings, Rulesets, Bot and Access are queried when permissions allow.
 - [x] Missing API permissions are classified without leaking credentials.
 - [x] Pull-request validation uses deterministic mock API coverage.
 - [x] Live audit code is checked out from trusted `main` under `pull_request_target`.
 - [x] Trigger PR is restricted to one inert marker file.
-- [ ] Implementation PR exact head passes all applicable workflows and is merged.
-- [ ] Trigger PR executes the live audit and sanitized evidence is reviewed.
+- [x] Implementation PR exact head passed all applicable workflows and merged.
+- [x] Trigger PR executed the live audit and sanitized evidence was reviewed.
+- [ ] The protected token has sufficient read permissions to reveal the remaining configuration.
+- [ ] A permission-complete marker audit identifies the exact remediation boundary.
 
 ## Ownership
 
@@ -52,75 +53,90 @@ modules:
 dependencies:
   - GitHub environment production-cloudflare
   - merged Cloudflare endpoint automation
-blockers: []
+blockers:
+  - protected Cloudflare token lacks required remaining-edge read permissions
+cross_repository_tasks:
+  - none
 ```
 
 ## Context checkpoint
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-01T13:38:00Z
-status: implementing
-phase: read_only_edge_audit
-branch: ops/OTERYN-20260801-cloudflare-edge-audit-v2
-head: 430cbc20f95c6fa72fdfdb7f315409a423455abd
-pr: 406
+updated_at: 2026-08-01T13:58:00Z
+session_id: chatgpt-20260801-cloudflare-edge-audit-002
+session_role: coordinator
+policy_version: 2
+phase: permission_blocked
+execution_mode: chat-github-connector
+execution_reason: live GitHub and sanitized workflow evidence established the exact external authorization blocker
+context_pressure: low
+context_growth: stable
+decomposition_decision: phased
+branch: docs/OTERYN-20260801-cloudflare-edge-audit-live-result
+head: 5927ebcb7f268fccb511af54e77ba099f6804dc1
+pr: none
+status: blocked
 context_routes:
   - agent-governance
   - security
   - testing
 owned_paths:
-  - .github/workflows/cloudflare-oteryn-edge-audit.yml
-  - scripts/operations/cloudflare-oteryn-edge-audit.py
-  - tests/operations/cloudflare-oteryn-edge-audit/mock_server.py
-  - tests/operations/cloudflare-oteryn-edge-audit/run.sh
-  - docs/operations/CLOUDFLARE_EDGE_AUDIT.md
-  - docs/agents/reports/OTERYN-20260801-cloudflare-edge-audit.md
   - docs/agents/tasks/active/OTERYN-20260801-cloudflare-edge-audit.md
-  - ops/triggers/cloudflare-edge-audit.md
-repository_mutation_authorization: PROVEN
-external_read_authorization: PROVEN
-external_mutation_authorization: NOT_USED
+  - docs/agents/reports/OTERYN-20260801-cloudflare-edge-audit.md
+  - docs/operations/CLOUDFLARE_EDGE_AUDIT.md
 proven:
-  - Live Cloudflare audit 30699270139 and apply 30700054602 converged Tunnel/DNS.
-  - Public revalidation 30701140509 proves Gateway TLS, WWW challenge, redirects and HSTS remain unresolved.
-  - Existing endpoint automation cannot inspect certificates, Rulesets/WAF, Bot, Access, redirects or HSTS.
-  - Local deterministic mock validation of the new audit passes.
-  - Cloudflare Oteryn Edge Audit run 30701951772 passed on exact head f7cd61f834885113841b8804062ccb5d4477aff8.
+  - PR #406 exact head 4ed1a616489b6396757947417e887b92947cdcb6 passed all applicable workflow families.
+  - PR #406 merged as 5ea883c26dead9d58d363df1fb7909e3c399e206.
+  - Marker-only PR #408 triggered trusted-main live audit run 30702383389 and was closed without merge after evidence review.
+  - Live audit job 91375538793 used trusted implementation 5ea883c26dead9d58d363df1fb7909e3c399e206.
+  - Sanitized artifact 8819238641 has digest sha256:fce53d0651b496e42e56654bfdcad491afe2e01e80fea79e7e5b8630e38215ae.
+  - The account-owned token verified as active.
+  - Every queried remaining-edge family returned permission_denied: certificate packs, zone Rulesets, Bot Management, Access applications, Always Use HTTPS, minimum TLS, security level, browser check and HSTS/security header.
+  - The audit performed GET requests only and no Cloudflare mutation occurred.
+  - Duplicate PR #410 was closed without merge after overlap with merged PR #406 was identified.
 derived:
-  - A trusted-main read-only audit is the smallest safe next step before expanding Cloudflare mutation scope.
-  - The trigger branch cannot modify code that receives the protected environment token.
+  - The trusted audit mechanism is complete; the current blocker is the token permission scope, not repository implementation.
+  - No safe edge repair can be designed from the permission-denied artifact because the relevant current values remain unknown.
 unknown:
-  - Whether the production-cloudflare token currently has read access to the remaining API families.
-  - Whether exact-host certificate capability is available for the zone.
-  - Which Cloudflare control produces the current public 403 challenge.
-  - Current redirect, Access and HSTS rule ownership.
-conflicts: []
+  - Active certificate coverage for login.oteryn.molehill.cloud.
+  - Exact WAF, Rulesets, Bot or Access control producing the WWW challenge.
+  - Current redirect and HSTS ownership and values.
+  - Whether the zone plan supports the eventual certificate approach required for the deeper Gateway hostname.
+conflicts:
+  - PR #409 overlaps the already merged audit domain and must not be treated as authoritative until reconciled with PR #406 and live run 30702383389.
 first_failure:
-  marker: active-task-checkpoint-schema-incomplete
-  evidence: Agent Governance run 30701951794 job 91374392000 reported missing required checkpoint fields and unsupported status implementation.
+  marker: cloudflare-remaining-edge-read-permission-denied
+  evidence: live audit run 30702383389 job 91375538793 and artifact 8819238641
 rejected_hypotheses:
-  - The audit implementation caused the governance failure; its own exact-head workflow passed before governance validation.
-  - Live Cloudflare access occurred on the implementation PR; the live-audit job was correctly skipped.
+  - The token is invalid: account-owned token verification passed.
+  - The audit executed untrusted trigger-branch code: workflow checked out trusted main base SHA and marker-only boundary passed.
+  - The audit performed mutation: implementation is GET-only and artifact records mutation none.
 changed_paths:
-  - .github/workflows/cloudflare-oteryn-edge-audit.yml
-  - scripts/operations/cloudflare-oteryn-edge-audit.py
-  - tests/operations/cloudflare-oteryn-edge-audit/mock_server.py
-  - tests/operations/cloudflare-oteryn-edge-audit/run.sh
-  - docs/operations/CLOUDFLARE_EDGE_AUDIT.md
   - docs/agents/reports/OTERYN-20260801-cloudflare-edge-audit.md
   - docs/agents/tasks/active/OTERYN-20260801-cloudflare-edge-audit.md
-  - ops/triggers/cloudflare-edge-audit.md
+  - docs/operations/CLOUDFLARE_EDGE_AUDIT.md
 validation:
-  - command: bash tests/operations/cloudflare-oteryn-edge-audit/run.sh
+  - command: PR #406 exact-head workflow suite
     result: PASS
-    evidence: local deterministic mock validation before repository submission
-  - command: Cloudflare Oteryn Edge Audit run 30701951772
+    evidence: CI 4087, Governance 3871, Phase 7 3116, Edge 1537, DB 3043, Concurrency 2614 and Cloudflare Edge Audit 8
+  - command: Cloudflare Oteryn Edge Audit run 30702383389 job 91375538793
+    result: BLOCKED
+    evidence: trusted boundary passed but all remaining-edge API families returned permission_denied
+  - command: duplicate ownership reconciliation
     result: PASS
-    evidence: exact-head mock API, GET-only and sanitized-output validation
-  - command: Agent Governance run 30701951794
-    result: FAIL
-    evidence: checkpoint schema failure only; corrected in subsequent heads
-blockers: []
-next_action: Re-run exact-head validation, merge the protected audit implementation, trigger one read-only live audit from trusted main, then design only the smallest evidence-supported repair.
+    evidence: PR #410 closed without merge; PR #406 remains authoritative
+validation_level: focused
+heavy_validation_runs: 0
+blockers:
+  - update or replace production-cloudflare CLOUDFLARE_API_TOKEN with least-privilege read permissions for SSL/certificates, zone settings, Bot Management, Access applications and applicable Rulesets families
+next_action: Update the protected Cloudflare token with the documented least-privilege read capabilities, then open one marker-only trigger PR and review the sanitized audit before any apply authorization.
 ```
+
+## Report
+
+`docs/agents/reports/OTERYN-20260801-cloudflare-edge-audit.md`
+
+## Notes
+
+Do not add write permissions merely to unblock this audit. Do not design certificate, WAF, Bot, Access, redirect or HSTS mutation until a permission-complete read-only artifact proves the exact current state.
