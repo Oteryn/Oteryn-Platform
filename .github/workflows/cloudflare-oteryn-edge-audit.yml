@@ -10,6 +10,9 @@ on:
       - scripts/operations/cloudflare-edge-apply-preflight-audit.py
       - scripts/operations/cloudflare-token-capability-audit.py
       - tests/operations/cloudflare-oteryn-edge-audit/**
+      - docs/contracts/PUBLIC_ENDPOINTS_CONTRACT.md
+      - deploy/synology/PUBLIC_ENDPOINTS.md
+      - docs/architecture/adr/0020-use-single-level-gateway-public-hostname.md
       - docs/operations/CLOUDFLARE_EDGE_AUDIT.md
       - docs/agents/tasks/active/OTERYN-20260801-cloudflare-edge-audit.md
   pull_request_target:
