@@ -25,11 +25,13 @@ export CLOUDFLARE_ACCOUNT_ID="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 export CLOUDFLARE_ZONE_ID="bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
 export CLOUDFLARE_EDGE_AUDIT_OUT="$tmp/out"
 python3 "$root/scripts/operations/cloudflare-oteryn-edge-audit.py"
+python3 "$root/scripts/operations/cloudflare-edge-apply-preflight-audit.py"
 python3 "$root/scripts/operations/cloudflare-token-capability-audit.py"
-python3 - "$tmp/out/evidence.json" "$tmp/out/token-capability.json" <<'PY'
+python3 - "$tmp/out/evidence.json" "$tmp/out/apply-preflight.json" "$tmp/out/token-capability.json" <<'PY'
 import json, sys
 edge=json.load(open(sys.argv[1]))
-token=json.load(open(sys.argv[2]))
+preflight=json.load(open(sys.argv[2]))
+token=json.load(open(sys.argv[3]))
 assert edge["mutation"] == "none"
 assert edge["token"]["access_token_separate"] is True
 assert edge["certificate_packs"]["active_exact_login_coverage"] is True
@@ -47,13 +49,28 @@ assert len(waf["oteryn_candidate_rules"]) == 1
 assert waf["oteryn_candidate_rules"][0]["ref"] == "broad-bot-challenge"
 assert edge["bot_management"]["settings"]["fight_mode"] is True
 assert edge["access_applications"]["oteryn_applications"][0]["domain"] == "oteryn.molehill.cloud"
+assert preflight["mutation"] == "none"
+assert preflight["certificate_pack_quota"]["state"] == "readable"
+assert preflight["certificate_pack_quota"]["safe_result"]["advanced"]["allocated"] == 1
+assert preflight["blocking_rule"]["rule_found"] is True
+assert preflight["blocking_rule"]["action"] == "managed_challenge"
+assert preflight["blocking_rule"]["expression_fingerprint_matches"] is False
+signals=preflight["blocking_rule"]["expression_signals"]
+assert "ip.src.country" in signals["fields"]
+assert "cf.client.bot" in signals["fields"]
+assert signals["contains_country_field"] is True
+assert signals["contains_bot_field"] is True
+assert "expression" not in preflight["blocking_rule"]
 assert token["mutation"] == "none"
 assert token["self_details"]["state"] == "readable"
 assert token["self_details"]["has_account_api_tokens_read"] is True
 assert token["self_details"]["has_account_api_tokens_write"] is False
 assert token["permission_group_catalog"]["state"] == "readable"
 PY
-python3 - "$root/scripts/operations/cloudflare-oteryn-edge-audit.py" "$root/scripts/operations/cloudflare-token-capability-audit.py" <<'PY'
+python3 - \
+  "$root/scripts/operations/cloudflare-oteryn-edge-audit.py" \
+  "$root/scripts/operations/cloudflare-edge-apply-preflight-audit.py" \
+  "$root/scripts/operations/cloudflare-token-capability-audit.py" <<'PY'
 import pathlib, sys
 for path in sys.argv[1:]:
     source=pathlib.Path(path).read_text()
@@ -63,6 +80,7 @@ for path in sys.argv[1:]:
 PY
 python3 -m py_compile \
   "$root/scripts/operations/cloudflare-oteryn-edge-audit.py" \
+  "$root/scripts/operations/cloudflare-edge-apply-preflight-audit.py" \
   "$root/scripts/operations/cloudflare-token-capability-audit.py" \
   "$root/tests/operations/cloudflare-oteryn-edge-audit/mock_server.py"
-echo "Cloudflare edge and token capability audit tests passed."
+echo "Cloudflare edge, apply-preflight, and token capability audit tests passed."

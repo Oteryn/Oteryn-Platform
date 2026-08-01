@@ -7,6 +7,7 @@ on:
     paths:
       - .github/workflows/cloudflare-oteryn-edge-audit.yml
       - scripts/operations/cloudflare-oteryn-edge-audit.py
+      - scripts/operations/cloudflare-edge-apply-preflight-audit.py
       - scripts/operations/cloudflare-token-capability-audit.py
       - tests/operations/cloudflare-oteryn-edge-audit/**
       - docs/operations/CLOUDFLARE_EDGE_AUDIT.md
@@ -73,6 +74,11 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_EDGE_AUDIT_TOKEN }}
           CLOUDFLARE_ACCESS_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
         run: python3 scripts/operations/cloudflare-oteryn-edge-audit.py
+
+      - name: Audit fixed-scope apply prerequisites
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_EDGE_AUDIT_TOKEN }}
+        run: python3 scripts/operations/cloudflare-edge-apply-preflight-audit.py
 
       - name: Audit account-token self-management capability
         env:
