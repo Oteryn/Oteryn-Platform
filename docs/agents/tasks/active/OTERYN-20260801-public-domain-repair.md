@@ -10,8 +10,8 @@ required_reads:
   - docs/operations/PRODUCTION_READINESS_CHECKLIST.md
 search_first:
   - PR #387 public-domain validation report and findings
-  - open tasks and PRs overlapping Synology deployment and public endpoint paths
-  - canonical APP_URL requestless URL generation and deployment health checks
+  - PR #388 merged repair and push-triggered deployment evidence
+  - Character Bazaar Staging Control exact failure logs
 optional_reads:
   - PR #383
   - PR #385
@@ -28,11 +28,12 @@ Repair the repository-owned public-domain defects proven by PR #387, deploy the 
 ## Acceptance criteria
 
 - [x] Requestless Platform URLs use `https://oteryn.molehill.cloud` while origins remain loopback-only.
-- [x] Public staging rejects an unexpected `APP_URL`.
+- [x] Public staging rejects an unexpected full deployment `APP_URL`.
+- [x] Partial Marketplace state loads without requiring deployment-only keys.
 - [x] Marketplace Platform and scheduler use the canonical HTTPS origin and Secure cookies.
 - [x] Health checks cover Gateway identity, malformed login, private cache controls, canonical URLs and negative cross-routing.
 - [x] Cloudflare/DNS/Synology changes and rollback are documented without secrets.
-- [x] The implementation exact head passes all required workflow families.
+- [ ] PR #392 exact head passes all required workflow families.
 - [ ] The merged image is deployed by Character Bazaar Staging Control with sanitized `STAGING_PROVEN` evidence.
 - [x] `PRODUCTION_PROVEN` remains false until Issue #91 is completed.
 
@@ -57,10 +58,11 @@ modules:
   - synology-staging
 dependencies:
   - PR #387 source validation package
+  - merged PR #388
   - Character Bazaar Staging Control
   - Issue #91 production go-live gate
 blockers:
-  - none for repository merge and bounded staging deployment
+  - none for repository validation and bounded staging retry
 cross_repository_tasks:
   - none
 ```
@@ -69,10 +71,10 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-01T09:27:00Z
-session_id: chatgpt-20260801-public-domain-repair-002
+updated_at: 2026-08-01T09:39:00Z
+session_id: chatgpt-20260801-public-domain-repair-003
 policy_version: 2
-phase: implementation_and_staging_verification
+phase: staging_failure_repair
 execution_mode: chat-github-connector
 repository_mutation_authorization: PROVEN
 external_mutation_scope_authorization: PROVEN
@@ -80,10 +82,10 @@ external_operator_access: UNKNOWN
 staging_deployment_authorization: PROVEN
 context_pressure: medium
 decomposition_decision: continue
-branch: fix/OTERYN-20260801-public-domain-repair
-head: d9eeb035335091fd7dbfbba7b7d5fc070aea5027
-pr: 388
-status: ready
+branch: fix/OTERYN-20260801-marketplace-state-loader
+head: cb1cccec5359dc6ae64a0c741693d76a01026530
+pr: 392
+status: validating
 context_routes:
   - agent-governance
   - security
@@ -91,67 +93,61 @@ context_routes:
   - api
   - testing
 owned_paths:
-  - .github/workflows/deploy-synology-staging.yml
-  - deploy/synology/.env.example
-  - deploy/synology/README.md
-  - deploy/synology/compose.marketplace.yml
   - deploy/synology/scripts/lib.sh
-  - deploy/synology/scripts/health-check.sh
   - tests/Feature/PublicCanonicalUrlTest.php
   - docs/agents/tasks/active/OTERYN-20260801-public-domain-repair.md
   - docs/agents/reports/OTERYN-20260801-public-domain-repair.md
 proven:
-  - Task-start main was 7dac56d3f3f4606be958c875f278edbe410e6b54.
-  - PR #387 source head c8ca2fc995fbbc4a0f3c7268872d3843db950af8 proved gateway-public-tls-handshake-failure as the first public failure.
+  - PR #388 merged as 82abef518f91d72d392db4420bb335773087c3e1 after all nine exact-head workflow families passed.
+  - Build Synology Staging Images run 30693873144 number 1576 completed successfully and published exact Platform and Gateway images.
+  - Character Bazaar Staging Control run 30693873142 number 5 failed before Docker deployment while rendering the ephemeral environment.
+  - The runner loaded partial durable file marketplace.env through load_oteryn_env_file before loading the complete deployment .env.
+  - marketplace.env intentionally contains only Marketplace state and no APP_URL.
+  - The previous loader applied Character Bazaar public-origin validation to every loaded file and therefore rejected the partial state file.
+  - No Docker deployment step executed in failed run 30693873142; runtime state was not mutated by that attempt.
+  - PR #392 scopes canonical migration to a file named exactly .env and adds an executable regression test for partial state plus full environment behavior.
   - Canonical routes remain WWW to loopback 8000 and Gateway to loopback 8080.
   - PR #335-owned compose.yml and boot-repair.sh remain untouched.
-  - The repair enforces canonical requestless URLs, Secure cookies and bounded Gateway/cross-routing checks.
-  - Character Bazaar Staging Control is the established Marketplace-aware live staging path.
-  - Marketplace Compose pins Platform and scheduler APP_URL to https://oteryn.molehill.cloud.
-  - The shared loader accepts only the canonical origin or exact historical loopback value for Character Bazaar Staging Control, rejects other overrides, then exports canonical HTTPS and Secure cookies.
-  - A squash merge changing compose.marketplace.yml with [character-bazaar-staging] triggers exact-image publication and guarded staging deployment.
-  - Exact implementation head d9eeb035335091fd7dbfbba7b7d5fc070aea5027 passed all nine workflow families.
-  - CI 3995, Agent Governance 3795, Phase 7 3033, Build Synology Staging Images 1574, Edge Security 1454, Synology Preflight 706, DB Outage 2960, Bazaar Validation 40 and Auth Concurrency 2531 passed.
-  - The owner explicitly authorized bounded staging deployment and the recorded reversible edge plan on 2026-08-01.
   - No Cloudflare, DNS, production, Canary or PR #387 evidence mutation occurred.
 derived:
-  - The previous candidate repaired the standalone workflow but not the established Marketplace-aware staging path.
-  - The Marketplace policy closes that gap without public origin exposure or broader proxy trust.
+  - The failure was a repository-owned loader scope defect, not a secret, runner, image-publication or Docker runtime failure.
+  - Restricting the migration to the complete .env preserves fail-closed validation while allowing the intentionally partial durable state file.
 unknown:
+  - Exact-head workflow results for PR #392.
+  - Result of the next trusted-main staging retry.
   - Effective Cloudflare certificate, WAF, Access, bot, redirect and HSTS configuration.
   - Exact supported native-client minimum TLS version.
-  - Whether the public edge changed independently after PR #387.
 conflicts:
-  - Historical Marketplace staging rendered loopback APP_URL; the final Compose layer and guarded loader now resolve it to the canonical public origin.
+  - The shared loader previously treated a partial state file as complete deployment configuration; PR #392 separates those roles by exact filename.
 first_failure:
-  marker: gateway-public-tls-handshake-failure
-  evidence: PR #387 runs 30690877286 and 30690957415 failed TLS negotiation before HTTP
+  marker: marketplace-partial-state-rejected
+  evidence: run 30693873142 step Render ephemeral staging control environment rejected missing APP_URL before Docker deployment
 rejected_hypotheses:
-  - PR #335 does not own the selected repair paths.
-  - Broad proxy trust is not required.
-  - The standalone Deploy Synology Staging workflow alone is insufficient while Marketplace staging is enabled.
+  - Exact images were not missing; run 30693873142 resolved both image tags and image build run 30693873144 passed.
+  - The staging runner and GHCR credentials were not the cause; tool validation and registry login passed.
+  - No rollback is required because Execute guarded staging action was skipped.
 changed_paths:
-  - .github/workflows/deploy-synology-staging.yml
-  - deploy/synology/.env.example
-  - deploy/synology/README.md
-  - deploy/synology/compose.marketplace.yml
   - deploy/synology/scripts/lib.sh
-  - deploy/synology/scripts/health-check.sh
   - tests/Feature/PublicCanonicalUrlTest.php
   - docs/agents/tasks/active/OTERYN-20260801-public-domain-repair.md
-  - docs/agents/reports/OTERYN-20260801-public-domain-repair.md
 validation:
-  - command: required workflow suite on d9eeb035335091fd7dbfbba7b7d5fc070aea5027
+  - command: exact PR #388 workflow suite before merge
     result: PASS
-    evidence: CI 3995, Governance 3795, Phase 7 3033, Images 1574, Edge 1454, Preflight 706, DB 2960, Bazaar 40 and Concurrency 2531
-  - command: trusted-main image publication and Character Bazaar Staging Control deploy-enable
+    evidence: CI 3997, Governance 3797, Phase 7 3034, Images 1575, Edge 1455, Preflight 707, DB 2961, Bazaar 41 and Concurrency 2532
+  - command: trusted-main image publication for 82abef518f91d72d392db4420bb335773087c3e1
+    result: PASS
+    evidence: run 30693873144 number 1576
+  - command: Character Bazaar Staging Control deploy-enable for 82abef518f91d72d392db4420bb335773087c3e1
+    result: FAIL
+    evidence: run 30693873142 number 5 failed before Docker due partial state validation
+  - command: required workflow suite on PR #392 exact head
     result: NOT_RUN
-    evidence: requires squash merge with the guarded marker
-deployment_evidence: Historical run 30669701842 is STAGING_PROVEN only; the current candidate is not deployed yet.
-rollback: Repository rollback is PR revert; runtime deployment snapshots Platform, Gateway and Canary image references; external rollback restores recorded edge state.
+    evidence: GitHub Actions triggered by the repair commits
+deployment_evidence: Current exact repair is not deployed; failed run 30693873142 performed no Docker mutation.
+rollback: No runtime rollback is needed for run 30693873142; repository rollback remains PR revert and later successful deployments retain image snapshots.
 blockers:
-  - none for merge and staging deployment
-next_action: Pass checks on this documentation-only head, then squash merge with [character-bazaar-staging] and verify trusted-main image and staging-control runs.
+  - none for exact-head validation
+next_action: Pass all required workflows on PR #392, squash merge with [character-bazaar-staging], then verify exact image publication and sanitized STAGING_PROVEN evidence.
 ```
 
 ## Report
