@@ -5,8 +5,9 @@ readonly CLOUDFLARE_API_BASE_URL="${CLOUDFLARE_API_BASE_URL:-https://api.cloudfl
 readonly CURL_BIN="${CLOUDFLARE_CURL_BIN:-curl}"
 readonly WWW_HOST="oteryn.molehill.cloud"
 readonly WWW_SERVICE="http://127.0.0.1:8000"
-readonly LOGIN_HOST="login.oteryn.molehill.cloud"
-readonly LOGIN_SERVICE="http://127.0.0.1:8080"
+readonly GATEWAY_HOST="gateway.molehill.cloud"
+readonly GATEWAY_SERVICE="http://127.0.0.1:8080"
+readonly LEGACY_GATEWAY_HOST="login.oteryn.molehill.cloud"
 readonly APPLY_CONFIRMATION="APPLY-OTERYN-CLOUDFLARE"
 
 TEMP_FILES=()
@@ -107,8 +108,7 @@ validate_tunnel_config() {
     local config_json="$1"
     local catchall_count host host_count host_path_count
 
-    if ! jq -e 'type == "object" and (.ingress | type == "array") and (.ingress | length > 0)' \
-        <<<"$config_json" >/dev/null; then
+    if ! jq -e 'type == "object" and (.ingress | type == "array") and (.ingress | length > 0)' <<<"$config_json" >/dev/null; then
         fail "tunnel configuration must contain a non-empty ingress array"
         return 1
     fi
@@ -119,13 +119,12 @@ validate_tunnel_config() {
         return 1
     fi
 
-    if ! jq -e '.ingress[-1] | ((.hostname // "") == "") and ((.path // "") == "")' \
-        <<<"$config_json" >/dev/null; then
+    if ! jq -e '.ingress[-1] | ((.hostname // "") == "") and ((.path // "") == "")' <<<"$config_json" >/dev/null; then
         fail "the pathless catch-all rule must be the final ingress rule"
         return 1
     fi
 
-    for host in "$WWW_HOST" "$LOGIN_HOST"; do
+    for host in "$WWW_HOST" "$GATEWAY_HOST" "$LEGACY_GATEWAY_HOST"; do
         host_count="$(jq --arg host "$host" '[.ingress[] | select((.hostname // "") == $host)] | length' <<<"$config_json")"
         if ((host_count > 1)); then
             fail "duplicate tunnel ingress rules exist for ${host}"
@@ -134,7 +133,7 @@ validate_tunnel_config() {
 
         host_path_count="$(jq --arg host "$host" '[.ingress[] | select((.hostname // "") == $host and ((.path // "") != ""))] | length' <<<"$config_json")"
         if [[ "$host_path_count" != "0" ]]; then
-            fail "path-scoped ingress rule exists for canonical hostname ${host}"
+            fail "path-scoped ingress rule exists for managed hostname ${host}"
             return 1
         fi
     done
@@ -144,38 +143,45 @@ build_rule() {
     local config_json="$1"
     local host="$2"
     local service="$3"
+    local fallback_host="${4:-}"
     local existing
 
     existing="$(jq -c --arg host "$host" '[.ingress[] | select((.hostname // "") == $host)][0] // {}' <<<"$config_json")"
+    if [[ "$existing" == "{}" && -n "$fallback_host" ]]; then
+        existing="$(jq -c --arg host "$fallback_host" '[.ingress[] | select((.hostname // "") == $host)][0] // {}' <<<"$config_json")"
+    fi
+
     if [[ "$existing" == "{}" ]]; then
         jq -cn --arg host "$host" --arg service "$service" '{hostname: $host, service: $service}'
     else
-        jq -c --arg host "$host" --arg service "$service" '.hostname = $host | .service = $service' <<<"$existing"
+        jq -c --arg host "$host" --arg service "$service" 'del(.path) | .hostname = $host | .service = $service' <<<"$existing"
     fi
 }
 
 build_desired_config() {
     local config_json="$1"
-    local www_rule login_rule
+    local www_rule gateway_rule
 
     validate_tunnel_config "$config_json" || return 1
     www_rule="$(build_rule "$config_json" "$WWW_HOST" "$WWW_SERVICE")"
-    login_rule="$(build_rule "$config_json" "$LOGIN_HOST" "$LOGIN_SERVICE")"
+    gateway_rule="$(build_rule "$config_json" "$GATEWAY_HOST" "$GATEWAY_SERVICE" "$LEGACY_GATEWAY_HOST")"
 
     jq -c \
         --arg www_host "$WWW_HOST" \
-        --arg login_host "$LOGIN_HOST" \
+        --arg gateway_host "$GATEWAY_HOST" \
+        --arg legacy_gateway_host "$LEGACY_GATEWAY_HOST" \
         --argjson www_rule "$www_rule" \
-        --argjson login_rule "$login_rule" '
+        --argjson gateway_rule "$gateway_rule" '
         . as $config
         | (.ingress
             | map(select(
                 ((.hostname // "") != $www_host)
-                and ((.hostname // "") != $login_host)
-            ))) as $without_oteryn
-        | ($without_oteryn[-1]) as $catchall
-        | ($without_oteryn[0:-1]) as $other_rules
-        | $config + {ingress: ([$www_rule, $login_rule] + $other_rules + [$catchall])}
+                and ((.hostname // "") != $gateway_host)
+                and ((.hostname // "") != $legacy_gateway_host)
+            ))) as $without_managed
+        | ($without_managed[-1]) as $catchall
+        | ($without_managed[0:-1]) as $other_rules
+        | $config + {ingress: ([$www_rule, $gateway_rule] + $other_rules + [$catchall])}
     ' <<<"$config_json"
 }
 
@@ -183,6 +189,11 @@ normalize_dns_name() {
     local value="$1"
     value="${value%.}"
     printf '%s' "${value,,}"
+}
+
+fetch_dns_records() {
+    local host="$1"
+    api_request GET "/zones/${CLOUDFLARE_ZONE_ID}/dns_records?name.exact=${host}&per_page=100"
 }
 
 dns_record_state() {
@@ -201,9 +212,8 @@ dns_record_state() {
         printf 'missing'
         return 0
     fi
-
     if [[ "$count" != "1" ]]; then
-        fail "multiple DNS records exist for canonical hostname ${host}"
+        fail "multiple DNS records exist for managed hostname ${host}"
         return 1
     fi
 
@@ -228,9 +238,44 @@ dns_record_state() {
     fi
 }
 
-fetch_dns_records() {
-    local host="$1"
-    api_request GET "/zones/${CLOUDFLARE_ZONE_ID}/dns_records?name.exact=${host}&per_page=100"
+legacy_dns_state() {
+    local records_response="$1"
+    local target="$2"
+    local count record_type record_name record_content
+
+    if ! jq -e '.result | type == "array"' <<<"$records_response" >/dev/null; then
+        fail "legacy DNS response has no result array"
+        return 1
+    fi
+    count="$(jq '.result | length' <<<"$records_response")"
+
+    if [[ "$count" == "0" ]]; then
+        printf 'missing'
+        return 0
+    fi
+    if [[ "$count" != "1" ]]; then
+        fail "multiple DNS records exist for retired hostname ${LEGACY_GATEWAY_HOST}"
+        return 1
+    fi
+
+    record_type="$(jq -r '.result[0].type // ""' <<<"$records_response")"
+    record_name="$(jq -r '.result[0].name // ""' <<<"$records_response")"
+    record_content="$(jq -r '.result[0].content // ""' <<<"$records_response")"
+
+    if [[ "$record_type" != "CNAME" ]]; then
+        fail "refusing to retire non-CNAME legacy DNS record for ${LEGACY_GATEWAY_HOST}"
+        return 1
+    fi
+    if [[ "$(normalize_dns_name "$record_name")" != "$(normalize_dns_name "$LEGACY_GATEWAY_HOST")" ]]; then
+        fail "Cloudflare returned a non-exact legacy DNS record"
+        return 1
+    fi
+    if [[ "$(normalize_dns_name "$record_content")" != "$(normalize_dns_name "$target")" ]]; then
+        fail "legacy DNS record points outside the managed Oteryn tunnel"
+        return 1
+    fi
+
+    printf 'safe-to-retire'
 }
 
 upsert_dns_record() {
@@ -240,10 +285,7 @@ upsert_dns_record() {
     local count record_id body
 
     count="$(jq '.result | length' <<<"$records_response")"
-    body="$(jq -cn \
-        --arg host "$host" \
-        --arg target "$target" \
-        '{type: "CNAME", name: $host, content: $target, proxied: true}')"
+    body="$(jq -cn --arg host "$host" --arg target "$target" '{type: "CNAME", name: $host, content: $target, proxied: true}')"
 
     if [[ "$count" == "0" ]]; then
         api_request POST "/zones/${CLOUDFLARE_ZONE_ID}/dns_records" "$body" >/dev/null
@@ -256,10 +298,36 @@ upsert_dns_record() {
     api_request PATCH "/zones/${CLOUDFLARE_ZONE_ID}/dns_records/${record_id}" "$body" >/dev/null
 }
 
+retire_legacy_dns_record() {
+    local records_response="$1"
+    local target="$2"
+    local state record_id
+
+    state="$(legacy_dns_state "$records_response" "$target")"
+    if [[ "$state" == "missing" ]]; then
+        return 0
+    fi
+    [[ "$state" == "safe-to-retire" ]] || fail "legacy DNS record is not safe to retire"
+
+    record_id="$(jq -r '.result[0].id // ""' <<<"$records_response")"
+    [[ -n "$record_id" ]] || fail "legacy DNS record has no record ID"
+    api_request DELETE "/zones/${CLOUDFLARE_ZONE_ID}/dns_records/${record_id}" >/dev/null
+}
+
 validate_identifiers() {
     [[ "$CLOUDFLARE_ACCOUNT_ID" =~ ^[0-9a-fA-F]{32}$ ]] || fail "CLOUDFLARE_ACCOUNT_ID must be a 32-character hexadecimal identifier"
     [[ "$CLOUDFLARE_ZONE_ID" =~ ^[0-9a-fA-F]{32}$ ]] || fail "CLOUDFLARE_ZONE_ID must be a 32-character hexadecimal identifier"
     [[ "$CLOUDFLARE_TUNNEL_ID" =~ ^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$ ]] || fail "CLOUDFLARE_TUNNEL_ID must be a UUID"
+}
+
+record_mutation() {
+    local current="$1"
+    local item="$2"
+    if [[ "$current" == "none" ]]; then
+        printf '%s' "$item"
+    else
+        printf '%s+%s' "$current" "$item"
+    fi
 }
 
 main() {
@@ -267,7 +335,7 @@ main() {
     local token_response token_verify_path tunnel_response config_response current_config desired_config
     local tunnel_id account_tag config_src tunnel_state target
     local initial_config_hash current_config_hash tunnel_drift
-    local www_dns login_dns www_state login_state
+    local www_dns gateway_dns legacy_dns www_state gateway_state legacy_state
     local mutation="none"
 
     [[ "$mode" == "audit" || "$mode" == "apply" ]] || fail "usage: $0 audit|apply"
@@ -317,9 +385,11 @@ main() {
 
     target="${CLOUDFLARE_TUNNEL_ID}.cfargotunnel.com"
     www_dns="$(fetch_dns_records "$WWW_HOST")"
-    login_dns="$(fetch_dns_records "$LOGIN_HOST")"
+    gateway_dns="$(fetch_dns_records "$GATEWAY_HOST")"
+    legacy_dns="$(fetch_dns_records "$LEGACY_GATEWAY_HOST")"
     www_state="$(dns_record_state "$www_dns" "$WWW_HOST" "$target")"
-    login_state="$(dns_record_state "$login_dns" "$LOGIN_HOST" "$target")"
+    gateway_state="$(dns_record_state "$gateway_dns" "$GATEWAY_HOST" "$target")"
+    legacy_state="$(legacy_dns_state "$legacy_dns" "$target")"
 
     if [[ "$mode" == "apply" ]]; then
         if [[ "$tunnel_drift" == "drift" ]]; then
@@ -329,60 +399,75 @@ main() {
             current_config_hash="$(sha256_json <<<"$current_config")"
             [[ "$current_config_hash" == "$initial_config_hash" ]] || fail "tunnel configuration changed during planning; rerun audit before apply"
             desired_config="$(build_desired_config "$current_config")"
-            api_request PUT \
-                "/accounts/${CLOUDFLARE_ACCOUNT_ID}/cfd_tunnel/${CLOUDFLARE_TUNNEL_ID}/configurations" \
-                "$(jq -cn --argjson config "$desired_config" '{config: $config}')" >/dev/null
-            mutation="tunnel"
+            api_request PUT "/accounts/${CLOUDFLARE_ACCOUNT_ID}/cfd_tunnel/${CLOUDFLARE_TUNNEL_ID}/configurations" "$(jq -cn --argjson config "$desired_config" '{config: $config}')" >/dev/null
+            mutation="$(record_mutation "$mutation" tunnel)"
         fi
 
         www_dns="$(fetch_dns_records "$WWW_HOST")"
         www_state="$(dns_record_state "$www_dns" "$WWW_HOST" "$target")"
         if [[ "$www_state" != "current" ]]; then
             upsert_dns_record "$WWW_HOST" "$target" "$www_dns"
-            if [[ "$mutation" == "none" ]]; then
-                mutation="dns-www"
-            else
-                mutation="${mutation}+dns-www"
-            fi
+            mutation="$(record_mutation "$mutation" dns-www)"
         fi
 
-        login_dns="$(fetch_dns_records "$LOGIN_HOST")"
-        login_state="$(dns_record_state "$login_dns" "$LOGIN_HOST" "$target")"
-        if [[ "$login_state" != "current" ]]; then
-            upsert_dns_record "$LOGIN_HOST" "$target" "$login_dns"
-            if [[ "$mutation" == "none" ]]; then
-                mutation="dns-login"
-            else
-                mutation="${mutation}+dns-login"
-            fi
+        gateway_dns="$(fetch_dns_records "$GATEWAY_HOST")"
+        gateway_state="$(dns_record_state "$gateway_dns" "$GATEWAY_HOST" "$target")"
+        if [[ "$gateway_state" != "current" ]]; then
+            upsert_dns_record "$GATEWAY_HOST" "$target" "$gateway_dns"
+            mutation="$(record_mutation "$mutation" dns-gateway)"
         fi
 
         config_response="$(api_request GET "/accounts/${CLOUDFLARE_ACCOUNT_ID}/cfd_tunnel/${CLOUDFLARE_TUNNEL_ID}/configurations")"
         current_config="$(jq -c '.result.config // empty' <<<"$config_response")"
         desired_config="$(build_desired_config "$current_config")"
-        [[ "$(canonical_json <<<"$current_config")" == "$(canonical_json <<<"$desired_config")" ]] || fail "post-apply tunnel verification detected remaining drift"
+        [[ "$(canonical_json <<<"$current_config")" == "$(canonical_json <<<"$desired_config")" ]] || fail "post-write tunnel verification failed before legacy retirement"
 
         www_dns="$(fetch_dns_records "$WWW_HOST")"
-        login_dns="$(fetch_dns_records "$LOGIN_HOST")"
+        gateway_dns="$(fetch_dns_records "$GATEWAY_HOST")"
+        [[ "$(dns_record_state "$www_dns" "$WWW_HOST" "$target")" == "current" ]] || fail "post-write WWW DNS verification failed"
+        [[ "$(dns_record_state "$gateway_dns" "$GATEWAY_HOST" "$target")" == "current" ]] || fail "post-write Gateway DNS verification failed"
+
+        legacy_dns="$(fetch_dns_records "$LEGACY_GATEWAY_HOST")"
+        legacy_state="$(legacy_dns_state "$legacy_dns" "$target")"
+        if [[ "$legacy_state" == "safe-to-retire" ]]; then
+            retire_legacy_dns_record "$legacy_dns" "$target"
+            mutation="$(record_mutation "$mutation" dns-legacy-delete)"
+        fi
+
+        config_response="$(api_request GET "/accounts/${CLOUDFLARE_ACCOUNT_ID}/cfd_tunnel/${CLOUDFLARE_TUNNEL_ID}/configurations")"
+        current_config="$(jq -c '.result.config // empty' <<<"$config_response")"
+        desired_config="$(build_desired_config "$current_config")"
+        [[ "$(canonical_json <<<"$current_config")" == "$(canonical_json <<<"$desired_config")" ]] || fail "final tunnel verification failed"
+
+        www_dns="$(fetch_dns_records "$WWW_HOST")"
+        gateway_dns="$(fetch_dns_records "$GATEWAY_HOST")"
+        legacy_dns="$(fetch_dns_records "$LEGACY_GATEWAY_HOST")"
         www_state="$(dns_record_state "$www_dns" "$WWW_HOST" "$target")"
-        login_state="$(dns_record_state "$login_dns" "$LOGIN_HOST" "$target")"
-        [[ "$www_state" == "current" && "$login_state" == "current" ]] || fail "post-apply DNS verification detected remaining drift"
+        gateway_state="$(dns_record_state "$gateway_dns" "$GATEWAY_HOST" "$target")"
+        legacy_state="$(legacy_dns_state "$legacy_dns" "$target")"
+
+        [[ "$www_state" == "current" ]] || fail "final WWW DNS verification failed"
+        [[ "$gateway_state" == "current" ]] || fail "final Gateway DNS verification failed"
+        [[ "$legacy_state" == "missing" ]] || fail "legacy Gateway DNS record remains after apply"
         tunnel_drift="current"
     fi
 
-    append_summary '### Cloudflare Oteryn endpoints'
-    append_summary "- mode: \`${mode}\`"
-    append_summary '- token status: `active`'
-    append_summary "- tunnel configuration source: \`${config_src}\`"
-    append_summary "- tunnel runtime status: \`${tunnel_state}\`"
-    append_summary "- tunnel endpoint contract: \`${tunnel_drift}\`"
-    append_summary "- DNS ${WWW_HOST}: \`${www_state}\`"
-    append_summary "- DNS ${LOGIN_HOST}: \`${login_state}\`"
-    append_summary "- mutation: \`${mutation}\`"
-    append_summary '- secrets emitted: `false`'
+    printf 'mode=%s\n' "$mode"
+    printf 'tunnel_status=%s\n' "$tunnel_state"
+    printf 'tunnel_contract=%s\n' "$tunnel_drift"
+    printf 'www_dns=%s\n' "$www_state"
+    printf 'gateway_dns=%s\n' "$gateway_state"
+    printf 'legacy_gateway_dns=%s\n' "$legacy_state"
+    printf 'mutation=%s\n' "$mutation"
 
-    printf 'mode=%s tunnel=%s dns_www=%s dns_login=%s mutation=%s\n' \
-        "$mode" "$tunnel_drift" "$www_state" "$login_state" "$mutation"
+    append_summary '## Cloudflare Oteryn endpoints'
+    append_summary "- mode: \`${mode}\`"
+    append_summary "- tunnel status: \`${tunnel_state}\`"
+    append_summary "- tunnel contract: \`${tunnel_drift}\`"
+    append_summary "- WWW DNS: \`${www_state}\`"
+    append_summary "- Gateway DNS: \`${gateway_state}\`"
+    append_summary "- retired legacy Gateway DNS: \`${legacy_state}\`"
+    append_summary "- mutation: \`${mutation}\`"
 }
 
 if [[ "${CLOUDFLARE_LIBRARY_ONLY:-0}" != "1" ]]; then
