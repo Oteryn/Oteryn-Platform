@@ -61,6 +61,7 @@ jobs:
     environment: synology-staging
     timeout-minutes: 30
     env:
+      CANONICAL_PUBLIC_APP_URL: https://oteryn.molehill.cloud
       APP_KEY: ${{ secrets.OTERYN_STAGING_APP_KEY }}
       MARIADB_ROOT_PASSWORD: ${{ secrets.OTERYN_STAGING_MARIADB_ROOT_PASSWORD }}
       PLATFORM_DB_PASSWORD: ${{ secrets.OTERYN_STAGING_PLATFORM_DB_PASSWORD }}
@@ -162,13 +163,13 @@ jobs:
           fi
 
           state_dir="${OTERYN_STATE_DIR_INPUT:-/var/lib/oteryn-staging-state}"
-          app_url="${APP_URL_INPUT:-http://127.0.0.1:8000}"
+          app_url="${APP_URL_INPUT:-$CANONICAL_PUBLIC_APP_URL}"
           if [[ ! "$state_dir" =~ ^/[A-Za-z0-9._/-]+$ ]]; then
             echo "OTERYN_STAGING_STATE_DIR must be an absolute simple path." >&2
             exit 1
           fi
-          if [[ ! "$app_url" =~ ^https?://[A-Za-z0-9._:-]+$ ]]; then
-            echo "OTERYN_STAGING_APP_URL must be a simple HTTP(S) origin." >&2
+          if [[ "$app_url" != "$CANONICAL_PUBLIC_APP_URL" ]]; then
+            echo "OTERYN_STAGING_APP_URL must exactly equal $CANONICAL_PUBLIC_APP_URL for the public staging stack." >&2
             exit 1
           fi
 
@@ -249,7 +250,7 @@ jobs:
           set -euo pipefail
           umask 077
           state_dir="${OTERYN_STATE_DIR_INPUT:-/var/lib/oteryn-staging-state}"
-          app_url="${APP_URL_INPUT:-http://127.0.0.1:8000}"
+          app_url="${APP_URL_INPUT:-$CANONICAL_PUBLIC_APP_URL}"
           canary_image="${CANARY_IMAGE_INPUT:-rollback-placeholder}"
 
           cat > deploy/synology/.env <<EOF
@@ -277,7 +278,7 @@ jobs:
           APP_KEY=$APP_KEY
           APP_URL=$app_url
           LOG_LEVEL=info
-          SESSION_SECURE_COOKIE=false
+          SESSION_SECURE_COOKIE=true
           MARIADB_ROOT_PASSWORD=$MARIADB_ROOT_PASSWORD
           PLATFORM_DB_NAME=oteryn_platform
           PLATFORM_DB_USER=oteryn_platform
