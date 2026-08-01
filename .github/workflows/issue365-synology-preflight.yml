@@ -17,11 +17,11 @@ permissions:
 
 concurrency:
   group: issue365-synology-preflight-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   preflight:
-    runs-on: [self-hosted, Linux, X64]
+    runs-on: self-hosted
     timeout-minutes: 20
     steps:
       - name: Runner identity
