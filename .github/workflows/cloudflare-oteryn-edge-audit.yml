@@ -7,6 +7,7 @@ on:
     paths:
       - .github/workflows/cloudflare-oteryn-edge-audit.yml
       - scripts/operations/cloudflare-oteryn-edge-audit.py
+      - scripts/operations/cloudflare-token-capability-audit.py
       - tests/operations/cloudflare-oteryn-edge-audit/**
       - docs/operations/CLOUDFLARE_EDGE_AUDIT.md
       - docs/agents/tasks/active/OTERYN-20260801-cloudflare-edge-audit.md
@@ -70,6 +71,9 @@ jobs:
 
       - name: Audit Cloudflare edge configuration
         run: python3 scripts/operations/cloudflare-oteryn-edge-audit.py
+
+      - name: Audit account-token self-management capability
+        run: python3 scripts/operations/cloudflare-token-capability-audit.py
 
       - name: Upload sanitized edge audit
         uses: actions/upload-artifact@v4
