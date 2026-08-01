@@ -74,6 +74,10 @@ class PublicCanonicalUrlTest extends TestCase
             $deploymentLibrary,
         );
         $this->assertStringContainsString(
+            'basename -- "$env_file")" == ".env"',
+            $deploymentLibrary,
+        );
+        $this->assertStringContainsString(
             'APP_URL='.self::CANONICAL_ORIGIN,
             $deploymentLibrary,
         );
@@ -86,5 +90,69 @@ class PublicCanonicalUrlTest extends TestCase
             'app_url="${APP_URL_INPUT:-http://127.0.0.1:8000}"',
             $deploymentWorkflow,
         );
+    }
+
+    public function test_marketplace_state_load_is_partial_but_full_env_is_migrated(): void
+    {
+        $temporaryDirectory = sys_get_temp_dir().'/oteryn-public-origin-'.bin2hex(random_bytes(8));
+        $stateFile = $temporaryDirectory.'/marketplace.env';
+        $deploymentEnvironment = $temporaryDirectory.'/.env';
+        $library = base_path('deploy/synology/scripts/lib.sh');
+
+        mkdir($temporaryDirectory, 0700, true);
+        file_put_contents($stateFile, "MARKETPLACE_ENABLED=false\n");
+        file_put_contents(
+            $deploymentEnvironment,
+            "APP_URL=http://127.0.0.1:8000\nSESSION_SECURE_COOKIE=false\n",
+        );
+
+        $script = <<<'BASH'
+set -euo pipefail
+source "$1"
+load_oteryn_env_file "$2"
+[[ -z "${APP_URL:-}" ]]
+load_oteryn_env_file "$3"
+[[ "$APP_URL" == "https://oteryn.molehill.cloud" ]]
+[[ "$SESSION_SECURE_COOKIE" == "true" ]]
+BASH;
+
+        $stdout = '';
+        $stderr = '';
+
+        try {
+            $process = proc_open(
+                [
+                    'env',
+                    '-i',
+                    'PATH='.(getenv('PATH') ?: '/usr/bin:/bin'),
+                    'GITHUB_WORKFLOW=Character Bazaar Staging Control',
+                    'bash',
+                    '-c',
+                    $script,
+                    'bash',
+                    $library,
+                    $stateFile,
+                    $deploymentEnvironment,
+                ],
+                [
+                    1 => ['pipe', 'w'],
+                    2 => ['pipe', 'w'],
+                ],
+                $pipes,
+            );
+
+            $this->assertIsResource($process);
+            $stdout = stream_get_contents($pipes[1]);
+            $stderr = stream_get_contents($pipes[2]);
+            fclose($pipes[1]);
+            fclose($pipes[2]);
+            $exitCode = proc_close($process);
+
+            $this->assertSame(0, $exitCode, $stdout."\n".$stderr);
+        } finally {
+            @unlink($stateFile);
+            @unlink($deploymentEnvironment);
+            @rmdir($temporaryDirectory);
+        }
     }
 }
