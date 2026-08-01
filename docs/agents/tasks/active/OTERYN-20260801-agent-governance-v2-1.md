@@ -17,7 +17,7 @@ optional_reads: []
 
 ## Goal
 
-Extend the v2 agent contracts with eval-driven prompting, trust/context boundaries, outcome verification, complete user-facing vertical slices, and mandatory PR hygiene, fresh audit, E2E, final CI, archival, and autonomous continuation.
+Extend v2 with evaluated prompting, trust/context boundaries, outcome verification, complete user-facing vertical slices, and mandatory PR hygiene, fresh audit, E2E, final CI, archival, and autonomous continuation.
 
 ## Policy
 
@@ -37,29 +37,16 @@ user_communication: low_noise
 
 ## Scope
 
-Documentation and agent-governance contracts only.
-
-Owned paths:
-
-- `docs/agents/PROMPTING_STANDARD.md`
-- `docs/agents/PROMPTING_HANDOVER.md`
-- `docs/agents/AUTONOMOUS_PROGRAM_CONTINUATION.md`
-- `docs/agents/PROMPT_EVAL_STANDARD.md`
-- `docs/agents/TRUST_AND_CONTEXT_BOUNDARIES.md`
-- `docs/agents/END_TO_END_FEATURE_COMPLETENESS.md`
-- `docs/agents/TASK_CLOSEOUT_AUDIT_E2E.md`
-- `docs/agents/tasks/active/OTERYN-20260801-agent-governance-v2-1.md`
-
-No application, database, authentication, payment, production, Canary, workflow, deployment, or external-repository mutation is authorized by this task.
+Documentation and agent governance only. No application, database, authentication, payment, production, Canary, workflow, deployment or external-repository mutation is authorized.
 
 ## Acceptance criteria
 
-- [ ] Prompt changes are versioned and evaluated against balanced regression cases with repeated trials where nondeterminism matters.
-- [ ] Resulting repository/application state, not worker assertions, controls completion.
-- [ ] Retrieved content is treated as untrusted data and cannot redefine authority.
-- [ ] User-facing features default to a complete applicable backend/frontend vertical slice.
-- [ ] Closeout requires fresh audit, real E2E, exact-head final CI, resolved reviews, terminal related PRs, archive, and ownership release.
-- [ ] Autonomous coordination continues after closeout when another task is READY.
+- [x] Prompt changes are versioned and evaluated against balanced regression cases with repeated trials where nondeterminism matters.
+- [x] Resulting environment state, not worker assertions, controls completion.
+- [x] Retrieved content is untrusted data and cannot redefine authority.
+- [x] User-facing features default to a complete applicable backend/frontend vertical slice.
+- [x] Closeout requires fresh audit, real E2E, exact-head final CI, resolved reviews, terminal related PRs, archive, and ownership release.
+- [x] Autonomous coordination continues after closeout when another task is READY.
 - [ ] Exact-head governance and required CI pass.
 - [ ] This task is archived after merge.
 
@@ -68,12 +55,12 @@ No application, database, authentication, payment, production, Canary, workflow,
 ```yaml
 checkpoint_version: 1
 policy_version: 2
-updated_at: 2026-08-01T23:46:00+02:00
-head: UNKNOWN
+updated_at: 2026-08-02T00:10:00+02:00
+head: f46736e675a044640c434174797da27d549bd828
 branch: docs/agent-governance-v2-1-20260801
-pr: UNKNOWN
-status: implementing
-phase: implement
+pr: 442
+status: validating
+phase: audit_and_ci
 session_id: chat-20260801-governance-v2-1
 session_role: coordinator
 execution_mode: chat
@@ -91,7 +78,7 @@ heavy_validation_runs: 0
 session_rotation_count: 0
 stale_takeover_count: 0
 human_interruptions: 0
-last_completed_step: registered the v2.1 governance task and claimed normative documentation paths
+last_completed_step: completed v2.1 contracts and proportionate documentation audit
 owned_paths:
   - docs/agents/PROMPTING_STANDARD.md
   - docs/agents/PROMPTING_HANDOVER.md
@@ -102,12 +89,16 @@ owned_paths:
   - docs/agents/TASK_CLOSEOUT_AUDIT_E2E.md
   - docs/agents/tasks/active/OTERYN-20260801-agent-governance-v2-1.md
 proven:
-  - Autonomous programme continuation v2 is already merged on main.
-  - The owner explicitly authorized this cross-repository governance update.
+  - Compare main...branch contains exactly eight authorized governance/task paths and no application or workflow code.
+  - All seven normative contract paths exist and the three entry points route to them consistently.
+  - Stricter Oteryn application, authentication, database, payment, production, Canary and deployment rules remain authoritative.
+  - Proportionate documentation audit found no missing reference, contradiction, hidden implementation authorization or material defect.
+  - Runtime E2E is NOT_APPLICABLE_WITH_REASON because only governance documentation changes; exact-head workflow and lifecycle validation remain required.
 derived:
-  - New requirements should be reusable contracts referenced by the existing prompting entry points.
+  - The standard closes the observed backend-without-frontend and stale-PR/task failure modes.
 unknown:
-  - Exact PR number and exact-head workflow results until the draft PR is opened.
+  - Exact-head required workflow results after this checkpoint commit.
+  - Fresh final PR diff and review-thread state.
 conflicts: []
 first_failure:
   marker: none
@@ -115,9 +106,26 @@ first_failure:
 rejected_hypotheses:
   - encode durable rules only in chat
   - describe backend completion as complete user-facing delivery
+  - archive before audit, E2E applicability, final CI and PR closeout
 changed_paths:
+  - docs/agents/AUTONOMOUS_PROGRAM_CONTINUATION.md
+  - docs/agents/END_TO_END_FEATURE_COMPLETENESS.md
+  - docs/agents/PROMPTING_HANDOVER.md
+  - docs/agents/PROMPTING_STANDARD.md
+  - docs/agents/PROMPT_EVAL_STANDARD.md
+  - docs/agents/TASK_CLOSEOUT_AUDIT_E2E.md
+  - docs/agents/TRUST_AND_CONTEXT_BOUNDARIES.md
   - docs/agents/tasks/active/OTERYN-20260801-agent-governance-v2-1.md
-validation: []
+validation:
+  - command: compare main...docs/agent-governance-v2-1-20260801
+    result: PASS
+    evidence: exactly eight authorized documentation/governance paths
+  - command: cross-reference and contradiction audit
+    result: PASS
+    evidence: all contract paths exist and completion rules agree
+  - command: runtime E2E applicability review
+    result: NOT_APPLICABLE_WITH_REASON
+    evidence: no executable product behavior changed
 blockers: []
-next_action: add the v2.1 normative contracts and update the prompting entry points
+next_action: verify exact-head required workflows and fresh PR review for PR 442, then merge and archive the task
 ```
