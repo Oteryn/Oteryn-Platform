@@ -33,13 +33,19 @@ edge=json.load(open(sys.argv[1]))
 preflight=json.load(open(sys.argv[2]))
 token=json.load(open(sys.argv[3]))
 assert edge["mutation"] == "none"
+assert edge["canonical_hosts"] == ["oteryn.molehill.cloud", "gateway.molehill.cloud"]
+assert edge["retired_hosts"] == ["login.oteryn.molehill.cloud"]
 assert edge["token"]["access_token_separate"] is True
-assert edge["certificate_packs"]["active_exact_login_coverage"] is True
-assert edge["certificate_packs"]["pack_summaries"][0]["covers_www"] is True
-assert edge["certificate_packs"]["pack_summaries"][0]["covers_login"] is True
+cert=edge["certificate_packs"]
+assert cert["active_gateway_coverage"] is True
+assert cert["active_legacy_gateway_coverage"] is False
+assert cert["pack_summaries"][0]["covers_www"] is True
+assert cert["pack_summaries"][0]["covers_gateway"] is True
+assert cert["pack_summaries"][0]["covers_legacy_gateway"] is False
 assert edge["zone_settings"]["security_level"]["value"] == "under_attack"
 redirect=edge["ruleset_details"][0]["oteryn_matching_rules"][0]
 assert redirect["matches_www"] is True
+assert redirect["matches_gateway"] is False
 assert "expression" not in redirect
 waf=edge["ruleset_details"][1]
 assert len(waf["sanitized_rules"]) == 3
@@ -47,11 +53,14 @@ assert waf["sanitized_rules"][0]["host_scope"] == "broad_no_host_predicate"
 assert waf["sanitized_rules"][0]["expression_sha256"]
 assert len(waf["oteryn_candidate_rules"]) == 1
 assert waf["oteryn_candidate_rules"][0]["ref"] == "broad-bot-challenge"
+assert len(waf["retired_gateway_rules"]) == 1
+assert waf["retired_gateway_rules"][0]["host_scope"] == "explicit_retired_host"
 assert edge["bot_management"]["settings"]["fight_mode"] is True
 assert edge["access_applications"]["oteryn_applications"][0]["domain"] == "oteryn.molehill.cloud"
+assert edge["access_applications"]["retired_gateway_applications"] == []
 assert preflight["mutation"] == "none"
 assert preflight["certificate_pack_quota"]["state"] == "readable"
-assert preflight["certificate_pack_quota"]["safe_result"]["advanced"]["allocated"] == 1
+assert preflight["certificate_pack_quota"]["safe_result"]["advanced"]["allocated"] == 0
 assert preflight["blocking_rule"]["rule_found"] is True
 assert preflight["blocking_rule"]["action"] == "managed_challenge"
 assert preflight["blocking_rule"]["expression_fingerprint_matches"] is False
