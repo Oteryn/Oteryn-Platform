@@ -10,13 +10,12 @@ on:
 permissions:
   actions: read
   contents: read
-  issues: write
 
 jobs:
   discover:
     runs-on: ubuntu-latest
     steps:
-      - name: Publish retry workflow runs
+      - name: Print retry workflow runs
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TARGET_BRANCH: validation/issue365-synology-20260801
@@ -52,15 +51,5 @@ jobs:
                   'head_sha': run['head_sha'],
                   'run_attempt': run['run_attempt'],
               })
-          body = 'Issue #365 retry workflow runs:\n```json\n' + json.dumps(rows, indent=2) + '\n```'
-          comment_url = f'https://api.github.com/repos/{repository}/issues/412/comments'
-          request = urllib.request.Request(
-              comment_url,
-              data=json.dumps({'body': body}).encode('utf-8'),
-              method='POST',
-              headers={**headers, 'Content-Type': 'application/json'},
-          )
-          with urllib.request.urlopen(request, timeout=30) as response:
-              if response.status != 201:
-                  raise SystemExit(f'comment publish returned {response.status}')
+          print('ISSUE365_RETRY_RUNS=' + json.dumps(rows, separators=(',', ':')))
           PY
