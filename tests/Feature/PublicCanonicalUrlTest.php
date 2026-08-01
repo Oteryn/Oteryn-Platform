@@ -52,7 +52,11 @@ class PublicCanonicalUrlTest extends TestCase
         );
         $this->assertStringContainsString('SESSION_SECURE_COOKIE=true', $environmentExample);
         $this->assertStringContainsString(
-            'app_url="${APP_URL_INPUT:-'.self::CANONICAL_ORIGIN.'}"',
+            'CANONICAL_PUBLIC_APP_URL: '.self::CANONICAL_ORIGIN,
+            $deploymentWorkflow,
+        );
+        $this->assertStringContainsString(
+            'app_url="${APP_URL_INPUT:-$CANONICAL_PUBLIC_APP_URL}"',
             $deploymentWorkflow,
         );
         $this->assertStringContainsString('SESSION_SECURE_COOKIE=true', $deploymentWorkflow);
