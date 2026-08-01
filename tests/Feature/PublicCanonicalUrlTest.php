@@ -43,9 +43,13 @@ class PublicCanonicalUrlTest extends TestCase
     {
         $environmentExample = file_get_contents(base_path('deploy/synology/.env.example'));
         $deploymentWorkflow = file_get_contents(base_path('.github/workflows/deploy-synology-staging.yml'));
+        $marketplaceCompose = file_get_contents(base_path('deploy/synology/compose.marketplace.yml'));
+        $deploymentLibrary = file_get_contents(base_path('deploy/synology/scripts/lib.sh'));
 
         $this->assertIsString($environmentExample);
         $this->assertIsString($deploymentWorkflow);
+        $this->assertIsString($marketplaceCompose);
+        $this->assertIsString($deploymentLibrary);
         $this->assertStringContainsString(
             'APP_URL='.self::CANONICAL_ORIGIN,
             $environmentExample,
@@ -60,6 +64,20 @@ class PublicCanonicalUrlTest extends TestCase
             $deploymentWorkflow,
         );
         $this->assertStringContainsString('SESSION_SECURE_COOKIE=true', $deploymentWorkflow);
+        $this->assertStringContainsString(
+            'APP_URL: '.self::CANONICAL_ORIGIN,
+            $marketplaceCompose,
+        );
+        $this->assertStringContainsString('SESSION_SECURE_COOKIE: "true"', $marketplaceCompose);
+        $this->assertStringContainsString(
+            'GITHUB_WORKFLOW:-}" == "Character Bazaar Staging Control"',
+            $deploymentLibrary,
+        );
+        $this->assertStringContainsString(
+            'APP_URL='.self::CANONICAL_ORIGIN,
+            $deploymentLibrary,
+        );
+        $this->assertStringContainsString('SESSION_SECURE_COOKIE=true', $deploymentLibrary);
         $this->assertStringNotContainsString(
             'APP_URL=http://127.0.0.1:8000',
             $environmentExample,
