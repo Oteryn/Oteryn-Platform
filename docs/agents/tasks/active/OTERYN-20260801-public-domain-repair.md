@@ -67,7 +67,7 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-01T08:52:00Z
+updated_at: 2026-08-01T08:55:00Z
 session_id: chatgpt-20260801-public-domain-repair-001
 policy_version: 2
 phase: implementation_and_staging_verification
@@ -79,7 +79,7 @@ staging_deployment_authorization: UNKNOWN
 context_pressure: medium
 decomposition_decision: split
 branch: fix/OTERYN-20260801-public-domain-repair
-head: f9306422ec3460736e11f924b23e765bd10c1d53
+head: 125afae747ea610060673c705c2d0ae3973bdbcf
 pr: 388
 status: validating
 context_routes:
@@ -154,19 +154,26 @@ validation:
   - command: Game Auth Ticket Concurrency run 30692524821 on b939c06fa98d6f8d5b82a5374762b3cd8415a698
     result: PASS
     evidence: workflow completed successfully
-  - command: Agent Governance run 30692524845 on b939c06fa98d6f8d5b82a5374762b3cd8415a698
+  - command: CI run 30692524835 on b939c06fa98d6f8d5b82a5374762b3cd8415a698
+    result: PASS
+    evidence: Composer validation and audit, Pint, PHPStan and PHPUnit completed successfully
+  - command: Phase 7 Production-Like Validation run 30692524817 on b939c06fa98d6f8d5b82a5374762b3cd8415a698
+    result: PASS
+    evidence: workflow completed successfully
+  - command: Platform DB Outage Validation run 30692524841 on b939c06fa98d6f8d5b82a5374762b3cd8415a698
+    result: PASS
+    evidence: workflow completed successfully
+  - command: Build Synology Staging Images run 30692524816 on b939c06fa98d6f8d5b82a5374762b3cd8415a698
+    result: PASS
+    evidence: workflow completed successfully
+  - command: Agent Governance runs 30692524845 and 30692642366
     result: FAIL
-    evidence: checkpoint validator rejected one unsupported nested authorization mapping; this checkpoint removes it
-  - command: CI, Phase 7 Production-Like Validation, Platform DB Outage Validation and Build Synology Staging Images
+    evidence: checkpoint validator rejected unsupported nested extension fields; this checkpoint converts those fields to scalars
+  - command: exact-head automatic workflows
     result: NOT_RUN
-    evidence: exact repaired checkpoint head has not completed the automatic workflows yet
-deployment_evidence:
-  - Last exact staging run 30669701842 is historical STAGING_PROVEN evidence only.
-  - No staging deployment was authorized or executed for PR #388.
-rollback:
-  - Repository rollback is a PR revert or branch reset before merge.
-  - Existing runtime image rollback remains available through the established Synology deployment procedure.
-  - External rollback must restore the exact pre-change certificate, tunnel, WAF, Access, bot, redirect and HSTS snapshots; no external mutation has occurred.
+    evidence: normalized checkpoint head has not completed automatic workflows yet
+deployment_evidence: Historical run 30669701842 is STAGING_PROVEN only; no PR #388 staging deployment was authorized or executed.
+rollback: Repository rollback is PR revert or branch reset; runtime image rollback remains available; external rollback restores the recorded certificate, tunnel, WAF, Access, bot, redirect and HSTS snapshots.
 blockers:
   - External edge repair and staging deployment cannot run without usable operator access and explicit staging authorization.
 next_action: Complete exact-head repository CI, then stop with the external-access and staging-authorization blocker checkpointed.
