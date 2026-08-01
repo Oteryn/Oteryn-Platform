@@ -71,6 +71,21 @@ Corrected remediation state: `NOT_PROVEN_REMEDIATED`.
 
 Detailed evidence: `ISSUE_365_POST_FIX_RERUN_EVIDENCE.md`.
 
+## Embedded browser diagnostics
+
+The Playwright HTML artifacts for attempts 3 and 4 contain embedded report ZIPs with full sanitized `browser-diagnostics` attachments.
+
+| Attempt | Desktop | Tablet | Mobile |
+|---:|---|---|---|
+| 3 | PASS; 9×500 on `1/3/5` | PASS; 12×500 on `1/3/5/7` | REPRODUCED; 16×500 on `1/3/5/7/9` |
+| 4 | PASS; 9×500 on `1/3/5` | PASS; 12×500 on `1/3/5/7` | REPRODUCED; 14×500 on `1/3/5/7/9` |
+
+Every project records exactly two invalid-pattern console errors. Mobile records zero Playwright failed-request entries and zero page errors in both reproductions; desktop/tablet pass despite contaminated thumbnail traffic.
+
+Therefore thumbnail HTTP 500 presence alone is not sufficient to remove publication feedback. Coexistence with mobile failure remains non-causal evidence until the exact clean-versus-one-damaged-row comparison is executed.
+
+Detailed hashes, per-ID counts and extraction boundaries: `ISSUE_365_EMBEDDED_BROWSER_DIAGNOSTICS.md`.
+
 ## Issue #365 fixture boundary
 
 Historical 9/12/16 thumbnail HTTP 500 counts remain explained by intentionally damaged EditorialMedia rows leaking across acceptance projects. This remains a MEDIUM isolation/evidence defect and not proof that valid production media fails.
@@ -102,6 +117,7 @@ Totals: **0 HIGH, 6 MEDIUM, 1 LOW**.
 - `ISSUE_365_STATIC_CAUSE_ANALYSIS.md`
 - `ISSUE_365_FLASH_REMEDIATION_EVIDENCE.md` — superseded where inconsistent by the post-fix evidence
 - `ISSUE_365_POST_FIX_RERUN_EVIDENCE.md`
+- `ISSUE_365_EMBEDDED_BROWSER_DIAGNOSTICS.md`
 - `VALIDATOR_PACKET.md`
 - `VALIDATOR_PACKET_ADDENDUM.md`
 - `VALIDATOR_VERDICT.md`
