@@ -8,10 +8,11 @@ required_reads:
   - docs/operations/CLOUDFLARE_ENDPOINT_MANAGEMENT.md
   - docs/operations/CLOUDFLARE_EDGE_AUDIT.md
 search_first:
-  - PR #406 protected Cloudflare edge audit
-  - live edge audit run 30702383389 and artifact 8819238641
-  - PR #411 account-token capability audit
-  - live token capability run 30702827344 and artifact 8819368872
+  - PR #420 dedicated edge-audit user token
+  - PR #422 sanitized rule-scope evidence
+  - PR #425 fixed-scope apply preflight
+  - marker PRs #423 and #426
+  - runs 30708559130 and 30709108382
   - Cloudflare Tunnel/DNS apply run 30700054602
 optional_reads:
   - docs/agents/tasks/active/OTERYN-20260801-public-domain-repair.md
@@ -22,19 +23,20 @@ optional_reads:
 
 ## Goal
 
-Audit the remaining Cloudflare edge controls after Tunnel/DNS convergence and provide a safe continuation path without exposing credentials or broadening permissions speculatively.
+Identify and safely repair the Cloudflare edge controls blocking the canonical Oteryn WWW and Gateway hostnames without changing hostname responsibilities or unrelated zone configuration.
 
 ## Acceptance criteria
 
-- [x] Protected GET-only edge-audit implementation merged through PR #406.
-- [x] Live remaining-edge audit ran from trusted `main` code through a marker-only PR.
-- [x] Certificate, Rulesets, Bot, Access and selected zone-setting permission failures were recorded without secrets.
-- [x] Protected GET-only account-token capability implementation merged through PR #411.
-- [x] Live capability audit determined whether the current token can inspect or manage its own policy.
-- [x] Exact external token prerequisite and automatic continuation sequence are documented.
-- [ ] Protected environment token is replaced with the minimum required read scopes.
-- [ ] Remaining-edge read audit succeeds and identifies exact resource state.
-- [ ] Smallest evidence-supported apply automation is validated and executed.
+- [x] Trusted GET-only edge audit is merged.
+- [x] Dedicated least-privilege user token is wired separately from the Tunnel/DNS account token.
+- [x] Certificate packs, certificate quota, zone settings, WAF rulesets, Bot Management and Access applications are readable.
+- [x] Raw rule expressions, country literals and credentials are excluded from artifacts.
+- [x] Exact certificate and broad country-block findings are recorded.
+- [x] Advanced Certificate Manager quota is directly classified.
+- [ ] Advanced Certificate Manager is enabled for the zone.
+- [ ] Dedicated token receives only the minimum required zone-scoped Edit permissions.
+- [ ] Fixed-scope apply automation passes deterministic and exact-head validation.
+- [ ] Authorized live apply succeeds with rollback evidence.
 - [ ] Public TLS/HTTP and controlled recovery acceptance pass.
 
 ## Ownership
@@ -43,6 +45,7 @@ Audit the remaining Cloudflare edge controls after Tunnel/DNS convergence and pr
 owned_paths:
   - .github/workflows/cloudflare-oteryn-edge-audit.yml
   - scripts/operations/cloudflare-oteryn-edge-audit.py
+  - scripts/operations/cloudflare-edge-apply-preflight-audit.py
   - scripts/operations/cloudflare-token-capability-audit.py
   - tests/operations/cloudflare-oteryn-edge-audit/**
   - docs/operations/CLOUDFLARE_EDGE_AUDIT.md
@@ -54,22 +57,28 @@ modules:
   - edge-security
 dependencies:
   - GitHub environment production-cloudflare
-  - merged Cloudflare endpoint automation
-  - external Cloudflare account administrator for token rotation
+  - dedicated secret CLOUDFLARE_EDGE_AUDIT_TOKEN
+  - Advanced Certificate Manager entitlement for multi-level Gateway hostname
 blockers:
-  - protected Cloudflare token lacks remaining-edge read permissions and cannot inspect or modify its own policy
+  - Advanced Certificate Manager is not enabled and the dedicated token remains read-only
 ```
 
 ## Context checkpoint
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-01T14:03:00Z
+updated_at: 2026-08-01T16:58:00Z
+session_id: chatgpt-20260801-cloudflare-edge-audit-005
+policy_version: 2
 status: blocked
-phase: external_token_rotation_blocked
-branch: docs/OTERYN-20260801-cloudflare-token-blocker
-head: 602da971590cd98a393a26e3cb43b5a2ddf8c4fa
-pr: none
+phase: external_entitlement_and_write_scope
+execution_mode: chat-github-connector
+context_pressure: low
+decomposition_decision: phased
+branch: docs/OTERYN-20260801-cloudflare-edge-read-complete
+head: de5f3728349983469e8fd071f7ead1ef40f02403
+source_main: ee38558a8420c8c32a8cfa92b69e60910e1695c5
+pr: 424
 context_routes:
   - agent-governance
   - security
@@ -79,57 +88,67 @@ owned_paths:
   - docs/agents/reports/OTERYN-20260801-cloudflare-edge-audit.md
 repository_mutation_authorization: PROVEN
 external_read_authorization: PROVEN
-external_mutation_authorization: NOT_USED
+external_mutation_authorization: OWNER_INTENT_PROVEN_BUT_CREDENTIAL_NOT_CAPABLE
 proven:
-  - Cloudflare integration is available and Tunnel/DNS apply run 30700054602 completed successfully.
-  - PR #406 merged trusted-main GET-only edge auditing as 5ea883c26dead9d58d363df1fb7909e3c399e206.
-  - Live edge audit run 30702383389 job 91375538793 completed successfully with artifact 8819238641 and digest sha256:fce53d0651b496e42e56654bfdcad491afe2e01e80fea79e7e5b8630e38215ae.
-  - The active token returned permission_denied for certificate packs, Rulesets, Bot Management, Access applications and selected zone settings.
-  - PR #411 merged trusted-main GET-only account-token capability auditing as 63771e2565dd0d691c8229d97090c0d0fcceb9c3.
-  - Live capability run 30702827344 job 91376706288 completed successfully with artifact 8819368872 and digest sha256:36797349c8b0b0250bfeea88cd92c77b730d7efb7c62b4137223ef8b938ec329.
-  - Token self-details and account permission-group catalog both returned permission_denied.
-  - Account API Tokens Read and Account API Tokens Write are not proven for the current token.
-  - No Cloudflare mutation occurred during either audit.
+  - PR #420 merged dedicated user-token wiring as d4a3c0c56673ac1ff918f5be94d0b3be0bfe7ec3.
+  - PR #422 merged sanitized rule-scope evidence as 4dec2825a9375040dcee01a5dde5426d102ffe35.
+  - PR #425 merged fixed-scope GET-only preflight as ee38558a8420c8c32a8cfa92b69e60910e1695c5.
+  - Live run 30708559130 job 91391822768 completed with artifact 8821103628 and digest sha256:95fe01f1ebeec45aabad5c0e5c71e7cea866224b6e1f9648674949b508321128.
+  - Live preflight run 30709108382 job 91393282575 completed with artifact 8821278907 and digest sha256:520bdbf591388ff30bba4cce232be413bab671ff040b6fb619e2c933d4553559.
+  - Two Universal certificate packs exist and neither covers login.oteryn.molehill.cloud.
+  - Advanced certificate quota is readable and reports allocated 0, used 0.
+  - Access has eight applications and none targets either canonical Oteryn hostname.
+  - Custom WAF ruleset 67ca2e19272a4c7d97c2a53681d0eb2f has one enabled broad block rule e0f91939eb494d4490d975498a9a9724.
+  - The blocking expression fingerprint still matches the prior evidence.
+  - The broad block uses ip.geoip.country with operator ne and has no host, path or method predicate.
+  - Bot Fight Mode and JavaScript detections are enabled.
+  - Browser Check is on, security level is high, Always Use HTTPS is on and minimum TLS is 1.3.
+  - HSTS is enabled with max_age 0, includeSubDomains and preload.
+  - No Cloudflare mutation occurred.
 derived:
-  - The remaining blocker is token scope, not integration availability.
-  - The current token cannot safely self-expand or rotate through the existing integration.
-  - An external account administrator must replace the protected token before the read audit can continue.
+  - The country-based block is the direct owner of public 403 responses from regions outside its configured country.
+  - Access is not the owner of the public block.
+  - Gateway TLS cannot pass until Advanced Certificate Manager is enabled and an advanced certificate covers the canonical multi-level hostname.
+  - The WAF repair must add an exact Oteryn hostname exception while preserving the country restriction for unrelated services.
+  - Bot Fight Mode should be disabled for the machine/native-client Gateway because it is zone-wide and cannot be skipped by a normal custom rule.
 unknown:
-  - Exact certificate product and status for login.oteryn.molehill.cloud.
-  - Exact rule or product producing the WWW Cloudflare challenge.
-  - Exact redirect, Access, Bot and HSTS resource identifiers.
-  - Corresponding minimal write scopes until read audit succeeds.
+  - Whether Browser Check or security level remains a blocker after the exact WAF exception and Bot Fight Mode repair.
+  - Whether TLS 1.2 is required by every supported native client.
 conflicts:
-  - Tunnel/DNS is current while public Gateway TLS and WWW policy behavior still fail; Tunnel/DNS proof must not be promoted to public launch readiness.
+  - Always Use HTTPS is on, but previous public HTTP probes received 403 before redirect due to the country-based block.
+  - HSTS includes subdomains/preload while max_age 0 disables persistence because Gateway TLS is invalid.
 first_failure:
-  marker: remaining-edge-token-permission-boundary
-  evidence: runs 30702383389 and 30702827344 prove permission_denied for all remaining edge reads and token self-management reads.
+  marker: advanced-certificate-entitlement-missing
+  evidence: run 30709108382 artifact 8821278907 reports advanced allocated 0 and used 0
 rejected_hypotheses:
-  - Cloudflare integration is unavailable; token authentication, Tunnel/DNS audit and Tunnel apply succeeded.
-  - Tunnel or DNS drift remains the blocker; apply run 30700054602 converged both.
-  - The token can expand itself; live capability audit could not read its own policy or permission-group catalog.
+  - Cloudflare Access owns the public block; no Access application targets either canonical hostname.
+  - Tunnel or DNS drift remains the blocker; apply run 30700054602 converged both controls.
+  - Universal SSL can cover login.oteryn.molehill.cloud; both current Universal packs omit the multi-level hostname.
+  - The broad WAF block is host-scoped; sanitized preflight proves no host predicate.
+  - The observed 403 is an application response; the country-based Cloudflare block terminates requests before the origin.
 changed_paths:
   - docs/agents/tasks/active/OTERYN-20260801-cloudflare-edge-audit.md
   - docs/agents/reports/OTERYN-20260801-cloudflare-edge-audit.md
 validation:
-  - command: PR #406 exact-head validation
+  - command: PR #420 exact-head workflow suite
     result: PASS
-    evidence: CI 4087, Governance 3871, Phase 7 3116, Edge 1537, DB 3043, Concurrency 2614 and audit 8
-  - command: live remaining-edge audit run 30702383389
+    evidence: exact head 3792b01c51e52b81fec7ea14ec249890f2b4c706 passed all applicable workflows before merge d4a3c0c56673ac1ff918f5be94d0b3be0bfe7ec3
+  - command: PR #422 exact-head workflow suite
     result: PASS
-    evidence: trusted-main boundary, GET-only audit and artifact upload succeeded
-  - command: PR #411 exact-head validation
+    evidence: exact head cfea22e63fc373b2f911dd181761ae845ece0bb3 passed all applicable workflows before merge 4dec2825a9375040dcee01a5dde5426d102ffe35
+  - command: PR #425 exact-head workflow suite
     result: PASS
-    evidence: CI 4094, Governance 3877, Phase 7 3122, Edge 1543, DB 3049, Concurrency 2620 and audit 10
-  - command: live token capability audit run 30702827344
+    evidence: exact head 8897430bb89a8ead2812379f4bb45dd6808dfdf1 passed CI, Phase 7, Edge, DB, concurrency and Cloudflare audit before merge ee38558a8420c8c32a8cfa92b69e60910e1695c5
+  - command: live permission-complete edge audit run 30708559130
     result: PASS
-    evidence: trusted-main boundary, GET-only capability audit and artifact upload succeeded
-  - command: inspect remaining edge state with current token
-    result: BLOCKED
-    evidence: all required edge API families returned permission_denied
+    evidence: job 91391822768 uploaded artifact 8821103628 with digest sha256:95fe01f1ebeec45aabad5c0e5c71e7cea866224b6e1f9648674949b508321128 and mutation none
+  - command: live fixed-scope apply preflight run 30709108382
+    result: PASS
+    evidence: job 91393282575 uploaded artifact 8821278907 with digest sha256:520bdbf591388ff30bba4cce232be413bab671ff040b6fb619e2c933d4553559; quota and rule fingerprint were readable and mutation was none
 blockers:
-  - An external Cloudflare account administrator must replace the production-cloudflare token with minimum remaining-edge read scopes; no secret may be pasted into chat or committed.
-next_action: Replace the protected CLOUDFLARE_API_TOKEN through GitHub environment administration, then open a marker-only trigger PR to rerun the existing trusted-main GET-only audit. Add corresponding write scopes only after exact resources requiring repair are identified.
+  - Enable Advanced Certificate Manager for molehill.cloud through Cloudflare billing/dashboard.
+  - Add Zone WAF Edit, Bot Management Edit, Zone Settings Edit and SSL and Certificates Edit to the zone-scoped dedicated token.
+next_action: Enable Advanced Certificate Manager and add the four zone-scoped Edit permissions to Oteryn Edge Audit; then implement and validate a guarded apply that creates an exact-host WAF exception, disables Bot Fight Mode, orders the advanced certificate and preserves rollback.
 ```
 
 ## Report
