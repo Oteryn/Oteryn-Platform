@@ -49,16 +49,16 @@ def extract_run_block(source: str) -> str:
 def prepare(source: str) -> str:
     script = extract_run_block(source)
 
-    old_build = """tar --exclude=.git -C "$GITHUB_WORKSPACE" -cf - . \\
+    old_build = '''tar --exclude=.git -C "$GITHUB_WORKSPACE" -cf - . \\
   | docker build \\
       -t "$base_image" \\
       -f deploy/synology/docker/platform.Dockerfile \\
-      -"""
-    new_build = """echo "::notice::ISSUE365_STAGE=build-platform-image"
+      -'''
+    new_build = '''echo "::notice::ISSUE365_STAGE=build-platform-image"
 docker build --progress=plain \\
   -t "$base_image" \\
   -f "$GITHUB_WORKSPACE/deploy/synology/docker/platform.Dockerfile" \\
-  "$GITHUB_WORKSPACE""""
+  "$GITHUB_WORKSPACE"'''
     script = replace_once(
         script,
         old_build,
@@ -73,17 +73,17 @@ docker build --progress=plain \\
         "python heredoc stdin",
     )
 
-    matrix_anchor = """set -euo pipefail
+    matrix_anchor = '''set -euo pipefail
 cd /workspace
 
-: > "$ISSUE365_SERVER_TRACE""""
-    matrix_replacement = """set -euo pipefail
+: > "$ISSUE365_SERVER_TRACE"'''
+    matrix_replacement = '''set -euo pipefail
 cd /workspace
 START_SESSION="$(php -r 'require "vendor/autoload.php"; echo (new ReflectionClass(Illuminate\\Session\\Middleware\\StartSession::class))->getFileName();')"
 export START_SESSION
 
 echo "matrix-start" > "$RUN_ROOT/LAST_STAGE"
-: > "$ISSUE365_SERVER_TRACE""""
+: > "$ISSUE365_SERVER_TRACE"'''
     script = replace_once(
         script,
         matrix_anchor,
@@ -92,23 +92,23 @@ echo "matrix-start" > "$RUN_ROOT/LAST_STAGE"
     )
 
     stage_replacements = {
-        'cat <<EOF | docker build -t "$validator_image" -': """echo "::notice::ISSUE365_STAGE=build-validator-image"
-cat <<EOF | docker build -t "$validator_image" -""",
-        'docker exec "$app_container" composer install': """echo "::notice::ISSUE365_STAGE=composer-install"
-docker exec "$app_container" composer install""",
-        "for script in \\": """echo "::notice::ISSUE365_STAGE=install-observers"
-for script in \\""",
-        'docker exec -i "$app_container" bash -s <<\'MATRIX\'': """echo "::notice::ISSUE365_STAGE=matrix"
-docker exec -i "$app_container" bash -s <<'MATRIX'""",
+        'cat <<EOF | docker build -t "$validator_image" -': '''echo "::notice::ISSUE365_STAGE=build-validator-image"
+cat <<EOF | docker build -t "$validator_image" -''',
+        'docker exec "$app_container" composer install': '''echo "::notice::ISSUE365_STAGE=composer-install"
+docker exec "$app_container" composer install''',
+        "for script in \\": '''echo "::notice::ISSUE365_STAGE=install-observers"
+for script in \\''',
+        'docker exec -i "$app_container" bash -s <<\'MATRIX\'': '''echo "::notice::ISSUE365_STAGE=matrix"
+docker exec -i "$app_container" bash -s <<'MATRIX' ''',
     }
     for old, new in stage_replacements.items():
-        script = replace_once(script, old, new, f"stage anchor {old!r}")
+        script = replace_once(script, old, new.rstrip(), f"stage anchor {old!r}")
 
     bootstrap_old = (
         'docker exec "$app_container" bash '
         "scripts/acceptance/bootstrap-production-like.sh"
     )
-    bootstrap_new = """echo "::notice::ISSUE365_STAGE=dependency-readiness"
+    bootstrap_new = '''echo "::notice::ISSUE365_STAGE=dependency-readiness"
 if ! docker exec -i "$app_container" bash -s <<'READINESS'
 set -euo pipefail
 stable=0
@@ -158,7 +158,7 @@ if ! docker exec "$app_container" bash scripts/acceptance/bootstrap-production-l
   docker logs "$redis_container" || true
   docker logs "$app_container" || true
   exit 1
-fi"""
+fi'''
     script = replace_once(
         script,
         bootstrap_old,
