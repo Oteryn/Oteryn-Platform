@@ -100,6 +100,14 @@ def hostname_covered(pattern: str, hostname: str) -> bool:
     return bool(prefix) and "." not in prefix
 
 
+def host_literal_present(expression: str, hostname: str) -> bool:
+    """Detect a complete hostname literal without treating a parent-domain suffix as a match."""
+    return re.search(
+        rf"(?<![a-z0-9.-]){re.escape(hostname.lower())}(?![a-z0-9.-])",
+        expression.lower(),
+    ) is not None
+
+
 def certs(response: dict) -> dict:
     output = {"state": response["state"], "http_status": response["status"]}
     if response["state"] != "readable":
@@ -173,9 +181,9 @@ def sanitized_rule(rule: dict) -> dict:
     normalized = expression.lower()
     mentions_http_host = "http.host" in normalized
     mentions_zone_domain = "molehill.cloud" in normalized
-    matches_www = WWW in normalized
-    matches_gateway = GATEWAY in normalized
-    matches_legacy_gateway = LEGACY_GATEWAY in normalized
+    matches_www = host_literal_present(expression, WWW)
+    matches_gateway = host_literal_present(expression, GATEWAY)
+    matches_legacy_gateway = host_literal_present(expression, LEGACY_GATEWAY)
 
     if matches_www or matches_gateway:
         host_scope = "explicit_canonical_host"
