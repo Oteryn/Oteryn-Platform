@@ -1,0 +1,75 @@
+{
+  "schema": "issue365-source-faithful-layout-probe-summary-v1",
+  "frozen_target": "b6f7b12a43aa72a52dc98c3fa07a7c4607fcb608",
+  "chromium": "144.0.7559.96",
+  "sample_count": 18,
+  "summary": {
+    "desktop": {
+      "immediate": {
+        "samples": 3,
+        "initial_counts": [12, 12, 12],
+        "new_request_counts_from_action_start": [0, 0, 0],
+        "new_ids_from_action_start": [[], [], []],
+        "scroll_y_before": [0, 0, 0],
+        "scroll_y_after": [2989, 2989, 2989],
+        "document_heights": [3989, 3989, 3989]
+      },
+      "pre_scroll": {
+        "samples": 3,
+        "initial_counts": [12, 12, 12],
+        "new_request_counts_from_action_start": [0, 0, 0],
+        "new_ids_from_action_start": [[], [], []],
+        "scroll_y_before": [0, 0, 0],
+        "scroll_y_after": [2989, 2989, 2989],
+        "document_heights": [3989, 3989, 3989]
+      }
+    },
+    "tablet": {
+      "immediate": {
+        "samples": 3,
+        "initial_counts": [10, 10, 10],
+        "new_request_counts_from_action_start": [0, 0, 0],
+        "new_ids_from_action_start": [[], [], []],
+        "scroll_y_before": [0, 0, 0],
+        "scroll_y_after": [4584, 4584, 4584],
+        "document_heights": [5764, 5764, 5764]
+      },
+      "pre_scroll": {
+        "samples": 3,
+        "initial_counts": [10, 10, 10],
+        "new_request_counts_from_action_start": [0, 0, 0],
+        "new_ids_from_action_start": [[], [], []],
+        "scroll_y_before": [0, 0, 0],
+        "scroll_y_after": [4584, 4584, 4584],
+        "document_heights": [5764, 5764, 5764]
+      }
+    },
+    "mobile": {
+      "immediate": {
+        "samples": 3,
+        "initial_counts": [4, 4, 4],
+        "new_request_counts_from_action_start": [0, 0, 0],
+        "new_ids_from_action_start": [[], [], []],
+        "scroll_y_before": [0, 0, 0],
+        "scroll_y_after": [7158, 7158, 7158],
+        "document_heights": [8002, 8002, 8002]
+      },
+      "pre_scroll": {
+        "samples": 3,
+        "initial_counts": [4, 4, 4],
+        "new_request_counts_from_action_start": [0, 0, 0],
+        "new_ids_from_action_start": [[], [], []],
+        "scroll_y_before": [0, 0, 0],
+        "scroll_y_after": [7158, 7158, 7158],
+        "document_heights": [8002, 8002, 8002]
+      }
+    }
+  },
+  "result": "zero thumbnail requests started at or after Publish action start in all 18 samples",
+  "limitations": [
+    "static source-faithful layout harness",
+    "no Laravel HTTP",
+    "no session or lock instrumentation",
+    "network fulfilled by browser routing"
+  ]
+}
