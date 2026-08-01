@@ -30,10 +30,12 @@ load_oteryn_env_file() {
         export "$key"
     done < "$env_file"
 
-    # Character Bazaar Staging Control is the established public Synology
-    # deployment path. Migrate only its exact historical loopback values and
-    # reject every unexpected override before Docker Compose sees them.
-    if [[ "${GITHUB_WORKFLOW:-}" == "Character Bazaar Staging Control" ]]; then
+    # Character Bazaar Staging Control loads both a partial durable state file
+    # and the complete ephemeral deployment .env. Apply the public-origin
+    # migration only to the complete .env; the state file intentionally carries
+    # Marketplace keys only and must not be treated as deployment configuration.
+    if [[ "${GITHUB_WORKFLOW:-}" == "Character Bazaar Staging Control" \
+        && "$(basename -- "$env_file")" == ".env" ]]; then
         case "${APP_URL:-}" in
             https://oteryn.molehill.cloud|http://127.0.0.1:8000) ;;
             *)
