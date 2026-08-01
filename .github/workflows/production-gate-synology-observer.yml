@@ -1,0 +1,143 @@
+name: Production Gate Synology Read-only Observer
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - .github/workflows/production-gate-synology-observer.yml
+
+permissions:
+  actions: write
+  contents: read
+
+concurrency:
+  group: production-gate-synology-readonly
+  cancel-in-progress: false
+
+jobs:
+  dispatch-readonly-preflight:
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'agent/production-go-live-gate'
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+
+    steps:
+      - name: Dispatch trusted-main read-only Synology preflight
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          dispatched_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          gh api             --method POST             "repos/${GITHUB_REPOSITORY}/actions/workflows/synology-production-target-preflight.yml/dispatches"             -f ref=main             -f 'inputs[run_restore_drill]=false'
+          echo "PREFLIGHT_DISPATCHED_AT=$dispatched_at" >> "$GITHUB_ENV"
+
+      - name: Locate dispatched preflight
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          run_id=""
+          for attempt in $(seq 1 60); do
+            run_id="$(
+              gh api                 "repos/${GITHUB_REPOSITORY}/actions/workflows/synology-production-target-preflight.yml/runs?event=workflow_dispatch&branch=main&per_page=20"                 --jq ".workflow_runs | map(select(.created_at >= \"${PREFLIGHT_DISPATCHED_AT}\")) | sort_by(.created_at) | last | .id // empty"
+            )"
+            if [[ -n "$run_id" ]]; then
+              break
+            fi
+            sleep 5
+          done
+          if [[ -z "$run_id" ]]; then
+            echo "Read-only Synology preflight was dispatched but no run appeared." >&2
+            exit 1
+          fi
+          echo "PREFLIGHT_RUN_ID=$run_id" >> "$GITHUB_ENV"
+          echo "PREFLIGHT_RUN_URL=${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/$run_id" >> "$GITHUB_ENV"
+
+      - name: Wait for read-only preflight
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh run watch "$PREFLIGHT_RUN_ID"             --repo "$GITHUB_REPOSITORY"             --exit-status             --interval 10
+
+      - name: Validate sanitized evidence artifact
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          evidence_dir="$(mktemp -d)"
+          trap 'rm -rf "$evidence_dir"' EXIT
+          artifact_name="$(
+            gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${PREFLIGHT_RUN_ID}/artifacts"               --jq '.artifacts | map(select(.name | startswith("synology-production-target-preflight-evidence-"))) | first | .name // empty'
+          )"
+          artifact_digest="$(
+            gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${PREFLIGHT_RUN_ID}/artifacts"               --jq '.artifacts | map(select(.name | startswith("synology-production-target-preflight-evidence-"))) | first | .digest // empty'
+          )"
+          test -n "$artifact_name"
+          test -n "$artifact_digest"
+          gh run download "$PREFLIGHT_RUN_ID"             --repo "$GITHUB_REPOSITORY"             --name "$artifact_name"             --dir "$evidence_dir"
+          evidence_file="$(find "$evidence_dir" -type f -name '*.json' -print -quit)"
+          test -n "$evidence_file"
+          python3 - "$evidence_file" <<'PY'
+          import json
+          import re
+          import sys
+
+          path = sys.argv[1]
+          with open(path, encoding="utf-8") as handle:
+              evidence = json.load(handle)
+
+          required = {
+              "classification": "STAGING_PROVEN",
+              "target": "local-synology",
+              "database_restore_drill": "NOT_RUN",
+              "production_environment_proven": False,
+              "container_singleton_and_running": "PASS",
+              "restart_policies": "PASS",
+              "private_network_membership": "PASS",
+              "host_bindings_fail_closed": "PASS",
+              "database_and_redis_unpublished": "PASS",
+              "immutable_runtime_images": "PASS",
+              "application_and_gateway_health": "PASS",
+              "canary_effective_grant_verifiers": "PASS",
+              "redis_aof_and_acl": "PASS",
+          }
+          failures = [
+              key for key, expected in required.items()
+              if evidence.get(key) != expected
+          ]
+          if failures:
+              raise SystemExit("sanitized evidence invariant failure: " + ", ".join(failures))
+
+          release = evidence.get("deployed_release_sha", "")
+          if not re.fullmatch(r"[0-9a-f]{40}", release):
+              raise SystemExit("deployed release is not an exact commit SHA")
+          if evidence.get("platform_image") != f"ghcr.io/blakinio/oteryn-platform:sha-{release}":
+              raise SystemExit("Platform tag does not match deployed release SHA")
+          if evidence.get("gateway_image") != f"ghcr.io/blakinio/oteryn-game-gateway:sha-{release}":
+              raise SystemExit("Gateway tag does not match deployed release SHA")
+          if not re.fullmatch(r"sha256:[0-9a-f]{64}", evidence.get("canary_image_digest", "")):
+              raise SystemExit("Canary image digest is not immutable")
+
+          forbidden_keys = {
+              "password", "token", "secret", "cookie", "connection_string",
+              "database_dump", "totp", "recovery_code",
+          }
+          normalized_keys = {str(key).lower() for key in evidence}
+          if forbidden_keys & normalized_keys:
+              raise SystemExit("forbidden key in sanitized evidence")
+          PY
+
+          release_sha="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["deployed_release_sha"])' "$evidence_file")"
+          canary_digest="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["canary_image_digest"])' "$evidence_file")"
+          {
+            echo "### Production Gate Synology read-only observation"
+            echo "- dispatched run: `$PREFLIGHT_RUN_ID`"
+            echo "- deployed Platform/Gateway source SHA: `$release_sha`"
+            echo "- deployed Canary image digest: `$canary_digest`"
+            echo "- restore drill: `NOT_RUN`"
+            echo "- runtime classification: `STAGING_PROVEN`"
+            echo "- production environment proven: `false`"
+            echo "- sanitized artifact: `$artifact_name`"
+            echo "- artifact digest: `$artifact_digest`"
+          } >> "$GITHUB_STEP_SUMMARY"
