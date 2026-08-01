@@ -18,7 +18,9 @@ The repository contains a broad and internally consistent portal implementation 
 
 Normalized findings remain **0 HIGH, 6 MEDIUM and 1 LOW**. Independent verdict remains **`VALIDATED_WITH_CORRECTIONS`**.
 
-A new three-attempt post-fix execution materially corrects the Wiki conclusion: the original mobile publication-flash defect reproduced in two of three zero-retry attempts on the exact targeted session-serialization commit. Session blocking is therefore **not proven to remediate the defect deterministically**.
+A three-attempt post-fix execution materially corrects the Wiki conclusion: the original mobile publication-flash defect reproduced in two of three zero-retry attempts on the exact targeted session-serialization commit. Session blocking is therefore **not proven to remediate the defect deterministically**.
+
+Recovered embedded Playwright diagnostics further prove that contaminated desktop and tablet flows retain publication feedback despite 9 and 12 thumbnail HTTP 500 responses. Thumbnail 500 presence alone is therefore insufficient to explain the mobile flash loss.
 
 The task remains `BLOCKED`, not `DONE`, because exact frozen-target clean isolation, the exactly-one-damaged-row comparison and sanitized request/session/application evidence are still unavailable.
 
@@ -95,6 +97,29 @@ samples:
 
 Detailed evidence: `docs/agents/evidence/OTERYN-20260731-portal-backend-frontend-audit/ISSUE_365_POST_FIX_RERUN_EVIDENCE.md`.
 
+## Recovered embedded browser diagnostics
+
+The HTML artifacts for attempts 3 and 4 contain base64-embedded Playwright report ZIPs. Their `browser-diagnostics` attachments provide complete sanitized response, console, failed-request and page-error observations for successful and failed projects.
+
+| Attempt | Project | Result | Thumbnail HTTP 500 | Stale IDs | Failed requests | Pattern errors | Page errors |
+|---:|---|---|---:|---|---:|---:|---:|
+| 3 | desktop | PASS | 9 | `1/3/5` | 6 | 2 | 0 |
+| 3 | tablet | PASS | 12 | `1/3/5/7` | 8 | 2 | 0 |
+| 3 | mobile | REPRODUCED | 16 | `1/3/5/7/9` | 0 | 2 | 0 |
+| 4 | desktop | PASS | 9 | `1/3/5` | 6 | 2 | 0 |
+| 4 | tablet | PASS | 12 | `1/3/5/7` | 8 | 2 | 0 |
+| 4 | mobile | REPRODUCED | 14 | `1/3/5/7/9` | 0 | 2 | 0 |
+
+This strengthens three conclusions:
+
+1. fixture leakage remains deterministic by project order;
+2. invalid native pattern diagnostics remain deterministic at exactly two per original-flow project;
+3. thumbnail HTTP 500 presence alone does not necessarily remove the publication flash because contaminated desktop/tablet flows pass.
+
+The mobile 14-versus-16 response difference and causal contribution of damaged rows remain unknown. No shared cause is claimed.
+
+Exact artifact/report hashes and per-ID distributions: `docs/agents/evidence/OTERYN-20260731-portal-backend-frontend-audit/ISSUE_365_EMBEDDED_BROWSER_DIAGNOSTICS.md`.
+
 ## Findings
 
 ### MEDIUM — OTERYN-AUDIT-P35-006
@@ -142,6 +167,8 @@ Live GitHub task and PR state was treated as authoritative.
 ## Causality and nonclaims
 
 The audit does not claim that stale damaged media rows cause the flash loss. The new attempts were freshly bootstrapped, but the full critical profile can accumulate damaged rows inside each attempt. They prove post-fix reproduction under delivered suite ordering, not a clean-versus-one-row causal result.
+
+Desktop/tablet success under contamination rejects a simple deterministic relationship between any thumbnail HTTP 500 traffic and flash loss. It does not rule out timing, viewport or request-order interaction.
 
 The audit also does not claim:
 
