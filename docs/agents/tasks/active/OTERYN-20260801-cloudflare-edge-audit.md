@@ -59,11 +59,11 @@ blockers: []
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-01T13:37:00Z
+updated_at: 2026-08-01T13:38:00Z
 status: implementing
 phase: read_only_edge_audit
 branch: ops/OTERYN-20260801-cloudflare-edge-audit-v2
-head: f7cd61f834885113841b8804062ccb5d4477aff8
+head: 430cbc20f95c6fa72fdfdb7f315409a423455abd
 pr: 406
 context_routes:
   - agent-governance
@@ -119,8 +119,8 @@ validation:
     result: PASS
     evidence: exact-head mock API, GET-only and sanitized-output validation
   - command: Agent Governance run 30701951794
-    result: FAIL_REPAIRED
-    evidence: checkpoint schema failure only; corrected in the next head
+    result: FAIL
+    evidence: checkpoint schema failure only; corrected in subsequent heads
 blockers: []
 next_action: Re-run exact-head validation, merge the protected audit implementation, trigger one read-only live audit from trusted main, then design only the smallest evidence-supported repair.
 ```
