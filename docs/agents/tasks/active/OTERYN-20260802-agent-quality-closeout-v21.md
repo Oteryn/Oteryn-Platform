@@ -60,12 +60,12 @@ feature_scope:
 ```yaml
 checkpoint_version: 1
 policy_version: 2
-updated_at: 2026-08-02T00:20:00+02:00
-head: defd30538eccacd4f71d5200b75a616a8619c11b
+updated_at: 2026-08-02T00:24:00+02:00
+head: c66d6b4156162222adf9a5d9a248aff41dd3c1d6
 branch: docs/agent-quality-closeout-v21-20260802
-pr: none
-status: implementing
-phase: integrate
+pr: 443
+status: validating
+phase: validate
 session_id: chat-20260802-quality-v21
 session_role: coordinator
 execution_mode: chat
@@ -79,10 +79,11 @@ owned_paths:
   - docs/agents/tasks/active/OTERYN-20260802-agent-quality-closeout-v21.md
 proven:
   - The v2.1 contract exists and the handover declares it mandatory for substantial phases.
+  - PR 443 owns the governance contract, handover integration, and task record.
 derived:
   - Future task prompts must treat full-stack completeness, audit, E2E, exact-head CI, PR cleanup, and archival as one completion gate.
 unknown:
-  - Exact-head workflow results and PR number.
+  - Exact-head workflow results after this PR binding update.
 conflicts: []
 changed_paths:
   - docs/agents/AGENT_QUALITY_AND_CLOSEOUT.md
@@ -90,5 +91,5 @@ changed_paths:
   - docs/agents/tasks/active/OTERYN-20260802-agent-quality-closeout-v21.md
 validation: []
 blockers: []
-next_action: open the governance PR, record its exact identity, and validate the final head
+next_action: verify exact-head workflows for PR 443, then complete merge and archive gates
 ```
