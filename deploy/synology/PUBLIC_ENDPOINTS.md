@@ -9,7 +9,7 @@ https://oteryn.molehill.cloud
   -> Oteryn Platform web server
   -> http://127.0.0.1:8000
 
-https://login.oteryn.molehill.cloud
+https://gateway.molehill.cloud
   -> Oteryn Game Gateway / native client login API
   -> http://127.0.0.1:8080
 ```
@@ -22,6 +22,8 @@ Do not swap these origins:
 - port `7172` is the Canary game-protocol TCP endpoint and is not an HTTP Cloudflare Tunnel origin;
 - port `3031` belongs to a different project.
 
+`login.oteryn.molehill.cloud` is a retired public hostname. It is not covered by the normal one-label Universal wildcard and must not be used by new deployment or client configuration.
+
 The loopback origins are intentional. The current deployment contract keeps Platform and Gateway bound to Synology host loopback rather than `192.168.1.2`.
 
-The durable cross-component contract is `docs/contracts/PUBLIC_ENDPOINTS_CONTRACT.md`.
+The durable cross-component contract is `docs/contracts/PUBLIC_ENDPOINTS_CONTRACT.md`; the hostname decision is recorded in ADR 0020.
