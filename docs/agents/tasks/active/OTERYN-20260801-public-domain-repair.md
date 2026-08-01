@@ -10,8 +10,9 @@ required_reads:
   - docs/operations/PRODUCTION_READINESS_CHECKLIST.md
 search_first:
   - PR #387 public-domain validation report and findings
-  - merged PRs #388 and #392
-  - Character Bazaar Staging Control runs 30693873142 and 30694481769
+  - merged PRs #388, #392 and #396
+  - Character Bazaar Staging Control run 30695167157
+  - sanitized artifact 8817085021
 optional_reads:
   - PR #383
   - PR #385
@@ -33,9 +34,10 @@ Repair the repository-owned public-domain defects proven by PR #387, deploy the 
 - [x] Marketplace Platform and scheduler use the canonical HTTPS origin and Secure cookies.
 - [x] Health checks cover Gateway identity, malformed login, private cache controls, canonical URLs and negative cross-routing.
 - [x] Protocol probes execute from the NAS host network namespace rather than the containerized runner loopback.
-- [x] Cloudflare/DNS/Synology changes and rollback are documented without secrets.
-- [ ] PR #396 exact head passes every applicable workflow.
-- [ ] The merged exact image is verified by Character Bazaar Staging Control with sanitized `STAGING_PROVEN` evidence.
+- [x] PR #396 exact head passed every applicable workflow.
+- [x] Exact merge SHA `3eb109b505f7d1c8718cffb823de6d9d5166717c` was deployed and verified with sanitized `STAGING_PROVEN` evidence.
+- [x] Cloudflare/DNS/Synology edge changes and rollback are documented without secrets.
+- [ ] Authorized Cloudflare/DNS edge changes and public acceptance probes are complete.
 - [x] `PRODUCTION_PROVEN` remains false until Issue #91 is completed.
 
 ## Ownership
@@ -56,10 +58,11 @@ dependencies:
   - PR #387 source validation package
   - merged PR #388
   - merged PR #392
+  - merged PR #396
   - Character Bazaar Staging Control
   - Issue #91 production go-live gate
 blockers:
-  - none for repository validation and bounded staging retry
+  - usable Cloudflare and DNS operator access for the documented edge plan and public acceptance probes
 cross_repository_tasks:
   - none
 ```
@@ -68,21 +71,21 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-01T10:04:00Z
-session_id: chatgpt-20260801-public-domain-repair-004
+updated_at: 2026-08-01T10:21:00Z
+session_id: chatgpt-20260801-public-domain-repair-005
 policy_version: 2
-phase: staging_health_boundary_repair
+phase: external_edge_blocked
 execution_mode: chat-github-connector
 repository_mutation_authorization: PROVEN
 external_mutation_scope_authorization: PROVEN
 external_operator_access: UNKNOWN
 staging_deployment_authorization: PROVEN
-context_pressure: medium
-decomposition_decision: continue
-branch: fix/OTERYN-20260801-host-network-health-check
-head: 886c3e7627add514514800ac049dfbe19e2fe386
-pr: 396
-status: validating
+context_pressure: low
+decomposition_decision: continue_when_access_available
+branch: docs/OTERYN-20260801-public-domain-staging-closeout
+head: 69825a9c7914fb527e5e330de0a6aee9ac78bf72
+pr: 398
+status: blocked
 context_routes:
   - agent-governance
   - security
@@ -90,60 +93,58 @@ context_routes:
   - api
   - testing
 owned_paths:
-  - deploy/synology/scripts/health-check.sh
-  - tests/Feature/SynologyStagingNetworkBoundaryTest.php
   - docs/agents/tasks/active/OTERYN-20260801-public-domain-repair.md
   - docs/agents/reports/OTERYN-20260801-public-domain-repair.md
 proven:
   - PR #388 merged as 82abef518f91d72d392db4420bb335773087c3e1 after all required exact-head workflows passed.
   - PR #392 merged as b249e5e9cb864ba01376efb273be323b90bcd500 after all path-applicable exact-head workflows passed.
-  - Image publication run 30693873144 number 1576 passed for the first merge.
-  - Staging run 30693873142 number 5 failed before Docker because partial Marketplace state was treated as a complete deployment environment.
-  - PR #392 corrected that loader boundary.
-  - Staging run 30694481769 number 6 checked out exact b249e5e9cb864ba01376efb273be323b90bcd500 and resolved both exact images.
-  - Run 30694481769 rendered the complete environment, recreated Platform, internal proxy and Gateway, completed migrations and database privilege checks, and verified all expected host bindings.
-  - Run 30694481769 then failed when direct Python requests targeted 127.0.0.1 inside the containerized runner namespace rather than the NAS host namespace.
-  - Existing public login probing already uses docker run with host networking and proves the correct boundary.
-  - PR #396 runs protocol checks in an ephemeral python container with host networking and bounded socket retries.
-  - The deterministic repair passed git diff check and Bash syntax validation before direct connector application.
+  - PR #396 exact head b61cfc1ac2f5900d3ad9e78e2433bede8f7eec88 passed CI 4018, Governance 3809, Phase 7 3053, Images 1582, Edge 1474, DB 2980 and Concurrency 2551.
+  - PR #396 merged as 3eb109b505f7d1c8718cffb823de6d9d5166717c.
+  - Exact Platform and Gateway images tagged sha-3eb109b505f7d1c8718cffb823de6d9d5166717c were published and resolved.
+  - Character Bazaar Staging Control run 30695167157 number 7 completed successfully on runner oteryn-synology-staging.
+  - Run 30695167157 verified exact bindings, Gateway identity and version, malformed login cache controls, negative cross-routing, MFA QR behavior, canonical forwarded login action, canonical requestless URLs and Canary LAN reachability.
+  - Character Bazaar enablement, transfer privilege boundary and final staging state persistence passed.
+  - Sanitized artifact 8817085021 has digest sha256:5523ee4c0a49a156e23a894e808915a9a1f5b424b961168eb732774e6056efbb.
+  - The artifact classifies exact source 3eb109b505f7d1c8718cffb823de6d9d5166717c as STAGING_PROVEN with Marketplace enabled, one scheduler and production_environment_proven false.
   - No production, Cloudflare, DNS, Canary-source, OTClient or PR #387 evidence mutation occurred.
 derived:
-  - The second failure is a health-check network-namespace defect, not a Gateway image, binding, migration or credential failure.
-  - The partially updated staging runtime must not be labelled STAGING_PROVEN until the full guarded action and evidence upload succeed.
+  - Repository-owned public-domain configuration and Synology staging deployment are complete.
+  - Public launch and production proof remain blocked exclusively on the separately controlled edge configuration and public acceptance sequence.
 unknown:
-  - Exact-head workflow results for PR #396.
-  - Result of the next exact staging verification run.
-  - Effective Cloudflare certificate, WAF, Access, bot, redirect and HSTS configuration.
+  - Effective Cloudflare certificate, WAF, Access, Bot, redirect and HSTS configuration.
   - Exact supported native-client minimum TLS version.
+  - Current public behavior after any independent edge changes since PR #387.
+  - Controlled password-recovery delivery result through the public edge.
 conflicts:
-  - The runner is containerized while published loopback ports belong to the NAS host; direct runner-process loopback cannot verify those host bindings.
+  - Staging is proven while the public edge remains unproven; STAGING_PROVEN must not be promoted to PUBLIC_DOMAIN_LAUNCH_READY or PRODUCTION_PROVEN.
 first_failure:
-  marker: runner-loopback-namespace-mismatch
-  evidence: run 30694481769 returned ConnectionRefusedError after successful container recreation and binding verification
+  marker: gateway-public-tls-handshake-failure
+  evidence: PR #387 runs 30690877286 and 30690957415 failed TLS negotiation before HTTP
 rejected_hypotheses:
-  - Exact Platform and Gateway images were available and resolved.
-  - Full environment rendering and the partial-state loader fix succeeded.
-  - Platform migration, OAuth client and database privilege checks succeeded.
-  - Gateway and Platform host bindings were present and exact.
+  - The final Gateway image or host binding is not the current blocker; run 30695167157 proved both.
+  - Canonical application URL generation is not the current blocker; run 30695167157 proved requestless and forwarded URLs.
+  - Marketplace staging state and host-network health checks are not current blockers; final run and artifact passed.
 changed_paths:
-  - deploy/synology/scripts/health-check.sh
-  - tests/Feature/SynologyStagingNetworkBoundaryTest.php
   - docs/agents/tasks/active/OTERYN-20260801-public-domain-repair.md
+  - docs/agents/reports/OTERYN-20260801-public-domain-repair.md
 validation:
-  - command: Character Bazaar Staging Control deploy-enable on b249e5e9cb864ba01376efb273be323b90bcd500
-    result: FAIL
-    evidence: run 30694481769 number 6 failed at direct runner-loopback Python protocol probe
-  - command: deterministic host-network patch validation
+  - command: path-applicable workflow suite on PR #396 exact head b61cfc1ac2f5900d3ad9e78e2433bede8f7eec88
     result: PASS
-    evidence: git diff check and bash syntax validation passed before connector application
-  - command: applicable workflow suite on PR #396 exact head
+    evidence: CI 4018, Governance 3809, Phase 7 3053, Images 1582, Edge 1474, DB 2980 and Concurrency 2551
+  - command: exact trusted-main image build for 3eb109b505f7d1c8718cffb823de6d9d5166717c
+    result: PASS
+    evidence: exact Platform and Gateway tags resolved before deployment
+  - command: Character Bazaar Staging Control deploy-enable for 3eb109b505f7d1c8718cffb823de6d9d5166717c
+    result: PASS
+    evidence: run 30695167157 number 7 and artifact 8817085021
+  - command: public Cloudflare DNS TLS redirect WAF HSTS and password-recovery acceptance sequence
     result: NOT_RUN
-    evidence: GitHub Actions triggered by branch commits
-deployment_evidence: Runtime containers were recreated during run 30694481769, but final state persistence and sanitized evidence upload were skipped; STAGING_PROVEN is not established for this repair.
-rollback: The deployment process retained the prior image snapshot; no production or public-edge mutation occurred. A later successful exact deployment or explicit guarded rollback must establish final staging state.
+    evidence: no usable external operator connector or public probe path in this session
+deployment_evidence: STAGING_PROVEN artifact 8817085021 for exact source 3eb109b505f7d1c8718cffb823de6d9d5166717c; digest sha256:5523ee4c0a49a156e23a894e808915a9a1f5b424b961168eb732774e6056efbb; production_environment_proven false.
+rollback: Repository rollback is a revert of merged repair commits. Synology retains prior image snapshots for explicit guarded runtime rollback. External rollback restores the captured certificate, tunnel, WAF, Access, Bot, redirect and HSTS state.
 blockers:
-  - none for exact-head validation and guarded staging retry
-next_action: Pass all applicable exact-head workflows on PR #396, squash merge, dispatch Character Bazaar Staging Control for the exact merge SHA, and verify the sanitized STAGING_PROVEN artifact.
+  - Cloudflare and DNS operator access is unavailable, so the documented edge repair and public acceptance probes cannot be executed.
+next_action: Provide usable Cloudflare and DNS operator access, capture current state, apply the report plan in reversible order, and run the exact public acceptance probes without changing production application code.
 ```
 
 ## Report
@@ -152,4 +153,4 @@ next_action: Pass all applicable exact-head workflows on PR #396, squash merge, 
 
 ## Notes
 
-Staging completion does not prove the public edge or production. `PUBLIC_DOMAIN_LAUNCH_READY` and `PRODUCTION_PROVEN` remain false until separately authorized external acceptance checks pass.
+Repository and staging work are complete. The task remains active and blocked because `PUBLIC_DOMAIN_LAUNCH_READY` and `PRODUCTION_PROVEN` are still false pending external edge work.
