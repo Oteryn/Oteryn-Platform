@@ -5,93 +5,78 @@ required_reads:
   - docs/agents/EXECUTION_PROTOCOL.md
   - docs/agents/CONTEXT_HANDOFF.md
   - docs/contracts/PUBLIC_ENDPOINTS_CONTRACT.md
-  - deploy/synology/PUBLIC_ENDPOINTS.md
-  - docs/architecture/adr/0020-use-single-level-gateway-public-hostname.md
-  - docs/operations/CLOUDFLARE_ENDPOINT_MANAGEMENT.md
   - docs/operations/CLOUDFLARE_EDGE_AUDIT.md
+  - docs/operations/OTERYN_PUBLIC_EDGE_VALIDATION.md
 search_first:
-  - PR #427 single-level Gateway hostname cutover
-  - PR #424 final read-only edge checkpoint
-  - runs 30708559130 and 30709108382
+  - PR #427 Gateway hostname cutover
+  - PR #433 trusted-main endpoint audit
+  - PR #434 trusted-main endpoint apply
+  - PR #435 post-apply endpoint audit
+  - Issue #91 endpoint operation evidence
 optional_reads:
   - docs/agents/tasks/active/OTERYN-20260801-public-domain-repair.md
-  - Issue #91
 ---
 
 # OTERYN-20260801-cloudflare-edge-audit
 
 ## Goal
 
-Replace the uncovered `login.oteryn.molehill.cloud` Game Gateway hostname with the owner-approved `gateway.molehill.cloud`, preserve the dedicated `127.0.0.1:8080` Gateway origin, avoid Advanced Certificate Manager, and retire only the exact safe legacy Tunnel/DNS state.
+Prove the post-migration Cloudflare certificate/policy state and public DNS/TLS/HTTP behavior for `oteryn.molehill.cloud` and `gateway.molehill.cloud`, then isolate the smallest remaining WAF/Bot remediation without exposing credentials, rule expressions, response bodies or cookies.
 
 ## Acceptance criteria
 
-- [x] ADR 0020 and current public endpoint contracts designate `gateway.molehill.cloud`.
-- [x] Tunnel/DNS automation preserves unrelated ingress and removes legacy state only when exact and safe.
-- [x] Edge audits implement one-label wildcard semantics and classify the old hostname as retired.
-- [x] Synology health checks use the canonical Gateway Host header.
-- [x] CI blocks accidental runtime/configuration reuse of the retired hostname.
-- [x] Focused tests and all exact-head repository workflows pass for implementation head `5083f0aa6f903db58accb0662d82dacd2554930b`.
-- [ ] Trusted-main endpoint audit and guarded live migration complete.
-- [ ] Post-migration edge audit and independent public DNS/TLS/HTTP acceptance pass.
+- [x] `gateway.molehill.cloud` is the canonical Game Gateway hostname.
+- [x] Tunnel/DNS post-apply audit proves healthy/current canonical state and absent legacy DNS.
+- [x] Advanced Certificate Manager is no longer required by the hostname design.
+- [ ] Trusted-main Cloudflare edge audit proves active wildcard coverage for the Gateway and current WAF/Bot/Access/settings state.
+- [ ] Independent GitHub-hosted DNS/TLS/HTTP probes classify both canonical endpoints.
+- [ ] Sanitized evidence is uploaded and a fixed allowlist result is published to Issue #91.
+- [ ] Remaining product failures are mapped to exact Cloudflare controls without speculative mutation.
+- [ ] WAF/Bot apply occurs only after exact write scopes and reversible automation are validated.
 - [ ] Native-client consumer configuration is updated through its separately controlled release path.
-- [ ] WAF/Bot repair is performed only with the exact required Edit permissions.
-- [ ] `PUBLIC_DOMAIN_LAUNCH_READY` and `PRODUCTION_PROVEN` remain false until production acceptance passes.
+- [ ] `PUBLIC_DOMAIN_LAUNCH_READY` and `PRODUCTION_PROVEN` remain false until all production acceptance passes.
 
 ## Ownership
 
 ```yaml
 owned_paths:
-  - .github/workflows/cloudflare-oteryn-edge-audit.yml
-  - .github/workflows/cloudflare-oteryn-endpoints.yml
-  - .github/workflows/cloudflare-zone-edge-audit.yml
-  - deploy/synology/PUBLIC_ENDPOINTS.md
-  - deploy/synology/scripts/health-check.sh
-  - docs/agents/REPOSITORY_MAP.md
-  - docs/agents/reports/OTERYN-20260801-cloudflare-edge-audit.md
+  - .github/workflows/oteryn-public-edge-validation.yml
+  - ops/triggers/oteryn-public-edge-validation.md
+  - scripts/operations/oteryn-public-edge-validation.py
+  - scripts/operations/oteryn-public-edge-result.py
+  - tests/operations/oteryn-public-edge-validation/**
+  - docs/operations/OTERYN_PUBLIC_EDGE_VALIDATION.md
   - docs/agents/tasks/active/OTERYN-20260801-cloudflare-edge-audit.md
-  - docs/architecture/adr/0020-use-single-level-gateway-public-hostname.md
-  - docs/architecture/adr/README.md
-  - docs/contracts/PUBLIC_ENDPOINTS_CONTRACT.md
-  - docs/operations/CLOUDFLARE_EDGE_AUDIT.md
-  - docs/operations/CLOUDFLARE_ENDPOINT_MANAGEMENT.md
-  - docs/operations/CLOUDFLARE_ZONE_EDGE_AUDIT.md
-  - scripts/operations/cloudflare-oteryn-edge-audit.py
-  - scripts/operations/cloudflare-oteryn-endpoints.sh
-  - scripts/operations/cloudflare-zone-edge-audit.sh
-  - tests/operations/cloudflare-oteryn-edge-audit/**
-  - tests/operations/cloudflare-oteryn-endpoints/**
-  - tests/operations/cloudflare-zone-edge-audit/**
+  - docs/agents/reports/OTERYN-20260801-cloudflare-edge-audit.md
 modules:
   - operations
   - edge-security
   - game-gateway
-  - synology-staging
 dependencies:
   - production-cloudflare GitHub environment
-  - account token for Tunnel/DNS
-  - dedicated user token for zone-edge reads
+  - dedicated edge read token
+  - GitHub-hosted runner public network
 blockers:
-  - none for merge or bounded Tunnel/DNS migration
-  - WAF/Bot mutation still requires Zone WAF Edit and Bot Management Edit
+  - none for read-only validation
+  - WAF/Bot mutation requires Zone WAF Edit and Bot Management Edit
 cross_repository_tasks:
-  - native-client endpoint rollout remains a separately controlled consumer update
+  - native-client endpoint rollout remains a separate consumer update
 ```
 
 ## Context checkpoint
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-01T17:44:00Z
-head: 5083f0aa6f903db58accb0662d82dacd2554930b
-branch: fix/OTERYN-20260801-gateway-single-level-host-cutover
-pr: 427
-status: ready
+updated_at: 2026-08-01T18:12:00Z
+head: 44a018b3ad25bfad57651368ce535398a03927ec
+branch: feat/OTERYN-20260801-public-edge-post-migration-validation
+pr: none
+status: implementing
 policy_version: 2
 task_kind: implementation
-phase: repository_implementation_validated
+phase: post_migration_public_edge_validation
 execution_mode: chat-github-connector
-execution_reason: bounded repository implementation, deterministic emulation and exact-head validation
+execution_reason: durable read-only validation, exact-head CI and trusted-main production observation
 context_pressure: medium
 decomposition_decision: phased
 context_routes:
@@ -100,110 +85,55 @@ context_routes:
   - api
   - testing
 owned_paths:
-  - .github/workflows/cloudflare-oteryn-edge-audit.yml
-  - .github/workflows/cloudflare-oteryn-endpoints.yml
-  - .github/workflows/cloudflare-zone-edge-audit.yml
-  - deploy/synology/PUBLIC_ENDPOINTS.md
-  - deploy/synology/scripts/health-check.sh
-  - docs/agents/REPOSITORY_MAP.md
-  - docs/agents/reports/OTERYN-20260801-cloudflare-edge-audit.md
+  - .github/workflows/oteryn-public-edge-validation.yml
+  - ops/triggers/oteryn-public-edge-validation.md
+  - scripts/operations/oteryn-public-edge-validation.py
+  - scripts/operations/oteryn-public-edge-result.py
+  - tests/operations/oteryn-public-edge-validation/**
+  - docs/operations/OTERYN_PUBLIC_EDGE_VALIDATION.md
   - docs/agents/tasks/active/OTERYN-20260801-cloudflare-edge-audit.md
-  - docs/architecture/adr/0020-use-single-level-gateway-public-hostname.md
-  - docs/architecture/adr/README.md
-  - docs/contracts/PUBLIC_ENDPOINTS_CONTRACT.md
-  - docs/operations/CLOUDFLARE_EDGE_AUDIT.md
-  - docs/operations/CLOUDFLARE_ENDPOINT_MANAGEMENT.md
-  - docs/operations/CLOUDFLARE_ZONE_EDGE_AUDIT.md
-  - scripts/operations/cloudflare-oteryn-edge-audit.py
-  - scripts/operations/cloudflare-oteryn-endpoints.sh
-  - scripts/operations/cloudflare-zone-edge-audit.sh
-  - tests/operations/cloudflare-oteryn-edge-audit/**
-  - tests/operations/cloudflare-oteryn-endpoints/**
-  - tests/operations/cloudflare-zone-edge-audit/**
 proven:
-  - Owner approved gateway.molehill.cloud as the canonical public Game Gateway hostname.
-  - Universal wildcard coverage applies to one-label gateway.molehill.cloud and not to the retired two-label hostname.
-  - Advanced Certificate Manager and SSL certificate write scope are unnecessary for this design.
-  - Gateway remains bound to Synology loopback 127.0.0.1:8080 as a separate service.
-  - Migration verifies new canonical Tunnel/DNS state before deleting an exact legacy CNAME to the same tunnel.
-  - Ambiguous, non-CNAME, duplicate or externally targeted legacy state fails closed.
-  - Implementation head 5083f0aa6f903db58accb0662d82dacd2554930b passed every triggered repository workflow.
+  - Trusted-main endpoint audit run 30712185284 proved healthy Tunnel, current canonical DNS, absent legacy DNS and no mutation.
+  - Trusted-main apply run 30712337838 ended healthy/current with both canonical DNS records current, legacy DNS absent and no mutation.
+  - Independent post-apply audit run 30712488508 reproduced healthy/current canonical state with mutation none.
+  - Universal one-label wildcard design can cover gateway.molehill.cloud without Advanced Certificate Manager.
+  - Existing Cloudflare edge collectors are GET-only and sanitize WAF expressions and credentials.
 derived:
-  - Trusted-main endpoint audit may proceed without adding Cloudflare permissions or purchasing a certificate add-on.
-  - WAF/Bot remediation remains independent from hostname migration.
+  - Tunnel/DNS is no longer the first failure.
+  - Remaining public failures, if present, must be evaluated against certificate issuance/presentation, WAF/Bot policy, browser protections or application behavior.
 unknown:
-  - Live drift for gateway.molehill.cloud before trusted-main audit.
-  - Public DNS/TLS/HTTP behavior after migration.
-  - Native-client consumer repository or release configuration location.
+  - Active certificate coverage currently reported for gateway.molehill.cloud after migration.
+  - Public TLS handshake and Gateway HTTP behavior from an independent network.
+  - Whether the country WAF block and Bot Fight Mode still prevent canonical requests.
+  - Native-client consumer configuration location.
 conflicts:
-  - Historical evidence and explicit migration code retain the old hostname while current runtime/configuration reuse is forbidden.
+  - Endpoint control-plane state is current while public launch readiness remains unproven.
 first_failure:
-  marker: legacy-multilevel-gateway-hostname-not-covered
-  evidence: runs 30708559130 and 30709108382 proved missing old-host coverage and zero Advanced Certificate Manager quota
+  marker: post-migration-public-edge-unvalidated
+  evidence: Tunnel/DNS is proven current, but no current combined Cloudflare/public observation exists for gateway.molehill.cloud
 rejected_hypotheses:
-  - A path-based Gateway is required; a dedicated one-label hostname preserves separation without rewriting paths.
-  - Advanced Certificate Manager is required; Universal SSL can cover gateway.molehill.cloud.
-  - Legacy DNS can be deleted unconditionally; unsafe or ambiguous legacy state must fail closed.
-  - Tunnel/DNS migration alone repairs 403 responses; WAF country policy and Bot Fight Mode remain separate controls.
+  - Tunnel/DNS drift remains the blocker; three trusted-main operations ended current.
+  - The retired multi-level hostname must be retained; canonical DNS and Tunnel now use gateway.molehill.cloud.
+  - Public validation requires Cloudflare mutation; certificate, policy and network behavior can be observed read-only.
 changed_paths:
-  - .github/workflows/cloudflare-oteryn-edge-audit.yml
-  - .github/workflows/cloudflare-oteryn-endpoints.yml
-  - .github/workflows/cloudflare-zone-edge-audit.yml
-  - deploy/synology/PUBLIC_ENDPOINTS.md
-  - deploy/synology/scripts/health-check.sh
-  - docs/agents/REPOSITORY_MAP.md
-  - docs/agents/reports/OTERYN-20260801-cloudflare-edge-audit.md
+  - .github/workflows/oteryn-public-edge-validation.yml
+  - ops/triggers/oteryn-public-edge-validation.md
+  - scripts/operations/oteryn-public-edge-validation.py
+  - scripts/operations/oteryn-public-edge-result.py
+  - tests/operations/oteryn-public-edge-validation/pass-fixture.json
+  - tests/operations/oteryn-public-edge-validation/run.sh
+  - docs/operations/OTERYN_PUBLIC_EDGE_VALIDATION.md
   - docs/agents/tasks/active/OTERYN-20260801-cloudflare-edge-audit.md
-  - docs/architecture/adr/0020-use-single-level-gateway-public-hostname.md
-  - docs/architecture/adr/README.md
-  - docs/contracts/PUBLIC_ENDPOINTS_CONTRACT.md
-  - docs/operations/CLOUDFLARE_EDGE_AUDIT.md
-  - docs/operations/CLOUDFLARE_ENDPOINT_MANAGEMENT.md
-  - docs/operations/CLOUDFLARE_ZONE_EDGE_AUDIT.md
-  - scripts/operations/cloudflare-oteryn-edge-audit.py
-  - scripts/operations/cloudflare-oteryn-endpoints.sh
-  - scripts/operations/cloudflare-zone-edge-audit.sh
-  - tests/operations/cloudflare-oteryn-edge-audit/mock_server.py
-  - tests/operations/cloudflare-oteryn-edge-audit/run.sh
-  - tests/operations/cloudflare-oteryn-endpoints/check-legacy-hostname.sh
-  - tests/operations/cloudflare-oteryn-endpoints/mock_cloudflare.py
-  - tests/operations/cloudflare-oteryn-endpoints/run.sh
-  - tests/operations/cloudflare-zone-edge-audit/run.sh
 validation:
-  - command: Cloudflare Oteryn Endpoints run 30710780495
-    result: PASS
-    evidence: migration, safe retirement, idempotency and legacy-host guard passed on 5083f0aa6f903db58accb0662d82dacd2554930b
-  - command: Cloudflare Oteryn Edge Audit run 30710780509
-    result: PASS
-    evidence: wildcard-aware canonical and retired host classification passed
-  - command: Cloudflare Zone Edge Audit run 30710780471
-    result: PASS
-    evidence: schema-version-2 GET-only audit and separate token wiring passed
-  - command: Agent Governance run 30710780532
-    result: PASS
-    evidence: checkpoint and active-task governance passed
-  - command: CI run 30710780512
-    result: PASS
-    evidence: formatting, static analysis and application tests passed
-  - command: Phase 7 run 30710780506
-    result: PASS
-    evidence: production-like deployment, security, data, health, backup, restore and rollback checks passed
-  - command: Build Synology Staging Images run 30710780556
-    result: PASS
-    evidence: package validation and platform, Gateway and deploy-runner image builds passed
-  - command: Edge Security Emulation run 30710780492
-    result: PASS
-    evidence: exact-head edge security emulation passed
-  - command: Game Auth Ticket Concurrency run 30710780521
-    result: PASS
-    evidence: independent-process MariaDB concurrency proof passed
-  - command: Platform DB Outage Validation run 30710780499
-    result: PASS
-    evidence: fail-closed outage and recovery checks passed
+  - command: deterministic bounded collector tests
+    result: NOT_RUN
+    evidence: workflow validation will run after PR creation
+  - command: trusted-main post-migration observation
+    result: NOT_RUN
+    evidence: requires merged exact audit marker after implementation reaches main
 blockers:
-  - none for merge or trusted-main Tunnel/DNS audit
-  - WAF/Bot apply remains blocked on Zone WAF Edit and Bot Management Edit
-next_action: Merge PR #427, run trusted-main endpoint audit, apply only when legacy state is safe, then re-run edge audits and public DNS/TLS/HTTP acceptance.
+  - none for implementation and read-only observation
+next_action: Open the implementation PR, pass exact-head validation, merge, then merge an exact audit marker and inspect the sanitized Issue #91 result.
 ```
 
 ## Report
