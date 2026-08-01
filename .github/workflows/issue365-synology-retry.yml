@@ -22,9 +22,8 @@ env:
   PLAYWRIGHT_IMAGE: mcr.microsoft.com/playwright:v1.60.0-noble
 
 jobs:
-  validate:
-    runs-on: oteryn-staging
-    timeout-minutes: 120
+  announce:
+    runs-on: ubuntu-latest
     steps:
       - name: Publish retry run identity
         continue-on-error: true
@@ -60,6 +59,11 @@ jobs:
                   raise SystemExit(f'comment publish returned {response.status}')
           PY
 
+  validate:
+    needs: announce
+    runs-on: oteryn-staging
+    timeout-minutes: 120
+    steps:
       - name: Checkout exact frozen target
         uses: actions/checkout@v7
         with:
