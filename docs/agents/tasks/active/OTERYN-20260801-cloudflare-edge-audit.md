@@ -43,6 +43,7 @@ owned_paths:
   - scripts/operations/cloudflare-oteryn-edge-audit.py
   - tests/operations/cloudflare-oteryn-edge-audit/**
   - docs/operations/CLOUDFLARE_EDGE_AUDIT.md
+  - docs/agents/reports/OTERYN-20260801-cloudflare-edge-audit.md
   - docs/agents/tasks/active/OTERYN-20260801-cloudflare-edge-audit.md
   - ops/triggers/cloudflare-edge-audit.md
 modules:
@@ -58,9 +59,25 @@ blockers: []
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-01T13:26:00Z
-status: implementation
+updated_at: 2026-08-01T13:37:00Z
+status: implementing
 phase: read_only_edge_audit
+branch: ops/OTERYN-20260801-cloudflare-edge-audit-v2
+head: f7cd61f834885113841b8804062ccb5d4477aff8
+pr: 406
+context_routes:
+  - agent-governance
+  - security
+  - testing
+owned_paths:
+  - .github/workflows/cloudflare-oteryn-edge-audit.yml
+  - scripts/operations/cloudflare-oteryn-edge-audit.py
+  - tests/operations/cloudflare-oteryn-edge-audit/mock_server.py
+  - tests/operations/cloudflare-oteryn-edge-audit/run.sh
+  - docs/operations/CLOUDFLARE_EDGE_AUDIT.md
+  - docs/agents/reports/OTERYN-20260801-cloudflare-edge-audit.md
+  - docs/agents/tasks/active/OTERYN-20260801-cloudflare-edge-audit.md
+  - ops/triggers/cloudflare-edge-audit.md
 repository_mutation_authorization: PROVEN
 external_read_authorization: PROVEN
 external_mutation_authorization: NOT_USED
@@ -69,10 +86,41 @@ proven:
   - Public revalidation 30701140509 proves Gateway TLS, WWW challenge, redirects and HSTS remain unresolved.
   - Existing endpoint automation cannot inspect certificates, Rulesets/WAF, Bot, Access, redirects or HSTS.
   - Local deterministic mock validation of the new audit passes.
+  - Cloudflare Oteryn Edge Audit run 30701951772 passed on exact head f7cd61f834885113841b8804062ccb5d4477aff8.
+derived:
+  - A trusted-main read-only audit is the smallest safe next step before expanding Cloudflare mutation scope.
+  - The trigger branch cannot modify code that receives the protected environment token.
 unknown:
   - Whether the production-cloudflare token currently has read access to the remaining API families.
   - Whether exact-host certificate capability is available for the zone.
   - Which Cloudflare control produces the current public 403 challenge.
   - Current redirect, Access and HSTS rule ownership.
-next_action: Merge the protected audit implementation, trigger one read-only live audit from trusted main, then design only the smallest evidence-supported repair.
+conflicts: []
+first_failure:
+  marker: active-task-checkpoint-schema-incomplete
+  evidence: Agent Governance run 30701951794 job 91374392000 reported missing required checkpoint fields and unsupported status implementation.
+rejected_hypotheses:
+  - The audit implementation caused the governance failure; its own exact-head workflow passed before governance validation.
+  - Live Cloudflare access occurred on the implementation PR; the live-audit job was correctly skipped.
+changed_paths:
+  - .github/workflows/cloudflare-oteryn-edge-audit.yml
+  - scripts/operations/cloudflare-oteryn-edge-audit.py
+  - tests/operations/cloudflare-oteryn-edge-audit/mock_server.py
+  - tests/operations/cloudflare-oteryn-edge-audit/run.sh
+  - docs/operations/CLOUDFLARE_EDGE_AUDIT.md
+  - docs/agents/reports/OTERYN-20260801-cloudflare-edge-audit.md
+  - docs/agents/tasks/active/OTERYN-20260801-cloudflare-edge-audit.md
+  - ops/triggers/cloudflare-edge-audit.md
+validation:
+  - command: bash tests/operations/cloudflare-oteryn-edge-audit/run.sh
+    result: PASS
+    evidence: local deterministic mock validation before repository submission
+  - command: Cloudflare Oteryn Edge Audit run 30701951772
+    result: PASS
+    evidence: exact-head mock API, GET-only and sanitized-output validation
+  - command: Agent Governance run 30701951794
+    result: FAIL_REPAIRED
+    evidence: checkpoint schema failure only; corrected in the next head
+blockers: []
+next_action: Re-run exact-head validation, merge the protected audit implementation, trigger one read-only live audit from trusted main, then design only the smallest evidence-supported repair.
 ```
