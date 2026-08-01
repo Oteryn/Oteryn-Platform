@@ -22,6 +22,8 @@ A three-attempt post-fix execution materially corrects the Wiki conclusion: the 
 
 Recovered embedded Playwright diagnostics further prove that contaminated desktop and tablet flows retain publication feedback despite 9 and 12 thumbnail HTTP 500 responses. Thumbnail 500 presence alone is therefore insufficient to explain the mobile flash loss.
 
+Source and Laravel lifecycle inspection narrows the strongest mechanism to `DERIVED / HIGH confidence`: authenticated media-index or thumbnail requests can save the same session before the redirected edit document and consume the one-request publication flash. Exact ordering remains unproven.
+
 The task remains `BLOCKED`, not `DONE`, because exact frozen-target clean isolation, the exactly-one-damaged-row comparison and sanitized request/session/application evidence are still unavailable.
 
 ## Evidence boundaries
@@ -32,6 +34,7 @@ The task remains `BLOCKED`, not `DONE`, because exact frozen-target clean isolat
 | `CI_PROVEN` | `fdb45a4325949d3ab1c4860e3a4527553f11c789` | strict contract and fresh current critical profile passed |
 | `CI_PROVEN` | `6c1e910d36771f50da5eded93cc50274a90c62d2` | original transient assertion: 1 PASS / 2 mobile reproductions after session serialization |
 | `DERIVED` | `6c1e...` → frozen Wiki runtime | identical Wiki application/view/route runtime; acceptance-suite composition differs |
+| `DERIVED / HIGH confidence` | flash request lifecycle | same-session media subrequest can age pending `status` before redirected edit document |
 | `STAGING_PROVEN` | `717977f252b09b9b2e979f8110b7f48b88682223` | staging evidence for a different source |
 | `PRODUCTION_PROVEN` | none | production remains `UNKNOWN` |
 
@@ -64,7 +67,7 @@ A fresh zero-retry run on direct source `fdb45a4325949d3ab1c4860e3a4527553f11c78
 
 This proves the delivered critical profile passes. It does not directly test the historical transient assertion in the original administration scenario because that assertion was removed. A related media-intensive scenario still asserts the publication flash and passes, but it cannot negate direct reproduction in the original flow.
 
-## New post-serialization original-flow execution
+## Post-serialization original-flow execution
 
 The exact targeted fix commit `6c1e910d36771f50da5eded93cc50274a90c62d2`:
 
@@ -120,6 +123,38 @@ The mobile 14-versus-16 response difference and causal contribution of damaged r
 
 Exact artifact/report hashes and per-ID distributions: `docs/agents/evidence/OTERYN-20260731-portal-backend-frontend-audit/ISSUE_365_EMBEDDED_BROWSER_DIAGNOSTICS.md`.
 
+## Flash request-lifecycle mechanism
+
+The strongest source-backed mechanism is classified `DERIVED / HIGH confidence`, not `PROVEN`.
+
+Repository and framework chain:
+
+1. publication redirects to the article edit route with `->with('status', 'Wiki article published.')`;
+2. the administrator layout renders the message only from `session('status')`;
+3. the Wiki article form immediately starts an authenticated media-index fetch and then lazy authenticated thumbnail requests;
+4. the edit document, media index, thumbnails and publication mutation all use the web session and Laravel session blocking;
+5. Laravel flash data is aged during session save;
+6. session blocking provides mutual exclusion but does not prioritize the redirect document over queued JSON or image requests.
+
+A media-index or thumbnail request can therefore acquire the serialized session first, save it and age the pending `status` before the redirected edit document renders. This fits:
+
+- durable publication with missing transient status;
+- intermittent rather than deterministic failure;
+- reproduction after adding `->block()`;
+- desktop/tablet success and mobile failure under the same stale-media family;
+- insufficiency of client-side `networkidle` as a server-side ordering guarantee.
+
+Not proven:
+
+- exact request order in attempts 3 and 4;
+- whether a valid or corrupt thumbnail is sufficient;
+- whether integrity failure changes scheduling or lock timing;
+- exact frozen-target clean behavior.
+
+Smallest later server-side candidate, not implemented here: narrowly preserve only a pending `status` flash across authenticated Wiki media-index and thumbnail responses, then prove that the redirected article-edit document consumes it exactly once. Client retries, delayed clicks or `networkidle` are not sufficient remediation.
+
+Detailed analysis: `docs/agents/evidence/OTERYN-20260731-portal-backend-frontend-audit/ISSUE_365_FLASH_REQUEST_LIFECYCLE_ANALYSIS.md`.
+
 ## Findings
 
 ### MEDIUM — OTERYN-AUDIT-P35-006
@@ -150,7 +185,7 @@ No one-record-per-rendered-surface applicability ledger prevents silent omission
 
 **Mobile Wiki publication intermittently loses accessible transient success feedback after durable success.**
 
-The defect is historically proven and reproduced after session serialization in two of three independent zero-retry attempts. Session serialization alone is insufficient to claim remediation.
+The defect is historically proven and reproduced after session serialization in two of three independent zero-retry attempts. Session serialization alone is insufficient to claim remediation. The most likely mechanism is request-order consumption of one-request flash by authenticated media subrequests, classified `DERIVED / HIGH confidence` pending exact ordering evidence.
 
 ### MEDIUM — OTERYN-AUDIT-P35-007
 
@@ -170,6 +205,8 @@ The audit does not claim that stale damaged media rows cause the flash loss. The
 
 Desktop/tablet success under contamination rejects a simple deterministic relationship between any thumbnail HTTP 500 traffic and flash loss. It does not rule out timing, viewport or request-order interaction.
 
+The request-lifecycle mechanism is a high-confidence inference from repository and Laravel session behavior. It is not relabelled as direct runtime ordering proof.
+
 The audit also does not claim:
 
 - direct execution of the custom observer on exact frozen SHA;
@@ -185,7 +222,8 @@ Latest directly proven staging source remains `717977f252b09b9b2e979f8110b7f48b8
 
 1. Fragment-aware content-scale closure, dedicated 503 coverage and fail-closed accessibility applicability under Issue #326.
 2. Continue Issue #365: reset EditorialMedia between samples, execute exact frozen-target clean isolation and one exactly controlled damaged-row comparison, and capture sanitized request/session/application evidence.
-3. Correct the two Wiki HTML patterns and add native validation plus zero-console-error regression coverage after focused classification.
+3. In a separately authorized implementation task, preserve only pending publication `status` flash across Wiki media-index/thumbnail session responses, with focused valid/corrupt/session-consumption tests before browser validation.
+4. Correct the two Wiki HTML patterns and add native validation plus zero-console-error regression coverage after focused classification.
 
 No implementation was authorized or performed by this audit.
 
