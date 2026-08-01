@@ -1,0 +1,33 @@
+name: Public Domain Staging Status
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/public-domain-staging-status.yml'
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  status:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TARGET_SHA: b249e5e9cb864ba01376efb273be323b90bcd500
+    steps:
+      - name: Report exact guarded staging run
+        shell: bash
+        run: |
+          set -euo pipefail
+          runs="$(gh api "/repos/${GITHUB_REPOSITORY}/actions/workflows/character-bazaar-staging-control.yml/runs?event=workflow_dispatch&branch=main&per_page=30")"
+          run="$(jq -c --arg sha "$TARGET_SHA" '[.workflow_runs[] | select(.head_sha == $sha)] | sort_by(.created_at) | last // empty' <<<"$runs")"
+          if [[ -z "$run" ]]; then
+            echo "STAGING_STATUS_RESULT=NOT_FOUND"
+            exit 1
+          fi
+          echo "STAGING_STATUS_RESULT=FOUND"
+          echo "STAGING_RUN_ID=$(jq -r '.id' <<<"$run")"
+          echo "STAGING_RUN_NUMBER=$(jq -r '.run_number' <<<"$run")"
+          echo "STAGING_STATUS=$(jq -r '.status' <<<"$run")"
+          echo "STAGING_CONCLUSION=$(jq -r '.conclusion // ""' <<<"$run")"
