@@ -2,7 +2,10 @@
 
 Use durable repository state instead of previous chat history.
 
-Before advising the repository owner or writing a prompt for another agent, read `docs/agents/PROMPTING_HANDOVER.md`. It defines the required Polish recommendation, execution-mode routing, task-shape decision, ready-to-paste worker prompt, validation contract, stop conditions, and prompt quality gate.
+Before advising the repository owner or writing a prompt for another agent:
+
+1. read `docs/agents/PROMPTING_HANDOVER.md` for the coordinator workflow and live-state inspection order;
+2. read `docs/agents/PROMPTING_STANDARD.md` for the normative prompt structure, mode routing, task-shape rules, validation contract, templates, stop conditions, and quality gate.
 
 Before resuming substantial work, read `docs/agents/CONTEXT_HANDOFF.md` and the active task checkpoint.
 
