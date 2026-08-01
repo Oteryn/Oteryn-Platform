@@ -5,6 +5,7 @@ import os
 
 ACCOUNT = "a" * 32
 ZONE = "b" * 32
+TOKEN_ID = "c" * 32
 
 class Handler(BaseHTTPRequestHandler):
     def log_message(self, format, *args):
@@ -19,7 +20,26 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         path = self.path
         if path == f"/accounts/{ACCOUNT}/tokens/verify":
-            return self.send({"status": "active"})
+            return self.send({"id": TOKEN_ID, "status": "active"})
+        if path == f"/accounts/{ACCOUNT}/tokens/{TOKEN_ID}":
+            return self.send({
+                "id": TOKEN_ID,
+                "name": "oteryn automation",
+                "status": "active",
+                "policies": [{
+                    "effect": "allow",
+                    "permission_groups": [
+                        {"id": "p1", "name": "Account API Tokens Read"},
+                        {"id": "p2", "name": "Cloudflare Tunnel Write"},
+                    ],
+                    "resources": {"com.cloudflare.api.account.*": "*"},
+                }],
+            })
+        if path == f"/accounts/{ACCOUNT}/tokens/permission_groups":
+            return self.send([
+                {"id": "p1", "name": "Account API Tokens Read", "scopes": ["com.cloudflare.api.account"]},
+                {"id": "p3", "name": "Account API Tokens Write", "scopes": ["com.cloudflare.api.account"]},
+            ])
         if path.startswith(f"/zones/{ZONE}/ssl/certificate_packs"):
             return self.send([{"id":"cert1","type":"advanced","status":"active","hosts":["molehill.cloud","login.oteryn.molehill.cloud"]}])
         if f"/zones/{ZONE}/settings/" in path:
