@@ -22,6 +22,7 @@
 | Relation to frozen Wiki runtime | `DERIVED` | identical Wiki application/view/route runtime; test-suite composition differs |
 | Request-lifecycle mechanism family | `DERIVED / HIGH confidence` | old-document media request may age `status` before redirect GET |
 | Responsive lazy-scroll probe | `CONTROLLED_SYNTHETIC / DERIVED` | action-induced old-document lazy work is feasible and responsive |
+| Exact execution procedure | `READY / NOT_EXECUTED` | fail-closed 12-sample frozen-target runbook |
 | Latest staging evidence | `PROVEN / STAGING_PROVEN` | `717977f252b09b9b2e979f8110b7f48b88682223` |
 | Frozen target deployed | `UNKNOWN` | no exact deployment proof |
 | Production | `UNKNOWN` | no exact-release evidence |
@@ -120,6 +121,21 @@ This proves action-induced responsive lazy work is technically feasible after an
 
 Detailed method, limitations and required C1/C2 differential: `ISSUE_365_LAZY_SCROLL_SYNTHETIC_PROBE.md`.
 
+## Exact frozen execution runbook
+
+`ISSUE_365_EXACT_FROZEN_EXECUTION_RUNBOOK.md` is the normative command-level procedure for the remaining gate. It is `READY / NOT_EXECUTED` and requires:
+
+- exact detached frozen SHA and clean checkout proof;
+- an ephemeral copy of the original Wiki scenario with only the historical status observer, request tracing and C1/C2 control added;
+- direct, ephemeral instrumentation of the lockfile-resolved Laravel `StartSession` lifecycle;
+- three zero-retry samples for each clean/corrupt × immediate/pre-scroll cell, 12 samples total;
+- exact row-count and object-state proof before every sample;
+- browser request, `X-Request-ID`, lock, session load/save and flash-aging correlation;
+- SHA-256 evidence manifest;
+- restoration of the original installed framework hash and empty Git status.
+
+The runbook defines causal proof only when a matching-session old-document media request loads and ages publication `status` after the publish save but before redirect GET. Temporal coexistence alone is explicitly insufficient.
+
 ## Issue #365 fixture boundary
 
 Historical 9/12/16 thumbnail HTTP 500 counts remain explained by intentionally damaged EditorialMedia rows leaking across acceptance projects. This remains a MEDIUM isolation/evidence defect and not proof that valid production media fails.
@@ -154,6 +170,7 @@ Totals: **0 HIGH, 6 MEDIUM, 1 LOW**.
 - `ISSUE_365_EMBEDDED_BROWSER_DIAGNOSTICS.md`
 - `ISSUE_365_FLASH_REQUEST_LIFECYCLE_ANALYSIS.md`
 - `ISSUE_365_LAZY_SCROLL_SYNTHETIC_PROBE.md`
+- `ISSUE_365_EXACT_FROZEN_EXECUTION_RUNBOOK.md`
 - `VALIDATOR_PACKET.md`
 - `VALIDATOR_PACKET_ADDENDUM.md`
 - `VALIDATOR_VERDICT.md`
@@ -161,12 +178,6 @@ Totals: **0 HIGH, 6 MEDIUM, 1 LOW**.
 
 ## Residual completion gate
 
-`VALIDATED` remains forbidden until a mutable checkout-capable execution performs:
-
-1. exact frozen SHA with an ephemeral restored transient observer;
-2. at least three clean isolated mobile samples;
-3. exactly one controlled missing/corrupt media row comparison;
-4. immediate-action versus pre-scroll request-order differential;
-5. sanitized browser request, server request, session-lock, flash-state and application evidence.
+`VALIDATED` remains forbidden until a mutable checkout-capable execution completes the normative 12-sample runbook and returns a hash-complete, sanitized, clean-restoration evidence package.
 
 No merge, deployment or production action is authorized.
