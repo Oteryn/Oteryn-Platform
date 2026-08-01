@@ -18,7 +18,8 @@ ACCESS_TOKEN = os.getenv("CLOUDFLARE_ACCESS_API_TOKEN", TOKEN)
 ACCOUNT = os.getenv("CLOUDFLARE_ACCOUNT_ID", "")
 ZONE = os.getenv("CLOUDFLARE_ZONE_ID", "")
 WWW = "oteryn.molehill.cloud"
-LOGIN = "login.oteryn.molehill.cloud"
+GATEWAY = "gateway.molehill.cloud"
+LEGACY_GATEWAY = "login.oteryn.molehill.cloud"
 OUT = Path(os.getenv("CLOUDFLARE_EDGE_AUDIT_OUT", "cloudflare-edge-audit"))
 PHASES = {
     "http_request_dynamic_redirect",
@@ -37,11 +38,7 @@ def die(message: str) -> None:
 def call(path: str, token: str | None = None) -> dict:
     selected_token = TOKEN if token is None else token
     if not selected_token:
-        return {
-            "status": 0,
-            "state": "error",
-            "errors": [{"message": "token is missing"}],
-        }
+        return {"status": 0, "state": "error", "errors": [{"message": "token is missing"}]}
     request = urllib.request.Request(
         BASE + path,
         headers={"Authorization": f"Bearer {selected_token}", "Accept": "application/json"},
@@ -64,11 +61,7 @@ def call(path: str, token: str | None = None) -> dict:
     try:
         data = json.loads(raw)
     except Exception:
-        return {
-            "status": status,
-            "state": "error",
-            "errors": [{"message": "non-JSON response"}],
-        }
+        return {"status": status, "state": "error", "errors": [{"message": "non-JSON response"}]}
 
     readable = 200 <= status < 300 and data.get("success") is True
     if readable:
@@ -92,6 +85,29 @@ def call(path: str, token: str | None = None) -> dict:
     }
 
 
+def hostname_covered(pattern: str, hostname: str) -> bool:
+    """Match exact hosts and one-label wildcard certificate names only."""
+    pattern = pattern.lower().rstrip(".")
+    hostname = hostname.lower().rstrip(".")
+    if pattern == hostname:
+        return True
+    if not pattern.startswith("*."):
+        return False
+    suffix = pattern[2:]
+    if not hostname.endswith("." + suffix):
+        return False
+    prefix = hostname[: -(len(suffix) + 1)]
+    return bool(prefix) and "." not in prefix
+
+
+def host_literal_present(expression: str, hostname: str) -> bool:
+    """Detect a complete hostname literal without treating a parent-domain suffix as a match."""
+    return re.search(
+        rf"(?<![a-z0-9.-]){re.escape(hostname.lower())}(?![a-z0-9.-])",
+        expression.lower(),
+    ) is not None
+
+
 def certs(response: dict) -> dict:
     output = {"state": response["state"], "http_status": response["status"]}
     if response["state"] != "readable":
@@ -100,29 +116,34 @@ def certs(response: dict) -> dict:
 
     packs = response["result"] if isinstance(response["result"], list) else []
     summaries = []
-    matching = []
+    gateway_matching = []
     for item in packs:
         if not isinstance(item, dict):
             continue
-        hosts = [str(host).lower() for host in item.get("hosts", []) if isinstance(host, str)]
+        hosts = [str(host).lower().rstrip(".") for host in item.get("hosts", []) if isinstance(host, str)]
         summary = {
             "id": item.get("id"),
             "type": item.get("type"),
             "status": item.get("status"),
             "host_count": len(hosts),
-            "covers_www": WWW in hosts,
-            "covers_login": LOGIN in hosts,
+            "covers_www": any(hostname_covered(host, WWW) for host in hosts),
+            "covers_gateway": any(hostname_covered(host, GATEWAY) for host in hosts),
+            "covers_legacy_gateway": any(hostname_covered(host, LEGACY_GATEWAY) for host in hosts),
         }
         summaries.append(summary)
-        if summary["covers_login"]:
-            matching.append(summary)
+        if summary["covers_gateway"]:
+            gateway_matching.append(summary)
 
     output.update(
         pack_count=len(packs),
         pack_summaries=summaries,
-        matching_packs=matching,
-        active_exact_login_coverage=any(
-            str(item.get("status", "")).lower() == "active" for item in matching
+        gateway_matching_packs=gateway_matching,
+        active_gateway_coverage=any(
+            str(item.get("status", "")).lower() == "active" for item in gateway_matching
+        ),
+        active_legacy_gateway_coverage=any(
+            str(item.get("status", "")).lower() == "active" and item["covers_legacy_gateway"]
+            for item in summaries
         ),
     )
     return output
@@ -160,11 +181,14 @@ def sanitized_rule(rule: dict) -> dict:
     normalized = expression.lower()
     mentions_http_host = "http.host" in normalized
     mentions_zone_domain = "molehill.cloud" in normalized
-    matches_www = WWW in normalized
-    matches_login = LOGIN in normalized
+    matches_www = host_literal_present(expression, WWW)
+    matches_gateway = host_literal_present(expression, GATEWAY)
+    matches_legacy_gateway = host_literal_present(expression, LEGACY_GATEWAY)
 
-    if matches_www or matches_login:
+    if matches_www or matches_gateway:
         host_scope = "explicit_canonical_host"
+    elif matches_legacy_gateway:
+        host_scope = "explicit_retired_host"
     elif mentions_http_host and mentions_zone_domain:
         host_scope = "zone_domain_scope"
     elif mentions_http_host:
@@ -179,7 +203,7 @@ def sanitized_rule(rule: dict) -> dict:
         if isinstance(action_parameters, dict)
         else []
     )
-    potentially_applies = host_scope != "other_host_scope"
+    potentially_applies = host_scope not in {"other_host_scope", "explicit_retired_host"}
     return {
         "id": rule.get("id"),
         "ref": rule.get("ref"),
@@ -189,7 +213,8 @@ def sanitized_rule(rule: dict) -> dict:
         "mentions_http_host": mentions_http_host,
         "mentions_zone_domain": mentions_zone_domain,
         "matches_www": matches_www,
-        "matches_login": matches_login,
+        "matches_gateway": matches_gateway,
+        "matches_legacy_gateway": matches_legacy_gateway,
         "potentially_applies_to_oteryn": potentially_applies,
         "challenge_or_block_action": action in CHALLENGE_ACTIONS,
         "action_parameter_keys": action_parameter_keys,
@@ -215,8 +240,9 @@ def rules_detail(metadata: dict, response: dict) -> dict:
         rule_count=len(rules),
         sanitized_rules=sanitized,
         oteryn_matching_rules=[
-            rule for rule in sanitized if rule["matches_www"] or rule["matches_login"]
+            rule for rule in sanitized if rule["matches_www"] or rule["matches_gateway"]
         ],
+        retired_gateway_rules=[rule for rule in sanitized if rule["matches_legacy_gateway"]],
         oteryn_candidate_rules=[
             rule
             for rule in sanitized
@@ -254,19 +280,21 @@ def access(response: dict) -> dict:
         return output
     applications = response["result"] if isinstance(response["result"], list) else []
     matching = []
+    retired = []
     for item in applications:
         if not isinstance(item, dict):
             continue
         domain = str(item.get("domain", "")).lower()
-        if (
-            domain in (WWW, LOGIN)
-            or domain.startswith(WWW + "/")
-            or domain.startswith(LOGIN + "/")
-        ):
-            matching.append(
-                {"id": item.get("id"), "domain": domain, "type": item.get("type")}
-            )
-    output.update(application_count=len(applications), oteryn_applications=matching)
+        summary = {"id": item.get("id"), "domain": domain, "type": item.get("type")}
+        if domain in (WWW, GATEWAY) or domain.startswith(WWW + "/") or domain.startswith(GATEWAY + "/"):
+            matching.append(summary)
+        if domain == LEGACY_GATEWAY or domain.startswith(LEGACY_GATEWAY + "/"):
+            retired.append(summary)
+    output.update(
+        application_count=len(applications),
+        oteryn_applications=matching,
+        retired_gateway_applications=retired,
+    )
     return output
 
 
@@ -308,7 +336,8 @@ def main() -> None:
     evidence = {
         "observed_at_utc": datetime.now(timezone.utc).isoformat(),
         "classification": "READ_ONLY_CLOUDFLARE_EDGE_AUDIT",
-        "canonical_hosts": [WWW, LOGIN],
+        "canonical_hosts": [WWW, GATEWAY],
+        "retired_hosts": [LEGACY_GATEWAY],
         "token": {
             "active": True,
             "verification_scope": "account" if TOKEN.startswith("cfat_") else "user",
@@ -331,15 +360,14 @@ def main() -> None:
     (OUT / "evidence.json").write_text(
         json.dumps(evidence, indent=2, sort_keys=True) + "\n", encoding="utf-8"
     )
-    candidate_count = sum(
-        len(item.get("oteryn_candidate_rules", [])) for item in details
-    )
+    candidate_count = sum(len(item.get("oteryn_candidate_rules", [])) for item in details)
+    certificate_packs = evidence["certificate_packs"]
     lines = [
         "# Cloudflare Oteryn edge audit",
         "",
         f"Observed at: `{evidence['observed_at_utc']}`",
         "",
-        f"- certificate_packs: `{evidence['certificate_packs']['state']}`; active exact login coverage: `{evidence['certificate_packs'].get('active_exact_login_coverage', 'unknown')}`",
+        f"- certificate_packs: `{certificate_packs['state']}`; active Gateway coverage: `{certificate_packs.get('active_gateway_coverage', 'unknown')}`; active retired-host coverage: `{certificate_packs.get('active_legacy_gateway_coverage', 'unknown')}`",
         f"- rulesets: `{ruleset_summary['state']}`; relevant count: `{len(ruleset_summary.get('relevant_rulesets', []))}`; challenge/block candidates: `{candidate_count}`",
         f"- bot_management: `{evidence['bot_management']['state']}`",
         f"- access_applications: `{evidence['access_applications']['state']}`",
@@ -350,6 +378,7 @@ def main() -> None:
     ]
     lines += [
         "",
+        "Certificate wildcard matching is limited to exactly one label.",
         "Expressions are never emitted; only safe classifications and SHA-256 fingerprints are stored.",
         "This audit performs GET requests only and writes a sanitized artifact.",
         "",

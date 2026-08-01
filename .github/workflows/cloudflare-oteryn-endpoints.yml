@@ -8,8 +8,11 @@ on:
       - .github/workflows/cloudflare-oteryn-endpoints.yml
       - scripts/operations/cloudflare-oteryn-endpoints.sh
       - tests/operations/cloudflare-oteryn-endpoints/**
+      - docs/contracts/PUBLIC_ENDPOINTS_CONTRACT.md
+      - deploy/synology/PUBLIC_ENDPOINTS.md
+      - docs/architecture/adr/0020-use-single-level-gateway-public-hostname.md
       - docs/operations/CLOUDFLARE_ENDPOINT_MANAGEMENT.md
-      - docs/agents/tasks/active/OTERYN-20260801-cloudflare-endpoint-automation.md
+      - docs/agents/tasks/active/OTERYN-20260801-cloudflare-edge-audit.md
   workflow_dispatch:
     inputs:
       mode:
@@ -41,9 +44,13 @@ jobs:
         uses: actions/checkout@v7
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
 
       - name: Validate fixed-scope Cloudflare automation
         run: bash tests/operations/cloudflare-oteryn-endpoints/run.sh
+
+      - name: Reject legacy Gateway hostname reuse
+        run: bash tests/operations/cloudflare-oteryn-endpoints/check-legacy-hostname.sh
 
   manage:
     if: github.event_name == 'workflow_dispatch'

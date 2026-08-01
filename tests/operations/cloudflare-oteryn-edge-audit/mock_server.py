@@ -66,7 +66,7 @@ class Handler(BaseHTTPRequestHandler):
         if path == f"/zones/{ZONE}/ssl/certificate_packs/quota":
             return self.send(
                 {
-                    "advanced": {"allocated": 1, "used": 0},
+                    "advanced": {"allocated": 0, "used": 0},
                     "custom": {"allocated": 0, "used": 0},
                 }
             )
@@ -75,13 +75,9 @@ class Handler(BaseHTTPRequestHandler):
                 [
                     {
                         "id": "cert1",
-                        "type": "advanced",
+                        "type": "universal",
                         "status": "active",
-                        "hosts": [
-                            "molehill.cloud",
-                            "oteryn.molehill.cloud",
-                            "login.oteryn.molehill.cloud",
-                        ],
+                        "hosts": ["molehill.cloud", "*.molehill.cloud"],
                     }
                 ]
             )
@@ -150,7 +146,7 @@ class Handler(BaseHTTPRequestHandler):
                         },
                         {
                             "id": "x4",
-                            "ref": "login-block",
+                            "ref": "retired-login-block",
                             "action": "block",
                             "enabled": False,
                             "expression": 'http.host eq "login.oteryn.molehill.cloud"',
