@@ -66,6 +66,26 @@ In both attempts:
 
 Thus publication durably succeeded while accessible transient success feedback was lost, matching the historical Issue #365 symptom.
 
+## Recovered embedded browser diagnostics
+
+The Playwright HTML reports embed a base64-encoded report ZIP. Decoding the embedded reports recovered sanitized diagnostics for successful desktop/tablet tests and the failed mobile test.
+
+Attempt 3:
+
+- desktop PASS: 9 thumbnail HTTP 500 responses across IDs `1/3/5`, 6 aborted requests, 2 invalid-pattern console errors;
+- tablet PASS: 12 thumbnail HTTP 500 responses across IDs `1/3/5/7`, 8 aborted requests, 2 invalid-pattern console errors;
+- mobile REPRODUCED: 16 thumbnail HTTP 500 responses across IDs `1/3/5/7/9`, zero failed-request entries, 2 invalid-pattern console errors.
+
+Attempt 4:
+
+- desktop PASS: 9 thumbnail HTTP 500 responses across IDs `1/3/5`, 6 aborted requests, 2 invalid-pattern console errors;
+- tablet PASS: 12 thumbnail HTTP 500 responses across IDs `1/3/5/7`, 8 aborted requests, 2 invalid-pattern console errors;
+- mobile REPRODUCED: 14 thumbnail HTTP 500 responses across IDs `1/3/5/7/9`, zero failed-request entries, 2 invalid-pattern console errors.
+
+Exact per-ID distributions, report hashes and extraction boundaries are preserved in `ISSUE_365_EMBEDDED_BROWSER_DIAGNOSTICS.md`.
+
+Desktop and tablet retain the publication flow despite contaminated thumbnail traffic. Therefore the presence of thumbnail HTTP 500 responses alone is not sufficient to remove the flash. Mobile failures coexist with the expanded stale-ID set, but the evidence does not prove causation or explain the 14-versus-16 response difference.
+
 ## Fixture boundary
 
 These were complete critical-profile attempts. They were freshly bootstrapped per attempt, but the profile itself runs Wiki media scenarios before later responsive projects and can accumulate intentionally damaged EditorialMedia rows inside the same attempt. Therefore these runs prove post-serialization reproduction under the delivered critical-suite execution order. They are not the validator packet's still-missing controlled comparison with exactly one damaged row, and they do not prove that damaged rows cause the flash loss.
@@ -86,10 +106,12 @@ proven:
   - durable publication succeeds when transient mobile success feedback is absent
   - the exact targeted session-serialization commit still reproduces the original mobile symptom in two of three independent zero-retry attempts
   - session serialization alone is insufficient to claim deterministic remediation
+  - contaminated desktop and tablet samples preserve the flow despite 9 and 12 thumbnail HTTP 500 responses
 unknown:
   - exact frozen-target result with the transient assertion restored ephemerally
   - causal contribution of damaged EditorialMedia requests
   - result of a controlled comparison with exactly one damaged row
+  - clean valid-object thumbnail health
 ```
 
 ## Remaining exact boundary
