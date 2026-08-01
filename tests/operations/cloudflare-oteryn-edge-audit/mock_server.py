@@ -6,6 +6,8 @@ import os
 ACCOUNT = "a" * 32
 ZONE = "b" * 32
 TOKEN_ID = "c" * 32
+RULESET_ID = "67ca2e19272a4c7d97c2a53681d0eb2f"
+RULE_ID = "e0f91939eb494d4490d975498a9a9724"
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -61,6 +63,13 @@ class Handler(BaseHTTPRequestHandler):
                     },
                 ]
             )
+        if path == f"/zones/{ZONE}/ssl/certificate_packs/quota":
+            return self.send(
+                {
+                    "advanced": {"allocated": 1, "used": 0},
+                    "custom": {"allocated": 0, "used": 0},
+                }
+            )
         if path.startswith(f"/zones/{ZONE}/ssl/certificate_packs"):
             return self.send(
                 [
@@ -98,7 +107,7 @@ class Handler(BaseHTTPRequestHandler):
                         "name": "redirects",
                     },
                     {
-                        "id": "r2",
+                        "id": RULESET_ID,
                         "phase": "http_request_firewall_custom",
                         "kind": "zone",
                         "name": "waf",
@@ -120,16 +129,17 @@ class Handler(BaseHTTPRequestHandler):
                     ]
                 }
             )
-        if path == f"/zones/{ZONE}/rulesets/r2":
+        if path == f"/zones/{ZONE}/rulesets/{RULESET_ID}":
             return self.send(
                 {
                     "rules": [
                         {
-                            "id": "x2",
+                            "id": RULE_ID,
                             "ref": "broad-bot-challenge",
+                            "description": "test broad rule",
                             "action": "managed_challenge",
                             "enabled": True,
-                            "expression": "cf.client.bot",
+                            "expression": 'ip.src.country ne "PL" and cf.client.bot',
                         },
                         {
                             "id": "x3",
