@@ -38,6 +38,9 @@ Execute Issue #91's fail-closed Production Go-Live Gate against the exact deploy
 
 ```yaml
 owned_paths:
+  - .github/workflows/production-gate-synology-observer.yml
+  - .github/workflows/synology-production-target-preflight.yml
+  - deploy/synology/scripts/production-gate-readonly-inventory.py
   - docs/agents/tasks/active/OTERYN-20260801-production-go-live-gate.md
   - docs/agents/evidence/OTERYN-20260801-production-go-live-gate/**
   - docs/operations/PRODUCTION_READINESS_CHECKLIST.md
@@ -70,7 +73,7 @@ session_id: agent-20260801-production-gate-001
 session_role: investigator
 execution_mode: chat
 execution_reason: repository coordination, narrow documentation writes, GitHub evidence review, and read-only production probes
-lease_expires_at: 2026-08-01T14:05:22.098Z
+lease_expires_at: 2026-08-01T14:08:39.600Z
 context_pressure: high
 context_growth: stable
 context_score: 12
@@ -78,13 +81,13 @@ estimate_confidence: high
 decomposition_decision: phased
 decomposition_reason: deployment identity, Synology origin, public edge, readiness, and smoke are sequential gates sharing one release verdict
 validation_level: focused
-last_completed_step: trusted-main read-only Synology preflight failed closed at the first restart-policy invariant
+last_completed_step: direct pull-request self-hosted inventory attempt failed before executing any job step
 session_rotation_count: 0
 heavy_validation_runs: 0
 stale_takeover_count: 0
 human_interruptions: 0
-updated_at: 2026-08-01T13:20:22.098Z
-head: f1ae3a5967d6ce1ccc30ca40c155acbaf7a8e020
+updated_at: 2026-08-01T13:23:39.600Z
+head: 17a73364204888d83d8a1c9846567406292cab8c
 branch: agent/production-go-live-gate
 pr: 405
 status: investigating
@@ -96,6 +99,9 @@ context_routes:
   - canary-integration
   - database
 owned_paths:
+  - .github/workflows/production-gate-synology-observer.yml
+  - .github/workflows/synology-production-target-preflight.yml
+  - deploy/synology/scripts/production-gate-readonly-inventory.py
   - docs/agents/tasks/active/OTERYN-20260801-production-go-live-gate.md
   - docs/agents/evidence/OTERYN-20260801-production-go-live-gate/**
   - docs/operations/PRODUCTION_READINESS_CHECKLIST.md
@@ -134,13 +140,16 @@ validation:
   - command: Production Gate Synology Read-only Observer run 30701433548 / dispatched preflight 30701440189
     result: FAIL
     evidence: live job 91373030006 failed at the first invariant because MariaDB restart policy differs from unless-stopped; restore drill was disabled
+  - command: Production Gate Synology Read-only Observer run 30701577021
+    result: FAIL
+    evidence: self-hosted job 91373394287 completed without executing any step and exposed no job log; exact platform cause remains UNKNOWN
   - command: production readiness and smoke execution
     result: NOT_RUN
     evidence: exact deployed release identity and sanitized production evidence path must be established first
 blockers:
   - exact deployed Platform and Gateway identities are not directly proven
   - the effective MariaDB restart policy differs from the archived preflight expectation and must be identified without changing it
-next_action: run a bounded read-only Synology inventory that records actual restart policy, immutable release identities, health, bindings, network and cloudflared container topology without enforcing the stale expectation
+next_action: dispatch the bounded inventory through the trusted branch workflow path already proven to reach the Synology runner
 ```
 
 ## Notes
