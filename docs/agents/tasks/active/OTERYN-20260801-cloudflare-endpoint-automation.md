@@ -56,8 +56,8 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-01T11:49:00Z
-head: 4b926be7c2c02970301d90aecb08c3e96762455b
+updated_at: 2026-08-01T11:56:00Z
+head: f0c2dc1d1517a59e00cb2395eebb6cc3fd3acffe
 branch: ops/cloudflare-oteryn-endpoints
 pr: 401
 status: validating
@@ -77,6 +77,8 @@ proven:
   - PR 401 contains only the six declared workflow, script, test, operations-documentation and task-record paths.
   - Deterministic local mock validation proves audit performs zero mutations, apply performs only one tunnel PUT plus bounded canonical DNS upserts, and a second apply is idempotent.
   - The workflow has no arbitrary Cloudflare resource inputs and no live Cloudflare action can run from a pull-request event.
+  - GitHub run 30698413666 failed before functional validation because the Contents API stored the reconciler without an executable mode and the test invoked it directly.
+  - Commit f0c2dc1d1517a59e00cb2395eebb6cc3fd3acffe repairs the runner-portability defect by invoking the reconciler explicitly through bash in every integration-test call.
 derived:
   - The merged workflow will expose a narrower and more reviewable mutation path than manually supplying arbitrary Cloudflare API requests.
 unknown:
@@ -84,10 +86,11 @@ unknown:
   - Whether the selected live tunnel is remotely managed and what its current ingress and DNS drift are.
 conflicts: []
 first_failure:
-  marker: none
-  evidence: none
+  marker: Cloudflare Oteryn Endpoints validate step exited 126 with Permission denied
+  evidence: run 30698413666 job 91365080250 on head c61af893cc0f6c8f1086c7e2213619fdb6bdf45a
 rejected_hypotheses:
   - A tunnel PUT must overwrite unrelated routes: the reconciler preserves top-level configuration, unrelated ingress order and the existing final catch-all, with deterministic regression coverage.
+  - The reconciler must rely on an executable Git file mode: workflow and tests can invoke the checked-in shell source explicitly through bash.
 changed_paths:
   - .github/workflows/cloudflare-oteryn-endpoints.yml
   - docs/agents/tasks/active/OTERYN-20260801-cloudflare-endpoint-automation.md
@@ -98,16 +101,19 @@ changed_paths:
 validation:
   - command: bash tests/operations/cloudflare-oteryn-endpoints/run.sh
     result: PASS
-    evidence: local deterministic unit and mock-API audit/apply/idempotency suite
+    evidence: local deterministic unit and mock-API audit/apply/idempotency suite before GitHub runner execution
   - command: ruby -e 'require "yaml"; YAML.load_file(ARGV[0])' .github/workflows/cloudflare-oteryn-endpoints.yml
     result: PASS
     evidence: workflow YAML parsed successfully in the authored package
-  - command: GitHub Actions on PR 401 final head
+  - command: Cloudflare Oteryn Endpoints run 30698413666 job 91365080250
+    result: FAIL
+    evidence: direct test execution of non-executable script failed before functional checks; root cause repaired in f0c2dc1d1517a59e00cb2395eebb6cc3fd3acffe
+  - command: GitHub Actions on PR 401 repaired final head
     result: NOT_RUN
-    evidence: final task-checkpoint commit not yet evaluated
+    evidence: checks pending after portability repair
 blockers:
   - final-head GitHub checks pending
-next_action: Inspect every path-applicable GitHub check on PR 401 final head and fix the first root-cause failure, or mark the task ready if all pass.
+next_action: Inspect every path-applicable GitHub check on PR 401 repaired final head and fix the first root-cause failure, or mark the task ready if all pass.
 ```
 
 ## Notes
