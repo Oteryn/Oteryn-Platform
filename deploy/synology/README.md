@@ -32,6 +32,8 @@ Docker private bridge
 
 The Gateway never receives database credentials. Its non-loopback dependencies use generated staging-only TLS certificates and hostname verification. MariaDB and Redis are not published on host ports. Platform, Gateway and Canary legacy login remain host-loopback-only even when game TCP is deliberately enabled for the LAN.
 
+The user-visible Platform origin is a separate concern from the private origin binding. The guarded public staging deployment requires `APP_URL=https://oteryn.molehill.cloud` for requestless console, scheduler, notification, reset, verification and signed URL generation while continuing to bind Platform only to `127.0.0.1:8000`.
+
 ## Repository workflows
 
 - `Build Synology Staging Images` runs on GitHub-hosted runners. Pull requests build without publishing. Trusted `main` pushes and explicit manual runs publish GHCR images tagged with `sha-<full-sha>`; `main` also receives the moving `main` tag.
@@ -111,8 +113,10 @@ Recommended variables:
 
 ```text
 OTERYN_STAGING_STATE_DIR=/var/lib/oteryn-staging-state
-OTERYN_STAGING_APP_URL=http://127.0.0.1:8000
+OTERYN_STAGING_APP_URL=https://oteryn.molehill.cloud
 ```
+
+The guarded public staging workflow fails closed when `OTERYN_STAGING_APP_URL` is set to any other value. This protects requestless user-visible links without exposing or changing the private loopback origin.
 
 Generate independent high-entropy staging service tokens and store their exact SHA-256 digests in the matching hash secrets. The deploy script verifies both plaintext/hash pairs before changing the stack.
 
@@ -151,9 +155,10 @@ A `deploy` run:
 12. runs the three Canary database privilege verifiers;
 13. starts the internal TLS proxy and Game Gateway;
 14. verifies Platform/Gateway health, Canary TCP reachability and every exact host-port binding;
-15. when a private game bind is configured, proves the game TCP endpoint is reachable through that NAS address;
-16. only after those checks, creates or updates the exact enabled online Platform World Registry route;
-17. removes the ephemeral `.env` after the job.
+15. verifies canonical requestless Platform URLs, exact Gateway `/version` identity, bounded invalid-login response cache controls and no Platform/Gateway cross-routing;
+16. when a private game bind is configured, proves the game TCP endpoint is reachable through that NAS address;
+17. only after those checks, creates or updates the exact enabled online Platform World Registry route;
+18. removes the ephemeral `.env` after the job.
 
 The script snapshots currently running Platform/Gateway/Canary image references before an update. `rollback` restores those runtime images and re-runs health checks. It intentionally does **not** reverse database migrations automatically.
 
@@ -169,6 +174,8 @@ ssh \
   -L 7172:127.0.0.1:7172 \
   <synology-user>@<synology-host>
 ```
+
+For isolated manual loopback-only development, an operator may use a separate uncommitted environment with `APP_URL=http://127.0.0.1:8000` and `SESSION_SECURE_COOKIE=false`. Those values are intentionally rejected by the guarded public staging workflow and must never be used for the canonical public Cloudflare path.
 
 For this early loopback path, configure OTClient's Oteryn endpoints as literal `http://127.0.0.1` URLs and enable its development-only insecure-loopback option. Do not use this HTTP exception for a LAN hostname, public hostname or production environment.
 
@@ -215,6 +222,7 @@ bash deploy/synology/scripts/rollback.sh
 ## Non-goals and blockers
 
 - This package does not make staging evidence `PRODUCTION_PROVEN`.
+- It does not configure Cloudflare certificates, WAF/Bot/Access rules, redirects or HSTS.
 - It does not expose DSM, Docker Engine TCP, MariaDB, Redis or the Canary Game Session issuer publicly.
 - It does not build Canary on Synology.
 - It does not authorize router port forwarding or Internet exposure of game TCP.
