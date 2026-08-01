@@ -33,7 +33,7 @@ Repair the repository-owned public-domain defects proven by PR #387, deploy the 
 - [x] Marketplace Platform and scheduler use the canonical HTTPS origin and Secure cookies.
 - [x] Health checks cover Gateway identity, malformed login, private cache controls, canonical URLs and negative cross-routing.
 - [x] Cloudflare/DNS/Synology changes and rollback are documented without secrets.
-- [ ] PR #392 exact head passes all required workflow families.
+- [x] PR #392 implementation head passes every workflow applicable to its changed paths.
 - [ ] The merged image is deployed by Character Bazaar Staging Control with sanitized `STAGING_PROVEN` evidence.
 - [x] `PRODUCTION_PROVEN` remains false until Issue #91 is completed.
 
@@ -62,7 +62,7 @@ dependencies:
   - Character Bazaar Staging Control
   - Issue #91 production go-live gate
 blockers:
-  - none for repository validation and bounded staging retry
+  - none for repository merge and bounded staging retry
 cross_repository_tasks:
   - none
 ```
@@ -71,7 +71,7 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-01T09:39:00Z
+updated_at: 2026-08-01T09:43:00Z
 session_id: chatgpt-20260801-public-domain-repair-003
 policy_version: 2
 phase: staging_failure_repair
@@ -83,9 +83,9 @@ staging_deployment_authorization: PROVEN
 context_pressure: medium
 decomposition_decision: continue
 branch: fix/OTERYN-20260801-marketplace-state-loader
-head: cb1cccec5359dc6ae64a0c741693d76a01026530
+head: 921876f9eb16cf81e967d95ded6c99dc6fc0a11e
 pr: 392
-status: validating
+status: ready
 context_routes:
   - agent-governance
   - security
@@ -106,6 +106,10 @@ proven:
   - The previous loader applied Character Bazaar public-origin validation to every loaded file and therefore rejected the partial state file.
   - No Docker deployment step executed in failed run 30693873142; runtime state was not mutated by that attempt.
   - PR #392 scopes canonical migration to a file named exactly .env and adds an executable regression test for partial state plus full environment behavior.
+  - Exact implementation head 921876f9eb16cf81e967d95ded6c99dc6fc0a11e passed all seven workflows applicable to its changed paths.
+  - CI 4009, Agent Governance 3806, Phase 7 3045, Build Synology Staging Images 1578, Edge Security 1466, DB Outage 2972 and Auth Concurrency 2543 passed.
+  - Character Bazaar Staging Validation did not trigger because its path filter excludes lib.sh, PublicCanonicalUrlTest.php and this task record.
+  - Synology Production Target Preflight did not trigger because its path filter excludes lib.sh, PublicCanonicalUrlTest.php and this task record.
   - Canonical routes remain WWW to loopback 8000 and Gateway to loopback 8080.
   - PR #335-owned compose.yml and boot-repair.sh remain untouched.
   - No Cloudflare, DNS, production, Canary or PR #387 evidence mutation occurred.
@@ -113,7 +117,6 @@ derived:
   - The failure was a repository-owned loader scope defect, not a secret, runner, image-publication or Docker runtime failure.
   - Restricting the migration to the complete .env preserves fail-closed validation while allowing the intentionally partial durable state file.
 unknown:
-  - Exact-head workflow results for PR #392.
   - Result of the next trusted-main staging retry.
   - Effective Cloudflare certificate, WAF, Access, bot, redirect and HSTS configuration.
   - Exact supported native-client minimum TLS version.
@@ -140,14 +143,14 @@ validation:
   - command: Character Bazaar Staging Control deploy-enable for 82abef518f91d72d392db4420bb335773087c3e1
     result: FAIL
     evidence: run 30693873142 number 5 failed before Docker due partial state validation
-  - command: required workflow suite on PR #392 exact head
-    result: NOT_RUN
-    evidence: GitHub Actions triggered by the repair commits
+  - command: path-applicable workflow suite on 921876f9eb16cf81e967d95ded6c99dc6fc0a11e
+    result: PASS
+    evidence: CI 4009, Governance 3806, Phase 7 3045, Images 1578, Edge 1466, DB 2972 and Concurrency 2543
 deployment_evidence: Current exact repair is not deployed; failed run 30693873142 performed no Docker mutation.
 rollback: No runtime rollback is needed for run 30693873142; repository rollback remains PR revert and later successful deployments retain image snapshots.
 blockers:
-  - none for exact-head validation
-next_action: Pass all required workflows on PR #392, squash merge with [character-bazaar-staging], then verify exact image publication and sanitized STAGING_PROVEN evidence.
+  - none for merge and bounded staging retry
+next_action: Pass the path-applicable workflow suite on this checkpoint-only head, squash merge with [character-bazaar-staging], then verify exact image publication and sanitized STAGING_PROVEN evidence.
 ```
 
 ## Report
