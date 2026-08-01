@@ -86,6 +86,23 @@ Therefore thumbnail HTTP 500 presence alone is not sufficient to remove publicat
 
 Detailed hashes, per-ID counts and extraction boundaries: `ISSUE_365_EMBEDDED_BROWSER_DIAGNOSTICS.md`.
 
+## Flash request-lifecycle analysis
+
+Strongest source-backed mechanism: `DERIVED / HIGH confidence`.
+
+- publication success exists only as Laravel session flash;
+- the Wiki edit form immediately starts authenticated media-index and lazy thumbnail requests using the same session;
+- Laravel ages flash data during session save;
+- `->block()` serializes same-session requests but does not assign redirect-document priority.
+
+A queued media-index or thumbnail request can therefore save the session before the redirected article-edit document and consume the one-request `status` lifetime. This explains durable publication with missing transient feedback and why session blocking plus client-side `networkidle` is not deterministic.
+
+The mechanism is not promoted to `PROVEN`: exact request order was not preserved in the artifacts, and clean-versus-one-damaged-row causality remains unexecuted.
+
+Smallest later server-side candidate, not implemented by this audit: preserve only a pending `status` flash across authenticated Wiki media-index and thumbnail responses, then prove that the article-edit document consumes it exactly once.
+
+Detailed source chain, Laravel lifecycle and validation requirements: `ISSUE_365_FLASH_REQUEST_LIFECYCLE_ANALYSIS.md`.
+
 ## Issue #365 fixture boundary
 
 Historical 9/12/16 thumbnail HTTP 500 counts remain explained by intentionally damaged EditorialMedia rows leaking across acceptance projects. This remains a MEDIUM isolation/evidence defect and not proof that valid production media fails.
@@ -118,6 +135,7 @@ Totals: **0 HIGH, 6 MEDIUM, 1 LOW**.
 - `ISSUE_365_FLASH_REMEDIATION_EVIDENCE.md` — superseded where inconsistent by the post-fix evidence
 - `ISSUE_365_POST_FIX_RERUN_EVIDENCE.md`
 - `ISSUE_365_EMBEDDED_BROWSER_DIAGNOSTICS.md`
+- `ISSUE_365_FLASH_REQUEST_LIFECYCLE_ANALYSIS.md`
 - `VALIDATOR_PACKET.md`
 - `VALIDATOR_PACKET_ADDENDUM.md`
 - `VALIDATOR_VERDICT.md`
