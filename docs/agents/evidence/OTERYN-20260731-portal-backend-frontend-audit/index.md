@@ -3,7 +3,7 @@
 ## Identity and status
 
 - Task: `OTERYN-20260731-portal-backend-frontend-audit`
-- Frozen target: `REPO_MAIN` SHA `b6f7b12a43aa72a52dc98c3fa07a7c4607fcb608`
+- Frozen target: `b6f7b12a43aa72a52dc98c3fa07a7c4607fcb608`
 - Branch: `audit/OTERYN-20260731-portal-backend-frontend-audit`
 - Draft PR: `#381`
 - Parent: Issue `#326`
@@ -11,18 +11,18 @@
 - Audit status: `BLOCKED`
 - Validator verdict: `VALIDATED_WITH_CORRECTIONS`
 
-`PROVEN`, `DERIVED`, `UNKNOWN` and `CONFLICT` remain separate from environment labels `REPO_MAIN`, `OPEN_PR_ONLY`, `CI_PROVEN`, `STAGING_PROVEN`, `PRODUCTION_PROVEN` and `UNKNOWN`.
-
 ## Environment boundary
 
 | Evidence | State | Exact identity |
 |---|---|---|
 | Frozen source | `PROVEN / REPO_MAIN` | `b6f7b12a43aa72a52dc98c3fa07a7c4607fcb608` |
-| Direct strict/browser source | `PROVEN / CI_PROVEN` | `fdb45a4325949d3ab1c4860e3a4527553f11c789` |
-| Runtime equivalence to frozen source | `DERIVED` | comparison changes documentation and byte-identical Marketplace configuration |
-| Latest staging evidence | `PROVEN / STAGING_PROVEN` | source `717977f252b09b9b2e979f8110b7f48b88682223`, run `30633745660`, job `91166065335`, artifact `8794683627` |
-| Frozen target deployed | `UNKNOWN` | no exact staging or production deployment proof |
-| Production availability | `UNKNOWN` | no direct exact-release evidence |
+| Strict/current browser source | `PROVEN / CI_PROVEN` | `fdb45a4325949d3ab1c4860e3a4527553f11c789` |
+| Post-serialization original-flow source | `PROVEN / CI_PROVEN` | `6c1e910d36771f50da5eded93cc50274a90c62d2` |
+| Post-serialization result | `REPRODUCED_INTERMITTENT` | 1 PASS / 2 mobile reproductions |
+| Relation to frozen Wiki runtime | `DERIVED` | identical Wiki application/view/route runtime; test-suite composition differs |
+| Latest staging evidence | `PROVEN / STAGING_PROVEN` | `717977f252b09b9b2e979f8110b7f48b88682223` |
+| Frozen target deployed | `UNKNOWN` | no exact deployment proof |
+| Production | `UNKNOWN` | no exact-release evidence |
 
 ## Canonical inventory
 
@@ -37,78 +37,57 @@
 
 ## Strict repository contract
 
-- source: `fdb45a4325949d3ab1c4860e3a4527553f11c789`;
-- run: `30633216358`;
-- job: `91164376176`;
-- artifact: `8794204786`;
-- digest: `sha256:82daac38363f959c21019d3e570eff987366774886cf1e2f9b1afdf2e889a385`;
-- result: `PASS`.
+- source `fdb45a4325949d3ab1c4860e3a4527553f11c789`;
+- run `30633216358`, job `91164376176`, artifact `8794204786`;
+- digest `sha256:82daac38363f959c21019d3e570eff987366774886cf1e2f9b1afdf2e889a385`;
+- result `PASS`.
 
-The contract covers all 27 canonical surfaces for route/view/media closure. The content-scale validator itself loads only 18 base-manifest surfaces and omits nine fragment surfaces.
+The content-scale validator loads only 18 base-manifest surfaces and omits nine fragment surfaces.
 
-## Fresh validator browser execution
+## Fresh current critical execution
 
-A fresh rerun was initiated and independently reviewed on `2026-08-01`:
+- run `30633216753`, attempt 2, job `91339118796`;
+- direct source `fdb45a4325949d3ab1c4860e3a4527553f11c789`;
+- artifact `8814897157`;
+- digest `sha256:552d545260bad87d98f999568091c2ade84a5dce739130fbbe4e4c4e71def24f`;
+- smoke 7/7, portability 36/36, responsive 42/42, resilience 2/2, accessibility 9/9;
+- total 96/96 PASS, retries 0.
 
-- workflow: `Acceptance E2E and Visual UX`;
-- run: `30633216753`, attempt `2`;
-- job: `91339118796`;
-- direct source: `fdb45a4325949d3ab1c4860e3a4527553f11c789`;
-- profile: `critical`;
-- retries: `0`;
-- conclusion: `SUCCESS`;
-- artifact: `8814897157`, `acceptance-e2e-critical-30633216753-2-direct`;
-- GitHub artifact digest: `sha256:552d545260bad87d98f999568091c2ade84a5dce739130fbbe4e4c4e71def24f`;
-- locally downloaded ZIP SHA-256: `6b18d56738cad108180e20f99a22a82249ab564b6c234d12e19625d521b20f33`.
+This proves the delivered critical profile, but the original administration scenario no longer contains its historical transient flash assertion.
 
-The two hashes describe different artifact representations and are intentionally not asserted equal.
+## Post-serialization original-flow reruns
 
-| Profile | Result |
-|---|---:|
-| smoke | 7/7 PASS |
-| portability | 36/36 PASS |
-| responsive | 42/42 PASS |
-| resilience | 2/2 PASS |
-| accessibility | 9/9 PASS |
-| total | 96/96 PASS |
+Exact source: `6c1e910d36771f50da5eded93cc50274a90c62d2`, the targeted `fix(wiki): serialize admin session requests` commit. At this source, the original administration spec still asserts `Wiki article published.` and uses zero retries.
 
-The run used PHP 8.5, real Laravel HTTP, isolated MariaDB Platform/Canary schemas, Redis ACL and MailHog. Full, exploratory visual and soak profiles were intentionally outside the critical run; production smoke remains pending.
+| Attempt | Job | Artifact | Digest | Original mobile result |
+|---:|---:|---:|---|---|
+| 2 | `91342520692` | `8815321615` | `sha256:5b2168f4952ba52f0a737b47d3a195a061c8ffc023d07cbfa115b643358d623a` | PASS |
+| 3 | `91343023604` | `8815383351` | `sha256:7498934d30f5292dab91e46edbc5659bc885acc11fa84c1784cb2525d8cd48a8` | REPRODUCED |
+| 4 | `91343514611` | `8815457044` | `sha256:790bc6cc4a7777b591abca9575cdb6927fb7c93f2682694f09e03285131d2bba` | REPRODUCED |
 
-## Issue #365 classification
+Attempts 3 and 4 failed only the responsive-mobile transient status assertion; durable `Published`, version 3 and `Unpublish to draft` were present. Desktop, tablet and all portability browsers passed.
 
-### Thumbnail traffic
+Corrected remediation state: `NOT_PROVEN_REMEDIATED`.
 
-Historical 9/12/16 HTTP 500 counts are explained by Wiki acceptance fixture leakage:
+Detailed evidence: `ISSUE_365_POST_FIX_RERUN_EVIDENCE.md`.
 
-- the media spec intentionally corrupts/removes stored objects;
-- rows survive without reset;
-- later projects request stale rows;
-- the integrity service rejects missing/corrupt bytes;
-- the dedicated fallback scenario explicitly expects HTTP 500 and accessible fallback for deliberately corrupt media.
+## Issue #365 fixture boundary
 
-This is `MEDIUM` acceptance isolation/evidence failure, not a proven failure of valid production media.
+Historical 9/12/16 thumbnail HTTP 500 counts remain explained by intentionally damaged EditorialMedia rows leaking across acceptance projects. This remains a MEDIUM isolation/evidence defect and not proof that valid production media fails.
 
-### Publication flash
-
-- historical mobile runs lost transient `role=status` feedback after durable publication;
-- historical routes lacked session blocking;
-- commit `6c1e910d36771f50da5eded93cc50274a90c62d2` serializes administrator Wiki session requests;
-- the fresh rerun passed the original administration scenario across portability and desktop/tablet/mobile;
-- the related media-intensive scenario explicitly asserts `Wiki article published.` plus durable `Published` state and passed all portability/responsive projects plus accessibility Chromium.
-
-The remediation remains `PARTIALLY_PROVEN_REMEDIATED`: the original administration scenario no longer includes its historical transient flash assertion.
+The new post-fix attempts used fresh runners and service containers, but complete critical profile ordering can accumulate damaged rows inside an attempt. They prove reproduction under delivered suite ordering, not causality. A controlled exactly-one-row comparison remains missing.
 
 ## Normalized findings
 
-| Finding | Severity | Summary |
+| Finding | Severity | State |
 |---|---|---|
-| `OTERYN-AUDIT-P35-006` | MEDIUM | damaged EditorialMedia fixtures leak into later acceptance projects |
-| `OTERYN-AUDIT-P35-001` | MEDIUM | content-scale closure omits nine canonical fragment surfaces |
-| `OTERYN-AUDIT-P35-002` | MEDIUM | dedicated global error matrix omits HTTP 503 |
-| `OTERYN-AUDIT-P35-003` | MEDIUM | accessibility evidence is bounded rather than fail-closed per surface |
-| `OTERYN-AUDIT-P35-005` | MEDIUM | historical mobile flash loss; remediation partially proven |
-| `OTERYN-AUDIT-P35-007` | MEDIUM | invalid HTML pattern weakens native Wiki form validation |
-| `OTERYN-AUDIT-P1-001` | LOW | `ACTIVE_WORK.md` conflicts with live task/PR state |
+| `OTERYN-AUDIT-P35-006` | MEDIUM | damaged EditorialMedia fixture leakage proven |
+| `OTERYN-AUDIT-P35-001` | MEDIUM | nine content-scale fragment surfaces omitted |
+| `OTERYN-AUDIT-P35-002` | MEDIUM | dedicated HTTP 503 matrix missing |
+| `OTERYN-AUDIT-P35-003` | MEDIUM | accessibility evidence not fail-closed per surface |
+| `OTERYN-AUDIT-P35-005` | MEDIUM | `REPRODUCED_INTERMITTENT`; `NOT_PROVEN_REMEDIATED` |
+| `OTERYN-AUDIT-P35-007` | MEDIUM | invalid native HTML pattern proven |
+| `OTERYN-AUDIT-P1-001` | LOW | active-work ownership conflict |
 
 Totals: **0 HIGH, 6 MEDIUM, 1 LOW**.
 
@@ -121,7 +100,8 @@ Totals: **0 HIGH, 6 MEDIUM, 1 LOW**.
 - `phase-3-5-addendum.json`
 - `ISSUE_365_HISTORICAL_ARTIFACT_REVIEW.md`
 - `ISSUE_365_STATIC_CAUSE_ANALYSIS.md`
-- `ISSUE_365_FLASH_REMEDIATION_EVIDENCE.md`
+- `ISSUE_365_FLASH_REMEDIATION_EVIDENCE.md` — superseded where inconsistent by the post-fix evidence
+- `ISSUE_365_POST_FIX_RERUN_EVIDENCE.md`
 - `VALIDATOR_PACKET.md`
 - `VALIDATOR_PACKET_ADDENDUM.md`
 - `VALIDATOR_VERDICT.md`
@@ -129,10 +109,11 @@ Totals: **0 HIGH, 6 MEDIUM, 1 LOW**.
 
 ## Residual completion gate
 
-The validator verdict is `VALIDATED_WITH_CORRECTIONS`, not `VALIDATED`. The task remains blocked until one checkout-capable execution performs the exact custom package:
+`VALIDATED` remains forbidden until a mutable checkout-capable execution performs:
 
-1. at least three clean isolated zero-retry samples of the original Wiki administration flow with the transient flash assertion restored ephemerally;
-2. one controlled comparison with exactly one missing or corrupt EditorialMedia row;
-3. sanitized publish, session/request, thumbnail and application/server evidence.
+1. exact frozen SHA with an ephemeral restored transient observer;
+2. clean isolation with EditorialMedia reset before each sample;
+3. one controlled comparison with exactly one missing/corrupt row;
+4. sanitized publish, session/request, thumbnail and application/server evidence.
 
-Absence of HTTP 500 or console strings from successful JUnit/HTML output is not treated as proof that those diagnostics were absent. No merge, deployment or production action is authorized.
+No merge, deployment or production action is authorized.
