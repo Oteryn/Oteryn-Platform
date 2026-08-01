@@ -154,7 +154,6 @@ jobs:
   production-gate-readonly-inventory:
     if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/agent/production-go-live-gate'
     runs-on: oteryn-staging
-    environment: synology-staging
     timeout-minutes: 20
     env:
       OBSERVER_SOURCE_SHA: ${{ github.sha }}
