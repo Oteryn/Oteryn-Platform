@@ -13,6 +13,11 @@ on:
       - docs/architecture/adr/0020-use-single-level-gateway-public-hostname.md
       - docs/operations/CLOUDFLARE_ENDPOINT_MANAGEMENT.md
       - docs/agents/tasks/active/OTERYN-20260801-cloudflare-edge-audit.md
+  pull_request_target:
+    branches:
+      - main
+    paths:
+      - ops/triggers/cloudflare-oteryn-endpoints.md
   workflow_dispatch:
     inputs:
       mode:
@@ -37,6 +42,7 @@ concurrency:
 
 jobs:
   validate:
+    if: github.event_name != 'pull_request_target'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -95,3 +101,55 @@ jobs:
         env:
           REQUESTED_MODE: ${{ inputs.mode }}
         run: bash scripts/operations/cloudflare-oteryn-endpoints.sh "$REQUESTED_MODE"
+
+  marker-manage:
+    if: >-
+      github.event_name == 'pull_request_target' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.base.ref == 'main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: production-cloudflare
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+      CLOUDFLARE_ZONE_ID: ${{ vars.CLOUDFLARE_ZONE_ID }}
+      CLOUDFLARE_TUNNEL_ID: ${{ vars.CLOUDFLARE_TUNNEL_ID }}
+
+    steps:
+      - name: Checkout trusted main implementation
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          fetch-depth: 0
+
+      - name: Enforce exact marker boundary and run trusted operation
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin "$HEAD_SHA"
+          changed_files="$(git diff --name-only "$BASE_SHA" "$HEAD_SHA")"
+          [[ "$changed_files" == "ops/triggers/cloudflare-oteryn-endpoints.md" ]] || {
+            echo "Marker PR must modify only ops/triggers/cloudflare-oteryn-endpoints.md." >&2
+            printf '%s\n' "$changed_files" >&2
+            exit 1
+          }
+
+          marker="$(git show "$HEAD_SHA:ops/triggers/cloudflare-oteryn-endpoints.md")"
+          audit_marker=$'# Cloudflare Oteryn endpoint trigger\n\nmode: audit\nconfirmation:'
+          apply_marker=$'# Cloudflare Oteryn endpoint trigger\n\nmode: apply\nconfirmation: APPLY-OTERYN-CLOUDFLARE'
+
+          if [[ "$marker" == "$audit_marker" ]]; then
+            requested_mode='audit'
+            export CLOUDFLARE_APPLY_CONFIRMATION=''
+          elif [[ "$marker" == "$apply_marker" ]]; then
+            requested_mode='apply'
+            export CLOUDFLARE_APPLY_CONFIRMATION='APPLY-OTERYN-CLOUDFLARE'
+          else
+            echo "Marker content is not an allowed exact audit/apply request." >&2
+            exit 1
+          fi
+
+          bash scripts/operations/cloudflare-oteryn-endpoints.sh "$requested_mode"
