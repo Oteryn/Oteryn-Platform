@@ -1,0 +1,138 @@
+name: Public Domain Exact Staging Final Dispatch
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/public-domain-exact-staging-final-dispatch.yml'
+
+permissions:
+  actions: write
+  contents: read
+  packages: read
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 95
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TARGET_SHA: 3eb109b505f7d1c8718cffb823de6d9d5166717c
+      TARGET_TAG: sha-3eb109b505f7d1c8718cffb823de6d9d5166717c
+    steps:
+      - name: Verify exact trusted main
+        shell: bash
+        run: |
+          set -euo pipefail
+          current_main="$(gh api "/repos/${GITHUB_REPOSITORY}/commits/main" --jq '.sha')"
+          if [[ "$current_main" != "$TARGET_SHA" ]]; then
+            echo "Refusing execution: main moved from the authorized exact SHA." >&2
+            exit 1
+          fi
+
+      - name: Build exact trusted-main images
+        shell: bash
+        run: |
+          set -euo pipefail
+          started_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          gh api \
+            --method POST \
+            "/repos/${GITHUB_REPOSITORY}/actions/workflows/build-synology-staging-images.yml/dispatches" \
+            -f ref=main
+
+          for attempt in $(seq 1 240); do
+            runs="$(gh api "/repos/${GITHUB_REPOSITORY}/actions/workflows/build-synology-staging-images.yml/runs?event=workflow_dispatch&branch=main&per_page=30")"
+            run="$(jq -c --arg sha "$TARGET_SHA" --arg started "$started_at" \
+              '[.workflow_runs[] | select(.head_sha == $sha and .created_at >= $started)] | sort_by(.created_at) | last // empty' \
+              <<<"$runs")"
+
+            if [[ -z "$run" ]]; then
+              echo "BUILD not registered yet"
+              sleep 10
+              continue
+            fi
+
+            run_id="$(jq -r '.id' <<<"$run")"
+            status="$(jq -r '.status' <<<"$run")"
+            conclusion="$(jq -r '.conclusion // ""' <<<"$run")"
+            echo "BUILD id=$run_id status=$status conclusion=$conclusion"
+
+            case "$conclusion" in
+              failure|cancelled|timed_out|action_required|stale)
+                echo "BUILD_RESULT=FAIL"
+                echo "BUILD_RUN_ID=$run_id"
+                exit 1
+                ;;
+            esac
+
+            if [[ "$status" == completed && "$conclusion" == success ]]; then
+              echo "BUILD_RESULT=PASS"
+              echo "BUILD_RUN_ID=$run_id"
+              break
+            fi
+
+            sleep 10
+            if [[ "$attempt" -eq 240 ]]; then
+              echo "Timed out waiting for exact image build." >&2
+              exit 1
+            fi
+          done
+
+      - name: Deploy and verify exact staging repair
+        shell: bash
+        run: |
+          set -euo pipefail
+          current_main="$(gh api "/repos/${GITHUB_REPOSITORY}/commits/main" --jq '.sha')"
+          if [[ "$current_main" != "$TARGET_SHA" ]]; then
+            echo "Refusing deployment: main moved after the exact image build." >&2
+            exit 1
+          fi
+
+          started_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          gh api \
+            --method POST \
+            "/repos/${GITHUB_REPOSITORY}/actions/workflows/character-bazaar-staging-control.yml/dispatches" \
+            -f ref=main \
+            -f 'inputs[action]=deploy-enable' \
+            -f "inputs[release_tag]=${TARGET_TAG}"
+
+          for attempt in $(seq 1 420); do
+            runs="$(gh api "/repos/${GITHUB_REPOSITORY}/actions/workflows/character-bazaar-staging-control.yml/runs?event=workflow_dispatch&branch=main&per_page=30")"
+            run="$(jq -c --arg sha "$TARGET_SHA" --arg started "$started_at" \
+              '[.workflow_runs[] | select(.head_sha == $sha and .created_at >= $started)] | sort_by(.created_at) | last // empty' \
+              <<<"$runs")"
+
+            if [[ -z "$run" ]]; then
+              echo "STAGING not registered yet"
+              sleep 10
+              continue
+            fi
+
+            run_id="$(jq -r '.id' <<<"$run")"
+            status="$(jq -r '.status' <<<"$run")"
+            conclusion="$(jq -r '.conclusion // ""' <<<"$run")"
+            echo "STAGING id=$run_id status=$status conclusion=$conclusion"
+
+            case "$conclusion" in
+              failure|cancelled|timed_out|action_required|stale)
+                echo "STAGING_RESULT=FAIL"
+                echo "STAGING_RUN_ID=$run_id"
+                exit 1
+                ;;
+            esac
+
+            if [[ "$status" == completed && "$conclusion" == success ]]; then
+              echo "STAGING_RESULT=PASS"
+              echo "STAGING_RUN_ID=$run_id"
+              gh api "/repos/${GITHUB_REPOSITORY}/actions/runs/${run_id}/jobs?per_page=100" \
+                --jq '.jobs[] | "STAGING_JOB id=\(.id) name=\(.name) conclusion=\(.conclusion)"'
+              gh api "/repos/${GITHUB_REPOSITORY}/actions/runs/${run_id}/artifacts?per_page=100" \
+                --jq '.artifacts[] | "STAGING_ARTIFACT id=\(.id) name=\(.name) expired=\(.expired)"'
+              exit 0
+            fi
+
+            sleep 10
+            if [[ "$attempt" -eq 420 ]]; then
+              echo "Timed out waiting for exact guarded staging verification." >&2
+              exit 1
+            fi
+          done
