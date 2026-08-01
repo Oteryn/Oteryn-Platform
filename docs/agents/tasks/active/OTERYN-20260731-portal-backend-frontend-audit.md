@@ -28,6 +28,7 @@ required_reads:
   - docs/agents/evidence/OTERYN-20260731-portal-backend-frontend-audit/ISSUE_365_FLASH_REQUEST_LIFECYCLE_ANALYSIS.md
   - docs/agents/evidence/OTERYN-20260731-portal-backend-frontend-audit/ISSUE_365_LAZY_SCROLL_SYNTHETIC_PROBE.md
   - docs/agents/evidence/OTERYN-20260731-portal-backend-frontend-audit/ISSUE_365_EXACT_FROZEN_EXECUTION_RUNBOOK.md
+  - docs/agents/evidence/OTERYN-20260731-portal-backend-frontend-audit/ISSUE_365_EXECUTION_ENVIRONMENT_PREFLIGHT.md
 search_first:
   - current main exact SHA, active task, PR head, ownership and CI
   - Issue #326 and Issue #365
@@ -56,6 +57,7 @@ Audit every delivered portal capability across backend, frontend, integration, s
 - [x] Execute a controlled responsive lazy-scroll probe and persist its limitations.
 - [x] Add immediate-action versus pre-scroll differential instructions to the validator packet.
 - [x] Publish a fail-closed exact frozen-target 12-sample execution runbook with ephemeral lock/session instrumentation and cleanup proof.
+- [x] Re-run a fresh continuation environment preflight and persist every rejected execution avenue.
 - [ ] Execute the exact frozen-target 12-sample clean/corrupt × immediate/pre-scroll matrix and persist sanitized correlated evidence.
 - [x] Publish consolidated reports, machine-readable matrices and validator instructions.
 - [x] Recommend the smallest safe remediation set without implementing it.
@@ -83,6 +85,7 @@ cross_repository_tasks:
 ## Constraints
 
 - Audit-only: no application, route, view/asset, configuration, migration/model, committed test, workflow, product ledger, dependency or Canary changes.
+- The Issue #365 observer and framework instrumentation must remain untracked and must never be committed.
 - Open-PR code remains `OPEN_PR_ONLY`.
 - CI evidence never implies staging or production deployment.
 - Do not merge, deploy or repair findings in this task.
@@ -93,13 +96,13 @@ cross_repository_tasks:
 checkpoint_version: 1
 policy_version: 2
 phase: validate
-session_id: chat-20260801-portal-audit-autonomous-validator
+session_id: chat-20260801-portal-audit-validator-takeover
 session_role: validator
-execution_mode: chat-github-actions-artifact-review-plus-controlled-local-browser-probe-plus-runbook-authoring
-execution_reason: exact artifacts proved intermittent post-serialization reproduction; source and framework inspection narrowed the race to old-document media work; a controlled Chromium probe proved responsive action-induced lazy work is feasible; the remaining exact frozen execution is now specified as a fail-closed 12-sample procedure but cannot run in the current non-checkout environment
-updated_at: 2026-08-01T09:54:00Z
+execution_mode: chat-github-connector-plus-local-environment-preflight
+execution_reason: live GitHub state, evidence, workflow and artifact inspection are available; the normative runbook itself requires an exact mutable checkout and production-like acceptance runtime that this session cannot obtain
+updated_at: 2026-08-01T11:12:40Z
 lease_expires_at: null
-head: b2510dd1afff8d39c947a17cbf4f7ae4e6897643
+head: 6e9a0b599331aa203e34331416f804a4c9df2054
 branch: audit/OTERYN-20260731-portal-backend-frontend-audit
 pr: 381
 status: blocked
@@ -115,63 +118,51 @@ owned_paths:
   - docs/agents/tasks/active/OTERYN-20260731-portal-backend-frontend-audit.md
   - docs/agents/reports/OTERYN-20260731-portal-backend-frontend-audit*.md
   - docs/agents/evidence/OTERYN-20260731-portal-backend-frontend-audit/**
+evidence_index: docs/agents/evidence/OTERYN-20260731-portal-backend-frontend-audit/index.md
 context_pressure: high
 context_growth: stable
 context_score: 12
 estimate_confidence: high
 decomposition_decision: phased
 decomposition_reason: one cohesive audit; only execution of the normative exact frozen 12-sample package remains
-validation_level: strict-plus-fresh-critical-plus-three-post-fix-reruns-plus-embedded-diagnostics-plus-corrected-lifecycle-plus-controlled-responsive-lazy-scroll-plus-exact-execution-runbook
+validation_level: strict-plus-fresh-critical-plus-post-fix-reruns-plus-embedded-diagnostics-plus-corrected-lifecycle-plus-controlled-responsive-lazy-scroll-plus-exact-runbook-plus-fresh-environment-preflight
 heavy_validation_runs: 4
-session_rotation_count: 4
-stale_takeover_count: 0
-human_interruptions: 9
+session_rotation_count: 5
+stale_takeover_count: 1
+human_interruptions: 10
 validator_verdict: VALIDATED_WITH_CORRECTIONS
 proven:
   - frozen audit target is b6f7b12a43aa72a52dc98c3fa07a7c4607fcb608
   - canonical inventory contains 27 surface groups and 228 route assignments
   - capability ledger contains 43 records: 23 implemented 3 partial 14 missing and 3 not applicable
-  - no user-facing backend-only or frontend-only implementation promotion was found
-  - strict Portal Acceptance Contract run 30633216358 job 91164376176 artifact 8794204786 passed
-  - fresh current critical run 30633216753 attempt 2 job 91339118796 artifact 8814897157 passed 96 of 96 with zero retries
-  - historical mobile publication flash loss after durable success is proven
-  - commit 6c1e910d36771f50da5eded93cc50274a90c62d2 adds session blocking to all administrator Wiki routes
-  - original administration spec at 6c1e still asserts Wiki article published and retries are zero
-  - run 30612399525 attempt 2 passed the original responsive-mobile flow
-  - run 30612399525 attempts 3 and 4 reproduced the exact original responsive-mobile flash loss
+  - fresh current critical run 30633216753 attempt 2 passed 96 of 96 with zero retries
+  - run 30612399525 attempts 2 through 4 produced one responsive-mobile pass and two exact responsive-mobile flash-loss reproductions on post-serialization source 6c1e910d36771f50da5eded93cc50274a90c62d2
   - both reproductions retained durable Published version 3 and Unpublish to draft state
   - desktop tablet and portability Chromium Firefox WebKit passed in all three post-fix attempts
-  - post-serialization state is REPRODUCED_INTERMITTENT with one pass and two reproductions
-  - current remediation state is NOT_PROVEN_REMEDIATED
-  - routes/modules/wiki.php has identical blob f4a16ac017fd075b54904455bc8b6f05af304053 at 6c1e and frozen target
-  - embedded diagnostics for attempts 3 and 4 were recovered from hash-matched Playwright HTML artifacts
-  - attempt 3 desktop tablet mobile diagnostics contain respectively 9 12 and 16 thumbnail HTTP 500 responses
-  - attempt 4 desktop tablet mobile diagnostics contain respectively 9 12 and 14 thumbnail HTTP 500 responses
-  - desktop and tablet pass despite contaminated thumbnail traffic while mobile reproduces the flash loss
-  - every original-flow project in both preserved reports records exactly two invalid-pattern console errors and zero page errors
-  - publish success is stored only as Laravel session flash and rendered only from session status
+  - post-serialization state is REPRODUCED_INTERMITTENT and current remediation state is NOT_PROVEN_REMEDIATED
+  - embedded diagnostics prove desktop and tablet retain publication feedback despite contaminated thumbnail HTTP 500 traffic while mobile reproduces
+  - publication success is stored only as Laravel session flash and rendered only from session status
   - the old Wiki article form creates authenticated native-lazy thumbnail requests before publication controls
-  - article edit media index thumbnail and publish routes use the web session and session blocking
   - Laravel framework 13 ages flash data during session save while blocking supplies mutual exclusion rather than redirect priority
-  - a new redirected-page request cannot explain an alert already absent from that page first server-rendered HTML
-  - controlled Chromium direct action loaded all 12 images before desktop click but only 8 tablet and 3 mobile
-  - controlled tablet and mobile direct actions each completed four deferred images after click in all three samples
-  - controlled pre-scroll plus settle produced zero post-click lazy loads for desktop tablet and mobile
-  - exact frozen execution runbook restores the historical observer only in an untracked test copy
-  - exact frozen execution runbook instruments lock attempt acquire release session load save and flash aging in the installed StartSession middleware without committing the observer
-  - exact frozen execution runbook requires 12 zero-retry samples across clean and exactly-one-corrupt fixtures plus immediate and pre-scroll modes
-  - exact frozen execution runbook requires original vendor hash restoration and empty Git status before evidence is accepted
-  - prior exact head 5fb18b370ffb8c53ac49b89ed23e894da6d4b949 passed all six workflow families
-  - historical thumbnail traffic remains explained by intentionally damaged EditorialMedia fixture leakage
+  - controlled Chromium direct action activated deferred old-document lazy images on tablet and mobile while pre-scroll plus settle eliminated post-click lazy loads
+  - exact frozen execution runbook requires 12 zero-retry samples with ephemeral StartSession and browser instrumentation plus clean restoration proof
+  - exact audit head edd9068740f0498e4ece6963d001c551681aedd1 passed all six workflow families before the continuation documentation commits
+  - takeover scope at edd9068740f0498e4ece6963d001c551681aedd1 contained 24 changed files only in authorized audit paths
+  - current main is 3c005ddf3c49516333ac0d7826f36e452a2b9fd5 and is 16 commits ahead of the frozen target without a Wiki application route view or acceptance-scenario change
+  - direct GitHub clone and raw archive access fail because github.com api.github.com raw.githubusercontent.com and codeload.github.com do not resolve in the sandbox
+  - local environment has PHP 8.4.16 Node npm Python and Chromium but lacks Composer Docker and Codex CLI
+  - connected GitHub actions expose no repository archive custom workflow dispatch arbitrary runner execution Codespace execution or Codex Cloud execution
+  - Phase 7 artifact 8817091878 contains only two summary JSON files and no checkout dependencies database or reusable runtime
+  - earlier Codex PR delegations were not accepted because Codex Cloud was not connected to GitHub
   - normalized findings remain zero HIGH six MEDIUM and one LOW
   - production remains unproven
 derived:
-  - post-fix reproduction is strongly relevant to frozen Wiki runtime because application views and Wiki routes did not change but exact frozen execution is not claimed
   - session serialization is useful concurrency control but is insufficient for deterministic remediation
-  - thumbnail HTTP 500 presence alone is insufficient to remove publication feedback because contaminated desktop and tablet flows pass
+  - thumbnail HTTP 500 presence alone is insufficient to remove publication feedback
   - Playwright publication action can activate deferred old-document responsive lazy work after a prior settled boundary
   - an old-document media request may queue behind publish POST then age pending status before redirect GET
   - the corrected request-order mechanism family has HIGH confidence but remains derived until the normative exact frozen execution captures browser server lock and session ordering
+  - the residual blocker is environmental rather than a missing command specification unresolved repository instruction or failing exact-head CI
 unknown:
   - exact old-document thumbnail request start in preserved reproductions
   - exact session-lock acquisition and session-save order
@@ -179,7 +170,6 @@ unknown:
   - clean isolated result after EditorialMedia reset before each sample
   - controlled behavior with exactly one corrupt EditorialMedia row
   - causal contribution of integrity-failure responses
-  - reason attempt 3 records 16 mobile 500 responses while attempt 4 records 14
   - clean valid-object thumbnail health
   - exact frozen-target staging deployment
   - production release and availability
@@ -190,53 +180,51 @@ first_failure:
   evidence: run 30612399525 attempts 3 and 4 jobs 91343023604 and 91343514611 artifacts 8815383351 and 8815457044
 rejected_hypotheses:
   - historical thumbnail 500 responses prove valid production media failure
-  - thumbnail traffic is random or unexplained
   - any thumbnail HTTP 500 presence necessarily removes publication feedback
   - session serialization deterministically remediates the original mobile flash defect
   - session blocking guarantees redirect GET priority
-  - client networkidle prevents action-induced lazy work
   - requests created only by the redirected page can cause its first server render to omit status
-  - a passing related media scenario closes the original administration scenario
-  - flash loss and thumbnail integrity failure have one proven cause
-  - invalid native HTML pattern implies backend validation bypass
-  - CI evidence can be relabelled as exact deployment proof
+  - the Phase 7 evidence artifact contains a reusable checkout or acceptance runtime
+  - rerunning an existing committed workflow can execute the untracked custom observer matrix
+  - committing a temporary test or workflow is allowed for the remaining validator gate
+  - current connector access implies Codex Cloud execution is connected
+  - temporal coexistence of thumbnail traffic and flash loss proves causality
 changed_paths:
   - docs/agents/tasks/active/OTERYN-20260731-portal-backend-frontend-audit.md
+  - docs/agents/evidence/OTERYN-20260731-portal-backend-frontend-audit/index.md
+  - docs/agents/evidence/OTERYN-20260731-portal-backend-frontend-audit/ISSUE_365_EXECUTION_ENVIRONMENT_PREFLIGHT.md
   - docs/agents/reports/OTERYN-20260731-portal-backend-frontend-audit*.md
   - docs/agents/evidence/OTERYN-20260731-portal-backend-frontend-audit/**
 validation:
-  - command: strict Portal Acceptance Contract
+  - command: exact-head workflow inspection at edd9068740f0498e4ece6963d001c551681aedd1
     result: PASS
-    evidence: run 30633216358 job 91164376176 artifact 8794204786
-  - command: fresh current critical profile
+    evidence: Agent Governance 30695402650 CI 30695402640 Phase 7 30695402696 Edge Security 30695402656 Platform DB Outage 30695402654 Game Auth 30695402652
+  - command: live PR scope and review-thread inspection
     result: PASS
-    evidence: run 30633216753 attempt 2 job 91339118796 artifact 8814897157
-  - command: three independent post-serialization original-flow attempts
-    result: FAIL
-    evidence: one mobile pass and two exact mobile flash-loss reproductions in run 30612399525 attempts 2 through 4
-  - command: embedded Playwright report extraction and browser-diagnostics reconciliation
+    evidence: 24 authorized paths at takeover and zero inline review threads
+  - command: current main comparison to frozen target
     result: PASS
-    evidence: ISSUE_365_EMBEDDED_BROWSER_DIAGNOSTICS.md
-  - command: corrected source and Laravel flash request-lifecycle analysis
+    evidence: main 3c005ddf3c49516333ac0d7826f36e452a2b9fd5 is 16 commits ahead without Wiki runtime or scenario paths
+  - command: direct clone and GitHub endpoint DNS preflight
+    result: BLOCKED
+    evidence: Could not resolve github.com api.github.com raw.githubusercontent.com or codeload.github.com
+  - command: local executable and runtime prerequisite preflight
+    result: BLOCKED
+    evidence: Composer Docker Codex CLI checkout and production-like services are unavailable
+  - command: GitHub connector capability inventory
     result: PASS
-    evidence: ISSUE_365_FLASH_REQUEST_LIFECYCLE_ANALYSIS.md
-  - command: controlled responsive lazy-scroll browser probe
+    evidence: repository and workflow inspection available but no archive dispatch arbitrary runner command Codespace or Codex Cloud execution action
+  - command: Phase 7 artifact 8817091878 inspection
     result: PASS
-    evidence: ISSUE_365_LAZY_SCROLL_SYNTHETIC_PROBE.md with 18 synthetic samples
-  - command: exact frozen execution procedure review
-    result: PASS
-    evidence: ISSUE_365_EXACT_FROZEN_EXECUTION_RUNBOOK.md and normative VALIDATOR_PACKET_ADDENDUM.md
-  - command: prior exact-head repository workflow families
-    result: PASS
-    evidence: head 5fb18b370ffb8c53ac49b89ed23e894da6d4b949 and six successful workflow runs
+    evidence: archive contains only phase7-production-like-evidence.json and phase7-existing-data-upgrade-evidence.json
   - command: normative exact frozen 12-sample package
     result: NOT_RUN
-    evidence: current environment has no mutable checkout or custom acceptance command execution path
+    evidence: current environment cannot obtain or execute the required mutable checkout and acceptance runtime without violating the runbook
 blockers:
   - normative exact frozen 12-sample runbook requires a mutable checkout-capable worker with the production-like acceptance dependencies
-next_action: execute ISSUE_365_EXACT_FROZEN_EXECUTION_RUNBOOK.md without committing its observers then persist the sanitized hash-complete result and restore an empty checkout
+next_action: execute ISSUE_365_EXACT_FROZEN_EXECUTION_RUNBOOK.md without committing its observers then persist the sanitized hash-complete result and prove restoration to the original framework hash and an empty checkout
 ```
 
 ## Notes
 
-The verdict is `VALIDATED_WITH_CORRECTIONS`. The frozen target remains authoritative. No implementation, merge, deployment or production action is authorized.
+The verdict remains `VALIDATED_WITH_CORRECTIONS`. The frozen target remains authoritative. No implementation, merge, deployment or production action is authorized.
