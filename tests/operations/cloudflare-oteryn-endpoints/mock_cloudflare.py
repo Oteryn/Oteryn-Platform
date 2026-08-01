@@ -12,7 +12,9 @@ ZONE_ID = "b" * 32
 TUNNEL_ID = "123e4567-e89b-42d3-a456-426614174000"
 TOKEN = "test-token"
 WWW_HOST = "oteryn.molehill.cloud"
-LOGIN_HOST = "login.oteryn.molehill.cloud"
+GATEWAY_HOST = "gateway.molehill.cloud"
+LEGACY_GATEWAY_HOST = "login.oteryn.molehill.cloud"
+TARGET = f"{TUNNEL_ID}.cfargotunnel.com"
 
 STATE = {
     "mutations": [],
@@ -25,17 +27,21 @@ STATE = {
                 "service": "http://old-www:8000",
                 "originRequest": {"httpHostHeader": "old-www"},
             },
-            {"hostname": LOGIN_HOST, "service": "http://old-login:8080"},
+            {
+                "hostname": LEGACY_GATEWAY_HOST,
+                "service": "http://old-gateway:8080",
+                "originRequest": {"connectTimeout": "15s"},
+            },
             {"service": "http_status:404"},
         ],
     },
     "dns": {
-        LOGIN_HOST: {
-            "id": "record-login",
+        LEGACY_GATEWAY_HOST: {
+            "id": "record-legacy-gateway",
             "type": "CNAME",
-            "name": LOGIN_HOST,
-            "content": "wrong.example.invalid",
-            "proxied": False,
+            "name": LEGACY_GATEWAY_HOST,
+            "content": TARGET,
+            "proxied": True,
         }
     },
 }
@@ -46,7 +52,7 @@ def envelope(result: object, success: bool = True) -> dict[str, object]:
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = "MockCloudflare/1.0"
+    server_version = "MockCloudflare/2.0"
 
     def log_message(self, *_args: object) -> None:
         return
@@ -141,15 +147,7 @@ class Handler(BaseHTTPRequestHandler):
                 envelope({"account_id": ACCOUNT_ID, "config": STATE["config"], "version": 2}),
             )
             return
-        self._json(
-            404,
-            {
-                "success": False,
-                "errors": [{"code": 1000, "message": f"Unknown PUT {path}"}],
-                "messages": [],
-                "result": None,
-            },
-        )
+        self._json(404, envelope(None, success=False))
 
     def do_POST(self) -> None:  # noqa: N802
         if not self._authorized():
@@ -163,15 +161,7 @@ class Handler(BaseHTTPRequestHandler):
             STATE["mutations"].append(f"dns-post:{host}")
             self._json(200, envelope(record))
             return
-        self._json(
-            404,
-            {
-                "success": False,
-                "errors": [{"code": 1000, "message": f"Unknown POST {path}"}],
-                "messages": [],
-                "result": None,
-            },
-        )
+        self._json(404, envelope(None, success=False))
 
     def do_PATCH(self) -> None:  # noqa: N802
         if not self._authorized():
@@ -191,25 +181,26 @@ class Handler(BaseHTTPRequestHandler):
                     STATE["mutations"].append(f"dns-patch:{new_host}")
                     self._json(200, envelope(updated))
                     return
-            self._json(
-                404,
-                {
-                    "success": False,
-                    "errors": [{"code": 81044, "message": "Record not found"}],
-                    "messages": [],
-                    "result": None,
-                },
-            )
+            self._json(404, envelope(None, success=False))
             return
-        self._json(
-            404,
-            {
-                "success": False,
-                "errors": [{"code": 1000, "message": f"Unknown PATCH {path}"}],
-                "messages": [],
-                "result": None,
-            },
-        )
+        self._json(404, envelope(None, success=False))
+
+    def do_DELETE(self) -> None:  # noqa: N802
+        if not self._authorized():
+            return
+        path = urlparse(self.path).path
+        prefix = f"/client/v4/zones/{ZONE_ID}/dns_records/"
+        if path.startswith(prefix):
+            record_id = path.removeprefix(prefix)
+            for host, record in list(STATE["dns"].items()):
+                if record["id"] == record_id:
+                    del STATE["dns"][host]
+                    STATE["mutations"].append(f"dns-delete:{host}")
+                    self._json(200, envelope({"id": record_id}))
+                    return
+            self._json(404, envelope(None, success=False))
+            return
+        self._json(404, envelope(None, success=False))
 
 
 def main() -> None:
