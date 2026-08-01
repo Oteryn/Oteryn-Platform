@@ -5,75 +5,91 @@ Frozen target: `b6f7b12a43aa72a52dc98c3fa07a7c4607fcb608`
 Validation date: `2026-08-01`  
 Verdict: `VALIDATED_WITH_CORRECTIONS`
 
-## Scope
+## Executive correction
 
-This validator pass independently rechecked the durable audit package and initiated a fresh GitHub Actions execution of the existing Acceptance E2E and Visual UX critical profile. It did not modify application code, routes, views, configuration, committed tests, workflows, dependencies, Canary, staging or production.
+Fresh validation disproved the prior description of the historical Wiki flash defect as `PARTIALLY_PROVEN_REMEDIATED`.
 
-The fresh execution is direct `CI_PROVEN` evidence for source `fdb45a4325949d3ab1c4860e3a4527553f11c789`. Its relationship to the frozen target remains `DERIVED`: the audited comparison changes documentation and a byte-identical Marketplace configuration blob. The run is not relabelled as direct execution of `b6f7b12...`.
+The exact targeted session-serialization commit `6c1e910d36771f50da5eded93cc50274a90c62d2` still contained the original transient assertion in `admin-wiki-administration.spec.mjs`. Three independent zero-retry GitHub Actions attempts produced:
 
-## Fresh execution identity
+- one responsive-mobile PASS;
+- two exact responsive-mobile reproductions of the missing `Wiki article published.` status message;
+- durable `Published`, version 3 and `Unpublish to draft` evidence in both reproductions;
+- desktop and tablet PASS in all three attempts;
+- portability Chromium, Firefox and WebKit PASS in all three attempts.
 
-- workflow: `Acceptance E2E and Visual UX`;
-- run: `30633216753`;
-- attempt: `2`;
-- job: `91339118796`;
-- source: `fdb45a4325949d3ab1c4860e3a4527553f11c789`;
-- profile: `critical`;
-- retries: `0`;
-- runtime: real Laravel HTTP with PHP 8.5, MariaDB Platform/Canary schemas, Redis ACL and MailHog;
-- conclusion: `SUCCESS`;
-- artifact: `8814897157`, `acceptance-e2e-critical-30633216753-2-direct`;
-- GitHub artifact digest: `sha256:552d545260bad87d98f999568091c2ade84a5dce739130fbbe4e4c4e71def24f`;
-- locally downloaded ZIP SHA-256: `6b18d56738cad108180e20f99a22a82249ab564b6c234d12e19625d521b20f33`.
+Corrected state: `REPRODUCED_INTERMITTENT` after session serialization; current remediation state: `NOT_PROVEN_REMEDIATED`.
 
-The GitHub artifact digest and local ZIP hash identify different representations and are intentionally recorded separately.
+## Direct post-fix execution
 
-## Results
+Workflow run: `30612399525`  
+Exact direct source: `6c1e910d36771f50da5eded93cc50274a90c62d2`  
+Profile: `critical`  
+Playwright retries: `0`  
+Runtime: PHP 8.5, real Laravel HTTP, isolated MariaDB Platform/Canary, Redis ACL and MailHog.
 
-| Profile | Result | Tests |
-|---|---|---:|
-| smoke | PASS | 7/7 |
-| portability | PASS | 36/36 |
-| responsive | PASS | 42/42 |
-| resilience | PASS | 2/2 |
-| accessibility | PASS | 9/9 |
-| total | PASS | 96/96 |
+| Attempt | Job | Artifact | Digest | Original responsive-mobile flow |
+|---:|---:|---:|---|---|
+| 2 | `91342520692` | `8815321615` | `sha256:5b2168f4952ba52f0a737b47d3a195a061c8ffc023d07cbfa115b643358d623a` | PASS |
+| 3 | `91343023604` | `8815383351` | `sha256:7498934d30f5292dab91e46edbc5659bc885acc11fa84c1784cb2525d8cd48a8` | REPRODUCED |
+| 4 | `91343514611` | `8815457044` | `sha256:790bc6cc4a7777b591abca9575cdb6927fb7c93f2682694f09e03285131d2bba` | REPRODUCED |
 
-The critical profile intentionally skipped full, exploratory visual and soak execution. Production smoke remains pending.
+Attempt 2 completed responsive 42/42. Its overall job later failed in a separate accessibility image-free draft test. Attempts 3 and 4 completed portability successfully and each failed responsive 41/42 only at the original mobile publication-flash assertion.
 
-## Wiki-specific validation
+Detailed evidence is in `ISSUE_365_POST_FIX_RERUN_EVIDENCE.md`.
 
-The fresh attempt passed with zero retries:
+## Frozen-target relation
 
-- the original Wiki administration scenario in Chromium, Firefox and WebKit portability;
-- the original Wiki administration scenario at desktop, tablet and mobile viewports;
-- the Wiki Editorial Media publication scenario in all three portability browsers and all three responsive viewports;
-- the Wiki Editorial Media publication scenario in accessibility Chromium;
-- the image-free Wiki media scenario in all applicable projects.
+The reruns are direct `CI_PROVEN` evidence for `6c1e...`, not direct execution of the frozen SHA.
 
-The Wiki Editorial Media scenario explicitly asserts the accessible `Wiki article published.` flash and durable `Published` state. The original administration scenario still asserts durable publication but does not contain the historical transient flash assertion.
+The frozen target and `6c1e...` have the identical `routes/modules/wiki.php` blob `f4a16ac017fd075b54904455bc8b6f05af304053`. The compare range contains no changes under `app/**`, `resources/views/**`, or Wiki route runtime. Later changes include acceptance tests/tooling, Marketplace/deployment configuration and documentation.
 
-## Corrections validated
+Therefore relevance to the frozen Wiki runtime is strong but `DERIVED`. Exact frozen-target classification remains unresolved because the current original test removed the transient assertion.
 
-The fresh execution does not contradict the corrected audit conclusions:
+## Other fresh validation retained
 
-1. Historical thumbnail HTTP 500 traffic is explained by intentionally damaged EditorialMedia rows leaking across acceptance projects; it is a `MEDIUM` isolation/evidence defect, not a proven valid-production-media failure.
-2. Historical flash loss has strong remediation evidence through session serialization and a passing related flash-asserting scenario, but the original exact assertion remains absent.
-3. The normalized severity set remains `0 HIGH`, `6 MEDIUM`, `1 LOW`.
-4. Repository/CI evidence does not prove frozen-target staging deployment or production availability.
+A separate fresh rerun on direct source `fdb45a4325949d3ab1c4860e3a4527553f11c789` remains valid:
+
+- run `30633216753`, attempt 2, job `91339118796`;
+- critical profile 96/96 PASS, zero retries;
+- smoke 7/7, portability 36/36, responsive 42/42, resilience 2/2, accessibility 9/9;
+- artifact `8814897157`, digest `sha256:552d545260bad87d98f999568091c2ade84a5dce739130fbbe4e4c4e71def24f`.
+
+That run proves current delivered critical profiles pass, but the original administration scenario no longer asserts its transient publication flash. The related media-intensive scenario does assert the flash and passes; it does not negate the direct intermittent reproduction in the original flow.
+
+## Findings and severity
+
+Normalized totals remain:
+
+- 0 HIGH;
+- 6 MEDIUM;
+- 1 LOW.
+
+`OTERYN-AUDIT-P35-005` remains MEDIUM because durable publication succeeds and the defect affects transient accessible feedback. Its evidence state changes from `PARTIALLY_PROVEN_REMEDIATED` to:
+
+```yaml
+historical_state: PROVEN
+post_serialization_state: REPRODUCED_INTERMITTENT
+current_remediation_state: NOT_PROVEN_REMEDIATED
+samples:
+  pass: 1
+  reproduced: 2
+```
+
+No causal relationship between damaged EditorialMedia rows and flash loss is claimed.
 
 ## Residual boundaries
 
-This validator pass does not claim:
+Still not executed:
 
-- direct browser execution on exact frozen SHA `b6f7b12...`;
-- three clean isolated samples of the original administration flow with an ephemeral restored flash assertion;
-- a controlled comparison containing exactly one missing or corrupt EditorialMedia row;
-- zero HTTP 500 responses or zero console errors merely because successful JUnit/HTML output did not contain those diagnostic strings;
-- full every-screen visual acceptance, soak coverage or production proof.
+- direct browser execution on exact frozen SHA with an ephemeral restored observer;
+- clean isolation that resets EditorialMedia before each sample;
+- a controlled comparison with exactly one missing/corrupt row;
+- sanitized request/session/application logs for that comparison.
+
+The three post-fix attempts used fresh runners and service containers, but the complete critical profile can accumulate deliberately damaged media rows inside an attempt. They prove reproduction under the delivered suite order, not causality.
 
 ## Verdict rationale
 
-`VALIDATED_WITH_CORRECTIONS` is appropriate because a fresh zero-retry production-like browser execution independently reconfirmed all available critical profiles and relevant Wiki scenarios, and the audit corrections are internally consistent with source, historical artifacts and fresh CI.
+`VALIDATED_WITH_CORRECTIONS` remains the only supported verdict. The audit inventory, severity normalization and fixture-leak correction remain valid, while the remediation statement required a material correction based on direct new evidence.
 
-`VALIDATED` remains forbidden because the exact custom probe package defined by `VALIDATOR_PACKET.md` and `VALIDATOR_PACKET_ADDENDUM.md` was not executed. The task therefore remains `BLOCKED` on that single focused execution package. No merge or deployment is authorized.
+`VALIDATED` remains forbidden until the exact frozen clean-versus-one-row package is executed. No implementation, merge, deployment, staging, production or Canary action is authorized.
