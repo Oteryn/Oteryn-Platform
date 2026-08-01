@@ -1,0 +1,173 @@
+name: Issue 365 Exact Frozen Synology Retry
+
+on:
+  push:
+    branches:
+      - validation/issue365-synology-20260801
+    paths:
+      - .github/workflows/issue365-synology-retry.yml
+  pull_request:
+    branches:
+      - main
+    paths:
+      - .github/workflows/issue365-synology-retry.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: issue365-exact-frozen-synology
+  cancel-in-progress: true
+
+env:
+  TARGET_SHA: b6f7b12a43aa72a52dc98c3fa07a7c4607fcb608
+  RUNBOOK_REF: fb8a54d849a2f74f92ff429aea3bac06eb6a543c
+  PLAYWRIGHT_IMAGE: mcr.microsoft.com/playwright:v1.60.0-noble
+
+jobs:
+  validate:
+    runs-on: oteryn-staging
+    timeout-minutes: 120
+    steps:
+      - name: Checkout validation harness
+        uses: actions/checkout@v7
+        with:
+          ref: validation/issue365-synology-20260801
+          path: validation-source
+          fetch-depth: 1
+          clean: true
+          persist-credentials: false
+
+      - name: Checkout exact frozen target
+        uses: actions/checkout@v7
+        with:
+          ref: b6f7b12a43aa72a52dc98c3fa07a7c4607fcb608
+          path: frozen
+          fetch-depth: 0
+          clean: true
+          persist-credentials: false
+
+      - name: Extract and correct isolated validator
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          source = Path('validation-source/.github/workflows/issue365-synology-preflight.yml').read_text(encoding='utf-8').splitlines()
+          start = None
+          for index, line in enumerate(source):
+              if line == '        run: |' and index > 0 and 'Execute isolated exact-frozen 12-sample matrix' in source[index - 4:index]:
+                  start = index + 1
+                  break
+          if start is None:
+              raise SystemExit('main validator run block not found')
+
+          body = []
+          for line in source[start:]:
+              if line.startswith('      - name: '):
+                  break
+              if line.startswith('          '):
+                  body.append(line[10:])
+              elif line == '':
+                  body.append('')
+              else:
+                  raise SystemExit(f'unexpected indentation in validator block: {line!r}')
+          script = '\n'.join(body) + '\n'
+
+          old_build = '''tar --exclude=.git -C "$GITHUB_WORKSPACE" -cf - . \\
+  | docker build \\
+      -t "$base_image" \\
+      -f deploy/synology/docker/platform.Dockerfile \\
+      -'''
+          new_build = '''echo "::notice::ISSUE365_STAGE=build-platform-image"
+docker build --progress=plain \\
+  -t "$base_image" \\
+  -f "$GITHUB_WORKSPACE/deploy/synology/docker/platform.Dockerfile" \\
+  "$GITHUB_WORKSPACE"'''
+          if script.count(old_build) != 1:
+              raise SystemExit(f'expected one legacy build block, found {script.count(old_build)}')
+          script = script.replace(old_build, new_build)
+
+          old_exec = 'docker exec "$app_container" python3 - <<\'PY\''
+          if script.count(old_exec) != 1:
+              raise SystemExit(f'expected one non-interactive python exec, found {script.count(old_exec)}')
+          script = script.replace(old_exec, 'docker exec -i "$app_container" python3 - <<\'PY\'', 1)
+
+          matrix_anchor = '''set -euo pipefail
+cd /workspace
+
+: > "$ISSUE365_SERVER_TRACE"'''
+          matrix_replacement = '''set -euo pipefail
+cd /workspace
+START_SESSION="$(php -r 'require "vendor/autoload.php"; echo (new ReflectionClass(Illuminate\\Session\\Middleware\\StartSession::class))->getFileName();')"
+export START_SESSION
+
+echo "matrix-start" > "$RUN_ROOT/LAST_STAGE"
+: > "$ISSUE365_SERVER_TRACE"'''
+          if script.count(matrix_anchor) != 1:
+              raise SystemExit(f'expected one matrix anchor, found {script.count(matrix_anchor)}')
+          script = script.replace(matrix_anchor, matrix_replacement)
+
+          stage_anchors = {
+              'cat <<EOF | docker build -t "$validator_image" -': 'echo "::notice::ISSUE365_STAGE=build-validator-image"\ncat <<EOF | docker build -t "$validator_image" -',
+              'docker exec "$app_container" composer install': 'echo "::notice::ISSUE365_STAGE=composer-install"\ndocker exec "$app_container" composer install',
+              'docker exec "$app_container" bash scripts/acceptance/bootstrap-production-like.sh': 'echo "::notice::ISSUE365_STAGE=acceptance-bootstrap"\ndocker exec "$app_container" bash scripts/acceptance/bootstrap-production-like.sh',
+              'for script in \\': 'echo "::notice::ISSUE365_STAGE=install-observers"\nfor script in \\',
+              'docker exec -i "$app_container" bash -s <<\'MATRIX\'': 'echo "::notice::ISSUE365_STAGE=matrix"\ndocker exec -i "$app_container" bash -s <<\'MATRIX\'',
+          }
+          for old, new in stage_anchors.items():
+              if script.count(old) != 1:
+                  raise SystemExit(f'expected one stage anchor {old!r}, found {script.count(old)}')
+              script = script.replace(old, new, 1)
+
+          target = Path('/tmp/issue365-validator.sh')
+          target.write_text(script, encoding='utf-8')
+          target.chmod(0o700)
+          PY
+          bash -n /tmp/issue365-validator.sh
+
+      - name: Execute corrected exact-frozen 12-sample matrix
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          export GITHUB_WORKSPACE="$PWD/frozen"
+          cd "$GITHUB_WORKSPACE"
+          test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+          exec bash /tmp/issue365-validator.sh
+
+      - name: Upload immutable Issue 365 evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: issue365-exact-frozen-synology-${{ github.run_id }}
+          path: |
+            frozen/issue365-synology-evidence-${{ github.run_id }}.tar.gz
+            frozen/issue365-synology-evidence-${{ github.run_id }}.tar.gz.sha256
+            frozen/issue365-synology-matrix-summary-${{ github.run_id }}.json
+            frozen/issue365-synology-partial-${{ github.run_id }}.tar.gz
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Remove isolated validation runtime
+        if: always()
+        shell: bash
+        run: |
+          set +e
+          prefix="issue365-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          for container in "${prefix}-app" "${prefix}-mailhog" "${prefix}-redis" "${prefix}-mariadb"; do
+            docker rm -f "$container" >/dev/null 2>&1 || true
+          done
+          docker network rm "${prefix}-net" >/dev/null 2>&1 || true
+          docker volume rm -f "${prefix}-work" "${prefix}-evidence" >/dev/null 2>&1 || true
+          docker image rm -f \
+            "oteryn-issue365-validator:${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" \
+            "oteryn-issue365-platform:${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" \
+            >/dev/null 2>&1 || true
+          rm -f "/tmp/${prefix}.env" "/tmp/${prefix}-runbook.md" /tmp/issue365-validator.sh
+          if [[ -d frozen/.git ]]; then
+            git -C frozen reset --hard HEAD >/dev/null 2>&1 || true
+            git -C frozen clean -ffdqx >/dev/null 2>&1 || true
+          fi
