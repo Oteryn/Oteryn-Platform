@@ -21,7 +21,8 @@ concurrency:
 
 jobs:
   preflight:
-    runs-on: self-hosted
+    runs-on: oteryn-staging
+    environment: synology-staging
     timeout-minutes: 20
     steps:
       - name: Runner identity
@@ -67,6 +68,7 @@ jobs:
             fi
           done
           docker version || fail=1
+          docker compose version || fail=1
           docker info >/tmp/issue365-docker-info.txt || fail=1
           php -v || fail=1
           composer --version || fail=1
@@ -88,3 +90,4 @@ jobs:
           set -euo pipefail
           git reset --hard HEAD || true
           git clean -ffdqx || true
+          rm -f /tmp/issue365-docker-info.txt
