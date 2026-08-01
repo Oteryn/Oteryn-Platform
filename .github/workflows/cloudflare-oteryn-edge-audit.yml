@@ -47,7 +47,6 @@ jobs:
     timeout-minutes: 10
     environment: production-cloudflare
     env:
-      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
       CLOUDFLARE_ZONE_ID: ${{ vars.CLOUDFLARE_ZONE_ID }}
 
@@ -70,9 +69,13 @@ jobs:
           }
 
       - name: Audit Cloudflare edge configuration
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_EDGE_AUDIT_TOKEN }}
         run: python3 scripts/operations/cloudflare-oteryn-edge-audit.py
 
       - name: Audit account-token self-management capability
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
         run: python3 scripts/operations/cloudflare-token-capability-audit.py
 
       - name: Upload sanitized edge audit
