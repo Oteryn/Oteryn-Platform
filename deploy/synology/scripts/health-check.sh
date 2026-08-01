@@ -77,10 +77,15 @@ probe_url gateway 8080 /ready "Gateway /ready"
 probe_url gateway 8080 /version "Gateway /version"
 
 expected_gateway_version="${GATEWAY_VERSION:-synology-staging}"
-python3 - "$PLATFORM_PORT" "$GATEWAY_PORT" "$expected_gateway_version" <<'PY'
+docker run --rm \
+    --network host \
+    -i \
+    python:3.12-alpine \
+    python3 - "$PLATFORM_PORT" "$GATEWAY_PORT" "$expected_gateway_version" <<'PY'
 import http.client
 import json
 import sys
+import time
 
 platform_port = int(sys.argv[1])
 gateway_port = int(sys.argv[2])
@@ -88,14 +93,25 @@ expected_gateway_version = sys.argv[3]
 
 
 def request(port, method, path, *, body=None, headers=None):
-    connection = http.client.HTTPConnection('127.0.0.1', port, timeout=5)
-    try:
-        connection.request(method, path, body=body, headers=headers or {})
-        response = connection.getresponse()
-        payload = response.read(8192)
-        return response.status, {key.lower(): value for key, value in response.getheaders()}, payload
-    finally:
-        connection.close()
+    last_error = None
+    for attempt in range(15):
+        connection = http.client.HTTPConnection('127.0.0.1', port, timeout=5)
+        try:
+            connection.request(method, path, body=body, headers=headers or {})
+            response = connection.getresponse()
+            payload = response.read(8192)
+            return response.status, {key.lower(): value for key, value in response.getheaders()}, payload
+        except OSError as exc:
+            last_error = exc
+            if attempt == 14:
+                break
+            time.sleep(2)
+        finally:
+            connection.close()
+
+    raise ConnectionError(
+        f'Host-loopback request failed after bounded retries: {method} {path}'
+    ) from last_error
 
 
 status, headers, body = request(
