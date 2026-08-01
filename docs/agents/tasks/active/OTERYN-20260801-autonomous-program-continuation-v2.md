@@ -22,12 +22,12 @@ No application, database, authentication, production, Canary, payment, deploymen
 ```yaml
 checkpoint_version: 1
 policy_version: 2
-updated_at: 2026-08-01T21:10:00Z
-head: UNKNOWN
+updated_at: 2026-08-01T21:19:00Z
+head: ca854ab4f6737532b7d3a2036e33bf680daeabee
 branch: docs/autonomous-program-continuation-v2-20260801
-pr: none
-status: implementing
-phase: implement
+pr: 440
+status: validating
+phase: validate
 session_id: chat-20260801-autonomous-v2
 session_role: coordinator
 execution_mode: chat
@@ -39,23 +39,28 @@ owned_paths:
   - docs/agents/AUTONOMOUS_PROGRAM_CONTINUATION.md
   - docs/agents/tasks/active/OTERYN-20260801-autonomous-program-continuation-v2.md
 proven:
-  - Current v2 prompting rules checkpoint durable state but do not explicitly require a coordinator to archive a completed task and continue to the next READY task in the same owner invocation.
-  - Oteryn Platform already requires completed active task records to move to the archive after merge or completion.
+  - The standard now distinguishes bounded worker sessions from a multi-task owner invocation.
+  - The new contract requires terminal task finalization, archival, barrier review, and continuation with the next READY task.
+  - The handover routes resolvable short commands into execution rather than returning a prompt.
+  - Oteryn repository safety and task-archive requirements remain authoritative.
 derived:
-  - A normative autonomous-program loop can connect task closure, archival, barrier review, and immediate continuation without weakening repository safety gates.
+  - One short programme command can now drive long foreground work without treating each checkpoint or completed task as an owner-interaction boundary.
 unknown:
-  - Exact final CI result for this documentation branch.
+  - Required exact-head CI result for PR 440.
 conflicts: []
 first_failure:
   marker: none
   evidence: none
 rejected_hypotheses: []
 changed_paths:
+  - docs/agents/AUTONOMOUS_PROGRAM_CONTINUATION.md
+  - docs/agents/PROMPTING_HANDOVER.md
+  - docs/agents/PROMPTING_STANDARD.md
   - docs/agents/tasks/active/OTERYN-20260801-autonomous-program-continuation-v2.md
 validation:
-  - command: documentation and checkpoint validation
-    result: NOT_RUN
-    evidence: pending coherent documentation update
+  - command: compare main...docs/autonomous-program-continuation-v2-20260801
+    result: PASS
+    evidence: four authorized documentation/governance paths only
 blockers: []
-next_action: update the prompting standard, coordinator handover, and autonomous programme continuation contract
+next_action: verify required exact-head checks for PR 440 and complete the repository merge gate
 ```
