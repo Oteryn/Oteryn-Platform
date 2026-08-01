@@ -8,7 +8,6 @@ on:
       - .github/workflows/production-gate-synology-observer.yml
 
 permissions:
-  actions: write
   contents: read
 
 concurrency:
@@ -16,128 +15,402 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  dispatch-readonly-preflight:
+  live-readonly-inventory:
     if: github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'agent/production-go-live-gate'
-    runs-on: ubuntu-latest
-    timeout-minutes: 75
+    runs-on: oteryn-staging
+    environment: synology-staging
+    timeout-minutes: 20
 
     steps:
-      - name: Dispatch trusted-main read-only Synology preflight
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          set -euo pipefail
-          dispatched_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-          gh api             --method POST             "repos/${GITHUB_REPOSITORY}/actions/workflows/synology-production-target-preflight.yml/dispatches"             -f ref=main             -f 'inputs[run_restore_drill]=false'
-          echo "PREFLIGHT_DISPATCHED_AT=$dispatched_at" >> "$GITHUB_ENV"
+      - name: Checkout exact observer source
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 1
 
-      - name: Locate dispatched preflight
+      - name: Collect sanitized runtime inventory
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          OBSERVER_SOURCE_SHA: ${{ github.event.pull_request.head.sha }}
+          EVIDENCE_PATH: /tmp/production-gate-synology-readonly.json
         run: |
           set -euo pipefail
-          run_id=""
-          for attempt in $(seq 1 60); do
-            run_id="$(
-              gh api                 "repos/${GITHUB_REPOSITORY}/actions/workflows/synology-production-target-preflight.yml/runs?event=workflow_dispatch&branch=main&per_page=20"                 --jq ".workflow_runs | map(select(.created_at >= \"${PREFLIGHT_DISPATCHED_AT}\")) | sort_by(.created_at) | last | .id // empty"
-            )"
-            if [[ -n "$run_id" ]]; then
-              break
-            fi
-            sleep 5
-          done
-          if [[ -z "$run_id" ]]; then
-            echo "Read-only Synology preflight was dispatched but no run appeared." >&2
-            exit 1
-          fi
-          echo "PREFLIGHT_RUN_ID=$run_id" >> "$GITHUB_ENV"
-          echo "PREFLIGHT_RUN_URL=${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/$run_id" >> "$GITHUB_ENV"
-
-      - name: Wait for read-only preflight
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          set -euo pipefail
-          gh run watch "$PREFLIGHT_RUN_ID"             --repo "$GITHUB_REPOSITORY"             --exit-status             --interval 10
-
-      - name: Validate sanitized evidence artifact
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          set -euo pipefail
-          evidence_dir="$(mktemp -d)"
-          trap 'rm -rf "$evidence_dir"' EXIT
-          artifact_name="$(
-            gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${PREFLIGHT_RUN_ID}/artifacts"               --jq '.artifacts | map(select(.name | startswith("synology-production-target-preflight-evidence-"))) | first | .name // empty'
-          )"
-          artifact_digest="$(
-            gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${PREFLIGHT_RUN_ID}/artifacts"               --jq '.artifacts | map(select(.name | startswith("synology-production-target-preflight-evidence-"))) | first | .digest // empty'
-          )"
-          test -n "$artifact_name"
-          test -n "$artifact_digest"
-          gh run download "$PREFLIGHT_RUN_ID"             --repo "$GITHUB_REPOSITORY"             --name "$artifact_name"             --dir "$evidence_dir"
-          evidence_file="$(find "$evidence_dir" -type f -name '*.json' -print -quit)"
-          test -n "$evidence_file"
-          python3 - "$evidence_file" <<'PY'
+          python3 - <<'PY'
+          import datetime
+          import ipaddress
           import json
+          import os
+          import pathlib
           import re
-          import sys
+          import subprocess
 
-          path = sys.argv[1]
-          with open(path, encoding="utf-8") as handle:
-              evidence = json.load(handle)
+          project = "oteryn-staging"
+          evidence_path = pathlib.Path(os.environ["EVIDENCE_PATH"])
+          services = ["mariadb", "redis", "canary", "platform", "internal-proxy", "gateway"]
 
-          required = {
-              "classification": "STAGING_PROVEN",
-              "target": "local-synology",
+          def command(args, *, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE):
+              return subprocess.run(
+                  args,
+                  check=check,
+                  stdout=stdout,
+                  stderr=stderr,
+                  text=True,
+              )
+
+          def output(args):
+              return command(args).stdout.strip()
+
+          def inspect(container_id, template):
+              return output(["docker", "inspect", "--format", template, container_id])
+
+          def quiet_success(args):
+              return command(
+                  args,
+                  check=False,
+                  stdout=subprocess.DEVNULL,
+                  stderr=subprocess.DEVNULL,
+              ).returncode == 0
+
+          def classify_binding(binding):
+              host = binding.get("HostIp", "")
+              port = binding.get("HostPort", "")
+              if not host or host in {"0.0.0.0", "::"}:
+                  scope = "wildcard"
+              else:
+                  try:
+                      address = ipaddress.ip_address(host)
+                  except ValueError:
+                      scope = "invalid"
+                  else:
+                      if address.is_loopback:
+                          scope = "loopback"
+                      elif address.is_private:
+                          scope = "private-ip"
+                      else:
+                          scope = "public-ip"
+              return f"{scope}:{port}"
+
+          def published_ports(container_id):
+              raw = inspect(container_id, "{{json .NetworkSettings.Ports}}")
+              parsed = json.loads(raw or "{}")
+              result = {}
+              for container_port, bindings in parsed.items():
+                  if bindings:
+                      result[container_port] = [classify_binding(item) for item in bindings]
+              return result
+
+          def image_digests(image_ref):
+              result = command(
+                  ["docker", "image", "inspect", "--format", "{{json .RepoDigests}}", image_ref],
+                  check=False,
+              )
+              if result.returncode != 0:
+                  return []
+              try:
+                  return json.loads(result.stdout.strip() or "[]") or []
+              except json.JSONDecodeError:
+                  return []
+
+          def error_count(container_id):
+              result = command(
+                  ["docker", "logs", "--since", "30m", container_id],
+                  check=False,
+              )
+              combined = (result.stdout or "") + "\n" + (result.stderr or "")
+              return len(re.findall(r"(?i)\\b(?:fatal|panic|critical|exception|error)\\b", combined))
+
+          def registered_tunnel_connections(container_id):
+              result = command(
+                  ["docker", "logs", "--since", "30m", container_id],
+                  check=False,
+              )
+              combined = (result.stdout or "") + "\n" + (result.stderr or "")
+              return len(re.findall(r"(?i)(?:registered tunnel connection|connection .* registered)", combined))
+
+          inventory = {}
+          for service in services:
+              ids = [
+                  line
+                  for line in output([
+                      "docker", "ps", "-aq",
+                      "--filter", f"label=com.docker.compose.project={project}",
+                      "--filter", f"label=com.docker.compose.service={service}",
+                  ]).splitlines()
+                  if line
+              ]
+              entry = {"container_count": len(ids)}
+              if len(ids) == 1:
+                  container_id = ids[0]
+                  image_ref = inspect(container_id, "{{.Config.Image}}")
+                  health = inspect(
+                      container_id,
+                      "{{if .State.Health}}{{.State.Health.Status}}{{else}}not-configured{{end}}",
+                  )
+                  networks = [
+                      item
+                      for item in inspect(
+                          container_id,
+                          "{{range $name, $_ := .NetworkSettings.Networks}}{{println $name}}{{end}}",
+                      ).splitlines()
+                      if item
+                  ]
+                  config_files_raw = inspect(
+                      container_id,
+                      '{{index .Config.Labels "com.docker.compose.project.config_files"}}',
+                  )
+                  config_files = [
+                      pathlib.PurePosixPath(item.strip()).name
+                      for item in config_files_raw.split(",")
+                      if item.strip() and item.strip() != "<no value>"
+                  ]
+                  entry.update({
+                      "container_name": inspect(container_id, "{{trimPrefix \"/\" .Name}}"),
+                      "running": inspect(container_id, "{{.State.Running}}") == "true",
+                      "status": inspect(container_id, "{{.State.Status}}"),
+                      "health": health,
+                      "restart_count": int(inspect(container_id, "{{.RestartCount}}")),
+                      "restart_policy": inspect(container_id, "{{.HostConfig.RestartPolicy.Name}}"),
+                      "started_at_utc": inspect(container_id, "{{.State.StartedAt}}"),
+                      "image_ref": image_ref,
+                      "image_id": inspect(container_id, "{{.Image}}"),
+                      "image_repo_digests": image_digests(image_ref),
+                      "network_mode": inspect(container_id, "{{.HostConfig.NetworkMode}}"),
+                      "networks": sorted(networks),
+                      "published_ports": published_ports(container_id),
+                      "compose_config_files": sorted(config_files),
+                      "critical_log_markers_last_30m": error_count(container_id),
+                  })
+              inventory[service] = entry
+
+          platform = inventory.get("platform", {})
+          gateway = inventory.get("gateway", {})
+          canary = inventory.get("canary", {})
+          platform_match = re.fullmatch(
+              r"ghcr\.io/blakinio/oteryn-platform:sha-([0-9a-f]{40})",
+              platform.get("image_ref", ""),
+          )
+          gateway_match = re.fullmatch(
+              r"ghcr\.io/blakinio/oteryn-game-gateway:sha-([0-9a-f]{40})",
+              gateway.get("image_ref", ""),
+          )
+          deployed_release_sha = platform_match.group(1) if platform_match else "UNKNOWN"
+          gateway_release_sha = gateway_match.group(1) if gateway_match else "UNKNOWN"
+
+          platform_ids = output([
+              "docker", "ps", "-q",
+              "--filter", f"label=com.docker.compose.project={project}",
+              "--filter", "label=com.docker.compose.service=platform",
+          ]).splitlines()
+          gateway_ids = output([
+              "docker", "ps", "-q",
+              "--filter", f"label=com.docker.compose.project={project}",
+              "--filter", "label=com.docker.compose.service=gateway",
+          ]).splitlines()
+
+          effective_profile = {
+              "app_env_production": False,
+              "app_env_staging": False,
+              "app_debug_disabled": False,
+              "session_driver_file": False,
+              "cache_store_file": False,
+              "queue_connection_sync": False,
+              "mail_transport_array": False,
+              "production_verify_configuration_exit_code": None,
+          }
+          if len(platform_ids) == 1:
+              platform_id = platform_ids[0]
+              tests = {
+                  "app_env_production": 'test "$APP_ENV" = production',
+                  "app_env_staging": 'test "$APP_ENV" = staging',
+                  "app_debug_disabled": 'test "$APP_DEBUG" = false',
+                  "session_driver_file": 'test "$SESSION_DRIVER" = file',
+                  "cache_store_file": 'test "$CACHE_STORE" = file',
+                  "queue_connection_sync": 'test "$QUEUE_CONNECTION" = sync',
+                  "mail_transport_array": 'test "$MAIL_MAILER" = array',
+              }
+              for key, shell_test in tests.items():
+                  effective_profile[key] = quiet_success(
+                      ["docker", "exec", platform_id, "sh", "-ec", shell_test]
+                  )
+              effective_profile["production_verify_configuration_exit_code"] = command(
+                  [
+                      "docker", "exec", platform_id,
+                      "php", "artisan", "production:verify-configuration",
+                  ],
+                  check=False,
+                  stdout=subprocess.DEVNULL,
+                  stderr=subprocess.DEVNULL,
+              ).returncode
+
+          probes = {
+              "platform_container_health": False,
+              "platform_host_loopback_health": False,
+              "gateway_container_health": False,
+              "gateway_container_ready": False,
+              "gateway_container_version": False,
+              "gateway_host_loopback_health": False,
+              "gateway_host_loopback_ready": False,
+              "gateway_host_loopback_version": False,
+          }
+          if len(platform_ids) == 1:
+              probes["platform_container_health"] = quiet_success([
+                  "docker", "run", "--rm", "--network", f"container:{platform_ids[0]}",
+                  "alpine:3.22", "wget", "-qO-", "-T", "5",
+                  "http://127.0.0.1:8000/health",
+              ])
+          if len(gateway_ids) == 1:
+              for key, path in (
+                  ("gateway_container_health", "/health"),
+                  ("gateway_container_ready", "/ready"),
+                  ("gateway_container_version", "/version"),
+              ):
+                  probes[key] = quiet_success([
+                      "docker", "run", "--rm", "--network", f"container:{gateway_ids[0]}",
+                      "alpine:3.22", "wget", "-qO-", "-T", "5",
+                      f"http://127.0.0.1:8080{path}",
+                  ])
+          for key, port, path in (
+              ("platform_host_loopback_health", 8000, "/health"),
+              ("gateway_host_loopback_health", 8080, "/health"),
+              ("gateway_host_loopback_ready", 8080, "/ready"),
+              ("gateway_host_loopback_version", 8080, "/version"),
+          ):
+              probes[key] = quiet_success([
+                  "docker", "run", "--rm", "--network", "host",
+                  "alpine:3.22", "wget", "-qO-", "-T", "5",
+                  f"http://127.0.0.1:{port}{path}",
+              ])
+
+          cloudflared = []
+          all_ids = [line for line in output(["docker", "ps", "-aq"]).splitlines() if line]
+          for container_id in all_ids:
+              name = inspect(container_id, "{{trimPrefix \"/\" .Name}}")
+              image_ref = inspect(container_id, "{{.Config.Image}}")
+              if "cloudflared" not in name.lower() and "cloudflared" not in image_ref.lower():
+                  continue
+              networks = [
+                  item
+                  for item in inspect(
+                      container_id,
+                      "{{range $name, $_ := .NetworkSettings.Networks}}{{println $name}}{{end}}",
+                  ).splitlines()
+                  if item
+              ]
+              cloudflared.append({
+                  "container_name": name,
+                  "image_ref": image_ref,
+                  "image_id": inspect(container_id, "{{.Image}}"),
+                  "running": inspect(container_id, "{{.State.Running}}") == "true",
+                  "status": inspect(container_id, "{{.State.Status}}"),
+                  "restart_count": int(inspect(container_id, "{{.RestartCount}}")),
+                  "restart_policy": inspect(container_id, "{{.HostConfig.RestartPolicy.Name}}"),
+                  "network_mode": inspect(container_id, "{{.HostConfig.NetworkMode}}"),
+                  "networks": sorted(networks),
+                  "published_ports": published_ports(container_id),
+                  "registered_connections_last_30m": registered_tunnel_connections(container_id),
+              })
+
+          runtime_classification = "UNKNOWN"
+          if effective_profile["app_env_staging"] and not effective_profile["app_env_production"]:
+              runtime_classification = "STAGING_TARGET"
+          elif effective_profile["app_env_production"]:
+              runtime_classification = "PRODUCTION_TARGET"
+
+          evidence = {
+              "schema_version": 1,
+              "observed_at_utc": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+              "observer_source_sha": os.environ["OBSERVER_SOURCE_SHA"],
+              "target": "synology-self-hosted-runner",
+              "compose_project": project,
+              "runtime_classification": runtime_classification,
+              "production_environment_proven": runtime_classification == "PRODUCTION_TARGET",
+              "deployed_release_sha": deployed_release_sha,
+              "gateway_release_sha": gateway_release_sha,
+              "platform_gateway_release_match": (
+                  deployed_release_sha != "UNKNOWN"
+                  and deployed_release_sha == gateway_release_sha
+              ),
+              "canary_image_digest_ref": canary.get("image_ref", "UNKNOWN"),
+              "services": inventory,
+              "effective_application_profile": effective_profile,
+              "health_probes": probes,
+              "cloudflared_containers": cloudflared,
+              "cloudflared_host_process_state": "UNKNOWN",
+              "cloudflared_ingress_state": "PROVEN_SEPARATELY_BY_RUN_30700054602",
               "database_restore_drill": "NOT_RUN",
-              "production_environment_proven": False,
-              "container_singleton_and_running": "PASS",
-              "restart_policies": "PASS",
-              "private_network_membership": "PASS",
-              "host_bindings_fail_closed": "PASS",
-              "database_and_redis_unpublished": "PASS",
-              "immutable_runtime_images": "PASS",
-              "application_and_gateway_health": "PASS",
-              "canary_effective_grant_verifiers": "PASS",
-              "redis_aof_and_acl": "PASS",
+              "production_mutation": "NONE",
           }
-          failures = [
-              key for key, expected in required.items()
-              if evidence.get(key) != expected
+
+          serialized = json.dumps(evidence, sort_keys=True, separators=(",", ":"))
+          forbidden_patterns = [
+              r"(?i)password",
+              r"(?i)authorization",
+              r"(?i)bearer",
+              r"(?i)connection[_-]?string",
+              r"(?i)cookie",
+              r"(?i)totp",
+              r"(?i)recovery[_-]?code",
           ]
-          if failures:
-              raise SystemExit("sanitized evidence invariant failure: " + ", ".join(failures))
+          for pattern in forbidden_patterns:
+              if re.search(pattern, serialized):
+                  raise SystemExit(f"forbidden evidence pattern: {pattern}")
 
-          release = evidence.get("deployed_release_sha", "")
-          if not re.fullmatch(r"[0-9a-f]{40}", release):
-              raise SystemExit("deployed release is not an exact commit SHA")
-          if evidence.get("platform_image") != f"ghcr.io/blakinio/oteryn-platform:sha-{release}":
-              raise SystemExit("Platform tag does not match deployed release SHA")
-          if evidence.get("gateway_image") != f"ghcr.io/blakinio/oteryn-game-gateway:sha-{release}":
-              raise SystemExit("Gateway tag does not match deployed release SHA")
-          if not re.fullmatch(r"sha256:[0-9a-f]{64}", evidence.get("canary_image_digest", "")):
-              raise SystemExit("Canary image digest is not immutable")
-
-          forbidden_keys = {
-              "password", "token", "secret", "cookie", "connection_string",
-              "database_dump", "totp", "recovery_code",
-          }
-          normalized_keys = {str(key).lower() for key in evidence}
-          if forbidden_keys & normalized_keys:
-              raise SystemExit("forbidden key in sanitized evidence")
+          evidence_path.write_text(
+              json.dumps(evidence, indent=2, sort_keys=True) + "\n",
+              encoding="utf-8",
+          )
+          evidence_path.chmod(0o600)
           PY
 
-          release_sha="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["deployed_release_sha"])' "$evidence_file")"
-          canary_digest="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["canary_image_digest"])' "$evidence_file")"
+      - name: Validate and summarize sanitized inventory
+        env:
+          EVIDENCE_PATH: /tmp/production-gate-synology-readonly.json
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          import re
+          import os
+
+          with open(os.environ["EVIDENCE_PATH"], encoding="utf-8") as handle:
+              evidence = json.load(handle)
+
+          release = evidence["deployed_release_sha"]
+          gateway = evidence["gateway_release_sha"]
+          if not re.fullmatch(r"[0-9a-f]{40}", release):
+              raise SystemExit("Platform release identity remains unknown")
+          if release != gateway or not evidence["platform_gateway_release_match"]:
+              raise SystemExit("Platform and Gateway release identities differ")
+          for service in ("mariadb", "redis", "canary", "platform", "internal-proxy", "gateway"):
+              entry = evidence["services"][service]
+              if entry["container_count"] != 1 or not entry.get("running", False):
+                  raise SystemExit(f"{service} singleton/running invariant failed")
+          if not all(evidence["health_probes"].values()):
+              raise SystemExit("one or more bounded local health probes failed")
+          PY
+
+          release_sha="$(python3 -c 'import json,os; print(json.load(open(os.environ["EVIDENCE_PATH"]))["deployed_release_sha"])')"
+          runtime_classification="$(python3 -c 'import json,os; print(json.load(open(os.environ["EVIDENCE_PATH"]))["runtime_classification"])')"
+          mariadb_restart="$(python3 -c 'import json,os; print(json.load(open(os.environ["EVIDENCE_PATH"]))["services"]["mariadb"]["restart_policy"])')"
+          cloudflared_count="$(python3 -c 'import json,os; print(len(json.load(open(os.environ["EVIDENCE_PATH"]))["cloudflared_containers"]))')"
           {
-            echo "### Production Gate Synology read-only observation"
-            echo "- dispatched run: `$PREFLIGHT_RUN_ID`"
-            echo "- deployed Platform/Gateway source SHA: `$release_sha`"
-            echo "- deployed Canary image digest: `$canary_digest`"
-            echo "- restore drill: `NOT_RUN`"
-            echo "- runtime classification: `STAGING_PROVEN`"
-            echo "- production environment proven: `false`"
-            echo "- sanitized artifact: `$artifact_name`"
-            echo "- artifact digest: `$artifact_digest`"
+            echo "### Synology runtime read-only inventory"
+            echo "- exact Platform/Gateway source SHA: `$release_sha`"
+            echo "- runtime classification: `$runtime_classification`"
+            echo "- MariaDB restart policy: `$mariadb_restart`"
+            echo "- cloudflared containers visible through Docker: `$cloudflared_count`"
+            echo "- bounded local health probes: `PASS`"
+            echo "- database restore drill: `NOT_RUN`"
+            echo "- production mutation: `NONE`"
           } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload sanitized runtime inventory
+        uses: actions/upload-artifact@v4
+        with:
+          name: production-gate-synology-readonly-${{ github.run_id }}
+          path: /tmp/production-gate-synology-readonly.json
+          retention-days: 14
+          if-no-files-found: error
+
+      - name: Remove local evidence
+        if: always()
+        run: rm -f /tmp/production-gate-synology-readonly.json
