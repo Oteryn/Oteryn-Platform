@@ -14,7 +14,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       GH_TOKEN: ${{ github.token }}
-      TARGET_SHA: b249e5e9cb864ba01376efb273be323b90bcd500
+      TARGET_SHA: 3eb109b505f7d1c8718cffb823de6d9d5166717c
     steps:
       - name: Report exact guarded staging run
         shell: bash
