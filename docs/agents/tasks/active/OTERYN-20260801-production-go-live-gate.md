@@ -70,21 +70,21 @@ session_id: agent-20260801-production-gate-001
 session_role: investigator
 execution_mode: chat
 execution_reason: connector-backed repository evidence review and bounded read-only production probes
-lease_expires_at: 2026-08-01T13:38:03.110Z
+lease_expires_at: 2026-08-01T13:42:43.544Z
 context_pressure: high
 context_growth: stable
 context_score: 12
 estimate_confidence: high
 decomposition_decision: phased
 decomposition_reason: deployment identity, Synology origin, public edge, readiness, and smoke are sequential gates sharing one release verdict
-validation_level: focused
-last_completed_step: blocked gate evidence persisted and temporary observer files removed
+validation_level: full
+last_completed_step: exact Synology runtime and public-edge evidence persisted with blocked verdict
 session_rotation_count: 0
-heavy_validation_runs: 1
+heavy_validation_runs: 2
 stale_takeover_count: 0
 human_interruptions: 0
-updated_at: 2026-08-01T13:38:03.110Z
-head: 9d842d0fe89f9184aa96f3a43cbe7dc704cbfcb4
+updated_at: 2026-08-01T13:42:43.544Z
+head: 90f367963ddaee6fa6884319fc8cc54e23ca8ec4
 branch: agent/production-go-live-gate
 pr: 405
 status: blocked
@@ -102,33 +102,36 @@ proven:
   - Issue #91 remains open and requires direct production evidence for every mandatory launch-applicable item.
   - Cloudflare fixed-scope Tunnel and DNS reconciliation passed in runs 30699270139 and 30700054602.
   - Independent public observation run 30701140509 artifact 8818850803 directly observed WWW Cloudflare 403 responses, Game Gateway TLS failure, HTTP 403 without HTTPS redirect, and HSTS max-age=0.
-  - Trusted-main read-only Synology preflight run 30701440189 reached runner oteryn-synology-staging with restore disabled and failed at the first invariant because MariaDB does not use restart policy unless-stopped.
-  - PR #405 head 0c435dd02d2afcc7f0e8d963a79b5441b29a6cb7 passed Agent Governance, CI, static Synology preflight, Edge Security Emulation, Game Auth Ticket Concurrency, Platform DB Outage, Phase 7 and Synology image-build workflows.
-  - No Cloudflare, DNS, Synology runtime, database, Redis, secret, deployment, rollback, restore or application-data mutation was performed.
+  - Sanitized Synology inventory run 30701775782 job 91373911925 artifact 8819161257 directly observed Platform and Gateway source SHA 3eb109b505f7d1c8718cffb823de6d9d5166717c and immutable Canary digest sha256:784e5dbdcc64e311c48c51cd94aa206e2efa1e5eefb2f4ef40170d5aac55031f.
+  - The Synology Compose project is oteryn-staging and effective APP_ENV is staging; production:verify-configuration exits 1 and production_environment_proven is false.
+  - All six expected containers are running with restart policy always; MariaDB and Redis are healthy and all bounded Platform and Gateway container and host-loopback probes pass.
+  - Platform is loopback-bound on 8000, Gateway on loopback 8080, Canary legacy login on loopback 7171, Canary game on one private-IP 7172 binding, and MariaDB Redis internal-proxy expose no host ports.
+  - No cloudflared container is visible through Docker; host-process and effective network-path state remain unknown.
+  - Runtime uses file sessions file cache synchronous queue and array non-delivery mail.
+  - No Cloudflare DNS Synology runtime database Redis secret deployment rollback restore or application-data mutation was performed.
 derived:
-  - Cloudflare Tunnel and DNS convergence did not establish usable public application delivery.
+  - The exact running target is a staging deployment and cannot be classified as PRODUCTION_PROVEN.
   - Canonical public endpoint failures independently block launch and prevent application-level production smoke.
-  - Mutation smoke is unsafe while release identity, rollback, dated restore evidence, controlled identities and public application reachability remain unproven.
+  - Array mail directly blocks real production password-recovery delivery.
+  - Mutation smoke is unsafe while production runtime rollback dated restore controlled identities and public application reachability remain unproven.
   - The only correct verdict is BLOCKED — PENDING PRODUCTION VERIFICATION.
 unknown:
-  - exact deployed Platform source SHA, tag, image ID and repository digest
-  - exact deployed Game Gateway source SHA, tag, image ID and repository digest
-  - exact deployed Canary identity for the selected launch scope
-  - actual MariaDB restart policy and full container restart health port network and deployment timestamp inventory
-  - whether cloudflared is a host process or container and its effective network path to loopback origins
-  - effective production configuration verifier result
-  - production DB grants backup policy dated restore evidence and rollback mechanism
-  - production Redis session cache queue mail logging metrics alerts and on-call state
+  - cloudflared host-process status network mode and effective path to both loopback origins
+  - production DB topology credentials effective grants backup policy and dated restore evidence
+  - production Redis ACL TLS freshness monitoring and selected session cache queue topology
+  - production mail provider sender-domain readiness and bounce monitoring
+  - centralized logs metrics alerts and on-call ownership
+  - actual production deployment migration and emergency rollback mechanism
   - launch-scope decisions controlled smoke identities and all mutation smoke results
 conflicts:
-  - archived Synology preflight requires restart policy unless-stopped while current live MariaDB fails that invariant; open PR #335 proposes always but does not prove the effective running value
+  - archived Synology preflight requires unless-stopped while current live runtime proves always for all six services; open PR #335 proposes always but remains unmerged
 first_failure:
-  marker: public-edge-not-application-reachable
-  evidence: run 30701140509 artifact 8818850803 observed WWW 403 challenge responses and Game Gateway TLS negotiation failure after Cloudflare Tunnel/DNS convergence
+  marker: effective-runtime-not-production
+  evidence: run 30701775782 artifact 8819161257 classifies the exact running target as STAGING_TARGET with APP_ENV staging and production configuration verifier exit 1
 rejected_hypotheses:
   - Cloudflare configuration convergence proves production readiness: run 30700054602 verifies only managed Tunnel and DNS scope
-  - HTTP 200 or DNS resolution alone proves correct routing: direct public checks did not reach either expected application service
-  - open PR #335 proves the running restart policy: proposed configuration is not runtime evidence
+  - local loopback health proves public delivery: run 30701140509 still observes WWW 403 and Game Gateway TLS failure
+  - open PR #335 proves the running restart policy: only inventory run 30701775782 directly proves always
 changed_paths:
   - docs/agents/tasks/active/OTERYN-20260801-production-go-live-gate.md
   - docs/agents/evidence/OTERYN-20260801-production-go-live-gate/index.md
@@ -141,20 +144,24 @@ validation:
     evidence: artifact 8818850803 digest sha256:787ea72c616812ade431eb1cc396e921a6c8b04e459c89557221cbf6caebe656
   - command: trusted-main Synology Production Target Preflight run 30701440189
     result: FAIL
-    evidence: job 91373030006 stopped on MariaDB restart-policy mismatch with restore disabled
+    evidence: job 91373030006 stopped on stale unless-stopped restart-policy expectation with restore disabled
+  - command: sanitized Synology inventory run 30701775782
+    result: PASS
+    evidence: artifact 8819161257 digest sha256:67b1d16eb67f90e1534a9071644aeaf42da97adc527643964a14df120c37db9c
   - command: PR #405 repository workflows on head 0c435dd02d2afcc7f0e8d963a79b5441b29a6cb7
     result: PASS
     evidence: runs 30701773251 30701773237 30701773212 30701773227 30701773203 30701773233 30701773198 and 30701773188
   - command: final production readiness and mutation smoke
     result: BLOCKED
-    evidence: exact deployed release and mandatory backup rollback edge mail observability and controlled-smoke prerequisites remain unproven
+    evidence: exact running target is staging and mandatory public edge backup rollback mail observability and controlled-smoke prerequisites fail or remain unproven
 blockers:
+  - exact running target is STAGING_TARGET and production configuration verification fails
   - canonical WWW returns Cloudflare 403 challenge content instead of Oteryn Platform
   - canonical Game Gateway fails TLS before HTTP
   - plain HTTP does not redirect to HTTPS and HSTS remains max-age=0
-  - exact running release identity and full Synology cloudflared topology remain unproven
+  - cloudflared host-process and loopback routing topology remain unproven
   - mandatory production backup restore rollback mail observability launch-scope and controlled-smoke evidence is absent
-next_action: complete and inspect the already-dispatched sanitized Synology inventory from observer run 30701773214 without mutating runtime state
+next_action: obtain explicit owner authorization for a separate guarded Cloudflare zone-edge audit/apply task covering login certificate WWW challenge policy HTTP redirect and HSTS without changing current Tunnel ingress or DNS
 ```
 
 ## Notes
