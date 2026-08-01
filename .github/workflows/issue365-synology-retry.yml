@@ -6,11 +6,6 @@ on:
       - validation/issue365-synology-20260801
     paths:
       - .github/workflows/issue365-synology-retry.yml
-  pull_request:
-    branches:
-      - main
-    paths:
-      - .github/workflows/issue365-synology-retry.yml
 
 permissions:
   contents: read
@@ -32,7 +27,6 @@ jobs:
     timeout-minutes: 120
     steps:
       - name: Publish retry run identity
-        if: github.event_name == 'push'
         continue-on-error: true
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
