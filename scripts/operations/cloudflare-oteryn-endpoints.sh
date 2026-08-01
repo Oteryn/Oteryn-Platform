@@ -264,7 +264,7 @@ validate_identifiers() {
 
 main() {
     local mode="${1:-}"
-    local token_response tunnel_response config_response current_config desired_config
+    local token_response token_verify_path tunnel_response config_response current_config desired_config
     local tunnel_id account_tag config_src tunnel_state target
     local initial_config_hash current_config_hash tunnel_drift
     local www_dns login_dns www_state login_state
@@ -285,7 +285,12 @@ main() {
         [[ "${CLOUDFLARE_APPLY_CONFIRMATION:-}" == "$APPLY_CONFIRMATION" ]] || fail "apply requires exact confirmation: ${APPLY_CONFIRMATION}"
     fi
 
-    token_response="$(api_request GET '/user/tokens/verify')"
+    if [[ "$CLOUDFLARE_API_TOKEN" == cfat_* ]]; then
+        token_verify_path="/accounts/${CLOUDFLARE_ACCOUNT_ID}/tokens/verify"
+    else
+        token_verify_path='/user/tokens/verify'
+    fi
+    token_response="$(api_request GET "$token_verify_path")"
     [[ "$(jq -r '.result.status // ""' <<<"$token_response")" == "active" ]] || fail "Cloudflare API token is not active"
 
     tunnel_response="$(api_request GET "/accounts/${CLOUDFLARE_ACCOUNT_ID}/cfd_tunnel/${CLOUDFLARE_TUNNEL_ID}")"
