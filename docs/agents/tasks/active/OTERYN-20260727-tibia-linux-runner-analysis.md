@@ -33,14 +33,14 @@ estimate_confidence: high
 decomposition_decision: phased
 decomposition_reason: one cohesive audit completed through bounded static-analysis, callback, reporting and closeout phases
 execution_mode: chat
-execution_reason: remaining work is narrow GitHub state reconciliation, documentation and exact-head validation coordination
+execution_reason: remaining work is narrow GitHub validation, merge and archive coordination
 ```
 
 ## Completion decision
 
 The repository-side static audit is complete. Official-server acceptance and BattlEye enforcement remain `UNKNOWN` / `NOT_RUN` and are explicitly outside the current authorization. They do not block closure of this audit and must be handled only by a separate task with explicit owner authorization and risk acceptance.
 
-The current PR is not merge-ready only because its branch is materially stale against `main` and exact-final-head checks have not yet been re-established after restack.
+PR #218 has been cleanly restacked onto the then-current `main` as one commit containing exactly the four owned documentation files. It becomes merge-ready only after required checks pass on the final coordinator-authored head.
 
 ## Acceptance criteria
 
@@ -56,9 +56,10 @@ The current PR is not merge-ready only because its branch is materially stale ag
 - [x] Confirmed behavior, derived conclusions, unknown server controls and rejected hypotheses are separated.
 - [x] The safe validation boundary and responsible-disclosure threshold are documented.
 - [x] Final report, callback addendum and Policy v2 safety scope are committed.
-- [x] Temporary automatic analysis workflows are removed.
+- [x] Temporary automatic analysis and restack workflows are absent from the final PR diff.
 - [x] No CipSoft binary, package, asset, credential, cookie or session secret is committed or uploaded as a GitHub artifact.
-- [ ] PR #218 is restacked onto current `main`, exact-final-head required checks pass, and the task is archived after merge.
+- [x] PR #218 is restacked onto current `main` without broadening its four-file scope.
+- [ ] Required checks pass on the final coordinator-authored head, PR #218 is merged, and the task is archived in a post-merge closeout.
 
 ## Ownership
 
@@ -75,8 +76,8 @@ modules:
   - GitHub Actions static-analysis infrastructure
   - static protocol and transport analysis
 dependencies:
-  - current main branch for final restack
   - exact-final-head repository checks
+  - post-merge task archival
 blockers: []
 cross_repository_tasks:
   - blakinio/otclient was inspected read-only for compatibility evidence
@@ -91,10 +92,10 @@ phase: close
 session_id: chat-20260801-policy-v2-closeout
 session_role: coordinator
 execution_mode: chat
-execution_reason: narrow documentation, live PR/CI reconciliation and closeout preparation
-updated_at: 2026-08-01T09:30:00Z
-lease_expires_at: 2026-08-01T10:30:00Z
-head: f87fc64504171275709f0ab8035847f45c3eecd7
+execution_reason: narrow documentation, exact-head validation, merge and archive coordination
+updated_at: 2026-08-01T09:16:00Z
+lease_expires_at: 2026-08-01T10:16:00Z
+head: 0f2286570bb83daecf29e2800ca5da68dd7cb94f
 branch: ci/OTERYN-20260727-tibia-linux-runner-analysis
 pr: 218
 status: validating
@@ -108,13 +109,13 @@ context_growth: stable
 context_score: 8
 estimate_confidence: high
 decomposition_decision: phased
-decomposition_reason: the audit is cohesive; only restack, exact-head validation, merge and archive remain
+decomposition_reason: the audit is cohesive; only exact-head validation, merge and post-merge archive remain
 validation_level: focused
 heavy_validation_runs: 0
 session_rotation_count: 1
 stale_takeover_count: 0
 human_interruptions: 0
-last_completed_step: aligned the durable safety and completion boundary with Prompting Policy v2
+last_completed_step: restacked PR 218 onto current main as one commit with exactly four owned files
 owned_paths:
   - .github/workflows/tibia-linux-runner-analysis.yml
   - .github/workflows/tibia-linux-report-artifact.yml
@@ -124,7 +125,9 @@ owned_paths:
   - docs/agents/reports/OTERYN-20260727-tibia-linux-battleye-callback-addendum.md
 proven:
   - PR 218 is open, draft and mergeable with head branch ci/OTERYN-20260727-tibia-linux-runner-analysis.
-  - Before the Policy v2 closeout edits, PR head ef4f504575cef807722e9dd7c9b8731fa7a0be62 was 136 commits behind current main and the branches had diverged.
+  - Restack head 0f2286570bb83daecf29e2800ca5da68dd7cb94f is based on main commit 7dac56d3f3f4606be958c875f278edbe410e6b54 and contains one commit changing exactly four documentation files.
+  - Backup branch backup/OTERYN-20260727-tibia-linux-runner-analysis-pre-restack-20260801 preserves the pre-restack history.
+  - The one-shot restack workflow is absent from the restacked PR diff.
   - The persistent analysis run is 30246435256-1 and the analyzed client SHA-256 is 8b25d65ece158723dbb50a1b592c1ec8a3247a650fcd2d299bebdfd133cb5752.
   - externaladdressprotected and externalportprotected form the protected route; externaladdressunprotected and externalportunprotected form the unprotected route.
   - Protected is scheduled at time T and unprotected at T plus 1 millisecond.
@@ -138,17 +141,15 @@ proven:
   - Callback 0x7418f0 is a diagnostic log sink and has no direct network effect.
   - Callback 0x741de0 records or emits restart-required state and has no direct network effect.
   - Callback 0x741b50 copies an opaque BattlEye-produced byte buffer and emits an application Qt signal; no direct socket write was found.
-  - All temporary analysis and report-recovery workflows were removed from the PR branch.
   - The final report, callback addendum and Policy v2 safety scope exist on the task branch.
-  - Current-head CI, Agent Governance, Platform DB Outage Validation, Game Auth Ticket Concurrency and Phase 7 Production-Like Validation passed on ef4f504575cef807722e9dd7c9b8731fa7a0be62.
-  - Edge Security Emulation failed on that stale head because tests/edge-emulation/bin/curl did not exist; the failure is unrelated to the four documentation files in PR 218 and is consistent with branch staleness.
+  - The bot-authored restack head produced pull-request workflow runs with conclusion action_required and no jobs; those runs are not validation evidence.
 derived:
   - Protected is normally primary and unprotected normally fallback or secondary, but connection order determines primary/secondary state.
   - TCP reachability of the unprotected endpoint does not demonstrate game-session acceptance or a security defect.
   - Current OTClient requires substantial protobuf, framing, challenge and secondary-connection work before it can interoperate with this client generation.
   - Static client analysis cannot prove server-required fields, official-server acceptance or protected-world enforcement.
   - The repository-side audit can close without an official-service test because that test is outside current authorization and its absence is explicitly recorded as UNKNOWN/NOT_RUN.
-  - Restacking is required before interpreting repository-wide CI or merging PR 218.
+  - The clean restack removed the stale-base Edge Security Emulation path mismatch from the candidate history.
 unknown:
   - The exact downstream Tibia envelope and message type used for bytes emitted by callback 0x741b50.
   - Whether BEClient.so contributes bytes to the first game-server authentication request.
@@ -157,8 +158,8 @@ unknown:
   - Whether an official protected or optional world accepts a session without valid BattlEye state or data.
 conflicts: []
 first_failure:
-  marker: exact-final-head validation unavailable until PR 218 is restacked
-  evidence: branch comparison showed ci/OTERYN-20260727-tibia-linux-runner-analysis 136 commits behind current main; stale-head Edge Security Emulation failed at chmod tests/edge-emulation/bin/curl because the path was absent
+  marker: bot-authored restack checks require a coordinator-authored successor head
+  evidence: all pull-request workflow runs on 0f2286570bb83daecf29e2800ca5da68dd7cb94f concluded action_required without creating jobs
 rejected_hypotheses:
   - Address 0xc49630 is the protected/unprotected selector.
   - The branch on world-record offset 0x69 is a BattlEye route selector.
@@ -195,15 +196,18 @@ validation:
     evidence: outside current authorization; retained as UNKNOWN and not a completion blocker
   - command: temporary workflow cleanup
     result: PASS
-    evidence: temporary callback extraction and report-recovery workflows were deleted after use
+    evidence: temporary analysis, report-recovery and one-shot restack workflows are absent from the final PR diff
   - command: Prompting Policy v2 scope review
     result: PASS
-    evidence: safety scope now declares audit authorization, evidence model, separate live-validation gate, completion boundary and stop conditions
-  - command: exact-final-head repository checks after restack
+    evidence: safety scope declares audit authorization, evidence model, separate live-validation gate, completion boundary and stop conditions
+  - command: clean restack onto main 7dac56d3f3f4606be958c875f278edbe410e6b54
+    result: PASS
+    evidence: PR 218 reports one commit and exactly four changed documentation files at 0f2286570bb83daecf29e2800ca5da68dd7cb94f
+  - command: exact-final-head repository checks after coordinator checkpoint commit
     result: NOT_RUN
-    evidence: branch remains stale and must be restacked before final validation
+    evidence: this checkpoint commit exists to trigger normal pull-request workflows after the bot-authored restack head required approval
 blockers: []
-next_action: Restack PR 218 onto current main without broadening its four-file scope, run exact-final-head required checks, then merge and archive the task if the diff and checks are clean.
+next_action: Run and inspect required checks on the coordinator-authored head; if clean, mark PR 218 ready, merge with expected-head protection, then create the post-merge archive closeout.
 ```
 
 ## Durable reports
@@ -220,5 +224,5 @@ RESULT: <compact result>
 VALIDATION: <checks and outcomes>
 DURABLE_STATE: <task path, branch, head, PR>
 BLOCKER: <none or exact blocker>
-NEXT_ACTION: <one action or none>
+NEXT_ACTION: <one action or none when done>
 ```
