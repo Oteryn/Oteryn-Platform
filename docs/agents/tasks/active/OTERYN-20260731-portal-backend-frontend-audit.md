@@ -101,9 +101,9 @@ session_id: chat-20260801-portal-audit-autonomous-continuation
 session_role: validator
 execution_mode: chat-github-connector-plus-local-controlled-browser-analysis
 execution_reason: repository evidence and preserved artifacts are available; exact application/session reproduction still requires a mutable production-like checkout
-updated_at: 2026-08-01T13:10:00Z
+updated_at: 2026-08-01T13:21:00Z
 lease_expires_at: null
-head_at_checkpoint_parent: d6cb2ededa6a121f46df91279bc125d2612d7896
+head: 95b455c93463cfbd17d92adbae01e5041aea12b6
 branch: audit/OTERYN-20260731-portal-backend-frontend-audit
 pr: 381
 status: blocked
@@ -130,25 +130,16 @@ session_rotation_count: 5
 stale_takeover_count: 1
 human_interruptions: 11
 validator_verdict: VALIDATED_WITH_CORRECTIONS
-finding_totals:
-  high: 0
-  medium: 6
-  low: 1
-issue_365_state:
-  historical_state: PROVEN
-  post_serialization_state: REPRODUCED_INTERMITTENT
-  current_remediation_state: NOT_PROVEN_REMEDIATED
-  root_cause: UNKNOWN
-  old_document_lazy_thumbnail_race:
-    classification: DERIVED
-    confidence: LOW
 proven:
   - frozen audit target is b6f7b12a43aa72a52dc98c3fa07a7c4607fcb608
   - canonical inventory contains 27 surface groups and 228 route assignments
   - capability ledger contains 43 records: 23 implemented 3 partial 14 missing and 3 not applicable
+  - normalized findings remain 0 HIGH 6 MEDIUM and 1 LOW
   - fresh current critical run 30633216753 attempt 2 passed 96 of 96 with zero retries
   - run 30612399525 attempts 2 through 4 produced one responsive-mobile pass and two exact responsive-mobile flash-loss reproductions on source 6c1e910d36771f50da5eded93cc50274a90c62d2
   - both reproductions retained durable Published version 3 and Unpublish to draft state
+  - post-serialization state is REPRODUCED_INTERMITTENT and current remediation state is NOT_PROVEN_REMEDIATED
+  - root cause remains UNKNOWN
   - desktop tablet and portability Chromium Firefox WebKit passed in all three post-serialization attempts
   - session serialization does not remediate the defect deterministically
   - desktop and tablet retain publication feedback despite contaminated thumbnail HTTP 500 traffic
@@ -160,15 +151,15 @@ proven:
   - the generic probe proves action-induced lazy work is feasible in a simplified geometry
   - the source-faithful 18-sample probe recorded zero thumbnail starts from Publish action start in every viewport and mode
   - the source-faithful result invalidates HIGH confidence for the specific action-induced old-document thumbnail chain
+  - the old-document lazy-thumbnail race is DERIVED with LOW confidence
   - exact frozen execution still requires 12 zero-retry samples with ephemeral browser and StartSession instrumentation plus clean restoration proof
-  - current exact-head CI before this correction was green across all six workflow families
   - all changed paths remain within authorized audit task report and evidence ownership
   - production remains unproven
 derived:
   - viewport changes thumbnail request completion and cancellation behavior
   - an old-document media request could still consume pending status in a real runtime but current confidence is LOW
   - immediate versus pre-scroll remains a useful hypothesis-neutral control
-  - the residual blocker is environmental rather than a missing command specification or failing prior exact-head CI
+  - the residual blocker is environmental rather than a missing command specification or prior exact-head CI failure
 unknown:
   - request or framework path that removes publication status
   - exact old-document request start in preserved reproductions
@@ -206,9 +197,9 @@ validation:
     evidence: attempts 3 and 4 embedded report ZIPs and browser-diagnostics attachments
   - command: source-faithful Chromium layout probe
     result: PASS
-    evidence: 18 samples across exact desktop tablet mobile viewports and immediate/pre-scroll modes; zero request starts from action start
+    evidence: 18 samples across exact desktop tablet mobile viewports and immediate/pre-scroll modes with zero request starts from action start
   - command: mechanism confidence review
-    result: CORRECTED
+    result: PASS
     evidence: ISSUE_365_SOURCE_FAITHFUL_LAYOUT_PROBE.md and corrected ISSUE_365_FLASH_REQUEST_LIFECYCLE_ANALYSIS.md
   - command: exact frozen correlated 12-sample package
     result: NOT_RUN
