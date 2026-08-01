@@ -1,4 +1,4 @@
 # Cloudflare Oteryn endpoint trigger
 
-mode: audit
+mode: inert
 confirmation:

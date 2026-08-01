@@ -19,6 +19,7 @@ while IFS= read -r path; do
         docs/operations/CLOUDFLARE_EDGE_AUDIT.md | \
         docs/operations/CLOUDFLARE_ENDPOINT_MANAGEMENT.md | \
         docs/operations/CLOUDFLARE_ZONE_EDGE_AUDIT.md | \
+        docs/operations/OTERYN_PUBLIC_EDGE_VALIDATION.md | \
         scripts/operations/cloudflare-oteryn-edge-audit.py | \
         scripts/operations/cloudflare-oteryn-endpoints.sh | \
         scripts/operations/cloudflare-zone-edge-audit.sh | \

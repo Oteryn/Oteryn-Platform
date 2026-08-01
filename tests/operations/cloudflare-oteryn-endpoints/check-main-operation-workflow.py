@@ -15,6 +15,9 @@ required = [
     "mode: audit",
     "mode: apply",
     'confirmation: APPLY-OTERYN-CLOUDFLARE',
+    'Validated inert endpoint marker cleanup.',
+    'An operational audit/apply marker PR may change only the marker file.',
+    "[[ \"$changed_files\" == 'ops/triggers/cloudflare-oteryn-endpoints.md' ]]",
     "export CLOUDFLARE_APPLY_CONFIRMATION='APPLY-OTERYN-CLOUDFLARE'",
     "grep -E '^(mode|tunnel_status|tunnel_contract|www_dns|gateway_dns|legacy_gateway_dns|mutation)='",
     "ISSUE_NUMBER: '91'",
@@ -41,5 +44,11 @@ if workflow.count('APPLY-OTERYN-CLOUDFLARE') < 3:
 
 if workflow.count('actions/checkout@v7') < 2:
     raise SystemExit('pull-request validation and trusted push do not both pin checkout')
+
+inert_index = workflow.index('if [[ "$marker" == "$inert_marker" ]]')
+operational_index = workflow.index('elif [[ "$marker" == "$audit_marker" || "$marker" == "$apply_marker" ]]')
+marker_only_index = workflow.index("[[ \"$changed_files\" == 'ops/triggers/cloudflare-oteryn-endpoints.md' ]]", operational_index)
+if not inert_index < operational_index < marker_only_index:
+    raise SystemExit('inert cleanup and marker-only operational branches are not ordered safely')
 
 print('Trusted-main endpoint operation workflow: PASS')

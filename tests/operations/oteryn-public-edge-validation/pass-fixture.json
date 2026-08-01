@@ -1,0 +1,42 @@
+{
+  "schema_version": 2,
+  "observed_at_utc": "2026-08-01T00:00:00+00:00",
+  "classification": "READ_ONLY_PUBLIC_EDGE_VALIDATION_FIXTURE",
+  "canonical_hosts": [
+    "oteryn.molehill.cloud",
+    "gateway.molehill.cloud"
+  ],
+  "hosts": {
+    "www": {
+      "hostname": "oteryn.molehill.cloud",
+      "dns": {"address_count": 2, "addresses": ["192.0.2.10", "2001:db8::10"], "error": null},
+      "tls_1_2": {"ok": true},
+      "tls_1_3": {"ok": true},
+      "certificate": {"ok": true}
+    },
+    "gateway": {
+      "hostname": "gateway.molehill.cloud",
+      "dns": {"address_count": 2, "addresses": ["192.0.2.11", "2001:db8::11"], "error": null},
+      "tls_1_2": {"ok": true},
+      "tls_1_3": {"ok": true},
+      "certificate": {"ok": true}
+    }
+  },
+  "requests": {
+    "www_browser_root": {"http_code": 200, "redirect_url": null, "headers": {"strict-transport-security": "max-age=31536000"}, "body": {"contains_cloudflare_interstitial": false, "contains_gateway_identity": false, "contains_invalid_request": false, "contains_html_form": false, "contains_platform_brand": true}},
+    "www_browser_login": {"http_code": 200, "redirect_url": null, "headers": {}, "body": {"contains_cloudflare_interstitial": false, "contains_gateway_identity": false, "contains_invalid_request": false, "contains_html_form": true, "contains_platform_brand": true}},
+    "www_browser_register": {"http_code": 200, "redirect_url": null, "headers": {}, "body": {"contains_cloudflare_interstitial": false, "contains_gateway_identity": false, "contains_invalid_request": false, "contains_html_form": true, "contains_platform_brand": true}},
+    "www_browser_forgot": {"http_code": 200, "redirect_url": null, "headers": {}, "body": {"contains_cloudflare_interstitial": false, "contains_gateway_identity": false, "contains_invalid_request": false, "contains_html_form": true, "contains_platform_brand": true}},
+    "www_browser_news": {"http_code": 200, "redirect_url": null, "headers": {}, "body": {"contains_cloudflare_interstitial": false, "contains_gateway_identity": false, "contains_invalid_request": false, "contains_html_form": false, "contains_platform_brand": true}},
+    "www_browser_highscores": {"http_code": 200, "redirect_url": null, "headers": {}, "body": {"contains_cloudflare_interstitial": false, "contains_gateway_identity": false, "contains_invalid_request": false, "contains_html_form": false, "contains_platform_brand": true}},
+    "gateway_health": {"http_code": 200, "redirect_url": null, "headers": {}, "body": {"contains_cloudflare_interstitial": false, "contains_gateway_identity": false, "contains_invalid_request": false, "contains_html_form": false, "contains_platform_brand": false}},
+    "gateway_ready": {"http_code": 200, "redirect_url": null, "headers": {}, "body": {"contains_cloudflare_interstitial": false, "contains_gateway_identity": false, "contains_invalid_request": false, "contains_html_form": false, "contains_platform_brand": false}},
+    "gateway_version": {"http_code": 200, "redirect_url": null, "headers": {"content-type": "application/json"}, "body": {"contains_cloudflare_interstitial": false, "contains_gateway_identity": true, "contains_invalid_request": false, "contains_html_form": false, "contains_platform_brand": false}},
+    "gateway_negative_login": {"http_code": 404, "redirect_url": null, "headers": {"content-type": "application/json"}, "body": {"contains_cloudflare_interstitial": false, "contains_gateway_identity": false, "contains_invalid_request": false, "contains_html_form": false, "contains_platform_brand": false}},
+    "gateway_invalid_login": {"http_code": 400, "redirect_url": null, "headers": {"cache-control": "private, no-store, no-cache, must-revalidate", "pragma": "no-cache", "expires": "0"}, "body": {"contains_cloudflare_interstitial": false, "contains_gateway_identity": false, "contains_invalid_request": true, "contains_html_form": false, "contains_platform_brand": false}},
+    "www_version": {"http_code": 404, "redirect_url": null, "headers": {}, "body": {"contains_cloudflare_interstitial": false, "contains_gateway_identity": false, "contains_invalid_request": false, "contains_html_form": false, "contains_platform_brand": true}},
+    "www_http_root": {"http_code": 301, "redirect_url": "https://oteryn.molehill.cloud/", "headers": {"location": "https://oteryn.molehill.cloud/"}, "body": {"contains_cloudflare_interstitial": false, "contains_gateway_identity": false, "contains_invalid_request": false, "contains_html_form": false, "contains_platform_brand": false}},
+    "gateway_http_health": {"http_code": 301, "redirect_url": "https://gateway.molehill.cloud/health", "headers": {"location": "https://gateway.molehill.cloud/health"}, "body": {"contains_cloudflare_interstitial": false, "contains_gateway_identity": false, "contains_invalid_request": false, "contains_html_form": false, "contains_platform_brand": false}}
+  },
+  "mutation": "none"
+}
