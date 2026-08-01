@@ -2,6 +2,8 @@
 
 This file is mandatory and supersedes conflicting thumbnail or request-origin assumptions in `VALIDATOR_PACKET.md`.
 
+The normative command-level procedure is `ISSUE_365_EXACT_FROZEN_EXECUTION_RUNBOOK.md`. A validator may use a mechanically equivalent implementation only when it preserves the same exact frozen source, 12-sample matrix, zero-retry rule, sanitized browser/server/session evidence, fail-closed checks and cleanup proof.
+
 ## Corrected baseline
 
 `OTERYN-AUDIT-P35-006` is `MEDIUM`, not `HIGH`.
@@ -19,7 +21,8 @@ Read these artifacts before execution:
 - `ISSUE_365_STATIC_CAUSE_ANALYSIS.md`;
 - `ISSUE_365_EMBEDDED_BROWSER_DIAGNOSTICS.md`;
 - `ISSUE_365_FLASH_REQUEST_LIFECYCLE_ANALYSIS.md`;
-- `ISSUE_365_LAZY_SCROLL_SYNTHETIC_PROBE.md`.
+- `ISSUE_365_LAZY_SCROLL_SYNTHETIC_PROBE.md`;
+- `ISSUE_365_EXACT_FROZEN_EXECUTION_RUNBOOK.md`.
 
 ## Corrected request boundary
 
@@ -47,12 +50,18 @@ The validator must independently confirm:
 7. The preserved reports contain the corresponding historical response patterns.
 8. The original administration flow begins the publication action only milliseconds after its pre-publication idle boundary.
 9. The Wiki form uses native lazy thumbnails and places responsive media content before the publication controls.
+10. The command-level runbook restores only the historical observer, instruments the lock/session lifecycle ephemerally and returns both Git and installed framework files to their original state.
 
 A disagreement requires exact counter-evidence and a correction to the audit.
 
 ## Replacement focused procedure
 
-Execute three linked classes of exact-target probes.
+Execute three linked classes of exact-target probes through the normative runbook. The mandatory matrix is three independent zero-retry samples for each combination of:
+
+- clean versus exactly one corrupt media row;
+- immediate action versus explicit pre-scroll plus media settle.
+
+This produces 12 samples. A larger matrix is acceptable; a smaller matrix is incomplete.
 
 ### A. Clean isolated flow
 
@@ -63,7 +72,7 @@ php scripts/acceptance/seed-browser-editorial-media.php reset
 php artisan cache:clear
 ```
 
-Then run the original mobile Wiki administration scenario with retries disabled. Run at least three independent samples.
+Then run the original mobile Wiki administration scenario with retries disabled. Run three independent samples in immediate mode and three in pre-scroll mode.
 
 For every sample capture:
 
@@ -90,17 +99,17 @@ For each controlled sample:
 
 1. reset EditorialMedia;
 2. seed exactly one media row;
-3. deliberately corrupt or remove only that row's stored objects;
+3. deliberately corrupt only that row's stored objects;
 4. load the Wiki administration form;
 5. prove that only the controlled row receives the integrity-failure response;
 6. capture fallback rendering and publish-flash behavior;
 7. reset after the sample.
 
-Run enough independent zero-retry samples to determine whether controlled integrity-failure traffic changes publication-flash persistence.
+Run three immediate and three pre-scroll samples. Playwright retries do not count as samples.
 
 ### C. Old-document request-order differential
 
-Run this pair for both clean media and exactly one controlled missing/corrupt row.
+The immediate and pre-scroll modes above form the differential for both fixture states.
 
 #### C1. Immediate action
 
@@ -125,7 +134,7 @@ For every relevant request record:
 - route, method, status, media ID and sanitized `Referer`;
 - correlation/request ID;
 - old-document versus redirected-document origin;
-- session-lock wait, acquire and release timestamps;
+- session-lock attempt, acquire and release timestamps;
 - sanitized session-load and session-save state for `_flash.new`, `_flash.old` and presence of `status`.
 
 The evidence must make the ordering of old thumbnail, publish POST and redirect GET mechanically inspectable. Do not infer order from final response counts.
@@ -157,7 +166,8 @@ A clean valid-object failure is a separate application finding; do not merge it 
 
 ### Old-document action-scroll trigger
 
-- `SUPPORTED`: C1 activates an old-document media request in the publish window and C2 moves that request outside the window, with a corresponding flash result difference.
+- `PROVEN_CAUSAL`: the complete lock/session chain in the runbook shows an old-document media request aging publication `status` before redirect GET.
+- `SUPPORTED`: C1 activates an old-document media request in the publish window and C2 moves that request outside the window, with a corresponding flash result difference, but one element of the causal chain is incomplete.
 - `PRESENT_NONCAUSAL`: the old-document request exists but flash persistence does not track the differential.
 - `REJECTED`: no old-document media request is activated in the relevant window or C1/C2 exact evidence contradicts the mechanism.
 - `INCONCLUSIVE`: request/session ordering is incomplete.
@@ -168,10 +178,13 @@ Do not infer causality from temporal coexistence alone.
 
 `VALIDATED` remains forbidden while:
 
-- the clean isolated flow is not executed at least three times;
-- the controlled polluted comparison is absent;
+- the complete 12-sample matrix is absent;
+- any sample used a Playwright retry;
+- clean or exactly-one-row fixture proof is incomplete;
 - the C1/C2 request-order differential is absent;
 - session-lock and flash-state evidence is incomplete;
+- source, installed-framework and evidence hashes are incomplete;
+- cleanup does not restore an empty Git status and the original installed `StartSession` hash;
 - the validator does not independently verify the source/order/count chain.
 
 The final artifact must explicitly state that the normalized audit totals are expected to be:
