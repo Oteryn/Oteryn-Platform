@@ -6,6 +6,8 @@ on:
       - main
     paths:
       - .github/workflows/production-gate-synology-observer.yml
+      - .github/workflows/synology-production-target-preflight.yml
+      - deploy/synology/scripts/production-gate-readonly-inventory.py
 
 permissions:
   actions: write
