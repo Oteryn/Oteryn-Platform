@@ -1,0 +1,35 @@
+name: Public Edge Revalidation
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - .github/workflows/public-edge-revalidation.yml
+      - tools/public_edge_revalidate.py
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  observe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout exact observation source
+        uses: actions/checkout@v7
+
+      - name: Validate probe syntax
+        run: python3 -m py_compile tools/public_edge_revalidate.py
+
+      - name: Observe canonical public edge
+        run: python3 tools/public_edge_revalidate.py
+
+      - name: Upload sanitized public observation
+        uses: actions/upload-artifact@v4
+        with:
+          name: public-edge-revalidation-${{ github.sha }}
+          path: public-edge-revalidation/
+          if-no-files-found: error
+          retention-days: 14
