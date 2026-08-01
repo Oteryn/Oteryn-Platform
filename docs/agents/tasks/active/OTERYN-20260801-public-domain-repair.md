@@ -8,16 +8,16 @@ required_reads:
   - docs/contracts/PUBLIC_ENDPOINTS_CONTRACT.md
   - deploy/synology/PUBLIC_ENDPOINTS.md
   - docs/operations/PRODUCTION_READINESS_CHECKLIST.md
+  - docs/operations/CLOUDFLARE_ENDPOINT_MANAGEMENT.md
+  - docs/operations/CLOUDFLARE_EDGE_AUDIT.md
 search_first:
-  - PR #387 public-domain validation report and findings
-  - merged PRs #388, #392 and #396
+  - PR #387 public-domain validation
+  - PRs #388, #392 and #396 repository/staging repair
   - Character Bazaar Staging Control run 30695167157 and artifact 8817085021
-  - PR #399 public edge revalidation
-  - Public Edge Revalidation run 30696983913 and artifact 8817569426
+  - Cloudflare Tunnel/DNS apply run 30700054602
+  - public post-apply revalidation run 30701140509
+  - remaining-edge audits 30702383389 and 30702827344
 optional_reads:
-  - PR #383
-  - PR #385
-  - PR #335
   - Issue #91
 ---
 
@@ -25,22 +25,22 @@ optional_reads:
 
 ## Goal
 
-Repair the repository-owned public-domain defects proven by PR #387, deploy the exact repair through Marketplace-aware Synology staging, and retain a reversible operator plan for unavailable edge infrastructure without weakening security boundaries.
+Repair the repository and staging public-domain defects, converge the canonical Cloudflare Tunnel/DNS contract, and complete the remaining public TLS/policy acceptance without weakening security boundaries.
 
 ## Acceptance criteria
 
-- [x] Requestless Platform URLs use `https://oteryn.molehill.cloud` while origins remain loopback-only.
-- [x] Public staging rejects an unexpected full deployment `APP_URL`.
-- [x] Partial Marketplace state loads without requiring deployment-only keys.
-- [x] Marketplace Platform and scheduler use the canonical HTTPS origin and Secure cookies.
-- [x] Health checks cover Gateway identity, malformed login, private cache controls, canonical URLs and negative cross-routing.
-- [x] Protocol probes execute from the NAS host network namespace rather than the containerized runner loopback.
-- [x] PR #396 exact head passed every applicable workflow.
-- [x] Exact merge SHA `3eb109b505f7d1c8718cffb823de6d9d5166717c` was deployed and verified with sanitized `STAGING_PROVEN` evidence.
-- [x] Cloudflare/DNS/Synology edge changes and rollback are documented without secrets.
-- [x] Post-staging public DNS/TLS/HTTP behavior was independently revalidated and recorded.
-- [ ] Authorized Cloudflare/DNS edge changes and public acceptance probes are complete.
-- [x] `PRODUCTION_PROVEN` remains false until Issue #91 is completed.
+- [x] Repository canonical URL, Secure-cookie and bounded Gateway checks are merged.
+- [x] Exact source `3eb109b505f7d1c8718cffb823de6d9d5166717c` is deployed and `STAGING_PROVEN`.
+- [x] Canonical Tunnel ingress entries are reconciled.
+- [x] Both canonical proxied DNS records are current.
+- [x] Post-apply public TLS/HTTP behavior is independently revalidated.
+- [x] Trusted-main GET-only auditing exists for remaining Cloudflare edge controls.
+- [x] Current token scope and token self-management capability are directly audited.
+- [ ] Protected Cloudflare token is replaced with minimum remaining-edge read scopes.
+- [ ] Exact certificate, challenge, redirect, Access, Bot and HSTS state is captured.
+- [ ] Smallest evidence-supported edge repair is applied and publicly accepted.
+- [ ] Controlled redacted password-recovery delivery passes.
+- [x] `PRODUCTION_PROVEN` remains false until Issue #91 completes.
 
 ## Ownership
 
@@ -51,6 +51,7 @@ owned_paths:
   - docs/agents/tasks/active/OTERYN-20260801-public-domain-repair.md
   - docs/agents/reports/OTERYN-20260801-public-domain-repair.md
   - docs/agents/reports/OTERYN-20260801-public-edge-revalidation.md
+  - docs/agents/reports/OTERYN-20260801-cloudflare-edge-audit.md
 modules:
   - public-web
   - identity
@@ -58,37 +59,23 @@ modules:
   - edge-transport
   - synology-staging
 dependencies:
-  - PR #387 source validation package
-  - merged PR #388
-  - merged PR #392
-  - merged PR #396
-  - Character Bazaar Staging Control
   - Issue #91 production go-live gate
+  - GitHub environment production-cloudflare
+  - external Cloudflare account administrator for token rotation
 blockers:
-  - usable Cloudflare and DNS operator access for the documented edge plan and public acceptance probes
-cross_repository_tasks:
-  - none
+  - protected Cloudflare token lacks remaining-edge read scopes and cannot inspect or expand its own policy
 ```
 
 ## Context checkpoint
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-01T11:08:00Z
-session_id: chatgpt-20260801-public-domain-repair-006
-policy_version: 2
-phase: external_edge_blocked_revalidated
-execution_mode: chat-github-connector
-repository_mutation_authorization: PROVEN
-external_mutation_scope_authorization: PROVEN
-external_operator_access: UNKNOWN
-staging_deployment_authorization: PROVEN
-context_pressure: low
-decomposition_decision: continue_when_access_available
-branch: docs/OTERYN-20260801-public-edge-revalidation
-head: 1781536f5a4c288766cbb8b4651bf1be80bab8f8
-pr: 400
+updated_at: 2026-08-01T14:04:00Z
 status: blocked
+phase: cloudflare_token_rotation_blocked
+branch: docs/OTERYN-20260801-cloudflare-token-blocker
+head: 1971e764715701b9a09911e5563672c29a92c22e
+pr: none
 context_routes:
   - agent-governance
   - security
@@ -97,77 +84,72 @@ context_routes:
   - testing
 owned_paths:
   - docs/agents/tasks/active/OTERYN-20260801-public-domain-repair.md
-  - docs/agents/reports/OTERYN-20260801-public-edge-revalidation.md
+  - docs/agents/tasks/active/OTERYN-20260801-cloudflare-edge-audit.md
+  - docs/agents/reports/OTERYN-20260801-cloudflare-edge-audit.md
+repository_mutation_authorization: PROVEN
+external_mutation_scope_authorization: PROVEN
+staging_deployment_authorization: PROVEN
 proven:
-  - PR #388 merged as 82abef518f91d72d392db4420bb335773087c3e1 after all required exact-head workflows passed.
-  - PR #392 merged as b249e5e9cb864ba01376efb273be323b90bcd500 after all path-applicable exact-head workflows passed.
-  - PR #396 exact head b61cfc1ac2f5900d3ad9e78e2433bede8f7eec88 passed CI 4018, Governance 3809, Phase 7 3053, Images 1582, Edge 1474, DB 2980 and Concurrency 2551.
-  - PR #396 merged as 3eb109b505f7d1c8718cffb823de6d9d5166717c.
-  - Exact Platform and Gateway images tagged sha-3eb109b505f7d1c8718cffb823de6d9d5166717c were published and resolved.
-  - Character Bazaar Staging Control run 30695167157 number 7 completed successfully on runner oteryn-synology-staging.
-  - Run 30695167157 verified exact bindings, Gateway identity and version, malformed login cache controls, negative cross-routing, MFA QR behavior, canonical forwarded login action, canonical requestless URLs and Canary LAN reachability.
-  - Character Bazaar enablement, transfer privilege boundary and final staging state persistence passed.
-  - Sanitized artifact 8817085021 has digest sha256:5523ee4c0a49a156e23a894e808915a9a1f5b424b961168eb732774e6056efbb.
-  - The artifact classifies exact source 3eb109b505f7d1c8718cffb823de6d9d5166717c as STAGING_PROVEN with Marketplace enabled, one scheduler and production_environment_proven false.
-  - Public Edge Revalidation run 30696983913 number 1 completed from a West US GitHub-hosted runner at 2026-08-01T11:05:03.497039+00:00.
-  - Sanitized public artifact 8817569426 has digest sha256:a090c5562ac2ed529f214fc5dd2d1f765b27facbb63a56f3838a46a4ba66c4a1.
-  - Both canonical names still resolve to the same Cloudflare anycast addresses observed by PR #387.
-  - WWW still verifies over TLS 1.3 only, presents molehill.cloud and wildcard SAN coverage, and returns Cloudflare 403 for every representative route.
-  - Gateway still fails both TLS 1.2 and TLS 1.3 before HTTP and no certificate can be extracted.
-  - Plain HTTP still returns Cloudflare 403 rather than redirecting to HTTPS.
-  - WWW still emits Strict-Transport-Security max-age=0 with includeSubDomains and preload tokens.
-  - Issue #91 comment 5151151647 records the post-staging public revalidation without promoting staging evidence to production proof.
-  - No production, Cloudflare, DNS, Canary-source, OTClient or PR #387 evidence mutation occurred.
+  - PRs #388, #392 and #396 repaired repository-owned public-domain and staging boundaries.
+  - Exact deployment run 30695167157 and artifact 8817085021 classify source 3eb109b505f7d1c8718cffb823de6d9d5166717c as STAGING_PROVEN.
+  - Cloudflare audit 30699270139 and apply 30700054602 converged Tunnel/DNS; only the bounded Tunnel configuration changed.
+  - Public revalidation 30701140509 artifact 8818850803 still proves Gateway TLS failure, WWW 403, no HTTP redirect and max-age=0 HSTS.
+  - PR #406 merged trusted-main GET-only remaining-edge auditing as 5ea883c26dead9d58d363df1fb7909e3c399e206.
+  - Live remaining-edge audit 30702383389 artifact 8819238641 proved permission_denied for certificate packs, Rulesets, Bot, Access and selected zone settings.
+  - PR #411 merged trusted-main GET-only token-capability auditing as 63771e2565dd0d691c8229d97090c0d0fcceb9c3.
+  - Live capability audit 30702827344 artifact 8819368872 proved permission_denied for token self-details and the permission-group catalog.
+  - Account API Tokens Read and Account API Tokens Write are not proven; the current token cannot self-expand.
+  - No Cloudflare mutation occurred in either remaining-edge audit.
 derived:
-  - Repository-owned public-domain configuration and Synology staging deployment are complete.
-  - The remaining public failures are entirely outside the deployed application and remain in the separately controlled Cloudflare/DNS edge.
-  - Public launch and production proof remain blocked on operator access and the public acceptance sequence.
+  - Cloudflare API integration is working; the exact current blocker is token scope.
+  - Tunnel/DNS is not the cause of the remaining TLS and policy failures.
+  - External token replacement is required before autonomous read-audit and repair can continue.
 unknown:
-  - Effective Cloudflare certificate attachment, WAF, Access, Bot, redirect and HSTS rule identifiers and configuration state.
-  - Exact supported native-client minimum TLS version.
-  - Controlled password-recovery delivery result through the public edge.
+  - Exact certificate product and coverage state for login.oteryn.molehill.cloud.
+  - Exact Cloudflare control producing WWW challenge pages.
+  - Exact redirect, Access, Bot, WAF and HSTS resource identifiers.
+  - Minimal corresponding write scopes until read audit succeeds.
+  - Controlled password-recovery delivery result.
 conflicts:
-  - Staging is proven while the public edge is directly proven failing; STAGING_PROVEN must not be promoted to PUBLIC_DOMAIN_LAUNCH_READY or PRODUCTION_PROVEN.
+  - STAGING_PROVEN and Tunnel/DNS convergence coexist with directly failing public acceptance; neither may be promoted to PUBLIC_DOMAIN_LAUNCH_READY or PRODUCTION_PROVEN.
 first_failure:
   marker: gateway-public-tls-handshake-failure
-  evidence: PR #387 runs 30690877286 and 30690957415 plus post-staging run 30696983913 failed TLS negotiation before HTTP
+  evidence: PR #387 and post-apply run 30701140509 both fail Gateway TLS before HTTP.
 rejected_hypotheses:
-  - The final Gateway image or host binding is not the current blocker; run 30695167157 proved both.
-  - Canonical application URL generation is not the current blocker; run 30695167157 proved requestless and forwarded URLs.
-  - Marketplace staging state and host-network health checks are not current blockers; final run and artifact passed.
-  - The public edge was not repaired independently after staging deployment; run 30696983913 directly reproduced all material PR #387 failures.
+  - Repository or staging configuration remains the blocker; exact staging deployment passed.
+  - Tunnel or DNS drift remains the blocker; live apply converged both.
+  - Cloudflare integration is absent; authenticated audit/apply runs succeeded.
+  - The current token can expand itself; live capability audit could not read its own policy or permission catalog.
 changed_paths:
   - docs/agents/tasks/active/OTERYN-20260801-public-domain-repair.md
-  - docs/agents/reports/OTERYN-20260801-public-edge-revalidation.md
+  - docs/agents/tasks/active/OTERYN-20260801-cloudflare-edge-audit.md
+  - docs/agents/reports/OTERYN-20260801-cloudflare-edge-audit.md
 validation:
-  - command: path-applicable workflow suite on PR #396 exact head b61cfc1ac2f5900d3ad9e78e2433bede8f7eec88
+  - command: Character Bazaar Staging Control run 30695167157
     result: PASS
-    evidence: CI 4018, Governance 3809, Phase 7 3053, Images 1582, Edge 1474, DB 2980 and Concurrency 2551
-  - command: exact trusted-main image build for 3eb109b505f7d1c8718cffb823de6d9d5166717c
+    evidence: exact deployment and artifact 8817085021
+  - command: Cloudflare Tunnel/DNS apply run 30700054602
     result: PASS
-    evidence: exact Platform and Gateway tags resolved before deployment
-  - command: Character Bazaar Staging Control deploy-enable for 3eb109b505f7d1c8718cffb823de6d9d5166717c
-    result: PASS
-    evidence: run 30695167157 number 7 and artifact 8817085021
-  - command: public DNS TLS HTTP redirect HSTS and route revalidation after staging deployment
+    evidence: tunnel and both DNS names current after verification
+  - command: public revalidation run 30701140509
     result: FAIL
-    evidence: run 30696983913 number 1 and artifact 8817569426 reproduced Gateway TLS failure, WWW 403, no HTTP redirect and max-age=0 HSTS
-  - command: authorized Cloudflare configuration mutation and controlled password-recovery acceptance
-    result: NOT_RUN
-    evidence: no usable Cloudflare or DNS operator connector exists in this session
-deployment_evidence: STAGING_PROVEN artifact 8817085021 for exact source 3eb109b505f7d1c8718cffb823de6d9d5166717c; digest sha256:5523ee4c0a49a156e23a894e808915a9a1f5b424b961168eb732774e6056efbb; production_environment_proven false.
-public_edge_evidence: Public Edge Revalidation artifact 8817569426; digest sha256:a090c5562ac2ed529f214fc5dd2d1f765b27facbb63a56f3838a46a4ba66c4a1; public acceptance failed without mutation.
-rollback: Repository rollback is a revert of merged repair commits. Synology retains prior image snapshots for explicit guarded runtime rollback. External rollback restores the captured certificate, tunnel, WAF, Access, Bot, redirect and HSTS state.
+    evidence: Gateway TLS, WWW 403, redirects and HSTS still fail
+  - command: live remaining-edge audit run 30702383389
+    result: PASS
+    evidence: trusted GET-only audit completed and classified permission boundary
+  - command: live token capability audit run 30702827344
+    result: PASS
+    evidence: trusted GET-only audit proved no token self-management access
+  - command: remaining public acceptance with current token
+    result: BLOCKED
+    evidence: required edge API families are permission_denied
 blockers:
-  - Cloudflare and DNS operator access is unavailable, so certificate coverage, edge policy, redirects, HSTS and password-recovery acceptance cannot be repaired or completed.
-next_action: Provide usable Cloudflare and DNS operator access, capture current state, apply the report plan in reversible order, and rerun the exact public acceptance probes without changing production application code.
+  - An external Cloudflare account administrator must replace the protected production-cloudflare token with minimum remaining-edge read scopes without exposing the token in chat or Git.
+next_action: Replace CLOUDFLARE_API_TOKEN in the protected GitHub environment, then rerun the existing marker-only trusted-main audit. Add only exact write scopes required by the resulting resource-level evidence, apply bounded changes, and rerun public acceptance.
 ```
 
 ## Reports
 
 - `docs/agents/reports/OTERYN-20260801-public-domain-repair.md`
 - `docs/agents/reports/OTERYN-20260801-public-edge-revalidation.md`
-
-## Notes
-
-Repository and staging work are complete. The task remains active and blocked because the public edge is directly proven failing and `PUBLIC_DOMAIN_LAUNCH_READY` plus `PRODUCTION_PROVEN` remain false pending external edge work.
+- `docs/agents/reports/OTERYN-20260801-cloudflare-edge-audit.md`
