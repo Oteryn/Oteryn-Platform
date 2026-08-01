@@ -20,6 +20,7 @@ PY
 done
 export CLOUDFLARE_API_BASE_URL="http://127.0.0.1:18080"
 export CLOUDFLARE_API_TOKEN="cfat_test"
+export CLOUDFLARE_ACCESS_API_TOKEN="cfat_access_test"
 export CLOUDFLARE_ACCOUNT_ID="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 export CLOUDFLARE_ZONE_ID="bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
 export CLOUDFLARE_EDGE_AUDIT_OUT="$tmp/out"
@@ -30,9 +31,20 @@ import json, sys
 edge=json.load(open(sys.argv[1]))
 token=json.load(open(sys.argv[2]))
 assert edge["mutation"] == "none"
+assert edge["token"]["access_token_separate"] is True
 assert edge["certificate_packs"]["active_exact_login_coverage"] is True
+assert edge["certificate_packs"]["pack_summaries"][0]["covers_www"] is True
+assert edge["certificate_packs"]["pack_summaries"][0]["covers_login"] is True
 assert edge["zone_settings"]["security_level"]["value"] == "under_attack"
-assert edge["ruleset_details"][0]["oteryn_matching_rules"][0]["matches_www"] is True
+redirect=edge["ruleset_details"][0]["oteryn_matching_rules"][0]
+assert redirect["matches_www"] is True
+assert "expression" not in redirect
+waf=edge["ruleset_details"][1]
+assert len(waf["sanitized_rules"]) == 3
+assert waf["sanitized_rules"][0]["host_scope"] == "broad_no_host_predicate"
+assert waf["sanitized_rules"][0]["expression_sha256"]
+assert len(waf["oteryn_candidate_rules"]) == 1
+assert waf["oteryn_candidate_rules"][0]["ref"] == "broad-bot-challenge"
 assert edge["bot_management"]["settings"]["fight_mode"] is True
 assert edge["access_applications"]["oteryn_applications"][0]["domain"] == "oteryn.molehill.cloud"
 assert token["mutation"] == "none"
