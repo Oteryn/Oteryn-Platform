@@ -45,18 +45,22 @@ jobs:
           git fetch --no-tags origin "$BASE_SHA" "$HEAD_SHA"
           changed_files="$(git diff --name-only "$BASE_SHA" "$HEAD_SHA")"
           if grep -Fxq 'ops/triggers/cloudflare-oteryn-endpoints.md' <<<"$changed_files"; then
-            [[ "$changed_files" == 'ops/triggers/cloudflare-oteryn-endpoints.md' ]] || {
-              echo 'An operational marker PR may change only the marker file.' >&2
-              exit 1
-            }
             marker="$(cat ops/triggers/cloudflare-oteryn-endpoints.md)"
             inert_marker=$'# Cloudflare Oteryn endpoint trigger\n\nmode: inert\nconfirmation:'
             audit_marker=$'# Cloudflare Oteryn endpoint trigger\n\nmode: audit\nconfirmation:'
             apply_marker=$'# Cloudflare Oteryn endpoint trigger\n\nmode: apply\nconfirmation: APPLY-OTERYN-CLOUDFLARE'
-            [[ "$marker" == "$inert_marker" || "$marker" == "$audit_marker" || "$marker" == "$apply_marker" ]] || {
+
+            if [[ "$marker" == "$inert_marker" ]]; then
+              echo 'Validated inert endpoint marker cleanup.'
+            elif [[ "$marker" == "$audit_marker" || "$marker" == "$apply_marker" ]]; then
+              [[ "$changed_files" == 'ops/triggers/cloudflare-oteryn-endpoints.md' ]] || {
+                echo 'An operational audit/apply marker PR may change only the marker file.' >&2
+                exit 1
+              }
+            else
               echo 'Marker content is not an exact allowed request.' >&2
               exit 1
-            }
+            fi
           fi
 
   operate:
