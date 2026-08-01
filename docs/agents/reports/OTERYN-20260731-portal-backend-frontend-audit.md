@@ -20,11 +20,13 @@ Normalized findings remain **0 HIGH, 6 MEDIUM and 1 LOW**. Independent verdict r
 
 A three-attempt post-fix execution materially corrects the Wiki conclusion: the original mobile publication-flash defect reproduced in two of three zero-retry attempts on the exact targeted session-serialization commit. Session blocking is therefore **not proven to remediate the defect deterministically**.
 
-Recovered embedded Playwright diagnostics further prove that contaminated desktop and tablet flows retain publication feedback despite 9 and 12 thumbnail HTTP 500 responses. Thumbnail 500 presence alone is therefore insufficient to explain the mobile flash loss.
+Recovered embedded Playwright diagnostics prove that contaminated desktop and tablet flows retain publication feedback despite 9 and 12 thumbnail HTTP 500 responses. Thumbnail 500 presence alone is insufficient to explain the mobile flash loss.
 
-Source and Laravel lifecycle inspection narrows the strongest mechanism to `DERIVED / HIGH confidence`: authenticated media-index or thumbnail requests can save the same session before the redirected edit document and consume the one-request publication flash. Exact ordering remains unproven.
+Source, framework and responsive-action analysis narrows the strongest mechanism family to `DERIVED / HIGH confidence`: a media request from the **old article-edit document** may be activated by the far-down publication action, queue behind the publish POST, then age the one-request flash before the redirect GET. Requests created only by the newly redirected page are excluded as the primary explanation for an alert already absent from its first server-rendered HTML.
 
-The task remains `BLOCKED`, not `DONE`, because exact frozen-target clean isolation, the exactly-one-damaged-row comparison and sanitized request/session/application evidence are still unavailable.
+A controlled Chromium probe confirms that a responsive Playwright click can activate deferred old-document lazy-image work after an earlier settled boundary. It does not directly prove Oteryn request or session-lock ordering.
+
+The task remains `BLOCKED`, not `DONE`, because exact frozen-target clean isolation, the exactly-one-damaged-row comparison and sanitized browser/request/session evidence remain unavailable.
 
 ## Evidence boundaries
 
@@ -34,7 +36,8 @@ The task remains `BLOCKED`, not `DONE`, because exact frozen-target clean isolat
 | `CI_PROVEN` | `fdb45a4325949d3ab1c4860e3a4527553f11c789` | strict contract and fresh current critical profile passed |
 | `CI_PROVEN` | `6c1e910d36771f50da5eded93cc50274a90c62d2` | original transient assertion: 1 PASS / 2 mobile reproductions after session serialization |
 | `DERIVED` | `6c1e...` → frozen Wiki runtime | identical Wiki application/view/route runtime; acceptance-suite composition differs |
-| `DERIVED / HIGH confidence` | flash request lifecycle | same-session media subrequest can age pending `status` before redirected edit document |
+| `DERIVED / HIGH confidence` | corrected flash mechanism family | old-document media request may age pending `status` before redirect GET |
+| `CONTROLLED_SYNTHETIC / DERIVED` | responsive lazy-scroll probe | action-induced old-document lazy work is feasible; app ordering unproven |
 | `STAGING_PROVEN` | `717977f252b09b9b2e979f8110b7f48b88682223` | staging evidence for a different source |
 | `PRODUCTION_PROVEN` | none | production remains `UNKNOWN` |
 
@@ -123,37 +126,62 @@ The mobile 14-versus-16 response difference and causal contribution of damaged r
 
 Exact artifact/report hashes and per-ID distributions: `docs/agents/evidence/OTERYN-20260731-portal-backend-frontend-audit/ISSUE_365_EMBEDDED_BROWSER_DIAGNOSTICS.md`.
 
-## Flash request-lifecycle mechanism
+## Corrected flash request-lifecycle mechanism
 
-The strongest source-backed mechanism is classified `DERIVED / HIGH confidence`, not `PROVEN`.
+The strongest source-backed mechanism family is `DERIVED / HIGH confidence`, not `PROVEN`.
 
 Repository and framework chain:
 
 1. publication redirects to the article edit route with `->with('status', 'Wiki article published.')`;
 2. the administrator layout renders the message only from `session('status')`;
-3. the Wiki article form immediately starts an authenticated media-index fetch and then lazy authenticated thumbnail requests;
-4. the edit document, media index, thumbnails and publication mutation all use the web session and Laravel session blocking;
+3. the old Wiki form creates authenticated native-lazy thumbnail requests before the far-down publication controls;
+4. edit, media index, thumbnails and publication mutation all use the same web session and Laravel session blocking;
 5. Laravel flash data is aged during session save;
-6. session blocking provides mutual exclusion but does not prioritize the redirect document over queued JSON or image requests.
+6. session blocking provides mutual exclusion but does not prioritize the redirect GET over an already queued old-document media request.
 
-A media-index or thumbnail request can therefore acquire the serialized session first, save it and age the pending `status` before the redirected edit document renders. This fits:
+The corrected boundary matters. A request started only after the redirected page's HTML arrives cannot explain why that first HTML already omitted the alert. The viable sequence is:
 
-- durable publication with missing transient status;
-- intermittent rather than deterministic failure;
-- reproduction after adding `->block()`;
-- desktop/tablet success and mobile failure under the same stale-media family;
-- insufficiency of client-side `networkidle` as a server-side ordering guarantee.
+1. Playwright begins the publication action on the old document;
+2. actionability scrolling activates a deferred old-document thumbnail request;
+3. the publish POST writes `status` and releases the session lock;
+4. the queued media request acquires and saves the session before the redirect GET, aging the flash;
+5. the redirect GET renders durable state without the alert.
+
+Preserved timings support a narrow action window: publication began only 5–7 ms after the pre-publication `networkidle` step. Click actions took 74–193 ms across the preserved desktop/tablet/mobile projects. `networkidle` does not prove that the action itself created no further lazy work.
 
 Not proven:
 
-- exact request order in attempts 3 and 4;
-- whether a valid or corrupt thumbnail is sufficient;
+- exact old-document request start in attempts 3 and 4;
+- exact session-lock acquisition order;
+- whether a valid, missing or corrupt thumbnail is sufficient;
 - whether integrity failure changes scheduling or lock timing;
 - exact frozen-target clean behavior.
 
-Smallest later server-side candidate, not implemented here: narrowly preserve only a pending `status` flash across authenticated Wiki media-index and thumbnail responses, then prove that the redirected article-edit document consumes it exactly once. Client retries, delayed clicks or `networkidle` are not sufficient remediation.
+Smallest later server-side candidate, not implemented here: preserve only a pending publication `status` across authenticated Wiki media-index and thumbnail responses, then prove that the redirect document consumes it exactly once. Explicit pre-scroll is a diagnostic control, not production remediation.
 
 Detailed analysis: `docs/agents/evidence/OTERYN-20260731-portal-backend-frontend-audit/ISSUE_365_FLASH_REQUEST_LIFECYCLE_ANALYSIS.md`.
+
+## Controlled responsive lazy-scroll probe
+
+A local Chromium `144.0.7559.96` probe exercised Playwright actionability scrolling and native lazy loading with:
+
+- 12 images;
+- responsive 3/2/1-column media grid;
+- publication control below the grid;
+- three samples per viewport and mode;
+- direct click versus explicit pre-scroll plus settle.
+
+| Profile | Initially loaded | New loads after direct click | New loads after pre-scroll + settle |
+|---|---:|---:|---:|
+| desktop | 12/12 | 0 | 0 |
+| tablet | 8/12 | 4 (`9–12`) | 0 |
+| mobile | 3/12 | 4 (`9–12`) | 0 |
+
+The mobile action moved the old document from the top to `scrollY=5437`; the deferred images completed 12.9–17.9 ms after the click event. Explicit pre-scroll moved that work outside the click window and produced zero post-click loads in all samples.
+
+Because container policy blocked network/file navigation, the probe used `page.set_content()` and data-URI images. It proves browser feasibility and responsive differentiation, not Oteryn HTTP or session causality.
+
+Detailed method and limitations: `docs/agents/evidence/OTERYN-20260731-portal-backend-frontend-audit/ISSUE_365_LAZY_SCROLL_SYNTHETIC_PROBE.md`.
 
 ## Findings
 
@@ -161,7 +189,7 @@ Detailed analysis: `docs/agents/evidence/OTERYN-20260731-portal-backend-frontend
 
 **Wiki acceptance profiles leak intentionally damaged EditorialMedia rows into later tests.**
 
-The Wiki media spec corrupts/removes stored files while preserving rows. Later projects request stale rows. Historical ordering exactly predicts the repeated 9/12/16 HTTP 500 pattern. This is an acceptance isolation/evidence defect, not proof that valid production media fails.
+The Wiki media spec corrupts/removes stored files while preserving rows. Later projects request stale rows. Historical ordering exactly predicts the repeated thumbnail HTTP 500 pattern. This is an acceptance isolation/evidence defect, not proof that valid production media fails.
 
 ### MEDIUM — OTERYN-AUDIT-P35-001
 
@@ -185,7 +213,7 @@ No one-record-per-rendered-surface applicability ledger prevents silent omission
 
 **Mobile Wiki publication intermittently loses accessible transient success feedback after durable success.**
 
-The defect is historically proven and reproduced after session serialization in two of three independent zero-retry attempts. Session serialization alone is insufficient to claim remediation. The most likely mechanism is request-order consumption of one-request flash by authenticated media subrequests, classified `DERIVED / HIGH confidence` pending exact ordering evidence.
+The defect is historically proven and reproduced after session serialization in two of three independent zero-retry attempts. Session serialization alone is insufficient. The strongest mechanism family is old-document media-request consumption of one-request flash, `DERIVED / HIGH confidence` pending exact request and session ordering.
 
 ### MEDIUM — OTERYN-AUDIT-P35-007
 
@@ -201,11 +229,11 @@ Live GitHub task and PR state was treated as authoritative.
 
 ## Causality and nonclaims
 
-The audit does not claim that stale damaged media rows cause the flash loss. The new attempts were freshly bootstrapped, but the full critical profile can accumulate damaged rows inside each attempt. They prove post-fix reproduction under delivered suite ordering, not a clean-versus-one-row causal result.
+The audit does not claim that stale damaged media rows cause the flash loss. The full critical profile can accumulate damaged rows inside an attempt. The post-fix executions prove reproduction under delivered suite ordering, not a clean-versus-one-row causal result.
 
 Desktop/tablet success under contamination rejects a simple deterministic relationship between any thumbnail HTTP 500 traffic and flash loss. It does not rule out timing, viewport or request-order interaction.
 
-The request-lifecycle mechanism is a high-confidence inference from repository and Laravel session behavior. It is not relabelled as direct runtime ordering proof.
+The synthetic responsive probe proves browser feasibility only. It does not relabel the old-document request race as direct Oteryn runtime proof.
 
 The audit also does not claim:
 
@@ -221,9 +249,10 @@ Latest directly proven staging source remains `717977f252b09b9b2e979f8110b7f48b8
 ## Minimum remediation set
 
 1. Fragment-aware content-scale closure, dedicated 503 coverage and fail-closed accessibility applicability under Issue #326.
-2. Continue Issue #365: reset EditorialMedia between samples, execute exact frozen-target clean isolation and one exactly controlled damaged-row comparison, and capture sanitized request/session/application evidence.
-3. In a separately authorized implementation task, preserve only pending publication `status` flash across Wiki media-index/thumbnail session responses, with focused valid/corrupt/session-consumption tests before browser validation.
-4. Correct the two Wiki HTML patterns and add native validation plus zero-console-error regression coverage after focused classification.
+2. Continue Issue #365 with exact frozen clean isolation, exactly one controlled damaged row and sanitized request/session evidence.
+3. Add the immediate-action versus pre-scroll C1/C2 differential to locate any old-document request in the publish window.
+4. In a separately authorized implementation task, preserve only pending publication `status` across Wiki media-index/thumbnail session responses, with valid/corrupt/session-consumption tests.
+5. Correct the two Wiki HTML patterns and add native validation plus zero-console-error regression coverage after focused classification.
 
 No implementation was authorized or performed by this audit.
 
@@ -234,8 +263,9 @@ Verdict: `VALIDATED_WITH_CORRECTIONS`.
 `VALIDATED` remains forbidden until one mutable checkout-capable execution performs:
 
 1. exact frozen SHA with an ephemeral restored transient observer;
-2. clean isolated samples with EditorialMedia reset before each sample;
-3. one controlled comparison with exactly one missing/corrupt row;
-4. sanitized publish redirect, session/request, thumbnail and application/server evidence.
+2. at least three clean isolated responsive-mobile samples;
+3. one comparison with exactly one missing/corrupt media row;
+4. immediate-action versus pre-scroll request-order differential;
+5. sanitized browser request, server request, session-lock, flash-state and application evidence.
 
 No merge, deployment or production action is authorized.
