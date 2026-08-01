@@ -16,7 +16,7 @@ jobs:
   discover:
     runs-on: ubuntu-latest
     steps:
-      - name: Inspect latest retry startup failure
+      - name: Inspect latest retry run
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TARGET_BRANCH: validation/issue365-synology-20260801
