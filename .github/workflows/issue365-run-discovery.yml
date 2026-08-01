@@ -1,0 +1,66 @@
+name: Issue 365 Retry Run Discovery
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - .github/workflows/issue365-run-discovery.yml
+
+permissions:
+  actions: read
+  contents: read
+  issues: write
+
+jobs:
+  discover:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Publish retry workflow runs
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TARGET_BRANCH: validation/issue365-synology-20260801
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          import urllib.parse
+          import urllib.request
+
+          repository = os.environ['GITHUB_REPOSITORY']
+          branch = os.environ['TARGET_BRANCH']
+          token = os.environ['GH_TOKEN']
+          headers = {
+              'Authorization': f'Bearer {token}',
+              'Accept': 'application/vnd.github+json',
+              'X-GitHub-Api-Version': '2022-11-28',
+          }
+          runs_url = (
+              f'https://api.github.com/repos/{repository}/actions/workflows/'
+              f'issue365-synology-retry.yml/runs?branch={urllib.parse.quote(branch)}&per_page=20'
+          )
+          with urllib.request.urlopen(urllib.request.Request(runs_url, headers=headers), timeout=30) as response:
+              payload = json.load(response)
+          rows = []
+          for run in payload.get('workflow_runs', []):
+              rows.append({
+                  'id': run['id'],
+                  'status': run['status'],
+                  'conclusion': run['conclusion'],
+                  'event': run['event'],
+                  'head_sha': run['head_sha'],
+                  'run_attempt': run['run_attempt'],
+              })
+          body = 'Issue #365 retry workflow runs:\n```json\n' + json.dumps(rows, indent=2) + '\n```'
+          comment_url = f'https://api.github.com/repos/{repository}/issues/412/comments'
+          request = urllib.request.Request(
+              comment_url,
+              data=json.dumps({'body': body}).encode('utf-8'),
+              method='POST',
+              headers={**headers, 'Content-Type': 'application/json'},
+          )
+          with urllib.request.urlopen(request, timeout=30) as response:
+              if response.status != 201:
+                  raise SystemExit(f'comment publish returned {response.status}')
+          PY
