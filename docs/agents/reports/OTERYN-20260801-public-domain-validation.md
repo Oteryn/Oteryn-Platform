@@ -1,49 +1,139 @@
 # Public-domain validation evidence
 
 Task: `OTERYN-20260801-public-domain-validation`  
-Phase: `discovery_and_evidence`  
+Phase: `complete`  
 Repository baseline: `7dac56d3f3f4606be958c875f278edbe410e6b54`  
 Evidence branch: `audit/OTERYN-20260801-public-domain-validation`  
 Draft PR: `#387`
 
-## Result
+## Verdict
 
-The repository contract and the last exact Synology staging deployment establish the intended split:
+**PUBLIC DOMAIN LAUNCH: BLOCKED / FAIL.**
 
-- `https://oteryn.molehill.cloud` is the Oteryn Platform web application, with loopback origin `127.0.0.1:8000`;
-- `https://login.oteryn.molehill.cloud` is the Oteryn Game Gateway, with loopback origin `127.0.0.1:8080`.
+Two independent GitHub-hosted observations from different Azure regions directly reached the public Cloudflare edge on 2026-08-01:
 
-The exact staging deployment observed by workflow run `30669701842` used Platform and Gateway source/image revision `6bfbc5f351758392d144baf0d2877a290ec69535` and Canary image digest `sha256:784e5dbdcc64e311c48c51cd94aa206e2efa1e5eefb2f4ef40170d5aac55031f`. The run directly proved loopback bindings, Platform/Gateway/Canary health, Gateway `/health`, `/ready` and `/version`, and preservation of the canonical WWW HTTPS login form action through forwarded proxy headers.
+- run `30690877286`, job `91345253565`, East US / IAD edge;
+- run `30690957415`, job `91345468758`, West US / SJC edge.
 
-This package does **not** establish the current external deployment identity or current Internet-facing DNS, certificate, redirect, header, cookie, caching or routing behavior. Direct fetches and DNS resolution for both public hostnames were unavailable from the execution environment. The exact public-edge state therefore remains `UNKNOWN/BLOCKED`, and no `PRODUCTION_PROVEN` claim is made.
+The observations prove:
+
+1. both canonical names resolve through Cloudflare to the same IPv4 and IPv6 anycast addresses;
+2. `oteryn.molehill.cloud` presents a valid certificate for `molehill.cloud` / `*.molehill.cloud` over TLS 1.3, but anonymous HTTP and HTTPS requests to every representative WWW route receive a Cloudflare `403` interstitial;
+3. `login.oteryn.molehill.cloud` fails the TLS handshake before HTTP for both TLS 1.2 and TLS 1.3, with both Python/OpenSSL and curl clients;
+4. plain HTTP requests are answered by Cloudflare with `403`, not redirected to HTTPS;
+5. the WWW edge sends `Strict-Transport-Security: max-age=0; includeSubDomains; preload`, which disables persisted HSTS rather than enforcing it.
+
+The exact currently deployed Platform and Canary identities remain unknown. The Gateway `/version` endpoint cannot be reached because TLS fails. No `PRODUCTION_PROVEN` claim is made.
+
+## Canonical roles and last staging identity
+
+The repository contract defines:
+
+- `https://oteryn.molehill.cloud` → Oteryn Platform WWW → `127.0.0.1:8000`;
+- `https://login.oteryn.molehill.cloud` → Oteryn Game Gateway → `127.0.0.1:8080`.
+
+The last exact Synology staging deployment directly observed before this audit was workflow `30669701842`:
+
+- Platform image/source: `sha-6bfbc5f351758392d144baf0d2877a290ec69535`;
+- Gateway image/source: `sha-6bfbc5f351758392d144baf0d2877a290ec69535`;
+- Canary image: `sha256:784e5dbdcc64e311c48c51cd94aa206e2efa1e5eefb2f4ef40170d5aac55031f`;
+- Platform binding: `127.0.0.1:8000`;
+- Gateway binding: `127.0.0.1:8080`;
+- Platform/Gateway/Canary health: PASS;
+- forwarded canonical HTTPS login-form action: PASS.
+
+That staging evidence remains valid only for its exact revision and host-loopback boundary. It does not override the current public-edge failures.
 
 ## Evidence identity
 
-| Item | Classification | Evidence |
+| Evidence | Classification | Identity |
 |---|---|---|
-| Repository `main` at task start | `PROVEN` | `7dac56d3f3f4606be958c875f278edbe410e6b54` from repository preflight |
-| Canonical hostname roles | `PROVEN` | `docs/contracts/PUBLIC_ENDPOINTS_CONTRACT.md`; `deploy/synology/PUBLIC_ENDPOINTS.md` |
-| Last exact observed staging Platform source/image | `PROVEN` | workflow `30669701842`; `ghcr.io/blakinio/oteryn-platform:sha-6bfbc5f351758392d144baf0d2877a290ec69535` |
-| Last exact observed staging Gateway source/image | `PROVEN` | workflow `30669701842`; `ghcr.io/blakinio/oteryn-game-gateway:sha-6bfbc5f351758392d144baf0d2877a290ec69535` |
-| Last exact observed staging Canary image | `PROVEN` | workflow `30669701842`; digest `sha256:784e5dbdcc64e311c48c51cd94aa206e2efa1e5eefb2f4ef40170d5aac55031f` |
-| Sanitized deployment artifact | `PROVEN` | artifact `8808580115`, ZIP digest `sha256:f5ea1efb02b8508d3b54765c2e7d15551dfab9d44c6a6c80ea3a299b970c0d44`, payload digest `sha256:2b94d392f97d2afa179ce32ec618f11b61c0bb38829a4ca8637efb6e6b84ab6d` |
-| Current externally deployed Platform/Gateway/Canary identity | `UNKNOWN` | no current public response or deployment marker was directly observable |
-| Production environment | `UNKNOWN` | artifact explicitly records `production_environment_proven: false`; Issue `#91` remains a production-verification gate |
+| Repository baseline | `PROVEN` | `7dac56d3f3f4606be958c875f278edbe410e6b54` |
+| Public DNS/TLS/HTTP observation | `PROVEN` | run `30690877286`; head `19e62011f5920c89d22aa70738b3ea66ab61ef20`; artifact `8815612315`; ZIP digest `sha256:174ff9dd5c1a098a49277926aca100b41f7a3761e7e67595f98b92097c7ea909` |
+| Independent corroboration | `PROVEN` | run `30690957415`; head `b66012b086f03b2cf70f1c194cb4c72593bc2426`; artifact `8815638539`; ZIP digest `sha256:b5b3effb61e350c4a5fd59ff2949c9f38f265b42f3c81787bf894745d738a1d8` |
+| Last exact staging deployment | `STAGING_PROVEN` | run `30669701842`; artifact `8808580115`; ZIP digest `sha256:f5ea1efb02b8508d3b54765c2e7d15551dfab9d44c6a6c80ea3a299b970c0d44` |
+| Current external Platform image/SHA | `UNKNOWN` | no non-secret version marker is exposed by the reachable WWW edge |
+| Current external Gateway image/SHA | `UNKNOWN` | `/version` is unreachable because TLS negotiation fails |
+| Current Canary image/SHA | `UNKNOWN` | no safe public version marker is available |
+| Production environment | `UNKNOWN` | Issue `#91` remains the authoritative production-verification gate |
 
-## Scope reuse
+All evidence is sanitized. No secret, credential, token, cookie value, form submission or valid Game Login Ticket was used.
 
-PR `#381` already inventories 27 portal surfaces and 228 named-route assignments. This task reuses that inventory and does not recreate a general completeness audit. Domain-dependent representative WWW surfaces include:
+## DNS evidence
 
-- home and SEO resources;
-- public news and managed pages;
-- public game data;
-- registration, login and logout;
-- password lifecycle;
-- MFA lifecycle;
-- account and administration surfaces;
-- signed Wiki article and media previews.
+Both names resolve without CNAME records to the same Cloudflare addresses:
 
-The Game Gateway is not a portal surface. Its current public HTTP contract is exactly:
+```text
+A     104.21.2.166
+A     172.67.186.250
+AAAA  2606:4700:3031::6815:2a6
+AAAA  2606:4700:3033::ac43:bafa
+```
+
+Classification: `PROVEN` for the observation timestamps. The origin addresses remain undisclosed and were not probed.
+
+## WWW hostname
+
+Target: `https://oteryn.molehill.cloud`
+
+### TLS
+
+- TLS 1.3: PASS.
+- TLS 1.2: rejected with `protocol version` alert in the corroboration run.
+- certificate subject: `molehill.cloud`;
+- SANs: `molehill.cloud`, `*.molehill.cloud`;
+- issuer: Google Trust Services `WE1`;
+- valid from `2026-06-28 02:01:55 UTC` to `2026-09-26 02:59:39 UTC`;
+- SHA-256 fingerprint: `5f72d627546607d059b7737c852f9b1a1bb459d7f5852bd15766903da81a183f`.
+
+The certificate directly covers `oteryn.molehill.cloud`.
+
+### HTTP behavior
+
+The following HTTPS routes all returned Cloudflare `403` before the Platform response could be observed:
+
+- `/`;
+- `/login?locale=en`;
+- `/register`;
+- `/forgot-password`;
+- `/health`;
+- `/news`;
+- `/highscores`;
+- `/version` cross-routing probe.
+
+The first run returned `Attention Required! | Cloudflare`. The independent run returned `Just a moment...` for HTTPS. The same result occurred with both a bounded validator User-Agent and a current Chrome-like User-Agent. Because the probe did not execute a JavaScript challenge, this proves automated anonymous reachability failure; it does not prove that every interactive human browser is blocked.
+
+Plain `http://oteryn.molehill.cloud/` returned Cloudflare `403` without an HTTP-to-HTTPS redirect.
+
+### Edge headers
+
+Observed HTTPS challenge response included:
+
+```text
+Server: cloudflare
+Strict-Transport-Security: max-age=0; includeSubDomains; preload
+Content-Type: text/html; charset=UTF-8
+```
+
+The first observation also recorded no-store/no-cache response directives on the Cloudflare block page. Application CSP, session cookies, CSRF form behavior and generated action URLs could not be observed externally because the edge interstitial stopped the request before Platform content.
+
+### Source and staging facts retained
+
+Repository and exact-staging evidence still prove:
+
+- explicit trusted-proxy configuration without wildcard trust;
+- request-bound forwarded HTTPS login action generation on staging;
+- session-cookie source configuration using `Secure`, `HttpOnly`, `SameSite=Lax`, path `/` and no configured domain in the Marketplace staging overlay;
+- Platform security-header middleware;
+- no-store policy on sensitive authentication APIs.
+
+Those facts are not promoted to current public-edge behavior while Cloudflare prevents direct observation.
+
+## Gateway hostname
+
+Target: `https://login.oteryn.molehill.cloud`
+
+### Contracted public surface
 
 ```text
 GET  /health
@@ -52,163 +142,198 @@ GET  /version
 POST /v1/login
 ```
 
-A Gateway root-path `404` is therefore expected and is not a finding.
+The source contract returns bounded JSON and applies `no-store, no-cache, must-revalidate, private`, `Pragma: no-cache` and `Expires: 0` to `/v1/login` responses.
 
-## WWW hostname evidence
+### Current TLS behavior
 
-Target: `https://oteryn.molehill.cloud`
+Both independent observations failed before any HTTP response:
 
-| Check | Outcome | Classification | Evidence |
-|---|---|---|---|
-| Intended role and origin | PASS | `PROVEN` | public-endpoint contract maps WWW to Platform `127.0.0.1:8000` |
-| Exact staging binding | PASS | `PROVEN` | workflow `30669701842`: Platform `8000/tcp -> 127.0.0.1:8000` |
-| Forwarded HTTPS host/scheme handling | PASS for exact staging revision | `PROVEN` | health check sent `Host`/`X-Forwarded-Host: oteryn.molehill.cloud`, `X-Forwarded-Proto: https`, `X-Forwarded-Port: 443`; resulting login form action was `https://oteryn.molehill.cloud/login?locale=en` |
-| Trusted proxy policy | PASS as source contract | `PROVEN` | explicit IP/CIDR-only trust; wildcard proxy trust is rejected; forwarded host/port/proto headers are consumed |
-| Home and representative public-route reachability at public edge | BLOCKED | `UNKNOWN` | no direct current Internet response |
-| TLS certificate and hostname validation | BLOCKED | `UNKNOWN` | no direct current TLS handshake |
-| HTTP-to-HTTPS redirects and redirect chains | BLOCKED | `UNKNOWN` | no direct current HTTP response |
-| Login, registration and password-recovery pages at public edge | BLOCKED | `UNKNOWN` | source routes exist; current external responses unavailable |
-| Controlled login/logout | BLOCKED | `UNKNOWN` | no controlled public test identity was available |
-| CSRF behavior at public edge | BLOCKED | `UNKNOWN` | source routes use Laravel web middleware; no current public form submission evidence |
-| Security headers at public edge | BLOCKED | `UNKNOWN` | source middleware defines CSP, `nosniff`, frame denial, referrer and permissions policies; effective edge response unavailable |
-| HSTS at public edge | BLOCKED | `UNKNOWN` | application middleware does not set HSTS; Cloudflare/edge policy was not directly observable |
-| User-visible internal host/port leakage | BLOCKED | `UNKNOWN` | login form host/scheme passed staging proxy emulation; current rendered public pages were not retrievable |
+```text
+TLS 1.2: sslv3 alert handshake failure
+TLS 1.3: sslv3 alert handshake failure
+curl: (35) OpenSSL SSL routines: sslv3 alert handshake failure
+HTTP status: 000
+```
 
-### Session-cookie classification
+The failure was reproduced with:
 
-The deployed source contract configures:
+- Python `ssl` default verification;
+- forced TLS 1.2;
+- forced TLS 1.3;
+- curl/OpenSSL;
+- validator and Chrome-like User-Agents;
+- both Cloudflare IPv4 addresses selected across the observations.
 
-- path `/`;
-- `HttpOnly=true`;
-- `SameSite=Lax`;
-- no explicit cookie domain, yielding a host-only cookie under normal Laravel behavior;
-- `Secure=true` in the staging Marketplace overlay, overriding the historical base environment value.
+Therefore `/health`, `/ready`, `/version` and `/v1/login` are not externally usable over the canonical HTTPS hostname from standards-compliant clients.
 
-These settings are `PROVEN` as repository and exact-staging configuration. The actual public `Set-Cookie` header, including effective attributes and absence of cross-host sharing with `login.oteryn.molehill.cloud`, is `UNKNOWN` because no current public response was observable.
+The observed WWW certificate SAN `*.molehill.cloud` covers one label such as `oteryn.molehill.cloud`; it does not cover the two-label name `login.oteryn.molehill.cloud`. The absence of a successful Gateway handshake is consistent with no edge certificate covering the exact deeper hostname. This cause is `DERIVED` with high confidence; the exact Cloudflare certificate configuration was not read directly.
 
-### Generated URLs
+Plain `http://login.oteryn.molehill.cloud/health` returned Cloudflare `403` and did not redirect to HTTPS.
 
-- Browser forms and redirects use request-aware route generation. Exact staging evidence proves the login form preserved the forwarded canonical HTTPS origin.
-- Password recovery invokes Laravel's standard password broker. The application does not install a custom reset-URL callback. Laravel 13 generates the reset route through the active URL generator.
-- Email-change verification and recovery notifications call named routes directly.
-- Wiki preview and preview-media URLs are temporary signed routes generated during authenticated browser requests.
+## Password recovery
 
-The exact staging environment nevertheless recorded `APP_URL=http://127.0.0.1:8000`. Request-bound generation can still be correct when trusted forwarded headers are present, as the login-form proof demonstrates. Console, scheduler or other requestless absolute URL generation would use the configured application root and may therefore emit a loopback/plain-HTTP URL. No current user-visible occurrence was directly observed.
+Source inspection proves:
 
-## Password-recovery evidence
+- `/forgot-password` GET/POST and `/reset-password/{token}` routes;
+- request and source throttling;
+- standard Laravel password broker use;
+- rejection of the `log` mail transport for reset links.
 
-Target flow: `POST /forgot-password` followed by delivery of a reset link to a controlled mailbox.
+Current public validation result:
 
-| Check | Outcome | Classification | Evidence |
-|---|---|---|---|
-| Route and throttling contract | PASS | `PROVEN` | `/forgot-password` GET/POST and `/reset-password/{token}` exist; request and source rate limits are configured |
-| Non-logging mail safety guard | PASS | `PROVEN` | reset sender rejects the `log` mail transport before dispatch |
-| Reset link generation source | PASS as source contract | `PROVEN` | standard Laravel password broker and `password.reset` route are used |
-| Sender identity | BLOCKED | `UNKNOWN` | no controlled mailbox delivery evidence |
-| Link hostname and HTTPS scheme | BLOCKED | `UNKNOWN` | no delivered message was available for inspection |
-| Token completion | BLOCKED | `UNKNOWN` | no controlled identity/mailbox and no authorized public mutation path |
+- GET `/forgot-password`: Cloudflare `403` in the external observation;
+- sender identity: `UNKNOWN`;
+- delivered link host/scheme: `UNKNOWN`;
+- reset completion: `NOT_RUN`;
+- controlled identity/mailbox: unavailable;
+- no token or credential was generated or recorded.
 
-No reset token, signature or credential was generated or recorded.
+## Generated URL configuration
 
-## Gateway hostname evidence
+The exact staging deployment used:
 
-Target: `https://login.oteryn.molehill.cloud`
+```text
+APP_URL=http://127.0.0.1:8000
+```
 
-| Check | Outcome | Classification | Evidence |
-|---|---|---|---|
-| Intended role and origin | PASS | `PROVEN` | public-endpoint contract maps hostname to Gateway `127.0.0.1:8080` |
-| Exact staging binding | PASS | `PROVEN` | workflow `30669701842`: Gateway `8080/tcp -> 127.0.0.1:8080` |
-| Actual public endpoints | PASS | `PROVEN` | source registers only `/health`, `/ready`, `/version`, `/v1/login` |
-| Staging health/readiness/version | PASS for exact staging revision | `PROVEN` | health-check workflow probed all three endpoints successfully |
-| Current public routing to Gateway rather than Platform | BLOCKED | `UNKNOWN` | no direct current public response |
-| TLS certificate and hostname validation | BLOCKED | `UNKNOWN` | no direct current TLS handshake |
-| `/version` current deployment identity | BLOCKED | `UNKNOWN` | external endpoint unavailable; last staging version was `sha-6bfbc5f351758392d144baf0d2877a290ec69535` |
-| JSON content type and bounded errors | PASS as source contract | `PROVEN` | handlers emit JSON; malformed request `400 invalid_request`, invalid ticket `401 invalid_login`, dependency failure `503 login_unavailable` |
-| Sensitive login response caching | PASS as source contract | `PROVEN` | every `/v1/login` response sets `no-store, no-cache, must-revalidate, private`, `Pragma: no-cache`, `Expires: 0` |
-| Request-size and protocol bounds | PASS as source contract | `PROVEN` | body limited to 4096 bytes; unknown fields and trailing JSON rejected; protocol must equal 1; ticket length bounded |
-| Current edge cache and server/origin leakage | BLOCKED | `UNKNOWN` | no direct public response |
-| Effective public rate limiting | BLOCKED | `UNKNOWN` | Gateway source has no application-layer limiter; Cloudflare/edge policy unavailable |
-| Native-client end-to-end success | NOT CLAIMED | `UNKNOWN` | no current direct native-client evidence tied to the observed public deployment |
+while the canonical public root is:
 
-## Edge behavior
+```text
+https://oteryn.molehill.cloud
+```
 
-For both hostnames, current DNS resolution, Cloudflare proxy path, certificate chain, HTTP-to-HTTPS redirect behavior, cache status, server/origin header leakage, representative errors and cross-routing are `UNKNOWN/BLOCKED`. Repository documentation and historical staging probes cannot substitute for a current external observation.
+Request-bound form generation passed on staging because trusted forwarded headers supplied the public origin. Requestless console/scheduler/mail URL generation may still use the loopback/plain-HTTP application root. No delivered user-visible link was inspected, so actual impact remains unproven, but the configuration conflict is direct.
 
 ## Findings
 
-### OTERYN-PUBLIC-DOMAIN-001 — Current public-edge state and deployment identity are unproven
+### OTERYN-PUBLIC-DOMAIN-001 — Gateway canonical HTTPS hostname has no usable TLS service
 
-- evidence_class: `UNKNOWN`
-- outcome: `BLOCKED`
+- evidence_class: `PROVEN`
+- outcome: `FAIL`
+- severity: `HIGH`
+- confidence: `HIGH`
+- affected surface: `login.oteryn.molehill.cloud`; all Gateway endpoints and native-client login
+- evidence: runs `30690877286` and `30690957415`; TLS 1.2 and 1.3 handshake failure with independent clients and regions
+- impact: the canonical Game Gateway cannot be used by a standards-compliant HTTPS client; native login through that hostname is blocked before application processing
+- likely cause: `DERIVED` certificate coverage gap for the two-label hostname; observed SAN `*.molehill.cloud` does not cover `login.oteryn.molehill.cloud`
+- ownership: Cloudflare edge certificate/hostname configuration and public endpoint contract
+- recommendation: provision an edge certificate explicitly covering `login.oteryn.molehill.cloud`, or move Gateway to a hostname covered by the chosen certificate hierarchy; then prove `/health`, `/ready`, `/version` and a bounded invalid `/v1/login` response externally
+
+### OTERYN-PUBLIC-DOMAIN-002 — WWW anonymous automated reachability is blocked by Cloudflare
+
+- evidence_class: `PROVEN`
+- outcome: `FAIL` for anonymous automated reachability; interactive-browser result remains `UNKNOWN`
 - severity: `MEDIUM`
 - confidence: `HIGH`
-- affected hostname and route: both canonical hostnames; all public routes
-- evidence: direct web fetches failed; sandbox resolver could not resolve either name; direct public DNS/TLS/HTTP evidence was unavailable; the newest durable evidence is a host-loopback staging validation for revision `6bfbc5f351758392d144baf0d2877a290ec69535`
-- impact: launch readiness cannot establish current certificate, redirect, routing, header, cookie, caching or deployment-revision correctness; `PRODUCTION_PROVEN` would be unsupported
-- ownership boundary: external edge/DNS/Cloudflare and deployment observation; no mutation is authorized in this task
-- recommendation: run one read-only public-domain probe from an Internet-capable trusted runner and bind every result to current Platform, Gateway and Canary identities
+- affected surface: all representative Platform public routes, including `/health`, login, registration and password recovery
+- evidence: every tested route returned Cloudflare `403` in two regions with validator and Chrome-like User-Agents
+- impact: external health monitoring, API-style validation and non-JavaScript clients cannot reach Platform; route correctness, cookies and application headers cannot be continuously observed
+- ownership: Cloudflare WAF/Bot/Access policy
+- recommendation: document the intended public access policy; allow bounded health and required non-browser traffic without a JavaScript challenge, and use explicit rate limits/service authentication where appropriate
 
-### OTERYN-PUBLIC-DOMAIN-002 — Canonical public URL conflicts with exact staging `APP_URL`
+### OTERYN-PUBLIC-DOMAIN-003 — HSTS is explicitly disabled at the WWW edge
+
+- evidence_class: `PROVEN`
+- outcome: `FAIL`
+- severity: `MEDIUM`
+- confidence: `HIGH`
+- affected surface: `oteryn.molehill.cloud` and declared subdomains
+- evidence: `Strict-Transport-Security: max-age=0; includeSubDomains; preload`
+- impact: supporting browsers are instructed to remove the HSTS policy; the `includeSubDomains` and `preload` tokens do not compensate for zero max-age
+- ownership: Cloudflare edge TLS/HTTP policy
+- recommendation: after HTTPS coverage is corrected for all included subdomains, set a positive reviewed HSTS max-age and validate the effective response
+
+### OTERYN-PUBLIC-DOMAIN-004 — HTTP does not redirect to HTTPS before edge blocking
+
+- evidence_class: `PROVEN`
+- outcome: `FAIL`
+- severity: `MEDIUM`
+- confidence: `HIGH`
+- affected surface: both canonical hostnames
+- evidence: HTTP root/health probes returned Cloudflare `403` with no redirect chain
+- impact: clients are not consistently upgraded to HTTPS; users can receive an edge block page over plaintext HTTP
+- ownership: Cloudflare redirect and WAF rule ordering
+- recommendation: apply an unconditional HTTP-to-HTTPS redirect before browser challenge/block processing and revalidate both hostnames
+
+### OTERYN-PUBLIC-DOMAIN-005 — Canonical public URL conflicts with deployed staging `APP_URL`
 
 - evidence_class: `CONFLICT`
-- outcome: `FAIL` for canonical configuration consistency; no direct broken user flow proven
+- outcome: `FAIL` for configuration consistency
 - severity: `MEDIUM`
-- confidence: `HIGH` for the configuration mismatch; `MEDIUM` for user impact
-- affected hostname and route: `oteryn.molehill.cloud`; requestless generated absolute URLs
-- evidence: canonical contract requires `https://oteryn.molehill.cloud`, while workflow `30669701842` rendered `APP_URL=http://127.0.0.1:8000`; request-bound login-form generation still passed through trusted forwarded headers
-- impact: console, scheduler or other requestless absolute URL generation can emit loopback/plain-HTTP URLs even though request-bound forms are correct
-- ownership boundary: Synology deployment configuration and application URL-generation policy; implementation/configuration changes are outside this validation task
-- recommendation: make the deployed application root canonical HTTPS or provide explicit safe per-flow URL generation, then prove request-bound and requestless links independently
+- confidence: `HIGH` for mismatch; `MEDIUM` for user-visible impact
+- affected surface: requestless absolute URL generation, including mail and scheduler contexts
+- evidence: canonical root is HTTPS public hostname; exact staging `APP_URL` is loopback HTTP
+- impact: requestless absolute URLs may contain an internal host or plaintext scheme
+- ownership: Synology deployment configuration and URL-generation policy
+- recommendation: configure the deployed application root as the canonical HTTPS URL or explicitly override every requestless link generator, then validate a redacted delivered link
 
-### OTERYN-PUBLIC-DOMAIN-003 — Password-recovery delivery and link origin are not directly proven
+### OTERYN-PUBLIC-DOMAIN-006 — Password-recovery delivery remains unproven
 
 - evidence_class: `UNKNOWN`
 - outcome: `BLOCKED`
 - severity: `MEDIUM`
 - confidence: `HIGH`
-- affected hostname and route: `oteryn.molehill.cloud`; `/forgot-password`, delivered `/reset-password/{token}` link
-- evidence: route, broker and notification source are present, but no controlled mailbox or delivered message was available; no token was exposed or used
-- impact: a launch-relevant account-recovery path may be broken or may expose an incorrect host/scheme without detection
-- ownership boundary: Identity mail delivery and controlled validation identity/mailbox; no production mutation is authorized here
-- recommendation: submit one bounded recovery request for a controlled identity, inspect a redacted delivered URL, and complete the reset only under explicit mutation authorization
+- affected surface: `/forgot-password` and delivered reset URL
+- evidence: public GET is intercepted by Cloudflare; no controlled identity/mailbox was available
+- impact: a critical account-recovery path may have an inaccessible entry page, delivery failure or incorrect URL origin without detection
+- ownership: Identity mail delivery plus Cloudflare public access policy
+- recommendation: after WWW access and `APP_URL` are corrected, execute one controlled recovery flow, inspect only a redacted host/scheme/path, and complete reset under explicit mutation authorization
 
-### OTERYN-PUBLIC-DOMAIN-004 — Effective public Gateway rate limiting is unresolved
+### OTERYN-PUBLIC-DOMAIN-007 — WWW accepts TLS 1.3 only in the observed configuration
 
-- evidence_class: `UNKNOWN`
-- outcome: `BLOCKED`
-- severity: `MEDIUM`
+- evidence_class: `PROVEN`
+- outcome: `RISK`
+- severity: `LOW`
 - confidence: `HIGH`
-- affected hostname and route: `login.oteryn.molehill.cloud`; `POST /v1/login`
-- evidence: Gateway source bounds request size and errors but registers no application-layer rate limiter; effective Cloudflare or reverse-proxy limiting was not observable
-- impact: repeated invalid or dependency-triggering requests may consume Gateway, Platform or Canary capacity if no edge policy exists
-- ownership boundary: Game Gateway implementation or public edge policy; both are outside documentation-only ownership
-- recommendation: directly verify a documented low-volume public rate-limit policy, or add an implementation-owned limiter in a separately authorized task
+- affected surface: `oteryn.molehill.cloud`
+- evidence: forced TLS 1.2 received `protocol version`; TLS 1.3 succeeded
+- impact: clients limited to TLS 1.2 cannot connect
+- ownership: Cloudflare minimum TLS policy
+- recommendation: confirm TLS 1.3-only is an explicit compatibility decision; otherwise permit TLS 1.2 while retaining modern cipher policy
 
 ## Non-findings retained
 
-- Gateway root `404` is expected because no root endpoint is contracted.
-- Platform and Gateway hostnames are not interchangeable.
-- Exact staging proxy handling corrected the WWW login form action for forwarded HTTPS.
-- Exact staging Platform and Gateway services remained loopback-bound.
-- Sensitive Gateway login responses have a source-enforced no-store policy.
-- No evidence supports a claim of current production exposure, current native-client success or current password-reset delivery.
+- Gateway root `404` would be expected if TLS and routing worked because no root endpoint is contracted.
+- Platform and Gateway hostnames are intentionally distinct.
+- Synology origins remained loopback-bound in the last exact staging deployment.
+- Gateway source does not expose service credentials or database credentials.
+- Sensitive Gateway login responses have source-enforced no-store headers.
+- No evidence supports current production correctness or exact current runtime identity.
+
+## Required remediation and revalidation gate
+
+Public-domain launch remains blocked until all launch-applicable items are directly proven:
+
+1. working certificate and TLS negotiation for the exact Gateway hostname;
+2. correct Gateway routing and JSON responses for `/health`, `/ready`, `/version` and bounded invalid login;
+3. documented WWW Cloudflare policy that permits intended anonymous/browser/monitoring traffic;
+4. HTTP-to-HTTPS redirect for both names;
+5. positive reviewed HSTS after every included subdomain has valid HTTPS;
+6. canonical HTTPS `APP_URL` or equivalent requestless URL-generation control;
+7. controlled redacted password-recovery delivery proof;
+8. exact current Platform, Gateway and Canary deployment identities;
+9. Issue `#91` production go-live evidence if this is the production target.
 
 ## Validation record
 
-- Repository/branch/task/PR preflight: PASS.
-- Required durable context and overlap inspection: PASS.
-- PR `#381` route/surface inventory reuse: PASS.
-- Platform proxy, URL, cookie, security-header and cache source inspection: PASS.
-- Gateway route, error, cache and transport-bound source inspection: PASS.
-- Workflow `30669701842` job log review: PASS.
-- Artifact `8808580115` download, ZIP digest and JSON payload digest verification: PASS.
-- Exact staging Platform/Gateway/Canary identity extraction: PASS.
-- Direct current DNS/TLS/HTTP probes for both public domains: BLOCKED.
-- Controlled login/logout and password-recovery mailbox validation: BLOCKED.
-- Repository mutation boundary: PASS; only the task and report paths were changed.
+- Repository/task/PR/ownership preflight: PASS.
+- PR `#381` portal inventory reuse: PASS.
+- Platform proxy/URL/cookie/cache/security source inspection: PASS.
+- Gateway route/error/cache/transport source inspection: PASS.
+- Last exact staging workflow/artifact inspection: PASS.
+- Public DNS/TLS/HTTP run `30690877286`: PASS as evidence collection; findings detected.
+- Independent corroboration run `30690957415`: PASS as evidence collection; findings reproduced.
+- Public Gateway TLS: FAIL.
+- Public WWW anonymous automated access: FAIL / Cloudflare `403`.
+- Public HTTP-to-HTTPS redirect: FAIL.
+- Public HSTS enforcement: FAIL.
+- Controlled password recovery: NOT_RUN / exact blocker recorded.
+- Secrets and credentials used: none.
+- External infrastructure mutation: none.
 
 ## Acceptance disposition
 
-The discovery-and-evidence phase is complete. Both hostname roles, the source contracts and the last exact staging candidate are durably recorded. Every missing current external observation is explicitly classified. The package remains evidence-only and does not authorize implementation, deployment, Cloudflare, DNS, Synology, credential, mailbox or production changes.
+The audit and evidence-collection task is complete. It produced direct public-edge evidence, independently corroborated the launch blockers, retained exact staging boundaries and recorded all remaining unknowns without unsupported inference.
 
-`PRODUCTION_PROVEN`: **false**.
+`PRODUCTION_PROVEN`: **false**.  
+`PUBLIC_DOMAIN_LAUNCH_READY`: **false**.
