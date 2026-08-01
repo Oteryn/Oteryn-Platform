@@ -14,6 +14,7 @@ on:
 
 permissions:
   contents: read
+  issues: write
 
 concurrency:
   group: issue365-exact-frozen-synology
@@ -30,6 +31,41 @@ jobs:
     runs-on: oteryn-staging
     timeout-minutes: 120
     steps:
+      - name: Publish retry run identity
+        if: github.event_name == 'push'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          import urllib.request
+
+          repository = os.environ['GITHUB_REPOSITORY']
+          run_id = os.environ['GITHUB_RUN_ID']
+          attempt = os.environ['GITHUB_RUN_ATTEMPT']
+          sha = os.environ['GITHUB_SHA']
+          payload = json.dumps({
+              'body': f'Issue #365 exact-frozen retry started: run `{run_id}`, attempt `{attempt}`, harness head `{sha}`.'
+          }).encode('utf-8')
+          request = urllib.request.Request(
+              f'https://api.github.com/repos/{repository}/issues/412/comments',
+              data=payload,
+              method='POST',
+              headers={
+                  'Authorization': f"Bearer {os.environ['GH_TOKEN']}",
+                  'Accept': 'application/vnd.github+json',
+                  'Content-Type': 'application/json',
+                  'X-GitHub-Api-Version': '2022-11-28',
+              },
+          )
+          with urllib.request.urlopen(request, timeout=30) as response:
+              if response.status != 201:
+                  raise SystemExit(f'comment publish returned {response.status}')
+          PY
+
       - name: Checkout exact frozen target
         uses: actions/checkout@v7
         with:
