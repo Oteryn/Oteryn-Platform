@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Prepare the ephemeral Issue #365 validator from the retired frozen harness."""
+'Prepare the ephemeral Issue #365 validator from the retired frozen harness.'
 
 from __future__ import annotations
 
@@ -68,8 +68,8 @@ docker build --progress=plain \\
 
     script = replace_once(
         script,
-        'docker exec "$app_container" python3 - <<\'PY\'',
-        'docker exec -i "$app_container" python3 - <<\'PY\'',
+        "docker exec \"$app_container\" python3 - <<'PY'",
+        "docker exec -i \"$app_container\" python3 - <<'PY'",
         "python heredoc stdin",
     )
 
@@ -92,57 +92,115 @@ echo "matrix-start" > "$RUN_ROOT/LAST_STAGE"
     )
 
     stage_replacements = {
-        'cat <<EOF | docker build -t "$validator_image" -': '''echo "::notice::ISSUE365_STAGE=build-validator-image"
-cat <<EOF | docker build -t "$validator_image" -''',
-        'docker exec "$app_container" composer install': '''echo "::notice::ISSUE365_STAGE=composer-install"
-docker exec "$app_container" composer install''',
-        "for script in \\": '''echo "::notice::ISSUE365_STAGE=install-observers"
-for script in \\''',
-        'docker exec -i "$app_container" bash -s <<\'MATRIX\'': '''echo "::notice::ISSUE365_STAGE=matrix"
-docker exec -i "$app_container" bash -s <<'MATRIX' ''',
+        'cat <<EOF | docker build -t "$validator_image" -': (
+            'echo "::notice::ISSUE365_STAGE=build-validator-image"\n'
+            'cat <<EOF | docker build -t "$validator_image" -'
+        ),
+        'docker exec "$app_container" composer install': (
+            'echo "::notice::ISSUE365_STAGE=composer-install"\n'
+            'docker exec "$app_container" composer install'
+        ),
+        "for script in \\": (
+            'echo "::notice::ISSUE365_STAGE=install-observers"\n'
+            "for script in \\"
+        ),
+        "docker exec -i \"$app_container\" bash -s <<'MATRIX'": (
+            'echo "::notice::ISSUE365_STAGE=matrix"\n'
+            "docker exec -i \"$app_container\" bash -s <<'MATRIX'"
+        ),
     }
     for old, new in stage_replacements.items():
         script = replace_once(script, old, new.rstrip(), f"stage anchor {old!r}")
+
+    mariadb_run_old = '''docker run -d \\
+  --name "$mariadb_container" \\
+  --network "$network" \\
+  --network-alias mariadb \\
+  -e MARIADB_ROOT_PASSWORD=acceptance-ci-root-not-a-secret \\
+  -e MARIADB_ROOT_HOST=% \\
+  mariadb:11.8 >/dev/null'''
+    mariadb_run_new = '''docker run -d \\
+  --name "$mariadb_container" \\
+  --network "$network" \\
+  --network-alias mariadb \\
+  --tmpfs /var/lib/mysql:rw,size=1g \\
+  -e MARIADB_ROOT_PASSWORD=acceptance-ci-root-not-a-secret \\
+  -e MARIADB_ROOT_HOST=% \\
+  mariadb:11.8 >/dev/null'''
+    script = replace_once(
+        script,
+        mariadb_run_old,
+        mariadb_run_new,
+        "MariaDB isolated tmpfs",
+    )
 
     bootstrap_old = (
         'docker exec "$app_container" bash '
         "scripts/acceptance/bootstrap-production-like.sh"
     )
-    bootstrap_new = '''echo "::notice::ISSUE365_STAGE=dependency-readiness"
-if ! docker exec -i "$app_container" bash -s <<'READINESS'
-set -euo pipefail
+    bootstrap_new = r'''echo "::notice::ISSUE365_STAGE=dependency-readiness"
 stable=0
-for attempt in $(seq 1 90); do
-  db_ok=0
-  redis_ok=0
-  if mariadb \\
-      --protocol=TCP \\
-      --connect-timeout=5 \\
-      -h127.0.0.1 \\
-      -P3306 \\
-      -uroot \\
-      -p"$MARIADB_ROOT_PASSWORD" \\
-      -Nse 'SELECT 1' 2>/dev/null | grep -qx 1; then
-    db_ok=1
+for attempt in $(seq 1 450); do
+  db_direct=0
+  db_via_app=0
+  redis_direct=0
+  redis_via_app=0
+
+  if docker exec "$mariadb_container" \
+      mariadb-admin \
+      -uroot \
+      -pacceptance-ci-root-not-a-secret \
+      ping \
+      --silent >/dev/null 2>&1; then
+    db_direct=1
   fi
-  if [[ "$(redis-cli -h 127.0.0.1 -p 6379 ping 2>/dev/null || true)" == "PONG" ]]; then
-    redis_ok=1
+
+  if docker exec "$app_container" bash -lc \
+      'mariadb --protocol=TCP --connect-timeout=5 -h127.0.0.1 -P3306 -uroot -p"$MARIADB_ROOT_PASSWORD" -Nse "SELECT 1"' \
+      2>/dev/null | grep -qx 1; then
+    db_via_app=1
   fi
-  if [[ "$db_ok" -eq 1 && "$redis_ok" -eq 1 ]]; then
+
+  if docker exec "$redis_container" redis-cli ping 2>/dev/null | grep -qx PONG; then
+    redis_direct=1
+  fi
+
+  if docker exec "$app_container" redis-cli -h 127.0.0.1 -p 6379 ping \
+      2>/dev/null | grep -qx PONG; then
+    redis_via_app=1
+  fi
+
+  if [[ "$db_direct" -eq 1 \
+      && "$db_via_app" -eq 1 \
+      && "$redis_direct" -eq 1 \
+      && "$redis_via_app" -eq 1 ]]; then
     stable=$((stable + 1))
     if [[ "$stable" -ge 3 ]]; then
-      exit 0
+      break
     fi
   else
     stable=0
   fi
+
+  for dependency in "$mariadb_container" "$redis_container" "$app_container"; do
+    if [[ "$(docker inspect -f '{{.State.Running}}' "$dependency" 2>/dev/null || true)" != "true" ]]; then
+      echo "Dependency container stopped: $dependency" >&2
+      docker inspect "$dependency" || true
+      docker logs "$dependency" || true
+      exit 1
+    fi
+  done
+
+  if (( attempt % 30 == 0 )); then
+    echo "Dependency readiness attempt ${attempt}/450: db_direct=${db_direct}, db_via_app=${db_via_app}, redis_direct=${redis_direct}, redis_via_app=${redis_via_app}"
+    docker logs --tail 40 "$mariadb_container" || true
+  fi
+
   sleep 2
 done
-echo "MariaDB/Redis readiness did not stabilize." >&2
-exit 1
-READINESS
-then
-  echo "Dependency readiness failed; collecting isolated container diagnostics." >&2
+
+if [[ "$stable" -lt 3 ]]; then
+  echo "MariaDB/Redis readiness did not stabilize." >&2
   docker inspect "$mariadb_container" "$redis_container" "$app_container" || true
   docker logs "$mariadb_container" || true
   docker logs "$redis_container" || true
