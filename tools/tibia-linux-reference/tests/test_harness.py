@@ -5,6 +5,7 @@ import os
 import stat
 import tempfile
 import unittest
+import uuid
 from pathlib import Path
 from unittest import mock
 
@@ -65,6 +66,35 @@ class SecurityTests(unittest.TestCase):
             )
         self.assertFalse(result.passed)
         self.assertIn("evidence-or-artifacts", result.categories)
+
+    def test_high_confidence_new_evidence_is_rejected_without_baseline_false_positive(self) -> None:
+        token = "gho_" + ("b" * 26)
+        with tempfile.TemporaryDirectory() as directory:
+            evidence = Path(directory)
+            clean = scan_prohibited_locations(
+                repo_root=REPO,
+                evidence_root=evidence,
+                temporary_root=None,
+                secrets=["unique-synthetic-run-value-" + uuid.uuid4().hex],
+                process_arguments=b"safe",
+                retained_environment_report=b"safe",
+                stdout=b"safe",
+                stderr=b"safe",
+            )
+            self.assertTrue(clean.passed)
+            (evidence / "new.log").write_text(token, encoding="utf-8")
+            rejected = scan_prohibited_locations(
+                repo_root=REPO,
+                evidence_root=evidence,
+                temporary_root=None,
+                secrets=[],
+                process_arguments=b"safe",
+                retained_environment_report=b"safe",
+                stdout=b"safe",
+                stderr=b"safe",
+            )
+        self.assertFalse(rejected.passed)
+        self.assertIn("evidence-or-artifacts", rejected.categories)
 
 
 class IdentityTests(unittest.TestCase):

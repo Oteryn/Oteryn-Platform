@@ -143,18 +143,32 @@ def scan_prohibited_locations(
     categories: set[str] = set()
     files_scanned = 0
 
-    def inspect(category: str, data: bytes) -> None:
-        if exact_secret_hits(data, secrets) or high_confidence_secret_present(data):
+    def inspect(category: str, data: bytes, *, generic: bool = True) -> None:
+        if exact_secret_hits(data, secrets) or (generic and high_confidence_secret_present(data)):
             categories.add(category)
 
     inspect("git-diff", git_bytes(repo_root, "diff", "--binary"))
+    inspect("git-diff", git_bytes(repo_root, "diff", "--cached", "--binary"))
+    base_check = subprocess.run(
+        ["git", "-C", str(repo_root), "rev-parse", "--verify", "origin/main"],
+        check=False,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    if base_check.returncode == 0:
+        inspect("git-diff", git_bytes(repo_root, "diff", "--binary", "origin/main...HEAD"))
+    else:
+        categories.add("git-base-unavailable")
     tracked = git_bytes(repo_root, "ls-files", "-z").split(b"\0")
     for relative in tracked:
         if not relative:
             continue
         candidate = repo_root / os.fsdecode(relative)
         if candidate.is_file():
-            inspect("tracked-files", candidate.read_bytes())
+            # The repository contains pre-existing synthetic credential fixtures. Exact run values
+            # must be absent everywhere; generic token patterns are fail-closed for the current
+            # branch diff and retained outputs without reclassifying unchanged baseline fixtures.
+            inspect("tracked-files", candidate.read_bytes(), generic=False)
             files_scanned += 1
 
     for root, category in ((evidence_root, "evidence-or-artifacts"), (temporary_root, "temporary-files")):

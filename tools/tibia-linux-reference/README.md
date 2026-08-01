@@ -31,6 +31,7 @@ process arguments, screenshots or packet captures.
 - unprivileged user/network namespaces, or passwordless `sudo` limited to creating a network
   namespace and dropping back to the calling UID/GID;
 - a mode `0700` evidence directory outside the checkout;
+- a local `origin/main` ref so the scanner can inspect the complete Git-visible branch diff;
 - for official mode, an encrypted filesystem detectable as a crypt-backed device mapper or an
   encrypted filesystem type.
 

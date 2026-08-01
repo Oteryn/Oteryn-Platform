@@ -84,6 +84,10 @@ arguments, local private paths, screenshots or captures.
   encryption is not proven.
 - Identity verification with the intentionally incomplete template: expected fail-closed
   `HarnessError`; no client execution occurred.
+- The first post-commit component attempt failed because generic token scanning included three
+  unchanged repository fixtures. A filename-only diagnostic proved no run value leaked. The repair
+  keeps exact-value scans across every tracked file and applies generic token detection to the full
+  branch diff and new retained outputs; a focused regression test passes.
 
 ### Heavy/exact-head validation
 
