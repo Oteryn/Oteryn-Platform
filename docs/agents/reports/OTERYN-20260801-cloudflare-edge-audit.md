@@ -5,120 +5,94 @@ Tunnel/DNS apply: run `30700054602`
 Protected edge-audit implementation: PR `#406`, merge `5ea883c26dead9d58d363df1fb7909e3c399e206`  
 Protected token-capability implementation: PR `#411`, merge `63771e2565dd0d691c8229d97090c0d0fcceb9c3`
 
-## Status
+## Current status
 
 ```text
 CLOUDFLARE_INTEGRATION_AVAILABLE: true
 TUNNEL_DNS_CONVERGED: true
-REMAINING_EDGE_API_READABLE: false
+ACCESS_APPLICATIONS_API_READABLE: true
+CERTIFICATE_API_READABLE: false
+RULESETS_API_READABLE: false
+BOT_MANAGEMENT_API_READABLE: false
+ZONE_SETTINGS_API_READABLE: false
 TOKEN_SELF_MANAGEMENT_AVAILABLE: false
 PUBLIC_DOMAIN_LAUNCH_READY: false
 PRODUCTION_PROVEN: false
 ```
 
-The existing Cloudflare integration is functional and already reconciled the two canonical Tunnel ingress entries. Both canonical proxied DNS records were current. The remaining blocker is not missing integration access; it is the permission boundary of the protected account-owned token.
+The protected token was rechecked after an external permission change. The change was only partially successful: Cloudflare Access applications are now readable, but all other API families required to diagnose the public failures remain permission-denied.
 
-## Live remaining-edge audit
+## Partial-scope recheck
 
-Trusted-main GET-only audit:
-
-```text
-workflow_run: 30702383389
-job: 91375538793
-trusted_sha: 5ea883c26dead9d58d363df1fb7909e3c399e206
-artifact: 8819238641
-artifact_digest: sha256:fce53d0651b496e42e56654bfdcad491afe2e01e80fea79e7e5b8630e38215ae
-observation_time_utc: 2026-08-01T13:46:29.646815+00:00
-mutation: none
-```
-
-The token authenticated successfully, but Cloudflare returned `permission_denied` for every API family required to inspect the remaining public failures:
-
-- certificate packs and exact coverage for `login.oteryn.molehill.cloud`;
-- zone Rulesets;
-- Bot Management;
-- Access applications;
-- `always_use_https`;
-- `min_tls_version`;
-- `security_level`;
-- `browser_check`;
-- `security_header` / HSTS.
-
-Therefore the audit could not identify the certificate product, challenge owner, redirect rule, HSTS owner or exact policy IDs.
-
-## Live account-token capability audit
-
-Trusted-main GET-only capability audit:
+Marker PR `#418` was closed without merge after evidence review.
 
 ```text
-workflow_run: 30702827344
-job: 91376706288
-trusted_sha: 63771e2565dd0d691c8229d97090c0d0fcceb9c3
-artifact: 8819368872
-artifact_digest: sha256:36797349c8b0b0250bfeea88cd92c77b730d7efb7c62b4137223ef8b938ec329
-observation_time_utc: 2026-08-01T13:59:14.398267+00:00
+workflow_run: 30704310678
+job: 91380665868
+trusted_sha: 064643e01e56607739425f6936d24497cc450821
+edge_observed_at_utc: 2026-08-01T14:42:02.055194+00:00
+token_observed_at_utc: 2026-08-01T14:42:03.531877+00:00
+artifact: 8819823874
+artifact_digest: sha256:1b6ec2a8314b620737fc6e428db31b169c0289d23de7418b986b3078cbef2b52
 mutation: none
 ```
 
 Direct result:
 
-```text
-self_details: permission_denied
-permission_group_catalog: permission_denied
-Account API Tokens Read proven: false
-Account API Tokens Write proven: false
-```
+- Access applications: `readable`;
+- certificate packs: `permission_denied`;
+- zone Rulesets: `permission_denied`;
+- Bot Management: `permission_denied`;
+- `always_use_https`: `permission_denied`;
+- `min_tls_version`: `permission_denied`;
+- `security_level`: `permission_denied`;
+- `browser_check`: `permission_denied`;
+- `security_header` / HSTS: `permission_denied`;
+- token self-details: `permission_denied`;
+- permission-group catalog: `permission_denied`.
 
-The current credential cannot read its own policies or the account permission-group catalog. It therefore cannot safely inspect, update or replace its own permission policy through the existing automation.
+The token therefore has usable Access read capability but still cannot inspect certificate coverage, WAF/Rulesets, Bot controls, redirect/TLS settings or HSTS. It also cannot inspect or expand its own policy.
 
-## Exact external prerequisite
+## Earlier live evidence
 
-An account administrator must rotate or replace the `production-cloudflare` environment secret `CLOUDFLARE_API_TOKEN`. Do not paste the token into chat, repository files, issue comments or workflow inputs.
+The first trusted-main remaining-edge audit used run `30702383389`, job `91375538793`, artifact `8819238641`, digest `sha256:fce53d0651b496e42e56654bfdcad491afe2e01e80fea79e7e5b8630e38215ae`. At that time every remaining edge family, including Access, was permission-denied.
 
-The replacement token should initially receive only the read permissions needed to complete the existing audit:
+The account-token capability audit used run `30702827344`, job `91376706288`, artifact `8819368872`, digest `sha256:36797349c8b0b0250bfeea88cd92c77b730d7efb7c62b4137223ef8b938ec329`. It proved that the token cannot read its own policies or the account permission-group catalog.
 
-- zone SSL/certificate read access;
-- zone settings read access;
-- read access for the Rulesets products used by the zone, including redirects, configuration/transform rules and WAF as applicable;
-- Bot Management read access;
-- Access applications and policies read access.
+## Remaining least-privilege prerequisite
 
-`Account API Tokens Write` is not required for the edge audit and should not be added merely to let an operational token self-elevate. Token administration should remain an external administrator action.
+An authorized Cloudflare administrator must edit or replace the protected GitHub environment secret `CLOUDFLARE_API_TOKEN`. Do not paste the token into chat, repository files, issue comments or workflow inputs.
 
-After the read audit succeeds, add only the corresponding write permissions for the exact products and resources proven to require repair. Do not grant broad account-wide write access in advance.
+Access read capability is already proven and does not need to be added again. The remaining token should receive only the read permissions needed for:
 
-## Automatic continuation after token replacement
+- SSL and certificate packs for the configured zone;
+- Zone Settings;
+- Rulesets products used by the zone, including WAF, redirects, transforms and configuration rules as applicable;
+- Bot Management.
 
-No repository change is required to resume. The existing trusted-main workflow can be retriggered through a marker-only pull request that modifies only:
+`Account API Tokens Write` is not required for the edge audit. Do not add broad write permissions before a permission-complete read-only audit identifies the exact resources requiring repair.
+
+## Continuation
+
+After the protected secret is corrected, rerun exactly one marker-only trusted-main audit by changing only:
 
 ```text
 ops/triggers/cloudflare-edge-audit.md
 ```
 
-Required sequence:
+Then:
 
-1. replace the protected environment token;
-2. rerun the GET-only remaining-edge audit;
-3. capture exact certificate, Ruleset, Bot, Access, redirect and HSTS state;
-4. design the smallest fixed-scope apply automation;
-5. run deterministic mock and exact-head validation;
-6. perform an explicitly confirmed live apply;
-7. rerun public TLS/HTTP acceptance;
-8. execute controlled redacted password-recovery delivery only after WWW public access is usable.
+1. capture exact certificate, Ruleset, Bot, redirect and HSTS state;
+2. design the smallest fixed-scope apply automation;
+3. run deterministic mock and exact-head validation;
+4. execute an explicitly confirmed bounded apply;
+5. repeat public TLS/HTTP acceptance;
+6. execute controlled redacted password-recovery delivery only after WWW public access works.
 
 ## Current public state
 
-Tunnel/DNS convergence did not repair the separately controlled edge policies. Public revalidation after apply still proved:
+No edge mutation occurred during the recheck. The latest direct public evidence therefore remains the previously proven failure state: Gateway TLS failed before HTTP, representative WWW routes returned Cloudflare `403`, plain HTTP did not redirect to HTTPS and WWW HSTS used `max-age=0`. A fresh public acceptance run is required after an actual edge configuration change.
 
-- Gateway TLS fails before HTTP;
-- representative WWW routes return Cloudflare `403` interstitials;
-- plain HTTP does not redirect to HTTPS;
-- WWW HSTS remains `max-age=0`.
+## Security boundary
 
-No production application, Canary source or OTClient mutation is required to address these specific remaining findings.
-
-## Rollback and security boundary
-
-Both live audits used trusted code from `main`, marker-only trigger pull requests and GET requests only. No Cloudflare mutation occurred. The existing Tunnel/DNS apply remains independently proven and does not need rollback.
-
-The next mutation path must preserve unrelated Cloudflare configuration, record exact changed resource IDs, verify after each bounded change and restore only those exact items if public acceptance fails.
+All live audits used trusted code from `main`, marker-only trigger pull requests and GET requests only. No Cloudflare configuration, DNS, Synology runtime, application code, database, Canary source, OTClient or secret value was changed or exposed.
