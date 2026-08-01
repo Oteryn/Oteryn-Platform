@@ -134,6 +134,23 @@ echo "matrix-start" > "$RUN_ROOT/LAST_STAGE"
         "MariaDB isolated tmpfs",
     )
 
+    script = replace_once(
+        script,
+        r"Illuminate\\Contracts\\Console\\Kernel",
+        r"Illuminate\Contracts\Console\Kernel",
+        "runtime metadata Laravel kernel namespace",
+    )
+    composer_namespace = r"Composer\\InstalledVersions"
+    if script.count(composer_namespace) != 2:
+        raise SystemExit(
+            "runtime metadata Composer namespace: expected two matches, "
+            f"found {script.count(composer_namespace)}"
+        )
+    script = script.replace(
+        composer_namespace,
+        r"Composer\InstalledVersions",
+    )
+
     bootstrap_old = (
         'docker exec "$app_container" bash '
         "scripts/acceptance/bootstrap-production-like.sh"
