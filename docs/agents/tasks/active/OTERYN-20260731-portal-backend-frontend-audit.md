@@ -59,7 +59,7 @@ Audit every delivered portal capability and platform module across backend, fron
 - [x] Publish a machine-readable 13-gate module/capability crosswalk.
 - [x] Reconcile every current open Issue, pull request and active task record into a live machine-readable work graph.
 - [x] Prove whether current exact-head workflows can validate the frozen-base audit branch.
-- [ ] Execute a valid exact frozen-target clean/corrupt × immediate/pre-scroll 12-sample matrix with request/session correlation.
+- [ ] Inspect and classify the terminal artifact from the corrected exact-frozen 12-sample matrix.
 - [x] Publish consolidated reports, machine-readable matrices and validator instructions.
 
 ## Ownership
@@ -80,7 +80,7 @@ dependencies:
   - Issue #365
   - programme #451
 blockers:
-  - external completion of GitHub Actions run 30763456046
+  - terminal state and artifact inspection of GitHub Actions run 30763456046
   - external CI compatibility remediation for pre-routing-rollout pull requests
 cross_repository_tasks: []
 ```
@@ -92,15 +92,15 @@ cross_repository_tasks: []
 - Browser and framework observers must remain isolated from the frozen source and must never merge.
 - Temporary validation PRs must close without merge.
 - CI evidence does not imply staging or production deployment.
-- The active run must not be retried or replaced after entering the runtime matrix.
-- One later state check of run `30763456046` remains allowed in this invocation; do not exceed it.
+- The active matrix must not be rerun.
+- Both permitted state checks of run `30763456046` were consumed in this invocation. Do not poll it again before a later invocation.
 
 ## Context checkpoint
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-02T23:42:00+02:00
-head: 26989bd30134902e44f592e741fb9c35b8044d91
+updated_at: 2026-08-02T23:49:00+02:00
+head: 530a4c7e54187d392334b57ebd6458266b35bec0
 branch: audit/OTERYN-20260731-portal-backend-frontend-audit
 pr: 381
 status: waiting
@@ -126,23 +126,29 @@ proven:
   - PR 391 has no explicit parent Issue and no first-class module ownership in the production-completion ledger
   - Agent Governance passed on exact audit head 475013aa05a44a24d83cea09b0237147216c8d1f in run 30767823565
   - five exact-head heavy workflows stopped before product validation because current-main change-classifier files are absent from the frozen-base PR head
+  - corrected run 30763456046 reached the exact-frozen matrix with workers 1 and retries 0
+  - the matrix step in run 30763456046 completed with conclusion cancelled
+  - immutable Issue 365 artifact upload in run 30763456046 completed successfully
+  - the whole job remained non-terminal during cleanup at the second and final permitted state check
   - frozen portal product findings are 0 HIGH 7 MEDIUM and 1 LOW
   - additional live work-graph and CI findings are 0 HIGH 3 MEDIUM and 0 LOW
   - responsive-mobile flash loss remains intermittently reproduced while durable publication succeeds
   - session serialization is NOT_PROVEN_REMEDIATED and root cause remains UNKNOWN
   - old-document lazy-thumbnail race is DERIVED with LOW confidence
-  - control head 8c58035cacb9fd4675d898a1652036fc8b9d4357 uses workers 1 retries 0 and a separately checked-out frozen target
   - no application workflow deployment production issue-lifecycle or external-repository mutation occurred
 derived:
   - the Phase 7 live work graph must supplement ACTIVE_WORK and branch checkpoints for current ownership decisions
   - PR 391 requires intentional programme classification before terminal programme accounting can be fail closed
   - current exact-head heavy CI failure is workflow and branch compatibility evidence rather than portal product failure evidence
+  - successful artifact upload after a cancelled matrix step warrants terminal inspection but does not establish evidence validity
 unknown:
-  - terminal result of run 30763456046
+  - terminal conclusion of run 30763456046 and job 91537990755
+  - reason the corrected matrix step was cancelled
+  - artifact identifier digest and package completeness for run 30763456046
+  - number and type of matrix samples completed before cancellation
+  - whether request and session correlation evidence was preserved
   - exact request or framework path that removes publication status
   - exact session-lock acquisition and save order during a reproduced sample
-  - clean exact-frozen matrix result
-  - exactly-one-corrupt-row matrix result
   - causal contribution of integrity-failure responses
   - exact private-production release and availability in this audit
 conflicts:
@@ -161,11 +167,13 @@ rejected_hypotheses:
   - ACTIVE_WORK alone is authoritative for current ownership
   - every open PR already has current task and module identity
   - heavy exact-head workflow failures on audit head 475013aa are portal product regressions
+  - a cancelled matrix step or successful artifact upload alone proves product failure remediation or causal mechanism
 changed_paths:
   - docs/agents/evidence/OTERYN-20260731-portal-backend-frontend-audit/phase-7-issue-pr-coverage.json
   - docs/agents/reports/OTERYN-20260731-portal-backend-frontend-audit-phase-7-issue-pr-coverage.md
   - docs/agents/evidence/OTERYN-20260731-portal-backend-frontend-audit/index.md
   - docs/agents/evidence/OTERYN-20260731-portal-backend-frontend-audit/VALIDATOR_VERDICT.md
+  - docs/agents/evidence/OTERYN-20260731-portal-backend-frontend-audit/ISSUE_365_SYNOLOGY_EXECUTION_ATTEMPTS.md
   - docs/agents/reports/OTERYN-20260731-portal-backend-frontend-audit.md
   - docs/agents/tasks/active/OTERYN-20260731-portal-backend-frontend-audit.md
 validation:
@@ -190,18 +198,18 @@ validation:
   - command: exact-head heavy workflow set on 475013aa05a44a24d83cea09b0237147216c8d1f
     result: BLOCKED
     evidence: CI Edge DB Outage and Game Auth lacked tests/ci/test_classify_changes.py while Phase 7 lacked scripts/ci/classify_changes.py and all stopped before product validation
-  - command: current bounded run 30763456046 job 91537990755
+  - command: corrected exact-frozen run 30763456046 job 91537990755
     result: BLOCKED
-    evidence: external matrix execution remained in progress at the first state check of this invocation
+    evidence: matrix step was cancelled artifact upload succeeded and the job remained non-terminal during cleanup at the final permitted check
   - command: product workflow deployment production issue-lifecycle and external-repository mutation audit
     result: PASS
     evidence: PR 381 changes remain confined to authorized audit task report and evidence paths
 blockers:
-  - external completion of run 30763456046 with one later state check allowed in this invocation
+  - terminal artifact inspection for run 30763456046 in a later invocation because both current-invocation state checks are consumed
   - exact-head heavy validation cannot execute on the frozen-base branch until a separate agent provides backward-compatible change routing or an authorized branch integration strategy
-next_action: when run 30763456046 becomes terminal, inspect it once, verify any artifact, update Issue 365 and PR 381 evidence, close PR 476 without merge, and do not rerun the matrix
+next_action: in the next invocation inspect terminal run 30763456046 exactly once verify its artifact update Issue 365 and PR 381 evidence close PR 476 without merge and do not rerun the matrix
 ```
 
 ## Notes
 
-The audit remains `VALIDATED_WITH_CORRECTIONS`. The Phase 7 live work and CI graph is complete for the current observation. Product, coordination and CI remediation remain assigned to another agent. The immediate external dependency is the terminal result of run `30763456046`.
+The audit remains `VALIDATED_WITH_CORRECTIONS`. The live work and CI graph is complete for the current observation. Product, coordination and CI remediation remain assigned to another agent. The current invocation must stop polling because the external-run observation budget is exhausted.
