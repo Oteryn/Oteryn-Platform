@@ -45,14 +45,14 @@ RUN apt-get update \
     && pecl install redis \
     && docker-php-ext-enable redis \
     && php -r 'exit(PHP_VERSION_ID >= 80500 ? 0 : 1);' \
-    && php -r 'exit(\
-        extension_loaded("dom") \
-        && extension_loaded("gd") \
-        && extension_loaded("pdo_mysql") \
-        && extension_loaded("redis") \
-        && extension_loaded("xml") \
-        && extension_loaded("xmlwriter") \
-        ? 0 : 1\
+    && php -r 'exit(
+        extension_loaded("dom")
+        && extension_loaded("gd")
+        && extension_loaded("pdo_mysql")
+        && extension_loaded("redis")
+        && extension_loaded("xml")
+        && extension_loaded("xmlwriter")
+        ? 0 : 1
     );' \
     && node --version \
     && npm --version \
