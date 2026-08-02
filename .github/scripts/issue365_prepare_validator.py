@@ -81,6 +81,20 @@ docker exec "$app_container" bash -lc 'sha256sum "$RUN_ROOT"/runtime/*.sh > "$RU
         "generated Laravel runtime observer repair",
     )
 
+    verification_anchor = """docker exec "$app_container" bash -lc '
+  set -euo pipefail
+  test -f app/Support/Issue365Trace.php"""
+    verification_replacement = """docker exec "$app_container" bash -lc '
+  set -euo pipefail
+  START_SESSION=vendor/laravel/framework/src/Illuminate/Session/Middleware/StartSession.php
+  test -f app/Support/Issue365Trace.php"""
+    generated = replace_once(
+        generated,
+        verification_anchor,
+        verification_replacement,
+        "post-install StartSession scope repair",
+    )
+
     args.target.write_text(generated, encoding="utf-8")
     args.target.chmod(0o700)
 
