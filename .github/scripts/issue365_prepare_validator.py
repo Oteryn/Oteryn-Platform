@@ -32,6 +32,19 @@ def replace_once(text: str, old: str, new: str, label: str) -> str:
     return text.replace(old, new, 1)
 
 
+def replace_one_variant(
+    text: str,
+    variants: tuple[tuple[str, str], ...],
+    label: str,
+) -> str:
+    matches = [(old, new) for old, new in variants if text.count(old) == 1]
+    if len(matches) != 1:
+        counts = {old: text.count(old) for old, _ in variants}
+        raise SystemExit(f"{label}: expected one unique variant, found {counts}")
+    old, new = matches[0]
+    return text.replace(old, new, 1)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("source", type=Path)
@@ -93,6 +106,36 @@ docker exec "$app_container" bash -lc 'sha256sum "$RUN_ROOT"/runtime/*.sh > "$RU
         verification_anchor,
         verification_replacement,
         "post-install StartSession scope repair",
+    )
+
+    generated = replace_once(
+        generated,
+        "npx playwright test \\",
+        "apt-get update >/dev/null && apt-get install -y --no-install-recommends php-cli php-mysql php-mbstring php-xml php-curl php-redis >/dev/null\n      command -v php\n      php -v\n      npx playwright test \\",
+        "Playwright PHP runtime repair",
+    )
+
+    generated = replace_one_variant(
+        generated,
+        (
+            (
+                "row.get('storage_exists') or not row.get('thumbnail_exists')",
+                "not row.get('storage_exists') or row.get('thumbnail_exists')",
+            ),
+            (
+                'row.get("storage_exists") or not row.get("thumbnail_exists")',
+                'not row.get("storage_exists") or row.get("thumbnail_exists")',
+            ),
+            (
+                "row['storage_exists'] or not row['thumbnail_exists']",
+                "not row['storage_exists'] or row['thumbnail_exists']",
+            ),
+            (
+                'row["storage_exists"] or not row["thumbnail_exists"]',
+                'not row["storage_exists"] or row["thumbnail_exists"]',
+            ),
+        ),
+        "one-corrupt storage invariant repair",
     )
 
     args.target.write_text(generated, encoding="utf-8")
