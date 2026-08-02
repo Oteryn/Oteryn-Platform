@@ -28,6 +28,13 @@ APPLY_CONFIRMATION = "APPLY-OTERYN-PUBLIC-EDGE-REPAIR"
 ROLLBACK_CONFIRMATION = "ROLLBACK-OTERYN-PUBLIC-EDGE-REPAIR"
 COUNTRY_FIELD = re.compile(r"\b(?:ip\.geoip\.country|ip\.src\.country)\b", re.IGNORECASE)
 COUNTRY_NEGATION = re.compile(r"\b(?:ne|not\s+in)\b", re.IGNORECASE)
+EXPECTED_CANDIDATE_ID = os.getenv(
+    "CLOUDFLARE_EXPECTED_COUNTRY_RULE_ID", "e0f91939eb494d4490d975498a9a9724"
+)
+EXPECTED_CANDIDATE_HASH = os.getenv(
+    "CLOUDFLARE_EXPECTED_COUNTRY_RULE_SHA256",
+    "3f5a9e27f91d9cfe4fb6f77ede8c1e91997ef32a91a443cd1e6b61211ff13c45",
+)
 
 
 class RepairError(RuntimeError):
@@ -42,7 +49,10 @@ def api(method: str, path: str, body: dict[str, Any] | None = None) -> dict[str,
     if not TOKEN:
         raise RepairError("CLOUDFLARE_API_TOKEN is missing")
     data = None
-    headers = {"Authorization": f"Bearer {TOKEN}", "Accept": "application/json"}
+    headers = {
+        "Authorization": f"Bearer {TOKEN}",
+        "Accept": "application/json",
+    }
     if body is not None:
         data = json.dumps(body, separators=(",", ":")).encode("utf-8")
         headers["Content-Type"] = "application/json"
@@ -56,6 +66,7 @@ def api(method: str, path: str, body: dict[str, Any] | None = None) -> dict[str,
         raw = exc.read(2_000_000)
     except Exception as exc:  # pragma: no cover - network boundary
         raise RepairError(f"Cloudflare transport error: {type(exc).__name__}") from exc
+
     if not raw and 200 <= status < 300:
         return {"success": True, "result": None, "status": status}
     try:
@@ -104,7 +115,11 @@ def is_broad_country_block(rule: dict[str, Any]) -> bool:
 
 
 def repair_rules(ruleset: dict[str, Any]) -> list[dict[str, Any]]:
-    return [item for item in ruleset.get("rules", []) if isinstance(item, dict) and item.get("ref") == RULE_REF]
+    return [
+        item
+        for item in ruleset.get("rules", [])
+        if isinstance(item, dict) and item.get("ref") == RULE_REF
+    ]
 
 
 def candidate_rules(ruleset: dict[str, Any]) -> list[dict[str, Any]]:
@@ -155,10 +170,17 @@ def inspect_state() -> dict[str, Any]:
         repair_state = "current" if exact else "drift"
         repair_hash = sha256(str(repairs[0].get("expression", "")))
         if len(candidates) == 1:
-            before_candidate = rule_index(ruleset, str(repairs[0].get("id", ""))) < rule_index(ruleset, str(candidates[0].get("id", "")))
+            before_candidate = rule_index(ruleset, str(repairs[0].get("id", ""))) < rule_index(
+                ruleset, str(candidates[0].get("id", ""))
+            )
             if repair_state == "current" and not before_candidate:
                 repair_state = "wrong_order"
-    desired = len(candidates) == 1 and repair_state == "current" and before_candidate and bot.get("fight_mode") is False
+    desired = (
+        len(candidates) == 1
+        and repair_state == "current"
+        and before_candidate
+        and bot.get("fight_mode") is False
+    )
     return {
         "ruleset": ruleset,
         "bot": bot,
@@ -176,6 +198,11 @@ def inspect_state() -> dict[str, Any]:
 def require_unambiguous(state: dict[str, Any], *, allow_absent: bool) -> None:
     if len(state["candidates"]) != 1:
         raise RepairError(f"expected exactly one broad country block candidate; found {len(state['candidates'])}")
+    candidate = state["candidates"][0]
+    if candidate.get("id") != EXPECTED_CANDIDATE_ID:
+        raise RepairError("broad country block candidate ID does not match the audited rule")
+    if state.get("candidate_expression_hashes") != [EXPECTED_CANDIDATE_HASH]:
+        raise RepairError("broad country block expression hash does not match the audited rule")
     if len(state["repairs"]) > 1:
         raise RepairError("multiple Oteryn repair rules exist")
     if not allow_absent and len(state["repairs"]) != 1:
@@ -253,6 +280,7 @@ def apply() -> tuple[dict[str, Any], list[str]]:
     require_unambiguous(state, allow_absent=True)
     if state["desired_state"]:
         return state, []
+
     baseline = bool(state["bot"].get("fight_mode"))
     created_rule = False
     bot_changed = False
@@ -343,7 +371,17 @@ def emit(evidence: dict[str, Any]) -> None:
         "No token, rule expression, country literal or raw API response is emitted.",
     ]
     (OUT / "summary.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
-    for key in ("operation_status", "mode", "candidate_count", "repair_rule_count", "repair_state", "repair_before_candidate", "bot_fight_mode", "desired_state", "mutation"):
+    for key in (
+        "operation_status",
+        "mode",
+        "candidate_count",
+        "repair_rule_count",
+        "repair_state",
+        "repair_before_candidate",
+        "bot_fight_mode",
+        "desired_state",
+        "mutation",
+    ):
         value = evidence.get(key)
         if isinstance(value, bool):
             value = "true" if value else "false"
@@ -355,6 +393,10 @@ def main() -> None:
         raise SystemExit("usage: cloudflare-oteryn-public-edge-repair.py audit|apply|rollback")
     if not re.fullmatch(r"[0-9a-fA-F]{32}", ZONE):
         raise SystemExit("ERROR: invalid CLOUDFLARE_ZONE_ID")
+    if not re.fullmatch(r"[0-9a-fA-F]{32}", EXPECTED_CANDIDATE_ID):
+        raise SystemExit("ERROR: invalid expected country rule ID")
+    if not re.fullmatch(r"[0-9a-fA-F]{64}", EXPECTED_CANDIDATE_HASH):
+        raise SystemExit("ERROR: invalid expected country rule SHA-256")
     mode = sys.argv[1]
     try:
         verify_token()
