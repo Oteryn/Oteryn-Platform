@@ -60,6 +60,7 @@ jobs:
           git diff --check
           python - <<'PY'
           import subprocess
+          from pathlib import Path
 
           changed = set(subprocess.check_output(
               ['git', 'diff', '--name-only'], text=True
@@ -68,27 +69,13 @@ jobs:
               '.env.example',
               'app/Operations/ProductionConfigurationVerifier.php',
               'app/Providers/AppServiceProvider.php',
-              'config/payments.php',
-              'database/migrations/2026_08_02_124700_create_payment_event_core_tables.php',
               'docs/agents/tasks/active/OTERYN-20260802-payment-event-core.md',
               'docs/architecture/DATA_OWNERSHIP.md',
               'docs/architecture/MODULE_CATALOG.md',
-              'docs/architecture/adr/0021-provider-neutral-payment-security-core.md',
-              'docs/operations/PAYMENTS_SECURITY_FOUNDATION.md',
               'scripts/payments/apply_payment_event_core.py',
+              'tests/Feature/Operations/ProductionConfigurationVerifierTest.php',
           }
-          allowed_prefixes = (
-              'app/Payments/',
-              'tests/Unit/Payments/',
-              'tests/Feature/Payments/',
-              'docs/agents/evidence/OTERYN-20260802-payment-event-core/',
-          )
-          unexpected = sorted(
-              path for path in changed
-              if path not in allowed_exact
-              and not path.startswith(allowed_prefixes)
-              and path != 'tests/Feature/Operations/ProductionConfigurationVerifierTest.php'
-          )
+          unexpected = sorted(path for path in changed if path not in allowed_exact)
           if unexpected:
               raise SystemExit(f'unexpected generated paths: {unexpected}')
           required = {
@@ -96,10 +83,11 @@ jobs:
               'app/Payments/Infrastructure/DeterministicTestPaymentProvider.php',
               'tests/Feature/Payments/PaymentEventCoreTest.php',
               'database/migrations/2026_08_02_124700_create_payment_event_core_tables.php',
+              'docs/architecture/adr/0021-provider-neutral-payment-security-core.md',
           }
-          missing = sorted(required - changed)
+          missing = sorted(path for path in required if not Path(path).is_file())
           if missing:
-              raise SystemExit(f'missing required generated paths: {missing}')
+              raise SystemExit(f'missing required staged paths: {missing}')
           PY
           find app/Payments config/payments.php \
             database/migrations/2026_08_02_124700_create_payment_event_core_tables.php \
