@@ -9,6 +9,7 @@ on:
       - 'deploy/ci/playwright-php.Dockerfile'
       - 'scripts/acceptance/run-playwright-ci.sh'
       - 'scripts/acceptance/package.json'
+      - 'scripts/acceptance/package-lock.json'
       - 'scripts/acceptance/tests/helpers.mjs'
       - 'composer.json'
       - 'composer.lock'
@@ -20,6 +21,7 @@ on:
       - 'deploy/ci/playwright-php.Dockerfile'
       - 'scripts/acceptance/run-playwright-ci.sh'
       - 'scripts/acceptance/package.json'
+      - 'scripts/acceptance/package-lock.json'
       - 'scripts/acceptance/tests/helpers.mjs'
       - 'composer.json'
       - 'composer.lock'
@@ -47,8 +49,17 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Prepare evidence directory
-        run: mkdir -p artifacts/playwright-runtime
+      - name: Prepare exact Laravel checkout and evidence directory
+        run: |
+          set -euo pipefail
+          cp .env.example .env
+          mkdir -p \
+            artifacts/playwright-runtime \
+            bootstrap/cache \
+            storage/framework/cache/data \
+            storage/framework/sessions \
+            storage/framework/views
+          touch database/database.sqlite
 
       - name: Build retained Playwright PHP runtime
         run: |
@@ -85,6 +96,18 @@ jobs:
             --entrypoint bash \
             "$IMAGE_TAG" \
             -lc 'composer install --no-interaction --prefer-dist --no-progress'
+
+      - name: Generate application key through runtime
+        run: |
+          set -euo pipefail
+          docker run --rm \
+            --user "$(id -u):$(id -g)" \
+            --env HOME=/tmp \
+            --volume "$PWD:/workspace" \
+            --workdir /workspace \
+            --entrypoint bash \
+            "$IMAGE_TAG" \
+            -lc 'php artisan key:generate --force --no-interaction'
 
       - name: Verify PHP Composer Node and Playwright contract
         run: |
@@ -124,6 +147,7 @@ jobs:
               deploy/ci/playwright-php.Dockerfile \
               scripts/acceptance/run-playwright-ci.sh \
               scripts/acceptance/package.json \
+              scripts/acceptance/package-lock.json \
               composer.json \
               composer.lock
           } > artifacts/playwright-runtime/source-identities.txt
