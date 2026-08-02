@@ -21,7 +21,8 @@ Synchronize the shared autonomous-agent governance contract across the five repo
 - [x] The next-task budget no longer contradicts autonomous continuation.
 - [x] Exact-head, temporary-workflow, independent-audit and authority-freeze rules are deterministic.
 - [x] Checkpoint validation accepts waiting/completed and NOT_APPLICABLE.
-- [ ] Exact-head Agent Governance validation passes.
+- [x] All six Oteryn validation workflows passed on verified head `5f7ea882a4f248a1bbd5aec8f3b07c685dbf8462`.
+- [ ] Coordinated Canary dependency is terminal and this PR is revalidated on its final metadata head.
 
 ## Ownership
 
@@ -42,7 +43,7 @@ modules:
 dependencies:
   - coordinated changes in canary, otclient, Otheryn and freqtrade
 blockers:
-  - none
+  - Canary PR 1063 after lifecycle isolation PR 1064
 cross_repository_tasks:
   - CAN-20260802-agent-governance-sync
   - OTC-20260802-agent-governance-sync
@@ -54,11 +55,11 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-02T13:08:00Z
-head: 9f0ba6b8a7695633f1ea01affe0ab73d593346ea
+updated_at: 2026-08-02T13:53:00Z
+head: 5f7ea882a4f248a1bbd5aec8f3b07c685dbf8462
 branch: docs/OTERYN-20260802-agent-governance-sync
 pr: 472
-status: validating
+status: waiting
 context_routes:
   - agent-governance
 owned_paths:
@@ -73,18 +74,26 @@ owned_paths:
   - docs/agents/tasks/TASK_TEMPLATE.md
   - tools/agents/test_checkpoint.py
 proven:
-  - The shared documents now separate checkpoint task status from terminal invocation result.
+  - The shared documents separate checkpoint task status from terminal invocation result.
   - The anti-stall contract permits at most one additional task after the terminal entry task.
   - Checkpoint tests cover waiting, completed and NOT_APPLICABLE.
+  - Edge Security Emulation run 30749637041 passed on the verified head.
+  - CI run 30749637062 passed on the verified head.
+  - Phase 7 Validation run 30749637040 passed on the verified head.
+  - DB Outage Chaos Drill run 30749637053 passed on the verified head.
+  - Agent Governance run 30749637045 passed on the verified head.
+  - Game Auth Concurrency Security run 30749637042 passed on the verified head.
+  - PR 472 has zero unresolved review threads and changes only governance, checkpoint tests and task-record paths.
 derived:
   - The original contradictions are repaired by a backward-compatible additive policy revision.
 unknown:
-  - Exact-head Agent Governance workflow result for PR 472.
+  - Exact-head workflow conclusions after this durable checkpoint update.
 conflicts: []
 first_failure:
-  marker: none
-  evidence: none
-rejected_hypotheses: []
+  marker: coordinated Canary dependency
+  evidence: Canary PR 1063 is blocked until lifecycle isolation PR 1064 completes through normal branch protection
+rejected_hypotheses:
+  - Application, database or production E2E is required; this PR changes governance and checkpoint tests only.
 changed_paths:
   - AGENTS.override.md
   - docs/agents/AGENTS.md
@@ -98,12 +107,15 @@ changed_paths:
   - docs/agents/tasks/active/OTERYN-20260802-agent-governance-sync.md
   - tools/agents/test_checkpoint.py
 validation:
-  - command: python tools/agents/test_checkpoint.py
-    result: NOT_RUN
-    evidence: exact-head workflow execution pending on draft PR 472
+  - command: exact-head GitHub Actions suite
+    result: PASS
+    evidence: six successful runs on head 5f7ea882a4f248a1bbd5aec8f3b07c685dbf8462
+  - command: review-thread audit
+    result: PASS
+    evidence: zero unresolved threads on PR 472
 blockers:
-  - none
-next_action: inspect exact-head workflow results for PR 472 and repair any governance failure
+  - Canary PR 1063 must complete after lifecycle isolation PR 1064.
+next_action: after Canary PR 1063 is terminal, verify all required workflows on the current PR 472 head and merge through normal protections
 ```
 
 ## Notes
