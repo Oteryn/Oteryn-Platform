@@ -1,6 +1,0 @@
-IN_PROGRESS
-open_prs_after_cleanup=6
-closed_prs_this_invocation=6
-confirmed_unfiltered_heavy_pr_workflows=5
-confirmed_path_scoped_reference_workflows=4
-next_action=open draft audit PR and observe governance/docs validation once
