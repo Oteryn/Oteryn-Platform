@@ -130,7 +130,7 @@ repair_cycles_for_current_gate: 0
 context_reconstruction_attempts: 1
 stall_warnings: 0
 heavy_validation_runs_completed: 10
-current_audit_head: 983e1ec5d5a037c35243b3d07cfb15ccc9fb09c9
+checkpoint_parent_head: 77c8deb52beb2ea6babf16b27f8495d33e32a7b2
 current_control_head: 8c58035cacb9fd4675d898a1652036fc8b9d4357
 current_run: 30763456046
 current_job: 91537990755
@@ -191,7 +191,7 @@ validation:
     result: PASS
     evidence: verified digest and exact one-corrupt fixture state
   - command: delivery-completeness policy-v2 crosswalk
-    result: PASS_WITH_FINDING
+    result: PASS
     evidence: all 18 programme modules and 43 legacy capability IDs reconciled; P6-001 opened
   - command: current bounded run 30763456046 job 91537990755
     result: WAITING
