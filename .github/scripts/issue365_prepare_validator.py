@@ -108,10 +108,23 @@ docker exec "$app_container" bash -lc 'sha256sum "$RUN_ROOT"/runtime/*.sh > "$RU
         "post-install StartSession scope repair",
     )
 
+    playwright_command = (
+        "bash -lc 'npx playwright test "
+        "tests/admin-wiki-issue365-probe.spec.mjs "
+        "--project=responsive-mobile --workers=1 --retries=0 --reporter=line'"
+    )
+    playwright_with_php = (
+        "bash -lc 'apt-get update >/dev/null && "
+        "DEBIAN_FRONTEND=noninteractive apt-get install -y "
+        "--no-install-recommends php-cli php-mysql php-mbstring php-xml "
+        "php-curl php-redis >/dev/null && command -v php && php -v && "
+        "npx playwright test tests/admin-wiki-issue365-probe.spec.mjs "
+        "--project=responsive-mobile --workers=1 --retries=0 --reporter=line'"
+    )
     generated = replace_once(
         generated,
-        "npx playwright test \\",
-        "apt-get update >/dev/null && apt-get install -y --no-install-recommends php-cli php-mysql php-mbstring php-xml php-curl php-redis >/dev/null\n      command -v php\n      php -v\n      npx playwright test \\",
+        playwright_command,
+        playwright_with_php,
         "Playwright PHP runtime repair",
     )
 
