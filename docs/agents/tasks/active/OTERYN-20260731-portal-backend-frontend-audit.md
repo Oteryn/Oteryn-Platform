@@ -26,12 +26,14 @@ required_reads:
   - docs/agents/evidence/OTERYN-20260731-portal-backend-frontend-audit/index.md
   - docs/agents/evidence/OTERYN-20260731-portal-backend-frontend-audit/VALIDATOR_VERDICT.md
   - docs/agents/evidence/OTERYN-20260731-portal-backend-frontend-audit/phase-6-delivery-completeness-crosswalk.json
+  - docs/agents/evidence/OTERYN-20260731-portal-backend-frontend-audit/phase-7-issue-pr-coverage.json
   - docs/agents/evidence/OTERYN-20260731-portal-backend-frontend-audit/ISSUE_365_EXACT_FROZEN_EXECUTION_RUNBOOK.md
   - docs/agents/evidence/OTERYN-20260731-portal-backend-frontend-audit/ISSUE_365_SYNOLOGY_EXECUTION_ATTEMPTS.md
 search_first:
   - live task checkpoint branch exact head PR and CI
+  - all current open Issues and pull requests before relying on ACTIVE_WORK
   - Issue #326 Issue #365 and programme #451
-  - policy-v2 crosswalk before historical phase-2 wording
+  - policy-v2 and live-work-graph evidence before historical wording
   - corrected Issue #365 mechanism evidence before historical comments
 ---
 
@@ -39,7 +41,7 @@ search_first:
 
 ## Goal
 
-Audit every delivered portal capability and platform module across backend, frontend, integration, observable states, validation evidence and deployment boundaries. Apply the current delivery-completeness standard without implementing product findings, merging temporary validator infrastructure or deploying.
+Audit every delivered portal capability and platform module across backend, frontend, integration, observable states, validation evidence, current work ownership and deployment boundaries. Apply the current delivery-completeness standard without implementing product findings, merging temporary validator infrastructure or deploying.
 
 ## Acceptance criteria
 
@@ -55,6 +57,7 @@ Audit every delivered portal capability and platform module across backend, fron
 - [x] Correct the stale Phase 2 `UNKNOWN_NOT_EXECUTED` validator statement.
 - [x] Reconcile the 43 legacy capability records with all 18 programme modules under policy v2.
 - [x] Publish a machine-readable 13-gate module/capability crosswalk.
+- [x] Reconcile every current open Issue, pull request and active task record into a live machine-readable work graph.
 - [ ] Execute a valid exact frozen-target clean/corrupt × immediate/pre-scroll 12-sample matrix with request/session correlation.
 - [x] Publish consolidated reports, machine-readable matrices and validator instructions.
 
@@ -68,6 +71,7 @@ owned_paths:
 modules:
   - portal completeness audit
   - delivery-completeness policy-v2 reconciliation
+  - live Issue PR and task ownership reconciliation
   - audit evidence and validation
   - Wiki Issue #365 evidence
 dependencies:
@@ -82,24 +86,24 @@ cross_repository_tasks: []
 ## Constraints
 
 - Audit and documentation only. Do not modify application code, routes, views/assets, runtime or production configuration, migrations/models, dependencies, committed tests, workflows, deployment or another repository.
-- Another agent owns implementation of audit findings.
+- Another agent owns implementation and governance remediation of audit findings.
 - Browser and framework observers must remain isolated from the frozen source and must never merge.
 - Temporary validation PRs must close without merge.
 - CI evidence does not imply staging or production deployment.
 - The active run must not be retried or replaced after entering the runtime matrix.
-- No further state check of run `30763456046` is allowed in this invocation.
+- One later unchanged-state check of run `30763456046` remains allowed in this invocation; do not exceed it.
 
 ## Context checkpoint
 
 ```yaml
 checkpoint_version: 1
 policy_version: 2
-updated_at: 2026-08-02T21:40:00Z
+updated_at: 2026-08-02T23:25:00+02:00
 branch: audit/OTERYN-20260731-portal-backend-frontend-audit
 pr: 381
 status: waiting
 phase: validate
-session_id: chat-github-20260802-policy-v2-audit-continuation
+session_id: chat-github-20260802-exhaustive-work-graph-audit
 session_role: coordinator-independent-auditor
 execution_mode: github-api-and-actions
 project_lane: oteryn-platform-core
@@ -120,17 +124,18 @@ owner_scope:
     - merge
     - deploy
     - production mutation
+    - issue lifecycle mutation except terminal Issue 365 evidence synchronization
     - external repository mutation
 estimate_confidence: high
 decomposition_decision: phased
-ci_checks_for_current_head: 2
-unchanged_state_checks: 2
+ci_checks_for_current_head: 0
+unchanged_state_checks: 1
 identical_failure_retries: 0
 repair_cycles_for_current_gate: 0
 context_reconstruction_attempts: 1
 stall_warnings: 0
 heavy_validation_runs_completed: 10
-checkpoint_parent_head: 77c8deb52beb2ea6babf16b27f8495d33e32a7b2
+checkpoint_parent_head: a0ff3b1dedf3cf51257f74c4f2289dac93e50fc9
 current_control_head: 8c58035cacb9fd4675d898a1652036fc8b9d4357
 current_run: 30763456046
 current_job: 91537990755
@@ -147,7 +152,12 @@ proven:
   - strict backend frontend validator passed on exact source fdb45a4325949d3ab1c4860e3a4527553f11c789 in run 30633216358 job 91164376176 artifact 8794204786
   - policy-v2 result is 0 complete 23 repository-integrated-evidence-open 3 partial 14 missing and 3 not applicable
   - the 43-capability ledger is a benchmark subset and does not explicitly cover all 18 programme modules or all 13 delivery and closeout gates
-  - normalized open audit findings are 0 HIGH 7 MEDIUM and 1 LOW
+  - all 21 current open Issues and all 6 current open pull requests are mapped in phase-7-issue-pr-coverage.json
+  - current ACTIVE_WORK declares zero active tasks while five open PRs contain active task records and PR 476 is an active temporary validator
+  - task checkpoints for PRs 338 391 405 and 471 do not match their current live PR identity
+  - PR 391 has no explicit parent Issue and no first-class module ownership in the production-completion ledger
+  - frozen portal product findings are 0 HIGH 7 MEDIUM and 1 LOW
+  - additional live work-graph findings are 0 HIGH 2 MEDIUM and 0 LOW
   - responsive-mobile flash loss remains intermittently reproduced while durable publication succeeds
   - session serialization is NOT_PROVEN_REMEDIATED and root cause remains UNKNOWN
   - old-document lazy-thumbnail race is DERIVED with LOW confidence
@@ -157,7 +167,7 @@ proven:
   - control head 8c58035cacb9fd4675d898a1652036fc8b9d4357 installs PHP for the Playwright container and matches the exact corrupt fixture state
   - active run 30763456046 uses workers 1 retries 0 and a separately checked-out frozen target
   - active run preparation exact checkout and validator generation passed
-  - no application workflow deployment production or external-repository mutation occurred
+  - no application workflow deployment production issue-lifecycle or external-repository mutation occurred
 unknown:
   - terminal result of run 30763456046
   - exact request or framework path that removes publication status
@@ -177,6 +187,8 @@ rejected_hypotheses:
   - six technical failures satisfy the matrix gate
   - an unchanged matrix rerun is authorized
   - legacy implemented means full policy-v2 completion
+  - ACTIVE_WORK alone is authoritative for current ownership
+  - every open PR already has current task and module identity
 validation:
   - command: Portal Acceptance Contract run 30633216358 job 91164376176
     result: PASS
@@ -193,17 +205,20 @@ validation:
   - command: delivery-completeness policy-v2 crosswalk
     result: PASS
     evidence: all 18 programme modules and 43 legacy capability IDs reconciled; P6-001 opened
+  - command: live Issue PR and task reconciliation
+    result: PASS_WITH_FINDINGS
+    evidence: all 21 open Issues and 6 open PRs mapped; P7-001 and P7-002 opened
   - command: current bounded run 30763456046 job 91537990755
     result: WAITING
-    evidence: matrix remained in progress at the second and final allowed state check
-  - command: product workflow deployment production and external-repository mutation audit
+    evidence: matrix remained in progress at the first state check of this invocation
+  - command: product workflow deployment production issue-lifecycle and external-repository mutation audit
     result: PASS
     evidence: PR 381 changes remain confined to authorized audit task report and evidence paths
 blockers:
-  - external completion of run 30763456046; anti-stall policy forbids another state check in this invocation
+  - external completion of run 30763456046; one later unchanged-state check remains permitted in this invocation
 next_action: when run 30763456046 becomes terminal, inspect it once, verify any artifact, update Issue 365 and PR 381 evidence, close PR 476 without merge, and do not rerun the matrix
 ```
 
 ## Notes
 
-The audit remains `VALIDATED_WITH_CORRECTIONS`. All currently independent audit work is persisted. The sole immediate external dependency is the terminal result of run `30763456046`.
+The audit remains `VALIDATED_WITH_CORRECTIONS`. The Phase 7 live work graph is complete for the current observation. Product and coordination remediation remain assigned to another agent. The immediate external dependency is the terminal result of run `30763456046`.
