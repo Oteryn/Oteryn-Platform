@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Apply bounded Issue #365 validator repairs without rewriting frozen source."""
+"""Inspect the generated Issue #365 validator without starting the matrix."""
 
 from __future__ import annotations
 
@@ -52,19 +52,24 @@ def main() -> None:
         "media snapshot selector repair",
     )
 
-    save_pattern_broken = r'''    "        $this->saveSession($request);\n        return $response;\n",
-'''
-    save_pattern_repaired = r'''    "        $this->saveSession($request);\n\n        return $response;\n",
-'''
-    generated = replace_once(
-        generated,
-        save_pattern_broken,
-        save_pattern_repaired,
-        "Laravel 13 StartSession save-pattern repair",
-    )
+    lines = generated.splitlines()
+    matches = [
+        index
+        for index, line in enumerate(lines)
+        if "saveSession" in line or "return $response" in line
+    ]
+    print("ISSUE365_GENERATED_STARTSESSION_MATCH_COUNT=" + str(len(matches)))
+    for match in matches:
+        start = max(0, match - 4)
+        end = min(len(lines), match + 5)
+        print(f"ISSUE365_GENERATED_CONTEXT_BEGIN={start + 1}:{end}")
+        for index in range(start, end):
+            print(f"{index + 1:05d}: {lines[index]}")
+        print("ISSUE365_GENERATED_CONTEXT_END")
 
     args.target.write_text(generated, encoding="utf-8")
     args.target.chmod(0o700)
+    raise SystemExit("diagnostic-only gate complete; matrix intentionally not started")
 
 
 if __name__ == "__main__":
