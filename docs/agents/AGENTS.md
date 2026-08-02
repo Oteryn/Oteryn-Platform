@@ -6,6 +6,8 @@ Before substantial implementation, product-facing validation, audit, E2E, PR cle
 
 Before autonomous, long-running, retry-prone, CI-waiting, repair, continuation, or multi-task work, read and follow `ANTI_STALL_AND_EXECUTION_BUDGET.md`. Its runtime, no-progress, CI-check, retry, repair-cycle, context-reconstruction, command-timeout, and next-task limits are mandatory. Budget exhaustion or unchanged pending state is a real stop condition even when another contract says to continue autonomously.
 
+Before treating the absence of Codex or a local terminal as a blocker, read and follow `GITHUB_ONLY_EXECUTION.md`. Use the GitHub connection and GitHub Actions on a dedicated branch, select the smallest proving validation, inspect full failed-job logs, keep repairs bounded, preserve required artifacts, and report an exact technical blocker only after the contract's alternatives are exhausted. Autonomous merge or auto-merge of the current task's own PR is authorized only after every required gate in that contract and this repository passes; production deployment, database, payment or authentication operations, secret changes, protected-environment approval, and protection bypass remain unauthorized without separate authority.
+
 Before creating, claiming, resuming, updating, handing off, or closing any task under this directory:
 
 1. Read `EXECUTION_PROTOCOL.md`.

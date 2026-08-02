@@ -8,9 +8,10 @@ Before planning, editing, creating or resuming a task, creating a branch or PR, 
 2. Read `docs/agents/AGENTS.md` and follow the nearest additional `AGENTS.md` governing every path you may touch.
 3. Read `docs/agents/DELIVERY_COMPLETENESS_AND_CLOSEOUT.md` for delivery classification, vertical-slice completeness, outcome verification, independent audit, E2E, exact-head CI, PR hygiene, archival, and ownership release.
 4. Read `docs/agents/ANTI_STALL_AND_EXECUTION_BUDGET.md` before autonomous, long-running, retry-prone, CI-waiting, repair, continuation, or multi-task work. Its budgets and stop conditions override any instruction to continue indefinitely.
-5. For any start, resume, continuation, autonomous-programme, or multi-task request, read `docs/agents/AUTONOMOUS_PROGRAM_CONTINUATION.md` before acting.
-6. Inspect the authoritative active task checkpoint, live branch/head, related PRs, reviews, CI, ownership, dependencies, and current repository state. Do not reconstruct available state from chat history or ask the owner to repeat it.
-7. If a required bootstrap document is missing or materially conflicts with live repository safety, stop and report the exact conflict instead of silently ignoring the document.
+5. Read `docs/agents/GITHUB_ONLY_EXECUTION.md` whenever Codex or a local terminal is unavailable, unsuitable, or would otherwise be treated as a blocker. Continue through the GitHub connection and GitHub Actions when permitted; tool absence alone is not a blocker.
+6. For any start, resume, continuation, autonomous-programme, or multi-task request, read `docs/agents/AUTONOMOUS_PROGRAM_CONTINUATION.md` before acting.
+7. Inspect the authoritative active task checkpoint, live branch/head, related PRs, reviews, CI, ownership, dependencies, and current repository state. Do not reconstruct available state from chat history or ask the owner to repeat it.
+8. If a required bootstrap document is missing or materially conflicts with live repository safety, stop and report the exact conflict instead of silently ignoring the document.
 
 ## Short-command contract
 
@@ -25,6 +26,14 @@ A worker-session end, commit, PR creation, green CI, merge, audit, E2E result, P
 Autonomous continuation is always budgeted. Default to 60 minutes per foreground invocation, allow 120 minutes only when the task explicitly declares and justifies a large budget, and stop after 15 minutes without measurable progress. Check CI or unchanged external state at most twice per exact head in one invocation. Do not repeat an identical failure without a new hypothesis, and stop after three repair cycles for one gate.
 
 Budget exhaustion, the no-progress limit, retry-limit exhaustion, or unchanged pending CI are real stop conditions. Persist exact durable state and return `WAITING`, `BLOCKED`, or `ROTATE`; never keep polling or running overnight merely because the owner requested autonomous continuation.
+
+## GitHub-only execution baseline
+
+Do not stop, return only a plan, or ask the owner to switch tools merely because Codex or a local terminal is unavailable. Use the GitHub connection for repository operations and GitHub Actions for remote execution and validation on a dedicated branch, within the anti-stall budget. Prefer existing workflows and the smallest proving checks; add a temporary validation workflow only when existing workflows cannot prove the task, and remove it before final merge unless retention is an explicitly justified deliverable.
+
+The owner durably authorizes autonomous merge or auto-merge of the current task's own PR only after the exact final head passes all repository-required gates, audit and required E2E, all review threads are resolved, the diff remains within declared ownership, and related PRs are reconciled. Prefer auto-merge and never force or bypass protections. Production deployment, protected-environment approval, production secrets, database, payment, authentication, and protected production configuration remain separately unauthorized unless explicitly covered.
+
+A genuine GitHub-only blocker must identify the exact unavailable operation, attempted tool or workflow, received error, missing permission, secret or resource, collected evidence, nearest safe alternative, current branch, PR and exact head, and one next action.
 
 ## Completion baseline
 
