@@ -55,8 +55,7 @@ COPY scripts/acceptance/package.json ./package.json
 
 RUN mkdir -p "$PLAYWRIGHT_BROWSERS_PATH" \
     && npm install --no-audit --no-fund --package-lock=false \
-    && test "$(node -p \"require('./node_modules/@playwright/test/package.json').version\")" = \
-        "$(node -p \"require('./package.json').devDependencies['@playwright/test']\")" \
+    && node -e 'const installed = require("./node_modules/@playwright/test/package.json").version; const expected = require("./package.json").devDependencies["@playwright/test"]; if (installed !== expected) { console.error(`Playwright version mismatch: installed ${installed}, expected ${expected}`); process.exit(1); }' \
     && npx playwright install --with-deps chromium firefox webkit \
     && npx playwright --version \
     && chmod -R a+rX /opt/oteryn-playwright "$PLAYWRIGHT_BROWSERS_PATH" \
