@@ -101,6 +101,24 @@
       "paths": ["docs/contracts/AUTH_GAME_LOGIN_CONTRACT.md"],
       "classes": ["shared"],
       "gates": ["ci", "phase7", "edge", "db_outage", "game_auth_concurrency"]
+    },
+    {
+      "name": "operational_markdown_is_deployment",
+      "paths": ["ops/triggers/cloudflare-oteryn-public-edge-repair.md"],
+      "classes": ["deployment"],
+      "gates": ["ci", "phase7", "edge", "db_outage", "game_auth_concurrency"]
+    },
+    {
+      "name": "nested_unknown_markdown_fails_closed",
+      "paths": ["future/runbooks/runtime-switch.md"],
+      "classes": ["shared"],
+      "gates": ["ci", "phase7", "edge", "db_outage", "game_auth_concurrency"]
+    },
+    {
+      "name": "root_readme_is_docs_only",
+      "paths": ["README.md"],
+      "classes": ["docs_only"],
+      "gates": []
     }
   ]
 }

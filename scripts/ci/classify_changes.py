@@ -31,6 +31,12 @@ def _matches(path: str, patterns: Iterable[str]) -> bool:
     return any(fnmatch.fnmatchcase(path, pattern) for pattern in patterns)
 
 
+def _is_root_document(path: str) -> bool:
+    if "/" in path:
+        return False
+    return path.endswith(".md") or path == "LICENSE" or path.startswith("LICENSE.")
+
+
 def classify_path(raw_path: str) -> PathClassification:
     path = raw_path.strip().replace("\\", "/").removeprefix("./")
     lowered = path.casefold()
@@ -65,7 +71,7 @@ def classify_path(raw_path: str) -> PathClassification:
     if _matches(path, ("docs/contracts/**",)):
         return PathClassification("shared", ALL_GATES)
 
-    if _matches(path, ("docs/**", "*.md", "LICENSE", "LICENSE.*")):
+    if _matches(path, ("docs/**",)) or _is_root_document(path):
         return PathClassification("docs_only", NO_GATES)
 
     if _matches(path, ("services/game-gateway/**",)):
@@ -108,6 +114,7 @@ def classify_path(raw_path: str) -> PathClassification:
             "Dockerfile.*",
             "docker/**",
             "deploy/**",
+            "ops/**",
             "compose.yml",
             "compose.yaml",
             "docker-compose.yml",
