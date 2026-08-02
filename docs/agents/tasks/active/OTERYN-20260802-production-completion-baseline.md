@@ -74,10 +74,10 @@ invocation_budget_minutes: 60
 ## Context checkpoint
 
 ```yaml
-checkpoint_version: 2
-updated_at: 2026-08-02T13:17:00+02:00
-head: 2498a52582a92885242e13243d8aece5e33f90cd
-head_semantics: audited_parent_head_before_checkpoint_schema_repair; live PR metadata is authoritative
+checkpoint_version: 1
+updated_at: 2026-08-02T13:20:00+02:00
+head: d857af2f8d4a355c4e5bd35b14d40cefdbdddb30
+head_semantics: parent_head_before_complete_checkpoint_contract_repair; live PR metadata is authoritative
 branch: audit/OTERYN-20260802-production-completion-baseline
 pr: 453
 status: validating
@@ -100,45 +100,46 @@ proven:
   - The source capability ledger records 23 implemented, 3 partial, 14 missing and 3 not-applicable capabilities.
   - Five heavy workflows have unfiltered pull_request triggers and executed on documentation-only PR #453.
   - On head 2498a52582a92885242e13243d8aece5e33f90cd, CI, Phase 7, Edge Security Emulation, Platform DB Outage Validation and Game Auth Ticket Concurrency passed.
-  - Agent Governance failed only because the checkpoint contained both task_kind audit and a nested audit mapping rejected by the custom validator.
   - PR #453 has no reviews, comments or unresolved review threads.
-  - Independent audit material findings were remediated in the task/report/evidence paths only.
+  - Independent audit passed after remediation with zero open material findings: AUDIT-PR-COUNT, AUDIT-DEPENDABOT-OMISSIONS, AUDIT-STALE-REPORT and AUDIT-CODEX-BLOCKER were corrected.
 derived:
   - P0 CI-routing remediation is the highest-leverage next slice.
   - Private production remains not directly proven against the current repository/product state.
 unknown:
   - Branch-protection required-check compatibility for the future classifier/no-op design.
-  - Final exact-head governance result after this schema repair.
+  - Final exact-head governance result after complete checkpoint contract repair.
 conflicts: []
-independent_audit:
-  result: PASS_AFTER_REMEDIATION
-  material_findings_open: 0
-  findings_remediated:
-    - AUDIT-PR-COUNT
-    - AUDIT-DEPENDABOT-OMISSIONS
-    - AUDIT-STALE-REPORT
-    - AUDIT-CODEX-BLOCKER
+first_failure:
+  marker: Agent Governance run 30743436097 rejected the active checkpoint schema.
+  evidence: The checkpoint used unsupported nested mappings, checkpoint_version 2, omitted required fields and used a non-contract validation result.
+rejected_hypotheses:
+  - Renaming the nested audit mapping alone would satisfy the custom checkpoint parser.
+  - The validator accepts arbitrary nested checkpoint mappings and extended validation result names.
+changed_paths:
+  - docs/agents/tasks/active/OTERYN-20260802-production-completion-baseline.md
+  - docs/agents/reports/OTERYN-20260802-production-completion-baseline.md
+  - docs/agents/evidence/OTERYN-20260802-production-completion-baseline/**
 validation:
   - command: GitHub compare main...audit/OTERYN-20260802-production-completion-baseline
     result: PASS
-    evidence: only 13 authorized task/report/evidence paths before audit remediation
+    evidence: only 13 authorized task/report/evidence paths are changed
   - command: five runtime-heavy pull-request workflow families on 2498a52582a92885242e13243d8aece5e33f90cd
     result: PASS
     evidence: runs 30743436102, 30743436096, 30743436105, 30743436090 and 30743436100
   - command: Agent Governance run 30743436097
-    result: FAIL_REPAIRED
-    evidence: custom checkpoint validator rejected nested audit mapping; renamed to independent_audit
+    result: FAIL
+    evidence: first actionable error was unsupported nested audit mapping; complete contract review found all related schema defects and this commit repairs them
   - command: runtime/browser E2E
-    result: NOT_APPLICABLE_WITH_REASON
-    evidence: documentation/governance only; no runtime or user-facing behavior changed
+    result: NOT_RUN
+    evidence: not applicable because this PR changes documentation and governance records only
 blockers: []
-next_action: Verify Agent Governance on the schema-repair head, then mark PR #453 ready and merge if the exact-head gate is green.
+next_action: Verify Agent Governance on the complete checkpoint-repair head, then mark PR #453 ready and merge if the exact-head gate is green.
 invocation_started_at: 2026-08-02T13:14:00+02:00
-last_progress_at: 2026-08-02T13:17:00+02:00
+last_progress_at: 2026-08-02T13:20:00+02:00
 ci_checks_for_current_head: 0
 unchanged_state_checks: 0
 identical_failure_retries: 0
-repair_cycles_for_current_gate: 1
+repair_cycles_for_current_gate: 2
 context_reconstruction_attempts: 0
 stall_warnings: 0
 ```
