@@ -32,12 +32,14 @@ policy_v2_result:
 
 The merged production-completion baseline identifies 18 modules. The earlier 43-capability ledger is a benchmark subset and lacks explicit records for several delivered or cross-cutting modules. This is finding `OTERYN-AUDIT-P6-001`.
 
-The live GitHub reconciliation mapped all 21 open Issues and all 6 open pull requests. It found that the main active-work index declares zero active tasks while five PRs contain active task records, four records lag their live PR identity, and PR `#391` has neither a parent Issue nor explicit module ownership. Exact-head execution also proved that the current change-routing workflows cannot validate a pre-rollout PR head because their classifier files are read from that older head. These are findings `OTERYN-AUDIT-P7-001`, `OTERYN-AUDIT-P7-002` and `OTERYN-AUDIT-P7-003`.
+The live GitHub reconciliation mapped all 21 open Issues and all 6 open pull requests. It found that the main active-work index declares zero active tasks while five PRs contain active task records, four records lag their live PR identity, and PR `#391` has neither a parent Issue nor explicit module ownership. Exact-head execution also proved that current change-routing workflows cannot validate a pre-rollout PR head because classifier files are read from that older head. These are findings `OTERYN-AUDIT-P7-001`, `OTERYN-AUDIT-P7-002` and `OTERYN-AUDIT-P7-003`.
+
+The corrected Issue `#365` exact-frozen run reached the matrix, but its matrix step became `cancelled`. Immutable artifact upload succeeded and cleanup was still running at the second and final permitted check. The terminal conclusion, cancellation reason, artifact identity/digest, sample completeness and correlation evidence remain unknown.
 
 Open frozen portal/product findings: **0 HIGH / 7 MEDIUM / 1 LOW**.  
 Additional open live work-graph/CI findings: **0 HIGH / 3 MEDIUM / 0 LOW**.  
 Independent verdict remains **`VALIDATED_WITH_CORRECTIONS`**.  
-Task status remains **`waiting`** on the bounded Issue `#365` matrix and externally owned CI compatibility remediation.
+Task status remains **`waiting`** on terminal artifact inspection and externally owned CI compatibility remediation.
 
 ## Canonical inventory
 
@@ -114,7 +116,7 @@ Current PR dispositions:
 - `#391` — blocked official-client interoperability research; keep draft but classify ownership;
 - `#405` — blocked production gate evidence; keep draft;
 - `#471` — active payment backend producer; keep draft and refresh checkpoint;
-- `#476` — temporary validator; close without merge after evidence persistence.
+- `#476` — temporary validator; close without merge after terminal evidence persistence.
 
 ### MEDIUM — OTERYN-AUDIT-P7-001
 
@@ -178,7 +180,7 @@ Recovered diagnostics prove deterministic stale EditorialMedia fixture expansion
 
 The source-faithful 18-sample layout probe recorded zero thumbnail request starts from the beginning of `Publish.click()` in all desktop, tablet and mobile samples. The old-document lazy-thumbnail race therefore remains a low-confidence hypothesis only.
 
-## Active exact-frozen matrix
+## Corrected exact-frozen matrix
 
 - control head `8c58035cacb9fd4675d898a1652036fc8b9d4357`;
 - run `30763456046`;
@@ -187,9 +189,23 @@ The source-faithful 18-sample layout probe recorded zero thumbnail request start
 - workers `1`;
 - retries `0`.
 
-Preparation, exact checkout and validator generation passed. At the first state check in the current invocation, the 12-sample matrix remained `in_progress`.
+Preparation, exact checkout and validator generation passed. At the second and final permitted check:
 
-The run must not be rerun. One later unchanged-state check remains permitted in this invocation. When terminal, inspect once, verify artifacts, update Issue `#365` and PR `#381` evidence, and close PR `#476` without merge.
+- matrix step: `completed / cancelled`;
+- immutable artifact upload: `completed / success`;
+- isolated runtime cleanup: `in_progress`;
+- whole job/run: non-terminal.
+
+Unknown until one terminal inspection in a later invocation:
+
+- cancellation reason;
+- artifact identifier, digest and completeness;
+- number and type of samples completed;
+- whether clean and exactly-one-corrupt fixtures both ran;
+- whether request/session correlation survived;
+- whether the package is valid, partially diagnostic or technically invalid.
+
+A cancelled step and successful upload do not prove product failure, remediation or causality. The run must not be polled again in this invocation and must never be rerun.
 
 ## Open frozen portal/product findings
 
@@ -243,7 +259,7 @@ Verdict: `VALIDATED_WITH_CORRECTIONS`.
 
 The task is not terminal while:
 
-1. run `30763456046` is non-terminal;
+1. run `30763456046` lacks terminal artifact inspection and classification;
 2. Issue `#365` lacks a valid exact-frozen correlated result;
 3. frozen portal/product material findings remain open;
 4. Phase 7 coordination, taxonomy and CI-compatibility findings remain open;
