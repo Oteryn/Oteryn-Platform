@@ -75,9 +75,9 @@ invocation_budget_minutes: 60
 
 ```yaml
 checkpoint_version: 2
-updated_at: 2026-08-02T12:15:00+02:00
-head: 2c1535c3e2a0b223ab2d704937e2bed1e4aa1744
-head_semantics: audited_pre_remediation_head; live PR metadata is authoritative after this checkpoint commit
+updated_at: 2026-08-02T13:17:00+02:00
+head: 2498a52582a92885242e13243d8aece5e33f90cd
+head_semantics: audited_parent_head_before_checkpoint_schema_repair; live PR metadata is authoritative
 branch: audit/OTERYN-20260802-production-completion-baseline
 pr: 453
 status: validating
@@ -99,7 +99,8 @@ proven:
   - Seven omitted Dependabot PRs were found and received rebase requests: #222, #223, #224, #226, #227, #228 and #229.
   - The source capability ledger records 23 implemented, 3 partial, 14 missing and 3 not-applicable capabilities.
   - Five heavy workflows have unfiltered pull_request triggers and executed on documentation-only PR #453.
-  - On head 2c1535c3e2a0b223ab2d704937e2bed1e4aa1744, Agent Governance, CI, Phase 7, Edge Security Emulation, Platform DB Outage Validation and Game Auth Ticket Concurrency all passed.
+  - On head 2498a52582a92885242e13243d8aece5e33f90cd, CI, Phase 7, Edge Security Emulation, Platform DB Outage Validation and Game Auth Ticket Concurrency passed.
+  - Agent Governance failed only because the checkpoint contained both task_kind audit and a nested audit mapping rejected by the custom validator.
   - PR #453 has no reviews, comments or unresolved review threads.
   - Independent audit material findings were remediated in the task/report/evidence paths only.
 derived:
@@ -107,9 +108,9 @@ derived:
   - Private production remains not directly proven against the current repository/product state.
 unknown:
   - Branch-protection required-check compatibility for the future classifier/no-op design.
-  - Final exact-head workflow results after this remediation commit.
+  - Final exact-head governance result after this schema repair.
 conflicts: []
-audit:
+independent_audit:
   result: PASS_AFTER_REMEDIATION
   material_findings_open: 0
   findings_remediated:
@@ -121,21 +122,24 @@ validation:
   - command: GitHub compare main...audit/OTERYN-20260802-production-completion-baseline
     result: PASS
     evidence: only 13 authorized task/report/evidence paths before audit remediation
-  - command: six pull-request workflow families on 2c1535c3e2a0b223ab2d704937e2bed1e4aa1744
+  - command: five runtime-heavy pull-request workflow families on 2498a52582a92885242e13243d8aece5e33f90cd
     result: PASS
-    evidence: runs 30742686054, 30742686085, 30742686093, 30742686048, 30742686082 and 30742686105
+    evidence: runs 30743436102, 30743436096, 30743436105, 30743436090 and 30743436100
+  - command: Agent Governance run 30743436097
+    result: FAIL_REPAIRED
+    evidence: custom checkpoint validator rejected nested audit mapping; renamed to independent_audit
   - command: runtime/browser E2E
     result: NOT_APPLICABLE_WITH_REASON
     evidence: documentation/governance only; no runtime or user-facing behavior changed
 blockers: []
-next_action: Verify final exact-head checks after this remediation commit, then mark PR #453 ready and merge if the gate remains satisfied.
-invocation_started_at: 2026-08-02T11:32:18+02:00
-last_progress_at: 2026-08-02T12:15:00+02:00
+next_action: Verify Agent Governance on the schema-repair head, then mark PR #453 ready and merge if the exact-head gate is green.
+invocation_started_at: 2026-08-02T13:14:00+02:00
+last_progress_at: 2026-08-02T13:17:00+02:00
 ci_checks_for_current_head: 0
 unchanged_state_checks: 0
 identical_failure_retries: 0
-repair_cycles_for_current_gate: 0
-context_reconstruction_attempts: 1
+repair_cycles_for_current_gate: 1
+context_reconstruction_attempts: 0
 stall_warnings: 0
 ```
 
