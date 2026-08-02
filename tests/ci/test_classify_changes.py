@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -15,6 +16,7 @@ spec = importlib.util.spec_from_file_location("classify_changes", CLASSIFIER_PAT
 if spec is None or spec.loader is None:
     raise RuntimeError(f"Unable to load classifier from {CLASSIFIER_PATH}")
 classifier = importlib.util.module_from_spec(spec)
+sys.modules[spec.name] = classifier
 spec.loader.exec_module(classifier)
 
 
