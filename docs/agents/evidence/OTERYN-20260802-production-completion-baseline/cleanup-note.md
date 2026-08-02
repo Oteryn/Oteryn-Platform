@@ -1,0 +1,1 @@
+Temporary micro-files created during connector-only auditing should be consolidated before merge; the authoritative outputs are the task record, main report, evidence index, JSON ledgers, architecture drift, PR disposition, CI inventory/findings and next-slices plan.
