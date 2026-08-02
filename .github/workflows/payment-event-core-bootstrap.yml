@@ -80,6 +80,7 @@ jobs:
               'docs/architecture/MODULE_CATALOG.md',
               'scripts/payments/apply_payment_event_core.py',
               'tests/Feature/Operations/ProductionConfigurationVerifierTest.php',
+              'tests/Feature/Payments/PaymentEventConcurrencyMariaDbTest.php',
           }
           unexpected = sorted(path for path in changed if path not in allowed_exact)
           if unexpected:
