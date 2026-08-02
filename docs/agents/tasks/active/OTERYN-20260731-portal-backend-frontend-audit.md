@@ -11,6 +11,7 @@ related_issues:
 required_reads:
   - AGENTS.md
   - docs/agents/AGENTS.md
+  - docs/agents/ANTI_STALL_AND_EXECUTION_BUDGET.md
   - docs/agents/PROMPTING_HANDOVER.md
   - docs/agents/EXECUTION_PROTOCOL.md
   - docs/agents/CONTEXT_HANDOFF.md
@@ -19,8 +20,6 @@ required_reads:
   - docs/agents/BUILD_TEST_MATRIX.md
   - docs/architecture/TEST_STRATEGY.md
   - docs/agents/evidence/OTERYN-20260731-portal-backend-frontend-audit/index.md
-  - docs/agents/evidence/OTERYN-20260731-portal-backend-frontend-audit/VALIDATOR_PACKET.md
-  - docs/agents/evidence/OTERYN-20260731-portal-backend-frontend-audit/VALIDATOR_PACKET_ADDENDUM.md
   - docs/agents/evidence/OTERYN-20260731-portal-backend-frontend-audit/VALIDATOR_VERDICT.md
   - docs/agents/evidence/OTERYN-20260731-portal-backend-frontend-audit/ISSUE_365_EXACT_FROZEN_EXECUTION_RUNBOOK.md
   - docs/agents/evidence/OTERYN-20260731-portal-backend-frontend-audit/ISSUE_365_SYNOLOGY_EXECUTION_ATTEMPTS.md
@@ -34,25 +33,20 @@ search_first:
 
 ## Goal
 
-Audit every delivered portal capability across backend, frontend, integration, states, browser evidence and deployment boundaries. Do not implement findings, merge or deploy.
+Audit every delivered portal capability across backend, frontend, integration, states, browser evidence and deployment boundaries. Do not implement product findings, merge temporary validation infrastructure or deploy.
 
 ## Acceptance criteria
 
-- [x] Freeze the authoritative `main` audit target and environment boundaries.
-- [x] Build the canonical delivered-surface and route inventory.
-- [x] Reconcile all product/backend/frontend capabilities.
-- [x] Classify states, browsers, viewports and deployment evidence without false promotion.
-- [x] Recover and review strict repository and critical browser artifacts.
-- [x] Deep-review Issue #365 historical artifacts, hashes, project order and response counts.
-- [x] Correct thumbnail severity after proving acceptance fixture leakage.
-- [x] Execute a fresh current critical-profile rerun and persist a validator verdict.
-- [x] Execute three independent zero-retry post-serialization original-flow attempts.
-- [x] Recover complete embedded browser diagnostics for both reproductions.
-- [x] Execute generic and source-faithful responsive layout probes.
+- [x] Freeze the authoritative audit target and environment boundaries.
+- [x] Build the delivered-surface, route and capability inventories.
+- [x] Classify states, browsers, viewports and deployment evidence.
+- [x] Recover strict repository and critical browser artifacts.
+- [x] Execute current critical-profile and post-serialization original-flow validation.
+- [x] Recover embedded diagnostics and execute generic/source-faithful layout probes.
 - [x] Publish the exact frozen-target 12-sample execution runbook.
-- [x] Prove that the Synology staging runner can build and bootstrap the required production-like environment.
-- [x] Persist all three bounded temporary-harness repair attempts and immutable artifact identities.
-- [ ] Execute the exact frozen-target clean/corrupt × immediate/pre-scroll matrix with request/session correlation and persist sanitized evidence.
+- [x] Prove the Synology staging runner can build and bootstrap the required environment.
+- [x] Generate and install the source-faithful Laravel 13.20.0 `StartSession` observer.
+- [ ] Execute the exact frozen-target clean/corrupt × immediate/pre-scroll 12-sample matrix with request/session correlation.
 - [x] Publish consolidated reports, machine-readable matrices and validator instructions.
 
 ## Ownership
@@ -70,31 +64,29 @@ dependencies:
   - Issue #326
   - Issue #365
 blockers:
-  - the temporary validator generator does not yet install its source-faithful Laravel 13.20.0 StartSession observer
+  - generated post-install verification opens a fresh shell that references START_SESSION without defining it
 cross_repository_tasks: []
 ```
 
 ## Constraints
 
-- Audit-only: no application, route, view/asset, configuration, migration/model, committed product test, production workflow, dependency or external-repository change.
-- Issue #365 browser and framework observers must remain isolated from the frozen source and must never merge.
-- Controlled validation harnesses may be used only for bounded evidence.
-- Open-PR code remains `OPEN_PR_ONLY`.
-- CI evidence never implies staging or production deployment.
-- Do not merge, deploy or repair product findings in this task.
+- Audit-only: no application, route, view/asset, production configuration, migration/model, dependency, deployment or external-repository mutation.
+- Browser and framework observers must remain isolated from the frozen source and must never merge.
+- Temporary validation PRs must close without merge.
+- CI evidence does not imply staging or production deployment.
 
 ## Context checkpoint
 
 ```yaml
 checkpoint_version: 1
 policy_version: 2
-updated_at: 2026-08-02T15:12:00Z
-head: 2015b78304c028f9092f77cc80df5dbca494a92b
+updated_at: 2026-08-02T16:56:00Z
+head: 4534be28951bf1d839d84bf075aa15d401597a0c
 branch: audit/OTERYN-20260731-portal-backend-frontend-audit
 pr: 381
 status: blocked
 phase: validate
-session_id: chat-github-20260802-issue365
+session_id: chat-github-20260802-issue365-continuation
 session_role: coordinator-validator
 execution_mode: github-actions-synology
 execution_reason: execute the exact frozen audit validator without changing product or production state
@@ -106,7 +98,12 @@ context_score: 12
 estimate_confidence: high
 decomposition_decision: phased
 repair_cycles_for_current_gate: 3
-heavy_validation_runs: 7
+ci_checks_for_current_head: 2
+unchanged_state_checks: 0
+identical_failure_retries: 0
+context_reconstruction_attempts: 1
+stall_warnings: 0
+heavy_validation_runs: 8
 context_routes:
   - agent-governance
   - testing
@@ -118,22 +115,26 @@ owned_paths:
   - docs/agents/reports/OTERYN-20260731-portal-backend-frontend-audit*.md
   - docs/agents/evidence/OTERYN-20260731-portal-backend-frontend-audit/**
 proven:
-  - The frozen audit target is b6f7b12a43aa72a52dc98c3fa07a7c4607fcb608.
-  - The normalized audit findings remain 0 HIGH, 6 MEDIUM and 1 LOW.
-  - Post-serialization original-flow evidence remains one responsive-mobile pass and two exact flash-loss reproductions while durable publication succeeded.
-  - Session serialization is not proven to remediate the defect deterministically and the root cause remains UNKNOWN.
-  - Thumbnail HTTP 500 presence alone is insufficient to remove publication feedback.
-  - The Synology staging runner is available and can check out the frozen SHA, build isolated images and bootstrap MariaDB, Redis and the application.
-  - Run 30752369856 reached observer generation and preserved artifact 8834980323 with digest sha256:08b677baf46d2d4a52ef7fe18234c05804a6f6e655901fb9dad42929ecee8783.
-  - Run 30752964863 reached observer installation and preserved artifact 8835208891 with digest sha256:4861e421e4c4575f3f22ff5461ee16070c79114639ddb8c8f736afd1010d190c.
-  - Run 30752964863 proved the exact Laravel framework version is 13.20.0 and that its StartSession save layout differs from the retired generator assumption.
-  - Run 30753618275 failed closed during cheap validator preparation with Laravel 13 StartSession save-pattern repair expected one match found 0; the matrix step was skipped.
-  - No mandatory browser sample started in any of the three current repair cycles.
-  - Artifact upload and isolated cleanup succeeded for both runtime attempts.
-  - No application, deployment, production or external-repository mutation occurred.
+  - frozen audit target is b6f7b12a43aa72a52dc98c3fa07a7c4607fcb608
+  - normalized audit findings remain 0 HIGH 6 MEDIUM and 1 LOW
+  - responsive-mobile flash loss remains reproduced intermittently while durable publication succeeds
+  - session serialization is NOT_PROVEN_REMEDIATED and root cause remains UNKNOWN
+  - Synology can check out the frozen SHA and bootstrap production-like MariaDB Redis and application services
+  - diagnostic run 30756664833 proved the StartSession search pattern belongs to generated runtime/02-observer-patch.sh rather than the parent validator
+  - syntax run 30756859088 failed closed before runtime with an isolated Python IndentationError
+  - run 30756908549 passed validator preparation and production-like bootstrap
+  - run 30756908549 corrected generated runtime/02-observer-patch.sh for the Laravel 13.20.0 blank-line layout
+  - Issue365Trace.php and instrumented StartSession.php passed PHP syntax validation
+  - StartSession.sha256.instrumented proves the framework observer patch executed
+  - run 30756908549 artifact 8836419768 has digest sha256:003f98c709141337255ca20b592faf74d237e38df3b3bf96b7d2e34429cb1144
+  - run 30756908549 LAST_STAGE is observer-install
+  - first terminal error is bash line 8 START_SESSION unbound variable in a fresh post-install shell
+  - no samples directory exists and zero mandatory browser samples started
+  - artifact upload and isolated cleanup succeeded
+  - no application deployment production or external-repository mutation occurred
 derived:
-  - The former environmental blocker is superseded by a deterministic temporary-harness generation blocker.
-  - The next repair can be tested cheaply by inspecting the generated validator before another Synology runtime execution.
+  - environment and source-faithful observer generation/installation are no longer blockers
+  - the remaining blocker is limited to variable scope in post-install observer verification
 unknown:
   - request or framework path that removes publication status
   - exact session-lock acquisition and save order during a reproduced sample
@@ -145,38 +146,38 @@ conflicts:
   - ACTIVE_WORK.md says no active tasks while live PR and task records show active owned work
 first_failure:
   marker: responsive-mobile original Wiki publication flash absent after session serialization while durable publication succeeds
-  evidence: run 30612399525 attempts 3 and 4, jobs 91343023604 and 91343514611, artifacts 8815383351 and 8815457044
+  evidence: run 30612399525 attempts 3 and 4 jobs 91343023604 and 91343514611 artifacts 8815383351 and 8815457044
 rejected_hypotheses:
-  - Synology or Docker availability remains the execution blocker.
-  - A successful production-like bootstrap proves the publication defect remediated.
-  - A failed temporary observer installation is product evidence.
-  - Thumbnail HTTP 500 presence proves causality.
-  - A partial or uncorrelated browser sample can satisfy the exact-frozen completion gate.
-  - A fourth repair cycle is allowed in the current invocation.
+  - Synology or Docker availability remains the blocker
+  - the Laravel observer still fails to match or install
+  - a successful bootstrap or observer lint proves remediation
+  - the unbound variable is product evidence
+  - a partial or uncorrelated sample satisfies the matrix gate
+  - a fourth repair cycle is allowed in this invocation
 changed_paths:
   - docs/agents/evidence/OTERYN-20260731-portal-backend-frontend-audit/ISSUE_365_SYNOLOGY_EXECUTION_ATTEMPTS.md
   - docs/agents/tasks/active/OTERYN-20260731-portal-backend-frontend-audit.md
 validation:
-  - command: Issue 365 exact-frozen Synology run 30752369856 on control head 5cf9fee49927bd0f887131fe7e5ea7cf678d369b
+  - command: Issue 365 diagnostic-only run 30756664833 on e76f31cd9bf0dc7a5a8ffd73bda94bec6e1c9d9b
+    result: PASS
+    evidence: parent validator match count zero and matrix intentionally skipped
+  - command: Issue 365 syntax gate 30756859088 on ce9aac5865ee893150ac88e11123601362eaaf28
     result: FAIL
-    evidence: observer-generation Python selector quoting failure; artifact 8834980323 preserved
-  - command: Issue 365 exact-frozen Synology run 30752964863 on control head cddb7578d89101e90fac1f9b8bdd85e4739d28c8
-    result: FAIL
-    evidence: production-like bootstrap passed, then exact Laravel StartSession source pattern did not match; artifact 8835208891 preserved
-  - command: Issue 365 syntax-first run 30753618275 on control head 2bd32af496894403e0dec84efeca21b0642dcecd
+    evidence: isolated wrapper IndentationError and matrix skipped
+  - command: Issue 365 exact-frozen Synology run 30756908549 on 7d8eed05826363baed47487ca71203caf1c993a9
     result: BLOCKED
-    evidence: generator wrapper expected one StartSession repair match and found zero; matrix skipped and no artifact expected
+    evidence: observer installed and linted then fresh shell failed with START_SESSION unbound variable; artifact 8836419768
   - command: exact frozen correlated 12-sample package
     result: NOT_RUN
-    evidence: no browser sample started before the three-cycle bounded harness repair budget was exhausted
+    evidence: no browser sample started before current invocation exhausted three repair cycles
   - command: product and production mutation audit
     result: PASS
-    evidence: temporary PR 412 contains validator-only files and was not merged; no deployment or production operation occurred
+    evidence: temporary infrastructure remained unmerged and isolated cleanup succeeded
 blockers:
-  - A fresh invocation must inspect the exact generated validator text and repair the Laravel 13.20.0 StartSession observer pattern in a cheap syntax-only gate before one additional Synology matrix run.
-next_action: in a fresh invocation, generate and inspect the exact temporary validator script from control head 2bd32af496894403e0dec84efeca21b0642dcecd, correct the StartSession search text with a syntax-only test, then execute at most one new Synology matrix run without merging PR 412
+  - A fresh invocation must define START_SESSION inside the generated post-install verification shell or replace its use with the exact literal framework path.
+next_action: in a fresh invocation patch the generated observers-installed verification so its inner bash -lc defines START_SESSION=vendor/laravel/framework/src/Illuminate/Session/Middleware/StartSession.php before first use, validate the generated script with bash -n, then execute at most one Synology matrix run
 ```
 
 ## Notes
 
-The audit remains `VALIDATED_WITH_CORRECTIONS` and blocked only on the exact-frozen correlated matrix. The environment is proven available. No implementation, merge, deployment or production action is authorized.
+The audit remains `VALIDATED_WITH_CORRECTIONS` and blocked only on the exact-frozen correlated matrix. The environment and Laravel observer installation are proven. No product implementation, merge, deployment or production action is authorized.
