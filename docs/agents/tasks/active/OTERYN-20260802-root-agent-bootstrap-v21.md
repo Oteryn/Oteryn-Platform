@@ -58,12 +58,12 @@ No application, authentication, payment, database, production, Canary or deploym
 ```yaml
 checkpoint_version: 1
 policy_version: 2
-updated_at: 2026-08-02T08:57:00+02:00
-head: 2d435c083e20c1b145061edbd1b3026010f36469
+updated_at: 2026-08-02T09:03:00+02:00
+head: 5dc36d15e34f4e3a08fd8d1baf6ff50326de3c79
 branch: docs/root-agent-bootstrap-v21-20260802
-pr: null
-status: implementing
-phase: implementation
+pr: 447
+status: validating
+phase: validate
 session_id: chat-20260802-root-agent-bootstrap-v21
 session_role: coordinator
 execution_mode: chat
@@ -81,16 +81,17 @@ heavy_validation_runs: 0
 session_rotation_count: 0
 stale_takeover_count: 0
 human_interruptions: 0
-last_completed_step: added mandatory root bootstrap
+last_completed_step: opened PR 447 for mandatory root bootstrap
 owned_paths:
   - AGENTS.override.md
   - docs/agents/tasks/active/OTERYN-20260802-root-agent-bootstrap-v21.md
 proven:
-  - The root override routes Codex to the repository and nested instructions plus delivery and autonomous contracts.
+  - The root override routes Codex to repository and nested instructions plus delivery and autonomous contracts.
+  - PR 447 contains only governance documentation and the task record before this checkpoint update.
 derived:
   - A root Codex invocation no longer depends on implicit discovery of nested governance.
 unknown:
-  - Exact-head workflow results after PR creation.
+  - Exact-head workflow results after this checkpoint update.
 conflicts: []
 first_failure:
   marker: none
@@ -102,5 +103,5 @@ changed_paths:
   - docs/agents/tasks/active/OTERYN-20260802-root-agent-bootstrap-v21.md
 validation: []
 blockers: []
-next_action: open the feature PR and verify exact-head workflows
+next_action: verify exact-head workflows for PR 447
 ```
