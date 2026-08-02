@@ -32,6 +32,7 @@ RUN apt-get update \
         libonig-dev \
         libpng-dev \
         libwebp-dev \
+        libxml2-dev \
         libzip-dev \
         procps \
         python3 \
@@ -40,11 +41,19 @@ RUN apt-get update \
         tar \
         unzip \
     && docker-php-ext-configure gd --with-freetype --with-jpeg --with-webp \
-    && docker-php-ext-install -j"$(nproc)" gd intl mbstring pcntl pdo_mysql zip \
+    && docker-php-ext-install -j"$(nproc)" dom gd intl mbstring pcntl pdo_mysql xml xmlwriter zip \
     && pecl install redis \
     && docker-php-ext-enable redis \
     && php -r 'exit(PHP_VERSION_ID >= 80500 ? 0 : 1);' \
-    && php -r 'exit(extension_loaded("pdo_mysql") && extension_loaded("redis") && extension_loaded("gd") ? 0 : 1);' \
+    && php -r 'exit(\
+        extension_loaded("dom") \
+        && extension_loaded("gd") \
+        && extension_loaded("pdo_mysql") \
+        && extension_loaded("redis") \
+        && extension_loaded("xml") \
+        && extension_loaded("xmlwriter") \
+        ? 0 : 1\
+    );' \
     && node --version \
     && npm --version \
     && composer --version \
