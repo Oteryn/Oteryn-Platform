@@ -7,14 +7,32 @@ frozen_target: b6f7b12a43aa72a52dc98c3fa07a7c4607fcb608
 environment_status: READY
 observer_generation_status: PASS
 observer_installation_status: PASS
-matrix_launch_status: BLOCKED
-matrix_status: NOT_RUN
+matrix_launch_status: PASS
+matrix_status: INVALID_TECHNICAL_FAILURE
 root_cause_status: UNKNOWN
-current_invocation_repair_budget: 3/3 exhausted
 production_action: none
 ```
 
-The Synology staging runner can build and bootstrap the production-like environment. The Laravel 13.20.0 observer is now generated, applied and syntax-checked successfully. The remaining blocker is narrower: the post-install verification opens a new `bash -lc` process and references `START_SESSION` without defining it in that shell. No mandatory browser sample started.
+Run `30758971408` reached the matrix stage on the Synology runner. The generated validator passed `bash -n`, the frozen target bootstrapped, and the Laravel 13.20.0 observer installed and linted. The package is not valid product evidence because every completed clean sample failed before the browser flow at `spawnSync php ENOENT`, and the first corrupt-fixture setup then failed its own snapshot invariant.
+
+## Terminal authorized run
+
+| Control head | Workflow run | Job | Artifact | Result |
+|---|---:|---:|---|---|
+| `613db96cda9d3ef513a033aff4a09b5e588798e9` | `30758971408` | `91526007975` | `8837189083`, `sha256:03ced224c4e14b649f62a77e512821cffc5df679c425610da603137040f66fa0` | Invalid technical execution; no causal Issue #365 result. |
+
+Verified artifact facts:
+
+- Downloaded ZIP digest exactly matched GitHub's artifact digest: `03ced224c4e14b649f62a77e512821cffc5df679c425610da603137040f66fa0`.
+- The artifact contains only `issue365-synology-partial-30758971408.tar.gz`; the full evidence tarball, checksum file and matrix summary were not produced.
+- `LAST_STAGE` is `matrix`.
+- Six clean samples were attempted: three immediate and three pre-scroll.
+- All six failed with Playwright exit code `1`, no browser trace, zero server events and no causal chain.
+- The common first failure was `spawnSync php ENOENT` from `scripts/acceptance/tests/helpers.mjs:93` while calling `php artisan` inside the Playwright execution environment.
+- The first one-corrupt fixture was seeded and marked `integrity_failed`, but fixture validation rejected the snapshot because the row still reported `storage_exists: true` and `thumbnail_exists: false`.
+- No valid clean/corrupt comparison completed.
+- Artifact upload and isolated runtime cleanup succeeded.
+- No product code, production configuration, deployment or external repository was changed.
 
 ## Earlier bounded repair attempts
 
@@ -31,57 +49,29 @@ The Synology staging runner can build and bootstrap the production-like environm
 | 1 | `e76f31cd9bf0dc7a5a8ffd73bda94bec6e1c9d9b` | `30756664833` | Diagnostic-only gate proved the parent validator contains zero `saveSession` matches; the pattern belongs to generated `runtime/02-observer-patch.sh`. Matrix intentionally did not start. |
 | 2 | `ce9aac5865ee893150ac88e11123601362eaaf28` | `30756859088` | Cheap preparation gate rejected an invalid nested Python string with `IndentationError`; matrix skipped. |
 | 3 | `7d8eed05826363baed47487ca71203caf1c993a9` | `30756908549` | Preparation passed, environment bootstrapped, the generated runtime observer was corrected and installed, then post-install verification failed with `START_SESSION: unbound variable` before sample creation. |
-
-Run `30756908549` preserved artifact `8836419768` with digest `sha256:003f98c709141337255ca20b592faf74d237e38df3b3bf96b7d2e34429cb1144`.
-
-## Proven facts from run 30756908549
-
-- The exact frozen checkout remained separate from the validator-control branch.
-- `Prepare isolated validator` passed, including `bash -n` of the generated validator.
-- The production-like MariaDB, Redis and application bootstrap completed.
-- Runtime configuration recorded Laravel `v13.20.0`, file sessions and file cache.
-- `runtime/02-observer-patch.sh` contains the source-faithful blank-line pattern:
-
-  ```text
-  $this->saveSession($request);\n\n        return $response;
-  ```
-
-- `Issue365Trace.php` and instrumented `StartSession.php` both passed PHP syntax validation.
-- `StartSession.sha256.instrumented` was created, proving the observer patch executed.
-- `LAST_STAGE` is `observer-install`.
-- The first terminal error is `bash: line 8: START_SESSION: unbound variable`.
-- No `samples/` directory exists in the partial artifact; therefore zero mandatory samples started.
-- Artifact upload and isolated runtime cleanup succeeded.
-- No application, route, view, configuration, migration, dependency, deployment, production, authentication, authorization, MFA or publication-state change occurred.
+| 4 | `613db96cda9d3ef513a033aff4a09b5e588798e9` | `30758971408` | START_SESSION repair passed; matrix began but the Playwright container lacked a callable `php` binary and the corrupt-fixture invariant also failed. |
 
 ## Classification
 
 ```yaml
-exact_frozen_package: NOT_RUN
-reason: post-install verification referenced START_SESSION in a fresh shell before the first sample
-issue_365_completion: BLOCKED
+exact_frozen_package: INVALID
+reason: technical harness failures prevented a valid correlated 12-sample matrix
+issue_365_completion: BLOCKED_EXTERNAL_DECISION
 session_serialization_remediation: NOT_PROVEN_REMEDIATED
 causal_link_to_damaged_media: UNKNOWN
 product_failure_inferred: false
 ```
 
-This is a harness launch failure, not product evidence. Environment availability and source-faithful Laravel instrumentation are now proven.
+The terminal run proves the environment, observer installation and matrix entry point. It does not prove or disprove the Issue #365 product hypothesis.
 
 ## Rejected conclusions
 
-- Synology or Docker availability remains the blocker.
-- The Laravel observer still fails to match or install.
-- A successful bootstrap or observer lint proves the publication defect remediated.
-- The failed post-install shell proves a product failure.
-- A partial or uncorrelated sample may satisfy the 12-sample completion gate.
-- A fourth repair cycle is allowed in the current invocation.
+- `spawnSync php ENOENT` is a product defect.
+- Six failed clean samples satisfy the matrix gate.
+- The corrupt fixture snapshot is acceptable despite reporting the original file still exists.
+- A failed technical harness can establish session serialization order.
+- Another matrix rerun is authorized by this task.
 
-## Required continuation
+## Required owner decision
 
-A fresh invocation must modify the generated post-install verification command so its inner `bash -lc` defines:
-
-```bash
-START_SESSION=vendor/laravel/framework/src/Illuminate/Session/Middleware/StartSession.php
-```
-
-before the first reference, or use that exact literal path in `observers-installed.txt`. Validate the generated script with `bash -n`, then execute at most one new Synology matrix run. The temporary validation PR must remain unmerged and must be closed after evidence is recorded.
+The authorized no-rerun budget is exhausted. A future task must explicitly authorize a harness-only repair that either exposes PHP inside the Playwright execution environment or routes `runArtisan` through the application container, and must correct the one-corrupt fixture invariant before any further matrix execution. No product implementation should be inferred from this run.
