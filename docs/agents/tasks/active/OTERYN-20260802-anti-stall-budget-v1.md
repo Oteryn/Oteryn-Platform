@@ -1,11 +1,11 @@
 ---
 task_id: OTERYN-20260802-anti-stall-budget-v1
-status: implementing
+status: validating
 branch: docs/anti-stall-budget-v1-20260802
 base_branch: main
 created: 2026-08-02T10:29:00+02:00
-updated: 2026-08-02T10:29:00+02:00
-feature_pr: ""
+updated: 2026-08-02T10:42:00+02:00
+feature_pr: "449"
 owned_paths:
   - AGENTS.override.md
   - docs/agents/AGENTS.md
@@ -28,18 +28,66 @@ Prevent autonomous agents from becoming unbounded polling, retry, repair, or tas
 - [ ] Pass exact-head governance and required CI.
 - [ ] Merge and archive.
 
-## Budget checkpoint
+## Context checkpoint
 
 ```yaml
+checkpoint_version: 1
+policy_version: 2
+updated_at: 2026-08-02T10:42:00+02:00
+head: 69371bdd59eb7ce69818c7289a1b54f9cbaeb5f1
+branch: docs/anti-stall-budget-v1-20260802
+pr: 449
+status: validating
+phase: validate
+session_id: chat-20260802-anti-stall-budget-v1
+session_role: coordinator
+execution_mode: chat
+run_scope: autonomous_program
+continuation_policy: continue_until_real_stop
+task_completion_policy: finalize_archive_and_continue
+user_communication: low_noise
+context_routes:
+  - agent-governance
+context_pressure: low
+context_growth: stable
+decomposition_decision: single
+validation_level: focused
+last_completed_step: repaired required context checkpoint
+owned_paths:
+  - AGENTS.override.md
+  - docs/agents/AGENTS.md
+  - docs/agents/ANTI_STALL_AND_EXECUTION_BUDGET.md
+  - docs/agents/tasks/active/OTERYN-20260802-anti-stall-budget-v1.md
+proven:
+  - Root and local agent routing require the anti-stall contract.
+  - The contract bounds runtime, no-progress, CI checks, retries, repair cycles, context reconstruction and command duration.
+derived:
+  - Pending platform workflows can no longer justify indefinite polling.
+unknown:
+  - Exact-head workflow outcome after checkpoint repair.
+conflicts: []
+first_failure:
+  marker: missing-context-checkpoint
+  evidence: Agent Governance run 3953 rejected the initial task record.
+rejected_hypotheses:
+  - the anti-stall contract content caused the governance failure
+changed_paths:
+  - AGENTS.override.md
+  - docs/agents/AGENTS.md
+  - docs/agents/ANTI_STALL_AND_EXECUTION_BUDGET.md
+  - docs/agents/tasks/active/OTERYN-20260802-anti-stall-budget-v1.md
+validation:
+  - checkpoint validator unit tests passed in run 3953
+blockers: []
 invocation_started_at: 2026-08-02T10:29:00+02:00
-last_progress_at: 2026-08-02T10:29:00+02:00
+last_progress_at: 2026-08-02T10:42:00+02:00
 runtime_limit_minutes: 60
 no_progress_minutes: 15
 ci_checks_for_current_head: 0
 unchanged_state_checks: 0
 identical_failure_retries: 0
-repair_cycles_for_current_gate: 0
+repair_cycles_for_current_gate: 1
 context_reconstruction_attempts: 0
 stall_warnings: 0
-next_action: open the implementation PR and verify exact-head checks
+next_action: verify exact-head checks for PR 449
 ```
