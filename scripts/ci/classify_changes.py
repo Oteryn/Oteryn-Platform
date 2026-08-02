@@ -19,6 +19,7 @@ GATES = (
 
 ALL_GATES = frozenset(GATES)
 NO_GATES = frozenset()
+POLICY_FIXTURES = Path(__file__).resolve().parents[2] / "tests/ci/fixtures/change-routing-cases.json"
 
 
 @dataclass(frozen=True)
@@ -188,13 +189,7 @@ def classify_path(raw_path: str) -> PathClassification:
     ):
         return PathClassification("frontend", frozenset(("ci",)))
 
-    if _matches(
-        path,
-        (
-            "app/**",
-            "tests/**",
-        ),
-    ):
+    if _matches(path, ("app/**", "tests/**")):
         return PathClassification("backend", frozenset(("ci", "phase7")))
 
     if _matches(
@@ -231,18 +226,58 @@ def classify_paths(paths: Iterable[str], *, force_all: bool = False) -> dict[str
         affected = set().union(*(item.gates for item in classifications))
         gates = {gate: gate in affected for gate in GATES}
 
-    return {
-        "classes": classes,
-        "paths": normalized,
-        "gates": gates,
-    }
+    return {"classes": classes, "paths": normalized, "gates": gates}
+
+
+def validate_policy_contract(path: Path = POLICY_FIXTURES) -> int:
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+        cases = raw["cases"]
+    except (OSError, json.JSONDecodeError, KeyError, TypeError) as exc:
+        raise ValueError(f"invalid CI routing fixture contract: {exc}") from exc
+
+    if not isinstance(cases, list) or not cases:
+        raise ValueError("CI routing fixture contract must contain non-empty cases")
+
+    names: set[str] = set()
+    for index, case in enumerate(cases, start=1):
+        if not isinstance(case, dict):
+            raise ValueError(f"fixture case {index} must be an object")
+        name = str(case.get("name", "")).strip()
+        paths = case.get("paths")
+        expected_classes = case.get("classes")
+        expected_gates = case.get("gates")
+        if not name or name in names:
+            raise ValueError(f"fixture case {index} has an empty or duplicate name")
+        names.add(name)
+        if not isinstance(paths, list) or not all(isinstance(item, str) for item in paths):
+            raise ValueError(f"fixture {name} paths must be a list of strings")
+        if not isinstance(expected_classes, list) or not all(
+            isinstance(item, str) for item in expected_classes
+        ):
+            raise ValueError(f"fixture {name} classes must be a list of strings")
+        if not isinstance(expected_gates, list) or not all(
+            isinstance(item, str) for item in expected_gates
+        ):
+            raise ValueError(f"fixture {name} gates must be a list of strings")
+        unknown_gates = sorted(set(expected_gates) - set(GATES))
+        if unknown_gates:
+            raise ValueError(f"fixture {name} contains unknown gates: {unknown_gates}")
+
+        result = classify_paths(paths)
+        actual_gates = sorted(gate for gate, enabled in result["gates"].items() if enabled)
+        if result["classes"] != expected_classes or actual_gates != sorted(expected_gates):
+            raise ValueError(
+                f"fixture {name} mismatch: classes={result['classes']} gates={actual_gates}"
+            )
+    return len(cases)
 
 
 def changed_paths(base: str, head: str) -> list[str]:
     if not base or not head:
         raise ValueError("both --base and --head are required for git diff classification")
     output = subprocess.check_output(
-        ["git", "diff", "--name-only", "--diff-filter=ACMR", base, head],
+        ["git", "diff", "--name-only", "--diff-filter=ACMRD", base, head],
         text=True,
     )
     return [line for line in output.splitlines() if line.strip()]
@@ -260,7 +295,7 @@ def write_github_output(path: Path, result: dict[str, object]) -> None:
         handle.write(f"paths_json={json.dumps(paths, separators=(',', ':'))}\n")
 
 
-def write_summary(path: Path, result: dict[str, object]) -> None:
+def write_summary(path: Path, result: dict[str, object], fixture_count: int) -> None:
     gates = result["gates"]
     assert isinstance(gates, dict)
     classes = result["classes"]
@@ -270,6 +305,7 @@ def write_summary(path: Path, result: dict[str, object]) -> None:
         "",
         f"- classes: `{', '.join(str(item) for item in classes)}`",
         f"- changed paths: `{len(paths)}`",
+        f"- policy fixtures validated: `{fixture_count}`",
         "- classification is routing evidence only; skipped jobs are not product-validation evidence.",
         "",
         "| Gate | Heavy internals |",
@@ -297,6 +333,7 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> int:
     args = parse_args()
+    fixture_count = validate_policy_contract()
     if args.all:
         paths: list[str] = []
         force_all = True
@@ -311,7 +348,7 @@ def main() -> int:
     if args.github_output:
         write_github_output(args.github_output, result)
     if args.summary:
-        write_summary(args.summary, result)
+        write_summary(args.summary, result, fixture_count)
     if args.json or (not args.github_output and not args.summary):
         print(json.dumps(result, indent=2, sort_keys=True))
     return 0

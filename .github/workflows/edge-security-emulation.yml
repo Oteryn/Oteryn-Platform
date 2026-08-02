@@ -14,7 +14,42 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  classify_changes:
+    name: classify-changes
+    runs-on: ubuntu-latest
+    outputs:
+      ci: ${{ steps.classify.outputs.ci }}
+      phase7: ${{ steps.classify.outputs.phase7 }}
+      edge: ${{ steps.classify.outputs.edge }}
+      db_outage: ${{ steps.classify.outputs.db_outage }}
+      game_auth_concurrency: ${{ steps.classify.outputs.game_auth_concurrency }}
+      classes: ${{ steps.classify.outputs.classes }}
+    steps:
+      - name: Checkout exact classification range
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+
+      - name: Validate change classifier
+        run: python tests/ci/test_classify_changes.py
+
+      - name: Classify changed paths
+        id: classify
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha || '' }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          if [[ "$EVENT_NAME" == "pull_request" ]]; then
+            python scripts/ci/classify_changes.py               --base "$BASE_SHA"               --head "$HEAD_SHA"               --github-output "$GITHUB_OUTPUT"               --summary "$GITHUB_STEP_SUMMARY"
+          else
+            python scripts/ci/classify_changes.py               --all               --github-output "$GITHUB_OUTPUT"               --summary "$GITHUB_STEP_SUMMARY"
+          fi
+
   validate:
+    needs: classify_changes
+    if: ${{ always() && (needs.classify_changes.result != 'success' || needs.classify_changes.outputs.edge == 'true') }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
@@ -38,6 +73,12 @@ jobs:
       EDGE_EVIDENCE_PATH: /tmp/edge-security-emulation-evidence.json
 
     steps:
+      - name: Require successful change classification
+        if: ${{ needs.classify_changes.result != 'success' }}
+        run: |
+          echo "Change classification failed; this required gate is failing closed."
+          exit 1
+
       - name: Checkout exact validation SHA
         uses: actions/checkout@v7
         with:
