@@ -402,6 +402,7 @@ def main() -> None:
         verify_token()
         if mode == "audit":
             state = inspect_state()
+            require_unambiguous(state, allow_absent=True)
             mutations: list[str] = []
         elif mode == "apply":
             state, mutations = apply()
