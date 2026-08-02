@@ -14,7 +14,7 @@ This is an audit-only task. It may update reports, evidence and the audit checkp
 
 The repository contains a broad, internally consistent portal implementation and a mature validation architecture. The legacy backend/frontend reconciliation proves that 23 benchmark capabilities have backend, reachable frontend and real-route integration without one-sided promotion.
 
-Under the current delivery-completeness policy, that is not sufficient to call a capability complete. The authoritative result is:
+Under the current delivery-completeness policy, that is not sufficient to call a capability complete:
 
 ```yaml
 legacy_backend_frontend_result:
@@ -30,13 +30,14 @@ policy_v2_result:
   not_applicable: 3
 ```
 
-The legacy word `implemented` remains a valid repository integration fact. It does not prove all persistence, authorization, state, locale, accessibility, test, zero-retry E2E, independent-audit, exact-final-head and terminal-PR/task gates.
+The merged production-completion baseline identifies 18 modules. The earlier 43-capability ledger is a benchmark subset and lacks explicit records for several delivered or cross-cutting modules. This is finding `OTERYN-AUDIT-P6-001`.
 
-The merged production-completion baseline identifies 18 modules. The earlier 43-capability ledger is a benchmark subset and lacks explicit records for several delivered or cross-cutting modules. This is new finding `OTERYN-AUDIT-P6-001`.
+A new live GitHub reconciliation mapped all 21 open Issues and all 6 open pull requests. It found that the main active-work index declares zero active tasks while five PRs contain active task records, four of those records lag their live PR identity, and PR `#391` has neither a parent Issue nor explicit module ownership. These are findings `OTERYN-AUDIT-P7-001` and `OTERYN-AUDIT-P7-002`.
 
-Open normalized findings: **0 HIGH / 7 MEDIUM / 1 LOW**.  
+Open frozen portal/product findings: **0 HIGH / 7 MEDIUM / 1 LOW**.  
+Additional open live work-graph findings: **0 HIGH / 2 MEDIUM / 0 LOW**.  
 Independent verdict remains **`VALIDATED_WITH_CORRECTIONS`**.  
-Task status is **`waiting`**, because the final bounded Issue #365 matrix is still active.
+Task status remains **`waiting`** on the bounded Issue `#365` matrix.
 
 ## Canonical inventory
 
@@ -51,19 +52,22 @@ The audit established:
 - 43 legacy benchmark capabilities: 23 implemented, 3 partial, 14 missing and 3 not applicable;
 - zero user-facing backend-only or frontend-only promotions to legacy implemented.
 
-Policy-v2 module and capability details are in:
+Policy-v2 details are in:
 
-- `docs/agents/evidence/OTERYN-20260731-portal-backend-frontend-audit/phase-6-delivery-completeness-crosswalk.json`;
-- `docs/agents/reports/OTERYN-20260731-portal-backend-frontend-audit-phase-6-delivery-completeness.md`.
+- `phase-6-delivery-completeness-crosswalk.json`;
+- `OTERYN-20260731-portal-backend-frontend-audit-phase-6-delivery-completeness.md`.
+
+The current live work graph is in:
+
+- `phase-7-issue-pr-coverage.json`;
+- `OTERYN-20260731-portal-backend-frontend-audit-phase-7-issue-pr-coverage.md`.
 
 ## Strict backend/frontend and browser validation
 
 Portal Acceptance Contract:
 
 - exact source `fdb45a4325949d3ab1c4860e3a4527553f11c789`;
-- run `30633216358`;
-- job `91164376176`;
-- artifact `8794204786`;
+- run `30633216358`, job `91164376176`, artifact `8794204786`;
 - digest `sha256:82daac38363f959c21019d3e570eff987366774886cf1e2f9b1afdf2e889a385`;
 - result `PASS`.
 
@@ -71,8 +75,7 @@ This corrects the historical Phase 2 `UNKNOWN_NOT_EXECUTED` statement. Relations
 
 Fresh critical browser execution:
 
-- run `30633216753`, attempt 2, job `91339118796`;
-- artifact `8814897157`;
+- run `30633216753`, attempt 2, job `91339118796`, artifact `8814897157`;
 - smoke 7/7;
 - portability 36/36;
 - responsive 42/42;
@@ -82,15 +85,56 @@ Fresh critical browser execution:
 
 This proves a broad delivered critical profile, not every screen/state permutation.
 
-## Delivery-completeness policy-v2 finding
+## Delivery-completeness finding
 
 ### MEDIUM — OTERYN-AUDIT-P6-001
 
-**The 43-capability backend/frontend ledger is a benchmark subset, not an exhaustive portal/module completion ledger.**
+The 43-capability backend/frontend ledger is a benchmark subset, not an exhaustive portal/module completion ledger.
 
 Explicit legacy capability records are absent for CMS/content, Editorial Media, administrator/RBAC/audit, Platform API, legal/privacy/commerce, operations/observability, public edge and quality/E2E. Route/surface and programme records exist for some of these, but the strict validator cannot fail closed across every module and all 13 delivery/closeout gates.
 
-Disposition: open under Issue `#326`, coordinated with programme `#451`. Another agent owns implementation. PR `#381` records evidence only.
+Disposition: open under Issue `#326`, coordinated with programme `#451`. Another agent owns implementation.
+
+## Live Issue and PR reconciliation
+
+Phase 7 observed:
+
+- 21 open Issues and 6 open PRs;
+- all 21 Issues and all 6 PRs mapped to role, module and disposition;
+- 5 PRs with active task records;
+- temporary validator PR `#476` without a separate task record;
+- `ACTIVE_WORK.md` declaring no active tasks.
+
+Current PR dispositions:
+
+- `#338` — blocked required Game Catalog consumer; keep draft;
+- `#381` — this audit; keep draft;
+- `#391` — blocked official-client interoperability research; keep draft but classify ownership;
+- `#405` — blocked production gate evidence; keep draft;
+- `#471` — active payment backend producer; keep draft and refresh checkpoint;
+- `#476` — temporary validator; close without merge after evidence persistence.
+
+### MEDIUM — OTERYN-AUDIT-P7-001
+
+The live coordination index and task checkpoints do not match the current PR graph.
+
+- `ACTIVE_WORK.md` says no active tasks;
+- PR `#338`: live `8baec8d66c1bab0b618684096300ab491dacacb4`, checkpoint `b1adb5355871cc7ede579799669d38ca323e3dcc`;
+- PR `#391`: live `630ed73c09242cf3d37f3652b06fa252c6b0f10d`, checkpoint `cabad487a139aaf0983dfc55cfb18d9f43720633`;
+- PR `#405`: live `6357fce7d68cfaa16452e7d71719a5c0ea886717`, checkpoint `90f367963ddaee6fa6884319fc8cc54e23ca8ec4`;
+- PR `#471`: live `cda564d4072f8ddac9f258a106b660a3558c50d5`, checkpoint `head: UNKNOWN`, `pr: none`.
+
+Impact: another autonomous agent can read stale ownership, validation, blocker or next-action state and duplicate or mis-sequence work.
+
+Disposition: programme `#451` coordination remediation. No implementation in PR `#381`.
+
+### MEDIUM — OTERYN-AUDIT-P7-002
+
+PR `#391` and task `OTERYN-20260801-official-linux-client-live-reference` have no explicit parent Issue and no first-class module ownership in the production-completion ledger.
+
+This work creates an external-client interoperability research capability and plans cross-stack requirements. It must be adopted under a dedicated module boundary or intentionally mapped to existing modules by programme `#451`.
+
+Disposition: programme classification and ownership correction. No implementation or issue mutation in PR `#381`.
 
 ## Issue #365 authoritative state
 
@@ -114,7 +158,7 @@ Post-serialization source `6c1e910d36771f50da5eded93cc50274a90c62d2` retained th
 
 Both reproduced failures preserved durable `Published`, version 3 and `Unpublish to draft` state.
 
-Recovered embedded diagnostics prove deterministic stale EditorialMedia fixture expansion. Desktop and tablet retain publication feedback despite contaminated thumbnail HTTP 500 traffic; HTTP 500 presence alone is insufficient to explain mobile flash loss. Existing artifacts do not preserve a complete browser/request/session causal chain.
+Recovered diagnostics prove deterministic stale EditorialMedia fixture expansion. Desktop and tablet retain publication feedback despite contaminated thumbnail HTTP 500 traffic; HTTP 500 presence alone is insufficient to explain mobile flash loss. Existing artifacts do not preserve a complete browser/request/session causal chain.
 
 The source-faithful 18-sample layout probe recorded zero thumbnail request starts from the beginning of `Publish.click()` in all desktop, tablet and mobile samples. The old-document lazy-thumbnail race therefore remains a low-confidence hypothesis only.
 
@@ -124,21 +168,20 @@ The source-faithful 18-sample layout probe recorded zero thumbnail request start
 - run `30763456046`;
 - job `91537990755`;
 - temporary observation PR `#476`;
-- exact frozen target checked out separately;
 - workers `1`;
 - retries `0`.
 
-Preparation, exact checkout and validator generation passed. At the second and final permitted state check, the 12-sample matrix remained `in_progress`.
+Preparation, exact checkout and validator generation passed. At the first state check in the current invocation, the 12-sample matrix remained `in_progress`.
 
-The run must not be polled further or rerun in this invocation. When terminal, inspect once, verify artifacts, update Issue #365 evidence and close PR #476 without merge.
+The run must not be rerun. One later unchanged-state check remains permitted in this invocation. When terminal, inspect once, verify artifacts, update Issue `#365` and PR `#381` evidence, and close PR `#476` without merge.
 
-## Open findings
+## Open frozen portal/product findings
 
 ### MEDIUM
 
 - `OTERYN-AUDIT-P35-006` — Wiki media fixtures leak deliberately damaged rows into later projects.
 - `OTERYN-AUDIT-P35-001` — strict content-scale closure omits nine canonical fragment surfaces.
-- `OTERYN-AUDIT-P35-002` — the dedicated global error matrix omits HTTP 503.
+- `OTERYN-AUDIT-P35-002` — dedicated global error matrix omits HTTP 503.
 - `OTERYN-AUDIT-P35-003` — accessibility evidence is representative rather than fail-closed per surface.
 - `OTERYN-AUDIT-P35-005` — responsive-mobile Wiki publication intermittently loses accessible transient success feedback after durable success.
 - `OTERYN-AUDIT-P35-007` — two Wiki administrator fields use an invalid native HTML pattern.
@@ -148,20 +191,23 @@ The run must not be polled further or rerun in this invocation. When terminal, i
 
 - `OTERYN-AUDIT-P1-001` — frozen `ACTIVE_WORK.md` ownership evidence conflicts with live task/PR state.
 
-Corrected but not open: `OTERYN-AUDIT-P6-002`, the stale Phase 2 validator status.
+Additional live work-graph findings: `P7-001` and `P7-002`, both MEDIUM.
+
+Corrected but not open: `OTERYN-AUDIT-P6-002`, the stale Phase 2 validator state.
 
 ## Product-gap boundary
 
-The audit truthfully preserves partial or missing classifications:
+The audit preserves partial or missing classifications:
 
 - character deletion/restore, rename, world transfer and achievement display;
-- real payments, products, entitlements, premium/VIP, vouchers and full customer histories;
+- real payments, products, entitlements, premium/VIP, vouchers and complete customer histories;
 - broader Game Catalog/knowledge capabilities;
 - Platform API;
 - Poland/EU commerce legal/privacy boundaries;
-- operations, observability and public-edge evidence.
+- operations, observability and public-edge evidence;
+- external-client interoperability ownership and acceptance classification.
 
-No implementation is performed here. The implementation agent should use existing Issues `#326`, `#317`, `#319`, `#320`, `#323`, `#321`, `#322` and programme `#451` rather than create a competing scope.
+No implementation is performed here. The implementation agent must use the Phase 6 module crosswalk and Phase 7 live work graph rather than relying only on the selected issue list in older reports.
 
 ## Deployment boundary
 
@@ -181,9 +227,10 @@ Verdict: `VALIDATED_WITH_CORRECTIONS`.
 The task is not terminal while:
 
 1. run `30763456046` is non-terminal;
-2. Issue #365 lacks a valid exact-frozen correlated result;
-3. seven medium findings remain open;
-4. Issue #326 lacks an exhaustive machine-enforced 18-module/13-layer completion matrix;
-5. related PRs/tasks are not intentionally terminal.
+2. Issue `#365` lacks a valid exact-frozen correlated result;
+3. frozen portal/product material findings remain open;
+4. Phase 7 coordination/taxonomy findings remain open;
+5. Issue `#326` lacks an exhaustive machine-enforced 18-module/13-layer completion matrix;
+6. related PRs/tasks are not intentionally terminal.
 
 No merge, deployment or product implementation is authorized.
