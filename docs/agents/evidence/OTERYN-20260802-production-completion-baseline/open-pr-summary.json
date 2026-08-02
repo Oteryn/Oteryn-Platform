@@ -1,0 +1,12 @@
+{
+  "observed_after_cleanup": "2026-08-02T11:45:00+02:00",
+  "open_pr_count": 6,
+  "pull_requests": [
+    {"number":225,"disposition":"merge_ready_after_gate","next_action":"Dependabot rebase/recreate, then Game Gateway CI on exact head"},
+    {"number":338,"disposition":"blocked_required_with_exact_dependency","next_action":"prove Canary schema 1.3 producer compatibility and rollout"},
+    {"number":381,"disposition":"active_with_current_next_action","next_action":"execute exact frozen Issue 365 validator and reconcile evidence"},
+    {"number":391,"disposition":"active_with_current_next_action","next_action":"continue safety-gated official Linux client live-reference harness"},
+    {"number":405,"disposition":"blocked_required_with_exact_dependency","next_action":"refresh private-production operational evidence and unresolved release prerequisites"},
+    {"number":412,"disposition":"active_with_current_next_action","next_action":"finish Issue 365 Synology validator preflight; close without merge at terminal state"}
+  ]
+}
