@@ -41,7 +41,6 @@ def main() -> None:
     original = load_original()
     generated = original.prepare(args.source.read_text(encoding="utf-8"))
 
-    # Preserve the literal selector inside the generated observer extractor.
     media_broken = """    '05-media-snapshot.sh': "cat > "$RUN_ROOT/media-snapshot.php" <<'PHP'",
 """
     media_repaired = r"""    '05-media-snapshot.sh': "cat > \"$RUN_ROOT/media-snapshot.php\" <<'PHP'",
@@ -53,24 +52,18 @@ def main() -> None:
         "media snapshot selector repair",
     )
 
-    # Laravel 13.20.0 has a blank line between saveSession() and return.
-    # The old pattern lives inside the generated runtime observer script, not
-    # in the parent validator. Patch that extracted script before it is hashed
-    # and executed, while keeping the frozen checkout and runbook untouched.
     hash_anchor = (
-        'docker exec "$app_container" bash -lc '\
+        "docker exec \"$app_container\" bash -lc "
         "'sha256sum \"$RUN_ROOT\"/runtime/*.sh > "
         "\"$RUN_ROOT/runtime/SHA256SUMS\"'"
     )
-    runtime_patch = r'''docker exec -i "$app_container" python3 - <<'PY'
+    runtime_patch = r"""docker exec -i "$app_container" python3 - <<'PY'
 from pathlib import Path
 
 path = Path('/evidence/issue365-run/runtime/02-observer-patch.sh')
 text = path.read_text(encoding='utf-8')
-old = r'''    "        $this->saveSession($request);\n        return $response;\n",
-'''
-new = r'''    "        $this->saveSession($request);\n\n        return $response;\n",
-'''
+old = '    "        $this->saveSession($request);\\n        return $response;\\n",\n'
+new = '    "        $this->saveSession($request);\\n\\n        return $response;\\n",\n'
 count = text.count(old)
 if count != 1:
     raise SystemExit(
@@ -80,7 +73,7 @@ if count != 1:
 path.write_text(text.replace(old, new, 1), encoding='utf-8')
 PY
 
-docker exec "$app_container" bash -lc 'sha256sum "$RUN_ROOT"/runtime/*.sh > "$RUN_ROOT/runtime/SHA256SUMS"' '''.rstrip()
+docker exec "$app_container" bash -lc 'sha256sum "$RUN_ROOT"/runtime/*.sh > "$RUN_ROOT/runtime/SHA256SUMS"'""".rstrip()
     generated = replace_once(
         generated,
         hash_anchor,
