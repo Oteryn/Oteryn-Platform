@@ -1,0 +1,181 @@
+{
+  "schema_version": 1,
+  "programme_issue": 451,
+  "audit_issue": 452,
+  "observed_main": "52064fc880b4edbb2d479692f7c3e29530bbfaea",
+  "source_ledgers": [
+    "docs/architecture/MODULE_CATALOG.md",
+    "docs/architecture/ROADMAP.md",
+    "docs/testing/product-backend-frontend-completeness.json",
+    "docs/agents/ACTIVE_WORK.md"
+  ],
+  "status_definitions": {
+    "implemented_repository_proven": "Backend, frontend and integration are recorded as implemented, but private-production deployment evidence may still be stale or absent.",
+    "partial": "At least one required layer or end-to-end outcome remains incomplete.",
+    "missing_required": "Required by programme #451 before the relevant launch/activation gate.",
+    "missing_later": "Valuable and planned, but not required for the first public website gate.",
+    "optional": "Product enhancement requiring a separate adoption decision.",
+    "not_applicable": "Explicitly excluded by current product/security policy.",
+    "blocked": "Cannot proceed safely until an exact external or cross-repository dependency is proven."
+  },
+  "modules": [
+    {
+      "id": "identity",
+      "catalog_status": "AVAILABLE",
+      "baseline_status": "implemented_repository_proven",
+      "production_evidence": "stale_or_partial",
+      "priority": "P0",
+      "known_gaps": ["delivery-capable production mail", "production session/cache/queue topology", "authoritative game-login bridge if included in launch scope"]
+    },
+    {
+      "id": "accounts",
+      "catalog_status": "AVAILABLE",
+      "baseline_status": "implemented_repository_proven",
+      "production_evidence": "stale_or_partial",
+      "priority": "P0",
+      "known_gaps": ["existing-account claim/import intentionally unsupported", "authoritative game-login bridge blocked"]
+    },
+    {
+      "id": "characters",
+      "catalog_status": "AVAILABLE",
+      "baseline_status": "partial",
+      "production_evidence": "repository_only_for_later_features",
+      "priority": "P1",
+      "known_gaps": ["rename", "deletion and restore", "world transfer", "achievement display"],
+      "dependencies": ["Issue #324 rename contract", "Canary-owned deletion lifecycle contract and producer implementation"]
+    },
+    {
+      "id": "public_game_data",
+      "catalog_status": "AVAILABLE",
+      "baseline_status": "implemented_repository_proven",
+      "production_evidence": "stale_or_partial",
+      "priority": "P0",
+      "known_gaps": ["exact private-production dependency and freshness verification"]
+    },
+    {
+      "id": "cms_content",
+      "catalog_status": "AVAILABLE",
+      "baseline_status": "implemented_repository_proven",
+      "production_evidence": "stale_or_partial",
+      "priority": "P0",
+      "known_gaps": ["catalogue/roadmap documentation is behind merged Downloads, Events, Announcements and public-site work"]
+    },
+    {
+      "id": "editorial_media",
+      "catalog_status": "IMPLEMENTING",
+      "baseline_status": "implemented_repository_proven",
+      "production_evidence": "repository_and_staging_evidence",
+      "priority": "P0",
+      "known_gaps": ["module catalogue status is stale"]
+    },
+    {
+      "id": "wiki",
+      "catalog_status": "IMPLEMENTING",
+      "baseline_status": "implemented_repository_proven",
+      "production_evidence": "repository_and_staging_evidence",
+      "priority": "P0",
+      "known_gaps": ["module catalogue status is stale", "Issue #365 intermittent publication-feedback validation remains open"]
+    },
+    {
+      "id": "support_moderation",
+      "catalog_status": "AVAILABLE",
+      "baseline_status": "implemented_repository_proven",
+      "production_evidence": "repository_only_after_latest_delivery",
+      "priority": "P0",
+      "known_gaps": ["production notification provider and monitoring"]
+    },
+    {
+      "id": "admin_rbac_audit",
+      "catalog_status": "AVAILABLE",
+      "baseline_status": "implemented_repository_proven",
+      "production_evidence": "stale_or_partial",
+      "priority": "P0",
+      "known_gaps": ["operator bootstrap and exact production access-path verification"]
+    },
+    {
+      "id": "wallet_marketplace",
+      "catalog_status": "IMPLEMENTING",
+      "baseline_status": "implemented_repository_proven",
+      "production_evidence": "repository_and_isolated_acceptance_only",
+      "priority": "P1",
+      "known_gaps": ["module catalogue status is stale", "real-money funding and customer commerce histories remain partial"]
+    },
+    {
+      "id": "game_catalog",
+      "catalog_status": "implicit_integration",
+      "baseline_status": "partial",
+      "production_evidence": "repository_only",
+      "priority": "P1",
+      "known_gaps": ["NPC/shop producer compatibility", "public NPC/shop projection", "spells", "quests", "achievements", "maps", "server-specific knowledge completeness"],
+      "dependencies": ["PR #338", "Canary schema 1.3 producer and rollout"]
+    },
+    {
+      "id": "platform_api",
+      "catalog_status": "PLANNED",
+      "baseline_status": "missing_later",
+      "production_evidence": "none",
+      "priority": "P2",
+      "known_gaps": ["stable first-party API auth", "rate limits", "versioned public/client contracts"]
+    },
+    {
+      "id": "payments",
+      "catalog_status": "PLANNED_LATER",
+      "baseline_status": "missing_required",
+      "production_evidence": "none",
+      "priority": "P1",
+      "market": ["Poland", "European Union"],
+      "currencies": ["PLN", "EUR"],
+      "known_gaps": ["provider ADR and threat model", "orders and checkout", "signed webhooks", "idempotency and replay protection", "reconciliation", "refunds", "disputes and chargebacks", "fraud/admin controls", "legal/tax/privacy gate"],
+      "activation_gate": "real charging disabled until provider, secrets, sandbox, security and legal gates pass"
+    },
+    {
+      "id": "products_entitlements",
+      "catalog_status": "missing_from_original_module_table",
+      "baseline_status": "missing_required",
+      "production_evidence": "none",
+      "priority": "P1",
+      "known_gaps": ["premium/VIP", "coin packages", "ready-to-use products", "vouchers/codes", "fulfilment", "entitlement history", "expiry/revocation"]
+    },
+    {
+      "id": "legal_privacy_commerce",
+      "catalog_status": "missing_as_dedicated_module",
+      "baseline_status": "missing_required",
+      "production_evidence": "none",
+      "priority": "P1",
+      "known_gaps": ["EU/Poland commerce terms", "privacy notices for payment data", "cookie/consent assessment", "retention and deletion schedule", "consumer refund/complaint presentation", "invoice/tax responsibility decision"]
+    },
+    {
+      "id": "operations_observability",
+      "catalog_status": "cross_cutting",
+      "baseline_status": "partial",
+      "production_evidence": "blocked",
+      "priority": "P0",
+      "known_gaps": ["exact private-production release identity", "delivery-capable mail", "queue worker policy", "shared session/cache decision", "central logs/metrics/alerts", "dated backup restore", "rollback evidence", "on-call ownership"],
+      "dependencies": ["Issue #91", "PR #405"]
+    },
+    {
+      "id": "public_edge",
+      "catalog_status": "cross_cutting",
+      "baseline_status": "blocked",
+      "production_evidence": "direct_failure_observed",
+      "priority": "P0",
+      "known_gaps": ["canonical WWW challenge policy", "Game Gateway TLS", "HTTP to HTTPS redirect", "HSTS", "effective cloudflared host path"],
+      "dependencies": ["PR #405", "current Cloudflare/operator verification"]
+    },
+    {
+      "id": "quality_e2e",
+      "catalog_status": "cross_cutting",
+      "baseline_status": "partial",
+      "production_evidence": "repository_and_staging_only",
+      "priority": "P0",
+      "known_gaps": ["Issue #365 exact validator", "every-screen/every-state closure", "exact deployed private-production E2E", "scheduled stability/soak evidence reconciliation"]
+    }
+  ],
+  "gap_counts_from_source_capability_ledger": {
+    "implemented": 23,
+    "partial": 3,
+    "missing": 14,
+    "not_applicable": 3
+  },
+  "programme_conclusion": "The platform is broad and substantially implemented, but it is not 100 percent complete. P0 private-production operations/public-edge evidence and P1 commerce, products, character lifecycle and Game Catalog gaps remain."
+}
