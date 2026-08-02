@@ -34,6 +34,9 @@ CLASSIFIER_JOB = """  classify_changes:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 0
 
+      - name: Validate change classifier
+        run: python tests/ci/test_classify_changes.py
+
       - name: Classify changed paths
         id: classify
         env:

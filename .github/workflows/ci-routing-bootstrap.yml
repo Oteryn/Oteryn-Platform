@@ -10,14 +10,14 @@ on:
       - synchronize
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: ci-routing-bootstrap-${{ github.event.pull_request.number }}
   cancel-in-progress: true
 
 jobs:
-  apply:
+  generate:
     if: >-
       github.repository == 'blakinio/Oteryn-Platform' &&
       github.head_ref == 'ci/OTERYN-20260802-change-routing' &&
@@ -43,6 +43,7 @@ jobs:
           git diff --check
           python - <<'PY'
           from pathlib import Path
+          import subprocess
 
           expected = {
               '.github/workflows/ci.yml',
@@ -53,7 +54,6 @@ jobs:
               '.github/workflows/ci-routing-bootstrap.yml',
               'scripts/ci/apply_change_routing.py',
           }
-          import subprocess
           changed = set(subprocess.check_output(
               ['git', 'diff', '--name-only'], text=True
           ).splitlines())
@@ -70,12 +70,32 @@ jobs:
                   raise SystemExit(f'{workflow}: missing unique dependency')
               if text.count('Require successful change classification') != 1:
                   raise SystemExit(f'{workflow}: missing fail-closed step')
+              if text.count('Validate change classifier') != 1:
+                  raise SystemExit(f'{workflow}: missing classifier tests')
           PY
 
-      - name: Commit generated workflow routing
+      - name: Package generated workflows
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add .github/workflows scripts/ci tests/ci
-          git commit -m "ci: route heavy validation by changed paths"
-          git push origin "HEAD:${{ github.head_ref }}"
+          rm -rf scripts/ci/__pycache__ tests/ci/__pycache__ artifacts/ci-routing
+          mkdir -p artifacts/ci-routing/.github/workflows
+          for workflow in \
+            ci.yml \
+            phase7-production-like-validation.yml \
+            edge-security-emulation.yml \
+            platform-db-outage-validation.yml \
+            game-auth-ticket-concurrency.yml
+          do
+            cp ".github/workflows/$workflow" "artifacts/ci-routing/.github/workflows/$workflow"
+          done
+          (
+            cd artifacts/ci-routing
+            sha256sum .github/workflows/*.yml > SHA256SUMS
+          )
+
+      - name: Upload generated workflow artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: ci-routing-generated-${{ github.run_id }}
+          path: artifacts/ci-routing
+          if-no-files-found: error
+          retention-days: 3
