@@ -18,8 +18,8 @@ PR #472 merged the repository-local governance correction as `91bafe8b282fe638e4
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-02T14:30:00Z
-head: a95c79c32b80235a8b9db1dffb8c7648dfae88dd
+updated_at: 2026-08-02T14:31:00Z
+head: 5b4d15af810b31f149b11e6476a919d7b2078c04
 branch: docs/OTERYN-20260802-agent-governance-sync
 pr: 472
 status: completed
@@ -50,7 +50,7 @@ validation:
     result: NOT_APPLICABLE
     evidence: no application or user runtime journey changed
 blockers: []
-next_action: none
+next_action: remove the obsolete closeout branch after PR 474 merges
 ```
 
 No application, database, deployment, production, secret or external-repository mutation was performed.
