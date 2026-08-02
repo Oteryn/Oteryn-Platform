@@ -32,12 +32,12 @@ policy_v2_result:
 
 The merged production-completion baseline identifies 18 modules. The earlier 43-capability ledger is a benchmark subset and lacks explicit records for several delivered or cross-cutting modules. This is finding `OTERYN-AUDIT-P6-001`.
 
-A new live GitHub reconciliation mapped all 21 open Issues and all 6 open pull requests. It found that the main active-work index declares zero active tasks while five PRs contain active task records, four of those records lag their live PR identity, and PR `#391` has neither a parent Issue nor explicit module ownership. These are findings `OTERYN-AUDIT-P7-001` and `OTERYN-AUDIT-P7-002`.
+The live GitHub reconciliation mapped all 21 open Issues and all 6 open pull requests. It found that the main active-work index declares zero active tasks while five PRs contain active task records, four records lag their live PR identity, and PR `#391` has neither a parent Issue nor explicit module ownership. Exact-head execution also proved that the current change-routing workflows cannot validate a pre-rollout PR head because their classifier files are read from that older head. These are findings `OTERYN-AUDIT-P7-001`, `OTERYN-AUDIT-P7-002` and `OTERYN-AUDIT-P7-003`.
 
 Open frozen portal/product findings: **0 HIGH / 7 MEDIUM / 1 LOW**.  
-Additional open live work-graph findings: **0 HIGH / 2 MEDIUM / 0 LOW**.  
+Additional open live work-graph/CI findings: **0 HIGH / 3 MEDIUM / 0 LOW**.  
 Independent verdict remains **`VALIDATED_WITH_CORRECTIONS`**.  
-Task status remains **`waiting`** on the bounded Issue `#365` matrix.
+Task status remains **`waiting`** on the bounded Issue `#365` matrix and externally owned CI compatibility remediation.
 
 ## Canonical inventory
 
@@ -57,7 +57,7 @@ Policy-v2 details are in:
 - `phase-6-delivery-completeness-crosswalk.json`;
 - `OTERYN-20260731-portal-backend-frontend-audit-phase-6-delivery-completeness.md`.
 
-The current live work graph is in:
+The current live work and CI graph is in:
 
 - `phase-7-issue-pr-coverage.json`;
 - `OTERYN-20260731-portal-backend-frontend-audit-phase-7-issue-pr-coverage.md`.
@@ -95,7 +95,7 @@ Explicit legacy capability records are absent for CMS/content, Editorial Media, 
 
 Disposition: open under Issue `#326`, coordinated with programme `#451`. Another agent owns implementation.
 
-## Live Issue and PR reconciliation
+## Live Issue, PR and CI reconciliation
 
 Phase 7 observed:
 
@@ -103,7 +103,9 @@ Phase 7 observed:
 - all 21 Issues and all 6 PRs mapped to role, module and disposition;
 - 5 PRs with active task records;
 - temporary validator PR `#476` without a separate task record;
-- `ACTIVE_WORK.md` declaring no active tasks.
+- `ACTIVE_WORK.md` declaring no active tasks;
+- Agent Governance passing on exact audit head `475013aa05a44a24d83cea09b0237147216c8d1f`;
+- five heavy validation workflows stopping before product validation because current-main classifier files are absent from the older PR head.
 
 Current PR dispositions:
 
@@ -135,6 +137,20 @@ PR `#391` and task `OTERYN-20260801-official-linux-client-live-reference` have n
 This work creates an external-client interoperability research capability and plans cross-stack requirements. It must be adopted under a dedicated module boundary or intentionally mapped to existing modules by programme `#451`.
 
 Disposition: programme classification and ownership correction. No implementation or issue mutation in PR `#381`.
+
+### MEDIUM — OTERYN-AUDIT-P7-003
+
+Current change-routing workflows are not backward-compatible with pre-rollout PR heads.
+
+On exact audit head `475013aa05a44a24d83cea09b0237147216c8d1f`:
+
+- Agent Governance `30767823565` passed after the checkpoint repair;
+- CI `30767823552`, Edge Security `30767823563`, Platform DB Outage `30767823557` and Game Auth Ticket Concurrency `30767823549` failed in classification because `tests/ci/test_classify_changes.py` is absent from the exact PR head;
+- Phase 7 Production-Like `30767823551` failed because `scripts/ci/classify_changes.py` is absent from the exact PR head.
+
+The files exist on current main but not on the frozen-base audit branch. All five heavy workflows skipped application setup and product validation. A backward-compatible workflow fallback, controlled rebase or intentional import of CI support files is required.
+
+Disposition: programme `#451` CI/governance remediation. This audit does not modify workflows or committed tests and does not silently alter the frozen product baseline.
 
 ## Issue #365 authoritative state
 
@@ -191,7 +207,7 @@ The run must not be rerun. One later unchanged-state check remains permitted in 
 
 - `OTERYN-AUDIT-P1-001` — frozen `ACTIVE_WORK.md` ownership evidence conflicts with live task/PR state.
 
-Additional live work-graph findings: `P7-001` and `P7-002`, both MEDIUM.
+Additional live work-graph/CI findings: `P7-001`, `P7-002` and `P7-003`, all MEDIUM.
 
 Corrected but not open: `OTERYN-AUDIT-P6-002`, the stale Phase 2 validator state.
 
@@ -205,7 +221,8 @@ The audit preserves partial or missing classifications:
 - Platform API;
 - Poland/EU commerce legal/privacy boundaries;
 - operations, observability and public-edge evidence;
-- external-client interoperability ownership and acceptance classification.
+- external-client interoperability ownership and acceptance classification;
+- backward-compatible exact-head validation for pre-routing-rollout branches.
 
 No implementation is performed here. The implementation agent must use the Phase 6 module crosswalk and Phase 7 live work graph rather than relying only on the selected issue list in older reports.
 
@@ -229,8 +246,9 @@ The task is not terminal while:
 1. run `30763456046` is non-terminal;
 2. Issue `#365` lacks a valid exact-frozen correlated result;
 3. frozen portal/product material findings remain open;
-4. Phase 7 coordination/taxonomy findings remain open;
+4. Phase 7 coordination, taxonomy and CI-compatibility findings remain open;
 5. Issue `#326` lacks an exhaustive machine-enforced 18-module/13-layer completion matrix;
-6. related PRs/tasks are not intentionally terminal.
+6. exact-head heavy product validation cannot execute on the frozen-base audit branch;
+7. related PRs/tasks are not intentionally terminal.
 
 No merge, deployment or product implementation is authorized.
