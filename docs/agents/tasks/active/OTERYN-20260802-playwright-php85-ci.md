@@ -78,8 +78,8 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-03T00:15:00+02:00
-head: 165f78da9387dafff9293443e0a78a1fce0c8ff6
+updated_at: 2026-08-03T00:27:00+02:00
+head: 16af4d32a714ffb0b263491a20f9690ec43bd930
 branch: fix/OTERYN-20260802-playwright-php85-ci
 pr: 477
 status: validating
@@ -103,30 +103,34 @@ proven:
   - Issue 365 run 30763456046 failed before browser execution because the Playwright container exposed PHP 8.3.6 while Composer required PHP >=8.5
   - existing acceptance helpers execute php and php artisan from the Playwright process
   - no live open PR owns the declared Playwright runtime paths
-  - retained image starts from php 8.5 cli bookworm and adds Node 22 Composer 2 and three Playwright browser engines
-  - image installs the PHP DOM XML XMLWriter GD Intl MBString PCNTL PDO MySQL ZIP and Redis extensions used by application and test dependencies
+  - official php 8.5 cli bookworm compiles default-enabled lexbor dom xml xmlwriter and mbstring into the base runtime
+  - rebuilding dom separately failed because ext dom depends on the always-enabled lexbor extension and its source headers
+  - retained image now compiles only the additional gd intl pcntl pdo_mysql and zip extensions and enables redis through PECL
+  - the image explicitly verifies all required built-in and additional extensions before browser installation
   - runner fails closed on PHP version exact Playwright version all Composer platform requirements helper syntax and php artisan cache clear
   - runner supports mounted bash and sh passthrough and removes its temporary node_modules link after execution
   - workflow prepares a file-backed local Laravel environment generates APP_KEY through the image and verifies all three browser engines
-  - Agent Governance passed on exact head 9ce37f6885e2c87b6595178b50a8312f40ac0d4c in run 30769574721
-  - first runtime workflow failure was reached before image execution and produced no product result
+  - all non-runtime required workflows passed on exact head af556cba25caf7aacd8a50133ed28aab26cb5630
+  - Agent Governance passed on exact head af556cba25caf7aacd8a50133ed28aab26cb5630 in run 30769653897
 derived:
+  - using the PHP base image built-in lexbor and DOM modules avoids an invalid partial rebuild while preserving Composer platform verification
   - replacing the temporary official Playwright image with this retained runtime removes the PHP 8.3 package-selection failure without changing Playwright test source
   - shell passthrough allows existing generated bash-lc Playwright invocations to adopt the runtime by changing only the image reference
   - full Composer platform checks make missing PHP extensions fail before browser execution rather than during a sample
 unknown:
-  - terminal exact-head result of retained image build mounted-shell compatibility and three-browser smoke after the first repair
-  - terminal exact-head results of required repository workflows
+  - terminal exact-head result of retained image build mounted-shell compatibility Composer Laravel contract and three-browser smoke after the Lexbor repair
+  - terminal exact-head results of workflows emitted for the new checkpoint head
 conflicts: []
 first_failure:
-  marker: Playwright PHP 8.5 Runtime image build stopped at Dockerfile parsing
-  evidence: run 30769574709 job 91554210430 reported unknown Dockerfile instruction extension_loaded and a second evidence-step reference to absent scripts/acceptance/package-lock.json
+  marker: PHP 8.5 DOM partial rebuild could not locate Lexbor headers
+  evidence: Playwright PHP 8.5 Runtime run 30769653916 job 91554438573 failed compiling ext dom with missing lexbor/html/parser.h and lexbor/encoding/encoding.h
 rejected_hypotheses:
   - Playwright itself is incompatible with the repository
   - the host-based acceptance workflow lacks PHP 8.5
   - installing distro php-cli independently for every sample is a durable repair
   - a browser-only smoke without php artisan helper execution closes the failure
   - an npm package lock exists in the current repository
+  - PHP 8.5 DOM must be rebuilt separately in a child image
 changed_paths:
   - .github/workflows/playwright-runtime-validation.yml
   - deploy/ci/playwright-php.Dockerfile
@@ -134,26 +138,29 @@ changed_paths:
   - docs/testing/PLAYWRIGHT_PHP85_RUNTIME.md
   - scripts/acceptance/run-playwright-ci.sh
 validation:
-  - command: Agent Governance run 30769574721
+  - command: Agent Governance run 30769653897
     result: PASS
-    evidence: checkpoint validator accepted exact head 9ce37f6885e2c87b6595178b50a8312f40ac0d4c
-  - command: Playwright PHP 8.5 Runtime run 30769574709 job 91554210430
+    evidence: checkpoint validator accepted exact head af556cba25caf7aacd8a50133ed28aab26cb5630
+  - command: required repository workflows on af556cba25caf7aacd8a50133ed28aab26cb5630
+    result: PASS
+    evidence: CI Edge Security Platform DB Outage Game Auth Phase 7 Portal Acceptance and Acceptance E2E all completed successfully
+  - command: Playwright PHP 8.5 Runtime run 30769653916 job 91554438573
     result: FAIL
-    evidence: Dockerfile multiline parser failure and absent npm lock reference; both corrected in the next bounded repair
-  - command: Playwright PHP 8.5 Runtime final exact-head rerun
+    evidence: invalid partial rebuild of default-enabled DOM failed on missing Lexbor source headers; Dockerfile corrected to use built-in modules
+  - command: Playwright PHP 8.5 Runtime on Lexbor-repair exact head
     result: NOT_RUN
-    evidence: terminal result pending after the first runtime repair
+    evidence: terminal result pending on the current exact head
 blockers:
   - none
 invocation_started_at: 2026-08-02T23:51:00+02:00
-last_progress_at: 2026-08-03T00:15:00+02:00
+last_progress_at: 2026-08-03T00:27:00+02:00
 ci_checks_for_current_head: 0
 unchanged_state_checks: 0
 identical_failure_retries: 0
-repair_cycles_for_current_gate: 1
+repair_cycles_for_current_gate: 2
 context_reconstruction_attempts: 1
 stall_warnings: 0
-next_action: inspect the final exact-head Playwright runtime workflow once terminal and repair only its first actionable failure if any
+next_action: inspect the exact-head Playwright runtime after the built-in Lexbor and DOM repair and fix only the first actionable failure if any
 ```
 
 ## Notes
