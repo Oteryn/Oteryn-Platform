@@ -7,11 +7,12 @@ Verdict: `VALIDATED_WITH_CORRECTIONS`
 
 ## Independent conclusion
 
-The repository, CI, browser, recovered-artifact and live GitHub evidence supports this audit only after three interpretation boundaries:
+The repository, CI, browser, recovered-artifact and live GitHub evidence supports this audit only after four interpretation boundaries:
 
 1. session serialization is **not proven to remediate** the intermittent responsive-mobile Wiki publication-feedback loss;
 2. the 43-capability backend/frontend ledger proves a bounded repository-integration contract, not complete delivery under policy v2;
-3. the current Issue/PR/task ownership graph cannot be inferred from `ACTIVE_WORK.md` or stale branch checkpoints and requires the Phase 7 live reconciliation.
+3. the current Issue/PR/task ownership graph cannot be inferred from `ACTIVE_WORK.md` or stale branch checkpoints and requires the Phase 7 live reconciliation;
+4. current-main change-routing workflows cannot provide exact-head product validation for the frozen-base audit branch because classifier files are loaded from the older PR head.
 
 No product implementation, workflow change, deployment, production mutation, issue lifecycle change or external-repository action was performed.
 
@@ -78,9 +79,9 @@ Repository integration remains proven for the legacy boundary. Full delivery is 
 
 The 43-capability ledger is a benchmark subset, not an exhaustive module completion ledger. Explicit legacy records are absent for CMS/content, Editorial Media, administrator/RBAC/audit, Platform API, legal/privacy/commerce, operations/observability, public edge and quality/E2E.
 
-## Live work-graph correction
+## Live work-graph and CI correction
 
-Phase 7 directly mapped all 21 open Issues and all 6 open PRs.
+Phase 7 directly mapped all 21 open Issues and all 6 open PRs and executed the current exact-head workflow set.
 
 ### OTERYN-AUDIT-P7-001 — MEDIUM / OPEN
 
@@ -99,6 +100,20 @@ PR `#391` and its official-client live-reference task have no explicit parent Is
 
 The work must receive intentional programme ownership under an external-client interoperability boundary or an explicit existing-module mapping before it can be considered part of a fail-closed programme inventory.
 
+### OTERYN-AUDIT-P7-003 — MEDIUM / OPEN
+
+The current change-routing workflow rollout is not backward-compatible with pre-rollout PR heads.
+
+On exact audit head `475013aa05a44a24d83cea09b0237147216c8d1f`:
+
+- Agent Governance run `30767823565` passed;
+- CI `30767823552`, Edge Security `30767823563`, Platform DB Outage `30767823557` and Game Auth Ticket Concurrency `30767823549` failed in classification because `tests/ci/test_classify_changes.py` is absent from the exact PR head;
+- Phase 7 Production-Like run `30767823551` failed in classification because `scripts/ci/classify_changes.py` is absent from the exact PR head.
+
+Both files exist on current main. All five heavy workflows skipped application setup and product testing. This is not product-failure evidence; it is proven workflow/branch compatibility failure.
+
+Impact: the audit cannot obtain current exact-head heavy CI without a backward-compatible fallback, a controlled rebase or intentional import of CI support files. Those changes belong to the separate CI/governance implementation agent.
+
 ## Findings summary
 
 Frozen portal/product findings:
@@ -107,10 +122,10 @@ Frozen portal/product findings:
 - MEDIUM: `7`;
 - LOW: `1`.
 
-Additional live work-graph findings:
+Additional live work-graph/CI findings:
 
 - HIGH: `0`;
-- MEDIUM: `2`;
+- MEDIUM: `3`;
 - LOW: `0`.
 
 Open frozen MEDIUM findings:
@@ -127,10 +142,11 @@ Open frozen LOW finding:
 
 - `OTERYN-AUDIT-P1-001` — frozen active-work ownership conflict.
 
-Open live work-graph MEDIUM findings:
+Open live work-graph/CI MEDIUM findings:
 
 - `OTERYN-AUDIT-P7-001` — current active-work/checkpoint graph is stale;
-- `OTERYN-AUDIT-P7-002` — official-client interoperability work lacks issue/module ownership.
+- `OTERYN-AUDIT-P7-002` — official-client interoperability work lacks issue/module ownership;
+- `OTERYN-AUDIT-P7-003` — current workflow routing cannot validate pre-rollout exact PR heads.
 
 Corrected but not open:
 
@@ -154,8 +170,9 @@ Do not rerun it. One later unchanged-state check remains permitted. When termina
 
 - the exact-frozen correlated matrix is non-terminal or inconclusive;
 - frozen portal/product material findings remain open;
-- live work-graph material findings remain open;
+- live work-graph/CI material findings remain open;
 - the exhaustive Issue `#326` module/capability completion contract is absent;
+- exact-head heavy product validation cannot execute on the frozen-base audit branch;
 - related PRs and tasks are not intentionally terminal.
 
 Verdict remains `VALIDATED_WITH_CORRECTIONS`. Task status remains `waiting`.
