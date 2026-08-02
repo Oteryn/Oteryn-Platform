@@ -39,6 +39,9 @@ jobs:
       - name: Validate bounded repair and rollback
         run: bash tests/operations/cloudflare-oteryn-public-edge-repair/run.sh
 
+      - name: Validate sanitized failure classification
+        run: bash tests/operations/cloudflare-oteryn-public-edge-repair/failure-result.sh
+
       - name: Validate exact operational marker boundary
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
@@ -139,9 +142,35 @@ jobs:
               echo 'operation_status=failed'
             fi
             grep -E '^(mode|candidate_count|repair_rule_count|repair_state|repair_before_candidate|bot_fight_mode|desired_state|mutation)=' "$raw_output" || true
+            if [[ "$exit_code" != '0' ]]; then
+              python3 scripts/operations/cloudflare-oteryn-public-edge-failure.py "$raw_output"
+            fi
           } >repair-result.txt
           echo "mode=$mode" >>"$GITHUB_OUTPUT"
           echo "exit_code=$exit_code" >>"$GITHUB_OUTPUT"
+
+      - name: Audit state after operation failure
+        id: failure-audit
+        if: steps.operation.outputs.exit_code != '0' && (steps.operation.outputs.mode == 'apply' || steps.operation.outputs.mode == 'rollback')
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          raw_audit="$(mktemp)"
+          set +e
+          CLOUDFLARE_EDGE_REPAIR_CONFIRMATION='' \
+            python3 scripts/operations/cloudflare-oteryn-public-edge-repair.py audit \
+            >"$raw_audit" 2>&1
+          audit_exit=$?
+          set -e
+          {
+            if [[ "$audit_exit" == '0' ]]; then
+              echo 'post_failure_audit=success'
+            else
+              echo 'post_failure_audit=failed'
+            fi
+            grep -E '^(candidate_count|repair_rule_count|repair_state|repair_before_candidate|bot_fight_mode|desired_state|mutation)=' "$raw_audit" || true
+          } >post-failure-audit-result.txt
+          exit "$audit_exit"
 
       - name: Read post-operation Cloudflare edge state
         id: edge
@@ -187,6 +216,7 @@ jobs:
             cloudflare-edge-audit/
             public-edge-validation/
             repair-result.txt
+            post-failure-audit-result.txt
             public-edge-result.txt
           if-no-files-found: warn
           retention-days: 14
@@ -199,8 +229,9 @@ jobs:
         run: |
           set -euo pipefail
           repair="$(cat repair-result.txt 2>/dev/null || printf 'operation_status=failed')"
+          post_failure="$(cat post-failure-audit-result.txt 2>/dev/null || printf 'post_failure_audit=not_run')"
           public="$(cat public-edge-result.txt 2>/dev/null || printf 'public_result=not_run')"
-          body="$(printf '## Cloudflare Oteryn public-edge repair\n\n```text\nrun_id=%s\ntrusted_sha=%s\n%s\n%s\n```\n\nOnly bounded repair and public-validation fields are published. Raw API responses, rule expressions, country literals, bodies and credentials are excluded.' "$GITHUB_RUN_ID" "$GITHUB_SHA" "$repair" "$public")"
+          body="$(printf '## Cloudflare Oteryn public-edge repair\n\n```text\nrun_id=%s\ntrusted_sha=%s\n%s\n%s\n%s\n```\n\nOnly bounded repair and public-validation fields are published. Raw API responses, rule expressions, country literals, bodies and credentials are excluded.' "$GITHUB_RUN_ID" "$GITHUB_SHA" "$repair" "$post_failure" "$public")"
           gh api "repos/$GITHUB_REPOSITORY/issues/$ISSUE_NUMBER/comments" -f body="$body" >/dev/null
 
       - name: Propagate operation failure
