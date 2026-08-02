@@ -42,10 +42,7 @@ def api(method: str, path: str, body: dict[str, Any] | None = None) -> dict[str,
     if not TOKEN:
         raise RepairError("CLOUDFLARE_API_TOKEN is missing")
     data = None
-    headers = {
-        "Authorization": f"Bearer {TOKEN}",
-        "Accept": "application/json",
-    }
+    headers = {"Authorization": f"Bearer {TOKEN}", "Accept": "application/json"}
     if body is not None:
         data = json.dumps(body, separators=(",", ":")).encode("utf-8")
         headers["Content-Type"] = "application/json"
@@ -59,7 +56,6 @@ def api(method: str, path: str, body: dict[str, Any] | None = None) -> dict[str,
         raw = exc.read(2_000_000)
     except Exception as exc:  # pragma: no cover - network boundary
         raise RepairError(f"Cloudflare transport error: {type(exc).__name__}") from exc
-
     if not raw and 200 <= status < 300:
         return {"success": True, "result": None, "status": status}
     try:
@@ -108,11 +104,7 @@ def is_broad_country_block(rule: dict[str, Any]) -> bool:
 
 
 def repair_rules(ruleset: dict[str, Any]) -> list[dict[str, Any]]:
-    return [
-        item
-        for item in ruleset.get("rules", [])
-        if isinstance(item, dict) and item.get("ref") == RULE_REF
-    ]
+    return [item for item in ruleset.get("rules", []) if isinstance(item, dict) and item.get("ref") == RULE_REF]
 
 
 def candidate_rules(ruleset: dict[str, Any]) -> list[dict[str, Any]]:
@@ -163,17 +155,10 @@ def inspect_state() -> dict[str, Any]:
         repair_state = "current" if exact else "drift"
         repair_hash = sha256(str(repairs[0].get("expression", "")))
         if len(candidates) == 1:
-            before_candidate = rule_index(ruleset, str(repairs[0].get("id", ""))) < rule_index(
-                ruleset, str(candidates[0].get("id", ""))
-            )
+            before_candidate = rule_index(ruleset, str(repairs[0].get("id", ""))) < rule_index(ruleset, str(candidates[0].get("id", "")))
             if repair_state == "current" and not before_candidate:
                 repair_state = "wrong_order"
-    desired = (
-        len(candidates) == 1
-        and repair_state == "current"
-        and before_candidate
-        and bot.get("fight_mode") is False
-    )
+    desired = len(candidates) == 1 and repair_state == "current" and before_candidate and bot.get("fight_mode") is False
     return {
         "ruleset": ruleset,
         "bot": bot,
@@ -216,12 +201,11 @@ def create_repair_rule(state: dict[str, Any], bot_baseline: bool) -> str:
         "ref": RULE_REF,
     }
     result = api("POST", f"/zones/{ZONE}/rulesets/{ruleset_id}/rules", body).get("result")
-    if not isinstance(result, dict):
-        raise RepairError("Cloudflare did not return the updated ruleset after rule creation")
-    matches = repair_rules(result)
-    if len(matches) != 1 or not matches[0].get("id"):
-        raise RepairError("created repair rule could not be identified")
-    return str(matches[0]["id"])
+    if not isinstance(result, dict) or not result.get("id"):
+        raise RepairError("Cloudflare did not return the created rule")
+    if result.get("ref") != RULE_REF:
+        raise RepairError("Cloudflare returned an unexpected created rule reference")
+    return str(result["id"])
 
 
 def delete_repair_rule(state: dict[str, Any]) -> None:
@@ -269,7 +253,6 @@ def apply() -> tuple[dict[str, Any], list[str]]:
     require_unambiguous(state, allow_absent=True)
     if state["desired_state"]:
         return state, []
-
     baseline = bool(state["bot"].get("fight_mode"))
     created_rule = False
     bot_changed = False
@@ -360,17 +343,7 @@ def emit(evidence: dict[str, Any]) -> None:
         "No token, rule expression, country literal or raw API response is emitted.",
     ]
     (OUT / "summary.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
-    for key in (
-        "operation_status",
-        "mode",
-        "candidate_count",
-        "repair_rule_count",
-        "repair_state",
-        "repair_before_candidate",
-        "bot_fight_mode",
-        "desired_state",
-        "mutation",
-    ):
+    for key in ("operation_status", "mode", "candidate_count", "repair_rule_count", "repair_state", "repair_before_candidate", "bot_fight_mode", "desired_state", "mutation"):
         value = evidence.get(key)
         if isinstance(value, bool):
             value = "true" if value else "false"
