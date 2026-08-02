@@ -1,6 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+case "${1:-}" in
+  bash|/bin/bash|sh|/bin/sh)
+    exec "$@"
+    ;;
+esac
+
 repo_root="${OTERYN_REPO_ROOT:-/workspace}"
 acceptance_dir="$repo_root/scripts/acceptance"
 toolchain_dir="/opt/oteryn-playwright"
@@ -11,7 +17,9 @@ cleanup() {
     rm -f "$acceptance_dir/node_modules"
   fi
 }
-trap cleanup EXIT INT TERM
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 fail() {
   printf 'Playwright CI runtime error: %s\n' "$*" >&2
