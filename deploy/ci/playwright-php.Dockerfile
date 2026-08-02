@@ -45,25 +45,17 @@ RUN apt-get update \
     && pecl install redis \
     && docker-php-ext-enable redis \
     && php -r 'exit(PHP_VERSION_ID >= 80500 ? 0 : 1);' \
-    && php -r 'exit(
-        extension_loaded("dom")
-        && extension_loaded("gd")
-        && extension_loaded("pdo_mysql")
-        && extension_loaded("redis")
-        && extension_loaded("xml")
-        && extension_loaded("xmlwriter")
-        ? 0 : 1
-    );' \
+    && php -r 'exit(extension_loaded("dom") && extension_loaded("gd") && extension_loaded("pdo_mysql") && extension_loaded("redis") && extension_loaded("xml") && extension_loaded("xmlwriter") ? 0 : 1);' \
     && node --version \
     && npm --version \
     && composer --version \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /opt/oteryn-playwright
-COPY scripts/acceptance/package.json scripts/acceptance/package-lock.json ./
+COPY scripts/acceptance/package.json ./package.json
 
 RUN mkdir -p "$PLAYWRIGHT_BROWSERS_PATH" \
-    && npm ci --no-audit --no-fund \
+    && npm install --no-audit --no-fund --package-lock=false \
     && test "$(node -p \"require('./node_modules/@playwright/test/package.json').version\")" = \
         "$(node -p \"require('./package.json').devDependencies['@playwright/test']\")" \
     && npx playwright install --with-deps chromium firefox webkit \
