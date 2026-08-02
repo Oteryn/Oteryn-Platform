@@ -25,37 +25,33 @@ required_reads:
   - docs/architecture/TEST_STRATEGY.md
   - docs/agents/evidence/OTERYN-20260731-portal-backend-frontend-audit/index.md
   - docs/agents/evidence/OTERYN-20260731-portal-backend-frontend-audit/VALIDATOR_VERDICT.md
-  - docs/agents/evidence/OTERYN-20260731-portal-backend-frontend-audit/ISSUE_365_SYNOLOGY_EXECUTION_ATTEMPTS.md
+  - docs/agents/evidence/OTERYN-20260731-portal-backend-frontend-audit/phase-8-exhaustive-module-gates.json
+  - docs/agents/reports/OTERYN-20260731-portal-backend-frontend-audit-phase-8-exhaustive-modules.md
 search_first:
   - live task checkpoint branch exact head PR and CI
-  - all current open Issues and pull requests before relying on ACTIVE_WORK
-  - Issue #326 Issue #365 and programme #451
-  - policy-v2 and live-work-graph evidence before historical wording
+  - Issue 326 Issue 365 and programme 451
+  - Phase 8 module matrix before older module summaries
+  - corrected Issue 365 terminal classification before historical comments
 ---
 
 # OTERYN-20260731-portal-backend-frontend-audit
 
 ## Goal
 
-Audit every delivered portal capability and platform module across backend, frontend, integration, observable states, validation evidence, current work ownership and deployment boundaries. Record findings only; product, workflow and deployment remediation belongs to other agents.
+Audit every available Oteryn Platform module and delivered portal capability across backend, frontend, integration, states, localization, accessibility, testing, CI, ownership and deployment boundaries. Record findings only; implementation belongs to other agents.
 
 ## Acceptance criteria
 
 - [x] Freeze the authoritative audit target and environment boundaries.
-- [x] Build the delivered-surface, route and capability inventories.
-- [x] Classify states, browsers, viewports and deployment evidence.
-- [x] Recover strict repository and critical browser artifacts.
-- [x] Execute current critical-profile and post-serialization original-flow validation.
-- [x] Recover embedded diagnostics and execute generic/source-faithful layout probes.
-- [x] Publish the exact frozen-target 12-sample execution runbook.
-- [x] Prove the Synology staging runner can build and bootstrap the required environment.
-- [x] Generate and install the Laravel 13.20.0 `StartSession` observer.
-- [x] Reconcile all 43 legacy capability records with all 18 programme modules under policy v2.
-- [x] Publish the machine-readable delivery-completeness crosswalk.
-- [x] Reconcile every current open Issue, pull request and active task into the live work graph.
-- [x] Test whether current exact-head workflows can validate the frozen-base audit branch.
-- [x] Inspect and classify the terminal corrected Issue #365 matrix execution.
-- [x] Publish consolidated reports, matrices, findings and validator instructions.
+- [x] Build the delivered surface, route and capability inventories.
+- [x] Reconcile all 43 legacy capabilities with all 18 programme modules.
+- [x] Reconcile every open Issue and PR at the observation point into the live work graph.
+- [x] Recover strict repository and zero-retry critical browser evidence.
+- [x] Classify states, browsers, viewports, media, content scale and accessibility gaps.
+- [x] Inspect and classify the terminal Issue #365 exact-frozen run.
+- [x] Audit all 18 modules against all 13 delivery and closeout gates.
+- [x] Add explicit applicability profiles for non-UI modules.
+- [x] Persist machine-readable matrices, reports, findings and implementation handoff.
 
 ## Ownership
 
@@ -64,12 +60,6 @@ owned_paths:
   - docs/agents/tasks/active/OTERYN-20260731-portal-backend-frontend-audit.md
   - docs/agents/reports/OTERYN-20260731-portal-backend-frontend-audit*.md
   - docs/agents/evidence/OTERYN-20260731-portal-backend-frontend-audit/**
-modules:
-  - portal completeness audit
-  - delivery-completeness policy-v2 reconciliation
-  - live Issue PR task and CI reconciliation
-  - audit evidence and validation
-  - Wiki Issue #365 evidence
 blockers: []
 cross_repository_tasks: []
 ```
@@ -77,17 +67,17 @@ cross_repository_tasks: []
 ## Constraints
 
 - Audit and documentation only.
-- Do not modify application code, routes, views/assets, runtime or production configuration, migrations/models, dependencies, committed tests, workflows, deployment or another repository.
-- Temporary validation PRs close without merge.
-- CI evidence does not imply staging or production deployment.
+- Do not modify application code, routes, views, assets, migrations, dependencies, committed tests, workflows, deployment or production state.
+- Product, CI/governance and programme remediation belongs to separate agents.
+- Temporary validator PRs close without merge.
 - No additional Issue #365 matrix rerun is authorized by this task.
 
 ## Context checkpoint
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-02T23:38:00+02:00
-head: 3d44b527975a4e125c9e990c6f499425b401118d
+updated_at: 2026-08-02T23:49:00+02:00
+head: 92e6e8392cd21e9138d133c0965cdc489e2abf0f
 branch: audit/OTERYN-20260731-portal-backend-frontend-audit
 pr: 381
 status: completed
@@ -97,58 +87,74 @@ context_routes:
   - portal-completeness
   - wiki
   - programme-coordination
+owned_paths:
+  - docs/agents/tasks/active/OTERYN-20260731-portal-backend-frontend-audit.md
+  - docs/agents/reports/OTERYN-20260731-portal-backend-frontend-audit*.md
+  - docs/agents/evidence/OTERYN-20260731-portal-backend-frontend-audit/**
 proven:
   - frozen audit target is b6f7b12a43aa72a52dc98c3fa07a7c4607fcb608
-  - canonical inventory contains 27 surface groups 240 named routes 126 rendered screens and 43 legacy benchmark capabilities
-  - legacy backend frontend result is 23 implemented 3 partial 14 missing and 3 not applicable
-  - policy-v2 result is 0 complete 23 repository-integrated-evidence-open 3 partial 14 missing and 3 not applicable
-  - all 21 open Issues and all 6 open pull requests at the audit observation point were mapped
+  - canonical inventory contains 27 surface groups 240 named routes 126 rendered screens and 43 legacy capabilities
+  - all 18 programme modules have explicit rows for all 13 policy gates in phase-8-exhaustive-module-gates.json
+  - Phase 8 result is 0 complete 6 repository-integrated-evidence-open 2 integrated-with-open-findings 4 partial 1 partial-blocked 3 missing-required 1 missing-later and 1 blocked
+  - strict backend frontend validation passed on source fdb45a4325949d3ab1c4860e3a4527553f11c789 run 30633216358 job 91164376176 artifact 8794204786
+  - critical browser run 30633216753 passed 96 of 96 tests with retries zero
   - frozen portal product findings are 0 HIGH 7 MEDIUM and 1 LOW
-  - additional live work-graph and CI findings are 0 HIGH 3 MEDIUM and 0 LOW
-  - strict backend frontend validation and the 96-test critical browser profile passed on their recorded exact heads
-  - responsive-mobile publication flash loss remains intermittently reproduced while durable publication succeeds
-  - session serialization remains NOT_PROVEN_REMEDIATED and Issue 365 root cause remains UNKNOWN
-  - run 30763456046 used frozen target b6f7b12a43aa72a52dc98c3fa07a7c4607fcb608 workers 1 and retries 0
-  - six clean samples were attempted in run 30763456046 and all stopped before browser flow because PHP 8.3.6 did not satisfy the lockfile requirement PHP >=8.5.0
-  - no exactly-one-corrupt sample completed in run 30763456046
-  - run 30763456046 was cancelled at the bounded timeout and produced zero GitHub artifacts
-  - isolated runtime cleanup completed successfully
-  - the terminal Issue 365 run is INVALID_TECHNICAL_FAILURE and supplies no product or causal evidence
-  - current-main change-routing workflows are not backward-compatible with the frozen-base PR head and stop before product validation
-  - no application deployment production or external-repository mutation occurred
+  - live work graph and CI findings are 0 HIGH 3 MEDIUM and 0 LOW
+  - Phase 8 adds 2 MEDIUM module programme findings and corrects non-UI applicability
+  - Platform API has no dedicated owner Issue or acceptance contract
+  - legal privacy commerce combines delivered legal publishing with absent commerce compliance
+  - run 30763456046 is INVALID_TECHNICAL_FAILURE because six clean samples stopped before browser flow on PHP 8.3.6 while frozen dependencies require PHP at least 8.5.0
+  - run 30763456046 produced zero artifacts no corrupt sample and no product or causal evidence
+  - temporary PR 476 is closed without merge
+  - Issue 365 remains REPRODUCED_INTERMITTENT NOT_PROVEN_REMEDIATED with root cause UNKNOWN
+  - no application workflow deployment production or external repository mutation occurred
+derived:
+  - every available module has now been audited individually rather than only listed
+  - no module is policy-v2 complete because at least one applicable gate is partial missing or blocked
+  - bounded PASS values apply only to the recorded module scope and cannot be promoted to customer commerce or production proof
 unknown:
-  - exact request or framework path that removes publication status
-  - exact session-lock acquisition and save order during a reproduced sample
-  - causal contribution of integrity-failure responses
-  - exact private-production release and availability
+  - exact request or framework path that removes Wiki publication status
+  - exact session lock and save ordering during a reproduced sample
+  - causal contribution of integrity failure responses
+  - exact private production release and availability
 conflicts:
   - current main contains classifier files required by current workflows while the frozen-base audit head does not
 first_failure:
-  marker: responsive-mobile original Wiki publication flash absent after session serialization while durable publication succeeds
+  marker: responsive-mobile Wiki publication status absent while durable publication succeeds
   evidence: run 30612399525 attempts 3 and 4 jobs 91343023604 and 91343514611 artifacts 8815383351 and 8815457044
 rejected_hypotheses:
-  - Synology or Docker availability remains the blocker
-  - the Laravel observer fails to match or install
-  - PHP runtime failures are portal product defects
-  - six technical failures satisfy the matrix gate
-  - a cancelled matrix or successful upload step proves product failure remediation or causal mechanism
-  - another unchanged matrix rerun is authorized
+  - legacy implemented means complete under all 13 gates
+  - an absent standalone UI is a defect for every API operations edge or quality module
+  - Bazaar wallet and auctions prove customer payments products or entitlements
+  - generic terms privacy and cookies pages prove commerce compliance
+  - game auth service endpoints constitute the missing general Platform API
+  - PHP harness failures are portal product defects
+  - another Issue 365 matrix rerun is authorized by this audit
+changed_paths:
+  - docs/agents/evidence/OTERYN-20260731-portal-backend-frontend-audit/phase-8-exhaustive-module-gates.json
+  - docs/agents/reports/OTERYN-20260731-portal-backend-frontend-audit-phase-8-exhaustive-modules.md
+  - docs/agents/evidence/OTERYN-20260731-portal-backend-frontend-audit/index.md
+  - docs/agents/tasks/active/OTERYN-20260731-portal-backend-frontend-audit.md
 validation:
+  - command: Phase 8 exhaustive 18 module by 13 gate reconciliation
+    result: PASS
+    evidence: all 18 modules contain explicit ordered gate rows and applicability profiles
   - command: Portal Acceptance Contract run 30633216358 job 91164376176
     result: PASS
-  - command: critical browser run 30633216753 attempt 2 job 91339118796
+    evidence: strict repository integration contract passed on its exact source
+  - command: critical browser run 30633216753
     result: PASS
-  - command: Agent Governance run 30767823565
+    evidence: 96 of 96 tests passed with retries zero inside the bounded critical profile
+  - command: corrected exact frozen run 30763456046 job 91537990755
+    result: FAIL
+    evidence: invalid technical execution PHP 8.3.6 versus required at least 8.5.0 six clean attempts zero corrupt samples zero artifacts
+  - command: audit mutation boundary
     result: PASS
-  - command: corrected exact-frozen run 30763456046 job 91537990755
-    result: INVALID_TECHNICAL_FAILURE
-    evidence: PHP 8.3.6 versus required >=8.5.0; six clean attempts; no corrupt samples; timeout; zero artifacts; cleanup success
+    evidence: changes remain confined to authorized audit task report and evidence paths
 blockers: []
-next_action: implementation and CI agents consume the recorded findings; do not rerun the Issue 365 matrix under this audit task
+next_action: implementation and programme agents consume Phase 8 findings and existing Issues; do not rerun Issue 365 under this audit task
 ```
 
 ## Final state
 
-The audit is complete with verdict `VALIDATED_WITH_CORRECTIONS`. Completion means the available repository, browser, work-graph, CI and terminal validator evidence has been fully classified; it does not mean the recorded product and governance findings are remediated.
-
-PR #381 remains the review channel for this audit. Product fixes, backward-compatible CI routing and any future PHP-8.5-compatible Issue #365 validation belong to separate governed implementation tasks.
+The audit is complete with verdict `VALIDATED_WITH_CORRECTIONS`. Completion means every available module and all available evidence have been classified. It does not mean recorded findings are remediated or any module is production-complete.
