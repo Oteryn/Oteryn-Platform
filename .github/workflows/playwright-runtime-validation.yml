@@ -9,7 +9,6 @@ on:
       - 'deploy/ci/playwright-php.Dockerfile'
       - 'scripts/acceptance/run-playwright-ci.sh'
       - 'scripts/acceptance/package.json'
-      - 'scripts/acceptance/package-lock.json'
       - 'scripts/acceptance/tests/helpers.mjs'
       - 'composer.json'
       - 'composer.lock'
@@ -21,7 +20,6 @@ on:
       - 'deploy/ci/playwright-php.Dockerfile'
       - 'scripts/acceptance/run-playwright-ci.sh'
       - 'scripts/acceptance/package.json'
-      - 'scripts/acceptance/package-lock.json'
       - 'scripts/acceptance/tests/helpers.mjs'
       - 'composer.json'
       - 'composer.lock'
@@ -153,7 +151,6 @@ jobs:
               deploy/ci/playwright-php.Dockerfile \
               scripts/acceptance/run-playwright-ci.sh \
               scripts/acceptance/package.json \
-              scripts/acceptance/package-lock.json \
               composer.json \
               composer.lock
           } > artifacts/playwright-runtime/source-identities.txt
