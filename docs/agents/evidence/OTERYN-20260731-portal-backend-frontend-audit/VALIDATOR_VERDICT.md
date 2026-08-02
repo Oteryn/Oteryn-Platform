@@ -2,138 +2,149 @@
 
 Task: `OTERYN-20260731-portal-backend-frontend-audit`  
 Frozen target: `b6f7b12a43aa72a52dc98c3fa07a7c4607fcb608`  
-Validation date: `2026-08-01`  
+Policy overlay inspected on current main: `39bdf0c79ffb0f7fd8daafd5451b9ad4e520138c`  
 Verdict: `VALIDATED_WITH_CORRECTIONS`
 
-## Executive correction
+## Independent conclusion
 
-Fresh validation disproved the earlier description of the historical Wiki flash defect as `PARTIALLY_PROVEN_REMEDIATED`.
+The available repository, CI, browser and recovered-artifact evidence supports the audit only after two material interpretation corrections:
 
-The exact targeted session-serialization source `6c1e910d36771f50da5eded93cc50274a90c62d2` retained the original transient assertion. Three independent zero-retry workflow attempts produced:
+1. session serialization is **not proven to remediate** the intermittent responsive-mobile Wiki publication-feedback loss;
+2. the historical 43-capability backend/frontend ledger proves a bounded repository-integration contract, not full completion under the current delivery-completeness policy.
 
-- one responsive-mobile PASS;
-- two exact responsive-mobile reproductions of the missing `Wiki article published.` status;
-- durable `Published`, version 3 and `Unpublish to draft` evidence in both reproductions;
-- desktop, tablet and portability Chromium/Firefox/WebKit PASS in all three attempts.
+No product implementation, workflow change, deployment, production mutation or external-repository action was performed by this audit.
 
-Corrected state:
+## Issue #365 correction
+
+Exact post-serialization source: `6c1e910d36771f50da5eded93cc50274a90c62d2`.
+
+Three independent zero-retry attempts produced:
+
+| Attempt | Job | Artifact | Responsive mobile |
+|---:|---:|---:|---|
+| 2 | `91342520692` | `8815321615` | PASS |
+| 3 | `91343023604` | `8815383351` | REPRODUCED |
+| 4 | `91343514611` | `8815457044` | REPRODUCED |
+
+Both reproductions lacked the accessible transient `Wiki article published.` status while preserving durable `Published`, version 3 and `Unpublish to draft` state. Desktop, tablet and Chromium/Firefox/WebKit portability passed.
+
+Authoritative state:
 
 ```yaml
 historical_state: PROVEN
 post_serialization_state: REPRODUCED_INTERMITTENT
 current_remediation_state: NOT_PROVEN_REMEDIATED
 root_cause: UNKNOWN
+old_document_lazy_thumbnail_race:
+  classification: DERIVED
+  confidence: LOW
 samples:
   pass: 1
   reproduced: 2
 ```
 
-## Direct post-serialization execution
+Recovered embedded diagnostics prove deterministic stale EditorialMedia fixture expansion and show that desktop/tablet can retain publication feedback despite thumbnail HTTP 500 traffic. They do not prove a causal request/session chain.
 
-Workflow run: `30612399525`  
-Exact source: `6c1e910d36771f50da5eded93cc50274a90c62d2`  
-Profile: `critical`  
-Playwright retries: `0`  
-Runtime: PHP 8.5, real Laravel HTTP, isolated MariaDB Platform/Canary, Redis ACL and MailHog.
+The source-faithful 18-sample responsive layout probe recorded zero thumbnail request starts from the beginning of `Publish.click()` in every desktop, tablet and mobile sample. It weakens the old-document lazy-thumbnail hypothesis but does not reproduce Laravel HTTP or session behavior.
 
-| Attempt | Job | Artifact | Digest | Responsive mobile |
-|---:|---:|---:|---|---|
-| 2 | `91342520692` | `8815321615` | `sha256:5b2168f4952ba52f0a737b47d3a195a061c8ffc023d07cbfa115b643358d623a` | PASS |
-| 3 | `91343023604` | `8815383351` | `sha256:7498934d30f5292dab91e46edbc5659bc885acc11fa84c1784cb2525d8cd48a8` | REPRODUCED |
-| 4 | `91343514611` | `8815457044` | `sha256:790bc6cc4a7777b591abca9575cdb6927fb7c93f2682694f09e03285131d2bba` | REPRODUCED |
+## Strict backend/frontend validation correction
 
-Attempt 2 completed responsive 42/42. Its overall job later failed in a separate accessibility image-free draft test. Attempts 3 and 4 completed portability successfully and each failed responsive 41/42 only at the original mobile publication-flash assertion.
+The strict Portal Acceptance Contract did execute successfully:
 
-## Embedded diagnostic result
+- exact source: `fdb45a4325949d3ab1c4860e3a4527553f11c789`;
+- run: `30633216358`;
+- job: `91164376176`;
+- artifact: `8794204786`;
+- result: `PASS`.
 
-| Attempt | Desktop | Tablet | Mobile |
-|---:|---|---|---|
-| 3 | PASS; 9×500; 6 aborted requests | PASS; 12×500; 8 aborted | REPRODUCED; 16×500; 0 aborted |
-| 4 | PASS; 9×500; 6 aborted requests | PASS; 12×500; 8 aborted | REPRODUCED; 14×500; 0 aborted |
+This supersedes the historical Phase 2 `UNKNOWN_NOT_EXECUTED` statement. Relationship to the frozen target remains `DERIVED_NOT_EXACT_HEAD`.
 
-This proves:
+A separate critical browser run on that source passed 96/96 tests with retries zero: smoke 7/7, portability 36/36, responsive 42/42, resilience 2/2 and accessibility 9/9. This is broad critical evidence, not exhaustive every-screen/every-state proof.
 
-- contaminated thumbnail traffic can coexist with successful publication feedback;
-- thumbnail HTTP 500 presence alone is insufficient to explain flash loss;
-- viewport affects thumbnail completion and cancellation;
-- existing diagnostics do not identify request timing, initiator document, correlation ID or session-lock/session-save order.
+## Delivery-completeness policy-v2 correction
 
-No causal relationship between damaged EditorialMedia rows and flash loss is claimed.
+The legacy 43-record result remains factually valid for its original contract:
 
-## Mechanism-confidence correction
+```yaml
+legacy_backend_frontend_result:
+  implemented: 23
+  partial: 3
+  missing: 14
+  not_applicable: 3
+```
 
-The earlier generic browser probe showed that a Playwright action can activate deferred lazy images when the action control sits immediately below a responsive image grid.
+Under the current completion contract, an integrated capability is not complete until all applicable persistence, backend, authorization, transport, real frontend, states, localization, responsive/accessibility, focused/integration tests, real zero-retry E2E, independent audit, exact-final-head CI and terminal PR/task gates are proven together.
 
-A later source-faithful probe copied the real frozen-source Wiki form ordering and relevant geometry. It executed three immediate and three pre-scroll samples per exact viewport, 18 total:
+The independent policy-v2 result is therefore:
 
-| Profile | Initially started thumbnails | New starts from Publish action start |
-|---|---:|---:|
-| desktop | 12 | 0 in 6/6 samples |
-| tablet | 10 | 0 in 6/6 samples |
-| mobile | 4 | 0 in 6/6 samples |
+```yaml
+policy_v2_result:
+  complete: 0
+  repository_integrated_evidence_open: 23
+  partial: 3
+  missing: 14
+  not_applicable: 3
+```
 
-Therefore the specific old-document lazy-thumbnail race is corrected from `DERIVED / HIGH confidence` to `DERIVED / LOW confidence`. The root cause remains `UNKNOWN`.
+This does not retract repository integration. It prevents the legacy word `implemented` from being promoted into a full-delivery or production-complete claim.
 
-This controlled evidence does not prove that an old-document request was impossible in the real application runtime. It proves that the generic simplified geometry cannot support the earlier app-specific confidence.
+### OTERYN-AUDIT-P6-001 — MEDIUM
 
-Canonical correction:
+The 43-capability ledger is a benchmark subset, not an exhaustive module completion ledger. Explicit legacy capability records are absent for CMS/content, Editorial Media, administrator/RBAC/audit, Platform API, legal/privacy/commerce, operations/observability, public edge and quality/E2E.
 
-- `ISSUE_365_SOURCE_FAITHFUL_LAYOUT_PROBE.md`;
-- `ISSUE_365_SOURCE_FAITHFUL_LAYOUT_PROBE.json`;
-- corrected `ISSUE_365_FLASH_REQUEST_LIFECYCLE_ANALYSIS.md`;
-- corrected `VALIDATOR_PACKET_ADDENDUM.md`.
+The authoritative 18-module and 43-capability overlay is:
 
-## Frozen-target relation
+- `phase-6-delivery-completeness-crosswalk.json`;
+- `docs/agents/reports/OTERYN-20260731-portal-backend-frontend-audit-phase-6-delivery-completeness.md`.
 
-The reruns are direct `CI_PROVEN` evidence for `6c1e...`, not direct execution of the frozen SHA.
+Implementation belongs to Issue `#326`, coordinated with programme `#451`, and is excluded from this audit PR.
 
-The frozen target and `6c1e...` have the identical `routes/modules/wiki.php` blob `f4a16ac017fd075b54904455bc8b6f05af304053`. The compare range contains no changes under the relevant Wiki application views or route runtime. Relevance to frozen runtime is strong but remains `DERIVED` until exact frozen execution.
+## Normalized findings
 
-## Other retained validation
+Open findings after the policy-v2 extension:
 
-A separate fresh run on direct source `fdb45a4325949d3ab1c4860e3a4527553f11c789` remains valid:
+- HIGH: `0`;
+- MEDIUM: `7`;
+- LOW: `1`.
 
-- run `30633216753`, attempt 2, job `91339118796`;
-- critical profile 96/96 PASS with zero retries;
-- smoke 7/7, portability 36/36, responsive 42/42, resilience 2/2, accessibility 9/9;
-- artifact `8814897157`, digest `sha256:552d545260bad87d98f999568091c2ade84a5dce739130fbbe4e4c4e71def24f`.
+Open MEDIUM findings:
 
-That run proves the delivered critical profile. It does not directly test the historical transient assertion in the original administration scenario because that assertion was removed.
+- `OTERYN-AUDIT-P35-006` — damaged EditorialMedia fixture leakage;
+- `OTERYN-AUDIT-P35-001` — nine content-scale fragment surfaces omitted;
+- `OTERYN-AUDIT-P35-002` — dedicated HTTP 503 matrix missing;
+- `OTERYN-AUDIT-P35-003` — accessibility evidence not fail-closed per surface;
+- `OTERYN-AUDIT-P35-005` — intermittent mobile publication-feedback loss;
+- `OTERYN-AUDIT-P35-007` — invalid native HTML pattern;
+- `OTERYN-AUDIT-P6-001` — non-exhaustive benchmark capability ledger.
 
-## Findings and severity
+Open LOW finding:
 
-Normalized totals remain:
+- `OTERYN-AUDIT-P1-001` — frozen active-work ownership conflict.
 
-- 0 HIGH;
-- 6 MEDIUM;
-- 1 LOW.
+Corrected but not open:
 
-`OTERYN-AUDIT-P35-005` remains MEDIUM because durable publication succeeds and the defect affects transient accessible feedback.
+- `OTERYN-AUDIT-P6-002` — stale Phase 2 validator status.
 
-`OTERYN-AUDIT-P35-006` remains MEDIUM because the stale thumbnail pattern is a proven acceptance isolation/evidence defect, not a valid-production-media failure.
+## Active exact-frozen validation
 
-## Remediation boundary
+- control head: `8c58035cacb9fd4675d898a1652036fc8b9d4357`;
+- run: `30763456046`;
+- job: `91537990755`;
+- temporary observation PR: `#476`;
+- workers: `1`;
+- retries: `0`.
 
-No repair is proven yet.
+Preparation, exact frozen checkout and validator generation passed. At the second and final allowed state check in this invocation, the corrected 12-sample matrix remained `in_progress`.
 
-Preserving pending publication `status` specifically across Wiki media-index or thumbnail responses is a candidate requiring exact correlation, not the smallest proven remediation. A later implementation task must first identify the request or framework path that removes or ages `status`.
+The run must not be polled again or rerun in this invocation. When terminal, inspect it once, verify any artifact, synchronize Issue #365 evidence and close PR #476 without merge.
 
-Client retries, delayed actions, `networkidle` and pre-scroll are diagnostic controls, not production fixes.
+## Verdict boundary
 
-## Residual gate
+`VALIDATED` is forbidden while:
 
-Still required:
+- the exact-frozen correlated matrix is non-terminal or inconclusive;
+- seven material medium findings remain open;
+- the exhaustive Issue #326 module/capability completion contract is absent;
+- related PRs and tasks are not intentionally terminal.
 
-- direct exact-frozen browser execution with an ephemeral restored observer;
-- three clean immediate and three clean pre-scroll samples;
-- three exactly-one-corrupt immediate and three exactly-one-corrupt pre-scroll samples;
-- browser request start and initiator evidence;
-- redirect and `X-Request-ID` correlation;
-- server entry, session-lock and session load/save evidence;
-- sanitized flash-state snapshots;
-- exact fixture and evidence hashes;
-- restored framework hash and empty Git status.
-
-The immediate/pre-scroll differential is hypothesis-neutral. `VALIDATED` remains forbidden until the complete exact frozen package is executed.
-
-No implementation, merge, deployment, staging, production or Canary action is authorized.
+Verdict remains `VALIDATED_WITH_CORRECTIONS`. Task status remains `waiting` on the external run.
