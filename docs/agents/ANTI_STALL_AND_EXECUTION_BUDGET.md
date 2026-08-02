@@ -1,14 +1,38 @@
 # Anti-Stall and Execution Budget Contract
 
 ```yaml
-anti_stall_policy_version: 1
+anti_stall_policy_version: 2
 ```
 
 ## Purpose
 
-Autonomous execution must make measurable progress and must not become an unbounded polling, retry, repair, context-reconstruction, PR-creation, or task-selection loop. This contract limits one foreground owner invocation. It does not weaken stricter repository safety, authorization, production, merge, ownership, database, payment, authentication, or validation rules.
+Autonomous execution must make measurable progress and must not become an unbounded polling, retry, repair, context-reconstruction, PR-creation, or task-selection loop. This contract limits one foreground owner invocation. It does not weaken stricter repository safety, authorization, production, merge, ownership, data, payment, authentication, protocol, asset, live-capital, or validation rules.
 
-`continue_until_real_stop` means continue while safe, useful progress is available **within this budget**. Budget exhaustion and verified lack of progress are real stop conditions.
+`continue_until_real_stop` means continue while safe, useful progress is available within this budget. Budget exhaustion and verified lack of progress are real stop conditions.
+
+## State model
+
+Task state and invocation result are separate:
+
+```yaml
+checkpoint_task_statuses:
+  - investigating
+  - implementing
+  - validating
+  - ready
+  - waiting
+  - blocked
+  - completed
+terminal_invocation_results:
+  - DONE
+  - WAITING
+  - BLOCKED
+  - ROTATE
+```
+
+Use `waiting` when an external event is pending and no worker should remain active. Use `blocked` when a decision, permission, safety rule, missing resource, or exhausted repair path prevents progress. Use `ready` when a fresh session can safely execute `next_action`. Use `completed` only for a terminal task that has satisfied repository closeout rules.
+
+`ROTATE` is an invocation result, not a task status. Before returning `ROTATE`, persist a checkpoint with `status: ready`, `waiting`, or `blocked` and exactly one concrete `next_action`.
 
 ## Default budget
 
@@ -22,29 +46,31 @@ max_unchanged_external_state_checks: 2
 max_identical_failure_retries_without_new_hypothesis: 1
 max_repair_cycles_per_gate: 3
 max_context_reconstruction_attempts: 1
-max_tasks_started_per_invocation: 1
-minimum_remaining_minutes_to_start_next_task: 30
+max_additional_tasks_after_terminal_entry_task: 1
+minimum_remaining_minutes_to_start_additional_task: 30
 normal_command_timeout_minutes: 20
 heavy_command_timeout_minutes: 45
 heavy_timeout_requires_reason: true
 ```
 
-A repository or owner may set a smaller budget. A larger budget requires an explicit task record field and reason; vague instructions such as “work autonomously” do not enlarge it.
+The **entry task** is the active task at invocation start or, when none is active, the first `READY` task selected by the coordinator. The entry task is not an additional task. After it becomes terminal, at most one additional task may be started in the same invocation and only under the conditions in `Starting another task` below.
 
-When exact wall-clock information is available, record `invocation_started_at` and `last_progress_at`. When it is unavailable, enforce the retry/check counters and stop conservatively rather than assuming unlimited time.
+A repository or owner may set a smaller budget. A larger budget requires an explicit task-record field and reason; vague instructions such as “work autonomously” do not enlarge it.
+
+When exact wall-clock information is available, record `invocation_started_at` and `last_progress_at`. When it is unavailable, enforce the retry and check counters conservatively rather than assuming unlimited time.
 
 ## Measurable progress
 
 At least one of these must occur to reset the no-progress timer:
 
-- a coherent code, configuration, migration, test, documentation, or task-record change is persisted;
+- a coherent code, configuration, migration, test, documentation, governance, or task-record change is persisted;
 - a new test or validation result provides materially new evidence;
 - a specific failure is repaired or isolated with a genuinely new hypothesis;
-- a PR, review, CI, deployment, dependency, or external state changes;
+- a PR, review, CI, deployment, dependency, or external state materially changes;
 - a material audit finding is opened, resolved, or reclassified with evidence;
 - a task or PR reaches an intentional terminal state.
 
-Reading the same files again, repeating an unchanged command, checking the same pending workflow, rewriting summaries, or creating activity-only commits/PRs is not progress.
+Reading the same files again, repeating an unchanged command, checking the same pending workflow, rewriting summaries, or creating activity-only commits or PRs is not progress.
 
 ## Required checkpoint counters
 
@@ -69,9 +95,9 @@ For one exact head:
 
 1. inspect required CI once after it is expected to exist;
 2. perform at most one later state check;
-3. if it remains pending and authorized auto-merge or merge queue is available, configure it once;
-4. persist exact head, run IDs, pending checks, status `WAITING`, and one `next_action`;
-5. end the invocation or select only genuinely independent work already within the same declared task and remaining budget.
+3. if it remains pending and authorized auto-merge or a merge queue is available, configure it once;
+4. persist exact head, run IDs, pending checks, `status: waiting`, and one `next_action`;
+5. end or rotate the invocation, or execute genuinely independent work already inside the same declared task and remaining budget.
 
 Never perform a third CI state check for the same exact head in one invocation. Do not keep a worker active merely to wait for CI, reviews, deployment, scheduled jobs, dependencies, observation windows, or an owner reply.
 
@@ -97,27 +123,36 @@ When the no-progress limit, runtime budget, retry limit, repair limit, or contex
 2. preserve coherent changes and exact branch/head state;
 3. write the last measurable progress, unchanged state, attempted hypotheses, counters, and one `next_action`;
 4. release unnecessary workers, leases, worktrees, or ownership where safe;
-5. set `WAITING`, `BLOCKED`, or `ROTATE` accurately;
-6. return control to the owner.
+5. set checkpoint status to `waiting`, `blocked`, or `ready` accurately;
+6. return `WAITING`, `BLOCKED`, or `ROTATE` accurately.
 
 Do not create another PR, archive PR, task, or branch solely to keep the invocation active. Required terminal cleanup may be completed only when it fits inside the remaining budget and does not require waiting loops.
 
 ## Starting another task
 
-Starting another task in the same invocation is allowed only when all are true:
+Starting one additional task after the terminal entry task is allowed only when all are true:
 
-- the previous task is fully terminal;
+- the entry task is fully terminal;
 - at least 30 minutes of declared budget remains;
 - no stall warning occurred;
 - no required check or external event is being waited on;
-- ownership and dependency preflight confirms the next task is safe and independent.
+- ownership and dependency preflight confirms the next task is safe and independent;
+- no additional task has already been started in the invocation.
 
-Otherwise persist the programme handoff and stop.
+Otherwise persist the programme handoff and stop. A rotated session on the same task is not a new task.
 
-## Required terminal response
+## Canonical terminal response
+
+Use this shared format. Use `not applicable` where a field genuinely does not apply.
 
 ```text
 STATUS: DONE | WAITING | BLOCKED | ROTATE
+RESULT: <observable work completed>
+CHANGED_PATHS: <paths or none>
+VALIDATION: <focused/component/exact-head results>
+AUDIT: <result, validator identity and open material findings>
+E2E: <PASS | NOT_APPLICABLE with reason | not run with blocker>
+PR_HYGIENE: <related PR terminal states and unresolved threads>
 LAST_PROGRESS: <last measurable repository or environment change>
 BUDGET: <elapsed/limit or counters used>
 UNCHANGED_STATE: <what remained unchanged>
@@ -136,7 +171,8 @@ Do not:
 - reconstruct context repeatedly when durable state already exists;
 - create extra tasks, commits, branches, or PRs solely to extend execution;
 - interpret silence, pending status, or waiting as productive work;
-- claim autonomous execution justifies production, database, payment, or authentication mutation without authorization or running overnight without a declared budget;
+- write `ROTATE` as a checkpoint task status;
+- claim autonomous execution justifies production, data, payment, authentication, protocol, asset, live-capital, or protected-configuration mutation without authority;
 - hide budget exhaustion by resetting counters or changing labels without a material state change.
 
 When this contract conflicts with a continuation instruction, follow this contract and stop safely.
