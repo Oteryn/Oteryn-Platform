@@ -1,12 +1,15 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
+  "policy_revision": 2,
   "contract_name": "oteryn-checkpoint-handoff",
+  "compatibility": "backward-compatible additive revision of checkpoint version 1",
   "shared_checkpoint_contract": {
     "version": 1,
     "reference": {
       "repository": "blakinio/canary",
       "observed_at_canary_commit": "c1c0d10ed1e758cb72728be5fe22458cd9d9e61a",
-      "checkpoint_version": 1
+      "checkpoint_version": 1,
+      "note": "The structural checkpoint version remains 1; policy revision 2 adds accepted values without invalidating existing checkpoints."
     },
     "required_fields": [
       "checkpoint_version",
@@ -32,14 +35,23 @@
       "investigating",
       "implementing",
       "validating",
+      "ready",
+      "waiting",
       "blocked",
-      "ready"
+      "completed"
     ],
     "allowed_validation_results": [
       "PASS",
       "FAIL",
       "BLOCKED",
-      "NOT_RUN"
+      "NOT_RUN",
+      "NOT_APPLICABLE"
+    ],
+    "terminal_invocation_results": [
+      "DONE",
+      "WAITING",
+      "BLOCKED",
+      "ROTATE"
     ],
     "evidence_state_fields": {
       "PROVEN": "proven",
@@ -53,22 +65,32 @@
       "All required_fields exist at the top level.",
       "next_action appears exactly once at the top level and is a non-empty concrete scalar rather than a placeholder.",
       "Validation result values come from allowed_validation_results.",
-      "A normalized exact fact cannot appear in more than one evidence-state list."
+      "NOT_APPLICABLE requires a concrete evidence reason.",
+      "A normalized exact fact cannot appear in more than one evidence-state list.",
+      "ROTATE is a terminal invocation result and must never be stored as task status.",
+      "Before returning ROTATE, persist task status ready, waiting or blocked with one next_action."
     ]
   },
   "repository_specific_scope": [
     "Repository allowlists and write permissions.",
-    "Oteryn Platform context routes and architecture/document routing.",
-    "Delivery, merge, security, Laravel, database, and cross-repository policies outside the shared checkpoint/handoff structure."
+    "Oteryn Platform context routes and architecture or documentation routing.",
+    "Delivery, merge, security, Laravel, database, and cross-repository policies outside the shared checkpoint structure."
   ],
   "upgrade_required_when": [
-    "Canary changes the shared checkpoint version, required checkpoint fields, status values, validation result values, evidence-state semantics, next_action cardinality, or evidence-state conflict rule.",
-    "Oteryn Platform intentionally changes any shared checkpoint/handoff rule incompatibly with the declared reference version."
+    "A required checkpoint field is added, removed or changes type.",
+    "An existing status, validation result, evidence-state meaning or next_action rule is removed or changed incompatibly.",
+    "Checkpoint structure or parser behaviour changes so an existing valid version 1 checkpoint becomes invalid."
+  ],
+  "additive_revision_process": [
+    "Additive accepted status or validation values may retain checkpoint version 1 when all existing checkpoints remain valid.",
+    "Increment policy_revision and synchronize Oteryn Platform documentation, machine-readable contracts, validators and tests.",
+    "External compatibility may be observed read-only; adoption in another repository requires separate owner authorization and a separate task in that repository.",
+    "Record the distinction between checkpoint task status and terminal invocation result."
   ],
   "upgrade_process": [
-    "Inspect the current Canary checkpoint/handoff contract read-only.",
-    "Decide whether Oteryn Platform adopts the new shared version or records an intentional divergence.",
-    "Update this marker, CONTEXT_HANDOFF.md, TASK_TEMPLATE.md, checkpoint.py, and validator tests together.",
-    "Keep repository-specific governance independent; do not mechanically synchronize complete AGENTS.md or routing content."
+    "Inspect an external compatibility reference read-only only when it is relevant to the proposed Oteryn Platform change.",
+    "Decide whether Oteryn Platform adopts the new structural version or records an intentional divergence.",
+    "Update this marker, CONTEXT_HANDOFF.md, TASK_TEMPLATE.md, checkpoint.py and validator tests together when structure changes.",
+    "Keep repository-specific governance independent; do not mechanically synchronize complete root AGENTS.md content."
   ]
 }

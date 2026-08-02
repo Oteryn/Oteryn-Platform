@@ -70,6 +70,21 @@ class CheckpointValidatorTests(unittest.TestCase):
     def test_valid_checkpoint_passes(self) -> None:
         self.assertEqual([], self.validate_text(task_text()))
 
+    def test_waiting_status_passes(self) -> None:
+        block = VALID_BLOCK.replace("status: implementing", "status: waiting")
+        self.assertEqual([], self.validate_text(task_text(block)))
+
+    def test_completed_status_passes(self) -> None:
+        block = VALID_BLOCK.replace("status: implementing", "status: completed")
+        self.assertEqual([], self.validate_text(task_text(block)))
+
+    def test_not_applicable_validation_passes_with_evidence(self) -> None:
+        block = VALID_BLOCK.replace("result: PASS", "result: NOT_APPLICABLE").replace(
+            "evidence: local unittest",
+            "evidence: documentation-only task has no runtime E2E surface",
+        )
+        self.assertEqual([], self.validate_text(task_text(block)))
+
     def test_missing_checkpoint_fails(self) -> None:
         errors = self.validate_text("# Task\n")
         self.assertTrue(any("missing ## Context checkpoint section" in error for error in errors))
