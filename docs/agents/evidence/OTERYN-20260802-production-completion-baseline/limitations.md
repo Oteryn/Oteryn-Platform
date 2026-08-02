@@ -1,24 +1,20 @@
-# Current execution limitations
+# Evidence boundary
 
-The repository owner reported that the Codex weekly token limit is exhausted.
+This task is a documentation/governance audit. It changed no application code, workflow definition, runtime configuration, migration, dependency, deployment package or production environment.
 
-Therefore this invocation can safely perform:
+## Proven in this invocation
 
-- GitHub state inspection;
-- architecture/module/roadmap reconciliation;
-- PR disposition and intentional closure;
-- workflow definition audit;
-- issues, task records, reports and evidence;
-- narrow GitHub file changes whose correctness is inspectable without local execution.
+- live GitHub task, issue, branch, PR, review and queue state;
+- exact changed-file inventory and diff scope;
+- workflow definitions and trigger classes;
+- actual GitHub Actions execution on the documentation-only PR head;
+- machine-readable JSON validity through Agent Governance/exact-head CI;
+- independent consistency audit and remediation of queue-count, report, workflow-inventory and checkpoint claims.
 
-It cannot honestly claim:
+## Not applicable
 
-- local checkout commands;
-- PHP/Node/Go test execution;
-- workflow implementation repair loops;
-- browser E2E execution;
-- Docker image build validation;
-- private-production deployment or runtime mutation;
-- real payment provider sandbox/live execution.
+- local application build and browser E2E: `NOT_APPLICABLE_WITH_REASON` because no runtime or user-facing behavior changed;
+- private-production deployment/smoke: `NOT_CHANGED`;
+- payment-provider sandbox/live execution: outside this audit and live charging remains prohibited.
 
-The baseline PR must remain draft until governance validation and an independent documentation audit are observed. Runtime/CI remediation becomes a separate checkout-capable child slice.
+The absence of Codex or a local checkout is not a blocker. GitHub API supplied repository mutation and GitHub Actions supplied remote validation. The next CI-routing implementation may likewise use GitHub Actions; a local checkout is optional unless a concrete operation cannot be reproduced remotely.

@@ -25,14 +25,16 @@ Establish the authoritative baseline for programme #451 by reconciling architect
 
 ## Acceptance criteria
 
-- [x] Every initially open PR has one evidence-backed disposition and no unexplained stale PR remains.
+- [x] Every pre-existing open PR has one evidence-backed disposition and no unexplained stale PR remains.
 - [x] PRs proven superseded, duplicate, obsolete, invalid or request-only are intentionally closed.
 - [x] Current heavy CI/build workflows are mapped to triggers, path scope and actual risk class.
-- [x] A change-class validation matrix is defined to prevent unrelated heavy builds without weakening security or release gates.
-- [x] Architecture, roadmap, module catalogue and current product-completeness evidence are reconciled at baseline level.
+- [x] A change-class validation matrix is defined without weakening security or release gates.
+- [x] Architecture, roadmap, module catalogue and product-completeness evidence are reconciled at baseline level.
 - [x] Missing required, later, optional, not-applicable and blocked capabilities are classified.
-- [x] Programme #451 receives a dependency graph and prioritized READY implementation slices.
-- [ ] Independent audit of the baseline classifications and final documentation-only PR validation are complete.
+- [x] Programme #451 has a dependency graph and prioritized READY slices.
+- [x] Independent audit findings are remediated.
+- [ ] Final documentation/governance validation passes on the remediation head and PR #453 reaches terminal merge state.
+- [ ] Task is archived and ownership released after merge.
 
 ## Ownership
 
@@ -48,10 +50,8 @@ modules:
 dependencies:
   - issue #451
   - issue #452
-blockers:
-  - no Codex/local checkout available in the current invocation
-cross_repository_tasks:
-  - none
+blockers: []
+cross_repository_tasks: []
 ```
 
 ## Policy
@@ -61,10 +61,10 @@ policy_version: 2
 anti_stall_policy_version: 1
 task_kind: audit
 implementation_authorized: false
-execution_mode: chat_github
+execution_mode: chat_github_actions
 run_scope: single_task
 continuation_policy: continue_until_real_stop
-task_completion_policy: checkpoint_only
+task_completion_policy: finalize_archive_and_continue
 project_lane: oteryn-platform-core
 context_pressure: high
 decomposition_decision: phased
@@ -74,12 +74,16 @@ invocation_budget_minutes: 60
 ## Context checkpoint
 
 ```yaml
-checkpoint_version: 1
-updated_at: 2026-08-02T11:54:00+02:00
-head: e4a1ac8c411f2f8bba4b00e82436033371dd77b1
+checkpoint_version: 2
+updated_at: 2026-08-02T12:15:00+02:00
+head: 2c1535c3e2a0b223ab2d704937e2bed1e4aa1744
+head_semantics: audited_pre_remediation_head; live PR metadata is authoritative after this checkpoint commit
 branch: audit/OTERYN-20260802-production-completion-baseline
 pr: 453
 status: validating
+phase: validate
+session_role: independent_validator
+execution_mode: chat_github_actions
 context_routes:
   - governance
   - architecture
@@ -89,61 +93,52 @@ owned_paths:
   - docs/agents/reports/OTERYN-20260802-production-completion-baseline.md
   - docs/agents/evidence/OTERYN-20260802-production-completion-baseline/**
 proven:
-  - Programme issue #451, baseline issue #452 and draft audit PR #453 are open.
-  - The task branch started from main at 52064fc880b4edbb2d479692f7c3e29530bbfaea.
-  - The initial queue contained eleven open PRs; #116, #182, #189, #328, #335 and #387 were intentionally closed as request-only, obsolete or superseded.
-  - Six pre-existing PRs remain intentionally open with exact dispositions: #225, #338, #381, #391, #405 and #412.
-  - Current source capability ledger records 23 implemented, 3 partial, 14 missing and 3 not-applicable capabilities.
-  - Module/catalogue drift and missing ProductsEntitlements, LegalCommerce, OperationsObservability, PublicEdge and QualityE2E boundaries are recorded.
-  - Five heavy workflows have unfiltered pull_request triggers to main: CI, Phase 7 Production-Like Validation, Edge Security Emulation, Platform DB Outage Validation and Game Auth Ticket Concurrency.
-  - For documentation-only PR #453 at head e4a1ac8c411f2f8bba4b00e82436033371dd77b1, Agent Governance run 30742617426 passed; Edge Security Emulation 30742617431, Platform DB Outage Validation 30742617430 and Game Auth Ticket Concurrency 30742617433 also ran and passed; CI 30742617425 and Phase 7 30742617436 were still in progress at the first allowed state check.
-  - The final diff before this checkpoint contained only thirteen task/report/evidence files and no application, workflow or runtime changes.
+  - Programme issue #451, baseline issue #452 and draft PR #453 are open.
+  - The branch started from main at 52064fc880b4edbb2d479692f7c3e29530bbfaea.
+  - The corrected pre-existing queue contained 19 PRs: six were intentionally closed and 13 remain intentionally open.
+  - Seven omitted Dependabot PRs were found and received rebase requests: #222, #223, #224, #226, #227, #228 and #229.
+  - The source capability ledger records 23 implemented, 3 partial, 14 missing and 3 not-applicable capabilities.
+  - Five heavy workflows have unfiltered pull_request triggers and executed on documentation-only PR #453.
+  - On head 2c1535c3e2a0b223ab2d704937e2bed1e4aa1744, Agent Governance, CI, Phase 7, Edge Security Emulation, Platform DB Outage Validation and Game Auth Ticket Concurrency all passed.
+  - PR #453 has no reviews, comments or unresolved review threads.
+  - Independent audit material findings were remediated in the task/report/evidence paths only.
 derived:
-  - Heavy CI/build execution is objectively over-triggered for documentation-only changes; this is no longer only a hypothesis.
-  - CI-routing remediation is the highest-leverage first checkout-capable slice because it reduces cost and queue pressure for every later programme task.
-  - Current private production remains operationally useful but not directly proven against the latest repository/product state.
+  - P0 CI-routing remediation is the highest-leverage next slice.
+  - Private production remains not directly proven against the current repository/product state.
 unknown:
-  - Final outcomes of CI run 30742617425 and Phase 7 run 30742617436 on the pre-checkpoint head.
-  - Branch-protection required-check compatibility for a future classifier/no-op aggregator design.
-  - Independent validator verdict on baseline classifications.
+  - Branch-protection required-check compatibility for the future classifier/no-op design.
+  - Final exact-head workflow results after this remediation commit.
 conflicts: []
-first_failure:
-  marker: none
-  evidence: none
-rejected_hypotheses:
-  - Every open PR should be closed merely because it is old.
-  - Documentation-only PRs do not execute heavy validation internals.
-  - Roadmap phase labels alone prove full product or production completeness.
-changed_paths:
-  - docs/agents/tasks/active/OTERYN-20260802-production-completion-baseline.md
-  - docs/agents/reports/OTERYN-20260802-production-completion-baseline.md
-  - docs/agents/evidence/OTERYN-20260802-production-completion-baseline/**
+audit:
+  result: PASS_AFTER_REMEDIATION
+  material_findings_open: 0
+  findings_remediated:
+    - AUDIT-PR-COUNT
+    - AUDIT-DEPENDABOT-OMISSIONS
+    - AUDIT-STALE-REPORT
+    - AUDIT-CODEX-BLOCKER
 validation:
   - command: GitHub compare main...audit/OTERYN-20260802-production-completion-baseline
     result: PASS
-    evidence: final pre-checkpoint diff was limited to thirteen authorized task/report/evidence files
-  - command: Agent Governance run 30742617426 on e4a1ac8c411f2f8bba4b00e82436033371dd77b1
+    evidence: only 13 authorized task/report/evidence paths before audit remediation
+  - command: six pull-request workflow families on 2c1535c3e2a0b223ab2d704937e2bed1e4aa1744
     result: PASS
-    evidence: checkpoint validator and active-task governance completed successfully
-  - command: inspect pull-request workflow runs on documentation-only head e4a1ac8c411f2f8bba4b00e82436033371dd77b1
-    result: PASS
-    evidence: all five unfiltered heavy workflow families started; three completed successfully and two remained in progress at first check
-  - command: local tests, builds and browser E2E
-    result: NOT_RUN
-    evidence: no checkout-capable Codex budget is available in the current week; this audit changes no runtime code
-blockers:
-  - Independent audit and checkout-capable CI-routing implementation cannot be completed honestly in the current connector-only session.
-next_action: After a checkout-capable worker is available, independently audit PR #453, then implement and validate the P0 CI change-classification slice without changing required security or release invariants.
+    evidence: runs 30742686054, 30742686085, 30742686093, 30742686048, 30742686082 and 30742686105
+  - command: runtime/browser E2E
+    result: NOT_APPLICABLE_WITH_REASON
+    evidence: documentation/governance only; no runtime or user-facing behavior changed
+blockers: []
+next_action: Verify final exact-head checks after this remediation commit, then mark PR #453 ready and merge if the gate remains satisfied.
 invocation_started_at: 2026-08-02T11:32:18+02:00
-last_progress_at: 2026-08-02T11:54:00+02:00
-ci_checks_for_current_head: 1
+last_progress_at: 2026-08-02T12:15:00+02:00
+ci_checks_for_current_head: 0
 unchanged_state_checks: 0
 identical_failure_retries: 0
 repair_cycles_for_current_gate: 0
-context_reconstruction_attempts: 0
+context_reconstruction_attempts: 1
 stall_warnings: 0
 ```
 
 ## Notes
 
-This audit coordinates but does not overwrite paths owned by Issue #365/PR #412, Issue #326/PR #381, Game Catalog PR #338, production-gate PR #405 or other active tasks. No production mutation or real payment activation is authorized in this phase. Closed request-only PRs leave their parent issues open where product/evidence work remains.
+This audit does not overwrite paths owned by Issue #365/PR #412, Issue #326/PR #381, Game Catalog PR #338, production-gate PR #405 or other active tasks. No production mutation, live payment activation or cross-repository write is part of this task.
