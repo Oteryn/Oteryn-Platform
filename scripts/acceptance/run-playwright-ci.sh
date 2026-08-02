@@ -86,7 +86,7 @@ if [[ "${OTERYN_REQUIRE_VENDOR:-1}" == '1' ]]; then
     'vendor/autoload.php is missing; install Composer dependencies before Playwright execution'
   (
     cd "$repo_root"
-    composer check-platform-reqs --no-dev
+    composer check-platform-reqs
     php -l scripts/acceptance/assert-platform-state.php >/dev/null
     php artisan cache:clear --no-interaction >/dev/null
   )
