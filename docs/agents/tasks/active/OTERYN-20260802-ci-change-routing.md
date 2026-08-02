@@ -82,8 +82,8 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-02T13:59:00+02:00
-head: 39d557136c7b843596c1ca4b16345f134da6af69
+updated_at: 2026-08-02T14:03:00+02:00
+head: 0214c95a39ac9cfaa0010844d3d463c9ac96dc1e
 branch: ci/OTERYN-20260802-change-routing
 pr: 468
 status: implementing
@@ -103,21 +103,21 @@ owned_paths:
   - docs/agents/evidence/OTERYN-20260802-ci-change-routing/**
 proven:
   - Issue #467 and draft PR #468 own this CI-routing scope.
-  - The classifier and all deterministic fixtures passed twice in bootstrap run 30746779996 before workflow mutation and after generated workflow mutation.
-  - Exact marker checks proved five workflows each received one classifier job, one dependency and one fail-closed step.
-  - The generated local commit could not be pushed because GitHub rejected Actions workflow modification without workflows permission.
-  - The failed push made no remote branch mutation.
+  - Classifier tests and the exact five-workflow generated patch passed in bootstrap runs 30746779996 and 30746937197.
+  - GitHub Actions cannot push workflow-file changes because its token lacks workflows permission; the failed push made no remote workflow mutation.
+  - Artifact run 30746937197 succeeded, but upload-artifact excluded the hidden .github directory and retained only SHA256SUMS.
+  - The artifact packaging defect is isolated from classifier and workflow generation correctness.
 derived:
-  - Artifact transfer plus Git Data API is the nearest safe alternative and preserves the validated generated content without protection bypass.
+  - Packaging generated workflows under a visible workflows directory preserves the validated content and enables connector-side atomic persistence.
 unknown:
   - Final exact-head workflow behavior after the generated files are atomically persisted.
 conflicts: []
 first_failure:
-  marker: bootstrap-workflow-push-permission
-  evidence: run 30746779996 job 91493608720 was rejected because the GitHub App cannot update .github/workflows/ci.yml without workflows permission
+  marker: generated-artifact-hidden-directory-exclusion
+  evidence: artifact 8833176101 contained only SHA256SUMS because upload-artifact omitted artifacts/ci-routing/.github/workflows
 rejected_hypotheses:
-  - The generated patch or classifier tests failed before push.
-  - Retrying the same GitHub Actions push could succeed without changing the permission boundary.
+  - The generator failed to produce the five workflow files.
+  - Retrying the same hidden artifact path could include .github without changing upload behavior.
 changed_paths:
   - .github/workflows/ci-routing-bootstrap.yml
   - scripts/ci/apply_change_routing.py
@@ -126,18 +126,18 @@ changed_paths:
   - tests/ci/test_classify_changes.py
   - docs/agents/tasks/active/OTERYN-20260802-ci-change-routing.md
 validation:
-  - command: python tests/ci/test_classify_changes.py in run 30746779996 before and after generated patch
+  - command: python tests/ci/test_classify_changes.py in bootstrap runs
     result: PASS
-    evidence: five tests passed in both executions
-  - command: generated workflow structural audit in run 30746779996
+    evidence: five tests passed before and after generated mutation
+  - command: generated workflow structural audit
     result: PASS
-    evidence: exact seven-path generated diff and unique classifier/dependency/fail-closed markers were verified
-  - command: push generated workflows from GitHub Actions
+    evidence: exact seven-path generated diff and unique classifier/dependency/fail-closed/test markers passed
+  - command: artifact 8833176101 inventory
     result: FAIL
-    evidence: remote rejected workflow update because the GitHub App lacked workflows permission
+    evidence: only SHA256SUMS was uploaded because the generated workflow directory was hidden
 blockers:
   - none
-next_action: Generate the five validated workflows as an artifact, atomically persist them through Git Data API with temporary instrumentation removed, then verify exact-head checks.
+next_action: Regenerate the validated artifact under a visible workflows directory, atomically persist the five workflows with bootstrap files removed, then verify exact-head checks.
 ```
 
 ## Notes

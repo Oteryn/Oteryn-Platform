@@ -77,7 +77,7 @@ jobs:
       - name: Package generated workflows
         run: |
           rm -rf scripts/ci/__pycache__ tests/ci/__pycache__ artifacts/ci-routing
-          mkdir -p artifacts/ci-routing/.github/workflows
+          mkdir -p artifacts/ci-routing/workflows
           for workflow in \
             ci.yml \
             phase7-production-like-validation.yml \
@@ -85,11 +85,11 @@ jobs:
             platform-db-outage-validation.yml \
             game-auth-ticket-concurrency.yml
           do
-            cp ".github/workflows/$workflow" "artifacts/ci-routing/.github/workflows/$workflow"
+            cp ".github/workflows/$workflow" "artifacts/ci-routing/workflows/$workflow"
           done
           (
             cd artifacts/ci-routing
-            sha256sum .github/workflows/*.yml > SHA256SUMS
+            sha256sum workflows/*.yml > SHA256SUMS
           )
 
       - name: Upload generated workflow artifact
