@@ -78,8 +78,8 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-03T00:10:00+02:00
-head: e26f2e78f4ca99517734dfc477ac2fd52f300cab
+updated_at: 2026-08-03T00:12:00+02:00
+head: 2eb389303ea1bc88272b95683048d36fca6e634c
 branch: fix/OTERYN-20260802-playwright-php85-ci
 pr: 477
 status: validating
@@ -135,22 +135,22 @@ changed_paths:
   - scripts/acceptance/run-playwright-ci.sh
 validation:
   - command: Agent Governance run 30769199093 job 91553250814
-    result: FAIL_CORRECTED
-    evidence: missing checkpoint derived field only; validator unit tests passed
+    result: FAIL
+    evidence: missing checkpoint derived field only; corrected on a later head and validator unit tests had passed
   - command: Agent Governance run 30769255850
     result: PASS
     evidence: corrected checkpoint accepted on intermediate exact head
   - command: Playwright PHP 8.5 Runtime
-    result: IN_PROGRESS
-    evidence: final exact-head execution required after lockfile environment and extension hardening
+    result: NOT_RUN
+    evidence: terminal result is pending on the final exact head after lockfile environment and extension hardening
 blockers:
   - none
 invocation_started_at: 2026-08-02T23:51:00+02:00
-last_progress_at: 2026-08-03T00:10:00+02:00
+last_progress_at: 2026-08-03T00:12:00+02:00
 ci_checks_for_current_head: 0
 unchanged_state_checks: 0
 identical_failure_retries: 0
-repair_cycles_for_current_gate: 2
+repair_cycles_for_current_gate: 3
 context_reconstruction_attempts: 1
 stall_warnings: 0
 next_action: inspect the final exact-head Playwright runtime workflow once terminal and repair only its first actionable failure if any
