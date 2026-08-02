@@ -4,6 +4,7 @@ project_lane: oteryn-platform-core
 status: completed
 completed_at: 2026-08-02T13:36:00+02:00
 feature_pr: "453"
+closeout_pr: "465"
 merge_sha: aafeb490909c0c2cf1c7d1e1b74ff88f94cd01a3
 ---
 
@@ -66,12 +67,15 @@ closeout:
       - Platform DB Outage Validation run 30745414446
       - Game Auth Ticket Concurrency run 30745414433
   pull_requests:
+    open_related_prs_after_closeout_merge: 0
     unresolved_review_threads: 0
     terminal_prs:
       - blakinio/Oteryn-Platform#453 merged as aafeb490909c0c2cf1c7d1e1b74ff88f94cd01a3
+      - blakinio/Oteryn-Platform#465 terminal closeout PR; the merge containing this archive record establishes its terminal state
   task_archived: true
   ownership_released: true
   stale_branches_reconciled: true
+  stale_branches_note: terminal PR state and archived ownership are authoritative; repository policy does not require branch deletion for this documentation task
 ```
 
 ## Durable outputs
