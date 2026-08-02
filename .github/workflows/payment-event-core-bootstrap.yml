@@ -113,6 +113,15 @@ jobs:
       - name: Validate formatting and static analysis
         if: steps.generator.outputs.apply == 'true'
         run: |
+          vendor/bin/pint \
+            app/Payments \
+            app/Operations/ProductionConfigurationVerifier.php \
+            app/Providers/AppServiceProvider.php \
+            config/payments.php \
+            database/migrations/2026_08_02_124700_create_payment_event_core_tables.php \
+            tests/Unit/Payments \
+            tests/Feature/Payments \
+            tests/Feature/Operations/ProductionConfigurationVerifierTest.php
           vendor/bin/pint --test \
             app/Payments \
             app/Operations/ProductionConfigurationVerifier.php \
@@ -122,6 +131,7 @@ jobs:
             tests/Unit/Payments \
             tests/Feature/Payments \
             tests/Feature/Operations/ProductionConfigurationVerifierTest.php
+          git diff --check
           vendor/bin/phpstan analyse \
             app/Payments \
             app/Operations/ProductionConfigurationVerifier.php \
