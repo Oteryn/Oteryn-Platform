@@ -1,14 +1,16 @@
 # GitHub-Only Execution Contract
 
 ```yaml
-github_only_execution_policy_version: 1
+github_only_execution_policy_version: 2
 ```
 
 ## Purpose
 
 The absence of Codex or a local terminal is not, by itself, a task blocker. When repository access is available, use the GitHub connection for repository reads and writes and GitHub Actions as the remote execution and validation environment.
 
-This contract never weakens repository safety, ownership, scope, production, credential, secret, deployment, merge, database, payment, authentication, protocol, asset, capital, or cross-repository restrictions. It is subordinate to `ANTI_STALL_AND_EXECUTION_BUDGET.md`; GitHub-only execution must remain bounded.
+This contract never weakens repository safety, ownership, scope, production, credential, secret, deployment, database, payment, authentication, protocol, asset, capital, or cross-repository restrictions. It is subordinate to `ANTI_STALL_AND_EXECUTION_BUDGET.md`; GitHub-only execution must remain bounded.
+
+The repository owner durably authorizes autonomous agents to complete their own task lifecycle through merge or auto-merge when every merge gate in this contract and the repository is satisfied. Production deployment remains separately protected.
 
 ## Required execution pattern
 
@@ -34,6 +36,26 @@ This contract never weakens repository safety, ownership, scope, production, cre
 - A passing remote workflow is evidence only for the exact commit and configuration it tested.
 - Waiting for GitHub Actions is not active work. Follow the exact-head check and unchanged-state limits in `ANTI_STALL_AND_EXECUTION_BUDGET.md`.
 
+## Autonomous merge and auto-merge authority
+
+An autonomous agent may enable auto-merge, or perform the equivalent final merge when repository settings do not support auto-merge, only for the pull request owned by the current task and only after all of the following are true:
+
+- the task record identifies the exact branch, pull request, and final head;
+- the final diff is within the declared task scope and ownership;
+- all required checks pass on the exact final head;
+- independent audit has no open material finding;
+- required E2E passes, or the repository-approved result is `NOT_APPLICABLE_WITH_REASON`;
+- all review threads are resolved;
+- every related or superseded pull request is in an intentional state;
+- no temporary validation workflow or instrumentation remains unless its retention is an explicitly justified deliverable;
+- the merge does not itself trigger or approve a production deployment, protected environment, live-capital action, secret change, or other operation requiring separate authorization.
+
+Prefer auto-merge after the gates are satisfied. Do not force, bypass, administratively override, or merge before required checks. After merge, archive or terminally close the task and release ownership according to repository policy.
+
+## Production authority
+
+Merge authority is not production-deployment authority. Do not deploy to production, approve a protected production environment, modify production secrets, perform live-capital actions, or change protected production configuration without separate explicit or durable authorization covering the exact operation.
+
 ## Valid stop conditions
 
 A GitHub-only task may stop only when at least one of these conditions is real and evidenced:
@@ -44,7 +66,7 @@ A GitHub-only task may stop only when at least one of these conditions is real a
 - the task requires a physical device or system unavailable to any permitted runner;
 - a business decision is required and repository evidence provides no decision criteria;
 - an anti-stall runtime, no-progress, retry, repair-cycle, context-reconstruction, or exact-head check limit is exhausted;
-- the next operation would require an unauthorized merge, auto-merge, production deployment, or protected configuration change.
+- the next operation would require an unauthorized production deployment, protected-environment approval, live-capital action, secret change, or protected configuration change.
 
 When stopping, report exactly:
 
@@ -56,12 +78,6 @@ When stopping, report exactly:
 - the nearest safe alternative;
 - the current branch, pull request, exact head, validation state, and one next action.
 
-## Merge and production authority
-
-Do not merge, enable auto-merge, deploy to production, or modify protected production configuration without either explicit owner authorization or durable repository authorization that unambiguously covers the exact repository and operation.
-
-Lack of merge authority does not block preparing a complete pull request, running permitted validation, resolving review findings, and presenting a merge-ready result.
-
 ## Completion report
 
 A terminal report must include:
@@ -69,7 +85,7 @@ A terminal report must include:
 - changes and affected layers;
 - changed files;
 - validation and audit results;
-- related pull-request states;
+- related pull-request and merge states;
 - active-task and ownership state;
 - remaining real restrictions;
 - final status: `DONE`, `WAITING`, `BLOCKED`, or `ROTATE`.
