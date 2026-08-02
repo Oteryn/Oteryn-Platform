@@ -1,0 +1,101 @@
+{
+  "schema_version": 1,
+  "observed_main": "52064fc880b4edbb2d479692f7c3e29530bbfaea",
+  "findings": [
+    {
+      "id": "CI-001",
+      "severity": "high_cost_medium_delivery_risk",
+      "workflow": ".github/workflows/ci.yml",
+      "trigger_scope": "all pull requests to main",
+      "heavy_steps": ["MariaDB service", "Composer install", "Composer audit", "Pint", "static analysis", "full PHP test suite"],
+      "problem": "Runs unchanged application validation for documentation/task/evidence-only PRs.",
+      "recommendation": "Add change classification and preserve a stable required CI result while skipping expensive application jobs for docs-only classes. Keep full CI for shared/runtime/dependency changes."
+    },
+    {
+      "id": "CI-002",
+      "severity": "high_cost",
+      "workflow": ".github/workflows/phase7-production-like-validation.yml",
+      "trigger_scope": "all pull requests to main",
+      "heavy_steps": ["MariaDB", "Redis", "MailHog", "apt clients", "Composer development and production installs", "schema/principal provisioning", "migration/rollback/redeploy", "security/runtime/backup/restore validation"],
+      "problem": "The broadest production-like matrix runs for documentation-only PRs, although the repository matrix says heavy validation belongs after coherent affected implementation.",
+      "recommendation": "Gate the heavy validate job on runtime, migration, dependency, deployment, security or production-contract changes. Emit a successful classified no-op/aggregator result when unaffected."
+    },
+    {
+      "id": "CI-003",
+      "severity": "medium_cost",
+      "workflow": ".github/workflows/edge-security-emulation.yml",
+      "trigger_scope": "all pull requests to main",
+      "heavy_steps": ["apt nginx/dns tools", "Docker checks", "Composer install", "database migration", "live Laravel origin", "edge emulation and artifacts"],
+      "problem": "Runs for unrelated documentation and non-edge changes.",
+      "recommendation": "Run for application HTTP/security headers, trusted proxy, routes/middleware, deployment edge files and the workflow/tests themselves; include explicit shared-dependency paths."
+    },
+    {
+      "id": "CI-004",
+      "severity": "medium_cost",
+      "workflow": ".github/workflows/platform-db-outage-validation.yml",
+      "trigger_scope": "all pull requests to main",
+      "heavy_steps": ["MariaDB", "apt MariaDB client", "production Composer install", "migrations", "two live HTTP runtimes", "outage and recovery evidence"],
+      "problem": "Runs for changes that cannot affect Platform database mutation failure behavior.",
+      "recommendation": "Gate on application bootstrap, exception/error handling, registration/auth mutations, database/config/migrations, logging and this workflow/test boundary."
+    },
+    {
+      "id": "CI-005",
+      "severity": "medium_cost",
+      "workflow": ".github/workflows/game-auth-ticket-concurrency.yml",
+      "trigger_scope": "all pull requests to main",
+      "heavy_steps": ["MariaDB", "Composer install", "independent-process concurrency proof"],
+      "problem": "Runs for all PRs instead of game-auth ticket/session/concurrency paths.",
+      "recommendation": "Gate on ticket/session domain, migrations, auth integration contracts and the test/workflow itself."
+    },
+    {
+      "id": "CI-006",
+      "severity": "positive_control",
+      "workflow": ".github/workflows/portal-acceptance-contract.yml",
+      "trigger_scope": "portal/application/ledger/dependency paths",
+      "heavy_steps": ["coverage contract", "MariaDB/Redis/MailHog", "Playwright Chromium", "complete account lifecycle"],
+      "problem": "No defect proven in PR path scoping.",
+      "recommendation": "Retain path scope; audit push-to-main behavior separately because it is currently unfiltered and may intentionally provide post-merge evidence."
+    },
+    {
+      "id": "CI-007",
+      "severity": "positive_control",
+      "workflow": ".github/workflows/build-synology-staging-images.yml",
+      "trigger_scope": "application/gateway/deployment/dependency paths",
+      "heavy_steps": ["deployment validation", "three Docker image builds"],
+      "problem": "No documentation-only trigger defect proven; path scope is broad but relevant to image contents and deployment.",
+      "recommendation": "Retain path scoping; consider matrix-level change classification so only affected images build when safe, while deployment manifest changes may require all images/package validation."
+    },
+    {
+      "id": "CI-008",
+      "severity": "positive_control",
+      "workflow": ".github/workflows/game-gateway-ci.yml",
+      "trigger_scope": "game gateway and its workflow only",
+      "heavy_steps": ["Go formatting", "Go tests", "Go vet", "Go build"],
+      "problem": "No defect proven.",
+      "recommendation": "Use as the component-scoped reference pattern."
+    },
+    {
+      "id": "CI-009",
+      "severity": "positive_control",
+      "workflow": ".github/workflows/agent-governance.yml",
+      "trigger_scope": "agent governance paths only",
+      "heavy_steps": ["Python validator tests", "active checkpoint validation"],
+      "problem": "No defect proven.",
+      "recommendation": "Retain as the docs/governance gate."
+    }
+  ],
+  "estimated_duplicate_setup": {
+    "composer_install_workflows_confirmed": 6,
+    "mariadb_service_workflows_confirmed": 4,
+    "unfiltered_heavy_pr_workflows_confirmed": 5,
+    "note": "Counts cover only workflow definitions directly inspected in this audit and are lower bounds."
+  },
+  "safe_remediation_principles": [
+    "Do not remove required check names before branch-protection compatibility is verified.",
+    "Prefer one cheap classifier and successful no-op aggregators for unaffected required workflows.",
+    "Do not path-filter security-critical gates so narrowly that shared framework/config/dependency changes bypass them.",
+    "Run one coherent exact-final-head heavy matrix instead of repeating it after documentation checkpoints.",
+    "Use reusable setup or cached artifacts only when isolation and evidence identity remain explicit.",
+    "Validate the candidate trigger policy against positive, negative and boundary change sets before rollout."
+  ]
+}

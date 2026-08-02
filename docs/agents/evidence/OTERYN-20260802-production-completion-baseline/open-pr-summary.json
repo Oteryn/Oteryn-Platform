@@ -1,0 +1,31 @@
+{
+  "schema_version": 2,
+  "observed_after_cleanup": "2026-08-02T12:15:00+02:00",
+  "initial_preexisting_open_pr_count": 19,
+  "closed_during_baseline_count": 6,
+  "remaining_preexisting_open_pr_count": 13,
+  "current_task_pr": 453,
+  "closed_pull_requests": [
+    {"number":116,"disposition":"close_request_only"},
+    {"number":182,"disposition":"close_obsolete"},
+    {"number":189,"disposition":"close_obsolete"},
+    {"number":328,"disposition":"close_request_only"},
+    {"number":335,"disposition":"close_superseded"},
+    {"number":387,"disposition":"close_superseded"}
+  ],
+  "open_pull_requests": [
+    {"number":222,"disposition":"active_with_current_next_action","next_action":"complete requested Dependabot rebase, then clean Composer install/audit and affected full CI"},
+    {"number":223,"disposition":"active_with_current_next_action","next_action":"complete requested Dependabot rebase, then PHPUnit compatibility and full CI"},
+    {"number":224,"disposition":"active_with_current_next_action","next_action":"complete requested Dependabot rebase, then PHPStan/static-analysis and full CI"},
+    {"number":225,"disposition":"active_with_current_next_action","next_action":"complete requested Dependabot rebase, then Game Gateway CI on the exact head"},
+    {"number":226,"disposition":"active_with_current_next_action","next_action":"complete requested Dependabot rebase, prove Node 24/self-hosted-runner compatibility, then affected Docker workflow validation"},
+    {"number":227,"disposition":"active_with_current_next_action","next_action":"complete requested Dependabot rebase, review v8 digest/decompression behavior, then artifact workflow validation"},
+    {"number":228,"disposition":"active_with_current_next_action","next_action":"complete requested Dependabot rebase, prove Node 24/self-hosted-runner compatibility, then all affected upload workflows"},
+    {"number":229,"disposition":"active_with_current_next_action","next_action":"complete requested Dependabot rebase, review removed inputs and runner compatibility, then Synology image-build validation"},
+    {"number":338,"disposition":"blocked_required_with_exact_dependency","next_action":"prove Canary schema 1.3 producer compatibility and rollout"},
+    {"number":381,"disposition":"active_with_current_next_action","next_action":"execute exact frozen Issue #365 validator and reconcile evidence"},
+    {"number":391,"disposition":"active_with_current_next_action","next_action":"continue safety-gated official Linux client live-reference harness"},
+    {"number":405,"disposition":"blocked_required_with_exact_dependency","next_action":"refresh private-production operational evidence and unresolved release prerequisites"},
+    {"number":412,"disposition":"active_with_current_next_action","next_action":"finish Issue #365 Synology validator preflight; close without merge at terminal state"}
+  ]
+}
