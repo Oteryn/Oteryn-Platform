@@ -1,0 +1,124 @@
+{
+  "cases": [
+    {
+      "name": "docs_only",
+      "paths": ["docs/architecture/ROADMAP.md"],
+      "classes": ["docs_only"],
+      "gates": []
+    },
+    {
+      "name": "agent_governance",
+      "paths": ["docs/agents/CONTEXT_ROUTING.md"],
+      "classes": ["agent_governance"],
+      "gates": []
+    },
+    {
+      "name": "backend",
+      "paths": ["app/Services/NewsPublisher.php"],
+      "classes": ["backend"],
+      "gates": ["ci", "phase7"]
+    },
+    {
+      "name": "frontend",
+      "paths": ["resources/views/home.blade.php"],
+      "classes": ["frontend"],
+      "gates": ["ci"]
+    },
+    {
+      "name": "dependency",
+      "paths": ["composer.lock"],
+      "classes": ["dependency"],
+      "gates": ["ci", "phase7", "edge", "db_outage", "game_auth_concurrency"]
+    },
+    {
+      "name": "database",
+      "paths": ["database/migrations/2026_08_02_000000_example.php"],
+      "classes": ["database"],
+      "gates": ["ci", "phase7", "edge", "db_outage", "game_auth_concurrency"]
+    },
+    {
+      "name": "auth_security",
+      "paths": ["app/Http/Middleware/Authenticate.php"],
+      "classes": ["auth_security"],
+      "gates": ["ci", "phase7", "edge", "db_outage", "game_auth_concurrency"]
+    },
+    {
+      "name": "payment",
+      "paths": ["app/Payments/PaymentIntent.php"],
+      "classes": ["payment"],
+      "gates": ["ci", "phase7", "edge", "db_outage", "game_auth_concurrency"]
+    },
+    {
+      "name": "go_gateway",
+      "paths": ["services/game-gateway/main.go"],
+      "classes": ["go_gateway"],
+      "gates": []
+    },
+    {
+      "name": "deployment",
+      "paths": ["deploy/synology/docker-compose.yml"],
+      "classes": ["deployment"],
+      "gates": ["ci", "phase7", "edge", "db_outage", "game_auth_concurrency"]
+    },
+    {
+      "name": "edge",
+      "paths": ["tests/edge-emulation/run.sh"],
+      "classes": ["edge"],
+      "gates": ["ci", "phase7", "edge"]
+    },
+    {
+      "name": "shared",
+      "paths": ["bootstrap/app.php"],
+      "classes": ["shared"],
+      "gates": ["ci", "phase7", "edge", "db_outage", "game_auth_concurrency"]
+    },
+    {
+      "name": "workflow_self_change",
+      "paths": [".github/workflows/ci.yml"],
+      "classes": ["workflow"],
+      "gates": ["ci", "phase7", "edge", "db_outage", "game_auth_concurrency"]
+    },
+    {
+      "name": "mixed_docs_and_dependency",
+      "paths": ["docs/agents/tasks/active/example.md", "composer.json"],
+      "classes": ["agent_governance", "dependency"],
+      "gates": ["ci", "phase7", "edge", "db_outage", "game_auth_concurrency"]
+    },
+    {
+      "name": "unknown_defaults_fail_closed",
+      "paths": ["future/runtime/new-surface.xyz"],
+      "classes": ["shared"],
+      "gates": ["ci", "phase7", "edge", "db_outage", "game_auth_concurrency"]
+    },
+    {
+      "name": "classifier_self_change",
+      "paths": ["scripts/ci/classify_changes.py"],
+      "classes": ["workflow"],
+      "gates": ["ci", "phase7", "edge", "db_outage", "game_auth_concurrency"]
+    },
+    {
+      "name": "contract_change_is_shared",
+      "paths": ["docs/contracts/AUTH_GAME_LOGIN_CONTRACT.md"],
+      "classes": ["shared"],
+      "gates": ["ci", "phase7", "edge", "db_outage", "game_auth_concurrency"]
+    },
+    {
+      "name": "operational_markdown_is_deployment",
+      "paths": ["ops/triggers/cloudflare-oteryn-public-edge-repair.md"],
+      "classes": ["deployment"],
+      "gates": ["ci", "phase7", "edge", "db_outage", "game_auth_concurrency"]
+    },
+    {
+      "name": "nested_unknown_markdown_fails_closed",
+      "paths": ["future/runbooks/runtime-switch.md"],
+      "classes": ["shared"],
+      "gates": ["ci", "phase7", "edge", "db_outage", "game_auth_concurrency"]
+    },
+    {
+      "name": "root_readme_is_docs_only",
+      "paths": ["README.md"],
+      "classes": ["docs_only"],
+      "gates": []
+    }
+  ]
+}
