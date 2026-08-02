@@ -1,0 +1,81 @@
+name: CI Routing Bootstrap
+
+on:
+  pull_request:
+    branches:
+      - main
+    types:
+      - opened
+      - reopened
+      - synchronize
+
+permissions:
+  contents: write
+
+concurrency:
+  group: ci-routing-bootstrap-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  apply:
+    if: >-
+      github.repository == 'blakinio/Oteryn-Platform' &&
+      github.head_ref == 'ci/OTERYN-20260802-change-routing' &&
+      github.actor == 'blakinio'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout exact pull-request head
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+
+      - name: Validate classifier before workflow mutation
+        run: python tests/ci/test_classify_changes.py
+
+      - name: Apply bounded workflow routing patch
+        run: python scripts/ci/apply_change_routing.py
+
+      - name: Validate classifier and generated diff
+        run: |
+          python tests/ci/test_classify_changes.py
+          git diff --check
+          python - <<'PY'
+          from pathlib import Path
+
+          expected = {
+              '.github/workflows/ci.yml',
+              '.github/workflows/phase7-production-like-validation.yml',
+              '.github/workflows/edge-security-emulation.yml',
+              '.github/workflows/platform-db-outage-validation.yml',
+              '.github/workflows/game-auth-ticket-concurrency.yml',
+              '.github/workflows/ci-routing-bootstrap.yml',
+              'scripts/ci/apply_change_routing.py',
+          }
+          import subprocess
+          changed = set(subprocess.check_output(
+              ['git', 'diff', '--name-only'], text=True
+          ).splitlines())
+          if changed != expected:
+              raise SystemExit(f'unexpected generated paths: {sorted(changed)}')
+
+          for workflow in sorted(expected):
+              if not workflow.endswith('.yml') or workflow.endswith('ci-routing-bootstrap.yml'):
+                  continue
+              text = Path(workflow).read_text(encoding='utf-8')
+              if text.count('  classify_changes:\n') != 1:
+                  raise SystemExit(f'{workflow}: missing unique classifier job')
+              if text.count('needs: classify_changes') != 1:
+                  raise SystemExit(f'{workflow}: missing unique dependency')
+              if text.count('Require successful change classification') != 1:
+                  raise SystemExit(f'{workflow}: missing fail-closed step')
+          PY
+
+      - name: Commit generated workflow routing
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .github/workflows scripts/ci tests/ci
+          git commit -m "ci: route heavy validation by changed paths"
+          git push origin "HEAD:${{ github.head_ref }}"
