@@ -140,7 +140,7 @@ echo "matrix-start" > "$RUN_ROOT/LAST_STAGE"
     scripts/acceptance/seed-browser-editorial-media.php \\
     routes/modules/wiki.php \\
     composer.lock; do
-    printf '%s  %s\\n' "$(git hash-object "$source_path")" "$source_path"
+    printf "%s  %s\\n" "$(git hash-object "$source_path")" "$source_path"
   done > "$RUN_ROOT/source-blob-hashes.txt"'''
     script = replace_once(script, old_hashes, new_hashes, "source hashes with paths")
 
