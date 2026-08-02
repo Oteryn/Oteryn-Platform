@@ -2,23 +2,22 @@
 
 Task: `OTERYN-20260731-portal-backend-frontend-audit`  
 Frozen target: `b6f7b12a43aa72a52dc98c3fa07a7c4607fcb608`  
-Policy overlay inspected on current main: `39bdf0c79ffb0f7fd8daafd5451b9ad4e520138c`  
+Policy overlay inspected on main: `39bdf0c79ffb0f7fd8daafd5451b9ad4e520138c`  
 Verdict: `VALIDATED_WITH_CORRECTIONS`
 
 ## Independent conclusion
 
-The available repository, CI, browser and recovered-artifact evidence supports the audit only after two material interpretation corrections:
+The repository, CI, browser, recovered-artifact and live GitHub evidence supports this audit only after three interpretation boundaries:
 
 1. session serialization is **not proven to remediate** the intermittent responsive-mobile Wiki publication-feedback loss;
-2. the historical 43-capability backend/frontend ledger proves a bounded repository-integration contract, not full completion under the current delivery-completeness policy.
+2. the 43-capability backend/frontend ledger proves a bounded repository-integration contract, not complete delivery under policy v2;
+3. the current Issue/PR/task ownership graph cannot be inferred from `ACTIVE_WORK.md` or stale branch checkpoints and requires the Phase 7 live reconciliation.
 
-No product implementation, workflow change, deployment, production mutation or external-repository action was performed by this audit.
+No product implementation, workflow change, deployment, production mutation, issue lifecycle change or external-repository action was performed.
 
 ## Issue #365 correction
 
 Exact post-serialization source: `6c1e910d36771f50da5eded93cc50274a90c62d2`.
-
-Three independent zero-retry attempts produced:
 
 | Attempt | Job | Artifact | Responsive mobile |
 |---:|---:|---:|---|
@@ -26,9 +25,7 @@ Three independent zero-retry attempts produced:
 | 3 | `91343023604` | `8815383351` | REPRODUCED |
 | 4 | `91343514611` | `8815457044` | REPRODUCED |
 
-Both reproductions lacked the accessible transient `Wiki article published.` status while preserving durable `Published`, version 3 and `Unpublish to draft` state. Desktop, tablet and Chromium/Firefox/WebKit portability passed.
-
-Authoritative state:
+Both reproductions lacked the accessible transient `Wiki article published.` status while preserving durable `Published`, version 3 and `Unpublish to draft`. Desktop, tablet and Chromium/Firefox/WebKit portability passed.
 
 ```yaml
 historical_state: PROVEN
@@ -43,27 +40,23 @@ samples:
   reproduced: 2
 ```
 
-Recovered embedded diagnostics prove deterministic stale EditorialMedia fixture expansion and show that desktop/tablet can retain publication feedback despite thumbnail HTTP 500 traffic. They do not prove a causal request/session chain.
+Recovered diagnostics prove deterministic stale EditorialMedia fixture expansion and show that desktop/tablet can retain publication feedback despite thumbnail HTTP 500 traffic. They do not prove a causal request/session chain.
 
-The source-faithful 18-sample responsive layout probe recorded zero thumbnail request starts from the beginning of `Publish.click()` in every desktop, tablet and mobile sample. It weakens the old-document lazy-thumbnail hypothesis but does not reproduce Laravel HTTP or session behavior.
+The source-faithful 18-sample layout probe recorded zero thumbnail request starts from the beginning of `Publish.click()` in every desktop, tablet and mobile sample. It weakens the old-document lazy-thumbnail hypothesis but does not reproduce Laravel HTTP or session behavior.
 
 ## Strict backend/frontend validation correction
 
-The strict Portal Acceptance Contract did execute successfully:
+The strict Portal Acceptance Contract passed:
 
-- exact source: `fdb45a4325949d3ab1c4860e3a4527553f11c789`;
-- run: `30633216358`;
-- job: `91164376176`;
-- artifact: `8794204786`;
-- result: `PASS`.
+- exact source `fdb45a4325949d3ab1c4860e3a4527553f11c789`;
+- run `30633216358`, job `91164376176`, artifact `8794204786`;
+- result `PASS`.
 
 This supersedes the historical Phase 2 `UNKNOWN_NOT_EXECUTED` statement. Relationship to the frozen target remains `DERIVED_NOT_EXACT_HEAD`.
 
-A separate critical browser run on that source passed 96/96 tests with retries zero: smoke 7/7, portability 36/36, responsive 42/42, resilience 2/2 and accessibility 9/9. This is broad critical evidence, not exhaustive every-screen/every-state proof.
+A separate critical browser run passed 96/96 tests with retries zero: smoke 7/7, portability 36/36, responsive 42/42, resilience 2/2 and accessibility 9/9. This is broad critical evidence, not exhaustive every-screen/every-state proof.
 
-## Delivery-completeness policy-v2 correction
-
-The legacy 43-record result remains factually valid for its original contract:
+## Delivery-completeness correction
 
 ```yaml
 legacy_backend_frontend_result:
@@ -71,13 +64,6 @@ legacy_backend_frontend_result:
   partial: 3
   missing: 14
   not_applicable: 3
-```
-
-Under the current completion contract, an integrated capability is not complete until all applicable persistence, backend, authorization, transport, real frontend, states, localization, responsive/accessibility, focused/integration tests, real zero-retry E2E, independent audit, exact-final-head CI and terminal PR/task gates are proven together.
-
-The independent policy-v2 result is therefore:
-
-```yaml
 policy_v2_result:
   complete: 0
   repository_integrated_evidence_open: 23
@@ -86,28 +72,48 @@ policy_v2_result:
   not_applicable: 3
 ```
 
-This does not retract repository integration. It prevents the legacy word `implemented` from being promoted into a full-delivery or production-complete claim.
+Repository integration remains proven for the legacy boundary. Full delivery is not proven until all applicable persistence, backend, authorization, transport, frontend, states, localization, accessibility, tests, zero-retry E2E, independent audit, exact-head CI and terminal task/PR gates pass.
 
-### OTERYN-AUDIT-P6-001 — MEDIUM
+### OTERYN-AUDIT-P6-001 — MEDIUM / OPEN
 
-The 43-capability ledger is a benchmark subset, not an exhaustive module completion ledger. Explicit legacy capability records are absent for CMS/content, Editorial Media, administrator/RBAC/audit, Platform API, legal/privacy/commerce, operations/observability, public edge and quality/E2E.
+The 43-capability ledger is a benchmark subset, not an exhaustive module completion ledger. Explicit legacy records are absent for CMS/content, Editorial Media, administrator/RBAC/audit, Platform API, legal/privacy/commerce, operations/observability, public edge and quality/E2E.
 
-The authoritative 18-module and 43-capability overlay is:
+## Live work-graph correction
 
-- `phase-6-delivery-completeness-crosswalk.json`;
-- `docs/agents/reports/OTERYN-20260731-portal-backend-frontend-audit-phase-6-delivery-completeness.md`.
+Phase 7 directly mapped all 21 open Issues and all 6 open PRs.
 
-Implementation belongs to Issue `#326`, coordinated with programme `#451`, and is excluded from this audit PR.
+### OTERYN-AUDIT-P7-001 — MEDIUM / OPEN
 
-## Normalized findings
+The current coordination index and task checkpoints do not match live Git state:
 
-Open findings after the policy-v2 extension:
+- `ACTIVE_WORK.md` declares no active tasks while PRs `#338`, `#381`, `#391`, `#405`, `#471` and `#476` are open;
+- task checkpoints for PRs `#338`, `#391`, `#405` and `#471` lag their current PR heads or PR identity.
+
+The exact head mismatches and dispositions are recorded in `phase-7-issue-pr-coverage.json`.
+
+Impact: an implementation agent can select stale ownership, blocker, validation or next-action state.
+
+### OTERYN-AUDIT-P7-002 — MEDIUM / OPEN
+
+PR `#391` and its official-client live-reference task have no explicit parent Issue and no first-class module ownership in the 18-module production-completion ledger.
+
+The work must receive intentional programme ownership under an external-client interoperability boundary or an explicit existing-module mapping before it can be considered part of a fail-closed programme inventory.
+
+## Findings summary
+
+Frozen portal/product findings:
 
 - HIGH: `0`;
 - MEDIUM: `7`;
 - LOW: `1`.
 
-Open MEDIUM findings:
+Additional live work-graph findings:
+
+- HIGH: `0`;
+- MEDIUM: `2`;
+- LOW: `0`.
+
+Open frozen MEDIUM findings:
 
 - `OTERYN-AUDIT-P35-006` — damaged EditorialMedia fixture leakage;
 - `OTERYN-AUDIT-P35-001` — nine content-scale fragment surfaces omitted;
@@ -117,9 +123,14 @@ Open MEDIUM findings:
 - `OTERYN-AUDIT-P35-007` — invalid native HTML pattern;
 - `OTERYN-AUDIT-P6-001` — non-exhaustive benchmark capability ledger.
 
-Open LOW finding:
+Open frozen LOW finding:
 
 - `OTERYN-AUDIT-P1-001` — frozen active-work ownership conflict.
+
+Open live work-graph MEDIUM findings:
+
+- `OTERYN-AUDIT-P7-001` — current active-work/checkpoint graph is stale;
+- `OTERYN-AUDIT-P7-002` — official-client interoperability work lacks issue/module ownership.
 
 Corrected but not open:
 
@@ -127,24 +138,24 @@ Corrected but not open:
 
 ## Active exact-frozen validation
 
-- control head: `8c58035cacb9fd4675d898a1652036fc8b9d4357`;
-- run: `30763456046`;
-- job: `91537990755`;
-- temporary observation PR: `#476`;
-- workers: `1`;
-- retries: `0`.
+- control head `8c58035cacb9fd4675d898a1652036fc8b9d4357`;
+- run `30763456046`;
+- job `91537990755`;
+- temporary observation PR `#476`;
+- workers `1`; retries `0`.
 
-Preparation, exact frozen checkout and validator generation passed. At the second and final allowed state check in this invocation, the corrected 12-sample matrix remained `in_progress`.
+Preparation, exact frozen checkout and validator generation passed. At the first check of the current invocation, the corrected 12-sample matrix remained `in_progress`.
 
-The run must not be polled again or rerun in this invocation. When terminal, inspect it once, verify any artifact, synchronize Issue #365 evidence and close PR #476 without merge.
+Do not rerun it. One later unchanged-state check remains permitted. When terminal, inspect once, verify artifacts, synchronize Issue `#365` and PR `#381` evidence, and close PR `#476` without merge.
 
 ## Verdict boundary
 
 `VALIDATED` is forbidden while:
 
 - the exact-frozen correlated matrix is non-terminal or inconclusive;
-- seven material medium findings remain open;
-- the exhaustive Issue #326 module/capability completion contract is absent;
+- frozen portal/product material findings remain open;
+- live work-graph material findings remain open;
+- the exhaustive Issue `#326` module/capability completion contract is absent;
 - related PRs and tasks are not intentionally terminal.
 
-Verdict remains `VALIDATED_WITH_CORRECTIONS`. Task status remains `waiting` on the external run.
+Verdict remains `VALIDATED_WITH_CORRECTIONS`. Task status remains `waiting`.
