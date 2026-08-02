@@ -75,14 +75,20 @@ jobs:
       - name: Verify official-image shell compatibility
         run: |
           set -euo pipefail
+          test ! -e scripts/acceptance/node_modules
           docker run --rm \
+            --user "$(id -u):$(id -g)" \
+            --env HOME=/tmp \
+            --volume "$PWD:/workspace" \
+            --workdir /workspace \
             "$IMAGE_TAG" \
             bash -lc '
               set -euo pipefail
               php -r '\''exit(PHP_VERSION_ID >= 80500 ? 0 : 1);'\''
-              cd /opt/oteryn-playwright
+              cd scripts/acceptance
               npx playwright --version
             ' | tee artifacts/playwright-runtime/shell-passthrough.txt
+          test ! -e scripts/acceptance/node_modules
 
       - name: Install exact repository dependencies through runtime
         run: |
