@@ -59,12 +59,7 @@ docker build --progress=plain \\
   -t "$base_image" \\
   -f "$GITHUB_WORKSPACE/deploy/synology/docker/platform.Dockerfile" \\
   "$GITHUB_WORKSPACE"'''
-    script = replace_once(
-        script,
-        old_build,
-        new_build,
-        "platform image build",
-    )
+    script = replace_once(script, old_build, new_build, "platform image build")
 
     script = replace_once(
         script,
@@ -84,12 +79,7 @@ export START_SESSION
 
 echo "matrix-start" > "$RUN_ROOT/LAST_STAGE"
 : > "$ISSUE365_SERVER_TRACE"'''
-    script = replace_once(
-        script,
-        matrix_anchor,
-        matrix_replacement,
-        "matrix framework path",
-    )
+    script = replace_once(script, matrix_anchor, matrix_replacement, "matrix framework path")
 
     mariadb_run_old = '''docker run -d \\
   --name "$mariadb_container" \\
@@ -106,12 +96,7 @@ echo "matrix-start" > "$RUN_ROOT/LAST_STAGE"
   -e MARIADB_ROOT_PASSWORD=acceptance-ci-root-not-a-secret \\
   -e MARIADB_ROOT_HOST=% \\
   mariadb:11.8 >/dev/null'''
-    script = replace_once(
-        script,
-        mariadb_run_old,
-        mariadb_run_new,
-        "MariaDB isolated tmpfs",
-    )
+    script = replace_once(script, mariadb_run_old, mariadb_run_new, "MariaDB isolated tmpfs")
 
     script = replace_once(
         script,
@@ -125,10 +110,7 @@ echo "matrix-start" > "$RUN_ROOT/LAST_STAGE"
             "runtime metadata Composer namespace: expected two matches, "
             f"found {script.count(composer_namespace)}"
         )
-    script = script.replace(
-        composer_namespace,
-        r"Composer\InstalledVersions",
-    )
+    script = script.replace(composer_namespace, r"Composer\InstalledVersions")
 
     old_selectors = '''selectors = {
     '01-observer-create.sh': 'mkdir -p app/Support',
@@ -144,12 +126,7 @@ echo "matrix-start" > "$RUN_ROOT/LAST_STAGE"
     '04-probe-test.sh': "path = Path('scripts/acceptance/tests/admin-wiki-issue365-probe.spec.mjs')",
     '05-media-snapshot.sh': "cat > \"$RUN_ROOT/media-snapshot.php\" <<'PHP'",
 }'''
-    script = replace_once(
-        script,
-        old_selectors,
-        new_selectors,
-        "runbook observer selectors",
-    )
+    script = replace_once(script, old_selectors, new_selectors, "runbook observer selectors")
 
     old_hashes = '''  git hash-object \\
     scripts/acceptance/tests/admin-wiki-administration.spec.mjs \\
@@ -165,12 +142,7 @@ echo "matrix-start" > "$RUN_ROOT/LAST_STAGE"
     composer.lock; do
     printf '%s  %s\\n' "$(git hash-object "$source_path")" "$source_path"
   done > "$RUN_ROOT/source-blob-hashes.txt"'''
-    script = replace_once(
-        script,
-        old_hashes,
-        new_hashes,
-        "source hashes with paths",
-    )
+    script = replace_once(script, old_hashes, new_hashes, "source hashes with paths")
 
     validator_build_end = '''EOF
 
@@ -205,12 +177,7 @@ app_key="base64:$(python3 - <<'PY' """.rstrip()
 docker exec "$app_container" bash -lc '
   set -euo pipefail
   git show --no-patch --format=fuller HEAD > "$RUN_ROOT/target-commit.txt"'''
-    script = replace_once(
-        script,
-        metadata_anchor,
-        metadata_replacement,
-        "runtime metadata stage",
-    )
+    script = replace_once(script, metadata_anchor, metadata_replacement, "runtime metadata stage")
 
     observer_generation_anchor = '''docker exec -i "$app_container" python3 - <<'PY'
 from pathlib import Path
@@ -273,17 +240,10 @@ docker exec -i "$app_container" bash -s <<'MATRIX'""".rstrip()
         "observer installation evidence",
     )
 
-    sample_anchor = '''sample_dir="$RUN_ROOT/samples/$sample"
-        mkdir -p "$sample_dir"'''
+    sample_anchor = '''sample_dir="$RUN_ROOT/samples/$sample"'''
     sample_replacement = '''sample_dir="$RUN_ROOT/samples/$sample"
-        echo "sample-${sample}-start" > "$RUN_ROOT/LAST_STAGE"
-        mkdir -p "$sample_dir"'''
-    script = replace_once(
-        script,
-        sample_anchor,
-        sample_replacement,
-        "sample stage checkpoint",
-    )
+        echo "sample-${sample}-start" > "$RUN_ROOT/LAST_STAGE"'''
+    script = replace_once(script, sample_anchor, sample_replacement, "sample stage checkpoint")
 
     cleanup_old = '''sha256sum -c "$RUN_ROOT/StartSession.sha256.before"
 php -l "$START_SESSION" > "$RUN_ROOT/StartSession.restore-lint.txt"
