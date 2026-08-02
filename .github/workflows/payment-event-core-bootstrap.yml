@@ -57,6 +57,12 @@ jobs:
       - name: Validate generated paths and syntax
         if: steps.generator.outputs.apply == 'true'
         run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('.env.example')
+          path.write_text(path.read_text(encoding='utf-8').rstrip() + '\n', encoding='utf-8')
+          PY
           git diff --check
           python - <<'PY'
           import subprocess
