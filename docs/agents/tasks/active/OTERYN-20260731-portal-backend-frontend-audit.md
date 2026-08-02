@@ -58,6 +58,7 @@ Audit every delivered portal capability and platform module across backend, fron
 - [x] Reconcile the 43 legacy capability records with all 18 programme modules under policy v2.
 - [x] Publish a machine-readable 13-gate module/capability crosswalk.
 - [x] Reconcile every current open Issue, pull request and active task record into a live machine-readable work graph.
+- [x] Prove whether current exact-head workflows can validate the frozen-base audit branch.
 - [ ] Execute a valid exact frozen-target clean/corrupt × immediate/pre-scroll 12-sample matrix with request/session correlation.
 - [x] Publish consolidated reports, machine-readable matrices and validator instructions.
 
@@ -71,7 +72,7 @@ owned_paths:
 modules:
   - portal completeness audit
   - delivery-completeness policy-v2 reconciliation
-  - live Issue PR and task ownership reconciliation
+  - live Issue PR task and CI reconciliation
   - audit evidence and validation
   - Wiki Issue #365 evidence
 dependencies:
@@ -80,25 +81,26 @@ dependencies:
   - programme #451
 blockers:
   - external completion of GitHub Actions run 30763456046
+  - external CI compatibility remediation for pre-routing-rollout pull requests
 cross_repository_tasks: []
 ```
 
 ## Constraints
 
 - Audit and documentation only. Do not modify application code, routes, views/assets, runtime or production configuration, migrations/models, dependencies, committed tests, workflows, deployment or another repository.
-- Another agent owns implementation and governance remediation of audit findings.
+- Another agent owns implementation and governance/CI remediation of audit findings.
 - Browser and framework observers must remain isolated from the frozen source and must never merge.
 - Temporary validation PRs must close without merge.
 - CI evidence does not imply staging or production deployment.
 - The active run must not be retried or replaced after entering the runtime matrix.
-- One later unchanged-state check of run `30763456046` remains allowed in this invocation; do not exceed it.
+- One later state check of run `30763456046` remains allowed in this invocation; do not exceed it.
 
 ## Context checkpoint
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-02T23:31:00+02:00
-head: f5a8f02f937b0d0921cca54b88546b052bc1e0c4
+updated_at: 2026-08-02T23:42:00+02:00
+head: 26989bd30134902e44f592e741fb9c35b8044d91
 branch: audit/OTERYN-20260731-portal-backend-frontend-audit
 pr: 381
 status: waiting
@@ -122,8 +124,10 @@ proven:
   - current ACTIVE_WORK declares zero active tasks while five open PRs contain active task records and PR 476 is an active temporary validator
   - task checkpoints for PRs 338 391 405 and 471 do not match their current live PR identity
   - PR 391 has no explicit parent Issue and no first-class module ownership in the production-completion ledger
+  - Agent Governance passed on exact audit head 475013aa05a44a24d83cea09b0237147216c8d1f in run 30767823565
+  - five exact-head heavy workflows stopped before product validation because current-main change-classifier files are absent from the frozen-base PR head
   - frozen portal product findings are 0 HIGH 7 MEDIUM and 1 LOW
-  - additional live work-graph findings are 0 HIGH 2 MEDIUM and 0 LOW
+  - additional live work-graph and CI findings are 0 HIGH 3 MEDIUM and 0 LOW
   - responsive-mobile flash loss remains intermittently reproduced while durable publication succeeds
   - session serialization is NOT_PROVEN_REMEDIATED and root cause remains UNKNOWN
   - old-document lazy-thumbnail race is DERIVED with LOW confidence
@@ -132,7 +136,7 @@ proven:
 derived:
   - the Phase 7 live work graph must supplement ACTIVE_WORK and branch checkpoints for current ownership decisions
   - PR 391 requires intentional programme classification before terminal programme accounting can be fail closed
-  - the missing change-classifier test on the old audit head is a branch-to-current-workflow compatibility blocker rather than a portal product defect
+  - current exact-head heavy CI failure is workflow and branch compatibility evidence rather than portal product failure evidence
 unknown:
   - terminal result of run 30763456046
   - exact request or framework path that removes publication status
@@ -142,7 +146,7 @@ unknown:
   - causal contribution of integrity-failure responses
   - exact private-production release and availability in this audit
 conflicts:
-  - current main workflow expects tests/ci/test_classify_changes.py but the frozen-base audit branch does not contain that later CI support file
+  - current main contains scripts/ci/classify_changes.py and tests/ci/test_classify_changes.py while the frozen-base audit branch does not contain either file and current workflows execute them from the exact PR head
 first_failure:
   marker: responsive-mobile original Wiki publication flash absent after session serialization while durable publication succeeds
   evidence: run 30612399525 attempts 3 and 4 jobs 91343023604 and 91343514611 artifacts 8815383351 and 8815457044
@@ -156,6 +160,7 @@ rejected_hypotheses:
   - legacy implemented means full policy-v2 completion
   - ACTIVE_WORK alone is authoritative for current ownership
   - every open PR already has current task and module identity
+  - heavy exact-head workflow failures on audit head 475013aa are portal product regressions
 changed_paths:
   - docs/agents/evidence/OTERYN-20260731-portal-backend-frontend-audit/phase-7-issue-pr-coverage.json
   - docs/agents/reports/OTERYN-20260731-portal-backend-frontend-audit-phase-7-issue-pr-coverage.md
@@ -179,21 +184,24 @@ validation:
   - command: live Issue PR and task reconciliation
     result: PASS
     evidence: all 21 open Issues and 6 open PRs mapped and P7-001 plus P7-002 opened
+  - command: exact-head Agent Governance run 30767823565
+    result: PASS
+    evidence: repaired version-1 checkpoint contract passed on exact audit head 475013aa05a44a24d83cea09b0237147216c8d1f
+  - command: exact-head heavy workflow set on 475013aa05a44a24d83cea09b0237147216c8d1f
+    result: BLOCKED
+    evidence: CI Edge DB Outage and Game Auth lacked tests/ci/test_classify_changes.py while Phase 7 lacked scripts/ci/classify_changes.py and all stopped before product validation
   - command: current bounded run 30763456046 job 91537990755
     result: BLOCKED
     evidence: external matrix execution remained in progress at the first state check of this invocation
-  - command: exact-head Agent Governance run 30767724214 job 91549326059
-    result: FAIL
-    evidence: unsupported nested feature_scope checkpoint value detected and repaired in the next audit-only commit
-  - command: exact-head Edge Security run 30767724229 job 91549326250
-    result: BLOCKED
-    evidence: current-main workflow expects tests/ci/test_classify_changes.py which is absent from the old frozen-base audit head
+  - command: product workflow deployment production issue-lifecycle and external-repository mutation audit
+    result: PASS
+    evidence: PR 381 changes remain confined to authorized audit task report and evidence paths
 blockers:
   - external completion of run 30763456046 with one later state check allowed in this invocation
-  - exact-head heavy workflow classification cannot execute on the frozen-base branch because its current-main classifier test file is absent
+  - exact-head heavy validation cannot execute on the frozen-base branch until a separate agent provides backward-compatible change routing or an authorized branch integration strategy
 next_action: when run 30763456046 becomes terminal, inspect it once, verify any artifact, update Issue 365 and PR 381 evidence, close PR 476 without merge, and do not rerun the matrix
 ```
 
 ## Notes
 
-The audit remains `VALIDATED_WITH_CORRECTIONS`. The Phase 7 live work graph is complete for the current observation. Product and coordination remediation remain assigned to another agent. The immediate external dependency is the terminal result of run `30763456046`.
+The audit remains `VALIDATED_WITH_CORRECTIONS`. The Phase 7 live work and CI graph is complete for the current observation. Product, coordination and CI remediation remain assigned to another agent. The immediate external dependency is the terminal result of run `30763456046`.
