@@ -59,6 +59,7 @@ owned_paths:
   - .github/workflows/playwright-runtime-validation.yml
   - .github/workflows/acceptance-validation.yml
   - docs/architecture/TEST_STRATEGY.md
+  - docs/testing/PLAYWRIGHT_PHP85_RUNTIME.md
   - docs/agents/tasks/active/OTERYN-20260802-playwright-php85-ci.md
   - docs/agents/tasks/archive/OTERYN-20260802-playwright-php85-ci.md
 modules:
@@ -77,11 +78,11 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-02T23:52:00+02:00
-head: 39bdf0c79ffb0f7fd8daafd5451b9ad4e520138c
+updated_at: 2026-08-03T00:05:00+02:00
+head: e716e26f187d59589387261160e741829d468928
 branch: fix/OTERYN-20260802-playwright-php85-ci
-pr: none
-status: implementing
+pr: 477
+status: validating
 context_routes:
   - testing
   - ci-repair
@@ -91,6 +92,7 @@ owned_paths:
   - .github/workflows/playwright-runtime-validation.yml
   - .github/workflows/acceptance-validation.yml
   - docs/architecture/TEST_STRATEGY.md
+  - docs/testing/PLAYWRIGHT_PHP85_RUNTIME.md
   - docs/agents/tasks/active/OTERYN-20260802-playwright-php85-ci.md
 proven:
   - trusted main at task start is 39bdf0c79ffb0f7fd8daafd5451b9ad4e520138c
@@ -100,33 +102,48 @@ proven:
   - Issue 365 run 30763456046 failed before browser execution because the Playwright container exposed PHP 8.3.6 while Composer required PHP >=8.5
   - existing acceptance helpers execute php and php artisan from the Playwright process
   - no live open PR owns the declared Playwright runtime paths
+  - retained PHP 8.5 Node 22 Composer 2 Playwright 1.60.0 image and fail-fast runner are persisted in PR 477
+  - runner supports bash and sh passthrough for drop-in replacement of the official Playwright image
+  - exact-head workflow Playwright PHP 8.5 Runtime run 30769199085 was emitted
+  - first Agent Governance failure was structural only: missing checkpoint field derived
+  - checkpoint validator unit tests passed before the structural failure
+derived:
+  - replacing the temporary official Playwright image with this retained runtime removes the PHP 8.3 package-selection failure without changing Playwright test source
 unknown:
-  - exact first build result of the retained combined runtime
+  - terminal result of exact-head runtime build and three-browser smoke
+  - terminal results of remaining exact-head required workflows
 conflicts: []
 first_failure:
-  marker: Playwright helper command cannot satisfy Composer PHP platform requirement
-  evidence: run 30763456046 job 91537990755; PHP 8.3.6 versus required >=8.5.0
+  marker: active task checkpoint omitted required derived field
+  evidence: Agent Governance run 30769199093 job 91553250814
 rejected_hypotheses:
   - Playwright itself is incompatible with the repository
   - the host-based acceptance workflow lacks PHP 8.5
   - installing distro php-cli independently for every sample is a durable repair
 changed_paths:
+  - .github/workflows/playwright-runtime-validation.yml
+  - deploy/ci/playwright-php.Dockerfile
   - docs/agents/tasks/active/OTERYN-20260802-playwright-php85-ci.md
+  - docs/testing/PLAYWRIGHT_PHP85_RUNTIME.md
+  - scripts/acceptance/run-playwright-ci.sh
 validation:
-  - command: not-run
+  - command: Agent Governance run 30769199093 job 91553250814
+    result: FAIL
+    evidence: checkpoint validator reported missing checkpoint field derived; implementation was not rejected
+  - command: Playwright PHP 8.5 Runtime run 30769199085
     result: NOT_RUN
-    evidence: implementation package not yet persisted
+    evidence: workflow is currently in progress on head e716e26f187d59589387261160e741829d468928
 blockers:
   - none
 invocation_started_at: 2026-08-02T23:51:00+02:00
-last_progress_at: 2026-08-02T23:52:00+02:00
-ci_checks_for_current_head: 0
+last_progress_at: 2026-08-03T00:05:00+02:00
+ci_checks_for_current_head: 1
 unchanged_state_checks: 0
 identical_failure_retries: 0
-repair_cycles_for_current_gate: 0
+repair_cycles_for_current_gate: 1
 context_reconstruction_attempts: 1
 stall_warnings: 0
-next_action: add the retained PHP 8.5 Playwright image, runner contract and exact-head validation workflow
+next_action: validate the corrected checkpoint and inspect the terminal Playwright PHP 8.5 Runtime workflow result
 ```
 
 ## Notes
