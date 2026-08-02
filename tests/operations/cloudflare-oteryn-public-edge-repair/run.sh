@@ -206,8 +206,14 @@ required=[
 for item in required:
     if item not in workflow:
         raise SystemExit(f"missing workflow invariant: {item}")
-if marker != "# Cloudflare Oteryn public edge repair trigger\n\nmode: inert\nconfirmation:\n":
-    raise SystemExit("committed repair marker is not inert")
+allowed_markers = {
+    "# Cloudflare Oteryn public edge repair trigger\n\nmode: inert\nconfirmation:\n",
+    "# Cloudflare Oteryn public edge repair trigger\n\nmode: audit\nconfirmation:\n",
+    "# Cloudflare Oteryn public edge repair trigger\n\nmode: apply\nconfirmation: APPLY-OTERYN-PUBLIC-EDGE-REPAIR\n",
+    "# Cloudflare Oteryn public edge repair trigger\n\nmode: rollback\nconfirmation: ROLLBACK-OTERYN-PUBLIC-EDGE-REPAIR\n",
+}
+if marker not in allowed_markers:
+    raise SystemExit("committed repair marker is not an exact allowed state")
 for forbidden in (
     'cat "$raw_output"',
     'body="$raw_output"',
