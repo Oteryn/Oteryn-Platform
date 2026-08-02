@@ -37,6 +37,7 @@ project_lane: oteryn-platform-core
 - [x] The complete changed-file set is limited to Oteryn Platform governance, checkpoint tests and this task record.
 - [x] No application, database, deployment or production behaviour changes.
 - [x] No write or terminal dependency on another repository remains.
+- [x] A fresh governance audit found and removed ambiguous cross-repository adoption language.
 - [ ] Required workflows pass on the final metadata head and the PR passes final diff/review hygiene.
 
 ## Ownership
@@ -64,8 +65,8 @@ cross_repository_tasks: []
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-02T14:20:00Z
-head: 34df6e89596898be189acf19297d3d4b4d3e33ce
+updated_at: 2026-08-02T14:27:00Z
+head: a4f022b08bafe8a8553803c8eceec2d8f6bb910d
 branch: docs/OTERYN-20260802-agent-governance-sync
 pr: 472
 status: validating
@@ -83,11 +84,11 @@ context_score: 4
 estimate_confidence: high
 decomposition_decision: single
 invocation_started_at: 2026-08-02T14:20:00Z
-last_progress_at: 2026-08-02T14:20:00Z
-ci_checks_for_current_head: 1
+last_progress_at: 2026-08-02T14:27:00Z
+ci_checks_for_current_head: 0
 unchanged_state_checks: 0
 identical_failure_retries: 0
-repair_cycles_for_current_gate: 0
+repair_cycles_for_current_gate: 1
 context_reconstruction_attempts: 1
 stall_warnings: 0
 context_routes:
@@ -109,17 +110,19 @@ proven:
   - The governance documents separate checkpoint task status from terminal invocation result.
   - The anti-stall contract permits at most one additional task after the terminal entry task.
   - Checkpoint tests cover waiting, completed and NOT_APPLICABLE.
-  - All six required workflow families succeeded on prior exact head 34df6e89596898be189acf19297d3d4b4d3e33ce.
-  - PR 472 has zero unresolved review threads.
+  - All six required workflow families succeeded on exact head 415d7063071c714c42fab0e9b5599f123678147e.
+  - PR 472 had zero unresolved review threads before the final audit repair.
   - PR 472 changes only governance, checkpoint tests and this task record.
+  - A fresh documentation audit identified ambiguous participating-repositories language in GOVERNANCE_CONTRACT.json.
+  - Commit a4f022b08bafe8a8553803c8eceec2d8f6bb910d replaced that language with repository-local adoption and separately authorized external compatibility.
 derived:
   - Oteryn Platform governance can be validated and merged independently without a terminal dependency on another repository.
 unknown:
-  - Exact-head workflow conclusions after this scope-correction checkpoint commit.
+  - Exact-head workflow conclusions after this final checkpoint metadata commit.
 conflicts: []
 first_failure:
   marker: repository scope mismatch
-  evidence: the prior task goal and PR description incorrectly made completion depend on four repositories outside the owner-authorized current scope
+  evidence: the prior task goal, PR description and machine-readable adoption process incorrectly implied multi-repository completion scope
 rejected_hypotheses:
   - Other repository PRs must become terminal before Oteryn Platform governance can merge: Oteryn Platform has independent ownership, validation workflows and merge gates.
   - Application, database or production E2E is required: this PR changes governance and checkpoint tests only.
@@ -136,18 +139,21 @@ changed_paths:
   - docs/agents/tasks/active/OTERYN-20260802-agent-governance-sync.md
   - tools/agents/test_checkpoint.py
 validation:
-  - command: exact-head GitHub Actions suite on 34df6e89596898be189acf19297d3d4b4d3e33ce
+  - command: exact-head GitHub Actions suite on 415d7063071c714c42fab0e9b5599f123678147e
     result: PASS
-    evidence: CI 30750895004, Game Auth Ticket Concurrency 30750895011, Phase 7 30750895012, DB Outage 30750895002, Agent Governance 30750895003 and Edge Security Emulation 30750895023 succeeded
+    evidence: CI 30751998397, Game Auth Ticket Concurrency 30751998348, Phase 7 30751998342, DB Outage 30751998346, Agent Governance 30751998344 and Edge Security Emulation 30751998345 succeeded
+  - command: proportionate fresh governance audit
+    result: PASS
+    evidence: scope, changed paths, lifecycle, machine-readable contract and validator tests were inspected; the only material ambiguity was repaired in a4f022b08bafe8a8553803c8eceec2d8f6bb910d
   - command: review-thread audit
     result: PASS
-    evidence: zero review threads on PR 472
+    evidence: zero review threads on PR 472 before the final metadata commit
   - command: documentation-only E2E classification
     result: NOT_APPLICABLE
     evidence: governance documents and checkpoint validator tests expose no application or user runtime journey
 blockers:
   - none
-next_action: verify required workflows on the new exact head, perform the final diff and review audit, then mark PR 472 ready and merge through normal protections
+next_action: verify required workflows on the new exact head, perform the final changed-file and review audit, then mark PR 472 ready and merge through normal protections
 ```
 
 ## Notes
