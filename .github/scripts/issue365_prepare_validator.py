@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Apply the bounded Issue #365 validator repair without rewriting the frozen source."""
+"""Apply bounded Issue #365 validator repairs without rewriting frozen source."""
 
 from __future__ import annotations
 
@@ -25,6 +25,13 @@ def load_original() -> ModuleType:
     return module
 
 
+def replace_once(text: str, old: str, new: str, label: str) -> str:
+    count = text.count(old)
+    if count != 1:
+        raise SystemExit(f"{label}: expected one match, found {count}")
+    return text.replace(old, new, 1)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("source", type=Path)
@@ -34,18 +41,29 @@ def main() -> None:
     original = load_original()
     generated = original.prepare(args.source.read_text(encoding="utf-8"))
 
-    broken = """    '05-media-snapshot.sh': "cat > "$RUN_ROOT/media-snapshot.php" <<'PHP'",
+    media_broken = """    '05-media-snapshot.sh': "cat > "$RUN_ROOT/media-snapshot.php" <<'PHP'",
 """
-    repaired = r"""    '05-media-snapshot.sh': "cat > \"$RUN_ROOT/media-snapshot.php\" <<'PHP'",
+    media_repaired = r"""    '05-media-snapshot.sh': "cat > \"$RUN_ROOT/media-snapshot.php\" <<'PHP'",
 """
-    count = generated.count(broken)
-    if count != 1:
-        raise SystemExit(
-            "media snapshot selector repair: expected one match, "
-            f"found {count}"
-        )
+    generated = replace_once(
+        generated,
+        media_broken,
+        media_repaired,
+        "media snapshot selector repair",
+    )
 
-    args.target.write_text(generated.replace(broken, repaired, 1), encoding="utf-8")
+    save_pattern_broken = r'''    "        $this->saveSession($request);\n        return $response;\n",
+'''
+    save_pattern_repaired = r'''    "        $this->saveSession($request);\n\n        return $response;\n",
+'''
+    generated = replace_once(
+        generated,
+        save_pattern_broken,
+        save_pattern_repaired,
+        "Laravel 13 StartSession save-pattern repair",
+    )
+
+    args.target.write_text(generated, encoding="utf-8")
     args.target.chmod(0o700)
 
 
