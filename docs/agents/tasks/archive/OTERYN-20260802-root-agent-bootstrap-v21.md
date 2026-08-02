@@ -14,7 +14,7 @@ optional_reads: []
 status: completed
 feature_pr: 447
 merge_commit: 9f556eb78400d744e694f5cd3af0eafde9d43be1
-archive_pr: pending
+archive_pr: 448
 completed: 2026-08-02T09:14:00+02:00
 owned_paths: []
 ---
@@ -23,7 +23,7 @@ owned_paths: []
 
 ## Terminal result
 
-PR #447 merged the mandatory root Codex bootstrap to `main` as `9f556eb78400d744e694f5cd3af0eafde9d43be1`. This archive change removes the active task and releases ownership.
+PR #447 merged the mandatory root Codex bootstrap to `main` as `9f556eb78400d744e694f5cd3af0eafde9d43be1`. PR #448 removes the active task, archives this terminal record and releases ownership.
 
 ## Closeout
 
@@ -61,10 +61,10 @@ pull_requests:
   unresolved_review_threads: 0
   terminal_prs:
     - blakinio/Oteryn-Platform#447 merged as 9f556eb78400d744e694f5cd3af0eafde9d43be1
-  archive_pr: pending
+  archive_pr: blakinio/Oteryn-Platform#448
 task_archived_or_terminal: true
 ownership_released: true
 stale_branches_reconciled: true
 ```
 
-No material finding or blocker remains. The archive PR is the sole intentionally open related PR until it merges.
+No material finding or blocker remains. PR #448 is the sole intentionally open related PR and becomes terminal when merged.
