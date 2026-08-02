@@ -46,7 +46,7 @@ Audit every delivered portal capability across backend, frontend, integration, s
 - [x] Publish the exact frozen-target 12-sample execution runbook.
 - [x] Prove the Synology staging runner can build and bootstrap the required environment.
 - [x] Generate and install the source-faithful Laravel 13.20.0 `StartSession` observer.
-- [ ] Execute the exact frozen-target clean/corrupt × immediate/pre-scroll 12-sample matrix with request/session correlation.
+- [ ] Execute a valid exact frozen-target clean/corrupt × immediate/pre-scroll 12-sample matrix with request/session correlation.
 - [x] Publish consolidated reports, machine-readable matrices and validator instructions.
 
 ## Ownership
@@ -64,7 +64,7 @@ dependencies:
   - Issue #326
   - Issue #365
 blockers:
-  - GitHub Actions run 30758971408 is still executing on the Synology staging runner
+  - owner authorization is required for any further harness-only repair and matrix rerun
 cross_repository_tasks: []
 ```
 
@@ -80,37 +80,20 @@ cross_repository_tasks: []
 ```yaml
 checkpoint_version: 1
 policy_version: 2
-updated_at: 2026-08-02T17:31:00Z
-head: 0f8db79b937b8abce6fbd69ab80248c30e9582a0
+updated_at: 2026-08-02T18:35:00Z
+head: f8688bce8de48f36b517139a858ad7adf13960e7
 branch: audit/OTERYN-20260731-portal-backend-frontend-audit
 pr: 381
-status: waiting
+status: blocked
 phase: validate
-session_id: chat-github-20260802-issue365-final-matrix
+session_id: automation-issue365-terminal-closeout
 session_role: coordinator-validator
 execution_mode: github-actions-synology
-execution_reason: execute the exact frozen audit validator without changing product or production state
 project_lane: oteryn-platform-core
 task_kind: audit
-context_pressure: high
-context_growth: stable
-context_score: 12
 estimate_confidence: high
 decomposition_decision: phased
-prior_repair_cycles_for_gate: 3
-repair_cycles_for_current_invocation: 1
-ci_checks_for_current_head: 2
-unchanged_state_checks: 1
-identical_failure_retries: 0
-context_reconstruction_attempts: 1
-stall_warnings: 0
-heavy_validation_runs: 9
-context_routes:
-  - agent-governance
-  - testing
-  - web-cms
-  - auth-identity
-  - admin-rbac
+heavy_validation_runs: 10
 owned_paths:
   - docs/agents/tasks/active/OTERYN-20260731-portal-backend-frontend-audit.md
   - docs/agents/reports/OTERYN-20260731-portal-backend-frontend-audit*.md
@@ -118,60 +101,51 @@ owned_paths:
 proven:
   - frozen audit target is b6f7b12a43aa72a52dc98c3fa07a7c4607fcb608
   - normalized audit findings remain 0 HIGH 6 MEDIUM and 1 LOW
-  - responsive-mobile flash loss remains reproduced intermittently while durable publication succeeds
+  - responsive-mobile flash loss remains intermittently reproduced while durable publication succeeds
   - session serialization is NOT_PROVEN_REMEDIATED and root cause remains UNKNOWN
-  - Synology can check out the frozen SHA and bootstrap production-like MariaDB Redis and application services
-  - run 30756908549 proved the source-faithful Laravel 13.20.0 observer can be generated installed and linted
-  - the prior terminal harness error was limited to START_SESSION scope in a fresh post-install shell
-  - control commit 613db96cda9d3ef513a033aff4a09b5e588798e9 defines START_SESSION inside that generated verification shell
-  - temporary PR 476 is an observation-only draft and must close without merge
-  - Synology run 30758971408 and validator job 91526007975 were created for exact control head 613db96cda9d3ef513a033aff4a09b5e588798e9
-  - no retry was requested and no parallel matrix run exists
-  - no application deployment production or external-repository mutation occurred
+  - Synology can bootstrap production-like MariaDB Redis and application services
+  - source-faithful Laravel 13.20.0 StartSession instrumentation installs and passes syntax validation
+  - run 30758971408 reached matrix stage on control head 613db96cda9d3ef513a033aff4a09b5e588798e9
+  - artifact 8837189083 ZIP digest is sha256:03ced224c4e14b649f62a77e512821cffc5df679c425610da603137040f66fa0 and was independently verified
+  - six clean samples attempted and all failed before browser flow with spawnSync php ENOENT
+  - first one-corrupt fixture failed its invariant because storage_exists remained true
+  - no valid correlated clean/corrupt comparison completed
+  - artifact upload and isolated cleanup succeeded
+  - no product deployment production or external-repository mutation occurred
 derived:
-  - environment observer generation observer installation and START_SESSION scope have all received evidence-based repairs
-  - the remaining dependency is only the terminal outcome and artifact of run 30758971408
+  - run 30758971408 is invalid technical harness evidence, not product evidence
+  - further execution requires explicit authorization because the no-rerun budget is exhausted
 unknown:
-  - whether the generated validator passes its preparation gate on control head 613db96cda9d3ef513a033aff4a09b5e588798e9
-  - whether any of the 12 mandatory browser samples start or complete
   - request or framework path that removes publication status
   - exact session-lock acquisition and save order during a reproduced sample
   - clean exact-frozen matrix result
   - exactly-one-corrupt-row matrix result
   - causal contribution of integrity-failure responses
   - production release and availability
-conflicts:
-  - ACTIVE_WORK.md says no active tasks while live PR and task records show active owned work
 first_failure:
   marker: responsive-mobile original Wiki publication flash absent after session serialization while durable publication succeeds
   evidence: run 30612399525 attempts 3 and 4 jobs 91343023604 and 91343514611 artifacts 8815383351 and 8815457044
 rejected_hypotheses:
   - Synology or Docker availability remains the blocker
   - the Laravel observer still fails to match or install
-  - a successful bootstrap or observer lint proves remediation
-  - the former unbound variable is product evidence
-  - a partial or uncorrelated sample satisfies the matrix gate
-  - polling the same pending head more than twice is allowed
-changed_paths:
-  - docs/agents/tasks/active/OTERYN-20260731-portal-backend-frontend-audit.md
+  - spawnSync php ENOENT is a product defect
+  - six technical failures satisfy the matrix gate
+  - another rerun is authorized
 validation:
-  - command: generated validator control update 613db96cda9d3ef513a033aff4a09b5e588798e9
-    result: PENDING_CI
-    evidence: defines START_SESSION inside the generated post-install verification bash -lc
   - command: Issue 365 exact-frozen Synology run 30758971408 job 91526007975
-    result: IN_PROGRESS
-    evidence: exact control head 613db96cda9d3ef513a033aff4a09b5e588798e9 and frozen target b6f7b12a43aa72a52dc98c3fa07a7c4607fcb608
-  - command: retry and parallel-run audit
+    result: INVALID_TECHNICAL_FAILURE
+    evidence: matrix stage reached; six clean samples failed with php ENOENT; corrupt fixture invariant failed
+  - command: artifact 8837189083 integrity verification
     result: PASS
-    evidence: zero retries and one matrix run only
+    evidence: downloaded ZIP sha256 matched GitHub digest 03ced224c4e14b649f62a77e512821cffc5df679c425610da603137040f66fa0
   - command: product and production mutation audit
     result: PASS
-    evidence: temporary infrastructure remains unmerged and no deployment operation occurred
+    evidence: temporary infrastructure remained unmerged and isolated cleanup succeeded
 blockers:
-  - run 30758971408 has not reached a terminal state and repository policy forbids a third state check for the same exact head in this invocation
-next_action: after run 30758971408 becomes terminal inspect it once, download and verify its artifact, update ISSUE_365_SYNOLOGY_EXECUTION_ATTEMPTS.md plus PR 381 and Issue 365, then close PR 476 without merge; do not rerun the matrix
+  - explicit owner authorization for a new harness-only task and rerun
+next_action: if authorized, create a new bounded harness-only task that exposes PHP to Playwright or routes runArtisan through the application container and fixes the one-corrupt fixture invariant before one new matrix run
 ```
 
 ## Notes
 
-The audit remains `VALIDATED_WITH_CORRECTIONS`. The current state is `waiting`, not blocked: the final authorized matrix run is active. No product implementation, merge, deployment or production action is authorized.
+The audit remains `VALIDATED_WITH_CORRECTIONS`. The final authorized run was terminal but invalid as product evidence. No merge, deployment or product implementation is authorized.
