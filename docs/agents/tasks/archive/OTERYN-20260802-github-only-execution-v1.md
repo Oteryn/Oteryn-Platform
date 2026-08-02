@@ -4,7 +4,7 @@ status: completed
 feature_pr: 454
 feature_head: 95a277d9855d985ce6494ca71352d85750ee6531
 merge_commit: f4ffe15a0419279894e11e2ebc23d512bd7a6c3d
-archive_pr: pending
+archive_pr: 455
 completed: 2026-08-02T12:10:00+02:00
 owned_paths: []
 ---
@@ -13,7 +13,7 @@ owned_paths: []
 
 ## Terminal result
 
-PR #454 merged the mandatory GitHub-only execution contract, root bootstrap routing, local agent routing, and gated autonomous merge/auto-merge authority to `main` as `f4ffe15a0419279894e11e2ebc23d512bd7a6c3d`.
+PR #454 merged the mandatory GitHub-only execution contract, root bootstrap routing, local agent routing, and gated autonomous merge/auto-merge authority to `main` as `f4ffe15a0419279894e11e2ebc23d512bd7a6c3d`. PR #455 archives this terminal record and releases ownership.
 
 ## Closeout
 
@@ -48,7 +48,7 @@ final_ci:
 pull_requests:
   terminal_prs:
     - blakinio/Oteryn-Platform#454 merged as f4ffe15a0419279894e11e2ebc23d512bd7a6c3d
-  archive_pr: pending
+  archive_pr: blakinio/Oteryn-Platform#455
   unresolved_review_threads: 0
 task_archived_or_terminal: true
 ownership_released: true
