@@ -92,13 +92,7 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(payload)
 
     def ruleset(self) -> dict[str, Any]:
-        return {
-            "id": RULESET_ID,
-            "name": "zone",
-            "kind": "zone",
-            "phase": "http_request_firewall_custom",
-            "rules": STATE["rules"],
-        }
+        return {"id": RULESET_ID, "name": "zone", "kind": "zone", "phase": "http_request_firewall_custom", "rules": STATE["rules"]}
 
     def do_GET(self) -> None:
         self.record()
@@ -127,7 +121,7 @@ class Handler(BaseHTTPRequestHandler):
         before = body.get("position", {}).get("before")
         index = next((i for i, rule in enumerate(STATE["rules"]) if rule.get("id") == before), len(STATE["rules"]))
         STATE["rules"].insert(index, new_rule)
-        self.send_json(200, response(self.ruleset()))
+        self.send_json(200, response(new_rule))
 
     def do_PUT(self) -> None:
         body = self.read_json()
