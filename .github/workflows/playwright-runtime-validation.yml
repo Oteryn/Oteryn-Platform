@@ -61,6 +61,18 @@ jobs:
           docker image inspect "$IMAGE_TAG" --format '{{.Id}}' \
             > artifacts/playwright-runtime/image-id.txt
 
+      - name: Verify official-image shell compatibility
+        run: |
+          set -euo pipefail
+          docker run --rm \
+            "$IMAGE_TAG" \
+            bash -lc '
+              set -euo pipefail
+              php -r '\''exit(PHP_VERSION_ID >= 80500 ? 0 : 1);'\''
+              cd /opt/oteryn-playwright
+              npx playwright --version
+            ' | tee artifacts/playwright-runtime/shell-passthrough.txt
+
       - name: Install exact repository dependencies through runtime
         run: |
           set -euo pipefail
