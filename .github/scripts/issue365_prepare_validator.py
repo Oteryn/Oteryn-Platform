@@ -91,27 +91,6 @@ echo "matrix-start" > "$RUN_ROOT/LAST_STAGE"
         "matrix framework path",
     )
 
-    stage_replacements = {
-        'cat <<EOF | docker build -t "$validator_image" -': (
-            'echo "::notice::ISSUE365_STAGE=build-validator-image"\n'
-            'cat <<EOF | docker build -t "$validator_image" -'
-        ),
-        'docker exec "$app_container" composer install': (
-            'echo "::notice::ISSUE365_STAGE=composer-install"\n'
-            'docker exec "$app_container" composer install'
-        ),
-        "for script in \\": (
-            'echo "::notice::ISSUE365_STAGE=install-observers"\n'
-            "for script in \\"
-        ),
-        "docker exec -i \"$app_container\" bash -s <<'MATRIX'": (
-            'echo "::notice::ISSUE365_STAGE=matrix"\n'
-            "docker exec -i \"$app_container\" bash -s <<'MATRIX'"
-        ),
-    }
-    for old, new in stage_replacements.items():
-        script = replace_once(script, old, new.rstrip(), f"stage anchor {old!r}")
-
     mariadb_run_old = '''docker run -d \\
   --name "$mariadb_container" \\
   --network "$network" \\
@@ -149,6 +128,185 @@ echo "matrix-start" > "$RUN_ROOT/LAST_STAGE"
     script = script.replace(
         composer_namespace,
         r"Composer\InstalledVersions",
+    )
+
+    old_selectors = '''selectors = {
+    '01-observer-create.sh': 'mkdir -p app/Support',
+    '02-observer-patch.sh': 'export START_SESSION=',
+    '03-browser-helper.sh': 'issue365-trace-helper.mjs',
+    '04-probe-test.sh': 'admin-wiki-issue365-probe.spec.mjs',
+    '05-media-snapshot.sh': 'media-snapshot.php',
+}'''
+    new_selectors = '''selectors = {
+    '01-observer-create.sh': 'cat > app/Support/Issue365Trace.php',
+    '02-observer-patch.sh': 'export START_SESSION=vendor/laravel/framework/src/Illuminate/Session/Middleware/StartSession.php',
+    '03-browser-helper.sh': "cat > scripts/acceptance/tests/issue365-trace-helper.mjs <<'JS'",
+    '04-probe-test.sh': "path = Path('scripts/acceptance/tests/admin-wiki-issue365-probe.spec.mjs')",
+    '05-media-snapshot.sh': "cat > \"$RUN_ROOT/media-snapshot.php\" <<'PHP'",
+}'''
+    script = replace_once(
+        script,
+        old_selectors,
+        new_selectors,
+        "runbook observer selectors",
+    )
+
+    old_hashes = '''  git hash-object \\
+    scripts/acceptance/tests/admin-wiki-administration.spec.mjs \\
+    scripts/acceptance/playwright.config.mjs \\
+    scripts/acceptance/seed-browser-editorial-media.php \\
+    routes/modules/wiki.php \\
+    composer.lock > "$RUN_ROOT/source-blob-hashes.txt"'''
+    new_hashes = '''  for source_path in \\
+    scripts/acceptance/tests/admin-wiki-administration.spec.mjs \\
+    scripts/acceptance/playwright.config.mjs \\
+    scripts/acceptance/seed-browser-editorial-media.php \\
+    routes/modules/wiki.php \\
+    composer.lock; do
+    printf '%s  %s\\n' "$(git hash-object "$source_path")" "$source_path"
+  done > "$RUN_ROOT/source-blob-hashes.txt"'''
+    script = replace_once(
+        script,
+        old_hashes,
+        new_hashes,
+        "source hashes with paths",
+    )
+
+    validator_build_end = '''EOF
+
+app_key="base64:$(python3 - <<'PY' '''.rstrip()
+    validator_build_replacement = """EOF
+
+docker run --rm \\
+  -v "$work_volume:/workspace" \\
+  -v "$evidence_volume:/evidence" \\
+  -w /workspace \\
+  "$validator_image" \\
+  bash -lc '
+    set -euo pipefail
+    git config --global --add safe.directory /workspace
+    git status --porcelain=v1 > /evidence/issue365-run/git-status-frozen-initial.txt
+    test ! -s /evidence/issue365-run/git-status-frozen-initial.txt
+    echo frozen-clean > /evidence/issue365-run/LAST_STAGE
+  '
+
+app_key="base64:$(python3 - <<'PY' """.rstrip()
+    script = replace_once(
+        script,
+        validator_build_end,
+        validator_build_replacement,
+        "initial frozen git status evidence",
+    )
+
+    metadata_anchor = '''docker exec "$app_container" bash -lc '
+  set -euo pipefail
+  git show --no-patch --format=fuller HEAD > "$RUN_ROOT/target-commit.txt"'''
+    metadata_replacement = '''docker exec "$app_container" sh -c 'echo runtime-metadata > "$RUN_ROOT/LAST_STAGE"'
+docker exec "$app_container" bash -lc '
+  set -euo pipefail
+  git show --no-patch --format=fuller HEAD > "$RUN_ROOT/target-commit.txt"'''
+    script = replace_once(
+        script,
+        metadata_anchor,
+        metadata_replacement,
+        "runtime metadata stage",
+    )
+
+    observer_generation_anchor = '''docker exec -i "$app_container" python3 - <<'PY'
+from pathlib import Path
+import re'''
+    observer_generation_replacement = '''docker exec "$app_container" sh -c 'echo observer-generation > "$RUN_ROOT/LAST_STAGE"'
+docker exec -i "$app_container" python3 - <<'PY'
+from pathlib import Path
+import re'''
+    script = replace_once(
+        script,
+        observer_generation_anchor,
+        observer_generation_replacement,
+        "observer generation stage",
+    )
+
+    observer_install_anchor = '''PY
+
+for script in \\
+  01-observer-create.sh'''
+    observer_install_replacement = '''PY
+
+docker exec "$app_container" bash -lc 'sha256sum "$RUN_ROOT"/runtime/*.sh > "$RUN_ROOT/runtime/SHA256SUMS"'
+
+for script in \\
+  01-observer-create.sh'''
+    script = replace_once(
+        script,
+        observer_install_anchor,
+        observer_install_replacement,
+        "observer generated hashes",
+    )
+
+    matrix_launch_anchor = """done
+
+docker exec -i "$app_container" bash -s <<'MATRIX'""".rstrip()
+    matrix_launch_replacement = """done
+
+docker exec "$app_container" bash -lc '
+  set -euo pipefail
+  test -f app/Support/Issue365Trace.php
+  test -f scripts/acceptance/tests/issue365-trace-helper.mjs
+  test -f scripts/acceptance/tests/admin-wiki-issue365-probe.spec.mjs
+  test -f "$RUN_ROOT/media-snapshot.php"
+  test -s "$RUN_ROOT/StartSession.sha256.instrumented"
+  printf "%s\\n" \\
+    app/Support/Issue365Trace.php \\
+    scripts/acceptance/tests/issue365-trace-helper.mjs \\
+    scripts/acceptance/tests/admin-wiki-issue365-probe.spec.mjs \\
+    "$RUN_ROOT/media-snapshot.php" \\
+    "$START_SESSION" \\
+    > "$RUN_ROOT/observers-installed.txt"
+  echo observers-installed > "$RUN_ROOT/LAST_STAGE"
+'
+
+docker exec -i "$app_container" bash -s <<'MATRIX'""".rstrip()
+    script = replace_once(
+        script,
+        matrix_launch_anchor,
+        matrix_launch_replacement,
+        "observer installation evidence",
+    )
+
+    sample_anchor = '''sample_dir="$RUN_ROOT/samples/$sample"
+        mkdir -p "$sample_dir"'''
+    sample_replacement = '''sample_dir="$RUN_ROOT/samples/$sample"
+        echo "sample-${sample}-start" > "$RUN_ROOT/LAST_STAGE"
+        mkdir -p "$sample_dir"'''
+    script = replace_once(
+        script,
+        sample_anchor,
+        sample_replacement,
+        "sample stage checkpoint",
+    )
+
+    cleanup_old = '''sha256sum -c "$RUN_ROOT/StartSession.sha256.before"
+php -l "$START_SESSION" > "$RUN_ROOT/StartSession.restore-lint.txt"
+test -z "$(git status --porcelain=v1)"
+git diff --exit-code
+git diff --cached --exit-code
+git status --porcelain=v1 > "$RUN_ROOT/git-status-after.txt"'''
+    cleanup_new = '''echo cleanup-restore > "$RUN_ROOT/LAST_STAGE"
+sha256sum -c "$RUN_ROOT/StartSession.sha256.before" > "$RUN_ROOT/StartSession.restore-check.txt"
+sha256sum "$START_SESSION" > "$RUN_ROOT/StartSession.sha256.after"
+cmp -s "$RUN_ROOT/StartSession.sha256.before" "$RUN_ROOT/StartSession.sha256.after"
+php -l "$START_SESSION" > "$RUN_ROOT/StartSession.restore-lint.txt"
+git diff --exit-code
+git diff --cached --exit-code
+git clean -ffdqx
+git status --porcelain=v1 > "$RUN_ROOT/git-status-after.txt"
+test ! -s "$RUN_ROOT/git-status-after.txt"
+echo matrix-complete > "$RUN_ROOT/LAST_STAGE"'''
+    script = replace_once(
+        script,
+        cleanup_old,
+        cleanup_new,
+        "framework restore and git cleanup evidence",
     )
 
     bootstrap_old = (
@@ -240,6 +398,28 @@ fi'''
         bootstrap_new,
         "dependency readiness and acceptance bootstrap",
     )
+
+    stage_replacements = {
+        'cat <<EOF | docker build -t "$validator_image" -': (
+            'echo "::notice::ISSUE365_STAGE=build-validator-image"\n'
+            'cat <<EOF | docker build -t "$validator_image" -'
+        ),
+        'docker exec "$app_container" composer install': (
+            'echo "::notice::ISSUE365_STAGE=composer-install"\n'
+            'docker exec "$app_container" composer install'
+        ),
+        "for script in \\": (
+            'echo "::notice::ISSUE365_STAGE=install-observers"\n'
+            "docker exec \"$app_container\" sh -c 'echo observer-install > \"$RUN_ROOT/LAST_STAGE\"'\n"
+            "for script in \\"
+        ),
+        "docker exec -i \"$app_container\" bash -s <<'MATRIX'": (
+            'echo "::notice::ISSUE365_STAGE=matrix"\n'
+            "docker exec -i \"$app_container\" bash -s <<'MATRIX'"
+        ),
+    }
+    for old, new in stage_replacements.items():
+        script = replace_once(script, old, new.rstrip(), f"stage anchor {old!r}")
 
     return script
 
