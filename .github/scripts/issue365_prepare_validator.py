@@ -32,19 +32,6 @@ def replace_once(text: str, old: str, new: str, label: str) -> str:
     return text.replace(old, new, 1)
 
 
-def replace_one_variant(
-    text: str,
-    variants: tuple[tuple[str, str], ...],
-    label: str,
-) -> str:
-    matches = [(old, new) for old, new in variants if text.count(old) == 1]
-    if len(matches) != 1:
-        counts = {old: text.count(old) for old, _ in variants}
-        raise SystemExit(f"{label}: expected one unique variant, found {counts}")
-    old, new = matches[0]
-    return text.replace(old, new, 1)
-
-
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("source", type=Path)
@@ -128,27 +115,11 @@ docker exec "$app_container" bash -lc 'sha256sum "$RUN_ROOT"/runtime/*.sh > "$RU
         "Playwright PHP runtime repair",
     )
 
-    generated = replace_one_variant(
+    generated = replace_once(
         generated,
-        (
-            (
-                "row.get('storage_exists') or not row.get('thumbnail_exists')",
-                "not row.get('storage_exists') or row.get('thumbnail_exists')",
-            ),
-            (
-                'row.get("storage_exists") or not row.get("thumbnail_exists")',
-                'not row.get("storage_exists") or row.get("thumbnail_exists")',
-            ),
-            (
-                "row['storage_exists'] or not row['thumbnail_exists']",
-                "not row['storage_exists'] or row['thumbnail_exists']",
-            ),
-            (
-                'row["storage_exists"] or not row["thumbnail_exists"]',
-                'not row["storage_exists"] or row["thumbnail_exists"]',
-            ),
-        ),
-        "one-corrupt storage invariant repair",
+        "rows[0].get('thumbnail_exists') is True",
+        "rows[0].get('thumbnail_exists') is False",
+        "one-corrupt thumbnail invariant repair",
     )
 
     args.target.write_text(generated, encoding="utf-8")
