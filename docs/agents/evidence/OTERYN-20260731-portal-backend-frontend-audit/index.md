@@ -29,11 +29,11 @@ The historical Phase 2 field `runtime_validator_status: UNKNOWN_NOT_EXECUTED` is
 
 For Issue `#365` mechanism and execution claims, use:
 
-1. `ISSUE_365_SOURCE_FAITHFUL_LAYOUT_PROBE.md` and `.json`;
-2. corrected `ISSUE_365_FLASH_REQUEST_LIFECYCLE_ANALYSIS.md`;
-3. corrected `VALIDATOR_PACKET_ADDENDUM.md`;
-4. `ISSUE_365_EXACT_FROZEN_EXECUTION_RUNBOOK.md`;
-5. `ISSUE_365_SYNOLOGY_EXECUTION_ATTEMPTS.md`;
+1. `ISSUE_365_SYNOLOGY_EXECUTION_ATTEMPTS.md` for the latest run state;
+2. `ISSUE_365_SOURCE_FAITHFUL_LAYOUT_PROBE.md` and `.json`;
+3. corrected `ISSUE_365_FLASH_REQUEST_LIFECYCLE_ANALYSIS.md`;
+4. corrected `VALIDATOR_PACKET_ADDENDUM.md`;
+5. `ISSUE_365_EXACT_FROZEN_EXECUTION_RUNBOOK.md`;
 6. the active task checkpoint and live workflow state.
 
 Current root cause remains `UNKNOWN`. The old-document lazy-thumbnail race remains `DERIVED / LOW confidence`.
@@ -102,8 +102,6 @@ Current `ACTIVE_WORK.md` says no active tasks while six PRs are open. Four live 
 - `#405`: live `6357fce7d68cfaa16452e7d71719a5c0ea886717`, checkpoint `90f367963ddaee6fa6884319fc8cc54e23ca8ec4`;
 - `#471`: live `cda564d4072f8ddac9f258a106b660a3558c50d5`, checkpoint `head: UNKNOWN`, `pr: none`.
 
-This can cause stale ownership, validation and next-action selection.
-
 ### OTERYN-AUDIT-P7-002 — MEDIUM / OPEN
 
 PR `#391` and its official-client live-reference task have no explicit parent Issue and no first-class module ownership in the current production-completion ledger. Programme `#451` must classify this work under an explicit external-client interoperability boundary or intentionally map it to existing modules.
@@ -119,8 +117,6 @@ On exact head `475013aa05a44a24d83cea09b0237147216c8d1f`:
 - Phase 7 run `30767823551` failed before product validation because `scripts/ci/classify_changes.py` was absent.
 
 Both files exist on current main but not on the frozen-base audit branch. The five heavy workflows therefore skipped application setup and product tests. A compatibility fallback, controlled rebase or intentional CI-support import is required by another agent.
-
-PR `#381` records these findings only. Remediation belongs to the separate implementation/coordinator agent.
 
 ## Strict repository and browser validation
 
@@ -162,10 +158,12 @@ Recovered diagnostics prove stale-media fixture expansion but do not prove a cau
 - Job: `91537990755`
 - Temporary PR: `#476`
 - Workers: `1`; retries: `0`
-- Current observed stage: `Execute corrected exact-frozen 12-sample matrix`
-- State at the first check of the current invocation: `in_progress`
+- Matrix step at the second and final permitted check: `completed / cancelled`
+- Immutable artifact upload: `completed / success`
+- Cleanup: `in_progress`
+- Whole job/run terminal status: `UNKNOWN_NON_TERMINAL_AT_LAST_ALLOWED_CHECK`
 
-Do not rerun the matrix. A maximum of one later unchanged-state check remains in this invocation.
+The cancellation reason, artifact identifier/digest, completed sample set and correlation completeness remain unknown until terminal inspection. Successful upload does not prove a valid or complete matrix. Do not poll or rerun again in this invocation.
 
 ## Open frozen portal/product findings
 
@@ -207,7 +205,7 @@ Issue `#365` evidence includes historical artifact review, static cause analysis
 
 The audit cannot become terminal while:
 
-1. run `30763456046` is non-terminal;
+1. run `30763456046` lacks terminal artifact inspection and classification;
 2. Issue `#365` lacks a valid exact-frozen correlated matrix result;
 3. frozen portal/product material findings remain open;
 4. Phase 7 coordination, taxonomy and CI-compatibility findings remain open;
