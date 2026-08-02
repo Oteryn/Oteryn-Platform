@@ -1,16 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-case "${1:-}" in
-  bash|/bin/bash|sh|/bin/sh)
-    exec "$@"
-    ;;
-esac
-
 repo_root="${OTERYN_REPO_ROOT:-/workspace}"
 acceptance_dir="$repo_root/scripts/acceptance"
 toolchain_dir="/opt/oteryn-playwright"
 linked_node_modules=0
+child_pid=''
 
 cleanup() {
   if [[ "$linked_node_modules" -eq 1 && -L "$acceptance_dir/node_modules" ]]; then
@@ -18,13 +13,76 @@ cleanup() {
   fi
 }
 trap cleanup EXIT
-trap 'exit 130' INT
-trap 'exit 143' TERM
 
 fail() {
   printf 'Playwright CI runtime error: %s\n' "$*" >&2
   exit 1
 }
+
+image_playwright="$(
+  node -e '
+    const packageJson = require(process.argv[1]);
+    process.stdout.write(packageJson.version);
+  ' "$toolchain_dir/node_modules/@playwright/test/package.json"
+)"
+
+read_expected_playwright() {
+  node -e '
+    const packageJson = require(process.argv[1]);
+    const version = packageJson.devDependencies?.["@playwright/test"];
+    if (!version || !/^\d+\.\d+\.\d+$/u.test(version)) process.exit(1);
+    process.stdout.write(version);
+  ' "$acceptance_dir/package.json"
+}
+
+prepare_workspace_node_modules() {
+  local expected_playwright installed_playwright
+
+  [[ -f "$acceptance_dir/package.json" ]] || return 0
+
+  expected_playwright="$(read_expected_playwright)" || fail \
+    'repository @playwright/test version must be an exact semantic version'
+  [[ "$image_playwright" == "$expected_playwright" ]] || fail \
+    "image Playwright $image_playwright does not match repository $expected_playwright"
+
+  if [[ -e "$acceptance_dir/node_modules" ]]; then
+    [[ -d "$acceptance_dir/node_modules" ]] || fail \
+      "$acceptance_dir/node_modules exists but is not a directory"
+    installed_playwright="$(
+      node -e '
+        const packageJson = require(process.argv[1]);
+        process.stdout.write(packageJson.version);
+      ' "$acceptance_dir/node_modules/@playwright/test/package.json" 2>/dev/null || true
+    )"
+    [[ "$installed_playwright" == "$expected_playwright" ]] || fail \
+      "workspace Playwright ${installed_playwright:-missing} does not match repository $expected_playwright"
+  else
+    ln -s "$toolchain_dir/node_modules" "$acceptance_dir/node_modules"
+    linked_node_modules=1
+  fi
+}
+
+export PLAYWRIGHT_BROWSERS_PATH="${PLAYWRIGHT_BROWSERS_PATH:-/ms-playwright}"
+export PATH="$toolchain_dir/node_modules/.bin:$PATH"
+export NODE_PATH="${NODE_PATH:-$toolchain_dir/node_modules}"
+
+case "${1:-}" in
+  bash|/bin/bash|sh|/bin/sh)
+    prepare_workspace_node_modules
+    set +e
+    "$@" &
+    child_pid=$!
+    trap 'kill -INT "$child_pid" 2>/dev/null || true' INT
+    trap 'kill -TERM "$child_pid" 2>/dev/null || true' TERM
+    wait "$child_pid"
+    status=$?
+    set -e
+    exit "$status"
+    ;;
+esac
+
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 for required in \
   "$repo_root/composer.json" \
@@ -43,42 +101,7 @@ if (PHP_VERSION_ID < 80500) {
 printf("php=%s\n", PHP_VERSION);
 '
 
-expected_playwright="$(
-  node -e '
-    const packageJson = require(process.argv[1]);
-    const version = packageJson.devDependencies?.["@playwright/test"];
-    if (!version || !/^\d+\.\d+\.\d+$/u.test(version)) process.exit(1);
-    process.stdout.write(version);
-  ' "$acceptance_dir/package.json"
-)" || fail 'repository @playwright/test version must be an exact semantic version'
-
-image_playwright="$(
-  node -e '
-    const packageJson = require(process.argv[1]);
-    process.stdout.write(packageJson.version);
-  ' "$toolchain_dir/node_modules/@playwright/test/package.json"
-)"
-
-[[ "$image_playwright" == "$expected_playwright" ]] || fail \
-  "image Playwright $image_playwright does not match repository $expected_playwright"
-
-if [[ -e "$acceptance_dir/node_modules" ]]; then
-  [[ -d "$acceptance_dir/node_modules" ]] || fail \
-    "$acceptance_dir/node_modules exists but is not a directory"
-  installed_playwright="$(
-    node -e '
-      const packageJson = require(process.argv[1]);
-      process.stdout.write(packageJson.version);
-    ' "$acceptance_dir/node_modules/@playwright/test/package.json" 2>/dev/null || true
-  )"
-  [[ "$installed_playwright" == "$expected_playwright" ]] || fail \
-    "workspace Playwright ${installed_playwright:-missing} does not match repository $expected_playwright"
-else
-  ln -s "$toolchain_dir/node_modules" "$acceptance_dir/node_modules"
-  linked_node_modules=1
-fi
-
-export PLAYWRIGHT_BROWSERS_PATH="${PLAYWRIGHT_BROWSERS_PATH:-/ms-playwright}"
+prepare_workspace_node_modules
 export PATH="$acceptance_dir/node_modules/.bin:$PATH"
 
 if [[ "${OTERYN_REQUIRE_VENDOR:-1}" == '1' ]]; then
