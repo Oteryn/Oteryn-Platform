@@ -83,7 +83,8 @@ def patch_workflow(relative_path: str, job_id: str, gate: str) -> None:
         job_marker
         + "    needs: classify_changes\n"
         + "    if: ${{ always() && (needs.classify_changes.result != 'success' || "
-        + f"needs.classify_changes.outputs.{gate} == 'true') }}\n"
+        + f"needs.classify_changes.outputs.{gate} == 'true') "
+        + "}}\n"
     )
     text = text.replace(job_marker, job_replacement, 1)
 
