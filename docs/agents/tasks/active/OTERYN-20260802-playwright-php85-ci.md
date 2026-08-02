@@ -47,7 +47,7 @@ feature_scope:
 - [ ] The runtime invokes Laravel/acceptance PHP helpers directly with PHP 8.5; it does not install an arbitrary distro PHP package per test sample.
 - [ ] A retained GitHub Actions workflow builds the image on the exact PR head and proves PHP, Composer, Node, Playwright and Chromium/Firefox/WebKit startup.
 - [ ] The workflow proves an exact-repository `php artisan` command and the acceptance helper PHP path from the same mounted checkout.
-- [ ] Existing host-based acceptance CI remains unchanged unless integration evidence requires a bounded adjustment.
+- [x] Existing host-based acceptance CI remains unchanged.
 - [ ] Exact-head required CI and Agent Governance pass; no material independent-audit finding remains.
 
 ## Ownership
@@ -67,7 +67,7 @@ modules:
   - ci-repair
 dependencies:
   - composer.json requires PHP ^8.5
-  - scripts/acceptance/package.json pins @playwright/test 1.60.0
+  - scripts/acceptance/package.json and package-lock.json pin @playwright/test 1.60.0
 blockers:
   - none
 cross_repository_tasks:
@@ -78,8 +78,8 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-03T00:05:00+02:00
-head: e716e26f187d59589387261160e741829d468928
+updated_at: 2026-08-03T00:10:00+02:00
+head: e26f2e78f4ca99517734dfc477ac2fd52f300cab
 branch: fix/OTERYN-20260802-playwright-php85-ci
 pr: 477
 status: validating
@@ -97,29 +97,36 @@ owned_paths:
 proven:
   - trusted main at task start is 39bdf0c79ffb0f7fd8daafd5451b9ad4e520138c
   - composer.json requires PHP ^8.5
-  - scripts/acceptance/package.json pins @playwright/test 1.60.0
-  - standard acceptance-validation.yml already uses setup-php 8.5 on GitHub-hosted runners
+  - scripts/acceptance/package.json and package-lock.json pin @playwright/test 1.60.0
+  - standard acceptance-validation.yml already uses setup-php 8.5 on GitHub-hosted runners and was not modified
   - Issue 365 run 30763456046 failed before browser execution because the Playwright container exposed PHP 8.3.6 while Composer required PHP >=8.5
   - existing acceptance helpers execute php and php artisan from the Playwright process
   - no live open PR owns the declared Playwright runtime paths
-  - retained PHP 8.5 Node 22 Composer 2 Playwright 1.60.0 image and fail-fast runner are persisted in PR 477
+  - retained image starts from php 8.5 cli bookworm and adds Node 22 Composer 2 and three Playwright browser engines
+  - image installs the PHP DOM XML XMLWriter GD Intl MBString PCNTL PDO MySQL ZIP and Redis extensions used by application and test dependencies
+  - Playwright installation uses npm ci against the committed package lock
+  - runner fails closed on PHP version Playwright version all Composer platform requirements helper syntax and php artisan cache clear
   - runner supports bash and sh passthrough for drop-in replacement of the official Playwright image
-  - exact-head workflow Playwright PHP 8.5 Runtime run 30769199085 was emitted
-  - first Agent Governance failure was structural only: missing checkpoint field derived
-  - checkpoint validator unit tests passed before the structural failure
+  - workflow prepares a file-backed local Laravel environment generates APP_KEY through the image and verifies all three browser engines
+  - Agent Governance passed on intermediate corrected head 48532723d12f5b42cc99889ec20a7ff3af9ccc5f in run 30769255850
+  - Edge Security and Game Auth Ticket Concurrency passed on intermediate corrected head
+  - no unresolved PR review threads were present at the last independent check
 derived:
   - replacing the temporary official Playwright image with this retained runtime removes the PHP 8.3 package-selection failure without changing Playwright test source
+  - shell passthrough allows existing generated bash-lc Playwright invocations to adopt the runtime by changing only the image reference
+  - full Composer platform checks make missing PHP extensions fail before browser execution rather than during a sample
 unknown:
-  - terminal result of exact-head runtime build and three-browser smoke
-  - terminal results of remaining exact-head required workflows
+  - terminal exact-head result of retained image build and three-browser smoke
+  - terminal exact-head results of required repository workflows
 conflicts: []
 first_failure:
-  marker: active task checkpoint omitted required derived field
-  evidence: Agent Governance run 30769199093 job 91553250814
+  marker: containerized Playwright helper used PHP 8.3.6 against Composer PHP >=8.5
+  evidence: Issue 365 run 30763456046 job 91537990755
 rejected_hypotheses:
   - Playwright itself is incompatible with the repository
   - the host-based acceptance workflow lacks PHP 8.5
   - installing distro php-cli independently for every sample is a durable repair
+  - a browser-only smoke without php artisan helper execution closes the failure
 changed_paths:
   - .github/workflows/playwright-runtime-validation.yml
   - deploy/ci/playwright-php.Dockerfile
@@ -128,22 +135,25 @@ changed_paths:
   - scripts/acceptance/run-playwright-ci.sh
 validation:
   - command: Agent Governance run 30769199093 job 91553250814
-    result: FAIL
-    evidence: checkpoint validator reported missing checkpoint field derived; implementation was not rejected
-  - command: Playwright PHP 8.5 Runtime run 30769199085
-    result: NOT_RUN
-    evidence: workflow is currently in progress on head e716e26f187d59589387261160e741829d468928
+    result: FAIL_CORRECTED
+    evidence: missing checkpoint derived field only; validator unit tests passed
+  - command: Agent Governance run 30769255850
+    result: PASS
+    evidence: corrected checkpoint accepted on intermediate exact head
+  - command: Playwright PHP 8.5 Runtime
+    result: IN_PROGRESS
+    evidence: final exact-head execution required after lockfile environment and extension hardening
 blockers:
   - none
 invocation_started_at: 2026-08-02T23:51:00+02:00
-last_progress_at: 2026-08-03T00:05:00+02:00
-ci_checks_for_current_head: 1
+last_progress_at: 2026-08-03T00:10:00+02:00
+ci_checks_for_current_head: 0
 unchanged_state_checks: 0
 identical_failure_retries: 0
-repair_cycles_for_current_gate: 1
+repair_cycles_for_current_gate: 2
 context_reconstruction_attempts: 1
 stall_warnings: 0
-next_action: validate the corrected checkpoint and inspect the terminal Playwright PHP 8.5 Runtime workflow result
+next_action: inspect the final exact-head Playwright runtime workflow once terminal and repair only its first actionable failure if any
 ```
 
 ## Notes
