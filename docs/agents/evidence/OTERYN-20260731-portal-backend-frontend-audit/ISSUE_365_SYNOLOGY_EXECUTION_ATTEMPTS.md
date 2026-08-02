@@ -5,55 +5,83 @@
 ```yaml
 frozen_target: b6f7b12a43aa72a52dc98c3fa07a7c4607fcb608
 environment_status: READY
-harness_status: BLOCKED
+observer_generation_status: PASS
+observer_installation_status: PASS
+matrix_launch_status: BLOCKED
 matrix_status: NOT_RUN
 root_cause_status: UNKNOWN
-repair_budget: 3/3 exhausted
+current_invocation_repair_budget: 3/3 exhausted
 production_action: none
 ```
 
-The Synology staging runner is available and can build the production-like Docker environment. The remaining blocker is not environment availability. It is a deterministic incompatibility in the temporary generator that prepares the ephemeral Laravel `StartSession` observer. No browser sample from the mandatory 12-sample matrix started.
+The Synology staging runner can build and bootstrap the production-like environment. The Laravel 13.20.0 observer is now generated, applied and syntax-checked successfully. The remaining blocker is narrower: the post-install verification opens a new `bash -lc` process and references `START_SESSION` without defining it in that shell. No mandatory browser sample started.
 
-## Bounded repair attempts
+## Earlier bounded repair attempts
 
 | Cycle | Control head | Workflow run | Last reached stage | Artifact | Result |
 |---:|---|---:|---|---|---|
-| 1 | `5cf9fee49927bd0f887131fe7e5ea7cf678d369b` | `30752369856` | `observer-generation` | `8834980323`, `sha256:08b677baf46d2d4a52ef7fe18234c05804a6f6e655901fb9dad42929ecee8783` | Generated Python selector lost quoting around `"$RUN_ROOT/media-snapshot.php"`. |
-| 2 | `cddb7578d89101e90fac1f9b8bdd85e4739d28c8` | `30752964863` | `observer-install` | `8835208891`, `sha256:4861e421e4c4575f3f22ff5461ee16070c79114639ddb8c8f736afd1010d190c` | Exact Laravel 13.20.0 `StartSession.php` did not contain the expected adjacent `saveSession` / `return` source pattern. |
-| 3 | `2bd32af496894403e0dec84efeca21b0642dcecd` | `30753618275` | validator preparation | none | Wrapper repair itself failed closed: `Laravel 13 StartSession save-pattern repair: expected one match, found 0`. Matrix step was skipped. |
+| 1 | `5cf9fee49927bd0f887131fe7e5ea7cf678d369b` | `30752369856` | `observer-generation` | `8834980323`, `sha256:08b677baf46d2d4a52ef7fe18234c05804a6f6e655901fb9dad42929ecee8783` | Generated selector lost quoting around `"$RUN_ROOT/media-snapshot.php"`. |
+| 2 | `cddb7578d89101e90fac1f9b8bdd85e4739d28c8` | `30752964863` | `observer-install` | `8835208891`, `sha256:4861e421e4c4575f3f22ff5461ee16070c79114639ddb8c8f736afd1010d190c` | The retired runbook expected adjacent `saveSession` and `return` lines, but Laravel 13.20.0 contains a blank line. |
+| 3 | `2bd32af496894403e0dec84efeca21b0642dcecd` | `30753618275` | validator preparation | none | Parent-level repair searched the wrong generated layer and found zero matches. |
 
-## Proven execution facts
+## Current invocation isolation cycles
 
-- All attempts checked out frozen target `b6f7b12a43aa72a52dc98c3fa07a7c4607fcb608` separately from the validator control branch.
-- Runs 1 and 2 proved an initially clean frozen Git worktree.
-- Run 2 built the platform and validator images, installed development dependencies, and reached a healthy production-like MariaDB/Redis/application bootstrap.
-- Run 2 preserved the exact Laravel 13.20.0 framework file and generated observer scripts in the immutable partial artifact.
-- The actual framework source contains a blank line between `$this->saveSession($request);` and `return $response;`; the retired runbook generator expected them to be adjacent.
-- Artifact upload and isolated runtime cleanup succeeded after both runtime failures.
-- Run 3 failed before runtime creation and therefore correctly produced no evidence archive.
-- No application, route, view, configuration, migration, dependency, deployment, production, authentication, authorization, MFA, audit or publication-state change occurred.
-- Temporary PR #412 remains non-mergeable validation infrastructure and must be closed without merge.
+| Cycle | Control head | Workflow run | Result |
+|---:|---|---:|---|
+| 1 | `e76f31cd9bf0dc7a5a8ffd73bda94bec6e1c9d9b` | `30756664833` | Diagnostic-only gate proved the parent validator contains zero `saveSession` matches; the pattern belongs to generated `runtime/02-observer-patch.sh`. Matrix intentionally did not start. |
+| 2 | `ce9aac5865ee893150ac88e11123601362eaaf28` | `30756859088` | Cheap preparation gate rejected an invalid nested Python string with `IndentationError`; matrix skipped. |
+| 3 | `7d8eed05826363baed47487ca71203caf1c993a9` | `30756908549` | Preparation passed, environment bootstrapped, the generated runtime observer was corrected and installed, then post-install verification failed with `START_SESSION: unbound variable` before sample creation. |
+
+Run `30756908549` preserved artifact `8836419768` with digest `sha256:003f98c709141337255ca20b592faf74d237e38df3b3bf96b7d2e34429cb1144`.
+
+## Proven facts from run 30756908549
+
+- The exact frozen checkout remained separate from the validator-control branch.
+- `Prepare isolated validator` passed, including `bash -n` of the generated validator.
+- The production-like MariaDB, Redis and application bootstrap completed.
+- Runtime configuration recorded Laravel `v13.20.0`, file sessions and file cache.
+- `runtime/02-observer-patch.sh` contains the source-faithful blank-line pattern:
+
+  ```text
+  $this->saveSession($request);\n\n        return $response;
+  ```
+
+- `Issue365Trace.php` and instrumented `StartSession.php` both passed PHP syntax validation.
+- `StartSession.sha256.instrumented` was created, proving the observer patch executed.
+- `LAST_STAGE` is `observer-install`.
+- The first terminal error is `bash: line 8: START_SESSION: unbound variable`.
+- No `samples/` directory exists in the partial artifact; therefore zero mandatory samples started.
+- Artifact upload and isolated runtime cleanup succeeded.
+- No application, route, view, configuration, migration, dependency, deployment, production, authentication, authorization, MFA or publication-state change occurred.
 
 ## Classification
 
-The earlier `BLOCKED_ENVIRONMENT` classification is superseded. The environment is now proven capable. The exact-frozen causal gate remains incomplete because the bounded temporary harness could not install a source-faithful session observer within the three-cycle repair budget.
-
 ```yaml
 exact_frozen_package: NOT_RUN
-reason: no mandatory browser sample started because observer generation remained incompatible with the exact Laravel 13.20.0 source
+reason: post-install verification referenced START_SESSION in a fresh shell before the first sample
 issue_365_completion: BLOCKED
 session_serialization_remediation: NOT_PROVEN_REMEDIATED
 causal_link_to_damaged_media: UNKNOWN
+product_failure_inferred: false
 ```
+
+This is a harness launch failure, not product evidence. Environment availability and source-faithful Laravel instrumentation are now proven.
 
 ## Rejected conclusions
 
-- Synology or Docker availability is still the blocker.
-- A successful production-like bootstrap proves the publication-flash defect remediated.
-- The failed observer installation is product evidence.
-- The historical thumbnail failures cause the flash loss.
+- Synology or Docker availability remains the blocker.
+- The Laravel observer still fails to match or install.
+- A successful bootstrap or observer lint proves the publication defect remediated.
+- The failed post-install shell proves a product failure.
 - A partial or uncorrelated sample may satisfy the 12-sample completion gate.
+- A fourth repair cycle is allowed in the current invocation.
 
 ## Required continuation
 
-A fresh invocation must first generate and inspect `/tmp/issue365-validator.sh` in a cheap syntax-only job, then patch the exact generated `StartSession` observer search text against Laravel 13.20.0. Only after that cheap gate passes may one new Synology matrix run be executed. PR #412 must not be merged, and the repair must not alter the frozen application source outside the isolated runtime.
+A fresh invocation must modify the generated post-install verification command so its inner `bash -lc` defines:
+
+```bash
+START_SESSION=vendor/laravel/framework/src/Illuminate/Session/Middleware/StartSession.php
+```
+
+before the first reference, or use that exact literal path in `observers-installed.txt`. Validate the generated script with `bash -n`, then execute at most one new Synology matrix run. The temporary validation PR must remain unmerged and must be closed after evidence is recorded.
