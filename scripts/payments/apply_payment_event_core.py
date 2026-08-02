@@ -1,11 +1,247 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
-import base64
-import zlib
+from pathlib import Path
 
-exec(compile(
-    zlib.decompress(base64.b64decode('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')).decode("utf-8"),
-    __file__,
-    "exec",
-))
+ROOT = Path(__file__).resolve().parents[2]
+
+
+def replace_once(path: str, old: str, new: str) -> None:
+    target = ROOT / path
+    text = target.read_text(encoding="utf-8")
+    if text.count(old) != 1:
+        raise RuntimeError(f"{path}: expected one marker, found {text.count(old)}")
+    target.write_text(text.replace(old, new, 1), encoding="utf-8")
+
+
+def patch_provider() -> None:
+    replace_once(
+        "app/Providers/AppServiceProvider.php",
+        "use App\\Marketplace\\Contracts\\CanaryCharacterTransferGateway;\n",
+        "use App\\Marketplace\\Contracts\\CanaryCharacterTransferGateway;\n"
+        "use App\\Payments\\Contracts\\PaymentProviderGateway;\n"
+        "use App\\Payments\\Contracts\\PaymentWebhookVerifier;\n"
+        "use App\\Payments\\Infrastructure\\DeterministicTestPaymentProvider;\n",
+    )
+    replace_once(
+        "app/Providers/AppServiceProvider.php",
+        "        $this->app->bind(CanaryCharacterTransferGateway::class, CanaryCharacterTransfer::class);\n",
+        "        $this->app->bind(CanaryCharacterTransferGateway::class, CanaryCharacterTransfer::class);\n"
+        "        $this->app->bind(\n"
+        "            PaymentProviderGateway::class,\n"
+        "            fn (): PaymentProviderGateway => $this->deterministicTestPaymentProvider(),\n"
+        "        );\n"
+        "        $this->app->bind(\n"
+        "            PaymentWebhookVerifier::class,\n"
+        "            fn (): PaymentWebhookVerifier => $this->deterministicTestPaymentProvider(),\n"
+        "        );\n",
+    )
+    replace_once(
+        "app/Providers/AppServiceProvider.php",
+        "    private function configureLocalization(): void\n",
+        "    private function deterministicTestPaymentProvider(): DeterministicTestPaymentProvider\n"
+        "    {\n"
+        "        if (config('payments.provider') !== DeterministicTestPaymentProvider::PROVIDER) {\n"
+        "            throw new LogicException('No approved payment provider adapter is bound.');\n"
+        "        }\n\n"
+        "        $secret = config('payments.webhook.test_secret');\n"
+        "        $maximumPayloadBytes = config('payments.webhook.maximum_payload_bytes');\n"
+        "        $signatureToleranceSeconds = config('payments.webhook.signature_tolerance_seconds');\n\n"
+        "        if (! is_string($secret)\n"
+        "            || ! is_int($maximumPayloadBytes)\n"
+        "            || ! is_int($signatureToleranceSeconds)) {\n"
+        "            throw new LogicException('The deterministic test payment provider is not configured.');\n"
+        "        }\n\n"
+        "        return new DeterministicTestPaymentProvider(\n"
+        "            $secret,\n"
+        "            $maximumPayloadBytes,\n"
+        "            $signatureToleranceSeconds,\n"
+        "        );\n"
+        "    }\n\n"
+        "    private function configureLocalization(): void\n",
+    )
+
+
+def patch_verifier() -> None:
+    replace_once(
+        "app/Operations/ProductionConfigurationVerifier.php",
+        "        if (config('marketplace.enabled')) {\n"
+        "            array_push($violations, ...$this->marketplaceViolations());\n"
+        "        }\n\n"
+        "        return $violations;\n",
+        "        if (config('marketplace.enabled')) {\n"
+        "            array_push($violations, ...$this->marketplaceViolations());\n"
+        "        }\n\n"
+        "        if (config('payments.enabled')) {\n"
+        "            array_push($violations, ...$this->paymentViolations());\n"
+        "        }\n\n"
+        "        return $violations;\n",
+    )
+    replace_once(
+        "app/Operations/ProductionConfigurationVerifier.php",
+        "    private function hasDeliveryCapableMailer(): bool\n",
+        "    /** @return list<string> */\n"
+        "    private function paymentViolations(): array\n"
+        "    {\n"
+        "        $violations = [];\n"
+        "        $provider = config('payments.provider');\n"
+        "        if (! is_string($provider) || trim($provider) === '' || strtolower($provider) === 'test') {\n"
+        "            $violations[] = 'PAYMENTS_PROVIDER must identify an approved non-test provider.';\n"
+        "        }\n\n"
+        "        if (config('payments.provider_verified') !== true) {\n"
+        "            $violations[] = 'The payment provider profile must be directly verified before activation.';\n"
+        "        }\n\n"
+        "        $adapter = config('payments.provider_adapter_class');\n"
+        "        if (! is_string($adapter)\n"
+        "            || ! class_exists($adapter)\n"
+        "            || ! is_a($adapter, \\App\\Payments\\Contracts\\PaymentProviderGateway::class, true)) {\n"
+        "            $violations[] = 'PAYMENTS_PROVIDER_ADAPTER_CLASS must implement PaymentProviderGateway.';\n"
+        "        }\n\n"
+        "        $verifier = config('payments.webhook_verifier_class');\n"
+        "        if (! is_string($verifier)\n"
+        "            || ! class_exists($verifier)\n"
+        "            || ! is_a($verifier, \\App\\Payments\\Contracts\\PaymentWebhookVerifier::class, true)) {\n"
+        "            $violations[] = 'PAYMENTS_WEBHOOK_VERIFIER_CLASS must implement PaymentWebhookVerifier.';\n"
+        "        }\n\n"
+        "        $currencies = config('payments.allowed_currencies');\n"
+        "        if (! is_array($currencies)\n"
+        "            || $currencies === []\n"
+        "            || array_filter(\n"
+        "                $currencies,\n"
+        "                static fn (mixed $currency): bool => ! is_string($currency)\n"
+        "                    || preg_match('/^[A-Z]{3}$/', $currency) !== 1,\n"
+        "            ) !== []) {\n"
+        "            $violations[] = 'Payment currencies must be a non-empty list of ISO-style uppercase codes.';\n"
+        "        }\n\n"
+        "        $maximumAmount = config('payments.maximum_order_amount_minor');\n"
+        "        if (! is_int($maximumAmount) || $maximumAmount < 1) {\n"
+        "            $violations[] = 'The maximum payment order amount must be a positive integer in minor units.';\n"
+        "        }\n\n"
+        "        $maximumPayloadBytes = config('payments.webhook.maximum_payload_bytes');\n"
+        "        if (! is_int($maximumPayloadBytes)\n"
+        "            || $maximumPayloadBytes < 1\n"
+        "            || $maximumPayloadBytes > 1_048_576) {\n"
+        "            $violations[] = 'The payment webhook payload limit must be between 1 and 1048576 bytes.';\n"
+        "        }\n\n"
+        "        $signatureTolerance = config('payments.webhook.signature_tolerance_seconds');\n"
+        "        if (! is_int($signatureTolerance)\n"
+        "            || $signatureTolerance < 1\n"
+        "            || $signatureTolerance > 900) {\n"
+        "            $violations[] = 'The payment webhook signature tolerance must be between 1 and 900 seconds.';\n"
+        "        }\n\n"
+        "        $testSecret = config('payments.webhook.test_secret');\n"
+        "        if (is_string($testSecret) && trim($testSecret) !== '') {\n"
+        "            $violations[] = 'PAYMENTS_TEST_SECRET must not be configured for an enabled production provider.';\n"
+        "        }\n\n"
+        "        return $violations;\n"
+        "    }\n\n"
+        "    private function hasDeliveryCapableMailer(): bool\n",
+    )
+
+
+def patch_verifier_test() -> None:
+    replace_once(
+        "tests/Feature/Operations/ProductionConfigurationVerifierTest.php",
+        "            'database.connections.canary_character_transfer.username' => 'oteryn_character_transfer',\n",
+        "            'database.connections.canary_character_transfer.username' => 'oteryn_character_transfer',\n"
+        "            'payments.enabled' => false,\n",
+    )
+    replace_once(
+        "tests/Feature/Operations/ProductionConfigurationVerifierTest.php",
+        "    public function test_command_fails_closed_without_printing_application_key(): void\n",
+        "    public function test_enabled_payments_reject_the_deterministic_test_provider(): void\n"
+        "    {\n"
+        "        config([\n"
+        "            'payments.enabled' => true,\n"
+        "            'payments.provider' => 'test',\n"
+        "            'payments.provider_verified' => true,\n"
+        "            'payments.provider_adapter_class' => \\App\\Payments\\Infrastructure\\DeterministicTestPaymentProvider::class,\n"
+        "            'payments.webhook_verifier_class' => \\App\\Payments\\Infrastructure\\DeterministicTestPaymentProvider::class,\n"
+        "            'payments.allowed_currencies' => ['PLN', 'EUR'],\n"
+        "            'payments.maximum_order_amount_minor' => 100_000,\n"
+        "            'payments.webhook.maximum_payload_bytes' => 32_768,\n"
+        "            'payments.webhook.signature_tolerance_seconds' => 300,\n"
+        "            'payments.webhook.test_secret' => 'must-not-be-used-in-production',\n"
+        "        ]);\n\n"
+        "        $this->assertViolation('PAYMENTS_PROVIDER must identify an approved non-test provider.');\n"
+        "        $this->assertViolation('PAYMENTS_TEST_SECRET must not be configured for an enabled production provider.');\n"
+        "    }\n\n"
+        "    public function test_enabled_payments_require_a_verified_real_provider_profile(): void\n"
+        "    {\n"
+        "        config([\n"
+        "            'payments.enabled' => true,\n"
+        "            'payments.provider' => 'future-provider',\n"
+        "            'payments.provider_verified' => false,\n"
+        "            'payments.provider_adapter_class' => null,\n"
+        "            'payments.webhook_verifier_class' => null,\n"
+        "            'payments.allowed_currencies' => ['PLN'],\n"
+        "            'payments.maximum_order_amount_minor' => 100_000,\n"
+        "            'payments.webhook.maximum_payload_bytes' => 32_768,\n"
+        "            'payments.webhook.signature_tolerance_seconds' => 300,\n"
+        "            'payments.webhook.test_secret' => null,\n"
+        "        ]);\n\n"
+        "        $violations = app(ProductionConfigurationVerifier::class)->inspect();\n"
+        "        self::assertContains('The payment provider profile must be directly verified before activation.', $violations);\n"
+        "        self::assertContains('PAYMENTS_PROVIDER_ADAPTER_CLASS must implement PaymentProviderGateway.', $violations);\n"
+        "        self::assertContains('PAYMENTS_WEBHOOK_VERIFIER_CLASS must implement PaymentWebhookVerifier.', $violations);\n"
+        "    }\n\n"
+        "    public function test_disabled_payments_do_not_require_provider_configuration(): void\n"
+        "    {\n"
+        "        config([\n"
+        "            'payments.enabled' => false,\n"
+        "            'payments.provider' => null,\n"
+        "            'payments.provider_verified' => false,\n"
+        "            'payments.provider_adapter_class' => null,\n"
+        "            'payments.webhook_verifier_class' => null,\n"
+        "        ]);\n\n"
+        "        self::assertSame([], app(ProductionConfigurationVerifier::class)->inspect());\n"
+        "    }\n\n"
+        "    public function test_command_fails_closed_without_printing_application_key(): void\n",
+    )
+
+
+def patch_environment_example() -> None:
+    path = ROOT / ".env.example"
+    text = path.read_text(encoding="utf-8")
+    marker = "# Provider-neutral payment settlement remains disabled by default."
+    if marker in text:
+        raise RuntimeError(".env.example: payment block already exists")
+    block = """
+
+# Provider-neutral payment settlement remains disabled by default.
+# Never select the deterministic test adapter in production. A real provider,
+# sandbox evidence, secrets ownership and explicit production authorization are required.
+PAYMENTS_ENABLED=false
+PAYMENTS_PROVIDER=
+PAYMENTS_PROVIDER_VERIFIED=false
+PAYMENTS_PROVIDER_ADAPTER_CLASS=
+PAYMENTS_WEBHOOK_VERIFIER_CLASS=
+PAYMENTS_ALLOWED_CURRENCIES=PLN,EUR
+PAYMENTS_MAXIMUM_ORDER_AMOUNT_MINOR=100000000
+PAYMENTS_WEBHOOK_MAXIMUM_PAYLOAD_BYTES=32768
+PAYMENTS_WEBHOOK_SIGNATURE_TOLERANCE_SECONDS=300
+PAYMENTS_TEST_SECRET=
+"""
+    path.write_text(text.rstrip() + block + "\n", encoding="utf-8")
+
+
+def patch_concurrency_test() -> None:
+    replace_once(
+        "tests/Feature/Payments/PaymentEventConcurrencyMariaDbTest.php",
+        "$order->freshOrFail()->status",
+        "PaymentOrder::query()->findOrFail($order->id)->status",
+    )
+
+
+def main() -> int:
+    patch_provider()
+    patch_verifier()
+    patch_verifier_test()
+    patch_environment_example()
+    patch_concurrency_test()
+    Path(__file__).unlink()
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
