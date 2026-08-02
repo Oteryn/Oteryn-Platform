@@ -51,10 +51,10 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /opt/oteryn-playwright
-COPY scripts/acceptance/package.json ./package.json
+COPY scripts/acceptance/package.json scripts/acceptance/package-lock.json ./
 
 RUN mkdir -p "$PLAYWRIGHT_BROWSERS_PATH" \
-    && npm install --no-audit --no-fund \
+    && npm ci --no-audit --no-fund \
     && test "$(node -p \"require('./node_modules/@playwright/test/package.json').version\")" = \
         "$(node -p \"require('./package.json').devDependencies['@playwright/test']\")" \
     && npx playwright install --with-deps chromium firefox webkit \
