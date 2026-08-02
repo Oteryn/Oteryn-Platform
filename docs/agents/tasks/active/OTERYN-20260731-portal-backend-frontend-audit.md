@@ -97,50 +97,17 @@ cross_repository_tasks: []
 
 ```yaml
 checkpoint_version: 1
-policy_version: 2
-updated_at: 2026-08-02T23:25:00+02:00
+updated_at: 2026-08-02T23:31:00+02:00
+head: f5a8f02f937b0d0921cca54b88546b052bc1e0c4
 branch: audit/OTERYN-20260731-portal-backend-frontend-audit
 pr: 381
 status: waiting
-phase: validate
-session_id: chat-github-20260802-exhaustive-work-graph-audit
-session_role: coordinator-independent-auditor
-execution_mode: github-api-and-actions
-project_lane: oteryn-platform-core
-task_kind: audit
-feature_scope:
-  type: documentation
-  user_facing: false
-  backend_required: false
-  frontend_required: false
-  integration_required: false
-  e2e_required: false
-implementation_authorized: false
-owner_scope:
-  instruction: audit and update PR 381 only; another agent performs implementation
-  excludes:
-    - product implementation
-    - workflow implementation
-    - merge
-    - deploy
-    - production mutation
-    - issue lifecycle mutation except terminal Issue 365 evidence synchronization
-    - external repository mutation
-estimate_confidence: high
-decomposition_decision: phased
-ci_checks_for_current_head: 0
-unchanged_state_checks: 1
-identical_failure_retries: 0
-repair_cycles_for_current_gate: 0
-context_reconstruction_attempts: 1
-stall_warnings: 0
-heavy_validation_runs_completed: 10
-checkpoint_parent_head: a0ff3b1dedf3cf51257f74c4f2289dac93e50fc9
-current_control_head: 8c58035cacb9fd4675d898a1652036fc8b9d4357
-current_run: 30763456046
-current_job: 91537990755
-current_observation_pr: 476
-frozen_target: b6f7b12a43aa72a52dc98c3fa07a7c4607fcb608
+context_routes:
+  - agent-governance
+  - testing
+  - portal-completeness
+  - wiki
+  - programme-coordination
 owned_paths:
   - docs/agents/tasks/active/OTERYN-20260731-portal-backend-frontend-audit.md
   - docs/agents/reports/OTERYN-20260731-portal-backend-frontend-audit*.md
@@ -151,7 +118,6 @@ proven:
   - legacy backend frontend result is 23 implemented 3 partial 14 missing and 3 not applicable with no one-sided implemented promotion
   - strict backend frontend validator passed on exact source fdb45a4325949d3ab1c4860e3a4527553f11c789 in run 30633216358 job 91164376176 artifact 8794204786
   - policy-v2 result is 0 complete 23 repository-integrated-evidence-open 3 partial 14 missing and 3 not applicable
-  - the 43-capability ledger is a benchmark subset and does not explicitly cover all 18 programme modules or all 13 delivery and closeout gates
   - all 21 current open Issues and all 6 current open pull requests are mapped in phase-7-issue-pr-coverage.json
   - current ACTIVE_WORK declares zero active tasks while five open PRs contain active task records and PR 476 is an active temporary validator
   - task checkpoints for PRs 338 391 405 and 471 do not match their current live PR identity
@@ -161,13 +127,12 @@ proven:
   - responsive-mobile flash loss remains intermittently reproduced while durable publication succeeds
   - session serialization is NOT_PROVEN_REMEDIATED and root cause remains UNKNOWN
   - old-document lazy-thumbnail race is DERIVED with LOW confidence
-  - Synology can bootstrap production-like MariaDB Redis and application services
-  - source-faithful Laravel 13.20.0 StartSession instrumentation installs and passes syntax validation
-  - artifact 8837189083 proves one corrupt fixture row with storage_exists true and thumbnail_exists false
-  - control head 8c58035cacb9fd4675d898a1652036fc8b9d4357 installs PHP for the Playwright container and matches the exact corrupt fixture state
-  - active run 30763456046 uses workers 1 retries 0 and a separately checked-out frozen target
-  - active run preparation exact checkout and validator generation passed
+  - control head 8c58035cacb9fd4675d898a1652036fc8b9d4357 uses workers 1 retries 0 and a separately checked-out frozen target
   - no application workflow deployment production issue-lifecycle or external-repository mutation occurred
+derived:
+  - the Phase 7 live work graph must supplement ACTIVE_WORK and branch checkpoints for current ownership decisions
+  - PR 391 requires intentional programme classification before terminal programme accounting can be fail closed
+  - the missing change-classifier test on the old audit head is a branch-to-current-workflow compatibility blocker rather than a portal product defect
 unknown:
   - terminal result of run 30763456046
   - exact request or framework path that removes publication status
@@ -176,6 +141,8 @@ unknown:
   - exactly-one-corrupt-row matrix result
   - causal contribution of integrity-failure responses
   - exact private-production release and availability in this audit
+conflicts:
+  - current main workflow expects tests/ci/test_classify_changes.py but the frozen-base audit branch does not contain that later CI support file
 first_failure:
   marker: responsive-mobile original Wiki publication flash absent after session serialization while durable publication succeeds
   evidence: run 30612399525 attempts 3 and 4 jobs 91343023604 and 91343514611 artifacts 8815383351 and 8815457044
@@ -189,6 +156,13 @@ rejected_hypotheses:
   - legacy implemented means full policy-v2 completion
   - ACTIVE_WORK alone is authoritative for current ownership
   - every open PR already has current task and module identity
+changed_paths:
+  - docs/agents/evidence/OTERYN-20260731-portal-backend-frontend-audit/phase-7-issue-pr-coverage.json
+  - docs/agents/reports/OTERYN-20260731-portal-backend-frontend-audit-phase-7-issue-pr-coverage.md
+  - docs/agents/evidence/OTERYN-20260731-portal-backend-frontend-audit/index.md
+  - docs/agents/evidence/OTERYN-20260731-portal-backend-frontend-audit/VALIDATOR_VERDICT.md
+  - docs/agents/reports/OTERYN-20260731-portal-backend-frontend-audit.md
+  - docs/agents/tasks/active/OTERYN-20260731-portal-backend-frontend-audit.md
 validation:
   - command: Portal Acceptance Contract run 30633216358 job 91164376176
     result: PASS
@@ -197,25 +171,26 @@ validation:
     result: PASS
     evidence: 96 of 96 zero-retry critical browser tests passed
   - command: Issue 365 exact-frozen Synology run 30758971408 job 91526007975
-    result: INVALID_TECHNICAL_FAILURE
-    evidence: six clean samples failed with php ENOENT and the original corrupt invariant contradicted captured fixture state
-  - command: artifact 8837189083 integrity and content inspection
-    result: PASS
-    evidence: verified digest and exact one-corrupt fixture state
+    result: FAIL
+    evidence: invalid technical execution because six clean samples failed with php ENOENT and the corrupt invariant contradicted captured fixture state
   - command: delivery-completeness policy-v2 crosswalk
     result: PASS
-    evidence: all 18 programme modules and 43 legacy capability IDs reconciled; P6-001 opened
+    evidence: all 18 programme modules and 43 legacy capability IDs reconciled and P6-001 opened
   - command: live Issue PR and task reconciliation
-    result: PASS_WITH_FINDINGS
-    evidence: all 21 open Issues and 6 open PRs mapped; P7-001 and P7-002 opened
-  - command: current bounded run 30763456046 job 91537990755
-    result: WAITING
-    evidence: matrix remained in progress at the first state check of this invocation
-  - command: product workflow deployment production issue-lifecycle and external-repository mutation audit
     result: PASS
-    evidence: PR 381 changes remain confined to authorized audit task report and evidence paths
+    evidence: all 21 open Issues and 6 open PRs mapped and P7-001 plus P7-002 opened
+  - command: current bounded run 30763456046 job 91537990755
+    result: BLOCKED
+    evidence: external matrix execution remained in progress at the first state check of this invocation
+  - command: exact-head Agent Governance run 30767724214 job 91549326059
+    result: FAIL
+    evidence: unsupported nested feature_scope checkpoint value detected and repaired in the next audit-only commit
+  - command: exact-head Edge Security run 30767724229 job 91549326250
+    result: BLOCKED
+    evidence: current-main workflow expects tests/ci/test_classify_changes.py which is absent from the old frozen-base audit head
 blockers:
-  - external completion of run 30763456046; one later unchanged-state check remains permitted in this invocation
+  - external completion of run 30763456046 with one later state check allowed in this invocation
+  - exact-head heavy workflow classification cannot execute on the frozen-base branch because its current-main classifier test file is absent
 next_action: when run 30763456046 becomes terminal, inspect it once, verify any artifact, update Issue 365 and PR 381 evidence, close PR 476 without merge, and do not rerun the matrix
 ```
 
