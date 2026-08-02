@@ -31,7 +31,9 @@ Budget exhaustion, the no-progress limit, retry-limit exhaustion, or unchanged p
 
 Do not stop, return only a plan, or ask the owner to switch tools merely because Codex or a local terminal is unavailable. Use the GitHub connection for repository operations and GitHub Actions for remote execution and validation on a dedicated branch, within the anti-stall budget. Prefer existing workflows and the smallest proving checks; add a temporary validation workflow only when existing workflows cannot prove the task, and remove it before final merge unless retention is an explicitly justified deliverable.
 
-Do not merge, enable auto-merge, deploy, expose secrets, bypass protections, or modify protected production, database, payment, or authentication configuration without the required authority. A genuine GitHub-only blocker must identify the exact unavailable operation, attempted tool or workflow, received error, missing permission, secret or resource, collected evidence, nearest safe alternative, current branch, PR and exact head, and one next action.
+The owner durably authorizes autonomous merge or auto-merge of the current task's own PR only after the exact final head passes all repository-required gates, audit and required E2E, all review threads are resolved, the diff remains within declared ownership, and related PRs are reconciled. Prefer auto-merge and never force or bypass protections. Production deployment, protected-environment approval, production secrets, database, payment, authentication, and protected production configuration remain separately unauthorized unless explicitly covered.
+
+A genuine GitHub-only blocker must identify the exact unavailable operation, attempted tool or workflow, received error, missing permission, secret or resource, collected evidence, nearest safe alternative, current branch, PR and exact head, and one next action.
 
 ## Completion baseline
 
