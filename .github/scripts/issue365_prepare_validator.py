@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Inspect the generated Issue #365 validator without starting the matrix."""
+"""Apply bounded Issue #365 repairs to the generated validator."""
 
 from __future__ import annotations
 
@@ -41,6 +41,7 @@ def main() -> None:
     original = load_original()
     generated = original.prepare(args.source.read_text(encoding="utf-8"))
 
+    # Preserve the literal selector inside the generated observer extractor.
     media_broken = """    '05-media-snapshot.sh': "cat > "$RUN_ROOT/media-snapshot.php" <<'PHP'",
 """
     media_repaired = r"""    '05-media-snapshot.sh': "cat > \"$RUN_ROOT/media-snapshot.php\" <<'PHP'",
@@ -52,24 +53,43 @@ def main() -> None:
         "media snapshot selector repair",
     )
 
-    lines = generated.splitlines()
-    matches = [
-        index
-        for index, line in enumerate(lines)
-        if "saveSession" in line or "return $response" in line
-    ]
-    print("ISSUE365_GENERATED_STARTSESSION_MATCH_COUNT=" + str(len(matches)))
-    for match in matches:
-        start = max(0, match - 4)
-        end = min(len(lines), match + 5)
-        print(f"ISSUE365_GENERATED_CONTEXT_BEGIN={start + 1}:{end}")
-        for index in range(start, end):
-            print(f"{index + 1:05d}: {lines[index]}")
-        print("ISSUE365_GENERATED_CONTEXT_END")
+    # Laravel 13.20.0 has a blank line between saveSession() and return.
+    # The old pattern lives inside the generated runtime observer script, not
+    # in the parent validator. Patch that extracted script before it is hashed
+    # and executed, while keeping the frozen checkout and runbook untouched.
+    hash_anchor = (
+        'docker exec "$app_container" bash -lc '\
+        "'sha256sum \"$RUN_ROOT\"/runtime/*.sh > "
+        "\"$RUN_ROOT/runtime/SHA256SUMS\"'"
+    )
+    runtime_patch = r'''docker exec -i "$app_container" python3 - <<'PY'
+from pathlib import Path
+
+path = Path('/evidence/issue365-run/runtime/02-observer-patch.sh')
+text = path.read_text(encoding='utf-8')
+old = r'''    "        $this->saveSession($request);\n        return $response;\n",
+'''
+new = r'''    "        $this->saveSession($request);\n\n        return $response;\n",
+'''
+count = text.count(old)
+if count != 1:
+    raise SystemExit(
+        'Laravel 13 runtime observer pattern: '
+        f'expected one match, found {count}'
+    )
+path.write_text(text.replace(old, new, 1), encoding='utf-8')
+PY
+
+docker exec "$app_container" bash -lc 'sha256sum "$RUN_ROOT"/runtime/*.sh > "$RUN_ROOT/runtime/SHA256SUMS"' '''.rstrip()
+    generated = replace_once(
+        generated,
+        hash_anchor,
+        runtime_patch,
+        "generated Laravel runtime observer repair",
+    )
 
     args.target.write_text(generated, encoding="utf-8")
     args.target.chmod(0o700)
-    raise SystemExit("diagnostic-only gate complete; matrix intentionally not started")
 
 
 if __name__ == "__main__":
