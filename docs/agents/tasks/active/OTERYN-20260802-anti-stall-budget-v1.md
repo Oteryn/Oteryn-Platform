@@ -4,7 +4,7 @@ status: validating
 branch: docs/anti-stall-budget-v1-20260802
 base_branch: main
 created: 2026-08-02T10:29:00+02:00
-updated: 2026-08-02T10:46:00+02:00
+updated: 2026-08-02T10:49:00+02:00
 feature_pr: "449"
 owned_paths:
   - AGENTS.override.md
@@ -33,8 +33,8 @@ Prevent autonomous agents from becoming unbounded polling, retry, repair, or tas
 ```yaml
 checkpoint_version: 1
 policy_version: 2
-updated_at: 2026-08-02T10:46:00+02:00
-head: 2bd5273b80551ff25aa07d06e7eed42f36287d6b
+updated_at: 2026-08-02T10:49:00+02:00
+head: 7d53ad691a6c40adeef90cc030f50359264fb293
 branch: docs/anti-stall-budget-v1-20260802
 pr: 449
 status: validating
@@ -52,7 +52,7 @@ context_pressure: low
 context_growth: stable
 decomposition_decision: single
 validation_level: focused
-last_completed_step: repaired validation evidence structure
+last_completed_step: finalized validation command schema
 owned_paths:
   - AGENTS.override.md
   - docs/agents/AGENTS.md
@@ -61,40 +61,40 @@ owned_paths:
 proven:
   - Root and local agent routing require the anti-stall contract.
   - The contract bounds runtime, no-progress, CI checks, retries, repair cycles, context reconstruction and command duration.
-  - All non-governance required workflows passed on prior head 2bd5273b80551ff25aa07d06e7eed42f36287d6b.
+  - All non-governance required workflows passed on the prior implementation head.
 derived:
   - Pending platform workflows can no longer justify indefinite polling.
 unknown:
-  - Exact-head workflow outcome after validation evidence repair.
+  - Exact-head workflow outcome after final checkpoint schema repair.
 conflicts: []
 first_failure:
-  marker: validation-evidence-shape
-  evidence: Agent Governance run 3954 required validation entries to be key/value mappings.
+  marker: validation-command-required
+  evidence: Agent Governance run 3955 required a command field in every validation item.
 rejected_hypotheses:
   - the anti-stall contract content caused the governance failure
-  - repeating the unchanged validation entry would pass
+  - a check field is accepted in place of command
 changed_paths:
   - AGENTS.override.md
   - docs/agents/AGENTS.md
   - docs/agents/ANTI_STALL_AND_EXECUTION_BUDGET.md
   - docs/agents/tasks/active/OTERYN-20260802-anti-stall-budget-v1.md
 validation:
-  - check: checkpoint validator unit tests
+  - command: python tools/agents/test_checkpoint.py
     result: PASS
-    evidence: Agent Governance run 3953
-  - check: platform required workflows excluding governance
+    evidence: Agent Governance run 3955 validator-test step
+  - command: GitHub Actions required platform workflows
     result: PASS
     evidence: CI 4227; Phase 7 3229; DB Outage 3156; Edge Security 1650; Game Auth 2727
 blockers: []
 invocation_started_at: 2026-08-02T10:29:00+02:00
-last_progress_at: 2026-08-02T10:46:00+02:00
+last_progress_at: 2026-08-02T10:49:00+02:00
 runtime_limit_minutes: 60
 no_progress_minutes: 15
 ci_checks_for_current_head: 0
 unchanged_state_checks: 0
 identical_failure_retries: 0
-repair_cycles_for_current_gate: 2
+repair_cycles_for_current_gate: 3
 context_reconstruction_attempts: 0
 stall_warnings: 0
-next_action: verify exact-head checks for PR 449
+next_action: verify final exact-head checks for PR 449; block without further repair if governance fails again
 ```
