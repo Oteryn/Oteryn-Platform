@@ -4,7 +4,7 @@ status: validating
 branch: docs/OTERYN-20260803-terminal-ci-continuation
 base_branch: main
 created: 2026-08-03T08:17:00+02:00
-updated: 2026-08-03T08:32:00+02:00
+updated: 2026-08-03T08:36:00+02:00
 related_pr: 484
 project_lane: oteryn-platform
 execution_mode: github-only
@@ -15,6 +15,7 @@ owned_paths:
   - docs/agents/ANTI_STALL_AND_EXECUTION_BUDGET.md
   - docs/agents/AUTONOMOUS_PROGRAM_CONTINUATION.md
   - docs/agents/GITHUB_ONLY_EXECUTION.md
+  - docs/agents/TERMINAL_ONLY_COMMUNICATION.md
   - docs/agents/tasks/active/OTERYN-20260803-terminal-ci-continuation.md
 modules_touched:
   - agent-governance
@@ -22,15 +23,17 @@ depends_on: []
 blocks: []
 ---
 
-# Bounded terminal CI continuation
+# Bounded terminal CI continuation and terminal-only communication
 
 ## Goal
 
-Prevent autonomous Oteryn Platform workers from returning `WAITING` solely because final required exact-head CI is still running after two ordinary checks, while preserving bounded execution, branch protection, audit, E2E, review and direct-merge safety.
+Prevent autonomous Oteryn Platform workers from returning `WAITING` solely because final required exact-head CI is still running after two ordinary checks, and prevent long autonomous runs from consuming chat/context through repeated milestone narration while preserving bounded execution, branch protection, audit, E2E, review and direct-merge safety.
 
 ## Problem evidence
 
 PR #477 reached a final audited head with eight required workflows still running. The trusted policy v2 forced `WAITING` after two checks even though CI was the only remaining gate and repository auto-merge is disabled.
+
+The owner also provided direct UI evidence that a continuation worker emitted repeated user-facing paragraphs for preflight, CI verification, merge, archival, historical-PR classification and selection of the next audit phase. Existing `low_noise` wording still allowed every material milestone to become a chat update, duplicating durable state and wasting execution context.
 
 ## Acceptance criteria
 
@@ -42,6 +45,10 @@ PR #477 reached a final audited head with eight required workflows still running
 - [x] when auto-merge is unavailable, direct squash merge is allowed only after every exact-head gate passes;
 - [x] post-merge archival and Issue reconciliation remain part of the same entry task;
 - [x] hidden background execution and unbounded polling remain forbidden;
+- [x] autonomous and scheduled runs default to terminal-only communication;
+- [x] commits, PRs, CI observations, merges, archival, phase changes and next-task selection do not permit intermediate narration;
+- [x] intermediate owner interruption is limited to an unresolved decision, new authorization, safety concern, ownership conflict, material scope approval or required owner action;
+- [x] durable evidence is not duplicated chronologically in chat;
 - [x] all higher-priority routing documents are consistent;
 - [ ] exact-head repository CI passes;
 - [x] fresh contradiction/scope audit has no open material finding.
@@ -56,10 +63,12 @@ reviewed_inputs:
   - ordinary and terminal CI counters
   - autonomous continuation waiting rules
   - GitHub-only merge authority
+  - owner-provided repeated-progress UI evidence
+  - terminal-only communication specialization
 result: PASS
 open_material_findings: 0
 scope:
-  changed_paths: 6
+  changed_paths: 7
   application_code: 0
   workflows_or_branch_protection: 0
   production_or_external_state: 0
@@ -75,6 +84,10 @@ invariants:
   branch_protection_bypass: forbidden
   hidden_background_execution: forbidden
   archive_and_issue_closeout_same_entry_task: true
+  autonomous_default_communication: terminal_only
+  milestone_progress_narration: forbidden
+  allowed_owner_interruptions_are_blocking_only: true
+  durable_state_chat_duplication: forbidden
 e2e:
   result: NOT_APPLICABLE
   reason: documentation-only agent-governance change with no application or runtime behaviour
@@ -84,7 +97,7 @@ e2e:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-03T08:32:00+02:00
+updated_at: 2026-08-03T08:36:00+02:00
 head: pending-final-task-record-commit
 branch: docs/OTERYN-20260803-terminal-ci-continuation
 pr: 484
@@ -95,12 +108,14 @@ context_routes:
   - docs/agents/ANTI_STALL_AND_EXECUTION_BUDGET.md
   - docs/agents/AUTONOMOUS_PROGRAM_CONTINUATION.md
   - docs/agents/GITHUB_ONLY_EXECUTION.md
+  - docs/agents/TERMINAL_ONLY_COMMUNICATION.md
 owned_paths:
   - AGENTS.override.md
   - docs/agents/AGENTS.md
   - docs/agents/ANTI_STALL_AND_EXECUTION_BUDGET.md
   - docs/agents/AUTONOMOUS_PROGRAM_CONTINUATION.md
   - docs/agents/GITHUB_ONLY_EXECUTION.md
+  - docs/agents/TERMINAL_ONLY_COMMUNICATION.md
   - docs/agents/tasks/active/OTERYN-20260803-terminal-ci-continuation.md
 proven:
   - Oteryn Platform main uses policy v2 and caused PR 477 to stop after two final-CI checks.
@@ -108,9 +123,11 @@ proven:
   - Policy 2.1 separates ordinary and terminal CI counters.
   - Eligible final CI may continue for at most 45 minutes, at intervals of at least 3 minutes and no more than 12 checks per materially new generation.
   - Direct squash merge remains forbidden until every exact-head gate passes.
+  - Existing low-noise wording allowed repeated material-milestone messages during a single autonomous run.
+  - The new communication specialization defaults autonomous and scheduled runs to one terminal report and forbids intermediate milestone narration.
   - Fresh contradiction and scope audit passed with zero open material findings.
 derived:
-  - Future invocations based on main after merge may use the bounded terminal-CI exception; the current unmerged governance task may not use it to expand its own trusted-base authority.
+  - Future invocations based on main after merge may use the bounded terminal-CI exception and terminal-only communication; the current unmerged governance task may not use its own changes to expand trusted-base authority.
 unknown:
   - exact-head CI result for the final governance head
 conflicts: []
@@ -119,26 +136,31 @@ first_failure:
   evidence: Agent Governance run 30790098852 job 91611597288 reported missing context_routes, derived, first_failure, owned_paths and rejected_hypotheses.
 rejected_hypotheses:
   - Treat the Agent Governance failure as infrastructure flakiness: rejected because the validator emitted deterministic missing-field errors.
+  - Keep the existing low_noise milestone rule and rely only on prompts: rejected because direct UI evidence shows the repository rule permits repeated progress narration and prompts are not durable across agents.
 changed_paths:
   - AGENTS.override.md
   - docs/agents/AGENTS.md
   - docs/agents/ANTI_STALL_AND_EXECUTION_BUDGET.md
   - docs/agents/AUTONOMOUS_PROGRAM_CONTINUATION.md
   - docs/agents/GITHUB_ONLY_EXECUTION.md
+  - docs/agents/TERMINAL_ONLY_COMMUNICATION.md
   - docs/agents/tasks/active/OTERYN-20260803-terminal-ci-continuation.md
 validation:
   - command: complete diff contradiction and scope audit
     result: PASS
-    evidence: six governance-only paths, zero open material findings
+    evidence: seven governance-only paths, zero open material findings
+  - command: terminal-only communication rule review
+    result: PASS
+    evidence: explicit forbidden milestone list, narrow owner-interruption allowlist and one-final-report rule
   - command: runtime E2E
     result: NOT_APPLICABLE
     evidence: documentation-only governance change
   - command: Agent Governance run 30790098852 job 91611597288
     result: FAIL
-    evidence: deterministic checkpoint schema failure repaired in this commit
-  - command: exact-head repository CI after schema repair
+    evidence: deterministic checkpoint schema failure repaired in later commits
+  - command: exact-head repository CI after communication and schema repair
     result: NOT_RUN
-    evidence: schema-repair commit triggers a new exact-head check generation
+    evidence: final task-record commit triggers a new exact-head check generation
 blockers: []
 next_action: Inspect the newly triggered exact-head checks once; if all required checks pass, squash-merge PR #484, archive this task and update the durable governance evidence.
 ```
