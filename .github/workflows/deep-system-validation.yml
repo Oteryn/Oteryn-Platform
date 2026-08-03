@@ -201,7 +201,20 @@ jobs:
         run: bash scripts/acceptance/bootstrap-production-like.sh
 
       - name: Execute complete PHP regression suite
-        run: composer test
+        env:
+          APP_ENV: testing
+          CACHE_STORE: array
+          DB_CONNECTION: sqlite
+          DB_DATABASE: ':memory:'
+          MAIL_MAILER: array
+          QUEUE_CONNECTION: sync
+          SESSION_DRIVER: array
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts/deep
+          php artisan config:clear --ansi
+          php artisan test --log-junit=artifacts/deep/phpunit-junit.xml 2>&1 | tee artifacts/deep/phpunit.log
+          test -s artifacts/deep/phpunit-junit.xml
 
       - name: Validate browser dependency advisories
         run: npm --prefix scripts/acceptance audit --audit-level=high
@@ -361,7 +374,7 @@ jobs:
               {"name":"composer-audit","kind":"command","status":"PASS","required":true,"exit_code":0},
               {"name":"php-format","kind":"command","status":"PASS","required":true,"exit_code":0},
               {"name":"php-analysis","kind":"command","status":"PASS","required":true,"exit_code":0},
-              {"name":"php-tests","kind":"command","status":"PASS","required":true,"exit_code":0},
+              {"name":"php-tests","kind":"junit","status":"PASS","required":true,"junit_files":["artifacts/deep/phpunit-junit.xml"]},
               {"name":"npm-audit","kind":"command","status":"PASS","required":true,"exit_code":0},
               {"name":"coverage-contract-strict","kind":"command","status":"PASS","required":true,"exit_code":0},
               {"name":"browser-full-chromium","kind":"junit","status":"PASS","required":true,"junit_files":["artifacts/deep/junit-full.xml"]},
