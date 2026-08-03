@@ -10,9 +10,7 @@ test.setTimeout(120_000);
 test.describe.configure({ retries: 0 });
 
 test.beforeAll(() => {
-  if (process.env.ACCEPTANCE_SEEDED_EXTERNALLY !== '1') {
-    runBinary('php', ['scripts/acceptance/seed-homepage-navigation-seo.php']);
-  }
+  runBinary('php', ['scripts/acceptance/seed-homepage-navigation-seo.php']);
 });
 
 test.beforeEach(async ({ page }) => {
