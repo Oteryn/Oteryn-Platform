@@ -83,10 +83,24 @@ class DeepSystemValidationTests(unittest.TestCase):
             "nonclaims": ["Repository execution is not production proof."],
         }
 
-    def test_clean_contract_passes(self):
+    def test_clean_contract_with_blocker_is_truthful(self):
         result = validate_contract(self.contract(), "abc123", self.root)
-        self.assertEqual(result["global_verdict"], "DEEP_VALIDATION_PASS")
+        self.assertEqual(
+            result["global_verdict"],
+            "DEEP_VALIDATION_PASS_WITH_EXTERNAL_BLOCKERS",
+        )
+        self.assertEqual(result["external_blocker_count"], 1)
+        self.assertEqual(result["external_blockers"][0]["owner_issue"], 490)
         self.assertGreater(result["junit_totals"]["tests"], 0)
+
+    def test_clean_contract_without_blocker_passes(self):
+        contract = self.contract()
+        contract["lanes"] = [
+            lane for lane in contract["lanes"] if lane["name"] != "production-smoke"
+        ]
+        result = validate_contract(contract, "abc123", self.root)
+        self.assertEqual(result["global_verdict"], "DEEP_VALIDATION_PASS")
+        self.assertEqual(result["external_blocker_count"], 0)
 
     def test_wrong_sha_fails(self):
         with self.assertRaisesRegex(ValidationError, "does not match"):
