@@ -1,7 +1,7 @@
 # Mandatory Agent Bootstrap
 
 ```yaml
-agent_bootstrap_policy_revision: 2
+agent_bootstrap_policy_revision: 2.1
 ```
 
 This root bootstrap may be loaded automatically by Codex or another agent runtime. It supplements and never weakens system, developer, owner, repository-allowlist, safety, production, credential, data, payment, authentication, protocol, asset, live-capital, deployment, merge, or cross-repository restrictions.
@@ -42,17 +42,21 @@ Checkpoint task status and invocation result are different fields:
 
 ## Anti-stall baseline
 
-Autonomous continuation is always bounded. Default to 60 minutes per foreground invocation; allow 120 minutes only when the task explicitly declares and justifies a large budget. Stop after 15 minutes without measurable progress. Check CI or unchanged external state at most twice per exact head, do not repeat an identical failure without a new hypothesis, and stop after three repair cycles for one gate.
+Autonomous continuation is always bounded. Default to 60 minutes per foreground invocation; allow 120 minutes only when the task explicitly declares and justifies a large budget. Stop after 15 minutes without measurable progress outside the bounded terminal-CI exception. Check ordinary CI or unchanged external state at most twice per exact head, do not repeat an identical failure without a new hypothesis, and stop after three repair cycles for one gate.
 
-The active task at invocation entry, or the first selected `READY` task when none is active, is the entry task. After that task becomes terminal, at most one additional task may be started in the same invocation, and only when at least 30 minutes remains and no stall warning occurred.
+Final required exact-head CI, branch-protection completion and the resulting merge may use the dedicated terminal-CI exception only after implementation, audit, E2E and review hygiene are complete and no other gate remains. The exception is capped at 45 minutes, requires at least three minutes between unchanged checks, permits at most 12 checks per materially new required-check generation, uses dedicated counters rather than the ordinary two-check counters, and never resets its total wait budget across generations on the same head.
 
-Budget exhaustion, no-progress, retry-limit exhaustion, unchanged pending CI, or an unsafe context/tool limit is a real stop condition. Persist exact durable state and return the correct invocation result.
+Auto-merge availability is not required. When repository auto-merge is unavailable, the owner invocation may remain active under the same bounded exception and perform a direct squash merge only after every repository-required check passes on the exact unchanged head. Force, bypass and administrative override remain forbidden.
+
+The active task at invocation entry, or the first selected `READY` task when none is active, is the entry task. Required post-merge archive closeout and ownership release remain part of that same entry task. After it becomes fully terminal, at most one additional task may be started in the same invocation, and only when at least 30 minutes remains and no stall warning occurred.
+
+Budget exhaustion, ordinary no-progress, retry-limit exhaustion, unchanged pending ordinary state, exhausted terminal-CI limits, or an unsafe context/tool limit is a real stop condition. Persist exact durable state and return the correct invocation result.
 
 ## GitHub-only baseline
 
 Do not stop, return only a plan, or ask the owner to switch tools merely because Codex or a local terminal is unavailable. Use the GitHub connection for repository operations and GitHub Actions for remote execution and validation on a dedicated branch, within the anti-stall budget.
 
-The owner durably authorizes autonomous merge or auto-merge of the current task's own PR only after the exact final head passes every repository-required gate, independent audit and required E2E; all review threads are resolved; the diff remains within declared ownership; and related PRs are reconciled. Never force or bypass protections.
+The owner durably authorizes protected auto-merge when available, or direct squash merge when auto-merge is unavailable, for the current task's own PR only after all repository-required gates pass on the exact final head; independent audit and required E2E pass; all review threads are resolved; the diff remains within declared ownership; and related PRs are reconciled. Never force, bypass or weaken protections.
 
 Merge authority is not production authority. Production deployment, protected-environment approval, production secrets, live data, live payments or capital, live authentication/session mutation, and protected production configuration remain separately unauthorized unless explicitly covered.
 
