@@ -56,14 +56,14 @@ class DeepSystemValidationTests(unittest.TestCase):
                 }
             lanes.append(lane)
         next(x for x in lanes if x["name"] == "portability")["projects"] = [
-            "chromium-primary",
-            "firefox-portability",
-            "webkit-portability",
+            "portability-chromium",
+            "portability-firefox",
+            "portability-webkit",
         ]
-        next(x for x in lanes if x["name"] == "responsive")["viewports"] = [
-            "desktop",
-            "tablet",
-            "mobile",
+        next(x for x in lanes if x["name"] == "responsive")["projects"] = [
+            "responsive-desktop",
+            "responsive-tablet",
+            "responsive-mobile",
         ]
         lanes.append(
             {
@@ -125,8 +125,15 @@ class DeepSystemValidationTests(unittest.TestCase):
     def test_missing_browser_project_fails(self):
         contract = self.contract()
         lane = next(x for x in contract["lanes"] if x["name"] == "portability")
-        lane["projects"] = ["chromium-primary", "firefox-portability"]
-        with self.assertRaisesRegex(ValidationError, "webkit-portability"):
+        lane["projects"] = ["portability-chromium", "portability-firefox"]
+        with self.assertRaisesRegex(ValidationError, "portability-webkit"):
+            validate_contract(contract, "abc123", self.root)
+
+    def test_missing_responsive_project_fails(self):
+        contract = self.contract()
+        lane = next(x for x in contract["lanes"] if x["name"] == "responsive")
+        lane["projects"] = ["responsive-desktop", "responsive-mobile"]
+        with self.assertRaisesRegex(ValidationError, "responsive-tablet"):
             validate_contract(contract, "abc123", self.root)
 
     def test_blocked_external_lane_requires_owner(self):
