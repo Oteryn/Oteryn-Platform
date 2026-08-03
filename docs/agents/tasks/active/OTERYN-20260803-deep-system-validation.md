@@ -47,20 +47,14 @@ large_budget_reason: full browser matrix plus deterministic database Redis SMTP 
 
 ## Acceptance criteria
 
-- [x] Dedicated parent Issue #494 exists.
-- [x] Dedicated branch and task ledger exist with no overlapping owner.
-- [x] Validation workflow checks out the exact PR head with credentials disabled.
-- [ ] Existing primary account lifecycle community content-scale downloads portability responsive resilience accessibility and soak profiles execute fail closed.
-- [ ] Full Chromium baseline executes rather than remaining classifier-skipped.
-- [ ] Chromium Firefox and WebKit portability evidence is explicit.
-- [ ] Desktop tablet and mobile evidence is explicit.
-- [ ] Retries remain zero and failures errors or unexpected skips fail the programme.
-- [ ] Backend security contract dependency database Redis SMTP outage concurrency and bounded performance lanes are represented by exact-head results.
-- [x] Production-only or external-system lanes are marked BLOCKED or NOT_APPLICABLE with a reason and owner; repository evidence is not presented as production proof.
-- [ ] Exact-head machine-readable evidence and a human report are committed durably rather than existing only in an expiring Actions artifact.
-- [ ] Independent review finds no material validation-logic gap.
-- [ ] All required exact-head workflows pass before squash merge.
-- [ ] Task is archived and ownership released after terminal closeout.
+- [x] Dedicated parent Issue #494, branch, task and draft PR #495 exist.
+- [x] Exact-head workflow disables persisted checkout credentials.
+- [ ] Full Chromium, account lifecycle, community, content-scale, downloads, portability, responsive, resilience, accessibility, visual and soak profiles pass with retries zero.
+- [ ] Backend, security, dependency, MariaDB, Redis, SMTP, outage, edge and concurrency lanes have exact-head results.
+- [x] External production-only lanes have explicit blockers, reasons and owners.
+- [ ] Machine evidence and report are persisted in the repository.
+- [ ] Independent review and all required exact-head workflows pass.
+- [ ] Task is archived and ownership released.
 
 ## Ownership
 
@@ -88,8 +82,8 @@ cross_repository_tasks: []
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-03T13:26:00+02:00
-head: d3ef2eb942251ddcc5a03a1b6473cd1798d3d124
+updated_at: 2026-08-03T13:28:00+02:00
+head: a3acf1817e16c28169a2a93ee7ad4a520a71de0c
 base_sha: f7384418f01f4ae4c3190c71259f2fe7f3297dad
 branch: audit/OTERYN-20260803-deep-system-validation
 pr: 495
@@ -114,32 +108,28 @@ owned_paths:
   - docs/agents/evidence/OTERYN-20260803-deep-system-validation/**
   - docs/agents/reports/OTERYN-20260803-deep-system-validation.md
 proven:
-  - exhaustive inventory audit PR 483 is merged and classifies 240 named routes 126 rendered routes 43 capabilities and 18 modules
-  - the audit retained 135 findings and did not claim any module complete
-  - prior broad acceptance evidence passed 96 zero-retry tests across Chromium Firefox WebKit and desktop tablet mobile profiles
-  - prior evidence explicitly classified full acceptance visual UX production smoke and soak as not executed or skipped
-  - final audit exact-head artifact is time-limited while persisted evidence contains earlier source identities
-  - stale duplicate closeout PR 492 was closed without merge
-  - parent Issue 494 branch task and draft PR 495 exist without overlapping validation ownership
-  - the exact-head workflow checks out the PR head with persist-credentials false and requires full browser static dependency integration visual and soak lanes
-  - the evidence compiler rejects SHA mismatch retries failures errors skips zero-test lanes missing browser projects and unowned external blockers
-  - the first Agent Governance run failed only because this checkpoint omitted mandatory schema fields
+  - audit PR 483 classified 240 named routes 126 rendered routes 43 capabilities and 18 modules with 135 findings and no COMPLETE module
+  - prior critical acceptance passed 96 zero-retry tests but did not execute full visual or soak profiles
+  - stale duplicate PR 492 was closed without merge
+  - deep validation workflow and fail-closed compiler exist on PR 495
+  - compiler unit tests cover SHA mismatch retries failures errors skips zero tests missing projects and unowned blockers
+  - first source run passed setup compiler tests and dependency audit before a checkpoint-only commit superseded it
 unknown:
-  - current-main browser failures defects or unsupported profile assumptions
-  - exact durable result counts for security integration operations and performance lanes
-  - whether exploratory visual execution finds a blocking UX condition
-  - terminal conclusions for the first Deep System Validation run and the remaining exact-head workflows
+  - terminal current-main browser and soak results
+  - whether visual execution finds a blocking UX condition
+  - final exact-head test counts and performance calibration metrics
+  - terminal conclusions of all standard workflows
 derived:
-  - one critical-only acceptance run cannot prove the full Chromium visual and soak boundaries
-  - external production Canary login payment DNS Cloudflare and destructive restore proof require separately authorized environment work
-  - the source validation artifact must be copied into durable repository evidence before closeout
+  - critical-only browser evidence does not prove full visual or soak coverage
+  - external production Canary login payment DNS Cloudflare and restore proof requires separate authorization
+  - generated Actions evidence must be copied into repository paths before closeout
 conflicts: []
 first_failure:
-  marker: Agent Governance checkpoint validation failed on run 30809319065
-  evidence: active task checkpoint omitted blockers changed_paths conflicts context_routes derived head owned_paths pr validation and used unsupported status implementing_validation_harness
+  marker: Agent Governance rejected incomplete checkpoint metadata
+  evidence: runs 30809319065 and 30809496810 identified required fields and then unsupported transient result RUNNING; no product or validation-lane failure occurred
 rejected_hypotheses:
   - route inventory closure proves runtime state coverage
-  - a green critical browser profile proves full acceptance
+  - critical browser evidence proves full acceptance
   - repository CI proves production deployment behavior
   - expiring Actions artifacts alone satisfy durable exact-head evidence
 changed_paths:
@@ -150,13 +140,13 @@ changed_paths:
 validation:
   - command: PYTHONPATH=tools/validation python -m unittest -v tools/validation/test_deep_system_validation.py
     result: PASS
-    evidence: ten fail-closed unit tests passed before the first PR execution
-  - command: Agent Governance run 30809319065 on d3ef2eb942251ddcc5a03a1b6473cd1798d3d124
+    evidence: ten fail-closed compiler tests passed
+  - command: Agent Governance runs 30809319065 and 30809496810
     result: FAIL
-    evidence: checkpoint schema only; no validation workflow or product failure
-  - command: Deep System Validation run 30809318035 on d3ef2eb942251ddcc5a03a1b6473cd1798d3d124
-    result: RUNNING
-    evidence: first exact-head source execution is in progress
+    evidence: checkpoint schema findings only; corrected on this head
+  - command: Deep System Validation exact-head execution
+    result: NOT_RUN
+    evidence: source runs were pending or superseded by checkpoint-only commits; terminal execution is required on this head
 blockers: []
-next_action: validate this corrected checkpoint on the new head then inspect the first terminal Deep System Validation result without weakening any lane
+next_action: obtain a terminal Deep System Validation result on this head and inspect the first actionable failure without weakening any lane
 ```
