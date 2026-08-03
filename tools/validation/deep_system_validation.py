@@ -19,6 +19,7 @@ REQUIRED_LANES = {
     "php-format",
     "php-analysis",
     "php-tests",
+    "php-game-auth-concurrency",
     "npm-audit",
     "coverage-contract-strict",
     "content-scale-contract",
