@@ -1,9 +1,9 @@
 name: Audit Security Lock Refresh
 
 on:
-  push:
+  pull_request:
     branches:
-      - audit/OTERYN-20260803-deep-system-validation
+      - main
     paths:
       - '.github/workflows/audit-security-lock-refresh.yml'
   workflow_dispatch:
@@ -19,7 +19,7 @@ jobs:
       - name: Checkout exact audit head
         uses: actions/checkout@v7
         with:
-          ref: ${{ github.sha }}
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
 
       - name: Setup PHP 8.5
@@ -40,7 +40,7 @@ jobs:
       - name: Upload validated lockfile
         uses: actions/upload-artifact@v7
         with:
-          name: audit-security-lock-${{ github.sha }}
+          name: audit-security-lock-${{ github.event.pull_request.head.sha || github.sha }}
           path: composer.lock
           if-no-files-found: error
           retention-days: 1
