@@ -20,6 +20,7 @@ required_reads:
 search_first:
   - Issue 326 and latest scope comments
   - historical audit PR 381 and current audit PR 483
+  - owner Issues 486 through 491
   - overlapping active tasks and PRs
 ---
 
@@ -48,11 +49,11 @@ large_budget_reason: current-main reconciliation of 240 named routes, 126 render
 - [x] Every classified route and capability receives four fail-closed verdicts.
 - [x] Explicit route exclusions are represented so 228 classified plus 12 excluded equals all 240 named routes.
 - [x] All 18 programme modules receive explicit boundary records.
-- [ ] Wiki and Game Catalog expected-content inventory gaps are persisted and tracked.
-- [ ] Every material finding has stable evidence and an owner Issue.
-- [ ] Generated machine-readable evidence and consolidated report are retained.
-- [ ] Fresh browser and required exact-head CI evidence is mapped.
-- [ ] Independent audit has no open finding about the audit implementation.
+- [x] Wiki and Game Catalog expected-content inventory gaps are persisted and tracked.
+- [x] Every material finding has stable evidence and a shared owner Issue.
+- [x] Generated machine-readable evidence and consolidated report are retained.
+- [ ] Fresh required exact-head CI is terminal on the evidence-persisted PR head.
+- [ ] Independent audit has no open material finding about the audit implementation or evidence.
 - [ ] Historical PR #381 reaches an intentional superseded terminal state.
 
 ## Ownership
@@ -99,8 +100,8 @@ cross_repository_tasks: []
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-03T08:35:00+02:00
-head: 4bdadef983a38c51f002bb99f09e32640b6e3ee6
+updated_at: 2026-08-03T10:24:00+02:00
+head: 4ad407bda5053d00b6a77ab315dcbcfa33618181
 branch: audit/OTERYN-20260803-portal-exhaustive-current-main
 pr: 483
 status: validating
@@ -126,50 +127,56 @@ owned_paths:
 proven:
   - PR 477 merged the retained PHP 8.5 Playwright runtime after nine exact-head workflows passed
   - PR 482 archived the runtime task and released ownership
-  - PR 381 is historical unmergeable evidence for 27 surface groups 240 named routes 126 rendered screens 43 capabilities and 18 modules
-  - current route validator reports 228 classified routes 126 rendered routes 95 bound page views zero orphan page views 400 navigation references and 30 direct-entry routes
-  - current portal discovery reports 240 named routes and 12 justified exclusions
-  - current capability ledgers contain 43 aligned capability records
-  - generator unit tests pass and Portal Exhaustive Audit run 30790534400 passed on exact head 5e1d2d3ad00fae99ab7852a17ff4724062e3dfa2
-  - initial generated matrix contained 228 route records 43 capability records 71 findings and zero infrastructure errors
-  - reconciliation adds all excluded routes all 18 module records per-module evidence and cross-contract scope checks
+  - PR 381 is frozen historical evidence for 27 surface groups 240 named routes 126 rendered screens 43 capabilities and 18 modules but is not current exact-head proof
+  - Portal Exhaustive Audit run 30790809279 passed on exact head f5f83b8122fa266bb8f7dc45019fea566ac53fb5
+  - current inventory contains 228 classified routes 126 rendered routes 95 bound page views zero orphan page views 400 navigation references and 30 direct-entry routes
+  - 12 justified exclusions close all 240 discovered named routes
+  - 43 capability records and 18 module records have independent EXISTS FUNCTIONAL CONTENT_COMPLETE and PRODUCTION_COMPLETE verdicts
+  - global verdict is AUDIT_COMPLETE_WITH_FINDINGS with 75 findings comprising 15 HIGH 58 MEDIUM and 2 LOW
+  - every finding is assigned to shared owner Issues 486 through 491
+  - complete route capability module exclusion manifest and report evidence is persisted under owned paths
+  - five interrupted partial evidence fragments were removed and are absent from the final persisted scope
 derived:
   - Wiki and Game Catalog cannot pass CONTENT_COMPLETE without authoritative expected inventories
   - the existing content-scale validator can report complete while loading only 18 of 27 current portal surfaces
+  - platform_api operations_observability and public_edge require explicit bounded current applicability contracts rather than invented UI requirements
 unknown:
-  - terminal result of reconciled Portal Exhaustive Audit on current head
-  - final finding count after excluded-route module and content-scale reconciliation
-  - fresh exact-head browser conclusions required for production-complete verdicts
+  - terminal required-workflow conclusions on the evidence-persisted exact PR head
+  - independent final diff and evidence audit result
+  - final merge SHA for PR 483
 conflicts: []
 first_failure:
   marker: tee opened the audit command output before the artifacts directory existed
-  evidence: Portal Exhaustive Audit run 30790414366 failed after the generator itself produced a valid 228-route 43-capability matrix
+  evidence: Portal Exhaustive Audit run 30790414366 failed after the generator itself produced a valid 228-route 43-capability matrix; the workflow order was corrected and subsequent exact-head runs passed
 rejected_hypotheses:
   - the PHP 8.3 acceptance-runtime blocker still applies
   - route or view presence proves content completeness
   - aggregate smoke evidence proves every screen and state
-  - the first workflow failure was caused by a generator or repository contract error
+  - missing repository evidence automatically proves a runtime defect
+  - incomplete record fragments should remain beside the authoritative persisted module evidence
 changed_paths:
   - .github/workflows/portal-exhaustive-audit.yml
+  - docs/agents/evidence/OTERYN-20260803-portal-exhaustive-current-main-audit/**
+  - docs/agents/reports/OTERYN-20260803-portal-exhaustive-current-main-audit.md
   - docs/agents/tasks/active/OTERYN-20260803-portal-exhaustive-current-main-audit.md
   - tools/audit/portal_exhaustive_audit.py
   - tools/audit/portal_exhaustive_reconcile.py
   - tools/audit/test_portal_exhaustive_audit.py
   - tools/audit/test_portal_exhaustive_reconcile.py
 validation:
-  - command: generator unit tests in run 30790414366
+  - command: Portal Exhaustive Audit run 30790809279 on f5f83b8122fa266bb8f7dc45019fea566ac53fb5
     result: PASS
-    evidence: six tests passed before the first technical workflow failure
-  - command: Portal Exhaustive Audit run 30790534400 on 5e1d2d3ad00fae99ab7852a17ff4724062e3dfa2
+    evidence: 240 named routes 43 capabilities 18 modules 75 findings zero infrastructure errors artifact 8846958684 digest sha256:52168def909fab563af122eba6a50f995885856ceacfab4f7d927224430edb46
+  - command: required workflow set on f5f83b8122fa266bb8f7dc45019fea566ac53fb5
     result: PASS
-    evidence: generator produced 228 route records 43 capability records 71 findings and zero infrastructure errors
-  - command: reconciled Portal Exhaustive Audit on 4bdadef983a38c51f002bb99f09e32640b6e3ee6
-    result: NOT_RUN
-    evidence: workflow run 30790764361 is in progress
+    evidence: Portal Exhaustive Audit CI Agent Governance Phase 7 Platform DB Outage Edge Security and Game Auth Ticket Concurrency all completed successfully
+  - command: compare persisted evidence staging against f5f83b8122fa266bb8f7dc45019fea566ac53fb5
+    result: PASS
+    evidence: exactly 12 intended evidence and report files remain; no interrupted records fragments remain
 blockers: []
-next_action: inspect reconciled Portal Exhaustive Audit run 30790764361 and repair only its first actionable failure if any
+next_action: fast-forward PR 483 to the persisted-evidence checkpoint, inspect exact-head CI, independently audit the final diff and close historical PR 381 as superseded only after PR 483 reaches terminal merge
 ```
 
 ## Notes
 
-Historical evidence remains frozen to its recorded SHA. Current completion claims require exact-head artifacts and live GitHub state.
+Historical evidence remains frozen to its recorded SHA. The persisted source evidence identifies the exact generator run SHA; final PR completion still requires exact-head CI and live GitHub terminal state.
