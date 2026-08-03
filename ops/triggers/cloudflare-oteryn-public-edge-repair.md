@@ -1,4 +1,4 @@
 # Cloudflare Oteryn public edge repair trigger
 
-mode: audit
+mode: inert
 confirmation:
