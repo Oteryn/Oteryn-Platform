@@ -127,6 +127,13 @@ def parse_junit(path: Path) -> JUnitSummary:
                 skipped=_int_attr(suite, "skipped"),
             )
         )
+
+    actual_tests = len(root.findall(".//testcase"))
+    if total.tests != actual_tests:
+        raise ValidationError(
+            f"JUnit file {path} declared {total.tests} tests but contains "
+            f"{actual_tests} testcase elements"
+        )
     return total
 
 
@@ -140,6 +147,19 @@ def load_json(path: Path) -> dict[str, Any]:
     if not isinstance(value, dict):
         raise ValidationError(f"top-level JSON must be an object: {path}")
     return value
+
+
+def _resolve_evidence_path(base_dir: Path, relative: Any, lane: str) -> Path:
+    if not isinstance(relative, str) or not relative:
+        raise ValidationError(f"lane {lane} has invalid JUnit path")
+    candidate = Path(relative)
+    if candidate.is_absolute():
+        raise ValidationError(f"lane {lane} has invalid JUnit path")
+    resolved_base = base_dir.resolve()
+    resolved = (resolved_base / candidate).resolve()
+    if not resolved.is_relative_to(resolved_base):
+        raise ValidationError(f"lane {lane} JUnit path escapes the evidence base directory")
+    return resolved
 
 
 def validate_visual_evidence(base_dir: Path, exact_sha: str) -> dict[str, Any]:
@@ -180,7 +200,7 @@ def validate_soak_evidence(base_dir: Path, exact_sha: str) -> dict[str, Any]:
     measured = evidence.get("measured_duration_seconds")
     if not isinstance(target, int) or target < 300:
         raise ValidationError("soak target must be at least 300 seconds")
-    if not isinstance(measured, int) or measured < target - 5:
+    if not isinstance(measured, int) or measured < target:
         raise ValidationError(
             f"soak duration is incomplete: measured={measured!r} target={target!r}"
         )
@@ -228,6 +248,7 @@ def validate_contract(
     by_name: dict[str, dict[str, Any]] = {}
     compiled: list[dict[str, Any]] = []
     global_junit = JUnitSummary()
+    junit_owners: dict[Path, str] = {}
     blockers: list[dict[str, Any]] = []
 
     for lane in lanes:
@@ -245,11 +266,18 @@ def validate_contract(
             raise ValidationError(f"lane {name} has invalid status {status!r}")
         if status == "FAIL":
             raise ValidationError(f"lane {name} reported FAIL")
-        required = bool(lane.get("required", False))
+
+        required = lane.get("required", False)
+        if not isinstance(required, bool):
+            raise ValidationError(f"lane {name} required must be a boolean")
         if required and status != "PASS":
             raise ValidationError(f"required lane {name} is not PASS: {status}")
 
         kind = lane.get("kind")
+        if kind != "external" and status != "PASS":
+            raise ValidationError(
+                f"non-external lane {name} cannot report status {status}"
+            )
         if name in REQUIRED_JUNIT_LANES and kind != "junit":
             raise ValidationError(
                 f"required JUnit lane {name} has unexpected kind {kind!r}"
@@ -261,16 +289,22 @@ def validate_contract(
 
         lane_summary = JUnitSummary()
         if kind == "command":
-            if status == "PASS" and lane.get("exit_code") != 0:
+            if lane.get("exit_code") != 0:
                 raise ValidationError(f"PASS command lane {name} must have exit_code 0")
         elif kind == "junit":
             junit_files = lane.get("junit_files")
             if not isinstance(junit_files, list) or not junit_files:
                 raise ValidationError(f"JUnit lane {name} requires junit_files")
             for relative in junit_files:
-                if not isinstance(relative, str) or Path(relative).is_absolute():
-                    raise ValidationError(f"lane {name} has invalid JUnit path")
-                lane_summary = lane_summary.plus(parse_junit(base_dir / relative))
+                junit_path = _resolve_evidence_path(base_dir, relative, name)
+                previous_owner = junit_owners.get(junit_path)
+                if previous_owner is not None:
+                    raise ValidationError(
+                        f"JUnit evidence {relative!r} is reused by lanes "
+                        f"{previous_owner} and {name}"
+                    )
+                junit_owners[junit_path] = name
+                lane_summary = lane_summary.plus(parse_junit(junit_path))
             if lane_summary.tests <= 0:
                 raise ValidationError(f"JUnit lane {name} executed zero tests")
             if lane_summary.failures or lane_summary.errors or lane_summary.skipped:
@@ -282,22 +316,34 @@ def validate_contract(
             global_junit = global_junit.plus(lane_summary)
         elif kind == "external":
             if status in {"BLOCKED", "NOT_APPLICABLE"}:
-                if not lane.get("reason") or not lane.get("owner_issue"):
+                reason = lane.get("reason")
+                owner_issue = lane.get("owner_issue")
+                if not isinstance(reason, str) or not reason.strip():
                     raise ValidationError(
-                        f"external lane {name} requires reason and owner_issue"
+                        f"external lane {name} requires a non-empty reason"
+                    )
+                if (
+                    not isinstance(owner_issue, int)
+                    or isinstance(owner_issue, bool)
+                    or owner_issue <= 0
+                ):
+                    raise ValidationError(
+                        f"external lane {name} requires a positive owner_issue"
                     )
                 if status == "BLOCKED":
                     blockers.append(
                         {
                             "name": name,
-                            "reason": lane["reason"],
-                            "owner_issue": lane["owner_issue"],
+                            "reason": reason,
+                            "owner_issue": owner_issue,
                         }
                     )
-            elif status == "PASS" and not lane.get("evidence_identity"):
-                raise ValidationError(
-                    f"external PASS lane {name} requires evidence_identity"
-                )
+            elif status == "PASS":
+                evidence_identity = lane.get("evidence_identity")
+                if not isinstance(evidence_identity, str) or not evidence_identity.strip():
+                    raise ValidationError(
+                        f"external PASS lane {name} requires evidence_identity"
+                    )
         else:
             raise ValidationError(f"lane {name} has unsupported kind {kind!r}")
 
@@ -310,21 +356,31 @@ def validate_contract(
     if missing:
         raise ValidationError(f"required lanes are missing: {', '.join(missing)}")
     optional_required = sorted(
-        name for name in REQUIRED_LANES if not bool(by_name[name].get("required", False))
+        name for name in REQUIRED_LANES if by_name[name].get("required") is not True
     )
     if optional_required:
         raise ValidationError(
             "required lanes are not marked required: " + ", ".join(optional_required)
         )
 
-    portability = set(by_name["portability"].get("projects", []))
+    portability_projects = by_name["portability"].get("projects")
+    if not isinstance(portability_projects, list) or any(
+        not isinstance(project, str) or not project for project in portability_projects
+    ):
+        raise ValidationError("portability projects must be non-empty strings")
+    portability = set(portability_projects)
     missing_portability = sorted(REQUIRED_PORTABILITY_PROJECTS - portability)
     if missing_portability:
         raise ValidationError(
             "portability evidence is missing projects: " + ", ".join(missing_portability)
         )
 
-    responsive = set(by_name["responsive"].get("projects", []))
+    responsive_projects = by_name["responsive"].get("projects")
+    if not isinstance(responsive_projects, list) or any(
+        not isinstance(project, str) or not project for project in responsive_projects
+    ):
+        raise ValidationError("responsive projects must be non-empty strings")
+    responsive = set(responsive_projects)
     missing_responsive = sorted(REQUIRED_RESPONSIVE_PROJECTS - responsive)
     if missing_responsive:
         raise ValidationError(
@@ -335,8 +391,12 @@ def validate_contract(
     soak_metrics = validate_soak_evidence(base_dir, exact_sha)
 
     nonclaims = contract.get("nonclaims")
-    if not isinstance(nonclaims, list) or not nonclaims:
-        raise ValidationError("lane contract requires explicit nonclaims")
+    if (
+        not isinstance(nonclaims, list)
+        or not nonclaims
+        or any(not isinstance(item, str) or not item.strip() for item in nonclaims)
+    ):
+        raise ValidationError("lane contract requires non-empty string nonclaims")
 
     verdict = (
         "DEEP_VALIDATION_PASS_WITH_EXTERNAL_BLOCKERS"
