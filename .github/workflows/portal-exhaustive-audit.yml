@@ -8,9 +8,13 @@ on:
       - '.github/workflows/portal-exhaustive-audit.yml'
       - 'tools/audit/portal_exhaustive_audit.py'
       - 'tools/audit/portal_exhaustive_reconcile.py'
+      - 'tools/audit/portal_exhaustive_strictness.py'
       - 'tools/audit/test_portal_exhaustive_audit.py'
       - 'tools/audit/test_portal_exhaustive_reconcile.py'
+      - 'tools/audit/test_portal_exhaustive_strictness.py'
       - 'docs/agents/tasks/active/OTERYN-20260803-portal-exhaustive-current-main-audit.md'
+      - 'docs/agents/evidence/OTERYN-20260803-portal-exhaustive-current-main-audit/**'
+      - 'docs/agents/reports/OTERYN-20260803-portal-exhaustive-current-main-audit.md'
       - 'docs/testing/**'
       - 'scripts/acceptance/coverage/**'
       - 'scripts/acceptance/package.json'
@@ -27,8 +31,12 @@ on:
       - '.github/workflows/portal-exhaustive-audit.yml'
       - 'tools/audit/portal_exhaustive_audit.py'
       - 'tools/audit/portal_exhaustive_reconcile.py'
+      - 'tools/audit/portal_exhaustive_strictness.py'
       - 'tools/audit/test_portal_exhaustive_audit.py'
       - 'tools/audit/test_portal_exhaustive_reconcile.py'
+      - 'tools/audit/test_portal_exhaustive_strictness.py'
+      - 'docs/agents/evidence/OTERYN-20260803-portal-exhaustive-current-main-audit/**'
+      - 'docs/agents/reports/OTERYN-20260803-portal-exhaustive-current-main-audit.md'
       - 'docs/testing/**'
       - 'scripts/acceptance/coverage/**'
       - 'scripts/acceptance/package.json'
@@ -99,7 +107,8 @@ jobs:
         run: |
           python -m unittest \
             tools/audit/test_portal_exhaustive_audit.py \
-            tools/audit/test_portal_exhaustive_reconcile.py
+            tools/audit/test_portal_exhaustive_reconcile.py \
+            tools/audit/test_portal_exhaustive_strictness.py
 
       - name: Generate exhaustive current-main audit
         run: |
@@ -115,6 +124,9 @@ jobs:
             --repo-root . \
             --output artifacts/portal-exhaustive-audit \
             | tee artifacts/portal-exhaustive-reconcile-command.json
+          python tools/audit/portal_exhaustive_strictness.py \
+            --output artifacts/portal-exhaustive-audit \
+            | tee artifacts/portal-exhaustive-strictness-command.json
 
       - name: Verify generated identity and audit validity
         run: |
@@ -125,13 +137,17 @@ jobs:
 
           root = Path('artifacts/portal-exhaustive-audit')
           matrix = json.loads((root / 'portal-exhaustive-audit-matrix.json').read_text())
+          strictness = json.loads((root / 'portal-exhaustive-strictness.json').read_text())
           assert matrix['exact_sha'] == os.environ['AUDIT_SHA']
+          assert strictness['exact_sha'] == os.environ['AUDIT_SHA']
           assert matrix['global_verdict'] == 'AUDIT_COMPLETE_WITH_FINDINGS'
           assert matrix['infrastructure_errors'] == []
           assert matrix['counts']['discovered_named_routes'] == 240
           assert matrix['counts']['classified_route_records'] == 228
           assert matrix['counts']['excluded_route_records'] == 12
           assert matrix['counts']['module_records'] == 18
+          assert matrix['counts']['findings'] > 75
+          assert strictness['finding_count'] == matrix['counts']['findings']
           assert len(matrix['module_summaries']) == 18
           assert len(list((root / 'modules').glob('*.json'))) == 18
           PY
@@ -145,8 +161,10 @@ jobs:
             sha256sum \
               tools/audit/portal_exhaustive_audit.py \
               tools/audit/portal_exhaustive_reconcile.py \
+              tools/audit/portal_exhaustive_strictness.py \
               tools/audit/test_portal_exhaustive_audit.py \
               tools/audit/test_portal_exhaustive_reconcile.py \
+              tools/audit/test_portal_exhaustive_strictness.py \
               docs/testing/ROUTE_VIEW_NAVIGATION_INVENTORY.json \
               docs/testing/product-completeness-benchmark.json \
               docs/testing/product-backend-frontend-completeness.json \
@@ -165,5 +183,6 @@ jobs:
             artifacts/portal-exhaustive-audit
             artifacts/portal-exhaustive-audit-command.json
             artifacts/portal-exhaustive-reconcile-command.json
+            artifacts/portal-exhaustive-strictness-command.json
           if-no-files-found: error
           retention-days: 14
