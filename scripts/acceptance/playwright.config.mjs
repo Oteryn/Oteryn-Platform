@@ -13,6 +13,7 @@ const primaryIgnore = [
   '**/accessibility-critical.spec.mjs',
   '**/soak-public.spec.mjs',
   '**/downloads-public-portability.spec.mjs',
+  '**/error-state-acceptance.spec.mjs',
 ];
 const specializedLifecycleIgnore = [
   '**/downloads-lifecycle-acceptance.spec.mjs',
@@ -186,6 +187,33 @@ export default defineConfig({
       use: {
         browserName: 'chromium',
         viewport: desktopViewport,
+      },
+    },
+    {
+      name: 'error-states-chromium-desktop',
+      testMatch: '**/error-state-acceptance.spec.mjs',
+      use: {
+        browserName: 'chromium',
+        viewport: desktopViewport,
+      },
+    },
+    {
+      name: 'error-states-chromium-tablet',
+      testMatch: '**/error-state-acceptance.spec.mjs',
+      use: {
+        browserName: 'chromium',
+        viewport: tabletViewport,
+        hasTouch: true,
+      },
+    },
+    {
+      name: 'error-states-chromium-mobile',
+      testMatch: '**/error-state-acceptance.spec.mjs',
+      use: {
+        browserName: 'chromium',
+        viewport: mobileViewport,
+        hasTouch: true,
+        isMobile: true,
       },
     },
     {
