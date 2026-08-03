@@ -1,3 +1,4 @@
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -20,6 +21,49 @@ class DeepSystemValidationTests(unittest.TestCase):
             '<testcase name="a"/><testcase name="b"/></testsuite>',
             encoding="utf-8",
         )
+        visual_dir = self.root / "artifacts/deep/visual"
+        visual_dir.mkdir(parents=True)
+        self.visual = visual_dir / "visual-acceptance-results.json"
+        self.visual.write_text(
+            json.dumps(
+                {
+                    "classification": "VISUAL_UX_EVIDENCE_COLLECTED",
+                    "validationSha": "abc123",
+                    "screenshotCount": 12,
+                    "problematic": {
+                        "statusMismatch": [],
+                        "horizontalOverflow": [],
+                        "unlabeledControls": [],
+                        "lowContrast": [],
+                        "focusNotObserved": [],
+                        "rawTechnicalMessages": [],
+                        "browserErrors": [],
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
+        deep_dir = self.root / "artifacts/deep"
+        self.soak = deep_dir / "soak-runtime-metrics.json"
+        self.soak.write_text(
+            json.dumps(
+                {
+                    "exact_tested_sha": "abc123",
+                    "target_duration_seconds": 300,
+                    "measured_duration_seconds": 300,
+                    "server_rss_start_kb": 100,
+                    "server_rss_end_kb": 110,
+                    "server_rss_max_kb": 120,
+                    "redis_keys_before": 2,
+                    "redis_keys_after": 2,
+                    "threshold_policy": "calibration-only-no-production-capacity-claim",
+                }
+            ),
+            encoding="utf-8",
+        )
+        (deep_dir / "soak-rss-samples.tsv").write_text(
+            "1\t100\n2\t110\n", encoding="utf-8"
+        )
 
     def tearDown(self):
         self.temp.cleanup()
@@ -30,6 +74,7 @@ class DeepSystemValidationTests(unittest.TestCase):
             "browser-full-chromium",
             "account-lifecycle",
             "community-data",
+            "content-scale-contract",
             "downloads",
             "portability",
             "responsive",
@@ -91,6 +136,8 @@ class DeepSystemValidationTests(unittest.TestCase):
         )
         self.assertEqual(result["external_blocker_count"], 1)
         self.assertEqual(result["external_blockers"][0]["owner_issue"], 490)
+        self.assertEqual(result["visual_summary"]["screenshot_count"], 12)
+        self.assertEqual(result["soak_metrics"]["measured_duration_seconds"], 300)
         self.assertGreater(result["junit_totals"]["tests"], 0)
 
     def test_clean_contract_without_blocker_passes(self):
@@ -156,6 +203,27 @@ class DeepSystemValidationTests(unittest.TestCase):
         del lane["owner_issue"]
         with self.assertRaisesRegex(ValidationError, "owner_issue"):
             validate_contract(contract, "abc123", self.root)
+
+    def test_visual_finding_fails(self):
+        payload = json.loads(self.visual.read_text(encoding="utf-8"))
+        payload["problematic"]["horizontalOverflow"] = ["home/mobile"]
+        self.visual.write_text(json.dumps(payload), encoding="utf-8")
+        with self.assertRaisesRegex(ValidationError, "horizontalOverflow=1"):
+            validate_contract(self.contract(), "abc123", self.root)
+
+    def test_visual_sha_mismatch_fails(self):
+        payload = json.loads(self.visual.read_text(encoding="utf-8"))
+        payload["validationSha"] = "other"
+        self.visual.write_text(json.dumps(payload), encoding="utf-8")
+        with self.assertRaisesRegex(ValidationError, "visual evidence SHA"):
+            validate_contract(self.contract(), "abc123", self.root)
+
+    def test_short_soak_fails(self):
+        payload = json.loads(self.soak.read_text(encoding="utf-8"))
+        payload["measured_duration_seconds"] = 120
+        self.soak.write_text(json.dumps(payload), encoding="utf-8")
+        with self.assertRaisesRegex(ValidationError, "soak duration is incomplete"):
+            validate_contract(self.contract(), "abc123", self.root)
 
     def test_parse_invalid_root_fails(self):
         self.junit.write_text("<root/>", encoding="utf-8")
