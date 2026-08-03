@@ -211,6 +211,30 @@ def require_unambiguous(state: dict[str, Any], *, allow_absent: bool) -> None:
         raise RepairError(f"Oteryn repair rule is not exact/current: {state['repair_state']}")
 
 
+def created_rule_from_response(result: Any, bot_baseline: bool) -> dict[str, Any]:
+    """Normalize Cloudflare's ruleset-shaped create response and legacy direct-rule fixtures."""
+    if not isinstance(result, dict):
+        raise RepairError("Cloudflare did not return a ruleset or created rule")
+
+    if result.get("ref") == RULE_REF:
+        matches = [result]
+    else:
+        rules = result.get("rules")
+        if not isinstance(rules, list):
+            raise RepairError("Cloudflare create response did not contain a rules list")
+        matches = [item for item in rules if isinstance(item, dict) and item.get("ref") == RULE_REF]
+
+    if len(matches) != 1:
+        raise RepairError(f"Cloudflare create response contained {len(matches)} matching repair rules")
+    rule = matches[0]
+    exact, baseline = exact_repair_rule(rule)
+    if not exact or baseline != bot_baseline:
+        raise RepairError("Cloudflare returned a non-exact created repair rule")
+    if not rule.get("id"):
+        raise RepairError("Cloudflare created repair rule has no identifier")
+    return rule
+
+
 def create_repair_rule(state: dict[str, Any], bot_baseline: bool) -> str:
     ruleset_id = str(state["ruleset"].get("id", ""))
     candidate_id = str(state["candidates"][0].get("id", ""))
@@ -228,11 +252,7 @@ def create_repair_rule(state: dict[str, Any], bot_baseline: bool) -> str:
         "ref": RULE_REF,
     }
     result = api("POST", f"/zones/{ZONE}/rulesets/{ruleset_id}/rules", body).get("result")
-    if not isinstance(result, dict) or not result.get("id"):
-        raise RepairError("Cloudflare did not return the created rule")
-    if result.get("ref") != RULE_REF:
-        raise RepairError("Cloudflare returned an unexpected created rule reference")
-    return str(result["id"])
+    return str(created_rule_from_response(result, bot_baseline)["id"])
 
 
 def delete_repair_rule(state: dict[str, Any]) -> None:
@@ -264,8 +284,11 @@ def rollback_partial(created_rule: bool, bot_changed: bool, baseline: bool) -> l
     if created_rule:
         try:
             current = inspect_state()
-            delete_repair_rule(current)
-            actions.append("waf_rule_deleted")
+            if current["repairs"]:
+                delete_repair_rule(current)
+                actions.append("waf_rule_deleted")
+            else:
+                actions.append("waf_rule_already_absent")
         except Exception as exc:  # pragma: no cover - emergency path
             errors.append(f"WAF rollback failed: {type(exc).__name__}")
     if errors:
@@ -282,14 +305,25 @@ def apply() -> tuple[dict[str, Any], list[str]]:
         return state, []
 
     baseline = bool(state["bot"].get("fight_mode"))
+    repair_absent_before = not state["repairs"]
     created_rule = False
     bot_changed = False
     mutations: list[str] = []
     try:
-        if not state["repairs"]:
-            create_repair_rule(state, baseline)
-            created_rule = True
-            mutations.append("waf_skip_rule_created")
+        if repair_absent_before:
+            try:
+                create_repair_rule(state, baseline)
+                created_rule = True
+                mutations.append("waf_skip_rule_created")
+            except Exception:
+                observed = inspect_state()
+                if (
+                    len(observed["repairs"]) == 1
+                    and observed["repair_state"] == "current"
+                    and observed["repair_before_candidate"]
+                ):
+                    created_rule = True
+                raise
         state = inspect_state()
         require_unambiguous(state, allow_absent=False)
         if not state["repair_before_candidate"]:
@@ -303,8 +337,9 @@ def apply() -> tuple[dict[str, Any], list[str]]:
             raise RepairError("post-write verification did not reach the exact desired state")
         return final, mutations
     except Exception as exc:
-        rollback_partial(created_rule, bot_changed, baseline)
-        raise RepairError(f"apply failed and partial changes were rolled back: {exc}") from exc
+        rollback_actions = rollback_partial(created_rule, bot_changed, baseline)
+        rollback_text = ",".join(rollback_actions) or "none"
+        raise RepairError(f"apply failed and partial changes were rolled back ({rollback_text}): {exc}") from exc
 
 
 def rollback() -> tuple[dict[str, Any], list[str]]:
