@@ -200,21 +200,77 @@ jobs:
       - name: Provision isolated production-like dependencies for PHP regression
         run: bash scripts/acceptance/bootstrap-production-like.sh
 
-      - name: Execute complete PHP regression suite
+      - name: Execute complete PHP regression and concurrency suites
         env:
           APP_ENV: testing
+          APP_URL: http://localhost
           CACHE_STORE: array
           DB_CONNECTION: sqlite
           DB_DATABASE: ':memory:'
           MAIL_MAILER: array
           QUEUE_CONNECTION: sync
           SESSION_DRIVER: array
+          CANARY_PROVISIONING_INTEGRATION_HOST: 127.0.0.1
+          CANARY_PROVISIONING_INTEGRATION_PORT: 3306
+          CANARY_PROVISIONING_INTEGRATION_ROOT_PASSWORD: acceptance-ci-root-not-a-secret
+          CANARY_CHARACTER_CREATE_INTEGRATION_HOST: 127.0.0.1
+          CANARY_CHARACTER_CREATE_INTEGRATION_PORT: 3306
+          CANARY_CHARACTER_CREATE_INTEGRATION_ROOT_PASSWORD: acceptance-ci-root-not-a-secret
         run: |
           set -euo pipefail
           mkdir -p artifacts/deep
+
+          unset \
+            CANARY_DB_HOST CANARY_DB_PORT CANARY_DB_DATABASE CANARY_DB_USERNAME CANARY_DB_PASSWORD \
+            CANARY_PROVISIONING_DB_HOST CANARY_PROVISIONING_DB_PORT CANARY_PROVISIONING_DB_DATABASE \
+            CANARY_PROVISIONING_DB_USERNAME CANARY_PROVISIONING_DB_PASSWORD \
+            CANARY_CHARACTER_CREATE_DB_HOST CANARY_CHARACTER_CREATE_DB_PORT CANARY_CHARACTER_CREATE_DB_DATABASE \
+            CANARY_CHARACTER_CREATE_DB_USERNAME CANARY_CHARACTER_CREATE_DB_PASSWORD \
+            CANARY_RUNTIME_REDIS_CLIENT CANARY_RUNTIME_REDIS_SCHEME CANARY_RUNTIME_REDIS_HOST \
+            CANARY_RUNTIME_REDIS_PORT CANARY_RUNTIME_REDIS_DB CANARY_RUNTIME_REDIS_USERNAME \
+            CANARY_RUNTIME_REDIS_PASSWORD
+
+          mapfile -d '' BASE_TEST_FILES < <(
+            find tests/Unit tests/Feature -type f -name '*Test.php' \
+              ! -path 'tests/Feature/GameAuth/Concurrency/GameTicketConcurrencyTest.php' \
+              -print0 | sort -z
+          )
+          test "${#BASE_TEST_FILES[@]}" -gt 0
           php artisan config:clear --ansi
-          php artisan test --log-junit=artifacts/deep/phpunit-junit.xml 2>&1 | tee artifacts/deep/phpunit.log
-          test -s artifacts/deep/phpunit-junit.xml
+          php artisan test \
+            --log-junit=artifacts/deep/phpunit-base-junit.xml \
+            "${BASE_TEST_FILES[@]}" \
+            2>&1 | tee artifacts/deep/phpunit-base.log
+          test -s artifacts/deep/phpunit-base-junit.xml
+
+          mysql \
+            --host=127.0.0.1 \
+            --port=3306 \
+            --user=root \
+            --password="$MARIADB_ROOT_PASSWORD" \
+            --execute='DROP DATABASE IF EXISTS `oteryn_deep_game_auth_concurrency`; CREATE DATABASE `oteryn_deep_game_auth_concurrency` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;'
+
+          (
+            export APP_ENV=testing
+            export APP_URL=http://localhost
+            export CACHE_STORE=array
+            export SESSION_DRIVER=array
+            export QUEUE_CONNECTION=sync
+            export MAIL_MAILER=array
+            export DB_CONNECTION=mysql
+            export DB_HOST=127.0.0.1
+            export DB_PORT=3306
+            export DB_DATABASE=oteryn_deep_game_auth_concurrency
+            export DB_USERNAME=root
+            export DB_PASSWORD="$MARIADB_ROOT_PASSWORD"
+            export GAME_AUTH_CONCURRENCY_TEST=1
+            php artisan config:clear --ansi
+            php artisan test \
+              --log-junit=artifacts/deep/phpunit-game-auth-concurrency-junit.xml \
+              tests/Feature/GameAuth/Concurrency/GameTicketConcurrencyTest.php \
+              2>&1 | tee artifacts/deep/phpunit-game-auth-concurrency.log
+          )
+          test -s artifacts/deep/phpunit-game-auth-concurrency-junit.xml
 
       - name: Validate browser dependency advisories
         run: npm --prefix scripts/acceptance audit --audit-level=high
@@ -374,7 +430,8 @@ jobs:
               {"name":"composer-audit","kind":"command","status":"PASS","required":true,"exit_code":0},
               {"name":"php-format","kind":"command","status":"PASS","required":true,"exit_code":0},
               {"name":"php-analysis","kind":"command","status":"PASS","required":true,"exit_code":0},
-              {"name":"php-tests","kind":"junit","status":"PASS","required":true,"junit_files":["artifacts/deep/phpunit-junit.xml"]},
+              {"name":"php-tests","kind":"junit","status":"PASS","required":true,"junit_files":["artifacts/deep/phpunit-base-junit.xml"]},
+              {"name":"php-game-auth-concurrency","kind":"junit","status":"PASS","required":true,"junit_files":["artifacts/deep/phpunit-game-auth-concurrency-junit.xml"]},
               {"name":"npm-audit","kind":"command","status":"PASS","required":true,"exit_code":0},
               {"name":"coverage-contract-strict","kind":"command","status":"PASS","required":true,"exit_code":0},
               {"name":"browser-full-chromium","kind":"junit","status":"PASS","required":true,"junit_files":["artifacts/deep/junit-full.xml"]},
