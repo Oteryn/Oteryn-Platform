@@ -98,6 +98,7 @@ jobs:
         run: |
           set -euo pipefail
           rm -rf artifacts/portal-exhaustive-audit
+          mkdir -p artifacts/portal-exhaustive-audit
           python tools/audit/portal_exhaustive_audit.py \
             --repo-root . \
             --output artifacts/portal-exhaustive-audit \
