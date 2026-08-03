@@ -65,6 +65,7 @@ owned_paths:
   - .github/workflows/deep-system-validation.yml
   - tools/validation/deep_system_validation.py
   - tools/validation/test_deep_system_validation.py
+  - scripts/acceptance/playwright.config.mjs
   - docs/agents/evidence/OTERYN-20260803-deep-system-validation/**
   - docs/agents/reports/OTERYN-20260803-deep-system-validation.md
 read_only_inputs:
@@ -82,8 +83,8 @@ cross_repository_tasks: []
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-03T13:28:00+02:00
-head: a3acf1817e16c28169a2a93ee7ad4a520a71de0c
+updated_at: 2026-08-03T17:55:00+02:00
+head: 6cb22265bdeb5224403469b0f5c5df8e95077a39
 base_sha: f7384418f01f4ae4c3190c71259f2fe7f3297dad
 branch: audit/OTERYN-20260803-deep-system-validation
 pr: 495
@@ -105,48 +106,54 @@ owned_paths:
   - .github/workflows/deep-system-validation.yml
   - tools/validation/deep_system_validation.py
   - tools/validation/test_deep_system_validation.py
+  - scripts/acceptance/playwright.config.mjs
   - docs/agents/evidence/OTERYN-20260803-deep-system-validation/**
   - docs/agents/reports/OTERYN-20260803-deep-system-validation.md
 proven:
   - audit PR 483 classified 240 named routes 126 rendered routes 43 capabilities and 18 modules with 135 findings and no COMPLETE module
-  - prior critical acceptance passed 96 zero-retry tests but did not execute full visual or soak profiles
-  - stale duplicate PR 492 was closed without merge
-  - deep validation workflow and fail-closed compiler exist on PR 495
-  - compiler unit tests cover SHA mismatch retries failures errors skips zero tests missing projects and unowned blockers
-  - first source run passed setup compiler tests and dependency audit before a checkpoint-only commit superseded it
+  - PHP validation executed 465 tests with 1961 assertions and zero failures errors or skips on exact head 642fe6dbcc3982ac50fccf48a03a51cb4ea92c98
+  - MariaDB integrations and the separate game-auth concurrency lane passed without skips
+  - compiler has 15 fail-closed tests covering SHA retries failures errors skips zero tests required projects required lanes evidence kinds visual findings soak duration and unowned blockers
+  - full browser execution reached the first Chromium profile and failed before later profiles
+  - the failed run preserved PHP and server evidence but lost Playwright JUnit and HTML because the parent shell exited before copying artifacts
+  - secure duplicated JUnit and HTML reporters now write directly to artifacts/deep per ACCEPTANCE_RUN_SUFFIX when VALIDATION_SHA is set
 unknown:
-  - terminal current-main browser and soak results
+  - exact first failing Playwright test and assertion
+  - terminal full browser portability responsive resilience accessibility visual and soak results
   - whether visual execution finds a blocking UX condition
   - final exact-head test counts and performance calibration metrics
-  - terminal conclusions of all standard workflows
+  - terminal conclusions of all standard workflows on the final evidence commit
 derived:
-  - critical-only browser evidence does not prove full visual or soak coverage
+  - critical-only browser evidence does not prove full acceptance
   - external production Canary login payment DNS Cloudflare and restore proof requires separate authorization
   - generated Actions evidence must be copied into repository paths before closeout
+  - raw traces screenshots and video remain disabled because authenticated flows may contain cookies reset URLs TOTP enrollment secrets or recovery codes
 conflicts: []
 first_failure:
-  marker: Agent Governance rejected incomplete checkpoint metadata
-  evidence: runs 30809319065 and 30809496810 identified required fields and then unsupported transient result RUNNING; no product or validation-lane failure occurred
+  marker: Deep System Validation run 30814423441 failed in the first full Chromium profile after all PHP lanes passed
+  evidence: artifact 8856337993 contains complete PHP JUnit and server logs but no Playwright JUnit or HTML because set -e stopped the browser step before copy operations
 rejected_hypotheses:
   - route inventory closure proves runtime state coverage
   - critical browser evidence proves full acceptance
   - repository CI proves production deployment behavior
   - expiring Actions artifacts alone satisfy durable exact-head evidence
+  - raw browser traces screenshots or video are acceptable durable diagnostics for authenticated flows
 changed_paths:
   - .github/workflows/deep-system-validation.yml
   - docs/agents/tasks/active/OTERYN-20260803-deep-system-validation.md
   - tools/validation/deep_system_validation.py
   - tools/validation/test_deep_system_validation.py
+  - scripts/acceptance/playwright.config.mjs
 validation:
   - command: PYTHONPATH=tools/validation python -m unittest -v tools/validation/test_deep_system_validation.py
     result: PASS
-    evidence: ten fail-closed compiler tests passed
-  - command: Agent Governance runs 30809319065 and 30809496810
+    evidence: fifteen fail-closed compiler tests passed on exact head 642fe6dbcc3982ac50fccf48a03a51cb4ea92c98
+  - command: Deep System Validation run 30814423441
     result: FAIL
-    evidence: checkpoint schema findings only; corrected on this head
-  - command: Deep System Validation exact-head execution
+    evidence: 465 PHP tests and 1961 assertions passed with zero skips; first full Chromium profile failed before browser evidence compilation
+  - command: secure duplicate Playwright reporter configuration
     result: NOT_RUN
-    evidence: source runs were pending or superseded by checkpoint-only commits; terminal execution is required on this head
+    evidence: exact-head Actions execution is required after commit 6cb22265bdeb5224403469b0f5c5df8e95077a39
 blockers: []
-next_action: obtain a terminal Deep System Validation result on this head and inspect the first actionable failure without weakening any lane
+next_action: execute exact-head Deep System Validation, retrieve the first full-profile JUnit and HTML evidence, and repair the confirmed browser failure without weakening any test
 ```
