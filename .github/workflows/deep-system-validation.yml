@@ -197,6 +197,9 @@ jobs:
           composer format:check
           composer analyse
 
+      - name: Provision isolated production-like dependencies for PHP regression
+        run: bash scripts/acceptance/bootstrap-production-like.sh
+
       - name: Execute complete PHP regression suite
         run: composer test
 
@@ -206,7 +209,7 @@ jobs:
       - name: Execute strict portal evidence contracts
         run: npm --prefix scripts/acceptance run test:coverage-contract:strict
 
-      - name: Provision isolated production-like dependencies
+      - name: Reset isolated production-like dependencies before browser matrix
         run: bash scripts/acceptance/bootstrap-production-like.sh
 
       - name: Start exact-SHA Laravel HTTP runtime
