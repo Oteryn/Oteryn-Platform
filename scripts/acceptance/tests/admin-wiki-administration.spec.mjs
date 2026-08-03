@@ -107,11 +107,14 @@ test('@wiki-admin trusted editor creates, previews and publishes bilingual Wiki 
   await expectNoHorizontalOverflow(preview);
   await preview.close();
 
+  // The responsive editor loads the approved-media picker through authenticated thumbnail requests.
+  // Finish those session-bearing subresource requests before the lifecycle POST so they cannot age
+  // the success flash message before the redirected edit page renders it.
+  await page.waitForLoadState('networkidle');
   await page.getByRole('button', { name: 'Submit for review' }).click();
   await expect(page.getByRole('status')).toContainText('Wiki article submitted for review.');
 
-  // The responsive editor loads the approved-media picker through authenticated thumbnail requests.
-  // Finish those session-bearing subresource requests before the next lifecycle POST.
+  // Quiesce the refreshed picker again before the next lifecycle mutation.
   await page.waitForLoadState('networkidle');
   await expect(page.getByRole('button', { name: 'Publish', exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Publish', exact: true }).click();
