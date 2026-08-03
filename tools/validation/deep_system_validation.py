@@ -197,7 +197,11 @@ def validate_soak_evidence(base_dir: Path, exact_sha: str) -> dict[str, Any]:
             raise ValidationError(f"soak metric {key} must be a non-negative integer")
     samples_path = base_dir / "artifacts/deep/soak-rss-samples.tsv"
     try:
-        samples = [line for line in samples_path.read_text(encoding="utf-8").splitlines() if line]
+        samples = [
+            line
+            for line in samples_path.read_text(encoding="utf-8").splitlines()
+            if line
+        ]
     except FileNotFoundError as exc:
         raise ValidationError("soak RSS samples are missing") from exc
     if len(samples) < 2:
@@ -239,6 +243,8 @@ def validate_contract(
         status = lane.get("status")
         if status not in ALLOWED_STATUSES:
             raise ValidationError(f"lane {name} has invalid status {status!r}")
+        if status == "FAIL":
+            raise ValidationError(f"lane {name} reported FAIL")
         required = bool(lane.get("required", False))
         if required and status != "PASS":
             raise ValidationError(f"required lane {name} is not PASS: {status}")
@@ -376,7 +382,9 @@ def render_markdown(manifest: dict[str, Any]) -> str:
     ]
     for lane in manifest["lanes"]:
         tests = lane.get("junit_summary", {}).get("tests", "—")
-        lines.append(f"| `{lane['name']}` | {lane['kind']} | {lane['status']} | {tests} |")
+        lines.append(
+            f"| `{lane['name']}` | {lane['kind']} | {lane['status']} | {tests} |"
+        )
 
     if manifest["external_blockers"]:
         lines.extend(["", "## External blockers", ""])
