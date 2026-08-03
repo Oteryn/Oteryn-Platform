@@ -2,9 +2,9 @@
 task_id: OTERYN-20260801-cloudflare-edge-audit
 project_lane: oteryn-platform-core
 status: implementing
-branch: fix/OTERYN-20260803-cloudflare-ruleset-create-response
+branch: fix/OTERYN-20260803-cloudflare-skip-rule-priority
 base_branch: main
-updated: 2026-08-03T18:38:00+02:00
+updated: 2026-08-03T19:10:00+02:00
 feature_pr: pending
 ---
 
@@ -21,32 +21,34 @@ gateway.molehill.cloud
 
 ## Current verdict
 
-The owner corrected the dedicated token policy to zone-bounded `Zone WAF: Edit` and `Bot Management: Edit` for `molehill.cloud`. Trusted preflight succeeded. The next apply proved WAF write access by creating the exact managed skip rule in the correct position, but the implementation rejected Cloudflare's documented ruleset-shaped create response before reaching the Bot Management update.
-
-Current live state from the automatic post-failure audit:
+The dedicated zone-bounded token is effective for both WAF and Bot Management writes. Trusted apply run `30834596610` completed the originally intended state:
 
 ```text
-candidate_count=1
 repair_rule_count=1
 repair_state=current
 repair_before_candidate=true
-bot_fight_mode=true
-desired_state=false
+bot_fight_mode=false
+desired_state=true
+mutation=bot_fight_mode_disabled
 ```
 
-The partial state is bounded: the exact Oteryn host exception exists before the audited country block, the unrelated country restriction remains, and Bot Fight Mode remains unchanged. The operational marker has been reset to `inert` on the repair branch while the response contract and recovery logic are corrected.
+DNS, TLS, certificates and HTTP-to-HTTPS redirects pass. Public HTTPS requests still receive Cloudflare `403` interstitials. Sanitized ruleset evidence proves that the exact canonical skip rule is not first: an earlier enabled skip rule can skip the remaining current ruleset without skipping Browser Integrity Check or Security Level. The later Oteryn rule can therefore be shadowed before its `bic` and `securityLevel` product exemptions execute.
+
+The repair contract is being tightened so the exact-host rule must be the first rule in the zone custom ruleset. The apply path will create it first or move the existing exact rule first, preserve the unrelated country restriction, and restore its previous position if a later operation fails.
 
 ## Acceptance criteria
 
 - [x] Gateway hostname, Tunnel, DNS and Universal SSL certificate are current.
-- [x] Exact-host WAF skip plus Bot Fight Mode repair is implemented with audit/apply/rollback.
-- [x] Fixed audited rule ID/hash, ambiguity denial, exact confirmations, idempotency and partial rollback are tested.
-- [x] Token policy is effective for WAF creation; the exact repair rule now exists and is ordered before the audited broad block.
-- [x] Official Cloudflare API evidence proves the create-rule response is a ruleset object containing the rules array.
-- [ ] Repair implementation accepts and validates the ruleset-shaped create response.
-- [ ] Recovery detects and deletes a rule when Cloudflare accepts POST but response validation fails.
-- [ ] Existing exact WAF partial state is completed by disabling Bot Fight Mode without recreating the rule.
-- [ ] Trusted-main apply reaches exact desired state and public DNS/TLS/HTTP E2E is rerun.
+- [x] Zone WAF Edit and Bot Management Edit are effective for `molehill.cloud`.
+- [x] One exact canonical-host WAF skip rule exists before the audited country block.
+- [x] Bot Fight Mode is disabled and independently re-read as false.
+- [x] HTTP-to-HTTPS redirects pass for both canonical hosts.
+- [x] Public evidence proves the remaining failure is Cloudflare HTTPS interstitial behavior, not DNS, TLS, Tunnel or origin certificate failure.
+- [ ] Repair rule priority requires index zero so an earlier current-ruleset skip cannot shadow the product exemptions.
+- [ ] Creation, reordering, idempotency and emergency position rollback pass deterministic tests.
+- [ ] Trusted-main apply moves the existing exact repair rule first without recreating it.
+- [ ] Public WWW and Gateway DNS/TLS/HTTP E2E passes.
+- [ ] HSTS is promoted from `max-age=0` only after stable public acceptance.
 - [ ] Operational marker is reset to inert after terminal validation.
 - [ ] Task is archived only after verified completion or an explicit terminal owner decision.
 - [ ] `PUBLIC_DOMAIN_LAUNCH_READY` and `PRODUCTION_PROVEN` remain false until wider production acceptance passes.
@@ -69,7 +71,7 @@ modules:
   - game-gateway
 dependencies:
   - production-cloudflare GitHub environment
-  - CLOUDFLARE_EDGE_AUDIT_TOKEN with effective Zone WAF Edit and Bot Management Edit for molehill.cloud
+  - CLOUDFLARE_EDGE_AUDIT_TOKEN with Zone WAF Edit and Bot Management Edit for molehill.cloud
 blockers: []
 cross_repository_tasks:
   - native-client endpoint rollout remains separately controlled
@@ -80,16 +82,16 @@ cross_repository_tasks:
 ```yaml
 checkpoint_version: 1
 policy_version: 2
-updated_at: 2026-08-03T18:38:00+02:00
-head: cab9096c9cdfb73b304c1678cb2d3c5667fd54f3
-branch: fix/OTERYN-20260803-cloudflare-ruleset-create-response
+updated_at: 2026-08-03T19:10:00+02:00
+head: eefbdd35888aa955c679e17947f6d20d70c26b29
+branch: fix/OTERYN-20260803-cloudflare-skip-rule-priority
 pr: pending
 status: implementing
-phase: ruleset_create_response_repair
+phase: canonical_skip_rule_priority
 session_id: chat-20260803-cloudflare-edge-repair
 session_role: implementer
 execution_mode: chat-github
-execution_reason: live write authorization is proven; implementation must reconcile the documented create response and bounded partial state
+execution_reason: live policy writes succeeded; public evidence isolated a rule-order shadowing defect
 run_scope: bounded_task
 continuation_policy: continue_until_real_stop
 task_completion_policy: complete_merge_archive
@@ -103,9 +105,9 @@ context_growth: stable
 context_score: 5
 estimate_confidence: high
 decomposition_decision: phased
-decomposition_reason: implementation correction must merge before the existing exact WAF partial state can be completed safely
+decomposition_reason: rule-order implementation must merge before a separate marker-only live reorder
 validation_level: live_protected_environment
-last_completed_step: reset the operational marker to inert and implement ruleset-shaped response normalization plus recovery inference
+last_completed_step: reset the operational marker to inert and implement first-position enforcement with position rollback
 owned_paths:
   - .github/workflows/cloudflare-oteryn-public-edge-repair.yml
   - docs/agents/tasks/active/OTERYN-20260801-cloudflare-edge-audit.md
@@ -116,27 +118,30 @@ owned_paths:
   - scripts/operations/cloudflare-oteryn-public-edge-repair.py
   - tests/operations/cloudflare-oteryn-public-edge-repair/**
 proven:
-  - Owner screenshot confirms Zone WAF Edit and Bot Management Edit for the specific zone molehill.cloud, with no IP filter or TTL.
-  - Trusted preflight run 30832409317 found one audited country rule, zero repair rules, Bot Fight Mode enabled and mutation none.
-  - Apply run 30832830466 created the exact repair rule before the audited candidate, then failed while validating the create response before Bot Fight Mode was changed.
-  - The automatic post-failure audit reported one current repair rule, correct ordering, Bot Fight Mode enabled and desired state false.
-  - Cloudflare official API documentation defines the create-rule response as a ruleset object with a rules array.
-  - The implementation branch normalizes that response and infers accepted POST state before emergency rollback.
+  - Permission preflight run 30832409317 succeeded with mutation none.
+  - WAF create run 30832830466 proved Zone WAF write access and created the exact repair rule.
+  - Ruleset-response parser fix PR 498 merged as efab1b1598e6571bfdc3842c7d812c8c84801aa8 after all exact-head gates passed.
+  - Post-fix audit run 30834139371 proved one exact repair rule before the country block and Bot Fight Mode enabled.
+  - Apply run 30834596610 disabled Bot Fight Mode and reached the previous desired state without another WAF POST.
+  - Artifact 8864299649 digest sha256:ebaa31677df740dd070c0b14a44e3e9cc6d864e694223f43bcf887d4af48c606 proves DNS, TLS and redirects pass while every tested HTTPS application request returns a Cloudflare interstitial.
+  - Sanitized ruleset evidence shows an enabled current-ruleset skip precedes the canonical repair rule and does not include the bic or securityLevel product keys.
+  - Cloudflare documents that rules run in order and a current-ruleset skip skips all remaining rules; placing a rule first is supported by PATCH position before an empty rule ID.
 derived:
-  - WAF write authorization is no longer a blocker.
-  - The remaining live mutation is limited to disabling Bot Fight Mode because the exact WAF rule is already present.
-  - Repeating the old apply implementation would be incorrect; response-contract remediation must merge first.
+  - The canonical skip can be shadowed before its Browser Integrity Check and Security Level exemptions execute.
+  - Moving the exact-host skip to index zero is narrower than disabling Browser Integrity Check or Security Level globally.
+  - The unrelated country restriction remains effective for all noncanonical hosts.
 unknown:
-  - Whether Bot Management Edit succeeds in the protected environment; the previous apply failed before attempting that operation.
-  - Final public WWW and Gateway behavior after Bot Fight Mode is disabled.
+  - Public HTTPS behavior after the canonical skip is moved to index zero.
+  - Whether positive HSTS should be enabled immediately after first PASS or after an additional stability observation.
 conflicts: []
 first_failure:
-  marker: cloudflare-ruleset-create-response-shape
-  evidence: run 30832830466 classified create_waf_skip_rule as unexpected_api_response while the post-failure audit proved the rule was created
+  marker: canonical-skip-shadowed-by-earlier-current-ruleset-skip
+  evidence: run 30834596610 returned 403 interstitials while sanitized rule order placed another current-ruleset skip before the Oteryn product-exemption rule
 rejected_hypotheses:
-  - The new token still lacks WAF write access; the exact rule was created successfully.
-  - The WAF rule is absent or incorrectly ordered; the post-failure audit proves current exact state before the candidate.
-  - The create endpoint returns only the created rule; Cloudflare documents and live behavior show a ruleset object.
+  - DNS, Tunnel, certificate or HTTP redirects remain broken; all passed in run 30834596610.
+  - Bot Fight Mode remains the blocker; the same run proved fight_mode false.
+  - The broad country block must be removed; a canonical exact-host rule can remain isolated while unrelated hosts retain the block.
+  - Browser Integrity Check and Security Level must be disabled globally; their selective product skips can execute when the canonical rule is first.
 changed_paths:
   - docs/agents/tasks/active/OTERYN-20260801-cloudflare-edge-audit.md
   - ops/triggers/cloudflare-oteryn-public-edge-repair.md
@@ -144,15 +149,12 @@ changed_paths:
   - tests/operations/cloudflare-oteryn-public-edge-repair/mock_cloudflare.py
   - tests/operations/cloudflare-oteryn-public-edge-repair/run.sh
 validation:
-  - command: Cloudflare permission/state preflight run 30832409317
-    result: PASS
-    evidence: exact live state was readable and mutation was none
-  - command: Cloudflare partial apply run 30832830466
+  - command: Cloudflare apply and public validation run 30834596610
     result: FAIL
-    evidence: exact WAF rule was created; response validation failed before Bot update; post-failure audit captured bounded partial state
-  - command: deterministic repair tests on implementation branch
+    evidence: policy mutation succeeded; public HTTPS acceptance still failed with Cloudflare interstitials
+  - command: deterministic priority and rollback tests on implementation branch
     result: NOT_RUN
     evidence: exact-head GitHub Actions will run after PR creation
 blockers: []
-next_action: Open and validate the response-contract repair PR, merge with the marker inert, run a trusted audit, then apply only the missing Bot Fight Mode transition and execute public E2E.
+next_action: Open and validate the skip-priority implementation PR, merge with marker inert, audit the live index, then apply one reorder-only transition and rerun public E2E.
 ```
