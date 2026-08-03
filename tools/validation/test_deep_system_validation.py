@@ -71,12 +71,14 @@ class DeepSystemValidationTests(unittest.TestCase):
     def contract(self):
         lanes = []
         junit_lanes = {
+            "php-tests",
             "php-game-auth-concurrency",
             "browser-full-chromium",
             "account-lifecycle",
             "community-data",
             "content-scale-contract",
             "downloads",
+            "downloads-portability",
             "portability",
             "responsive",
             "resilience",
@@ -168,6 +170,22 @@ class DeepSystemValidationTests(unittest.TestCase):
             if lane["name"] != "php-game-auth-concurrency"
         ]
         with self.assertRaisesRegex(ValidationError, "required lanes are missing"):
+            validate_contract(contract, "abc123", self.root)
+
+    def test_required_junit_lane_cannot_claim_command_pass(self):
+        contract = self.contract()
+        lane = next(x for x in contract["lanes"] if x["name"] == "php-tests")
+        lane.clear()
+        lane.update(
+            {
+                "name": "php-tests",
+                "kind": "command",
+                "status": "PASS",
+                "required": True,
+                "exit_code": 0,
+            }
+        )
+        with self.assertRaisesRegex(ValidationError, "required JUnit lane php-tests"):
             validate_contract(contract, "abc123", self.root)
 
     def test_zero_test_junit_fails(self):
