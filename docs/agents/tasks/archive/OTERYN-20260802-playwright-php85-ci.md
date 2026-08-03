@@ -48,18 +48,13 @@ feature_scope:
 - [x] A retained GitHub Actions workflow builds the image on the exact PR head and proves PHP, Composer, Node, Playwright and Chromium/Firefox/WebKit startup.
 - [x] The workflow proves an exact-repository `php artisan` command and mounted acceptance-helper execution.
 - [x] Existing host-based acceptance CI remains unchanged.
-- [x] Full implementation-head CI and independent audit pass with no material finding.
+- [x] Full exact-head CI and independent audit pass with no material finding.
+- [x] PR #477 is merged and task ownership is released.
 
 ## Ownership
 
 ```yaml
-owned_paths:
-  - deploy/ci/playwright-php.Dockerfile
-  - scripts/acceptance/run-playwright-ci.sh
-  - .github/workflows/playwright-runtime-validation.yml
-  - docs/testing/PLAYWRIGHT_PHP85_RUNTIME.md
-  - docs/agents/tasks/active/OTERYN-20260802-playwright-php85-ci.md
-  - docs/agents/tasks/archive/OTERYN-20260802-playwright-php85-ci.md
+owned_paths: []
 modules:
   - testing
   - ci-repair
@@ -74,65 +69,84 @@ cross_repository_tasks: []
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-03T07:57:35+02:00
-head: 13d61ad7d3b07e98fb5752336bbc621892d4e80c
-branch: fix/OTERYN-20260802-playwright-php85-ci
+updated_at: 2026-08-03T08:18:00+02:00
+head: ef634ba32b855fe7c94077362e50007fccf56c38
+branch: main
 pr: 477
-status: waiting
+status: completed
 context_routes:
   - testing
   - ci-repair
-owned_paths:
-  - deploy/ci/playwright-php.Dockerfile
-  - scripts/acceptance/run-playwright-ci.sh
-  - .github/workflows/playwright-runtime-validation.yml
-  - docs/testing/PLAYWRIGHT_PHP85_RUNTIME.md
-  - docs/agents/tasks/active/OTERYN-20260802-playwright-php85-ci.md
-  - docs/agents/tasks/archive/OTERYN-20260802-playwright-php85-ci.md
+owned_paths: []
 proven:
   - Issue 365 run 30763456046 failed before browser execution because the previous container exposed PHP 8.3.6 while Composer required PHP 8.5 or newer
   - retained image uses PHP 8.5 Node 22 Composer 2 and exact Playwright 1.60.0
   - runner verifies PHP Playwright Composer platform Laravel helper and artisan execution
   - Chromium Firefox and WebKit runtime smoke passed
-  - implementation changes are limited to five declared CI test task and documentation files
-  - all nine workflow runs passed on implementation head 33c73791f71a82faa864e177267d1bcaa262d98c
+  - implementation changes were limited to five declared CI test task and documentation files
+  - all nine required workflows passed on exact final PR head 58b197fcec805d34225a645e78a9db8ce52eac5f
   - independent diff and scope audit passed with zero material findings and zero unresolved review threads
-  - checkpoint schema failure on 1d95aff35b69399561d9c0605c0bbfb5c3191970 was isolated and repaired on 13d61ad7d3b07e98fb5752336bbc621892d4e80c
+  - PR 477 was squash merged to main as ef634ba32b855fe7c94077362e50007fccf56c38
+  - task ownership was released and the active record was archived
 derived:
-  - successful exact implementation-head browser smoke removes the PHP 8.3 acceptance-runtime blocker for the downstream portal audit
-unknown:
-  - terminal conclusions of the nine exact-head workflow runs emitted for 13d61ad7d3b07e98fb5752336bbc621892d4e80c
+  - the merged retained runtime removes the PHP 8.3 acceptance-runtime blocker for the downstream portal audit
+unknown: []
 conflicts: []
 first_failure:
   marker: checkpoint validator rejected an unsupported nested independent_audit key
-  evidence: Agent Governance run 30788469140 job 91606857965 failed at active task checkpoint validation
+  evidence: Agent Governance run 30788469140 job 91606857965 failed before the checkpoint schema was corrected
 rejected_hypotheses:
-  - the retained Playwright runtime regressed after the task-only checkpoint commit
-  - the implementation-head CI evidence was incomplete
+  - the retained Playwright runtime regressed after checkpoint-only commits
+  - implementation-head CI evidence was incomplete
 changed_paths:
   - .github/workflows/playwright-runtime-validation.yml
   - deploy/ci/playwright-php.Dockerfile
-  - docs/agents/tasks/active/OTERYN-20260802-playwright-php85-ci.md
+  - docs/agents/tasks/archive/OTERYN-20260802-playwright-php85-ci.md
   - docs/testing/PLAYWRIGHT_PHP85_RUNTIME.md
   - scripts/acceptance/run-playwright-ci.sh
 validation:
-  - command: full required workflow set on 33c73791f71a82faa864e177267d1bcaa262d98c
+  - command: full required workflow set on 58b197fcec805d34225a645e78a9db8ce52eac5f
     result: PASS
-    evidence: runs 30771122629 30771122631 30771122647 30771122630 30771122660 30771122635 30771122641 30771122650 and 30771122646 passed
+    evidence: all nine exact-head workflows completed successfully including Playwright PHP 8.5 Runtime and Acceptance E2E and Visual UX
   - command: independent exact-diff scope and review-thread audit
     result: PASS
     evidence: five declared files zero material findings zero unresolved threads
-  - command: Agent Governance run 30788469140 on checkpoint-only head 1d95aff35b69399561d9c0605c0bbfb5c3191970
-    result: FAIL
-    evidence: unsupported nested checkpoint key identified and removed
-  - command: exact-head workflows on 13d61ad7d3b07e98fb5752336bbc621892d4e80c
-    result: NOT_RUN
-    evidence: runs 30788557682 30788557677 30788557695 30788557998 30788557684 30788557687 30788557720 30788557679 and 30788557680 were pending or in progress at the second allowed state check
-blockers:
-  - repository auto-merge is disabled
-next_action: inspect the live PR exact head and its workflow conclusions once then squash-merge PR 477 only if every required check passes
+  - command: squash merge of PR 477
+    result: PASS
+    evidence: main merge commit ef634ba32b855fe7c94077362e50007fccf56c38
+blockers: []
+next_action: continue Issue 326 exhaustive portal audit using the merged PHP 8.5 Playwright runtime
+```
+
+## Terminal closeout
+
+```yaml
+closeout:
+  implementation_complete: true
+  vertical_slice_complete: true
+  audit:
+    result: PASS
+    independent_validator: fresh exact-diff and review-thread audit
+    material_findings_open: 0
+  e2e:
+    result: PASS
+    journeys:
+      - retained runtime PHP Composer Laravel helper and three-browser smoke
+  final_ci:
+    head: 58b197fcec805d34225a645e78a9db8ce52eac5f
+    result: PASS
+    required_checks: 9
+  pull_requests:
+    open_related_prs: 0
+    unresolved_review_threads: 0
+    terminal_prs:
+      - blakinio/Oteryn-Platform#477 merged
+  task_status: completed
+  task_archived: true
+  ownership_released: true
+  stale_branches_reconciled: true
 ```
 
 ## Notes
 
-This task changes repository CI/test infrastructure only. It performs no deployment or production operation. Issue #326 remains the owner-directed exhaustive portal audit and may use this runtime after merge.
+This task changed repository CI/test infrastructure only. It performed no deployment or production operation. Issue #326 remains the owner-directed exhaustive portal audit and may use the merged runtime.
