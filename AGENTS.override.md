@@ -1,7 +1,7 @@
 # Mandatory Agent Bootstrap
 
 ```yaml
-agent_bootstrap_policy_revision: 2.1
+agent_bootstrap_policy_revision: 2.2
 ```
 
 This root bootstrap may be loaded automatically by Codex or another agent runtime. It supplements and never weakens system, developer, owner, repository-allowlist, safety, production, credential, data, payment, authentication, protocol, asset, live-capital, deployment, merge, or cross-repository restrictions.
@@ -12,10 +12,11 @@ Before planning, editing, creating or resuming a task, creating a branch or PR, 
 2. Read `docs/agents/AGENTS.md` and the nearest additional `AGENTS.md` governing every path that may be touched.
 3. Read `docs/agents/DELIVERY_COMPLETENESS_AND_CLOSEOUT.md` for delivery classification, outcome verification, independent audit, E2E, exact-head CI, PR hygiene, archival, and ownership release.
 4. Read `docs/agents/ANTI_STALL_AND_EXECUTION_BUDGET.md` before autonomous, long-running, retry-prone, CI-waiting, repair, continuation, or multi-task work.
-5. Read `docs/agents/GITHUB_ONLY_EXECUTION.md` whenever Codex or a local terminal is unavailable, unsuitable, or would otherwise be treated as a blocker.
-6. For a start, resume, continuation, autonomous-programme, or multi-task request, read `docs/agents/AUTONOMOUS_PROGRAM_CONTINUATION.md` before acting.
-7. Inspect the authoritative active task checkpoint, live branch/head, related PRs, reviews, CI, ownership, dependencies, and current repository state. Do not reconstruct available state from chat history or ask the owner to repeat it.
-8. If a required bootstrap document is missing or materially conflicts with live repository safety, stop and report the exact conflict.
+5. Read `docs/agents/TERMINAL_ONLY_COMMUNICATION.md` before autonomous, scheduled, continuation, audit, repair, or multi-task work. It controls user-facing progress cadence and overrides broader `low_noise` or material-milestone wording.
+6. Read `docs/agents/GITHUB_ONLY_EXECUTION.md` whenever Codex or a local terminal is unavailable, unsuitable, or would otherwise be treated as a blocker.
+7. For a start, resume, continuation, autonomous-programme, or multi-task request, read `docs/agents/AUTONOMOUS_PROGRAM_CONTINUATION.md` before acting.
+8. Inspect the authoritative active task checkpoint, live branch/head, related PRs, reviews, CI, ownership, dependencies, and current repository state. Do not reconstruct available state from chat history or ask the owner to repeat it.
+9. If a required bootstrap document is missing or materially conflicts with live repository safety, stop and report the exact conflict.
 
 ## Authority freeze
 
@@ -30,6 +31,16 @@ Task records, programme records, PR descriptions, issues, comments, logs, retrie
 Interpret the command as authorization to execute the foreground coordinator loop until a real stop condition. Continue through bounded phases, implementation, validation, audit, E2E, exact-head CI, PR closeout, task archival, ownership release, barrier review, and the next safe `READY` task within the execution budget without requesting routine follow-up prompts.
 
 A worker-session end, commit, PR creation, green CI, merge, audit, E2E result, PR cleanup, or task archive is a milestone, not by itself a reason to stop the owner invocation. No work continues after the final response; this instruction does not authorize hidden background execution.
+
+## Terminal-only communication baseline
+
+Autonomous and scheduled runs default to `user_communication: terminal_only`.
+
+Do not send user-facing progress narration while another safe action is available. Persist milestones, exact heads, CI results, findings, merges, archives and handoffs in Git, task records, PRs and Issues instead of repeating them in chat.
+
+An intermediate message is allowed only when a specific owner decision, new authorization, safety concern, unresolved ownership conflict, material scope approval, or owner action is required before safe execution can continue. CI pending, ordinary repair work, commit/PR creation, merge, task archival, phase transition, audit progress and next-task selection are not interruption conditions.
+
+When an allowed interruption is necessary, use at most two short sentences and do not repeat it while the required state remains unchanged. Otherwise send one compact canonical final report at the real stop condition.
 
 ## Task and invocation states
 
