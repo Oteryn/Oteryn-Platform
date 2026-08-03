@@ -71,6 +71,7 @@ class DeepSystemValidationTests(unittest.TestCase):
     def contract(self):
         lanes = []
         junit_lanes = {
+            "php-game-auth-concurrency",
             "browser-full-chromium",
             "account-lifecycle",
             "community-data",
@@ -162,7 +163,9 @@ class DeepSystemValidationTests(unittest.TestCase):
     def test_missing_required_lane_fails(self):
         contract = self.contract()
         contract["lanes"] = [
-            lane for lane in contract["lanes"] if lane["name"] != "soak"
+            lane
+            for lane in contract["lanes"]
+            if lane["name"] != "php-game-auth-concurrency"
         ]
         with self.assertRaisesRegex(ValidationError, "required lanes are missing"):
             validate_contract(contract, "abc123", self.root)
