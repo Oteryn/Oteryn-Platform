@@ -74,11 +74,11 @@ cross_repository_tasks: []
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-03T07:53:44+02:00
-head: 1d95aff35b69399561d9c0605c0bbfb5c3191970
+updated_at: 2026-08-03T07:57:35+02:00
+head: 13d61ad7d3b07e98fb5752336bbc621892d4e80c
 branch: fix/OTERYN-20260802-playwright-php85-ci
 pr: 477
-status: validating
+status: waiting
 context_routes:
   - testing
   - ci-repair
@@ -97,10 +97,11 @@ proven:
   - implementation changes are limited to five declared CI test task and documentation files
   - all nine workflow runs passed on implementation head 33c73791f71a82faa864e177267d1bcaa262d98c
   - independent diff and scope audit passed with zero material findings and zero unresolved review threads
+  - checkpoint schema failure on 1d95aff35b69399561d9c0605c0bbfb5c3191970 was isolated and repaired on 13d61ad7d3b07e98fb5752336bbc621892d4e80c
 derived:
   - successful exact implementation-head browser smoke removes the PHP 8.3 acceptance-runtime blocker for the downstream portal audit
 unknown:
-  - terminal workflow results on the checkpoint-syntax repair head
+  - terminal conclusions of the nine exact-head workflow runs emitted for 13d61ad7d3b07e98fb5752336bbc621892d4e80c
 conflicts: []
 first_failure:
   marker: checkpoint validator rejected an unsupported nested independent_audit key
@@ -123,12 +124,13 @@ validation:
     evidence: five declared files zero material findings zero unresolved threads
   - command: Agent Governance run 30788469140 on checkpoint-only head 1d95aff35b69399561d9c0605c0bbfb5c3191970
     result: FAIL
-    evidence: unsupported nested checkpoint key identified and removed in the next commit
-  - command: required workflows on checkpoint-syntax repair head
+    evidence: unsupported nested checkpoint key identified and removed
+  - command: exact-head workflows on 13d61ad7d3b07e98fb5752336bbc621892d4e80c
     result: NOT_RUN
-    evidence: new exact head is created by this repair
-blockers: []
-next_action: inspect exact-head workflow conclusions once and merge PR 477 only if all required checks pass
+    evidence: runs 30788557682 30788557677 30788557695 30788557998 30788557684 30788557687 30788557720 30788557679 and 30788557680 were pending or in progress at the second allowed state check
+blockers:
+  - repository auto-merge is disabled
+next_action: inspect the live PR exact head and its workflow conclusions once then squash-merge PR 477 only if every required check passes
 ```
 
 ## Notes
