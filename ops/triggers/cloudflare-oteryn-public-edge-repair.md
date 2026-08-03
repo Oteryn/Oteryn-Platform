@@ -1,4 +1,4 @@
 # Cloudflare Oteryn public edge repair trigger
 
-mode: audit
-confirmation:
+mode: apply
+confirmation: APPLY-OTERYN-PUBLIC-EDGE-REPAIR
