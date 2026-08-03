@@ -1,4 +1,4 @@
 # Cloudflare Oteryn HSTS stage 1 trigger
 
-mode: inert
-confirmation:
+mode: apply
+confirmation: APPLY-OTERYN-HSTS-STAGE1
