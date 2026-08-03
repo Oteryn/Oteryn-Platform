@@ -1,0 +1,51 @@
+name: Temporary Guzzle Security Lock Update
+
+on:
+  push:
+    branches:
+      - fix/OTERYN-20260803-guzzle-security-advisory
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  update-lock:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout update branch
+        uses: actions/checkout@v7
+        with:
+          ref: fix/OTERYN-20260803-guzzle-security-advisory
+          fetch-depth: 0
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.5'
+          coverage: none
+          tools: composer:v2
+
+      - name: Update only Guzzle security-fixed line
+        run: composer update guzzlehttp/guzzle --with-dependencies --no-interaction --prefer-dist --no-progress
+
+      - name: Verify dependency audit
+        run: composer audit --no-interaction
+
+      - name: Commit generated lockfile
+        run: |
+          set -euo pipefail
+          git diff --exit-code -- composer.json || {
+            echo 'composer.json changed unexpectedly.' >&2
+            exit 1
+          }
+          if git diff --quiet -- composer.lock; then
+            echo 'composer.lock already current.'
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add composer.lock
+          git commit -m 'fix(deps): update Guzzle security release'
+          git push origin HEAD:fix/OTERYN-20260803-guzzle-security-advisory
