@@ -9,18 +9,19 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   refresh:
+    if: github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - name: Checkout exact audit head
+      - name: Checkout audit branch
         uses: actions/checkout@v7
         with:
-          ref: ${{ github.event.pull_request.head.sha || github.sha }}
-          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.ref }}
+          persist-credentials: true
 
       - name: Setup PHP 8.5
         uses: shivammathur/setup-php@v2
@@ -29,7 +30,7 @@ jobs:
           coverage: none
           tools: composer:v2
 
-      - name: Refresh only the vulnerable Guzzle package
+      - name: Refresh and validate only the vulnerable Guzzle package
         run: |
           set -euo pipefail
           composer update guzzlehttp/guzzle --with-dependencies --no-interaction --no-scripts --prefer-dist --no-progress
@@ -37,10 +38,15 @@ jobs:
           composer audit --locked --no-interaction
           php -r '$lock=json_decode(file_get_contents("composer.lock"), true, 512, JSON_THROW_ON_ERROR); foreach ($lock["packages"] as $package) { if ($package["name"] === "guzzlehttp/guzzle") { fwrite(STDOUT, $package["version"].PHP_EOL); exit(version_compare($package["version"], "7.15.2", ">=") ? 0 : 1); } } exit(2);'
 
-      - name: Upload validated lockfile
-        uses: actions/upload-artifact@v7
-        with:
-          name: audit-security-lock-${{ github.event.pull_request.head.sha || github.sha }}
-          path: composer.lock
-          if-no-files-found: error
-          retention-days: 1
+      - name: Persist validated lockfile and remove generator
+        env:
+          AUDIT_BRANCH: ${{ github.event.pull_request.head.ref }}
+        run: |
+          set -euo pipefail
+          rm .github/workflows/audit-security-lock-refresh.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add composer.lock .github/workflows/audit-security-lock-refresh.yml
+          git diff --cached --check
+          git commit -m 'fix(deps): update Guzzle security release'
+          git push origin "HEAD:${AUDIT_BRANCH}"
