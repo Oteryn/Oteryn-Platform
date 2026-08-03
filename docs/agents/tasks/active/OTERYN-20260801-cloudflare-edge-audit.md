@@ -2,9 +2,9 @@
 task_id: OTERYN-20260801-cloudflare-edge-audit
 project_lane: oteryn-platform-core
 status: implementing
-branch: fix/OTERYN-20260803-cloudflare-skip-rule-priority
+branch: feat/OTERYN-20260803-cloudflare-hsts-stage1
 base_branch: main
-updated: 2026-08-03T19:10:00+02:00
+updated: 2026-08-03T19:42:00+02:00
 feature_pr: pending
 ---
 
@@ -12,45 +12,55 @@ feature_pr: pending
 
 ## Goal
 
-Restore public WWW and Game Gateway traffic while preserving the broad country restriction for unrelated hosts. Canonical hosts:
+Complete the canonical public-edge repair for:
 
 ```text
 oteryn.molehill.cloud
 gateway.molehill.cloud
 ```
 
+while preserving the broad country restriction for unrelated hosts, then promote HSTS through a conservative reversible first stage.
+
 ## Current verdict
 
-The dedicated zone-bounded token is effective for both WAF and Bot Management writes. Trusted apply run `30834596610` completed the originally intended state:
+The WAF/Bot repair is complete and stable:
 
 ```text
 repair_rule_count=1
 repair_state=current
-repair_before_candidate=true
 bot_fight_mode=false
 desired_state=true
-mutation=bot_fight_mode_disabled
 ```
 
-DNS, TLS, certificates and HTTP-to-HTTPS redirects pass. Public HTTPS requests still receive Cloudflare `403` interstitials. Sanitized ruleset evidence proves that the exact canonical skip rule is not first: an earlier enabled skip rule can skip the remaining current ruleset without skipping Browser Integrity Check or Security Level. The later Oteryn rule can therefore be shadowed before its `bic` and `securityLevel` product exemptions execute.
+The exact canonical-host skip is first in the custom ruleset. Two complete public E2E observations passed with no failed required checks. The second run was idempotent and reported `mutation=none`.
 
-The repair contract is being tightened so the exact-host rule must be the first rule in the zone custom ruleset. The apply path will create it first or move the existing exact rule first, preserve the unrelated country restriction, and restore its previous position if a later operation fails.
+HSTS remains at `max-age=0`. A separate stage-1 audit/apply/rollback implementation is being added with this target:
+
+```yaml
+enabled: true
+max_age: 2592000
+include_subdomains: false
+preload: false
+nosniff: true
+```
 
 ## Acceptance criteria
 
-- [x] Gateway hostname, Tunnel, DNS and Universal SSL certificate are current.
+- [x] Gateway hostname, Tunnel, DNS and Universal SSL are current.
 - [x] Zone WAF Edit and Bot Management Edit are effective for `molehill.cloud`.
-- [x] One exact canonical-host WAF skip rule exists before the audited country block.
+- [x] One exact canonical-host skip rule is first in the custom ruleset.
+- [x] The unrelated broad country restriction remains unchanged.
 - [x] Bot Fight Mode is disabled and independently re-read as false.
-- [x] HTTP-to-HTTPS redirects pass for both canonical hosts.
-- [x] Public evidence proves the remaining failure is Cloudflare HTTPS interstitial behavior, not DNS, TLS, Tunnel or origin certificate failure.
-- [ ] Repair rule priority requires index zero so an earlier current-ruleset skip cannot shadow the product exemptions.
-- [ ] Creation, reordering, idempotency and emergency position rollback pass deterministic tests.
-- [ ] Trusted-main apply moves the existing exact repair rule first without recreating it.
-- [ ] Public WWW and Gateway DNS/TLS/HTTP E2E passes.
-- [ ] HSTS is promoted from `max-age=0` only after stable public acceptance.
-- [ ] Operational marker is reset to inert after terminal validation.
-- [ ] Task is archived only after verified completion or an explicit terminal owner decision.
+- [x] Deterministic create/reorder/idempotency/rollback tests pass.
+- [x] Trusted reorder apply reached `desired_state=true`.
+- [x] Public WWW and Gateway DNS/TLS/HTTP E2E passed twice.
+- [x] Independent read-only repair audit reproduced the exact desired state.
+- [ ] Stage-1 HSTS audit/apply/rollback implementation passes exact-head validation and merges inert.
+- [ ] Read-only HSTS preflight confirms the exact `max-age=0` baseline.
+- [ ] Existing token receives zone-bounded `Zone Settings Edit` only after the preflight.
+- [ ] Trusted HSTS apply reaches the exact staged target and public E2E remains PASS with positive HSTS.
+- [ ] HSTS and repair markers are reset to inert.
+- [ ] Task is archived and ownership released.
 - [ ] `PUBLIC_DOMAIN_LAUNCH_READY` and `PRODUCTION_PROVEN` remain false until wider production acceptance passes.
 
 ## Ownership
@@ -58,20 +68,26 @@ The repair contract is being tightened so the exact-host rule must be the first 
 ```yaml
 owned_paths:
   - .github/workflows/cloudflare-oteryn-public-edge-repair.yml
+  - .github/workflows/cloudflare-oteryn-hsts-stage1.yml
   - docs/agents/tasks/active/OTERYN-20260801-cloudflare-edge-audit.md
   - docs/agents/tasks/archive/OTERYN-20260801-cloudflare-edge-audit.md
   - docs/operations/CLOUDFLARE_PUBLIC_EDGE_REPAIR.md
+  - docs/operations/CLOUDFLARE_HSTS_STAGE1.md
   - ops/triggers/cloudflare-oteryn-public-edge-repair.md
+  - ops/triggers/cloudflare-oteryn-hsts-stage1.md
   - scripts/operations/cloudflare-oteryn-public-edge-failure.py
   - scripts/operations/cloudflare-oteryn-public-edge-repair.py
+  - scripts/operations/cloudflare-oteryn-hsts-stage1.py
   - tests/operations/cloudflare-oteryn-public-edge-repair/**
+  - tests/operations/cloudflare-oteryn-hsts-stage1/**
 modules:
   - operations
   - edge-security
   - game-gateway
 dependencies:
   - production-cloudflare GitHub environment
-  - CLOUDFLARE_EDGE_AUDIT_TOKEN with Zone WAF Edit and Bot Management Edit for molehill.cloud
+  - CLOUDFLARE_EDGE_AUDIT_TOKEN with Zone WAF Edit and Bot Management Edit
+  - Zone Settings Edit is required only for the later HSTS apply
 blockers: []
 cross_repository_tasks:
   - native-client endpoint rollout remains separately controlled
@@ -82,16 +98,16 @@ cross_repository_tasks:
 ```yaml
 checkpoint_version: 1
 policy_version: 2
-updated_at: 2026-08-03T19:10:00+02:00
-head: eefbdd35888aa955c679e17947f6d20d70c26b29
-branch: fix/OTERYN-20260803-cloudflare-skip-rule-priority
+updated_at: 2026-08-03T19:42:00+02:00
+head: 1c168a0d17a1b5f99763068b8f14c1d4e1825ec6
+branch: feat/OTERYN-20260803-cloudflare-hsts-stage1
 pr: pending
 status: implementing
-phase: canonical_skip_rule_priority
+phase: hsts_stage1_implementation
 session_id: chat-20260803-cloudflare-edge-repair
 session_role: implementer
 execution_mode: chat-github
-execution_reason: live policy writes succeeded; public evidence isolated a rule-order shadowing defect
+execution_reason: public edge is stable; reversible HSTS promotion remains before task closeout
 run_scope: bounded_task
 continuation_policy: continue_until_real_stop
 task_completion_policy: complete_merge_archive
@@ -105,56 +121,58 @@ context_growth: stable
 context_score: 5
 estimate_confidence: high
 decomposition_decision: phased
-decomposition_reason: rule-order implementation must merge before a separate marker-only live reorder
+decomposition_reason: merge and audit HSTS implementation before requesting the additional write permission
 validation_level: live_protected_environment
-last_completed_step: reset the operational marker to inert and implement first-position enforcement with position rollback
+last_completed_step: prove a second idempotent public E2E PASS and implement staged HSTS audit/apply/rollback
 owned_paths:
-  - .github/workflows/cloudflare-oteryn-public-edge-repair.yml
+  - .github/workflows/cloudflare-oteryn-hsts-stage1.yml
+  - docs/operations/CLOUDFLARE_HSTS_STAGE1.md
+  - ops/triggers/cloudflare-oteryn-hsts-stage1.md
+  - scripts/operations/cloudflare-oteryn-hsts-stage1.py
+  - tests/operations/cloudflare-oteryn-hsts-stage1/**
   - docs/agents/tasks/active/OTERYN-20260801-cloudflare-edge-audit.md
-  - docs/agents/tasks/archive/OTERYN-20260801-cloudflare-edge-audit.md
-  - docs/operations/CLOUDFLARE_PUBLIC_EDGE_REPAIR.md
-  - ops/triggers/cloudflare-oteryn-public-edge-repair.md
-  - scripts/operations/cloudflare-oteryn-public-edge-failure.py
-  - scripts/operations/cloudflare-oteryn-public-edge-repair.py
-  - tests/operations/cloudflare-oteryn-public-edge-repair/**
 proven:
-  - Permission preflight run 30832409317 succeeded with mutation none.
-  - WAF create run 30832830466 proved Zone WAF write access and created the exact repair rule.
-  - Ruleset-response parser fix PR 498 merged as efab1b1598e6571bfdc3842c7d812c8c84801aa8 after all exact-head gates passed.
-  - Post-fix audit run 30834139371 proved one exact repair rule before the country block and Bot Fight Mode enabled.
-  - Apply run 30834596610 disabled Bot Fight Mode and reached the previous desired state without another WAF POST.
-  - Artifact 8864299649 digest sha256:ebaa31677df740dd070c0b14a44e3e9cc6d864e694223f43bcf887d4af48c606 proves DNS, TLS and redirects pass while every tested HTTPS application request returns a Cloudflare interstitial.
-  - Sanitized ruleset evidence shows an enabled current-ruleset skip precedes the canonical repair rule and does not include the bic or securityLevel product keys.
-  - Cloudflare documents that rules run in order and a current-ruleset skip skips all remaining rules; placing a rule first is supported by PATCH position before an empty rule ID.
+  - Reorder apply run 30836740158 moved the exact repair rule first and returned public_verdict PASS with no failed checks.
+  - Independent repair audit run 30837198173 reproduced repair_state current, Bot Fight Mode false, desired_state true and mutation none.
+  - Idempotent apply/public run 30837673447 returned mutation none and a second public_verdict PASS with no failed checks.
+  - HSTS remains enabled with max_age zero; include_subdomains, preload and nosniff are true.
+  - Cloudflare requires Zone Settings Write for PATCH /zones/{zone_id}/settings/security_header.
+  - Cloudflare warns that HTTPS must remain continuously available during the cached HSTS lifetime.
 derived:
-  - The canonical skip can be shadowed before its Browser Integrity Check and Security Level exemptions execute.
-  - Moving the exact-host skip to index zero is narrower than disabling Browser Integrity Check or Security Level globally.
-  - The unrelated country restriction remains effective for all noncanonical hosts.
+  - DNS, TLS, Tunnel, certificate, WAF, Bot and application reachability are no longer blockers for this task.
+  - A one-month target without includeSubDomains or preload is safer than immediately enabling a long-lived parent-domain policy.
 unknown:
-  - Public HTTPS behavior after the canonical skip is moved to index zero.
-  - Whether positive HSTS should be enabled immediately after first PASS or after an additional stability observation.
+  - Whether Zone Settings Edit is effective for the existing token; it currently has Read.
+  - Exact live HSTS baseline immediately before apply until trusted preflight runs.
 conflicts: []
 first_failure:
-  marker: canonical-skip-shadowed-by-earlier-current-ruleset-skip
-  evidence: run 30834596610 returned 403 interstitials while sanitized rule order placed another current-ruleset skip before the Oteryn product-exemption rule
+  marker: hsts-max-age-disabled
+  evidence: both public PASS observations report hsts_max_age zero and positive_hsts_www false
 rejected_hypotheses:
-  - DNS, Tunnel, certificate or HTTP redirects remain broken; all passed in run 30834596610.
-  - Bot Fight Mode remains the blocker; the same run proved fight_mode false.
-  - The broad country block must be removed; a canonical exact-host rule can remain isolated while unrelated hosts retain the block.
-  - Browser Integrity Check and Security Level must be disabled globally; their selective product skips can execute when the canonical rule is first.
+  - The public edge remains blocked by WAF or Bot controls; two complete public E2E runs passed.
+  - A 12-month preloaded policy should be enabled immediately; staged one-month non-preloaded HSTS limits browser lock-in risk.
+  - HSTS can be safely changed without rollback; the API operation has irreversible client-side effects during max-age and therefore requires exact baseline checks.
 changed_paths:
+  - .github/workflows/cloudflare-oteryn-hsts-stage1.yml
   - docs/agents/tasks/active/OTERYN-20260801-cloudflare-edge-audit.md
-  - ops/triggers/cloudflare-oteryn-public-edge-repair.md
-  - scripts/operations/cloudflare-oteryn-public-edge-repair.py
-  - tests/operations/cloudflare-oteryn-public-edge-repair/mock_cloudflare.py
-  - tests/operations/cloudflare-oteryn-public-edge-repair/run.sh
+  - docs/operations/CLOUDFLARE_HSTS_STAGE1.md
+  - ops/triggers/cloudflare-oteryn-hsts-stage1.md
+  - scripts/operations/cloudflare-oteryn-hsts-stage1.py
+  - tests/operations/cloudflare-oteryn-hsts-stage1/mock_cloudflare.py
+  - tests/operations/cloudflare-oteryn-hsts-stage1/run.sh
 validation:
-  - command: Cloudflare apply and public validation run 30834596610
-    result: FAIL
-    evidence: policy mutation succeeded; public HTTPS acceptance still failed with Cloudflare interstitials
-  - command: deterministic priority and rollback tests on implementation branch
+  - command: trusted reorder apply and public validation run 30836740158
+    result: PASS
+    evidence: exact desired WAF/Bot state and complete public acceptance
+  - command: trusted independent repair audit run 30837198173
+    result: PASS
+    evidence: exact desired state remained stable with mutation none
+  - command: trusted idempotent apply and public validation run 30837673447
+    result: PASS
+    evidence: mutation none and second complete public acceptance
+  - command: deterministic HSTS stage-1 tests
     result: NOT_RUN
     evidence: exact-head GitHub Actions will run after PR creation
 blockers: []
-next_action: Open and validate the skip-priority implementation PR, merge with marker inert, audit the live index, then apply one reorder-only transition and rerun public E2E.
+next_action: Open and validate the HSTS stage-1 implementation PR, merge it inert, run a read-only live baseline audit, then request only Zone Settings Edit before apply.
 ```
