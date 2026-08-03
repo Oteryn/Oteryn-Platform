@@ -45,10 +45,12 @@ run_repair() {
 IFS=';' read -r normal_pid normal_port normal_log < <(start_server normal normal)
 run_repair "$normal_port" "$TMP/audit" audit >"$TMP/audit.out"
 jq -e '
-  .operation_status == "success"
+  .schema_version == 2
+  and .operation_status == "success"
   and .mode == "audit"
   and .candidate_count == 1
   and .repair_state == "absent"
+  and .repair_first == false
   and .bot_fight_mode == true
   and .mutation == "none"
   and .secrets_emitted == false
@@ -77,23 +79,12 @@ grep -F 'expression hash does not match the audited rule' "$TMP/hash-drift.err" 
 [[ "$(jq -r 'select(.method != "GET") | .method' "$normal_log" | wc -l)" == "0" ]] \
   || fail "candidate hash drift mutated Cloudflare"
 
-if CLOUDFLARE_API_BASE_URL="http://127.0.0.1:$normal_port/client/v4" \
-  CLOUDFLARE_API_TOKEN='mock-edge-token-secret' \
-  CLOUDFLARE_ZONE_ID='bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb' \
-  CLOUDFLARE_EXPECTED_COUNTRY_RULE_ID='00000000000000000000000000000000' \
-  CLOUDFLARE_EXPECTED_COUNTRY_RULE_SHA256='21883a8c5097ed513d978b6886ade6b8f102d9801ed275ae65142777fbd9e6bc' \
-  CLOUDFLARE_PUBLIC_EDGE_REPAIR_OUT="$TMP/id-drift-audit" \
-  python3 "$SCRIPT" audit >"$TMP/id-drift-audit.out" 2>"$TMP/id-drift-audit.err"; then
-  fail "audited candidate ID drift unexpectedly passed audit"
-fi
-grep -F 'candidate ID does not match the audited rule' "$TMP/id-drift-audit.err" >/dev/null
-[[ "$(jq -r 'select(.method != "GET") | .method' "$normal_log" | wc -l)" == "0" ]] \
-  || fail "candidate ID drift audit mutated Cloudflare"
-
 run_repair "$normal_port" "$TMP/apply" apply APPLY-OTERYN-PUBLIC-EDGE-REPAIR >"$TMP/apply.out"
 jq -e '
   .desired_state == true
   and .repair_state == "current"
+  and .repair_first == true
+  and .repair_index == 0
   and .repair_before_candidate == true
   and .bot_fight_mode == false
   and (.mutations | sort) == ["bot_fight_mode_disabled", "waf_skip_rule_created"]
@@ -107,15 +98,16 @@ body=post[0]["body"]
 assert body["action"] == "skip"
 assert body["expression"] == 'http.host in {"oteryn.molehill.cloud" "gateway.molehill.cloud"}'
 assert body["action_parameters"] == {"products": ["bic", "securityLevel"], "ruleset": "current"}
-assert body["position"] == {"before": "e0f91939eb494d4490d975498a9a9724"}
+assert body["position"] == {"before": ""}
 assert body["ref"] == "oteryn-public-edge-canonical-skip-v1"
 assert body["description"].endswith("[bot-baseline:on]")
+assert not [r for r in rows if r["method"] == "PATCH"]
 puts=[r for r in rows if r["method"] == "PUT"]
 assert puts[-1]["body"] == {"fight_mode": False}
 PY
 
 run_repair "$normal_port" "$TMP/idempotent" apply APPLY-OTERYN-PUBLIC-EDGE-REPAIR >"$TMP/idempotent.out"
-jq -e '.desired_state == true and .mutation == "none"' "$TMP/idempotent/evidence.json" >/dev/null
+jq -e '.desired_state == true and .repair_first == true and .mutation == "none"' "$TMP/idempotent/evidence.json" >/dev/null
 [[ "$(jq -r 'select(.method == "POST") | .method' "$normal_log" | wc -l)" == "1" ]] \
   || fail "idempotent apply created another rule"
 
@@ -126,6 +118,73 @@ jq -e '
   and .bot_fight_mode == true
   and (.mutations | sort) == ["bot_fight_mode_restored", "waf_skip_rule_deleted"]
 ' "$TMP/rollback/evidence.json" >/dev/null
+
+IFS=';' read -r partial_pid partial_port partial_log < <(start_server repair_present repair-present)
+run_repair "$partial_port" "$TMP/repair-present-audit" audit >"$TMP/repair-present-audit.out"
+jq -e '
+  .repair_state == "shadowed_by_earlier_rules"
+  and .repair_exact == true
+  and .repair_first == false
+  and .repair_before_candidate == true
+  and .desired_state == false
+' "$TMP/repair-present-audit/evidence.json" >/dev/null
+run_repair "$partial_port" "$TMP/repair-present" apply APPLY-OTERYN-PUBLIC-EDGE-REPAIR >"$TMP/repair-present.out"
+jq -e '
+  .desired_state == true
+  and .repair_rule_count == 1
+  and .repair_state == "current"
+  and .repair_first == true
+  and .repair_before_candidate == true
+  and .bot_fight_mode == false
+  and (.mutations | sort) == ["bot_fight_mode_disabled", "waf_skip_rule_moved_first"]
+' "$TMP/repair-present/evidence.json" >/dev/null
+[[ "$(jq -r 'select(.method == "POST") | .method' "$partial_log" | wc -l)" == "0" ]] \
+  || fail "existing exact repair rule was recreated"
+[[ "$(jq -r 'select(.method == "PATCH") | .method' "$partial_log" | wc -l)" == "1" ]] \
+  || fail "existing repair rule was not moved exactly once"
+[[ "$(jq -r 'select(.method == "PUT") | .method' "$partial_log" | wc -l)" == "1" ]] \
+  || fail "existing partial state did not update Bot Fight Mode exactly once"
+
+IFS=';' read -r partial_off_pid partial_off_port partial_off_log < <(start_server repair_present_bot_off repair-present-bot-off)
+run_repair "$partial_off_port" "$TMP/repair-present-bot-off" apply APPLY-OTERYN-PUBLIC-EDGE-REPAIR >"$TMP/repair-present-bot-off.out"
+jq -e '
+  .desired_state == true
+  and .repair_state == "current"
+  and .repair_first == true
+  and .bot_fight_mode == false
+  and .mutations == ["waf_skip_rule_moved_first"]
+' "$TMP/repair-present-bot-off/evidence.json" >/dev/null
+[[ "$(jq -r 'select(.method == "PATCH") | .method' "$partial_off_log" | wc -l)" == "1" ]] \
+  || fail "reorder-only state did not issue exactly one PATCH"
+[[ "$(jq -r 'select(.method == "PUT") | .method' "$partial_off_log" | wc -l)" == "0" ]] \
+  || fail "reorder-only state changed Bot Fight Mode"
+
+IFS=';' read -r partial_fail_pid partial_fail_port partial_fail_log < <(start_server repair_present_bot_fail repair-present-bot-fail)
+if run_repair "$partial_fail_port" "$TMP/repair-present-bot-fail" apply APPLY-OTERYN-PUBLIC-EDGE-REPAIR >"$TMP/repair-present-bot-fail.out" 2>"$TMP/repair-present-bot-fail.err"; then
+  fail "Bot failure after reorder unexpectedly succeeded"
+fi
+grep -F 'waf_rule_position_restored' "$TMP/repair-present-bot-fail.err" >/dev/null
+run_repair "$partial_fail_port" "$TMP/repair-present-bot-fail-audit" audit >"$TMP/repair-present-bot-fail-audit.out"
+jq -e '
+  .repair_state == "shadowed_by_earlier_rules"
+  and .repair_first == false
+  and .repair_before_candidate == true
+  and .bot_fight_mode == true
+' "$TMP/repair-present-bot-fail-audit/evidence.json" >/dev/null
+[[ "$(jq -r 'select(.method == "PATCH") | .method' "$partial_fail_log" | wc -l)" == "2" ]] \
+  || fail "failed reordered state was not moved and restored exactly once"
+
+IFS=';' read -r malformed_pid malformed_port malformed_log < <(start_server malformed_after_create malformed-after-create)
+if run_repair "$malformed_port" "$TMP/malformed" apply APPLY-OTERYN-PUBLIC-EDGE-REPAIR >"$TMP/malformed.out" 2>"$TMP/malformed.err"; then
+  fail "malformed post-create response unexpectedly succeeded"
+fi
+grep -F 'partial changes were rolled back' "$TMP/malformed.err" >/dev/null
+grep -F 'create response contained 0 matching repair rules' "$TMP/malformed.err" >/dev/null
+run_repair "$malformed_port" "$TMP/malformed-audit" audit >"$TMP/malformed-audit.out"
+jq -e '.repair_state == "absent" and .repair_rule_count == 0 and .bot_fight_mode == true' \
+  "$TMP/malformed-audit/evidence.json" >/dev/null
+[[ "$(jq -r 'select(.method == "DELETE") | .method' "$malformed_log" | wc -l)" == "1" ]] \
+  || fail "accepted create with malformed response was not rolled back"
 
 IFS=';' read -r ambiguous_pid ambiguous_port ambiguous_log < <(start_server ambiguous ambiguous)
 if run_repair "$ambiguous_port" "$TMP/ambiguous" apply APPLY-OTERYN-PUBLIC-EDGE-REPAIR >"$TMP/ambiguous.out" 2>"$TMP/ambiguous.err"; then
@@ -160,6 +219,7 @@ IFS=';' read -r baseline_pid baseline_port baseline_log < <(start_server baselin
 run_repair "$baseline_port" "$TMP/baseline-apply" apply APPLY-OTERYN-PUBLIC-EDGE-REPAIR >"$TMP/baseline-apply.out"
 jq -e '
   .desired_state == true
+  and .repair_first == true
   and .bot_fight_mode == false
   and .bot_baseline == false
   and .mutations == ["waf_skip_rule_created"]

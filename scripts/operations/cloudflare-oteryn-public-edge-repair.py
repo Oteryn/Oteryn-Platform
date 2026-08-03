@@ -162,22 +162,32 @@ def inspect_state() -> dict[str, Any]:
     repair_state = "absent"
     baseline: bool | None = None
     before_candidate = False
+    repair_first = False
+    repair_exact = False
+    repair_index = -1
     repair_hash: str | None = None
     if len(repairs) > 1:
         repair_state = "ambiguous"
     elif len(repairs) == 1:
-        exact, baseline = exact_repair_rule(repairs[0])
-        repair_state = "current" if exact else "drift"
+        repair_exact, baseline = exact_repair_rule(repairs[0])
         repair_hash = sha256(str(repairs[0].get("expression", "")))
+        repair_index = rule_index(ruleset, str(repairs[0].get("id", "")))
+        repair_first = repair_index == 0
         if len(candidates) == 1:
-            before_candidate = rule_index(ruleset, str(repairs[0].get("id", ""))) < rule_index(
-                ruleset, str(candidates[0].get("id", ""))
-            )
-            if repair_state == "current" and not before_candidate:
-                repair_state = "wrong_order"
+            candidate_index = rule_index(ruleset, str(candidates[0].get("id", "")))
+            before_candidate = 0 <= repair_index < candidate_index
+        if not repair_exact:
+            repair_state = "drift"
+        elif not before_candidate:
+            repair_state = "wrong_order"
+        elif not repair_first:
+            repair_state = "shadowed_by_earlier_rules"
+        else:
+            repair_state = "current"
     desired = (
         len(candidates) == 1
         and repair_state == "current"
+        and repair_first
         and before_candidate
         and bot.get("fight_mode") is False
     )
@@ -189,6 +199,9 @@ def inspect_state() -> dict[str, Any]:
         "candidate_expression_hashes": candidate_hashes,
         "repair_expression_hash": repair_hash,
         "repair_state": repair_state,
+        "repair_exact": repair_exact,
+        "repair_index": repair_index,
+        "repair_first": repair_first,
         "repair_before_candidate": before_candidate,
         "bot_baseline": baseline,
         "desired_state": desired,
@@ -207,15 +220,41 @@ def require_unambiguous(state: dict[str, Any], *, allow_absent: bool) -> None:
         raise RepairError("multiple Oteryn repair rules exist")
     if not allow_absent and len(state["repairs"]) != 1:
         raise RepairError("Oteryn repair rule is absent")
-    if len(state["repairs"]) == 1 and state["repair_state"] not in {"current"}:
-        raise RepairError(f"Oteryn repair rule is not exact/current: {state['repair_state']}")
+    if len(state["repairs"]) == 1:
+        if not state.get("repair_exact"):
+            raise RepairError("Oteryn repair rule is not exact/current")
+        if not state.get("repair_before_candidate"):
+            raise RepairError("Oteryn repair rule is not ordered before the broad block rule")
+
+
+def created_rule_from_response(result: Any, bot_baseline: bool) -> dict[str, Any]:
+    """Normalize Cloudflare's ruleset-shaped create response and legacy direct-rule fixtures."""
+    if not isinstance(result, dict):
+        raise RepairError("Cloudflare did not return a ruleset or created rule")
+
+    if result.get("ref") == RULE_REF:
+        matches = [result]
+    else:
+        rules = result.get("rules")
+        if not isinstance(rules, list):
+            raise RepairError("Cloudflare create response did not contain a rules list")
+        matches = [item for item in rules if isinstance(item, dict) and item.get("ref") == RULE_REF]
+
+    if len(matches) != 1:
+        raise RepairError(f"Cloudflare create response contained {len(matches)} matching repair rules")
+    rule = matches[0]
+    exact, baseline = exact_repair_rule(rule)
+    if not exact or baseline != bot_baseline:
+        raise RepairError("Cloudflare returned a non-exact created repair rule")
+    if not rule.get("id"):
+        raise RepairError("Cloudflare created repair rule has no identifier")
+    return rule
 
 
 def create_repair_rule(state: dict[str, Any], bot_baseline: bool) -> str:
     ruleset_id = str(state["ruleset"].get("id", ""))
-    candidate_id = str(state["candidates"][0].get("id", ""))
-    if not ruleset_id or not candidate_id:
-        raise RepairError("ruleset or candidate identifier is missing")
+    if not ruleset_id:
+        raise RepairError("ruleset identifier is missing")
     description = f"{RULE_DESCRIPTION_PREFIX} [bot-baseline:{'on' if bot_baseline else 'off'}]"
     body = {
         "action": "skip",
@@ -224,15 +263,20 @@ def create_repair_rule(state: dict[str, Any], bot_baseline: bool) -> str:
         "enabled": True,
         "expression": RULE_EXPRESSION,
         "logging": {"enabled": True},
-        "position": {"before": candidate_id},
+        "position": {"before": ""},
         "ref": RULE_REF,
     }
     result = api("POST", f"/zones/{ZONE}/rulesets/{ruleset_id}/rules", body).get("result")
-    if not isinstance(result, dict) or not result.get("id"):
-        raise RepairError("Cloudflare did not return the created rule")
-    if result.get("ref") != RULE_REF:
-        raise RepairError("Cloudflare returned an unexpected created rule reference")
-    return str(result["id"])
+    return str(created_rule_from_response(result, bot_baseline)["id"])
+
+
+def move_repair_rule(state: dict[str, Any], position: dict[str, Any]) -> None:
+    require_unambiguous(state, allow_absent=False)
+    ruleset_id = str(state["ruleset"].get("id", ""))
+    rule_id = str(state["repairs"][0].get("id", ""))
+    if not ruleset_id or not rule_id:
+        raise RepairError("repair rule identifiers are missing")
+    api("PATCH", f"/zones/{ZONE}/rulesets/{ruleset_id}/rules/{rule_id}", {"position": position})
 
 
 def delete_repair_rule(state: dict[str, Any]) -> None:
@@ -252,7 +296,13 @@ def set_fight_mode(value: bool) -> None:
     api("PUT", f"/zones/{ZONE}/bot_management", {"fight_mode": value})
 
 
-def rollback_partial(created_rule: bool, bot_changed: bool, baseline: bool) -> list[str]:
+def rollback_partial(
+    created_rule: bool,
+    moved_rule: bool,
+    original_next_id: str | None,
+    bot_changed: bool,
+    baseline: bool,
+) -> list[str]:
     actions: list[str] = []
     errors: list[str] = []
     if bot_changed:
@@ -264,10 +314,21 @@ def rollback_partial(created_rule: bool, bot_changed: bool, baseline: bool) -> l
     if created_rule:
         try:
             current = inspect_state()
-            delete_repair_rule(current)
-            actions.append("waf_rule_deleted")
+            if current["repairs"]:
+                delete_repair_rule(current)
+                actions.append("waf_rule_deleted")
+            else:
+                actions.append("waf_rule_already_absent")
         except Exception as exc:  # pragma: no cover - emergency path
             errors.append(f"WAF rollback failed: {type(exc).__name__}")
+    elif moved_rule:
+        try:
+            current = inspect_state()
+            position = {"before": original_next_id} if original_next_id else {"after": ""}
+            move_repair_rule(current, position)
+            actions.append("waf_rule_position_restored")
+        except Exception as exc:  # pragma: no cover - emergency path
+            errors.append(f"WAF order rollback failed: {type(exc).__name__}")
     if errors:
         raise RepairError("; ".join(errors))
     return actions
@@ -282,18 +343,43 @@ def apply() -> tuple[dict[str, Any], list[str]]:
         return state, []
 
     baseline = bool(state["bot"].get("fight_mode"))
+    repair_absent_before = not state["repairs"]
     created_rule = False
+    moved_rule = False
+    original_next_id: str | None = None
     bot_changed = False
     mutations: list[str] = []
     try:
-        if not state["repairs"]:
-            create_repair_rule(state, baseline)
-            created_rule = True
-            mutations.append("waf_skip_rule_created")
+        if repair_absent_before:
+            try:
+                create_repair_rule(state, baseline)
+                created_rule = True
+                mutations.append("waf_skip_rule_created")
+            except Exception:
+                observed = inspect_state()
+                if (
+                    len(observed["repairs"]) == 1
+                    and observed.get("repair_exact")
+                    and observed.get("repair_first")
+                    and observed.get("repair_before_candidate")
+                ):
+                    created_rule = True
+                raise
+        elif not state.get("repair_first"):
+            repair_index = int(state.get("repair_index", -1))
+            rules = state["ruleset"].get("rules", [])
+            if repair_index < 0 or not isinstance(rules, list):
+                raise RepairError("repair rule position is unavailable")
+            if repair_index + 1 < len(rules) and isinstance(rules[repair_index + 1], dict):
+                original_next_id = str(rules[repair_index + 1].get("id", "")) or None
+            move_repair_rule(state, {"before": ""})
+            moved_rule = True
+            mutations.append("waf_skip_rule_moved_first")
+
         state = inspect_state()
         require_unambiguous(state, allow_absent=False)
-        if not state["repair_before_candidate"]:
-            raise RepairError("repair rule is not ordered before the broad block rule")
+        if not state.get("repair_first"):
+            raise RepairError("repair rule is not the first rule in the custom ruleset")
         if state["bot"].get("fight_mode") is True:
             set_fight_mode(False)
             bot_changed = True
@@ -303,8 +389,15 @@ def apply() -> tuple[dict[str, Any], list[str]]:
             raise RepairError("post-write verification did not reach the exact desired state")
         return final, mutations
     except Exception as exc:
-        rollback_partial(created_rule, bot_changed, baseline)
-        raise RepairError(f"apply failed and partial changes were rolled back: {exc}") from exc
+        rollback_actions = rollback_partial(
+            created_rule,
+            moved_rule,
+            original_next_id,
+            bot_changed,
+            baseline,
+        )
+        rollback_text = ",".join(rollback_actions) or "none"
+        raise RepairError(f"apply failed and partial changes were rolled back ({rollback_text}): {exc}") from exc
 
 
 def rollback() -> tuple[dict[str, Any], list[str]]:
@@ -332,7 +425,7 @@ def rollback() -> tuple[dict[str, Any], list[str]]:
 
 def sanitized(mode: str, state: dict[str, Any], mutations: list[str], status: str) -> dict[str, Any]:
     return {
-        "schema_version": 1,
+        "schema_version": 2,
         "observed_at_utc": datetime.now(timezone.utc).isoformat(),
         "classification": "CLOUDFLARE_PUBLIC_EDGE_REPAIR",
         "operation_status": status,
@@ -342,6 +435,9 @@ def sanitized(mode: str, state: dict[str, Any], mutations: list[str], status: st
         "candidate_expression_hashes": state.get("candidate_expression_hashes", []),
         "repair_rule_count": len(state.get("repairs", [])),
         "repair_state": state.get("repair_state", "unknown"),
+        "repair_exact": state.get("repair_exact", False),
+        "repair_index": state.get("repair_index", -1),
+        "repair_first": state.get("repair_first", False),
         "repair_before_candidate": state.get("repair_before_candidate", False),
         "repair_expression_hash": state.get("repair_expression_hash"),
         "bot_fight_mode": state.get("bot", {}).get("fight_mode"),
@@ -364,6 +460,7 @@ def emit(evidence: dict[str, Any]) -> None:
         f"Mode: `{evidence['mode']}`",
         f"Status: `{evidence['operation_status']}`",
         f"Repair state: `{evidence['repair_state']}`",
+        f"Repair first: `{evidence['repair_first']}`",
         f"Bot Fight Mode: `{evidence['bot_fight_mode']}`",
         f"Desired state: `{evidence['desired_state']}`",
         f"Mutation: `{evidence['mutation']}`",
@@ -377,6 +474,7 @@ def emit(evidence: dict[str, Any]) -> None:
         "candidate_count",
         "repair_rule_count",
         "repair_state",
+        "repair_first",
         "repair_before_candidate",
         "bot_fight_mode",
         "desired_state",
