@@ -1,0 +1,206 @@
+name: Cloudflare Oteryn HSTS Stage 1
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - .github/workflows/cloudflare-oteryn-hsts-stage1.yml
+      - scripts/operations/cloudflare-oteryn-hsts-stage1.py
+      - tests/operations/cloudflare-oteryn-hsts-stage1/**
+      - ops/triggers/cloudflare-oteryn-hsts-stage1.md
+      - docs/operations/CLOUDFLARE_HSTS_STAGE1.md
+      - docs/agents/tasks/active/OTERYN-20260801-cloudflare-edge-audit.md
+  push:
+    branches:
+      - main
+    paths:
+      - ops/triggers/cloudflare-oteryn-hsts-stage1.md
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cloudflare-oteryn-hsts-stage1-${{ github.event_name }}-${{ github.sha }}
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout exact pull-request head
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+
+      - name: Validate staged HSTS lifecycle
+        run: bash tests/operations/cloudflare-oteryn-hsts-stage1/run.sh
+
+      - name: Validate exact operational marker boundary
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin "$BASE_SHA" "$HEAD_SHA"
+          changed_files="$(git diff --name-only "$BASE_SHA" "$HEAD_SHA")"
+          if grep -Fxq 'ops/triggers/cloudflare-oteryn-hsts-stage1.md' <<<"$changed_files"; then
+            marker="$(cat ops/triggers/cloudflare-oteryn-hsts-stage1.md)"
+            inert=$'# Cloudflare Oteryn HSTS stage 1 trigger\n\nmode: inert\nconfirmation:'
+            audit=$'# Cloudflare Oteryn HSTS stage 1 trigger\n\nmode: audit\nconfirmation:'
+            apply=$'# Cloudflare Oteryn HSTS stage 1 trigger\n\nmode: apply\nconfirmation: APPLY-OTERYN-HSTS-STAGE1'
+            rollback=$'# Cloudflare Oteryn HSTS stage 1 trigger\n\nmode: rollback\nconfirmation: ROLLBACK-OTERYN-HSTS-STAGE1'
+            if [[ "$marker" == "$inert" ]]; then
+              echo 'Validated inert HSTS marker cleanup.'
+            elif [[ "$marker" == "$audit" || "$marker" == "$apply" || "$marker" == "$rollback" ]]; then
+              [[ "$changed_files" == 'ops/triggers/cloudflare-oteryn-hsts-stage1.md' ]] || {
+                echo 'An operational HSTS PR may change only the HSTS marker.' >&2
+                exit 1
+              }
+            else
+              echo 'HSTS marker is not an exact allowed request.' >&2
+              exit 1
+            fi
+          fi
+
+  operate:
+    if: github.event_name == 'push'
+    permissions:
+      contents: read
+      issues: write
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: production-cloudflare
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_EDGE_AUDIT_TOKEN }}
+      CLOUDFLARE_ZONE_ID: ${{ vars.CLOUDFLARE_ZONE_ID }}
+      CLOUDFLARE_HSTS_STAGE1_OUT: cloudflare-hsts-stage1
+      OTERYN_PUBLIC_EDGE_OUT: public-edge-validation
+
+    steps:
+      - name: Checkout exact trusted main SHA
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+
+      - name: Run exact trusted-main HSTS request
+        id: operation
+        run: |
+          set -euo pipefail
+          [[ "$GITHUB_REF" == 'refs/heads/main' ]] || {
+            echo 'HSTS operations are restricted to main.' >&2
+            exit 1
+          }
+          marker="$(cat ops/triggers/cloudflare-oteryn-hsts-stage1.md)"
+          inert=$'# Cloudflare Oteryn HSTS stage 1 trigger\n\nmode: inert\nconfirmation:'
+          audit=$'# Cloudflare Oteryn HSTS stage 1 trigger\n\nmode: audit\nconfirmation:'
+          apply=$'# Cloudflare Oteryn HSTS stage 1 trigger\n\nmode: apply\nconfirmation: APPLY-OTERYN-HSTS-STAGE1'
+          rollback=$'# Cloudflare Oteryn HSTS stage 1 trigger\n\nmode: rollback\nconfirmation: ROLLBACK-OTERYN-HSTS-STAGE1'
+
+          if [[ "$marker" == "$inert" ]]; then
+            printf '%s\n' 'operation_status=noop' 'mode=inert' 'mutation=none' >hsts-result.txt
+            echo 'mode=inert' >>"$GITHUB_OUTPUT"
+            echo 'exit_code=0' >>"$GITHUB_OUTPUT"
+            exit 0
+          elif [[ "$marker" == "$audit" ]]; then
+            mode='audit'; confirmation=''
+          elif [[ "$marker" == "$apply" ]]; then
+            mode='apply'; confirmation='APPLY-OTERYN-HSTS-STAGE1'
+          elif [[ "$marker" == "$rollback" ]]; then
+            mode='rollback'; confirmation='ROLLBACK-OTERYN-HSTS-STAGE1'
+          else
+            echo 'Trusted main contains an invalid HSTS marker.' >&2
+            exit 1
+          fi
+
+          raw_output="$(mktemp)"
+          set +e
+          CLOUDFLARE_HSTS_CONFIRMATION="$confirmation" \
+            python3 scripts/operations/cloudflare-oteryn-hsts-stage1.py "$mode" \
+            >"$raw_output" 2>&1
+          exit_code=$?
+          set -e
+          {
+            if [[ "$exit_code" == '0' ]]; then echo 'operation_status=success'; else echo 'operation_status=failed'; fi
+            grep -E '^(mode|state|enabled|max_age|include_subdomains|preload|nosniff|desired_state|mutation)=' "$raw_output" || true
+          } >hsts-result.txt
+          echo "mode=$mode" >>"$GITHUB_OUTPUT"
+          echo "exit_code=$exit_code" >>"$GITHUB_OUTPUT"
+
+      - name: Probe public edge after HSTS transition
+        id: public
+        if: steps.operation.outputs.exit_code == '0' && (steps.operation.outputs.mode == 'apply' || steps.operation.outputs.mode == 'rollback')
+        continue-on-error: true
+        run: python3 scripts/operations/oteryn-public-edge-validation.py
+
+      - name: Add bounded public result
+        if: always() && (steps.operation.outputs.mode == 'apply' || steps.operation.outputs.mode == 'rollback')
+        run: |
+          set -euo pipefail
+          if [[ -f public-edge-validation/evidence.json ]]; then
+            jq -r '
+              "public_verdict=" + (.verdict // "unknown"),
+              "failed_required_checks=" + ((.failed_required_checks // []) | join(",") | if . == "" then "none" else . end),
+              "positive_hsts_www=" + ((.acceptance.positive_hsts_www // false) | tostring),
+              "dns_www=" + ((.acceptance.dns_www // false) | tostring),
+              "dns_gateway=" + ((.acceptance.dns_gateway // false) | tostring),
+              "tls_www=" + ((.acceptance.tls_www // false) | tostring),
+              "tls_gateway=" + ((.acceptance.tls_gateway // false) | tostring),
+              "public_mutation=" + (.mutation // "unknown")
+            ' public-edge-validation/evidence.json >>hsts-result.txt
+          else
+            printf '%s\n' 'public_verdict=collector_failed' 'positive_hsts_www=false' >>hsts-result.txt
+          fi
+
+      - name: Validate transitioned public state
+        if: steps.operation.outputs.exit_code == '0' && (steps.operation.outputs.mode == 'apply' || steps.operation.outputs.mode == 'rollback')
+        env:
+          MODE: ${{ steps.operation.outputs.mode }}
+          PUBLIC_OUTCOME: ${{ steps.public.outcome }}
+        run: |
+          set -euo pipefail
+          [[ "$PUBLIC_OUTCOME" == 'success' ]] || exit 1
+          [[ "$(jq -r '.verdict' public-edge-validation/evidence.json)" == 'PASS' ]] || exit 1
+          hsts="$(jq -r '.acceptance.positive_hsts_www' public-edge-validation/evidence.json)"
+          if [[ "$MODE" == 'apply' ]]; then
+            [[ "$hsts" == 'true' ]] || exit 1
+          else
+            [[ "$hsts" == 'false' ]] || exit 1
+          fi
+
+      - name: Upload sanitized HSTS evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: cloudflare-hsts-stage1-${{ github.run_id }}
+          path: |
+            cloudflare-hsts-stage1/
+            public-edge-validation/
+            hsts-result.txt
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Publish bounded HSTS result to production issue
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ISSUE_NUMBER: '91'
+        run: |
+          set -euo pipefail
+          result="$(cat hsts-result.txt 2>/dev/null || printf 'operation_status=failed')"
+          body="$(printf '## Cloudflare Oteryn HSTS stage 1\n\n```text\nrun_id=%s\ntrusted_sha=%s\n%s\n```\n\nOnly bounded HSTS and public-validation fields are published.' "$GITHUB_RUN_ID" "$GITHUB_SHA" "$result")"
+          gh api "repos/$GITHUB_REPOSITORY/issues/$ISSUE_NUMBER/comments" -f body="$body" >/dev/null
+
+      - name: Propagate operation failure
+        if: steps.operation.outputs.exit_code != '0'
+        run: exit 1
+
+      - name: Propagate collector or acceptance failure
+        if: >-
+          steps.operation.outputs.exit_code == '0' &&
+          (steps.operation.outputs.mode == 'apply' || steps.operation.outputs.mode == 'rollback') &&
+          steps.public.outcome != 'success'
+        run: exit 1
