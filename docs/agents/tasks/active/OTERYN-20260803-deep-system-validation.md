@@ -35,7 +35,7 @@ Execute current-main deep validation after the completed inventory audit. Turn e
 
 ## Boundary
 
-Validation tooling, workflows, tests, deterministic fixtures, reports, evidence and finding Issues only. No production mutation, DNS/Cloudflare change, payment operation, credential use, external-repository write or unsupported product repair.
+Validation tooling, workflows, tests, deterministic fixtures, reports, evidence and finding remediation required to obtain truthful validation. No production mutation, DNS/Cloudflare change, payment operation, credential use or external-repository write.
 
 ## Execution budget
 
@@ -66,7 +66,13 @@ owned_paths:
   - tools/validation/deep_system_validation.py
   - tools/validation/test_deep_system_validation.py
   - scripts/acceptance/playwright.config.mjs
+  - scripts/acceptance/tests/helpers.mjs
   - scripts/acceptance/tests/admin-wiki-administration.spec.mjs
+  - scripts/acceptance/tests/homepage-navigation-seo.spec.mjs
+  - scripts/acceptance/seed-homepage-navigation-seo.php
+  - scripts/acceptance/coverage/surfaces/community-data-completeness.json
+  - config/downloads.php
+  - composer.lock
   - docs/agents/evidence/OTERYN-20260803-deep-system-validation/**
   - docs/agents/reports/OTERYN-20260803-deep-system-validation.md
 read_only_inputs:
@@ -83,10 +89,10 @@ cross_repository_tasks: []
 ## Context checkpoint
 
 ```yaml
-checkpoint_version: 1
-updated_at: 2026-08-03T21:48:00+02:00
-head: 9877ee468c432d625d4668cbe81e54be5591a7b8
-base_sha: f7384418f01f4ae4c3190c71259f2fe7f3297dad
+checkpoint_version: 2
+updated_at: 2026-08-03T23:28:00+02:00
+source_head: aaadfb5e76880eda8a5c84eb702833b1829ab4e7
+base_sha: c5cc5aa6fd14465f1f1fe19dfd89d651b6c1fa43
 branch: audit/OTERYN-20260803-deep-system-validation
 pr: 495
 parent_issue: 494
@@ -108,21 +114,30 @@ owned_paths:
   - tools/validation/deep_system_validation.py
   - tools/validation/test_deep_system_validation.py
   - scripts/acceptance/playwright.config.mjs
+  - scripts/acceptance/tests/helpers.mjs
   - scripts/acceptance/tests/admin-wiki-administration.spec.mjs
+  - scripts/acceptance/tests/homepage-navigation-seo.spec.mjs
+  - scripts/acceptance/seed-homepage-navigation-seo.php
+  - scripts/acceptance/coverage/surfaces/community-data-completeness.json
+  - config/downloads.php
+  - composer.lock
   - docs/agents/evidence/OTERYN-20260803-deep-system-validation/**
   - docs/agents/reports/OTERYN-20260803-deep-system-validation.md
 proven:
   - audit PR 483 classified 240 named routes 126 rendered routes 43 capabilities and 18 modules with 135 findings and no COMPLETE module
   - PHP validation executed 465 tests with 1961 assertions and zero failures errors or skips on exact head 642fe6dbcc3982ac50fccf48a03a51cb4ea92c98
   - MariaDB integrations and the separate game-auth concurrency lane passed without skips
-  - compiler has 15 fail-closed tests covering SHA retries failures errors skips zero tests required projects required lanes evidence kinds visual findings soak duration and unowned blockers
+  - evidence compiler rejects missing lanes, explicit failures, retries, skips, zero tests, duplicated JUnit, paths outside the artifact root, insufficient soak duration, visual findings and unowned external blockers
   - secure duplicated JUnit and HTML reporters write directly to artifacts/deep per ACCEPTANCE_RUN_SUFFIX when VALIDATION_SHA is set
-  - Acceptance E2E run 30831002761 passed Chromium smoke and Chromium Firefox WebKit portability on exact head 9877ee468c432d625d4668cbe81e54be5591a7b8
-  - the responsive profile persisted the Wiki transition to In Review with lock version 2 but lost the expected role=status flash confirmation after redirect
-  - the responsive failure is caused by authenticated media-picker subrequests racing the lifecycle POST and aging session flash before the redirected page renders
+  - Wiki lifecycle login and request ordering were stabilized without weakening the accessible success assertion
+  - Deep run 30849615476 exposed three independent fixture/configuration defects rather than product-contract failures
+  - community stress evidence now explicitly includes the aggregate chromium-primary project
+  - acceptance-only download artifact host defaults to downloads.example.test while non-acceptance environments remain deny-by-default
+  - homepage event fixture removes conflicting content-scale fixture events and is reseeded for every project
+  - Guzzle 7.15.1 became vulnerable after CVE-2026-69246 and CVE-2026-69245 were published during validation
+  - Composer generated and audited composer.lock with guzzlehttp/guzzle 7.15.2 at source reference 744101956d78b7c1384d0cbf379db13e859167bf
 unknown:
-  - terminal responsive result after moving request quiescence before the lifecycle POST
-  - terminal full browser resilience accessibility visual and soak results
+  - terminal full browser resilience accessibility visual and soak results on the connector-authored post-security head
   - whether visual execution finds a blocking UX condition
   - final exact-head test counts and performance calibration metrics
   - terminal conclusions of all standard workflows on the final evidence commit
@@ -131,38 +146,45 @@ derived:
   - external production Canary login payment DNS Cloudflare and restore proof requires separate authorization
   - generated Actions evidence must be copied into repository paths before closeout
   - raw traces screenshots and video remain disabled because authenticated flows may contain cookies reset URLs TOTP enrollment secrets or recovery codes
-  - the Wiki lifecycle assertion must remain because a successful state transition without accessible success feedback is not complete UX closure
+  - a newly published high-severity dependency advisory blocks completion even when unrelated implementation tests are green
 conflicts: []
 first_failure:
-  marker: Acceptance E2E and Visual UX run 30831002761 failed in responsive-mobile Wiki administration after smoke and portability passed
-  evidence: artifact 8863047241 JUnit shows the article persisted as In Review version 2 while getByRole status did not contain Wiki article submitted for review
+  marker: Deep System Validation run 30849615476 failed three Playwright contracts
+  evidence: community stress project identity was absent from its evidence contract; acceptance download host was denied; homepage next-event fixture was displaced by prior content-scale data
 rejected_hypotheses:
   - route inventory closure proves runtime state coverage
   - critical browser evidence proves full acceptance
   - repository CI proves production deployment behavior
   - expiring Actions artifacts alone satisfy durable exact-head evidence
   - raw browser traces screenshots or video are acceptable durable diagnostics for authenticated flows
-  - the Wiki transition failed to persist
+  - retries or weakened assertions are acceptable remediation
+  - newly published dependency advisories can be ignored because they appeared after task start
 changed_paths:
   - .github/workflows/deep-system-validation.yml
+  - composer.lock
+  - config/downloads.php
   - docs/agents/tasks/active/OTERYN-20260803-deep-system-validation.md
+  - scripts/acceptance/coverage/surfaces/community-data-completeness.json
+  - scripts/acceptance/playwright.config.mjs
+  - scripts/acceptance/seed-homepage-navigation-seo.php
+  - scripts/acceptance/tests/admin-wiki-administration.spec.mjs
+  - scripts/acceptance/tests/helpers.mjs
+  - scripts/acceptance/tests/homepage-navigation-seo.spec.mjs
   - tools/validation/deep_system_validation.py
   - tools/validation/test_deep_system_validation.py
-  - scripts/acceptance/playwright.config.mjs
-  - scripts/acceptance/tests/admin-wiki-administration.spec.mjs
 validation:
   - command: PYTHONPATH=tools/validation python -m unittest -v tools/validation/test_deep_system_validation.py
     result: PASS
-    evidence: fifteen fail-closed compiler tests passed on exact head 642fe6dbcc3982ac50fccf48a03a51cb4ea92c98
-  - command: Deep System Validation run 30814423441
-    result: FAIL
-    evidence: 465 PHP tests and 1961 assertions passed with zero skips; first full Chromium profile failed before browser evidence compilation
-  - command: Acceptance E2E and Visual UX run 30831002761
-    result: FAIL
-    evidence: smoke and browser portability passed; responsive-mobile Wiki lifecycle lost accessible flash feedback after a successful persisted transition
-  - command: secure duplicate Playwright reporter configuration
+    evidence: fail-closed compiler regression suite passed after all hardening changes
+  - command: Deep System Validation run 30849615476
+    result: FAIL_REMEDIATED
+    evidence: three deterministic browser fixture/configuration defects identified from durable JUnit evidence and remediated without reducing assertions
+  - command: Audit Security Lock Refresh run 30854308291
     result: PASS
-    evidence: exact-head run 30831002771 reached the browser matrix after all backend and contract lanes passed
+    evidence: Composer updated only guzzlehttp/guzzle to 7.15.2; composer validate and composer audit --locked passed
+  - command: composer.lock inspection at aaadfb5e76880eda8a5c84eb702833b1829ab4e7
+    result: PASS
+    evidence: Guzzle version 7.15.2 source and dist reference 744101956d78b7c1384d0cbf379db13e859167bf
 blockers: []
-next_action: quiesce authenticated media-picker requests before Submit for review, preserve the role=status assertion, then rerun every exact-head validation lane
+next_action: execute connector-authored exact-head Deep System Validation, persist its machine evidence and report, perform fresh independent diff review, archive the task, then run final exact-head CI and merge PR 495
 ```
