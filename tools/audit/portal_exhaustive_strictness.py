@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Apply final fail-closed state and locale rules to the portal audit matrix."""
+"""Apply final fail-closed state, locale, accessibility and overflow rules."""
 
 from __future__ import annotations
 
@@ -25,8 +25,20 @@ def load_module(name: str, path: Path) -> Any:
 AUDIT = load_module("portal_exhaustive_audit", ROOT / "portal_exhaustive_audit.py")
 RECONCILE = load_module("portal_exhaustive_reconcile", ROOT / "portal_exhaustive_reconcile.py")
 
-REQUIRED_STATE_CATEGORIES = {"server_failure", "recovery"}
+REQUIRED_STATE_CATEGORIES = {
+    "not_found",
+    "csrf_expiry",
+    "rate_limit",
+    "server_failure",
+    "recovery",
+}
 REQUIRED_LOCALES = {"en", "pl"}
+GENERATED_PREFIXES = (
+    "OTERYN-AUDIT-CURRENT-STATE-",
+    "OTERYN-AUDIT-CURRENT-LOCALE-",
+    "OTERYN-AUDIT-CURRENT-ACCESSIBILITY-",
+    "OTERYN-AUDIT-CURRENT-OVERFLOW-",
+)
 
 
 def read_json(path: Path) -> Any:
@@ -50,8 +62,48 @@ def declared_locales(states: list[str]) -> set[str]:
     return locales
 
 
-def is_generated_state_finding(finding: dict[str, Any]) -> bool:
-    return str(finding.get("id", "")).startswith("OTERYN-AUDIT-CURRENT-STATE-")
+def strict_state_categories(states: list[str]) -> set[str]:
+    normalized = [str(value).casefold().replace("_", "-") for value in states]
+    categories = set(AUDIT.state_categories(normalized))
+    if any(
+        marker in state
+        for state in normalized
+        for marker in ("419", "csrf", "page-expired", "session-expired", "expired-session")
+    ):
+        categories.add("csrf_expiry")
+    return categories
+
+
+def evidence_text(records: list[dict[str, Any]]) -> str:
+    chunks: list[str] = []
+    for record in records:
+        chunks.extend(str(value) for value in record.get("evidence_layers", []))
+        for evidence in record.get("evidence", []):
+            if not isinstance(evidence, dict):
+                continue
+            chunks.append(str(evidence.get("file", "")))
+            chunks.extend(str(value) for value in evidence.get("markers", []))
+    return " ".join(chunks).casefold()
+
+
+def has_accessibility_evidence(records: list[dict[str, Any]]) -> bool:
+    text = evidence_text(records)
+    return "accessibility" in text or "axe" in text or "wcag" in text
+
+
+def has_overflow_evidence(records: list[dict[str, Any]]) -> bool:
+    text = evidence_text(records)
+    states = " ".join(
+        str(value).casefold()
+        for record in records
+        for value in record.get("states", [])
+    )
+    return "overflow" in text or "horizontal-scroll" in text or "overflow" in states
+
+
+def is_generated_strictness_finding(finding: dict[str, Any]) -> bool:
+    identifier = str(finding.get("id", ""))
+    return identifier.startswith(GENERATED_PREFIXES)
 
 
 def strict_surface_findings(records: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], dict[str, set[str]]]:
@@ -66,7 +118,7 @@ def strict_surface_findings(records: list[dict[str, Any]]) -> tuple[list[dict[st
         representative = surface_records[0]
         module = str(representative.get("module", "quality_e2e"))
         states = sorted({str(state) for row in surface_records for state in row.get("states", [])})
-        categories = set(AUDIT.state_categories(states))
+        categories = strict_state_categories(states)
         missing_state_categories = sorted(REQUIRED_STATE_CATEGORIES - categories)
         if missing_state_categories:
             identifier = AUDIT.finding_id("STATE", surface_id)
@@ -77,14 +129,14 @@ def strict_surface_findings(records: list[dict[str, Any]]) -> tuple[list[dict[st
                     "severity": "MEDIUM",
                     "module": module,
                     "subject": surface_id,
-                    "title": f"{surface_id} lacks explicit failure and recovery closure",
+                    "title": f"{surface_id} lacks explicit HTTP failure and recovery closure",
                     "evidence": {
                         "declared_states": states,
                         "state_categories": sorted(categories),
                         "missing_categories": missing_state_categories,
                     },
-                    "impact": "Issue #326 requires both applicable failure and restored/recovery evidence; one side cannot imply the other.",
-                    "disposition": "Declare both server-failure and recovery categories, or persist an owner-approved non-applicability rule with exact evidence.",
+                    "impact": "Issue #326 requires explicit applicability or evidence for 404, 419, 429, server/dependency failure and recovery; one category cannot imply another.",
+                    "disposition": "Declare and execute each missing category, or persist an owner-approved non-applicability rule with exact evidence.",
                 }
             )
 
@@ -109,6 +161,38 @@ def strict_surface_findings(records: list[dict[str, Any]]) -> tuple[list[dict[st
                     "disposition": "Declare and execute exact-head English and Polish evidence, or persist an owner-approved locale non-applicability rule.",
                 }
             )
+
+        if not has_accessibility_evidence(surface_records):
+            identifier = AUDIT.finding_id("ACCESSIBILITY", surface_id)
+            finding_ids_by_surface[surface_id].add(identifier)
+            findings.append(
+                {
+                    "id": identifier,
+                    "severity": "MEDIUM",
+                    "module": module,
+                    "subject": surface_id,
+                    "title": f"{surface_id} lacks explicit accessibility evidence",
+                    "evidence": {"evidence_text": evidence_text(surface_records)[:1000]},
+                    "impact": "Responsive or functional evidence does not establish accessibility or keyboard/semantic closure.",
+                    "disposition": "Add bounded exact-head accessibility evidence or persist an owner-approved non-applicability rule.",
+                }
+            )
+
+        if not has_overflow_evidence(surface_records):
+            identifier = AUDIT.finding_id("OVERFLOW", surface_id)
+            finding_ids_by_surface[surface_id].add(identifier)
+            findings.append(
+                {
+                    "id": identifier,
+                    "severity": "MEDIUM",
+                    "module": module,
+                    "subject": surface_id,
+                    "title": f"{surface_id} lacks explicit horizontal-overflow evidence",
+                    "evidence": {"evidence_text": evidence_text(surface_records)[:1000], "declared_states": states},
+                    "impact": "Viewport declarations do not prove absence of clipped controls or horizontal scrolling.",
+                    "disposition": "Add exact-head overflow assertions at applicable viewport and long-content boundaries.",
+                }
+            )
     return findings, finding_ids_by_surface
 
 
@@ -116,14 +200,14 @@ def apply_strictness(matrix: dict[str, Any]) -> dict[str, Any]:
     route_records = [row for row in matrix.get("route_records", []) if isinstance(row, dict)]
     retained_findings = [
         row for row in matrix.get("findings", [])
-        if isinstance(row, dict) and not is_generated_state_finding(row)
+        if isinstance(row, dict) and not is_generated_strictness_finding(row)
     ]
     strict_findings, ids_by_surface = strict_surface_findings(route_records)
 
     for record in route_records:
         identifiers = {
             str(value) for value in record.get("finding_ids", [])
-            if not str(value).startswith("OTERYN-AUDIT-CURRENT-STATE-")
+            if not str(value).startswith(GENERATED_PREFIXES)
         }
         identifiers.update(ids_by_surface.get(str(record.get("surface_id", "")), set()))
         record["finding_ids"] = sorted(identifiers)
@@ -146,14 +230,17 @@ def validate_strictness(matrix: dict[str, Any]) -> list[str]:
 
     for surface_id, records in rendered_by_surface.items():
         states = sorted({str(state) for row in records for state in row.get("states", [])})
-        categories = set(AUDIT.state_categories(states))
+        categories = strict_state_categories(states)
         locales = declared_locales(states)
-        state_id = AUDIT.finding_id("STATE", surface_id)
-        locale_id = AUDIT.finding_id("LOCALE", surface_id)
-        if REQUIRED_STATE_CATEGORIES - categories and state_id not in finding_ids:
-            errors.append(f"{surface_id}: missing state-closure finding")
-        if REQUIRED_LOCALES - locales and locale_id not in finding_ids:
-            errors.append(f"{surface_id}: missing locale-closure finding")
+        required = {
+            AUDIT.finding_id("STATE", surface_id): bool(REQUIRED_STATE_CATEGORIES - categories),
+            AUDIT.finding_id("LOCALE", surface_id): bool(REQUIRED_LOCALES - locales),
+            AUDIT.finding_id("ACCESSIBILITY", surface_id): not has_accessibility_evidence(records),
+            AUDIT.finding_id("OVERFLOW", surface_id): not has_overflow_evidence(records),
+        }
+        for identifier, needed in required.items():
+            if needed and identifier not in finding_ids:
+                errors.append(f"{surface_id}: missing required finding {identifier}")
     return errors
 
 
@@ -163,10 +250,15 @@ def update_summary(output: Path, matrix: dict[str, Any]) -> None:
         "exact_sha": matrix["exact_sha"],
         "finding_count": len(matrix["findings"]),
         "severity_counts": dict(sorted(severity_counts.items())),
-        "state_rule": "both server_failure and recovery are required or a finding is emitted",
-        "locale_rule": "both en and pl are required or a finding is emitted",
+        "state_rule": "404 419 429 server failure and recovery require explicit coverage or a finding",
+        "locale_rule": "both en and pl require explicit coverage or a finding",
+        "accessibility_rule": "accessibility requires an explicit evidence marker or a finding",
+        "overflow_rule": "horizontal overflow requires an explicit assertion or a finding",
     }
     write_json(output / "portal-exhaustive-strictness.json", payload)
+    (output / "portal-exhaustive-audit-summary.md").write_text(
+        AUDIT.markdown_summary(matrix), encoding="utf-8"
+    )
 
 
 def main() -> int:
