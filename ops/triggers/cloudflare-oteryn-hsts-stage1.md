@@ -1,4 +1,4 @@
 # Cloudflare Oteryn HSTS stage 1 trigger
 
-mode: inert
+mode: audit
 confirmation:
