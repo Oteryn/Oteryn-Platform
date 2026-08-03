@@ -225,6 +225,13 @@ class DeepSystemValidationTests(unittest.TestCase):
         with self.assertRaisesRegex(ValidationError, "owner_issue"):
             validate_contract(contract, "abc123", self.root)
 
+    def test_optional_failed_lane_fails_closed(self):
+        contract = self.contract()
+        lane = next(x for x in contract["lanes"] if x["name"] == "production-smoke")
+        lane["status"] = "FAIL"
+        with self.assertRaisesRegex(ValidationError, "production-smoke reported FAIL"):
+            validate_contract(contract, "abc123", self.root)
+
     def test_visual_finding_fails(self):
         payload = json.loads(self.visual.read_text(encoding="utf-8"))
         payload["problematic"]["horizontalOverflow"] = ["home/mobile"]
