@@ -29,6 +29,26 @@ class PortalExhaustiveStrictnessTests(unittest.TestCase):
         self.assertEqual({"pl"}, STRICT.declared_locales(["Polish responsive state"]))
         self.assertEqual(set(), STRICT.declared_locales(["localization-covered"]))
 
+    def test_validation_error_is_not_server_failure(self) -> None:
+        categories = STRICT.strict_state_categories(["validation-error"])
+        self.assertNotIn("server_failure", categories)
+
+    def test_plain_missing_is_not_http_not_found(self) -> None:
+        categories = STRICT.strict_state_categories(["missing"])
+        self.assertNotIn("not_found", categories)
+
+    def test_precise_http_markers_classify_every_required_category(self) -> None:
+        categories = STRICT.strict_state_categories(
+            [
+                "not-found",
+                "csrf-419",
+                "rate-limit",
+                "dependency-unavailable",
+                "dependency-restored",
+            ]
+        )
+        self.assertEqual(STRICT.REQUIRED_STATE_CATEGORIES, categories)
+
     def test_failure_without_recovery_emits_state_finding(self) -> None:
         records = [rendered(["dependency-unavailable", "localized-en", "localized-pl"])]
         findings, identifiers = STRICT.strict_surface_findings(records)
