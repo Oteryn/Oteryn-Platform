@@ -86,9 +86,7 @@ def parse_junit(path: Path) -> JUnitSummary:
     if root.tag == "testsuite":
         suites = [root]
     elif root.tag == "testsuites":
-        suites = list(root.findall("testsuite"))
-        if not suites:
-            suites = [root]
+        suites = list(root.findall("testsuite")) or [root]
     else:
         raise ValidationError(f"unsupported JUnit root {root.tag!r} in {path}")
 
@@ -117,7 +115,9 @@ def load_json(path: Path) -> dict[str, Any]:
     return value
 
 
-def validate_contract(contract: dict[str, Any], exact_sha: str, base_dir: Path) -> dict[str, Any]:
+def validate_contract(
+    contract: dict[str, Any], exact_sha: str, base_dir: Path
+) -> dict[str, Any]:
     if contract.get("schema_version") != SCHEMA_VERSION:
         raise ValidationError("unsupported lane contract schema_version")
     if contract.get("exact_sha") != exact_sha:
@@ -134,6 +134,7 @@ def validate_contract(contract: dict[str, Any], exact_sha: str, base_dir: Path) 
     by_name: dict[str, dict[str, Any]] = {}
     compiled: list[dict[str, Any]] = []
     global_junit = JUnitSummary()
+    blockers: list[dict[str, Any]] = []
 
     for lane in lanes:
         if not isinstance(lane, dict):
@@ -180,6 +181,14 @@ def validate_contract(contract: dict[str, Any], exact_sha: str, base_dir: Path) 
                     raise ValidationError(
                         f"external lane {name} requires reason and owner_issue"
                     )
+                if status == "BLOCKED":
+                    blockers.append(
+                        {
+                            "name": name,
+                            "reason": lane["reason"],
+                            "owner_issue": lane["owner_issue"],
+                        }
+                    )
             elif status == "PASS" and not lane.get("evidence_identity"):
                 raise ValidationError(
                     f"external PASS lane {name} requires evidence_identity"
@@ -195,12 +204,12 @@ def validate_contract(contract: dict[str, Any], exact_sha: str, base_dir: Path) 
     missing = sorted(REQUIRED_LANES - set(by_name))
     if missing:
         raise ValidationError(f"required lanes are missing: {', '.join(missing)}")
-    unexpected_optional = sorted(
+    optional_required = sorted(
         name for name in REQUIRED_LANES if not bool(by_name[name].get("required", False))
     )
-    if unexpected_optional:
+    if optional_required:
         raise ValidationError(
-            "required lanes are not marked required: " + ", ".join(unexpected_optional)
+            "required lanes are not marked required: " + ", ".join(optional_required)
         )
 
     portability = set(by_name["portability"].get("projects", []))
@@ -221,15 +230,22 @@ def validate_contract(contract: dict[str, Any], exact_sha: str, base_dir: Path) 
     if not isinstance(nonclaims, list) or not nonclaims:
         raise ValidationError("lane contract requires explicit nonclaims")
 
+    verdict = (
+        "DEEP_VALIDATION_PASS_WITH_EXTERNAL_BLOCKERS"
+        if blockers
+        else "DEEP_VALIDATION_PASS"
+    )
     return {
         "schema_version": SCHEMA_VERSION,
         "task_id": "OTERYN-20260803-deep-system-validation",
         "exact_sha": exact_sha,
-        "global_verdict": "DEEP_VALIDATION_PASS",
+        "global_verdict": verdict,
         "retries": 0,
         "required_lanes": sorted(REQUIRED_LANES),
         "lane_count": len(compiled),
         "junit_totals": asdict(global_junit),
+        "external_blocker_count": len(blockers),
+        "external_blockers": blockers,
         "lanes": compiled,
         "nonclaims": nonclaims,
     }
@@ -245,6 +261,7 @@ def render_markdown(manifest: dict[str, Any]) -> str:
         f"- Validation lanes: {manifest['lane_count']}",
         f"- JUnit tests: {totals['tests']}",
         f"- Failures/errors/skips/retries: {totals['failures']}/{totals['errors']}/{totals['skipped']}/{manifest['retries']}",
+        f"- External blockers: {manifest['external_blocker_count']}",
         "",
         "## Lanes",
         "",
@@ -254,6 +271,15 @@ def render_markdown(manifest: dict[str, Any]) -> str:
     for lane in manifest["lanes"]:
         tests = lane.get("junit_summary", {}).get("tests", "—")
         lines.append(f"| `{lane['name']}` | {lane['kind']} | {lane['status']} | {tests} |")
+
+    if manifest["external_blockers"]:
+        lines.extend(["", "## External blockers", ""])
+        for blocker in manifest["external_blockers"]:
+            lines.append(
+                f"- `{blocker['name']}` — {blocker['reason']} "
+                f"Owner: #{blocker['owner_issue']}."
+            )
+
     lines.extend(["", "## Nonclaims", ""])
     lines.extend(f"- {item}" for item in manifest["nonclaims"])
     lines.append("")
@@ -269,8 +295,9 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     try:
-        contract = load_json(args.contract)
-        manifest = validate_contract(contract, args.exact_sha, args.base_dir)
+        manifest = validate_contract(
+            load_json(args.contract), args.exact_sha, args.base_dir
+        )
     except ValidationError as exc:
         print(json.dumps({"result": "FAIL", "error": str(exc)}, sort_keys=True))
         return 1
@@ -286,9 +313,11 @@ def main(argv: list[str] | None = None) -> int:
         json.dumps(
             {
                 "result": "PASS",
+                "verdict": manifest["global_verdict"],
                 "exact_sha": manifest["exact_sha"],
                 "lanes": manifest["lane_count"],
                 "tests": manifest["junit_totals"]["tests"],
+                "external_blockers": manifest["external_blocker_count"],
             },
             sort_keys=True,
         )
