@@ -66,6 +66,7 @@ owned_paths:
   - tools/validation/deep_system_validation.py
   - tools/validation/test_deep_system_validation.py
   - scripts/acceptance/playwright.config.mjs
+  - scripts/acceptance/tests/admin-wiki-administration.spec.mjs
   - docs/agents/evidence/OTERYN-20260803-deep-system-validation/**
   - docs/agents/reports/OTERYN-20260803-deep-system-validation.md
 read_only_inputs:
@@ -83,8 +84,8 @@ cross_repository_tasks: []
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-03T17:55:00+02:00
-head: 6cb22265bdeb5224403469b0f5c5df8e95077a39
+updated_at: 2026-08-03T21:48:00+02:00
+head: 9877ee468c432d625d4668cbe81e54be5591a7b8
 base_sha: f7384418f01f4ae4c3190c71259f2fe7f3297dad
 branch: audit/OTERYN-20260803-deep-system-validation
 pr: 495
@@ -107,6 +108,7 @@ owned_paths:
   - tools/validation/deep_system_validation.py
   - tools/validation/test_deep_system_validation.py
   - scripts/acceptance/playwright.config.mjs
+  - scripts/acceptance/tests/admin-wiki-administration.spec.mjs
   - docs/agents/evidence/OTERYN-20260803-deep-system-validation/**
   - docs/agents/reports/OTERYN-20260803-deep-system-validation.md
 proven:
@@ -114,12 +116,13 @@ proven:
   - PHP validation executed 465 tests with 1961 assertions and zero failures errors or skips on exact head 642fe6dbcc3982ac50fccf48a03a51cb4ea92c98
   - MariaDB integrations and the separate game-auth concurrency lane passed without skips
   - compiler has 15 fail-closed tests covering SHA retries failures errors skips zero tests required projects required lanes evidence kinds visual findings soak duration and unowned blockers
-  - full browser execution reached the first Chromium profile and failed before later profiles
-  - the failed run preserved PHP and server evidence but lost Playwright JUnit and HTML because the parent shell exited before copying artifacts
-  - secure duplicated JUnit and HTML reporters now write directly to artifacts/deep per ACCEPTANCE_RUN_SUFFIX when VALIDATION_SHA is set
+  - secure duplicated JUnit and HTML reporters write directly to artifacts/deep per ACCEPTANCE_RUN_SUFFIX when VALIDATION_SHA is set
+  - Acceptance E2E run 30831002761 passed Chromium smoke and Chromium Firefox WebKit portability on exact head 9877ee468c432d625d4668cbe81e54be5591a7b8
+  - the responsive profile persisted the Wiki transition to In Review with lock version 2 but lost the expected role=status flash confirmation after redirect
+  - the responsive failure is caused by authenticated media-picker subrequests racing the lifecycle POST and aging session flash before the redirected page renders
 unknown:
-  - exact first failing Playwright test and assertion
-  - terminal full browser portability responsive resilience accessibility visual and soak results
+  - terminal responsive result after moving request quiescence before the lifecycle POST
+  - terminal full browser resilience accessibility visual and soak results
   - whether visual execution finds a blocking UX condition
   - final exact-head test counts and performance calibration metrics
   - terminal conclusions of all standard workflows on the final evidence commit
@@ -128,22 +131,25 @@ derived:
   - external production Canary login payment DNS Cloudflare and restore proof requires separate authorization
   - generated Actions evidence must be copied into repository paths before closeout
   - raw traces screenshots and video remain disabled because authenticated flows may contain cookies reset URLs TOTP enrollment secrets or recovery codes
+  - the Wiki lifecycle assertion must remain because a successful state transition without accessible success feedback is not complete UX closure
 conflicts: []
 first_failure:
-  marker: Deep System Validation run 30814423441 failed in the first full Chromium profile after all PHP lanes passed
-  evidence: artifact 8856337993 contains complete PHP JUnit and server logs but no Playwright JUnit or HTML because set -e stopped the browser step before copy operations
+  marker: Acceptance E2E and Visual UX run 30831002761 failed in responsive-mobile Wiki administration after smoke and portability passed
+  evidence: artifact 8863047241 JUnit shows the article persisted as In Review version 2 while getByRole status did not contain Wiki article submitted for review
 rejected_hypotheses:
   - route inventory closure proves runtime state coverage
   - critical browser evidence proves full acceptance
   - repository CI proves production deployment behavior
   - expiring Actions artifacts alone satisfy durable exact-head evidence
   - raw browser traces screenshots or video are acceptable durable diagnostics for authenticated flows
+  - the Wiki transition failed to persist
 changed_paths:
   - .github/workflows/deep-system-validation.yml
   - docs/agents/tasks/active/OTERYN-20260803-deep-system-validation.md
   - tools/validation/deep_system_validation.py
   - tools/validation/test_deep_system_validation.py
   - scripts/acceptance/playwright.config.mjs
+  - scripts/acceptance/tests/admin-wiki-administration.spec.mjs
 validation:
   - command: PYTHONPATH=tools/validation python -m unittest -v tools/validation/test_deep_system_validation.py
     result: PASS
@@ -151,9 +157,12 @@ validation:
   - command: Deep System Validation run 30814423441
     result: FAIL
     evidence: 465 PHP tests and 1961 assertions passed with zero skips; first full Chromium profile failed before browser evidence compilation
+  - command: Acceptance E2E and Visual UX run 30831002761
+    result: FAIL
+    evidence: smoke and browser portability passed; responsive-mobile Wiki lifecycle lost accessible flash feedback after a successful persisted transition
   - command: secure duplicate Playwright reporter configuration
-    result: NOT_RUN
-    evidence: exact-head Actions execution is required after commit 6cb22265bdeb5224403469b0f5c5df8e95077a39
+    result: PASS
+    evidence: exact-head run 30831002771 reached the browser matrix after all backend and contract lanes passed
 blockers: []
-next_action: execute exact-head Deep System Validation, retrieve the first full-profile JUnit and HTML evidence, and repair the confirmed browser failure without weakening any test
+next_action: quiesce authenticated media-picker requests before Submit for review, preserve the role=status assertion, then rerun every exact-head validation lane
 ```
