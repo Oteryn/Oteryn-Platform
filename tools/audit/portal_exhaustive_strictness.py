@@ -64,13 +64,17 @@ def declared_locales(states: list[str]) -> set[str]:
 
 def strict_state_categories(states: list[str]) -> set[str]:
     normalized = [str(value).casefold().replace("_", "-") for value in states]
-    categories = set(AUDIT.state_categories(normalized))
-    if any(
-        marker in state
-        for state in normalized
-        for marker in ("419", "csrf", "page-expired", "session-expired", "expired-session")
-    ):
-        categories.add("csrf_expiry")
+    categories: set[str] = set()
+    patterns = {
+        "not_found": ("not-found", "404", "missing-resource", "missing-record", "missing-page"),
+        "csrf_expiry": ("419", "csrf", "page-expired", "session-expired", "expired-session"),
+        "rate_limit": ("429", "rate-limit", "rate-limited", "throttle", "too-many-requests"),
+        "server_failure": ("500", "503", "server-failure", "internal-error", "service-unavailable", "dependency-unavailable"),
+        "recovery": ("dependency-restored", "service-restored", "recovery-success", "retry-success", "recovered"),
+    }
+    for category, markers in patterns.items():
+        if any(marker in state for state in normalized for marker in markers):
+            categories.add(category)
     return categories
 
 
@@ -135,7 +139,7 @@ def strict_surface_findings(records: list[dict[str, Any]]) -> tuple[list[dict[st
                         "state_categories": sorted(categories),
                         "missing_categories": missing_state_categories,
                     },
-                    "impact": "Issue #326 requires explicit applicability or evidence for 404, 419, 429, server/dependency failure and recovery; one category cannot imply another.",
+                    "impact": "Issue #326 requires explicit applicability or evidence for 404, 419, 429, server/dependency failure and recovery; validation errors and generic missing states cannot substitute for HTTP evidence.",
                     "disposition": "Declare and execute each missing category, or persist an owner-approved non-applicability rule with exact evidence.",
                 }
             )
@@ -250,7 +254,7 @@ def update_summary(output: Path, matrix: dict[str, Any]) -> None:
         "exact_sha": matrix["exact_sha"],
         "finding_count": len(matrix["findings"]),
         "severity_counts": dict(sorted(severity_counts.items())),
-        "state_rule": "404 419 429 server failure and recovery require explicit coverage or a finding",
+        "state_rule": "precise 404 419 429 server failure and recovery markers require explicit coverage or a finding",
         "locale_rule": "both en and pl require explicit coverage or a finding",
         "accessibility_rule": "accessibility requires an explicit evidence marker or a finding",
         "overflow_rule": "horizontal overflow requires an explicit assertion or a finding",
