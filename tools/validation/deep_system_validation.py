@@ -31,6 +31,7 @@ REQUIRED_LANES = {
     "resilience",
     "accessibility",
     "soak",
+    "visual-exploratory",
 }
 REQUIRED_PORTABILITY_PROJECTS = {
     "portability-chromium",
@@ -41,6 +42,15 @@ REQUIRED_RESPONSIVE_PROJECTS = {
     "responsive-desktop",
     "responsive-tablet",
     "responsive-mobile",
+}
+VISUAL_PROBLEM_KEYS = {
+    "statusMismatch",
+    "horizontalOverflow",
+    "unlabeledControls",
+    "lowContrast",
+    "focusNotObserved",
+    "rawTechnicalMessages",
+    "browserErrors",
 }
 ALLOWED_STATUSES = {"PASS", "FAIL", "BLOCKED", "NOT_APPLICABLE"}
 
@@ -113,6 +123,69 @@ def load_json(path: Path) -> dict[str, Any]:
     if not isinstance(value, dict):
         raise ValidationError(f"top-level JSON must be an object: {path}")
     return value
+
+
+def validate_visual_evidence(base_dir: Path, exact_sha: str) -> dict[str, Any]:
+    path = base_dir / "artifacts/deep/visual/visual-acceptance-results.json"
+    evidence = load_json(path)
+    if evidence.get("validationSha") != exact_sha:
+        raise ValidationError("visual evidence SHA does not match exact validation SHA")
+    if evidence.get("classification") != "VISUAL_UX_EVIDENCE_COLLECTED":
+        raise ValidationError("visual evidence has an unexpected classification")
+    screenshot_count = evidence.get("screenshotCount")
+    if not isinstance(screenshot_count, int) or screenshot_count <= 0:
+        raise ValidationError("visual evidence contains no screenshots")
+    problematic = evidence.get("problematic")
+    if not isinstance(problematic, dict):
+        raise ValidationError("visual evidence is missing the problematic summary")
+    missing = sorted(VISUAL_PROBLEM_KEYS - set(problematic))
+    if missing:
+        raise ValidationError("visual evidence is missing problem keys: " + ", ".join(missing))
+    findings: dict[str, int] = {}
+    for key in sorted(VISUAL_PROBLEM_KEYS):
+        records = problematic.get(key)
+        if not isinstance(records, list):
+            raise ValidationError(f"visual problem category {key} must be an array")
+        findings[key] = len(records)
+    active = {key: count for key, count in findings.items() if count}
+    if active:
+        rendered = ", ".join(f"{key}={count}" for key, count in active.items())
+        raise ValidationError(f"visual evidence contains blocking findings: {rendered}")
+    return {"screenshot_count": screenshot_count, "problem_counts": findings}
+
+
+def validate_soak_evidence(base_dir: Path, exact_sha: str) -> dict[str, Any]:
+    path = base_dir / "artifacts/deep/soak-runtime-metrics.json"
+    evidence = load_json(path)
+    if evidence.get("exact_tested_sha") != exact_sha:
+        raise ValidationError("soak evidence SHA does not match exact validation SHA")
+    target = evidence.get("target_duration_seconds")
+    measured = evidence.get("measured_duration_seconds")
+    if not isinstance(target, int) or target < 300:
+        raise ValidationError("soak target must be at least 300 seconds")
+    if not isinstance(measured, int) or measured < target - 5:
+        raise ValidationError(
+            f"soak duration is incomplete: measured={measured!r} target={target!r}"
+        )
+    numeric_keys = (
+        "server_rss_start_kb",
+        "server_rss_end_kb",
+        "server_rss_max_kb",
+        "redis_keys_before",
+        "redis_keys_after",
+    )
+    for key in numeric_keys:
+        value = evidence.get(key)
+        if not isinstance(value, int) or value < 0:
+            raise ValidationError(f"soak metric {key} must be a non-negative integer")
+    samples_path = base_dir / "artifacts/deep/soak-rss-samples.tsv"
+    try:
+        samples = [line for line in samples_path.read_text(encoding="utf-8").splitlines() if line]
+    except FileNotFoundError as exc:
+        raise ValidationError("soak RSS samples are missing") from exc
+    if len(samples) < 2:
+        raise ValidationError("soak RSS evidence contains fewer than two samples")
+    return {**evidence, "rss_sample_count": len(samples)}
 
 
 def validate_contract(
@@ -226,6 +299,9 @@ def validate_contract(
             "responsive evidence is missing projects: " + ", ".join(missing_responsive)
         )
 
+    visual_summary = validate_visual_evidence(base_dir, exact_sha)
+    soak_metrics = validate_soak_evidence(base_dir, exact_sha)
+
     nonclaims = contract.get("nonclaims")
     if not isinstance(nonclaims, list) or not nonclaims:
         raise ValidationError("lane contract requires explicit nonclaims")
@@ -244,6 +320,8 @@ def validate_contract(
         "required_lanes": sorted(REQUIRED_LANES),
         "lane_count": len(compiled),
         "junit_totals": asdict(global_junit),
+        "visual_summary": visual_summary,
+        "soak_metrics": soak_metrics,
         "external_blocker_count": len(blockers),
         "external_blockers": blockers,
         "lanes": compiled,
@@ -261,6 +339,8 @@ def render_markdown(manifest: dict[str, Any]) -> str:
         f"- Validation lanes: {manifest['lane_count']}",
         f"- JUnit tests: {totals['tests']}",
         f"- Failures/errors/skips/retries: {totals['failures']}/{totals['errors']}/{totals['skipped']}/{manifest['retries']}",
+        f"- Visual screenshots: {manifest['visual_summary']['screenshot_count']}",
+        f"- Soak duration: {manifest['soak_metrics']['measured_duration_seconds']} seconds",
         f"- External blockers: {manifest['external_blocker_count']}",
         "",
         "## Lanes",
@@ -317,6 +397,8 @@ def main(argv: list[str] | None = None) -> int:
                 "exact_sha": manifest["exact_sha"],
                 "lanes": manifest["lane_count"],
                 "tests": manifest["junit_totals"]["tests"],
+                "screenshots": manifest["visual_summary"]["screenshot_count"],
+                "soak_seconds": manifest["soak_metrics"]["measured_duration_seconds"],
                 "external_blockers": manifest["external_blocker_count"],
             },
             sort_keys=True,
