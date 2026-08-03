@@ -33,11 +33,15 @@ REQUIRED_LANES = {
     "soak",
 }
 REQUIRED_PORTABILITY_PROJECTS = {
-    "chromium-primary",
-    "firefox-portability",
-    "webkit-portability",
+    "portability-chromium",
+    "portability-firefox",
+    "portability-webkit",
 }
-REQUIRED_RESPONSIVE_PROJECTS = {"desktop", "tablet", "mobile"}
+REQUIRED_RESPONSIVE_PROJECTS = {
+    "responsive-desktop",
+    "responsive-tablet",
+    "responsive-mobile",
+}
 ALLOWED_STATUSES = {"PASS", "FAIL", "BLOCKED", "NOT_APPLICABLE"}
 
 
@@ -206,11 +210,11 @@ def validate_contract(contract: dict[str, Any], exact_sha: str, base_dir: Path) 
             "portability evidence is missing projects: " + ", ".join(missing_portability)
         )
 
-    responsive = set(by_name["responsive"].get("viewports", []))
+    responsive = set(by_name["responsive"].get("projects", []))
     missing_responsive = sorted(REQUIRED_RESPONSIVE_PROJECTS - responsive)
     if missing_responsive:
         raise ValidationError(
-            "responsive evidence is missing viewports: " + ", ".join(missing_responsive)
+            "responsive evidence is missing projects: " + ", ".join(missing_responsive)
         )
 
     nonclaims = contract.get("nonclaims")
