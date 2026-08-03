@@ -1,0 +1,296 @@
+#!/usr/bin/env python3
+"""Fail-closed compiler for Oteryn deep-system validation evidence."""
+
+from __future__ import annotations
+
+import argparse
+import json
+import sys
+import xml.etree.ElementTree as ET
+from dataclasses import asdict, dataclass
+from pathlib import Path
+from typing import Any
+
+SCHEMA_VERSION = 1
+REQUIRED_LANES = {
+    "python-validator-tests",
+    "composer-validate",
+    "composer-audit",
+    "php-format",
+    "php-analysis",
+    "php-tests",
+    "npm-audit",
+    "coverage-contract-strict",
+    "content-scale-contract",
+    "browser-full-chromium",
+    "account-lifecycle",
+    "community-data",
+    "downloads",
+    "portability",
+    "responsive",
+    "resilience",
+    "accessibility",
+    "soak",
+}
+REQUIRED_PORTABILITY_PROJECTS = {
+    "chromium-primary",
+    "firefox-portability",
+    "webkit-portability",
+}
+REQUIRED_RESPONSIVE_PROJECTS = {"desktop", "tablet", "mobile"}
+ALLOWED_STATUSES = {"PASS", "FAIL", "BLOCKED", "NOT_APPLICABLE"}
+
+
+class ValidationError(ValueError):
+    """Raised when evidence is incomplete or internally inconsistent."""
+
+
+@dataclass(frozen=True)
+class JUnitSummary:
+    files: int = 0
+    tests: int = 0
+    failures: int = 0
+    errors: int = 0
+    skipped: int = 0
+
+    def plus(self, other: "JUnitSummary") -> "JUnitSummary":
+        return JUnitSummary(
+            files=self.files + other.files,
+            tests=self.tests + other.tests,
+            failures=self.failures + other.failures,
+            errors=self.errors + other.errors,
+            skipped=self.skipped + other.skipped,
+        )
+
+
+def _int_attr(node: ET.Element, name: str) -> int:
+    raw = node.attrib.get(name, "0")
+    try:
+        return int(float(raw))
+    except ValueError as exc:
+        raise ValidationError(f"invalid JUnit {name} value: {raw!r}") from exc
+
+
+def parse_junit(path: Path) -> JUnitSummary:
+    if not path.is_file():
+        raise ValidationError(f"JUnit file is missing: {path}")
+    try:
+        root = ET.parse(path).getroot()
+    except ET.ParseError as exc:
+        raise ValidationError(f"invalid JUnit XML {path}: {exc}") from exc
+
+    if root.tag == "testsuite":
+        suites = [root]
+    elif root.tag == "testsuites":
+        suites = list(root.findall("testsuite"))
+        if not suites:
+            suites = [root]
+    else:
+        raise ValidationError(f"unsupported JUnit root {root.tag!r} in {path}")
+
+    total = JUnitSummary(files=1)
+    for suite in suites:
+        total = total.plus(
+            JUnitSummary(
+                tests=_int_attr(suite, "tests"),
+                failures=_int_attr(suite, "failures"),
+                errors=_int_attr(suite, "errors"),
+                skipped=_int_attr(suite, "skipped"),
+            )
+        )
+    return total
+
+
+def load_json(path: Path) -> dict[str, Any]:
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except FileNotFoundError as exc:
+        raise ValidationError(f"evidence file is missing: {path}") from exc
+    except json.JSONDecodeError as exc:
+        raise ValidationError(f"invalid JSON {path}: {exc}") from exc
+    if not isinstance(value, dict):
+        raise ValidationError(f"top-level JSON must be an object: {path}")
+    return value
+
+
+def validate_contract(contract: dict[str, Any], exact_sha: str, base_dir: Path) -> dict[str, Any]:
+    if contract.get("schema_version") != SCHEMA_VERSION:
+        raise ValidationError("unsupported lane contract schema_version")
+    if contract.get("exact_sha") != exact_sha:
+        raise ValidationError(
+            f"lane contract SHA {contract.get('exact_sha')!r} does not match {exact_sha!r}"
+        )
+    if contract.get("retries") != 0:
+        raise ValidationError("validation retries must be exactly zero")
+
+    lanes = contract.get("lanes")
+    if not isinstance(lanes, list) or not lanes:
+        raise ValidationError("lane contract must contain a non-empty lanes array")
+
+    by_name: dict[str, dict[str, Any]] = {}
+    compiled: list[dict[str, Any]] = []
+    global_junit = JUnitSummary()
+
+    for lane in lanes:
+        if not isinstance(lane, dict):
+            raise ValidationError("each lane must be an object")
+        name = lane.get("name")
+        if not isinstance(name, str) or not name:
+            raise ValidationError("each lane requires a non-empty name")
+        if name in by_name:
+            raise ValidationError(f"duplicate lane name: {name}")
+        by_name[name] = lane
+
+        status = lane.get("status")
+        if status not in ALLOWED_STATUSES:
+            raise ValidationError(f"lane {name} has invalid status {status!r}")
+        required = bool(lane.get("required", False))
+        if required and status != "PASS":
+            raise ValidationError(f"required lane {name} is not PASS: {status}")
+
+        kind = lane.get("kind")
+        lane_summary = JUnitSummary()
+        if kind == "command":
+            if status == "PASS" and lane.get("exit_code") != 0:
+                raise ValidationError(f"PASS command lane {name} must have exit_code 0")
+        elif kind == "junit":
+            junit_files = lane.get("junit_files")
+            if not isinstance(junit_files, list) or not junit_files:
+                raise ValidationError(f"JUnit lane {name} requires junit_files")
+            for relative in junit_files:
+                if not isinstance(relative, str) or Path(relative).is_absolute():
+                    raise ValidationError(f"lane {name} has invalid JUnit path")
+                lane_summary = lane_summary.plus(parse_junit(base_dir / relative))
+            if lane_summary.tests <= 0:
+                raise ValidationError(f"JUnit lane {name} executed zero tests")
+            if lane_summary.failures or lane_summary.errors or lane_summary.skipped:
+                raise ValidationError(
+                    f"JUnit lane {name} is not clean: "
+                    f"failures={lane_summary.failures} errors={lane_summary.errors} "
+                    f"skipped={lane_summary.skipped}"
+                )
+            global_junit = global_junit.plus(lane_summary)
+        elif kind == "external":
+            if status in {"BLOCKED", "NOT_APPLICABLE"}:
+                if not lane.get("reason") or not lane.get("owner_issue"):
+                    raise ValidationError(
+                        f"external lane {name} requires reason and owner_issue"
+                    )
+            elif status == "PASS" and not lane.get("evidence_identity"):
+                raise ValidationError(
+                    f"external PASS lane {name} requires evidence_identity"
+                )
+        else:
+            raise ValidationError(f"lane {name} has unsupported kind {kind!r}")
+
+        compiled_lane = dict(lane)
+        if kind == "junit":
+            compiled_lane["junit_summary"] = asdict(lane_summary)
+        compiled.append(compiled_lane)
+
+    missing = sorted(REQUIRED_LANES - set(by_name))
+    if missing:
+        raise ValidationError(f"required lanes are missing: {', '.join(missing)}")
+    unexpected_optional = sorted(
+        name for name in REQUIRED_LANES if not bool(by_name[name].get("required", False))
+    )
+    if unexpected_optional:
+        raise ValidationError(
+            "required lanes are not marked required: " + ", ".join(unexpected_optional)
+        )
+
+    portability = set(by_name["portability"].get("projects", []))
+    missing_portability = sorted(REQUIRED_PORTABILITY_PROJECTS - portability)
+    if missing_portability:
+        raise ValidationError(
+            "portability evidence is missing projects: " + ", ".join(missing_portability)
+        )
+
+    responsive = set(by_name["responsive"].get("viewports", []))
+    missing_responsive = sorted(REQUIRED_RESPONSIVE_PROJECTS - responsive)
+    if missing_responsive:
+        raise ValidationError(
+            "responsive evidence is missing viewports: " + ", ".join(missing_responsive)
+        )
+
+    nonclaims = contract.get("nonclaims")
+    if not isinstance(nonclaims, list) or not nonclaims:
+        raise ValidationError("lane contract requires explicit nonclaims")
+
+    return {
+        "schema_version": SCHEMA_VERSION,
+        "task_id": "OTERYN-20260803-deep-system-validation",
+        "exact_sha": exact_sha,
+        "global_verdict": "DEEP_VALIDATION_PASS",
+        "retries": 0,
+        "required_lanes": sorted(REQUIRED_LANES),
+        "lane_count": len(compiled),
+        "junit_totals": asdict(global_junit),
+        "lanes": compiled,
+        "nonclaims": nonclaims,
+    }
+
+
+def render_markdown(manifest: dict[str, Any]) -> str:
+    totals = manifest["junit_totals"]
+    lines = [
+        "# OTERYN deep system validation",
+        "",
+        f"- Exact tested SHA: `{manifest['exact_sha']}`",
+        f"- Verdict: **{manifest['global_verdict']}**",
+        f"- Validation lanes: {manifest['lane_count']}",
+        f"- JUnit tests: {totals['tests']}",
+        f"- Failures/errors/skips/retries: {totals['failures']}/{totals['errors']}/{totals['skipped']}/{manifest['retries']}",
+        "",
+        "## Lanes",
+        "",
+        "| Lane | Kind | Status | Tests |",
+        "|---|---|---:|---:|",
+    ]
+    for lane in manifest["lanes"]:
+        tests = lane.get("junit_summary", {}).get("tests", "—")
+        lines.append(f"| `{lane['name']}` | {lane['kind']} | {lane['status']} | {tests} |")
+    lines.extend(["", "## Nonclaims", ""])
+    lines.extend(f"- {item}" for item in manifest["nonclaims"])
+    lines.append("")
+    return "\n".join(lines)
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--exact-sha", required=True)
+    parser.add_argument("--contract", type=Path, required=True)
+    parser.add_argument("--base-dir", type=Path, required=True)
+    parser.add_argument("--output-dir", type=Path, required=True)
+    args = parser.parse_args(argv)
+
+    try:
+        contract = load_json(args.contract)
+        manifest = validate_contract(contract, args.exact_sha, args.base_dir)
+    except ValidationError as exc:
+        print(json.dumps({"result": "FAIL", "error": str(exc)}, sort_keys=True))
+        return 1
+
+    args.output_dir.mkdir(parents=True, exist_ok=True)
+    (args.output_dir / "manifest.json").write_text(
+        json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
+    (args.output_dir / "report.md").write_text(
+        render_markdown(manifest), encoding="utf-8"
+    )
+    print(
+        json.dumps(
+            {
+                "result": "PASS",
+                "exact_sha": manifest["exact_sha"],
+                "lanes": manifest["lane_count"],
+                "tests": manifest["junit_totals"]["tests"],
+            },
+            sort_keys=True,
+        )
+    )
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
