@@ -4,7 +4,7 @@ status: validating
 branch: docs/OTERYN-20260803-terminal-ci-continuation
 base_branch: main
 created: 2026-08-03T08:17:00+02:00
-updated: 2026-08-03T08:27:00+02:00
+updated: 2026-08-03T08:32:00+02:00
 related_pr: 484
 project_lane: oteryn-platform
 execution_mode: github-only
@@ -84,11 +84,24 @@ e2e:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-03T08:27:00+02:00
+updated_at: 2026-08-03T08:32:00+02:00
 head: pending-final-task-record-commit
 branch: docs/OTERYN-20260803-terminal-ci-continuation
 pr: 484
 status: validating
+context_routes:
+  - AGENTS.override.md
+  - docs/agents/AGENTS.md
+  - docs/agents/ANTI_STALL_AND_EXECUTION_BUDGET.md
+  - docs/agents/AUTONOMOUS_PROGRAM_CONTINUATION.md
+  - docs/agents/GITHUB_ONLY_EXECUTION.md
+owned_paths:
+  - AGENTS.override.md
+  - docs/agents/AGENTS.md
+  - docs/agents/ANTI_STALL_AND_EXECUTION_BUDGET.md
+  - docs/agents/AUTONOMOUS_PROGRAM_CONTINUATION.md
+  - docs/agents/GITHUB_ONLY_EXECUTION.md
+  - docs/agents/tasks/active/OTERYN-20260803-terminal-ci-continuation.md
 proven:
   - Oteryn Platform main uses policy v2 and caused PR 477 to stop after two final-CI checks.
   - Repository setting allow_auto_merge is false.
@@ -96,9 +109,16 @@ proven:
   - Eligible final CI may continue for at most 45 minutes, at intervals of at least 3 minutes and no more than 12 checks per materially new generation.
   - Direct squash merge remains forbidden until every exact-head gate passes.
   - Fresh contradiction and scope audit passed with zero open material findings.
+derived:
+  - Future invocations based on main after merge may use the bounded terminal-CI exception; the current unmerged governance task may not use it to expand its own trusted-base authority.
 unknown:
   - exact-head CI result for the final governance head
 conflicts: []
+first_failure:
+  marker: checkpoint-schema-missing-fields
+  evidence: Agent Governance run 30790098852 job 91611597288 reported missing context_routes, derived, first_failure, owned_paths and rejected_hypotheses.
+rejected_hypotheses:
+  - Treat the Agent Governance failure as infrastructure flakiness: rejected because the validator emitted deterministic missing-field errors.
 changed_paths:
   - AGENTS.override.md
   - docs/agents/AGENTS.md
@@ -113,9 +133,12 @@ validation:
   - command: runtime E2E
     result: NOT_APPLICABLE
     evidence: documentation-only governance change
-  - command: exact-head repository CI
+  - command: Agent Governance run 30790098852 job 91611597288
+    result: FAIL
+    evidence: deterministic checkpoint schema failure repaired in this commit
+  - command: exact-head repository CI after schema repair
     result: NOT_RUN
-    evidence: final task-record commit triggers exact-head checks
+    evidence: schema-repair commit triggers a new exact-head check generation
 blockers: []
-next_action: Mark PR #484 ready, inspect required exact-head CI under the trusted-base limit, and squash-merge only after every required check passes.
+next_action: Inspect the newly triggered exact-head checks once; if all required checks pass, squash-merge PR #484, archive this task and update the durable governance evidence.
 ```
