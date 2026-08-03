@@ -1,10 +1,10 @@
 ---
 task_id: OTERYN-20260801-cloudflare-edge-audit
 project_lane: oteryn-platform-core
-status: blocked
-branch: docs/OTERYN-20260802-cloudflare-waf-token-blocker
+status: implementing
+branch: fix/OTERYN-20260803-cloudflare-ruleset-create-response
 base_branch: main
-updated: 2026-08-02T13:30:00+02:00
+updated: 2026-08-03T18:38:00+02:00
 feature_pr: pending
 ---
 
@@ -12,7 +12,7 @@ feature_pr: pending
 
 ## Goal
 
-Restore public WWW and Game Gateway traffic while preserving the broad country restriction for unrelated hosts. The canonical hosts remain:
+Restore public WWW and Game Gateway traffic while preserving the broad country restriction for unrelated hosts. Canonical hosts:
 
 ```text
 oteryn.molehill.cloud
@@ -21,30 +21,33 @@ gateway.molehill.cloud
 
 ## Current verdict
 
-Repository implementation is complete and validated. Live mutation is externally blocked because the dedicated GitHub secret `CLOUDFLARE_EDGE_AUDIT_TOKEN` can read the zone WAF but Cloudflare rejects creation of a zone custom rule.
+The owner corrected the dedicated token policy to zone-bounded `Zone WAF: Edit` and `Bot Management: Edit` for `molehill.cloud`. Trusted preflight succeeded. The next apply proved WAF write access by creating the exact managed skip rule in the correct position, but the implementation rejected Cloudflare's documented ruleset-shaped create response before reaching the Bot Management update.
+
+Current live state from the automatic post-failure audit:
 
 ```text
-failure_phase=create_waf_skip_rule
-http_status=403
-error_codes=10000
-repair_rule_count=0
+candidate_count=1
+repair_rule_count=1
+repair_state=current
+repair_before_candidate=true
 bot_fight_mode=true
-mutation=none
+desired_state=false
 ```
 
-The operational marker is reset to `inert`. No managed repair rule exists and Bot Fight Mode remains unchanged.
+The partial state is bounded: the exact Oteryn host exception exists before the audited country block, the unrelated country restriction remains, and Bot Fight Mode remains unchanged. The operational marker has been reset to `inert` on the repair branch while the response contract and recovery logic are corrected.
 
 ## Acceptance criteria
 
 - [x] Gateway hostname, Tunnel, DNS and Universal SSL certificate are current.
 - [x] Exact-host WAF skip plus Bot Fight Mode repair is implemented with audit/apply/rollback.
 - [x] Fixed audited rule ID/hash, ambiguity denial, exact confirmations, idempotency and partial rollback are tested.
-- [x] Live read-only preflight proves one broad country candidate, no managed repair rule and Bot Fight Mode enabled.
-- [x] Two bounded apply attempts failed at the same WAF rule creation boundary and left no mutation.
-- [x] Safe failure diagnostics publish phase, HTTP status, Cloudflare codes and post-failure state without raw API data.
-- [x] Operational marker is reset to inert after the bounded retry budget.
-- [ ] Existing token policy is corrected so `POST /zones/{zone_id}/rulesets/{ruleset_id}/rules` succeeds with zone-bounded WAF write access.
+- [x] Token policy is effective for WAF creation; the exact repair rule now exists and is ordered before the audited broad block.
+- [x] Official Cloudflare API evidence proves the create-rule response is a ruleset object containing the rules array.
+- [ ] Repair implementation accepts and validates the ruleset-shaped create response.
+- [ ] Recovery detects and deletes a rule when Cloudflare accepts POST but response validation fails.
+- [ ] Existing exact WAF partial state is completed by disabling Bot Fight Mode without recreating the rule.
 - [ ] Trusted-main apply reaches exact desired state and public DNS/TLS/HTTP E2E is rerun.
+- [ ] Operational marker is reset to inert after terminal validation.
 - [ ] Task is archived only after verified completion or an explicit terminal owner decision.
 - [ ] `PUBLIC_DOMAIN_LAUNCH_READY` and `PRODUCTION_PROVEN` remain false until wider production acceptance passes.
 
@@ -66,9 +69,8 @@ modules:
   - game-gateway
 dependencies:
   - production-cloudflare GitHub environment
-  - CLOUDFLARE_EDGE_AUDIT_TOKEN with effective Zone WAF Write/Edit and Bot Management Write/Edit for molehill.cloud
-blockers:
-  - Cloudflare returns HTTP 403 code 10000 when the dedicated token creates a zone custom WAF rule.
+  - CLOUDFLARE_EDGE_AUDIT_TOKEN with effective Zone WAF Edit and Bot Management Edit for molehill.cloud
+blockers: []
 cross_repository_tasks:
   - native-client endpoint rollout remains separately controlled
 ```
@@ -78,16 +80,16 @@ cross_repository_tasks:
 ```yaml
 checkpoint_version: 1
 policy_version: 2
-updated_at: 2026-08-02T13:30:00+02:00
-head: be468ccc4f74e1c8f55c0a449f3100fa1a8d5241
-branch: docs/OTERYN-20260802-cloudflare-waf-token-blocker
+updated_at: 2026-08-03T18:38:00+02:00
+head: cab9096c9cdfb73b304c1678cb2d3c5667fd54f3
+branch: fix/OTERYN-20260803-cloudflare-ruleset-create-response
 pr: pending
-status: blocked
-phase: external_dependency
-session_id: chat-20260802-cloudflare-edge-repair
+status: implementing
+phase: ruleset_create_response_repair
+session_id: chat-20260803-cloudflare-edge-repair
 session_role: implementer
 execution_mode: chat-github
-execution_reason: repository implementation is complete; the external Cloudflare token policy rejects the exact authorized write
+execution_reason: live write authorization is proven; implementation must reconcile the documented create response and bounded partial state
 run_scope: bounded_task
 continuation_policy: continue_until_real_stop
 task_completion_policy: complete_merge_archive
@@ -96,14 +98,14 @@ context_routes:
   - security
   - api
   - testing
-context_pressure: low
+context_pressure: medium
 context_growth: stable
-context_score: 4
+context_score: 5
 estimate_confidence: high
 decomposition_decision: phased
-decomposition_reason: external permission correction must precede another live apply
+decomposition_reason: implementation correction must merge before the existing exact WAF partial state can be completed safely
 validation_level: live_protected_environment
-last_completed_step: reset the operational marker to inert and record the exact Cloudflare WAF write denial
+last_completed_step: reset the operational marker to inert and implement ruleset-shaped response normalization plus recovery inference
 owned_paths:
   - .github/workflows/cloudflare-oteryn-public-edge-repair.yml
   - docs/agents/tasks/active/OTERYN-20260801-cloudflare-edge-audit.md
@@ -114,45 +116,43 @@ owned_paths:
   - scripts/operations/cloudflare-oteryn-public-edge-repair.py
   - tests/operations/cloudflare-oteryn-public-edge-repair/**
 proven:
-  - PR 456 merged the reversible repair implementation after all exact-head gates passed.
-  - Trusted preflight run 30744856911 found exactly one audited country rule, zero managed repair rules and Bot Fight Mode enabled.
-  - Apply run 30744995272 failed and post-failure audit 30745139637 proved zero remaining repair rules, Bot Fight Mode enabled and mutation none.
-  - Diagnostic retry run 30745738371 failed at create_waf_skip_rule with HTTP 403 code 10000.
-  - The diagnostic retry post-failure state again reported repair_rule_count zero, Bot Fight Mode true and mutation none.
-  - Official Cloudflare WAF documentation requires Zone WAF Write for adding a rule to a zone entry-point ruleset.
+  - Owner screenshot confirms Zone WAF Edit and Bot Management Edit for the specific zone molehill.cloud, with no IP filter or TTL.
+  - Trusted preflight run 30832409317 found one audited country rule, zero repair rules, Bot Fight Mode enabled and mutation none.
+  - Apply run 30832830466 created the exact repair rule before the audited candidate, then failed while validating the create response before Bot Fight Mode was changed.
+  - The automatic post-failure audit reported one current repair rule, correct ordering, Bot Fight Mode enabled and desired state false.
+  - Cloudflare official API documentation defines the create-rule response as a ruleset object with a rules array.
+  - The implementation branch normalizes that response and infers accepted POST state before emergency rollback.
 derived:
-  - DNS, Tunnel, certificate and repository implementation are not the current blocker.
-  - The effective token policy used by GitHub lacks accepted write authorization for the exact zone Rulesets operation, even though zone WAF reads succeed.
+  - WAF write authorization is no longer a blocker.
+  - The remaining live mutation is limited to disabling Bot Fight Mode because the exact WAF rule is already present.
+  - Repeating the old apply implementation would be incorrect; response-contract remediation must merge first.
 unknown:
-  - Whether the Cloudflare UI change was saved on the same token value stored in GitHub.
-  - Whether the token resource selector still targets exactly molehill.cloud after editing.
-  - Whether Bot Management write is effective; WAF creation fails first, before that operation is attempted.
-conflicts:
-  - The owner reported adding Edit permissions, but the protected API operation still returns authorization code 10000.
+  - Whether Bot Management Edit succeeds in the protected environment; the previous apply failed before attempting that operation.
+  - Final public WWW and Gateway behavior after Bot Fight Mode is disabled.
+conflicts: []
 first_failure:
-  marker: cloudflare-zone-waf-write-denied
-  evidence: run 30745738371 returned failure_phase=create_waf_skip_rule, HTTP 403, code 10000
+  marker: cloudflare-ruleset-create-response-shape
+  evidence: run 30832830466 classified create_waf_skip_rule as unexpected_api_response while the post-failure audit proved the rule was created
 rejected_hypotheses:
-  - The first failure was an unknown payload problem; the diagnostic retry classified it as Cloudflare authorization failure.
-  - The apply left a partial rule or disabled Bot Fight Mode; two post-failure audits prove the original state remains.
-  - Repeating the same apply is useful; the bounded identical-failure retry budget is exhausted.
+  - The new token still lacks WAF write access; the exact rule was created successfully.
+  - The WAF rule is absent or incorrectly ordered; the post-failure audit proves current exact state before the candidate.
+  - The create endpoint returns only the created rule; Cloudflare documents and live behavior show a ruleset object.
 changed_paths:
   - docs/agents/tasks/active/OTERYN-20260801-cloudflare-edge-audit.md
   - ops/triggers/cloudflare-oteryn-public-edge-repair.md
+  - scripts/operations/cloudflare-oteryn-public-edge-repair.py
+  - tests/operations/cloudflare-oteryn-public-edge-repair/mock_cloudflare.py
+  - tests/operations/cloudflare-oteryn-public-edge-repair/run.sh
 validation:
-  - command: Cloudflare public-edge preflight run 30744856911
+  - command: Cloudflare permission/state preflight run 30832409317
     result: PASS
     evidence: exact live state was readable and mutation was none
-  - command: Cloudflare public-edge apply run 30744995272
+  - command: Cloudflare partial apply run 30832830466
     result: FAIL
-    evidence: operation failed; follow-up audit proved no mutation
-  - command: Cloudflare post-failure audit run 30745139637
-    result: PASS
-    evidence: repair rule absent, Bot Fight Mode true, mutation none
-  - command: Cloudflare diagnostic apply run 30745738371
-    result: FAIL
-    evidence: create_waf_skip_rule returned HTTP 403 code 10000; post-failure state remained unchanged
-blockers:
-  - Existing CLOUDFLARE_EDGE_AUDIT_TOKEN must have effective Zone WAF Write/Edit for the specific zone molehill.cloud; the current token is rejected by the create-rule endpoint.
-next_action: In Cloudflare edit the same user API token stored as CLOUDFLARE_EDGE_AUDIT_TOKEN, verify Zone WAF is Edit/Write and the resource is Include Specific zone molehill.cloud, save the token policy, then rerun one read-only preflight before any apply.
+    evidence: exact WAF rule was created; response validation failed before Bot update; post-failure audit captured bounded partial state
+  - command: deterministic repair tests on implementation branch
+    result: NOT_RUN
+    evidence: exact-head GitHub Actions will run after PR creation
+blockers: []
+next_action: Open and validate the response-contract repair PR, merge with the marker inert, run a trusted audit, then apply only the missing Bot Fight Mode transition and execute public E2E.
 ```
