@@ -6,6 +6,8 @@ Before substantial implementation, product-facing validation, audit, E2E, PR cle
 
 Before autonomous, long-running, retry-prone, CI-waiting, repair, continuation, or multi-task work, read and follow `ANTI_STALL_AND_EXECUTION_BUDGET.md`. Its runtime, no-progress, ordinary-CI and terminal-CI checks, retry, repair-cycle, context-reconstruction, command-timeout, and additional-task limits are mandatory. Budget exhaustion or unchanged pending state outside the bounded terminal-CI exception is a real stop condition even when another contract says to continue autonomously.
 
+Before autonomous, scheduled, continuation, audit, repair, or multi-task work, read and follow `TERMINAL_ONLY_COMMUNICATION.md`. It is the controlling specialization for user-facing communication and overrides broader `low_noise` or material-milestone progress wording. Safe execution remains silent until one compact terminal report unless a specific owner decision, new authorization, safety concern, unresolved ownership conflict, material scope approval, or owner action is required before work can continue.
+
 Before treating the absence of Codex or a local terminal as a blocker, read and follow `GITHUB_ONLY_EXECUTION.md`. Use the GitHub connection and GitHub Actions on a dedicated branch, select the smallest proving validation, inspect full failed-job logs, keep repairs bounded, preserve required artifacts, and report an exact technical blocker only after the contract's alternatives are exhausted. Protected auto-merge when available, or direct squash merge when repository auto-merge is unavailable, is authorized for the current task's own PR only after every required exact-head gate passes; protected live operations remain unauthorized without separate authority.
 
 ## Authority and state model
@@ -26,6 +28,15 @@ DONE | WAITING | BLOCKED | ROTATE
 
 `ROTATE` is not a checkpoint status. Before returning it, persist `ready`, `waiting`, or `blocked` with exactly one concrete `next_action`. Use validation result `NOT_APPLICABLE` only with a concrete evidence reason.
 
+## Communication and context budget
+
+- Default autonomous communication mode is `terminal_only`, including scheduled audit and repair runs.
+- Do not narrate preflight, reads, searches, tool calls, commands, commits, PR creation, phase changes, CI observations, merges, archival, handoffs, Issue updates or next-task selection while a safe next action exists.
+- Persist detailed progress once in the authoritative task checkpoint, PR, Issue or artifact; do not duplicate the same chronology in chat.
+- A material milestone is not by itself permission to interrupt the owner.
+- When owner involvement is genuinely required, send at most two short sentences containing only the required decision/action and the safe default while waiting.
+- Otherwise send exactly one compact canonical final report at a real stop condition.
+
 Before creating, claiming, resuming, updating, handing off, or closing any task under this directory:
 
 1. Read `EXECUTION_PROTOCOL.md`.
@@ -44,4 +55,4 @@ Before creating, claiming, resuming, updating, handing off, or closing any task 
 14. Treat repository-mandated post-merge archival, Issue reconciliation, and ownership release as part of the entry task, not as an additional READY task.
 15. Start at most one additional task after the fully terminal entry task, only when at least 30 minutes of declared budget remains, no stall warning occurred, and the anti-stall gate permits it.
 
-These rules supplement the repository root `AGENTS.md`. When rules overlap, follow the more restrictive safety requirement. The explicit bounded terminal-CI exception is the controlling specialization for final exact-head CI; it does not weaken branch protection, merge gates, authority, production, data, payment, authentication, or cross-repository restrictions.
+These rules supplement the repository root `AGENTS.md`. When rules overlap, follow the more restrictive safety requirement. The explicit bounded terminal-CI exception is the controlling specialization for final exact-head CI; `TERMINAL_ONLY_COMMUNICATION.md` is the controlling specialization for autonomous user-facing progress cadence. Neither weakens branch protection, merge gates, authority, production, data, payment, authentication, or cross-repository restrictions.
