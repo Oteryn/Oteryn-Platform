@@ -27,12 +27,28 @@ REQUIRED_LANES = {
     "account-lifecycle",
     "community-data",
     "downloads",
+    "downloads-portability",
     "portability",
     "responsive",
     "resilience",
     "accessibility",
     "soak",
     "visual-exploratory",
+}
+REQUIRED_JUNIT_LANES = {
+    "php-tests",
+    "php-game-auth-concurrency",
+    "browser-full-chromium",
+    "account-lifecycle",
+    "community-data",
+    "content-scale-contract",
+    "downloads",
+    "downloads-portability",
+    "portability",
+    "responsive",
+    "resilience",
+    "accessibility",
+    "soak",
 }
 REQUIRED_PORTABILITY_PROJECTS = {
     "portability-chromium",
@@ -228,6 +244,15 @@ def validate_contract(
             raise ValidationError(f"required lane {name} is not PASS: {status}")
 
         kind = lane.get("kind")
+        if name in REQUIRED_JUNIT_LANES and kind != "junit":
+            raise ValidationError(
+                f"required JUnit lane {name} has unexpected kind {kind!r}"
+            )
+        if name in REQUIRED_LANES - REQUIRED_JUNIT_LANES and kind != "command":
+            raise ValidationError(
+                f"required command lane {name} has unexpected kind {kind!r}"
+            )
+
         lane_summary = JUnitSummary()
         if kind == "command":
             if status == "PASS" and lane.get("exit_code") != 0:
