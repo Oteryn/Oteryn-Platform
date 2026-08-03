@@ -85,14 +85,17 @@ class DeepSystemValidationTests(unittest.TestCase):
             "accessibility",
             "soak",
         }
+        junit_template = self.junit.read_text(encoding="utf-8")
         for name in sorted(REQUIRED_LANES):
             if name in junit_lanes:
+                junit_path = f"clean-{name}.xml"
+                (self.root / junit_path).write_text(junit_template, encoding="utf-8")
                 lane = {
                     "name": name,
                     "kind": "junit",
                     "status": "PASS",
                     "required": True,
-                    "junit_files": ["clean.xml"],
+                    "junit_files": [junit_path],
                 }
             else:
                 lane = {
@@ -188,6 +191,13 @@ class DeepSystemValidationTests(unittest.TestCase):
         with self.assertRaisesRegex(ValidationError, "required JUnit lane php-tests"):
             validate_contract(contract, "abc123", self.root)
 
+    def test_required_flag_must_be_boolean(self):
+        contract = self.contract()
+        lane = next(x for x in contract["lanes"] if x["name"] == "php-tests")
+        lane["required"] = "true"
+        with self.assertRaisesRegex(ValidationError, "required must be a boolean"):
+            validate_contract(contract, "abc123", self.root)
+
     def test_zero_test_junit_fails(self):
         self.junit.write_text(
             '<testsuite tests="0" failures="0" errors="0" skipped="0"/>',
@@ -196,13 +206,40 @@ class DeepSystemValidationTests(unittest.TestCase):
         with self.assertRaisesRegex(ValidationError, "zero tests"):
             validate_contract(self.contract(), "abc123", self.root)
 
+    def test_claimed_junit_count_must_match_testcases(self):
+        self.junit.write_text(
+            '<testsuite tests="2" failures="0" errors="0" skipped="0">'
+            '<testcase name="a"/></testsuite>',
+            encoding="utf-8",
+        )
+        with self.assertRaisesRegex(ValidationError, "declared 2 tests"):
+            validate_contract(self.contract(), "abc123", self.root)
+
     def test_skipped_test_fails(self):
         self.junit.write_text(
-            '<testsuite tests="2" failures="0" errors="0" skipped="1"/>',
+            '<testsuite tests="2" failures="0" errors="0" skipped="1">'
+            '<testcase name="a"/><testcase name="b"/></testsuite>',
             encoding="utf-8",
         )
         with self.assertRaisesRegex(ValidationError, "not clean"):
             validate_contract(self.contract(), "abc123", self.root)
+
+    def test_reused_junit_evidence_fails(self):
+        contract = self.contract()
+        first = next(x for x in contract["lanes"] if x["name"] == "php-tests")
+        second = next(
+            x for x in contract["lanes"] if x["name"] == "php-game-auth-concurrency"
+        )
+        second["junit_files"] = list(first["junit_files"])
+        with self.assertRaisesRegex(ValidationError, "is reused by lanes"):
+            validate_contract(contract, "abc123", self.root)
+
+    def test_junit_path_cannot_escape_evidence_base(self):
+        contract = self.contract()
+        lane = next(x for x in contract["lanes"] if x["name"] == "php-tests")
+        lane["junit_files"] = ["../outside.xml"]
+        with self.assertRaisesRegex(ValidationError, "escapes the evidence base"):
+            validate_contract(contract, "abc123", self.root)
 
     def test_missing_browser_project_fails(self):
         contract = self.contract()
@@ -222,7 +259,28 @@ class DeepSystemValidationTests(unittest.TestCase):
         contract = self.contract()
         lane = next(x for x in contract["lanes"] if x["name"] == "production-smoke")
         del lane["owner_issue"]
-        with self.assertRaisesRegex(ValidationError, "owner_issue"):
+        with self.assertRaisesRegex(ValidationError, "positive owner_issue"):
+            validate_contract(contract, "abc123", self.root)
+
+    def test_external_owner_must_be_positive_integer(self):
+        contract = self.contract()
+        lane = next(x for x in contract["lanes"] if x["name"] == "production-smoke")
+        lane["owner_issue"] = "490"
+        with self.assertRaisesRegex(ValidationError, "positive owner_issue"):
+            validate_contract(contract, "abc123", self.root)
+
+    def test_non_external_lane_cannot_be_blocked(self):
+        contract = self.contract()
+        lane = next(x for x in contract["lanes"] if x["name"] == "production-smoke")
+        lane.update({"kind": "command", "status": "BLOCKED", "exit_code": 0})
+        with self.assertRaisesRegex(ValidationError, "non-external lane"):
+            validate_contract(contract, "abc123", self.root)
+
+    def test_external_pass_requires_evidence_identity(self):
+        contract = self.contract()
+        lane = next(x for x in contract["lanes"] if x["name"] == "production-smoke")
+        lane["status"] = "PASS"
+        with self.assertRaisesRegex(ValidationError, "requires evidence_identity"):
             validate_contract(contract, "abc123", self.root)
 
     def test_optional_failed_lane_fails_closed(self):
@@ -230,6 +288,12 @@ class DeepSystemValidationTests(unittest.TestCase):
         lane = next(x for x in contract["lanes"] if x["name"] == "production-smoke")
         lane["status"] = "FAIL"
         with self.assertRaisesRegex(ValidationError, "production-smoke reported FAIL"):
+            validate_contract(contract, "abc123", self.root)
+
+    def test_nonclaims_must_be_non_empty_strings(self):
+        contract = self.contract()
+        contract["nonclaims"] = [""]
+        with self.assertRaisesRegex(ValidationError, "non-empty string nonclaims"):
             validate_contract(contract, "abc123", self.root)
 
     def test_visual_finding_fails(self):
@@ -248,7 +312,7 @@ class DeepSystemValidationTests(unittest.TestCase):
 
     def test_short_soak_fails(self):
         payload = json.loads(self.soak.read_text(encoding="utf-8"))
-        payload["measured_duration_seconds"] = 120
+        payload["measured_duration_seconds"] = 299
         self.soak.write_text(json.dumps(payload), encoding="utf-8")
         with self.assertRaisesRegex(ValidationError, "soak duration is incomplete"):
             validate_contract(self.contract(), "abc123", self.root)
