@@ -71,7 +71,7 @@ def base_rules() -> list[dict[str, Any]]:
                 "enabled": True,
             }
         )
-    if SCENARIO == "repair_present":
+    if SCENARIO in {"repair_present", "repair_present_bot_off", "repair_present_bot_fail"}:
         candidate_index = next(i for i, rule in enumerate(rules) if rule.get("id") == CANDIDATE_ID)
         rules.insert(candidate_index, repair_rule(baseline_on=True))
     return rules
@@ -79,7 +79,7 @@ def base_rules() -> list[dict[str, Any]]:
 
 STATE: dict[str, Any] = {
     "rules": base_rules(),
-    "fight_mode": False if SCENARIO == "baseline_off" else True,
+    "fight_mode": False if SCENARIO in {"baseline_off", "repair_present_bot_off"} else True,
     "enable_js": True,
 }
 
@@ -154,7 +154,10 @@ class Handler(BaseHTTPRequestHandler):
         new_rule = {key: value for key, value in body.items() if key != "position"}
         new_rule["id"] = REPAIR_ID
         before = body.get("position", {}).get("before")
-        index = next((i for i, rule in enumerate(STATE["rules"]) if rule.get("id") == before), len(STATE["rules"]))
+        if before == "":
+            index = 0
+        else:
+            index = next((i for i, rule in enumerate(STATE["rules"]) if rule.get("id") == before), len(STATE["rules"]))
         STATE["rules"].insert(index, new_rule)
         if SCENARIO == "malformed_after_create":
             malformed = {key: value for key, value in self.ruleset().items() if key != "rules"}
@@ -163,13 +166,48 @@ class Handler(BaseHTTPRequestHandler):
             return
         self.send_json(200, response(self.ruleset()))
 
+    def do_PATCH(self) -> None:
+        body = self.read_json()
+        self.record(body)
+        expected = f"/client/v4/zones/{ZONE}/rulesets/{RULESET_ID}/rules/{REPAIR_ID}"
+        if self.path != expected:
+            self.send_json(404, response(None, False, [{"code": 1000, "message": "not found"}]))
+            return
+        current_index = next((i for i, rule in enumerate(STATE["rules"]) if rule.get("id") == REPAIR_ID), -1)
+        if current_index < 0:
+            self.send_json(404, response(None, False, [{"code": 1002, "message": "repair not found"}]))
+            return
+        rule = STATE["rules"].pop(current_index)
+        position = body.get("position", {})
+        if "before" in position:
+            before = position["before"]
+            if before == "":
+                index = 0
+            else:
+                index = next((i for i, item in enumerate(STATE["rules"]) if item.get("id") == before), len(STATE["rules"]))
+        elif "after" in position:
+            after = position["after"]
+            if after == "":
+                index = len(STATE["rules"])
+            else:
+                found = next((i for i, item in enumerate(STATE["rules"]) if item.get("id") == after), len(STATE["rules"]) - 1)
+                index = found + 1
+        elif "index" in position:
+            index = max(0, min(int(position["index"]) - 1, len(STATE["rules"])))
+        else:
+            STATE["rules"].insert(current_index, rule)
+            self.send_json(400, response(None, False, [{"code": 1003, "message": "position missing"}]))
+            return
+        STATE["rules"].insert(index, rule)
+        self.send_json(200, response(self.ruleset()))
+
     def do_PUT(self) -> None:
         body = self.read_json()
         self.record(body)
         if self.path != f"/client/v4/zones/{ZONE}/bot_management":
             self.send_json(404, response(None, False, [{"code": 1000, "message": "not found"}]))
             return
-        if SCENARIO == "bot_fail" and body.get("fight_mode") is False:
+        if SCENARIO in {"bot_fail", "repair_present_bot_fail"} and body.get("fight_mode") is False:
             self.send_json(403, response(None, False, [{"code": 9109, "message": "permission denied"}]))
             return
         if "fight_mode" in body:
