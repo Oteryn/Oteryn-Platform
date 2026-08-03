@@ -1,0 +1,169 @@
+name: Playwright PHP 8.5 Runtime
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/playwright-runtime-validation.yml'
+      - 'deploy/ci/playwright-php.Dockerfile'
+      - 'scripts/acceptance/run-playwright-ci.sh'
+      - 'scripts/acceptance/package.json'
+      - 'scripts/acceptance/tests/helpers.mjs'
+      - 'composer.json'
+      - 'composer.lock'
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/playwright-runtime-validation.yml'
+      - 'deploy/ci/playwright-php.Dockerfile'
+      - 'scripts/acceptance/run-playwright-ci.sh'
+      - 'scripts/acceptance/package.json'
+      - 'scripts/acceptance/tests/helpers.mjs'
+      - 'composer.json'
+      - 'composer.lock'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: playwright-php85-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      IMAGE_TAG: oteryn-playwright-php85:${{ github.run_id }}-${{ github.run_attempt }}
+
+    steps:
+      - name: Checkout exact validation SHA
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Prepare exact Laravel checkout and evidence directory
+        run: |
+          set -euo pipefail
+          cp .env.example .env
+          mkdir -p \
+            artifacts/playwright-runtime \
+            bootstrap/cache \
+            storage/framework/cache/data \
+            storage/framework/sessions \
+            storage/framework/views
+          touch database/database.sqlite
+
+      - name: Build retained Playwright PHP runtime
+        run: |
+          set -euo pipefail
+          docker build \
+            --progress=plain \
+            --file deploy/ci/playwright-php.Dockerfile \
+            --tag "$IMAGE_TAG" \
+            .
+          docker image inspect "$IMAGE_TAG" --format '{{.Id}}' \
+            > artifacts/playwright-runtime/image-id.txt
+
+      - name: Verify official-image shell compatibility
+        run: |
+          set -euo pipefail
+          test ! -e scripts/acceptance/node_modules
+          docker run --rm \
+            --user "$(id -u):$(id -g)" \
+            --env HOME=/tmp \
+            --volume "$PWD:/workspace" \
+            --workdir /workspace \
+            "$IMAGE_TAG" \
+            bash -lc '
+              set -euo pipefail
+              php -r '\''exit(PHP_VERSION_ID >= 80500 ? 0 : 1);'\''
+              cd scripts/acceptance
+              npx playwright --version
+            ' | tee artifacts/playwright-runtime/shell-passthrough.txt
+          test ! -e scripts/acceptance/node_modules
+
+      - name: Install exact repository dependencies through runtime
+        run: |
+          set -euo pipefail
+          docker run --rm \
+            --user "$(id -u):$(id -g)" \
+            --env HOME=/tmp \
+            --env COMPOSER_CACHE_DIR=/tmp/composer-cache \
+            --volume "$PWD:/workspace" \
+            --workdir /workspace \
+            --entrypoint bash \
+            "$IMAGE_TAG" \
+            -lc 'composer install --no-interaction --prefer-dist --no-progress'
+
+      - name: Generate application key through runtime
+        run: |
+          set -euo pipefail
+          docker run --rm \
+            --user "$(id -u):$(id -g)" \
+            --env HOME=/tmp \
+            --volume "$PWD:/workspace" \
+            --workdir /workspace \
+            --entrypoint bash \
+            "$IMAGE_TAG" \
+            -lc 'php artisan key:generate --force --no-interaction'
+
+      - name: Verify PHP Composer Node and Playwright contract
+        run: |
+          set -euo pipefail
+          docker run --rm \
+            --user "$(id -u):$(id -g)" \
+            --env HOME=/tmp \
+            --env OTERYN_REQUIRE_VENDOR=1 \
+            --volume "$PWD:/workspace" \
+            --workdir /workspace \
+            "$IMAGE_TAG" \
+            --verify-only \
+            | tee artifacts/playwright-runtime/toolchain.txt
+
+      - name: Launch Chromium Firefox and WebKit
+        run: |
+          set -euo pipefail
+          docker run --rm \
+            --user "$(id -u):$(id -g)" \
+            --env HOME=/tmp \
+            --env OTERYN_REQUIRE_VENDOR=1 \
+            --ipc host \
+            --shm-size 1g \
+            --volume "$PWD:/workspace" \
+            --workdir /workspace \
+            "$IMAGE_TAG" \
+            --runtime-smoke \
+            | tee artifacts/playwright-runtime/browser-smoke.txt
+
+      - name: Record exact source identities
+        if: always()
+        run: |
+          set -euo pipefail
+          {
+            printf 'tested_sha=%s\n' "${{ github.event.pull_request.head.sha || github.sha }}"
+            sha256sum \
+              deploy/ci/playwright-php.Dockerfile \
+              scripts/acceptance/run-playwright-ci.sh \
+              scripts/acceptance/package.json \
+              composer.json \
+              composer.lock
+          } > artifacts/playwright-runtime/source-identities.txt
+
+      - name: Upload Playwright runtime evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-php85-runtime-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/playwright-runtime
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Remove validation image
+        if: always()
+        run: docker image rm -f "$IMAGE_TAG" >/dev/null 2>&1 || true
