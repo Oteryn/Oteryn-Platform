@@ -16,6 +16,22 @@ PORT_FILE = Path(os.environ["MOCK_PORT_FILE"])
 LOG_FILE = Path(os.environ["MOCK_LOG_FILE"])
 
 
+def repair_rule(*, baseline_on: bool = True) -> dict[str, Any]:
+    return {
+        "id": REPAIR_ID,
+        "ref": "oteryn-public-edge-canonical-skip-v1",
+        "action": "skip",
+        "action_parameters": {"products": ["bic", "securityLevel"], "ruleset": "current"},
+        "expression": 'http.host in {"oteryn.molehill.cloud" "gateway.molehill.cloud"}',
+        "description": (
+            "Oteryn canonical public edge exception v1 "
+            f"[bot-baseline:{'on' if baseline_on else 'off'}]"
+        ),
+        "enabled": True,
+        "logging": {"enabled": True},
+    }
+
+
 def base_rules() -> list[dict[str, Any]]:
     rules = [
         {
@@ -55,6 +71,9 @@ def base_rules() -> list[dict[str, Any]]:
                 "enabled": True,
             }
         )
+    if SCENARIO == "repair_present":
+        candidate_index = next(i for i, rule in enumerate(rules) if rule.get("id") == CANDIDATE_ID)
+        rules.insert(candidate_index, repair_rule(baseline_on=True))
     return rules
 
 
@@ -92,7 +111,14 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(payload)
 
     def ruleset(self) -> dict[str, Any]:
-        return {"id": RULESET_ID, "name": "zone", "kind": "zone", "phase": "http_request_firewall_custom", "rules": STATE["rules"]}
+        return {
+            "id": RULESET_ID,
+            "name": "zone",
+            "kind": "zone",
+            "phase": "http_request_firewall_custom",
+            "rules": STATE["rules"],
+            "version": "1",
+        }
 
     def do_GET(self) -> None:
         self.record()
@@ -103,7 +129,16 @@ class Handler(BaseHTTPRequestHandler):
             self.send_json(200, response(self.ruleset()))
             return
         if self.path == f"/client/v4/zones/{ZONE}/bot_management":
-            self.send_json(200, response({"fight_mode": STATE["fight_mode"], "enable_js": STATE["enable_js"], "ai_bots_protection": "disabled"}))
+            self.send_json(
+                200,
+                response(
+                    {
+                        "fight_mode": STATE["fight_mode"],
+                        "enable_js": STATE["enable_js"],
+                        "ai_bots_protection": "disabled",
+                    }
+                ),
+            )
             return
         self.send_json(404, response(None, False, [{"code": 1000, "message": "not found"}]))
 
@@ -121,7 +156,12 @@ class Handler(BaseHTTPRequestHandler):
         before = body.get("position", {}).get("before")
         index = next((i for i, rule in enumerate(STATE["rules"]) if rule.get("id") == before), len(STATE["rules"]))
         STATE["rules"].insert(index, new_rule)
-        self.send_json(200, response(new_rule))
+        if SCENARIO == "malformed_after_create":
+            malformed = {key: value for key, value in self.ruleset().items() if key != "rules"}
+            malformed["rules"] = []
+            self.send_json(200, response(malformed))
+            return
+        self.send_json(200, response(self.ruleset()))
 
     def do_PUT(self) -> None:
         body = self.read_json()
