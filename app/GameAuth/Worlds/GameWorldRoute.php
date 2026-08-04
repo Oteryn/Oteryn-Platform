@@ -11,5 +11,6 @@ final readonly class GameWorldRoute
         public string $region,
         public string $host,
         public int $port,
+        public ?GameWorldProtocolPolicy $gameplayPolicy = null,
     ) {}
 }
