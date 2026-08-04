@@ -89,8 +89,8 @@ final class GameLoginContextApiTest extends TestCase
     public function test_login_context_returns_only_enabled_canonical_candidates_in_authoritative_order(): void
     {
         $world = $this->createWorld('oteryn-test', true, GameWorldStatus::Online, 44);
-        $this->createCandidate($world, 'disabled', 0, false);
-        $this->createCandidate($world, 'native-second', 2, true);
+        $this->createGenericCandidate($world, 'disabled', 0, false, 'test.disabled.v1');
+        $this->createGenericCandidate($world, 'compatible-second', 2, true, 'test.compatible.v1');
         $this->createCandidate($world, 'native-first', 1, true);
 
         $response = $this->withToken(self::SERVICE_CREDENTIAL)
@@ -101,7 +101,7 @@ final class GameLoginContextApiTest extends TestCase
             ->assertJsonPath('gameplay_policy.channel_id', 1)
             ->assertJsonCount(2, 'gameplay_policy.candidates')
             ->assertJsonPath('gameplay_policy.candidates.0.endpoint_id', 'native-first')
-            ->assertJsonPath('gameplay_policy.candidates.1.endpoint_id', 'native-second')
+            ->assertJsonPath('gameplay_policy.candidates.1.endpoint_id', 'compatible-second')
             ->assertJsonPath('gameplay_policy.candidates.0.family', 'oteryn')
             ->assertJsonPath('gameplay_policy.candidates.0.schema_revision', 1)
             ->assertJsonPath('gameplay_policy.candidates.0.schema_sha256', self::NATIVE_SCHEMA_SHA256)
@@ -194,6 +194,32 @@ final class GameLoginContextApiTest extends TestCase
             'game_host' => 'native.example.test',
             'game_port' => 7173,
             'tls_server_name' => 'native.example.test',
+            'enabled' => $enabled,
+        ]);
+    }
+
+    private function createGenericCandidate(
+        GameWorld $world,
+        string $endpointId,
+        int $sortOrder,
+        bool $enabled,
+        string $profile,
+    ): GameWorldProtocolCandidate {
+        return GameWorldProtocolCandidate::query()->create([
+            'game_world_id' => $world->id,
+            'channel_id' => 1,
+            'sort_order' => $sortOrder,
+            'family' => 'test',
+            'profile' => $profile,
+            'transport' => 'tcp.test.v1',
+            'schema_revision' => 1,
+            'schema_sha256' => str_repeat('a', 64),
+            'required_capabilities' => [],
+            'optional_capabilities' => [],
+            'endpoint_id' => $endpointId,
+            'game_host' => 'compatible.example.test',
+            'game_port' => 7174,
+            'tls_server_name' => 'compatible.example.test',
             'enabled' => $enabled,
         ]);
     }
