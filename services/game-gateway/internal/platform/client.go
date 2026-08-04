@@ -40,9 +40,11 @@ func (c *Client) Redeem(ctx context.Context, ticket string) (gateway.Authorizati
 	}
 
 	var response struct {
-		Authorization struct {
-			CanaryAccountID    int64 `json:"canary_account_id"`
-			SecurityGeneration int64 `json:"security_generation"`
+		ProtocolVersion int `json:"protocol_version"`
+		Authorization   struct {
+			CanaryAccountID    int64  `json:"canary_account_id"`
+			SecurityGeneration int64  `json:"security_generation"`
+			RedeemedAt         string `json:"redeemed_at"`
 		} `json:"authorization"`
 	}
 
@@ -53,10 +55,10 @@ func (c *Client) Redeem(ctx context.Context, ticket string) (gateway.Authorizati
 	if status == http.StatusUnauthorized {
 		return gateway.Authorization{}, gateway.ErrInvalidLogin
 	}
-	if status != http.StatusOK {
+	if status != http.StatusOK || response.ProtocolVersion != 1 {
 		return gateway.Authorization{}, gateway.ErrUnavailable
 	}
-	if response.Authorization.CanaryAccountID < 1 {
+	if response.Authorization.CanaryAccountID < 1 || response.Authorization.SecurityGeneration < 1 || response.Authorization.RedeemedAt == "" {
 		return gateway.Authorization{}, gateway.ErrUnavailable
 	}
 
