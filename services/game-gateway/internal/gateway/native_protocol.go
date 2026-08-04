@@ -157,7 +157,7 @@ func validPolicyCandidate(candidate GameplayPolicyCandidate) bool {
 		strings.Contains(candidate.TLSServerName, "*") {
 		return false
 	}
-	if intersects(candidate.RequiredCapabilities, candidate.OptionalCapabilities) {
+	if len(candidate.RequiredCapabilities)+len(candidate.OptionalCapabilities) > 64 || intersects(candidate.RequiredCapabilities, candidate.OptionalCapabilities) {
 		return false
 	}
 
