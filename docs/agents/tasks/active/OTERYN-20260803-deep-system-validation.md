@@ -97,19 +97,19 @@ cross_repository_tasks: []
 ```yaml
 recovery:
   policy_version: 1
-  generation: 3
+  generation: 4
   session_id: agent-20260804-001
   session_started_at: 2026-08-04T07:58:00+02:00
-  checkpointed_at: 2026-08-04T09:31:00+02:00
-  last_progress_at: 2026-08-04T09:31:00+02:00
+  checkpointed_at: 2026-08-04T09:35:00+02:00
+  last_progress_at: 2026-08-04T09:35:00+02:00
   phase: exact-head-validation
   exact_head: de26ec673c442bb428cd2ab11bc7cc6390041409
   pull_request: 495
   active_operation: GitHub Actions generation triggered by this checkpoint commit
   external_run_ids: []
-  operation_started_at: 2026-08-04T09:31:00+02:00
+  operation_started_at: 2026-08-04T09:35:00+02:00
   wait_deadline_at: 2026-08-04T11:47:00+02:00
-  check_generation: expected-navigation-console-classification
+  check_generation: expected-navigation-console-classification-governance-fixed
   checks_used: 0
   status: waiting
   safe_to_resume: true
@@ -121,7 +121,7 @@ recovery:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-04T09:31:00+02:00
+updated_at: 2026-08-04T09:35:00+02:00
 head: de26ec673c442bb428cd2ab11bc7cc6390041409
 base_sha: 6781e347b302e742c211cda3f2d5e38419f73c6f
 branch: audit/OTERYN-20260803-deep-system-validation
@@ -134,10 +134,10 @@ session_role: validator
 execution_mode: github-only
 execution_reason: rerun exact-head deep validation after strictly classifying expected error-page navigation console statuses
 invocation_started_at: 2026-08-04T07:58:00+02:00
-last_progress_at: 2026-08-04T09:31:00+02:00
+last_progress_at: 2026-08-04T09:35:00+02:00
 ci_checks_for_current_head: 0
-ci_check_generation: expected-navigation-console-classification
-terminal_ci_wait_started_at: 2026-08-04T09:31:00+02:00
+ci_check_generation: expected-navigation-console-classification-governance-fixed
+terminal_ci_wait_started_at: 2026-08-04T09:35:00+02:00
 terminal_ci_checks_for_current_generation: 0
 unchanged_state_checks: 0
 identical_failure_retries: 0
@@ -162,35 +162,56 @@ context_routes:
   - web-cms
   - api
   - deploy
+owned_paths:
+  - docs/agents/tasks/active/OTERYN-20260803-deep-system-validation.md
+  - docs/agents/tasks/archive/OTERYN-20260803-deep-system-validation.md
+  - .github/workflows/deep-system-validation.yml
+  - tools/validation/deep_system_validation.py
+  - tools/validation/test_deep_system_validation.py
+  - scripts/acceptance/package.json
+  - scripts/acceptance/playwright.config.mjs
+  - scripts/acceptance/playwright.community-data.config.mjs
+  - scripts/acceptance/playwright.content-scale.config.mjs
+  - scripts/acceptance/seed-downloads-state.php
+  - scripts/acceptance/tests/downloads-public-portability.spec.mjs
+  - scripts/acceptance/tests/helpers.mjs
+  - scripts/acceptance/tests/admin-wiki-administration.spec.mjs
+  - scripts/acceptance/tests/homepage-navigation-seo.spec.mjs
+  - scripts/acceptance/seed-homepage-navigation-seo.php
+  - scripts/acceptance/coverage/surfaces/community-data-completeness.json
+  - config/downloads.php
+  - composer.lock
+  - docs/agents/evidence/OTERYN-20260803-deep-system-validation/**
+  - docs/agents/reports/OTERYN-20260803-deep-system-validation.md
 proven:
   - inventory audit PR 483 classified 240 named routes, 126 rendered routes, 43 capabilities and 18 modules with 135 findings and no COMPLETE module
   - current main 6781e347b302e742c211cda3f2d5e38419f73c6f is merged into the audit branch
   - Guzzle is audited at 7.15.2 after newly published high-severity advisories
   - base PHP regression executes 463 tests without failures errors or skips
   - game-auth concurrency executes 2 tests without failures errors or skips
-  - compiler rejects missing lanes, failures, retries, skips, zero tests, duplicated JUnit, repository-path escape, missing browser projects, visual findings, short soak and unowned external blockers
+  - compiler rejects missing lanes failures retries skips zero tests duplicated JUnit path escape missing browser projects visual findings short soak and unowned external blockers
   - deterministic download release fixture removed the Firefox and WebKit portability false failure without weakening assertions
   - exact run 30886198366 completed 164 browser tests through accessibility with zero failures errors skips or retries and exact expected project identities
-  - run 30886198366 captured 71 visual surfaces with zero status mismatches, overflow, unlabeled controls, low contrast, missing focus or raw technical messages
-  - its only visual findings are six Chromium navigation console messages produced by the deliberately expected 403, 404 and 503 main-document responses
-  - compiler now permits only those six explicitly named surfaces when expected status equals actual status, statusMatches is true, there is exactly one matching browser status message and no page error
-  - any other console error, extra error, page error, wrong surface or wrong status remains blocking
+  - run 30886198366 captured 71 visual surfaces with zero status mismatches overflow unlabeled controls low contrast missing focus or raw technical messages
+  - its only visual findings are six Chromium navigation console messages produced by deliberately expected 403 404 and 503 main-document responses
+  - compiler permits only those six explicitly named surfaces when expected status equals actual status statusMatches is true there is exactly one matching browser status message and no page error
+  - every other console error extra error page error wrong surface or wrong status remains blocking
 unknown:
   - terminal soak result and compiled manifest after the visual classification repair
   - final exact-head counts and artifact digest
   - whether main changes before merge
 derived:
-  - expected non-2xx main-document navigation messages are evidence of the intended error-state contract, not JavaScript or subresource failures
+  - expected non-2xx main-document navigation messages prove the intended error-state contract rather than JavaScript or subresource failure
   - raw authenticated traces screenshots and video remain unsuitable durable diagnostics because they may contain session or recovery secrets
-  - external production Canary login, payment, DNS, Cloudflare and restore proof requires separate authorization
+  - external production Canary login payment DNS Cloudflare and restore proof requires separate authorization
 conflicts: []
 first_failure:
   marker: Deep System Validation run 30886198366 stopped before soak because six expected error-page navigation statuses were classified as generic browser errors
-  evidence: artifact 8883647494 digest sha256:1dd4def774ab11c9c0fa2f93b7842956cdf3a56cb8e1a67cdd689685f3f31d7e; all 164 browser testcases were clean and the visual payload recorded only the expected 403, 404 and 503 navigation messages
+  evidence: artifact 8883647494 digest sha256:1dd4def774ab11c9c0fa2f93b7842956cdf3a56cb8e1a67cdd689685f3f31d7e; all 164 browser testcases were clean and visual payload recorded only expected 403 404 and 503 navigation messages
 rejected_hypotheses:
-  - the portability fixture repair failed
+  - portability fixture repair failed
   - Firefox or WebKit failed
-  - the visual surfaces contain layout accessibility contrast or raw technical message defects
+  - visual surfaces contain layout accessibility contrast or raw technical message defects
   - all console errors on expected error pages may be ignored
 changed_paths:
   - .github/workflows/deep-system-validation.yml
@@ -217,8 +238,8 @@ validation:
     result: FAIL
     evidence: all PHP and browser lanes through visual completed; fail-closed stopped before soak on six strictly bounded expected navigation console statuses
   - command: compiler regression suite at de26ec673c442bb428cd2ab11bc7cc6390041409
-    result: PENDING
+    result: NOT_RUN
     evidence: replacement exact-head workflow generation requested
 blockers: []
-next_action: inspect the replacement exact-head generation, persist passing compiled evidence and report, complete independent review and PR hygiene, merge PR 495, archive the task and release ownership
+next_action: inspect replacement exact-head generation, persist passing compiled evidence and report, complete independent review and PR hygiene, merge PR 495, archive task and release ownership
 ```
