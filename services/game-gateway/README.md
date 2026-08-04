@@ -2,7 +2,7 @@
 
 Standalone Go runtime for the Oteryn game-login orchestration boundary defined by ADR 0009.
 
-## Current Phase 4 scope
+## Current producer scope
 
 Implemented public surface:
 
@@ -13,17 +13,20 @@ GET  /version
 POST /v1/login
 ```
 
-`POST /v1/login` accepts only protocol v1 plus one opaque Game Login Ticket.
+`POST /v1/login` retains Gateway API `protocol_version: 1` and one opaque Game Login Ticket. It also accepts the optional bounded `gameplay_offer` defined by the native gameplay contract.
 
 The Gateway:
 
 1. redeems the ticket through the Oteryn Platform private Identity API;
 2. receives the exact authorized Canary account ID;
 3. obtains the single-world-ready World Registry/character login context through a separate narrow Platform private API;
-4. invokes a configurable Game Session issuer through the internal HTTP contract;
-5. returns the Game Session plus sanitized world and character data.
+4. preserves the existing Game Session v1 issuer for legacy requests;
+5. for an extended request, selects the first exact authoritative World Registry candidate, verifies its v2 readiness identity and invokes exactly one Game Session v2 issuance;
+6. returns the Game Session plus sanitized world, character and immutable selection data.
 
 The Gateway has no Platform or Canary database credentials.
+
+Native candidate persistence is empty and disabled by default. Producer rollout and rollback are documented in `docs/operations/OTERYN_NATIVE_PROTOCOL_PRODUCER.md`. Otheryn and Rust native consumers remain required before activation.
 
 ## Environment
 
