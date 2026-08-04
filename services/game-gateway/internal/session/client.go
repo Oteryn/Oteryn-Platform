@@ -106,18 +106,18 @@ func (c *Client) ReadyFor(ctx context.Context, request gateway.SessionRequest) e
 	}
 
 	selection := request.GameplaySelection
-	if result.WorldID != request.WorldID
-		|| result.ChannelID != request.ChannelID
-		|| result.WorldPolicyRevision != request.WorldPolicyRevision
-		|| result.EndpointID != request.EndpointID
-		|| result.Audience != request.Audience
-		|| result.Family != selection.Family
-		|| result.Profile != selection.Profile
-		|| result.Transport != selection.Transport
-		|| result.SchemaRevision != selection.SchemaRevision
-		|| result.SchemaSHA256 != selection.SchemaSHA256
-		|| !reflect.DeepEqual(result.Capabilities, selection.Capabilities)
-		|| result.CapabilityDigestSHA256 != selection.CapabilityDigestSHA256 {
+	if result.WorldID != request.WorldID ||
+		result.ChannelID != request.ChannelID ||
+		result.WorldPolicyRevision != request.WorldPolicyRevision ||
+		result.EndpointID != request.EndpointID ||
+		result.Audience != request.Audience ||
+		result.Family != selection.Family ||
+		result.Profile != selection.Profile ||
+		result.Transport != selection.Transport ||
+		result.SchemaRevision != selection.SchemaRevision ||
+		result.SchemaSHA256 != selection.SchemaSHA256 ||
+		!reflect.DeepEqual(result.Capabilities, selection.Capabilities) ||
+		result.CapabilityDigestSHA256 != selection.CapabilityDigestSHA256 {
 		return gateway.ErrUnavailable
 	}
 
@@ -166,18 +166,18 @@ type v2RequestPayload struct {
 
 func newV2Payload(request gateway.SessionRequest) (v2RequestPayload, error) {
 	selection := request.GameplaySelection
-	if request.ContractVersion != 2
-		|| selection == nil
-		|| request.CanaryAccountID < 1
-		|| request.SecurityGeneration < 1
-		|| request.WorldID < 1
-		|| request.ChannelID != 1
-		|| request.LoginAttemptID == ""
-		|| request.WorldPolicyRevision < 1
-		|| request.EndpointID == ""
-		|| request.Audience == ""
-		|| request.CharacterBindingMode != "bind_on_first_admission"
-		|| !request.SingleAdmission {
+	if request.ContractVersion != 2 ||
+		selection == nil ||
+		request.CanaryAccountID < 1 ||
+		request.SecurityGeneration < 1 ||
+		request.WorldID < 1 ||
+		request.ChannelID != 1 ||
+		request.LoginAttemptID == "" ||
+		request.WorldPolicyRevision < 1 ||
+		request.EndpointID == "" ||
+		request.Audience == "" ||
+		request.CharacterBindingMode != "bind_on_first_admission" ||
+		!request.SingleAdmission {
 		return v2RequestPayload{}, gateway.ErrUnavailable
 	}
 
