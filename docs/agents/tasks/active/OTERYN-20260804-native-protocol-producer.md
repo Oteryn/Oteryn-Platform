@@ -1,11 +1,11 @@
 ---
 task_id: OTERYN-20260804-native-protocol-producer
 project_lane: oteryn-platform-auth
-status: validating
+status: ready
 branch: feat/OTERYN-20260804-native-protocol-producer
 base_branch: main
 created: 2026-08-04
-updated: 2026-08-04
+updated: 2026-08-05
 related_pr: "523"
 required_reads:
   - AGENTS.md
@@ -39,7 +39,7 @@ Implement the disabled-by-default Platform and Game Gateway producer for bounded
 - [x] V2 claims bind account generation, login attempt, world/channel, policy, endpoint, audience and exact tuple/digest.
 - [x] No native candidate is seeded, enabled or advertised by default.
 - [x] Focused tests, producer E2E, rollout documentation and fresh audit are complete.
-- [ ] Final draft and ready-state exact-head CI, merge and archival are complete.
+- [ ] Final ready-state exact-head CI, merge and archival are complete.
 
 ## Ownership
 
@@ -77,14 +77,14 @@ cross_repository_tasks:
 ```yaml
 checkpoint_version: 1
 policy_version: 2
-updated_at: 2026-08-04T21:52:00Z
+updated_at: 2026-08-04T22:57:43Z
 invocation_started_at: 2026-08-04T20:47:00Z
-last_progress_at: 2026-08-04T21:52:00Z
-head: dfe1fbb2d7f36db8e4faaed90bccb59c4e2cb746
+last_progress_at: 2026-08-04T22:57:43Z
+head: 8248d9f1ab3cae44f7a0cd3caaf1128a15a47d9e
 branch: feat/OTERYN-20260804-native-protocol-producer
 pr: 523
-status: validating
-phase: validate
+status: ready
+phase: ready-state-validation
 session_id: agent-20260804-native-protocol-producer-02
 session_role: implementer
 execution_mode: github
@@ -98,17 +98,17 @@ estimate_confidence: high
 decomposition_decision: phased
 decomposition_reason: one cohesive security-sensitive producer package
 validation_level: full
-heavy_validation_runs: 3
+heavy_validation_runs: 5
 session_rotation_count: 0
 stale_takeover_count: 0
 human_interruptions: 1
-ci_checks_for_current_head: 0
-ci_check_generation: draft-final
+ci_checks_for_current_head: 12
+ci_check_generation: draft-final-pass
 terminal_ci_wait_started_at: null
-terminal_ci_checks_for_current_generation: 0
+terminal_ci_checks_for_current_generation: 12
 unchanged_state_checks: 0
 identical_failure_retries: 0
-repair_cycles_for_current_gate: 4
+repair_cycles_for_current_gate: 6
 context_reconstruction_attempts: 0
 stall_warnings: 0
 context_routes:
@@ -135,13 +135,14 @@ proven:
   - Gateway validates before redeem and selects by authoritative policy order.
   - Readiness and v2 issuance bind the exact immutable selection.
   - Producer E2E and fresh security/consistency audit pass with zero open material findings.
+  - Draft-final exact-head CI, Phase 7 and Deep System Validation pass after synchronizing current main.
 derived:
   - Producer merge is safe while disabled; native gameplay remains unavailable without Otheryn and Rust consumers.
 unknown: []
 conflicts: []
 first_failure:
-  marker: exact-head formatting and static-analysis findings
-  evidence: workflow parser, Pint and PHPStan findings were repaired without weakening validation
+  marker: exact-head formatting, static-analysis and duplicate candidate fixture findings
+  evidence: workflow parser, Pint, PHPStan and duplicate identity fixtures were repaired without weakening validation
 rejected_hypotheses:
   - client-ordered preference
   - candidate fallback after redeem
@@ -158,18 +159,27 @@ changed_paths:
   - docs/operations/OTERYN_NATIVE_PROTOCOL_PRODUCER.md
   - docs/agents/tasks/active/OTERYN-20260804-native-protocol-producer.md
 validation:
-  - command: Game Gateway CI run 30953723042
+  - command: Game Gateway CI run 30956877442
     result: PASS
-    evidence: formatting, all Go tests including producer E2E, vet and build passed on the prior coherent head
+    evidence: formatting, all Go tests including producer E2E, vet and build passed on draft-final head 8248d9f1ab3cae44f7a0cd3caaf1128a15a47d9e
+  - command: CI run 30956877312
+    result: PASS
+    evidence: formatting, PHPStan and complete PHP regression passed on the same exact head
+  - command: Phase 7 Production-Like Validation run 30956877290
+    result: PASS
+    evidence: clean MariaDB deployment, migration, privilege, outage, regression, restore and upgrade lanes passed
+  - command: Deep System Validation run 30956877280
+    result: PASS
+    evidence: compiler, dependency audit, PHP regression, concurrency, zero-retry browser matrix, soak and durable evidence passed
+  - command: remaining exact-head workflows
+    result: PASS
+    evidence: governance, portal audit, acceptance, security, staging images, outage and ticket concurrency all passed
   - command: fresh independent audit
     result: PASS
-    evidence: exact identity, readiness, response bounds and documentation were challenged and repaired
-  - command: exact-final-head workflows
-    result: NOT_RUN
-    evidence: this checkpoint commit starts the authoritative final draft generation after static-analysis repairs
+    evidence: exact identity, readiness, response bounds and documentation were challenged and repaired with zero open material findings
 blockers:
   - none
-next_action: verify all exact-head workflows, mark PR ready, verify ready-state checks, merge and archive
+next_action: mark PR ready, verify final ready-state exact-head checks, merge and archive
 ```
 
 ## Notes
