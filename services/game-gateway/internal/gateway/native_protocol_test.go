@@ -61,7 +61,7 @@ func TestSelectGameplayCandidateIntersectsOptionalCapabilitiesAndUsesStableDiges
 		ChannelID: 1,
 		Candidates: []GameplayPolicyCandidate{{
 			Family: "oteryn", Profile: "oteryn.native.v1", Transport: "tcp.tls13.protobuf.be32.v1",
-			SchemaRevision: 1, SchemaSHA256: strings.Repeat("a", 64),
+			SchemaRevision: 1, SchemaSHA256: canonicalNativeSchemaSHA256,
 			RequiredCapabilities: nativeV1BaseCapabilities,
 			OptionalCapabilities: []string{"state.optional-a.v1", "state.optional-b.v1", "state.optional-c.v1"},
 			EndpointID:           "native-1", Host: "game.example.test", Port: 7173, TLSServerName: "game.example.test",
@@ -90,7 +90,7 @@ func TestSelectGameplayCandidateRejectsNativeProfileMissingBaseCapability(t *tes
 	offer := validNativeLoginRequest().GameplayOffer
 	policy := GameplayPolicy{Revision: 1, ChannelID: 1, Candidates: []GameplayPolicyCandidate{{
 		Family: "oteryn", Profile: "oteryn.native.v1", Transport: "tcp.tls13.protobuf.be32.v1",
-		SchemaRevision: 1, SchemaSHA256: strings.Repeat("a", 64),
+		SchemaRevision: 1, SchemaSHA256: canonicalNativeSchemaSHA256,
 		RequiredCapabilities: nativeV1BaseCapabilities[:len(nativeV1BaseCapabilities)-1],
 		EndpointID:           "native-1", Host: "game.example.test", Port: 7173, TLSServerName: "game.example.test",
 	}}}
@@ -101,11 +101,26 @@ func TestSelectGameplayCandidateRejectsNativeProfileMissingBaseCapability(t *tes
 	}
 }
 
+func TestSelectGameplayCandidateRejectsWrongNativeSchemaIdentity(t *testing.T) {
+	offer := validNativeLoginRequest().GameplayOffer
+	policy := GameplayPolicy{Revision: 1, ChannelID: 1, Candidates: []GameplayPolicyCandidate{{
+		Family: "oteryn", Profile: "oteryn.native.v1", Transport: "tcp.tls13.protobuf.be32.v1",
+		SchemaRevision: 1, SchemaSHA256: strings.Repeat("a", 64),
+		RequiredCapabilities: nativeV1BaseCapabilities,
+		EndpointID:           "native-1", Host: "game.example.test", Port: 7173, TLSServerName: "game.example.test",
+	}}}
+
+	_, err := SelectGameplayCandidate(policy, *offer)
+	if !errors.Is(err, ErrUnavailable) {
+		t.Fatalf("expected noncanonical native schema to fail closed, got %v", err)
+	}
+}
+
 func TestNewV2SessionRequestBindsExactAuthority(t *testing.T) {
 	selection := GameplaySelection{
 		PolicyRevision: 3,
 		Family:         "oteryn", Profile: "oteryn.native.v1", Transport: "tcp.tls13.protobuf.be32.v1",
-		SchemaRevision: 1, SchemaSHA256: strings.Repeat("a", 64),
+		SchemaRevision: 1, SchemaSHA256: canonicalNativeSchemaSHA256,
 		Capabilities: nativeV1BaseCapabilities, CapabilityDigestSHA256: capabilityDigest(nativeV1BaseCapabilities),
 		EndpointID: "native-1", Host: "game.example.test", Port: 7173, TLSServerName: "game.example.test",
 	}
@@ -137,7 +152,7 @@ func validNativeLoginRequest() LoginRequest {
 			ClientPlatform: "windows-x86_64",
 			Candidates: []GameplayOfferCandidate{{
 				Family: "oteryn", Profile: "oteryn.native.v1", Transport: "tcp.tls13.protobuf.be32.v1",
-				SchemaRevision: 1, SchemaSHA256: strings.Repeat("a", 64), Capabilities: capabilities,
+				SchemaRevision: 1, SchemaSHA256: canonicalNativeSchemaSHA256, Capabilities: capabilities,
 			}},
 		},
 	}
