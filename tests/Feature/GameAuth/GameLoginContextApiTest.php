@@ -107,7 +107,9 @@ final class GameLoginContextApiTest extends TestCase
             ->assertJsonPath('gameplay_policy.candidates.0.schema_sha256', self::NATIVE_SCHEMA_SHA256)
             ->assertJsonPath('gameplay_policy.candidates.0.required_capabilities', self::NATIVE_CAPABILITIES);
 
-        self::assertStringNotContainsString('disabled', $response->getContent());
+        $content = $response->getContent();
+        self::assertIsString($content);
+        self::assertStringNotContainsString('disabled', $content);
     }
 
     public function test_zero_worlds_fail_closed_without_character_data(): void

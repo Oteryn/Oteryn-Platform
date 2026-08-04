@@ -163,7 +163,7 @@ final class DatabaseWorldRegistry implements WorldRegistry
             return null;
         }
 
-        return array_values($normalized);
+        return $normalized;
     }
 
     private function isIdentifier(string $value): bool

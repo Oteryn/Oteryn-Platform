@@ -56,8 +56,8 @@ final class WorldRegistryTest extends TestCase
         self::assertSame('oteryn-test', $routes[0]->slug);
         self::assertSame('game.test', $routes[0]->host);
         self::assertSame(7172, $routes[0]->port);
-        self::assertSame(1, $routes[0]->gameplayPolicy?->revision);
-        self::assertSame([], $routes[0]->gameplayPolicy?->candidates);
+        self::assertSame(1, $routes[0]->gameplayPolicy->revision);
+        self::assertSame([], $routes[0]->gameplayPolicy->candidates);
     }
 
     public function test_protocol_candidates_are_disabled_by_default_and_ordered_by_authoritative_policy(): void
@@ -90,8 +90,8 @@ final class WorldRegistryTest extends TestCase
 
         self::assertCount(1, $routes);
         self::assertSame('legacy.test', $routes[0]->host);
-        self::assertSame(0, $routes[0]->gameplayPolicy?->revision);
-        self::assertSame([], $routes[0]->gameplayPolicy?->candidates);
+        self::assertSame(0, $routes[0]->gameplayPolicy->revision);
+        self::assertSame([], $routes[0]->gameplayPolicy->candidates);
     }
 
     public function test_wrong_native_schema_hash_invalidates_policy(): void
@@ -102,8 +102,8 @@ final class WorldRegistryTest extends TestCase
 
         $routes = (new DatabaseWorldRegistry)->forAccount(1001);
 
-        self::assertSame(0, $routes[0]->gameplayPolicy?->revision);
-        self::assertSame([], $routes[0]->gameplayPolicy?->candidates);
+        self::assertSame(0, $routes[0]->gameplayPolicy->revision);
+        self::assertSame([], $routes[0]->gameplayPolicy->candidates);
     }
 
     public function test_registry_fails_closed_for_invalid_account_identifier(): void
