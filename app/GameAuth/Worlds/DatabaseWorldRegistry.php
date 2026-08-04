@@ -141,7 +141,6 @@ final class DatabaseWorldRegistry implements WorldRegistry
     }
 
     /**
-     * @param  mixed  $capabilities
      * @return list<string>|null
      */
     private function canonicalCapabilities(mixed $capabilities): ?array
