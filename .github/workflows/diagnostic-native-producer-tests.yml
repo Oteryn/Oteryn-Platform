@@ -29,18 +29,24 @@ jobs:
           extensions: pdo_sqlite, pcntl, redis
           tools: composer:v2
       - run: composer install --no-interaction --prefer-dist --no-progress
-      - name: Run tests and expose failure tail
+      - name: Expose exact warning details
         shell: bash
         run: |
           set +e
-          composer test 2>&1 | tee /tmp/native-producer-test.log
+          php artisan config:clear --ansi
+          vendor/bin/phpunit tests/Feature/Support/EditorialSupportLegalTest.php \
+            --colors=never \
+            --display-warnings \
+            --display-phpunit-warnings \
+            --display-errors \
+            --display-notices \
+            --display-deprecations \
+            --debug 2>&1 | tee /tmp/native-producer-warning.log
           status=${PIPESTATUS[0]}
-          if [ "$status" -ne 0 ]; then
-            tail -n 120 /tmp/native-producer-test.log | while IFS= read -r line; do
-              line=${line//'%'/'%25'}
-              line=${line//$'\r'/'%0D'}
-              line=${line//$'\n'/'%0A'}
-              echo "::error::$line"
-            done
-          fi
+          sed -n '/Triggered Warning/,$p' /tmp/native-producer-warning.log | tail -n 200 | while IFS= read -r line; do
+            line=${line//'%'/'%25'}
+            line=${line//$'\r'/'%0D'}
+            line=${line//$'\n'/'%0A'}
+            echo "::error::$line"
+          done
           exit "$status"
