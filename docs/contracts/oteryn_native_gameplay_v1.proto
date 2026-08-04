@@ -4,11 +4,12 @@ package oteryn.gameplay.v1;
 
 // Review-only canonical IDL for OTS-20260804-native-protocol-selection.
 // This file is not wired into any runtime by the contract task.
+// Its SHA-256 is computed from these exact UTF-8 bytes with LF line endings and no BOM.
 
 message WireEnvelope {
   uint32 schema_revision = 1; // Must be exactly 1.
-  uint64 stream_sequence = 2; // Starts at 1 and increments by exactly 1.
-  uint64 server_tick = 3;     // Zero in client->server envelopes.
+  uint64 stream_sequence = 2; // Starts at 1 and increments by exactly 1 per direction.
+  uint64 server_tick = 3;     // Zero in client-to-server envelopes.
 
   oneof payload {
     ClientHello client_hello = 10;
@@ -36,19 +37,20 @@ message ClientHello {
   uint32 schema_revision = 5;                // Must be 1.
   bytes schema_sha256 = 6;                   // Exactly 32 bytes.
   bytes capability_digest_sha256 = 7;        // Exactly 32 bytes.
-  repeated string capabilities = 8;          // Sorted, unique, <= 64.
-  string game_session_credential = 9;        // Opaque, bounded by implementation contract.
+  repeated string capabilities = 8;          // Sorted bytewise, unique, 1..64.
+  string game_session_credential = 9;        // Opaque CSPRNG bearer reference.
   bytes login_attempt_id = 10;               // Exactly 16 bytes.
   uint64 selected_character_id = 11;         // Non-zero, verified by Otheryn.
   uint64 world_id = 12;                      // Non-zero.
-  uint64 channel_id = 13;                    // Non-zero; 1 for single-channel worlds.
+  uint64 channel_id = 13;                    // Must be 1 in contract revision 1.
   uint64 world_policy_revision = 14;         // Non-zero.
   string client_build = 15;                  // 1..64 printable ASCII bytes.
+  string client_platform = 16;               // Canonical lowercase identifier, <=64 bytes.
 }
 
 message ServerHello {
-  bytes session_id = 1;                      // Exactly 16 bytes.
-  bytes login_attempt_id = 2;                // Exactly 16 bytes.
+  bytes session_id = 1;                       // Exactly 16 bytes.
+  bytes login_attempt_id = 2;                 // Exactly 16 bytes.
   uint64 selected_character_id = 3;
   uint64 world_id = 4;
   uint64 channel_id = 5;
@@ -58,7 +60,7 @@ message ServerHello {
   uint32 schema_revision = 9;
   bytes schema_sha256 = 10;                   // Exactly 32 bytes.
   bytes capability_digest_sha256 = 11;        // Exactly 32 bytes.
-  repeated string capabilities = 12;
+  repeated string capabilities = 12;          // Sorted bytewise, unique, 1..64.
   uint64 world_policy_revision = 13;
   uint64 initial_state_revision = 14;
   uint64 initial_server_sequence = 15;        // Sequence of this envelope.
@@ -86,7 +88,7 @@ enum ProtocolErrorCode {
 
 message ProtocolError {
   ProtocolErrorCode code = 1;
-  string safe_detail = 2; // Optional, <= 256 UTF-8 bytes, no secrets or identifiers.
+  string safe_detail = 2; // Optional, <=256 UTF-8 bytes, no secrets or identifiers.
   bool retry_with_fresh_login = 3;
 }
 
@@ -96,9 +98,9 @@ message Heartbeat {
 }
 
 message CommandEnvelope {
-  bytes command_id = 1;       // Exactly 16 CSPRNG bytes, unique in the session.
-  uint64 client_sequence = 2; // Starts at 1 and increments by exactly 1 for commands.
-  uint64 created_monotonic_ms = 3; // Diagnostic only, never authoritative.
+  bytes command_id = 1;            // Exactly 16 CSPRNG bytes, unique in the session.
+  uint64 client_sequence = 2;      // Starts at 1 and increments by exactly 1.
+  uint64 created_monotonic_ms = 3; // Diagnostic only; never authoritative time.
 
   oneof command {
     StepCommand step = 10;
@@ -130,22 +132,11 @@ enum Direction {
   DIRECTION_NORTH_WEST = 8;
 }
 
-message StepCommand {
-  Direction direction = 1;
-}
-
+message StepCommand { Direction direction = 1; }
 message StopMovementCommand {}
-
-message SetAttackTargetCommand {
-  EntityRef target = 1;
-}
-
+message SetAttackTargetCommand { EntityRef target = 1; }
 message ClearAttackTargetCommand {}
-
-message SetFollowTargetCommand {
-  EntityRef target = 1;
-}
-
+message SetFollowTargetCommand { EntityRef target = 1; }
 message ClearFollowTargetCommand {}
 
 message CastSpellCommand {
@@ -158,10 +149,7 @@ message CastSpellCommand {
 }
 
 message SelfTarget {}
-
-message UseCommand {
-  ItemRef source = 1;
-}
+message UseCommand { ItemRef source = 1; }
 
 message UseWithCommand {
   ItemRef source = 1;
@@ -208,25 +196,23 @@ enum ChatMode {
 
 message SayCommand {
   ChatMode mode = 1;
-  uint64 channel_id = 2;   // Required only for channel modes.
-  string recipient = 3;    // Required only for private mode, <= 64 UTF-8 bytes.
-  string text = 4;         // 1..1024 UTF-8 bytes.
+  uint64 channel_id = 2; // Required only for channel modes.
+  string recipient = 3;  // Required only for private mode, <=64 UTF-8 bytes.
+  string text = 4;       // 1..1024 UTF-8 bytes.
 }
 
 message LogoutCommand {}
 
 message Position {
-  uint32 x = 1; // <= 65535.
-  uint32 y = 2; // <= 65535.
-  uint32 z = 3; // <= 15.
+  uint32 x = 1; // <=65535.
+  uint32 y = 2; // <=65535.
+  uint32 z = 3; // <=15.
 }
 
-message EntityRef {
-  uint64 handle = 1; // Non-zero, opaque and session-scoped.
-}
+message EntityRef { uint64 handle = 1; } // Non-zero, opaque, session-scoped.
 
 message ItemRef {
-  uint64 item_handle = 1; // Non-zero, opaque and session-scoped.
+  uint64 item_handle = 1; // Non-zero, opaque, session-scoped.
   oneof location {
     InventoryLocation inventory = 10;
     ContainerLocation container = 11;
@@ -234,9 +220,7 @@ message ItemRef {
   }
 }
 
-message InventoryLocation {
-  uint32 slot = 1; // Profile-defined bounded slot.
-}
+message InventoryLocation { uint32 slot = 1; }
 
 message ContainerLocation {
   uint64 container_handle = 1;
@@ -288,6 +272,7 @@ enum ActionReason {
   ACTION_REASON_SERVER_UNAVAILABLE = 17;
   ACTION_REASON_LOGOUT_BLOCKED = 18;
   ACTION_REASON_DUPLICATE_COMMAND = 19;
+  ACTION_REASON_STALE_COMMAND = 20;
 }
 
 message ActionResult {
@@ -297,33 +282,35 @@ message ActionResult {
   ActionReason reason = 4;
   uint64 state_revision = 5;
   uint64 earliest_server_tick = 6; // Non-zero only for DELAYED.
-  string safe_detail = 7;          // Optional, <= 256 UTF-8 bytes.
+  string safe_detail = 7;          // Optional, <=256 UTF-8 bytes.
 }
 
 message SnapshotBegin {
-  bytes snapshot_id = 1;       // Exactly 16 bytes.
+  bytes snapshot_id = 1;          // Exactly 16 bytes.
   uint64 state_revision = 2;
-  uint32 chunk_count = 3;      // 1..256.
-  uint64 total_encoded_bytes = 4; // <= 16 MiB.
+  uint32 chunk_count = 3;         // 1..256.
+  uint64 total_encoded_bytes = 4; // <=16 MiB.
 }
 
 message SnapshotChunk {
   bytes snapshot_id = 1;
-  uint32 chunk_index = 2; // Contiguous from 0.
-  repeated StateRecord records = 3; // Canonical record ordering.
+  uint32 chunk_index = 2;          // Contiguous from 0.
+  repeated StateRecord records = 3; // Canonical record order.
 }
 
 message SnapshotEnd {
   bytes snapshot_id = 1;
   uint64 state_revision = 2;
-  bytes chunks_sha256 = 3; // Exactly 32 bytes.
+  // SHA-256 of the concatenated exact serialized WireEnvelope payload bytes for
+  // SnapshotChunk frames, excluding each four-byte frame-length prefix.
+  bytes chunks_sha256 = 3;
 }
 
 message StateDelta {
   uint64 base_revision = 1;
   uint64 revision = 2; // Must equal base_revision + 1.
   repeated StateMutation mutations = 3;
-  bytes canonical_sha256 = 4; // Exactly 32 bytes.
+  reserved 4; // Never use a protobuf reserialization hash for duplicate identity.
 }
 
 enum ResyncReason {
@@ -372,25 +359,20 @@ message StateMutation {
 message WorldState {
   uint64 world_id = 1;
   uint64 channel_id = 2;
-  string world_name = 3; // <= 128 UTF-8 bytes.
+  string world_name = 3; // <=128 UTF-8 bytes.
   uint64 server_tick = 4;
 }
 
 message TileState {
   Position position = 1;
   uint32 ground_type = 2;
-  repeated uint64 item_handles = 3;   // Canonical stack order, <= 64.
-  repeated uint64 entity_handles = 4; // Canonical stack order, <= 64.
+  repeated uint64 item_handles = 3;   // Canonical stack order, <=64.
+  repeated uint64 entity_handles = 4; // Canonical stack order, <=64.
   uint32 flags = 5;
 }
 
-message TileUpsert {
-  TileState tile = 1;
-}
-
-message TileRemove {
-  Position position = 1;
-}
+message TileUpsert { TileState tile = 1; }
+message TileRemove { Position position = 1; }
 
 enum EntityKind {
   ENTITY_KIND_UNSPECIFIED = 0;
@@ -402,7 +384,7 @@ enum EntityKind {
 message EntityState {
   EntityRef entity = 1;
   EntityKind kind = 2;
-  string display_name = 3; // <= 128 UTF-8 bytes.
+  string display_name = 3; // <=128 UTF-8 bytes.
   Position position = 4;
   Direction direction = 5;
   uint32 health_percent = 6; // 0..10000 basis points.
@@ -410,9 +392,7 @@ message EntityState {
   uint32 flags = 8;
 }
 
-message EntityUpsert {
-  EntityState entity = 1;
-}
+message EntityUpsert { EntityState entity = 1; }
 
 message EntityMove {
   EntityRef entity = 1;
@@ -422,9 +402,7 @@ message EntityMove {
   bytes originating_command_id = 5; // Empty or exactly 16 bytes.
 }
 
-message EntityRemove {
-  EntityRef entity = 1;
-}
+message EntityRemove { EntityRef entity = 1; }
 
 message PlayerState {
   uint64 character_id = 1;
@@ -453,21 +431,19 @@ message InventoryEntry {
 }
 
 message InventoryState {
-  repeated InventoryEntry entries = 1; // Unique slot, canonical order, bounded by profile.
+  repeated InventoryEntry entries = 1; // Unique slot, canonical order.
 }
 
 message ContainerState {
   uint64 container_handle = 1;
-  string display_name = 2; // <= 128 UTF-8 bytes.
+  string display_name = 2; // <=128 UTF-8 bytes.
   uint32 capacity = 3;
   uint32 offset = 4;
   uint32 total_items = 5;
-  repeated ItemState items = 6; // Canonical index order, <= 4096.
+  repeated ItemState items = 6; // Canonical index order, <=4096.
 }
 
-message ContainerClosed {
-  uint64 container_handle = 1;
-}
+message ContainerClosed { uint64 container_handle = 1; }
 
 message CooldownEntry {
   string cooldown_id = 1; // 1..64 ASCII bytes.
@@ -475,7 +451,7 @@ message CooldownEntry {
 }
 
 message CooldownState {
-  repeated CooldownEntry entries = 1; // Sorted by cooldown_id, <= 4096.
+  repeated CooldownEntry entries = 1; // Sorted by cooldown_id, <=4096.
 }
 
 message CombatState {
@@ -486,7 +462,7 @@ message CombatState {
 }
 
 message CapabilityState {
-  repeated string capabilities = 1; // Sorted, unique, <= 64.
+  repeated string capabilities = 1; // Sorted, unique, 1..64.
   bytes capability_digest_sha256 = 2;
 }
 
@@ -494,8 +470,8 @@ message ChatMessageEvent {
   uint64 message_id = 1;
   ChatMode mode = 2;
   uint64 channel_id = 3;
-  string author = 4; // <= 64 UTF-8 bytes.
-  string text = 5;   // <= 1024 UTF-8 bytes.
+  string author = 4; // <=64 UTF-8 bytes.
+  string text = 5;   // <=1024 UTF-8 bytes.
 }
 
 enum ServerNoticeCode {
@@ -508,7 +484,7 @@ enum ServerNoticeCode {
 
 message ServerNotice {
   ServerNoticeCode code = 1;
-  string safe_text = 2; // <= 1024 UTF-8 bytes.
+  string safe_text = 2; // <=1024 UTF-8 bytes.
 }
 
 enum SessionEndReason {
@@ -524,5 +500,5 @@ enum SessionEndReason {
 
 message SessionEnded {
   SessionEndReason reason = 1;
-  string safe_detail = 2; // <= 256 UTF-8 bytes.
+  string safe_detail = 2; // <=256 UTF-8 bytes.
 }
