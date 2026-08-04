@@ -104,7 +104,7 @@ func TestLoginAcceptsBoundedOfferAndReturnsDistinctSelectionFields(t *testing.T)
 		ChannelID: 1,
 		Candidates: []gateway.GameplayPolicyCandidate{{
 			Family: "oteryn", Profile: "oteryn.native.v1", Transport: "tcp.tls13.protobuf.be32.v1",
-			SchemaRevision: 1, SchemaSHA256: strings.Repeat("a", 64), RequiredCapabilities: capabilities,
+			SchemaRevision: 1, SchemaSHA256: "c7665223f09001e3294e9a03ab4784defed66b0ac04450e8679d4778421207f8", RequiredCapabilities: capabilities,
 			EndpointID: "native-eu-1", Host: "native.example.test", Port: 7173, TLSServerName: "native.example.test",
 		}},
 	}
@@ -118,7 +118,7 @@ func TestLoginAcceptsBoundedOfferAndReturnsDistinctSelectionFields(t *testing.T)
 			OfferVersion: 1, ClientBuild: "oteryn-client-test", ClientPlatform: "windows-x86_64",
 			Candidates: []gateway.GameplayOfferCandidate{{
 				Family: "oteryn", Profile: "oteryn.native.v1", Transport: "tcp.tls13.protobuf.be32.v1",
-				SchemaRevision: 1, SchemaSHA256: strings.Repeat("a", 64), Capabilities: capabilities,
+				SchemaRevision: 1, SchemaSHA256: "c7665223f09001e3294e9a03ab4784defed66b0ac04450e8679d4778421207f8", Capabilities: capabilities,
 			}},
 		},
 	})
