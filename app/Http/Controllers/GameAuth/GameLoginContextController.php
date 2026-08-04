@@ -48,8 +48,8 @@ final class GameLoginContextController
                 $context->characters,
             ),
             'gameplay_policy' => [
-                'revision' => $policy?->revision ?? 1,
-                'channel_id' => $policy?->channelId ?? 1,
+                'revision' => $policy->revision,
+                'channel_id' => $policy->channelId,
                 'candidates' => array_map(
                     static fn (GameWorldProtocolCandidateRoute $candidate): array => [
                         'family' => $candidate->family,
@@ -64,7 +64,7 @@ final class GameLoginContextController
                         'port' => $candidate->port,
                         'tls_server_name' => $candidate->tlsServerName,
                     ],
-                    $policy?->candidates ?? [],
+                    $policy->candidates,
                 ),
             ],
         ]);
