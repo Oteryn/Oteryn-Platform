@@ -41,7 +41,7 @@ func TestNativeProducerJourneyBindsOneSelectionAndIssuesOnce(t *testing.T) {
 				"protocol_version": 1,
 				"authorization": map[string]any{
 					"canary_account_id":   1001,
-					"security_generation": 7,
+					"security_generation": 0,
 					"redeemed_at":         "2026-08-04T16:00:00Z",
 				},
 			})
@@ -83,7 +83,7 @@ func TestNativeProducerJourneyBindsOneSelectionAndIssuesOnce(t *testing.T) {
 		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
 			t.Fatalf("decode session payload: %v", err)
 		}
-		if payload["contract_version"] != float64(2) || payload["endpoint_id"] != "native-test-1" || payload["identity_security_generation"] != float64(7) {
+		if payload["contract_version"] != float64(2) || payload["endpoint_id"] != "native-test-1" || payload["identity_security_generation"] != float64(0) {
 			t.Fatalf("incomplete v2 session binding: %#v", payload)
 		}
 
