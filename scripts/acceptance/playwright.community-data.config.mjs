@@ -3,6 +3,22 @@ import { defineConfig } from '@playwright/test';
 const baseURL = process.env.ACCEPTANCE_BASE_URL ?? 'http://127.0.0.1:8080';
 const outputDir = process.env.ACCEPTANCE_OUTPUT_DIR ?? '../../artifacts/acceptance/community-data-test-results';
 const communityDataSpec = '**/community-data-acceptance.spec.mjs';
+const deepValidation = Boolean(process.env.VALIDATION_SHA);
+const reporter = [
+  ['line'],
+  ['html', { outputFolder: '../../artifacts/acceptance/community-data-html-report', open: 'never' }],
+  ['junit', { outputFile: '../../artifacts/acceptance/community-data-junit.xml', includeProjectInTestName: true }],
+];
+
+// The deep workflow uploads only artifacts/deep after every terminal outcome.
+// Mirror sanitized JUnit there before a fail-fast shell can exit. Raw traces and
+// screenshots are disabled for the deep run because authenticated browser state
+// may contain session material.
+if (deepValidation) {
+  reporter.push(
+    ['junit', { outputFile: '../../artifacts/deep/playwright/community-data/junit.xml', includeProjectInTestName: true }],
+  );
+}
 
 export default defineConfig({
   testDir: './tests',
@@ -12,17 +28,13 @@ export default defineConfig({
   retries: 0,
   workers: 1,
   timeout: 240_000,
-  reporter: [
-    ['line'],
-    ['html', { outputFolder: '../../artifacts/acceptance/community-data-html-report', open: 'never' }],
-    ['junit', { outputFile: '../../artifacts/acceptance/community-data-junit.xml', includeProjectInTestName: true }],
-  ],
+  reporter,
   use: {
     baseURL,
     actionTimeout: 15_000,
     navigationTimeout: 30_000,
-    trace: 'retain-on-failure',
-    screenshot: 'only-on-failure',
+    trace: deepValidation ? 'off' : 'retain-on-failure',
+    screenshot: deepValidation ? 'off' : 'only-on-failure',
     video: 'off',
   },
   projects: [
