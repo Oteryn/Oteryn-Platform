@@ -169,7 +169,7 @@ func newV2Payload(request gateway.SessionRequest) (v2RequestPayload, error) {
 	if request.ContractVersion != 2 ||
 		selection == nil ||
 		request.CanaryAccountID < 1 ||
-		request.SecurityGeneration < 1 ||
+		request.SecurityGeneration < 0 ||
 		request.WorldID < 1 ||
 		request.ChannelID != 1 ||
 		request.LoginAttemptID == "" ||
