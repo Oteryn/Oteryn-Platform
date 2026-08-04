@@ -97,8 +97,19 @@ VISUAL_PROBLEM_KEYS = {
     "rawTechnicalMessages",
     "browserErrors",
 }
+EXPECTED_VISUAL_NAVIGATION_ERRORS = {
+    "authorization-denied-403/desktop": 403,
+    "authorization-denied-403/mobile": 403,
+    "not-found-404/desktop": 404,
+    "not-found-404/mobile": 404,
+    "online-dependency-failure-503/desktop": 503,
+    "online-dependency-failure-503/mobile": 503,
+}
 ALLOWED_STATUSES = {"PASS", "FAIL", "BLOCKED", "NOT_APPLICABLE"}
 PROJECT_PREFIX = re.compile(r"^\[([^\]]+)\]\s")
+BROWSER_STATUS_ERROR = re.compile(
+    r"^Failed to load resource: the server responded with a status of (\d{3}) \(.+\)$"
+)
 
 
 class ValidationError(ValueError):
@@ -207,6 +218,70 @@ def _resolve_evidence_path(base_dir: Path, relative: Any, lane: str) -> Path:
     return resolved
 
 
+def _classify_visual_browser_errors(
+    evidence: dict[str, Any], findings: Any
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    if not isinstance(findings, list):
+        raise ValidationError("visual problem category browserErrors must be an array")
+    results = evidence.get("results")
+    if not isinstance(results, list):
+        raise ValidationError("visual evidence is missing detailed results")
+
+    records: dict[str, dict[str, Any]] = {}
+    for record in results:
+        if not isinstance(record, dict):
+            raise ValidationError("visual result records must be objects")
+        name = record.get("name")
+        viewport = record.get("viewport")
+        if not isinstance(name, str) or not isinstance(viewport, str):
+            raise ValidationError("visual result records require name and viewport")
+        surface = f"{name}/{viewport}"
+        if surface in records:
+            raise ValidationError(f"duplicate visual result surface: {surface}")
+        records[surface] = record
+
+    expected: list[dict[str, Any]] = []
+    unexpected: list[dict[str, Any]] = []
+    for finding in findings:
+        if not isinstance(finding, dict):
+            raise ValidationError("visual browser error findings must be objects")
+        surface = finding.get("surface")
+        console_errors = finding.get("consoleErrors")
+        page_errors = finding.get("pageErrors")
+        if (
+            not isinstance(surface, str)
+            or not isinstance(console_errors, list)
+            or any(not isinstance(item, str) for item in console_errors)
+            or not isinstance(page_errors, list)
+            or any(not isinstance(item, str) for item in page_errors)
+        ):
+            raise ValidationError("visual browser error finding has invalid fields")
+
+        expected_status = EXPECTED_VISUAL_NAVIGATION_ERRORS.get(surface)
+        record = records.get(surface)
+        one_status_error = len(console_errors) == 1 and BROWSER_STATUS_ERROR.fullmatch(
+            console_errors[0]
+        )
+        observed_status = (
+            int(one_status_error.group(1)) if one_status_error is not None else None
+        )
+        is_expected = (
+            expected_status is not None
+            and record is not None
+            and record.get("expectedStatus") == expected_status
+            and record.get("actualStatus") == expected_status
+            and record.get("statusMatches") is True
+            and page_errors == []
+            and observed_status == expected_status
+        )
+        if is_expected:
+            expected.append(finding)
+        else:
+            unexpected.append(finding)
+
+    return expected, unexpected
+
+
 def validate_visual_evidence(base_dir: Path, exact_sha: str) -> dict[str, Any]:
     evidence = load_json(base_dir / "artifacts/deep/visual/visual-acceptance-results.json")
     if evidence.get("validationSha") != exact_sha:
@@ -222,17 +297,27 @@ def validate_visual_evidence(base_dir: Path, exact_sha: str) -> dict[str, Any]:
     missing = sorted(VISUAL_PROBLEM_KEYS - set(problematic))
     if missing:
         raise ValidationError("visual evidence is missing problem keys: " + ", ".join(missing))
+
+    expected_navigation_errors, unexpected_browser_errors = _classify_visual_browser_errors(
+        evidence, problematic.get("browserErrors")
+    )
     findings: dict[str, int] = {}
     for key in sorted(VISUAL_PROBLEM_KEYS):
         records = problematic.get(key)
         if not isinstance(records, list):
             raise ValidationError(f"visual problem category {key} must be an array")
-        findings[key] = len(records)
+        findings[key] = (
+            len(unexpected_browser_errors) if key == "browserErrors" else len(records)
+        )
     active = {key: count for key, count in findings.items() if count}
     if active:
         rendered = ", ".join(f"{key}={count}" for key, count in active.items())
         raise ValidationError(f"visual evidence contains blocking findings: {rendered}")
-    return {"screenshot_count": screenshot_count, "problem_counts": findings}
+    return {
+        "screenshot_count": screenshot_count,
+        "problem_counts": findings,
+        "expected_navigation_console_error_count": len(expected_navigation_errors),
+    }
 
 
 def validate_soak_evidence(base_dir: Path, exact_sha: str) -> dict[str, Any]:
@@ -466,6 +551,7 @@ def render_markdown(manifest: dict[str, Any]) -> str:
         f"- Failures/errors/skips/retries: {totals['failures']}/{totals['errors']}/{totals['skipped']}/{manifest['retries']}",
         f"- Executed browser projects: {len(totals['projects'])}",
         f"- Visual screenshots: {manifest['visual_summary']['screenshot_count']}",
+        f"- Expected navigation console errors: {manifest['visual_summary']['expected_navigation_console_error_count']}",
         f"- Soak duration: {manifest['soak_metrics']['measured_duration_seconds']} seconds",
         f"- External blockers: {manifest['external_blocker_count']}",
         "",
@@ -524,6 +610,7 @@ def main(argv: list[str] | None = None) -> int:
                 "tests": manifest["junit_totals"]["tests"],
                 "projects": len(manifest["junit_totals"]["projects"]),
                 "screenshots": manifest["visual_summary"]["screenshot_count"],
+                "expected_navigation_console_errors": manifest["visual_summary"]["expected_navigation_console_error_count"],
                 "soak_seconds": manifest["soak_metrics"]["measured_duration_seconds"],
                 "external_blockers": manifest["external_blocker_count"],
             },
