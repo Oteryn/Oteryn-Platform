@@ -70,6 +70,7 @@ owned_paths:
   - scripts/acceptance/playwright.config.mjs
   - scripts/acceptance/playwright.community-data.config.mjs
   - scripts/acceptance/playwright.content-scale.config.mjs
+  - scripts/acceptance/visual-acceptance.js
   - scripts/acceptance/seed-downloads-state.php
   - scripts/acceptance/tests/downloads-public-portability.spec.mjs
   - scripts/acceptance/tests/helpers.mjs
@@ -97,19 +98,19 @@ cross_repository_tasks: []
 ```yaml
 recovery:
   policy_version: 1
-  generation: 4
-  session_id: agent-20260804-001
-  session_started_at: 2026-08-04T07:58:00+02:00
-  checkpointed_at: 2026-08-04T09:35:00+02:00
-  last_progress_at: 2026-08-04T09:35:00+02:00
+  generation: 5
+  session_id: agent-20260804-002
+  session_started_at: 2026-08-04T10:42:00+02:00
+  checkpointed_at: 2026-08-04T10:52:00+02:00
+  last_progress_at: 2026-08-04T10:52:00+02:00
   phase: exact-head-validation
-  exact_head: de26ec673c442bb428cd2ab11bc7cc6390041409
+  exact_head: 8c1805c5c197c17b3173da4cdb327fe315d79cf3
   pull_request: 495
-  active_operation: GitHub Actions generation triggered by this checkpoint commit
+  active_operation: GitHub Actions generation triggered after restoring the Redis service at visual-harness process exit
   external_run_ids: []
-  operation_started_at: 2026-08-04T09:35:00+02:00
-  wait_deadline_at: 2026-08-04T11:47:00+02:00
-  check_generation: expected-navigation-console-classification-governance-fixed
+  operation_started_at: 2026-08-04T10:52:00+02:00
+  wait_deadline_at: 2026-08-04T13:22:00+02:00
+  check_generation: redis-outage-restoration
   checks_used: 0
   status: waiting
   safe_to_resume: true
@@ -121,27 +122,27 @@ recovery:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-04T09:35:00+02:00
-head: de26ec673c442bb428cd2ab11bc7cc6390041409
+updated_at: 2026-08-04T10:52:00+02:00
+head: 8c1805c5c197c17b3173da4cdb327fe315d79cf3
 base_sha: 6781e347b302e742c211cda3f2d5e38419f73c6f
 branch: audit/OTERYN-20260803-deep-system-validation
 pr: 495
 parent_issue: 494
 status: validating
 phase: validate
-session_id: agent-20260804-001
+session_id: agent-20260804-002
 session_role: validator
 execution_mode: github-only
-execution_reason: rerun exact-head deep validation after strictly classifying expected error-page navigation console statuses
-invocation_started_at: 2026-08-04T07:58:00+02:00
-last_progress_at: 2026-08-04T09:35:00+02:00
+execution_reason: rerun exact-head deep validation after making the visual outage probe restore its intentionally stopped Redis service before soak
+invocation_started_at: 2026-08-04T10:42:00+02:00
+last_progress_at: 2026-08-04T10:52:00+02:00
 ci_checks_for_current_head: 0
-ci_check_generation: expected-navigation-console-classification-governance-fixed
-terminal_ci_wait_started_at: 2026-08-04T09:35:00+02:00
+ci_check_generation: redis-outage-restoration
+terminal_ci_wait_started_at: 2026-08-04T10:52:00+02:00
 terminal_ci_checks_for_current_generation: 0
 unchanged_state_checks: 0
 identical_failure_retries: 0
-repair_cycles_for_current_gate: 5
+repair_cycles_for_current_gate: 6
 context_reconstruction_attempts: 1
 stall_warnings: 0
 context_pressure: high
@@ -151,7 +152,7 @@ estimate_confidence: high
 decomposition_decision: phased
 decomposition_reason: cohesive validation programme with shared exact-head evidence and sequential fail-closed gates
 validation_level: full
-heavy_validation_runs: 6
+heavy_validation_runs: 7
 context_routes:
   - agent-governance
   - testing
@@ -172,6 +173,7 @@ owned_paths:
   - scripts/acceptance/playwright.config.mjs
   - scripts/acceptance/playwright.community-data.config.mjs
   - scripts/acceptance/playwright.content-scale.config.mjs
+  - scripts/acceptance/visual-acceptance.js
   - scripts/acceptance/seed-downloads-state.php
   - scripts/acceptance/tests/downloads-public-portability.spec.mjs
   - scripts/acceptance/tests/helpers.mjs
@@ -193,11 +195,12 @@ proven:
   - deterministic download release fixture removed the Firefox and WebKit portability false failure without weakening assertions
   - exact run 30886198366 completed 164 browser tests through accessibility with zero failures errors skips or retries and exact expected project identities
   - run 30886198366 captured 71 visual surfaces with zero status mismatches overflow unlabeled controls low contrast missing focus or raw technical messages
-  - its only visual findings are six Chromium navigation console messages produced by deliberately expected 403 404 and 503 main-document responses
-  - compiler permits only those six explicitly named surfaces when expected status equals actual status statusMatches is true there is exactly one matching browser status message and no page error
-  - every other console error extra error page error wrong surface or wrong status remains blocking
+  - compiler permits only the six explicitly named expected 403 404 and 503 navigation console statuses and leaves every other browser or page error blocking
+  - exact run 30888428376 repeated all pre-soak browser and visual proof successfully at 9947de3b2ec296fd90c9ccaa030a3df0b54995c5
+  - run 30888428376 failed only because the visual failure-state probe intentionally shut down Redis and the harness did not restore the GitHub service container before reset_state
+  - visual wrapper now tracks the intentional shutdown and synchronously restarts and readiness-checks the Redis 7.4 service container on every process exit including failures
 unknown:
-  - terminal soak result and compiled manifest after the visual classification repair
+  - terminal soak result and compiled manifest after Redis restoration
   - final exact-head counts and artifact digest
   - whether main changes before merge
 derived:
@@ -206,12 +209,13 @@ derived:
   - external production Canary login payment DNS Cloudflare and restore proof requires separate authorization
 conflicts: []
 first_failure:
-  marker: Deep System Validation run 30886198366 stopped before soak because six expected error-page navigation statuses were classified as generic browser errors
-  evidence: artifact 8883647494 digest sha256:1dd4def774ab11c9c0fa2f93b7842956cdf3a56cb8e1a67cdd689685f3f31d7e; all 164 browser testcases were clean and visual payload recorded only expected 403 404 and 503 navigation messages
+  marker: Deep System Validation run 30888428376 stopped immediately after successful visual collection because redis-cli DBSIZE ran while the Redis service remained intentionally stopped by the failure-state probe
+  evidence: step Execute complete zero-retry browser matrix emitted ACCEPTANCE_SUMMARY_JSON for 71 clean screenshots and then failed with Could not connect to Redis at 127.0.0.1:6379; artifact 8884437039 digest sha256:9b2e094295b251f49976d48cdd808f4f8434afdda561f0ab1d54600f12340a9e
 rejected_hypotheses:
   - portability fixture repair failed
   - Firefox or WebKit failed
   - visual surfaces contain layout accessibility contrast or raw technical message defects
+  - the six expected navigation console statuses directly failed the JavaScript harness
   - all console errors on expected error pages may be ignored
 changed_paths:
   - .github/workflows/deep-system-validation.yml
@@ -222,6 +226,7 @@ changed_paths:
   - scripts/acceptance/playwright.config.mjs
   - scripts/acceptance/playwright.community-data.config.mjs
   - scripts/acceptance/playwright.content-scale.config.mjs
+  - scripts/acceptance/visual-acceptance.js
   - scripts/acceptance/seed-downloads-state.php
   - scripts/acceptance/seed-homepage-navigation-seo.php
   - scripts/acceptance/tests/admin-wiki-administration.spec.mjs
@@ -231,13 +236,13 @@ changed_paths:
   - tools/validation/deep_system_validation.py
   - tools/validation/test_deep_system_validation.py
 validation:
-  - command: all 15 standard workflows at 406f985f55c8ed3c03515256795e85fe698acc3d
+  - command: all standard workflows at 9947de3b2ec296fd90c9ccaa030a3df0b54995c5
     result: PASS
     evidence: every non-deep workflow completed successfully
-  - command: Deep System Validation run 30886198366 at 406f985f55c8ed3c03515256795e85fe698acc3d
+  - command: Deep System Validation run 30888428376 at 9947de3b2ec296fd90c9ccaa030a3df0b54995c5
     result: FAIL
-    evidence: all PHP and browser lanes through visual completed; fail-closed stopped before soak on six strictly bounded expected navigation console statuses
-  - command: compiler regression suite at de26ec673c442bb428cd2ab11bc7cc6390041409
+    evidence: all PHP and zero-retry browser lanes through 71 visual surfaces passed; the first failure was Redis remaining stopped before soak
+  - command: Redis outage restoration wrapper at 8c1805c5c197c17b3173da4cdb327fe315d79cf3
     result: NOT_RUN
     evidence: replacement exact-head workflow generation requested
 blockers: []
