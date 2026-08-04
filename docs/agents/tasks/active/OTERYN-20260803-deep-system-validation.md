@@ -67,6 +67,8 @@ owned_paths:
   - tools/validation/test_deep_system_validation.py
   - scripts/acceptance/package.json
   - scripts/acceptance/playwright.config.mjs
+  - scripts/acceptance/playwright.community-data.config.mjs
+  - scripts/acceptance/playwright.content-scale.config.mjs
   - scripts/acceptance/tests/helpers.mjs
   - scripts/acceptance/tests/admin-wiki-administration.spec.mjs
   - scripts/acceptance/tests/homepage-navigation-seo.spec.mjs
@@ -91,8 +93,8 @@ cross_repository_tasks: []
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-04T08:05:00+02:00
-head: 1c746f55de43033306ad2b6a990d5377ff0035b6
+updated_at: 2026-08-04T08:20:00+02:00
+head: 405c71ed8e771f7bbc9049941a66f7268f93acfb
 base_sha: 87c65b55499e7feff9cd163d546a62eecdb05e5c
 branch: audit/OTERYN-20260803-deep-system-validation
 pr: 495
@@ -104,14 +106,14 @@ session_role: validator
 execution_mode: github-only
 execution_reason: continue the existing exact-head validation and repair loop through GitHub Actions
 invocation_started_at: 2026-08-04T07:58:00+02:00
-last_progress_at: 2026-08-04T08:05:00+02:00
-ci_checks_for_current_head: 1
+last_progress_at: 2026-08-04T08:20:00+02:00
+ci_checks_for_current_head: 2
 ci_check_generation: current_base
 terminal_ci_wait_started_at: null
 terminal_ci_checks_for_current_generation: 0
 unchanged_state_checks: 0
 identical_failure_retries: 0
-repair_cycles_for_current_gate: 1
+repair_cycles_for_current_gate: 2
 context_reconstruction_attempts: 1
 stall_warnings: 0
 context_pressure: high
@@ -121,7 +123,7 @@ estimate_confidence: high
 decomposition_decision: phased
 decomposition_reason: one cohesive validation programme with shared workflow evidence and sequential fail-closed gates
 validation_level: full
-heavy_validation_runs: 2
+heavy_validation_runs: 3
 context_routes:
   - agent-governance
   - testing
@@ -140,6 +142,8 @@ owned_paths:
   - tools/validation/test_deep_system_validation.py
   - scripts/acceptance/package.json
   - scripts/acceptance/playwright.config.mjs
+  - scripts/acceptance/playwright.community-data.config.mjs
+  - scripts/acceptance/playwright.content-scale.config.mjs
   - scripts/acceptance/tests/helpers.mjs
   - scripts/acceptance/tests/admin-wiki-administration.spec.mjs
   - scripts/acceptance/tests/homepage-navigation-seo.spec.mjs
@@ -162,9 +166,11 @@ proven:
   - homepage event fixture removes conflicting content-scale fixture events and is reseeded for every project
   - Guzzle 7.15.1 became vulnerable after CVE-2026-69246 and CVE-2026-69245 were published during validation
   - Composer generated and audited composer.lock with guzzlehttp/guzzle 7.15.2 at source reference 744101956d78b7c1384d0cbf379db13e859167bf
-  - current PR diff contains scripts/acceptance/package.json and that path is now explicitly owned by this task
+  - current PR diff contains scripts/acceptance/package.json and that path is explicitly owned by this task
+  - Agent Governance passed on exact head 405c71ed8e771f7bbc9049941a66f7268f93acfb
+  - specialized community-data and content-scale reporters currently write their failure JUnit only below artifacts/acceptance while the deep workflow uploads only artifacts/deep
 unknown:
-  - terminal full browser resilience accessibility visual and soak results on the connector-authored post-security head
+  - terminal full browser resilience accessibility visual and soak results on the post-diagnostics head
   - whether visual execution finds a blocking UX condition
   - final exact-head test counts and performance calibration metrics
   - terminal conclusions of all standard workflows on the final evidence commit
@@ -174,10 +180,11 @@ derived:
   - generated Actions evidence must be copied into repository paths before closeout
   - raw traces screenshots and video remain disabled because authenticated flows may contain cookies reset URLs TOTP enrollment secrets or recovery codes
   - a newly published high-severity dependency advisory blocks completion even when unrelated implementation tests are green
+  - specialized failing browser lanes need sanitized JUnit mirrored directly into artifacts/deep before fail-fast shell exit
 conflicts: []
 first_failure:
-  marker: Deep System Validation run 30849615476 failed three Playwright contracts
-  evidence: community stress project identity was absent from its evidence contract; acceptance download host was denied; homepage next-event fixture was displaced by prior content-scale data
+  marker: specialized browser failure evidence is outside the uploaded deep artifact root
+  evidence: playwright.community-data.config.mjs and playwright.content-scale.config.mjs write JUnit under artifacts/acceptance while the workflow always uploads only artifacts/deep
 rejected_hypotheses:
   - route inventory closure proves runtime state coverage
   - critical browser evidence proves full acceptance
@@ -194,6 +201,8 @@ changed_paths:
   - scripts/acceptance/coverage/surfaces/community-data-completeness.json
   - scripts/acceptance/package.json
   - scripts/acceptance/playwright.config.mjs
+  - scripts/acceptance/playwright.community-data.config.mjs
+  - scripts/acceptance/playwright.content-scale.config.mjs
   - scripts/acceptance/seed-homepage-navigation-seo.php
   - scripts/acceptance/tests/admin-wiki-administration.spec.mjs
   - scripts/acceptance/tests/helpers.mjs
@@ -215,7 +224,10 @@ validation:
     evidence: Guzzle version 7.15.2 source and dist reference 744101956d78b7c1384d0cbf379db13e859167bf
   - command: Agent Governance and Deep System Validation at 1c746f55de43033306ad2b6a990d5377ff0035b6
     result: FAIL
-    evidence: checkpoint schema failed because version 2, missing head and custom FAIL_REMEDIATED were invalid; this checkpoint repair targets those exact failures
+    evidence: checkpoint schema failed because version 2, missing head and custom FAIL_REMEDIATED were invalid; checkpoint repair passed on the next head
+  - command: Agent Governance run 30882990123 at 405c71ed8e771f7bbc9049941a66f7268f93acfb
+    result: PASS
+    evidence: checkpoint validator and governance tests passed
 blockers: []
-next_action: execute the new exact-head Deep System Validation, inspect the first actionable failure or persist passing machine evidence and report, then complete independent review, exact-head CI, merge and archival
+next_action: mirror sanitized specialized-profile JUnit directly into artifacts/deep, execute the replacement exact-head Deep System Validation, persist passing machine evidence and report, then complete independent review, exact-head CI, merge and archival
 ```
