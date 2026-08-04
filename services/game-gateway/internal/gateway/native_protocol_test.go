@@ -125,7 +125,7 @@ func TestNewV2SessionRequestBindsExactAuthority(t *testing.T) {
 		EndpointID: "native-1", Host: "game.example.test", Port: 7173, TLSServerName: "game.example.test",
 	}
 	request, err := NewV2SessionRequest(
-		Authorization{CanaryAccountID: 1001, SecurityGeneration: 9},
+		Authorization{CanaryAccountID: 1001, SecurityGeneration: 0},
 		World{ID: 7, Host: "legacy.example.test", Port: 7172},
 		strings.Repeat("a", 32),
 		selection,
@@ -133,11 +133,30 @@ func TestNewV2SessionRequestBindsExactAuthority(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewV2SessionRequest failed: %v", err)
 	}
-	if request.ContractVersion != 2 || request.CanaryAccountID != 1001 || request.SecurityGeneration != 9 || request.WorldID != 7 || request.ChannelID != 1 || request.EndpointID != "native-1" {
+	if request.ContractVersion != 2 || request.CanaryAccountID != 1001 || request.SecurityGeneration != 0 || request.WorldID != 7 || request.ChannelID != 1 || request.EndpointID != "native-1" {
 		t.Fatalf("missing authority binding: %#v", request)
 	}
 	if request.Audience != "otheryn-world:7:channel:1:endpoint:native-1" || !request.SingleAdmission || request.CharacterBindingMode != "bind_on_first_admission" {
 		t.Fatalf("unexpected admission contract: %#v", request)
+	}
+}
+
+func TestNewV2SessionRequestRejectsNegativeSecurityGeneration(t *testing.T) {
+	selection := GameplaySelection{
+		PolicyRevision: 3,
+		Family:         "oteryn", Profile: "oteryn.native.v1", Transport: "tcp.tls13.protobuf.be32.v1",
+		SchemaRevision: 1, SchemaSHA256: canonicalNativeSchemaSHA256,
+		Capabilities: nativeV1BaseCapabilities, CapabilityDigestSHA256: capabilityDigest(nativeV1BaseCapabilities),
+		EndpointID: "native-1", Host: "game.example.test", Port: 7173, TLSServerName: "game.example.test",
+	}
+	_, err := NewV2SessionRequest(
+		Authorization{CanaryAccountID: 1001, SecurityGeneration: -1},
+		World{ID: 7, Host: "legacy.example.test", Port: 7172},
+		strings.Repeat("a", 32),
+		selection,
+	)
+	if !errors.Is(err, ErrUnavailable) {
+		t.Fatalf("expected negative generation to fail closed, got %v", err)
 	}
 }
 
