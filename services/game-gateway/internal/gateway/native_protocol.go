@@ -15,6 +15,7 @@ const (
 	gameSessionContractVersionV2 = 2
 	initialGameplayChannelID     = 1
 	characterBindingModeFirst    = "bind_on_first_admission"
+	canonicalNativeSchemaSHA256  = "c7665223f09001e3294e9a03ab4784defed66b0ac04450e8679d4778421207f8"
 )
 
 var nativeV1BaseCapabilities = []string{
@@ -161,7 +162,9 @@ func validPolicyCandidate(candidate GameplayPolicyCandidate) bool {
 	}
 
 	if candidate.Family == "oteryn" && candidate.Profile == "oteryn.native.v1" {
-		if candidate.Transport != "tcp.tls13.protobuf.be32.v1" || candidate.SchemaRevision != 1 {
+		if candidate.Transport != "tcp.tls13.protobuf.be32.v1" ||
+			candidate.SchemaRevision != 1 ||
+			candidate.SchemaSHA256 != canonicalNativeSchemaSHA256 {
 			return false
 		}
 		if !containsEvery(candidate.RequiredCapabilities, nativeV1BaseCapabilities) {
