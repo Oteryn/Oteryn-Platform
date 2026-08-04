@@ -5,14 +5,14 @@ Canonical contract: `../contracts/OTERYN_NATIVE_GAMEPLAY_PROTOCOL_CONTRACT.md`
 
 ## Assets
 
-- reusable Oteryn Identity credentials and MFA state;
-- one-time Game Login Ticket and game-auth generation;
-- Game Session credential and admission state;
-- account, character, world and channel authorization;
-- selected adapter/profile/transport/schema/capabilities;
-- authoritative gameplay state, commands and results;
+- reusable Oteryn Identity credentials, MFA and `game_auth_generation`;
+- one-time Game Login Ticket;
+- opaque Game Session credential and server-side admission claims/state;
+- account, character, world, channel and endpoint authorization;
+- exact adapter/profile/transport/schema/capability selection;
+- authoritative commands, results and gameplay state;
 - service identity, World Registry policy and rollout state;
-- privacy of player communications and telemetry.
+- player communication and telemetry privacy.
 
 ## Trust boundaries
 
@@ -23,33 +23,33 @@ Rust client <-> Game Gateway public HTTPS
 Gateway <-> Platform private redeem/context
 Gateway <-> Game Session issuer private API
 Rust client <-> Otheryn native TLS endpoint
-Otheryn protocol layer <-> authoritative game/domain state
+Otheryn protocol projection <-> authoritative game/domain state
 ```
 
-Private APIs require authenticated service identity, private ingress and normal certificate/hostname validation. A public client field is never trusted as account, character, world, endpoint, policy or capability authority.
+Private APIs require authenticated service identity, private ingress and normal TLS certificate/hostname validation. Client fields never establish account, character, world, endpoint, policy, capability or rollout authority.
 
 ## Threats and mandatory controls
 
 | Threat | Control | Required negative proof |
 |---|---|---|
-| candidate stripping/reordering | client offer is a bounded set; authoritative World Registry order controls selection | stripping native cannot cause an unadvertised profile or password fallback |
-| candidate injection | exact canonical tuple and capability intersection; selected result must be in offer and policy | injected family/profile/schema/capability is rejected |
-| protocol downgrade after auth | one selection bound to Game Session; no second candidate after issuance/admission failure | native failure never reconnects with Canary using same ticket/session |
-| stale World Registry policy | policy revision bound to session; Otheryn validates admissibility | disabled/stale revision fails before gameplay |
-| Game Session replay | opaque credential, expiry, generation, audience and atomic single admission | second connection, character, world, channel or profile fails |
-| cross-character use | bind-on-first-admission plus authoritative ownership check | one credential cannot bind two characters |
-| endpoint redirection | Gateway returns validated host/port/TLS name from World Registry; TLS identity checked | host/TLS contradiction fails closed |
-| credential theft in logs/artifacts | structured redaction; no raw payload/ticket/session/command IDs | repository and staging log scan contains no secret material |
-| malformed/oversize frames | 4-byte bounded length, pre-allocation checks, protobuf depth/count limits | zero, oversize, truncated and nested inputs close deterministically |
-| compression bomb | native v1 has no compression; future profile has explicit output/ratio/time bounds | compressed v1 frame is fatal; synthetic bomb stays bounded |
-| sequence manipulation | exact stream and command monotonicity plus duplicate payload hash | gap/regression/wrap/different-payload duplicate is rejected |
-| command replay | session-scoped ID, bounded dedup result cache, no reconnect replay | exact duplicate is idempotent; stale duplicate never reapplies |
-| state desynchronization | revisioned snapshots/deltas, digest, bounded resync | gap cannot partially mutate client state |
-| client-authoritative mutation | semantic intent only; Otheryn owns all legality/effects | claimed damage/inventory/resource fields do not exist |
-| information oracle | stable coarse reason codes and bounded safe text | unauthorized references do not disclose hidden identity/state |
-| rate exhaustion | independent public login, TLS handshake, bootstrap, frame, command and resync limits | each boundary fails with bounded work/memory |
-| ambiguous ticket/session outcome | consumed or possibly consumed credentials are never retried | timeout/error requires fresh ticket and session |
-| service impersonation | mTLS or equivalent authenticated private clients, private ingress, TLS validation | public/incorrect service identity cannot redeem or issue sessions |
+| candidate stripping/reordering | offer is a bounded set; World Registry order is authoritative | stripping native cannot select an unadvertised profile or password fallback |
+| candidate injection | exact tuple, sorted list and deterministic digest must occur in offer and policy | injected family/profile/schema/capability is rejected |
+| downgrade after redeem | one Gateway selection bound to Game Session; no second candidate | every post-selection native failure is terminal for that ticket/session |
+| stale or changed policy | current policy used at issuance; bound revision/tuple audited; Otheryn validates exact local readiness identity | tampered/mismatched revision fails; disabling advertisement stops new issuance without silently switching active sessions |
+| Game Session replay | opaque secret, hashed server-side lookup, expiry, generation, exact audience and atomic single admission | second connection/character/world/channel/profile/endpoint fails |
+| cross-character use | authoritative ownership lookup plus atomic bind-on-first-admission | one credential cannot bind two characters |
+| endpoint redirection | selected endpoint and TLS name come from World Registry; TLS identity is verified | route/TLS contradiction fails closed |
+| credential leakage | structured redaction and synthetic fixtures | retained logs/artifacts contain no OAuth/ticket/session/identity/payload data |
+| malformed/oversize frame | BE32 pre-allocation bound plus protobuf depth/count/string limits | zero, oversize, truncated, unknown-payload and nested inputs close deterministically |
+| compression bomb | native v1 compression forbidden | compressed input is fatal with bounded resource use |
+| stream manipulation | exact per-direction monotonic sequence | zero/gap/regression/wrap is fatal |
+| command replay/conflict | 16-byte ID, command sequence and exact received-submessage byte hash in bounded result cache | exact cached duplicate is idempotent; conflict fatal; stale duplicate never reapplies |
+| state desynchronization | complete digest-checked snapshot, strict revision deltas and one bounded resync | gaps never partially mutate committed state; duplicate/regressed deltas are fatal |
+| client-authoritative mutation | semantic intent only | no fields permit claimed damage, inventory, loot, resource or cooldown result |
+| information oracle | coarse stable reasons and bounded safe detail | unauthorized references disclose no hidden identity/state |
+| rate exhaustion | independent finite login, TLS, bootstrap, frame, command, heartbeat and resync limits | every boundary fails with bounded CPU/memory/time |
+| ambiguous ticket/session result | possibly consumed credentials are terminal | timeout/error requires fresh ticket and Game Session |
+| private-service impersonation | authenticated private clients, private ingress and TLS verification | public/incorrect identity cannot redeem or issue sessions |
 
 ## Downgrade state machine
 
@@ -65,18 +65,25 @@ UNAUTHENTICATED
   -> GAMEPLAY_ACTIVE
 ```
 
-Before `CANDIDATE_SELECTED`, Gateway may choose any single allowed intersection candidate. After that state, no transition can change family/profile/transport/schema/capabilities. Failure transitions only to `TERMINAL_FAILED`; a fresh login starts from `UNAUTHENTICATED` with new identifiers.
+Before `CANDIDATE_SELECTED`, Gateway chooses at most one exact intersection candidate. Afterwards family/profile/transport/schema/capabilities are immutable. Any failure transitions to `TERMINAL_FAILED`; a new attempt starts with new ticket, login attempt, session and command namespace.
+
+## Policy-disable and emergency behavior
+
+- Normal disablement removes native from new World Registry/Gateway selections.
+- Already-issued unexpired credentials may bind and active sessions may drain while the exact listener/readiness identity remains enabled.
+- An explicit admission-revocation generation rejects not-yet-bound credentials.
+- Emergency listener shutdown closes native sessions; it does not migrate them to Canary.
+- No Otheryn live query to World Registry is required during admission; the signed/stored session tuple and local readiness identity are the enforcement inputs.
 
 ## Abuse limits
 
-- Gateway request body: existing 4 KiB until the producer extension measures and explicitly increases it; target request remains `<=16 KiB`.
-- offer candidates: 8; capabilities per candidate: 64; capability token: 64 bytes.
-- Gateway response: 64 KiB.
-- native TLS bootstrap deadline: 5 seconds.
-- native frame: 1 MiB; ordinary string: 4 KiB; chat: 1 KiB; nesting: 32; repeated entries: 4096.
-- snapshot: 256 chunks, 512 KiB per chunk, 16 MiB complete.
-- compressed native v1 frames: forbidden.
-- command/resync/heartbeat rates: exact values are deployment measurements in the Otheryn implementation package; they must be finite and independent.
+- target Gateway request `<=16 KiB`; response `<=64 KiB`;
+- 8 candidates; 64 capabilities/candidate; 64 bytes/token;
+- native bootstrap deadline 5 seconds;
+- frame/message 1 MiB; ordinary string 4 KiB; chat 1 KiB; nesting 32; repeated entries 4096;
+- snapshot 256 chunks, 512 KiB/chunk, 16 MiB total;
+- native v1 compression forbidden;
+- exact command/heartbeat/resync rates are finite measured values selected by the implementation package before final tests.
 
 ## Telemetry
 
@@ -92,18 +99,18 @@ bootstrap_error_code
 protocol_error_code
 action_reason
 resync_reason
-world_policy_revision bucket or deployment revision
+deployment_revision
 ```
 
-Forbidden telemetry fields include raw ticket/session credential, OAuth token, session ID, command ID, account ID, character ID/name, chat text, payload bytes and certificate private material.
+Forbidden fields include OAuth token, ticket/session credential, session/command ID, account/character ID or name, chat, payload bytes and certificate private material. Raw `world_policy_revision` is not a general metric label; it belongs in bounded deployment evidence/audit records.
 
-## Residual risks requiring implementation evidence
+## Residual implementation evidence
 
-- exact TLS certificate/CA strategy for production and staging;
-- concrete Game Session credential format and atomic storage transaction;
+- exact staging/production certificate and CA policy;
+- atomic v2 hashed credential storage and admission transaction;
 - measured command/frame/rate limits under realistic load;
-- protobuf library unknown-field and allocation behavior in C++ and Rust;
-- state snapshot size for representative worlds;
-- operational drain time and rollback observability.
+- C++/Rust protobuf unknown-field and allocation behavior;
+- representative snapshot size and mutation rate;
+- drain duration and emergency rollback observability.
 
-These are bounded implementation/measurement tasks, not permission to weaken the contract.
+These are bounded implementation/measurement tasks and do not permit weakening this contract.
