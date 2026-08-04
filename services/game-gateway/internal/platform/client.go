@@ -58,7 +58,7 @@ func (c *Client) Redeem(ctx context.Context, ticket string) (gateway.Authorizati
 	if status != http.StatusOK || response.ProtocolVersion != 1 {
 		return gateway.Authorization{}, gateway.ErrUnavailable
 	}
-	if response.Authorization.CanaryAccountID < 1 || response.Authorization.SecurityGeneration < 1 || response.Authorization.RedeemedAt == "" {
+	if response.Authorization.CanaryAccountID < 1 || response.Authorization.SecurityGeneration < 0 || response.Authorization.RedeemedAt == "" {
 		return gateway.Authorization{}, gateway.ErrUnavailable
 	}
 
