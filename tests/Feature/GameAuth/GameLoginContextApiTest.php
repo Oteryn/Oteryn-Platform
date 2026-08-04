@@ -17,6 +17,8 @@ final class GameLoginContextApiTest extends TestCase
 
     private const SERVICE_CREDENTIAL = 'gateway-login-context-test-credential';
 
+    private const NATIVE_SCHEMA_SHA256 = 'c7665223f09001e3294e9a03ab4784defed66b0ac04450e8679d4778421207f8';
+
     private const NATIVE_CAPABILITIES = [
         'actions.command-result.v1',
         'chat.semantic.v1',
@@ -102,6 +104,7 @@ final class GameLoginContextApiTest extends TestCase
             ->assertJsonPath('gameplay_policy.candidates.1.endpoint_id', 'native-second')
             ->assertJsonPath('gameplay_policy.candidates.0.family', 'oteryn')
             ->assertJsonPath('gameplay_policy.candidates.0.schema_revision', 1)
+            ->assertJsonPath('gameplay_policy.candidates.0.schema_sha256', self::NATIVE_SCHEMA_SHA256)
             ->assertJsonPath('gameplay_policy.candidates.0.required_capabilities', self::NATIVE_CAPABILITIES);
 
         self::assertStringNotContainsString('disabled', $response->getContent());
@@ -182,7 +185,7 @@ final class GameLoginContextApiTest extends TestCase
             'profile' => 'oteryn.native.v1',
             'transport' => 'tcp.tls13.protobuf.be32.v1',
             'schema_revision' => 1,
-            'schema_sha256' => str_repeat('a', 64),
+            'schema_sha256' => self::NATIVE_SCHEMA_SHA256,
             'required_capabilities' => self::NATIVE_CAPABILITIES,
             'optional_capabilities' => [],
             'endpoint_id' => $endpointId,
