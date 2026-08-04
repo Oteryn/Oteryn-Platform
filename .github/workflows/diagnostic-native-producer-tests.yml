@@ -29,24 +29,5 @@ jobs:
           extensions: pdo_sqlite, pcntl, redis
           tools: composer:v2
       - run: composer install --no-interaction --prefer-dist --no-progress
-      - name: Isolate first full-suite error
-        shell: bash
-        run: |
-          set +e
-          php artisan config:clear --ansi
-          vendor/bin/phpunit \
-            --colors=never \
-            --display-errors \
-            --stop-on-error \
-            --debug 2>&1 | tee /tmp/native-producer-error.log
-          status=${PIPESTATUS[0]}
-          awk '
-            /Test Errored|Test Failed/ { capture=50 }
-            capture > 0 { print; capture-- }
-          ' /tmp/native-producer-error.log | tail -n 80 | while IFS= read -r line; do
-            line=${line//'%'/'%25'}
-            line=${line//$'\r'/'%0D'}
-            line=${line//$'\n'/'%0A'}
-            echo "::error::$line"
-          done
-          exit "$status"
+      - name: Run exact Phase 7 regression command
+        run: composer test
