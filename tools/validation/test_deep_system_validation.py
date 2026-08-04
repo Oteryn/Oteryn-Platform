@@ -26,6 +26,7 @@ class DeepSystemValidationTests(unittest.TestCase):
                     "classification": "VISUAL_UX_EVIDENCE_COLLECTED",
                     "validationSha": "abc123",
                     "screenshotCount": 12,
+                    "results": [],
                     "problematic": {
                         "statusMismatch": [],
                         "horizontalOverflow": [],
@@ -132,6 +133,12 @@ class DeepSystemValidationTests(unittest.TestCase):
     def lane(contract, name):
         return next(item for item in contract["lanes"] if item["name"] == name)
 
+    def visual_payload(self):
+        return json.loads(self.visual.read_text(encoding="utf-8"))
+
+    def write_visual_payload(self, payload):
+        self.visual.write_text(json.dumps(payload), encoding="utf-8")
+
     def test_clean_contract_with_blocker_is_truthful(self):
         result = validate_contract(self.contract(), "abc123", self.root)
         self.assertEqual(
@@ -140,6 +147,9 @@ class DeepSystemValidationTests(unittest.TestCase):
         )
         self.assertEqual(result["external_blocker_count"], 1)
         self.assertEqual(result["visual_summary"]["screenshot_count"], 12)
+        self.assertEqual(
+            result["visual_summary"]["expected_navigation_console_error_count"], 0
+        )
         self.assertEqual(result["soak_metrics"]["measured_duration_seconds"], 300)
         self.assertEqual(
             set(result["junit_totals"]["projects"]),
@@ -305,16 +315,89 @@ class DeepSystemValidationTests(unittest.TestCase):
             validate_contract(contract, "abc123", self.root)
 
     def test_visual_finding_fails(self):
-        payload = json.loads(self.visual.read_text(encoding="utf-8"))
+        payload = self.visual_payload()
         payload["problematic"]["horizontalOverflow"] = ["home/mobile"]
-        self.visual.write_text(json.dumps(payload), encoding="utf-8")
+        self.write_visual_payload(payload)
         with self.assertRaisesRegex(ValidationError, "horizontalOverflow=1"):
             validate_contract(self.contract(), "abc123", self.root)
 
+    def test_expected_error_page_navigation_console_status_is_retained_not_blocking(self):
+        payload = self.visual_payload()
+        payload["results"] = [
+            {
+                "name": "not-found-404",
+                "viewport": "desktop",
+                "expectedStatus": 404,
+                "actualStatus": 404,
+                "statusMatches": True,
+            }
+        ]
+        payload["problematic"]["browserErrors"] = [
+            {
+                "surface": "not-found-404/desktop",
+                "consoleErrors": [
+                    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+                ],
+                "pageErrors": [],
+            }
+        ]
+        self.write_visual_payload(payload)
+        result = validate_contract(self.contract(), "abc123", self.root)
+        self.assertEqual(
+            result["visual_summary"]["expected_navigation_console_error_count"], 1
+        )
+        self.assertEqual(result["visual_summary"]["problem_counts"]["browserErrors"], 0)
+
+    def test_unexpected_browser_console_error_fails(self):
+        payload = self.visual_payload()
+        payload["results"] = [
+            {
+                "name": "home",
+                "viewport": "desktop",
+                "expectedStatus": 200,
+                "actualStatus": 200,
+                "statusMatches": True,
+            }
+        ]
+        payload["problematic"]["browserErrors"] = [
+            {
+                "surface": "home/desktop",
+                "consoleErrors": ["ReferenceError: portal is not defined"],
+                "pageErrors": [],
+            }
+        ]
+        self.write_visual_payload(payload)
+        with self.assertRaisesRegex(ValidationError, "browserErrors=1"):
+            validate_contract(self.contract(), "abc123", self.root)
+
+    def test_expected_status_error_with_page_error_still_fails(self):
+        payload = self.visual_payload()
+        payload["results"] = [
+            {
+                "name": "authorization-denied-403",
+                "viewport": "desktop",
+                "expectedStatus": 403,
+                "actualStatus": 403,
+                "statusMatches": True,
+            }
+        ]
+        payload["problematic"]["browserErrors"] = [
+            {
+                "surface": "authorization-denied-403/desktop",
+                "consoleErrors": [
+                    "Failed to load resource: the server responded with a status of 403 (Forbidden)"
+                ],
+                "pageErrors": ["ReferenceError: deniedView is not defined"],
+            }
+        ]
+        self.write_visual_payload(payload)
+        with self.assertRaisesRegex(ValidationError, "browserErrors=1"):
+            validate_contract(self.contract(), "abc123", self.root)
+
     def test_visual_sha_mismatch_fails(self):
-        payload = json.loads(self.visual.read_text(encoding="utf-8"))
+        payload = self.visual_payload()
         payload["validationSha"] = "other"
-        self.visual.write_text(json.dumps(payload), encoding="utf-8")
+        self.write_visual_payload(payload)
         with self.assertRaisesRegex(ValidationError, "visual evidence SHA"):
             validate_contract(self.contract(), "abc123", self.root)
 
