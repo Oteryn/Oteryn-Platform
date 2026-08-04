@@ -19,7 +19,7 @@ import (
 
 func TestNativeProducerJourneyBindsOneSelectionAndIssuesOnce(t *testing.T) {
 	const serviceToken = "synthetic-service-token"
-	const schemaHash = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	const schemaHash = "c7665223f09001e3294e9a03ab4784defed66b0ac04450e8679d4778421207f8"
 	capabilities := nativeCapabilities()
 
 	var lock sync.Mutex
