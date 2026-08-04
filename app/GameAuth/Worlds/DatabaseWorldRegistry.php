@@ -6,6 +6,20 @@ final class DatabaseWorldRegistry implements WorldRegistry
 {
     private const IDENTIFIER_PATTERN = '/\A[a-z0-9][a-z0-9._-]{0,63}\z/D';
 
+    private const NATIVE_SCHEMA_SHA256 = 'c7665223f09001e3294e9a03ab4784defed66b0ac04450e8679d4778421207f8';
+
+    private const NATIVE_BASE_CAPABILITIES = [
+        'actions.command-result.v1',
+        'chat.semantic.v1',
+        'combat.server-authoritative.v1',
+        'inventory.server-authoritative.v1',
+        'ordering.server-sequence.v1',
+        'reconciliation.movement.v1',
+        'session.single-admission.v1',
+        'state.revision.v1',
+        'state.snapshot-delta.v1',
+    ];
+
     /**
      * @return list<GameWorldRoute>
      */
@@ -98,6 +112,16 @@ final class DatabaseWorldRegistry implements WorldRegistry
         $required = $this->canonicalCapabilities($candidate->required_capabilities);
         $optional = $this->canonicalCapabilities($candidate->optional_capabilities);
         if ($required === null || $optional === null || array_intersect($required, $optional) !== []) {
+            return null;
+        }
+
+        if ($candidate->family === 'oteryn'
+            && $candidate->profile === 'oteryn.native.v1'
+            && ($candidate->transport !== 'tcp.tls13.protobuf.be32.v1'
+                || $candidate->schema_revision !== 1
+                || $candidate->schema_sha256 !== self::NATIVE_SCHEMA_SHA256
+                || array_diff(self::NATIVE_BASE_CAPABILITIES, $required) !== [])
+        ) {
             return null;
         }
 
