@@ -72,9 +72,10 @@ func (c *Client) LoginContext(ctx context.Context, canaryAccountID int64) (gatew
 	}
 
 	var response struct {
-		ProtocolVersion int                 `json:"protocol_version"`
-		Worlds          []gateway.World     `json:"worlds"`
-		Characters      []gateway.Character `json:"characters"`
+		ProtocolVersion int                    `json:"protocol_version"`
+		Worlds          []gateway.World        `json:"worlds"`
+		Characters      []gateway.Character    `json:"characters"`
+		GameplayPolicy  gateway.GameplayPolicy `json:"gameplay_policy"`
 	}
 
 	path := "/internal/v1/game-auth/accounts/" + strconv.FormatInt(canaryAccountID, 10) + "/login-context"
@@ -87,8 +88,9 @@ func (c *Client) LoginContext(ctx context.Context, canaryAccountID int64) (gatew
 	}
 
 	return gateway.LoginContext{
-		Worlds:     response.Worlds,
-		Characters: response.Characters,
+		Worlds:         response.Worlds,
+		Characters:     response.Characters,
+		GameplayPolicy: response.GameplayPolicy,
 	}, nil
 }
 
@@ -139,7 +141,9 @@ func (c *Client) doJSON(ctx context.Context, method, path string, payload any, t
 
 	limited := io.LimitReader(response.Body, 64*1024)
 	if response.StatusCode >= 200 && response.StatusCode < 300 {
-		if err := json.NewDecoder(limited).Decode(target); err != nil {
+		decoder := json.NewDecoder(limited)
+		decoder.DisallowUnknownFields()
+		if err := decoder.Decode(target); err != nil {
 			return response.StatusCode, fmt.Errorf("decode platform response: %w", gateway.ErrUnavailable)
 		}
 		return response.StatusCode, nil
