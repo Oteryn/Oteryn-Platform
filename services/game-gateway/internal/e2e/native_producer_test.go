@@ -92,8 +92,22 @@ func TestNativeProducerJourneyBindsOneSelectionAndIssuesOnce(t *testing.T) {
 		switch r.URL.Path {
 		case "/internal/v2/game-sessions/readiness":
 			readinessCalls++
-			payload["ready"] = true
-			_ = json.NewEncoder(w).Encode(payload)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"contract_version":         payload["contract_version"],
+				"ready":                    true,
+				"world_id":                 payload["world_id"],
+				"channel_id":               payload["channel_id"],
+				"world_policy_revision":    payload["world_policy_revision"],
+				"endpoint_id":              payload["endpoint_id"],
+				"audience":                 payload["audience"],
+				"family":                   payload["family"],
+				"profile":                  payload["profile"],
+				"transport":                payload["transport"],
+				"schema_revision":          payload["schema_revision"],
+				"schema_sha256":            payload["schema_sha256"],
+				"capabilities":             payload["capabilities"],
+				"capability_digest_sha256": payload["capability_digest_sha256"],
+			})
 		case "/internal/v2/game-sessions":
 			issueCalls++
 			_ = json.NewEncoder(w).Encode(map[string]any{
