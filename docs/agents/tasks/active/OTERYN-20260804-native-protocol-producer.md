@@ -77,9 +77,10 @@ cross_repository_tasks:
 ```yaml
 checkpoint_version: 1
 policy_version: 2
-updated_at: 2026-08-04T23:00:00Z
+updated_at: 2026-08-04T23:02:00Z
 invocation_started_at: 2026-08-04T20:47:00Z
-last_progress_at: 2026-08-04T23:00:00Z
+last_progress_at: 2026-08-04T23:02:00Z
+head: 414a53470ff14d0114a547eb095e6f97106cd081
 ready_transition_head: c9fb914c005e643084fb9949b567e3dc413773ad
 branch: feat/OTERYN-20260804-native-protocol-producer
 pr: 523
@@ -136,7 +137,7 @@ proven:
   - Readiness and v2 issuance bind the exact immutable selection.
   - Producer E2E and fresh security/consistency audit pass with zero open material findings.
   - Draft-final exact-head CI, Phase 7 and Deep System Validation pass after synchronizing current main.
-  - PR 523 transitioned from draft to ready before this checkpoint commit.
+  - PR 523 transitioned from draft to ready before the authoritative ready-state checkpoint.
 derived:
   - Producer merge is safe while disabled; native gameplay remains unavailable without Otheryn and Rust consumers.
 unknown: []
@@ -187,4 +188,4 @@ next_action: verify this post-ready checkpoint exact-head generation, merge PR 5
 
 Producer-only completion. Native gameplay remains disabled until separately authorized Otheryn and Rust consumer packages and integrated gameplay E2E are complete.
 
-PR #523 was already non-draft before this checkpoint commit; workflow runs for this commit are the authoritative ready-state generation.
+PR #523 was already non-draft before the authoritative ready-state checkpoint commit; workflow runs for that commit are the merge authority.
