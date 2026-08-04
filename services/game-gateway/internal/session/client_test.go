@@ -159,6 +159,16 @@ func TestCreateRejectsIncompleteV2BeforeNetwork(t *testing.T) {
 	}
 }
 
+func TestCreateRejectsNegativeV2SecurityGenerationBeforeNetwork(t *testing.T) {
+	request := validV2Request()
+	request.SecurityGeneration = -1
+	client := NewClient("https://session.example.test", "session-service-token", http.DefaultClient)
+	_, err := client.Create(context.Background(), request)
+	if !errors.Is(err, gateway.ErrUnavailable) {
+		t.Fatalf("expected negative generation to fail locally, got %v", err)
+	}
+}
+
 func TestReadyChecksSessionServiceHealth(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/health" {
@@ -179,7 +189,7 @@ func validV2Request() gateway.SessionRequest {
 	return gateway.SessionRequest{
 		ContractVersion:      2,
 		CanaryAccountID:      1001,
-		SecurityGeneration:   7,
+		SecurityGeneration:   0,
 		WorldID:              1,
 		ChannelID:            1,
 		LoginAttemptID:       strings.Repeat("a", 32),
