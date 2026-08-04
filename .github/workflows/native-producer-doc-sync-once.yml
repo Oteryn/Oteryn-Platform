@@ -1,0 +1,89 @@
+name: Native Producer Documentation Sync Once
+
+on:
+  push:
+    branches:
+      - feat/OTERYN-20260804-native-protocol-producer
+
+permissions:
+  contents: write
+
+concurrency:
+  group: native-producer-doc-sync-once
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout task branch
+        uses: actions/checkout@v7
+        with:
+          ref: feat/OTERYN-20260804-native-protocol-producer
+          fetch-depth: 0
+
+      - name: Update durable contract status
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path('docs/contracts/WORLD_REGISTRY_CONTRACT.md')
+          text = path.read_text()
+          replacements = {
+              '`PHASE 1 FOUNDATION IMPLEMENTED — PUBLIC GATEWAY USE NOT YET IMPLEMENTED`': '`GATEWAY PRODUCER IMPLEMENTED — NATIVE ADVERTISEMENT DISABLED BY DEFAULT`',
+              'This contract defines the authoritative world-routing model consumed by the future Oteryn Game Gateway.': 'This contract defines the authoritative world-routing and ordered gameplay-candidate policy consumed by the Oteryn Game Gateway.',
+              'Phase 1 implements the Platform-owned persistence and domain boundary. It does **not** yet expose world data through a public Gateway API, create Game Sessions, or prove a production world route.': 'The Platform-owned world route is consumed by the existing Gateway. The native producer extension stores ordered per-world/channel candidates and policy revision, while creating no candidate rows and keeping every candidate disabled by default. It does not prove an Otheryn native consumer, a Rust native consumer, production activation or a production world route.',
+              '## Phase 1 implementation status': '## Implemented state',
+              'Current Phase 1 policy:': 'Current world authorization policy:',
+              'Not implemented yet:\n\n- Game Gateway consumption of the registry;\n- character-to-world persistence for true multiworld;\n- account/world entitlement policy beyond the single-world-ready MVP;\n- world-scoped Canary Game Session enforcement;\n- runtime health integration;\n- world administration UI;\n- production route configuration.': 'Still not implemented:\n\n- character-to-world persistence for true multiworld;\n- account/world entitlement policy beyond the single-world-ready MVP;\n- Otheryn Game Session v2 storage/readiness/admission and native listener;\n- Rust native gameplay consumer;\n- runtime health integration beyond the explicit v2 readiness identity check;\n- world administration UI;\n- production route configuration or activation.',
+          }
+          for old, new in replacements.items():
+              if old not in text:
+                  raise SystemExit(f'WORLD_REGISTRY marker missing: {old[:60]}')
+              text = text.replace(old, new, 1)
+          anchor = '- no seeded world and no invented production hostname or port.\n'
+          addition = anchor + '- `game_world_protocol_candidates` storage with disabled-by-default rows, deterministic order and exact endpoint/profile/schema/capability projection;\n- monotonic `gameplay_policy_revision` on each world;\n- Gateway API v1 optional gameplay offer, deterministic selection and Game Session v2 producer binding.\n\nSections below that retain the label “Phase 1” describe the original foundation. Where they conflict with this status section, the merged native gameplay contract and this implemented-state section are authoritative.\n'
+          if anchor not in text:
+              raise SystemExit('WORLD_REGISTRY implemented-list anchor missing')
+          path.write_text(text.replace(anchor, addition, 1))
+
+          path = Path('docs/contracts/GAME_SESSION_CANARY_CONTRACT.md')
+          text = path.read_text()
+          anchor = 'This document is the authoritative current contract between Oteryn Identity/Game Gateway and Canary world-entry authentication.\n'
+          note = anchor + '\nIt remains authoritative for the legacy Canary-compatible Game Session contract version 1. The disabled-by-default producer for selected Game Session contract version 2 is governed by `OTERYN_NATIVE_GAMEPLAY_PROTOCOL_CONTRACT.md` and `docs/operations/OTERYN_NATIVE_PROTOCOL_PRODUCER.md`; no Otheryn native v2 consumer is claimed by this Platform package.\n'
+          if anchor not in text:
+              raise SystemExit('GAME_SESSION_CANARY anchor missing')
+          path.write_text(text.replace(anchor, note, 1))
+
+          path = Path('services/game-gateway/README.md')
+          text = path.read_text()
+          text = text.replace('## Current Phase 4 scope', '## Current producer scope', 1)
+          old = '`POST /v1/login` accepts only protocol v1 plus one opaque Game Login Ticket.'
+          new = '`POST /v1/login` retains Gateway API `protocol_version: 1` and one opaque Game Login Ticket. It also accepts the optional bounded `gameplay_offer` defined by the native gameplay contract.'
+          if old not in text:
+              raise SystemExit('Gateway README login marker missing')
+          text = text.replace(old, new, 1)
+          old = '4. invokes a configurable Game Session issuer through the internal HTTP contract;\n5. returns the Game Session plus sanitized world and character data.'
+          new = '4. preserves the existing Game Session v1 issuer for legacy requests;\n5. for an extended request, selects the first exact authoritative World Registry candidate, verifies its v2 readiness identity and invokes exactly one Game Session v2 issuance;\n6. returns the Game Session plus sanitized world, character and immutable selection data.'
+          if old not in text:
+              raise SystemExit('Gateway README flow marker missing')
+          text = text.replace(old, new, 1)
+          anchor = 'The Gateway has no Platform or Canary database credentials.\n'
+          addition = anchor + '\nNative candidate persistence is empty and disabled by default. Producer rollout and rollback are documented in `docs/operations/OTERYN_NATIVE_PROTOCOL_PRODUCER.md`. Otheryn and Rust native consumers remain required before activation.\n'
+          if anchor not in text:
+              raise SystemExit('Gateway README credentials anchor missing')
+          path.write_text(text.replace(anchor, addition, 1))
+          PY
+
+      - name: Commit documentation and remove workflow
+        shell: bash
+        run: |
+          git rm .github/workflows/native-producer-doc-sync-once.yml
+          git add docs/contracts/WORLD_REGISTRY_CONTRACT.md
+          git add docs/contracts/GAME_SESSION_CANARY_CONTRACT.md
+          git add services/game-gateway/README.md
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git commit -m "docs(protocol): synchronize producer contract status"
+          git push origin HEAD:feat/OTERYN-20260804-native-protocol-producer
