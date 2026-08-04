@@ -16,7 +16,7 @@ import (
 )
 
 const (
-	legacyLoginRequestLimit = 4096
+	legacyLoginRequestLimit   = 4096
 	extendedLoginRequestLimit = 16 * 1024
 )
 

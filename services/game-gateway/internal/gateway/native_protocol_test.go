@@ -33,7 +33,9 @@ func TestValidateLoginRequestRejectsMalformedOffers(t *testing.T) {
 				r.GameplayOffer.Candidates[index].Profile = "profile." + string(rune('a'+index))
 			}
 		}},
-		{name: "duplicate tuple", mutate: func(r *LoginRequest) { r.GameplayOffer.Candidates = append(r.GameplayOffer.Candidates, r.GameplayOffer.Candidates[0]) }},
+		{name: "duplicate tuple", mutate: func(r *LoginRequest) {
+			r.GameplayOffer.Candidates = append(r.GameplayOffer.Candidates, r.GameplayOffer.Candidates[0])
+		}},
 		{name: "uppercase hash", mutate: func(r *LoginRequest) { r.GameplayOffer.Candidates[0].SchemaSHA256 = strings.Repeat("A", 64) }},
 		{name: "unsorted capabilities", mutate: func(r *LoginRequest) { r.GameplayOffer.Candidates[0].Capabilities = []string{"z.v1", "a.v1"} }},
 		{name: "duplicate capabilities", mutate: func(r *LoginRequest) { r.GameplayOffer.Candidates[0].Capabilities = []string{"a.v1", "a.v1"} }},
@@ -62,7 +64,7 @@ func TestSelectGameplayCandidateIntersectsOptionalCapabilitiesAndUsesStableDiges
 			SchemaRevision: 1, SchemaSHA256: strings.Repeat("a", 64),
 			RequiredCapabilities: nativeV1BaseCapabilities,
 			OptionalCapabilities: []string{"state.optional-a.v1", "state.optional-b.v1", "state.optional-c.v1"},
-			EndpointID: "native-1", Host: "game.example.test", Port: 7173, TLSServerName: "game.example.test",
+			EndpointID:           "native-1", Host: "game.example.test", Port: 7173, TLSServerName: "game.example.test",
 		}},
 	}
 
@@ -90,7 +92,7 @@ func TestSelectGameplayCandidateRejectsNativeProfileMissingBaseCapability(t *tes
 		Family: "oteryn", Profile: "oteryn.native.v1", Transport: "tcp.tls13.protobuf.be32.v1",
 		SchemaRevision: 1, SchemaSHA256: strings.Repeat("a", 64),
 		RequiredCapabilities: nativeV1BaseCapabilities[:len(nativeV1BaseCapabilities)-1],
-		EndpointID: "native-1", Host: "game.example.test", Port: 7173, TLSServerName: "game.example.test",
+		EndpointID:           "native-1", Host: "game.example.test", Port: 7173, TLSServerName: "game.example.test",
 	}}}
 
 	_, err := SelectGameplayCandidate(policy, *offer)
@@ -102,7 +104,7 @@ func TestSelectGameplayCandidateRejectsNativeProfileMissingBaseCapability(t *tes
 func TestNewV2SessionRequestBindsExactAuthority(t *testing.T) {
 	selection := GameplaySelection{
 		PolicyRevision: 3,
-		Family: "oteryn", Profile: "oteryn.native.v1", Transport: "tcp.tls13.protobuf.be32.v1",
+		Family:         "oteryn", Profile: "oteryn.native.v1", Transport: "tcp.tls13.protobuf.be32.v1",
 		SchemaRevision: 1, SchemaSHA256: strings.Repeat("a", 64),
 		Capabilities: nativeV1BaseCapabilities, CapabilityDigestSHA256: capabilityDigest(nativeV1BaseCapabilities),
 		EndpointID: "native-1", Host: "game.example.test", Port: 7173, TLSServerName: "game.example.test",
@@ -130,8 +132,8 @@ func validNativeLoginRequest() LoginRequest {
 		ProtocolVersion: 1,
 		GameLoginTicket: "ticket",
 		GameplayOffer: &GameplayOffer{
-			OfferVersion: 1,
-			ClientBuild: "oteryn-client-test",
+			OfferVersion:   1,
+			ClientBuild:    "oteryn-client-test",
 			ClientPlatform: "windows-x86_64",
 			Candidates: []GameplayOfferCandidate{{
 				Family: "oteryn", Profile: "oteryn.native.v1", Transport: "tcp.tls13.protobuf.be32.v1",

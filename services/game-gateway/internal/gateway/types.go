@@ -84,33 +84,33 @@ type LoginContext struct {
 }
 
 type GameplaySelection struct {
-	PolicyRevision        uint64   `json:"policy_revision"`
-	Family                string   `json:"family"`
-	Profile               string   `json:"profile"`
-	Transport             string   `json:"transport"`
-	SchemaRevision        uint32   `json:"schema_revision"`
-	SchemaSHA256          string   `json:"schema_sha256"`
-	Capabilities          []string `json:"capabilities"`
+	PolicyRevision         uint64   `json:"policy_revision"`
+	Family                 string   `json:"family"`
+	Profile                string   `json:"profile"`
+	Transport              string   `json:"transport"`
+	SchemaRevision         uint32   `json:"schema_revision"`
+	SchemaSHA256           string   `json:"schema_sha256"`
+	Capabilities           []string `json:"capabilities"`
 	CapabilityDigestSHA256 string   `json:"capability_digest_sha256"`
-	EndpointID            string   `json:"-"`
-	Host                  string   `json:"host"`
-	Port                  int      `json:"port"`
-	TLSServerName         string   `json:"tls_server_name"`
+	EndpointID             string   `json:"-"`
+	Host                   string   `json:"host"`
+	Port                   int      `json:"port"`
+	TLSServerName          string   `json:"tls_server_name"`
 }
 
 type SessionRequest struct {
-	ContractVersion       int
-	CanaryAccountID       int64
-	SecurityGeneration    int64
-	WorldID               int64
-	ChannelID             uint64
-	LoginAttemptID        string
-	WorldPolicyRevision   uint64
-	EndpointID            string
-	Audience              string
-	CharacterBindingMode  string
-	SingleAdmission       bool
-	GameplaySelection     *GameplaySelection
+	ContractVersion      int
+	CanaryAccountID      int64
+	SecurityGeneration   int64
+	WorldID              int64
+	ChannelID            uint64
+	LoginAttemptID       string
+	WorldPolicyRevision  uint64
+	EndpointID           string
+	Audience             string
+	CharacterBindingMode string
+	SingleAdmission      bool
+	GameplaySelection    *GameplaySelection
 }
 
 type Session struct {

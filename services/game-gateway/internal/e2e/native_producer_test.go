@@ -40,32 +40,32 @@ func TestNativeProducerJourneyBindsOneSelectionAndIssuesOnce(t *testing.T) {
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"protocol_version": 1,
 				"authorization": map[string]any{
-					"canary_account_id": 1001,
+					"canary_account_id":   1001,
 					"security_generation": 7,
-					"redeemed_at": "2026-08-04T16:00:00Z",
+					"redeemed_at":         "2026-08-04T16:00:00Z",
 				},
 			})
 		case "/internal/v1/game-auth/accounts/1001/login-context":
 			contextCalls++
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"protocol_version": 1,
-				"worlds": []map[string]any{{"id": 1, "slug": "test", "name": "Test", "region": "TEST", "host": "legacy.example.test", "port": 7172}},
-				"characters": []map[string]any{{"id": 10, "name": "Alpha", "level": 100, "vocation": 4, "world_id": 1}},
+				"worlds":           []map[string]any{{"id": 1, "slug": "test", "name": "Test", "region": "TEST", "host": "legacy.example.test", "port": 7172}},
+				"characters":       []map[string]any{{"id": 10, "name": "Alpha", "level": 100, "vocation": 4, "world_id": 1}},
 				"gameplay_policy": map[string]any{
-					"revision": 17,
+					"revision":   17,
 					"channel_id": 1,
 					"candidates": []map[string]any{{
-						"family": "oteryn",
-						"profile": "oteryn.native.v1",
-						"transport": "tcp.tls13.protobuf.be32.v1",
-						"schema_revision": 1,
-						"schema_sha256": schemaHash,
+						"family":                "oteryn",
+						"profile":               "oteryn.native.v1",
+						"transport":             "tcp.tls13.protobuf.be32.v1",
+						"schema_revision":       1,
+						"schema_sha256":         schemaHash,
 						"required_capabilities": capabilities,
 						"optional_capabilities": []string{},
-						"endpoint_id": "native-test-1",
-						"host": "native.example.test",
-						"port": 7173,
-						"tls_server_name": "native.example.test",
+						"endpoint_id":           "native-test-1",
+						"host":                  "native.example.test",
+						"port":                  7173,
+						"tls_server_name":       "native.example.test",
 					}},
 				},
 			})
@@ -120,16 +120,16 @@ func TestNativeProducerJourneyBindsOneSelectionAndIssuesOnce(t *testing.T) {
 		ProtocolVersion: 1,
 		GameLoginTicket: "synthetic-one-time-ticket",
 		GameplayOffer: &gateway.GameplayOffer{
-			OfferVersion: 1,
-			ClientBuild: "oteryn-client-e2e",
+			OfferVersion:   1,
+			ClientBuild:    "oteryn-client-e2e",
 			ClientPlatform: "linux-x86_64",
 			Candidates: []gateway.GameplayOfferCandidate{{
-				Family: "oteryn",
-				Profile: "oteryn.native.v1",
-				Transport: "tcp.tls13.protobuf.be32.v1",
+				Family:         "oteryn",
+				Profile:        "oteryn.native.v1",
+				Transport:      "tcp.tls13.protobuf.be32.v1",
 				SchemaRevision: 1,
-				SchemaSHA256: schemaHash,
-				Capabilities: capabilities,
+				SchemaSHA256:   schemaHash,
+				Capabilities:   capabilities,
 			}},
 		},
 	})

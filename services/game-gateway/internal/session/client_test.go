@@ -35,7 +35,7 @@ func TestCreatePreservesV1ServiceContract(t *testing.T) {
 		}
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"protocol_version": 1,
-			"session": map[string]any{"credential": "session-secret", "expires_at": expiresAt},
+			"session":          map[string]any{"credential": "session-secret", "expires_at": expiresAt},
 		})
 	}))
 	defer server.Close()
@@ -68,25 +68,25 @@ func TestReadyForAndCreateV2UseExactBoundContract(t *testing.T) {
 		switch r.URL.Path {
 		case "/internal/v2/game-sessions/readiness":
 			_ = json.NewEncoder(w).Encode(map[string]any{
-				"contract_version": 2,
-				"ready": true,
-				"world_id": payload.WorldID,
-				"channel_id": payload.ChannelID,
-				"world_policy_revision": payload.WorldPolicyRevision,
-				"endpoint_id": payload.EndpointID,
-				"audience": payload.Audience,
-				"family": payload.Family,
-				"profile": payload.Profile,
-				"transport": payload.Transport,
-				"schema_revision": payload.SchemaRevision,
-				"schema_sha256": payload.SchemaSHA256,
-				"capabilities": payload.Capabilities,
+				"contract_version":         2,
+				"ready":                    true,
+				"world_id":                 payload.WorldID,
+				"channel_id":               payload.ChannelID,
+				"world_policy_revision":    payload.WorldPolicyRevision,
+				"endpoint_id":              payload.EndpointID,
+				"audience":                 payload.Audience,
+				"family":                   payload.Family,
+				"profile":                  payload.Profile,
+				"transport":                payload.Transport,
+				"schema_revision":          payload.SchemaRevision,
+				"schema_sha256":            payload.SchemaSHA256,
+				"capabilities":             payload.Capabilities,
 				"capability_digest_sha256": payload.CapabilityDigestSHA256,
 			})
 		case "/internal/v2/game-sessions":
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"contract_version": 2,
-				"session": map[string]any{"credential": "v2-session-secret", "expires_at": expiresAt},
+				"session":          map[string]any{"credential": "v2-session-secret", "expires_at": expiresAt},
 			})
 		default:
 			t.Fatalf("unexpected v2 path: %s", r.URL.Path)
@@ -114,19 +114,19 @@ func TestReadyForFailsClosedOnContradictoryIdentity(t *testing.T) {
 	request := validV2Request()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_ = json.NewEncoder(w).Encode(map[string]any{
-			"contract_version": 2,
-			"ready": true,
-			"world_id": request.WorldID,
-			"channel_id": request.ChannelID,
-			"world_policy_revision": request.WorldPolicyRevision,
-			"endpoint_id": "different-endpoint",
-			"audience": request.Audience,
-			"family": request.GameplaySelection.Family,
-			"profile": request.GameplaySelection.Profile,
-			"transport": request.GameplaySelection.Transport,
-			"schema_revision": request.GameplaySelection.SchemaRevision,
-			"schema_sha256": request.GameplaySelection.SchemaSHA256,
-			"capabilities": request.GameplaySelection.Capabilities,
+			"contract_version":         2,
+			"ready":                    true,
+			"world_id":                 request.WorldID,
+			"channel_id":               request.ChannelID,
+			"world_policy_revision":    request.WorldPolicyRevision,
+			"endpoint_id":              "different-endpoint",
+			"audience":                 request.Audience,
+			"family":                   request.GameplaySelection.Family,
+			"profile":                  request.GameplaySelection.Profile,
+			"transport":                request.GameplaySelection.Transport,
+			"schema_revision":          request.GameplaySelection.SchemaRevision,
+			"schema_sha256":            request.GameplaySelection.SchemaSHA256,
+			"capabilities":             request.GameplaySelection.Capabilities,
 			"capability_digest_sha256": request.GameplaySelection.CapabilityDigestSHA256,
 		})
 	}))
