@@ -1,0 +1,63 @@
+name: Native Producer Static Fix Once
+
+on:
+  push:
+    branches:
+      - feat/OTERYN-20260804-native-protocol-producer
+
+permissions:
+  contents: write
+
+concurrency:
+  group: native-producer-static-fix-once
+  cancel-in-progress: false
+
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout task branch
+        uses: actions/checkout@v7
+        with:
+          ref: feat/OTERYN-20260804-native-protocol-producer
+          fetch-depth: 0
+
+      - name: Apply exact static-analysis repairs
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path('app/GameAuth/Worlds/DatabaseWorldRegistry.php')
+          text = path.read_text()
+          old = '        return array_values($normalized);'
+          if old not in text:
+              raise SystemExit('DatabaseWorldRegistry return marker missing')
+          path.write_text(text.replace(old, '        return $normalized;', 1))
+
+          path = Path('tests/Feature/GameAuth/WorldRegistryTest.php')
+          text = path.read_text()
+          if '?->' not in text:
+              raise SystemExit('WorldRegistryTest nullsafe markers missing')
+          path.write_text(text.replace('?->', '->'))
+
+          path = Path('tests/Feature/GameAuth/GameLoginContextApiTest.php')
+          text = path.read_text()
+          old = "        self::assertStringNotContainsString('disabled', $response->getContent());"
+          new = "        $content = $response->getContent();\n        self::assertIsString($content);\n        self::assertStringNotContainsString('disabled', $content);"
+          if old not in text:
+              raise SystemExit('GameLoginContextApiTest content marker missing')
+          path.write_text(text.replace(old, new, 1))
+          PY
+
+      - name: Commit changes and remove one-shot workflow
+        shell: bash
+        run: |
+          git rm .github/workflows/native-producer-static-fix-once.yml
+          git add app/GameAuth/Worlds/DatabaseWorldRegistry.php
+          git add tests/Feature/GameAuth/WorldRegistryTest.php
+          git add tests/Feature/GameAuth/GameLoginContextApiTest.php
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git commit -m "fix(platform): satisfy native producer static analysis"
+          git push origin HEAD:feat/OTERYN-20260804-native-protocol-producer
