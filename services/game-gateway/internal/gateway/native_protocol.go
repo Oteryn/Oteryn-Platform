@@ -157,7 +157,7 @@ func validPolicyCandidate(candidate GameplayPolicyCandidate) bool {
 		strings.Contains(candidate.TLSServerName, "*") {
 		return false
 	}
-	if len(candidate.RequiredCapabilities)+len(candidate.OptionalCapabilities) > 64 || intersects(candidate.RequiredCapabilities, candidate.OptionalCapabilities) {
+	if intersects(candidate.RequiredCapabilities, candidate.OptionalCapabilities) {
 		return false
 	}
 
@@ -285,7 +285,6 @@ func isHost(value string) bool {
 			if !(character >= 'A' && character <= 'Z') && !(character >= 'a' && character <= 'z') && !(character >= '0' && character <= '9') && character != '-' {
 				return false
 			}
-		}
 	}
 	return true
 }
