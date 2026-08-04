@@ -1,0 +1,63 @@
+name: Native Producer Pin Schema Once
+
+on:
+  push:
+    branches:
+      - feat/OTERYN-20260804-native-protocol-producer
+
+permissions:
+  contents: write
+
+concurrency:
+  group: native-producer-pin-schema-once
+  cancel-in-progress: false
+
+jobs:
+  pin:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout task branch
+        uses: actions/checkout@v7
+        with:
+          ref: feat/OTERYN-20260804-native-protocol-producer
+          fetch-depth: 0
+
+      - name: Pin exact schema SHA-256
+        shell: bash
+        run: |
+          digest="$(sha256sum docs/contracts/oteryn_native_gameplay_v1.proto | awk '{print $1}')"
+          cat > services/game-gateway/internal/gateway/schema_hash_test.go <<EOF
+          package gateway
+
+          import (
+          	"crypto/sha256"
+          	"fmt"
+          	"os"
+          	"testing"
+          )
+
+          const canonicalNativeSchemaSHA256 = "$digest"
+
+          func TestCanonicalNativeSchemaSHA256(t *testing.T) {
+          	data, err := os.ReadFile("../../../../docs/contracts/oteryn_native_gameplay_v1.proto")
+          	if err != nil {
+          		t.Fatalf("read canonical schema: %v", err)
+          	}
+
+          	actual := fmt.Sprintf("%x", sha256.Sum256(data))
+          	if actual != canonicalNativeSchemaSHA256 {
+          		t.Fatalf("canonical native schema sha256 changed: got %s want %s", actual, canonicalNativeSchemaSHA256)
+          	}
+          }
+          EOF
+          gofmt -w services/game-gateway/internal/gateway/schema_hash_test.go
+
+      - name: Commit digest and remove one-shot workflow
+        shell: bash
+        run: |
+          git rm .github/workflows/native-producer-pin-schema-once.yml
+          git add services/game-gateway/internal/gateway/schema_hash_test.go
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git commit -m "test(gateway): pin canonical schema digest"
+          git push origin HEAD:feat/OTERYN-20260804-native-protocol-producer
