@@ -3,6 +3,7 @@ package gateway
 import (
 	"context"
 	"errors"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -85,7 +86,7 @@ func TestLoginWithOfferUsesAuthoritativePolicyOrderAndBindsV2(t *testing.T) {
 		ChannelID: 1,
 		Candidates: []GameplayPolicyCandidate{
 			policyCandidate("canary", "canary.current", "canary.sequence.v1", "canary-endpoint", 7172, []string{"session.single-admission.v1"}, nil),
-			policyCandidate("oteryn", "oteryn.native.v1", "tcp.tls13.protobuf.be32.v1", "native-endpoint", 7173, nativeV1BaseCapabilities, []string{"state.optional.v1"}),
+			policyCandidate("oteryn", "oteryn.native.v1", "tcp.tls13.protobuf.be32.v1", "native-endpoint", 7173, nativeV1BaseCapabilities, []string{"zz.optional.v1"}),
 		},
 	}
 	sessions := &fakeSessionIssuer{session: Session{Credential: "v2-session", ExpiresAt: now.Add(time.Minute)}}
@@ -97,7 +98,7 @@ func TestLoginWithOfferUsesAuthoritativePolicyOrderAndBindsV2(t *testing.T) {
 		ClientBuild:    "oteryn-client-test",
 		ClientPlatform: "windows-x86_64",
 		Candidates: []GameplayOfferCandidate{
-			offerCandidate("oteryn", "oteryn.native.v1", "tcp.tls13.protobuf.be32.v1", append(append([]string(nil), nativeV1BaseCapabilities...), "state.optional.v1")),
+			offerCandidate("oteryn", "oteryn.native.v1", "tcp.tls13.protobuf.be32.v1", append(append([]string(nil), nativeV1BaseCapabilities...), "zz.optional.v1")),
 			offerCandidate("canary", "canary.current", "canary.sequence.v1", []string{"session.single-admission.v1"}),
 		},
 	}
@@ -137,7 +138,7 @@ func TestLoginWithOfferConsumesValidLoginBeforeNoMatchAndDoesNotIssue(t *testing
 		t.Fatalf("expected unsupported pair, got %v", err)
 	}
 	if platform.redeemCalls != 1 || platform.contextCalls != 1 || sessions.readyForCalls != 0 || sessions.calls != 0 {
-		t.Fatalf("unexpected no-match calls: %#v %#v", platform, sessions)
+		t.Fatalf("unexpected no-match calls: platform=%#v sessions=%#v", platform, sessions)
 	}
 }
 
@@ -223,9 +224,7 @@ func successfulPlatform() *fakePlatform {
 
 func offerCandidate(family, profile, transport string, capabilities []string) GameplayOfferCandidate {
 	sorted := append([]string(nil), capabilities...)
-	if len(sorted) > 1 && sorted[len(sorted)-1] == "state.optional.v1" {
-		// The helper receives base capabilities followed by the optional value.
-	}
+	sort.Strings(sorted)
 	return GameplayOfferCandidate{
 		Family: family, Profile: profile, Transport: transport,
 		SchemaRevision: 1, SchemaSHA256: strings.Repeat("a", 64), Capabilities: sorted,
@@ -233,10 +232,14 @@ func offerCandidate(family, profile, transport string, capabilities []string) Ga
 }
 
 func policyCandidate(family, profile, transport, endpoint string, port int, required, optional []string) GameplayPolicyCandidate {
+	requiredCopy := append([]string(nil), required...)
+	optionalCopy := append([]string(nil), optional...)
+	sort.Strings(requiredCopy)
+	sort.Strings(optionalCopy)
 	return GameplayPolicyCandidate{
 		Family: family, Profile: profile, Transport: transport,
 		SchemaRevision: 1, SchemaSHA256: strings.Repeat("a", 64),
-		RequiredCapabilities: append([]string(nil), required...), OptionalCapabilities: append([]string(nil), optional...),
+		RequiredCapabilities: requiredCopy, OptionalCapabilities: optionalCopy,
 		EndpointID: endpoint, Host: "game.example.test", Port: port, TLSServerName: "game.example.test",
 	}
 }
