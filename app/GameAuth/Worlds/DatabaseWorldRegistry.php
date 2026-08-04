@@ -47,6 +47,10 @@ final class DatabaseWorldRegistry implements WorldRegistry
 
     private function gameplayPolicy(GameWorld $world): GameWorldProtocolPolicy
     {
+        if ($world->gameplay_policy_revision < 1) {
+            return $this->invalidPolicy();
+        }
+
         $projected = [];
         $candidates = $world->protocolCandidates()
             ->where('enabled', true)
@@ -57,9 +61,10 @@ final class DatabaseWorldRegistry implements WorldRegistry
 
         foreach ($candidates as $candidate) {
             $route = $this->projectCandidate($candidate);
-            if ($route !== null) {
-                $projected[] = $route;
+            if ($route === null) {
+                return $this->invalidPolicy();
             }
+            $projected[] = $route;
         }
 
         return new GameWorldProtocolPolicy(
@@ -67,6 +72,11 @@ final class DatabaseWorldRegistry implements WorldRegistry
             channelId: 1,
             candidates: $projected,
         );
+    }
+
+    private function invalidPolicy(): GameWorldProtocolPolicy
+    {
+        return new GameWorldProtocolPolicy(revision: 0, channelId: 1, candidates: []);
     }
 
     private function projectCandidate(GameWorldProtocolCandidate $candidate): ?GameWorldProtocolCandidateRoute
