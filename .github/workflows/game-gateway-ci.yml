@@ -24,9 +24,6 @@ concurrency:
 jobs:
   test-build:
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: services/game-gateway
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -39,6 +36,7 @@ jobs:
 
       - name: Check formatting
         shell: bash
+        working-directory: services/game-gateway
         run: |
           unformatted="$(gofmt -l .)"
           if [ -n "$unformatted" ]; then
@@ -47,10 +45,13 @@ jobs:
           fi
 
       - name: Run tests
+        working-directory: services/game-gateway
         run: go test ./...
 
       - name: Run vet
+        working-directory: services/game-gateway
         run: go vet ./...
 
       - name: Build gateway
+        working-directory: services/game-gateway
         run: go build -trimpath -o /tmp/oteryn-game-gateway ./cmd/game-gateway
