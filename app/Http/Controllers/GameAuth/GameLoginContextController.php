@@ -26,6 +26,9 @@ final class GameLoginContextController
         }
 
         $policy = $context->world->gameplayPolicy;
+        if ($policy === null) {
+            return response()->json(['error' => 'login_context_unavailable'], 503);
+        }
 
         return response()->json([
             'protocol_version' => 1,
