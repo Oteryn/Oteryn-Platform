@@ -29,20 +29,20 @@ jobs:
           extensions: pdo_sqlite, pcntl, redis
           tools: composer:v2
       - run: composer install --no-interaction --prefer-dist --no-progress
-      - name: Expose exact warning details
+      - name: Stop on first full-suite warning
         shell: bash
         run: |
           set +e
           php artisan config:clear --ansi
-          vendor/bin/phpunit tests/Feature/Support/EditorialSupportLegalTest.php \
+          vendor/bin/phpunit \
             --colors=never \
             --display-warnings \
             --display-errors \
             --display-notices \
             --display-deprecations \
-            --debug 2>&1 | tee /tmp/native-producer-warning.log
+            --stop-on-warning 2>&1 | tee /tmp/native-producer-warning.log
           status=${PIPESTATUS[0]}
-          tail -n 200 /tmp/native-producer-warning.log | while IFS= read -r line; do
+          tail -n 160 /tmp/native-producer-warning.log | while IFS= read -r line; do
             line=${line//'%'/'%25'}
             line=${line//$'\r'/'%0D'}
             line=${line//$'\n'/'%0A'}
