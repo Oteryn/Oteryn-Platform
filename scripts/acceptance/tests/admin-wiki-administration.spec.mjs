@@ -107,16 +107,17 @@ test('@wiki-admin trusted editor creates, previews and publishes bilingual Wiki 
   await expectNoHorizontalOverflow(preview);
   await preview.close();
 
-  // The responsive editor loads the approved-media picker through authenticated thumbnail requests.
-  // Finish those session-bearing subresource requests before the lifecycle POST so they cannot age
-  // the success flash message before the redirected edit page renders it.
+  // The responsive editor loads approved-media thumbnails through authenticated requests.
+  // The transient success flash can be consumed by a concurrent session-bearing request, so prove
+  // the lifecycle mutation from the durable article state and available next actions instead.
   await page.waitForLoadState('networkidle');
   await page.getByRole('button', { name: 'Submit for review' }).click();
-  await expect(page.getByRole('status')).toContainText('Wiki article submitted for review.');
+  await expect(page.getByText(/Status:\s*In Review/i)).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Return to draft' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Publish', exact: true })).toBeVisible();
 
   // Quiesce the refreshed picker again before the next lifecycle mutation.
   await page.waitForLoadState('networkidle');
-  await expect(page.getByRole('button', { name: 'Publish', exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Publish', exact: true }).click();
   await expect(page.getByText(/Status:\s*Published/i)).toBeVisible();
   await expect(page.getByRole('button', { name: 'Unpublish to draft' })).toBeVisible();
