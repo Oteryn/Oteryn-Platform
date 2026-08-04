@@ -6,7 +6,7 @@ task_kind: validation
 execution_mode: github-only
 parent_issue: 494
 branch: audit/OTERYN-20260803-deep-system-validation
-status: active
+status: validating
 required_reads:
   - AGENTS.md
   - AGENTS.override.md
@@ -65,6 +65,7 @@ owned_paths:
   - .github/workflows/deep-system-validation.yml
   - tools/validation/deep_system_validation.py
   - tools/validation/test_deep_system_validation.py
+  - scripts/acceptance/package.json
   - scripts/acceptance/playwright.config.mjs
   - scripts/acceptance/tests/helpers.mjs
   - scripts/acceptance/tests/admin-wiki-administration.spec.mjs
@@ -89,14 +90,38 @@ cross_repository_tasks: []
 ## Context checkpoint
 
 ```yaml
-checkpoint_version: 2
-updated_at: 2026-08-03T23:28:00+02:00
-source_head: aaadfb5e76880eda8a5c84eb702833b1829ab4e7
-base_sha: c5cc5aa6fd14465f1f1fe19dfd89d651b6c1fa43
+checkpoint_version: 1
+updated_at: 2026-08-04T08:05:00+02:00
+head: 1c746f55de43033306ad2b6a990d5377ff0035b6
+base_sha: 87c65b55499e7feff9cd163d546a62eecdb05e5c
 branch: audit/OTERYN-20260803-deep-system-validation
 pr: 495
 parent_issue: 494
 status: validating
+phase: validate
+session_id: agent-20260804-001
+session_role: validator
+execution_mode: github-only
+execution_reason: continue the existing exact-head validation and repair loop through GitHub Actions
+invocation_started_at: 2026-08-04T07:58:00+02:00
+last_progress_at: 2026-08-04T08:05:00+02:00
+ci_checks_for_current_head: 1
+ci_check_generation: current_base
+terminal_ci_wait_started_at: null
+terminal_ci_checks_for_current_generation: 0
+unchanged_state_checks: 0
+identical_failure_retries: 0
+repair_cycles_for_current_gate: 1
+context_reconstruction_attempts: 1
+stall_warnings: 0
+context_pressure: high
+context_growth: stable
+context_score: 12
+estimate_confidence: high
+decomposition_decision: phased
+decomposition_reason: one cohesive validation programme with shared workflow evidence and sequential fail-closed gates
+validation_level: full
+heavy_validation_runs: 2
 context_routes:
   - agent-governance
   - testing
@@ -113,6 +138,7 @@ owned_paths:
   - .github/workflows/deep-system-validation.yml
   - tools/validation/deep_system_validation.py
   - tools/validation/test_deep_system_validation.py
+  - scripts/acceptance/package.json
   - scripts/acceptance/playwright.config.mjs
   - scripts/acceptance/tests/helpers.mjs
   - scripts/acceptance/tests/admin-wiki-administration.spec.mjs
@@ -136,6 +162,7 @@ proven:
   - homepage event fixture removes conflicting content-scale fixture events and is reseeded for every project
   - Guzzle 7.15.1 became vulnerable after CVE-2026-69246 and CVE-2026-69245 were published during validation
   - Composer generated and audited composer.lock with guzzlehttp/guzzle 7.15.2 at source reference 744101956d78b7c1384d0cbf379db13e859167bf
+  - current PR diff contains scripts/acceptance/package.json and that path is now explicitly owned by this task
 unknown:
   - terminal full browser resilience accessibility visual and soak results on the connector-authored post-security head
   - whether visual execution finds a blocking UX condition
@@ -165,6 +192,7 @@ changed_paths:
   - config/downloads.php
   - docs/agents/tasks/active/OTERYN-20260803-deep-system-validation.md
   - scripts/acceptance/coverage/surfaces/community-data-completeness.json
+  - scripts/acceptance/package.json
   - scripts/acceptance/playwright.config.mjs
   - scripts/acceptance/seed-homepage-navigation-seo.php
   - scripts/acceptance/tests/admin-wiki-administration.spec.mjs
@@ -177,14 +205,17 @@ validation:
     result: PASS
     evidence: fail-closed compiler regression suite passed after all hardening changes
   - command: Deep System Validation run 30849615476
-    result: FAIL_REMEDIATED
-    evidence: three deterministic browser fixture/configuration defects identified from durable JUnit evidence and remediated without reducing assertions
+    result: FAIL
+    evidence: three deterministic browser fixture/configuration defects were identified from durable JUnit evidence and remediated without reducing assertions; replacement exact-head execution remains required
   - command: Audit Security Lock Refresh run 30854308291
     result: PASS
     evidence: Composer updated only guzzlehttp/guzzle to 7.15.2; composer validate and composer audit --locked passed
   - command: composer.lock inspection at aaadfb5e76880eda8a5c84eb702833b1829ab4e7
     result: PASS
     evidence: Guzzle version 7.15.2 source and dist reference 744101956d78b7c1384d0cbf379db13e859167bf
+  - command: Agent Governance and Deep System Validation at 1c746f55de43033306ad2b6a990d5377ff0035b6
+    result: FAIL
+    evidence: checkpoint schema failed because version 2, missing head and custom FAIL_REMEDIATED were invalid; this checkpoint repair targets those exact failures
 blockers: []
-next_action: execute connector-authored exact-head Deep System Validation, persist its machine evidence and report, perform fresh independent diff review, archive the task, then run final exact-head CI and merge PR 495
+next_action: execute the new exact-head Deep System Validation, inspect the first actionable failure or persist passing machine evidence and report, then complete independent review, exact-head CI, merge and archival
 ```
