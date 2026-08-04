@@ -13,6 +13,8 @@ final class WorldRegistryTest extends TestCase
 {
     use RefreshDatabase;
 
+    private const NATIVE_SCHEMA_SHA256 = 'c7665223f09001e3294e9a03ab4784defed66b0ac04450e8679d4778421207f8';
+
     private const NATIVE_CAPABILITIES = [
         'actions.command-result.v1',
         'chat.semantic.v1',
@@ -75,9 +77,10 @@ final class WorldRegistryTest extends TestCase
         self::assertSame('native-primary', $policy->candidates[0]->endpointId);
         self::assertSame('canary-primary', $policy->candidates[1]->endpointId);
         self::assertSame(self::NATIVE_CAPABILITIES, $policy->candidates[0]->requiredCapabilities);
+        self::assertSame(self::NATIVE_SCHEMA_SHA256, $policy->candidates[0]->schemaSha256);
     }
 
-    public function test_enabled_noncanonical_candidate_is_excluded_without_breaking_legacy_world_route(): void
+    public function test_enabled_noncanonical_candidate_invalidates_policy_without_breaking_legacy_world_route(): void
     {
         $world = $this->createWorld('oteryn-test', GameWorldStatus::Online, true, 'legacy.test', 7172);
         $candidate = $this->createCandidate($world, 'native-invalid', 1, true, 'oteryn', 'oteryn.native.v1', 7173);
@@ -87,6 +90,19 @@ final class WorldRegistryTest extends TestCase
 
         self::assertCount(1, $routes);
         self::assertSame('legacy.test', $routes[0]->host);
+        self::assertSame(0, $routes[0]->gameplayPolicy?->revision);
+        self::assertSame([], $routes[0]->gameplayPolicy?->candidates);
+    }
+
+    public function test_wrong_native_schema_hash_invalidates_policy(): void
+    {
+        $world = $this->createWorld('oteryn-test', GameWorldStatus::Online, true, 'legacy.test', 7172);
+        $candidate = $this->createCandidate($world, 'native-invalid-hash', 1, true, 'oteryn', 'oteryn.native.v1', 7173);
+        $candidate->forceFill(['schema_sha256' => str_repeat('a', 64)])->save();
+
+        $routes = (new DatabaseWorldRegistry)->forAccount(1001);
+
+        self::assertSame(0, $routes[0]->gameplayPolicy?->revision);
         self::assertSame([], $routes[0]->gameplayPolicy?->candidates);
     }
 
@@ -138,7 +154,9 @@ final class WorldRegistryTest extends TestCase
             'profile' => $profile,
             'transport' => $family === 'oteryn' ? 'tcp.tls13.protobuf.be32.v1' : 'canary.sequence.v1',
             'schema_revision' => 1,
-            'schema_sha256' => str_repeat('a', 64),
+            'schema_sha256' => $family === 'oteryn' && $profile === 'oteryn.native.v1'
+                ? self::NATIVE_SCHEMA_SHA256
+                : str_repeat('a', 64),
             'required_capabilities' => $requiredCapabilities ?? self::NATIVE_CAPABILITIES,
             'optional_capabilities' => [],
             'endpoint_id' => $endpointId,
