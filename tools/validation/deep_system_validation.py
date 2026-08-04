@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 import xml.etree.ElementTree as ET
 from dataclasses import asdict, dataclass
@@ -50,15 +51,42 @@ REQUIRED_JUNIT_LANES = {
     "accessibility",
     "soak",
 }
-REQUIRED_PORTABILITY_PROJECTS = {
-    "portability-chromium",
-    "portability-firefox",
-    "portability-webkit",
-}
-REQUIRED_RESPONSIVE_PROJECTS = {
-    "responsive-desktop",
-    "responsive-tablet",
-    "responsive-mobile",
+EXPECTED_PROJECTS_BY_LANE = {
+    "browser-full-chromium": {"chromium-primary"},
+    "account-lifecycle": {"chromium-primary"},
+    "community-data": {
+        "community-data-chromium-desktop",
+        "community-data-chromium-tablet",
+        "community-data-chromium-mobile",
+    },
+    "content-scale-contract": {
+        "content-scale-chromium-desktop",
+        "content-scale-chromium-tablet",
+        "content-scale-chromium-mobile",
+    },
+    "downloads": {"chromium-primary"},
+    "downloads-portability": {
+        "downloads-portability-firefox",
+        "downloads-portability-webkit",
+    },
+    "portability": {
+        "portability-chromium",
+        "portability-firefox",
+        "portability-webkit",
+    },
+    "responsive": {
+        "responsive-desktop",
+        "responsive-tablet",
+        "responsive-mobile",
+    },
+    "resilience": {
+        "resilience-chromium",
+        "error-states-chromium-desktop",
+        "error-states-chromium-tablet",
+        "error-states-chromium-mobile",
+    },
+    "accessibility": {"accessibility-chromium"},
+    "soak": {"soak-chromium"},
 }
 VISUAL_PROBLEM_KEYS = {
     "statusMismatch",
@@ -70,6 +98,7 @@ VISUAL_PROBLEM_KEYS = {
     "browserErrors",
 }
 ALLOWED_STATUSES = {"PASS", "FAIL", "BLOCKED", "NOT_APPLICABLE"}
+PROJECT_PREFIX = re.compile(r"^\[([^\]]+)\]\s")
 
 
 class ValidationError(ValueError):
@@ -83,6 +112,7 @@ class JUnitSummary:
     failures: int = 0
     errors: int = 0
     skipped: int = 0
+    projects: tuple[str, ...] = ()
 
     def plus(self, other: "JUnitSummary") -> "JUnitSummary":
         return JUnitSummary(
@@ -91,6 +121,7 @@ class JUnitSummary:
             failures=self.failures + other.failures,
             errors=self.errors + other.errors,
             skipped=self.skipped + other.skipped,
+            projects=tuple(sorted(set(self.projects) | set(other.projects))),
         )
 
 
@@ -128,13 +159,27 @@ def parse_junit(path: Path) -> JUnitSummary:
             )
         )
 
-    actual_tests = len(root.findall(".//testcase"))
-    if total.tests != actual_tests:
+    testcases = root.findall(".//testcase")
+    if total.tests != len(testcases):
         raise ValidationError(
             f"JUnit file {path} declared {total.tests} tests but contains "
-            f"{actual_tests} testcase elements"
+            f"{len(testcases)} testcase elements"
         )
-    return total
+
+    projects = set()
+    for testcase in testcases:
+        match = PROJECT_PREFIX.match(testcase.attrib.get("name", ""))
+        if match:
+            projects.add(match.group(1))
+
+    return JUnitSummary(
+        files=total.files,
+        tests=total.tests,
+        failures=total.failures,
+        errors=total.errors,
+        skipped=total.skipped,
+        projects=tuple(sorted(projects)),
+    )
 
 
 def load_json(path: Path) -> dict[str, Any]:
@@ -163,8 +208,7 @@ def _resolve_evidence_path(base_dir: Path, relative: Any, lane: str) -> Path:
 
 
 def validate_visual_evidence(base_dir: Path, exact_sha: str) -> dict[str, Any]:
-    path = base_dir / "artifacts/deep/visual/visual-acceptance-results.json"
-    evidence = load_json(path)
+    evidence = load_json(base_dir / "artifacts/deep/visual/visual-acceptance-results.json")
     if evidence.get("validationSha") != exact_sha:
         raise ValidationError("visual evidence SHA does not match exact validation SHA")
     if evidence.get("classification") != "VISUAL_UX_EVIDENCE_COLLECTED":
@@ -192,8 +236,7 @@ def validate_visual_evidence(base_dir: Path, exact_sha: str) -> dict[str, Any]:
 
 
 def validate_soak_evidence(base_dir: Path, exact_sha: str) -> dict[str, Any]:
-    path = base_dir / "artifacts/deep/soak-runtime-metrics.json"
-    evidence = load_json(path)
+    evidence = load_json(base_dir / "artifacts/deep/soak-runtime-metrics.json")
     if evidence.get("exact_tested_sha") != exact_sha:
         raise ValidationError("soak evidence SHA does not match exact validation SHA")
     target = evidence.get("target_duration_seconds")
@@ -204,22 +247,22 @@ def validate_soak_evidence(base_dir: Path, exact_sha: str) -> dict[str, Any]:
         raise ValidationError(
             f"soak duration is incomplete: measured={measured!r} target={target!r}"
         )
-    numeric_keys = (
+    for key in (
         "server_rss_start_kb",
         "server_rss_end_kb",
         "server_rss_max_kb",
         "redis_keys_before",
         "redis_keys_after",
-    )
-    for key in numeric_keys:
+    ):
         value = evidence.get(key)
         if not isinstance(value, int) or value < 0:
             raise ValidationError(f"soak metric {key} must be a non-negative integer")
-    samples_path = base_dir / "artifacts/deep/soak-rss-samples.tsv"
     try:
         samples = [
             line
-            for line in samples_path.read_text(encoding="utf-8").splitlines()
+            for line in (base_dir / "artifacts/deep/soak-rss-samples.tsv")
+            .read_text(encoding="utf-8")
+            .splitlines()
             if line
         ]
     except FileNotFoundError as exc:
@@ -227,6 +270,39 @@ def validate_soak_evidence(base_dir: Path, exact_sha: str) -> dict[str, Any]:
     if len(samples) < 2:
         raise ValidationError("soak RSS evidence contains fewer than two samples")
     return {**evidence, "rss_sample_count": len(samples)}
+
+
+def _validate_lane_projects(name: str, lane: dict[str, Any], summary: JUnitSummary) -> None:
+    expected = EXPECTED_PROJECTS_BY_LANE.get(name)
+    declared = lane.get("projects")
+    if expected is None:
+        if declared is not None:
+            raise ValidationError(f"lane {name} declares unexpected browser projects")
+        return
+
+    if (
+        not isinstance(declared, list)
+        or not declared
+        or any(not isinstance(project, str) or not project for project in declared)
+        or len(declared) != len(set(declared))
+    ):
+        raise ValidationError(f"lane {name} projects must be unique non-empty strings")
+
+    declared_set = set(declared)
+    if declared_set != expected:
+        missing = sorted(expected - declared_set)
+        unexpected = sorted(declared_set - expected)
+        raise ValidationError(
+            f"lane {name} project contract mismatch: missing={missing} unexpected={unexpected}"
+        )
+
+    executed = set(summary.projects)
+    if executed != expected:
+        missing = sorted(expected - executed)
+        unexpected = sorted(executed - expected)
+        raise ValidationError(
+            f"lane {name} JUnit project mismatch: missing={missing} unexpected={unexpected}"
+        )
 
 
 def validate_contract(
@@ -275,17 +351,11 @@ def validate_contract(
 
         kind = lane.get("kind")
         if kind != "external" and status != "PASS":
-            raise ValidationError(
-                f"non-external lane {name} cannot report status {status}"
-            )
+            raise ValidationError(f"non-external lane {name} cannot report status {status}")
         if name in REQUIRED_JUNIT_LANES and kind != "junit":
-            raise ValidationError(
-                f"required JUnit lane {name} has unexpected kind {kind!r}"
-            )
+            raise ValidationError(f"required JUnit lane {name} has unexpected kind {kind!r}")
         if name in REQUIRED_LANES - REQUIRED_JUNIT_LANES and kind != "command":
-            raise ValidationError(
-                f"required command lane {name} has unexpected kind {kind!r}"
-            )
+            raise ValidationError(f"required command lane {name} has unexpected kind {kind!r}")
 
         lane_summary = JUnitSummary()
         if kind == "command":
@@ -300,8 +370,7 @@ def validate_contract(
                 previous_owner = junit_owners.get(junit_path)
                 if previous_owner is not None:
                     raise ValidationError(
-                        f"JUnit evidence {relative!r} is reused by lanes "
-                        f"{previous_owner} and {name}"
+                        f"JUnit evidence {relative!r} is reused by lanes {previous_owner} and {name}"
                     )
                 junit_owners[junit_path] = name
                 lane_summary = lane_summary.plus(parse_junit(junit_path))
@@ -309,41 +378,31 @@ def validate_contract(
                 raise ValidationError(f"JUnit lane {name} executed zero tests")
             if lane_summary.failures or lane_summary.errors or lane_summary.skipped:
                 raise ValidationError(
-                    f"JUnit lane {name} is not clean: "
-                    f"failures={lane_summary.failures} errors={lane_summary.errors} "
-                    f"skipped={lane_summary.skipped}"
+                    f"JUnit lane {name} is not clean: failures={lane_summary.failures} "
+                    f"errors={lane_summary.errors} skipped={lane_summary.skipped}"
                 )
+            _validate_lane_projects(name, lane, lane_summary)
             global_junit = global_junit.plus(lane_summary)
         elif kind == "external":
             if status in {"BLOCKED", "NOT_APPLICABLE"}:
                 reason = lane.get("reason")
                 owner_issue = lane.get("owner_issue")
                 if not isinstance(reason, str) or not reason.strip():
-                    raise ValidationError(
-                        f"external lane {name} requires a non-empty reason"
-                    )
+                    raise ValidationError(f"external lane {name} requires a non-empty reason")
                 if (
                     not isinstance(owner_issue, int)
                     or isinstance(owner_issue, bool)
                     or owner_issue <= 0
                 ):
-                    raise ValidationError(
-                        f"external lane {name} requires a positive owner_issue"
-                    )
+                    raise ValidationError(f"external lane {name} requires a positive owner_issue")
                 if status == "BLOCKED":
                     blockers.append(
-                        {
-                            "name": name,
-                            "reason": reason,
-                            "owner_issue": owner_issue,
-                        }
+                        {"name": name, "reason": reason, "owner_issue": owner_issue}
                     )
             elif status == "PASS":
-                evidence_identity = lane.get("evidence_identity")
-                if not isinstance(evidence_identity, str) or not evidence_identity.strip():
-                    raise ValidationError(
-                        f"external PASS lane {name} requires evidence_identity"
-                    )
+                identity = lane.get("evidence_identity")
+                if not isinstance(identity, str) or not identity.strip():
+                    raise ValidationError(f"external PASS lane {name} requires evidence_identity")
         else:
             raise ValidationError(f"lane {name} has unsupported kind {kind!r}")
 
@@ -363,33 +422,8 @@ def validate_contract(
             "required lanes are not marked required: " + ", ".join(optional_required)
         )
 
-    portability_projects = by_name["portability"].get("projects")
-    if not isinstance(portability_projects, list) or any(
-        not isinstance(project, str) or not project for project in portability_projects
-    ):
-        raise ValidationError("portability projects must be non-empty strings")
-    portability = set(portability_projects)
-    missing_portability = sorted(REQUIRED_PORTABILITY_PROJECTS - portability)
-    if missing_portability:
-        raise ValidationError(
-            "portability evidence is missing projects: " + ", ".join(missing_portability)
-        )
-
-    responsive_projects = by_name["responsive"].get("projects")
-    if not isinstance(responsive_projects, list) or any(
-        not isinstance(project, str) or not project for project in responsive_projects
-    ):
-        raise ValidationError("responsive projects must be non-empty strings")
-    responsive = set(responsive_projects)
-    missing_responsive = sorted(REQUIRED_RESPONSIVE_PROJECTS - responsive)
-    if missing_responsive:
-        raise ValidationError(
-            "responsive evidence is missing projects: " + ", ".join(missing_responsive)
-        )
-
     visual_summary = validate_visual_evidence(base_dir, exact_sha)
     soak_metrics = validate_soak_evidence(base_dir, exact_sha)
-
     nonclaims = contract.get("nonclaims")
     if (
         not isinstance(nonclaims, list)
@@ -398,16 +432,15 @@ def validate_contract(
     ):
         raise ValidationError("lane contract requires non-empty string nonclaims")
 
-    verdict = (
-        "DEEP_VALIDATION_PASS_WITH_EXTERNAL_BLOCKERS"
-        if blockers
-        else "DEEP_VALIDATION_PASS"
-    )
     return {
         "schema_version": SCHEMA_VERSION,
         "task_id": "OTERYN-20260803-deep-system-validation",
         "exact_sha": exact_sha,
-        "global_verdict": verdict,
+        "global_verdict": (
+            "DEEP_VALIDATION_PASS_WITH_EXTERNAL_BLOCKERS"
+            if blockers
+            else "DEEP_VALIDATION_PASS"
+        ),
         "retries": 0,
         "required_lanes": sorted(REQUIRED_LANES),
         "lane_count": len(compiled),
@@ -431,27 +464,29 @@ def render_markdown(manifest: dict[str, Any]) -> str:
         f"- Validation lanes: {manifest['lane_count']}",
         f"- JUnit tests: {totals['tests']}",
         f"- Failures/errors/skips/retries: {totals['failures']}/{totals['errors']}/{totals['skipped']}/{manifest['retries']}",
+        f"- Executed browser projects: {len(totals['projects'])}",
         f"- Visual screenshots: {manifest['visual_summary']['screenshot_count']}",
         f"- Soak duration: {manifest['soak_metrics']['measured_duration_seconds']} seconds",
         f"- External blockers: {manifest['external_blocker_count']}",
         "",
         "## Lanes",
         "",
-        "| Lane | Kind | Status | Tests |",
-        "|---|---|---:|---:|",
+        "| Lane | Kind | Status | Tests | Projects |",
+        "|---|---|---:|---:|---|",
     ]
     for lane in manifest["lanes"]:
-        tests = lane.get("junit_summary", {}).get("tests", "—")
+        summary = lane.get("junit_summary", {})
+        tests = summary.get("tests", "—")
+        projects = ", ".join(summary.get("projects", [])) or "—"
         lines.append(
-            f"| `{lane['name']}` | {lane['kind']} | {lane['status']} | {tests} |"
+            f"| `{lane['name']}` | {lane['kind']} | {lane['status']} | {tests} | {projects} |"
         )
 
     if manifest["external_blockers"]:
         lines.extend(["", "## External blockers", ""])
         for blocker in manifest["external_blockers"]:
             lines.append(
-                f"- `{blocker['name']}` — {blocker['reason']} "
-                f"Owner: #{blocker['owner_issue']}."
+                f"- `{blocker['name']}` — {blocker['reason']} Owner: #{blocker['owner_issue']}."
             )
 
     lines.extend(["", "## Nonclaims", ""])
@@ -469,9 +504,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     try:
-        manifest = validate_contract(
-            load_json(args.contract), args.exact_sha, args.base_dir
-        )
+        manifest = validate_contract(load_json(args.contract), args.exact_sha, args.base_dir)
     except ValidationError as exc:
         print(json.dumps({"result": "FAIL", "error": str(exc)}, sort_keys=True))
         return 1
@@ -480,9 +513,7 @@ def main(argv: list[str] | None = None) -> int:
     (args.output_dir / "manifest.json").write_text(
         json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8"
     )
-    (args.output_dir / "report.md").write_text(
-        render_markdown(manifest), encoding="utf-8"
-    )
+    (args.output_dir / "report.md").write_text(render_markdown(manifest), encoding="utf-8")
     print(
         json.dumps(
             {
@@ -491,6 +522,7 @@ def main(argv: list[str] | None = None) -> int:
                 "exact_sha": manifest["exact_sha"],
                 "lanes": manifest["lane_count"],
                 "tests": manifest["junit_totals"]["tests"],
+                "projects": len(manifest["junit_totals"]["projects"]),
                 "screenshots": manifest["visual_summary"]["screenshot_count"],
                 "soak_seconds": manifest["soak_metrics"]["measured_duration_seconds"],
                 "external_blockers": manifest["external_blocker_count"],
