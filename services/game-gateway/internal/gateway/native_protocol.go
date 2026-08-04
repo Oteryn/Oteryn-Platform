@@ -109,7 +109,7 @@ func SelectGameplayCandidate(policy GameplayPolicy, offer GameplayOffer) (Gamepl
 }
 
 func NewV2SessionRequest(authorization Authorization, world World, loginAttemptID string, selection GameplaySelection) (SessionRequest, error) {
-	if authorization.CanaryAccountID < 1 || authorization.SecurityGeneration < 1 || world.ID < 1 || len(loginAttemptID) != 32 {
+	if authorization.CanaryAccountID < 1 || authorization.SecurityGeneration < 0 || world.ID < 1 || len(loginAttemptID) != 32 {
 		return SessionRequest{}, ErrUnavailable
 	}
 	if _, err := hex.DecodeString(loginAttemptID); err != nil {
