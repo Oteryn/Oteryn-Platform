@@ -1,0 +1,528 @@
+syntax = "proto3";
+
+package oteryn.gameplay.v1;
+
+// Review-only canonical IDL for OTS-20260804-native-protocol-selection.
+// This file is not wired into any runtime by the contract task.
+
+message WireEnvelope {
+  uint32 schema_revision = 1; // Must be exactly 1.
+  uint64 stream_sequence = 2; // Starts at 1 and increments by exactly 1.
+  uint64 server_tick = 3;     // Zero in client->server envelopes.
+
+  oneof payload {
+    ClientHello client_hello = 10;
+    ServerHello server_hello = 11;
+    ProtocolError protocol_error = 12;
+    CommandEnvelope command = 13;
+    ActionResult action_result = 14;
+    SnapshotBegin snapshot_begin = 15;
+    SnapshotChunk snapshot_chunk = 16;
+    SnapshotEnd snapshot_end = 17;
+    StateDelta state_delta = 18;
+    ResyncRequest resync_request = 19;
+    ChatMessageEvent chat_message = 20;
+    ServerNotice server_notice = 21;
+    SessionEnded session_ended = 22;
+    Heartbeat heartbeat = 23;
+  }
+}
+
+message ClientHello {
+  uint32 game_session_contract_version = 1; // Must be 2.
+  string gameplay_family = 2;               // "oteryn".
+  string gameplay_profile = 3;              // "oteryn.native.v1".
+  string transport_profile = 4;             // "tcp.tls13.protobuf.be32.v1".
+  uint32 schema_revision = 5;                // Must be 1.
+  bytes schema_sha256 = 6;                   // Exactly 32 bytes.
+  bytes capability_digest_sha256 = 7;        // Exactly 32 bytes.
+  repeated string capabilities = 8;          // Sorted, unique, <= 64.
+  string game_session_credential = 9;        // Opaque, bounded by implementation contract.
+  bytes login_attempt_id = 10;               // Exactly 16 bytes.
+  uint64 selected_character_id = 11;         // Non-zero, verified by Otheryn.
+  uint64 world_id = 12;                      // Non-zero.
+  uint64 channel_id = 13;                    // Non-zero; 1 for single-channel worlds.
+  uint64 world_policy_revision = 14;         // Non-zero.
+  string client_build = 15;                  // 1..64 printable ASCII bytes.
+}
+
+message ServerHello {
+  bytes session_id = 1;                      // Exactly 16 bytes.
+  bytes login_attempt_id = 2;                // Exactly 16 bytes.
+  uint64 selected_character_id = 3;
+  uint64 world_id = 4;
+  uint64 channel_id = 5;
+  string gameplay_family = 6;
+  string gameplay_profile = 7;
+  string transport_profile = 8;
+  uint32 schema_revision = 9;
+  bytes schema_sha256 = 10;                   // Exactly 32 bytes.
+  bytes capability_digest_sha256 = 11;        // Exactly 32 bytes.
+  repeated string capabilities = 12;
+  uint64 world_policy_revision = 13;
+  uint64 initial_state_revision = 14;
+  uint64 initial_server_sequence = 15;        // Sequence of this envelope.
+}
+
+enum ProtocolErrorCode {
+  PROTOCOL_ERROR_CODE_UNSPECIFIED = 0;
+  PROTOCOL_ERROR_INVALID_FRAME = 1;
+  PROTOCOL_ERROR_FRAME_TOO_LARGE = 2;
+  PROTOCOL_ERROR_INVALID_SEQUENCE = 3;
+  PROTOCOL_ERROR_UNSUPPORTED_SCHEMA = 4;
+  PROTOCOL_ERROR_UNSUPPORTED_PROFILE = 5;
+  PROTOCOL_ERROR_UNSUPPORTED_CAPABILITY = 6;
+  PROTOCOL_ERROR_SESSION_EXPIRED = 7;
+  PROTOCOL_ERROR_SESSION_REPLAYED = 8;
+  PROTOCOL_ERROR_SESSION_REVOKED = 9;
+  PROTOCOL_ERROR_SESSION_BINDING_MISMATCH = 10;
+  PROTOCOL_ERROR_CHARACTER_NOT_AUTHORIZED = 11;
+  PROTOCOL_ERROR_WORLD_NOT_AUTHORIZED = 12;
+  PROTOCOL_ERROR_RATE_LIMITED = 13;
+  PROTOCOL_ERROR_SNAPSHOT_INVALID = 14;
+  PROTOCOL_ERROR_STATE_REVISION_CONFLICT = 15;
+  PROTOCOL_ERROR_INTERNAL_UNAVAILABLE = 16;
+}
+
+message ProtocolError {
+  ProtocolErrorCode code = 1;
+  string safe_detail = 2; // Optional, <= 256 UTF-8 bytes, no secrets or identifiers.
+  bool retry_with_fresh_login = 3;
+}
+
+message Heartbeat {
+  uint64 nonce = 1;
+  uint64 observed_peer_sequence = 2;
+}
+
+message CommandEnvelope {
+  bytes command_id = 1;       // Exactly 16 CSPRNG bytes, unique in the session.
+  uint64 client_sequence = 2; // Starts at 1 and increments by exactly 1 for commands.
+  uint64 created_monotonic_ms = 3; // Diagnostic only, never authoritative.
+
+  oneof command {
+    StepCommand step = 10;
+    StopMovementCommand stop_movement = 11;
+    SetAttackTargetCommand set_attack_target = 12;
+    ClearAttackTargetCommand clear_attack_target = 13;
+    SetFollowTargetCommand set_follow_target = 14;
+    ClearFollowTargetCommand clear_follow_target = 15;
+    CastSpellCommand cast_spell = 16;
+    UseCommand use = 17;
+    UseWithCommand use_with = 18;
+    MoveItemCommand move_item = 19;
+    QuickLootCommand quick_loot = 20;
+    LootCorpseCommand loot_corpse = 21;
+    SayCommand say = 22;
+    LogoutCommand logout = 23;
+  }
+}
+
+enum Direction {
+  DIRECTION_UNSPECIFIED = 0;
+  DIRECTION_NORTH = 1;
+  DIRECTION_EAST = 2;
+  DIRECTION_SOUTH = 3;
+  DIRECTION_WEST = 4;
+  DIRECTION_NORTH_EAST = 5;
+  DIRECTION_SOUTH_EAST = 6;
+  DIRECTION_SOUTH_WEST = 7;
+  DIRECTION_NORTH_WEST = 8;
+}
+
+message StepCommand {
+  Direction direction = 1;
+}
+
+message StopMovementCommand {}
+
+message SetAttackTargetCommand {
+  EntityRef target = 1;
+}
+
+message ClearAttackTargetCommand {}
+
+message SetFollowTargetCommand {
+  EntityRef target = 1;
+}
+
+message ClearFollowTargetCommand {}
+
+message CastSpellCommand {
+  string spell_id = 1; // Stable server-published identifier, 1..64 ASCII bytes.
+  oneof target {
+    EntityRef entity = 2;
+    Position position = 3;
+    SelfTarget self_target = 4;
+  }
+}
+
+message SelfTarget {}
+
+message UseCommand {
+  ItemRef source = 1;
+}
+
+message UseWithCommand {
+  ItemRef source = 1;
+  oneof target {
+    ItemRef target_item = 2;
+    EntityRef target_entity = 3;
+    Position target_position = 4;
+  }
+}
+
+message MoveItemCommand {
+  ItemRef source = 1;
+  ItemDestination destination = 2;
+  uint32 quantity = 3; // 1..65535.
+}
+
+enum LootMode {
+  LOOT_MODE_UNSPECIFIED = 0;
+  LOOT_MODE_DEFAULT = 1;
+  LOOT_MODE_QUICK = 2;
+  LOOT_MODE_ALL_ALLOWED = 3;
+}
+
+message QuickLootCommand {
+  EntityRef corpse = 1;
+  LootMode mode = 2;
+}
+
+message LootCorpseCommand {
+  EntityRef corpse = 1;
+  LootMode mode = 2;
+}
+
+enum ChatMode {
+  CHAT_MODE_UNSPECIFIED = 0;
+  CHAT_MODE_LOCAL = 1;
+  CHAT_MODE_WHISPER = 2;
+  CHAT_MODE_YELL = 3;
+  CHAT_MODE_PRIVATE = 4;
+  CHAT_MODE_CHANNEL = 5;
+  CHAT_MODE_PARTY = 6;
+  CHAT_MODE_GUILD = 7;
+}
+
+message SayCommand {
+  ChatMode mode = 1;
+  uint64 channel_id = 2;   // Required only for channel modes.
+  string recipient = 3;    // Required only for private mode, <= 64 UTF-8 bytes.
+  string text = 4;         // 1..1024 UTF-8 bytes.
+}
+
+message LogoutCommand {}
+
+message Position {
+  uint32 x = 1; // <= 65535.
+  uint32 y = 2; // <= 65535.
+  uint32 z = 3; // <= 15.
+}
+
+message EntityRef {
+  uint64 handle = 1; // Non-zero, opaque and session-scoped.
+}
+
+message ItemRef {
+  uint64 item_handle = 1; // Non-zero, opaque and session-scoped.
+  oneof location {
+    InventoryLocation inventory = 10;
+    ContainerLocation container = 11;
+    TileLocation tile = 12;
+  }
+}
+
+message InventoryLocation {
+  uint32 slot = 1; // Profile-defined bounded slot.
+}
+
+message ContainerLocation {
+  uint64 container_handle = 1;
+  uint32 index = 2;
+}
+
+message TileLocation {
+  Position position = 1;
+  uint32 stack_index = 2;
+}
+
+message ItemDestination {
+  oneof location {
+    InventoryLocation inventory = 1;
+    ContainerLocation container = 2;
+    TileLocation tile = 3;
+  }
+}
+
+enum ActionResultState {
+  ACTION_RESULT_STATE_UNSPECIFIED = 0;
+  ACTION_RESULT_ACCEPTED = 1;
+  ACTION_RESULT_REJECTED = 2;
+  ACTION_RESULT_DELAYED = 3;
+  ACTION_RESULT_EFFECT_OBSERVED = 4;
+  ACTION_RESULT_COMPLETED = 5;
+  ACTION_RESULT_EXPIRED = 6;
+  ACTION_RESULT_CANCELLED = 7;
+}
+
+enum ActionReason {
+  ACTION_REASON_UNSPECIFIED = 0;
+  ACTION_REASON_INVALID_COMMAND = 1;
+  ACTION_REASON_UNSUPPORTED_COMMAND = 2;
+  ACTION_REASON_NOT_AUTHENTICATED = 3;
+  ACTION_REASON_SESSION_STALE = 4;
+  ACTION_REASON_STALE_REFERENCE = 5;
+  ACTION_REASON_NOT_FOUND = 6;
+  ACTION_REASON_NOT_OWNED = 7;
+  ACTION_REASON_NOT_VISIBLE = 8;
+  ACTION_REASON_OUT_OF_RANGE = 9;
+  ACTION_REASON_PATH_BLOCKED = 10;
+  ACTION_REASON_COOLDOWN_ACTIVE = 11;
+  ACTION_REASON_RESOURCE_INSUFFICIENT = 12;
+  ACTION_REASON_CAPACITY_EXCEEDED = 13;
+  ACTION_REASON_PERMISSION_DENIED = 14;
+  ACTION_REASON_STATE_CONFLICT = 15;
+  ACTION_REASON_RATE_LIMITED = 16;
+  ACTION_REASON_SERVER_UNAVAILABLE = 17;
+  ACTION_REASON_LOGOUT_BLOCKED = 18;
+  ACTION_REASON_DUPLICATE_COMMAND = 19;
+}
+
+message ActionResult {
+  bytes command_id = 1;
+  uint64 client_sequence = 2;
+  ActionResultState state = 3;
+  ActionReason reason = 4;
+  uint64 state_revision = 5;
+  uint64 earliest_server_tick = 6; // Non-zero only for DELAYED.
+  string safe_detail = 7;          // Optional, <= 256 UTF-8 bytes.
+}
+
+message SnapshotBegin {
+  bytes snapshot_id = 1;       // Exactly 16 bytes.
+  uint64 state_revision = 2;
+  uint32 chunk_count = 3;      // 1..256.
+  uint64 total_encoded_bytes = 4; // <= 16 MiB.
+}
+
+message SnapshotChunk {
+  bytes snapshot_id = 1;
+  uint32 chunk_index = 2; // Contiguous from 0.
+  repeated StateRecord records = 3; // Canonical record ordering.
+}
+
+message SnapshotEnd {
+  bytes snapshot_id = 1;
+  uint64 state_revision = 2;
+  bytes chunks_sha256 = 3; // Exactly 32 bytes.
+}
+
+message StateDelta {
+  uint64 base_revision = 1;
+  uint64 revision = 2; // Must equal base_revision + 1.
+  repeated StateMutation mutations = 3;
+  bytes canonical_sha256 = 4; // Exactly 32 bytes.
+}
+
+enum ResyncReason {
+  RESYNC_REASON_UNSPECIFIED = 0;
+  RESYNC_REASON_REVISION_GAP = 1;
+  RESYNC_REASON_LOCAL_VALIDATION_FAILED = 2;
+  RESYNC_REASON_PREDICTION_DIVERGED = 3;
+}
+
+message ResyncRequest {
+  uint64 current_revision = 1;
+  ResyncReason reason = 2;
+}
+
+message StateRecord {
+  oneof record {
+    WorldState world = 10;
+    TileState tile = 11;
+    EntityState entity = 12;
+    PlayerState player = 13;
+    InventoryState inventory = 14;
+    ContainerState container = 15;
+    CooldownState cooldown = 16;
+    CombatState combat = 17;
+    CapabilityState capability = 18;
+  }
+}
+
+message StateMutation {
+  oneof mutation {
+    TileUpsert tile_upsert = 10;
+    TileRemove tile_remove = 11;
+    EntityUpsert entity_upsert = 12;
+    EntityMove entity_move = 13;
+    EntityRemove entity_remove = 14;
+    PlayerState player = 15;
+    InventoryState inventory = 16;
+    ContainerState container = 17;
+    ContainerClosed container_closed = 18;
+    CooldownState cooldown = 19;
+    CombatState combat = 20;
+    CapabilityState capability = 21;
+  }
+}
+
+message WorldState {
+  uint64 world_id = 1;
+  uint64 channel_id = 2;
+  string world_name = 3; // <= 128 UTF-8 bytes.
+  uint64 server_tick = 4;
+}
+
+message TileState {
+  Position position = 1;
+  uint32 ground_type = 2;
+  repeated uint64 item_handles = 3;   // Canonical stack order, <= 64.
+  repeated uint64 entity_handles = 4; // Canonical stack order, <= 64.
+  uint32 flags = 5;
+}
+
+message TileUpsert {
+  TileState tile = 1;
+}
+
+message TileRemove {
+  Position position = 1;
+}
+
+enum EntityKind {
+  ENTITY_KIND_UNSPECIFIED = 0;
+  ENTITY_KIND_PLAYER = 1;
+  ENTITY_KIND_MONSTER = 2;
+  ENTITY_KIND_NPC = 3;
+}
+
+message EntityState {
+  EntityRef entity = 1;
+  EntityKind kind = 2;
+  string display_name = 3; // <= 128 UTF-8 bytes.
+  Position position = 4;
+  Direction direction = 5;
+  uint32 health_percent = 6; // 0..10000 basis points.
+  uint32 appearance_id = 7;
+  uint32 flags = 8;
+}
+
+message EntityUpsert {
+  EntityState entity = 1;
+}
+
+message EntityMove {
+  EntityRef entity = 1;
+  Position from = 2;
+  Position to = 3;
+  Direction direction = 4;
+  bytes originating_command_id = 5; // Empty or exactly 16 bytes.
+}
+
+message EntityRemove {
+  EntityRef entity = 1;
+}
+
+message PlayerState {
+  uint64 character_id = 1;
+  Position position = 2;
+  uint64 health = 3;
+  uint64 health_max = 4;
+  uint64 mana = 5;
+  uint64 mana_max = 6;
+  uint64 capacity = 7;
+  uint64 experience = 8;
+  uint32 level = 9;
+  uint32 flags = 10;
+}
+
+message ItemState {
+  uint64 item_handle = 1;
+  uint32 type_id = 2;
+  uint32 quantity = 3;
+  uint32 subtype = 4;
+  uint32 flags = 5;
+}
+
+message InventoryEntry {
+  uint32 slot = 1;
+  ItemState item = 2;
+}
+
+message InventoryState {
+  repeated InventoryEntry entries = 1; // Unique slot, canonical order, bounded by profile.
+}
+
+message ContainerState {
+  uint64 container_handle = 1;
+  string display_name = 2; // <= 128 UTF-8 bytes.
+  uint32 capacity = 3;
+  uint32 offset = 4;
+  uint32 total_items = 5;
+  repeated ItemState items = 6; // Canonical index order, <= 4096.
+}
+
+message ContainerClosed {
+  uint64 container_handle = 1;
+}
+
+message CooldownEntry {
+  string cooldown_id = 1; // 1..64 ASCII bytes.
+  uint64 ready_at_server_tick = 2;
+}
+
+message CooldownState {
+  repeated CooldownEntry entries = 1; // Sorted by cooldown_id, <= 4096.
+}
+
+message CombatState {
+  uint64 attack_target_handle = 1; // Zero means none.
+  uint64 follow_target_handle = 2; // Zero means none.
+  bool in_fight = 3;
+  uint64 fight_lock_until_server_tick = 4;
+}
+
+message CapabilityState {
+  repeated string capabilities = 1; // Sorted, unique, <= 64.
+  bytes capability_digest_sha256 = 2;
+}
+
+message ChatMessageEvent {
+  uint64 message_id = 1;
+  ChatMode mode = 2;
+  uint64 channel_id = 3;
+  string author = 4; // <= 64 UTF-8 bytes.
+  string text = 5;   // <= 1024 UTF-8 bytes.
+}
+
+enum ServerNoticeCode {
+  SERVER_NOTICE_CODE_UNSPECIFIED = 0;
+  SERVER_NOTICE_MAINTENANCE = 1;
+  SERVER_NOTICE_RESTART = 2;
+  SERVER_NOTICE_RATE_LIMIT = 3;
+  SERVER_NOTICE_PROTOCOL_DEPRECATION = 4;
+}
+
+message ServerNotice {
+  ServerNoticeCode code = 1;
+  string safe_text = 2; // <= 1024 UTF-8 bytes.
+}
+
+enum SessionEndReason {
+  SESSION_END_REASON_UNSPECIFIED = 0;
+  SESSION_END_LOGOUT_COMPLETED = 1;
+  SESSION_END_REPLACED = 2;
+  SESSION_END_KICKED = 3;
+  SESSION_END_SERVER_SHUTDOWN = 4;
+  SESSION_END_PROTOCOL_VIOLATION = 5;
+  SESSION_END_AUTHORIZATION_REVOKED = 6;
+  SESSION_END_IDLE_TIMEOUT = 7;
+}
+
+message SessionEnded {
+  SessionEndReason reason = 1;
+  string safe_detail = 2; // <= 256 UTF-8 bytes.
+}
