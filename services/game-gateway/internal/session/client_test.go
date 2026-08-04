@@ -177,30 +177,30 @@ func TestReadyChecksSessionServiceHealth(t *testing.T) {
 func validV2Request() gateway.SessionRequest {
 	capabilities := []string{"actions.command-result.v1", "session.single-admission.v1"}
 	return gateway.SessionRequest{
-		ContractVersion: 2,
-		CanaryAccountID: 1001,
-		SecurityGeneration: 7,
-		WorldID: 1,
-		ChannelID: 1,
-		LoginAttemptID: strings.Repeat("a", 32),
-		WorldPolicyRevision: 42,
-		EndpointID: "native-eu-1",
-		Audience: "otheryn-world:1:channel:1:endpoint:native-eu-1",
+		ContractVersion:      2,
+		CanaryAccountID:      1001,
+		SecurityGeneration:   7,
+		WorldID:              1,
+		ChannelID:            1,
+		LoginAttemptID:       strings.Repeat("a", 32),
+		WorldPolicyRevision:  42,
+		EndpointID:           "native-eu-1",
+		Audience:             "otheryn-world:1:channel:1:endpoint:native-eu-1",
 		CharacterBindingMode: "bind_on_first_admission",
-		SingleAdmission: true,
+		SingleAdmission:      true,
 		GameplaySelection: &gateway.GameplaySelection{
-			PolicyRevision: 42,
-			Family: "oteryn",
-			Profile: "oteryn.native.v1",
-			Transport: "tcp.tls13.protobuf.be32.v1",
-			SchemaRevision: 1,
-			SchemaSHA256: strings.Repeat("b", 64),
-			Capabilities: capabilities,
+			PolicyRevision:         42,
+			Family:                 "oteryn",
+			Profile:                "oteryn.native.v1",
+			Transport:              "tcp.tls13.protobuf.be32.v1",
+			SchemaRevision:         1,
+			SchemaSHA256:           strings.Repeat("b", 64),
+			Capabilities:           capabilities,
 			CapabilityDigestSHA256: strings.Repeat("c", 64),
-			EndpointID: "native-eu-1",
-			Host: "native.example.test",
-			Port: 7173,
-			TLSServerName: "native.example.test",
+			EndpointID:             "native-eu-1",
+			Host:                   "native.example.test",
+			Port:                   7173,
+			TLSServerName:          "native.example.test",
 		},
 	}
 }
@@ -218,24 +218,24 @@ func assertServiceAuthentication(t *testing.T, r *http.Request) {
 func assertV2Payload(t *testing.T, payload v2RequestPayload, request gateway.SessionRequest) {
 	t.Helper()
 	selection := request.GameplaySelection
-	if payload.ContractVersion != 2
-		|| payload.GameAccountID != request.CanaryAccountID
-		|| payload.IdentityGeneration != request.SecurityGeneration
-		|| payload.WorldID != request.WorldID
-		|| payload.ChannelID != request.ChannelID
-		|| payload.LoginAttemptID != request.LoginAttemptID
-		|| payload.WorldPolicyRevision != request.WorldPolicyRevision
-		|| payload.EndpointID != request.EndpointID
-		|| payload.Audience != request.Audience
-		|| payload.CharacterBindingMode != request.CharacterBindingMode
-		|| !payload.SingleAdmission
-		|| payload.Family != selection.Family
-		|| payload.Profile != selection.Profile
-		|| payload.Transport != selection.Transport
-		|| payload.SchemaRevision != selection.SchemaRevision
-		|| payload.SchemaSHA256 != selection.SchemaSHA256
-		|| !reflect.DeepEqual(payload.Capabilities, selection.Capabilities)
-		|| payload.CapabilityDigestSHA256 != selection.CapabilityDigestSHA256 {
+	if payload.ContractVersion != 2 ||
+		payload.GameAccountID != request.CanaryAccountID ||
+		payload.IdentityGeneration != request.SecurityGeneration ||
+		payload.WorldID != request.WorldID ||
+		payload.ChannelID != request.ChannelID ||
+		payload.LoginAttemptID != request.LoginAttemptID ||
+		payload.WorldPolicyRevision != request.WorldPolicyRevision ||
+		payload.EndpointID != request.EndpointID ||
+		payload.Audience != request.Audience ||
+		payload.CharacterBindingMode != request.CharacterBindingMode ||
+		!payload.SingleAdmission ||
+		payload.Family != selection.Family ||
+		payload.Profile != selection.Profile ||
+		payload.Transport != selection.Transport ||
+		payload.SchemaRevision != selection.SchemaRevision ||
+		payload.SchemaSHA256 != selection.SchemaSHA256 ||
+		!reflect.DeepEqual(payload.Capabilities, selection.Capabilities) ||
+		payload.CapabilityDigestSHA256 != selection.CapabilityDigestSHA256 {
 		t.Fatalf("unexpected v2 payload: %#v", payload)
 	}
 }
