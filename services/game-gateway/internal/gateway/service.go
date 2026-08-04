@@ -120,7 +120,7 @@ func (s *Service) createLegacySession(
 }
 
 func validateLoginContext(loginContext LoginContext) (World, error) {
-	if len(loginContext.Worlds) != 1 {
+	if len(loginContext.Worlds) != 1 || len(loginContext.Characters) > 100 {
 		return World{}, ErrUnavailable
 	}
 
