@@ -132,28 +132,28 @@ func NewV2SessionRequest(authorization Authorization, world World, loginAttemptI
 }
 
 func validOfferedCandidate(candidate GameplayOfferCandidate) bool {
-	return isIdentifier(candidate.Family)
-		&& isIdentifier(candidate.Profile)
-		&& isIdentifier(candidate.Transport)
-		&& candidate.SchemaRevision > 0
-		&& isLowerHexSHA256(candidate.SchemaSHA256)
-		&& isCanonicalCapabilities(candidate.Capabilities)
+	return isIdentifier(candidate.Family) &&
+		isIdentifier(candidate.Profile) &&
+		isIdentifier(candidate.Transport) &&
+		candidate.SchemaRevision > 0 &&
+		isLowerHexSHA256(candidate.SchemaSHA256) &&
+		isCanonicalCapabilities(candidate.Capabilities)
 }
 
 func validPolicyCandidate(candidate GameplayPolicyCandidate) bool {
-	if !isIdentifier(candidate.Family)
-		|| !isIdentifier(candidate.Profile)
-		|| !isIdentifier(candidate.Transport)
-		|| candidate.SchemaRevision == 0
-		|| !isLowerHexSHA256(candidate.SchemaSHA256)
-		|| !isCanonicalCapabilities(candidate.RequiredCapabilities)
-		|| !isCanonicalCapabilities(candidate.OptionalCapabilities)
-		|| !isIdentifier(candidate.EndpointID)
-		|| !isHost(candidate.Host)
-		|| candidate.Port < 1
-		|| candidate.Port > 65535
-		|| !isHost(candidate.TLSServerName)
-		|| strings.Contains(candidate.TLSServerName, "*") {
+	if !isIdentifier(candidate.Family) ||
+		!isIdentifier(candidate.Profile) ||
+		!isIdentifier(candidate.Transport) ||
+		candidate.SchemaRevision == 0 ||
+		!isLowerHexSHA256(candidate.SchemaSHA256) ||
+		!isCanonicalCapabilities(candidate.RequiredCapabilities) ||
+		!isCanonicalCapabilities(candidate.OptionalCapabilities) ||
+		!isIdentifier(candidate.EndpointID) ||
+		!isHost(candidate.Host) ||
+		candidate.Port < 1 ||
+		candidate.Port > 65535 ||
+		!isHost(candidate.TLSServerName) ||
+		strings.Contains(candidate.TLSServerName, "*") {
 		return false
 	}
 	if intersects(candidate.RequiredCapabilities, candidate.OptionalCapabilities) {
