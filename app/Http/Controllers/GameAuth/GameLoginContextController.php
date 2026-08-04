@@ -5,6 +5,7 @@ namespace App\Http\Controllers\GameAuth;
 use App\GameAuth\Context\GameLoginCharacter;
 use App\GameAuth\Context\GameLoginContextProvider;
 use App\GameAuth\Context\GameLoginContextUnavailable;
+use App\GameAuth\Worlds\GameWorldProtocolCandidateRoute;
 use Illuminate\Database\QueryException;
 use Illuminate\Http\JsonResponse;
 
@@ -23,6 +24,8 @@ final class GameLoginContextController
         } catch (QueryException) {
             return response()->json(['error' => 'login_context_unavailable'], 503);
         }
+
+        $policy = $context->world->gameplayPolicy;
 
         return response()->json([
             'protocol_version' => 1,
@@ -44,6 +47,26 @@ final class GameLoginContextController
                 ],
                 $context->characters,
             ),
+            'gameplay_policy' => [
+                'revision' => $policy?->revision ?? 1,
+                'channel_id' => $policy?->channelId ?? 1,
+                'candidates' => array_map(
+                    static fn (GameWorldProtocolCandidateRoute $candidate): array => [
+                        'family' => $candidate->family,
+                        'profile' => $candidate->profile,
+                        'transport' => $candidate->transport,
+                        'schema_revision' => $candidate->schemaRevision,
+                        'schema_sha256' => $candidate->schemaSha256,
+                        'required_capabilities' => $candidate->requiredCapabilities,
+                        'optional_capabilities' => $candidate->optionalCapabilities,
+                        'endpoint_id' => $candidate->endpointId,
+                        'host' => $candidate->host,
+                        'port' => $candidate->port,
+                        'tls_server_name' => $candidate->tlsServerName,
+                    ],
+                    $policy?->candidates ?? [],
+                ),
+            ],
         ]);
     }
 }
