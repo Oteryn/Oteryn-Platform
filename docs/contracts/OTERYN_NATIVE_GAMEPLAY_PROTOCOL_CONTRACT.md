@@ -8,11 +8,11 @@ Architecture decision: [`ADR 0010`](../architecture/adr/0010-native-gameplay-pro
 Security analysis: [`OTERYN_NATIVE_PROTOCOL_THREAT_MODEL.md`](../architecture/OTERYN_NATIVE_PROTOCOL_THREAT_MODEL.md)  
 Rollout: [`OTERYN_NATIVE_PROTOCOL_ROLLOUT.md`](../architecture/OTERYN_NATIVE_PROTOCOL_ROLLOUT.md)
 
-## 1. Status and authority
+## 1. Status and preserved authority chain
 
-This document is the canonical producer/consumer contract for a future native Oteryn gameplay protocol. It is architecture and contract only. It does not prove that any runtime currently advertises, selects, issues, accepts, encodes or decodes `protocol-oteryn`.
+This is the canonical producer/consumer contract for a future native Oteryn gameplay protocol. It is contract and architecture only. It does not prove runtime support, enablement, deployment or production compatibility.
 
-The current delivered chain remains:
+The existing entry chain remains mandatory:
 
 ```text
 Rust client
@@ -27,45 +27,46 @@ Rust client
 -> Otheryn game server
 ```
 
-The native protocol reuses this chain. It does not introduce another login server, Identity authority, ticket type, password path, direct OAuth authentication to Otheryn, direct Game Login Ticket consumption by Otheryn or a Gateway bypass.
+No implementation may introduce another login server, Identity authority, ticket type, client password flow, direct OAuth authentication to Otheryn, direct Game Login Ticket consumption by Otheryn or a Gateway bypass.
 
-The following names are distinct and must never share one serialized version field:
+The following concepts are distinct:
 
 | Concept | Initial value | Owner |
-|---|---:|---|
+|---|---|---|
 | Gateway login API version | existing JSON `protocol_version: 1` | Game Gateway |
-| Game Session contract version | target `2` | Gateway producer and Otheryn consumer |
+| gameplay-offer shape version | `1` | this contract/Gateway |
+| Game Session contract version | `2` | Gateway producer and Otheryn consumer |
 | gameplay adapter family | `canary` or `oteryn` | World Registry vocabulary |
 | native gameplay profile | `oteryn.native.v1` | this contract |
 | native transport profile | `tcp.tls13.protobuf.be32.v1` | this contract |
 | schema revision | `1` | this contract/IDL |
-| client build metadata | bounded opaque build string | client, validated by Gateway |
+| client build/platform metadata | bounded non-authoritative strings | Rust client, validated by Gateway |
 
-## 2. Current versus target implementation truth
+One serialized version field must never represent more than one row.
+
+## 2. Current and target truth
 
 ### Current
 
-- Gateway `/v1/login` accepts Gateway API `protocol_version: 1` and one Game Login Ticket.
-- Gateway redeems the ticket, obtains one authoritative world and account-authorized characters, creates a Game Session request containing account, world and login-attempt identifiers, and returns a session credential, worlds and characters.
-- Otheryn provides profile-driven Canary-compatible protocol and transport behavior through its existing ASIO network stack.
-- The Rust workspace contains `protocol-canary`, `protocol-core`, `game-domain`, `game-session` and transport crates. It does not contain `protocol-oteryn`.
+- `/v1/login` accepts Gateway API `protocol_version: 1` and one Game Login Ticket.
+- Gateway redeems the ticket, obtains exactly one authoritative world plus account-authorized characters, creates a Game Session request containing account, world and login-attempt identifiers, and returns one session credential.
+- Otheryn serves profile-driven Canary-compatible gameplay through its existing ASIO stack.
+- Rust contains protocol-neutral contracts and `protocol-canary`; `protocol-oteryn` does not exist.
 
 ### Target, disabled until later packages
 
-- Gateway accepts a bounded gameplay support offer in the same login request and selects exactly one candidate from authoritative World Registry policy.
-- Game Session contract version 2 binds that selection and all admission invariants.
-- Otheryn exposes a separately configured native TLS endpoint and validates the bound selection before native gameplay messages.
-- The Rust client implements an independent native adapter and binds one selected adapter to one session.
+- Gateway accepts a bounded gameplay offer and makes one deterministic selection from current World Registry policy.
+- Game Session contract version 2 stores the exact selection and admission bindings server-side behind an opaque credential.
+- Otheryn exposes a separate native TLS listener and validates the stored binding before gameplay.
+- Rust implements an independent native adapter and binds one immutable adapter identity to one Game Session.
 
-Any repository that describes target behavior must label it target/unimplemented until exact linked producer and consumer evidence exists.
+Target behavior must remain labelled unimplemented until exact linked runtime evidence exists.
 
 ## 3. Negotiation decision
 
-### Selected mechanism
+The client sends a bounded supported-candidate **set** in the existing Gateway login request. Gateway is the sole final selector.
 
-**The client sends a bounded supported-candidate offer in the existing Gateway login request; Gateway makes the final deterministic selection.**
-
-The later Gateway producer package extends the JSON request without changing the meaning of the existing `protocol_version` field:
+Target request:
 
 ```json
 {
@@ -73,54 +74,86 @@ The later Gateway producer package extends the JSON request without changing the
   "game_login_ticket": "<opaque>",
   "gameplay_offer": {
     "offer_version": 1,
-    "client_build": "<1..64 ASCII characters>",
+    "client_build": "oteryn-client-0.1.0+abcdef0",
     "client_platform": "windows-x86_64",
-    "candidates": []
+    "candidates": [
+      {
+        "family": "oteryn",
+        "profile": "oteryn.native.v1",
+        "transport": "tcp.tls13.protobuf.be32.v1",
+        "schema_revision": 1,
+        "schema_sha256": "<64 lowercase hex characters>",
+        "capabilities": [
+          "actions.command-result.v1",
+          "chat.semantic.v1",
+          "combat.server-authoritative.v1",
+          "inventory.server-authoritative.v1",
+          "ordering.server-sequence.v1",
+          "reconciliation.movement.v1",
+          "session.single-admission.v1",
+          "state.revision.v1",
+          "state.snapshot-delta.v1"
+        ]
+      }
+    ]
   }
 }
 ```
 
-Rules:
+Request rules:
 
-1. Gateway validates JSON shape, lengths, count limits, identifier syntax, duplicate keys and candidate canonical form before redeeming the ticket.
-2. `candidates` contains `1..8` unique supported candidates. It is a set, not client preference order.
-3. Gateway redeems the one-time ticket, obtains authoritative world/login context and reads the current ordered World Registry gameplay policy for that world/channel.
-4. Gateway selects the first authoritative World Registry candidate that exactly matches a client-supported family/profile/transport/schema tuple and whose required capabilities are a subset of client-supported capabilities.
-5. Gateway chooses the optional capability intersection. The client cannot add a capability that World Registry did not allow.
-6. Gateway issues exactly one Game Session for the selected candidate or returns one terminal typed failure. It does not attempt a second candidate after session-issuer failure.
-7. A no-match result after ticket redemption consumes the ticket. The client must acquire a fresh Game Login Ticket and repeat the complete login attempt. It must not retry a modified offer with the consumed ticket.
-8. `Auto` preference is expressed by authoritative World Registry order, normally native first and Canary second during migration. The client does not author the production preference.
-9. Development `ForceCanary`/`ForceOteryn` modes restrict the client offer to one diagnostic candidate; Gateway remains authoritative and may reject it.
+1. Target request body is at most `16 KiB`. JSON shape, duplicate object keys, trailing JSON, identifier grammar, lengths, counts and candidate uniqueness are validated before ticket redeem.
+2. `client_build` is `1..64` printable ASCII bytes and is compatibility metadata, not authority.
+3. `client_platform` uses lowercase ASCII grammar `[a-z0-9][a-z0-9._-]{0,63}` and is telemetry/compatibility metadata, not authority.
+4. `candidates` contains `1..8` unique tuples. Array order has no preference meaning.
+5. Each candidate contains exactly family, profile, transport, schema revision/hash and a sorted unique capability list of at most 64 tokens.
+6. Gateway redeems the ticket, obtains the one current authoritative world and reads the current ordered World Registry candidate policy for initial `channel_id = 1`.
+7. Gateway selects the first enabled World Registry candidate whose exact family/profile/transport/schema tuple was offered and whose required capabilities are present. Selected optional capabilities are the authoritative allowed intersection.
+8. Gateway issues exactly one Game Session for that selection or returns one terminal failure. It never tries another candidate after session-issuer invocation.
+9. A syntactically valid no-match result occurs after successful redeem and consumes the ticket. A fresh attempt requires a fresh ticket.
+10. Production `Auto` preference comes only from World Registry order. Development force modes may restrict the offered set but cannot force acceptance.
 
-### Rejected alternatives
+Rejected mechanisms:
 
-- **Gateway returns candidates and client selects later:** rejected because it creates a second state transition after ticket consumption, expands ambiguous retry state and lets a compromised client influence selection later than necessary.
-- **Dedicated wire negotiation at the game server:** rejected for initial rollout because it duplicates policy outside World Registry/Gateway and creates a downgrade point after credential handoff.
-- **Infer adapter from first gameplay bytes:** forbidden because it is ambiguous, attacker-controlled and cannot securely bind Game Session authorization.
+- returning a candidate set for a second client-side decision after redeem;
+- game-server negotiation after credential handoff;
+- inferring/falling back from gameplay bytes;
+- translating native messages through Canary packets.
 
-## 4. Authoritative ownership
+## 4. Gateway public failures and ticket state
 
-| Responsibility | Sole owner | Consumer/validator |
+| HTTP | Public code | Ticket state | Meaning |
+|---:|---|---|---|
+| `400` | `invalid_request` | unconsumed because validation precedes redeem | malformed, oversize, non-canonical or contradictory request |
+| `401` | `invalid_login` | invalid or consumed according to authoritative redeem result | ticket cannot be redeemed |
+| `409` | `unsupported_gameplay_pair` | consumed | valid login context but no exact allowed candidate intersection |
+| `503` | `login_unavailable` | treat as consumed whenever redeem may have occurred | Platform, World Registry, readiness or session issuer unavailable/ambiguous |
+
+Responses do not disclose candidate policy, account ownership, route internals or which private dependency failed. A client never retries the same ticket after `401`, `409`, `503` or an ambiguous network failure.
+
+## 5. Authoritative ownership
+
+| Responsibility | Sole owner | Validator/consumer |
 |---|---|---|
-| reusable credentials, MFA, OAuth, game-auth generation | Oteryn Identity/Platform | Gateway private client |
-| ticket issue, expiry, atomic redeem | Platform | Gateway |
-| configured world/channel adapter candidates and order | Platform World Registry | Gateway, operations tooling |
-| candidate family/profile/transport/schema/capability metadata | Platform World Registry, constrained by this contract | Gateway |
-| final selection decision | Game Gateway | client and Otheryn must verify |
-| Game Session contract production | Gateway session issuer boundary | Otheryn |
-| native endpoint and TLS identity | World Registry configuration backed by Otheryn deployment | Gateway/client |
-| validation of selected profile at gameplay admission | Otheryn | client observes success/failure |
-| gameplay legality, ordering, state and results | Otheryn | Rust client |
-| locally implemented candidate set | Rust client build | Gateway receives bounded offer |
-| adapter binding and wire decode/encode | Rust game-session/protocol layer | application/domain |
-| rollout enable/disable flags and minimum versions | Platform World Registry/operations | Gateway/Otheryn/client telemetry |
-| compatibility evidence matrix | this contract registry plus exact package evidence | all three repositories |
+| reusable credentials, OAuth, MFA, game-auth generation | Oteryn Identity/Platform | Gateway private client |
+| ticket issue, expiry and atomic redeem | Platform | Gateway |
+| ordered candidates, endpoints, policy revision and rollout flags per world/channel | Platform World Registry | Gateway/operations |
+| final candidate selection | Game Gateway | client and Otheryn |
+| Game Session v2 server-side claim production | Gateway session issuer boundary | Otheryn |
+| native listener readiness and TLS service identity | Otheryn deployment/readiness | Gateway/World Registry |
+| first character admission and exact session consume | Otheryn | client observes result |
+| gameplay legality, state, ordering and results | Otheryn | Rust client |
+| locally compiled candidate support | Rust build | Gateway receives bounded offer |
+| immutable adapter binding and wire mapping | Rust game-session/protocol layer | domain/application |
+| exact compatibility matrix/evidence | this registry plus linked package manifests | all repositories |
 
-No client field establishes account ownership, character ownership, route ownership, rollout state or authoritative capabilities.
+No client field establishes account, character, route, endpoint, policy, rollout or capability authority.
 
-## 5. Candidate identifiers and canonical form
+## 6. Candidate canonicalization
 
-A candidate is uniquely identified by:
+Identifier grammar is lowercase ASCII `[a-z0-9][a-z0-9._-]{0,63}`. Capability tokens use the same grammar, are sorted by unsigned UTF-8 byte order and are unique.
+
+A candidate identity is the tuple:
 
 ```text
 family
@@ -128,38 +161,32 @@ profile
 transport
 schema_revision
 schema_sha256
-required_capabilities
-optional_capabilities
+selected_capability_digest_sha256
 ```
 
-Initial registered candidates:
+Schema hash is SHA-256 of the exact UTF-8 bytes of the checked-in IDL with LF line endings and no BOM.
 
-| Family | Profile | Transport | Schema | Status |
-|---|---|---|---|---|
-| `canary` | exact source-proven profile such as `canary.current` | exact existing Canary transport profile | adapter-local | existing compatibility path; not defined by this IDL |
-| `oteryn` | `oteryn.native.v1` | `tcp.tls13.protobuf.be32.v1` | revision `1` and exact IDL SHA-256 | target, disabled |
+Capability digest is SHA-256 of the concatenation, in sorted order, of each UTF-8 capability token followed by one byte `0x0A`. The base native list is non-empty. Producers and consumers compare both the sorted list and its digest.
 
-Identifier grammar is lowercase ASCII `[a-z0-9][a-z0-9._-]{0,63}`. Capability lists are sorted bytewise, unique and limited to 64 entries. Unknown required capabilities make a candidate unsupported. Unknown optional capabilities are not selected.
-
-The base native v1 capability set is:
+Base native v1 capabilities are exactly:
 
 ```text
 actions.command-result.v1
-ordering.server-sequence.v1
-session.single-admission.v1
-state.snapshot-delta.v1
-state.revision.v1
-reconciliation.movement.v1
-inventory.server-authoritative.v1
-combat.server-authoritative.v1
 chat.semantic.v1
+combat.server-authoritative.v1
+inventory.server-authoritative.v1
+ordering.server-sequence.v1
+reconciliation.movement.v1
+session.single-admission.v1
+state.revision.v1
+state.snapshot-delta.v1
 ```
 
-A later capability may add messages or fields only when its own schema, ownership, limits, supported pairs and downgrade behavior are registered. Capabilities cannot weaken base security or size limits.
+Unknown required capabilities make a pair unsupported. Unknown optional capabilities are excluded from selection. Capabilities cannot weaken base TLS, framing, authority or size limits.
 
-## 6. Gateway response and selection proof
+## 7. Gateway response
 
-A successful later Gateway response retains Gateway API version 1 and adds a distinct selection object:
+Target success response retains Gateway API version 1:
 
 ```json
 {
@@ -177,206 +204,184 @@ A successful later Gateway response retains Gateway API version 1 and adds a dis
     "transport": "tcp.tls13.protobuf.be32.v1",
     "schema_revision": 1,
     "schema_sha256": "<64 lowercase hex characters>",
-    "capabilities": [],
+    "capabilities": ["<sorted selected capability>"],
+    "capability_digest_sha256": "<64 lowercase hex characters>",
     "host": "game.example.invalid",
     "port": 7173,
     "tls_server_name": "game.example.invalid"
   },
-  "worlds": [],
+  "worlds": ["<exactly one existing world object>"],
   "characters": []
 }
 ```
 
 Bounds:
 
-- response body: `<= 64 KiB`;
-- worlds: `1..16`;
-- characters: `0..100`;
-- selected capabilities: `<=64`;
-- host/TLS name: `1..253` ASCII, no wildcard or URL syntax;
-- port: `1..65535`;
-- login attempt ID: exactly 16 random bytes rendered as 32 lowercase hex characters.
+- response body `<=64 KiB`;
+- exactly one world for initial contract revision 1;
+- `0..100` characters, all belonging to that world;
+- selected capabilities `1..64` for native v1;
+- host/TLS name `1..253` ASCII bytes, no wildcard/URL syntax;
+- port `1..65535`;
+- login attempt ID exactly 16 random bytes rendered as 32 lowercase hex characters.
 
-The client fails closed when the selected candidate was not in its exact offer, required fields are missing, identifiers are non-canonical, capabilities are contradictory, endpoint/TLS identity is invalid, schema hash is unknown or any bound field differs from the later server bootstrap.
+`gameplay_selection.host/port/tls_server_name` is the authoritative selected gameplay endpoint. The legacy `worlds[0].host/port` remains presentation/Canary compatibility data and must not override a native selection when the endpoints differ.
 
-## 7. Game Session contract version 2
+The client fails closed when the selection was not exactly offered, identifiers are non-canonical, schema/list/digest disagree, endpoint/TLS identity is invalid or any field differs from server bootstrap.
 
-The Game Session authorization is opaque to the client and integrity-protected by the existing issuer/consumer mechanism selected by the implementation package. Its authoritative stored/validated claims are:
+## 8. Game Session contract version 2
+
+### Credential representation
+
+The initial v2 credential is an opaque high-entropy CSPRNG bearer secret/reference. Otheryn issuer/consumer storage retains only the repository-approved hash and server-side claims. It is not a client-readable JWT and contains no self-asserted client claims. A future storage implementation may change only through a compatible contract that preserves opacity, one-time admission and all bindings.
+
+### Exact server-side claims
 
 ```text
 contract_version = 2
 session_id = 16 random bytes
 login_attempt_id = 16 random bytes
-identity_id / bound Canary account ID
-game_auth_generation
-world_id
-channel_id (explicit even when only one channel exists)
+game_account_id = authoritative Otheryn account ID returned by Platform ticket redeem
+identity_security_generation = authoritative game_auth_generation
+world_id = exact Platform World Registry world
+channel_id = 1 for initial revision
+world_policy_revision
+endpoint_id = stable World Registry/Otheryn endpoint identifier
+audience = "otheryn-world:<world_id>:channel:<channel_id>:endpoint:<endpoint_id>"
 character_binding_mode = bind_on_first_admission
-allowed_character_set_revision or authoritative account binding reference
-selected family/profile/transport/schema revision/schema hash
-selected sorted capability list and SHA-256 digest
-World Registry policy revision
-issued_at / not_before / expires_at
+selected family/profile/transport/schema_revision/schema_sha256
+selected sorted capabilities/capability_digest_sha256
+issued_at/not_before/expires_at
 single_admission = true
-audience = exact Otheryn world endpoint/service identity
+admission_state = ISSUED_UNBOUND | ACTIVE_BOUND | CONSUMED_FAILED | CLOSED
 ```
+
+The raw Oteryn Identity subject is not sent to Otheryn. Identity binding is transitive and authoritative through ticket redeem, `game_account_id` and `identity_security_generation`.
 
 ### Character binding
 
-Current Gateway login produces the authoritative character list and Game Session material in one response, so the initial native contract does not invent a pre-existing selected character at issuance.
+1. The client selects one stable character ID from the Gateway-provided authoritative list and sends it in `ClientHello`.
+2. Otheryn loads current ownership for `game_account_id` and validates that exact character.
+3. In one atomic transaction/state transition it validates unexpired/unconsumed claims and changes `ISSUED_UNBOUND` to `ACTIVE_BOUND(character_id, connection_id)`.
+4. No map, entity or character state is exposed before success.
+5. The same credential cannot bind another character, world, channel, endpoint, profile, schema, capability set or connection.
+6. Wrong binding or ambiguous consume/bind failure makes the credential terminal; a fresh ticket/session is required.
 
-The exact rule is `bind_on_first_admission`:
+### Revocation, policy and replacement
 
-1. The client selects one character from the Gateway-provided authoritative list and sends its stable character identifier in native `ClientHello`.
-2. Otheryn validates that the credential is unexpired, unconsumed, audience/world/profile/capability correct and belongs to the account that currently owns the requested character.
-3. Otheryn atomically changes the session admission record from `ISSUED/UNBOUND` to `ACTIVE/BOUND(character_id)` exactly once.
-4. The same credential cannot bind a second character, world, channel, endpoint, profile or connection.
-5. Failure after an ambiguous consume/bind attempt is terminal for that credential. The client obtains a fresh ticket and session; it never guesses whether replay is safe.
+- generation mismatch rejects new admission;
+- expiry rejects admission;
+- Gateway binds the current policy revision at issuance;
+- Otheryn validates that the bound tuple matches its exact enabled listener/readiness identity, but does not query live World Registry during admission;
+- disabling advertisement stops new issuance; already-issued unexpired sessions may bind/drain unless an explicit admission-revocation generation is raised or the native listener is emergency-disabled;
+- tampered policy revision or tuple mismatch fails closed;
+- relog/replacement creates new ticket, login attempt, session, command namespace, sequences and snapshot;
+- old queued commands are discarded locally and rejected server-side.
 
-This preserves the current Gateway character-presentation sequence while proving that a credential cannot be replayed for a different character.
+## 9. Native transport and bootstrap
 
-### Revocation and replacement
+Native v1 uses a separately advertised TCP endpoint. It never shares a sniffing/fallback listener with Canary.
 
-- `game_auth_generation` mismatch rejects admission.
-- expiry rejects admission.
-- a replacement/relog uses a fresh ticket, login attempt, session ID and command namespace.
-- queued commands from an old session are discarded locally and rejected server-side.
-- active-session revocation/disconnect policy remains a separately versioned operational feature; absence of immediate disconnect must not permit new admission with stale generation.
+TLS rules:
 
-## 8. Native transport and bootstrap
+- TLS 1.3 only;
+- ALPN exactly `oteryn-game/1`;
+- normal certificate-chain and exact `tls_server_name` validation;
+- no plaintext profile;
+- TLS AEAD supplies confidentiality/integrity; no application checksum/MAC;
+- credentials, session/command IDs, account/character identifiers and payloads are redacted.
 
-### Endpoint
+Bootstrap:
 
-Native v1 uses a separately advertised TCP endpoint. It may share a host with Canary but does not share framing detection. World Registry must not advertise native unless the exact native listener and TLS identity are ready.
+1. `ClientHello` must arrive within 5 seconds of TLS completion.
+2. It carries the opaque credential, login attempt, selected character, world/channel/policy, exact profile/transport/schema/list/digest and bounded build metadata.
+3. Otheryn validates all fields against stored v2 claims and atomically binds admission.
+4. Otheryn emits one `ServerHello` or one safe typed `ProtocolError`, then closes on failure.
+5. `ServerHello` echoes the immutable selection and admission identity.
+6. Any mismatch is session-fatal `SESSION_BINDING_MISMATCH`; no candidate switch occurs.
 
-### TLS
+## 10. Framing and serialization
 
-- TLS `1.3` is mandatory.
-- ALPN is exactly `oteryn-game/1`.
-- the client validates the certificate chain and exact `tls_server_name`; production verification policy is deployment-owned and cannot be disabled by gameplay data.
-- no plaintext native profile exists.
-- TLS AEAD provides integrity and confidentiality; native v1 adds no application checksum or MAC.
-- authentication/session credentials, raw command IDs and full account/character identifiers are redacted from logs.
-
-### Bootstrap
-
-After TLS succeeds:
-
-1. Client sends `ClientHello` within 5 seconds.
-2. `ClientHello` includes schema revision, exact profile/transport identifiers, selected capability digest, opaque Game Session credential, login attempt ID and selected character ID.
-3. Otheryn validates every field against the stored Game Session authorization before any gameplay command is accepted.
-4. Otheryn returns exactly one `ServerHello` success or one typed `ProtocolError`, then closes on failure.
-5. `ServerHello` echoes session ID, profile, schema hash, capability digest, policy revision and initial server sequence.
-6. Any disagreement is `SESSION_BINDING_MISMATCH` and is session-fatal. No Canary retry occurs on that connection or credential.
-
-## 9. Framing and serialization
-
-### Frame boundary
-
-Every post-TLS application frame is:
+Every post-TLS frame is:
 
 ```text
 uint32_be payload_length
-payload_length bytes of serialized WireEnvelope
+payload_length bytes containing exactly one protobuf WireEnvelope
 ```
 
-Rules:
+- payload length `1..1,048,576` bytes, excluding the prefix;
+- zero, oversize, truncated, trailing or multiple-envelope input is session-fatal;
+- length is validated before allocation and reusable buffers are bounded;
+- protobuf `proto3`, schema revision 1;
+- field numbers are never reused; removed fields are `reserved`;
+- unknown fields are ignored and cannot activate behavior;
+- after decode exactly one known `payload` oneof must be set;
+- unknown numeric enum values in required semantic fields, zero `UNSPECIFIED` where concrete value is required, and missing semantic presence are violations;
+- strings are valid UTF-8 and bounded before allocation.
 
-- minimum payload length: `1`;
-- maximum payload length: `1,048,576` bytes;
-- the prefix is not included in `payload_length`;
-- zero, oversize, truncated, trailing or multiple-envelope payloads are session-fatal;
-- parsers validate the length before allocation and use bounded reusable buffers;
-- one frame contains exactly one `WireEnvelope`.
-
-### Serialization
-
-- protobuf `proto3` is used with the checked-in review IDL.
-- schema revision `1` is explicit in every envelope and bootstrap.
-- field numbers are never reused, and removed fields remain `reserved`.
-- scalar default values are not used to represent required semantic presence; required semantic fields use validated non-zero/non-empty values or explicit `optional` fields.
-- unknown protobuf fields are ignored and preserved only where the implementation library naturally supports preservation; they cannot activate behavior.
-- an unknown `oneof` message kind, unknown required enum value or missing required semantic field is a protocol violation.
-- enum zero is always `UNSPECIFIED` and invalid where a concrete value is required.
-- strings are UTF-8, normalized only for display, and bounded before allocation.
-
-### Limits
+Limits:
 
 | Item | Limit |
 |---|---:|
-| frame payload | 1 MiB |
-| ordinary decoded message | 1 MiB |
-| UTF-8 string | 4 KiB unless a smaller field limit is stated |
-| chat text | 1 KiB UTF-8 |
-| capability token | 64 bytes |
-| capability entries | 64 |
-| repeated entries in one ordinary message | 4096 |
+| frame/ordinary decoded message | 1 MiB |
+| ordinary UTF-8 string | 4 KiB unless smaller below |
+| chat text | 1 KiB |
+| capability token/list | 64 bytes / 64 entries |
+| repeated entries in an ordinary message | 4096 |
 | protobuf nesting depth | 32 |
 | snapshot chunks | 256 |
-| one snapshot chunk payload | 512 KiB encoded |
-| complete initial snapshot | 16 MiB encoded across chunks |
-| command queue accepted by protocol session | implementation-bounded; minimum contract does not permit unbounded growth |
+| one encoded snapshot chunk frame | 512 KiB |
+| complete initial snapshot | 16 MiB encoded |
 
-### Compression
+Native v1 compression is `none`; compressed data/flags are fatal. Any later compression requires a new transport/profile revision and explicit compressed/decompressed/ratio/CPU limits.
 
-Native v1 base profile uses `compression = none`. A compressed-frame flag or compressed payload is a fatal protocol violation.
+## 11. Ordering and duplicate policy
 
-A later compression capability must define a new transport/profile revision. It must enforce before allocation:
+Each direction uses `WireEnvelope.stream_sequence`:
 
-- compressed frame `<=1 MiB`;
-- decompressed output `<=4 MiB` per frame;
-- ratio `<=32:1`;
-- finite CPU/time budget;
-- no nested compression.
+- first value `1`;
+- increase by exactly `1`;
+- zero, gap, regression or wrap is session-fatal;
+- no application replay repairs a TCP/TLS sequence gap.
 
-## 10. Ordering and duplicate rules
+Every gameplay command additionally uses:
 
-Each direction has a `stream_sequence` (`uint64`) in every `WireEnvelope`:
+- `command_id`: exactly 16 CSPRNG bytes, unique within the Game Session;
+- `client_sequence`: first `1`, increasing by exactly `1` for commands;
+- optional local monotonic diagnostic duration, never authoritative time.
 
-- first value is `1`;
-- values increase by exactly `1`;
-- `0`, wrap, gap or regression is session-fatal;
-- TLS/TCP ordering means a gap is not repaired by application replay.
+Otheryn keeps a bounded active-session result cache. The command payload hash is SHA-256 of the exact serialized `CommandEnvelope` submessage bytes as received, excluding the outer `WireEnvelope`; unknown fields in commands are rejected so the byte identity is stable.
 
-Every client gameplay command additionally has:
+- exact duplicate ID, sequence and payload hash inside the cache returns the known latest result and never reapplies the command;
+- reuse of an ID or sequence with a different payload is session-fatal;
+- an exact duplicate no longer in cache is rejected as `STALE_COMMAND` and never reapplied.
 
-- `command_id`: exactly 16 client-generated CSPRNG bytes, unique within the Game Session;
-- `client_sequence`: `uint64`, first `1`, increasing by exactly `1` for commands only;
-- `created_monotonic_ms`: optional local diagnostic duration value, never authoritative time.
+Server ordering uses envelope `stream_sequence`, non-decreasing `server_tick` and strictly increasing committed `state_revision`.
 
-Otheryn keeps a bounded deduplication/result cache for the active session. An exact duplicate `(session_id, command_id, client_sequence, canonical payload hash)` returns the known latest result without applying the command twice. Reuse of an ID or sequence with different payload is session-fatal. A duplicate outside the bounded cache is rejected as `STALE_COMMAND`; it is never re-applied speculatively.
+## 12. Commands and server authority
 
-Server gameplay/state ordering uses:
+The client sends intent only. Otheryn owns legality, timing, random outcomes, mutation and persistence.
 
-- `server_sequence`: the envelope stream sequence;
-- `server_tick`: monotonic game tick, non-decreasing, not wall-clock time;
-- `state_revision`: strictly increasing authoritative state baseline/delta revision.
-
-## 11. Command vocabulary and authority
-
-The client sends semantic intent only. Otheryn validates and owns all legality, mutation, random outcomes and persistence.
-
-| Command | Required semantic input | Authoritative server result |
+| Command | Intent input | Server authority |
 |---|---|---|
-| `Step` | direction | collision, speed, destination and movement events |
-| `StopMovement` | none | final movement state |
-| `SetAttackTarget` / `ClearAttackTarget` | session-scoped entity handle | target validity, combat timing/effects |
-| `SetFollowTarget` / `ClearFollowTarget` | session-scoped entity handle | pathing/follow state |
-| `CastSpell` | stable spell ID plus optional target/position | knowledge, resources, cooldown, range, effects |
-| `Use` | source item reference | script, ownership, range and mutations |
-| `UseWith` | source plus target item/entity/position | script and all effects |
-| `MoveItem` | source, destination, quantity | identity, ownership, capacity and committed move |
-| `QuickLoot` / `LootCorpse` | corpse handle and mode | ownership/range/rules/capacity/transfers |
-| `Say` | mode, channel/recipient, text | permission, delivery and chat event |
-| `Logout` | none | safe logout decision and session end |
+| `Step`, `StopMovement` | direction/stop | collision, speed, path and final position |
+| attack/follow set/clear | session entity handle | visibility, target rules, path and combat state |
+| `CastSpell` | stable spell ID and optional target | knowledge, resources, cooldown, range/LOS and effects |
+| `Use`, `UseWith` | source and optional target | identity, ownership, range and scripts |
+| `MoveItem` | source, destination, quantity | ownership, capacity and committed move |
+| `QuickLoot`, `LootCorpse` | corpse handle/mode | ownership, rules, range, capacity and transfers |
+| `Say` | mode/channel/recipient/text | permission, moderation and delivery |
+| `Logout` | none | fight/state/save/session lifecycle |
 
-Session-scoped entity/container/item handles are opaque and cannot be interpreted as database IDs. Position bounds are `x,y <=65535`, `z <=15`. Quantity is `1..65535`.
+Entity/item/container handles are opaque and session-scoped, not database IDs. Position bounds are `x,y <=65535`, `z <=15`; quantity `1..65535`.
 
-The client never sends claimed damage, healing, mana use, cooldown completion, item ownership, loot acquisition, completed inventory mutation or server tick.
+The client never sends claimed damage, healing, mana/resource use, cooldown completion, ownership, loot acquisition, completed inventory mutation or server tick.
 
-## 12. Action result lifecycle
+## 13. Action lifecycle
 
-One command may produce zero or more `ActionResult` messages. Allowed transitions are:
+Every admitted command eventually receives one terminal `ActionResult` unless transport/session termination prevents delivery. On termination, the client locally marks all nonterminal commands cancelled and never retries them automatically.
+
+Allowed transitions:
 
 ```text
 PENDING
@@ -390,183 +395,120 @@ EFFECT_OBSERVED
 terminal = REJECTED | COMPLETED | EXPIRED | CANCELLED
 ```
 
-Semantics:
+- `ACCEPTED`: admitted for processing, not proof of visible effect;
+- `REJECTED`: no effect from this command committed; stable reason required;
+- `DELAYED`: pending, optionally with earliest server tick;
+- `EFFECT_OBSERVED`: at least one authoritative correlated effect/revision emitted;
+- `COMPLETED`: terminal lifecycle result;
+- `EXPIRED`: validity window elapsed before execution;
+- `CANCELLED`: shutdown/server cancellation prevents remaining work.
 
-- `ACCEPTED`: server accepted the intent for processing; it does not claim the visible effect occurred.
-- `REJECTED`: no effect from this command is committed; stable reason is required.
-- `DELAYED`: command remains pending; an optional earliest server tick may be provided.
-- `EFFECT_OBSERVED`: at least one authoritative effect associated with the command was emitted; related state revision is included.
-- `COMPLETED`: command lifecycle is terminal. Long-lived target selection completes when the target state changes; later combat effects are separate authoritative events.
-- `EXPIRED`: bounded server/client validity window elapsed before execution.
-- `CANCELLED`: session shutdown or explicit server cancellation prevented remaining work.
+Stable reasons are the IDL `ActionReason` enum, including `STALE_COMMAND`. Safe detail is optional, at most 256 UTF-8 bytes and contains no secrets/internal identifiers.
 
-Stable rejection/error reasons are drawn from the IDL and include at minimum:
+## 14. Snapshot, deltas and reconciliation
 
-```text
-INVALID_COMMAND
-UNSUPPORTED_COMMAND
-NOT_AUTHENTICATED
-SESSION_STALE
-STALE_REFERENCE
-NOT_FOUND
-NOT_OWNED
-NOT_VISIBLE
-OUT_OF_RANGE
-PATH_BLOCKED
-COOLDOWN_ACTIVE
-RESOURCE_INSUFFICIENT
-CAPACITY_EXCEEDED
-PERMISSION_DENIED
-STATE_CONFLICT
-RATE_LIMITED
-SERVER_UNAVAILABLE
-```
-
-Human-readable text is optional, localized by the client when a stable code exists, bounded to 256 UTF-8 bytes and never contains secrets or internal identifiers.
-
-## 13. Initial snapshot and state deltas
-
-### Initial snapshot
-
-After `ServerHello`, Otheryn emits:
+Initial state is:
 
 ```text
 SnapshotBegin(snapshot_id, state_revision, chunk_count, total_encoded_bytes)
 SnapshotChunk(snapshot_id, chunk_index, records...)
-SnapshotEnd(snapshot_id, state_revision, sha256)
+SnapshotEnd(snapshot_id, state_revision, chunks_sha256)
 ```
 
 Rules:
 
-- snapshot ID is 16 random bytes;
-- chunk count is `1..256`;
-- chunk indexes are contiguous from `0`;
-- records within and across chunks are in canonical order defined by record type then stable key;
-- complete encoded snapshot is `<=16 MiB`;
-- SHA-256 covers the concatenation of canonical serialized `SnapshotChunk` payloads in index order;
-- the client exposes no gameplay-ready state until all chunks, digest and bounds validate;
-- a second snapshot replaces, never merges with, an incomplete snapshot.
+- snapshot ID exactly 16 random bytes;
+- `1..256` contiguous chunks indexed from zero;
+- canonical record ordering by record type then stable key;
+- complete encoded size `<=16 MiB`;
+- `chunks_sha256` is SHA-256 of the concatenation, in chunk-index order, of the exact on-wire serialized `WireEnvelope` payload bytes for each `SnapshotChunk` frame, excluding each 4-byte frame-length prefix;
+- no gameplay-ready state is committed until count/order/bounds/digest validate;
+- an incomplete snapshot is discarded, never merged.
 
-Core v1 snapshot records cover visible map regions/tiles, visible entities, local player stats/resources, inventory, open containers, cooldowns, combat/target state and negotiated feature state. Features outside the core profile require explicit capabilities and extension schemas.
+Core snapshot records cover visible tiles/regions, visible entities, local player state, inventory, open containers, cooldowns, combat/target state and negotiated capability state.
 
-### Deltas
-
-Each `StateDelta` contains:
+Each `StateDelta` uses envelope `server_tick` and contains:
 
 ```text
 base_revision
 revision = base_revision + 1
-server_tick
 ordered mutations
 ```
 
-The client applies a delta only when `base_revision` equals its current committed revision. An exact duplicate revision with the same canonical hash is ignored. A conflicting duplicate, regression or malformed mutation is session-fatal.
+A delta applies only when `base_revision` equals the committed revision. Any duplicate, regression, conflict or malformed mutation is protocol-fatal. A gap is not partially applied: the client sends one bounded `ResyncRequest`, freezes authoritative mutations and accepts a complete replacement snapshot or typed close. Resync is rate-limited and cannot busy-loop.
 
-A revision gap does not permit partial application. The client sends one bounded `ResyncRequest(current_revision, reason)` and freezes authoritative mutation presentation. Otheryn responds with a fresh complete snapshot or closes with a typed error. Resync requests are rate-limited; no busy loop is allowed.
+Movement may be reversibly predicted and tagged with `command_id`; authoritative movement reconciles/rolls it back. Inventory, containers, loot, combat outcomes, resources, cooldowns and persistence are never client-authoritative.
 
-### Authority and reconciliation
+Native v1 has no session resume and no automatic command replay. Every reconnect/relog performs fresh ticket, Gateway selection, Game Session, admission and full snapshot.
 
-- movement may use reversible visual prediction tagged with the originating command ID;
-- authoritative entity movement/position mutations reconcile or roll back prediction;
-- inventory, containers, loot, combat outcomes, resources, cooldowns and persistence are never client-authoritative;
-- UI pending states are cleared only by typed result/state evidence or session termination;
-- a new Game Session always begins with a full snapshot.
+## 15. Failure classes
 
-Native v1 has no session resume and no automatic command replay after disconnect. Reconnect/relog performs fresh OAuth/ticket/Gateway selection/session admission and a full snapshot.
-
-## 14. Failure classes
-
-| Class | Examples | Required behavior |
+| Class | Example | Behavior |
 |---|---|---|
-| request-local rejection | unsupported command, range/cooldown failure | typed `ActionResult.REJECTED`; session remains |
-| recoverable synchronization | valid session but lost state baseline | one bounded resync; no partial apply |
-| admission-fatal | expired/replayed credential, character/profile mismatch | typed bootstrap error where safe, close, no fallback |
-| protocol-fatal | bad length, sequence gap, unknown message kind, conflicting duplicate | close immediately; bounded redacted metric |
-| service-unavailable | issuer, World Registry or Otheryn unavailable | terminal login failure; fresh attempt required |
-| implementation fault | impossible invariant/internal serialization error | fail closed, alert, no sensitive dump |
+| command-local | range/cooldown/permission | typed rejection; session remains |
+| recoverable synchronization | revision gap | one bounded resync; no partial apply |
+| admission-fatal | expired/replayed/cross-bound credential | safe bootstrap error where possible, close, no fallback |
+| protocol-fatal | length/sequence/unknown payload/conflicting duplicate | close immediately, redacted metric |
+| service unavailable | Platform/Registry/issuer/Otheryn unavailable | terminal login failure; fresh attempt |
+| implementation fault | impossible invariant/serialization fault | fail closed and alert without sensitive dump |
 
-## 15. Downgrade and security invariants
+## 16. Downgrade and security invariants
 
-- No password fallback exists in native flow.
-- Gateway selects once. It never retries Canary after native session issuance fails.
-- The client never changes adapter after ticket consumption, Gateway response, credential handoff, TLS bootstrap, partial admission or protocol failure.
-- Otheryn accepts only the exact family/profile/transport/schema/capability digest bound to Game Session.
-- A candidate or endpoint not present in current authoritative World Registry policy is never selected.
-- A stale policy revision may finish only if Gateway and Otheryn both validate the exact bound revision as still admissible; otherwise admission fails and a fresh attempt is required.
-- Ticket, session credential, session ID, command ID, account/character identifiers and raw payloads are not logged. Metrics use bounded reason codes and profile identifiers.
-- Public Gateway requests remain size/rate limited; private Platform and session-issuer APIs remain service-authenticated and private.
-- Native listener rate limits TLS handshakes, bootstrap attempts, frame rate, commands and resync requests independently.
-- Ambiguous ticket/session/character-bind outcomes are never retried with the same credential.
+- no password fallback;
+- one Gateway selection only;
+- no adapter change after ticket redeem, Gateway response, session issuance, credential handoff, TLS bootstrap, partial admission or protocol failure;
+- Otheryn accepts only the stored exact selection and audience;
+- disabled/unready candidates are not issued;
+- disabling advertisement stops new sessions while explicit revocation/emergency listener shutdown controls already-issued sessions;
+- ambiguous outcomes are never retried with the same credential;
+- public Gateway, private Platform/issuer and native listener apply independent finite size/rate/deadline controls;
+- private APIs remain service-authenticated and private; TLS/hostname validation remains normal;
+- logs and artifacts exclude raw tickets, credentials, OAuth tokens, session/command IDs, account/character identifiers, chat and payloads.
 
-See the threat model for negative tests.
+## 17. Compatibility matrix
 
-## 16. Compatibility matrix
-
-The matrix is exact-pair evidence, not semantic version optimism.
-
-| Client | Gateway producer | Otheryn | Result before enablement |
+| Client | Gateway | Otheryn | Result |
 |---|---|---|---|
-| current client without gameplay offer | current Gateway | current Otheryn Canary | current Canary-compatible behavior only |
-| client with offer support | current Gateway rejecting unknown field | current Otheryn | unsupported; producer must ship first |
-| client with offer support | extended Gateway, native disabled | current Otheryn | Gateway selects explicitly allowed Canary candidate only |
-| client without native adapter | extended Gateway, native allowed | native-capable Otheryn | Gateway may select Canary only when client offered it; otherwise typed incompatibility |
-| native-capable client | extended Gateway, native allowed | Otheryn native disabled/not ready | native candidate must not be advertised; contradiction is hard failure |
-| exact native-capable client | exact Gateway contract v2 | exact Otheryn native v1 | supported only after linked integrated staging evidence |
-| any mismatched schema hash/profile/capability digest | any | any | unsupported/fail closed |
+| current no-offer client | current Gateway | current Canary path | current behavior only |
+| offer client | current strict Gateway | current Otheryn | unsupported; Gateway producer must ship first |
+| offer client | extended Gateway, native disabled | current Otheryn | explicitly offered/allowed Canary only |
+| no-native client | extended Gateway, native ready | native Otheryn | Canary only if offered and allowed; otherwise `409` |
+| native client | Gateway advertises contradictory readiness | disabled/mismatched Otheryn | hard failure; candidate must not be issued |
+| exact native client | exact v2 Gateway | exact native v1 Otheryn | supported only after exact integrated staging evidence |
+| any schema/list/digest/profile mismatch | any | any | fail closed |
 
-Every supported row must record exact Git SHAs, schema SHA-256, fixture version and integrated test evidence. “Latest”, branch names and broad version ranges are insufficient.
+Every supported pair records exact Git SHAs or immutable image/artifact digests, schema SHA-256, policy revision, capability digest and fixture manifest. Branch names, broad ranges and “latest” are insufficient.
 
-## 17. Deprecation policy
+## 18. Deprecation and rollout
 
-- `canary` remains a first-class compatibility family during and after native rollout unless a later separately authorized migration changes that decision.
-- Native profile deprecation requires a new contract revision, replacement profile, measured client population, minimum-supported date, staged warning window, rollback plan and exact supported-pair evidence.
-- World Registry may stop advertising a profile only after all required producer/consumer versions are deployed and rollback remains available.
-- Unknown or below-minimum profiles fail before gameplay with a typed update/incompatibility result.
+Canary remains a first-class compatibility family unless a later authorized ADR changes it. Native deprecation/removal requires replacement profile, measured population, minimum-supported date, warning period, exact pair evidence and rollback.
 
-## 18. Contract tests and fixtures
+Dependency order:
 
-### Ownership
+```text
+canonical contract/correspondence
+-> Platform/Gateway producer disabled by default
+-> Otheryn v2 consumer/native producer disabled by default
+-> Rust protocol-oteryn not offered in production
+-> automatic selection and exact staging E2E
+-> bounded enablement
+```
+
+Platform and Otheryn packages are server-first-safe only while native advertisement/listener stays disabled. Rust is client-first-safe only while production offers exclude native. Activation is atomic-required across exact deployed revisions. Rollback disables advertisement first, stops new issuance, drains/closes native sessions and then disables the listener; active native sessions never switch to Canary.
+
+## 19. Contract tests and fixture ownership
 
 | Artifact | Owner |
 |---|---|
-| Gateway JSON offer/selection fixtures and policy selection tests | `blakinio/Oteryn-Platform` |
-| Game Session claim/binding fixtures and native producer golden frames | `blakinio/Otheryn` producer package, mirrored hash in Platform tests |
-| Rust decoder/encoder golden fixtures and normalized replay | `blakinio/otclient` |
-| cross-repository exact-pair manifest and integrated journey | integration/E2E package under coordination ID |
+| Gateway JSON offer/selection/policy/session-producer fixtures | `blakinio/Oteryn-Platform` |
+| Game Session v2 admission and native producer golden frames | `blakinio/Otheryn` |
+| Rust encode/decode, malformed input and normalized replay | `blakinio/otclient` |
+| exact-pair manifest and full journey | integration/E2E package |
 
-Fixtures committed to repositories are synthetic and contain no real tickets, credentials, account IDs, character names, endpoints or captures.
+Fixtures are synthetic and contain no real credentials, identities, endpoints, chat or proprietary captures.
 
-Required deterministic negative cases include:
-
-- zero/9 candidates, duplicates and non-canonical identifiers;
-- selected candidate absent from client offer;
-- native disabled but advertised;
-- stale/contradictory World Registry revision;
-- ticket consumed then no match/issuer failure;
-- session replay, cross-character, cross-world, cross-channel, cross-profile and cross-endpoint use;
-- expired/revoked generation;
-- TLS/ALPN/certificate mismatch;
-- zero/oversize/truncated frames;
-- unknown message kind/required enum;
-- stream or command sequence gap/regression/wrap;
-- duplicate command with same and different payload;
-- malformed snapshot, digest mismatch, delta gap/conflict;
-- no native-to-Canary switch after any post-selection failure;
-- no password/OAuth/ticket leakage in logs or artifacts.
-
-## 19. Producer/consumer dependency graph
-
-```text
-this canonical contract + linked correspondence
-  -> Platform/Game Gateway producer extension (disabled)
-  -> Otheryn Game Session v2 consumer + native producer (disabled)
-  -> Rust protocol-oteryn adapter + native codec support
-  -> automatic selection and exact integrated staging E2E
-  -> bounded native enablement
-```
-
-The Platform producer may merge before consumers only while native advertisement is disabled. Otheryn may merge before the Rust consumer only while the native listener/candidate is disabled. The Rust adapter may merge without production selection only behind internal capability registration. Activation is atomic-required across exact deployed revisions.
+Required negative coverage includes malformed/duplicate/oversize offer, selected-not-offered, disabled/contradictory readiness, ticket consume/no-match/issuer ambiguity, replay and cross-character/world/channel/profile/endpoint use, generation/expiry, TLS/ALPN/certificate mismatch, malformed/oversize frame, unknown payload/enum, sequence gap/regression/wrap, command duplicate/conflict/stale cache, malformed snapshot/digest, delta gap/duplicate/regression, no post-selection fallback and redaction scans.
 
 ## 20. Non-goals
 
-This revision does not authorize runtime code, Tokio, Rust dependencies, a `protocol-oteryn` crate, Otheryn network handlers, Gateway request/response changes, Game Session storage changes, database migrations, production endpoints/secrets, deployment, native enablement, Canary removal or a production compatibility claim.
+This contract does not authorize Tokio or Rust dependency changes, creation of `protocol-oteryn`, Otheryn listener/handler changes, Gateway runtime/API changes, Game Session storage changes, migrations, deployment, endpoint/secrets, production enablement, Canary removal or production compatibility claims.
