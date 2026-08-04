@@ -114,7 +114,7 @@ func TestLoginWithOfferUsesAuthoritativePolicyOrderAndBindsV2(t *testing.T) {
 		t.Fatalf("unexpected v2 dependency calls: ready=%d create=%d", sessions.readyForCalls, sessions.calls)
 	}
 	request := sessions.request
-	if request.ContractVersion != 2 || request.SecurityGeneration != 7 || request.ChannelID != 1 || request.WorldPolicyRevision != 42 || request.EndpointID != "canary-endpoint" || !request.SingleAdmission {
+	if request.ContractVersion != 2 || request.SecurityGeneration != 0 || request.ChannelID != 1 || request.WorldPolicyRevision != 42 || request.EndpointID != "canary-endpoint" || !request.SingleAdmission {
 		t.Fatalf("incomplete v2 binding: %#v", request)
 	}
 	if request.Audience != "otheryn-world:1:channel:1:endpoint:canary-endpoint" || request.CharacterBindingMode != "bind_on_first_admission" {
@@ -214,7 +214,7 @@ func TestReadyFailsWhenAnyDependencyIsUnavailable(t *testing.T) {
 
 func successfulPlatform() *fakePlatform {
 	return &fakePlatform{
-		authorization: Authorization{CanaryAccountID: 1001, SecurityGeneration: 7},
+		authorization: Authorization{CanaryAccountID: 1001, SecurityGeneration: 0},
 		loginContext: LoginContext{
 			Worlds:     []World{{ID: 1, Slug: "oteryn", Name: "Oteryn", Region: "EU", Host: "game.example.test", Port: 7172}},
 			Characters: []Character{{ID: 10, Name: "Alpha", Level: 100, Vocation: 4, WorldID: 1}},
