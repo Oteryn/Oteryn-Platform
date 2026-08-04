@@ -29,20 +29,18 @@ jobs:
           extensions: pdo_sqlite, pcntl, redis
           tools: composer:v2
       - run: composer install --no-interaction --prefer-dist --no-progress
-      - name: Stop on first full-suite warning
+      - name: Stop on first full-suite error
         shell: bash
         run: |
           set +e
           php artisan config:clear --ansi
           vendor/bin/phpunit \
             --colors=never \
-            --display-warnings \
             --display-errors \
-            --display-notices \
-            --display-deprecations \
-            --stop-on-warning 2>&1 | tee /tmp/native-producer-warning.log
+            --stop-on-error \
+            --debug 2>&1 | tee /tmp/native-producer-error.log
           status=${PIPESTATUS[0]}
-          tail -n 160 /tmp/native-producer-warning.log | while IFS= read -r line; do
+          tail -n 220 /tmp/native-producer-error.log | while IFS= read -r line; do
             line=${line//'%'/'%25'}
             line=${line//$'\r'/'%0D'}
             line=${line//$'\n'/'%0A'}
