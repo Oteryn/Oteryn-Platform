@@ -63,7 +63,7 @@ final class WorldRegistryTest extends TestCase
     public function test_protocol_candidates_are_disabled_by_default_and_ordered_by_authoritative_policy(): void
     {
         $world = $this->createWorld('oteryn-test', GameWorldStatus::Online, true, 'legacy.test', 7172, 17);
-        $this->createCandidate($world, 'native-disabled', 0, false, 'oteryn', 'oteryn.native.v1', 7173);
+        $this->createCandidate($world, 'disabled', 0, false, 'canary', 'canary.disabled', 7172, []);
         $this->createCandidate($world, 'canary-primary', 2, true, 'canary', 'canary.current', 7172, ['session.single-admission.v1']);
         $this->createCandidate($world, 'native-primary', 1, true, 'oteryn', 'oteryn.native.v1', 7173);
 
