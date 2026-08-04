@@ -8,6 +8,22 @@ const contentScaleSpecs = [
   '**/content-scale-media-acceptance.spec.mjs',
   '**/content-scale-wiki-acceptance.spec.mjs',
 ];
+const deepValidation = Boolean(process.env.VALIDATION_SHA);
+const reporter = [
+  ['line'],
+  ['html', { outputFolder: '../../artifacts/acceptance/content-scale-html-report', open: 'never' }],
+  ['junit', { outputFile: '../../artifacts/acceptance/content-scale-junit.xml', includeProjectInTestName: true }],
+];
+
+// The deep workflow uploads only artifacts/deep after every terminal outcome.
+// Mirror sanitized JUnit there before a fail-fast shell can exit. Raw traces and
+// screenshots are disabled for the deep run because authenticated browser state
+// may contain session material.
+if (deepValidation) {
+  reporter.push(
+    ['junit', { outputFile: '../../artifacts/deep/playwright/content-scale/junit.xml', includeProjectInTestName: true }],
+  );
+}
 
 export default defineConfig({
   testDir: './tests',
@@ -17,17 +33,13 @@ export default defineConfig({
   retries: 0,
   workers: 1,
   timeout: 180_000,
-  reporter: [
-    ['line'],
-    ['html', { outputFolder: '../../artifacts/acceptance/content-scale-html-report', open: 'never' }],
-    ['junit', { outputFile: '../../artifacts/acceptance/content-scale-junit.xml', includeProjectInTestName: true }],
-  ],
+  reporter,
   use: {
     baseURL,
     actionTimeout: 15_000,
     navigationTimeout: 30_000,
-    trace: 'retain-on-failure',
-    screenshot: 'only-on-failure',
+    trace: deepValidation ? 'off' : 'retain-on-failure',
+    screenshot: deepValidation ? 'off' : 'only-on-failure',
     video: 'off',
   },
   projects: [

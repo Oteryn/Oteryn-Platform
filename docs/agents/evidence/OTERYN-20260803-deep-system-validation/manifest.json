@@ -1,0 +1,128 @@
+{
+  "exact_sha": "4efa268da1ff5b656c798aa5d7daf16267303da9",
+  "external_blocker_count": 5,
+  "external_blockers": [
+    {
+      "name": "production-smoke",
+      "owner_issue": 490,
+      "reason": "No authorized production target or production credentials are available to this repository-only validation programme."
+    },
+    {
+      "name": "live-public-edge",
+      "owner_issue": 490,
+      "reason": "Live DNS TLS WAF Tunnel and origin verification requires separately authorized environment access."
+    },
+    {
+      "name": "external-canary-login-runtime",
+      "owner_issue": 494,
+      "reason": "The isolated Canary schema and Redis contract are exercised; live Canary and login-server runtime compatibility requires external environment authorization."
+    },
+    {
+      "name": "payment-provider",
+      "owner_issue": 489,
+      "reason": "No provider is approved or configured and no real payment operation is authorized."
+    },
+    {
+      "name": "production-restore",
+      "owner_issue": 490,
+      "reason": "A destructive production restore drill is outside repository-only authorization."
+    }
+  ],
+  "global_verdict": "DEEP_VALIDATION_PASS_WITH_EXTERNAL_BLOCKERS",
+  "junit_totals": {
+    "errors": 0,
+    "failures": 0,
+    "files": 13,
+    "projects": [
+      "accessibility-chromium",
+      "chromium-primary",
+      "community-data-chromium-desktop",
+      "community-data-chromium-mobile",
+      "community-data-chromium-tablet",
+      "content-scale-chromium-desktop",
+      "content-scale-chromium-mobile",
+      "content-scale-chromium-tablet",
+      "downloads-portability-firefox",
+      "downloads-portability-webkit",
+      "error-states-chromium-desktop",
+      "error-states-chromium-mobile",
+      "error-states-chromium-tablet",
+      "portability-chromium",
+      "portability-firefox",
+      "portability-webkit",
+      "resilience-chromium",
+      "responsive-desktop",
+      "responsive-mobile",
+      "responsive-tablet",
+      "soak-chromium"
+    ],
+    "skipped": 0,
+    "tests": 630
+  },
+  "lane_count": 26,
+  "lanes": [
+    {"exit_code": 0, "kind": "command", "name": "python-validator-tests", "required": true, "status": "PASS"},
+    {"exit_code": 0, "kind": "command", "name": "composer-validate", "required": true, "status": "PASS"},
+    {"exit_code": 0, "kind": "command", "name": "composer-audit", "required": true, "status": "PASS"},
+    {"exit_code": 0, "kind": "command", "name": "php-format", "required": true, "status": "PASS"},
+    {"exit_code": 0, "kind": "command", "name": "php-analysis", "required": true, "status": "PASS"},
+    {"junit_files": ["artifacts/deep/phpunit-base-junit.xml"], "junit_summary": {"errors": 0, "failures": 0, "files": 1, "projects": [], "skipped": 0, "tests": 463}, "kind": "junit", "name": "php-tests", "required": true, "status": "PASS"},
+    {"junit_files": ["artifacts/deep/phpunit-game-auth-concurrency-junit.xml"], "junit_summary": {"errors": 0, "failures": 0, "files": 1, "projects": [], "skipped": 0, "tests": 2}, "kind": "junit", "name": "php-game-auth-concurrency", "required": true, "status": "PASS"},
+    {"exit_code": 0, "kind": "command", "name": "npm-audit", "required": true, "status": "PASS"},
+    {"exit_code": 0, "kind": "command", "name": "coverage-contract-strict", "required": true, "status": "PASS"},
+    {"junit_files": ["artifacts/deep/junit-full.xml"], "junit_summary": {"errors": 0, "failures": 0, "files": 1, "projects": ["chromium-primary"], "skipped": 0, "tests": 39}, "kind": "junit", "name": "browser-full-chromium", "required": true, "status": "PASS"},
+    {"junit_files": ["artifacts/deep/junit-account-lifecycle.xml"], "junit_summary": {"errors": 0, "failures": 0, "files": 1, "projects": ["chromium-primary"], "skipped": 0, "tests": 9}, "kind": "junit", "name": "account-lifecycle", "required": true, "status": "PASS"},
+    {"junit_files": ["artifacts/deep/junit-community-data.xml"], "junit_summary": {"errors": 0, "failures": 0, "files": 1, "projects": ["community-data-chromium-desktop", "community-data-chromium-mobile", "community-data-chromium-tablet"], "skipped": 0, "tests": 6}, "kind": "junit", "name": "community-data", "required": true, "status": "PASS"},
+    {"junit_files": ["artifacts/deep/junit-content-scale.xml"], "junit_summary": {"errors": 0, "failures": 0, "files": 1, "projects": ["content-scale-chromium-desktop", "content-scale-chromium-mobile", "content-scale-chromium-tablet"], "skipped": 0, "tests": 15}, "kind": "junit", "name": "content-scale-contract", "required": true, "status": "PASS"},
+    {"junit_files": ["artifacts/deep/junit-downloads.xml"], "junit_summary": {"errors": 0, "failures": 0, "files": 1, "projects": ["chromium-primary"], "skipped": 0, "tests": 1}, "kind": "junit", "name": "downloads", "required": true, "status": "PASS"},
+    {"junit_files": ["artifacts/deep/junit-downloads-portability.xml"], "junit_summary": {"errors": 0, "failures": 0, "files": 1, "projects": ["downloads-portability-firefox", "downloads-portability-webkit"], "skipped": 0, "tests": 2}, "kind": "junit", "name": "downloads-portability", "projects": ["downloads-portability-firefox", "downloads-portability-webkit"], "required": true, "status": "PASS"},
+    {"junit_files": ["artifacts/deep/junit-portability.xml"], "junit_summary": {"errors": 0, "failures": 0, "files": 1, "projects": ["portability-chromium", "portability-firefox", "portability-webkit"], "skipped": 0, "tests": 36}, "kind": "junit", "name": "portability", "projects": ["portability-chromium", "portability-firefox", "portability-webkit"], "required": true, "status": "PASS"},
+    {"junit_files": ["artifacts/deep/junit-responsive.xml"], "junit_summary": {"errors": 0, "failures": 0, "files": 1, "projects": ["responsive-desktop", "responsive-mobile", "responsive-tablet"], "skipped": 0, "tests": 42}, "kind": "junit", "name": "responsive", "projects": ["responsive-desktop", "responsive-tablet", "responsive-mobile"], "required": true, "status": "PASS"},
+    {"junit_files": ["artifacts/deep/junit-resilience.xml"], "junit_summary": {"errors": 0, "failures": 0, "files": 1, "projects": ["error-states-chromium-desktop", "error-states-chromium-mobile", "error-states-chromium-tablet", "resilience-chromium"], "skipped": 0, "tests": 5}, "kind": "junit", "name": "resilience", "required": true, "status": "PASS"},
+    {"junit_files": ["artifacts/deep/junit-accessibility.xml"], "junit_summary": {"errors": 0, "failures": 0, "files": 1, "projects": ["accessibility-chromium"], "skipped": 0, "tests": 9}, "kind": "junit", "name": "accessibility", "required": true, "status": "PASS"},
+    {"junit_files": ["artifacts/deep/junit-soak.xml"], "junit_summary": {"errors": 0, "failures": 0, "files": 1, "projects": ["soak-chromium"], "skipped": 0, "tests": 1}, "kind": "junit", "name": "soak", "required": true, "status": "PASS"},
+    {"exit_code": 0, "kind": "command", "name": "visual-exploratory", "required": true, "status": "PASS"},
+    {"kind": "external", "name": "production-smoke", "owner_issue": 490, "reason": "No authorized production target or production credentials are available to this repository-only validation programme.", "required": false, "status": "BLOCKED"},
+    {"kind": "external", "name": "live-public-edge", "owner_issue": 490, "reason": "Live DNS TLS WAF Tunnel and origin verification requires separately authorized environment access.", "required": false, "status": "BLOCKED"},
+    {"kind": "external", "name": "external-canary-login-runtime", "owner_issue": 494, "reason": "The isolated Canary schema and Redis contract are exercised; live Canary and login-server runtime compatibility requires external environment authorization.", "required": false, "status": "BLOCKED"},
+    {"kind": "external", "name": "payment-provider", "owner_issue": 489, "reason": "No provider is approved or configured and no real payment operation is authorized.", "required": false, "status": "BLOCKED"},
+    {"kind": "external", "name": "production-restore", "owner_issue": 490, "reason": "A destructive production restore drill is outside repository-only authorization.", "required": false, "status": "BLOCKED"}
+  ],
+  "nonclaims": [
+    "Isolated production-like execution is not production deployment proof.",
+    "The bounded soak calibrates current isolated behavior and is not a production capacity guarantee.",
+    "External Canary login payment DNS Cloudflare and restore lanes remain blocked until separately authorized.",
+    "No production data credentials DNS records payment state or external repository were mutated."
+  ],
+  "required_lanes": [
+    "accessibility", "account-lifecycle", "browser-full-chromium", "community-data", "composer-audit", "composer-validate", "content-scale-contract", "coverage-contract-strict", "downloads", "downloads-portability", "npm-audit", "php-analysis", "php-format", "php-game-auth-concurrency", "php-tests", "portability", "python-validator-tests", "resilience", "responsive", "soak", "visual-exploratory"
+  ],
+  "retries": 0,
+  "schema_version": 1,
+  "soak_metrics": {
+    "exact_tested_sha": "4efa268da1ff5b656c798aa5d7daf16267303da9",
+    "measured_duration_seconds": 303,
+    "redis_keys_after": 1,
+    "redis_keys_before": 1,
+    "rss_sample_count": 61,
+    "server_rss_end_kb": 230552,
+    "server_rss_max_kb": 230552,
+    "server_rss_start_kb": 230552,
+    "target_duration_seconds": 300,
+    "threshold_policy": "calibration-only-no-production-capacity-claim"
+  },
+  "task_id": "OTERYN-20260803-deep-system-validation",
+  "visual_summary": {
+    "expected_navigation_console_error_count": 6,
+    "problem_counts": {
+      "browserErrors": 0,
+      "focusNotObserved": 0,
+      "horizontalOverflow": 0,
+      "lowContrast": 0,
+      "rawTechnicalMessages": 0,
+      "statusMismatch": 0,
+      "unlabeledControls": 0
+    },
+    "screenshot_count": 71
+  }
+}

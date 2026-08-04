@@ -1,8 +1,30 @@
 import { test, expect } from '@playwright/test';
-import { attachDiagnostics, installDiagnostics } from './helpers.mjs';
+import path from 'node:path';
+import {
+  attachDiagnostics,
+  installDiagnostics,
+  repoRoot,
+  runBinary,
+} from './helpers.mjs';
 
 test.setTimeout(60_000);
 test.describe.configure({ retries: 0 });
+
+function downloadsState(...args) {
+  const output = runBinary('php', [
+    path.join(repoRoot, 'scripts/acceptance/seed-downloads-state.php'),
+    ...args,
+  ]);
+
+  return JSON.parse(output);
+}
+
+test.beforeAll(() => {
+  const state = downloadsState('seed-portability');
+  if (state.seeded !== true || state.version !== '7.0.0-portability') {
+    throw new Error('Downloads portability fixture did not seed the expected current release.');
+  }
+});
 
 test.beforeEach(async ({ page }) => {
   page.__acceptanceDiagnostics = installDiagnostics(page);

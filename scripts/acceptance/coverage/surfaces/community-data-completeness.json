@@ -48,6 +48,7 @@
         "marker": "@portal-community-stress long values multi-page results internal 500 containment and recovery"
       },
       "projects": [
+        "chromium-primary",
         "community-data-chromium-desktop",
         "community-data-chromium-tablet",
         "community-data-chromium-mobile"

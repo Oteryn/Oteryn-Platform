@@ -13,6 +13,7 @@ const primaryIgnore = [
   '**/accessibility-critical.spec.mjs',
   '**/soak-public.spec.mjs',
   '**/downloads-public-portability.spec.mjs',
+  '**/error-state-acceptance.spec.mjs',
 ];
 const specializedLifecycleIgnore = [
   '**/downloads-lifecycle-acceptance.spec.mjs',
@@ -60,6 +61,26 @@ const accessibilityMatches = [
   '**/homepage-navigation-seo.spec.mjs',
 ];
 
+const reporter = [
+  ['line'],
+  ['html', { outputFolder: '../../artifacts/acceptance/html-report', open: 'never' }],
+  ['junit', { outputFile: '../../artifacts/acceptance/junit.xml', includeProjectInTestName: true }],
+];
+
+// Deep validation uploads only artifacts/deep after every terminal outcome. Mirror
+// sanitized reporter output there so a fail-fast parent shell cannot discard the
+// first actionable browser failure. Raw traces, screenshots and videos remain off
+// because authenticated flows can contain cookies, reset URLs and enrollment data.
+if (process.env.VALIDATION_SHA) {
+  const runSuffix = (process.env.ACCEPTANCE_RUN_SUFFIX ?? 'unsuffixed')
+    .replace(/[^a-zA-Z0-9._-]/g, '-');
+  const deepReporterRoot = `../../artifacts/deep/playwright/${runSuffix}`;
+  reporter.push(
+    ['html', { outputFolder: `${deepReporterRoot}/html-report`, open: 'never' }],
+    ['junit', { outputFile: `${deepReporterRoot}/junit.xml`, includeProjectInTestName: true }],
+  );
+}
+
 export default defineConfig({
   testDir: './tests',
   // The original monolithic serial acceptance spec is retained as historical source
@@ -71,11 +92,7 @@ export default defineConfig({
   retries: configuredRetries,
   workers: 1,
   timeout: 120_000,
-  reporter: [
-    ['line'],
-    ['html', { outputFolder: '../../artifacts/acceptance/html-report', open: 'never' }],
-    ['junit', { outputFile: '../../artifacts/acceptance/junit.xml', includeProjectInTestName: true }],
-  ],
+  reporter,
   use: {
     baseURL,
     actionTimeout: 15_000,
@@ -170,6 +187,33 @@ export default defineConfig({
       use: {
         browserName: 'chromium',
         viewport: desktopViewport,
+      },
+    },
+    {
+      name: 'error-states-chromium-desktop',
+      testMatch: '**/error-state-acceptance.spec.mjs',
+      use: {
+        browserName: 'chromium',
+        viewport: desktopViewport,
+      },
+    },
+    {
+      name: 'error-states-chromium-tablet',
+      testMatch: '**/error-state-acceptance.spec.mjs',
+      use: {
+        browserName: 'chromium',
+        viewport: tabletViewport,
+        hasTouch: true,
+      },
+    },
+    {
+      name: 'error-states-chromium-mobile',
+      testMatch: '**/error-state-acceptance.spec.mjs',
+      use: {
+        browserName: 'chromium',
+        viewport: mobileViewport,
+        hasTouch: true,
+        isMobile: true,
       },
     },
     {

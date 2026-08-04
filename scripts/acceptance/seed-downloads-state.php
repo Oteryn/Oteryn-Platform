@@ -68,6 +68,48 @@ if ($command === 'grant-downloads') {
     ]);
 }
 
+if ($command === 'seed-portability') {
+    $version = '7.0.0-portability';
+    $filename = 'oteryn-portability.zip';
+    $artifactUrl = "https://downloads.example.test/releases/{$version}/{$filename}";
+
+    $release = DB::transaction(static function () use ($artifactUrl, $filename, $version): ClientRelease {
+        ClientRelease::query()
+            ->where('version', '!=', $version)
+            ->update(['is_current' => false]);
+
+        $release = ClientRelease::query()->updateOrCreate(
+            ['version' => $version],
+            [
+                'channel' => 'stable',
+                'release_notes' => 'Deterministic browser portability fixture.',
+                'published_at' => now()->subMinute(),
+                'is_current' => true,
+            ],
+        );
+
+        $release->artifacts()->delete();
+        $release->artifacts()->create([
+            'platform' => 'windows',
+            'architecture' => 'x86_64',
+            'artifact_url' => $artifactUrl,
+            'filename' => $filename,
+            'size_bytes' => 1_572_864,
+            'sha256' => str_repeat('b', 64),
+            'is_enabled' => true,
+        ]);
+
+        return $release;
+    }, 3);
+
+    $json([
+        'release_id' => $release->id,
+        'version' => $version,
+        'artifact_url' => $artifactUrl,
+        'seeded' => true,
+    ]);
+}
+
 if ($command === 'set-artifact-url') {
     $version = $argv[2] ?? '';
     $url = $argv[3] ?? '';
