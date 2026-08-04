@@ -24,16 +24,17 @@ optional_reads:
 
 ## Goal
 
-Publish the canonical, implementation-ready cross-repository contract for native Oteryn gameplay protocol selection and bind it to the existing Identity, Game Login Ticket, Game Gateway, World Registry and Game Session chain without changing runtime behavior.
+Publish the canonical implementation-ready cross-repository contract for native Oteryn gameplay protocol selection while preserving the existing Identity, Game Login Ticket, Game Gateway, World Registry and Game Session chain and changing no runtime behavior.
 
 ## Acceptance criteria
 
-- [ ] One canonical contract resolves negotiation, ownership, session binding, framing, serialization, versioning, capabilities, action lifecycle, state synchronization, downgrade resistance and rollout/rollback.
-- [ ] A review-only protobuf IDL defines exact public negotiation and native gameplay envelopes without runtime wiring.
-- [ ] Producer/consumer responsibilities and current-versus-target status are explicit for Platform, Gateway, Otheryn and the Rust client.
-- [ ] Four separate implementation prompts are ready for later bounded tasks.
-- [ ] Linked correspondence records exist in `blakinio/Otheryn` and `blakinio/otclient` under coordination ID `OTS-20260804-native-protocol-selection`.
-- [ ] Documentation validation, independent consistency/security review and exact-head required CI pass.
+- [x] Canonical contract resolves negotiation, ownership, exact session binding, framing, serialization, versioning, capabilities, action lifecycle, synchronization, downgrade resistance and rollout/rollback.
+- [x] Review-only protobuf IDL defines native bootstrap, commands, results, snapshots and deltas without runtime wiring.
+- [x] Producer/consumer responsibilities and current-versus-target truth are explicit.
+- [x] Four separate implementation prompts are ready for later bounded packages.
+- [x] Linked correspondence PRs exist in `blakinio/Otheryn` and `blakinio/otclient`.
+- [x] Independent consistency/security review has zero remaining material findings.
+- [x] Required Platform workflows passed on validated content head `50d6c79c206391b211249ffb3d30b836303d7c65`.
 
 ## Ownership
 
@@ -57,7 +58,7 @@ dependencies:
   - OTS-20260804-native-protocol-selection
   - blakinio/otclient#263
 blockers:
-  - none
+  - exact-head CI for the final checkpoint commit
 cross_repository_tasks:
   - OTH-20260804-native-protocol-contract
   - OTC2-20260804-native-protocol-contract
@@ -81,14 +82,16 @@ user_facing_feature_complete: false
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-04T14:50:00Z
-head: UNKNOWN
+updated_at: 2026-08-04T15:30:00Z
+head: 50d6c79c206391b211249ffb3d30b836303d7c65
 branch: docs/OTS-20260804-native-protocol-contract
-pr: none
-status: implementing
+pr: blakinio/Oteryn-Platform#519
+status: validating
 context_routes:
   - coordination:OTS-20260804-native-protocol-selection
-  - repo:blakinio/Oteryn-Platform
+  - producer:blakinio/Oteryn-Platform#519
+  - producer-correspondence:blakinio/Otheryn#356
+  - consumer-correspondence:blakinio/otclient#265
 owned_paths:
   - docs/agents/tasks/active/OTERYN-20260804-native-protocol-contract.md
   - docs/contracts/OTERYN_NATIVE_GAMEPLAY_PROTOCOL_CONTRACT.md
@@ -101,27 +104,61 @@ owned_paths:
   - docs/agents/prompts/OTS_RUST_NATIVE_PROTOCOL_IMPLEMENTATION.md
   - docs/agents/prompts/OTS_NATIVE_SELECTION_E2E_IMPLEMENTATION.md
 proven:
-  - Gateway API protocol_version 1 is distinct from gameplay profile/version.
-  - Current Gateway redeems one-time ticket before issuing a Game Session and currently returns one world with a session credential.
-  - Current task is contract and architecture only; runtime, dependencies, migrations and deployment are forbidden.
+  - Gateway API protocol_version 1 remains distinct from gameplay and Game Session versions.
+  - Current Gateway redeems one ticket and currently routes exactly one world/session.
+  - Gateway is the sole target selector from a bounded client-supported set and World Registry order.
+  - Game Session v2 is an opaque hashed-at-rest reference with exact server-side account, generation, world, channel, endpoint, profile, schema and capability bindings.
+  - Native v1 is separate TLS 1.3 plus BE32 plus protobuf and never falls back or translates through Canary.
+  - Runtime, dependencies, migrations, deployment and production activation remain unchanged.
 derived:
-  - Platform is the appropriate canonical contract repository because it owns World Registry policy and Game Gateway selection/session issuance boundaries.
+  - Platform is canonical because it owns World Registry policy and Gateway selection/session issuance boundaries.
 unknown: []
 conflicts: []
 first_failure:
   marker: none
   evidence: none
-rejected_hypotheses: []
+rejected_hypotheses:
+  - post-redeem client selection
+  - game-listener protocol sniffing
+  - native-over-Canary packet translation
 changed_paths:
+  - docs/agents/prompts/OTS_NATIVE_SELECTION_E2E_IMPLEMENTATION.md
+  - docs/agents/prompts/OTS_OTHERYN_NATIVE_PROTOCOL_IMPLEMENTATION.md
+  - docs/agents/prompts/OTS_PLATFORM_GATEWAY_NATIVE_PROTOCOL_IMPLEMENTATION.md
+  - docs/agents/prompts/OTS_RUST_NATIVE_PROTOCOL_IMPLEMENTATION.md
   - docs/agents/tasks/active/OTERYN-20260804-native-protocol-contract.md
+  - docs/architecture/OTERYN_NATIVE_PROTOCOL_ROLLOUT.md
+  - docs/architecture/OTERYN_NATIVE_PROTOCOL_THREAT_MODEL.md
+  - docs/architecture/adr/0010-native-gameplay-protocol-selection.md
+  - docs/contracts/OTERYN_NATIVE_GAMEPLAY_PROTOCOL_CONTRACT.md
+  - docs/contracts/oteryn_native_gameplay_v1.proto
 validation:
-  - command: repository documentation/governance validation
-    result: NOT_RUN
-    evidence: contract files not yet complete
-blockers: []
-next_action: create the canonical contract, review-only IDL, ADR, security/rollout documents and implementation prompts
+  - command: Agent Governance run 30924131410
+    result: PASS
+    evidence: exact content head 50d6c79c206391b211249ffb3d30b836303d7c65
+  - command: CI run 30924129969
+    result: PASS
+    evidence: exact content head 50d6c79c206391b211249ffb3d30b836303d7c65
+  - command: Edge Security Emulation run 30924129879
+    result: PASS
+    evidence: exact content head 50d6c79c206391b211249ffb3d30b836303d7c65
+  - command: Game Auth Ticket Concurrency run 30924129947
+    result: PASS
+    evidence: exact content head 50d6c79c206391b211249ffb3d30b836303d7c65
+  - command: Phase 7 Production-Like Validation run 30924129919
+    result: PASS
+    evidence: exact content head 50d6c79c206391b211249ffb3d30b836303d7c65
+  - command: Platform DB Outage Validation run 30924130377
+    result: PASS
+    evidence: exact content head 50d6c79c206391b211249ffb3d30b836303d7c65
+  - command: independent contract/security review
+    result: PASS
+    evidence: exact claims, request/error semantics, deterministic digests, duplicate policy and normal/emergency rollback were resolved with zero remaining material findings
+blockers:
+  - exact-head required workflows for the checkpoint commit
+next_action: verify exact-head workflows, mark PR ready and merge canonical contract first
 ```
 
 ## Notes
 
-This task cannot authorize or claim runtime behavior in another repository. All target behavior remains disabled and unimplemented until later linked producer/consumer packages pass exact integrated staging evidence.
+This task cannot authorize runtime behavior in another repository. All target behavior remains disabled and unimplemented until later linked producer/consumer packages pass exact integrated staging evidence.
