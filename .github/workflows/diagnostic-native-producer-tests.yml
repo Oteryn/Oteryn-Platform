@@ -37,13 +37,12 @@ jobs:
           vendor/bin/phpunit tests/Feature/Support/EditorialSupportLegalTest.php \
             --colors=never \
             --display-warnings \
-            --display-phpunit-warnings \
             --display-errors \
             --display-notices \
             --display-deprecations \
             --debug 2>&1 | tee /tmp/native-producer-warning.log
           status=${PIPESTATUS[0]}
-          sed -n '/Triggered Warning/,$p' /tmp/native-producer-warning.log | tail -n 200 | while IFS= read -r line; do
+          tail -n 200 /tmp/native-producer-warning.log | while IFS= read -r line; do
             line=${line//'%'/'%25'}
             line=${line//$'\r'/'%0D'}
             line=${line//$'\n'/'%0A'}
