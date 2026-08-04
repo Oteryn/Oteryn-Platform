@@ -3,6 +3,7 @@
 namespace Tests\Feature\GameAuth;
 
 use App\GameAuth\Worlds\GameWorld;
+use App\GameAuth\Worlds\GameWorldProtocolCandidate;
 use App\GameAuth\Worlds\GameWorldStatus;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -15,6 +16,18 @@ final class GameLoginContextApiTest extends TestCase
     use RefreshDatabase;
 
     private const SERVICE_CREDENTIAL = 'gateway-login-context-test-credential';
+
+    private const NATIVE_CAPABILITIES = [
+        'actions.command-result.v1',
+        'chat.semantic.v1',
+        'combat.server-authoritative.v1',
+        'inventory.server-authoritative.v1',
+        'ordering.server-sequence.v1',
+        'reconciliation.movement.v1',
+        'session.single-admission.v1',
+        'state.revision.v1',
+        'state.snapshot-delta.v1',
+    ];
 
     protected function setUp(): void
     {
@@ -59,6 +72,9 @@ final class GameLoginContextApiTest extends TestCase
             ->assertJsonPath('worlds.0.slug', 'oteryn-test')
             ->assertJsonPath('characters.0.name', 'Alpha')
             ->assertJsonPath('characters.0.world_id', $world->id)
+            ->assertJsonPath('gameplay_policy.revision', 1)
+            ->assertJsonPath('gameplay_policy.channel_id', 1)
+            ->assertJsonCount(0, 'gameplay_policy.candidates')
             ->assertJsonCount(1, 'characters');
 
         $payload = $response->json();
@@ -66,6 +82,29 @@ final class GameLoginContextApiTest extends TestCase
         self::assertStringNotContainsString('Deleted', json_encode($payload, JSON_THROW_ON_ERROR));
         self::assertStringNotContainsString('Foreign', json_encode($payload, JSON_THROW_ON_ERROR));
         self::assertStringNotContainsString('account_id', json_encode($payload, JSON_THROW_ON_ERROR));
+    }
+
+    public function test_login_context_returns_only_enabled_canonical_candidates_in_authoritative_order(): void
+    {
+        $world = $this->createWorld('oteryn-test', true, GameWorldStatus::Online, 44);
+        $this->createCandidate($world, 'disabled', 0, false);
+        $this->createCandidate($world, 'native-second', 2, true);
+        $this->createCandidate($world, 'native-first', 1, true);
+
+        $response = $this->withToken(self::SERVICE_CREDENTIAL)
+            ->getJson('/internal/v1/game-auth/accounts/1001/login-context');
+
+        $response->assertOk()
+            ->assertJsonPath('gameplay_policy.revision', 44)
+            ->assertJsonPath('gameplay_policy.channel_id', 1)
+            ->assertJsonCount(2, 'gameplay_policy.candidates')
+            ->assertJsonPath('gameplay_policy.candidates.0.endpoint_id', 'native-first')
+            ->assertJsonPath('gameplay_policy.candidates.1.endpoint_id', 'native-second')
+            ->assertJsonPath('gameplay_policy.candidates.0.family', 'oteryn')
+            ->assertJsonPath('gameplay_policy.candidates.0.schema_revision', 1)
+            ->assertJsonPath('gameplay_policy.candidates.0.required_capabilities', self::NATIVE_CAPABILITIES);
+
+        self::assertStringNotContainsString('disabled', $response->getContent());
     }
 
     public function test_zero_worlds_fail_closed_without_character_data(): void
@@ -115,8 +154,12 @@ final class GameLoginContextApiTest extends TestCase
             ->assertJsonPath('error', 'unauthorized_service');
     }
 
-    private function createWorld(string $slug, bool $loginEnabled, GameWorldStatus $status): GameWorld
-    {
+    private function createWorld(
+        string $slug,
+        bool $loginEnabled,
+        GameWorldStatus $status,
+        int $policyRevision = 1,
+    ): GameWorld {
         return GameWorld::query()->create([
             'slug' => $slug,
             'name' => ucfirst($slug),
@@ -125,6 +168,28 @@ final class GameLoginContextApiTest extends TestCase
             'login_enabled' => $loginEnabled,
             'game_host' => $slug.'.example.test',
             'game_port' => 7172,
+            'gameplay_policy_revision' => $policyRevision,
+        ]);
+    }
+
+    private function createCandidate(GameWorld $world, string $endpointId, int $sortOrder, bool $enabled): GameWorldProtocolCandidate
+    {
+        return GameWorldProtocolCandidate::query()->create([
+            'game_world_id' => $world->id,
+            'channel_id' => 1,
+            'sort_order' => $sortOrder,
+            'family' => 'oteryn',
+            'profile' => 'oteryn.native.v1',
+            'transport' => 'tcp.tls13.protobuf.be32.v1',
+            'schema_revision' => 1,
+            'schema_sha256' => str_repeat('a', 64),
+            'required_capabilities' => self::NATIVE_CAPABILITIES,
+            'optional_capabilities' => [],
+            'endpoint_id' => $endpointId,
+            'game_host' => 'native.example.test',
+            'game_port' => 7173,
+            'tls_server_name' => 'native.example.test',
+            'enabled' => $enabled,
         ]);
     }
 }
