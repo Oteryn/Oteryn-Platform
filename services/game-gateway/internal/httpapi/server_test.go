@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -21,39 +22,49 @@ type testPlatform struct {
 	redeemErr     error
 	contextErr    error
 	readyErr      error
+	redeemCalls   int
+	contextCalls  int
 }
 
 func (f *testPlatform) Redeem(context.Context, string) (gateway.Authorization, error) {
+	f.redeemCalls++
 	return f.authorization, f.redeemErr
 }
 
 func (f *testPlatform) LoginContext(context.Context, int64) (gateway.LoginContext, error) {
+	f.contextCalls++
 	return f.loginContext, f.contextErr
 }
 
 func (f *testPlatform) Ready(context.Context) error { return f.readyErr }
 
 type testSessionIssuer struct {
-	session  gateway.Session
-	err      error
-	readyErr error
+	session       gateway.Session
+	err           error
+	readyErr      error
+	readyForErr   error
+	calls         int
+	readyForCalls int
+	request       gateway.SessionRequest
 }
 
-func (f *testSessionIssuer) Create(context.Context, gateway.SessionRequest) (gateway.Session, error) {
+func (f *testSessionIssuer) Create(_ context.Context, request gateway.SessionRequest) (gateway.Session, error) {
+	f.calls++
+	f.request = request
 	return f.session, f.err
 }
 
 func (f *testSessionIssuer) Ready(context.Context) error { return f.readyErr }
 
+func (f *testSessionIssuer) ReadyFor(_ context.Context, request gateway.SessionRequest) error {
+	f.readyForCalls++
+	f.request = request
+	return f.readyForErr
+}
+
 func TestLoginSuccessDoesNotLogCredentialsAndIsNotCacheable(t *testing.T) {
 	now := time.Now().UTC()
-	platform := &testPlatform{
-		authorization: gateway.Authorization{CanaryAccountID: 1001},
-		loginContext: gateway.LoginContext{
-			Worlds:     []gateway.World{{ID: 1, Slug: "oteryn", Name: "Oteryn", Region: "EU", Host: "game.example.test", Port: 7172}},
-			Characters: []gateway.Character{{ID: 10, Name: "Alpha", Level: 100, Vocation: 4, WorldID: 1}},
-		},
-	}
+	platform := legacyTestPlatform()
 	sessions := &testSessionIssuer{session: gateway.Session{Credential: "session-secret-never-log", ExpiresAt: now.Add(time.Minute)}}
 	service := gateway.NewService(platform, sessions)
 	var logs bytes.Buffer
@@ -74,8 +85,8 @@ func TestLoginSuccessDoesNotLogCredentialsAndIsNotCacheable(t *testing.T) {
 	if err := json.Unmarshal(response.Body.Bytes(), &payload); err != nil {
 		t.Fatalf("decode response: %v", err)
 	}
-	if payload.Session.Credential != "session-secret-never-log" {
-		t.Fatalf("unexpected session response: %#v", payload.Session)
+	if payload.Session.Credential != "session-secret-never-log" || payload.GameplaySelection != nil {
+		t.Fatalf("unexpected legacy session response: %#v", payload)
 	}
 	logText := logs.String()
 	if strings.Contains(logText, "ticket-secret-never-log") || strings.Contains(logText, "session-secret-never-log") {
@@ -86,10 +97,57 @@ func TestLoginSuccessDoesNotLogCredentialsAndIsNotCacheable(t *testing.T) {
 	}
 }
 
-func TestLoginRejectsUnknownFieldsQueryAndOversizedBodyBeforeDependencies(t *testing.T) {
-	platform := &testPlatform{redeemErr: errors.New("should not be called")}
-	service := gateway.NewService(platform, &testSessionIssuer{})
-	server := NewServer(service, "test", slog.New(slog.NewTextHandler(&bytes.Buffer{}, nil)))
+func TestLoginAcceptsBoundedOfferAndReturnsDistinctSelectionFields(t *testing.T) {
+	capabilities := nativeCapabilities()
+	platform := legacyTestPlatform()
+	platform.loginContext.GameplayPolicy = gateway.GameplayPolicy{
+		Revision:  9,
+		ChannelID: 1,
+		Candidates: []gateway.GameplayPolicyCandidate{{
+			Family: "oteryn", Profile: "oteryn.native.v1", Transport: "tcp.tls13.protobuf.be32.v1",
+			SchemaRevision: 1, SchemaSHA256: strings.Repeat("a", 64), RequiredCapabilities: capabilities,
+			EndpointID: "native-eu-1", Host: "native.example.test", Port: 7173, TLSServerName: "native.example.test",
+		}},
+	}
+	sessions := &testSessionIssuer{session: gateway.Session{Credential: "v2-session", ExpiresAt: time.Now().UTC().Add(time.Minute)}}
+	server := NewServer(gateway.NewService(platform, sessions), "test", slog.New(slog.NewTextHandler(&bytes.Buffer{}, nil)))
+
+	body, err := json.Marshal(gateway.LoginRequest{
+		ProtocolVersion: 1,
+		GameLoginTicket: "ticket",
+		GameplayOffer: &gateway.GameplayOffer{
+			OfferVersion: 1, ClientBuild: "oteryn-client-test", ClientPlatform: "windows-x86_64",
+			Candidates: []gateway.GameplayOfferCandidate{{
+				Family: "oteryn", Profile: "oteryn.native.v1", Transport: "tcp.tls13.protobuf.be32.v1",
+				SchemaRevision: 1, SchemaSHA256: strings.Repeat("a", 64), Capabilities: capabilities,
+			}},
+		},
+	})
+	if err != nil {
+		t.Fatalf("encode request: %v", err)
+	}
+
+	response := httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/v1/login", bytes.NewReader(body)))
+	if response.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%s", response.Code, response.Body.String())
+	}
+	var payload gateway.LoginResponse
+	if err := json.Unmarshal(response.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if payload.ProtocolVersion != 1 || payload.GameSessionContractVersion != 2 || payload.LoginAttemptID == "" || payload.GameplaySelection == nil {
+		t.Fatalf("missing distinct version/selection fields: %#v", payload)
+	}
+	if sessions.readyForCalls != 1 || sessions.calls != 1 || sessions.request.EndpointID != "native-eu-1" {
+		t.Fatalf("unexpected readiness/session calls: %#v", sessions)
+	}
+}
+
+func TestLoginRejectsInvalidShapeBeforeDependencies(t *testing.T) {
+	platform := legacyTestPlatform()
+	sessions := &testSessionIssuer{}
+	server := NewServer(gateway.NewService(platform, sessions), "test", slog.New(slog.NewTextHandler(&bytes.Buffer{}, nil)))
 
 	tests := []struct {
 		name string
@@ -97,24 +155,31 @@ func TestLoginRejectsUnknownFieldsQueryAndOversizedBodyBeforeDependencies(t *tes
 		body string
 	}{
 		{name: "unknown field", url: "/v1/login", body: `{"protocol_version":1,"game_login_ticket":"ticket","password":"secret"}`},
+		{name: "duplicate top-level key", url: "/v1/login", body: `{"protocol_version":1,"protocol_version":1,"game_login_ticket":"ticket"}`},
+		{name: "duplicate nested key", url: "/v1/login", body: `{"protocol_version":1,"game_login_ticket":"ticket","gameplay_offer":{"offer_version":1,"offer_version":1,"client_build":"test","client_platform":"linux","candidates":[]}}`},
+		{name: "zero candidates", url: "/v1/login", body: `{"protocol_version":1,"game_login_ticket":"ticket","gameplay_offer":{"offer_version":1,"client_build":"test","client_platform":"linux","candidates":[]}}`},
+		{name: "unsorted capabilities", url: "/v1/login", body: `{"protocol_version":1,"game_login_ticket":"ticket","gameplay_offer":{"offer_version":1,"client_build":"test","client_platform":"linux","candidates":[{"family":"canary","profile":"canary.current","transport":"canary.sequence.v1","schema_revision":1,"schema_sha256":"` + strings.Repeat("a", 64) + `","capabilities":["z.v1","a.v1"]}]}}`},
 		{name: "query", url: "/v1/login?ticket=secret", body: `{"protocol_version":1,"game_login_ticket":"ticket"}`},
-		{name: "oversized", url: "/v1/login", body: `{"protocol_version":1,"game_login_ticket":"` + strings.Repeat("a", 5000) + `"}`},
+		{name: "oversized", url: "/v1/login", body: strings.Repeat(" ", extendedLoginRequestLimit+1)},
+		{name: "legacy remains 4KiB bounded", url: "/v1/login", body: `{"protocol_version":1,"game_login_ticket":"ticket"}` + strings.Repeat(" ", legacyLoginRequestLimit)},
 	}
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			request := httptest.NewRequest(http.MethodPost, test.url, strings.NewReader(test.body))
 			response := httptest.NewRecorder()
-			server.Handler().ServeHTTP(response, request)
+			server.Handler().ServeHTTP(response, httptest.NewRequest(http.MethodPost, test.url, strings.NewReader(test.body)))
 			if response.Code != http.StatusBadRequest {
 				t.Fatalf("expected 400, got %d body=%s", response.Code, response.Body.String())
 			}
 			assertSensitiveResponseNoCache(t, response)
 		})
 	}
+	if platform.redeemCalls != 0 || platform.contextCalls != 0 || sessions.calls != 0 || sessions.readyForCalls != 0 {
+		t.Fatalf("invalid requests reached dependencies: platform=%#v sessions=%#v", platform, sessions)
+	}
 }
 
-func TestLoginMapsInvalidTicketAndDependencyOutageToBoundedNonCacheableErrors(t *testing.T) {
+func TestLoginMapsBoundedErrors(t *testing.T) {
 	for _, test := range []struct {
 		name   string
 		err    error
@@ -127,14 +192,25 @@ func TestLoginMapsInvalidTicketAndDependencyOutageToBoundedNonCacheableErrors(t 
 		t.Run(test.name, func(t *testing.T) {
 			service := gateway.NewService(&testPlatform{redeemErr: test.err}, &testSessionIssuer{})
 			server := NewServer(service, "test", slog.New(slog.NewTextHandler(&bytes.Buffer{}, nil)))
-			request := httptest.NewRequest(http.MethodPost, "/v1/login", strings.NewReader(`{"protocol_version":1,"game_login_ticket":"ticket"}`))
 			response := httptest.NewRecorder()
-			server.Handler().ServeHTTP(response, request)
+			server.Handler().ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/v1/login", strings.NewReader(`{"protocol_version":1,"game_login_ticket":"ticket"}`)))
 			if response.Code != test.status || !strings.Contains(response.Body.String(), test.body) {
 				t.Fatalf("unexpected response: status=%d body=%s", response.Code, response.Body.String())
 			}
 			assertSensitiveResponseNoCache(t, response)
 		})
+	}
+}
+
+func TestLoginMapsNoMatchToConflictWithoutPolicyDisclosure(t *testing.T) {
+	platform := legacyTestPlatform()
+	platform.loginContext.GameplayPolicy = gateway.GameplayPolicy{Revision: 1, ChannelID: 1}
+	server := NewServer(gateway.NewService(platform, &testSessionIssuer{}), "test", slog.New(slog.NewTextHandler(&bytes.Buffer{}, nil)))
+	body := `{"protocol_version":1,"game_login_ticket":"ticket","gameplay_offer":{"offer_version":1,"client_build":"test","client_platform":"linux","candidates":[{"family":"canary","profile":"canary.current","transport":"canary.sequence.v1","schema_revision":1,"schema_sha256":"` + strings.Repeat("a", 64) + `","capabilities":[]}]}}`
+	response := httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/v1/login", strings.NewReader(body)))
+	if response.Code != http.StatusConflict || response.Body.String() != "{\"error\":\"unsupported_gameplay_pair\"}\n" {
+		t.Fatalf("unexpected no-match response: %d %s", response.Code, response.Body.String())
 	}
 }
 
@@ -159,6 +235,32 @@ func TestHealthAndReadinessAreSeparate(t *testing.T) {
 	if version.Code != http.StatusOK || !strings.Contains(version.Body.String(), "v1.2.3") {
 		t.Fatalf("unexpected version response: %d %s", version.Code, version.Body.String())
 	}
+}
+
+func legacyTestPlatform() *testPlatform {
+	return &testPlatform{
+		authorization: gateway.Authorization{CanaryAccountID: 1001, SecurityGeneration: 7},
+		loginContext: gateway.LoginContext{
+			Worlds:     []gateway.World{{ID: 1, Slug: "oteryn", Name: "Oteryn", Region: "EU", Host: "game.example.test", Port: 7172}},
+			Characters: []gateway.Character{{ID: 10, Name: "Alpha", Level: 100, Vocation: 4, WorldID: 1}},
+		},
+	}
+}
+
+func nativeCapabilities() []string {
+	capabilities := []string{
+		"actions.command-result.v1",
+		"chat.semantic.v1",
+		"combat.server-authoritative.v1",
+		"inventory.server-authoritative.v1",
+		"ordering.server-sequence.v1",
+		"reconciliation.movement.v1",
+		"session.single-admission.v1",
+		"state.revision.v1",
+		"state.snapshot-delta.v1",
+	}
+	sort.Strings(capabilities)
+	return capabilities
 }
 
 func assertSensitiveResponseNoCache(t *testing.T, response *httptest.ResponseRecorder) {
