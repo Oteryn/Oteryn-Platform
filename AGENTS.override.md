@@ -1,7 +1,7 @@
 # Mandatory Agent Bootstrap
 
 ```yaml
-agent_bootstrap_policy_revision: 2.2
+agent_bootstrap_policy_revision: 2.3
 ```
 
 This root bootstrap may be loaded automatically by Codex or another agent runtime. It supplements and never weakens system, developer, owner, repository-allowlist, safety, production, credential, data, payment, authentication, protocol, asset, live-capital, deployment, merge, or cross-repository restrictions.
@@ -12,11 +12,12 @@ Before planning, editing, creating or resuming a task, creating a branch or PR, 
 2. Read `docs/agents/AGENTS.md` and the nearest additional `AGENTS.md` governing every path that may be touched.
 3. Read `docs/agents/DELIVERY_COMPLETENESS_AND_CLOSEOUT.md` for delivery classification, outcome verification, independent audit, E2E, exact-head CI, PR hygiene, archival, and ownership release.
 4. Read `docs/agents/ANTI_STALL_AND_EXECUTION_BUDGET.md` before autonomous, long-running, retry-prone, CI-waiting, repair, continuation, or multi-task work.
-5. Read `docs/agents/TERMINAL_ONLY_COMMUNICATION.md` before autonomous, scheduled, continuation, audit, repair, or multi-task work. It controls user-facing progress cadence and overrides broader `low_noise` or material-milestone wording.
-6. Read `docs/agents/GITHUB_ONLY_EXECUTION.md` whenever Codex or a local terminal is unavailable, unsuitable, or would otherwise be treated as a blocker.
-7. For a start, resume, continuation, autonomous-programme, or multi-task request, read `docs/agents/AUTONOMOUS_PROGRAM_CONTINUATION.md` before acting.
-8. Inspect the authoritative active task checkpoint, live branch/head, related PRs, reviews, CI, ownership, dependencies, and current repository state. Do not reconstruct available state from chat history or ask the owner to repeat it.
-9. If a required bootstrap document is missing or materially conflicts with live repository safety, stop and report the exact conflict.
+5. Read `docs/agents/SESSION_RECOVERY_AND_ORPHANED_EXECUTION.md` before any autonomous, continuation, scheduled, CI-waiting, runner, long-command, or replacement-session work.
+6. Read `docs/agents/TERMINAL_ONLY_COMMUNICATION.md` before autonomous, scheduled, continuation, audit, repair, or multi-task work. It controls user-facing progress cadence and overrides broader `low_noise` or material-milestone wording.
+7. Read `docs/agents/GITHUB_ONLY_EXECUTION.md` whenever Codex or a local terminal is unavailable, unsuitable, or would otherwise be treated as a blocker.
+8. For a start, resume, continuation, autonomous-programme, or multi-task request, read `docs/agents/AUTONOMOUS_PROGRAM_CONTINUATION.md` before acting.
+9. Inspect the authoritative active task checkpoint, live branch/head, related PRs, reviews, CI, ownership, dependencies, and current repository state. Do not reconstruct available state from chat history or ask the owner to repeat it.
+10. If a required bootstrap document is missing or materially conflicts with live repository safety, stop and report the exact conflict.
 
 ## Authority freeze
 
@@ -62,6 +63,18 @@ Auto-merge availability is not required. When repository auto-merge is unavailab
 The active task at invocation entry, or the first selected `READY` task when none is active, is the entry task. Required post-merge archive closeout and ownership release remain part of that same entry task. After it becomes fully terminal, at most one additional task may be started in the same invocation, and only when at least 30 minutes remains and no stall warning occurred.
 
 Budget exhaustion, ordinary no-progress, retry-limit exhaustion, unchanged pending ordinary state, exhausted terminal-CI limits, or an unsafe context/tool limit is a real stop condition. Persist exact durable state and return the correct invocation result.
+
+## Session recovery baseline
+
+Before the first deliberate sleep, delayed recheck, terminal-CI wait, runner job, or long-running command, persist the recovery checkpoint required by `SESSION_RECOVERY_AND_ORPHANED_EXECUTION.md`.
+
+A replacement or continuation session must read that checkpoint first, verify live ownership and state, then immediately execute the recorded safe `next_action`. It must preserve the original wait start, deadline, check generation, run IDs, and counters instead of restarting the task or resetting budgets.
+
+One CI observation is one aggregate PR/head snapshot of all required checks. Querying workflows one by one does not create separate observations and cannot bypass the minimum interval or check cap. Repeated 30-second sleeps followed by workflow-by-workflow polling are forbidden.
+
+A UI spinner or stale chat session is not ownership evidence. When the prior process is unavailable or its durable wait deadline expired, a fresh session may recover it as orphaned after verifying that no conflicting agent owns the same branch, paths, PR, runner, deployment, or protected state.
+
+When a controlled interruption is observable, persist the checkpoint and return `WAITING`, `BLOCKED`, or `ROTATE`. If the platform dies abruptly, the next invocation must recover from the last durable checkpoint and live state; never claim hidden background continuation.
 
 ## GitHub-only baseline
 
