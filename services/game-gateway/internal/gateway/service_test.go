@@ -227,8 +227,15 @@ func offerCandidate(family, profile, transport string, capabilities []string) Ga
 	sort.Strings(sorted)
 	return GameplayOfferCandidate{
 		Family: family, Profile: profile, Transport: transport,
-		SchemaRevision: 1, SchemaSHA256: strings.Repeat("a", 64), Capabilities: sorted,
+		SchemaRevision: 1, SchemaSHA256: schemaHashForCandidate(family, profile), Capabilities: sorted,
 	}
+}
+
+func schemaHashForCandidate(family, profile string) string {
+	if family == "oteryn" && profile == "oteryn.native.v1" {
+		return canonicalNativeSchemaSHA256
+	}
+	return strings.Repeat("a", 64)
 }
 
 func policyCandidate(family, profile, transport, endpoint string, port int, required, optional []string) GameplayPolicyCandidate {
@@ -238,7 +245,7 @@ func policyCandidate(family, profile, transport, endpoint string, port int, requ
 	sort.Strings(optionalCopy)
 	return GameplayPolicyCandidate{
 		Family: family, Profile: profile, Transport: transport,
-		SchemaRevision: 1, SchemaSHA256: strings.Repeat("a", 64),
+		SchemaRevision: 1, SchemaSHA256: schemaHashForCandidate(family, profile),
 		RequiredCapabilities: requiredCopy, OptionalCapabilities: optionalCopy,
 		EndpointID: endpoint, Host: "game.example.test", Port: port, TLSServerName: "game.example.test",
 	}
