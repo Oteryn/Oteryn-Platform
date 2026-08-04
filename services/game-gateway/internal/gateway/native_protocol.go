@@ -285,6 +285,7 @@ func isHost(value string) bool {
 			if !(character >= 'A' && character <= 'Z') && !(character >= 'a' && character <= 'z') && !(character >= '0' && character <= '9') && character != '-' {
 				return false
 			}
+		}
 	}
 	return true
 }
