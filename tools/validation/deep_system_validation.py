@@ -280,21 +280,21 @@ def _validate_lane_projects(name: str, lane: dict[str, Any], summary: JUnitSumma
             raise ValidationError(f"lane {name} declares unexpected browser projects")
         return
 
-    if (
-        not isinstance(declared, list)
-        or not declared
-        or any(not isinstance(project, str) or not project for project in declared)
-        or len(declared) != len(set(declared))
-    ):
-        raise ValidationError(f"lane {name} projects must be unique non-empty strings")
-
-    declared_set = set(declared)
-    if declared_set != expected:
-        missing = sorted(expected - declared_set)
-        unexpected = sorted(declared_set - expected)
-        raise ValidationError(
-            f"lane {name} project contract mismatch: missing={missing} unexpected={unexpected}"
-        )
+    if declared is not None:
+        if (
+            not isinstance(declared, list)
+            or not declared
+            or any(not isinstance(project, str) or not project for project in declared)
+            or len(declared) != len(set(declared))
+        ):
+            raise ValidationError(f"lane {name} projects must be unique non-empty strings")
+        declared_set = set(declared)
+        if declared_set != expected:
+            missing = sorted(expected - declared_set)
+            unexpected = sorted(declared_set - expected)
+            raise ValidationError(
+                f"lane {name} project contract mismatch: missing={missing} unexpected={unexpected}"
+            )
 
     executed = set(summary.projects)
     if executed != expected:
