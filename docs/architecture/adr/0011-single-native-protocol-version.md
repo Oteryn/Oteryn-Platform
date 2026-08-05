@@ -3,7 +3,7 @@
 - Status: Accepted
 - Date: 2026-08-05
 - Coordination ID: `OTS-20260804-native-protocol-selection`
-- Supersedes: the current native-profile dimension in ADR 0010 and contract revision 1
+- Supersedes: the current native-profile dimension in ADR 0010 and contract revision 2
 - Does not supersede: Canary compatibility profiles, login/API versions, transport/schema versioning, authority, downgrade or rollout rules
 
 ## Context
@@ -24,8 +24,8 @@ Current identity:
 family: oteryn
 native_protocol_version: 1
 transport: tcp.tls13.protobuf.be32.v1
-schema_revision: 1
-schema_sha256: <exact canonical IDL digest>
+schema_revision: 2
+schema_sha256: 9c67f19525400fb9890d2a3541ceb6d02eb955061540ad39ca1c1d891c06eba9
 capabilities: <exact canonical sorted list and digest>
 ```
 
