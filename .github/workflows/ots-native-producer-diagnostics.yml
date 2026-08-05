@@ -1,0 +1,43 @@
+name: OTS native producer diagnostics
+
+on:
+  push:
+    branches:
+      - feat/OTS-20260804-native-protocol-single-version-producer
+    paths:
+      - .github/workflows/ots-native-producer-diagnostics.yml
+
+permissions:
+  contents: write
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: feat/OTS-20260804-native-protocol-single-version-producer
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.5'
+          coverage: none
+      - name: Install dependencies
+        run: composer install --no-interaction --prefer-dist --no-progress
+      - name: Capture first failure
+        shell: bash
+        run: |
+          set +e
+          php artisan test tests/Feature/GameAuth/GameLoginContextApiTest.php tests/Feature/GameAuth/WorldRegistryTest.php > /tmp/native-producer-test.log 2>&1
+          status=$?
+          set -e
+          mkdir -p docs/agents/evidence/OTS-20260804-native-protocol-selection
+          sed -E 's/(Bearer|token|credential)[=: ]+[^ ]+/\1=[REDACTED]/Ig' /tmp/native-producer-test.log > docs/agents/evidence/OTS-20260804-native-protocol-selection/platform-producer-first-failure.txt
+          printf '\nEXIT_STATUS=%s\n' "$status" >> docs/agents/evidence/OTS-20260804-native-protocol-selection/platform-producer-first-failure.txt
+      - name: Commit diagnostic
+        shell: bash
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add docs/agents/evidence/OTS-20260804-native-protocol-selection/platform-producer-first-failure.txt
+          git commit -m 'test(native): capture producer first failure'
+          git push origin HEAD:feat/OTS-20260804-native-protocol-single-version-producer
