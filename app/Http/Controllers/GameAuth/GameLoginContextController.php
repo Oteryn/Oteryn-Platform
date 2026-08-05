@@ -5,6 +5,7 @@ namespace App\Http\Controllers\GameAuth;
 use App\GameAuth\Context\GameLoginCharacter;
 use App\GameAuth\Context\GameLoginContextProvider;
 use App\GameAuth\Context\GameLoginContextUnavailable;
+use App\GameAuth\Worlds\GameWorldProtocolCandidateRoute;
 use Illuminate\Database\QueryException;
 use Illuminate\Http\JsonResponse;
 
@@ -21,6 +22,11 @@ final class GameLoginContextController
         } catch (GameLoginContextUnavailable $exception) {
             return response()->json(['error' => $exception->reason], $exception->httpStatus);
         } catch (QueryException) {
+            return response()->json(['error' => 'login_context_unavailable'], 503);
+        }
+
+        $policy = $context->world->gameplayPolicy;
+        if ($policy === null) {
             return response()->json(['error' => 'login_context_unavailable'], 503);
         }
 
@@ -44,6 +50,26 @@ final class GameLoginContextController
                 ],
                 $context->characters,
             ),
+            'gameplay_policy' => [
+                'revision' => $policy->revision,
+                'channel_id' => $policy->channelId,
+                'candidates' => array_map(
+                    static fn (GameWorldProtocolCandidateRoute $candidate): array => [
+                        'family' => $candidate->family,
+                        'profile' => $candidate->profile,
+                        'transport' => $candidate->transport,
+                        'schema_revision' => $candidate->schemaRevision,
+                        'schema_sha256' => $candidate->schemaSha256,
+                        'required_capabilities' => $candidate->requiredCapabilities,
+                        'optional_capabilities' => $candidate->optionalCapabilities,
+                        'endpoint_id' => $candidate->endpointId,
+                        'host' => $candidate->host,
+                        'port' => $candidate->port,
+                        'tls_server_name' => $candidate->tlsServerName,
+                    ],
+                    $policy->candidates,
+                ),
+            ],
         ]);
     }
 }

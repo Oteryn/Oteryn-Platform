@@ -7,8 +7,10 @@ import (
 )
 
 var (
-	ErrInvalidLogin = errors.New("invalid login")
-	ErrUnavailable  = errors.New("login unavailable")
+	ErrInvalidRequest          = errors.New("invalid request")
+	ErrInvalidLogin            = errors.New("invalid login")
+	ErrUnsupportedGameplayPair = errors.New("unsupported gameplay pair")
+	ErrUnavailable             = errors.New("login unavailable")
 )
 
 type Authorization struct {
@@ -33,15 +35,82 @@ type Character struct {
 	WorldID  int64  `json:"world_id"`
 }
 
+type GameplayOfferCandidate struct {
+	Family         string   `json:"family"`
+	Profile        string   `json:"profile"`
+	Transport      string   `json:"transport"`
+	SchemaRevision uint32   `json:"schema_revision"`
+	SchemaSHA256   string   `json:"schema_sha256"`
+	Capabilities   []string `json:"capabilities"`
+}
+
+type GameplayOffer struct {
+	OfferVersion   int                      `json:"offer_version"`
+	ClientBuild    string                   `json:"client_build"`
+	ClientPlatform string                   `json:"client_platform"`
+	Candidates     []GameplayOfferCandidate `json:"candidates"`
+}
+
+type LoginRequest struct {
+	ProtocolVersion int            `json:"protocol_version"`
+	GameLoginTicket string         `json:"game_login_ticket"`
+	GameplayOffer   *GameplayOffer `json:"gameplay_offer,omitempty"`
+}
+
+type GameplayPolicyCandidate struct {
+	Family               string   `json:"family"`
+	Profile              string   `json:"profile"`
+	Transport            string   `json:"transport"`
+	SchemaRevision       uint32   `json:"schema_revision"`
+	SchemaSHA256         string   `json:"schema_sha256"`
+	RequiredCapabilities []string `json:"required_capabilities"`
+	OptionalCapabilities []string `json:"optional_capabilities"`
+	EndpointID           string   `json:"endpoint_id"`
+	Host                 string   `json:"host"`
+	Port                 int      `json:"port"`
+	TLSServerName        string   `json:"tls_server_name"`
+}
+
+type GameplayPolicy struct {
+	Revision   uint64                    `json:"revision"`
+	ChannelID  uint64                    `json:"channel_id"`
+	Candidates []GameplayPolicyCandidate `json:"candidates"`
+}
+
 type LoginContext struct {
-	Worlds     []World
-	Characters []Character
+	Worlds         []World
+	Characters     []Character
+	GameplayPolicy GameplayPolicy
+}
+
+type GameplaySelection struct {
+	PolicyRevision         uint64   `json:"policy_revision"`
+	Family                 string   `json:"family"`
+	Profile                string   `json:"profile"`
+	Transport              string   `json:"transport"`
+	SchemaRevision         uint32   `json:"schema_revision"`
+	SchemaSHA256           string   `json:"schema_sha256"`
+	Capabilities           []string `json:"capabilities"`
+	CapabilityDigestSHA256 string   `json:"capability_digest_sha256"`
+	EndpointID             string   `json:"-"`
+	Host                   string   `json:"host"`
+	Port                   int      `json:"port"`
+	TLSServerName          string   `json:"tls_server_name"`
 }
 
 type SessionRequest struct {
-	CanaryAccountID int64  `json:"canary_account_id"`
-	WorldID         int64  `json:"world_id"`
-	LoginAttemptID  string `json:"login_attempt_id"`
+	ContractVersion      int
+	CanaryAccountID      int64
+	SecurityGeneration   int64
+	WorldID              int64
+	ChannelID            uint64
+	LoginAttemptID       string
+	WorldPolicyRevision  uint64
+	EndpointID           string
+	Audience             string
+	CharacterBindingMode string
+	SingleAdmission      bool
+	GameplaySelection    *GameplaySelection
 }
 
 type Session struct {
@@ -50,10 +119,13 @@ type Session struct {
 }
 
 type LoginResponse struct {
-	ProtocolVersion int         `json:"protocol_version"`
-	Session         Session     `json:"session"`
-	Worlds          []World     `json:"worlds"`
-	Characters      []Character `json:"characters"`
+	ProtocolVersion            int                `json:"protocol_version"`
+	GameSessionContractVersion int                `json:"game_session_contract_version,omitempty"`
+	LoginAttemptID             string             `json:"login_attempt_id,omitempty"`
+	Session                    Session            `json:"session"`
+	GameplaySelection          *GameplaySelection `json:"gameplay_selection,omitempty"`
+	Worlds                     []World            `json:"worlds"`
+	Characters                 []Character        `json:"characters"`
 }
 
 type PlatformClient interface {
@@ -65,4 +137,5 @@ type PlatformClient interface {
 type SessionIssuer interface {
 	Create(ctx context.Context, request SessionRequest) (Session, error)
 	Ready(ctx context.Context) error
+	ReadyFor(ctx context.Context, request SessionRequest) error
 }

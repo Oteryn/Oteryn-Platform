@@ -2,15 +2,15 @@
 
 ## Status
 
-`PHASE 1 FOUNDATION IMPLEMENTED — PUBLIC GATEWAY USE NOT YET IMPLEMENTED`
+`GATEWAY PRODUCER IMPLEMENTED — NATIVE ADVERTISEMENT DISABLED BY DEFAULT`
 
-This contract defines the authoritative world-routing model consumed by the future Oteryn Game Gateway.
+This contract defines the authoritative world-routing and ordered gameplay-candidate policy consumed by the Oteryn Game Gateway.
 
-Phase 1 implements the Platform-owned persistence and domain boundary. It does **not** yet expose world data through a public Gateway API, create Game Sessions, or prove a production world route.
+The Platform-owned world route is consumed by the existing Gateway. The native producer extension stores ordered per-world/channel candidates and policy revision, while creating no candidate rows and keeping every candidate disabled by default. It does not prove an Otheryn native consumer, a Rust native consumer, production activation or a production world route.
 
 The first deployment may contain exactly one world, but no API/domain contract may permanently assume a singleton.
 
-## Phase 1 implementation status
+## Implemented state
 
 Implemented in Oteryn Platform:
 
@@ -21,8 +21,13 @@ Implemented in Oteryn Platform:
 - fail-closed `DatabaseWorldRegistry` implementation;
 - sanitized `GameWorldRoute` projection;
 - no seeded world and no invented production hostname or port.
+- `game_world_protocol_candidates` storage with disabled-by-default rows, deterministic order and exact endpoint/profile/schema/capability projection;
+- monotonic `gameplay_policy_revision` on each world;
+- Gateway API v1 optional gameplay offer, deterministic selection and Game Session v2 producer binding.
 
-Current Phase 1 policy:
+Sections below that retain the label “Phase 1” describe the original foundation. Where they conflict with this status section, the merged native gameplay contract and this implemented-state section are authoritative.
+
+Current world authorization policy:
 
 ```text
 positive redeemed Canary account ID
@@ -33,15 +38,15 @@ positive redeemed Canary account ID
 
 This is an MVP authorization policy behind an account-aware interface. It is not a claim that every future account may access every future world.
 
-Not implemented yet:
+Still not implemented:
 
-- Game Gateway consumption of the registry;
 - character-to-world persistence for true multiworld;
 - account/world entitlement policy beyond the single-world-ready MVP;
-- world-scoped Canary Game Session enforcement;
-- runtime health integration;
+- Otheryn Game Session v2 storage/readiness/admission and native listener;
+- Rust native gameplay consumer;
+- runtime health integration beyond the explicit v2 readiness identity check;
 - world administration UI;
-- production route configuration.
+- production route configuration or activation.
 
 ## Ownership
 

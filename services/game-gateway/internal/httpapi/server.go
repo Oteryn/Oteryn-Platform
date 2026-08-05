@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"bytes"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
@@ -12,6 +13,11 @@ import (
 	"time"
 
 	"github.com/blakinio/oteryn-platform/services/game-gateway/internal/gateway"
+)
+
+const (
+	legacyLoginRequestLimit   = 4096
+	extendedLoginRequestLimit = 16 * 1024
 )
 
 var safeRequestID = regexp.MustCompile(`^[A-Za-z0-9._-]{1,64}$`)
@@ -68,11 +74,14 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var request struct {
-		ProtocolVersion int    `json:"protocol_version"`
-		GameLoginTicket string `json:"game_login_ticket"`
+	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, extendedLoginRequestLimit))
+	if err != nil || len(body) == 0 || validateUniqueJSONKeys(body) != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid_request"})
+		return
 	}
-	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096))
+
+	var request gateway.LoginRequest
+	decoder := json.NewDecoder(bytes.NewReader(body))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&request); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid_request"})
@@ -82,16 +91,24 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid_request"})
 		return
 	}
-	if request.ProtocolVersion != 1 || request.GameLoginTicket == "" || len(request.GameLoginTicket) > 1024 {
+	if request.GameplayOffer == nil && len(body) > legacyLoginRequestLimit {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid_request"})
+		return
+	}
+	if err := gateway.ValidateLoginRequest(request); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid_request"})
 		return
 	}
 
-	response, err := s.service.Login(r.Context(), request.GameLoginTicket)
+	response, err := s.service.LoginWithRequest(r.Context(), request)
 	if err != nil {
 		switch {
+		case errors.Is(err, gateway.ErrInvalidRequest):
+			writeJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid_request"})
 		case errors.Is(err, gateway.ErrInvalidLogin):
 			writeJSON(w, http.StatusUnauthorized, map[string]any{"error": "invalid_login"})
+		case errors.Is(err, gateway.ErrUnsupportedGameplayPair):
+			writeJSON(w, http.StatusConflict, map[string]any{"error": "unsupported_gameplay_pair"})
 		default:
 			writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "login_unavailable"})
 		}
@@ -99,6 +116,69 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, response)
+}
+
+func validateUniqueJSONKeys(body []byte) error {
+	decoder := json.NewDecoder(bytes.NewReader(body))
+	if err := consumeJSONValue(decoder); err != nil {
+		return err
+	}
+	if _, err := decoder.Token(); !errors.Is(err, io.EOF) {
+		return errors.New("request contains trailing JSON")
+	}
+	return nil
+}
+
+func consumeJSONValue(decoder *json.Decoder) error {
+	token, err := decoder.Token()
+	if err != nil {
+		return err
+	}
+
+	delimiter, isDelimiter := token.(json.Delim)
+	if !isDelimiter {
+		return nil
+	}
+
+	switch delimiter {
+	case '{':
+		seen := map[string]struct{}{}
+		for decoder.More() {
+			keyToken, err := decoder.Token()
+			if err != nil {
+				return err
+			}
+			key, ok := keyToken.(string)
+			if !ok {
+				return errors.New("object key is not a string")
+			}
+			if _, exists := seen[key]; exists {
+				return errors.New("duplicate object key")
+			}
+			seen[key] = struct{}{}
+			if err := consumeJSONValue(decoder); err != nil {
+				return err
+			}
+		}
+		closing, err := decoder.Token()
+		if err != nil || closing != json.Delim('}') {
+			return errors.New("unterminated object")
+		}
+	case '[':
+		for decoder.More() {
+			if err := consumeJSONValue(decoder); err != nil {
+				return err
+			}
+		}
+		closing, err := decoder.Token()
+		if err != nil || closing != json.Delim(']') {
+			return errors.New("unterminated array")
+		}
+	default:
+		return errors.New("unexpected delimiter")
+	}
+
+	return nil
 }
 
 func ensureJSONEOF(decoder *json.Decoder) error {

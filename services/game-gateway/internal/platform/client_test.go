@@ -36,7 +36,7 @@ func TestRedeemUsesPrivateServiceAuthAndKeepsTicketOutOfURL(t *testing.T) {
 			t.Fatalf("unexpected redeem payload: %#v", payload)
 		}
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"protocol_version":1,"authorization":{"canary_account_id":1001,"security_generation":7,"redeemed_at":"2026-07-22T08:00:00Z"}}`))
+		_, _ = w.Write([]byte(`{"protocol_version":1,"authorization":{"canary_account_id":1001,"security_generation":0,"redeemed_at":"2026-07-22T08:00:00Z"}}`))
 	}))
 	defer server.Close()
 
@@ -45,8 +45,21 @@ func TestRedeemUsesPrivateServiceAuthAndKeepsTicketOutOfURL(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Redeem returned error: %v", err)
 	}
-	if authorization.CanaryAccountID != 1001 || authorization.SecurityGeneration != 7 {
+	if authorization.CanaryAccountID != 1001 || authorization.SecurityGeneration != 0 {
 		t.Fatalf("unexpected authorization: %#v", authorization)
+	}
+}
+
+func TestRedeemRejectsNegativeSecurityGeneration(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"protocol_version":1,"authorization":{"canary_account_id":1001,"security_generation":-1,"redeemed_at":"2026-07-22T08:00:00Z"}}`))
+	}))
+	defer server.Close()
+
+	client := NewClient(server.URL, "platform-service-token", server.Client())
+	_, err := client.Redeem(context.Background(), "ticket")
+	if !errors.Is(err, gateway.ErrUnavailable) {
+		t.Fatalf("expected negative generation to fail closed, got %v", err)
 	}
 }
 
@@ -82,7 +95,28 @@ func TestLoginContextUsesExactAccountPathAndParsesBoundedProjection(t *testing.T
 		if r.Header.Get("Authorization") != "Bearer platform-service-token" {
 			t.Fatalf("missing service authentication")
 		}
-		_, _ = w.Write([]byte(`{"protocol_version":1,"worlds":[{"id":1,"slug":"oteryn","name":"Oteryn","region":"EU","host":"game.example.test","port":7172}],"characters":[{"id":10,"name":"Alpha","level":100,"vocation":4,"world_id":1}]}`))
+		_, _ = w.Write([]byte(`{
+			"protocol_version":1,
+			"worlds":[{"id":1,"slug":"oteryn","name":"Oteryn","region":"EU","host":"game.example.test","port":7172}],
+			"characters":[{"id":10,"name":"Alpha","level":100,"vocation":4,"world_id":1}],
+			"gameplay_policy":{
+				"revision":42,
+				"channel_id":1,
+				"candidates":[{
+					"family":"oteryn",
+					"profile":"oteryn.native.v1",
+					"transport":"tcp.tls13.protobuf.be32.v1",
+					"schema_revision":1,
+					"schema_sha256":"` + strings.Repeat("a", 64) + `",
+					"required_capabilities":["session.single-admission.v1"],
+					"optional_capabilities":[],
+					"endpoint_id":"native-eu-1",
+					"host":"native.example.test",
+					"port":7173,
+					"tls_server_name":"native.example.test"
+				}]
+			}
+		}`))
 	}))
 	defer server.Close()
 
@@ -93,6 +127,25 @@ func TestLoginContextUsesExactAccountPathAndParsesBoundedProjection(t *testing.T
 	}
 	if len(contextResult.Worlds) != 1 || len(contextResult.Characters) != 1 || contextResult.Characters[0].Name != "Alpha" {
 		t.Fatalf("unexpected login context: %#v", contextResult)
+	}
+	if contextResult.GameplayPolicy.Revision != 42 || contextResult.GameplayPolicy.ChannelID != 1 || len(contextResult.GameplayPolicy.Candidates) != 1 {
+		t.Fatalf("unexpected gameplay policy: %#v", contextResult.GameplayPolicy)
+	}
+	if contextResult.GameplayPolicy.Candidates[0].EndpointID != "native-eu-1" {
+		t.Fatalf("unexpected candidate: %#v", contextResult.GameplayPolicy.Candidates[0])
+	}
+}
+
+func TestLoginContextRejectsUnknownPrivateResponseFields(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"protocol_version":1,"worlds":[],"characters":[],"gameplay_policy":{"revision":1,"channel_id":1,"candidates":[]},"secret":"unexpected"}`))
+	}))
+	defer server.Close()
+
+	client := NewClient(server.URL, "platform-service-token", server.Client())
+	_, err := client.LoginContext(context.Background(), 1001)
+	if !errors.Is(err, gateway.ErrUnavailable) {
+		t.Fatalf("expected unknown private response field to fail closed, got %v", err)
 	}
 }
 

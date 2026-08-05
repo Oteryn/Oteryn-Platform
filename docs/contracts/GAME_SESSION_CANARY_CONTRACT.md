@@ -6,6 +6,8 @@
 
 This document is the authoritative current contract between Oteryn Identity/Game Gateway and Canary world-entry authentication.
 
+It remains authoritative for the legacy Canary-compatible Game Session contract version 1. The disabled-by-default producer for selected Game Session contract version 2 is governed by `OTERYN_NATIVE_GAMEPLAY_PROTOCOL_CONTRACT.md` and `docs/operations/OTERYN_NATIVE_PROTOCOL_PRODUCER.md`; no Otheryn native v2 consumer is claimed by this Platform package.
+
 It supersedes the earlier pre-selection Candidate A/Candidate B analysis in this file. That exploratory history remains available in Git history; it is no longer the active implementation contract.
 
 ## Selected architecture
