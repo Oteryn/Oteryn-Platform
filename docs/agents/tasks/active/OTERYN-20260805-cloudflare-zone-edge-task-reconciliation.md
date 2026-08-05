@@ -4,7 +4,7 @@ programme_id: OTERYN_PLATFORM_REMEDIATION
 repository: blakinio/Oteryn-Platform
 issue: 584
 branch: repair/issue-584
-pull_request: none
+pull_request: 635
 session_id: chatgpt-20260805T2324+0200-cloudflare-zone-edge-closeout
 claim_nonce: issue-584-d37ad6de-20260805T2124Z
 coordination_key: task-lifecycle:OTERYN-20260801-cloudflare-zone-edge-audit
@@ -58,10 +58,10 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-05T21:25:00Z
-head: d37ad6de4d0a981cb9fdd834e76c020f89d72888
+updated_at: 2026-08-05T21:26:00Z
+head: faf44f64247217596720ec2eb5d3f5a97d0130e5
 branch: repair/issue-584
-pr: none
+pr: 635
 status: implementing
 context_routes:
   - architecture-governance
@@ -99,5 +99,5 @@ validation:
     result: PASS
     evidence: Issue unclaimed, deterministic branch acquired, PRs 409 and 415 terminal, PR 541 separate and historical branch exact
 blockers: []
-next_action: Open a draft PR, activate the claim, archive the stale task and create the blocked verification-only record.
+next_action: Archive the stale implementation/evidence task and create the blocked verification-only record.
 ```
