@@ -32,7 +32,9 @@ Reconcile completed Cloudflare zone-edge audit implementation and evidence witho
 - [x] Explicit owner authorization remains required before creating a separate least-privilege read-only token and protected secret.
 - [x] PR #541, audit tooling, workflows, evidence, environments, secrets, Cloudflare, production and external repositories remain untouched.
 - [x] Historical evidence branch is explicitly classified.
-- [ ] Fresh audit, exact-head checks and review hygiene pass.
+- [x] The exact changed-file inventory is limited to four declared lifecycle paths.
+- [ ] A separate independent validator reports zero material findings on the final head.
+- [ ] Exact-head checks pass and review threads remain clear.
 
 ## Ownership
 
@@ -49,7 +51,7 @@ dependencies:
   - PR 409 merged
   - PR 415 merged
 blockers:
-  - none for lifecycle reconciliation; external authorization and credentials remain blocked in the verification-only task
+  - fresh independent lifecycle audit on PR 635
 cross_repository_tasks:
   - none
 ```
@@ -58,11 +60,11 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-05T21:30:00Z
-head: 57ef342c8a65362d0490f6bfaf6951e3ea57fd8f
+updated_at: 2026-08-05T21:32:00Z
+head: resolved-from-live-pr-635
 branch: repair/issue-584
 pr: 635
-status: validating
+status: waiting
 context_routes:
   - architecture-governance
   - deployment-operations
@@ -82,10 +84,12 @@ proven:
   - Explicit owner authorization remains required before any separate token or protected secret action.
   - PR 541, audit tooling, workflows, evidence, environments, secrets, Cloudflare and external state were not modified.
   - Historical branch agent/cloudflare-zone-edge-audit-evidence remains at PR 415 final head and is classified evidence-only.
+  - PR 635 changes exactly the four declared task-lifecycle paths.
 derived:
   - Completed repository implementation and unresolved privileged verification are separated without weakening fail-closed boundaries.
 unknown:
-  - exact fresh audit and required-check result for PR 635
+  - independent lifecycle-audit conclusion on the final PR 635 head
+  - exact-head required-check conclusions after the final checkpoint commit
 conflicts: []
 first_failure:
   marker: zone-edge-read-permissions-denied
@@ -102,15 +106,19 @@ validation:
   - command: live GitHub lifecycle verification
     result: PASS
     evidence: PRs 409 and 415 terminal, PR 541 separate and historical branch exact
+  - command: exact changed-file inventory for PR 635
+    result: PASS
+    evidence: only stale active deletion, terminal archive addition, verification-only task addition and reconciliation checkpoint addition
   - command: E2E applicability assessment
     result: NOT_APPLICABLE
     evidence: lifecycle-only documentation repair; authorized live zone-edge audit remains explicitly NOT_RUN in the blocked verification-only task
-  - command: fresh proportionate documentation audit
+  - command: fresh independent lifecycle audit
     result: NOT_RUN
-    evidence: pending exact PR 635 diff inspection
+    evidence: a separate AUDIT ONLY Issue must be claimed by a different session
   - command: exact-head Agent Governance and emitted checks
     result: NOT_RUN
-    evidence: pending final head generation
-blockers: []
-next_action: Audit the exact PR 635 diff, correct any lifecycle contradiction, then verify exact-head checks and zero review threads before merge.
+    evidence: pending workflow completion on the final checkpoint head
+blockers:
+  - separate independent audit must report zero material findings
+next_action: Have a separate agent claim the dedicated AUDIT ONLY Issue, audit PR 635 on its exact final head and record PASS or exact required changes.
 ```
