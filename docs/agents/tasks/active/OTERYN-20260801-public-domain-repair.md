@@ -58,7 +58,7 @@ updated_at: 2026-08-05T12:59:00Z
 status: waiting
 phase: owner_observed_staging_password_recovery
 branch: docs/OTERYN-20260805-public-domain-repair-reconcile
-head: pending
+head: 48d7d794928541c10dd17a3365235e8b37c059af
 pr: 541
 context_routes:
   - security
