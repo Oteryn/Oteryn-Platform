@@ -3,14 +3,14 @@ task_id: OTERYN-20260805-architecture-authority
 programme_id: OTERYN_PLATFORM_ARCHITECTURE_REVIEW
 issue: 548
 pull_request: 550
-status: validating
+status: waiting
 agent: ChatGPT
 branch: task/OTERYN-20260805-architecture-authority
 base_branch: main
 exact_base: 3ab77c072dce796b09004c54b649db009a75d524
-latest_main_reconciled: a7eb03d49e328e8115adb54e772c9c8366b737d3
+latest_main_checked: 4646c43a14daad0e53a97cad96ef7e3afbdf77c3
 created: 2026-08-05T16:48:00+02:00
-updated: 2026-08-05T17:27:00+02:00
+updated: 2026-08-05T17:33:00+02:00
 risk: medium
 execution_mode: github-only
 task_kind: architecture-review
@@ -42,7 +42,8 @@ Define and implement the accepted ordering of current architecture truth, accept
 ## Entry evidence
 
 - original trusted base: `main@3ab77c072dce796b09004c54b649db009a75d524`;
-- latest main reconciled before implementation: `a7eb03d49e328e8115adb54e772c9c8366b737d3`;
+- latest main checked before review handoff: `4646c43a14daad0e53a97cad96ef7e3afbdf77c3`;
+- the two main commits after the implementation reconciliation point changed non-overlapping audit documentation only;
 - Issue #548 owns the decision;
 - owner accepted Option B on 2026-08-05;
 - active PR #542 overlaps native-protocol contracts and is excluded;
@@ -64,7 +65,7 @@ Define and implement the accepted ordering of current architecture truth, accept
 - [x] mark historical initial-phase statements in the system architecture;
 - [x] persist the final report and programme handoffs;
 - [x] keep runtime and overlapping PR paths unchanged;
-- [ ] pass exact-head documentation/governance CI;
+- [x] pass exact-head documentation/governance and repository workflow CI on the complete architecture-content head;
 - [ ] close or archive the task and release ownership after terminal PR state.
 
 ## Accepted decision
@@ -85,11 +86,11 @@ The deterministic ADR inventory also expanded the original collision finding: du
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-05T17:27:00+02:00
-head: d0ce6b9b88420cc9002da9c456d9af64b54c5f44
+updated_at: 2026-08-05T17:33:00+02:00
+head: 7712e675b1effef48b2a74ee0887e18253d08df7
 branch: task/OTERYN-20260805-architecture-authority
 pr: 550
-status: validating
+status: waiting
 context_routes:
   - agent-governance
   - architecture
@@ -111,16 +112,17 @@ proven:
   - The preliminary missing-overview-path claim was disproved by branch and main revalidation.
   - PR 453 remains the separate evidence owner for module-catalogue drift.
   - PR 542 and PR 541 owned scopes are excluded.
+  - All eight workflow runs completed successfully on architecture-content head 7712e675b1effef48b2a74ee0887e18253d08df7.
 derived:
   - The accepted authority index prevents historical planning from silently overriding focused current sources.
   - Existing ADR collisions require a compatibility-safe validator and repair decision rather than renumbering in this task.
 unknown:
-  - Final exact-head CI and PR review or merge result.
+  - Independent PR review and merge result.
 conflicts:
   - Existing ADR numeric identifiers are not globally unique; the inventory exposes this without rewriting accepted history.
 first_failure:
   marker: Agent Governance checkpoint validation
-  evidence: Run 31019701360 failed because WAITING is a terminal invocation result, not an allowed checkpoint validation result; the pending exact-head check now uses NOT_RUN.
+  evidence: Run 31019701360 failed because WAITING is a terminal invocation result rather than an allowed checkpoint validation result; corrected run 31020011584 passed.
 rejected_hypotheses:
   - The governance failure was not a runtime, database, edge, game-auth, protocol or production-like regression.
   - Runtime E2E is not required because the final diff is documentation-only.
@@ -145,12 +147,15 @@ validation:
   - command: exact PR changed-path audit
     result: PASS
     evidence: Declared paths are documentation-only; no runtime, workflow, contract, migration, dependency, deployment or infrastructure path is authorized.
-  - command: exact-head GitHub Actions after checkpoint correction
+  - command: eight exact-head GitHub Actions workflows on 7712e675b1effef48b2a74ee0887e18253d08df7
+    result: PASS
+    evidence: CI, Agent Governance, Phase 7, Game Auth, Platform DB Outage, Edge Security, native protocol contract and native protocol contract audits all completed successfully.
+  - command: final checkpoint-only head workflows
     result: NOT_RUN
-    evidence: A new exact-head workflow set is triggered by this checkpoint correction and must complete before the task can leave validation.
+    evidence: This handoff commit changes only programme and task checkpoint state; Agent Governance and main CI must confirm it before PR review readiness.
 blockers:
-  - Await exact-head CI and terminal PR review or merge state.
-next_action: Observe the new PR 550 head checks; when required gates pass, mark the documentation-only PR ready for review.
+  - Await independent PR review and terminal merge state.
+next_action: After the final checkpoint-only head passes Agent Governance and main CI, mark PR 550 ready for independent review.
 ```
 
 ## E2E
