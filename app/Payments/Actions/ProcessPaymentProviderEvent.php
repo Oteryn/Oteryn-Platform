@@ -2,7 +2,6 @@
 
 namespace App\Payments\Actions;
 
-use App\Payments\Contracts\PaymentWebhookVerifier;
 use App\Payments\Data\PaymentStateDecision;
 use App\Payments\Data\VerifiedProviderEvent;
 use App\Payments\Exceptions\PaymentException;
@@ -12,6 +11,7 @@ use App\Payments\Models\PaymentProviderEvent;
 use App\Payments\Models\PaymentReconciliationEntry;
 use App\Payments\PaymentAvailability;
 use App\Payments\PaymentOrderStateMachine;
+use App\Payments\PaymentProviderResolver;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
@@ -19,7 +19,7 @@ use Illuminate\Support\Facades\DB;
 final class ProcessPaymentProviderEvent
 {
     public function __construct(
-        private readonly PaymentWebhookVerifier $verifier,
+        private readonly PaymentProviderResolver $providers,
         private readonly PaymentOrderStateMachine $stateMachine,
         private readonly PaymentAvailability $availability,
     ) {}
@@ -34,7 +34,7 @@ final class ProcessPaymentProviderEvent
     ): PaymentProviderEvent {
         $this->availability->ensureEnabled();
 
-        $verified = $this->verifier->verify($rawPayload, $headers, $now);
+        $verified = $this->providers->webhookVerifier()->verify($rawPayload, $headers, $now);
         $configuredProvider = config('payments.provider');
 
         if (! is_string($configuredProvider) || $verified->provider !== $configuredProvider) {
