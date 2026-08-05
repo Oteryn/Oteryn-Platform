@@ -201,6 +201,8 @@ A green route or API contract must not be described as product complete while re
 
 The repository has controlled evidence for clean migrations, rollback/redeploy, least-privilege database principals, Redis ACL behavior, test SMTP, security headers/cookies, request correlation, backup/restore smoke, dependency outage/recovery and browser portability/responsive/accessibility profiles.
 
+Scheduled E2E calibration is now backed by completed exact-SHA runtime evidence. Public-soak run `29987560312` on `8006534108d835474dadd208b0ec934e4a12528b` passed 1,764 read-only requests over 303 measured seconds with unchanged Redis key count. Stability-repeat run `30243589211` on `37eb31d60aa8a47914745cd326aff6b313851dd0` passed all three distinct zero-retry critical iterations. Later run `30790638508` retained a responsive-mobile failure signal that was classified from its artifact as a transient Wiki success-flash harness race after the durable state had already reached `In Review`; current-main durable-state assertions and PR #495 deep validation provide the remediation evidence. These samples remain controlled calibration/stability evidence and introduce no blocking performance or flakiness threshold.
+
 The authoritative production gate remains `docs/operations/PRODUCTION_READINESS_CHECKLIST.md` and issue #91. Direct production facts remain unknown until verified, including:
 
 - exact deployed Platform, Gateway and Canary identities;
