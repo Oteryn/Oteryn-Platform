@@ -21,13 +21,13 @@ Repair the verified payment-provider event contract so settlement-changing event
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-05T19:27:00Z
+updated_at: 2026-08-05T19:38:00Z
 base_head: bc9f64ac78b7f6483a8b0679c422cf772ca20ad6
-head: pending
+head: 2f629d849136a655de7126e11b3ecea124143f9c
 branch: repair/issue-547
 issue: 547
-pr: pending
-status: claiming
+pr: 595
+status: active
 session_id: chatgpt-20260805T2127+0200
 claim_nonce: issue-547-bc9f64ac-20260805T1927Z
 lease_expires_at: 2026-08-05T21:27:00Z
@@ -55,7 +55,8 @@ forbidden_paths:
   - .github/workflows/**
   - database/migrations/**
 proven:
-  - Issue 547 is implementation-authorized, unblocked, parallel-safe and agent-ready.
+  - Issue 547 is implementation-authorized, unblocked and parallel-safe.
+  - Branch repair/issue-547 and draft PR 595 uniquely own this repair.
   - The verified provider-event contract lacks authenticated settlement currency and minor-unit facts.
   - The processor does not compare authenticated settlement facts with the immutable payment order before transition.
   - Production and public webhook activation are outside scope and remain disabled.
@@ -72,5 +73,5 @@ changed_paths:
   - docs/agents/tasks/active/OTERYN-20260805-payment-event-integrity.md
 validation: []
 blockers: []
-next_action: Open the draft PR, activate the Issue claim, then implement the bounded repair and focused regression coverage.
+next_action: Implement the bounded repair, add focused negative regression coverage, update security documentation and run exact-head validation.
 ```
