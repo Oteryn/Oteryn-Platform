@@ -8,6 +8,7 @@ use App\Payments\Models\PaymentAttempt;
 use App\Payments\Models\PaymentOrder;
 use App\Payments\Models\PaymentOrderTransition;
 use App\Payments\Models\PaymentReconciliationEntry;
+use App\Payments\PaymentAvailability;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Throwable;
@@ -16,12 +17,15 @@ final class CreatePaymentCheckout
 {
     public function __construct(
         private readonly PaymentProviderGateway $provider,
+        private readonly PaymentAvailability $availability,
     ) {}
 
     public function execute(
         PaymentOrder $order,
         string $idempotencyKey,
     ): PaymentAttempt {
+        $this->availability->ensureEnabled();
+
         if ($idempotencyKey === '' || strlen($idempotencyKey) > 120) {
             throw new PaymentException('idempotency_key_invalid', 'The payment checkout request identifier is invalid.');
         }
