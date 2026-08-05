@@ -18,13 +18,13 @@ Continuously challenge Platform architecture, repository structure and CI/CD; id
 
 ```yaml
 programme_state_version: 2
-updated_at: 2026-08-05T19:55:00Z
-status: ready
-current_review_domain: none
-active_task: none
-issue: none
-branch: none
-pull_request: none
+updated_at: 2026-08-05T21:54:00Z
+status: validating
+current_review_domain: architecture-decision-backlog-authority
+active_task: OTERYN-20260805-architecture-decision-backlog
+issue: 602
+branch: task/OTERYN-20260805-architecture-decision-backlog
+pull_request: 604
 last_completed_domain: current-system-module-reconciliation
 last_completed_issue: 593
 last_completed_pull_request: 594
@@ -34,6 +34,13 @@ accepted_decision:
   accepted_on: 2026-08-05
   adr: docs/architecture/adr/0022-architecture-authority-index-and-focused-canonical-documents.md
   authority_index: docs/architecture/ARCHITECTURE_AUTHORITY.md
+latest_accepted_decision:
+  option: B
+  accepted_on: 2026-08-05
+  issue: 602
+  pull_request: 604
+  adr: docs/architecture/adr/0023-machine-readable-architecture-decision-backlog.md
+  summary: Use one dedicated canonical JSON inventory for unresolved architecture decision obligations, subordinate to accepted ADR authority.
 decision_backlog:
   - id: ARCH-AUTH-001
     severity: high
@@ -63,31 +70,37 @@ decision_backlog:
     summary: Reconcile current system and module architecture using PR 453 and later exact merged evidence.
   - id: ARCH-AUTH-005
     severity: medium
-    type: improvement
-    state: ready
-    summary: Add one validated machine-readable architecture decision backlog after its schema and ownership are accepted.
+    type: missing_decision
+    state: validating
+    issue: 602
+    pull_request: 604
+    accepted_adr: docs/architecture/adr/0023-machine-readable-architecture-decision-backlog.md
+    summary: Accept the authority, schema, lifecycle and validation boundary for one machine-readable architecture decision backlog.
 architecture_conflicts:
   - Historical duplicate ADR prefixes remain for 0008, 0010, 0011, 0015, 0016, 0017, 0018 and 0021, but the exact accepted path sets are machine-enforced and cannot expand silently.
 ci_architecture_findings:
   - Existing PHPUnit CI executes the ADR registry validator without workflow changes.
-  - All eight exact-head workflows passed on a3cf245b5b0eafff00a87ba97878adcc8154a8df before PR 594 merged.
-  - Canonical architecture now separates repository availability, capability completeness, environment proof and activation authority.
+  - PR 626 repaired the protected documentation-only gate by separating conditional runtime-tests from an always-emitted aggregate test context.
+  - Runtime/code changes still require the complete MariaDB/PHP suite before the aggregate test gate can pass.
+  - Documentation-only changes may pass only when fail-closed classification proves runtime tests are NOT_APPLICABLE and the conditional job reports skipped.
 accepted_handoffs_ready_for_remediation:
   - Issues 365, 488, 489 and 490 remain the exact owners for retained completeness, recovery, applicability and environment evidence gaps.
+  - After PR 604 merges, one separate bounded package may implement ADR 0023 through the repository-owned JSON backlog and deterministic validator.
 proven:
-  - Option B remains accepted and durable in ADR 0022.
+  - Option B from ADR 0022 remains accepted and durable.
   - PR 581 established fail-closed ADR registry integrity without renumbering accepted history.
   - PR 594 merged as 4cd3c6daf8fcd152743db34f214abb531e1e2d01 and Issue 593 is closed.
-  - EditorialMedia, Wiki, Wallet, Marketplace and GameCatalog now have evidence-aligned current availability boundaries.
-  - ProductsEntitlements, LegalCommerce, OperationsObservability, PublicEdge and QualityE2E now have explicit ownership boundaries.
-  - Wallet/Marketplace, provider Payments and product fulfilment remain separate domains.
-  - Open gaps and environment gates remain explicit and are not converted into production claims.
+  - Repository, Issue and PR searches found no prior machine-readable architecture decision backlog owner.
+  - The repository owner accepted Option B for ARCH-AUTH-005 on Issue 602.
+  - ADR 0023 records the accepted dedicated JSON backlog authority boundary and separate implementation handoff.
+  - PR 626 merged as 8c0c19253bdc938876cdeeae24455b27e91c4049 without weakening runtime test enforcement.
 derived:
-  - The next highest-value bounded review is the authority, schema and validation model for one machine-readable architecture decision backlog.
-unknown: []
+  - The current PR 604 run is the final real documentation-only acceptance proof for the repaired protected gate.
+unknown:
+  - Final synchronized PR 604 CI conclusions and merge commit.
 conflicts: []
 blockers: []
-next_action: Start a bounded review of the machine-readable architecture decision backlog schema and ownership, deduplicating against ADRs, Issues, PRs and the programme queue before creating a task.
+next_action: Validate PR 604 as a documentation-only change, merge it through protected main, archive the design task and create the separate ADR 0023 implementation package.
 ```
 
 ## Programme rules
