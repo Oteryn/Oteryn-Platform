@@ -1,0 +1,62 @@
+name: Programme bug
+description: Report a reproducible Oteryn Platform defect or regression.
+title: "[Bug] "
+labels: [state:triage, type:bug]
+body:
+  - type: textarea
+    id: objective
+    attributes: {label: Objective, description: Describe the defect and the required corrected outcome.}
+    validations: {required: true}
+  - type: textarea
+    id: current
+    attributes: {label: Current behavior, description: Include reproducible symptoms and safe evidence.}
+    validations: {required: true}
+  - type: textarea
+    id: expected
+    attributes: {label: Expected behavior}
+    validations: {required: true}
+  - type: textarea
+    id: reproduction
+    attributes: {label: Reproduction, description: Provide the smallest deterministic reproduction.}
+    validations: {required: true}
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      placeholder: |
+        - [ ] Regression test fails before the fix and passes after it
+        - [ ] Required validation passes on the exact PR head
+    validations: {required: true}
+  - type: dropdown
+    id: priority
+    attributes: {label: Priority, options: [P0, P1, P2, P3], default: 2}
+    validations: {required: true}
+  - type: dropdown
+    id: risk
+    attributes: {label: Risk, options: [Low, Medium, High, Critical], default: 1}
+    validations: {required: true}
+  - type: dropdown
+    id: programme
+    attributes:
+      label: Programme
+      options: [Platform, Native Protocol, Content, Infrastructure, Audit & Repair]
+    validations: {required: true}
+  - type: textarea
+    id: blocked_by
+    attributes: {label: Blocked by, description: Full GitHub Issue URLs, one per line, or `None`., placeholder: None}
+    validations: {required: true}
+  - type: textarea
+    id: affected_paths
+    attributes: {label: Affected paths}
+    validations: {required: true}
+  - type: textarea
+    id: validation
+    attributes: {label: Validation plan}
+    validations: {required: true}
+  - type: checkboxes
+    id: completion
+    attributes:
+      label: Completion claim
+      options:
+        - label: I understand that root cause, regression coverage, exact-head CI, merge, archival, and ownership release are required before completion.
+          required: true
