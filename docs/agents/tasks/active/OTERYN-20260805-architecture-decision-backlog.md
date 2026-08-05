@@ -71,7 +71,7 @@ after_decision:
 ```yaml
 checkpoint_version: 1
 policy_version: 2
-updated_at: 2026-08-05T20:45:00Z
+updated_at: 2026-08-05T20:47:00Z
 phase: decide
 session_id: chatgpt-20260805T2231+0200-architecture-decision-backlog
 session_role: architecture-adviser
@@ -88,9 +88,9 @@ heavy_validation_runs: 0
 session_rotation_count: 0
 stale_takeover_count: 0
 human_interruptions: 0
-head: f410fe57f162341dbad651a92ae7cc6896743e53
+head: 13b77333f5bba0849500142d2444b396a23d1ecc
 branch: task/OTERYN-20260805-architecture-decision-backlog
-pr: none
+pr: 604
 status: waiting
 context_routes:
   - architecture
@@ -109,11 +109,12 @@ proven:
   - Open architecture PR search found no ADR 0023 allocation.
   - Issue #602 records the bounded decision and three alternatives.
   - Proposed ADR 0023 and the review report contain no runtime or workflow authorization.
+  - Draft PR #604 contains exactly five bounded architecture, report, task and programme paths.
 derived:
   - A dedicated JSON backlog provides the clearest boundary between unresolved obligations, accepted ADR authority, Issue workflow and programme continuation.
 unknown:
   - repository-owner selection of Option A, B or C
-  - exact-head workflow conclusions after the draft PR is created
+  - exact-head workflow conclusions for draft PR #604
 conflicts: []
 first_failure:
   marker: none
@@ -123,9 +124,11 @@ rejected_hypotheses:
   - GitHub Issues alone provide reproducible exact-head repository validation.
   - The programme queue can become a permanent registry without changing its authority role.
 changed_paths:
-  - docs/agents/tasks/active/OTERYN-20260805-architecture-decision-backlog.md
+  - docs/agents/programs/OTERYN_PLATFORM_ARCHITECTURE_REVIEW.md
   - docs/agents/reports/OTERYN-20260805-architecture-decision-backlog-review.md
+  - docs/agents/tasks/active/OTERYN-20260805-architecture-decision-backlog.md
   - docs/architecture/adr/0023-machine-readable-architecture-decision-backlog.md
+  - docs/architecture/adr/README.md
 validation:
   - command: repository, Issue and PR duplicate search
     result: PASS
@@ -133,12 +136,15 @@ validation:
   - command: ADR allocation inventory and open architecture PR search
     result: PASS
     evidence: highest observed prefix is 0022 and no open allocation for 0023 exists
+  - command: draft PR changed-path inventory
+    result: PASS
+    evidence: PR #604 reports exactly five bounded documentation and task-state paths
   - command: runtime E2E
     result: NOT_APPLICABLE
     evidence: documentation-only architecture decision review changes no executable behavior
   - command: exact-head GitHub Actions
     result: NOT_RUN
-    evidence: draft PR and final waiting checkpoint are not yet emitted
+    evidence: final waiting-checkpoint commit must be emitted before exact-head conclusions can be collected
 blockers:
   - repository owner must accept Option B or select A/C before implementation or ADR acceptance
 next_action: Repository owner accepts Option B on Issue #602 or selects A/C with the reason that outweighs the documented trade-offs.
