@@ -33,7 +33,7 @@ final class PaymentEventCoreTest extends TestCase
 
         config([
             'app.env' => 'testing',
-            'payments.enabled' => false,
+            'payments.enabled' => true,
             'payments.provider' => DeterministicTestPaymentProvider::PROVIDER,
             'payments.provider_verified' => false,
             'payments.allowed_currencies' => ['PLN', 'EUR'],
@@ -42,6 +42,57 @@ final class PaymentEventCoreTest extends TestCase
             'payments.webhook.signature_tolerance_seconds' => 300,
             'payments.webhook.test_secret' => self::SECRET,
         ]);
+    }
+
+    public function test_disabled_payments_reject_all_domain_actions_without_persistence(): void
+    {
+        $identity = $this->identity('payment-disabled@example.com');
+        config(['payments.enabled' => false]);
+
+        try {
+            app(CreatePaymentOrder::class)->execute(
+                $identity,
+                'PLN',
+                1_000,
+                (string) Str::uuid(),
+            );
+            self::fail('Disabled payments must reject order creation.');
+        } catch (PaymentException $exception) {
+            self::assertSame('payments_disabled', $exception->reason);
+        }
+
+        self::assertSame(0, PaymentOrder::query()->count());
+        self::assertSame(0, PaymentOrderTransition::query()->count());
+
+        config(['payments.enabled' => true]);
+        $order = app(CreatePaymentOrder::class)->execute(
+            $identity,
+            'PLN',
+            1_000,
+            (string) Str::uuid(),
+        );
+        config(['payments.enabled' => false]);
+
+        try {
+            app(CreatePaymentCheckout::class)->execute($order, (string) Str::uuid());
+            self::fail('Disabled payments must reject checkout creation.');
+        } catch (PaymentException $exception) {
+            self::assertSame('payments_disabled', $exception->reason);
+        }
+
+        try {
+            app(ProcessPaymentProviderEvent::class)->execute('{"malformed":', []);
+            self::fail('Disabled payments must reject provider-event processing.');
+        } catch (PaymentException $exception) {
+            self::assertSame('payments_disabled', $exception->reason);
+        }
+
+        self::assertSame(PaymentOrder::STATUS_PENDING, $order->refresh()->status);
+        self::assertSame(1, $order->version);
+        self::assertSame(1, PaymentOrderTransition::query()->count());
+        self::assertSame(0, PaymentAttempt::query()->count());
+        self::assertSame(0, PaymentProviderEvent::query()->count());
+        self::assertSame(0, PaymentReconciliationEntry::query()->count());
     }
 
     public function test_order_and_checkout_replay_require_the_exact_original_request(): void
