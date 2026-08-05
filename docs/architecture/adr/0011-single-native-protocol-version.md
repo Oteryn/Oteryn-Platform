@@ -3,7 +3,7 @@
 - Status: Accepted
 - Date: 2026-08-05
 - Coordination ID: `OTS-20260804-native-protocol-selection`
-- Supersedes: the current native-profile dimension in ADR 0010 and contract revision 2
+- Supersedes: the native-profile dimension in ADR 0010 and canonical contract revision 1
 - Does not supersede: Canary compatibility profiles, login/API versions, transport/schema versioning, authority, downgrade or rollout rules
 
 ## Context

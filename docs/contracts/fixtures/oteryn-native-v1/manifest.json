@@ -1,6 +1,5 @@
 {
   "capability_digest_sha256": "f762b55d5108c135079cf0427424d9e9973e76b102321bcb5cacd1fe35a0f018",
-  "contains_native_profile_field": false,
   "contract_revision": 2,
   "coordination_id": "OTS-20260804-native-protocol-selection",
   "fixtures": [

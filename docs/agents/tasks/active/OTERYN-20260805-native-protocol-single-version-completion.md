@@ -64,7 +64,7 @@ owned_paths:
   - docs/contracts/OTERYN_NATIVE_GAMEPLAY_PROTOCOL_SINGLE_VERSION_AMENDMENT.md
   - docs/contracts/oteryn_native_gameplay_v1.proto
   - docs/contracts/OTERYN_NATIVE_GAMEPLAY_PROTOCOL_MIGRATION.md
-  - docs/operations/OTERYN_NATIVE_GAMEPLAY_PROTOCOL_ROLLOUT.md
+  - docs/architecture/OTERYN_NATIVE_PROTOCOL_ROLLOUT.md
   - docs/contracts/correspondence/otheryn/**
   - docs/contracts/correspondence/otclient-rust/**
   - docs/contracts/fixtures/oteryn-native-v1/**

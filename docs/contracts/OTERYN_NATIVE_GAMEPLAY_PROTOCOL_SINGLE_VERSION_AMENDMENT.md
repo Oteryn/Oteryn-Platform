@@ -1,7 +1,7 @@
 # Native gameplay protocol single-version amendment
 
 Coordination ID: `OTS-20260804-native-protocol-selection`  
-Status: `NORMATIVE — SUPERSEDES THE INITIAL NATIVE PROFILE DIMENSION`  
+Status: `INCORPORATED INTO CANONICAL CONTRACT REVISION 2 — RETAINED AS MIGRATION RATIONALE`  
 Decision: [`ADR 0011`](../architecture/adr/0011-single-native-protocol-version.md)  
 Status note: incorporated into canonical contract revision 2 and retained as migration rationale  
 Canonical schema SHA-256: `9c67f19525400fb9890d2a3541ceb6d02eb955061540ad39ca1c1d891c06eba9`  

@@ -52,7 +52,7 @@ One serialized version field must never represent more than one row.
 
 - `/v1/login` accepts Gateway API `protocol_version: 1` and one Game Login Ticket.
 - Gateway redeems the ticket, obtains exactly one authoritative world plus account-authorized characters, creates a Game Session request containing account, world and login-attempt identifiers, and returns one session credential.
-- Otheryn serves Canary-compatible gameplay selected through the isolated Canary compatibility-profile mechanism through its existing ASIO stack.
+- Otheryn serves Canary-compatible gameplay through its existing ASIO stack and isolated Canary compatibility-profile mechanism.
 - Rust contains protocol-neutral contracts and `protocol-canary`; `protocol-oteryn` does not exist.
 
 ### Target, disabled until later packages
@@ -107,8 +107,8 @@ Request rules:
 1. Target request body is at most `16 KiB`. JSON shape, duplicate object keys, trailing JSON, identifier grammar, lengths, counts and candidate uniqueness are validated before ticket redeem.
 2. `client_build` is `1..64` printable ASCII bytes and is compatibility metadata, not authority.
 3. `client_platform` uses lowercase ASCII grammar `[a-z0-9][a-z0-9._-]{0,63}` and is telemetry/compatibility metadata, not authority.
-4. `candidates` contains `1..8` unique tuples. Array order has no preference meaning.
-5. Each candidate contains exactly family, native protocol version, transport, schema revision/hash and a sorted unique capability list of at most 64 tokens.
+4. `candidates` contains `1..8` unique tuples. Array order has no preference meaning. At most one candidate may have `family = oteryn`; when present, its `native_protocol_version` is exactly `1`.
+5. Each native candidate contains exactly family, native protocol version, transport, schema revision/hash and a sorted unique capability list of at most 64 tokens. It contains no `profile` key, alias or placeholder.
 6. Gateway redeems the ticket, obtains the one current authoritative world and reads the current ordered World Registry candidate policy for initial `channel_id = 1`.
 7. Gateway selects the first enabled World Registry candidate whose exact family/native_protocol_version/transport/schema tuple was offered and whose required capabilities are present. Selected optional capabilities are the authoritative allowed intersection.
 8. Gateway issues exactly one Game Session for that selection or returns one terminal failure. It never tries another candidate after session-issuer invocation.
@@ -220,7 +220,7 @@ Target success response retains Gateway API version 1:
 Bounds:
 
 - response body `<=64 KiB`;
-- exactly one world for initial contract revision 2;
+- exactly one world for the initial Gateway/Game Session v2 response;
 - `0..100` characters, all belonging to that world;
 - selected capabilities `1..64` for native v1;
 - host/TLS name `1..253` ASCII bytes, no wildcard/URL syntax;
@@ -483,7 +483,7 @@ Every supported pair records exact Git SHAs or immutable image/artifact digests,
 
 ## 18. Deprecation and rollout
 
-Canary remains a first-class compatibility family unless a later authorized ADR changes it. Native deprecation/removal requires replacement native protocol version, measured population, minimum-supported date, warning period, exact pair evidence and rollback.
+Canary remains a first-class compatibility family unless a later authorized ADR changes it. Any additional native version or native deprecation/removal requires a separate later ADR, a new contract/schema revision, coordinated Platform/Gateway/Otheryn/Rust migration, measured population evidence, warning period, exact-pair evidence and rollback. The current contract has no placeholder for that future work.
 
 Dependency order:
 
