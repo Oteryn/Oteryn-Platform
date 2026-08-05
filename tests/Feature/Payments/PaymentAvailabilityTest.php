@@ -65,7 +65,7 @@ final class PaymentAvailabilityTest extends TestCase
     }
 
     /**
-     * @param  callable(): void  $operation
+     * @param  callable(): mixed  $operation
      */
     private function assertPaymentsDisabled(callable $operation): void
     {
