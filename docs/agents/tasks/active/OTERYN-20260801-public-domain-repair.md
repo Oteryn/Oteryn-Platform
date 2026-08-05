@@ -2,22 +2,15 @@
 task_id: OTERYN-20260801-public-domain-repair
 required_reads:
   - AGENTS.md
-  - docs/agents/EXECUTION_PROTOCOL.md
-  - docs/agents/CONTEXT_HANDOFF.md
-  - docs/agents/BUILD_TEST_MATRIX.md
+  - docs/agents/DELIVERY_COMPLETENESS_AND_CLOSEOUT.md
   - docs/contracts/PUBLIC_ENDPOINTS_CONTRACT.md
-  - deploy/synology/PUBLIC_ENDPOINTS.md
   - docs/operations/PRODUCTION_READINESS_CHECKLIST.md
-  - docs/operations/CLOUDFLARE_ENDPOINT_MANAGEMENT.md
-  - docs/operations/CLOUDFLARE_EDGE_AUDIT.md
 search_first:
-  - PR #387 public-domain validation
-  - PRs #388, #392 and #396 repository/staging repair
-  - Character Bazaar Staging Control run 30695167157 and artifact 8817085021
-  - Cloudflare Tunnel/DNS apply run 30700054602
-  - public post-apply revalidation run 30701140509
-  - remaining-edge audits 30702383389 and 30702827344
-optional_reads:
+  - PRs #388, #392 and #396
+  - Cloudflare closeout PR #516
+  - public-edge PASS runs 30836740158 and 30837673447
+  - HSTS apply run 30855934824
+  - HSTS final audit run 30857136575
   - Issue #91
 ---
 
@@ -25,131 +18,107 @@ optional_reads:
 
 ## Goal
 
-Repair the repository and staging public-domain defects, converge the canonical Cloudflare Tunnel/DNS contract, and complete the remaining public TLS/policy acceptance without weakening security boundaries.
+Repair and prove the canonical public WWW and Game Gateway domain path without weakening application or Cloudflare security boundaries, and obtain controlled end-to-end password-recovery delivery evidence before terminal closeout.
 
 ## Acceptance criteria
 
 - [x] Repository canonical URL, Secure-cookie and bounded Gateway checks are merged.
 - [x] Exact source `3eb109b505f7d1c8718cffb823de6d9d5166717c` is deployed and `STAGING_PROVEN`.
-- [x] Canonical Tunnel ingress entries are reconciled.
-- [x] Both canonical proxied DNS records are current.
-- [x] Post-apply public TLS/HTTP behavior is independently revalidated.
-- [x] Trusted-main GET-only auditing exists for remaining Cloudflare edge controls.
-- [x] Current token scope and token self-management capability are directly audited.
-- [ ] Protected Cloudflare token is replaced with minimum remaining-edge read scopes.
-- [ ] Exact certificate, challenge, redirect, Access, Bot and HSTS state is captured.
-- [ ] Smallest evidence-supported edge repair is applied and publicly accepted.
-- [ ] Controlled redacted password-recovery delivery passes.
+- [x] Canonical Tunnel ingress and proxied DNS records are reconciled.
+- [x] Game Gateway uses the single-level canonical hostname covered by the active certificate.
+- [x] Exact canonical WAF skip rule is first and Bot Fight Mode is disabled without weakening unrelated hostname restrictions.
+- [x] Public WWW, Gateway, cross-route and HTTP-to-HTTPS acceptance pass.
+- [x] HSTS stage 1 is active with `max-age=2592000`, `includeSubDomains=false`, `preload=false` and `nosniff=true`.
+- [x] Independent trusted-main audits reproduce the desired Cloudflare state without mutation.
+- [ ] Controlled redacted password-recovery delivery passes through a real delivery-capable mail path and controlled mailbox.
 - [x] `PRODUCTION_PROVEN` remains false until Issue #91 completes.
 
 ## Ownership
 
 ```yaml
 owned_paths:
-  - deploy/synology/scripts/health-check.sh
-  - tests/Feature/SynologyStagingNetworkBoundaryTest.php
   - docs/agents/tasks/active/OTERYN-20260801-public-domain-repair.md
-  - docs/agents/reports/OTERYN-20260801-public-domain-repair.md
-  - docs/agents/reports/OTERYN-20260801-public-edge-revalidation.md
-  - docs/agents/reports/OTERYN-20260801-cloudflare-edge-audit.md
 modules:
   - public-web
   - identity
   - game-gateway
   - edge-transport
-  - synology-staging
 dependencies:
   - Issue #91 production go-live gate
-  - GitHub environment production-cloudflare
-  - external Cloudflare account administrator for token rotation
+  - controlled production or approved non-production mail target
 blockers:
-  - protected Cloudflare token lacks remaining-edge read scopes and cannot inspect or expand its own policy
+  - no controlled test identity/mailbox and delivery-capable target are provisioned for a real password-reset delivery proof
 ```
 
 ## Context checkpoint
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-01T14:04:00Z
+updated_at: 2026-08-05T12:45:00Z
 status: blocked
-phase: cloudflare_token_rotation_blocked
-branch: docs/OTERYN-20260801-cloudflare-token-blocker
-head: 1971e764715701b9a09911e5563672c29a92c22e
-pr: none
+phase: password_recovery_delivery_evidence
+branch: docs/OTERYN-20260805-public-domain-repair-reconcile
+head: pending
+pr: pending
 context_routes:
-  - agent-governance
   - security
   - auth-identity
-  - api
+  - operations
   - testing
-owned_paths:
-  - docs/agents/tasks/active/OTERYN-20260801-public-domain-repair.md
-  - docs/agents/tasks/active/OTERYN-20260801-cloudflare-edge-audit.md
-  - docs/agents/reports/OTERYN-20260801-cloudflare-edge-audit.md
 repository_mutation_authorization: PROVEN
-external_mutation_scope_authorization: PROVEN
-staging_deployment_authorization: PROVEN
+external_edge_mutation_authorization: COMPLETED_WITH_EVIDENCE
+production_mutation_authorization: NOT_PROVEN
 proven:
-  - PRs #388, #392 and #396 repaired repository-owned public-domain and staging boundaries.
-  - Exact deployment run 30695167157 and artifact 8817085021 classify source 3eb109b505f7d1c8718cffb823de6d9d5166717c as STAGING_PROVEN.
-  - Cloudflare audit 30699270139 and apply 30700054602 converged Tunnel/DNS; only the bounded Tunnel configuration changed.
-  - Public revalidation 30701140509 artifact 8818850803 still proves Gateway TLS failure, WWW 403, no HTTP redirect and max-age=0 HSTS.
-  - PR #406 merged trusted-main GET-only remaining-edge auditing as 5ea883c26dead9d58d363df1fb7909e3c399e206.
-  - Live remaining-edge audit 30702383389 artifact 8819238641 proved permission_denied for certificate packs, Rulesets, Bot, Access and selected zone settings.
-  - PR #411 merged trusted-main GET-only token-capability auditing as 63771e2565dd0d691c8229d97090c0d0fcceb9c3.
-  - Live capability audit 30702827344 artifact 8819368872 proved permission_denied for token self-details and the permission-group catalog.
-  - Account API Tokens Read and Account API Tokens Write are not proven; the current token cannot self-expand.
-  - No Cloudflare mutation occurred in either remaining-edge audit.
+  - PR #516 archived the completed Cloudflare edge task after guarded repair and independent verification.
+  - Public-edge runs 30836740158 and 30837673447 passed all required DNS, TLS, WWW, Gateway, cross-route and redirect checks.
+  - HSTS apply run 30855934824 reached the staged target and complete public E2E PASS with positive HSTS.
+  - HSTS audit run 30857136575 reproduced the exact target with mutation=none.
+  - Password recovery implementation is merged and refuses the log mail transport.
+  - Issue #91 remains open and production mail delivery is explicitly ENV-EVIDENCE-REQUIRED.
 derived:
-  - Cloudflare API integration is working; the exact current blocker is token scope.
-  - Tunnel/DNS is not the cause of the remaining TLS and policy failures.
-  - External token replacement is required before autonomous read-audit and repair can continue.
+  - Public-domain routing and Cloudflare edge repair are complete.
+  - Password-recovery delivery cannot be proven by an anonymous HTTP probe or an array/log mailer.
+  - A real test requires a controlled existing identity, delivery-capable mail configuration and mailbox observation without exposing credentials or reset tokens.
 unknown:
-  - Exact certificate product and coverage state for login.oteryn.molehill.cloud.
-  - Exact Cloudflare control producing WWW challenge pages.
-  - Exact redirect, Access, Bot, WAF and HSTS resource identifiers.
-  - Minimal corresponding write scopes until read audit succeeds.
-  - Controlled password-recovery delivery result.
+  - effective real mail provider and sender-domain readiness for the intended target
+  - controlled test identity and mailbox available to this task
+  - delivery, receipt and reset-link completion result
 conflicts:
-  - STAGING_PROVEN and Tunnel/DNS convergence coexist with directly failing public acceptance; neither may be promoted to PUBLIC_DOMAIN_LAUNCH_READY or PRODUCTION_PROVEN.
+  - the previous checkpoint reported a Cloudflare token blocker, but later merged work and live evidence removed that blocker.
 first_failure:
-  marker: gateway-public-tls-handshake-failure
-  evidence: PR #387 and post-apply run 30701140509 both fail Gateway TLS before HTTP.
+  marker: controlled-password-recovery-target-unavailable
+  evidence: repository search found no trusted-main password-recovery delivery workflow or controlled mailbox contract; the production checklist and prior deployment-target preflight require external target/identity configuration.
 rejected_hypotheses:
-  - Repository or staging configuration remains the blocker; exact staging deployment passed.
-  - Tunnel or DNS drift remains the blocker; live apply converged both.
-  - Cloudflare integration is absent; authenticated audit/apply runs succeeded.
-  - The current token can expand itself; live capability audit could not read its own policy or permission catalog.
-changed_paths:
-  - docs/agents/tasks/active/OTERYN-20260801-public-domain-repair.md
-  - docs/agents/tasks/active/OTERYN-20260801-cloudflare-edge-audit.md
-  - docs/agents/reports/OTERYN-20260801-cloudflare-edge-audit.md
+  - Cloudflare edge remains broken; final WAF/Bot, public E2E and HSTS evidence passed.
+  - A generic forgot-password HTTP 200 proves delivery; it proves only enumeration-safe request handling.
+  - A log or in-memory mail transport proves external delivery; the implementation explicitly rejects log transport and array delivery has no external effect.
 validation:
-  - command: Character Bazaar Staging Control run 30695167157
+  - command: public-edge repair apply and E2E
     result: PASS
-    evidence: exact deployment and artifact 8817085021
-  - command: Cloudflare Tunnel/DNS apply run 30700054602
+    evidence: runs 30836740158 and 30837673447
+  - command: guarded HSTS stage-1 apply
     result: PASS
-    evidence: tunnel and both DNS names current after verification
-  - command: public revalidation run 30701140509
-    result: FAIL
-    evidence: Gateway TLS, WWW 403, redirects and HSTS still fail
-  - command: live remaining-edge audit run 30702383389
+    evidence: run 30855934824
+  - command: independent final HSTS audit
     result: PASS
-    evidence: trusted GET-only audit completed and classified permission boundary
-  - command: live token capability audit run 30702827344
-    result: PASS
-    evidence: trusted GET-only audit proved no token self-management access
-  - command: remaining public acceptance with current token
+    evidence: run 30857136575
+  - command: controlled password-recovery delivery
     result: BLOCKED
-    evidence: required edge API families are permission_denied
+    evidence: no controlled identity/mailbox or approved delivery-capable target is available without inventing or exposing credentials
 blockers:
-  - An external Cloudflare account administrator must replace the protected production-cloudflare token with minimum remaining-edge read scopes without exposing the token in chat or Git.
-next_action: Replace CLOUDFLARE_API_TOKEN in the protected GitHub environment, then rerun the existing marker-only trusted-main audit. Add only exact write scopes required by the resulting resource-level evidence, apply bounded changes, and rerun public acceptance.
+  - provision a controlled test identity and delivery mailbox through an approved protected environment; do not paste credentials or reset tokens into chat or Git
+next_action: Provision protected target URL, controlled test email and delivery-verification access for the intended environment, then execute a bounded password-reset request, verify receipt and link host, complete the reset, confirm single-use and session-revocation behavior, sanitize evidence, and archive this task. Full production go-live remains separate under Issue #91.
 ```
 
-## Reports
+## Current classification
 
-- `docs/agents/reports/OTERYN-20260801-public-domain-repair.md`
-- `docs/agents/reports/OTERYN-20260801-public-edge-revalidation.md`
-- `docs/agents/reports/OTERYN-20260801-cloudflare-edge-audit.md`
+```text
+STAGING_PROVEN=true
+PUBLIC_EDGE_REPAIR_COMPLETE=true
+PUBLIC_EDGE_E2E_PASS=true
+HSTS_STAGE1_COMPLETE=true
+PASSWORD_RECOVERY_DELIVERY_PROVEN=false
+PUBLIC_DOMAIN_TASK_CLOSED=false
+PUBLIC_DOMAIN_LAUNCH_READY=false
+PRODUCTION_PROVEN=false
+```
