@@ -21,19 +21,13 @@ use Tests\TestCase;
 final class PaymentEventConcurrencyMariaDbTest extends TestCase
 {
     private const DATABASE = 'oteryn_payment_event_concurrency_test';
-
     private const USER = 'oteryn_payment_event_concurrency';
-
     private const PASSWORD = 'oteryn-payment-event-concurrency-password';
-
     private const SECRET = 'oteryn-payment-event-concurrency-secret';
 
     private ?PDO $root = null;
-
     private string $rootHost = '';
-
     private string $rootPort = '3306';
-
     private string $rootPassword = '';
 
     protected function setUp(): void
@@ -67,7 +61,7 @@ final class PaymentEventConcurrencyMariaDbTest extends TestCase
 
         config([
             'app.env' => 'testing',
-            'payments.enabled' => false,
+            'payments.enabled' => true,
             'payments.provider' => DeterministicTestPaymentProvider::PROVIDER,
             'payments.allowed_currencies' => ['PLN', 'EUR'],
             'payments.maximum_order_amount_minor' => 100_000_000,
@@ -214,7 +208,10 @@ final class PaymentEventConcurrencyMariaDbTest extends TestCase
         self::assertCount(1, array_unique($eventIds));
         self::assertSame(1, PaymentProviderEvent::query()->count());
         self::assertSame(2, PaymentOrderTransition::query()->count());
-        self::assertSame(PaymentOrder::STATUS_SUCCEEDED, PaymentOrder::query()->findOrFail($order->id)->status);
+        self::assertSame(
+            PaymentOrder::STATUS_SUCCEEDED,
+            PaymentOrder::query()->findOrFail($order->id)->status,
+        );
 
         foreach (glob($prefix.'.*') ?: [] as $path) {
             @unlink($path);
