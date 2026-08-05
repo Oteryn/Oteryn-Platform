@@ -10,6 +10,7 @@ use App\Payments\Models\PaymentOrder;
 use App\Payments\Models\PaymentOrderTransition;
 use App\Payments\Models\PaymentProviderEvent;
 use App\Payments\Models\PaymentReconciliationEntry;
+use App\Payments\PaymentAvailability;
 use App\Payments\PaymentOrderStateMachine;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\QueryException;
@@ -20,6 +21,7 @@ final class ProcessPaymentProviderEvent
     public function __construct(
         private readonly PaymentWebhookVerifier $verifier,
         private readonly PaymentOrderStateMachine $stateMachine,
+        private readonly PaymentAvailability $availability,
     ) {}
 
     /**
@@ -30,6 +32,8 @@ final class ProcessPaymentProviderEvent
         array $headers,
         ?CarbonImmutable $now = null,
     ): PaymentProviderEvent {
+        $this->availability->ensureEnabled();
+
         $verified = $this->verifier->verify($rawPayload, $headers, $now);
         $configuredProvider = config('payments.provider');
 
