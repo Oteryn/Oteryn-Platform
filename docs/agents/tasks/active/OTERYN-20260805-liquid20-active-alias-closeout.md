@@ -44,12 +44,12 @@ feature_scope:
 
 ## Acceptance criteria
 
-- [ ] PR #216 and merge commit `49d887e843c8eae3e0ade215ca9cf44f94c4de20` are recorded as terminal archive evidence.
-- [ ] The obsolete active alias is removed.
-- [ ] The canonical archive is the sole durable historical task record and contains no live lease or ownership claim.
-- [ ] The stale ready state and obsolete merge action are eliminated.
-- [ ] The retained historical branch is deleted or explicitly classified from live state.
-- [ ] No forbidden workflow, collector, deployment, Synology, evidence, production, or external-repository path changes.
+- [x] PR #216 and merge commit `49d887e843c8eae3e0ade215ca9cf44f94c4de20` are recorded as terminal archive evidence.
+- [x] The obsolete active alias is removed.
+- [x] The canonical archive is the sole durable historical task record and contains no live lease or ownership claim.
+- [x] The stale ready state and obsolete merge action are eliminated.
+- [x] The retained historical branch is explicitly classified from live state as retained, merged and unowned.
+- [x] No forbidden workflow, collector, deployment, Synology, evidence, production, or external-repository path changes.
 - [ ] Proportionate fresh documentation audit reports zero material findings.
 - [ ] Exact-head Agent Governance and all emitted required checks pass.
 - [ ] Related PRs are terminal, the Issue is closed completed, and the remediation claim is released.
@@ -77,11 +77,11 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-05T20:43:00Z
-head: 73359aea10bb556e59b582daa42b5b7fda5ffa8d
+updated_at: 2026-08-05T20:51:00Z
+head: 652d0060c659e718806061b48fffb11a8cd51f6d
 branch: repair/issue-567
 pr: 604
-status: implementing
+status: validating
 context_routes:
   - architecture
   - testing
@@ -91,28 +91,40 @@ owned_paths:
   - docs/agents/tasks/active/OTERYN-20260805-liquid20-active-alias-closeout.md
   - docs/agents/tasks/archive/OTERYN-20260805-liquid20-active-alias-closeout.md
 proven:
-  - Issue 567 is implementation-authorized, parallel-safe and unclaimed at preflight.
-  - The deterministic branch repair/issue-567 was acquired from main aa3ddcd0513708276920cb2734f7be845c3f177a.
-  - Draft pull request 604 targets main from the deterministic repair branch.
-  - PR 216 is terminal merged evidence for the historical Liquid20 archive task.
-  - The historical active alias and canonical archive coexist on main with stale ready/merge state.
+  - Issue 567 is implementation-authorized, parallel-safe and exclusively claimed by repair/issue-567 and pull request 604.
+  - PR 216 is closed and merged from final head bd7c573d9bf6f3cb247e88b87ffa02aa7c412fb3 as 49d887e843c8eae3e0ade215ca9cf44f94c4de20.
+  - The obsolete historical active alias has been deleted on the repair branch.
+  - The canonical archive now records status completed, terminal PR evidence, no live lease or claim, and ownership only of its own archive path.
+  - The historical source branch docs/OTERYN-20260727-liquid20-acceptance-complete remains present but is explicitly classified as retained, merged and without live dependency, claim, lease or ownership.
+  - Changed paths are limited to the two historical task records and this active repair checkpoint.
+  - No workflow, collector, deployment, Synology, immutable evidence, production or external-repository path changed.
 derived:
-  - The bounded repair is documentation-only and can release stale coordination ownership without touching runtime or external systems.
+  - The bounded lifecycle repair satisfies implementation acceptance pending fresh documentation audit and exact-head validation.
 unknown:
-  - Final exact-head governance result.
+  - Fresh audit disposition.
+  - Final exact-head governance and required CI results.
 conflicts: []
 first_failure:
   marker: none
   evidence: none
-rejected_hypotheses: []
+rejected_hypotheses:
+  - The retained historical branch requires deletion; acceptance permits explicit terminal classification, and live state shows no dependency or ownership.
 changed_paths:
+  - docs/agents/tasks/active/OTERYN-20260724-liquid20-synology-control.md
+  - docs/agents/tasks/archive/OTERYN-20260724-liquid20-synology-control.md
   - docs/agents/tasks/active/OTERYN-20260805-liquid20-active-alias-closeout.md
 validation:
-  - command: preflight live-state reconciliation
+  - command: GitHub pull request 216 terminal-state verification
     result: PASS
-    evidence: Issue labels, claim comments, related PR search, active/archive records and main head were inspected.
+    evidence: merged=true, final head bd7c573d9bf6f3cb247e88b87ffa02aa7c412fb3, merge commit 49d887e843c8eae3e0ade215ca9cf44f94c4de20
+  - command: historical branch classification
+    result: PASS
+    evidence: docs/OTERYN-20260727-liquid20-acceptance-complete exists and is terminally associated with merged PR 216; no live claim, task dependency or open PR was found.
+  - command: changed-path boundary review
+    result: PASS
+    evidence: only declared task-lifecycle documentation paths changed.
 blockers: []
-next_action: Reconcile the historical active/archive pair without touching forbidden paths.
+next_action: Perform a fresh proportionate documentation audit of the exact PR diff, then finalize exact-head CI.
 ```
 
 ## Notes
