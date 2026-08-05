@@ -55,10 +55,10 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-05T14:32:00Z
-head: 1b633ec3a36deba327c1dc35aff5caea81546b69
+updated_at: 2026-08-05T14:34:00Z
+head: 84b4fe751ff70014777ea44b0425c68e7000e016
 branch: docs/platform-agent-scope-lock-20260805
-pr: none
+pr: 545
 status: validating
 context_routes:
   - agent-governance
@@ -73,9 +73,10 @@ owned_paths:
   - docs/agents/tasks/archive/OTERYN-20260805-platform-agent-scope-lock.md
 proven:
   - Each canonical programme prompt names blakinio/Oteryn-Platform and restricts writes to it.
-  - The mandatory scope contract now removes the former separate-authorisation ambiguity for these programme identities.
+  - The mandatory scope contract removes the former separate-authorisation ambiguity for these programme identities.
   - The registry and all three programme states require the same scope contract.
   - Static adversarial evaluation passes 15 of 15 scope-routing cases.
+  - PR 545 contains only the declared agent-governance paths.
 derived:
   - A separate programme/task identity remains available for separately authorized work without weakening these Platform programmes.
 unknown:
@@ -99,15 +100,18 @@ validation:
   - command: static adversarial scope evaluation
     result: PASS
     evidence: docs/agents/evidence/OTERYN-20260805-platform-agent-scope-lock/prompt-eval.md; 15/15 candidate cases pass
+  - command: fresh exact-diff review
+    result: PASS
+    evidence: PR 545 contains only the immutable scope contract, registry bindings, programme-state bindings, evaluation and task checkpoint
   - command: runtime E2E
     result: NOT_APPLICABLE
     evidence: agent-governance documentation only; no runtime product behavior changed
   - command: exact-head GitHub Actions
     result: NOT_RUN
-    evidence: PR not opened yet
+    evidence: final-head checks pending
 blockers:
   - none
-next_action: Open the bounded documentation PR and verify all required checks on its exact final head.
+next_action: Verify every required GitHub Actions workflow on the exact final PR head, then merge if all gates remain satisfied.
 ```
 
 ## Notes
