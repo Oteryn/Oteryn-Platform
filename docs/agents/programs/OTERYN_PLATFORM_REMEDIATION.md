@@ -1,8 +1,9 @@
 ---
 programme_id: OTERYN_PLATFORM_REMEDIATION
-programme_version: 1
+programme_version: 2
 canonical_prompt: docs/agents/prompts/OTERYN_PLATFORM_REMEDIATION_PROGRAM.md
 required_reads:
+  - docs/agents/OTERYN_PLATFORM_PROGRAM_SCOPE.md
   - docs/agents/AUDIT_REMEDIATION_ISSUE_TAXONOMY.md
   - docs/agents/REMEDIATION_WORK_CLAIM_PROTOCOL.md
   - docs/agents/SHORT_PROGRAM_INVOCATIONS.md
@@ -18,8 +19,8 @@ Consume confirmed, implementation-authorized Platform findings and close them th
 ## Durable queue
 
 ```yaml
-programme_state_version: 1
-updated_at: 2026-08-05T13:45:00Z
+programme_state_version: 2
+updated_at: 2026-08-05T14:30:00Z
 status: ready
 active_claims: []
 active_tasks: []
@@ -30,6 +31,7 @@ ready_issue_query: 'repo:blakinio/Oteryn-Platform is:issue is:open label:program
 proven:
   - Every remediation worker must obtain a valid Issue claim and repository task ownership before product mutation.
   - One Issue is assigned to one remediation worker at a time.
+  - This programme is immutably scoped to blakinio/Oteryn-Platform by docs/agents/OTERYN_PLATFORM_PROGRAM_SCOPE.md.
 derived:
   - Parallel dispatch is safe only for Issues classified parallel_safe with different coordination keys and non-overlapping paths.
 unknown:
