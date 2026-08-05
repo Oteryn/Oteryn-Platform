@@ -9,7 +9,7 @@ branch: task/OTERYN-20260805-architecture-authority
 base_branch: main
 exact_base: 3ab77c072dce796b09004c54b649db009a75d524
 created: 2026-08-05T16:48:00+02:00
-updated: 2026-08-05T16:57:00+02:00
+updated: 2026-08-05T16:59:00+02:00
 risk: medium
 execution_mode: github-only
 task_kind: architecture-review
@@ -70,13 +70,14 @@ Option B is recommended with high confidence because it preserves focused owners
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-05T16:57:00+02:00
-status: blocked
-phase: owner-decision
-exact_base: 3ab77c072dce796b09004c54b649db009a75d524
+updated_at: 2026-08-05T16:59:00+02:00
+head: 7a96aa657507d7c1ccb784a90fc7fad54ecbeffe
 branch: task/OTERYN-20260805-architecture-authority
-pull_request: 550
-issue: 548
+pr: 550
+status: blocked
+context_routes:
+  - agent-governance
+  - architecture
 owned_paths:
   - docs/agents/tasks/active/OTERYN-20260805-architecture-authority.md
   - docs/agents/reports/OTERYN-20260805-architecture-authority-review.md
@@ -94,6 +95,23 @@ unknown:
   - Which authority model the owner accepts.
 conflicts:
   - Initial target/non-goal text conflicts with current roadmap, module catalogue, contracts and merged implementation evidence.
+first_failure:
+  marker: Agent Governance checkpoint contract
+  evidence: Runs 31017494843 and 31017599884 failed only because the new task record initially lacked the mandatory Context checkpoint heading and required checkpoint fields.
+rejected_hypotheses:
+  - The failures were not application, database, edge, game-auth or production-like regressions because all five corresponding workflows succeeded on head 7a96aa657507d7c1ccb784a90fc7fad54ecbeffe.
+  - Runtime E2E is not required because the diff changes only architecture-review documentation.
+changed_paths:
+  - docs/agents/programs/OTERYN_PLATFORM_ARCHITECTURE_REVIEW.md
+  - docs/agents/reports/OTERYN-20260805-architecture-authority-review.md
+  - docs/agents/tasks/active/OTERYN-20260805-architecture-authority.md
+validation:
+  - command: exact PR changed-path and diff audit
+    result: PASS
+    evidence: PR 550 contains exactly the three declared architecture-review documentation paths and no runtime, workflow, contract, migration, dependency, deployment or infrastructure path.
+  - command: specialized workflow review on head 7a96aa657507d7c1ccb784a90fc7fad54ecbeffe
+    result: PASS_WITH_GOVERNANCE_REMEDIATION
+    evidence: CI, Phase 7 Production-Like Validation, Game Auth Ticket Concurrency, Edge Security Emulation and Platform DB Outage Validation succeeded; Agent Governance exposed the checkpoint-schema defect corrected by this commit.
 blockers:
   - Owner must accept Option B or select Option A/C with rationale.
 next_action: Record the architecture authority decision in Issue 548; when B is accepted, allocate a collision-free ADR identifier through a deterministic full ADR inventory and implement documentation Slice 1.
