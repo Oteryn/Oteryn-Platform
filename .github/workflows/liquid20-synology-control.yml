@@ -194,7 +194,7 @@ jobs:
 
       - name: Upload explicitly requested Liquid20 evidence
         if: steps.operation.outputs.action == 'collect' && steps.control.outputs.artifact_ready == 'true'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: liquid20-${{ steps.control.outputs.run_id }}
           path: ${{ steps.control.outputs.artifact_path }}

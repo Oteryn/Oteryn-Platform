@@ -93,7 +93,7 @@ jobs:
           sha256sum canary-rehearsal | tee canary-build-sha256.txt
 
       - name: Upload exact Canary binary
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: native-auth-rehearsal-canary-cache-headers
           path: |

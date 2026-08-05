@@ -140,7 +140,7 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload sanitized preflight evidence
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: synology-production-target-preflight-evidence-${{ github.run_id }}
           path: /tmp/synology-production-target-preflight-evidence.json

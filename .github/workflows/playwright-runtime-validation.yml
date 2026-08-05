@@ -157,7 +157,7 @@ jobs:
 
       - name: Upload Playwright runtime evidence
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: playwright-php85-runtime-${{ github.run_id }}-${{ github.run_attempt }}
           path: artifacts/playwright-runtime
