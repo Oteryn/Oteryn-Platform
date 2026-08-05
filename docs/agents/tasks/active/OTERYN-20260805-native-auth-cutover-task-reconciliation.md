@@ -26,11 +26,11 @@ Reconcile the stale native-auth production-cutover lifecycle without touching ru
 
 ## Acceptance criteria
 
-- [ ] PR #124 and merge commit `53158217a6c6017230301cf4daa783b04fcc13d5` are recorded as terminal Platform hardening evidence.
-- [ ] The stale implementation task is archived with completed repository-owned work and no runtime ownership.
-- [ ] A narrow verification-only active record preserves unresolved exact-revision E2E and production network/TLS/secret evidence as blocked or unknown.
-- [ ] Active PR #542, runtime, contracts, workflows, production systems and external repositories remain untouched.
-- [ ] The historical branch `task/OTERYN-20260723-native-auth-production-cutover` is deleted or explicitly classified after dependency verification.
+- [x] PR #124 and merge commit `53158217a6c6017230301cf4daa783b04fcc13d5` are recorded as terminal Platform hardening evidence.
+- [x] The stale implementation task is archived with completed repository-owned work and no runtime ownership.
+- [x] A narrow verification-only active record preserves unresolved exact-revision E2E and production network/TLS/secret evidence as blocked or unknown.
+- [x] Active PR #542, runtime, contracts, workflows, production systems and external repositories remain untouched.
+- [x] The historical branch `task/OTERYN-20260723-native-auth-production-cutover` is explicitly classified as retained evidence-only with no ownership or execution role.
 - [ ] Exact-head governance validation passes and review threads are clear.
 
 ## Ownership
@@ -48,8 +48,7 @@ dependencies:
   - Platform PR #124 merged
   - Platform PR #542 remains active and owns current runtime paths
 blockers:
-  - hardened cross-repository E2E evidence is not yet proven on exact merged revisions
-  - deployed production network/TLS/secret evidence remains unavailable
+  - none for lifecycle reconciliation; external verification blockers are preserved in OTERYN-20260805-native-auth-production-verification
 cross_repository_tasks:
   - none
 ```
@@ -58,11 +57,11 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-05T20:43:00Z
-head: 468675fac04c41d00454c33371a9c45e3a248fce
+updated_at: 2026-08-05T20:47:00Z
+head: 4e1d0486f751d530c3ae15886c153f2796eb9e3e
 branch: repair/issue-565
 pr: 603
-status: implementing
+status: validating
 context_routes:
   - architecture-governance
   - auth-identity
@@ -76,25 +75,39 @@ proven:
   - Issue 565 is implementation-authorized, parallel-safe and atomically locked by branch repair/issue-565 from main aa3ddcd0513708276920cb2734f7be845c3f177a.
   - Platform PR 124 merged as 53158217a6c6017230301cf4daa783b04fcc13d5 from final head b757b2f5d6812467527507c20fe25542429a01d4.
   - Active draft PR 542 explicitly supersedes the stale Gateway lease and owns current runtime and contract paths.
-  - The historical task still has legitimate unresolved exact-revision E2E and deployed production verification gates.
+  - The old implementation record was removed from active tasks and recreated under archive with zero owned paths.
+  - The remaining exact-revision E2E and production evidence gates now live in a blocked verification-only record owning only itself.
+  - The historical branch is classified as retained evidence-only and may be deleted after reconciliation without affecting PR 542 or verification work.
+  - No runtime, route, contract, workflow, environment, production or external-repository path changed.
 derived:
-  - The correct repair is lifecycle-only: archive completed implementation and preserve remaining work in a verification-only record without runtime ownership.
+  - The stale lifecycle conflict is repaired while all real safety gates remain fail-closed and explicit.
 unknown:
-  - hardened exact-revision OTClient to Gateway to Canary E2E result
-  - exact deployed private-network, TLS and secret-manager state
+  - final exact-head governance result for PR 603
 conflicts: []
 first_failure:
   marker: stale-task-lifecycle
-  evidence: active task points to already-merged PR 124 and retains paths superseded by active PR 542
+  evidence: active task pointed to already-merged PR 124 and retained paths superseded by active PR 542
 rejected_hypotheses:
-  - archive the task as fully complete; unresolved production and E2E gates would be lost
-  - resume the historical implementation branch; current runtime ownership belongs to PR 542
+  - archive the task as fully complete and discard external gates
+  - resume the historical implementation branch or modify PR 542
 changed_paths:
+  - docs/agents/tasks/active/OTERYN-20260723-native-auth-production-cutover.md
+  - docs/agents/tasks/archive/OTERYN-20260723-native-auth-production-cutover.md
+  - docs/agents/tasks/active/OTERYN-20260805-native-auth-production-verification.md
   - docs/agents/tasks/active/OTERYN-20260805-native-auth-cutover-task-reconciliation.md
 validation:
-  - command: live GitHub preflight
+  - command: live GitHub lifecycle verification
     result: PASS
-    evidence: Issue 565 unclaimed, deterministic branch acquired, PR 124 merged, PR 542 open draft and historical branch retained
+    evidence: PR 124 merged, PR 542 remains open draft and untouched, historical branch retained at b757b2f5d6812467527507c20fe25542429a01d4
+  - command: E2E applicability assessment
+    result: NOT_APPLICABLE
+    evidence: this repair changes only task lifecycle documentation; required native-auth E2E remains explicitly NOT_RUN in the separate blocked verification-only task
+  - command: fresh proportionate documentation audit
+    result: NOT_RUN
+    evidence: pending inspection of the exact final PR diff and live task states
+  - command: exact-head Agent Governance
+    result: NOT_RUN
+    evidence: pending final head generation
 blockers: []
-next_action: Replace the stale task with an archived implementation record and a narrow verification-only active record.
+next_action: Inspect the exact final diff as a fresh validator, correct any lifecycle contradiction, then verify exact-head Agent Governance and PR hygiene.
 ```
