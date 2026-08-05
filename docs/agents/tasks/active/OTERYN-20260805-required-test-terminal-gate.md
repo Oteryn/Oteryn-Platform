@@ -96,8 +96,8 @@ claim:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-05T21:12:00Z
-head: 4fc85c81d4907df6b61f33b140c4406a7c010bfd
+updated_at: 2026-08-05T21:14:00Z
+head: 69ceecad9c2087bfa9344fe760ea026ba9f36cbc
 branch: repair/issue-623
 pr: 624
 status: validating
@@ -105,7 +105,7 @@ phase: validate
 session_id: chatgpt-20260805T2307+0200-required-test-gate
 session_role: implementer
 execution_mode: github
-lease_expires_at: 2026-08-05T21:57:00Z
+lease_expires_at: 2026-08-05T21:59:00Z
 context_pressure: low
 context_growth: stable
 context_score: 4
@@ -135,8 +135,8 @@ unknown:
   - Live PR 613 proof after main contains the repair.
 conflicts: []
 first_failure:
-  marker: none
-  evidence: implementation classifier and focused contract succeeded on 4fc85c81d4907df6b61f33b140c4406a7c010bfd
+  marker: checkpoint validation vocabulary
+  evidence: Agent Governance run 31047628738 rejected unsupported PENDING validation results; replaced with NOT_RUN
 rejected_hypotheses:
   - A conditionally skipped required job is merge-safe; PR 613 disproved this.
   - Running the full suite for every documentation change is necessary; the terminal aggregation model preserves fail-closed behavior without that cost.
@@ -155,11 +155,11 @@ validation:
     result: PASS
     evidence: review 4868781237; zero material findings
   - command: exact-final-head emitted workflows
-    result: PENDING
-    evidence: final checkpoint commit triggers a fresh exact-head generation
+    result: NOT_RUN
+    evidence: supported checkpoint state; fresh exact-head generation follows this correction
   - command: documentation-only live proof on PR 613
-    result: PENDING
+    result: NOT_RUN
     evidence: requires repaired workflow on main
 blockers: []
-next_action: Reconcile with current main, pass all exact-head checks, merge PR 624, then synchronize PR 613 and prove test=success with full-test-suite=skipped.
+next_action: Pass all exact-head checks, merge PR 624, then synchronize PR 613 and prove test=success with full-test-suite=skipped.
 ```
