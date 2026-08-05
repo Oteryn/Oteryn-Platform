@@ -5,8 +5,11 @@
 - Programme: `OTERYN_PLATFORM_ARCHITECTURE_REVIEW`
 - Backlog item: `ARCH-AUTH-005`
 - Issue: #602
+- Pull request: #604
 - Exact base: `main@aa3ddcd0513708276920cb2734f7be845c3f177a`
 - Review date: 2026-08-05
+- Owner decision: **Option B accepted**
+- Accepted ADR: `docs/architecture/adr/0023-machine-readable-architecture-decision-backlog.md`
 - Runtime E2E: `NOT_APPLICABLE` — this package changes architecture decision documentation only.
 
 ## Current state
@@ -19,50 +22,53 @@
 - Repository-file, Issue and PR searches found no separate machine-readable architecture decision backlog or equivalent owner.
 - GitHub Issues provide live collaboration state but are not reproducible exact-head repository artifacts.
 - ADR prefix 0023 was free after scanning the ADR inventory and open architecture PRs.
+- The repository owner accepted Option B in the current invocation and the decision was recorded on Issue #602.
 
 ### DERIVED
 
 - Keeping the full backlog in programme state would make one file both continuation state and durable decision inventory.
 - Using GitHub Issues alone would make exact-head validation depend on mutable remote state and API availability.
-- A dedicated repository registry can remain subordinate to accepted ADRs if it is restricted to unresolved decision obligations.
+- A dedicated repository registry remains subordinate to accepted ADRs because it is restricted to unresolved decision obligations.
 
 ### UNKNOWN
 
-- The repository owner's selected authority model: programme-embedded, dedicated JSON registry or Issues-only.
-- Whether future live reconciliation should be a separate command or an optional mode of the deterministic validator.
+- Exact implementation-package final head, CI conclusions and merge commit.
+- Whether future live reconciliation will be a separate command or an optional validator mode; the deterministic offline boundary is already fixed.
 
 ### CONFLICT
 
-None. The problem is a missing durable decision, not a contradiction among accepted sources.
+None.
 
-## Decision invariant
+## Accepted decision
 
-There must be exactly one deterministic inventory of unresolved architecture decision obligations, and it must not become a second authority for accepted architecture.
-
-## Options and trade-offs
-
-| Dimension | A — programme-embedded | B — dedicated JSON | C — Issues-only |
-|---|---|---|---|
-| Authority clarity | Medium; two roles in one file | High; explicit subordinate registry | Medium; workflow and authority can blur |
-| Exact-head reproducibility | High | High | Low |
-| Offline validation | Possible but Markdown-coupled | Strong and direct | Not available |
-| Merge contention | High on programme file | Low to medium | Low in repository |
-| Schema evolution | Awkward | Explicit versioning | Label/API conventions |
-| Collaboration | Programme/PR based | Issue plus repository record | Native GitHub |
-| Historical snapshot | Git history | Git history | Remote state only |
-| ADR duplication risk | Medium | Low with explicit validator rule | Medium |
-| Operational complexity | Lowest initially | Moderate | Hidden in remote reconciliation |
-| Reversibility | High | High | Medium |
-
-## Recommendation
-
-Choose **B — dedicated canonical JSON backlog plus deterministic validator**.
+The repository adopts **Option B — dedicated canonical JSON backlog plus deterministic validator**.
 
 Confidence: **high**.
 
-It preserves ADR 0022's authority order, keeps the programme compact, supports reproducible exact-head validation and gives unresolved decisions stable identities without granting them accepted status.
+The accepted authority boundary is:
 
-## Proposed record lifecycle
+- accepted ADRs remain durable architecture decision authority;
+- focused canonical architecture documents remain current concern owners;
+- `docs/architecture/ARCHITECTURE_DECISION_BACKLOG.json` contains unresolved, blocked or intentionally deferred decision obligations only;
+- GitHub Issues own discussion, assignment and explicit owner choice;
+- the architecture programme stores only a compact active-ID projection and one `next_action`;
+- implementation is a separate bounded package under the remediation lifecycle.
+
+## Rejected alternatives
+
+### Programme-embedded full registry
+
+Rejected because it mixes execution state with a durable inventory, increases merge contention and couples schema evolution to programme prose.
+
+### GitHub Issues and labels as the sole backlog
+
+Rejected because it cannot provide reproducible exact-head offline validation and has weaker structural guarantees.
+
+### Status quo
+
+Rejected because lifecycle, deduplication, evidence and authority boundaries remain unenforced.
+
+## Accepted record lifecycle
 
 Active states:
 
@@ -79,15 +85,15 @@ Terminal handling:
 - superseded obligations are replaced by the new stable decision ID and linked in the Issue/report;
 - Git history, Issues and ADRs preserve terminal history; no second permanent decision archive is created.
 
-## Proposed validation boundary
+## Validation boundary
 
-Local deterministic validation should cover schema, IDs, evidence-state separation, lifecycle, local path/ADR references, duplicate obligations, programme projection and non-authority invariants.
+Local deterministic validation covers schema, IDs, evidence-state separation, lifecycle, local path/ADR references, duplicate obligations, programme projection and non-authority invariants.
 
-Live GitHub reconciliation should cover Issue/PR open/closed/merged state only when a transition depends on remote state. Unavailable remote state must produce `UNKNOWN` or fail closed; it must not be guessed.
+Live GitHub reconciliation covers Issue/PR open/closed/merged state only when a transition depends on remote state. Unavailable remote state produces `UNKNOWN` or fails closed; it is never guessed.
 
-## Delivery implications
+## Separate implementation handoff
 
-After owner acceptance, one bounded implementation package should:
+One bounded implementation package must:
 
 - add `docs/architecture/ARCHITECTURE_DECISION_BACKLOG.json`;
 - add validator/tests under `tools/validation/**`;
@@ -97,8 +103,8 @@ After owner acceptance, one bounded implementation package should:
 - update architecture authority routing narrowly;
 - archive the implementation task and release ownership after exact-head validation.
 
-No application, migration, dependency, deployment, infrastructure, production or external-repository work is authorized by this review.
+No application, migration, dependency, deployment, infrastructure, production or external-repository work is authorized by this decision.
 
-## Blocking question
+## Review outcome
 
-Accept Option B and ADR 0023, or select A/C with the reason that outweighs its stated authority, reproducibility and maintenance costs.
+The design decision is complete and accepted. PR #604 must be validated on its final exact head, merged, and the design task archived before the separate implementation package claims its non-overlapping paths.
