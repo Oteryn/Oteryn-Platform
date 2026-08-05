@@ -8,7 +8,7 @@ track: cross-repository-contract
 branch: docs/OTERYN-20260805-single-native-protocol-version
 base_branch: main
 created: 2026-08-05T08:45:00+02:00
-updated: 2026-08-05T08:50:00+02:00
+updated: 2026-08-05T08:52:00+02:00
 risk: medium
 related_prs: [527]
 depends_on:
@@ -64,7 +64,7 @@ Record the owner decision that the initial native Oteryn gameplay implementation
 
 This task changes documentation only. The merged Platform/Gateway producer still contains transitional profile-oriented runtime/storage and remains disabled. The saved implementation prompt owns the correction and the remaining Otheryn, Rust and integrated E2E programme.
 
-# Context checkpoint
+## Context checkpoint
 
 ```yaml
 phase: exact-head-validation
