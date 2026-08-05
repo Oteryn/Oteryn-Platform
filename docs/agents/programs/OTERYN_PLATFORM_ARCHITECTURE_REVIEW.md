@@ -18,8 +18,8 @@ Continuously challenge Platform architecture, repository structure and CI/CD; id
 
 ```yaml
 programme_state_version: 2
-updated_at: 2026-08-05T20:44:00Z
-status: waiting
+updated_at: 2026-08-05T20:49:00Z
+status: validating
 current_review_domain: architecture-decision-backlog-authority
 active_task: OTERYN-20260805-architecture-decision-backlog
 issue: 602
@@ -30,11 +30,20 @@ last_completed_domain: current-system-module-reconciliation
 last_completed_issue: 593
 last_completed_pull_request: 594
 last_completed_merge: 4cd3c6daf8fcd152743db34f214abb531e1e2d01
-accepted_decision:
+accepted_architecture_authority:
   option: B
   accepted_on: 2026-08-05
   adr: docs/architecture/adr/0022-architecture-authority-index-and-focused-canonical-documents.md
   authority_index: docs/architecture/ARCHITECTURE_AUTHORITY.md
+accepted_decision_backlog_model:
+  option: B
+  accepted_on: 2026-08-05
+  issue: 602
+  pull_request: 604
+  adr: docs/architecture/adr/0023-machine-readable-architecture-decision-backlog.md
+  canonical_backlog: docs/architecture/ARCHITECTURE_DECISION_BACKLOG.json
+  implementation_state: ready_after_design_merge
+  implementation_authority: repository documentation governance and deterministic validation only
 decision_backlog:
   - id: ARCH-AUTH-001
     severity: high
@@ -65,38 +74,48 @@ decision_backlog:
   - id: ARCH-AUTH-005
     severity: medium
     type: missing_decision
-    state: waiting_owner_decision
+    state: accepted_validating
     issue: 602
     pull_request: 604
-    proposed_adr: docs/architecture/adr/0023-machine-readable-architecture-decision-backlog.md
-    summary: Select the authority, schema, lifecycle and validation boundary for one machine-readable architecture decision backlog.
+    accepted_adr: docs/architecture/adr/0023-machine-readable-architecture-decision-backlog.md
+    accepted_option: B
+    summary: Use a dedicated canonical JSON backlog for unresolved architecture decision obligations, subordinate to accepted ADR authority.
 architecture_conflicts:
   - Historical duplicate ADR prefixes remain for 0008, 0010, 0011, 0015, 0016, 0017, 0018 and 0021, but the exact accepted path sets are machine-enforced and cannot expand silently.
-  - The programme queue currently carries both compact continuation state and backlog records; ADR 0023 proposes separating these roles without creating a second accepted-decision authority.
+  - The full programme-embedded decision queue remains transitional until the accepted ADR 0023 implementation migrates active obligations to the dedicated JSON registry.
 ci_architecture_findings:
   - Existing PHPUnit CI executes the ADR registry validator without workflow changes.
   - All eight exact-head workflows passed on a3cf245b5b0eafff00a87ba97878adcc8154a8df before PR 594 merged.
   - Canonical architecture separates repository availability, capability completeness, environment proof and activation authority.
-  - The proposed backlog validator must remain reproducible offline; remote Issue and PR liveness belongs to a separate fail-closed reconciliation boundary.
+  - The accepted backlog validator must remain reproducible offline; remote Issue and PR liveness belongs to a separate fail-closed reconciliation boundary.
 accepted_handoffs_ready_for_remediation:
+  - id: ARCH-AUTH-005-IMPLEMENTATION
+    issue: 602
+    accepted_adr: docs/architecture/adr/0023-machine-readable-architecture-decision-backlog.md
+    state: ready_after_PR_604
+    scope:
+      - docs/architecture/ARCHITECTURE_DECISION_BACKLOG.json
+      - tools/validation architecture-decision-backlog validator and tests
+      - existing repository test-suite registration without workflow edits where possible
+      - compact programme projection
+      - narrow ARCHITECTURE_AUTHORITY routing update
   - Issues 365, 488, 489 and 490 remain the exact owners for retained completeness, recovery, applicability and environment evidence gaps.
 proven:
   - Option B from ADR 0022 remains accepted and durable.
   - PR 581 established fail-closed ADR registry integrity without renumbering accepted history.
   - PR 594 merged as 4cd3c6daf8fcd152743db34f214abb531e1e2d01 and Issue 593 is closed.
   - Repository, Issue and PR searches found no existing machine-readable architecture decision backlog owner.
-  - Issue 602 records three alternatives and recommends a dedicated canonical JSON backlog subordinate to accepted ADR authority.
-  - Proposed ADR 0023 defines the authority, lifecycle, validation, migration and rollback model without runtime authorization.
-  - Draft PR 604 contains only five bounded architecture, report, task and programme paths.
+  - The repository owner accepted Option B for Issue 602 in the current invocation.
+  - ADR 0023 records the accepted authority, lifecycle, validation, migration and rollback model without runtime authorization.
+  - PR 604 contains only five bounded architecture, report, task and programme paths.
 derived:
-  - A dedicated JSON backlog gives unresolved decisions stable, reproducible identities while allowing the programme to remain a compact execution projection.
+  - A dedicated JSON backlog gives unresolved decisions stable, reproducible identities while allowing the programme to become a compact execution projection.
 unknown:
-  - repository-owner selection of Option A, B or C on Issue 602
-  - exact-head GitHub Actions conclusions for draft PR 604
+  - exact-head GitHub Actions conclusions for the accepted-decision head of PR 604
+  - final PR 604 merge commit and design-task archive commit
 conflicts: []
-blockers:
-  - repository-owner decision is required before ADR 0023 can be accepted or implementation can begin
-next_action: Repository owner accepts Option B on Issue 602 or selects A/C with the reason that outweighs the documented authority, reproducibility and maintenance trade-offs.
+blockers: []
+next_action: Validate accepted ADR 0023 and PR 604 on the exact final head, merge the design package, archive the design task, then start one separate bounded remediation implementation package.
 ```
 
 ## Programme rules
