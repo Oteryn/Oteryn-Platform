@@ -79,17 +79,17 @@ delivery_matrix:
 ```yaml
 checkpoint_version: 1
 policy_version: 2
-updated_at: 2026-08-05T15:18:00Z
-head: 4646c43a14daad0e53a97cad96ef7e3afbdf77c3
+updated_at: 2026-08-05T15:21:00Z
+head: b01ede503dfe4be62739e797ec6b0c78cbcc3bb7
 branch: audit/20260805-game-gateway-stale-task
-pr: none
+pr: 556
 status: validating
-phase: close
+phase: final_ci
 session_id: chat-20260805-platform-audit-continuation
 session_role: auditor
 execution_mode: github-only
 execution_reason: live task, PR, branch and path-ownership inspection with narrow evidence writes
-lease_expires_at: 2026-08-05T16:03:00Z
+lease_expires_at: 2026-08-05T16:06:00Z
 context_pressure: medium
 context_growth: stable
 context_score: 7
@@ -113,6 +113,7 @@ proven:
   - The task branch still exists.
   - The stale task claims Game Gateway and GameAuth paths currently changed by active PR #542.
   - Issue #555 records OPA-GOV-0002 after negative duplicate and ownership searches.
+  - PR #556 contains only the four declared audit/governance paths.
 derived:
   - The durable coordination layer can falsely block current work or produce invalid continuation/takeover decisions.
 unknown:
@@ -137,12 +138,12 @@ validation:
   - command: runtime E2E
     result: NOT_APPLICABLE
     evidence: documentation-only audit with no runtime or stale-task repair
-  - command: exact-head GitHub Actions
+  - command: PR #556 exact-head GitHub Actions
     result: NOT_RUN
-    evidence: PR not opened yet
+    evidence: final metadata head requires exact-head verification
 blockers:
   - none
-next_action: Open the audit PR, record its identity, and verify all emitted exact-head checks and review hygiene.
+next_action: Verify all emitted workflows, changed paths, diff, links and review threads on the final PR #556 head, then mark ready and squash-merge.
 ```
 
 ## Notes
