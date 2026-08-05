@@ -1,0 +1,243 @@
+name: OTS native contract correction
+
+on:
+  push:
+    branches:
+      - agents/ots-native-selection-platform-correction-20260804
+    paths:
+      - .github/workflows/ots-native-contract-correction.yml
+
+permissions:
+  contents: write
+
+jobs:
+  correct-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agents/ots-native-selection-platform-correction-20260804
+          fetch-depth: 0
+      - name: Correct canonical contract and fixtures
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import hashlib
+          import json
+          import re
+
+          root = Path('.')
+          proto_path = root / 'docs/contracts/oteryn_native_gameplay_v1.proto'
+          proto = proto_path.read_text(encoding='utf-8')
+          replacements = {
+              'uint32 schema_revision = 1; // Must be exactly 1.': 'uint32 schema_revision = 1; // Must be exactly 2.',
+              '  string gameplay_profile = 3;              // "oteryn.native.v1".\n': '  reserved 3;\n  reserved "gameplay_profile";\n',
+              '  string transport_profile = 4;             // "tcp.tls13.protobuf.be32.v1".': '  string transport = 4;                     // "tcp.tls13.protobuf.be32.v1".',
+              '  uint32 schema_revision = 5;                // Must be 1.': '  uint32 schema_revision = 5;                // Must be 2.',
+              '  string client_platform = 16;               // Canonical lowercase identifier, <=64 bytes.': '  string client_platform = 16;               // Canonical lowercase identifier, <=64 bytes.\n  uint32 native_protocol_version = 17;        // Must be 1.',
+              '  string gameplay_profile = 7;\n': '  reserved 7;\n  reserved "gameplay_profile";\n',
+              '  string transport_profile = 8;': '  string transport = 8;',
+              '  uint64 initial_server_sequence = 15;        // Sequence of this envelope.': '  uint64 initial_server_sequence = 15;        // Sequence of this envelope.\n  uint32 native_protocol_version = 16;         // Must be 1.',
+              '  PROTOCOL_ERROR_UNSUPPORTED_PROFILE = 5;\n': '  reserved 5;\n  reserved "PROTOCOL_ERROR_UNSUPPORTED_PROFILE";\n',
+              '  PROTOCOL_ERROR_INTERNAL_UNAVAILABLE = 16;': '  PROTOCOL_ERROR_INTERNAL_UNAVAILABLE = 16;\n  PROTOCOL_ERROR_UNSUPPORTED_NATIVE_PROTOCOL_VERSION = 17;',
+          }
+          for old, new in replacements.items():
+              if old not in proto:
+                  raise SystemExit(f'missing expected proto fragment: {old!r}')
+              proto = proto.replace(old, new)
+          if 'oteryn.native.v1' in proto or 'gameplay_profile =' in proto or 'transport_profile =' in proto:
+              raise SystemExit('native profile identity remains in corrected IDL')
+          proto_path.write_text(proto, encoding='utf-8', newline='\n')
+          schema_sha = hashlib.sha256(proto_path.read_bytes()).hexdigest()
+
+          contract_path = root / 'docs/contracts/OTERYN_NATIVE_GAMEPLAY_PROTOCOL_CONTRACT.md'
+          contract = contract_path.read_text(encoding='utf-8')
+          exact = {
+              'Contract revision: `1`': 'Contract revision: `2`',
+              '| native gameplay profile | `oteryn.native.v1` | this contract |': '| native protocol version | `1` | this contract |',
+              '| schema revision | `1` | this contract/IDL |': '| schema revision | `2` | this contract/IDL |',
+              '"profile": "oteryn.native.v1",': '"native_protocol_version": 1,',
+              'Each candidate contains exactly family, profile, transport, schema revision/hash': 'Each candidate contains exactly family, native protocol version, transport, schema revision/hash',
+              'exact family/profile/transport/schema tuple': 'exact family/native_protocol_version/transport/schema tuple',
+              'family\nprofile\ntransport': 'family\nnative_protocol_version\ntransport',
+              'selected family/profile/transport/schema_revision/schema_sha256': 'selected family/native_protocol_version/transport/schema_revision/schema_sha256',
+              'another character, world, channel, endpoint, profile, schema': 'another character, world, channel, endpoint, native protocol version, schema',
+              'exact profile/transport/schema/list/digest': 'exact native protocol version/transport/schema/list/digest',
+              'no plaintext profile': 'no plaintext or protocol-family fallback',
+              'new transport/profile revision': 'new transport or schema revision',
+              'schema/list/digest/profile mismatch': 'schema/list/digest/native-protocol-version mismatch',
+              'replacement profile': 'replacement native protocol version',
+              'cross-character/world/channel/profile/endpoint use': 'cross-character/world/channel/native-protocol-version/endpoint use',
+              'family/profile/transport/schema/capabilities': 'family/native_protocol_version/transport/schema/capabilities',
+              'family/profile/transport/schema': 'family/native_protocol_version/transport/schema',
+              'family/profile tuple': 'family/native_protocol_version tuple',
+              'profile/transport/schema': 'native_protocol_version/transport/schema',
+              'profile, schema': 'native protocol version, schema',
+              'profile, transport': 'native protocol version, transport',
+              'profile, transport, schema': 'native protocol version, transport, schema',
+              'profile, schema, capability': 'native protocol version, schema, capability',
+              'profile, schema and capability': 'native protocol version, schema and capability',
+              'profile mismatch': 'native protocol version mismatch',
+              'selected profile': 'selected native protocol version',
+              'native gameplay profile': 'native protocol version',
+              'transport profile': 'transport identifier',
+              'Game Session contract version 1.': 'Game Session contract version 1.',
+          }
+          for old, new in exact.items():
+              contract = contract.replace(old, new)
+          contract = contract.replace('"schema_revision": 1', '"schema_revision": 2')
+          contract = contract.replace('protobuf `proto3`, schema revision 1', 'protobuf `proto3`, schema revision 2')
+          contract = contract.replace('schema revision 1;', 'schema revision 2;')
+          contract = contract.replace('schema revision 1', 'schema revision 2')
+          contract = contract.replace('contract revision 1', 'contract revision 2')
+          contract = contract.replace('profile-driven Canary-compatible gameplay', 'Canary-compatible gameplay selected through isolated Canary compatibility profiles')
+          contract = contract.replace('`profile`', '`native_protocol_version`')
+          contract = contract.replace('`oteryn.native.v1`', '`native_protocol_version = 1`')
+          if 'Canonical schema SHA-256:' not in contract:
+              contract = contract.replace('Contract revision: `2`  \n', f'Contract revision: `2`  \nSchema revision: `2`  \nCanonical schema SHA-256: `{schema_sha}`  \n')
+          contract = contract.replace('<64 lowercase hex characters>', schema_sha, 1)
+          forbidden = ['"profile"', 'oteryn.native.v1', 'gameplay_profile', 'transport_profile']
+          for token in forbidden:
+              if token in contract:
+                  raise SystemExit(f'forbidden native profile token remains in contract: {token}')
+          contract_path.write_text(contract, encoding='utf-8', newline='\n')
+
+          def update_text(path, replacements):
+              p = root / path
+              text = p.read_text(encoding='utf-8')
+              for old, new in replacements:
+                  text = text.replace(old, new)
+              p.write_text(text, encoding='utf-8', newline='\n')
+
+          update_text('docs/architecture/adr/0010-native-gameplay-protocol-selection.md', [
+              ('protobuf schema revision 1', 'protobuf schema revision 2'),
+              ('9. Contract and disabled producers/consumers', '9. Native identity is exactly `family = oteryn` and `native_protocol_version = 1`; no native profile field, catalogue, ordering or selector exists.\n10. Contract and disabled producers/consumers'),
+          ])
+          update_text('docs/architecture/adr/0011-single-native-protocol-version.md', [
+              ('schema_revision: 1', 'schema_revision: 2'),
+              ('schema_sha256: <exact canonical IDL digest>', f'schema_sha256: {schema_sha}'),
+              ('contract revision 1', 'contract revision 2'),
+          ])
+          update_text('docs/contracts/OTERYN_NATIVE_GAMEPLAY_PROTOCOL_SINGLE_VERSION_AMENDMENT.md', [
+              ('"schema_revision": 1', '"schema_revision": 2'),
+              ('schema revision/hash', 'schema revision/hash'),
+              ('Amends:', 'Status note: incorporated into canonical contract revision 2 and retained as migration rationale  \nCanonical schema SHA-256: `' + schema_sha + '`  \nAmends:'),
+          ])
+          update_text('docs/architecture/OTERYN_NATIVE_PROTOCOL_THREAT_MODEL.md', [
+              ('adapter/profile/transport/schema/capability', 'adapter/native-protocol-version/transport/schema/capability'),
+              ('unadvertised profile', 'unadvertised native protocol version'),
+              ('family/profile/schema/capability', 'family/native-protocol-version/schema/capability'),
+              ('character/world/channel/profile/endpoint', 'character/world/channel/native-protocol-version/endpoint'),
+              ('family/profile/transport/schema/capabilities', 'family/native-protocol-version/transport/schema/capabilities'),
+              ('\nprofile\ntransport\n', '\nnative_protocol_version\ntransport\n'),
+          ])
+          update_text('docs/architecture/OTERYN_NATIVE_PROTOCOL_ROLLOUT.md', [
+              ('Canary profile regression', 'Canary compatibility-profile regression'),
+              ('any profile removal', 'any Canary compatibility-profile removal'),
+              ('listener readiness reports exact profile/schema', 'listener readiness reports exact native protocol version/schema'),
+              ('gameplay_profile: oteryn.native.v1', 'native_protocol_version: 1'),
+              ('transport_profile: tcp.tls13.protobuf.be32.v1', 'transport: tcp.tls13.protobuf.be32.v1'),
+              ('schema_revision: 1', 'schema_revision: 2'),
+              ('contract/profile/schema/capability', 'contract/native-protocol-version/schema/capability'),
+              ('cross-profile admission', 'cross-native-protocol-version admission'),
+          ])
+          update_text('docs/operations/OTERYN_NATIVE_PROTOCOL_PRODUCER.md', [
+              ('no fallback to another profile', 'no fallback to another family or native protocol version'),
+              ('profile: oteryn.native.v1', 'native_protocol_version: 1'),
+              ('schema_revision: 1', 'schema_revision: 2'),
+              ('c7665223f09001e3294e9a03ab4784defed66b0ac04450e8679d4778421207f8', schema_sha),
+              ('audience, profile, transport', 'audience, native protocol version, transport'),
+              ('family/profile/transport/schema/list/digest', 'family/native_protocol_version/transport/schema/list/digest'),
+              ('exact world, channel, policy revision, endpoint, audience, profile, transport', 'exact world, channel, policy revision, endpoint, audience, native protocol version, transport'),
+          ])
+
+          migration = f'''# Native Oteryn v1 contract migration\n\nCoordination ID: `OTS-20260804-native-protocol-selection`  \nCanonical contract revision: `2`  \nSchema revision: `2`  \nSchema SHA-256: `{schema_sha}`\n\n## Required migration\n\nThe disabled transitional producer used a native `profile` string. The active target model uses exactly `family = oteryn` and `native_protocol_version = 1`. No profile column, table, alias, placeholder, registry, factory, order or selector may remain in the final active native model.\n\nThe runtime implementation package must inspect deployed state before migration, add explicit version storage without reinterpreting serialized profile bytes, migrate only proven `oteryn.native.v1` rows to version `1`, fail closed on any other value, validate readiness/session projections, then remove the transitional field in the same bounded migration programme. Native rows stay disabled and no candidate or endpoint is seeded.\n\nRollback must be rehearsed against disposable data. It may restore the pre-correction schema only while no deployed component requires the corrected model; it must never enable native advertisement or infer a profile.\n\n## Protobuf compatibility\n\nRemoved `gameplay_profile` fields retain their numbers and names as `reserved`. New `native_protocol_version` fields use new numbers. The transport field keeps its wire number and semantics but is renamed from `transport_profile` to `transport`.\n'''
+          (root / 'docs/contracts/OTERYN_NATIVE_GAMEPLAY_PROTOCOL_MIGRATION.md').write_text(migration, encoding='utf-8', newline='\n')
+
+          fixture_dir = root / 'docs/contracts/fixtures/oteryn-native-v1'
+          fixture_dir.mkdir(parents=True, exist_ok=True)
+          capabilities = [
+              'actions.command-result.v1',
+              'chat.semantic.v1',
+              'combat.server-authoritative.v1',
+              'inventory.server-authoritative.v1',
+              'ordering.server-sequence.v1',
+              'reconciliation.movement.v1',
+              'session.single-admission.v1',
+              'state.revision.v1',
+              'state.snapshot-delta.v1',
+          ]
+          cap_digest = hashlib.sha256(''.join(x + '\n' for x in capabilities).encode()).hexdigest()
+          descriptor = {
+              'family': 'oteryn',
+              'native_protocol_version': 1,
+              'transport': 'tcp.tls13.protobuf.be32.v1',
+              'schema_revision': 2,
+              'schema_sha256': schema_sha,
+              'capabilities': capabilities,
+          }
+          offer = {
+              'protocol_version': 1,
+              'game_login_ticket': '<synthetic-opaque-ticket>',
+              'gameplay_offer': {
+                  'offer_version': 1,
+                  'client_build': 'oteryn-client-fixture',
+                  'client_platform': 'test-x86_64',
+                  'candidates': [descriptor],
+              },
+          }
+          selection = {
+              'protocol_version': 1,
+              'game_session_contract_version': 2,
+              'gameplay_selection': {
+                  **descriptor,
+                  'capability_digest_sha256': cap_digest,
+                  'policy_revision': 1,
+                  'host': 'native.invalid',
+                  'port': 7173,
+                  'tls_server_name': 'native.invalid',
+              },
+          }
+          manifest = {
+              'coordination_id': 'OTS-20260804-native-protocol-selection',
+              'contract_revision': 2,
+              'schema_revision': 2,
+              'schema_sha256': schema_sha,
+              'capability_digest_sha256': cap_digest,
+              'native_identity': {
+                  'family': 'oteryn',
+                  'native_protocol_version': 1,
+                  'transport': 'tcp.tls13.protobuf.be32.v1',
+              },
+              'fixtures': ['gateway-offer.json', 'gateway-selection.json'],
+              'contains_native_profile_field': False,
+              'production_enabled': False,
+          }
+          for name, obj in [('gateway-offer.json', offer), ('gateway-selection.json', selection), ('manifest.json', manifest)]:
+              (fixture_dir / name).write_text(json.dumps(obj, indent=2, sort_keys=True) + '\n', encoding='utf-8', newline='\n')
+
+          scan_paths = [
+              contract_path,
+              proto_path,
+              root / 'docs/architecture/adr/0010-native-gameplay-protocol-selection.md',
+              root / 'docs/architecture/adr/0011-single-native-protocol-version.md',
+              root / 'docs/architecture/OTERYN_NATIVE_PROTOCOL_THREAT_MODEL.md',
+              root / 'docs/architecture/OTERYN_NATIVE_PROTOCOL_ROLLOUT.md',
+              root / 'docs/operations/OTERYN_NATIVE_PROTOCOL_PRODUCER.md',
+              root / 'docs/contracts/OTERYN_NATIVE_GAMEPLAY_PROTOCOL_MIGRATION.md',
+          ]
+          for p in scan_paths:
+              text = p.read_text(encoding='utf-8')
+              if 'oteryn.native.v1' in text and p.name != 'OTERYN_NATIVE_GAMEPLAY_PROTOCOL_MIGRATION.md':
+                  raise SystemExit(f'legacy native profile value remains in {p}')
+          print(f'schema_sha256={schema_sha}')
+          print(f'capability_digest_sha256={cap_digest}')
+          PY
+          rm .github/workflows/ots-native-contract-correction.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "contract(native): remove profile dimension from v1"
+          git push origin HEAD:agents/ots-native-selection-platform-correction-20260804
