@@ -1,0 +1,43 @@
+name: OTS native contract content commit
+
+on:
+  push:
+    branches:
+      - agents/ots-native-selection-platform-correction-20260804
+    paths:
+      - .github/workflows/ots-native-contract-content-commit.yml
+
+permissions:
+  contents: write
+
+jobs:
+  commit-content:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: agents/ots-native-selection-platform-correction-20260804
+          fetch-depth: 0
+      - name: Apply validated transformation without workflow mutations
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          source = Path('.github/workflows/ots-native-contract-correction.yml').read_text(encoding='utf-8')
+          start_marker = "          python3 - <<'PY'\n"
+          end_marker = "\n          PY\n"
+          start = source.index(start_marker) + len(start_marker)
+          end = source.index(end_marker, start)
+          script = '\n'.join(line[10:] if line.startswith('          ') else line for line in source[start:end].splitlines())
+          exec(compile(script, 'ots-native-contract-correction', 'exec'), {})
+          PY
+          rm -f .github/workflows/native-protocol-contract.yml
+          python3 scripts/validate_native_protocol_contract.py
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add docs/architecture docs/contracts docs/operations/OTERYN_NATIVE_PROTOCOL_PRODUCER.md scripts/validate_native_protocol_contract.py
+          git commit -m "contract(native): remove profile dimension from v1"
+          git push origin HEAD:agents/ots-native-selection-platform-correction-20260804
