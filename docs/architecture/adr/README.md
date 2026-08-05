@@ -85,6 +85,7 @@ Inventory reconciled on 2026-08-05. Duplicate prefixes are intentionally shown r
 - `0021-provider-neutral-payment-security-core.md`
 - `0021-require-canary-owned-character-deletion-lifecycle.md`
 - `0022-architecture-authority-index-and-focused-canonical-documents.md`
+- `0023-machine-readable-architecture-decision-backlog.md`
 
 ## Preserved legacy duplicate paths
 
