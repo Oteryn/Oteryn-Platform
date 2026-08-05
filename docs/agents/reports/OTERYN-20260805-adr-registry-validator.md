@@ -6,76 +6,66 @@
 task: OTERYN-20260805-adr-registry-validator
 issue: 577
 pull_request: 581
-programme: OTERYN_PLATFORM_ARCHITECTURE_REVIEW
 repository: blakinio/Oteryn-Platform
-exact_base: 3f79987f47e5c7593daccdf1136e09d6641017de
-first_failed_head: 2d1d59fffe8d0163ff49a42afb7c0c18d7521655
-second_failed_head: b541e7a7c54f73a186cdc8cc2da3491c4acc729f
-classification: infrastructure
+implementation_head: b2de0c6cd63a9313e8116204893ba2c0a1d9db6d
+implementation_merge: 2a9715f89a38d2e8e441d34813f03bc0ad6dd707
+status: completed
 runtime_change: false
 ```
 
-## Problem
+## Final result
 
-The accepted ADR authority model preserves historical numeric-prefix collisions but previously relied on manual discipline. A future ADR could add another collision, drift out of the README inventory, omit lifecycle state or point to a missing supersession target without a deterministic repository gate.
+The ADR registry is now machine-validated without renaming or renumbering accepted history.
 
-## Alternatives
+The validator enforces:
 
-### A — rename historical ADR files
+1. `NNNN-lowercase-hyphenated-slug.md` filenames;
+2. exactly one recognized lifecycle declaration in any established repository form;
+3. exact equality between the ADR directory and README inventory;
+4. unique numeric prefixes except for eight closed exact-path legacy sets;
+5. fail-closed detection of any change to those legacy sets;
+6. resolvable, non-self-referencing supersession targets.
 
-Rejected. Renaming accepted paths would break or obscure inbound references and require a broader compatibility migration.
+Ten focused fixtures cover the accepted, negative and boundary cases. The normal PHPUnit suite executes the Python validator through a tooling-owned bridge registered in `phpunit.xml`. No workflow file or dependency changed.
 
-### B — assign new stable IDs to every ADR
+## Compatibility decision
 
-Deferred. Stable IDs may become useful, but mass metadata migration is unnecessary to prevent new defects and would expand this bounded task.
+The selected model is a closed exact-path legacy allowlist. Filename/path remains the stable inbound-reference identity. New duplicates and changes to historical duplicate sets are rejected. Mass renaming, aliases and per-ADR stable-ID migration remain unnecessary for this bounded repair.
 
-### C — closed exact-path legacy allowlist
+## Repaired validation findings
 
-Selected. Preserve the eight exact historical duplicate sets and reject any new collision or change to those sets. Filename/path remains the stable identity for this repair.
+### Lifecycle syntax compatibility
 
-## Implementation
+The first implementation recognized only bullet `- Status:` metadata. CI run `31025277136`, job `92372884204`, artifact `8938486455` proved that seventeen accepted ADRs also use plain `Status:` or `## Status` declarations. The parser was expanded to the three established forms while preserving the exactly-one rule. No historical ADR was rewritten.
 
-- `tools/validation/adr_registry.py` uses only the Python standard library.
-- `tools/validation/test_adr_registry.py` provides positive, negative and boundary fixtures.
-- `tools/validation/phpunit/AdrRegistryValidationTest.php` makes the existing PHPUnit/CI path run the validator and focused suite.
-- `phpunit.xml` registers the tooling-owned bridge without editing workflow files.
-- No dependency, runtime or production path is changed.
+### Native-contract path boundary
 
-## First exact-head failure — lifecycle syntax compatibility
+A prior PHPUnit bridge under `tests/**` caused native protocol audit run `31026544250` to fail its global path boundary. The bridge moved to `tools/validation/phpunit/**` and was registered in `phpunit.xml`. Native protocol contract audits then passed without policy weakening.
 
-CI run `31025277136`, PHPUnit job `92372884204`, failed only in `AdrRegistryValidationTest::test_repository_adr_registry_passes`.
+### Checkpoint schema
 
-The first parser recognized only bullet metadata such as `- Status: Accepted`. Seventeen established ADRs instead used either a plain `Status: Accepted` key or a `## Status` section followed by the lifecycle value.
+Agent Governance run `31027624871` rejected an unsupported nested checkpoint key. The checkpoint was corrected, and exact final-head Agent Governance passed.
 
-The parser was repaired to accept exactly one lifecycle declaration in any of the three established forms while still rejecting no declaration or multiple declarations. Ten focused fixtures pass. No historical ADR was rewritten.
+## Exact final validation
 
-Deep System Validation run `31026544499` subsequently passed the complete PHP regression and concurrency suites on `b541e7a7c54f73a186cdc8cc2da3491c4acc729f`, proving the repaired parser against the live registry.
+Head `b2de0c6cd63a9313e8116204893ba2c0a1d9db6d`:
 
-## Second exact-head failure — global native-contract path boundary
+- CI `31028447057`: PASS;
+- Agent Governance `31028446915`: PASS;
+- Phase 7 `31028446874`: PASS;
+- Edge Security `31028446882`: PASS;
+- Game Auth `31028446947`: PASS;
+- DB Outage `31028446904`: PASS;
+- Native protocol contract `31028446949`: PASS;
+- Native protocol contract audits `31028446889`: PASS;
+- changed-path and ownership audit: PASS;
+- review threads: 0;
+- runtime E2E: `NOT_APPLICABLE`.
 
-Native protocol contract audits run `31026544250` failed only in Audit 1 because its global documentation-boundary check rejects every change under `tests/**`. The other four native protocol audit jobs passed and no protocol invariant failed.
+## Scope proof
 
-The bridge is therefore moved from `tests/Unit/Architecture/**` to `tools/validation/phpunit/**` and registered in `phpunit.xml`. This preserves automatic execution in the existing `php artisan test` command without changing `.github/workflows/**` or weakening the native audit.
+The merged PR changed exactly nine bounded tooling, configuration, architecture-documentation and task-record paths. It changed no ADR file except the registry README and changed no runtime, migration, workflow, dependency, deployment, production, external-repository, PR #541, PR #542 or Issue #558-owned path.
 
-## Enforced invariants
+## Next bounded domain
 
-1. Every ADR except `README.md` uses `NNNN-lowercase-hyphenated-slug.md`.
-2. Every ADR has exactly one recognized lifecycle declaration.
-3. The README inventory equals the directory exactly.
-4. A numeric prefix is unique unless its exact path set is one of the eight closed historical exceptions.
-5. Changing, adding or removing a path in a historical exception fails closed.
-6. A superseded ADR identifies one existing replacement and cannot supersede itself.
-
-## Compatibility
-
-The validator does not alter existing ADR bytes, paths, numeric prefixes or inbound references. It turns the observed historical state into a closed compatibility boundary instead of a reusable exception.
-
-## Validation state
-
-- focused Python fixture suite after parser repair: PASS, 10 tests;
-- live repository validator through Deep System PHP regression: PASS;
-- Agent Governance on `b541e7a7c54f73a186cdc8cc2da3491c4acc729f`: PASS (`31026544387`);
-- Native protocol contract: PASS (`31026544346`);
-- Native protocol audit path boundary: root cause proven; bridge relocation pending new exact-head validation;
-- exact changed-path audit after relocation: nine bounded tooling/configuration/documentation paths;
-- runtime E2E: `NOT_APPLICABLE` because no runtime or user-facing behavior changes.
+`ARCH-AUTH-004`: reconcile current system and module architecture from PR #453 and later exact merged evidence.
