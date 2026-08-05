@@ -138,8 +138,17 @@ jobs:
                   forbidden.append(f"{name}: active profile field")
           if forbidden:
               raise SystemExit("\n".join(forbidden))
-      - name: Format Go sources
+      - name: Format generated sources
         run: gofmt -w services/game-gateway/internal
+      - name: Commit mechanical migration
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add app database docs services tests
+          git commit -m 'feat(native): migrate producer to protocol version 1'
+          git push origin HEAD:feat/OTS-20260804-native-protocol-single-version-producer
       - name: Install PHP dependencies
         run: composer install --no-interaction --prefer-dist --no-progress
       - name: Validate PHP formatting
@@ -149,12 +158,3 @@ jobs:
       - name: Test Game Gateway
         working-directory: services/game-gateway
         run: go test ./...
-      - name: Commit migration
-        shell: bash
-        run: |
-          set -euo pipefail
-          git config user.name github-actions[bot]
-          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-          git add app database docs services tests
-          git commit -m 'feat(native): migrate producer to protocol version 1'
-          git push origin HEAD:feat/OTS-20260804-native-protocol-single-version-producer
