@@ -76,17 +76,17 @@ delivery_matrix:
 ```yaml
 checkpoint_version: 1
 policy_version: 2
-updated_at: 2026-08-05T15:06:00Z
-head: pending-branch-head
+updated_at: 2026-08-05T15:10:00Z
+head_at_pr_open: 861c0de84ded72fb67fcb028d7479af764e65322
 branch: audit/20260805-main-integrity-policy
-pr: none
+pr: 553
 status: validating
-phase: close
+phase: final_ci
 session_id: chat-20260805-platform-audit-continuation
 session_role: auditor
 execution_mode: github-only
 execution_reason: live repository setting inspection and narrow audit-evidence writes
-lease_expires_at: 2026-08-05T15:51:00Z
+lease_expires_at: 2026-08-05T15:55:00Z
 context_pressure: medium
 context_growth: stable
 context_score: 7
@@ -109,6 +109,7 @@ proven:
   - The repository ruleset inventory is empty.
   - Repository merge methods are enabled, but none enforce the documented exact-head process without branch rules.
   - Issue #552 records OPA-GOV-0001 after negative duplicate and ownership searches.
+  - PR #553 contains only the four declared audit/governance paths.
 derived:
   - A push-capable identity or compromised integration can bypass the repository's documented PR and validation lifecycle.
 unknown:
@@ -133,12 +134,12 @@ validation:
   - command: runtime E2E
     result: NOT_APPLICABLE
     evidence: documentation-only audit with no runtime mutation
-  - command: exact-head GitHub Actions
-    result: NOT_RUN
-    evidence: PR not opened yet
+  - command: PR #553 exact-head GitHub Actions
+    result: PENDING
+    evidence: final metadata head will be verified without further audit-content changes
 blockers:
   - none
-next_action: Open the audit PR, record its exact head, and verify all emitted documentation/governance checks.
+next_action: Verify all emitted workflows, changed paths, diff, links and review threads on the final PR #553 head, then mark ready and squash-merge.
 ```
 
 ## Notes
