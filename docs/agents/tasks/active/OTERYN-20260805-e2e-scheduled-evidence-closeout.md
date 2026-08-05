@@ -47,8 +47,8 @@ The task documents already-completed exact-SHA E2E executions. It does not chang
 - [x] Confirm all three isolated `critical` iterations executed with zero global Playwright retries and distinct identities.
 - [x] Record each iteration's exact SHA, job, artifact identity/digest, outcome and bounded profile evidence.
 - [x] Classify the later failed scheduled stability run without retry masking.
-- [ ] Update durable non-secret E2E evidence and project state without introducing thresholds.
-- [ ] Complete fresh documentation audit, exact-head required CI, merge, Issue #114 reconciliation, archival and ownership release.
+- [x] Update durable non-secret E2E evidence and project state without introducing thresholds.
+- [ ] Complete exact-head required CI, merge, Issue #114 reconciliation, archival and ownership release.
 
 ## Ownership
 
@@ -79,18 +79,18 @@ cross_repository_tasks:
 checkpoint_version: 1
 policy_version: 2
 project_lane: oteryn-platform-core
-phase: integrate
+phase: final-proof
 session_id: agent-20260805-e2e-evidence-closeout
 session_role: implementer
 execution_mode: github
 execution_reason: GitHub-only artifact inspection and bounded documentation lifecycle closeout
-updated_at: 2026-08-05T20:56:00Z
+updated_at: 2026-08-05T21:11:00Z
 invocation_started_at: 2026-08-05T20:54:00Z
-last_progress_at: 2026-08-05T20:56:00Z
-head: bfdd8b51a5ccc2f6120aa3623e48457b9ac2df11
+last_progress_at: 2026-08-05T21:11:00Z
+head: 7e6816ca9d799339675fbadb7472fcbc52cde214
 branch: docs/OTERYN-20260805-e2e-scheduled-evidence-closeout
-pr: none
-status: implementing
+pr: 615
+status: validating
 context_routes:
   - testing
   - agent-governance
@@ -131,12 +131,15 @@ proven:
   - The failing responsive-mobile test had already reached durable Wiki state In Review while a transient success-flash role assertion timed out.
   - Current main asserts the durable In Review state and available lifecycle actions after network quiescence instead of relying on the transient flash.
   - PR #495 merged deep exact-SHA validation with responsive 42/42 PASS and aggregate 630 tests with zero failures, errors, skips or retries.
+  - Replacement PR #615 contains exactly four owned documentation paths and no temporary workflow.
+  - State sync run 31047134221 updated ACTIVE_WORK and PROJECT_STATE and removed its temporary workflow successfully.
+  - Main sync run 31047241971 merged current main into the task branch and removed its temporary workflow successfully.
 derived:
   - The first scheduled soak and first scheduled three-iteration stability acceptance criteria are satisfied by completed exact-SHA runtime artifacts.
   - The 2026-08-03 iteration-3 failure is a harness race around transient flash observation, not a product lifecycle or infrastructure failure.
   - One soak and one repeat run remain calibration/stability evidence and do not justify new blocking latency, RSS, Redis or flakiness thresholds.
 unknown:
-  - final exact-head documentation/governance CI outcome for the replacement closeout PR.
+  - final exact-head required CI and Agent Governance outcome for PR #615.
 conflicts: []
 first_failure:
   marker: responsive-mobile transient Wiki submit-for-review flash assertion
@@ -145,7 +148,10 @@ rejected_hypotheses:
   - product Wiki lifecycle failure: rejected because the failure artifact showed the durable article state had transitioned to In Review.
   - infrastructure failure: rejected because setup, runtime, smoke and portability passed and the failure was one deterministic UI assertion after a successful mutation.
 changed_paths:
+  - docs/agents/ACTIVE_WORK.md
+  - docs/agents/PROJECT_STATE.md
   - docs/agents/tasks/active/OTERYN-20260805-e2e-scheduled-evidence-closeout.md
+  - docs/testing/E2E_ACCESSIBILITY_STABILITY_SOAK_EVIDENCE.md
 validation:
   - command: inspect scheduled soak run 29987560312, job 89142739953 and artifact 8555768555
     result: PASS
@@ -156,12 +162,21 @@ validation:
   - command: classify later stability failure 30790638508
     result: PASS
     evidence: responsive-mobile transient flash assertion failed after durable In Review state; current main uses durable-state assertions and PR #495 deep validation passed
+  - command: inspect PR #615 changed paths and complete patch
+    result: PASS
+    evidence: exactly four owned documentation paths; no runtime, threshold, secret, production or unrelated change
+  - command: Scheduled E2E Evidence State Sync run 31047134221
+    result: PASS
+    evidence: ACTIVE_WORK and PROJECT_STATE updated; temporary workflow self-removed
+  - command: Scheduled E2E Evidence Main Sync run 31047241971
+    result: PASS
+    evidence: current main merged without overlap; temporary workflow self-removed
   - command: runtime E2E for documentation-only closeout
     result: NOT_APPLICABLE
     evidence: no runtime code, workflow or E2E harness behavior is changed by this task
 blockers:
   - none
-next_action: Update the durable evidence document, project state and active-work index, then open the replacement draft PR.
+next_action: Mark PR #615 ready, obtain exact-head required checks, then squash-merge and perform Issue #114 plus task-lifecycle closeout.
 ```
 
 ## Notes
