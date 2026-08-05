@@ -31,7 +31,8 @@ Reconcile completed Synology staging package implementation without touching dep
 - [x] A blocked activation-only active task preserves runner registration, Environment configuration, compatible Canary image and first controlled deployment gates.
 - [x] No deployment asset, workflow, environment, runner, secret, Synology runtime, production system or external repository is modified.
 - [x] The historical source branch is explicitly classified after dependency verification.
-- [ ] Fresh audit, exact-head governance checks and review hygiene pass.
+- [x] Fresh proportionate audit found zero critical, high or material-medium findings.
+- [ ] Exact-head governance checks and review hygiene pass on the final live PR head.
 
 ## Ownership
 
@@ -56,11 +57,11 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-05T21:00:00Z
-head: 1f35a79edfe13546f2d67ace450988259a6f7c41
+updated_at: 2026-08-05T21:02:00Z
+head: resolved-from-live-pr-612
 branch: repair/issue-566
 pr: 612
-status: validating
+status: ready
 context_routes:
   - architecture-governance
   - deployment-operations
@@ -77,10 +78,11 @@ proven:
   - Remaining runner, Environment, Canary-image and first-deployment gates now live in a blocked activation-only task owning only itself.
   - Historical branch feat/OTERYN-20260723-synology-staging-deployment remains at the merged final head and is classified evidence-only.
   - No deploy/synology, workflow, environment, runner, secret, Synology runtime, production or external-repository path changed.
+  - Fresh audit of the exact four-file PR 612 diff found zero critical, high or material-medium findings.
 derived:
-  - Completed repository implementation and privileged activation are now separated without weakening fail-closed gates.
+  - Completed repository implementation and privileged activation are separated without weakening fail-closed gates.
 unknown:
-  - exact final audit and required-check result for PR 612
+  - final exact-head required-check result, to be resolved from live PR 612 after this checkpoint commit
 conflicts: []
 first_failure:
   marker: stale-task-lifecycle
@@ -99,13 +101,13 @@ validation:
     evidence: PR 127 merged, historical branch retained at final head and no overlapping open PR changes the declared task paths
   - command: E2E applicability assessment
     result: NOT_APPLICABLE
-    evidence: this repair changes only task lifecycle documentation; first controlled staging deployment remains explicitly NOT_RUN in the separate blocked activation-only task
-  - command: fresh proportionate documentation audit
-    result: NOT_RUN
-    evidence: pending exact final PR diff inspection
+    evidence: lifecycle-only documentation repair; first controlled staging deployment remains explicitly NOT_RUN in the separate blocked activation-only task
+  - command: fresh proportionate documentation audit on PR 612 head 8e635c350c730c7655122e010e7d7a2f400a0d62
+    result: PASS
+    evidence: exact changed-file inventory and full diff preserve activation blockers, release implementation ownership and contain no material contradiction
   - command: exact-head Agent Governance and emitted checks
     result: NOT_RUN
-    evidence: pending final head generation
+    evidence: pending the final checkpoint commit and workflow completion
 blockers: []
-next_action: Audit the exact PR 612 diff, correct any lifecycle contradiction, then verify exact-head checks and zero review threads before merge.
+next_action: Verify required checks and zero review threads on the final live PR 612 head, mark the PR ready and squash-merge it.
 ```
