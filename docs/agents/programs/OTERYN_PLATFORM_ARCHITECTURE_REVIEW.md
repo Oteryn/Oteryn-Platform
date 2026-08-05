@@ -18,17 +18,17 @@ Continuously challenge Platform architecture, repository structure and CI/CD; id
 
 ```yaml
 programme_state_version: 2
-updated_at: 2026-08-05T21:54:00Z
-status: validating
-current_review_domain: architecture-decision-backlog-authority
-active_task: OTERYN-20260805-architecture-decision-backlog
-issue: 602
-branch: task/OTERYN-20260805-architecture-decision-backlog
-pull_request: 604
-last_completed_domain: current-system-module-reconciliation
-last_completed_issue: 593
-last_completed_pull_request: 594
-last_completed_merge: 4cd3c6daf8fcd152743db34f214abb531e1e2d01
+updated_at: 2026-08-05T22:01:00Z
+status: ready
+current_review_domain: none
+active_task: none
+issue: none
+branch: none
+pull_request: none
+last_completed_domain: architecture-decision-backlog-authority
+last_completed_issue: 602
+last_completed_pull_request: 604
+last_completed_merge: 2cb10c7a916fff670ce1ec7f813ae75d95fb9f3e
 accepted_decision:
   option: B
   accepted_on: 2026-08-05
@@ -39,6 +39,7 @@ latest_accepted_decision:
   accepted_on: 2026-08-05
   issue: 602
   pull_request: 604
+  merge: 2cb10c7a916fff670ce1ec7f813ae75d95fb9f3e
   adr: docs/architecture/adr/0023-machine-readable-architecture-decision-backlog.md
   summary: Use one dedicated canonical JSON inventory for unresolved architecture decision obligations, subordinate to accepted ADR authority.
 decision_backlog:
@@ -71,9 +72,10 @@ decision_backlog:
   - id: ARCH-AUTH-005
     severity: medium
     type: missing_decision
-    state: validating
+    state: completed
     issue: 602
     pull_request: 604
+    merge: 2cb10c7a916fff670ce1ec7f813ae75d95fb9f3e
     accepted_adr: docs/architecture/adr/0023-machine-readable-architecture-decision-backlog.md
     summary: Accept the authority, schema, lifecycle and validation boundary for one machine-readable architecture decision backlog.
 architecture_conflicts:
@@ -82,10 +84,10 @@ ci_architecture_findings:
   - Existing PHPUnit CI executes the ADR registry validator without workflow changes.
   - PR 626 repaired the protected documentation-only gate by separating conditional runtime-tests from an always-emitted aggregate test context.
   - Runtime/code changes still require the complete MariaDB/PHP suite before the aggregate test gate can pass.
-  - Documentation-only changes may pass only when fail-closed classification proves runtime tests are NOT_APPLICABLE and the conditional job reports skipped.
+  - PR 604 proved documentation-only changes can merge only after fail-closed classification reports NOT_APPLICABLE and the aggregate protected test context succeeds.
 accepted_handoffs_ready_for_remediation:
   - Issues 365, 488, 489 and 490 remain the exact owners for retained completeness, recovery, applicability and environment evidence gaps.
-  - After PR 604 merges, one separate bounded package may implement ADR 0023 through the repository-owned JSON backlog and deterministic validator.
+  - ADR 0023 is ready for one separate bounded implementation package covering the JSON backlog, validator, tests, initial unresolved records, programme projection and authority-routing documentation.
 proven:
   - Option B from ADR 0022 remains accepted and durable.
   - PR 581 established fail-closed ADR registry integrity without renumbering accepted history.
@@ -94,13 +96,11 @@ proven:
   - The repository owner accepted Option B for ARCH-AUTH-005 on Issue 602.
   - ADR 0023 records the accepted dedicated JSON backlog authority boundary and separate implementation handoff.
   - PR 626 merged as 8c0c19253bdc938876cdeeae24455b27e91c4049 without weakening runtime test enforcement.
-derived:
-  - The current PR 604 run is the final real documentation-only acceptance proof for the repaired protected gate.
-unknown:
-  - Final synchronized PR 604 CI conclusions and merge commit.
+  - PR 604 CI run 31050673929 proved classify-changes success, runtime-tests skipped and aggregate test success before protected auto-merge.
+unknown: []
 conflicts: []
 blockers: []
-next_action: Validate PR 604 as a documentation-only change, merge it through protected main, archive the design task and create the separate ADR 0023 implementation package.
+next_action: Start one separate bounded remediation package implementing accepted ADR 0023, deduplicating unresolved records against current ADRs, Issues, PRs and programme state before seeding the JSON backlog.
 ```
 
 ## Programme rules
