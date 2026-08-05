@@ -1,26 +1,17 @@
 ---
 task_id: OTERYN-20260802-payment-event-core
-required_reads:
-  - AGENTS.md
-  - AGENTS.override.md
-  - docs/agents/AGENTS.md
-  - docs/agents/ANTI_STALL_AND_EXECUTION_BUDGET.md
-  - docs/agents/AUTONOMOUS_PROGRAM_CONTINUATION.md
-  - docs/agents/DELIVERY_COMPLETENESS_AND_CLOSEOUT.md
-  - docs/agents/GITHUB_ONLY_EXECUTION.md
-  - docs/agents/BUILD_TEST_MATRIX.md
-  - docs/architecture/MODULE_CATALOG.md
-  - docs/architecture/SECURITY_ARCHITECTURE.md
-  - docs/architecture/DATA_OWNERSHIP.md
-  - docs/architecture/TEST_STRATEGY.md
-search_first:
-  - payment ADRs and provider boundaries
-  - existing wallet idempotency and transaction patterns
-  - production configuration verifier conventions
-  - open payment tasks and pull requests
-optional_reads:
-  - docs/architecture/adr/**
-  - docs/operations/**
+status: validating
+agent: payment-event-core continuation owner
+project_lane: payments
+track: backend-security
+created: 2026-08-02T14:45:00+02:00
+updated: 2026-08-05T09:35:00+02:00
+product_issue: 470
+parent_issue: 321
+product_pr: 471
+product_head: a128c184c5b581c20b7cda1e2e6980c63bf1117a
+risk: high
+execution_mode: github-only
 ---
 
 # OTERYN-20260802 payment event core
@@ -50,107 +41,65 @@ missing_consumers:
 
 ## Acceptance criteria
 
-- [ ] Additive reversible payment persistence uses integer minor units, immutable public IDs, identity ownership, monotonic versions and unique idempotency keys.
-- [ ] Provider-neutral checkout and verified-event contracts do not expose provider secrets or accept browser return state as payment truth.
-- [ ] Deterministic HMAC test adapter verifies bounded raw input before parsing and cannot be enabled in production.
-- [ ] Duplicate, replayed, conflicting and out-of-order events are deterministic and cannot regress terminal order truth.
-- [ ] Event inbox and transition/reconciliation history are append-oriented and exclude unnecessary raw payloads and secrets.
-- [ ] Production configuration fails closed when payments are enabled without an approved real provider profile.
-- [ ] Focused unit/feature/security tests and a real signed-input-to-persisted-state E2E path pass.
-- [ ] Independent audit has no open material findings and exact-final-head CI passes.
-- [ ] Issue #321 remains open and explicitly partial pending provider/UI/sandbox/entitlement consumers.
+- [x] Additive reversible payment persistence uses integer minor units, immutable public IDs, identity ownership, monotonic versions and unique idempotency keys.
+- [x] Provider-neutral checkout and verified-event contracts do not expose provider secrets or accept browser return state as payment truth.
+- [x] Deterministic HMAC test adapter verifies bounded raw input before parsing and cannot be enabled in production.
+- [x] Duplicate, replayed, conflicting and out-of-order events are deterministic and cannot regress terminal order truth.
+- [x] Event inbox and transition/reconciliation history are append-oriented and exclude unnecessary raw payloads and secrets.
+- [x] Production configuration fails closed when payments are enabled without an approved real provider profile.
+- [x] `payments.enabled=false` rejects order creation, checkout creation and provider-event processing before provider resolution or persistence.
+- [x] Focused unit, feature, security and MariaDB concurrency coverage is present.
+- [x] Independent audit has no open material findings or review threads.
+- [ ] Exact-final-head CI passes and the protected squash merge completes.
+- [x] Issue #321 remains open and explicitly partial pending provider/UI/sandbox/entitlement consumers.
 
-## Ownership
+## Delivered scope
+
+- provider-neutral payment order, attempt, provider-event, transition and reconciliation persistence;
+- deterministic non-production HMAC checkout/webhook adapter;
+- idempotency, replay, conflict, ordering and reconciliation rules;
+- fail-closed production configuration verifier;
+- shared runtime availability guard covering all three public payment actions;
+- deferred provider resolution so the disabled path cannot instantiate an adapter;
+- SQLite feature/security coverage and isolated MariaDB duplicate-event concurrency proof;
+- ADR, operations guide and evidence record.
+
+## PAY-CORE-001 remediation
+
+The audit finding is remediated by `PaymentAvailability::ensureEnabled()` at the beginning of:
+
+- `CreatePaymentOrder::execute()`;
+- `CreatePaymentCheckout::execute()`;
+- `ProcessPaymentProviderEvent::execute()`.
+
+`PaymentProviderResolver` defers gateway/verifier construction until after the guard. Default-disabled tests use `provider=null` and prove all actions return `payments_disabled` with zero order, attempt, transition, provider-event or reconciliation persistence.
+
+## PHPStan repair
+
+`PaymentEventConcurrencyMariaDbTest.php` now narrows the by-reference `pcntl_waitpid()` status to `int` before calling `pcntl_wifexited()` and `pcntl_wexitstatus()`. This removes both reported mixed-argument errors without suppressions.
+
+## Safety boundary
+
+No real provider, payment credential, charge, customer financial data, public webhook ingress, wallet delivery, entitlement delivery, production activation, deployment, Canary mutation or external-repository write is authorized or performed.
+
+## Validation checkpoint
 
 ```yaml
-owned_paths:
-  - app/Payments/**
-  - app/Operations/ProductionConfigurationVerifier.php
-  - app/Providers/AppServiceProvider.php
-  - config/payments.php
-  - database/migrations/*payment*
-  - tests/Unit/Payments/**
-  - tests/Feature/Payments/**
-  - tests/Feature/Operations/ProductionConfigurationVerifierTest.php
-  - docs/architecture/MODULE_CATALOG.md
-  - docs/architecture/DATA_OWNERSHIP.md
-  - docs/architecture/adr/*payment*
-  - docs/operations/PAYMENTS_SECURITY_FOUNDATION.md
-  - docs/agents/tasks/active/OTERYN-20260802-payment-event-core.md
-  - docs/agents/tasks/archive/OTERYN-20260802-payment-event-core.md
-  - docs/agents/evidence/OTERYN-20260802-payment-event-core/**
-modules:
-  - Payments
-dependencies:
-  - issue #321
-  - issue #470
-  - programme #451
-blockers:
-  - real provider selection is excluded from this producer slice
-cross_repository_tasks: []
-```
-
-## Context checkpoint
-
-```yaml
-checkpoint_version: 1
-updated_at: 2026-08-02T14:45:00+02:00
-head: UNKNOWN
+checkpoint_version: 2
+head: a128c184c5b581c20b7cda1e2e6980c63bf1117a
 branch: feat/OTERYN-20260802-payment-event-core
-pr: none
-status: investigating
-context_routes:
-  - payments
-  - security
-  - database
-  - testing
-owned_paths:
-  - app/Payments/**
-  - app/Operations/ProductionConfigurationVerifier.php
-  - app/Providers/AppServiceProvider.php
-  - config/payments.php
-  - database/migrations/*payment*
-  - tests/Unit/Payments/**
-  - tests/Feature/Payments/**
-  - tests/Feature/Operations/ProductionConfigurationVerifierTest.php
-  - docs/architecture/MODULE_CATALOG.md
-  - docs/architecture/DATA_OWNERSHIP.md
-  - docs/architecture/adr/*payment*
-  - docs/operations/PAYMENTS_SECURITY_FOUNDATION.md
-  - docs/agents/tasks/active/OTERYN-20260802-payment-event-core.md
-  - docs/agents/tasks/archive/OTERYN-20260802-payment-event-core.md
-  - docs/agents/evidence/OTERYN-20260802-payment-event-core/**
-proven:
-  - Issue #321 authorizes repository design and deterministic test-adapter work but not real charges or production webhooks.
-  - Issue #470 is the bounded backend/security producer slice and does not claim the user-facing payment feature complete.
-  - Existing Wallet persistence is separate from payment-provider settlement and exposes an idempotent locked mutator.
-  - The production configuration verifier already applies fail-closed checks to feature-flagged modules.
-derived:
-  - Payment settlement truth can be built independently from wallet and entitlement delivery.
-  - A deterministic signed-event test adapter can prove security and ordering without selecting a production provider.
-unknown:
-  - Exact existing payment ADR filename and supersession state.
-  - Smallest provider-binding pattern consistent with current AppServiceProvider conventions.
-  - Exact focused test command set after source discovery.
-conflicts: []
-first_failure:
-  marker: none
-  evidence: none
-rejected_hypotheses:
-  - The Bazaar wallet is a payment provider settlement ledger.
-  - A browser return may establish successful payment.
-  - A production provider can be invented or selected inside this implementation slice.
-changed_paths:
-  - docs/agents/tasks/active/OTERYN-20260802-payment-event-core.md
-validation:
-  - command: not-run
-    result: NOT_RUN
-    evidence: implementation discovery started
-blockers:
-  - none for the provider-neutral producer slice
-next_action: Inspect existing transaction, model, provider-binding, migration, test and production-verifier patterns, then implement the smallest signed-event-to-persisted-state core.
+pr: 471
+status: validating
+base_synced_to: 11541f2cce94ed6026d4d72a0a4013e64cafc380
+observed_passes:
+  - Agent Governance
+  - Portal Exhaustive Audit
+pending:
+  - terminal exact-head CI matrix
+  - ready-for-review transition
+  - protected squash merge
+  - archive move
+material_findings: 0
+unresolved_review_threads: 0
+next_action: Complete exact-head validation, archive this record, mark PR ready, squash-merge PR #471 and close Issue #470 while leaving Issue #321 open.
 ```
-
-## Notes
-
-No real provider, payment credential, charge, customer financial data, public webhook ingress, wallet delivery, entitlement delivery, production activation, deployment, Canary mutation or external-repository write is authorized by this task.
