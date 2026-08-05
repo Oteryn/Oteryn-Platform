@@ -5,9 +5,11 @@
 ```yaml
 decision_id: OTERYN-ARCH-20260805-001
 issue: 548
+pull_request: 550
 programme: OTERYN_PLATFORM_ARCHITECTURE_REVIEW
 repository: blakinio/Oteryn-Platform
-exact_base: 3ab77c072dce796b09004c54b649db009a75d524
+original_exact_base: 3ab77c072dce796b09004c54b649db009a75d524
+latest_main_reconciled: a7eb03d49e328e8115adb54e772c9c8366b737d3
 classification:
   - contradiction
   - documentation_drift
@@ -15,230 +17,135 @@ classification:
 severity: high
 confidence: high
 runtime_implementation: forbidden
+accepted_option: B
+accepted_on: 2026-08-05
+accepted_adr: docs/architecture/adr/0022-architecture-authority-index-and-focused-canonical-documents.md
 ```
 
 ## Executive result
 
-The repository has strong focused architecture, contract and delivery evidence, but it does not currently define an explicit precedence model between historical target documents, living module/roadmap documents, accepted ADRs, contracts, machine-readable evidence and implementation state. This creates a real coordination risk: a worker can read a valid repository file and still follow obsolete architecture.
+The repository owner accepted **Option B: an authority index plus focused canonical documents**. ADR 0022 records the decision and `docs/architecture/ARCHITECTURE_AUTHORITY.md` is the canonical routing and precedence entry point.
 
-The recommended durable model is **an authority index plus focused canonical documents**. This report does not mark that recommendation accepted. Issue #548 is the decision boundary; a proposed ADR should be created only after live ADR numbering is deterministically reconciled and the decision is accepted for review.
+The implementation is documentation-only. It does not change runtime, workflows, migrations, dependencies, deployment, infrastructure, native-protocol PR #542 or public-edge PR #541.
 
-## Primary evidence
+## Final evidence
 
-### PROVEN — stale system-level baseline
+### PROVEN — system architecture mixed current and historical statements
 
-`docs/architecture/SYSTEM_ARCHITECTURE.md` identifies itself as a target for the first implementation phase. It still:
+`SYSTEM_ARCHITECTURE.md` was written as a first-phase target. Its original module list, non-goals and discovery prerequisites could be mistaken for current product or implementation truth despite newer ADRs, contracts, module documentation and merged evidence.
 
-- lists Marketplace/auction systems as an initial non-goal;
-- treats important account/player schema and game-login facts as unresolved discovery prerequisites;
-- presents a 10-module initial catalogue that omits later first-class boundaries;
-- describes cache, queue and operational capabilities as future direction.
+The document now owns only system context, trust boundaries, topology and high-level dependency direction. First-phase module, non-goal and discovery sections are explicitly historical baselines and route current questions to focused owners.
 
-Those statements are historical planning facts, not a safe current-state architecture model. Newer accepted repository state exists in `ROADMAP.md`, `MODULE_CATALOG.md`, `DATA_OWNERSHIP.md`, security/testing documents, contracts, ADRs and merged implementation evidence.
+### PROVEN — focused architecture owners already exist
 
-### PROVEN — route to a missing canonical file
+The repository has focused documents for modules, security, data ownership, testing and roadmap, plus operation-specific contracts and ADRs. Option B preserves those owners instead of copying their contents into one exhaustive system document.
 
-`docs/agents/REPOSITORY_MAP.md` directs architecture work to lowercase `docs/architecture/overview.md`. That path does not exist on the exact base. The live architecture entry points use uppercase focused files such as `SYSTEM_ARCHITECTURE.md`, `MODULE_CATALOG.md`, `DATA_OWNERSHIP.md`, `SECURITY_ARCHITECTURE.md`, `TEST_STRATEGY.md` and `ROADMAP.md`.
+### CORRECTED — initial repository-map defect was not reproducible
 
-### PROVEN — ADR registry cannot be treated as exhaustive
+The initial review package stated that `REPOSITORY_MAP.md` referenced a missing lowercase `docs/architecture/overview.md`. Revalidation of both the task branch and current `main` disproved that statement: the live file already referenced the uppercase focused architecture files.
 
-`docs/architecture/adr/README.md` lists only a subset of the ADR directory. The directory also contains two distinct `0008-*` records. Therefore the README is currently neither an exhaustive inventory nor a collision-proof allocator for the next ADR number.
+The final change therefore does not claim to repair a missing link. It adds the new `ARCHITECTURE_AUTHORITY.md` entry and routes architecture-wide work through it. The incorrect preliminary claim remains visible in Issue #548 history but is corrected by this report and a durable Issue comment.
 
-This report does not rename an accepted ADR. Renumbering accepted historical files can break references and must be decided separately with an alias/supersession or compatibility plan.
+### PROVEN — ADR registry debt is broader than first observed
 
-### PROVEN — module catalogue drift already audited
+A deterministic directory inventory found the highest numeric prefix `0021` and historical duplicate identifiers for:
 
-Merged PR #453 established that the original module table lags merged delivery and omits first-class boundaries for Products/Entitlements, Legal/Commerce, Operations/Observability, Public Edge and Quality/E2E. That audit also distinguished module availability from complete capability delivery.
+- `0008`;
+- `0010`;
+- `0011`;
+- `0015`;
+- `0016`;
+- `0017`;
+- `0018`;
+- `0021`.
 
-This architecture package reuses that evidence. It does not duplicate the module audit and does not upgrade module statuses without exact merged-evidence reconciliation.
+The accepted decision was therefore allocated `0022`. No existing ADR was renamed. `adr/README.md` now inventories all observed paths, displays collisions instead of hiding them and defines a max-prefix-plus-one allocation rule.
 
-### PROVEN — active ownership exclusion
+### PROVEN — module catalogue drift remains separately owned
 
-Open PR #542 owns native-protocol implementation and related contract paths. This review does not modify those paths, select protocol behavior or reinterpret its rollout authority.
+Merged PR #453 remains the evidence baseline for missing or stale module boundaries. This package does not duplicate that audit or upgrade module capability status without exact merged-evidence reconciliation.
 
-## Conflict map
+### PROVEN — active ownership exclusions were preserved
 
-| ID | Sources | Conflict | Consequence | Classification |
-|---|---|---|---|---|
-| ARCH-AUTH-001 | `SYSTEM_ARCHITECTURE.md` vs `ROADMAP.md`/`MODULE_CATALOG.md`/merged code | initial non-goals and unresolved boundaries are presented beside delivered capabilities | agents may reject valid existing capabilities or recreate discovery work | contradiction |
-| ARCH-AUTH-002 | `REPOSITORY_MAP.md` vs live tree | architecture entry path is missing | context routing can fail or omit canonical documents | defect |
-| ARCH-AUTH-003 | ADR README vs ADR directory | incomplete index and duplicate number | next ADR allocation can collide; accepted decisions can be missed | defect + missing_decision |
-| ARCH-AUTH-004 | module table vs PR #453 baseline | status and ownership model lag delivery | implementation and audits can use different module universes | documentation_drift |
-| ARCH-AUTH-005 | architecture docs vs implementation evidence | no explicit precedence or staleness lifecycle | conflicts are resolved ad hoc by each worker | missing_decision |
+PR #542 remains the owner of native-protocol implementation and related contracts. PR #541 remains outside this package. No application, workflow, migration, dependency, deployment or infrastructure path was changed.
 
-## Non-negotiable invariants
+## Accepted authority model
 
-1. Accepted ADRs and operation-specific contracts cannot be silently overridden by general planning prose.
-2. Source code and exact validation prove implementation state, but implementation alone cannot create an unrecorded product or authority decision.
-3. Historical decisions remain discoverable; supersession is explicit.
-4. Proposed architecture text does not grant runtime, workflow, production or cross-repository authority.
-5. One concept has one canonical owner; indexes route to truth rather than duplicate it.
-6. Conflicts remain explicit until authoritative evidence resolves them.
-7. Any generated inventory must fail closed on duplicate identifiers, missing targets and invalid lifecycle status.
+For architecture questions, apply the narrowest relevant source in this order:
 
-## Alternatives
-
-### Option A — one exhaustive living `SYSTEM_ARCHITECTURE.md`
-
-Rewrite the system document as the complete current-state architecture and make every other document subordinate.
-
-Benefits:
-
-- one obvious entry point;
-- simple mental model;
-- easy human browsing for a small system.
-
-Costs and risks:
-
-- large frequently conflicting document;
-- duplicates module, data, security, testing, deployment and contract detail;
-- broad ownership and merge contention;
-- high drift risk as focused domains evolve;
-- difficult machine validation of duplicated assertions.
-
-### Option B — authority index plus focused canonical documents
-
-Create a compact authority index that defines precedence, ownership, lifecycle and conflict handling. Keep detailed truth in focused documents and contracts. Make `SYSTEM_ARCHITECTURE.md` a current system context/topology document, not an exhaustive duplicate.
-
-Benefits:
-
-- smallest coherent source for each concern;
-- scalable ownership and lower merge contention;
-- explicit conflict resolution and staleness lifecycle;
-- supports deterministic link/status/ADR inventory validation;
-- preserves historical ADRs and focused contracts.
-
-Costs and risks:
-
-- requires a reliable index and validators;
-- workers must follow routing rather than read one file;
-- initial reconciliation must classify legacy text carefully.
-
-### Option C — status quo with informal precedence
-
-Keep current files and rely on workers to infer recency and authority.
-
-Benefits:
-
-- no immediate migration work;
-- no new governance surface.
-
-Costs and risks:
-
-- already-proven stale routing and contradictory text remain;
-- repeat audits and duplicate decisions are likely;
-- ADR collisions remain possible;
-- correctness depends on individual worker judgment.
-
-## Trade-off matrix
-
-Scoring: 1 poor, 5 strong.
-
-| Dimension | A: single document | B: authority index | C: status quo |
-|---|---:|---:|---:|
-| Correctness under change | 2 | 5 | 1 |
-| Explicit authority | 4 | 5 | 1 |
-| Ownership isolation | 1 | 5 | 2 |
-| Machine validation | 2 | 5 | 1 |
-| Migration simplicity | 2 | 3 | 5 |
-| Long-term maintainability | 2 | 5 | 1 |
-| Reversibility | 3 | 5 | 4 |
-| Delivery risk | 2 | 4 | 1 |
-
-## Recommendation
-
-Recommend **Option B** with high confidence.
-
-The authority index should define this precedence for architecture questions:
-
-1. trusted repository governance and explicit owner decisions;
-2. accepted ADRs for durable decisions;
-3. operation-specific contracts for producer/consumer and data-write behavior;
-4. focused canonical architecture documents for current module, data, security, testing, topology and roadmap models;
-5. exact implementation and validation evidence for what is currently delivered;
-6. programme/task/Issue/PR records for active work and unresolved decisions;
+1. repository governance and explicit owner decisions, made durable through accepted ADRs;
+2. accepted ADRs for their stated scope;
+3. operation-specific contracts for their declared scope;
+4. focused canonical architecture documents;
+5. exact implementation and validation evidence for delivered state;
+6. programme, task, Issue and PR records for active execution state;
 7. historical planning and superseded records as context only.
 
-This ordering must not let code silently overrule an accepted architectural invariant; instead it creates a recorded conflict requiring reconciliation.
+A lower-ranked source cannot silently override a higher-ranked invariant. The mismatch must be recorded as `CONFLICT` and resolved in the focused owner and, when durable, through a new or superseding ADR.
 
-## Proposed migration
+## Canonical owners established
+
+| Concern | Owner |
+|---|---|
+| Authority and conflict handling | `ARCHITECTURE_AUTHORITY.md` |
+| Durable decisions | `docs/architecture/adr/**` |
+| System context/topology | `SYSTEM_ARCHITECTURE.md` |
+| Modules/responsibility | `MODULE_CATALOG.md` |
+| Security | `SECURITY_ARCHITECTURE.md` |
+| Persistent data | `DATA_OWNERSHIP.md` |
+| Validation | `TEST_STRATEGY.md` |
+| Delivery order | `ROADMAP.md` |
+| Cross-component behavior | `docs/contracts/**` |
+| Current execution evidence | project state, active task and live PR |
+
+## Invariants
+
+1. Accepted ADRs and operation-specific contracts cannot be silently overridden by general prose.
+2. Code and exact validation prove implementation state but cannot create an unrecorded product or authority decision.
+3. Historical decisions remain discoverable and supersession is explicit.
+4. Proposed architecture does not grant runtime, production or cross-repository authority.
+5. One concept has one focused canonical owner; indexes route rather than duplicate.
+6. Roadmap intent, implementation availability, staging proof and production proof remain separate facts.
+7. Existing ADR identifier collisions are preserved until a compatibility-safe repair is accepted.
+
+## Completed migration slice
 
 ### Slice 1 — authority and routing
 
-Owner: architecture review.
+Completed in PR #550:
 
-- accept or reject Option B in Issue #548;
-- allocate a collision-free ADR identifier after deterministic ADR inventory;
-- add a compact architecture authority/index document;
-- correct `REPOSITORY_MAP.md` and `CONTEXT_ROUTING.md` to the live entry point;
-- mark current status and scope in `SYSTEM_ARCHITECTURE.md` without deleting history.
+- owner acceptance recorded in Issue #548;
+- deterministic ADR directory inventory completed;
+- collision-free ADR 0022 created and accepted;
+- compact authority index added;
+- repository map and context routing updated;
+- system architecture current/historical scope made explicit;
+- ADR README converted into a collision-aware complete path inventory.
 
-Rollback: remove the new index/routing and restore prior links; no runtime effect.
+Rollback is documentation-only and requires superseding ADR 0022 rather than silently removing the accepted decision.
 
-### Slice 2 — ADR inventory and lifecycle validator
+## Remaining bounded backlog
 
-Owner: remediation after decision acceptance.
+1. **ADR registry validator:** reject new duplicate IDs, inventory mismatch, missing lifecycle token and broken supersession target while preserving existing colliding paths.
+2. **Historical collision compatibility decision:** choose aliases, stable decision IDs or another non-breaking treatment before renaming any accepted ADR.
+3. **System/module reconciliation:** use PR #453 and later exact merged evidence to reconcile the current module catalogue and system diagram without conflating availability with completeness.
+4. **Machine-readable architecture decision backlog:** add one validated registry only after its schema and owner are accepted.
 
-- inventory every ADR path, identifier, title and status;
-- decide compatibility treatment for duplicate `0008` identifiers;
-- make README generated or validated rather than manually partial;
-- fail closed on duplicate new identifiers, missing files, invalid statuses and broken supersession targets;
-- add positive, negative and boundary fixtures.
+## Validation boundary
 
-Rollback: revert validator and generated index; preserve all accepted ADR files.
-
-### Slice 3 — current system and module reconciliation
-
-Owner: architecture review for accepted canonical text; remediation only for tooling.
-
-- update `SYSTEM_ARCHITECTURE.md` from initial target to current system context;
-- reconcile module status/ownership against PR #453 and later merged evidence;
-- add the missing first-class boundaries only with exact responsibility and dependency rules;
-- distinguish `AVAILABLE`, capability completeness, staging proof and production proof.
-
-Rollback: restore previous docs; no runtime effect.
-
-### Slice 4 — decision backlog and implementation handoffs
-
-Owner: architecture review + remediation coordinator.
-
-- maintain one machine-readable backlog of unresolved architecture decisions;
-- link each item to its canonical Issue, proposed/accepted ADR, dependencies, owner and acceptance;
-- hand accepted implementation work to `OTERYN_PLATFORM_REMEDIATION` without broadening authority.
-
-## Security, data and operational implications
-
-- Security: stale trust-boundary text can produce unsafe integration assumptions; accepted contracts must outrank general prose.
-- Data: data-owner and writer rules remain in `DATA_OWNERSHIP.md` and operation contracts; the authority index routes to them rather than copying them.
-- API/protocol: active native-protocol ownership remains isolated; accepted protocol contracts cannot be altered by this decision package.
-- Operations: readiness and production proof remain distinct from repository or staging implementation state.
-- CI: a future validator should be documentation/governance scoped and must not weaken runtime gates.
-
-## Validation expectations
-
-For the accepted implementation package:
-
-- deterministic architecture-link and ADR inventory validation;
-- fixtures proving duplicate IDs, broken links, missing status and invalid supersession fail;
-- exact-head Agent Governance/documentation CI;
-- fresh independent documentation audit with zero material findings;
-- runtime E2E: `NOT_APPLICABLE`, because no runtime behavior changes.
+- runtime E2E: `NOT_APPLICABLE`;
+- required: exact changed-path audit, link/content audit and exact-head Agent Governance/documentation CI;
+- forbidden: weakening runtime gates or treating documentation acceptance as production proof.
 
 ## Decision boundary
 
 ```yaml
 recommended_option: B
-recommendation_confidence: high
-accepted: false
-decision_owner: repository owner / authoritative architecture review state
-blocking_question: Accept Option B as the canonical architecture authority model, or select A/C with rationale.
-safe_default_while_unresolved: Keep current runtime unchanged; route new architecture decisions through Issue #548 and do not allocate a new numeric ADR from the incomplete README.
+accepted: true
+accepted_on: 2026-08-05
+decision_owner: repository owner
+adr: 0022
+runtime_authority: none
+production_activation_authority: none
+next_action: validate exact PR head and present PR 550 for review/merge
 ```
-
-## Remaining backlog after this package
-
-1. `ARCH-AUTH-001`: accept authority model and create proposed/accepted ADR.
-2. `ARCH-AUTH-002`: repair live architecture routing.
-3. `ARCH-AUTH-003`: reconcile ADR inventory and duplicate numbering.
-4. `ARCH-AUTH-004`: reconcile module catalogue/current system state using merged evidence.
-5. `ARCH-AUTH-005`: create a single machine-readable decision backlog only after the authority model is accepted.
