@@ -1,8 +1,16 @@
 # Oteryn Platform System Architecture
 
+## Authority and scope
+
+This document owns the current high-level system context, trust boundaries, topology and dependency direction. It is not an exhaustive source for modules, data, security, testing, roadmap or integration contracts.
+
+Start architecture-wide work at `ARCHITECTURE_AUTHORITY.md`. That index defines precedence and routes each concern to its focused canonical owner. Accepted ADRs and operation-specific contracts take precedence within their stated scope.
+
+Sections explicitly labelled **Historical baseline** preserve first-phase planning context. They must not be interpreted as current product exclusions, current implementation state or unresolved facts without checking the focused canonical source and exact implementation evidence.
+
 ## Status
 
-Target architecture for the first implementation phase. It is authoritative for direction, but implementation claims remain `UNKNOWN` until source code and tests exist.
+Living system-context document. Implementation, staging and production claims remain separate and require exact evidence.
 
 ## Architectural style
 
@@ -50,6 +58,8 @@ Microservices are not the default. A module may be extracted later only when the
                (separate repository)
 ```
 
+The diagram is a system-context abstraction, not a complete module inventory or proof of current deployment. Use `MODULE_CATALOG.md`, focused contracts and exact deployment evidence for those questions.
+
 ## Trust boundaries
 
 ### Boundary A — Internet to edge
@@ -81,15 +91,15 @@ Read-only queries may be optimized independently but still require a documented 
 
 ### Boundary D — Identity to game login
 
-The final login path is not yet proven. Oteryn Platform must not invent password/session compatibility.
+Identity and game-session behavior is governed by accepted authentication ADRs and the matching contracts. This system document does not invent password, ticket, protocol or session compatibility.
 
-The target principle is one authoritative identity/security policy with an explicit contract to whichever component creates or validates game login sessions.
+The governing principle is one authoritative identity/security policy with explicit contracts to components that create or validate game login sessions.
 
-## Initial modules
+## Historical baseline — initial modules
 
-See `MODULE_CATALOG.md` for detailed ownership.
+The following list preserves the original first-phase module model. It is not the current exhaustive catalogue.
 
-High-level modules:
+See `MODULE_CATALOG.md` for current responsibility, ownership and capability status.
 
 1. `Identity` — credentials, sessions, verification, MFA, recovery.
 2. `Accounts` — player account profile and account-level settings.
@@ -100,18 +110,20 @@ High-level modules:
 7. `Audit` — immutable/security-relevant audit events.
 8. `Integration` — Canary/login-server adapters and contract enforcement.
 9. `Notifications` — mail and asynchronous user notifications.
-10. `Payments` — deferred future module; no initial dependency from core auth/account flows.
+10. `Payments` — originally deferred; current payment scope and activation limits are governed by later ADRs and the module catalogue.
 
 ## Dependency rules
 
 - HTTP controllers depend on application/domain services, not directly on arbitrary shared tables.
 - Security-critical authorization lives in policies/gates/domain rules, not only in UI visibility.
-- `Identity` must not depend on `Payments`.
+- `Identity` must not depend on payment settlement or commerce delivery.
 - `Accounts` may depend on `Identity` identity references, but must not implement authentication itself.
 - `Characters` may mutate Canary-owned/shared data only through a documented integration boundary.
 - `PublicGameData` should prefer read-only models/query services and must not become a hidden mutation path.
 - `Admin` invokes the same domain/application services as normal flows with stronger authorization; it must not bypass invariants with raw SQL.
 - `Integration` contains compatibility translation, not core business policy.
+
+Focused module and contract documents may add stricter rules for their scope.
 
 ## Data access strategy
 
@@ -127,48 +139,41 @@ Examples:
 - CMS content;
 - RBAC metadata;
 - audit records;
-- future platform-specific preferences.
+- platform-specific preferences and other Platform-owned module data.
 
-Oteryn Platform owns migrations and lifecycle for these tables.
+Oteryn Platform owns migrations and lifecycle for these tables unless a focused contract states otherwise.
 
 ### Shared/Canary-compatible data
 
-Examples may include accounts, players, guilds and game-specific state, but exact ownership is **UNKNOWN** until contract discovery.
+Accounts, players, guilds and game-specific state may cross repository boundaries. Exact ownership and writer rules are defined by `DATA_OWNERSHIP.md` and operation-specific contracts.
 
-No agent may assume shared table names or columns from MyAAC conventions without verifying the actual Oteryn Canary schema.
+No agent may assume shared table names or columns from MyAAC conventions without verifying the actual Oteryn Canary schema and current contract evidence.
 
 ## Authentication direction
 
-Target capabilities:
+Target capabilities include:
 
 - framework-backed secure password hashing;
-- password migration strategy compatible with the actual game login path;
+- password migration compatible with the accepted game-login path;
 - email verification where product policy requires it;
-- MFA/TOTP for security-sensitive users, mandatory for administrators;
+- MFA/TOTP for security-sensitive users, mandatory for administrators where the accepted security policy requires it;
 - secure password reset;
 - server-side authorization;
 - session revocation after security-sensitive changes;
 - rate limiting and abuse controls;
 - auditable privileged actions.
 
-The exact compatibility model with login-server/Canary is intentionally unresolved until evidence is collected.
+Current compatibility and delivery state must be read from accepted authentication ADRs, `docs/contracts/**`, focused security documentation and exact implementation evidence.
 
 ## Frontend direction
 
-Initial preference: Laravel Blade/server-rendered pages.
+The original preference was Laravel Blade/server-rendered pages because it reduced moving parts, shared one authorization model and avoided requiring a public SPA API before product need justified it.
 
-Rationale:
-
-- fewer moving parts during first release;
-- one application and one authorization model;
-- no requirement to design a public SPA API before it is needed;
-- easier replacement of MyAAC with a coherent first-party platform.
-
-A separate React/Vue frontend may be introduced later through an ADR if product needs justify it.
+Current frontend structure and accepted shell/information architecture are governed by the relevant frontend ADRs, module catalogue and implementation evidence. A framework or topology change that outlives one task requires an ADR.
 
 ## Deployment direction
 
-Logical target, not a provider-specific implementation:
+Logical system topology:
 
 ```text
 Cloudflare
@@ -176,8 +181,8 @@ Cloudflare
 Origin firewall / reverse proxy
    |
 Laravel web instances
-   |---- queue workers (when introduced)
-   |---- cache/session service (when introduced)
+   |---- queue workers
+   |---- cache/session service
    |---- mail provider
    |
 Database reachable only from approved private/application paths
@@ -185,11 +190,11 @@ Database reachable only from approved private/application paths
 Canary / login-server on explicitly allowed network paths
 ```
 
-Production database, cache and game services should not be publicly exposed unless technically unavoidable and explicitly secured.
+This is an architecture boundary, not proof of a specific live deployment. Production database, cache and game services must not be publicly exposed unless technically unavoidable and explicitly secured and accepted.
 
 ## Observability direction
 
-The platform should eventually provide:
+The platform architecture requires:
 
 - structured application logs;
 - request/error correlation IDs;
@@ -198,9 +203,11 @@ The platform should eventually provide:
 - health/readiness endpoints suitable for infrastructure monitoring;
 - metrics for login failure, rate limits, queue failures and critical integrations.
 
-Do not log passwords, session tokens, MFA secrets, reset tokens or other credentials.
+Current availability and production proof belong to exact implementation and operational evidence. Do not log passwords, session tokens, MFA secrets, reset tokens or other credentials.
 
-## Non-goals for initial release
+## Historical baseline — first-release non-goals
+
+The original first-release plan excluded:
 
 - payment processing;
 - marketplace/auction systems;
@@ -209,16 +216,18 @@ Do not log passwords, session tokens, MFA secrets, reset tokens or other credent
 - replacing Canary gameplay/runtime responsibilities;
 - silent modifications to Canary or login-server repositories.
 
-## Required discovery before coding shared auth/data
+This list is historical planning context. It does not override later accepted ADRs, module ownership, contracts or merged implementation. The enduring constraints are explicit cross-repository contracts, no silent external mutation and no production activation without its own evidence and authorization.
 
-Before implementing Identity/Accounts/Characters against real Canary data, create bounded tasks to prove:
+## Historical baseline — discovery before shared auth/data coding
+
+The first-phase plan required proof of:
 
 1. actual Oteryn Canary account/player/guild schema;
-2. actual password hashing expectations;
-3. actual login-server and/or Canary session authentication path;
-4. which component creates/revokes game sessions;
+2. password hashing expectations;
+3. login-server and/or Canary session authentication path;
+4. the component that creates/revokes game sessions;
 5. required account flags/status fields;
 6. transaction/concurrency expectations for character/account mutations;
 7. single-world versus multi-world requirements.
 
-Until proven, each item remains `UNKNOWN`.
+This list remains useful as a discovery checklist, but each item's current state must be established from `DATA_OWNERSHIP.md`, accepted ADRs, operation-specific contracts and exact implementation evidence. Do not preserve an item as `UNKNOWN` merely because this historical section once described it that way.

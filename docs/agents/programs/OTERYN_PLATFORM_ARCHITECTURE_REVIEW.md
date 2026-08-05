@@ -18,27 +18,76 @@ Continuously challenge Platform architecture, repository structure and CI/CD; id
 
 ```yaml
 programme_state_version: 2
-updated_at: 2026-08-05T14:30:00Z
-status: ready
-current_review_domain: none
-active_task: none
-branch: none
-pull_request: none
-exact_head: main-at-next-invocation
-decision_backlog: not_reconciled
-architecture_conflicts: unknown
-ci_architecture_findings: unknown
-accepted_handoffs_ready_for_remediation: unknown
+updated_at: 2026-08-05T17:31:00+02:00
+status: waiting
+current_review_domain: canonical-architecture-authority
+active_task: OTERYN-20260805-architecture-authority
+issue: 548
+branch: task/OTERYN-20260805-architecture-authority
+pull_request: 550
+original_exact_base: 3ab77c072dce796b09004c54b649db009a75d524
+latest_main_checked: 4646c43a14daad0e53a97cad96ef7e3afbdf77c3
+validated_head: 7712e675b1effef48b2a74ee0887e18253d08df7
+accepted_decision:
+  option: B
+  accepted_on: 2026-08-05
+  adr: docs/architecture/adr/0022-architecture-authority-index-and-focused-canonical-documents.md
+  authority_index: docs/architecture/ARCHITECTURE_AUTHORITY.md
+decision_backlog:
+  - id: ARCH-AUTH-001
+    severity: high
+    type: missing_decision
+    state: completed
+    summary: Select the canonical architecture authority and precedence model.
+    resolution: Option B accepted and recorded in ADR 0022.
+    issue: 548
+    pull_request: 550
+  - id: ARCH-AUTH-002
+    severity: medium
+    type: routing
+    state: completed
+    summary: Route architecture-wide work through the accepted authority index and focused canonical owners.
+  - id: ARCH-AUTH-003
+    severity: high
+    type: defect
+    state: partially_completed
+    summary: Reconcile the ADR inventory and historical duplicate identifiers with compatibility preserved.
+    completed: Full path inventory, collision disclosure and max-prefix-plus-one allocation rule.
+    remaining: Machine validator and compatibility-safe treatment of existing duplicate identifiers.
+  - id: ARCH-AUTH-004
+    severity: high
+    type: documentation_drift
+    state: ready_after_PR_550
+    summary: Reconcile current system and module architecture using PR 453 and later merged evidence.
+  - id: ARCH-AUTH-005
+    severity: medium
+    type: improvement
+    state: ready_after_PR_550
+    summary: Add one validated machine-readable architecture decision backlog.
+architecture_conflicts:
+  - Historical initial-phase statements are now explicitly labelled in SYSTEM_ARCHITECTURE and cannot override focused current sources.
+  - ADR directory contains historical duplicate prefixes 0008, 0010, 0011, 0015, 0016, 0017, 0018 and 0021.
+  - Initial claim that REPOSITORY_MAP referenced a missing overview path was disproved by branch/main revalidation and corrected in the final report.
+ci_architecture_findings:
+  - Agent Governance result vocabulary is now compliant with GOVERNANCE_CONTRACT.json.
+  - All eight exact-head workflow runs completed successfully on 7712e675b1effef48b2a74ee0887e18253d08df7.
+accepted_handoffs_ready_for_remediation:
+  - Add a fail-closed ADR registry validator without renumbering existing accepted paths.
+  - Reconcile module and system current-state documentation from PR 453 and later exact merged evidence.
 proven:
-  - The canonical architecture review prompt is repository-backed.
-  - This programme is immutably scoped to blakinio/Oteryn-Platform by docs/agents/OTERYN_PLATFORM_PROGRAM_SCOPE.md.
+  - Option B is accepted and durable in ADR 0022.
+  - PR 550 implements only the bounded authority and routing documentation slice.
+  - PR 453 remains the separate authoritative audit evidence for module-catalogue drift.
+  - PR 542 and PR 541 scopes remain excluded.
+  - Main advanced by two non-overlapping documentation commits after a7eb03d49e328e8115adb54e772c9c8366b737d3.
 derived:
-  - The first review must reconcile existing ADRs, canonical architecture documents, active implementation work and CI evidence before proposing a new decision registry.
+  - A machine validator is required to prevent additional ADR collisions and inventory drift.
 unknown:
-  - Whether a complete canonical decision backlog/global architecture registry currently exists without contradictions.
+  - Final independent review and merge result for PR 550.
 conflicts: []
-blockers: []
-next_action: Reconcile current canonical architecture sources, ADR status and numbering, active tasks and CI structure, then select the highest-risk unresolved decision or contradiction for one bounded review package.
+blockers:
+  - Await independent PR review and terminal merge state.
+next_action: Mark PR 550 ready for review after the final checkpoint commit passes Agent Governance and main CI.
 ```
 
 ## Programme rules
