@@ -12,6 +12,8 @@ final readonly class VerifiedProviderEvent
         public string $eventId,
         public string $eventType,
         public string $orderPublicId,
+        public string $currency,
+        public int $amountMinor,
         public ?string $providerObjectReference,
         public string $payloadSha256,
         public int $signatureTimestamp,
