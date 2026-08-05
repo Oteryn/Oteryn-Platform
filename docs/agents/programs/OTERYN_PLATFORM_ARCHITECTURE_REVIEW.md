@@ -18,8 +18,8 @@ Continuously challenge Platform architecture, repository structure and CI/CD; id
 
 ```yaml
 programme_state_version: 2
-updated_at: 2026-08-05T20:49:00Z
-status: validating
+updated_at: 2026-08-05T21:02:00Z
+status: blocked
 current_review_domain: architecture-decision-backlog-authority
 active_task: OTERYN-20260805-architecture-decision-backlog
 issue: 602
@@ -74,7 +74,7 @@ decision_backlog:
   - id: ARCH-AUTH-005
     severity: medium
     type: missing_decision
-    state: accepted_validating
+    state: accepted_blocked_merge_gate
     issue: 602
     pull_request: 604
     accepted_adr: docs/architecture/adr/0023-machine-readable-architecture-decision-backlog.md
@@ -85,9 +85,9 @@ architecture_conflicts:
   - The full programme-embedded decision queue remains transitional until the accepted ADR 0023 implementation migrates active obligations to the dedicated JSON registry.
 ci_architecture_findings:
   - Existing PHPUnit CI executes the ADR registry validator without workflow changes.
-  - All eight exact-head workflows passed on a3cf245b5b0eafff00a87ba97878adcc8154a8df before PR 594 merged.
   - Canonical architecture separates repository availability, capability completeness, environment proof and activation authority.
   - The accepted backlog validator must remain reproducible offline; remote Issue and PR liveness belongs to a separate fail-closed reconciliation boundary.
+  - Main protection currently requires both classify-changes and test, while the CI workflow skips test for documentation-only changes; PR 604 proves this makes a fully green documentation PR unmergeable.
 accepted_handoffs_ready_for_remediation:
   - id: ARCH-AUTH-005-IMPLEMENTATION
     issue: 602
@@ -99,6 +99,13 @@ accepted_handoffs_ready_for_remediation:
       - existing repository test-suite registration without workflow edits where possible
       - compact programme projection
       - narrow ARCHITECTURE_AUTHORITY routing update
+  - id: MAIN-MERGE-GATE-CONSISTENCY
+    issue: 552
+    state: blocked_owner_admin_repair
+    scope:
+      - stable always-emitted required check for documentation-only and runtime changes
+      - preserve full test enforcement for runtime changes
+      - no protection bypass
   - Issues 365, 488, 489 and 490 remain the exact owners for retained completeness, recovery, applicability and environment evidence gaps.
 proven:
   - Option B from ADR 0022 remains accepted and durable.
@@ -107,15 +114,18 @@ proven:
   - Repository, Issue and PR searches found no existing machine-readable architecture decision backlog owner.
   - The repository owner accepted Option B for Issue 602 in the current invocation.
   - ADR 0023 records the accepted authority, lifecycle, validation, migration and rollback model without runtime authorization.
-  - PR 604 contains only five bounded architecture, report, task and programme paths.
+  - PR 604 head 0c3845b0a7a9a30f81fe42fcb2825693aacc20c4 passed all eight emitted workflows and has zero unresolved review threads.
+  - CI run 31046599415 reports classify-changes success and test skipped; protected-main merge rejects the exact head because both contexts are required.
 derived:
   - A dedicated JSON backlog gives unresolved decisions stable, reproducible identities while allowing the programme to become a compact execution projection.
+  - PR 604 cannot merge safely until Issue 552 reconciles the required-check policy with conditional CI execution.
 unknown:
-  - exact-head GitHub Actions conclusions for the accepted-decision head of PR 604
   - final PR 604 merge commit and design-task archive commit
-conflicts: []
-blockers: []
-next_action: Validate accepted ADR 0023 and PR 604 on the exact final head, merge the design package, archive the design task, then start one separate bounded remediation implementation package.
+conflicts:
+  - Protected-main policy requires a test success context that the workflow intentionally does not emit for documentation-only changes.
+blockers:
+  - Issue 552 must reconcile the always-required merge-gate context without bypassing protection or weakening runtime test enforcement.
+next_action: Repair Issue 552 so documentation-only changes emit a successful required gate while runtime changes still require full tests, then merge PR 604, archive the design task and start the separate ADR 0023 implementation package.
 ```
 
 ## Programme rules
