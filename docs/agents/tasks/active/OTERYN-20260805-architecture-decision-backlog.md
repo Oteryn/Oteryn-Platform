@@ -35,9 +35,10 @@ Define the authority, schema, lifecycle and deterministic validation boundary fo
 - [x] One recommendation and exact owner question were recorded.
 - [x] A collision-free proposed ADR was allocated from live state.
 - [x] No runtime, workflow, migration, deployment, infrastructure, production or external-repository path changed.
-- [ ] Repository owner accepts Option B or selects A/C.
-- [ ] After acceptance, the proposal is updated to Accepted or Rejected and implementation is handed to a separate bounded package.
+- [x] Repository owner accepted Option B.
+- [x] ADR 0023 was updated to Accepted and a separate bounded implementation handoff was recorded.
 - [ ] Exact-head documentation/governance checks pass with zero unresolved review threads.
+- [ ] PR #604 is merged, this task is archived and ownership is released.
 
 ## Ownership
 
@@ -58,12 +59,12 @@ forbidden_paths:
   - .github/workflows/**
   - production and staging systems
   - external repositories
-blockers:
-  - repository-owner decision on Issue #602
-after_decision:
-  - record accepted or rejected ADR lifecycle
-  - create a separate implementation task only when accepted
-  - archive this design task and release ownership
+blockers: []
+after_merge:
+  - archive this design task
+  - release all five owned paths
+  - close Issue #602 as completed
+  - start a separate bounded remediation task for the accepted ADR 0023 implementation
 ```
 
 ## Context checkpoint
@@ -71,13 +72,13 @@ after_decision:
 ```yaml
 checkpoint_version: 1
 policy_version: 2
-updated_at: 2026-08-05T20:47:00Z
-phase: decide
+updated_at: 2026-08-05T20:50:00Z
+phase: validate
 session_id: chatgpt-20260805T2231+0200-architecture-decision-backlog
 session_role: architecture-adviser
 execution_mode: chat
 execution_reason: bounded GitHub-only architecture review
-lease_expires_at: 2026-08-05T22:00:00Z
+lease_expires_at: 2026-08-05T22:15:00Z
 context_pressure: low
 context_growth: stable
 context_score: 4
@@ -87,11 +88,11 @@ validation_level: documentation
 heavy_validation_runs: 0
 session_rotation_count: 0
 stale_takeover_count: 0
-human_interruptions: 0
-head: 13b77333f5bba0849500142d2444b396a23d1ecc
+human_interruptions: 1
+head: 385392915acdc493babc0ea12a9e96a5335f89a0
 branch: task/OTERYN-20260805-architecture-decision-backlog
 pr: 604
-status: waiting
+status: validating
 context_routes:
   - architecture
   - agent-governance
@@ -106,15 +107,15 @@ proven:
   - The programme embeds a compact decision_backlog but no independent schema or validator exists.
   - The ADR registry already has separate fail-closed validation and must not be duplicated.
   - Repository-file, Issue and PR searches found no existing machine-readable architecture decision backlog owner.
-  - Open architecture PR search found no ADR 0023 allocation.
   - Issue #602 records the bounded decision and three alternatives.
-  - Proposed ADR 0023 and the review report contain no runtime or workflow authorization.
-  - Draft PR #604 contains exactly five bounded architecture, report, task and programme paths.
+  - The repository owner accepted Option B in the current invocation and the decision was recorded on Issue #602.
+  - ADR 0023 now records the accepted dedicated JSON backlog model and separate implementation handoff.
+  - PR #604 contains exactly five bounded architecture, report, task and programme paths.
 derived:
   - A dedicated JSON backlog provides the clearest boundary between unresolved obligations, accepted ADR authority, Issue workflow and programme continuation.
 unknown:
-  - repository-owner selection of Option A, B or C
-  - exact-head workflow conclusions for draft PR #604
+  - exact-head workflow conclusions for the accepted-decision head of PR #604
+  - final PR #604 merge commit and design-task archive commit
 conflicts: []
 first_failure:
   marker: none
@@ -135,8 +136,11 @@ validation:
     evidence: no existing machine-readable architecture decision backlog owner found
   - command: ADR allocation inventory and open architecture PR search
     result: PASS
-    evidence: highest observed prefix is 0022 and no open allocation for 0023 exists
-  - command: draft PR changed-path inventory
+    evidence: highest observed prefix was 0022 and no competing 0023 allocation existed
+  - command: owner decision reconciliation
+    result: PASS
+    evidence: Option B acceptance is recorded on Issue #602 and ADR 0023 is Accepted
+  - command: PR changed-path inventory
     result: PASS
     evidence: PR #604 reports exactly five bounded documentation and task-state paths
   - command: runtime E2E
@@ -144,8 +148,7 @@ validation:
     evidence: documentation-only architecture decision review changes no executable behavior
   - command: exact-head GitHub Actions
     result: NOT_RUN
-    evidence: final waiting-checkpoint commit must be emitted before exact-head conclusions can be collected
-blockers:
-  - repository owner must accept Option B or select A/C before implementation or ADR acceptance
-next_action: Repository owner accepts Option B on Issue #602 or selects A/C with the reason that outweighs the documented trade-offs.
+    evidence: final accepted-decision checkpoint commit must be emitted before exact-head conclusions can be collected
+blockers: []
+next_action: Validate PR #604 on its exact accepted-decision head, confirm zero unresolved review threads, mark ready, merge, archive this design task and release ownership.
 ```
