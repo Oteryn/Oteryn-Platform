@@ -30,7 +30,7 @@ Repair and prove the canonical public WWW and Game Gateway domain path without w
 - [x] Public WWW, Gateway, cross-route and HTTP-to-HTTPS acceptance pass.
 - [x] HSTS stage 1 is active with `max-age=2592000`, `includeSubDomains=false`, `preload=false` and `nosniff=true`.
 - [x] Independent trusted-main audits reproduce the desired Cloudflare state without mutation.
-- [ ] Controlled redacted password-recovery delivery passes through a real delivery-capable mail path and controlled mailbox.
+- [ ] Controlled redacted password-recovery delivery passes through the staging mail path with owner-observed mailbox evidence.
 - [x] `PRODUCTION_PROVEN` remains false until Issue #91 completes.
 
 ## Ownership
@@ -45,53 +45,60 @@ modules:
   - edge-transport
 dependencies:
   - Issue #91 production go-live gate
-  - controlled production or approved non-production mail target
+  - owner-observed staging mailbox
 blockers:
-  - no controlled test identity/mailbox and delivery-capable target are provisioned for a real password-reset delivery proof
+  - reset request must be submitted through the public staging form and the owner must report sanitized receipt/completion evidence
 ```
 
 ## Context checkpoint
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-05T12:45:00Z
-status: blocked
-phase: password_recovery_delivery_evidence
+updated_at: 2026-08-05T12:59:00Z
+status: waiting
+phase: owner_observed_staging_password_recovery
 branch: docs/OTERYN-20260805-public-domain-repair-reconcile
 head: pending
-pr: pending
+pr: 541
 context_routes:
   - security
   - auth-identity
   - operations
   - testing
+owned_paths:
+  - docs/agents/tasks/active/OTERYN-20260801-public-domain-repair.md
+changed_paths:
+  - docs/agents/tasks/active/OTERYN-20260801-public-domain-repair.md
 repository_mutation_authorization: PROVEN
 external_edge_mutation_authorization: COMPLETED_WITH_EVIDENCE
 production_mutation_authorization: NOT_PROVEN
+staging_password_reset_test_authorization: PROVEN
 proven:
   - PR #516 archived the completed Cloudflare edge task after guarded repair and independent verification.
   - Public-edge runs 30836740158 and 30837673447 passed all required DNS, TLS, WWW, Gateway, cross-route and redirect checks.
   - HSTS apply run 30855934824 reached the staged target and complete public E2E PASS with positive HSTS.
   - HSTS audit run 30857136575 reproduced the exact target with mutation=none.
   - Password recovery implementation is merged and refuses the log mail transport.
-  - Issue #91 remains open and production mail delivery is explicitly ENV-EVIDENCE-REQUIRED.
+  - The repository owner authorized a staging password-reset request for the existing identity associated with a privately supplied mailbox and will manually observe the mailbox.
+  - Issue #91 remains open; production mail delivery remains separately ENV-EVIDENCE-REQUIRED.
 derived:
   - Public-domain routing and Cloudflare edge repair are complete.
-  - Password-recovery delivery cannot be proven by an anonymous HTTP probe or an array/log mailer.
-  - A real test requires a controlled existing identity, delivery-capable mail configuration and mailbox observation without exposing credentials or reset tokens.
+  - Manual owner observation is sufficient for staging delivery evidence when the receipt metadata is sanitized and no reset token, full link or password is persisted.
+  - This test may establish STAGING_PROVEN only; it cannot establish PRODUCTION_PROVEN.
 unknown:
-  - effective real mail provider and sender-domain readiness for the intended target
-  - controlled test identity and mailbox available to this task
-  - delivery, receipt and reset-link completion result
+  - whether the staging runtime currently has a delivery-capable mail transport configured
+  - whether the reset message reaches the owner-observed mailbox
+  - whether the received link uses the canonical staging host and completes successfully
+  - whether token replay is rejected and prior sessions are revoked in the deployed staging runtime
 conflicts:
-  - the previous checkpoint reported a Cloudflare token blocker, but later merged work and live evidence removed that blocker.
+  - the previous checkpoint required automated mailbox access, but the owner has explicitly accepted manual observation for the staging-only proof.
 first_failure:
-  marker: controlled-password-recovery-target-unavailable
-  evidence: repository search found no trusted-main password-recovery delivery workflow or controlled mailbox contract; the production checklist and prior deployment-target preflight require external target/identity configuration.
+  marker: staging-password-recovery-not-yet-executed
+  evidence: no sanitized receipt/completion observation has yet been recorded for the authorized staging identity.
 rejected_hypotheses:
   - Cloudflare edge remains broken; final WAF/Bot, public E2E and HSTS evidence passed.
   - A generic forgot-password HTTP 200 proves delivery; it proves only enumeration-safe request handling.
-  - A log or in-memory mail transport proves external delivery; the implementation explicitly rejects log transport and array delivery has no external effect.
+  - Automated Gmail access is required; manual owner observation is adequate for staging evidence.
 validation:
   - command: public-edge repair apply and E2E
     result: PASS
@@ -102,12 +109,12 @@ validation:
   - command: independent final HSTS audit
     result: PASS
     evidence: run 30857136575
-  - command: controlled password-recovery delivery
-    result: BLOCKED
-    evidence: no controlled identity/mailbox or approved delivery-capable target is available without inventing or exposing credentials
+  - command: controlled staging password-recovery delivery
+    result: NOT_RUN
+    evidence: awaiting public form submission and sanitized owner mailbox observation
 blockers:
-  - provision a controlled test identity and delivery mailbox through an approved protected environment; do not paste credentials or reset tokens into chat or Git
-next_action: Provision protected target URL, controlled test email and delivery-verification access for the intended environment, then execute a bounded password-reset request, verify receipt and link host, complete the reset, confirm single-use and session-revocation behavior, sanitize evidence, and archive this task. Full production go-live remains separate under Issue #91.
+  - owner must submit the authorized mailbox through the public staging forgot-password form because the current agent tools cannot safely fill and submit a CSRF-protected browser form without exposing the address in public GitHub automation
+next_action: Owner submits the authorized staging mailbox through the public forgot-password form, then reports only receipt time, sender, subject and link hostname; do not paste the full reset URL, token or password. After reset completion, record whether login succeeds, replay fails and prior sessions are revoked, then archive this task as STAGING_PROVEN while leaving PRODUCTION_PROVEN=false.
 ```
 
 ## Current classification
