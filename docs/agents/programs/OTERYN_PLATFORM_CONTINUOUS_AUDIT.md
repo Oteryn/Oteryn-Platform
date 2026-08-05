@@ -20,20 +20,20 @@ Continuously audit every delivered or declared Platform module and surface for t
 
 ```yaml
 programme_state_version: 2
-updated_at: 2026-08-05T17:14:00Z
-status: validating
+updated_at: 2026-08-05T17:31:00Z
+status: ready
 current_cycle: 1
-current_domain: programme-contract-verification-lifecycle
-active_task: docs/agents/tasks/active/OTERYN-20260805-programme-contract-verification-lifecycle-audit.md
-branch: audit/20260805-programme-contract-verification-lifecycle
-pull_request: 589
-last_merged_audit_head: 42a3725f3ad6d4c6863aa15049aa2a8264ab24f9
-last_completed_domain: security-content-contract-lifecycle
+current_domain: none
+active_task: none
+branch: none
+pull_request: none
+last_merged_audit_head: 5bb9bf8588dbbb76bba83a8d35a32dea0ffef40b
+last_completed_domain: programme-contract-verification-lifecycle
 coverage_inventory:
   baseline: docs/agents/evidence/OTERYN-20260803-portal-exhaustive-current-main-audit/
   baseline_merge: cbbd7613cee13cf01931a0ba0f7ac089122132e0
   latest_audited_main: 7319723520f3ee61e7dccc421742817253fdcfb9
-  selected_delta_domain: programme-contract-verification-lifecycle
+  selected_delta_domain: none
 finding_ledger:
   baseline_owners: [486, 487, 488, 489, 490, 491]
   current_cycle_findings:
@@ -66,8 +66,9 @@ proven:
   - OPA-GOV-0016 is proven in Issue #582: completed Game Catalog programme-registration audit PR #331 remains falsely active while programme #330 correctly continues.
   - OPA-GOV-0017 is proven in Issue #583: completed schema 1.3 architecture proposal PR #332 remains falsely active while downstream PR #338 consumes the contract.
   - OPA-GOV-0018 is proven in Issue #584: completed Cloudflare audit implementation/evidence PRs #409 and #415 retain workflow and tooling ownership while denied live reads remain a legitimate blocker.
-  - The source branches for all three historical tasks remain and the corresponding archive paths are absent.
-  - Draft PR #589 changes only its task, evidence index, report and this programme state.
+  - PR #589 passed all six exact-head workflows on d157341c9ca8fd29c8f2a5e2bbf202fc813ebc1a and merged as 5bb9bf8588dbbb76bba83a8d35a32dea0ffef40b.
+  - The programme-contract-verification-lifecycle audit is archived and owns no paths or leases.
+  - PR #591 was an accidental post-merge duplicate and is closed obsolete with no unique changes.
 derived:
   - Payment provider activation remains blocked until Issue #547 is remediated and independently verified.
   - The documented PR and exact-head validation process remains advisory until Issue #552 is resolved.
@@ -76,14 +77,13 @@ derived:
   - Completed audit tooling must release code/workflow ownership while preserving permission-dependent UNKNOWN evidence in a narrow blocked verification record.
 unknown:
   - The owner-approved main ruleset, emergency bypass and stable required-check list.
-  - Exact final CI and merge state for PR #589.
 conflicts:
   - ADR 0021 protects payment amount/currency integrity while the verified-event contract cannot carry or validate those facts.
   - Repository governance requires exact-head CI, audit, E2E and PR closeout while GitHub applies no main-branch enforcement.
   - Agent Governance proves local text validity but not live PR, branch, archive or ownership truth.
   - Game Catalog and Cloudflare setup tasks remain active despite terminal setup/evidence PRs and newer programme, consumer or blocker ownership.
 blockers: []
-next_action: Finalize PR #589 metadata, verify its exact changed paths and review hygiene, then enter bounded exact-head CI validation.
+next_action: Refresh live ownership, open PRs and recent main deltas, then select the highest-risk non-overlapping audit domain.
 ```
 
 ## Programme rules
