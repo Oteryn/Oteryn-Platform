@@ -26,8 +26,11 @@ final class PaymentEventConcurrencyMariaDbTest extends TestCase
     private const SECRET = 'oteryn-payment-event-concurrency-secret';
 
     private ?PDO $root = null;
+
     private string $rootHost = '';
+
     private string $rootPort = '3306';
+
     private string $rootPassword = '';
 
     protected function setUp(): void
