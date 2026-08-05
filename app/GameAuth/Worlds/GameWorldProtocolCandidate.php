@@ -11,7 +11,8 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * @property int $channel_id
  * @property int $sort_order
  * @property string $family
- * @property string $nativeProtocolVersion
+ * @property string|null $profile Canary compatibility identity only
+ * @property int|null $native_protocol_version Oteryn native identity only
  * @property string $transport
  * @property int $schema_revision
  * @property string $schema_sha256
@@ -27,30 +28,15 @@ final class GameWorldProtocolCandidate extends Model
 {
     protected $table = 'game_world_protocol_candidates';
 
-    /**
-     * @var list<string>
-     */
+    /** @var list<string> */
     protected $fillable = [
-        'game_world_id',
-        'channel_id',
-        'sort_order',
-        'family',
-        'native_protocol_version',
-        'transport',
-        'schema_revision',
-        'schema_sha256',
-        'required_capabilities',
-        'optional_capabilities',
-        'endpoint_id',
-        'game_host',
-        'game_port',
-        'tls_server_name',
-        'enabled',
+        'game_world_id', 'channel_id', 'sort_order', 'family', 'profile',
+        'native_protocol_version', 'transport', 'schema_revision', 'schema_sha256',
+        'required_capabilities', 'optional_capabilities', 'endpoint_id', 'game_host',
+        'game_port', 'tls_server_name', 'enabled',
     ];
 
-    /**
-     * @return array<string, string>
-     */
+    /** @return array<string, string> */
     protected function casts(): array
     {
         return [
@@ -65,9 +51,7 @@ final class GameWorldProtocolCandidate extends Model
         ];
     }
 
-    /**
-     * @return BelongsTo<GameWorld, $this>
-     */
+    /** @return BelongsTo<GameWorld, $this> */
     public function world(): BelongsTo
     {
         return $this->belongsTo(GameWorld::class, 'game_world_id');

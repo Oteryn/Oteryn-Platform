@@ -148,7 +148,7 @@ final class WorldRegistryTest extends TestCase
         int $sortOrder,
         bool $enabled,
         string $family,
-        string $nativeProtocolVersion,
+        string $profile,
         int $port,
         ?array $requiredCapabilities = null,
     ): GameWorldProtocolCandidate {
@@ -157,7 +157,8 @@ final class WorldRegistryTest extends TestCase
             'channel_id' => 1,
             'sort_order' => $sortOrder,
             'family' => $family,
-            'native_protocol_version' => $nativeProtocolVersion,
+            'profile' => $profile,
+            'native_protocol_version' => null,
             'transport' => $family === 'oteryn' ? 'tcp.tls13.protobuf.be32.v1' : 'canary.sequence.v1',
             'schema_revision' => 2,
             'schema_sha256' => $family === 'oteryn' && $nativeProtocolVersion === 1

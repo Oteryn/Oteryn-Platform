@@ -99,7 +99,6 @@ final class DatabaseWorldRegistry implements WorldRegistry
             || $candidate->sort_order < 0
             || $candidate->schema_revision < 1
             || ! $this->isIdentifier($candidate->family)
-            || $candidate->native_protocol_version !== 1
             || ! $this->isIdentifier($candidate->transport)
             || ! $this->isIdentifier($candidate->endpoint_id)
             || preg_match('/\A[0-9a-f]{64}\z/D', $candidate->schema_sha256) !== 1
@@ -115,18 +114,27 @@ final class DatabaseWorldRegistry implements WorldRegistry
             return null;
         }
 
-        if ($candidate->family === 'oteryn'
-            && $candidate->native_protocol_version === 1
-            && ($candidate->transport !== 'tcp.tls13.protobuf.be32.v1'
+        if ($candidate->family === 'oteryn') {
+            if ($candidate->profile !== null
+                || $candidate->native_protocol_version !== 1
+                || $candidate->transport !== 'tcp.tls13.protobuf.be32.v1'
                 || $candidate->schema_revision !== 2
                 || $candidate->schema_sha256 !== self::NATIVE_SCHEMA_SHA256
-                || array_diff(self::NATIVE_BASE_CAPABILITIES, $required) !== [])
+                || array_diff(self::NATIVE_BASE_CAPABILITIES, $required) !== []
+                || array_diff($required, self::NATIVE_BASE_CAPABILITIES) !== []
+                || $optional !== []
+            ) {
+                return null;
+            }
+        } elseif (! $this->isIdentifier((string) $candidate->profile)
+            || $candidate->native_protocol_version !== null
         ) {
             return null;
         }
 
         return new GameWorldProtocolCandidateRoute(
             family: $candidate->family,
+            profile: $candidate->profile,
             nativeProtocolVersion: $candidate->native_protocol_version,
             transport: $candidate->transport,
             schemaRevision: $candidate->schema_revision,

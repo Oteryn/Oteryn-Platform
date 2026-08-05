@@ -10,7 +10,8 @@ final readonly class GameWorldProtocolCandidateRoute
      */
     public function __construct(
         public string $family,
-        public int $nativeProtocolVersion,
+        public ?string $profile,
+        public ?int $nativeProtocolVersion,
         public string $transport,
         public int $schemaRevision,
         public string $schemaSha256,

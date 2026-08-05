@@ -54,19 +54,25 @@ final class GameLoginContextController
                 'revision' => $policy->revision,
                 'channel_id' => $policy->channelId,
                 'candidates' => array_map(
-                    static fn (GameWorldProtocolCandidateRoute $candidate): array => [
-                        'family' => $candidate->family,
-                        'native_protocol_version' => $candidate->native_protocol_version,
-                        'transport' => $candidate->transport,
-                        'schema_revision' => $candidate->schemaRevision,
-                        'schema_sha256' => $candidate->schemaSha256,
-                        'required_capabilities' => $candidate->requiredCapabilities,
-                        'optional_capabilities' => $candidate->optionalCapabilities,
-                        'endpoint_id' => $candidate->endpointId,
-                        'host' => $candidate->host,
-                        'port' => $candidate->port,
-                        'tls_server_name' => $candidate->tlsServerName,
-                    ],
+                    static function (GameWorldProtocolCandidateRoute $candidate): array {
+                        $identity = $candidate->family === 'oteryn'
+                            ? ['native_protocol_version' => $candidate->nativeProtocolVersion]
+                            : ['profile' => $candidate->profile];
+
+                        return array_merge([
+                            'family' => $candidate->family,
+                        ], $identity, [
+                            'transport' => $candidate->transport,
+                            'schema_revision' => $candidate->schemaRevision,
+                            'schema_sha256' => $candidate->schemaSha256,
+                            'required_capabilities' => $candidate->requiredCapabilities,
+                            'optional_capabilities' => $candidate->optionalCapabilities,
+                            'endpoint_id' => $candidate->endpointId,
+                            'host' => $candidate->host,
+                            'port' => $candidate->port,
+                            'tls_server_name' => $candidate->tlsServerName,
+                        ]);
+                    },
                     $policy->candidates,
                 ),
             ],

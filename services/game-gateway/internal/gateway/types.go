@@ -2,6 +2,7 @@ package gateway
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"time"
 )
@@ -36,8 +37,11 @@ type Character struct {
 }
 
 type GameplayOfferCandidate struct {
-	Family                string   `json:"family"`
-	NativeProtocolVersion string   `json:"native_protocol_version"`
+	Family                string `json:"family"`
+	Profile               string `json:"profile,omitempty"`
+	NativeProtocolVersion uint32 `json:"native_protocol_version,omitempty"`
+	profilePresent        bool
+	nativeVersionPresent  bool
 	Transport             string   `json:"transport"`
 	SchemaRevision        uint32   `json:"schema_revision"`
 	SchemaSHA256          string   `json:"schema_sha256"`
@@ -58,8 +62,11 @@ type LoginRequest struct {
 }
 
 type GameplayPolicyCandidate struct {
-	Family                string   `json:"family"`
-	NativeProtocolVersion string   `json:"native_protocol_version"`
+	Family                string `json:"family"`
+	Profile               string `json:"profile,omitempty"`
+	NativeProtocolVersion uint32 `json:"native_protocol_version,omitempty"`
+	profilePresent        bool
+	nativeVersionPresent  bool
 	Transport             string   `json:"transport"`
 	SchemaRevision        uint32   `json:"schema_revision"`
 	SchemaSHA256          string   `json:"schema_sha256"`
@@ -86,7 +93,8 @@ type LoginContext struct {
 type GameplaySelection struct {
 	PolicyRevision         uint64   `json:"policy_revision"`
 	Family                 string   `json:"family"`
-	NativeProtocolVersion  string   `json:"native_protocol_version"`
+	Profile                string   `json:"profile,omitempty"`
+	NativeProtocolVersion  uint32   `json:"native_protocol_version,omitempty"`
 	Transport              string   `json:"transport"`
 	SchemaRevision         uint32   `json:"schema_revision"`
 	SchemaSHA256           string   `json:"schema_sha256"`
@@ -138,4 +146,48 @@ type SessionIssuer interface {
 	Create(ctx context.Context, request SessionRequest) (Session, error)
 	Ready(ctx context.Context) error
 	ReadyFor(ctx context.Context, request SessionRequest) error
+}
+
+func (candidate *GameplayOfferCandidate) UnmarshalJSON(data []byte) error {
+	type alias GameplayOfferCandidate
+	var decoded struct {
+		alias
+		Profile               *string `json:"profile"`
+		NativeProtocolVersion *uint32 `json:"native_protocol_version"`
+	}
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	*candidate = GameplayOfferCandidate(decoded.alias)
+	if decoded.Profile != nil {
+		candidate.Profile = *decoded.Profile
+		candidate.profilePresent = true
+	}
+	if decoded.NativeProtocolVersion != nil {
+		candidate.NativeProtocolVersion = *decoded.NativeProtocolVersion
+		candidate.nativeVersionPresent = true
+	}
+	return nil
+}
+
+func (candidate *GameplayPolicyCandidate) UnmarshalJSON(data []byte) error {
+	type alias GameplayPolicyCandidate
+	var decoded struct {
+		alias
+		Profile               *string `json:"profile"`
+		NativeProtocolVersion *uint32 `json:"native_protocol_version"`
+	}
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	*candidate = GameplayPolicyCandidate(decoded.alias)
+	if decoded.Profile != nil {
+		candidate.Profile = *decoded.Profile
+		candidate.profilePresent = true
+	}
+	if decoded.NativeProtocolVersion != nil {
+		candidate.NativeProtocolVersion = *decoded.NativeProtocolVersion
+		candidate.nativeVersionPresent = true
+	}
+	return nil
 }

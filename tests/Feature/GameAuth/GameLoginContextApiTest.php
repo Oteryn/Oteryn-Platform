@@ -103,7 +103,7 @@ final class GameLoginContextApiTest extends TestCase
             ->assertJsonPath('gameplay_policy.candidates.0.endpoint_id', 'native-first')
             ->assertJsonPath('gameplay_policy.candidates.1.endpoint_id', 'compatible-second')
             ->assertJsonPath('gameplay_policy.candidates.0.family', 'oteryn')
-            ->assertJsonPath('gameplay_policy.candidates.0.schema_revision', 1)
+            ->assertJsonPath('gameplay_policy.candidates.0.schema_revision', 2)
             ->assertJsonPath('gameplay_policy.candidates.0.schema_sha256', self::NATIVE_SCHEMA_SHA256)
             ->assertJsonPath('gameplay_policy.candidates.0.required_capabilities', self::NATIVE_CAPABILITIES);
 
@@ -184,6 +184,7 @@ final class GameLoginContextApiTest extends TestCase
             'channel_id' => 1,
             'sort_order' => $sortOrder,
             'family' => 'oteryn',
+            'profile' => null,
             'native_protocol_version' => 1,
             'transport' => 'tcp.tls13.protobuf.be32.v1',
             'schema_revision' => 2,
@@ -203,14 +204,15 @@ final class GameLoginContextApiTest extends TestCase
         string $endpointId,
         int $sortOrder,
         bool $enabled,
-        string $nativeProtocolVersion,
+        string $profile,
     ): GameWorldProtocolCandidate {
         return GameWorldProtocolCandidate::query()->create([
             'game_world_id' => $world->id,
             'channel_id' => 1,
             'sort_order' => $sortOrder,
             'family' => 'test',
-            'native_protocol_version' => $nativeProtocolVersion,
+            'profile' => $profile,
+            'native_protocol_version' => null,
             'transport' => 'tcp.test.v1',
             'schema_revision' => 2,
             'schema_sha256' => str_repeat('a', 64),
