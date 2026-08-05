@@ -4,7 +4,7 @@ Convenience index only. Individual active task records, live PRs and Git state a
 
 ## Active tasks
 
-None recorded by this index. Live active task files and pull requests remain authoritative when newer.
+- `OTERYN-20260805-e2e-scheduled-evidence-closeout` — issue #114; PR #615; persist first scheduled soak/stability evidence, classify the retained zero-retry failure signal and complete lifecycle closeout.
 
 ## Closed acceptance and release-preparation follow-ups
 
