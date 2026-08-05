@@ -65,6 +65,8 @@ final class PaymentEventConcurrencyMariaDbTest extends TestCase
             '--no-interaction' => true,
         ]));
 
+        $this->root = null;
+
         config([
             'app.env' => 'testing',
             'payments.enabled' => true,
