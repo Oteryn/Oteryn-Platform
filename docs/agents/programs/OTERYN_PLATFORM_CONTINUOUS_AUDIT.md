@@ -20,19 +20,21 @@ Continuously audit every delivered or declared Platform module and surface for t
 
 ```yaml
 programme_state_version: 2
-updated_at: 2026-08-05T16:18:00Z
-status: ready
+updated_at: 2026-08-05T16:25:00Z
+status: validating
 current_cycle: 1
-current_domain: none
-active_task: none
-branch: none
-pull_request: none
+current_domain: security-content-contract-lifecycle
+active_task: docs/agents/tasks/active/OTERYN-20260805-security-content-contract-lifecycle-audit.md
+branch: audit/20260805-security-content-contract-lifecycle
+pull_request: pending
+exact_head: pending-branch-head
 last_merged_audit_head: 3f79987f47e5c7593daccdf1136e09d6641017de
 last_completed_domain: implementation-ownership-lifecycle
 coverage_inventory:
   baseline: docs/agents/evidence/OTERYN-20260803-portal-exhaustive-current-main-audit/
   baseline_merge: cbbd7613cee13cf01931a0ba0f7ac089122132e0
-  latest_audited_main: 245e7f9e20825168c6a0e406e5ab5572c5473c34
+  latest_audited_main: 9635bf15f15ea4ab5fb229fd78f3312baad412bf
+  selected_delta_domain: security-content-contract-lifecycle
 finding_ledger:
   baseline_owners:
     - 486
@@ -57,7 +59,8 @@ finding_ledger:
     - OPA-GOV-0012: 574
     - OPA-GOV-0013: 575
     - OPA-GOV-0014: 576
-open_material_findings: existing_owner_packages_plus_fifteen_current_cycle_findings
+    - OPA-GOV-0015: 579
+open_material_findings: existing_owner_packages_plus_sixteen_current_cycle_findings
 ready_remediation_issues:
   - 547
   - 555
@@ -72,21 +75,22 @@ ready_remediation_issues:
   - 574
   - 575
   - 576
+  - 579
 blocked_findings:
   - 552
   - 558
 proven:
   - PR #483 and its merged evidence are the authoritative existing module and observable-surface inventory.
   - OPA-SEC-0001 through OPA-GOV-0005 are proven and their audit tasks are archived.
-  - OPA-GOV-0006 through OPA-GOV-0010 are proven in Issues #565, #566, #567, #570 and #571.
-  - PR #572 passed all six exact-head workflows and merged as 3f79987f47e5c7593daccdf1136e09d6641017de.
-  - The implementation-ownership lifecycle audit is archived and all audit ownership is released by the lifecycle closeout PR.
-  - OPA-GOV-0011 through OPA-GOV-0014 are proven in Issues #573, #574, #575 and #576 for Wiki foundation, MFA QR enrollment, route-view-navigation inventory and content-scale evidence tasks.
+  - OPA-GOV-0006 through OPA-GOV-0010 are proven and their audit task is archived.
+  - OPA-GOV-0011 through OPA-GOV-0015 are proven in Issues #573, #574, #575, #576 and #579.
+  - Wiki foundation, MFA QR enrollment, route-view-navigation inventory, content-scale evidence and public-endpoint contract tasks remain active despite terminal PRs, missing archives and retained branches.
+  - Each concrete Issue owns only its historical task/archive pair and forbids product, workflow, operational and external-repository mutation.
 derived:
   - Payment provider activation remains blocked until Issue #547 is remediated and independently verified.
   - The documented PR and exact-head validation process remains advisory until Issue #552 is resolved.
   - Stale task records remain schema-valid until Issue #558 adds live-state governance; concrete records can be repaired independently through ready Issues.
-  - Completed bounded slices must be archived with their explicit nonclaims rather than retaining broad ownership for unrelated parent work.
+  - Completed bounded slices must be archived with their future-feature, parent-programme, staging and reachability nonclaims rather than retaining broad ownership.
 unknown:
   - The owner-approved main ruleset, emergency bypass and stable required-check list.
   - The full count of historical active tasks whose PRs are already terminal or whose implementation and later proof phases are conflated.
@@ -94,9 +98,9 @@ conflicts:
   - ADR 0021 protects payment amount/currency integrity while the verified-event contract cannot carry or validate those facts.
   - Repository governance requires exact-head CI, audit, E2E and PR closeout while GitHub applies no main-branch enforcement.
   - Repository coordination treats task and Git state as authoritative while Agent Governance proves only local text validity.
-  - Multiple current records claim completed security, Wiki and acceptance-harness ownership despite terminal PR state.
+  - Five current records claim completed security, Wiki, acceptance-harness or canonical contract ownership despite terminal PR state.
 blockers: []
-next_action: Persist and validate one bounded audit package for Issues #573, #574, #575 and #576, then continue the remaining active-task inventory against live PR, branch, archive and blocker state.
+next_action: Validate and merge the security-content-contract lifecycle audit PR, archive its audit task, then continue the remaining active-task inventory against live PR, branch, archive and blocker state.
 ```
 
 ## Programme rules
