@@ -20,20 +20,22 @@ Continuously audit every delivered or declared Platform module and surface for t
 
 ```yaml
 programme_state_version: 2
-updated_at: 2026-08-05T15:15:00Z
-status: ready
+updated_at: 2026-08-05T15:20:00Z
+status: validating
 current_cycle: 1
-current_domain: none
-active_task: none
-branch: none
-pull_request: none
+current_domain: stale-game-gateway-task-lifecycle
+active_task: docs/agents/tasks/active/OTERYN-20260805-game-gateway-stale-task-audit.md
+branch: audit/20260805-game-gateway-stale-task
+pull_request: pending
+exact_head: pending-branch-head
 last_merged_audit_head: 75ce5c8c39be35c7271049d6deb7ee733c5f35f2
 last_completed_domain: main-integrity-policy
 coverage_inventory:
   baseline: docs/agents/evidence/OTERYN-20260803-portal-exhaustive-current-main-audit/
   baseline_merge: cbbd7613cee13cf01931a0ba0f7ac089122132e0
-  latest_audited_main: a7eb03d49e328e8115adb54e772c9c8366b737d3
-  audited_delta_commits: 39
+  latest_audited_main: 4646c43a14daad0e53a97cad96ef7e3afbdf77c3
+  audited_delta_commits: 41
+  selected_delta_domain: stale-game-gateway-task-lifecycle
 finding_ledger:
   baseline_owners:
     - 486
@@ -45,28 +47,33 @@ finding_ledger:
   current_cycle_findings:
     - OPA-SEC-0001: 547
     - OPA-GOV-0001: 552
-open_material_findings: existing_owner_packages_plus_two_current_cycle_findings
+    - OPA-GOV-0002: 555
+open_material_findings: existing_owner_packages_plus_three_current_cycle_findings
 ready_remediation_issues:
   - 547
+  - 555
 blocked_findings:
   - 552
 proven:
   - PR #483 and its merged evidence are the authoritative existing module and observable-surface inventory.
   - OPA-SEC-0001 is proven and deduplicated in Issue #547; its audit task is archived.
-  - OPA-GOV-0001 is proven and deduplicated in Issue #552.
-  - PR #553 passed all six exact-head workflows and merged as 75ce5c8c39be35c7271049d6deb7ee733c5f35f2.
-  - The main-integrity policy audit task is archived and all audit ownership is released by the lifecycle closeout PR.
+  - OPA-GOV-0001 is proven and deduplicated in Issue #552; its audit task is archived.
+  - OTERYN-20260722-game-gateway-mvp remains active despite PR #122 being merged and no matching archive record existing.
+  - The stale task claims paths currently changed by active PR #542.
+  - OPA-GOV-0002 is proven and deduplicated in Issue #555.
 derived:
   - Payment provider activation remains blocked until Issue #547 is remediated and independently verified.
   - The documented PR and exact-head validation process remains advisory until Issue #552 is resolved.
+  - Stale task ownership can block or misroute current multi-agent work until Issue #555 is remediated.
 unknown:
   - The owner-approved main ruleset, emergency bypass and stable required-check list.
-  - The exact count and terminal validity of historical files still retained under docs/agents/tasks/active.
+  - The exact count and terminal validity of other historical files retained under docs/agents/tasks/active.
 conflicts:
   - ADR 0021 protects payment amount/currency integrity while the verified-event contract cannot carry or validate those facts.
   - Repository governance requires exact-head CI, audit, E2E and PR closeout while GitHub applies no main-branch enforcement.
+  - A merged historical task claims Game Gateway paths that have a newer active owner in PR #542.
 blockers: []
-next_action: Refresh active-task and related PR state, then audit whether completed or superseded historical tasks remain falsely active without live ownership.
+next_action: Validate and merge the stale Game Gateway task audit PR, archive its audit task, then continue bounded active-task lifecycle reconciliation.
 ```
 
 ## Programme rules
