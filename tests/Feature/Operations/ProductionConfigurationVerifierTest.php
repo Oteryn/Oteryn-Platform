@@ -3,6 +3,7 @@
 namespace Tests\Feature\Operations;
 
 use App\Operations\ProductionConfigurationVerifier;
+use App\Payments\Infrastructure\DeterministicTestPaymentProvider;
 use Illuminate\Support\Facades\Artisan;
 use Tests\TestCase;
 
@@ -32,6 +33,7 @@ final class ProductionConfigurationVerifierTest extends TestCase
             'marketplace.public_bid_history_limit' => 20,
             'marketplace.character_limit' => 10,
             'database.connections.canary_character_transfer.username' => 'oteryn_character_transfer',
+            'payments.enabled' => false,
         ]);
     }
 
@@ -142,6 +144,59 @@ final class ProductionConfigurationVerifierTest extends TestCase
             'marketplace.enabled' => false,
             'marketplace.escrow_canary_account_id' => 0,
             'database.connections.canary_character_transfer.username' => 'root',
+        ]);
+
+        self::assertSame([], app(ProductionConfigurationVerifier::class)->inspect());
+    }
+
+    public function test_enabled_payments_reject_the_deterministic_test_provider(): void
+    {
+        config([
+            'payments.enabled' => true,
+            'payments.provider' => 'test',
+            'payments.provider_verified' => true,
+            'payments.provider_adapter_class' => DeterministicTestPaymentProvider::class,
+            'payments.webhook_verifier_class' => DeterministicTestPaymentProvider::class,
+            'payments.allowed_currencies' => ['PLN', 'EUR'],
+            'payments.maximum_order_amount_minor' => 100_000,
+            'payments.webhook.maximum_payload_bytes' => 32_768,
+            'payments.webhook.signature_tolerance_seconds' => 300,
+            'payments.webhook.test_secret' => 'must-not-be-used-in-production',
+        ]);
+
+        $this->assertViolation('PAYMENTS_PROVIDER must identify an approved non-test provider.');
+        $this->assertViolation('PAYMENTS_TEST_SECRET must not be configured for an enabled production provider.');
+    }
+
+    public function test_enabled_payments_require_a_verified_real_provider_profile(): void
+    {
+        config([
+            'payments.enabled' => true,
+            'payments.provider' => 'future-provider',
+            'payments.provider_verified' => false,
+            'payments.provider_adapter_class' => null,
+            'payments.webhook_verifier_class' => null,
+            'payments.allowed_currencies' => ['PLN'],
+            'payments.maximum_order_amount_minor' => 100_000,
+            'payments.webhook.maximum_payload_bytes' => 32_768,
+            'payments.webhook.signature_tolerance_seconds' => 300,
+            'payments.webhook.test_secret' => null,
+        ]);
+
+        $violations = app(ProductionConfigurationVerifier::class)->inspect();
+        self::assertContains('The payment provider profile must be directly verified before activation.', $violations);
+        self::assertContains('PAYMENTS_PROVIDER_ADAPTER_CLASS must implement PaymentProviderGateway.', $violations);
+        self::assertContains('PAYMENTS_WEBHOOK_VERIFIER_CLASS must implement PaymentWebhookVerifier.', $violations);
+    }
+
+    public function test_disabled_payments_do_not_require_provider_configuration(): void
+    {
+        config([
+            'payments.enabled' => false,
+            'payments.provider' => null,
+            'payments.provider_verified' => false,
+            'payments.provider_adapter_class' => null,
+            'payments.webhook_verifier_class' => null,
         ]);
 
         self::assertSame([], app(ProductionConfigurationVerifier::class)->inspect());

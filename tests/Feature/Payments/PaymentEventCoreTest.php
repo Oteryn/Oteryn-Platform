@@ -319,7 +319,7 @@ final class PaymentEventCoreTest extends TestCase
     }
 
     /**
-     * @param array<string, string> $extraData
+     * @param  array<string, string>  $extraData
      */
     private function payload(
         string $eventId,

@@ -11,7 +11,7 @@ final class PaymentOrderStateMachineTest extends TestCase
 {
     public function test_pending_payment_accepts_only_initial_settlement_outcomes(): void
     {
-        $machine = new PaymentOrderStateMachine();
+        $machine = new PaymentOrderStateMachine;
 
         foreach ([
             'payment.succeeded' => PaymentOrder::STATUS_SUCCEEDED,
@@ -28,7 +28,7 @@ final class PaymentOrderStateMachineTest extends TestCase
 
     public function test_terminal_payment_truth_cannot_regress(): void
     {
-        $machine = new PaymentOrderStateMachine();
+        $machine = new PaymentOrderStateMachine;
 
         foreach ([
             'payment.failed',
@@ -44,7 +44,7 @@ final class PaymentOrderStateMachineTest extends TestCase
 
     public function test_duplicate_state_is_an_idempotent_noop(): void
     {
-        $decision = (new PaymentOrderStateMachine())->decide(
+        $decision = (new PaymentOrderStateMachine)->decide(
             PaymentOrder::STATUS_SUCCEEDED,
             'payment.succeeded',
         );
@@ -55,7 +55,7 @@ final class PaymentOrderStateMachineTest extends TestCase
 
     public function test_unknown_event_requires_reconciliation(): void
     {
-        $decision = (new PaymentOrderStateMachine())->decide(
+        $decision = (new PaymentOrderStateMachine)->decide(
             PaymentOrder::STATUS_PENDING,
             'payment.unknown',
         );

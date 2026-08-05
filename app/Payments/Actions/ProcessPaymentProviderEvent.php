@@ -23,7 +23,7 @@ final class ProcessPaymentProviderEvent
     ) {}
 
     /**
-     * @param array<string, string|list<string>> $headers
+     * @param  array<string, string|list<string>>  $headers
      */
     public function execute(
         string $rawPayload,
@@ -163,7 +163,7 @@ final class ProcessPaymentProviderEvent
     }
 
     /**
-     * @param array<string, bool|int|string|null> $metadata
+     * @param  array<string, bool|int|string|null>  $metadata
      */
     private function reconcile(
         PaymentProviderEvent $event,

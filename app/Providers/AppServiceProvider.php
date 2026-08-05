@@ -11,6 +11,9 @@ use App\GameAuth\OAuth\RequirePublicClientPkceS256;
 use App\Identity\Mfa\PendingMfaLogin;
 use App\Identity\Support\CanonicalEmail;
 use App\Marketplace\Contracts\CanaryCharacterTransferGateway;
+use App\Payments\Contracts\PaymentProviderGateway;
+use App\Payments\Contracts\PaymentWebhookVerifier;
+use App\Payments\Infrastructure\DeterministicTestPaymentProvider;
 use App\Wiki\Application\Rendering\WikiMarkdownRenderer;
 use App\Wiki\Application\Search\WikiSearch;
 use App\Wiki\Infrastructure\Rendering\CommonMarkWikiRenderer;
@@ -35,6 +38,14 @@ class AppServiceProvider extends ServiceProvider
         $this->app->bind(CanaryAccountProvisioningGateway::class, CanaryAccountProvisioner::class);
         $this->app->bind(CanaryCharacterCreationGateway::class, CanaryCharacterCreator::class);
         $this->app->bind(CanaryCharacterTransferGateway::class, CanaryCharacterTransfer::class);
+        $this->app->bind(
+            PaymentProviderGateway::class,
+            fn (): PaymentProviderGateway => $this->deterministicTestPaymentProvider(),
+        );
+        $this->app->bind(
+            PaymentWebhookVerifier::class,
+            fn (): PaymentWebhookVerifier => $this->deterministicTestPaymentProvider(),
+        );
         $this->app->bind(WikiMarkdownRenderer::class, CommonMarkWikiRenderer::class);
         $this->app->bind(WikiSearch::class, DatabaseWikiSearch::class);
         $this->app->bind(PublicWikiQuery::class, DatabasePublicWikiQuery::class);
@@ -45,6 +56,29 @@ class AppServiceProvider extends ServiceProvider
         $this->configureLocalization();
         $this->configureRateLimiters();
         $this->configureNativeOAuth();
+    }
+
+    private function deterministicTestPaymentProvider(): DeterministicTestPaymentProvider
+    {
+        if (config('payments.provider') !== DeterministicTestPaymentProvider::PROVIDER) {
+            throw new LogicException('No approved payment provider adapter is bound.');
+        }
+
+        $secret = config('payments.webhook.test_secret');
+        $maximumPayloadBytes = config('payments.webhook.maximum_payload_bytes');
+        $signatureToleranceSeconds = config('payments.webhook.signature_tolerance_seconds');
+
+        if (! is_string($secret)
+            || ! is_int($maximumPayloadBytes)
+            || ! is_int($signatureToleranceSeconds)) {
+            throw new LogicException('The deterministic test payment provider is not configured.');
+        }
+
+        return new DeterministicTestPaymentProvider(
+            $secret,
+            $maximumPayloadBytes,
+            $signatureToleranceSeconds,
+        );
     }
 
     private function configureLocalization(): void

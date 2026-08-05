@@ -5,7 +5,7 @@ namespace App\Payments\Data;
 final readonly class VerifiedProviderEvent
 {
     /**
-     * @param array<string, bool|int|string|null> $metadata
+     * @param  array<string, bool|int|string|null>  $metadata
      */
     public function __construct(
         public string $provider,

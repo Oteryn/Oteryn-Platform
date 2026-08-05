@@ -2,6 +2,9 @@
 
 namespace App\Operations;
 
+use App\Payments\Contracts\PaymentProviderGateway;
+use App\Payments\Contracts\PaymentWebhookVerifier;
+
 final class ProductionConfigurationVerifier
 {
     /**
@@ -65,6 +68,10 @@ final class ProductionConfigurationVerifier
             array_push($violations, ...$this->marketplaceViolations());
         }
 
+        if (config('payments.enabled')) {
+            array_push($violations, ...$this->paymentViolations());
+        }
+
         return $violations;
     }
 
@@ -106,6 +113,71 @@ final class ProductionConfigurationVerifier
         $transferUsername = config('database.connections.canary_character_transfer.username');
         if (! is_string($transferUsername) || trim($transferUsername) === '' || $transferUsername === 'root') {
             $violations[] = 'The dedicated Canary character-transfer database username must be configured and must not be root.';
+        }
+
+        return $violations;
+    }
+
+    /** @return list<string> */
+    private function paymentViolations(): array
+    {
+        $violations = [];
+        $provider = config('payments.provider');
+        if (! is_string($provider) || trim($provider) === '' || strtolower($provider) === 'test') {
+            $violations[] = 'PAYMENTS_PROVIDER must identify an approved non-test provider.';
+        }
+
+        if (config('payments.provider_verified') !== true) {
+            $violations[] = 'The payment provider profile must be directly verified before activation.';
+        }
+
+        $adapter = config('payments.provider_adapter_class');
+        if (! is_string($adapter)
+            || ! class_exists($adapter)
+            || ! is_a($adapter, PaymentProviderGateway::class, true)) {
+            $violations[] = 'PAYMENTS_PROVIDER_ADAPTER_CLASS must implement PaymentProviderGateway.';
+        }
+
+        $verifier = config('payments.webhook_verifier_class');
+        if (! is_string($verifier)
+            || ! class_exists($verifier)
+            || ! is_a($verifier, PaymentWebhookVerifier::class, true)) {
+            $violations[] = 'PAYMENTS_WEBHOOK_VERIFIER_CLASS must implement PaymentWebhookVerifier.';
+        }
+
+        $currencies = config('payments.allowed_currencies');
+        if (! is_array($currencies)
+            || $currencies === []
+            || array_filter(
+                $currencies,
+                static fn (mixed $currency): bool => ! is_string($currency)
+                    || preg_match('/^[A-Z]{3}$/', $currency) !== 1,
+            ) !== []) {
+            $violations[] = 'Payment currencies must be a non-empty list of ISO-style uppercase codes.';
+        }
+
+        $maximumAmount = config('payments.maximum_order_amount_minor');
+        if (! is_int($maximumAmount) || $maximumAmount < 1) {
+            $violations[] = 'The maximum payment order amount must be a positive integer in minor units.';
+        }
+
+        $maximumPayloadBytes = config('payments.webhook.maximum_payload_bytes');
+        if (! is_int($maximumPayloadBytes)
+            || $maximumPayloadBytes < 1
+            || $maximumPayloadBytes > 1_048_576) {
+            $violations[] = 'The payment webhook payload limit must be between 1 and 1048576 bytes.';
+        }
+
+        $signatureTolerance = config('payments.webhook.signature_tolerance_seconds');
+        if (! is_int($signatureTolerance)
+            || $signatureTolerance < 1
+            || $signatureTolerance > 900) {
+            $violations[] = 'The payment webhook signature tolerance must be between 1 and 900 seconds.';
+        }
+
+        $testSecret = config('payments.webhook.test_secret');
+        if (is_string($testSecret) && trim($testSecret) !== '') {
+            $violations[] = 'PAYMENTS_TEST_SECRET must not be configured for an enabled production provider.';
         }
 
         return $violations;

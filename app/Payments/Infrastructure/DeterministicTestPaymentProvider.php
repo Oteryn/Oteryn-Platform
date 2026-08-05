@@ -14,7 +14,9 @@ use JsonException;
 final class DeterministicTestPaymentProvider implements PaymentProviderGateway, PaymentWebhookVerifier
 {
     public const PROVIDER = 'test';
+
     public const TIMESTAMP_HEADER = 'x-oteryn-test-timestamp';
+
     public const SIGNATURE_HEADER = 'x-oteryn-test-signature';
 
     public function __construct(
@@ -50,7 +52,7 @@ final class DeterministicTestPaymentProvider implements PaymentProviderGateway, 
     }
 
     /**
-     * @param array<string, string|list<string>> $headers
+     * @param  array<string, string|list<string>>  $headers
      */
     public function verify(
         string $rawPayload,
@@ -135,7 +137,7 @@ final class DeterministicTestPaymentProvider implements PaymentProviderGateway, 
     }
 
     /**
-     * @param array<string, string|list<string>> $headers
+     * @param  array<string, string|list<string>>  $headers
      */
     private function header(array $headers, string $name): ?string
     {

@@ -23,9 +23,11 @@ use Illuminate\Support\Carbon;
 final class PaymentProviderEvent extends Model
 {
     public const CREATED_AT = 'received_at';
+
     public const UPDATED_AT = null;
 
     public const STATE_PROCESSED = 'processed';
+
     public const STATE_RECONCILIATION = 'reconciliation';
 
     /** @var list<string> */

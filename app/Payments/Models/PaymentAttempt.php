@@ -20,7 +20,9 @@ use Illuminate\Support\Carbon;
 final class PaymentAttempt extends Model
 {
     public const STATUS_CREATING = 'creating';
+
     public const STATUS_READY = 'ready';
+
     public const STATUS_AMBIGUOUS = 'ambiguous';
 
     /** @var list<string> */

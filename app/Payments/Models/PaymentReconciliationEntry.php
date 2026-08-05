@@ -20,6 +20,7 @@ final class PaymentReconciliationEntry extends Model
     public const UPDATED_AT = null;
 
     public const STATE_OPEN = 'open';
+
     public const STATE_RESOLVED = 'resolved';
 
     /** @var list<string> */

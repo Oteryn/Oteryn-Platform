@@ -8,7 +8,7 @@ use Carbon\CarbonImmutable;
 interface PaymentWebhookVerifier
 {
     /**
-     * @param array<string, string|list<string>> $headers
+     * @param  array<string, string|list<string>>  $headers
      */
     public function verify(
         string $rawPayload,
