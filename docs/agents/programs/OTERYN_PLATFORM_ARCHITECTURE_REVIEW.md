@@ -18,16 +18,17 @@ Continuously challenge Platform architecture, repository structure and CI/CD; id
 
 ```yaml
 programme_state_version: 2
-updated_at: 2026-08-05T17:31:00+02:00
-status: waiting
-current_review_domain: canonical-architecture-authority
-active_task: OTERYN-20260805-architecture-authority
-issue: 548
-branch: task/OTERYN-20260805-architecture-authority
-pull_request: 550
-original_exact_base: 3ab77c072dce796b09004c54b649db009a75d524
-latest_main_checked: 4646c43a14daad0e53a97cad96ef7e3afbdf77c3
-validated_head: 7712e675b1effef48b2a74ee0887e18253d08df7
+updated_at: 2026-08-05T15:57:00Z
+status: ready
+current_review_domain: none
+active_task: none
+issue: none
+branch: none
+pull_request: none
+last_completed_domain: canonical-architecture-authority
+last_completed_issue: 548
+last_completed_pull_request: 550
+last_completed_merge: 05c7695149117e9cdb8e34937217033357175619
 accepted_decision:
   option: B
   accepted_on: 2026-08-05
@@ -39,9 +40,7 @@ decision_backlog:
     type: missing_decision
     state: completed
     summary: Select the canonical architecture authority and precedence model.
-    resolution: Option B accepted and recorded in ADR 0022.
-    issue: 548
-    pull_request: 550
+    resolution: Option B accepted and recorded in ADR 0022 and merged through PR 550.
   - id: ARCH-AUTH-002
     severity: medium
     type: routing
@@ -50,44 +49,36 @@ decision_backlog:
   - id: ARCH-AUTH-003
     severity: high
     type: defect
-    state: partially_completed
-    summary: Reconcile the ADR inventory and historical duplicate identifiers with compatibility preserved.
-    completed: Full path inventory, collision disclosure and max-prefix-plus-one allocation rule.
-    remaining: Machine validator and compatibility-safe treatment of existing duplicate identifiers.
+    state: ready
+    summary: Add a fail-closed ADR registry validator and define compatibility-safe treatment of historical duplicate identifiers.
   - id: ARCH-AUTH-004
     severity: high
     type: documentation_drift
-    state: ready_after_PR_550
-    summary: Reconcile current system and module architecture using PR 453 and later merged evidence.
+    state: ready
+    summary: Reconcile current system and module architecture using PR 453 and later exact merged evidence.
   - id: ARCH-AUTH-005
     severity: medium
     type: improvement
-    state: ready_after_PR_550
-    summary: Add one validated machine-readable architecture decision backlog.
+    state: queued
+    summary: Add one validated machine-readable architecture decision backlog after its schema and ownership are accepted.
 architecture_conflicts:
-  - Historical initial-phase statements are now explicitly labelled in SYSTEM_ARCHITECTURE and cannot override focused current sources.
-  - ADR directory contains historical duplicate prefixes 0008, 0010, 0011, 0015, 0016, 0017, 0018 and 0021.
-  - Initial claim that REPOSITORY_MAP referenced a missing overview path was disproved by branch/main revalidation and corrected in the final report.
+  - Historical duplicate ADR prefixes remain for 0008, 0010, 0011, 0015, 0016, 0017, 0018 and 0021.
 ci_architecture_findings:
-  - Agent Governance result vocabulary is now compliant with GOVERNANCE_CONTRACT.json.
-  - All eight exact-head workflow runs completed successfully on 7712e675b1effef48b2a74ee0887e18253d08df7.
+  - All eight exact-head workflow runs passed on 2d9ba78067823cd45f5f5fa7dc9c95f2a782e8d8 before PR 550 merged.
 accepted_handoffs_ready_for_remediation:
   - Add a fail-closed ADR registry validator without renumbering existing accepted paths.
   - Reconcile module and system current-state documentation from PR 453 and later exact merged evidence.
 proven:
   - Option B is accepted and durable in ADR 0022.
-  - PR 550 implements only the bounded authority and routing documentation slice.
-  - PR 453 remains the separate authoritative audit evidence for module-catalogue drift.
-  - PR 542 and PR 541 scopes remain excluded.
-  - Main advanced by two non-overlapping documentation commits after a7eb03d49e328e8115adb54e772c9c8366b737d3.
+  - PR 550 merged as 05c7695149117e9cdb8e34937217033357175619 and Issue 548 is closed.
+  - The authority slice changed documentation only and preserved PR 542 and PR 541 ownership boundaries.
+  - Existing duplicate ADR identifiers remain visible compatibility debt rather than being silently renumbered.
 derived:
-  - A machine validator is required to prevent additional ADR collisions and inventory drift.
-unknown:
-  - Final independent review and merge result for PR 550.
+  - The next highest-value bounded architecture review is ADR registry validation and collision compatibility.
+unknown: []
 conflicts: []
-blockers:
-  - Await independent PR review and terminal merge state.
-next_action: Mark PR 550 ready for review after the final checkpoint commit passes Agent Governance and main CI.
+blockers: []
+next_action: Start a bounded review of ADR registry validation and historical collision compatibility, deduplicating against live Issues and PRs before creating a new task.
 ```
 
 ## Programme rules
