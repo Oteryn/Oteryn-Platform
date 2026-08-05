@@ -76,8 +76,8 @@ delivery_matrix:
 ```yaml
 checkpoint_version: 1
 policy_version: 2
-updated_at: 2026-08-05T15:10:00Z
-head_at_pr_open: 861c0de84ded72fb67fcb028d7479af764e65322
+updated_at: 2026-08-05T15:13:00Z
+head: bd9a1427982b6563f510946a48e71411c8702446
 branch: audit/20260805-main-integrity-policy
 pr: 553
 status: validating
@@ -86,7 +86,7 @@ session_id: chat-20260805-platform-audit-continuation
 session_role: auditor
 execution_mode: github-only
 execution_reason: live repository setting inspection and narrow audit-evidence writes
-lease_expires_at: 2026-08-05T15:55:00Z
+lease_expires_at: 2026-08-05T15:58:00Z
 context_pressure: medium
 context_growth: stable
 context_score: 7
@@ -117,8 +117,8 @@ unknown:
 conflicts:
   - Repository documents require exact-head CI, audit, E2E and PR closeout while GitHub applies no default-branch enforcement.
 first_failure:
-  marker: OPA-GOV-0001
-  evidence: branches/main protected=false and rulesets=[]
+  marker: checkpoint-schema-validation
+  evidence: Agent Governance run 31018882491 required field head and rejected validation result PENDING
 rejected_hypotheses:
   - Successful workflows alone enforce merging policy.
   - Enabled squash/rebase/merge methods protect main from direct updates.
@@ -135,11 +135,11 @@ validation:
     result: NOT_APPLICABLE
     evidence: documentation-only audit with no runtime mutation
   - command: PR #553 exact-head GitHub Actions
-    result: PENDING
-    evidence: final metadata head will be verified without further audit-content changes
+    result: NOT_RUN
+    evidence: prior head isolated checkpoint-schema errors; corrected head requires a fresh exact-head run
 blockers:
   - none
-next_action: Verify all emitted workflows, changed paths, diff, links and review threads on the final PR #553 head, then mark ready and squash-merge.
+next_action: Verify all emitted workflows, changed paths, diff, links and review threads on the corrected final PR #553 head, then mark ready and squash-merge.
 ```
 
 ## Notes
