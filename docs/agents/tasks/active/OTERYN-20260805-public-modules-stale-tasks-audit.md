@@ -84,17 +84,17 @@ delivery_matrix:
 ```yaml
 checkpoint_version: 1
 policy_version: 2
-updated_at: 2026-08-05T15:47:00Z
-head: 86cd5cccb47ebfbe1a77e65c2ba8b6d912acfcc5
+updated_at: 2026-08-05T15:51:00Z
+head: 15e1d9eda76bfa379769c486e6c785b5708a5c8b
 branch: audit/20260805-public-modules-stale-tasks
-pr: none
+pr: 563
 status: validating
-phase: close
+phase: final_ci
 session_id: chat-20260805-platform-audit-continuation
 session_role: auditor
 execution_mode: github-only
 execution_reason: live task, PR, branch and archive reconciliation with narrow evidence writes
-lease_expires_at: 2026-08-05T16:32:00Z
+lease_expires_at: 2026-08-05T16:36:00Z
 context_pressure: medium
 context_growth: stable
 context_score: 7
@@ -117,6 +117,7 @@ proven:
   - OTERYN-20260724-download-center remains active with status ready, PR 161 and an obsolete next action to review and merge that already-merged PR.
   - PR #161 merged as 79858de3949e8d5969207357e6fb92bfaada481f; no archive exists and its branch remains.
   - Issues #561 and #562 record independent concrete cleanup ownership after negative duplicate searches.
+  - PR #563 contains only the four declared audit/governance paths.
 derived:
   - Each task can be repaired independently because its exclusive task/archive paths, branches and product modules are distinct.
 unknown:
@@ -142,12 +143,12 @@ validation:
   - command: runtime E2E
     result: NOT_APPLICABLE
     evidence: documentation-only audit with no product or historical-task mutation
-  - command: exact-head GitHub Actions
+  - command: PR #563 exact-head GitHub Actions
     result: NOT_RUN
-    evidence: PR not opened yet
+    evidence: final metadata head requires exact-head verification
 blockers:
   - none
-next_action: Open the audit PR, record its identity, and verify all emitted exact-head checks and review hygiene.
+next_action: Verify all emitted workflows, changed paths, diff, links and review threads on the final PR #563 head, then mark ready and squash-merge.
 ```
 
 ## Notes
