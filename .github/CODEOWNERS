@@ -1,0 +1,29 @@
+# Repository-wide fallback owner.
+* @blakinio
+
+# GitHub automation, contribution policy and security metadata.
+/.github/ @blakinio
+/SECURITY.md @blakinio
+/CONTRIBUTING.md @blakinio
+/CODE_OF_CONDUCT.md @blakinio
+
+# Agent governance and durable architecture/contracts.
+/AGENTS.md @blakinio
+/AGENTS.override.md @blakinio
+/docs/agents/ @blakinio
+/docs/architecture/ @blakinio
+/docs/contracts/ @blakinio
+/docs/operations/ @blakinio
+
+# Security-sensitive runtime and delivery surfaces.
+/app/ @blakinio
+/routes/ @blakinio
+/config/ @blakinio
+/database/migrations/ @blakinio
+/deploy/ @blakinio
+/services/ @blakinio
+
+# Repository automation and validation tooling.
+/scripts/ @blakinio
+/tools/ @blakinio
+/tests/ @blakinio

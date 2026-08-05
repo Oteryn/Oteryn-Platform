@@ -9,6 +9,8 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+from test_repository_policy import RepositoryPolicyTest
+
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 CLASSIFIER_PATH = REPOSITORY_ROOT / "scripts/ci/classify_changes.py"
 FIXTURES_PATH = Path(__file__).parent / "fixtures/change-routing-cases.json"

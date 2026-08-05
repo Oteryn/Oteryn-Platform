@@ -1,0 +1,102 @@
+{
+  "schema_version": 1,
+  "repository": "blakinio/Oteryn-Platform",
+  "default_branch": "main",
+  "repository_settings": {
+    "description": "Oteryn web/application platform and game gateway.",
+    "allow_squash_merge": true,
+    "allow_merge_commit": false,
+    "allow_rebase_merge": false,
+    "allow_auto_merge": true,
+    "delete_branch_on_merge": true,
+    "allow_update_branch": true,
+    "use_squash_pr_title_as_default": true
+  },
+  "branch_protection": {
+    "required_status_checks": {
+      "strict": true,
+      "contexts": [
+        "classify-changes",
+        "test"
+      ]
+    },
+    "enforce_admins": true,
+    "required_pull_request_reviews": {
+      "dismiss_stale_reviews": true,
+      "require_code_owner_reviews": false,
+      "required_approving_review_count": 0,
+      "require_last_push_approval": false
+    },
+    "restrictions": null,
+    "required_linear_history": true,
+    "allow_force_pushes": false,
+    "allow_deletions": false,
+    "block_creations": false,
+    "required_conversation_resolution": true,
+    "lock_branch": false,
+    "allow_fork_syncing": true
+  },
+  "review_policy": {
+    "mode": "single-maintainer-safe",
+    "current_required_approvals": 0,
+    "current_require_code_owner_review": false,
+    "activation_condition": "After a second trusted maintainer is available, require one approval, code-owner review and last-push approval. The pull-request requirement, status checks and conversation resolution remain mandatory now."
+  },
+  "security_features": {
+    "dependabot_alerts": true,
+    "dependabot_security_updates": true,
+    "private_vulnerability_reporting": true,
+    "secret_scanning": true,
+    "secret_scanning_push_protection": true
+  },
+  "environments": {
+    "production": {
+      "wait_timer": 5,
+      "prevent_self_review": false,
+      "reviewers": [
+        {
+          "type": "User",
+          "id": 75369544,
+          "login": "blakinio"
+        }
+      ],
+      "deployment_branch_policy": {
+        "protected_branches": true,
+        "custom_branch_policies": false
+      },
+      "expected_can_admins_bypass": false
+    },
+    "production-cloudflare": {
+      "wait_timer": 5,
+      "prevent_self_review": false,
+      "reviewers": [
+        {
+          "type": "User",
+          "id": 75369544,
+          "login": "blakinio"
+        }
+      ],
+      "deployment_branch_policy": {
+        "protected_branches": true,
+        "custom_branch_policies": false
+      },
+      "expected_can_admins_bypass": false
+    },
+    "synology-staging": {
+      "wait_timer": 0,
+      "prevent_self_review": false,
+      "reviewers": [],
+      "deployment_branch_policy": {
+        "protected_branches": true,
+        "custom_branch_policies": false
+      },
+      "expected_can_admins_bypass": false
+    }
+  },
+  "deferred_decisions": {
+    "license_notice": "composer.json already declares proprietary licensing. The owner may later add an explicit proprietary LICENSE or NOTICE file, or deliberately replace the proprietary declaration with a reviewed open-source license.",
+    "required_review_upgrade": "Requires a second trusted maintainer to avoid deadlocking single-owner pull requests.",
+    "stable_ci_aggregator": "After active workflow PR #542 and Issue #558 become terminal, add one always-emitted required aggregate check and replace individual required contexts with it.",
+    "action_sha_pinning": "Perform as a separate serialized workflow-hardening task after active workflow ownership is terminal."
+  }
+}
