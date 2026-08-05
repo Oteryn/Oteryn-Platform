@@ -2,12 +2,23 @@
 
 This catalog defines module responsibilities and dependency boundaries.
 
-## Status legend
+## Status and evidence model
 
-- `PLANNED` — architecture decision only; no implementation proven.
-- `DISCOVERY` — contract/research work required before a concrete capability can be implemented.
-- `IMPLEMENTING` — active source implementation exists in an active task.
-- `AVAILABLE` — at least one explicitly documented capability is implemented and validated on `main`; this does not imply every conceivable operation in the module exists.
+Module status describes **repository implementation availability only**:
+
+- `PLANNED` — an ownership boundary is accepted, but no implementation capability is proven on `main`.
+- `PLANNED-LATER` — an accepted boundary is intentionally outside the current delivery horizon or activation programme.
+- `DISCOVERY` — contract/research work is required before a concrete capability can be implemented safely.
+- `IMPLEMENTING` — source implementation exists only in active, unmerged work.
+- `AVAILABLE` — at least one explicitly documented capability is merged and validated on `main`; this does not imply every operation in the module exists.
+
+Do not infer capability completeness, staging proof, production proof or activation authority from this status. Those are separate evidence dimensions:
+
+- **capability completeness** requires an accepted expected inventory and exact gap closure;
+- **staging/production evidence** requires an exact environment/deployment identity;
+- **activation authority** requires the applicable product, security, legal and operational gates.
+
+The frozen PR #453 production-completion baseline and later exact merged PRs provide evidence inputs. Open Issues #365, #488, #489 and #490 retain current completeness, failure-path and environment gaps. An open gap inside a module does not mean the bounded module is absent.
 
 | Module | Status | Owns | Must not own |
 |---|---|---|---|
@@ -15,18 +26,24 @@ This catalog defines module responsibilities and dependency boundaries.
 | Accounts | AVAILABLE | Greenfield account provisioning/binding and future explicitly contracted account-level operations | Canary password verification logic, undocumented shared writes, game runtime |
 | Characters | AVAILABLE | Contract-approved web-triggered character operations; currently create plus Character Bazaar ownership transfer | Direct undocumented Canary writes; uncontracted rename/delete |
 | PublicGameData | AVAILABLE | Read models/queries for characters, guilds, highscores, online/status | Privileged mutations |
-| CMS | AVAILABLE | Public content reads and permission-scoped Platform content management | Identity policy, game state, rich/upload surfaces without explicit security controls |
+| CMS | AVAILABLE | Public content reads and permission-scoped Platform content management | Identity policy, game state, unreviewed rich/upload surfaces |
 | Support | AVAILABLE | Platform tickets, reports, enforcement records, notifications, retention and privacy-safe user/moderator presentation | Canary ban mutation, file attachments, disclosure of reporter identity or private moderator notes |
-| EditorialMedia | IMPLEMENTING | Private normalized raster-image objects, integrity metadata, bounded consumer references and administrator lifecycle | Public/executable uploads, arbitrary documents, consumer-specific publication rules |
-| Wiki | IMPLEMENTING | Localized Wiki articles, categories, lifecycle, optimistic locking and append-only revisions | Generic CMS pages, public activation before release criteria, arbitrary HTML, media/search without separate reviewed slices |
+| EditorialMedia | AVAILABLE | Private normalized raster-image objects, integrity metadata, bounded consumer references and administrator lifecycle | Generic public file hosting, executable uploads, arbitrary documents, consumer-specific publication rules |
+| Wiki | AVAILABLE | Localized Wiki public reads/search, categories, lifecycle, trusted administration, revisions and approved media references | Generic CMS pages, arbitrary HTML, player editing, claims of complete authoritative game content |
 | Admin | AVAILABLE | Admin UI, explicit RBAC/policies, privileged Platform use cases | Bypassing domain/application invariants or granting implicit wildcard authority |
 | Audit | AVAILABLE | Security/admin audit primitives, privileged-action audit and bounded admin audit visibility | Secrets, raw credentials, business-rule authorization decisions |
-| Integration | AVAILABLE | Implemented Canary read/write adapters, schema translation, contract enforcement; future login bridge remains separate | Product policy that belongs in domain modules |
-| Wallet | IMPLEMENTING | Oteryn Coins available/reserved projection and append-oriented idempotent ledger | Canary coins, payment-provider settlement, arbitrary balance edits |
-| Marketplace | IMPLEMENTING | Character Bazaar listings, escrow saga, bids, watches, settlement, history and recovery policy | Canary gameplay state, generic character mutation, payment-provider commerce |
+| GameCatalog | AVAILABLE | Versioned deterministic game-catalogue snapshot validation, inactive import, activation/rollback and bounded public projections | Inventing missing content, silent producer assumptions, production activation without a gate |
+| Integration | AVAILABLE | Implemented Canary read/write adapters, schema translation and contract enforcement; future login bridge remains separate | Product policy that belongs in domain modules |
+| Wallet | AVAILABLE | Oteryn Coins available/reserved projection and append-oriented idempotent ledger | Canary coins, payment-provider settlement, arbitrary balance edits |
+| Marketplace | AVAILABLE | Character Bazaar listings, escrow saga, bids, watches, settlement, history and recovery policy | Canary gameplay state, generic character mutation, payment-provider commerce |
 | Notifications | AVAILABLE | Password recovery, localized account-security email and deterministic support/moderation delivery state | Core auth decisions, token validation, domain rollback on mail failure, payment settlement |
-| PlatformAPI | PLANNED | Stable first-party API endpoints and API-specific auth/limits | Duplicating business logic from modules |
-| Payments | PLANNED-LATER | Provider adapters, payments, webhook handling and regulated commerce when approved | Identity core, direct dependency from basic account creation/login, Oteryn Coins gameplay marketplace policy |
+| OperationsObservability | AVAILABLE | Repository/runtime health, release identity, structured observability, queue/mail/cache/session operational contracts, backup/restore/rollback expectations | Business policy, production-proof claims without exact environment evidence |
+| PublicEdge | AVAILABLE | Repository-owned DNS/TLS/redirect/HSTS/WAF/tunnel/origin/private-ingress contracts and verification tooling | Application authorization, implicit live-state truth, production mutation without authority |
+| QualityE2E | AVAILABLE | Capability/route ledgers, deterministic validators, exact-head browser/integration evidence and delivery-state classification | Product policy, weakening acceptance to obtain green CI, treating staging evidence as production proof |
+| PlatformAPI | PLANNED | Stable first-party API endpoints and API-specific auth/limits | Duplicating business logic from modules or misclassifying bounded internal/game-auth endpoints as a general API |
+| ProductsEntitlements | PLANNED | Product catalogue, premium/VIP/package/voucher entitlements, fulfilment, expiry and revocation | Provider payment settlement, Wallet gameplay policy, undocumented Canary premium mutations |
+| LegalCommerce | PLANNED | Commerce-specific consumer presentation, payment-data privacy, retention, refund/complaint and invoice/tax decision boundaries | Generic CMS publishing, payment settlement, silent legal assumptions |
+| Payments | PLANNED-LATER | Provider adapters, payments, signed webhooks, reconciliation, refunds/chargebacks and regulated commerce when approved | Identity core, basic account/login dependencies, Oteryn Coins gameplay marketplace policy, product fulfilment |
 
 ## Identity
 
@@ -179,7 +196,7 @@ Character Bazaar listing creation uses its own operation-specific transfer conne
 - news/articles;
 - managed pages;
 - publication state;
-- media references only if a future explicit upload-security task introduces them.
+- consumer-specific media references only through an explicitly reviewed EditorialMedia integration.
 
 ### Current available boundary
 
@@ -195,13 +212,13 @@ Phase 6 adds:
 - audit append in the same Platform transaction as CMS state mutation where practical;
 - plain-text authoring and escaped public output only.
 
-Rich HTML, media uploads and arbitrary plugin/code upload remain out of scope and are not implied by the current CMS module.
+Rich HTML, a generic CMS media consumer and arbitrary plugin/code upload remain out of scope and are not implied by the current CMS module.
 
 ### Security
 
 - output escaped by default;
 - rich text, if introduced, requires maintained allowlist sanitization;
-- uploads require explicit MIME/content/size/storage controls;
+- media use must go through the private normalized EditorialMedia boundary and consumer-specific publication rules;
 - privileged mutation requires explicit Admin/RBAC authorization, confirmed MFA and audit.
 
 ## EditorialMedia
@@ -213,9 +230,9 @@ Rich HTML, media uploads and arbitrary plugin/code upload remain out of scope an
 - bounded alternative text and administrator lifecycle;
 - reusable reference tracking for explicitly known editorial consumers.
 
-### Current implementing boundary
+### Current available boundary
 
-The safe editorial media task provides:
+The merged safe editorial media library provides:
 
 - Platform-owned media and reference records;
 - JPEG, PNG and WebP only with extension, fileinfo MIME and image-header agreement;
@@ -227,7 +244,9 @@ The safe editorial media task provides:
 - bounded upload/deletion audit metadata;
 - known `cms`, `events` and `wiki` reference slots with application locking and database-restricted deletion.
 
-No public media route or Wiki, Events or CMS consumer integration is activated by this slice.
+The merged Wiki consumer permits exact authorized editors to discover and insert approved media, synchronizes translation-scoped references transactionally and exposes public bytes only through an effective published translation that still references the object. Signed administrator previews remain scoped and short-lived.
+
+There is no generic public media-file service. CMS and Events still require their own reviewed consumer integration before using EditorialMedia. Issue #488 retains expected-content, failure/recovery and portability gaps without invalidating the available library/consumer boundary.
 
 ### Invariants
 
@@ -237,7 +256,7 @@ No public media route or Wiki, Events or CMS consumer integration is activated b
 - objects remain outside the public storage symlink;
 - media storage names are server-generated, random and immutable;
 - referenced media cannot be deleted through either the application path or direct database deletion;
-- future consumers own their publication and authorization policy and must use the bounded reference manager.
+- consumers own publication and authorization policy and must use the bounded reference manager.
 
 ## Wiki
 
@@ -248,26 +267,27 @@ No public media route or Wiki, Events or CMS consumer integration is activated b
 - deterministic editorial lifecycle;
 - optimistic locking for concurrent edits;
 - append-only localized revisions and restore-as-new-revision behavior;
-- later public reads, safe Markdown rendering, search, redirects and media through separately reviewed slices.
+- public published-only reads, restricted Markdown rendering, category navigation and locale-isolated search;
+- trusted administration and approved EditorialMedia references.
 
-### Current implementing boundary
+### Current available boundary
 
-The Wiki foundation task provides:
+The merged Wiki boundary provides:
 
-- Platform-owned additive migrations for articles, translations, categories, article-category relations and revisions;
-- exact supported locales `en` and `pl`;
-- unique localized article and category slugs;
+- Platform-owned articles, translations, categories, article-category relations and revisions;
+- exact supported locales `en` and `pl` with unique localized slugs;
 - draft, review, published and archived lifecycle rules;
 - explicit stale-edit failure through monotonic lock versions;
 - content revisions appended on create, update and restore;
-- restore by creating a new revision that references the selected source revision;
 - publication only when complete English and Polish translations exist;
 - exact reserved Wiki permissions with no wildcard and no automatic role grants;
-- bounded administrator audit metadata without complete article bodies;
-- restricted Markdown source persistence with no raw HTML;
-- focused domain, migration, database and authorization tests.
+- restricted Markdown with raw HTML disabled;
+- public Wiki home, category, article and locale-isolated search routes;
+- canonical/hreflang, breadcrumb, related-content and bounded empty/not-found/unavailable presentation;
+- trusted `auth` + `mfa.confirmed` administration for articles, categories, previews, lifecycle and revision restore;
+- translation-scoped approved EditorialMedia insertion and public delivery authorization.
 
-No public Wiki route, navigation contribution, renderer, search service, media upload, comments or player editing is activated by this foundation.
+Player editing, comments, arbitrary HTML and a complete authoritative game-content inventory are not implied. Issue #365 retains a focused flash/thumbnail investigation; Issue #488 retains content-completeness and explicit failure/recovery/portability gaps.
 
 ### Invariants
 
@@ -276,10 +296,10 @@ No public Wiki route, navigation contribution, renderer, search service, media u
 - localized slugs are unique by `(locale, slug)`;
 - stale updates never silently overwrite newer content;
 - revisions are append-only through supported application/model paths;
-- privileged application operations use one exact Wiki permission;
-- future HTTP administration must combine `auth`, `mfa.confirmed` and that exact permission;
+- privileged operations combine `auth`, `mfa.confirmed` and exact Wiki permission;
 - article bodies and category descriptions are excluded from audit metadata;
-- public activation remains a separately reviewed later slice.
+- public output is published-only, locale-scoped and safely rendered;
+- media access requires an effective published translation reference and integrity verification.
 
 ## Support and Moderation
 
@@ -340,7 +360,7 @@ Phase 6 merged through PRs #44 and #45 and provides:
 
 - deny by default;
 - no implicit "admin can do everything" shortcut;
-- `platform_admin` is an explicit current permission bundle, not a wildcard for future permissions; new migration-owned permissions are assigned explicitly;
+- `platform_admin` is an explicit current permission bundle, not a wildcard for future permissions;
 - privileged state changes are audited where delivered by Phase 6 or the owning module;
 - no arbitrary PHP/code/plugin execution feature;
 - admin web access combines explicit authorization with confirmed MFA and may additionally use Cloudflare Access in production.
@@ -358,16 +378,7 @@ Phase 6 merged through PRs #44 and #45 and provides:
 
 Identity security events remain append-oriented security primitives. The account-security lifecycle adds bounded events for email-change request/confirmation/cancellation/recovery, session revocation, privacy changes, recovery-key generation/revocation/use and termination request/cancellation/finalization.
 
-Phase 6 adds:
-
-- dedicated append-oriented administrator audit storage;
-- audit events for first-admin bootstrap, role assignment/removal and privileged CMS create/update operations;
-- minimal actor/action/target/non-secret metadata records;
-- bounded 50-row-per-page administrator audit visibility behind `audit.view`, authentication and confirmed MFA.
-
-The Wiki foundation reuses the same recorder for bounded article lifecycle, content/revision and category events. Complete article bodies, complete category descriptions and change-note text are excluded from audit metadata.
-
-Character Bazaar records administrator wallet adjustment and recovery actions. Wallet mutation and its administrator audit row commit in the same Platform transaction; unrestricted reason text and character snapshot bodies are excluded from audit metadata.
+Phase 6 adds dedicated append-oriented administrator audit storage, bounded audit visibility and events for first-admin bootstrap, role assignment/removal and privileged CMS operations. Wiki and Marketplace reuse the recorder for bounded lifecycle, wallet adjustment and recovery actions.
 
 Audit storage is not a replacement for infrastructure/application logs and must never contain raw credentials, session/reset/email tokens, complete registered-session identifiers, MFA secrets, raw recovery keys or complete source addresses.
 
@@ -384,6 +395,8 @@ Audit storage is not a replacement for infrastructure/application logs and must 
 ### Current available boundary
 
 Schema `1.0.0` remains supported for retained imports and rollback. Schema `1.1.0` additionally represents an unknown `verified_content_through_release` as null. Schema `1.2.0` preserves exact Canary `canary_dynamic_threshold_v1` loot thresholds and declared roll maxima without presenting contextual thresholds as static probabilities. Unknown-boundary snapshots may be imported for review but cannot be activated or exposed publicly.
+
+Open draft PR #338 contains an inactive schema `1.3.0` NPC-shop consumer and remains outside the current `main` boundary until its separate producer/compatibility gate is terminal. Issue #489 retains authoritative expected-inventory, capability, failure/recovery and portability gaps.
 
 ### Invariants
 
@@ -436,7 +449,7 @@ The authoritative Platform game-login bridge remains a separate cross-repository
 - append-oriented signed-delta financial history;
 - deterministic idempotency for every reservation, release, settlement and administrator adjustment.
 
-### Current implementing boundary
+### Current available boundary
 
 Character Bazaar v1 provides:
 
@@ -447,7 +460,7 @@ Character Bazaar v1 provides:
 - exactly-once buyer reserved debit and seller proceeds/commission settlement;
 - signed administrator adjustment with bounded reason hash and same-transaction audit.
 
-Initial funding is administrator-controlled. Payment-provider purchase, refund and chargeback handling is not implemented.
+Initial funding is administrator-controlled. Payment-provider purchase, refund and chargeback handling is not implemented. PR #270 proves repository and isolated acceptance; PR #368 adds staging-only enablement evidence. Neither proves production activation.
 
 ### Invariants
 
@@ -468,9 +481,9 @@ Initial funding is administrator-controlled. Payment-provider purchase, refund a
 - cross-database cancellation/settlement saga and deterministic recovery;
 - bounded administrator recovery interface and operations documentation.
 
-### Current implementing boundary
+### Current available boundary
 
-The Character Bazaar task provides:
+The merged Character Bazaar provides:
 
 - Platform-owned auction, bid and watch persistence;
 - immutable public-safe snapshot captured before escrow;
@@ -484,6 +497,8 @@ The Character Bazaar task provides:
 - `recovery_required` rather than fabricated completion after ambiguous failure;
 - EN/PL public/account/admin surfaces with desktop/tablet/mobile accessibility coverage;
 - explicit production activation flag and fail-closed deployment verifier.
+
+PR #270 proves repository and isolated acceptance. PR #368 proves a bounded staging enablement/control package. Issue #489 retains marketplace catalogue state and broader commerce/product gaps; no provider-payment or production-complete claim follows.
 
 ### Invariants
 
@@ -500,28 +515,110 @@ The Character Bazaar task provides:
 
 ### Current available boundary
 
-Implemented email use cases include:
-
-- password reset;
-- new-address confirmation for primary-email changes;
-- old-address cancellation/recovery notice for primary-email changes;
-- English and Polish account-security subjects, copy, actions and locale-preserving token links.
+Implemented email use cases include password reset, confirmed email-change communications, English and Polish account-security messages and deterministic support/moderation delivery records.
 
 Mail delivery should be asynchronous once queue infrastructure exists. Security tokens and locale selection remain owned by Identity use cases; Notifications formats and transports messages but does not validate tokens, authorize account changes or own Marketplace state.
 
 Future marketplace outbid/completion notifications require an explicitly reviewed asynchronous delivery slice.
 
-## PlatformAPI
+## Operations and Observability
+
+### Responsibilities
+
+- release/build identity and environment applicability;
+- health/readiness and dependency-failure visibility;
+- structured logs, correlation, metrics and alert ownership;
+- queue, mail, cache/session and scheduler operational contracts;
+- backup, restore, rollback and disaster-recovery expectations;
+- runbooks and sanitized evidence for approved environments.
+
+### Current available boundary
+
+Repository capabilities include health/readiness behavior, correlation/security/admin logging, production-like and dependency-outage validation, exact release/staging evidence contracts and operational runbooks. This is a partial repository/staging boundary, not proof of complete production topology, on-call readiness, restore rehearsal or private-production reachability.
+
+Issue #490 owns the missing explicit applicability and exact environment evidence. Operations must not infer `PRODUCTION_PROVEN` from a passing repository workflow.
+
+### Invariants
+
+- evidence names the exact commit, artifact/deployment identity and environment;
+- dependency failure remains explicit and observable;
+- secrets and private data do not enter logs, artifacts or task records;
+- restore/rollback claims require an exercised, bounded path;
+- operational controls do not bypass module authorization or data ownership.
+
+## Public Edge
+
+### Responsibilities
+
+- expected public DNS and hostname contract;
+- TLS, redirects, HSTS, WAF/bot/rate-limit and administrative-access boundary;
+- tunnel/origin reachability and private-ingress expectation;
+- sanitized exact environment verification and rollback boundaries.
+
+### Current available boundary
+
+The repository contains Cloudflare/public-edge contracts, verification tooling, deployment markers and bounded repair/audit records. Exact live state has also produced blocked/direct-failure evidence. Therefore the repository ownership boundary is available while public-production correctness remains separately unproven or blocked until exact authorized evidence passes.
+
+Issue #490 owns the current applicability and environment-proof gap. Cloudflare remains defense in depth; Laravel cannot trust edge presence as application authorization.
+
+### Invariants
+
+- repository configuration is not treated as current provider state;
+- live mutation requires explicit authorization and least-privilege credentials;
+- origin bypass, TLS, redirect, HSTS and WAF claims require exact endpoint/environment evidence;
+- provider secrets never enter Git, logs or artifacts;
+- edge controls never replace server-side validation, authorization, CSRF or rate limiting.
+
+## Quality and E2E
+
+### Responsibilities
+
+- versioned capability, route/surface/state and applicability ledgers;
+- deterministic contract validators and change classification;
+- focused, integration, browser, accessibility, responsive and resilience evidence;
+- exact-head/exact-deployment evidence identity;
+- distinction among existence, functional evidence, product completeness, staging proof and production proof.
+
+### Current available boundary
+
+The repository has machine-enforced route/capability ledgers, zero-retry browser profiles, module acceptance workflows, production-like/dependency-failure checks and exhaustive audit evidence. These prove bounded repository and staging journeys; they do not prove universal absence of defects, complete expected content or production correctness.
+
+Issues #488, #489 and #490 retain missing expected inventories, failure/recovery, portability and non-UI applicability evidence. Quality/E2E records gaps but does not choose product policy or weaken acceptance to close them.
+
+### Invariants
+
+- worker narrative is never evidence;
+- every result is tied to an exact head and, when applicable, exact deployment identity;
+- mocked-only UI tests do not replace real integration/E2E;
+- retries do not hide deterministic defects;
+- `NOT_APPLICABLE` requires an explicit reason and owner/contract where material;
+- staging or repository evidence never silently becomes `PRODUCTION_PROVEN`.
+
+## Platform API — planned
 
 Expose API endpoints only for a concrete client/use case. API endpoints must reuse module services/policies and must not implement a second business-rule path.
 
-## Payments — deferred
+Bounded internal endpoints, game-auth tickets or operational probes are not a general public/first-party Platform API. Issue #490 retains the decision and evidence gap.
+
+## Products and Entitlements — planned
+
+This boundary will own product definitions and fulfilment state such as premium/VIP, packages, vouchers/codes, expiry, revocation and customer-visible entitlement history when accepted.
+
+It must define idempotent fulfilment, reconciliation and rollback separately from provider payment settlement. Direct Canary premium mutations, product policy and activation require explicit contracts. Issue #489 retains the missing-capability decisions.
+
+## Legal Commerce — planned
+
+This boundary will own commerce-specific consumer presentation and decisions for payment-data privacy, retention, refund/complaint handling and invoice/tax responsibilities for the target jurisdictions.
+
+Generic legal-page publishing remains CMS responsibility. LegalCommerce does not execute provider settlement or invent legal requirements without authoritative review. Real-money activation cannot proceed until its decisions and acceptance evidence are explicit.
+
+## Payments — planned later
 
 No payment-provider implementation belongs in the current core platform or Character Bazaar v1 scope.
 
 Future requirements include provider abstraction, signed webhook verification, provider-event idempotency, immutable provider/financial ledgers, reconciliation, refunds/chargebacks, tax/legal review and explicit separation from Oteryn Coins gameplay policy.
 
-Payments must not become a dependency of basic Identity/account creation/login, and must not reuse Canary mutable coin fields as the provider settlement source of truth.
+Payments must not become a dependency of basic Identity/account creation/login, must not own product fulfilment and must not reuse Canary mutable coin fields as the provider settlement source of truth. Issue #489 retains the missing provider/commerce capability decisions.
 
 ## PublicGameData community completeness
 
@@ -545,7 +642,6 @@ Guild administration, world/channel transfer history, selectable achievements, p
 - public output excludes Identity email/IDs, Canary account IDs, raw death participants, house coordinates, runtime leases and moderator data;
 - dependency failure returns localized sanitized `503`, never fabricated empty data;
 - collections use bounded limits, deterministic ordering and documented index expectations.
-
 
 ## Character Profile Preferences
 
