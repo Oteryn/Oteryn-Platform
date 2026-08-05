@@ -18,13 +18,14 @@ Continuously challenge Platform architecture, repository structure and CI/CD; id
 
 ```yaml
 programme_state_version: 2
-updated_at: 2026-08-05T19:55:00Z
-status: ready
-current_review_domain: none
-active_task: none
-issue: none
-branch: none
+updated_at: 2026-08-05T20:46:00Z
+status: waiting
+current_review_domain: architecture-decision-backlog-authority
+active_task: OTERYN-20260805-architecture-decision-backlog
+issue: 602
+branch: task/OTERYN-20260805-architecture-decision-backlog
 pull_request: none
+exact_base: aa3ddcd0513708276920cb2734f7be845c3f177a
 last_completed_domain: current-system-module-reconciliation
 last_completed_issue: 593
 last_completed_pull_request: 594
@@ -63,31 +64,36 @@ decision_backlog:
     summary: Reconcile current system and module architecture using PR 453 and later exact merged evidence.
   - id: ARCH-AUTH-005
     severity: medium
-    type: improvement
-    state: ready
-    summary: Add one validated machine-readable architecture decision backlog after its schema and ownership are accepted.
+    type: missing_decision
+    state: waiting_owner_decision
+    issue: 602
+    proposed_adr: docs/architecture/adr/0023-machine-readable-architecture-decision-backlog.md
+    summary: Select the authority, schema, lifecycle and validation boundary for one machine-readable architecture decision backlog.
 architecture_conflicts:
   - Historical duplicate ADR prefixes remain for 0008, 0010, 0011, 0015, 0016, 0017, 0018 and 0021, but the exact accepted path sets are machine-enforced and cannot expand silently.
+  - The programme queue currently carries both compact continuation state and backlog records; ADR 0023 proposes separating these roles without creating a second accepted-decision authority.
 ci_architecture_findings:
   - Existing PHPUnit CI executes the ADR registry validator without workflow changes.
   - All eight exact-head workflows passed on a3cf245b5b0eafff00a87ba97878adcc8154a8df before PR 594 merged.
-  - Canonical architecture now separates repository availability, capability completeness, environment proof and activation authority.
+  - Canonical architecture separates repository availability, capability completeness, environment proof and activation authority.
+  - The proposed backlog validator must remain reproducible offline; remote Issue and PR liveness belongs to a separate fail-closed reconciliation boundary.
 accepted_handoffs_ready_for_remediation:
   - Issues 365, 488, 489 and 490 remain the exact owners for retained completeness, recovery, applicability and environment evidence gaps.
 proven:
-  - Option B remains accepted and durable in ADR 0022.
+  - Option B from ADR 0022 remains accepted and durable.
   - PR 581 established fail-closed ADR registry integrity without renumbering accepted history.
   - PR 594 merged as 4cd3c6daf8fcd152743db34f214abb531e1e2d01 and Issue 593 is closed.
-  - EditorialMedia, Wiki, Wallet, Marketplace and GameCatalog now have evidence-aligned current availability boundaries.
-  - ProductsEntitlements, LegalCommerce, OperationsObservability, PublicEdge and QualityE2E now have explicit ownership boundaries.
-  - Wallet/Marketplace, provider Payments and product fulfilment remain separate domains.
-  - Open gaps and environment gates remain explicit and are not converted into production claims.
+  - Repository, Issue and PR searches found no existing machine-readable architecture decision backlog owner.
+  - Issue 602 records three alternatives and recommends a dedicated canonical JSON backlog subordinate to accepted ADR authority.
+  - Proposed ADR 0023 defines the authority, lifecycle, validation, migration and rollback model without runtime authorization.
 derived:
-  - The next highest-value bounded review is the authority, schema and validation model for one machine-readable architecture decision backlog.
-unknown: []
+  - A dedicated JSON backlog gives unresolved decisions stable, reproducible identities while allowing the programme to remain a compact execution projection.
+unknown:
+  - repository-owner selection of Option A, B or C on Issue 602
 conflicts: []
-blockers: []
-next_action: Start a bounded review of the machine-readable architecture decision backlog schema and ownership, deduplicating against ADRs, Issues, PRs and the programme queue before creating a task.
+blockers:
+  - repository-owner decision is required before ADR 0023 can be accepted or implementation can begin
+next_action: Repository owner accepts Option B on Issue 602 or selects A/C with the reason that outweighs the documented authority, reproducibility and maintenance trade-offs.
 ```
 
 ## Programme rules
