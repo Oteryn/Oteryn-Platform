@@ -171,6 +171,33 @@ final class PaymentEventCoreTest extends TestCase
         self::assertSame(0, PaymentProviderEvent::query()->count());
     }
 
+    public function test_signed_payload_without_settlement_facts_is_rejected_without_persistence(): void
+    {
+        $now = CarbonImmutable::parse('2026-08-02T12:00:00Z');
+        $payload = json_encode([
+            'id' => (string) Str::uuid(),
+            'type' => 'payment.succeeded',
+            'created' => $now->getTimestamp(),
+            'data' => [
+                'order_public_id' => (string) Str::uuid(),
+            ],
+        ], JSON_THROW_ON_ERROR);
+
+        try {
+            app(ProcessPaymentProviderEvent::class)->execute(
+                $payload,
+                $this->headers($payload, $now->getTimestamp()),
+                $now,
+            );
+            self::fail('Signed identifiers without settlement facts must be rejected.');
+        } catch (PaymentException $exception) {
+            self::assertSame('invalid_payload', $exception->reason);
+        }
+
+        self::assertSame(0, PaymentProviderEvent::query()->count());
+        self::assertSame(0, PaymentReconciliationEntry::query()->count());
+    }
+
     public function test_signed_success_is_persisted_once_without_raw_payload_or_personal_data(): void
     {
         $identity = $this->identity('payment-success@example.com');
@@ -187,6 +214,8 @@ final class PaymentEventCoreTest extends TestCase
             'payment.succeeded',
             $order->public_id,
             ['customer_email' => 'must-not-be-stored@example.test'],
+            'EUR',
+            9_999,
         );
 
         $event = app(ProcessPaymentProviderEvent::class)->execute(
@@ -219,6 +248,152 @@ final class PaymentEventCoreTest extends TestCase
             $payload,
             json_encode($stored->getAttributes(), JSON_THROW_ON_ERROR),
         );
+    }
+
+    public function test_signed_settlement_amount_and_currency_mismatches_are_reconciled(): void
+    {
+        $identity = $this->identity('payment-settlement-mismatch@example.com');
+        $now = CarbonImmutable::parse('2026-08-02T12:00:00Z');
+
+        foreach ([
+            ['PLN', 999],
+            ['EUR', 1_000],
+        ] as [$currency, $amountMinor]) {
+            $order = app(CreatePaymentOrder::class)->execute(
+                $identity,
+                'PLN',
+                1_000,
+                (string) Str::uuid(),
+            );
+            $payload = $this->payload(
+                (string) Str::uuid(),
+                'payment.succeeded',
+                $order->public_id,
+                [],
+                $currency,
+                $amountMinor,
+            );
+
+            $event = app(ProcessPaymentProviderEvent::class)->execute(
+                $payload,
+                $this->headers($payload, $now->getTimestamp()),
+                $now,
+            );
+
+            self::assertSame(PaymentProviderEvent::STATE_RECONCILIATION, $event->processing_state);
+            self::assertSame('settlement_integrity_mismatch', $event->failure_code);
+            self::assertSame(PaymentOrder::STATUS_PENDING, $order->refresh()->status);
+            self::assertSame(1, $order->version);
+        }
+
+        self::assertSame(2, PaymentReconciliationEntry::query()
+            ->where('issue_type', 'settlement_integrity_mismatch')
+            ->count());
+    }
+
+    public function test_refund_dispute_and_chargeback_mismatches_cannot_change_settlement_truth(): void
+    {
+        $identity = $this->identity('payment-lifecycle-mismatch@example.com');
+        $order = app(CreatePaymentOrder::class)->execute(
+            $identity,
+            'PLN',
+            1_000,
+            (string) Str::uuid(),
+        );
+        $now = CarbonImmutable::parse('2026-08-02T12:00:00Z');
+        $success = $this->payload(
+            (string) Str::uuid(),
+            'payment.succeeded',
+            $order->public_id,
+        );
+        app(ProcessPaymentProviderEvent::class)->execute(
+            $success,
+            $this->headers($success, $now->getTimestamp()),
+            $now,
+        );
+
+        foreach ([
+            ['payment.refunded', 'PLN', 999],
+            ['payment.disputed', 'EUR', 1_000],
+            ['payment.charged_back', 'PLN', 1_001],
+        ] as [$eventType, $currency, $amountMinor]) {
+            $payload = $this->payload(
+                (string) Str::uuid(),
+                $eventType,
+                $order->public_id,
+                [],
+                $currency,
+                $amountMinor,
+            );
+            $event = app(ProcessPaymentProviderEvent::class)->execute(
+                $payload,
+                $this->headers($payload, $now->getTimestamp()),
+                $now,
+            );
+
+            self::assertSame(PaymentProviderEvent::STATE_RECONCILIATION, $event->processing_state);
+            self::assertSame('settlement_integrity_mismatch', $event->failure_code);
+        }
+
+        self::assertSame(PaymentOrder::STATUS_SUCCEEDED, $order->refresh()->status);
+        self::assertSame(2, $order->version);
+        self::assertSame(2, PaymentOrderTransition::query()->count());
+        self::assertSame(3, PaymentReconciliationEntry::query()
+            ->where('issue_type', 'settlement_integrity_mismatch')
+            ->count());
+    }
+
+    public function test_provider_object_reference_cannot_be_rebound_to_another_order(): void
+    {
+        $identity = $this->identity('payment-object-mismatch@example.com');
+        $firstOrder = app(CreatePaymentOrder::class)->execute(
+            $identity,
+            'PLN',
+            1_000,
+            (string) Str::uuid(),
+        );
+        $secondOrder = app(CreatePaymentOrder::class)->execute(
+            $identity,
+            'PLN',
+            1_000,
+            (string) Str::uuid(),
+        );
+        $firstAttempt = app(CreatePaymentCheckout::class)->execute(
+            $firstOrder,
+            (string) Str::uuid(),
+        );
+        $secondAttempt = app(CreatePaymentCheckout::class)->execute(
+            $secondOrder,
+            (string) Str::uuid(),
+        );
+        self::assertNotSame(
+            $firstAttempt->provider_checkout_reference,
+            $secondAttempt->provider_checkout_reference,
+        );
+
+        $now = CarbonImmutable::parse('2026-08-02T12:00:00Z');
+        $payload = $this->payload(
+            (string) Str::uuid(),
+            'payment.succeeded',
+            $firstOrder->public_id,
+            [],
+            'PLN',
+            1_000,
+            (string) $secondAttempt->provider_checkout_reference,
+        );
+        $event = app(ProcessPaymentProviderEvent::class)->execute(
+            $payload,
+            $this->headers($payload, $now->getTimestamp()),
+            $now,
+        );
+
+        self::assertSame(PaymentProviderEvent::STATE_RECONCILIATION, $event->processing_state);
+        self::assertSame('provider_object_mismatch', $event->failure_code);
+        self::assertSame(PaymentOrder::STATUS_CHECKOUT_CREATED, $firstOrder->refresh()->status);
+        self::assertSame(2, $firstOrder->version);
+        self::assertSame(1, PaymentReconciliationEntry::query()
+            ->where('issue_type', 'provider_object_mismatch')
+            ->count());
     }
 
     public function test_same_event_id_with_different_payload_fails_closed(): void
@@ -377,6 +552,9 @@ final class PaymentEventCoreTest extends TestCase
         string $eventType,
         string $orderPublicId,
         array $extraData = [],
+        string $currency = 'PLN',
+        int $amountMinor = 1_000,
+        ?string $providerObjectReference = null,
     ): string {
         return json_encode([
             'id' => $eventId,
@@ -384,7 +562,9 @@ final class PaymentEventCoreTest extends TestCase
             'created' => CarbonImmutable::parse('2026-08-02T12:00:00Z')->getTimestamp(),
             'data' => array_merge([
                 'order_public_id' => $orderPublicId,
-                'provider_object_reference' => 'test_object_'.substr(hash('sha256', $eventId), 0, 16),
+                'currency' => $currency,
+                'amount_minor' => $amountMinor,
+                'provider_object_reference' => $providerObjectReference,
             ], $extraData),
         ], JSON_THROW_ON_ERROR);
     }
