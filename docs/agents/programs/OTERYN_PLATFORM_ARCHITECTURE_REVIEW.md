@@ -18,65 +18,66 @@ Continuously challenge Platform architecture, repository structure and CI/CD; id
 
 ```yaml
 programme_state_version: 2
-updated_at: 2026-08-05T16:55:00+02:00
-status: blocked
+updated_at: 2026-08-05T17:19:00+02:00
+status: waiting
 current_review_domain: canonical-architecture-authority
 active_task: OTERYN-20260805-architecture-authority
 issue: 548
 branch: task/OTERYN-20260805-architecture-authority
 pull_request: 550
-exact_base: 3ab77c072dce796b09004c54b649db009a75d524
+original_exact_base: 3ab77c072dce796b09004c54b649db009a75d524
+latest_main_reconciled: a7eb03d49e328e8115adb54e772c9c8366b737d3
+accepted_decision:
+  option: B
+  accepted_on: 2026-08-05
+  adr: docs/architecture/adr/0022-architecture-authority-index-and-focused-canonical-documents.md
+  authority_index: docs/architecture/ARCHITECTURE_AUTHORITY.md
 decision_backlog:
   - id: ARCH-AUTH-001
     severity: high
     type: missing_decision
-    state: owner_decision_required
+    state: completed
     summary: Select the canonical architecture authority and precedence model.
+    resolution: Option B accepted and recorded in ADR 0022.
     issue: 548
     pull_request: 550
   - id: ARCH-AUTH-002
     severity: medium
-    type: defect
-    state: ready_after_ARCH-AUTH-001
-    summary: Repair repository architecture routing to live canonical entry points.
+    type: routing
+    state: completed
+    summary: Route architecture-wide work through the accepted authority index and focused canonical owners.
   - id: ARCH-AUTH-003
     severity: high
     type: defect
-    state: ready_after_ARCH-AUTH-001
-    summary: Reconcile the incomplete ADR index and duplicate 0008 identifiers with compatibility preserved.
+    state: partially_completed
+    summary: Reconcile the ADR inventory and historical duplicate identifiers with compatibility preserved.
+    completed: Full path inventory, collision disclosure and max-prefix-plus-one allocation rule.
+    remaining: Machine validator and compatibility-safe treatment of existing duplicate identifiers.
   - id: ARCH-AUTH-004
     severity: high
     type: documentation_drift
-    state: ready_after_ARCH-AUTH-001
+    state: ready_after_PR_550
     summary: Reconcile current system and module architecture using PR 453 and later merged evidence.
   - id: ARCH-AUTH-005
     severity: medium
     type: improvement
-    state: ready_after_ARCH-AUTH-001
+    state: ready_after_PR_550
     summary: Add one validated machine-readable architecture decision backlog.
 architecture_conflicts:
-  - SYSTEM_ARCHITECTURE initial-phase/non-goal text conflicts with ROADMAP, MODULE_CATALOG, contracts and merged implementation.
-  - REPOSITORY_MAP references missing docs/architecture/overview.md.
-  - ADR README is non-exhaustive and the ADR directory contains duplicate 0008 numbering.
+  - Historical initial-phase statements are now explicitly labelled in SYSTEM_ARCHITECTURE and cannot override focused current sources.
+  - ADR directory contains historical duplicate prefixes 0008, 0010, 0011, 0015, 0016, 0017, 0018 and 0021.
+  - Initial claim that REPOSITORY_MAP referenced a missing overview path was disproved by branch/main revalidation and corrected in the final report.
 ci_architecture_findings:
-  - Future architecture-link and ADR-inventory validation should be governance-scoped and fail closed without weakening runtime gates.
-accepted_handoffs_ready_for_remediation: []
-proven:
-  - The canonical architecture review prompt is repository-backed and immutably scoped to blakinio/Oteryn-Platform.
-  - Issue 548 is the deduplicated decision boundary for the first review package.
-  - Draft PR 550 contains only the bounded architecture task, report and programme-state paths.
-  - PR 453 is the existing authoritative audit evidence for module-catalogue drift.
-  - Active PR 542 owns native-protocol implementation and related contracts and is excluded from this task.
+  - Agent Governance requires checkpoint validation result values from the machine contract; PASS_WITH_GOVERNANCE_REMEDIATION was invalid and must not recur 453 remains the separate authoritative audit evidence for module-catalogue drift.
+  - PR 542 and PR 541 scopes remain excluded.
 derived:
-  - An explicit authority model is required before safely repairing routing, ADR allocation and module/current-state documentation.
-  - Option B, an authority index plus focused canonical documents, has the strongest correctness and maintainability trade-off.
+  - A machine validator is required to prevent additional ADR collisions and inventory drift.
 unknown:
-  - Whether the owner accepts Option B or selects A/C.
-conflicts:
-  - Initial target documentation can currently be mistaken for present implementation truth.
+  - Whether PR 550 exact-head CI and review gates will pass after the accepted documentation slice.
+conflicts: []
 blockers:
-  - decision: Accept Option B, or select Option A/C with rationale in Issue 548.
-next_action: Record the owner decision in Issue 548; if B is accepted, continue PR 550 with deterministic ADR inventory and documentation Slice 1.
+  - Await exact-head CI and PR review/merge state.
+next_action: Validate the final PR 550 head; if all required checks and review gates pass, close Issue 548 and archive the task after terminal PR state.
 ```
 
 ## Programme rules
