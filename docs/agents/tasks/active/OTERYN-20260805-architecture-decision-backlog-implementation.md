@@ -34,14 +34,14 @@ Implement accepted ADR 0023 as one deterministic, offline-validatable inventory 
 
 - [x] Duplicate file, Issue, PR and active-owner searches found no competing implementation.
 - [x] Initial seed candidates were deduplicated against accepted ADRs and current open Issues.
-- [ ] Canonical JSON schema version 1 is added with deterministic serialization and explicit non-authority text.
-- [ ] Initial records contain only unresolved owner decisions for Issues #586, #587 and #588.
-- [ ] Standard-library validator fails closed for schema, lifecycle, evidence, references, authority, duplication and programme-projection defects.
-- [ ] Positive, negative and boundary tests cover the validator.
-- [ ] Existing PHPUnit discovery runs focused tests and repository validation without workflow changes.
-- [ ] `ARCHITECTURE_AUTHORITY.md` documents routing, transitions and terminal removal.
-- [ ] Architecture programme stores only compact active IDs and one next action.
-- [ ] Exact-head workflows, fresh audit and review-thread inventory pass.
+- [x] Canonical JSON schema version 1 is added with deterministic serialization and explicit non-authority text.
+- [x] Initial records contain only unresolved owner decisions for Issues #586, #587 and #588.
+- [x] Standard-library validator fails closed for schema, lifecycle, evidence, references, authority, duplication and programme-projection defects.
+- [x] Positive, negative and boundary tests cover the validator.
+- [x] Existing PHPUnit discovery runs focused tests and repository validation without workflow changes.
+- [x] `ARCHITECTURE_AUTHORITY.md` documents routing, transitions and terminal removal.
+- [x] Architecture programme stores only compact active IDs and one next action.
+- [ ] Final exact-head workflows, fresh audit and review-thread inventory pass.
 - [ ] PR merges through protected main, task is archived and ownership is released.
 
 ## Ownership
@@ -79,12 +79,12 @@ blockers: []
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-05T22:09:00Z
-phase: implement
-head: 5264712da5dff535b4612d8f221e148ccef0b6b0
+updated_at: 2026-08-05T22:22:00Z
+phase: validate
+head: 7cfc6892d27fac6105dbe633e20fbafc009b8cd3
 branch: repair/issue-642-architecture-decision-backlog
-pr: none
-status: implementing
+pr: 650
+status: validating
 context_routes:
   - architecture
   - testing
@@ -101,28 +101,45 @@ proven:
   - ADR 0023 is accepted and authorizes this repository-owned governance implementation.
   - No duplicate registry implementation Issue or open PR exists.
   - Issues 586, 587 and 588 each contain a material unresolved owner decision.
-  - Completed ARCH-AUTH history and implementation-only Issues are not active decision obligations.
+  - Current repository metadata reports delete_branch_on_merge enabled; Issue 586 remains open because no canonical exception, recovery and cleanup policy was found.
+  - Completed ARCH-AUTH history and implementation-only Issues are excluded from the active registry.
+  - The JSON registry contains exactly three decision_required records and grants no implementation authority.
+  - The programme contains only the exact active ID projection and one next_action.
+  - Ten focused validator tests pass in local preflight.
 derived:
   - Three initial records are sufficient to prove non-empty schema behavior without importing unrelated backlog.
 unknown:
-  - Exact-head validation conclusions after implementation.
+  - Final exact-head workflow conclusions after current-main synchronization.
 conflicts: []
 first_failure:
-  marker: none
-  evidence: none
+  marker: stale-issue-evidence
+  evidence: Initial Issue 586 wording said automatic deletion was disabled, but live repository metadata reports delete_branch_on_merge=true; the record was narrowed to the still-unresolved exception and recovery policy.
 rejected_hypotheses:
   - Seed completed ARCH-AUTH records.
   - Import all open architecture-labelled Issues.
   - Make ordinary validation depend on live GitHub API access.
+  - Duplicate record summaries inside programme state.
 changed_paths:
+  - docs/agents/programs/OTERYN_PLATFORM_ARCHITECTURE_REVIEW.md
   - docs/agents/tasks/active/OTERYN-20260805-architecture-decision-backlog-implementation.md
+  - docs/architecture/ARCHITECTURE_AUTHORITY.md
+  - docs/architecture/ARCHITECTURE_DECISION_BACKLOG.json
+  - tools/validation/architecture_decision_backlog.py
+  - tools/validation/phpunit/ArchitectureDecisionBacklogValidationTest.php
+  - tools/validation/test_architecture_decision_backlog.py
 validation:
   - command: repository, Issue and PR duplicate search
     result: PASS
     evidence: no competing registry implementation owner found
   - command: unresolved decision reconciliation
     result: PASS
-    evidence: only Issues 586, 587 and 588 require unresolved owner policy choices in the initial seed
+    evidence: only Issues 586, 587 and 588 remain initial owner-policy decisions
+  - command: python3 tools/validation/test_architecture_decision_backlog.py
+    result: PASS
+    evidence: ten positive, negative and boundary tests passed in preflight
+  - command: python3 tools/validation/architecture_decision_backlog.py
+    result: PASS
+    evidence: three active records passed schema v1 validation in preflight
 blockers: []
-next_action: Add the canonical JSON registry, fail-closed validator, focused tests, PHPUnit bridge, authority routing and compact programme projection.
+next_action: Complete exact-head CI and independent audit, synchronize with current main, merge PR 650 through protection, then archive the task and release ownership.
 ```
