@@ -25,13 +25,14 @@ Navigation map for autonomous agents. This is not an exhaustive inventory. Confi
 | Active work index | `docs/agents/ACTIVE_WORK.md` | Convenience index; verify individual task and PR. |
 | Active tasks | `docs/agents/tasks/active/**` | Authoritative task checkpoint/ownership records. |
 | Archived tasks | `docs/agents/tasks/archive/**` | Completed historical task records. |
-| System architecture | `docs/architecture/SYSTEM_ARCHITECTURE.md` | System context, trust boundaries and dependency rules. |
+| Architecture authority | `docs/architecture/ARCHITECTURE_AUTHORITY.md` | Canonical entry point for architecture precedence, focused ownership and conflict handling. Read this first for architecture-wide work. |
+| System architecture | `docs/architecture/SYSTEM_ARCHITECTURE.md` | Current system context, trust boundaries and high-level dependency rules; explicitly labelled historical sections are context only. |
 | Module catalog | `docs/architecture/MODULE_CATALOG.md` | Module responsibility and ownership. |
 | Security architecture | `docs/architecture/SECURITY_ARCHITECTURE.md` | Mandatory security invariants. |
 | Data ownership | `docs/architecture/DATA_OWNERSHIP.md` | Platform/Canary/shared persistent data rules. |
 | Test strategy | `docs/architecture/TEST_STRATEGY.md` | Unit/feature/integration/contract/E2E strategy. |
-| Roadmap | `docs/architecture/ROADMAP.md` | Phased delivery order and exit gates. |
-| ADRs | `docs/architecture/adr/**` | Durable decisions and supersession history. |
+| Roadmap | `docs/architecture/ROADMAP.md` | Phased delivery order and exit gates; roadmap intent is not implementation proof. |
+| ADRs | `docs/architecture/adr/**` | Durable decisions and supersession history. Use the directory inventory, not numeric assumptions. |
 | Integration contracts | `docs/contracts/**` | Canary/login-server/shared schema/auth compatibility. |
 | Public endpoint roles | `docs/contracts/PUBLIC_ENDPOINTS_CONTRACT.md`, `deploy/synology/PUBLIC_ENDPOINTS.md` | Canonical mapping of `oteryn.molehill.cloud` to Platform WWW and `gateway.molehill.cloud` to Game Gateway/login; ADR 0020 records the hostname decision. |
 | Agent governance | `AGENTS.md`, `docs/agents/CONTEXT_*` | Coordination, routing and handoff rules. |
@@ -40,6 +41,7 @@ Navigation map for autonomous agents. This is not an exhaustive inventory. Confi
 
 Before implementing shared auth/account/character mutations, search/read:
 
+- `docs/architecture/ARCHITECTURE_AUTHORITY.md`;
 - `docs/contracts/AUTH_GAME_LOGIN_CONTRACT.md`;
 - `docs/contracts/CANARY_DATA_CONTRACT.md`;
 - `docs/architecture/DATA_OWNERSHIP.md`;
