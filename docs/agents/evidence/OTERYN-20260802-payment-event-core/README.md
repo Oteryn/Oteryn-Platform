@@ -2,7 +2,8 @@
 
 Issue: #470  
 Parent: #321  
-Pull request: #471
+Pull request: #471  
+Implementation head: `16c3d108fe3e2220c15e6eec8b61c635debe31a2`
 
 ## Delivery claim
 
@@ -21,7 +22,7 @@ The repository deliverable is a provider-neutral backend/security core:
 
 Remediated.
 
-A shared `PaymentAvailability` guard now rejects all three public payment actions when `payments.enabled` is not exactly `true`. `PaymentProviderResolver` defers provider gateway and webhook verifier resolution until after that guard.
+A shared `PaymentAvailability` guard rejects all three public payment actions unless `payments.enabled` is exactly `true`. `PaymentProviderResolver` defers provider gateway and webhook verifier resolution until after that guard.
 
 Regression coverage proves that default-disabled configuration with no provider binding:
 
@@ -30,9 +31,11 @@ Regression coverage proves that default-disabled configuration with no provider 
 - rejects provider-event processing with `payments_disabled`;
 - writes no order, attempt, transition, provider event or reconciliation entry.
 
-## PHPStan repair
+## PHPStan and concurrency repairs
 
 The two mixed-argument errors in `PaymentEventConcurrencyMariaDbTest.php` were repaired by validating the by-reference `pcntl_waitpid()` status as `int` before passing it to `pcntl_wifexited()` and `pcntl_wexitstatus()`. No PHPStan suppression was introduced.
+
+The MariaDB concurrency fixture closes its administrative PDO connection before `pcntl_fork()`, preventing child process shutdown from invalidating the parent's cleanup connection. `tearDown()` reconnects with a fresh administrative session.
 
 ## Independent audit
 
@@ -46,22 +49,31 @@ Reviewed boundaries:
 - monotonic transition versions;
 - terminal-state non-regression and reconciliation;
 - raw-payload/secret exclusion;
-- isolated MariaDB duplicate-event concurrency.
+- isolated MariaDB duplicate-event concurrency and cleanup lifecycle.
 
 Material findings: 0.  
 Unresolved PR review threads: 0.  
 Submitted PR reviews: 0.
 
-## Validation checkpoint
+## Implementation-head validation
 
-Code head: `a128c184c5b581c20b7cda1e2e6980c63bf1117a`.
+Exact code head `16c3d108fe3e2220c15e6eec8b61c635debe31a2` passed:
 
-Observed exact-head passes before the documentation checkpoint:
-
+- CI, including Pint, PHPStan and complete PHPUnit;
 - Agent Governance;
-- Portal Exhaustive Audit.
+- Portal Exhaustive Audit;
+- Portal Acceptance Contract;
+- Acceptance E2E and Visual UX;
+- Build Synology Staging Images;
+- Error State Acceptance;
+- Support Moderation Acceptance;
+- Game Auth Ticket Concurrency;
+- Edge Security Emulation;
+- Platform DB Outage Validation;
+- Phase 7 Production-Like Validation;
+- the PHP formatting/static-analysis and complete PHP regression/concurrency lanes inside Deep System Validation.
 
-The complete exact-final-head matrix remains a merge gate and will be recorded in the PR/Issue closeout.
+The archive head remains the protected merge gate and must pass all required checks before PR #471 is merged.
 
 ## Explicitly missing consumers
 
@@ -77,4 +89,4 @@ Issue #321 remains open. No user-facing or production payment feature may be des
 
 ## Safety boundary
 
-No real charge, provider credential, customer financial data, public webhook, Wallet mutation, entitlement delivery, Canary mutation, deployment or production activation is performed.
+No real charge, provider credential, customer financial data, public webhook, Wallet mutation, entitlement delivery, Canary mutation, deployment or production activation was performed.
