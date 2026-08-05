@@ -20,22 +20,20 @@ Continuously audit every delivered or declared Platform module and surface for t
 
 ```yaml
 programme_state_version: 2
-updated_at: 2026-08-05T15:22:00Z
-status: validating
+updated_at: 2026-08-05T15:28:00Z
+status: ready
 current_cycle: 1
-current_domain: stale-game-gateway-task-lifecycle
-active_task: docs/agents/tasks/active/OTERYN-20260805-game-gateway-stale-task-audit.md
-branch: audit/20260805-game-gateway-stale-task
-pull_request: 556
-head_before_programme_checkpoint: 35c2b0fb37263e09a4d4caeac869c64f7bcb540c
-last_merged_audit_head: 75ce5c8c39be35c7271049d6deb7ee733c5f35f2
-last_completed_domain: main-integrity-policy
+current_domain: none
+active_task: none
+branch: none
+pull_request: none
+last_merged_audit_head: f67fb06f00add3de14defa940672d756528e0f4f
+last_completed_domain: stale-game-gateway-task-lifecycle
 coverage_inventory:
   baseline: docs/agents/evidence/OTERYN-20260803-portal-exhaustive-current-main-audit/
   baseline_merge: cbbd7613cee13cf01931a0ba0f7ac089122132e0
   latest_audited_main: 4646c43a14daad0e53a97cad96ef7e3afbdf77c3
   audited_delta_commits: 41
-  selected_delta_domain: stale-game-gateway-task-lifecycle
 finding_ledger:
   baseline_owners:
     - 486
@@ -58,23 +56,24 @@ proven:
   - PR #483 and its merged evidence are the authoritative existing module and observable-surface inventory.
   - OPA-SEC-0001 is proven and deduplicated in Issue #547; its audit task is archived.
   - OPA-GOV-0001 is proven and deduplicated in Issue #552; its audit task is archived.
-  - OTERYN-20260722-game-gateway-mvp remains active despite PR #122 being merged and no matching archive record existing.
-  - The stale task claims paths currently changed by active PR #542.
   - OPA-GOV-0002 is proven and deduplicated in Issue #555.
-  - Draft PR #556 contains only the bounded audit task, evidence, report and programme-state paths.
+  - PR #556 passed all six exact-head workflows and merged as f67fb06f00add3de14defa940672d756528e0f4f.
+  - The stale Game Gateway task audit is archived and all audit ownership is released by the lifecycle closeout PR.
+  - Announcements/Events task PR #157 and Download Center task PR #161 are also merged while their task records remain active and their branches remain retained.
+  - The current checkpoint validator checks repository text structure but does not reconcile live PR, branch, archive or ownership state.
 derived:
   - Payment provider activation remains blocked until Issue #547 is remediated and independently verified.
   - The documented PR and exact-head validation process remains advisory until Issue #552 is resolved.
-  - Stale task ownership can block or misroute current multi-agent work until Issue #555 is remediated.
+  - Stale task ownership can block or misroute current multi-agent work until Issue #555 and the broader validator gap are remediated.
 unknown:
   - The owner-approved main ruleset, emergency bypass and stable required-check list.
-  - The exact count and terminal validity of other historical files retained under docs/agents/tasks/active.
+  - The full count of historical active tasks whose PRs are already terminal.
 conflicts:
   - ADR 0021 protects payment amount/currency integrity while the verified-event contract cannot carry or validate those facts.
   - Repository governance requires exact-head CI, audit, E2E and PR closeout while GitHub applies no main-branch enforcement.
-  - A merged historical task claims Game Gateway paths that have a newer active owner in PR #542.
+  - Multiple merged historical tasks remain active and claim paths despite newer live ownership or terminal PR state.
 blockers: []
-next_action: Verify all emitted workflows and final review hygiene on PR #556, squash-merge it, archive the audit task, then continue bounded active-task lifecycle reconciliation.
+next_action: Audit the governance validator and active-task inventory to determine why terminal merged tasks remain schema-valid and falsely active, then create one deduplicated systemic finding.
 ```
 
 ## Programme rules
