@@ -17,8 +17,8 @@
   },
   "records": [
     {
-      "blocking_owner_question": "Does the repository owner approve automatic deletion of merged ephemeral PR branches with explicit protected, release, rollback, active-claim, and recovery exceptions?",
       "blockers": [],
+      "blocking_owner_question": "Does the repository owner approve automatic deletion of merged ephemeral PR branches with explicit protected, release, rollback, active-claim, and recovery exceptions?",
       "canonical_owners": [
         "docs/agents/EXECUTION_PROTOCOL.md",
         "docs/architecture/ARCHITECTURE_AUTHORITY.md"
@@ -45,10 +45,11 @@
           "Automatic deletion with explicit exceptions reduces stale ownership signals without removing recovery-critical branches."
         ],
         "PROVEN": [
-          "Issue #586 records that delete_branch_on_merge is disabled and terminal merged branches remain unclassified."
+          "Current repository metadata reports delete_branch_on_merge=true.",
+          "Issue #586 remains open and repository search found no canonical branch-retention, exception, or recovery policy."
         ],
         "UNKNOWN": [
-          "The repository owner's approved exception set and one-time cleanup policy are not yet selected."
+          "The repository owner's approved exception, retained-branch, and one-time cleanup policy are not yet selected."
         ]
       },
       "implementation_authorized": false,
@@ -62,9 +63,9 @@
           ]
         },
         {
-          "description": "Keep automatic deletion disabled and require every merged branch to be manually deleted or explicitly classified during closeout.",
+          "description": "Disable automatic deletion and require every merged branch to be manually deleted or explicitly classified during closeout.",
           "option_id": "B",
-          "title": "Mandatory manual terminal classification",
+          "title": "Disable automatic deletion and classify manually",
           "trade_offs": [
             "Preserves direct control but retains recurring cleanup and enforcement cost."
           ]
@@ -78,7 +79,7 @@
           ]
         }
       ],
-      "problem_statement": "Merged source branches accumulate without one canonical deletion, retention, exception, and recovery policy, weakening deterministic task ownership and branch discovery.",
+      "problem_statement": "Automatic source-branch deletion is enabled without one canonical retention, exception, recovery, and one-time stale-branch cleanup policy.",
       "recommendation": "Adopt option A with fail-closed exclusions for protected, release, rollback, active-claim, open-PR, and recovery branches.",
       "recommended_owner": "repository owner",
       "references": {
@@ -93,8 +94,8 @@
       "updated_at": "2026-08-05"
     },
     {
-      "blocking_owner_question": "Should Oteryn Platform remain proprietary/no-permission, become source-available under exact owner-selected terms, or adopt an exact open-source license after provenance and compatibility review?",
       "blockers": [],
+      "blocking_owner_question": "Should Oteryn Platform remain proprietary/no-permission, become source-available under exact owner-selected terms, or adopt an exact open-source license after provenance and compatibility review?",
       "canonical_owners": [
         "docs/architecture/ARCHITECTURE_AUTHORITY.md",
         "README.md"
@@ -166,8 +167,8 @@
       "updated_at": "2026-08-05"
     },
     {
-      "blocking_owner_question": "Does the repository owner approve GitHub private vulnerability reporting plus a monitored role-based security contact as the canonical confidential reporting channel?",
       "blockers": [],
+      "blocking_owner_question": "Does the repository owner approve GitHub private vulnerability reporting plus a monitored role-based security contact as the canonical confidential reporting channel?",
       "canonical_owners": [
         "docs/architecture/SECURITY_ARCHITECTURE.md",
         "docs/architecture/ARCHITECTURE_AUTHORITY.md"
