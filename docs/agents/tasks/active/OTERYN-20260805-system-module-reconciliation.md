@@ -10,7 +10,7 @@ branch: task/OTERYN-20260805-system-module-reconciliation
 base_branch: main
 exact_base: bc9f64ac78b7f6483a8b0679c422cf772ca20ad6
 created: 2026-08-05T19:34:00Z
-updated: 2026-08-05T19:42:00Z
+updated: 2026-08-05T19:49:00Z
 execution_mode: github-only
 risk: medium
 feature_scope:
@@ -72,19 +72,19 @@ runtime_e2e: not_applicable_documentation_only
 ```yaml
 checkpoint_version: 1
 policy_version: 2
-updated_at: 2026-08-05T19:42:00Z
+updated_at: 2026-08-05T19:49:00Z
 invocation_started_at: 2026-08-05T19:25:00Z
-last_progress_at: 2026-08-05T19:42:00Z
-head: e4a21ee6c69bcf648c25d4f9e6eafe48c01bfcdd
+last_progress_at: 2026-08-05T19:49:00Z
+head: edcaf49572cc9410e0c61d9d4240f41925bce4b8
 branch: task/OTERYN-20260805-system-module-reconciliation
 pr: 594
 status: validating
-phase: exact_head_validation_and_fresh_audit
+phase: checkpoint_schema_repair
 session_id: chat-20260805-system-module-reconciliation
 session_role: architecture-reviewer
 execution_mode: github-only
 execution_reason: accepted canonical documentation correction can be completed and validated through GitHub objects and Actions
-lease_expires_at: 2026-08-05T20:27:00Z
+lease_expires_at: 2026-08-05T20:34:00Z
 context_pressure: medium
 context_growth: stable
 context_score: 8
@@ -110,18 +110,23 @@ proven:
   - Open Issues 365, 488, 489 and 490 remain explicit completeness, failure-path or environment-evidence gaps.
   - The canonical documents now define `AVAILABLE` only as repository capability existence and separate completeness, environment proof and activation authority.
   - Wallet and Marketplace are explicitly separate from regulated provider Payments and product fulfilment.
+  - CI, Native protocol contract, Native protocol contract audits, Game Auth, DB Outage and Edge Security passed on edcaf49572cc9410e0c61d9d4240f41925bce4b8.
   - No open Issue, PR or active ownership record duplicates this exact canonical reconciliation.
 derived:
   - Operational and quality boundaries can be first-class modules without requiring standalone user-facing routes or services.
   - The system diagram may show planned modules when their planned status is explicit and does not imply delivery.
 unknown:
-  - Exact-head GitHub Actions result after final programme/task metadata commit.
+  - Exact-head result after the checkpoint schema repair.
 conflicts: []
+first_failure:
+  marker: Agent Governance checkpoint validation
+  evidence: run 31040574209 job 92423617460 rejected the active task because required checkpoint mapping first_failure was absent
 rejected_hypotheses:
   - An open completeness finding does not require downgrading an implemented module to `IMPLEMENTING`.
   - Staging evidence does not authorize a production-proven label.
   - This correction does not require a new ADR because it applies an already accepted authority/evidence model.
   - Open schema 1.3 PR 338 must not be included in the current GameCatalog available boundary.
+  - The Agent Governance failure did not identify an architecture-document contradiction or scope violation.
 changed_paths:
   - docs/architecture/SYSTEM_ARCHITECTURE.md
   - docs/architecture/MODULE_CATALOG.md
@@ -138,17 +143,20 @@ validation:
   - command: scope and gap-preservation review
     result: PASS
     evidence: Issues 365, 488, 489 and 490 remain explicit; runtime and environment claims remain separated
-ci_checks_for_current_head: 0
-ci_check_generation: final_documentation
+  - command: exact-head GitHub Actions on edcaf49572cc9410e0c61d9d4240f41925bce4b8
+    result: FAIL
+    evidence: Agent Governance run 31040574209 required first_failure mapping; six other completed checks passed and Phase 7 remained queued
+ci_checks_for_current_head: 8
+ci_check_generation: checkpoint_schema_repair
 terminal_ci_wait_started_at: null
-terminal_ci_checks_for_current_generation: 0
+terminal_ci_checks_for_current_generation: 8
 unchanged_state_checks: 0
 identical_failure_retries: 0
-repair_cycles_for_current_gate: 0
+repair_cycles_for_current_gate: 1
 context_reconstruction_attempts: 0
 stall_warnings: 0
 blockers: []
-next_action: Freeze the final documentation head, run exact-head GitHub Actions and complete the fresh PR diff/thread audit.
+next_action: Validate the checkpoint-only repair on the new exact head and complete the fresh PR diff and review-thread audit.
 ```
 
 ## Recovery checkpoint
@@ -156,24 +164,32 @@ next_action: Freeze the final documentation head, run exact-head GitHub Actions 
 ```yaml
 recovery:
   policy_version: 1
-  generation: 1
+  generation: 2
   session_id: chat-20260805-system-module-reconciliation
   session_started_at: 2026-08-05T19:25:00Z
-  checkpointed_at: 2026-08-05T19:42:00Z
-  last_progress_at: 2026-08-05T19:42:00Z
-  phase: exact_head_validation_and_fresh_audit
-  exact_head: e4a21ee6c69bcf648c25d4f9e6eafe48c01bfcdd
+  checkpointed_at: 2026-08-05T19:49:00Z
+  last_progress_at: 2026-08-05T19:49:00Z
+  phase: checkpoint_schema_repair
+  exact_head: edcaf49572cc9410e0c61d9d4240f41925bce4b8
   pull_request: 594
-  active_operation: final metadata commit then GitHub Actions validation
-  external_run_ids: []
-  operation_started_at: null
-  wait_deadline_at: null
-  check_generation: final_documentation
-  checks_used: 0
+  active_operation: checkpoint-only schema repair and exact-head validation
+  external_run_ids:
+    - 31040573994
+    - 31040574039
+    - 31040574050
+    - 31040574090
+    - 31040574102
+    - 31040574172
+    - 31040574209
+    - 31040574218
+  operation_started_at: 2026-08-05T19:49:00Z
+  wait_deadline_at: 2026-08-05T20:34:00Z
+  check_generation: checkpoint_schema_repair
+  checks_used: 1
   status: active
   safe_to_resume: true
-  resume_condition: final exact head and workflow generation exist
-  next_action: Verify final head, inspect aggregate workflows and repair only an evidenced failure.
+  resume_condition: new exact head and workflow generation exist
+  next_action: Inspect aggregate workflow state and repair only an evidenced failure.
 ```
 
 ## E2E
