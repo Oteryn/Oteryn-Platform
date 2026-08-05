@@ -4,7 +4,7 @@ programme_id: OTERYN_PLATFORM_REMEDIATION
 repository: blakinio/Oteryn-Platform
 issue: 566
 branch: repair/issue-566
-pull_request: none
+pull_request: 612
 session_id: chatgpt-20260805T2254+0200-synology-staging-closeout
 claim_nonce: issue-566-bfdd8b51-20260805T2054Z
 coordination_key: task-lifecycle:OTERYN-20260723-synology-staging-deployment
@@ -56,10 +56,10 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-05T20:55:00Z
-head: bfdd8b51a5ccc2f6120aa3623e48457b9ac2df11
+updated_at: 2026-08-05T20:56:00Z
+head: 3903dafe6bb70718a7da88fa8aa6c8dae43af55e
 branch: repair/issue-566
-pr: none
+pr: 612
 status: implementing
 context_routes:
   - architecture-governance
@@ -97,5 +97,5 @@ validation:
     result: PASS
     evidence: Issue unclaimed, deterministic branch acquired, PR 127 merged and no overlapping open PR owns the declared task paths
 blockers: []
-next_action: Open the draft PR, activate the claim, then archive the stale implementation task and create the blocked activation-only task.
+next_action: Archive the stale implementation task and create the blocked activation-only task.
 ```
