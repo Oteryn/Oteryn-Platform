@@ -66,6 +66,44 @@ class AdrRegistryValidatorTest(unittest.TestCase):
 
         self.assertEqual([], errors)
 
+    def test_accepts_supported_lifecycle_formats(self) -> None:
+        fixtures = {
+            "0001-bullet.md": "- Status: Accepted for contract\n",
+            "0002-plain.md": "Status: Accepted\nDate: 2026-08-05\n",
+            "0003-section.md": "## Status\n\nAccepted — 2026-08-05\n",
+        }
+        for filename, lifecycle in fixtures.items():
+            self.adr_dir.joinpath(filename).write_text(
+                f"# ADR {filename[:4]}: Fixture\n\n{lifecycle}",
+                encoding="utf-8",
+            )
+        self.write_inventory(list(fixtures))
+
+        errors = adr_registry.validate_repository(
+            self.root, legacy_duplicates={}
+        )
+
+        self.assertEqual([], errors)
+
+    def test_rejects_ambiguous_lifecycle_declarations(self) -> None:
+        filename = "0001-alpha.md"
+        self.adr_dir.joinpath(filename).write_text(
+            "# ADR 0001: Fixture\n\n"
+            "- Status: Accepted\n\n"
+            "## Status\n\n"
+            "Rejected\n",
+            encoding="utf-8",
+        )
+        self.write_inventory([filename])
+
+        errors = adr_registry.validate_repository(
+            self.root, legacy_duplicates={}
+        )
+
+        self.assert_error_contains(
+            errors, "expected exactly one lifecycle declaration, found 2"
+        )
+
     def test_rejects_new_duplicate_prefix(self) -> None:
         files = ["0001-alpha.md", "0001-beta.md"]
         for filename in files:
@@ -102,7 +140,9 @@ class AdrRegistryValidatorTest(unittest.TestCase):
             self.root, legacy_duplicates={}
         )
 
-        self.assert_error_contains(errors, "expected exactly one lifecycle line")
+        self.assert_error_contains(
+            errors, "expected exactly one lifecycle declaration"
+        )
 
     def test_rejects_inventory_drift(self) -> None:
         self.write_adr("0001-alpha.md")

@@ -4,14 +4,24 @@ ADRs record durable architecture decisions that should survive individual tasks 
 
 ## Lifecycle values
 
-Every ADR must contain exactly one lifecycle line beginning with one of:
+Every ADR must contain exactly one lifecycle declaration using one of the repository's established forms:
+
+```text
+- Status: Accepted
+Status: Accepted
+## Status
+
+Accepted
+```
+
+The lifecycle token must begin with one of:
 
 - `Proposed`
 - `Accepted`
 - `Superseded`
 - `Rejected`
 
-A record may add a bounded qualifier after the lifecycle token. A `Superseded` record must identify a resolvable replacement. Read the ADR itself for exact scope and activation limits.
+A declaration may add a bounded qualifier or date after the lifecycle token. Multiple lifecycle declarations in one ADR are rejected. A `Superseded` record must identify a resolvable replacement. Read the ADR itself for exact scope and activation limits.
 
 ## Allocation
 
@@ -33,7 +43,7 @@ The repository test suite executes both through `tests/Unit/Architecture/AdrRegi
 The validator fails closed for:
 
 - invalid ADR filenames;
-- missing or duplicate lifecycle lines;
+- missing or ambiguous lifecycle declarations;
 - README inventory drift;
 - a new duplicate numeric prefix;
 - any change to the exact historical duplicate-path allowlist;

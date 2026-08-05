@@ -18,14 +18,15 @@ Continuously challenge Platform architecture, repository structure and CI/CD; id
 
 ```yaml
 programme_state_version: 2
-updated_at: 2026-08-05T16:24:00Z
-status: implementing
+updated_at: 2026-08-05T16:40:00Z
+status: validating
 current_review_domain: adr-registry-integrity
 active_task: OTERYN-20260805-adr-registry-validator
 issue: 577
 branch: task/OTERYN-20260805-adr-registry-validator
-pull_request: pending
+pull_request: 581
 exact_base: 3f79987f47e5c7593daccdf1136e09d6641017de
+failed_head: 2d1d59fffe8d0163ff49a42afb7c0c18d7521655
 last_completed_domain: canonical-architecture-authority
 last_completed_issue: 548
 last_completed_pull_request: 550
@@ -49,8 +50,9 @@ decision_backlog:
   - id: ARCH-AUTH-003
     severity: high
     type: defect
-    state: implementing
+    state: validating
     issue: 577
+    pull_request: 581
     summary: Add a fail-closed ADR registry validator using a closed exact-path legacy collision allowlist.
   - id: ARCH-AUTH-004
     severity: high
@@ -63,22 +65,26 @@ decision_backlog:
     state: queued
     summary: Add one validated machine-readable architecture decision backlog after its schema and ownership are accepted.
 architecture_conflicts:
-  - Historical duplicate ADR prefixes remain for 0008, 0010, 0011, 0015, 0016, 0017, 0018 and 0021; Issue 577 is converting them into a closed compatibility allowlist.
+  - Historical duplicate ADR prefixes remain for 0008, 0010, 0011, 0015, 0016, 0017, 0018 and 0021; Issue 577 converts them into a closed compatibility allowlist.
 ci_architecture_findings:
-  - Existing PHPUnit CI can enforce the ADR validator without editing workflow files.
+  - Existing PHPUnit CI enforces the ADR validator without editing workflow files.
+  - Failed head 2d1d59fffe8d0163ff49a42afb7c0c18d7521655 proved three established lifecycle declaration formats; the parser repair preserves all historical ADR bytes.
 accepted_handoffs_ready_for_remediation:
   - Reconcile module and system current-state documentation from PR 453 and later exact merged evidence after Issue 577 reaches terminal state.
 proven:
   - No exact existing Issue, PR or implementation owner existed before Issue 577.
   - ADR 0022 requires fail-closed validation while preserving existing accepted paths.
   - Issue 558 and tools/agents scope remain excluded.
+  - CI run 31025277136 failed only because the first parser accepted bullet status metadata but not established plain and section forms.
+  - The repaired focused suite passes 10 tests and rejects ambiguous lifecycle declarations.
 derived:
-  - A closed exact-path legacy allowlist is the smallest compatibility-safe enforcement model.
+  - A closed exact-path legacy allowlist is the smallest compatibility-safe collision model.
+  - Supporting established lifecycle syntax is safer than rewriting accepted ADR history.
 unknown:
-  - Exact final-head validation result.
+  - Repaired exact final-head validation result.
 conflicts: []
 blockers: []
-next_action: Complete the validator implementation, focused fixtures and existing-CI bridge on the task branch.
+next_action: Run exact-head GitHub Actions on the repaired parser and complete the fresh diff and invariant audit.
 ```
 
 ## Programme rules

@@ -14,8 +14,12 @@ README_NAME = "README.md"
 ADR_FILENAME_PATTERN = re.compile(
     r"^(?P<prefix>\d{4})-(?P<slug>[a-z0-9]+(?:-[a-z0-9]+)*)\.md$"
 )
-STATUS_PATTERN = re.compile(
-    r"^- Status:\s*(?P<status>Proposed|Accepted|Superseded|Rejected)\b.*$",
+DIRECT_STATUS_PATTERN = re.compile(
+    r"^(?:-\s*)?Status:\s*(?P<status>Proposed|Accepted|Superseded|Rejected)\b.*$",
+    re.MULTILINE,
+)
+SECTION_STATUS_PATTERN = re.compile(
+    r"^## Status\s*$\n(?:[ \t]*\n)*(?P<status>Proposed|Accepted|Superseded|Rejected)\b[^\n]*$",
     re.MULTILINE,
 )
 SUPERSEDED_BY_PATTERN = re.compile(
@@ -68,6 +72,16 @@ def _normalized_allowlist(
         str(prefix): tuple(sorted(str(path) for path in paths))
         for prefix, paths in legacy_duplicates.items()
     }
+
+
+def _lifecycle_declarations(content: str) -> list[str]:
+    declarations = [
+        match.group("status") for match in DIRECT_STATUS_PATTERN.finditer(content)
+    ]
+    declarations.extend(
+        match.group("status") for match in SECTION_STATUS_PATTERN.finditer(content)
+    )
+    return declarations
 
 
 def _inventory_entries(readme: Path) -> tuple[list[str], list[str]]:
@@ -128,15 +142,15 @@ def validate_repository(
         prefix = filename_match.group("prefix")
         files_by_prefix[prefix].append(path.name)
         content = path.read_text(encoding="utf-8")
-        status_matches = list(STATUS_PATTERN.finditer(content))
-        if len(status_matches) != 1:
+        statuses = _lifecycle_declarations(content)
+        if len(statuses) != 1:
             errors.append(
-                f"{path.name}: expected exactly one lifecycle line, found "
-                f"{len(status_matches)}"
+                f"{path.name}: expected exactly one lifecycle declaration, found "
+                f"{len(statuses)}"
             )
             continue
 
-        status = status_matches[0].group("status")
+        status = statuses[0]
         supersession_matches = list(SUPERSEDED_BY_PATTERN.finditer(content))
 
         if status == "Superseded" and len(supersession_matches) != 1:

@@ -5,12 +5,12 @@ project_lane: oteryn-platform-core
 task_kind: implementation
 implementation_authorized: true
 issue: 577
-status: implementing
+status: validating
 branch: task/OTERYN-20260805-adr-registry-validator
 base_branch: main
 exact_base: 3f79987f47e5c7593daccdf1136e09d6641017de
 created: 2026-08-05T16:18:00Z
-updated: 2026-08-05T16:24:00Z
+updated: 2026-08-05T16:40:00Z
 execution_mode: github-only
 risk: medium
 feature_scope:
@@ -67,7 +67,9 @@ runtime_e2e: not_applicable_non_runtime_repository_integrity_tool
 - [x] add positive, negative and boundary fixture tests;
 - [x] execute the validator from the existing PHPUnit suite without workflow changes;
 - [x] update the ADR registry and authority documentation;
-- [ ] run focused and exact-head validation;
+- [x] diagnose the first exact-head failure from uploaded PHPUnit evidence;
+- [x] preserve all established lifecycle metadata formats without rewriting historical ADRs;
+- [ ] pass repaired focused and exact-head validation;
 - [ ] complete fresh post-implementation audit with zero material findings;
 - [ ] merge, archive, close Issue #577 and release ownership.
 
@@ -76,19 +78,19 @@ runtime_e2e: not_applicable_non_runtime_repository_integrity_tool
 ```yaml
 checkpoint_version: 1
 policy_version: 2
-updated_at: 2026-08-05T16:24:00Z
+updated_at: 2026-08-05T16:40:00Z
 invocation_started_at: 2026-08-05T15:50:00Z
-last_progress_at: 2026-08-05T16:24:00Z
-head: pending-implementation-commit
+last_progress_at: 2026-08-05T16:40:00Z
+head: 2d1d59fffe8d0163ff49a42afb7c0c18d7521655
 branch: task/OTERYN-20260805-adr-registry-validator
-pr: pending
-status: implementing
-phase: implement
+pr: 581
+status: validating
+phase: repair_validation
 session_id: chat-20260805-architecture-continuation
 session_role: implementer
 execution_mode: github-only
 execution_reason: bounded repository tooling and documentation changes can be implemented through GitHub objects and validated by GitHub Actions
-lease_expires_at: 2026-08-05T17:09:00Z
+lease_expires_at: 2026-08-05T17:25:00Z
 context_pressure: medium
 context_growth: stable
 context_score: 7
@@ -114,18 +116,23 @@ proven:
   - No exact existing Issue, PR or implementation owner was found before Issue 577 was created.
   - Issue 558 owns tools/agents and task-liveness governance, not ADR registry integrity.
   - Existing CI executes PHPUnit; workflow files need not be changed to consume this validator.
-  - The focused Python fixture suite passes locally against synthetic positive, negative and boundary registries.
+  - The initial focused Python fixture suite passed but omitted two established lifecycle syntax families.
+  - CI run 31025277136 failed only in the live registry bridge because 17 accepted ADRs use plain or section lifecycle declarations.
+  - The repaired focused suite passes 10 tests and covers bullet, plain and section forms plus ambiguous declarations.
 derived:
   - A closed exact-path legacy allowlist is the least disruptive compatibility boundary.
+  - Parser compatibility is safer and narrower than rewriting 17 historical ADRs.
 unknown:
-  - Whether the validator passes every historical ADR unchanged on the repository runner.
+  - Repaired exact-head GitHub Actions result.
 conflicts: []
 first_failure:
-  marker: none
-  evidence: none
+  marker: CI PHPUnit ADR registry validation
+  evidence: run 31025277136, job 92372884204, artifact 8938486455; test_repository_adr_registry_passes reported 17 established ADRs with zero recognized lifecycle declarations
 rejected_hypotheses:
-  - Renumbering existing ADRs is not required and would risk breaking inbound references.
-  - Per-ADR stable-ID migration is not required for this bounded prevention control.
+  - The failure was not caused by a new ADR collision, README inventory drift or invalid filename.
+  - The failure was not a runtime, database, edge, game-auth or native-protocol regression.
+  - Python and Symfony Process were available because the focused bridge test executed successfully.
+  - Renumbering or normalizing historical ADRs is not required and would risk breaking references.
   - An open-ended duplicate-prefix allowlist would not fail closed.
   - A workflow edit is not required for CI enforcement.
 changed_paths:
@@ -138,23 +145,26 @@ changed_paths:
   - docs/agents/reports/OTERYN-20260805-adr-registry-validator.md
   - docs/agents/programs/OTERYN_PLATFORM_ARCHITECTURE_REVIEW.md
 validation:
-  - command: python3 tools/validation/test_adr_registry.py against synthetic fixtures
+  - command: python3 tools/validation/test_adr_registry.py after lifecycle parser repair
     result: PASS
-    evidence: eight focused tests passed before repository persistence
-  - command: exact repository ADR validation
+    evidence: 10 focused positive, negative and boundary tests passed
+  - command: exact failed-head GitHub Actions on 2d1d59fffe8d0163ff49a42afb7c0c18d7521655
+    result: FAIL
+    evidence: CI run 31025277136 isolated parser incompatibility; other unrelated exact-head checks passed
+  - command: repaired exact repository ADR validation
     result: NOT_RUN
-    evidence: GitHub Actions exact-head execution required
-ci_checks_for_current_head: 0
-ci_check_generation: draft
+    evidence: new exact-head GitHub Actions required
+ci_checks_for_current_head: 9
+ci_check_generation: failed_head_diagnosed
 terminal_ci_wait_started_at: null
-terminal_ci_checks_for_current_generation: 0
+terminal_ci_checks_for_current_generation: 9
 unchanged_state_checks: 0
 identical_failure_retries: 0
-repair_cycles_for_current_gate: 0
+repair_cycles_for_current_gate: 1
 context_reconstruction_attempts: 0
 stall_warnings: 0
 blockers: []
-next_action: Open the draft PR and use exact-head CI to validate the repository registry and PHPUnit bridge.
+next_action: Commit the lifecycle parser repair and run all exact-head GitHub Actions on the repaired tree.
 ```
 
 ## E2E
