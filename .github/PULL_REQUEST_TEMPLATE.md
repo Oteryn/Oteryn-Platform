@@ -47,6 +47,11 @@
 - [ ] Full diff and changed-file list reviewed.
 - [ ] Required tests and exact-head CI pass.
 - [ ] Review threads and related PRs are reconciled.
-- [ ] Task record is terminal and archived when required.
-- [ ] Ownership and leases are released.
+- [ ] Required post-merge task archival and ownership release have an explicit closeout action.
 - [ ] PR is safe for squash merge.
+
+# Post-merge closeout
+
+- [ ] Archive the terminal task record when required.
+- [ ] Release ownership and leases.
+- [ ] Verify resulting state and linked programme dependencies.

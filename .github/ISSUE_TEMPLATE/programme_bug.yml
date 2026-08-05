@@ -5,19 +5,26 @@ labels: [state:triage, type:bug]
 body:
   - type: textarea
     id: objective
-    attributes: {label: Objective, description: Describe the defect and the required corrected outcome.}
+    attributes:
+      label: Objective
+      description: Describe the defect and the required corrected outcome.
     validations: {required: true}
   - type: textarea
     id: current
-    attributes: {label: Current behavior, description: Include reproducible symptoms and safe evidence.}
+    attributes:
+      label: Current behavior
+      description: Include reproducible symptoms and safe evidence.
     validations: {required: true}
   - type: textarea
     id: expected
-    attributes: {label: Expected behavior}
+    attributes:
+      label: Expected behavior
     validations: {required: true}
   - type: textarea
     id: reproduction
-    attributes: {label: Reproduction, description: Provide the smallest deterministic reproduction.}
+    attributes:
+      label: Reproduction
+      description: Provide the smallest deterministic reproduction.
     validations: {required: true}
   - type: textarea
     id: acceptance
@@ -29,11 +36,17 @@ body:
     validations: {required: true}
   - type: dropdown
     id: priority
-    attributes: {label: Priority, options: [P0, P1, P2, P3], default: 2}
+    attributes:
+      label: Priority
+      options: [P0, P1, P2, P3]
+      default: 2
     validations: {required: true}
   - type: dropdown
     id: risk
-    attributes: {label: Risk, options: [Low, Medium, High, Critical], default: 1}
+    attributes:
+      label: Risk
+      options: [Low, Medium, High, Critical]
+      default: 1
     validations: {required: true}
   - type: dropdown
     id: programme
@@ -43,15 +56,20 @@ body:
     validations: {required: true}
   - type: textarea
     id: blocked_by
-    attributes: {label: Blocked by, description: Full GitHub Issue URLs, one per line, or `None`., placeholder: None}
+    attributes:
+      label: Blocked by
+      description: Full GitHub Issue URLs, one per line, or `None`. The central Projects Operations v3 reconciler converts only URLs in this section into native dependency relationships.
+      placeholder: None
     validations: {required: true}
   - type: textarea
     id: affected_paths
-    attributes: {label: Affected paths}
+    attributes:
+      label: Affected paths
     validations: {required: true}
   - type: textarea
     id: validation
-    attributes: {label: Validation plan}
+    attributes:
+      label: Validation plan
     validations: {required: true}
   - type: checkboxes
     id: completion
