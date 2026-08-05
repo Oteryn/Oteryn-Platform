@@ -93,7 +93,7 @@ func (c *Client) ReadyFor(ctx context.Context, request gateway.SessionRequest) e
 		EndpointID             string   `json:"endpoint_id"`
 		Audience               string   `json:"audience"`
 		Family                 string   `json:"family"`
-		Profile                string   `json:"profile"`
+		NativeProtocolVersion  string   `json:"native_protocol_version"`
 		Transport              string   `json:"transport"`
 		SchemaRevision         uint32   `json:"schema_revision"`
 		SchemaSHA256           string   `json:"schema_sha256"`
@@ -112,7 +112,7 @@ func (c *Client) ReadyFor(ctx context.Context, request gateway.SessionRequest) e
 		result.EndpointID != request.EndpointID ||
 		result.Audience != request.Audience ||
 		result.Family != selection.Family ||
-		result.Profile != selection.Profile ||
+		result.NativeProtocolVersion != selection.NativeProtocolVersion ||
 		result.Transport != selection.Transport ||
 		result.SchemaRevision != selection.SchemaRevision ||
 		result.SchemaSHA256 != selection.SchemaSHA256 ||
@@ -156,7 +156,7 @@ type v2RequestPayload struct {
 	CharacterBindingMode   string   `json:"character_binding_mode"`
 	SingleAdmission        bool     `json:"single_admission"`
 	Family                 string   `json:"family"`
-	Profile                string   `json:"profile"`
+	NativeProtocolVersion  string   `json:"native_protocol_version"`
 	Transport              string   `json:"transport"`
 	SchemaRevision         uint32   `json:"schema_revision"`
 	SchemaSHA256           string   `json:"schema_sha256"`
@@ -194,7 +194,7 @@ func newV2Payload(request gateway.SessionRequest) (v2RequestPayload, error) {
 		CharacterBindingMode:   request.CharacterBindingMode,
 		SingleAdmission:        request.SingleAdmission,
 		Family:                 selection.Family,
-		Profile:                selection.Profile,
+		NativeProtocolVersion:  selection.NativeProtocolVersion,
 		Transport:              selection.Transport,
 		SchemaRevision:         selection.SchemaRevision,
 		SchemaSHA256:           selection.SchemaSHA256,

@@ -11,7 +11,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * @property int $channel_id
  * @property int $sort_order
  * @property string $family
- * @property string $profile
+ * @property string $nativeProtocolVersion
  * @property string $transport
  * @property int $schema_revision
  * @property string $schema_sha256
@@ -35,7 +35,7 @@ final class GameWorldProtocolCandidate extends Model
         'channel_id',
         'sort_order',
         'family',
-        'profile',
+        'native_protocol_version',
         'transport',
         'schema_revision',
         'schema_sha256',
@@ -56,6 +56,7 @@ final class GameWorldProtocolCandidate extends Model
         return [
             'channel_id' => 'integer',
             'sort_order' => 'integer',
+            'native_protocol_version' => 'integer',
             'schema_revision' => 'integer',
             'required_capabilities' => 'array',
             'optional_capabilities' => 'array',

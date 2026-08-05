@@ -18,7 +18,7 @@ return new class extends Migration
             $table->unsignedBigInteger('channel_id')->default(1);
             $table->unsignedSmallInteger('sort_order');
             $table->string('family', 64);
-            $table->string('profile', 64);
+            $table->unsignedTinyInteger('native_protocol_version');
             $table->string('transport', 64);
             $table->unsignedInteger('schema_revision');
             $table->char('schema_sha256', 64);
@@ -36,7 +36,7 @@ return new class extends Migration
                 'world_protocol_candidate_order_unique',
             );
             $table->unique(
-                ['game_world_id', 'channel_id', 'family', 'profile', 'transport', 'schema_revision'],
+                ['game_world_id', 'channel_id', 'family', 'native_protocol_version', 'transport', 'schema_revision'],
                 'world_protocol_candidate_tuple_unique',
             );
         });

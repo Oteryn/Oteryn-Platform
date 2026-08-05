@@ -30,7 +30,7 @@ func TestValidateLoginRequestRejectsMalformedOffers(t *testing.T) {
 			r.GameplayOffer.Candidates = make([]GameplayOfferCandidate, 9)
 			for index := range r.GameplayOffer.Candidates {
 				r.GameplayOffer.Candidates[index] = candidate
-				r.GameplayOffer.Candidates[index].Profile = "profile." + string(rune('a'+index))
+				r.GameplayOffer.Candidates[index].NativeProtocolVersion = "nativeProtocolVersion." + string(rune('a'+index))
 			}
 		}},
 		{name: "duplicate tuple", mutate: func(r *LoginRequest) {
@@ -60,8 +60,8 @@ func TestSelectGameplayCandidateIntersectsOptionalCapabilitiesAndUsesStableDiges
 		Revision:  41,
 		ChannelID: 1,
 		Candidates: []GameplayPolicyCandidate{{
-			Family: "oteryn", Profile: "oteryn.native.v1", Transport: "tcp.tls13.protobuf.be32.v1",
-			SchemaRevision: 1, SchemaSHA256: canonicalNativeSchemaSHA256,
+			Family: "oteryn", NativeProtocolVersion: 1, Transport: "tcp.tls13.protobuf.be32.v1",
+			SchemaRevision: 2, SchemaSHA256: canonicalNativeSchemaSHA256,
 			RequiredCapabilities: nativeV1BaseCapabilities,
 			OptionalCapabilities: []string{"state.optional-a.v1", "state.optional-b.v1", "state.optional-c.v1"},
 			EndpointID:           "native-1", Host: "game.example.test", Port: 7173, TLSServerName: "game.example.test",
@@ -86,11 +86,11 @@ func TestSelectGameplayCandidateIntersectsOptionalCapabilitiesAndUsesStableDiges
 	}
 }
 
-func TestSelectGameplayCandidateRejectsNativeProfileMissingBaseCapability(t *testing.T) {
+func TestSelectGameplayCandidateRejectsNativeNativeProtocolVersionMissingBaseCapability(t *testing.T) {
 	offer := validNativeLoginRequest().GameplayOffer
 	policy := GameplayPolicy{Revision: 1, ChannelID: 1, Candidates: []GameplayPolicyCandidate{{
-		Family: "oteryn", Profile: "oteryn.native.v1", Transport: "tcp.tls13.protobuf.be32.v1",
-		SchemaRevision: 1, SchemaSHA256: canonicalNativeSchemaSHA256,
+		Family: "oteryn", NativeProtocolVersion: 1, Transport: "tcp.tls13.protobuf.be32.v1",
+		SchemaRevision: 2, SchemaSHA256: canonicalNativeSchemaSHA256,
 		RequiredCapabilities: nativeV1BaseCapabilities[:len(nativeV1BaseCapabilities)-1],
 		EndpointID:           "native-1", Host: "game.example.test", Port: 7173, TLSServerName: "game.example.test",
 	}}}
@@ -104,8 +104,8 @@ func TestSelectGameplayCandidateRejectsNativeProfileMissingBaseCapability(t *tes
 func TestSelectGameplayCandidateRejectsWrongNativeSchemaIdentity(t *testing.T) {
 	offer := validNativeLoginRequest().GameplayOffer
 	policy := GameplayPolicy{Revision: 1, ChannelID: 1, Candidates: []GameplayPolicyCandidate{{
-		Family: "oteryn", Profile: "oteryn.native.v1", Transport: "tcp.tls13.protobuf.be32.v1",
-		SchemaRevision: 1, SchemaSHA256: strings.Repeat("a", 64),
+		Family: "oteryn", NativeProtocolVersion: 1, Transport: "tcp.tls13.protobuf.be32.v1",
+		SchemaRevision: 2, SchemaSHA256: strings.Repeat("a", 64),
 		RequiredCapabilities: nativeV1BaseCapabilities,
 		EndpointID:           "native-1", Host: "game.example.test", Port: 7173, TLSServerName: "game.example.test",
 	}}}
@@ -119,8 +119,8 @@ func TestSelectGameplayCandidateRejectsWrongNativeSchemaIdentity(t *testing.T) {
 func TestNewV2SessionRequestBindsExactAuthority(t *testing.T) {
 	selection := GameplaySelection{
 		PolicyRevision: 3,
-		Family:         "oteryn", Profile: "oteryn.native.v1", Transport: "tcp.tls13.protobuf.be32.v1",
-		SchemaRevision: 1, SchemaSHA256: canonicalNativeSchemaSHA256,
+		Family:         "oteryn", NativeProtocolVersion: 1, Transport: "tcp.tls13.protobuf.be32.v1",
+		SchemaRevision: 2, SchemaSHA256: canonicalNativeSchemaSHA256,
 		Capabilities: nativeV1BaseCapabilities, CapabilityDigestSHA256: capabilityDigest(nativeV1BaseCapabilities),
 		EndpointID: "native-1", Host: "game.example.test", Port: 7173, TLSServerName: "game.example.test",
 	}
@@ -144,8 +144,8 @@ func TestNewV2SessionRequestBindsExactAuthority(t *testing.T) {
 func TestNewV2SessionRequestRejectsNegativeSecurityGeneration(t *testing.T) {
 	selection := GameplaySelection{
 		PolicyRevision: 3,
-		Family:         "oteryn", Profile: "oteryn.native.v1", Transport: "tcp.tls13.protobuf.be32.v1",
-		SchemaRevision: 1, SchemaSHA256: canonicalNativeSchemaSHA256,
+		Family:         "oteryn", NativeProtocolVersion: 1, Transport: "tcp.tls13.protobuf.be32.v1",
+		SchemaRevision: 2, SchemaSHA256: canonicalNativeSchemaSHA256,
 		Capabilities: nativeV1BaseCapabilities, CapabilityDigestSHA256: capabilityDigest(nativeV1BaseCapabilities),
 		EndpointID: "native-1", Host: "game.example.test", Port: 7173, TLSServerName: "game.example.test",
 	}
@@ -170,8 +170,8 @@ func validNativeLoginRequest() LoginRequest {
 			ClientBuild:    "oteryn-client-test",
 			ClientPlatform: "windows-x86_64",
 			Candidates: []GameplayOfferCandidate{{
-				Family: "oteryn", Profile: "oteryn.native.v1", Transport: "tcp.tls13.protobuf.be32.v1",
-				SchemaRevision: 1, SchemaSHA256: canonicalNativeSchemaSHA256, Capabilities: capabilities,
+				Family: "oteryn", NativeProtocolVersion: 1, Transport: "tcp.tls13.protobuf.be32.v1",
+				SchemaRevision: 2, SchemaSHA256: canonicalNativeSchemaSHA256, Capabilities: capabilities,
 			}},
 		},
 	}

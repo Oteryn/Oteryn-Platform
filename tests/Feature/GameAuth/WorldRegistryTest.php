@@ -13,7 +13,7 @@ final class WorldRegistryTest extends TestCase
 {
     use RefreshDatabase;
 
-    private const NATIVE_SCHEMA_SHA256 = 'c7665223f09001e3294e9a03ab4784defed66b0ac04450e8679d4778421207f8';
+    private const NATIVE_SCHEMA_SHA256 = '9c67f19525400fb9890d2a3541ceb6d02eb955061540ad39ca1c1d891c06eba9';
 
     private const NATIVE_CAPABILITIES = [
         'actions.command-result.v1',
@@ -67,7 +67,7 @@ final class WorldRegistryTest extends TestCase
         $world = $this->createWorld('oteryn-test', GameWorldStatus::Online, true, 'legacy.test', 7172, 17);
         $this->createCandidate($world, 'disabled', 0, false, 'canary', 'canary.disabled', 7172, []);
         $this->createCandidate($world, 'canary-primary', 2, true, 'canary', 'canary.current', 7172, ['session.single-admission.v1']);
-        $this->createCandidate($world, 'native-primary', 1, true, 'oteryn', 'oteryn.native.v1', 7173);
+        $this->createCandidate($world, 'native-primary', 1, true, 'oteryn', 1, 7173);
 
         $routes = (new DatabaseWorldRegistry)->forAccount(1001);
         $policy = $routes[0]->gameplayPolicy;
@@ -85,7 +85,7 @@ final class WorldRegistryTest extends TestCase
     public function test_enabled_noncanonical_candidate_invalidates_policy_without_breaking_legacy_world_route(): void
     {
         $world = $this->createWorld('oteryn-test', GameWorldStatus::Online, true, 'legacy.test', 7172);
-        $candidate = $this->createCandidate($world, 'native-invalid', 1, true, 'oteryn', 'oteryn.native.v1', 7173);
+        $candidate = $this->createCandidate($world, 'native-invalid', 1, true, 'oteryn', 1, 7173);
         $candidate->forceFill(['required_capabilities' => array_reverse(self::NATIVE_CAPABILITIES)])->save();
 
         $routes = (new DatabaseWorldRegistry)->forAccount(1001);
@@ -101,7 +101,7 @@ final class WorldRegistryTest extends TestCase
     public function test_wrong_native_schema_hash_invalidates_policy(): void
     {
         $world = $this->createWorld('oteryn-test', GameWorldStatus::Online, true, 'legacy.test', 7172);
-        $candidate = $this->createCandidate($world, 'native-invalid-hash', 1, true, 'oteryn', 'oteryn.native.v1', 7173);
+        $candidate = $this->createCandidate($world, 'native-invalid-hash', 1, true, 'oteryn', 1, 7173);
         $candidate->forceFill(['schema_sha256' => str_repeat('a', 64)])->save();
 
         $routes = (new DatabaseWorldRegistry)->forAccount(1001);
@@ -148,7 +148,7 @@ final class WorldRegistryTest extends TestCase
         int $sortOrder,
         bool $enabled,
         string $family,
-        string $profile,
+        string $nativeProtocolVersion,
         int $port,
         ?array $requiredCapabilities = null,
     ): GameWorldProtocolCandidate {
@@ -157,10 +157,10 @@ final class WorldRegistryTest extends TestCase
             'channel_id' => 1,
             'sort_order' => $sortOrder,
             'family' => $family,
-            'profile' => $profile,
+            'native_protocol_version' => $nativeProtocolVersion,
             'transport' => $family === 'oteryn' ? 'tcp.tls13.protobuf.be32.v1' : 'canary.sequence.v1',
-            'schema_revision' => 1,
-            'schema_sha256' => $family === 'oteryn' && $profile === 'oteryn.native.v1'
+            'schema_revision' => 2,
+            'schema_sha256' => $family === 'oteryn' && $nativeProtocolVersion === 1
                 ? self::NATIVE_SCHEMA_SHA256
                 : str_repeat('a', 64),
             'required_capabilities' => $requiredCapabilities ?? self::NATIVE_CAPABILITIES,

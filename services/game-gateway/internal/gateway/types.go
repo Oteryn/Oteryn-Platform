@@ -36,12 +36,12 @@ type Character struct {
 }
 
 type GameplayOfferCandidate struct {
-	Family         string   `json:"family"`
-	Profile        string   `json:"profile"`
-	Transport      string   `json:"transport"`
-	SchemaRevision uint32   `json:"schema_revision"`
-	SchemaSHA256   string   `json:"schema_sha256"`
-	Capabilities   []string `json:"capabilities"`
+	Family                string   `json:"family"`
+	NativeProtocolVersion string   `json:"native_protocol_version"`
+	Transport             string   `json:"transport"`
+	SchemaRevision        uint32   `json:"schema_revision"`
+	SchemaSHA256          string   `json:"schema_sha256"`
+	Capabilities          []string `json:"capabilities"`
 }
 
 type GameplayOffer struct {
@@ -58,17 +58,17 @@ type LoginRequest struct {
 }
 
 type GameplayPolicyCandidate struct {
-	Family               string   `json:"family"`
-	Profile              string   `json:"profile"`
-	Transport            string   `json:"transport"`
-	SchemaRevision       uint32   `json:"schema_revision"`
-	SchemaSHA256         string   `json:"schema_sha256"`
-	RequiredCapabilities []string `json:"required_capabilities"`
-	OptionalCapabilities []string `json:"optional_capabilities"`
-	EndpointID           string   `json:"endpoint_id"`
-	Host                 string   `json:"host"`
-	Port                 int      `json:"port"`
-	TLSServerName        string   `json:"tls_server_name"`
+	Family                string   `json:"family"`
+	NativeProtocolVersion string   `json:"native_protocol_version"`
+	Transport             string   `json:"transport"`
+	SchemaRevision        uint32   `json:"schema_revision"`
+	SchemaSHA256          string   `json:"schema_sha256"`
+	RequiredCapabilities  []string `json:"required_capabilities"`
+	OptionalCapabilities  []string `json:"optional_capabilities"`
+	EndpointID            string   `json:"endpoint_id"`
+	Host                  string   `json:"host"`
+	Port                  int      `json:"port"`
+	TLSServerName         string   `json:"tls_server_name"`
 }
 
 type GameplayPolicy struct {
@@ -86,7 +86,7 @@ type LoginContext struct {
 type GameplaySelection struct {
 	PolicyRevision         uint64   `json:"policy_revision"`
 	Family                 string   `json:"family"`
-	Profile                string   `json:"profile"`
+	NativeProtocolVersion  string   `json:"native_protocol_version"`
 	Transport              string   `json:"transport"`
 	SchemaRevision         uint32   `json:"schema_revision"`
 	SchemaSHA256           string   `json:"schema_sha256"`

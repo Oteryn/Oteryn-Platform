@@ -6,7 +6,7 @@ final class DatabaseWorldRegistry implements WorldRegistry
 {
     private const IDENTIFIER_PATTERN = '/\A[a-z0-9][a-z0-9._-]{0,63}\z/D';
 
-    private const NATIVE_SCHEMA_SHA256 = 'c7665223f09001e3294e9a03ab4784defed66b0ac04450e8679d4778421207f8';
+    private const NATIVE_SCHEMA_SHA256 = '9c67f19525400fb9890d2a3541ceb6d02eb955061540ad39ca1c1d891c06eba9';
 
     private const NATIVE_BASE_CAPABILITIES = [
         'actions.command-result.v1',
@@ -99,7 +99,7 @@ final class DatabaseWorldRegistry implements WorldRegistry
             || $candidate->sort_order < 0
             || $candidate->schema_revision < 1
             || ! $this->isIdentifier($candidate->family)
-            || ! $this->isIdentifier($candidate->profile)
+            || $candidate->native_protocol_version !== 1
             || ! $this->isIdentifier($candidate->transport)
             || ! $this->isIdentifier($candidate->endpoint_id)
             || preg_match('/\A[0-9a-f]{64}\z/D', $candidate->schema_sha256) !== 1
@@ -116,9 +116,9 @@ final class DatabaseWorldRegistry implements WorldRegistry
         }
 
         if ($candidate->family === 'oteryn'
-            && $candidate->profile === 'oteryn.native.v1'
+            && $candidate->native_protocol_version === 1
             && ($candidate->transport !== 'tcp.tls13.protobuf.be32.v1'
-                || $candidate->schema_revision !== 1
+                || $candidate->schema_revision !== 2
                 || $candidate->schema_sha256 !== self::NATIVE_SCHEMA_SHA256
                 || array_diff(self::NATIVE_BASE_CAPABILITIES, $required) !== [])
         ) {
@@ -127,7 +127,7 @@ final class DatabaseWorldRegistry implements WorldRegistry
 
         return new GameWorldProtocolCandidateRoute(
             family: $candidate->family,
-            profile: $candidate->profile,
+            nativeProtocolVersion: $candidate->native_protocol_version,
             transport: $candidate->transport,
             schemaRevision: $candidate->schema_revision,
             schemaSha256: $candidate->schema_sha256,

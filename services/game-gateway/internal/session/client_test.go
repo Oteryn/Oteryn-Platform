@@ -76,7 +76,7 @@ func TestReadyForAndCreateV2UseExactBoundContract(t *testing.T) {
 				"endpoint_id":              payload.EndpointID,
 				"audience":                 payload.Audience,
 				"family":                   payload.Family,
-				"profile":                  payload.Profile,
+				"nativeProtocolVersion":    payload.NativeProtocolVersion,
 				"transport":                payload.Transport,
 				"schema_revision":          payload.SchemaRevision,
 				"schema_sha256":            payload.SchemaSHA256,
@@ -122,7 +122,7 @@ func TestReadyForFailsClosedOnContradictoryIdentity(t *testing.T) {
 			"endpoint_id":              "different-endpoint",
 			"audience":                 request.Audience,
 			"family":                   request.GameplaySelection.Family,
-			"profile":                  request.GameplaySelection.Profile,
+			"nativeProtocolVersion":    request.GameplaySelection.NativeProtocolVersion,
 			"transport":                request.GameplaySelection.Transport,
 			"schema_revision":          request.GameplaySelection.SchemaRevision,
 			"schema_sha256":            request.GameplaySelection.SchemaSHA256,
@@ -201,9 +201,9 @@ func validV2Request() gateway.SessionRequest {
 		GameplaySelection: &gateway.GameplaySelection{
 			PolicyRevision:         42,
 			Family:                 "oteryn",
-			Profile:                "oteryn.native.v1",
+			NativeProtocolVersion:  1,
 			Transport:              "tcp.tls13.protobuf.be32.v1",
-			SchemaRevision:         1,
+			SchemaRevision:         2,
 			SchemaSHA256:           strings.Repeat("b", 64),
 			Capabilities:           capabilities,
 			CapabilityDigestSHA256: strings.Repeat("c", 64),
@@ -240,7 +240,7 @@ func assertV2Payload(t *testing.T, payload v2RequestPayload, request gateway.Ses
 		payload.CharacterBindingMode != request.CharacterBindingMode ||
 		!payload.SingleAdmission ||
 		payload.Family != selection.Family ||
-		payload.Profile != selection.Profile ||
+		payload.NativeProtocolVersion != selection.NativeProtocolVersion ||
 		payload.Transport != selection.Transport ||
 		payload.SchemaRevision != selection.SchemaRevision ||
 		payload.SchemaSHA256 != selection.SchemaSHA256 ||

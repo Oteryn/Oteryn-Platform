@@ -56,7 +56,7 @@ final class GameLoginContextController
                 'candidates' => array_map(
                     static fn (GameWorldProtocolCandidateRoute $candidate): array => [
                         'family' => $candidate->family,
-                        'profile' => $candidate->profile,
+                        'native_protocol_version' => $candidate->native_protocol_version,
                         'transport' => $candidate->transport,
                         'schema_revision' => $candidate->schemaRevision,
                         'schema_sha256' => $candidate->schemaSha256,

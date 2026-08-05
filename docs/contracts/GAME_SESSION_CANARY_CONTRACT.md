@@ -135,7 +135,7 @@ The Canary issuer:
 - stores only the SHA-256 representation used by the existing session manager;
 - uses the existing 60-second `LoginSessionManager` TTL;
 - consumes a matching Game Session atomically once;
-- burns the credential on wrong character/profile consumption attempts according to existing manager semantics;
+- burns the credential on wrong character/native protocol version consumption attempts according to existing manager semantics;
 - rejects duplicate successful issuance for the same `login_attempt_id` within the bounded TTL;
 - releases the `login_attempt_id` reservation when issuance itself fails;
 - invalidates all unconsumed process-local credentials on process restart.
