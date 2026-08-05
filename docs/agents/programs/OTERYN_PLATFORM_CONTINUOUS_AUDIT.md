@@ -20,14 +20,14 @@ Continuously audit every delivered or declared Platform module and surface for t
 
 ```yaml
 programme_state_version: 2
-updated_at: 2026-08-05T15:36:00Z
+updated_at: 2026-08-05T15:38:00Z
 status: validating
 current_cycle: 1
 current_domain: agent-governance-live-task-liveness
 active_task: docs/agents/tasks/active/OTERYN-20260805-agent-governance-task-liveness-audit.md
 branch: audit/20260805-agent-governance-task-liveness
-pull_request: pending
-exact_head: pending-branch-head
+pull_request: 559
+head_before_programme_checkpoint: 864e392d57d4b40ba5d8b27ab0fd416ef4caad62
 last_merged_audit_head: f67fb06f00add3de14defa940672d756528e0f4f
 last_completed_domain: stale-game-gateway-task-lifecycle
 coverage_inventory:
@@ -64,6 +64,7 @@ proven:
   - Agent Governance and Control Room validate local checkpoint structure/status/age but do not reconcile live PR, branch, archive or ownership state.
   - Game Gateway MVP, Announcements/Events and Download Center are representative schema-valid false-active tasks with merged PRs, missing archives and retained branches.
   - OPA-GOV-0003 is proven and deduplicated in Issue #558.
+  - Draft PR #559 contains only the bounded audit task, evidence, report and programme-state paths.
 derived:
   - Payment provider activation remains blocked until Issue #547 is remediated and independently verified.
   - The documented PR and exact-head validation process remains advisory until Issue #552 is resolved.
@@ -76,7 +77,7 @@ conflicts:
   - Repository governance requires exact-head CI, audit, E2E and PR closeout while GitHub applies no main-branch enforcement.
   - Repository coordination treats task and Git state as authoritative while Agent Governance proves only local text validity.
 blockers: []
-next_action: Validate and merge the Agent Governance liveness audit PR, archive its audit task, then create bounded cleanup owners for additional proven false-active tasks or select another independent high-risk domain.
+next_action: Verify all emitted workflows and final review hygiene on PR #559, squash-merge it, archive the audit task, then create bounded cleanup owners for additional proven false-active tasks or select another independent high-risk domain.
 ```
 
 ## Programme rules
