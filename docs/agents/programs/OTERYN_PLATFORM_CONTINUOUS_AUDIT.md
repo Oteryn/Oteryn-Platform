@@ -20,14 +20,14 @@ Continuously audit every delivered or declared Platform module and surface for t
 
 ```yaml
 programme_state_version: 2
-updated_at: 2026-08-05T15:08:00Z
+updated_at: 2026-08-05T15:11:00Z
 status: validating
 current_cycle: 1
 current_domain: main-integrity-policy
 active_task: docs/agents/tasks/active/OTERYN-20260805-main-integrity-policy-audit.md
 branch: audit/20260805-main-integrity-policy
-pull_request: pending
-exact_head: pending-branch-head
+pull_request: 553
+head_before_programme_checkpoint: 115e5c501a8b6f7abec339162a3626a79522de3f
 last_merged_audit_head: 824f7ad10188f01dccaf0c0b7d8d19f724020a1d
 last_completed_domain: payment-event-integrity
 coverage_inventory:
@@ -58,6 +58,7 @@ proven:
   - Live ownership excludes native protocol PR #542, public-domain PR #541 and architecture-authority PR #550 from this package.
   - main@a7eb03d49e328e8115adb54e772c9c8366b737d3 reports no branch protection and the repository ruleset inventory is empty.
   - OPA-GOV-0001 is proven and deduplicated in Issue #552.
+  - Draft PR #553 contains only the bounded audit task, evidence, report and programme-state paths.
 derived:
   - Payment provider activation remains blocked until Issue #547 is remediated and independently verified.
   - The documented PR and exact-head validation process is advisory rather than enforced until Issue #552 is resolved.
@@ -67,7 +68,7 @@ conflicts:
   - ADR 0021 protects payment amount/currency integrity while the verified-event contract cannot carry or validate those facts.
   - Repository governance requires exact-head CI, audit, E2E and PR closeout while GitHub applies no main-branch enforcement.
 blockers: []
-next_action: Validate and merge the main-integrity policy audit PR, archive its task, then refresh ownership and select the next independent domain.
+next_action: Verify all emitted workflows and final review hygiene on PR #553, squash-merge it, archive the task, then refresh ownership and select the next independent domain.
 ```
 
 ## Programme rules
