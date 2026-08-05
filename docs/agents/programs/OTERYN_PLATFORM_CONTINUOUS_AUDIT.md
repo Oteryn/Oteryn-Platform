@@ -20,20 +20,22 @@ Continuously audit every delivered or declared Platform module and surface for t
 
 ```yaml
 programme_state_version: 2
-updated_at: 2026-08-05T15:02:00Z
-status: ready
+updated_at: 2026-08-05T15:08:00Z
+status: validating
 current_cycle: 1
-current_domain: none
-active_task: none
-branch: none
-pull_request: none
+current_domain: main-integrity-policy
+active_task: docs/agents/tasks/active/OTERYN-20260805-main-integrity-policy-audit.md
+branch: audit/20260805-main-integrity-policy
+pull_request: pending
+exact_head: pending-branch-head
 last_merged_audit_head: 824f7ad10188f01dccaf0c0b7d8d19f724020a1d
 last_completed_domain: payment-event-integrity
 coverage_inventory:
   baseline: docs/agents/evidence/OTERYN-20260803-portal-exhaustive-current-main-audit/
   baseline_merge: cbbd7613cee13cf01931a0ba0f7ac089122132e0
-  latest_audited_main: 3ab77c072dce796b09004c54b649db009a75d524
-  audited_delta_commits: 37
+  latest_audited_main: a7eb03d49e328e8115adb54e772c9c8366b737d3
+  audited_delta_commits: 39
+  selected_delta_domain: main-integrity-policy
 finding_ledger:
   baseline_owners:
     - 486
@@ -44,24 +46,28 @@ finding_ledger:
     - 491
   current_cycle_findings:
     - OPA-SEC-0001: 547
-open_material_findings: at_least_one_current_cycle_finding_plus_existing_owner_packages
+    - OPA-GOV-0001: 552
+open_material_findings: existing_owner_packages_plus_two_current_cycle_findings
 ready_remediation_issues:
   - 547
-blocked_findings: none_in_current_package
+blocked_findings:
+  - 552
 proven:
   - PR #483 and its merged evidence are the authoritative existing module and observable-surface inventory.
-  - The audited post-baseline delta contained 37 commits and payment-event integrity was selected without overlapping active work.
-  - OPA-SEC-0001 is proven and deduplicated in Issue #547.
-  - Audit PR #549 passed all six emitted exact-head workflows and merged as 824f7ad10188f01dccaf0c0b7d8d19f724020a1d.
-  - The payment-event integrity audit task is archived and all audit ownership is released by the lifecycle closeout PR.
+  - OPA-SEC-0001 is proven and deduplicated in Issue #547; its audit task is archived.
+  - Live ownership excludes native protocol PR #542, public-domain PR #541 and architecture-authority PR #550 from this package.
+  - main@a7eb03d49e328e8115adb54e772c9c8366b737d3 reports no branch protection and the repository ruleset inventory is empty.
+  - OPA-GOV-0001 is proven and deduplicated in Issue #552.
 derived:
-  - Payment provider sandbox or production activation must remain blocked until Issue #547 is remediated and independently verified.
+  - Payment provider activation remains blocked until Issue #547 is remediated and independently verified.
+  - The documented PR and exact-head validation process is advisory rather than enforced until Issue #552 is resolved.
 unknown:
-  - The next audit domain must be selected after refreshing live tasks, PRs and path ownership.
+  - The owner-approved main ruleset, emergency bypass and stable required-check list.
 conflicts:
-  - ADR 0021 declares payment-order amount/currency integrity protected, while the current verified-event contract cannot carry or validate those settlement facts.
+  - ADR 0021 protects payment amount/currency integrity while the verified-event contract cannot carry or validate those facts.
+  - Repository governance requires exact-head CI, audit, E2E and PR closeout while GitHub applies no main-branch enforcement.
 blockers: []
-next_action: Refresh live ownership and select the highest-risk non-overlapping post-baseline delta domain; do not audit native protocol while PR #542, public edge while PR #541, or architecture authority while PR #550 is active.
+next_action: Validate and merge the main-integrity policy audit PR, archive its task, then refresh ownership and select the next independent domain.
 ```
 
 ## Programme rules
