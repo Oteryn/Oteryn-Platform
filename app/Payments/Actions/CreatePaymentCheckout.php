@@ -2,13 +2,13 @@
 
 namespace App\Payments\Actions;
 
-use App\Payments\Contracts\PaymentProviderGateway;
 use App\Payments\Exceptions\PaymentException;
 use App\Payments\Models\PaymentAttempt;
 use App\Payments\Models\PaymentOrder;
 use App\Payments\Models\PaymentOrderTransition;
 use App\Payments\Models\PaymentReconciliationEntry;
 use App\Payments\PaymentAvailability;
+use App\Payments\PaymentProviderResolver;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Throwable;
@@ -16,7 +16,7 @@ use Throwable;
 final class CreatePaymentCheckout
 {
     public function __construct(
-        private readonly PaymentProviderGateway $provider,
+        private readonly PaymentProviderResolver $providers,
         private readonly PaymentAvailability $availability,
     ) {}
 
@@ -77,7 +77,7 @@ final class CreatePaymentCheckout
         }
 
         try {
-            $session = $this->provider->createCheckout($order, $idempotencyKey);
+            $session = $this->providers->gateway()->createCheckout($order, $idempotencyKey);
         } catch (Throwable) {
             DB::transaction(function () use ($attempt, $order): void {
                 $lockedAttempt = PaymentAttempt::query()
