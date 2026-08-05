@@ -18,7 +18,7 @@ Continuously challenge Platform architecture, repository structure and CI/CD; id
 
 ```yaml
 programme_state_version: 2
-updated_at: 2026-08-05T17:19:00+02:00
+updated_at: 2026-08-05T17:23:00+02:00
 status: waiting
 current_review_domain: canonical-architecture-authority
 active_task: OTERYN-20260805-architecture-authority
@@ -68,7 +68,14 @@ architecture_conflicts:
   - ADR directory contains historical duplicate prefixes 0008, 0010, 0011, 0015, 0016, 0017, 0018 and 0021.
   - Initial claim that REPOSITORY_MAP referenced a missing overview path was disproved by branch/main revalidation and corrected in the final report.
 ci_architecture_findings:
-  - Agent Governance requires checkpoint validation result values from the machine contract; PASS_WITH_GOVERNANCE_REMEDIATION was invalid and must not recur 453 remains the separate authoritative audit evidence for module-catalogue drift.
+  - Agent Governance requires checkpoint validation result values from the machine contract; PASS_WITH_GOVERNANCE_REMEDIATION was invalid and must not recur.
+accepted_handoffs_ready_for_remediation:
+  - Add a fail-closed ADR registry validator without renumbering existing accepted paths.
+  - Reconcile module and system current-state documentation from PR 453 and later exact merged evidence.
+proven:
+  - Option B is accepted and durable in ADR 0022.
+  - PR 550 implements only the bounded authority and routing documentation slice.
+  - PR 453 remains the separate authoritative audit evidence for module-catalogue drift.
   - PR 542 and PR 541 scopes remain excluded.
 derived:
   - A machine validator is required to prevent additional ADR collisions and inventory drift.
