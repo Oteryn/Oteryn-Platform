@@ -18,13 +18,13 @@ Continuously challenge Platform architecture, repository structure and CI/CD; id
 
 ```yaml
 programme_state_version: 2
-updated_at: 2026-08-05T20:46:00Z
+updated_at: 2026-08-05T20:44:00Z
 status: waiting
 current_review_domain: architecture-decision-backlog-authority
 active_task: OTERYN-20260805-architecture-decision-backlog
 issue: 602
 branch: task/OTERYN-20260805-architecture-decision-backlog
-pull_request: none
+pull_request: 604
 exact_base: aa3ddcd0513708276920cb2734f7be845c3f177a
 last_completed_domain: current-system-module-reconciliation
 last_completed_issue: 593
@@ -67,6 +67,7 @@ decision_backlog:
     type: missing_decision
     state: waiting_owner_decision
     issue: 602
+    pull_request: 604
     proposed_adr: docs/architecture/adr/0023-machine-readable-architecture-decision-backlog.md
     summary: Select the authority, schema, lifecycle and validation boundary for one machine-readable architecture decision backlog.
 architecture_conflicts:
@@ -86,10 +87,12 @@ proven:
   - Repository, Issue and PR searches found no existing machine-readable architecture decision backlog owner.
   - Issue 602 records three alternatives and recommends a dedicated canonical JSON backlog subordinate to accepted ADR authority.
   - Proposed ADR 0023 defines the authority, lifecycle, validation, migration and rollback model without runtime authorization.
+  - Draft PR 604 contains only five bounded architecture, report, task and programme paths.
 derived:
   - A dedicated JSON backlog gives unresolved decisions stable, reproducible identities while allowing the programme to remain a compact execution projection.
 unknown:
   - repository-owner selection of Option A, B or C on Issue 602
+  - exact-head GitHub Actions conclusions for draft PR 604
 conflicts: []
 blockers:
   - repository-owner decision is required before ADR 0023 can be accepted or implementation can begin
