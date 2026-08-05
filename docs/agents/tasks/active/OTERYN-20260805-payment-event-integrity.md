@@ -26,8 +26,8 @@ Repair the verified payment-provider event contract so settlement-changing event
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-05T19:52:00Z
-head: 4f311efb2ff1ee21d3b03d2b9db398e3bc407efe
+updated_at: 2026-08-05T20:27:00Z
+head: 09fd84ea70a6729e3608fc96fd2d37a21bfbb56e
 branch: repair/issue-547
 pr: 595
 status: waiting
@@ -48,22 +48,23 @@ owned_paths:
   - docs/agents/programs/OTERYN_PLATFORM_REMEDIATION.md
 proven:
   - Issue 547 is implementation-authorized and remains exclusively claimed by branch repair/issue-547 and pull request 595.
-  - The verified provider-event contract carries authenticated currency and minor-unit amount facts.
+  - The verified provider-event contract carries authenticated currency and positive minor-unit amount facts.
   - Settlement and provider-object mismatches are reconciled before any payment-order transition.
   - Provider-object matching resolves the exact same-order and same-provider attempt before inspecting conflicting references.
   - Production payments and public webhook activation remain disabled and no forbidden product paths changed.
-  - Agent Governance passed on implementation head 4f311efb2ff1ee21d3b03d2b9db398e3bc407efe.
+  - Merge commit 09fd84ea70a6729e3608fc96fd2d37a21bfbb56e incorporates current main 3efcae79ed55a159f46bb9ffa3904dc81a2a3b1d without path overlap.
+  - Required exact-head CI classify-changes and test passed on 09fd84ea70a6729e3608fc96fd2d37a21bfbb56e.
+  - Independent AUDIT ONLY Issue 597 is open and agent:ready for a separate validator.
 derived:
-  - The bounded implementation satisfies the code-level acceptance shape pending final exact-head automated and independent security validation.
+  - The bounded implementation satisfies the code-level acceptance shape pending only fresh independent security validation.
 unknown:
-  - Exact-head required CI conclusion for the final waiting checkpoint.
-  - Independent security-review disposition for the high-risk financial-integrity change.
+  - Independent security-review disposition for pull request 595 from Issue 597.
 conflicts: []
 first_failure:
   marker: agent-governance-checkpoint-validation
-  evidence: Workflow run 31040823616 rejected unsupported custom keys inside the initial active-task checkpoint block; corrected run 31041191905 passed.
+  evidence: Workflow run 31040823616 rejected unsupported custom keys inside the initial active-task checkpoint block; corrected and subsequent governance runs passed.
 rejected_hypotheses:
-  - The product implementation caused the first workflow failure; the failed step was active-task checkpoint validation before product tests ran.
+  - The product implementation caused the initial workflow failure; the failed step was active-task checkpoint validation before product tests ran.
 changed_paths:
   - app/Payments/Data/VerifiedProviderEvent.php
   - app/Payments/Contracts/PaymentWebhookVerifier.php
@@ -76,17 +77,22 @@ changed_paths:
   - docs/agents/tasks/active/OTERYN-20260805-payment-event-integrity.md
   - docs/agents/programs/OTERYN_PLATFORM_REMEDIATION.md
 validation:
-  - command: GitHub Actions Agent Governance run 31041191905 on 4f311efb2ff1ee21d3b03d2b9db398e3bc407efe
+  - command: GitHub Actions Agent Governance run 31043840961 on 09fd84ea70a6729e3608fc96fd2d37a21bfbb56e
     result: PASS
     evidence: Governance contract tests and all active-task checkpoint validations completed successfully.
-  - command: Pull request 595 changed-path and scope inspection
+  - command: GitHub Actions CI run 31043841017 on 09fd84ea70a6729e3608fc96fd2d37a21bfbb56e
     result: PASS
-    evidence: The pull request changes only the declared payment, regression-test, architecture, operations and agent-governance paths; production activation surfaces remain untouched.
-  - command: Exact-head required CI and payment regression suite
+    evidence: classify-changes, Composer validation, dependency audit, formatting, static analysis and the full automated test suite passed.
+  - command: GitHub Actions Edge Security Emulation run 31043841044 on 09fd84ea70a6729e3608fc96fd2d37a21bfbb56e
+    result: PASS
+    evidence: The repository security-emulation workflow completed successfully.
+  - command: Real end-to-end applicability assessment
+    result: NOT_APPLICABLE
+    evidence: This is an internal backend-only provider-neutral payment event core with no public ingress or customer payment flow; production and webhook activation remain disabled, while feature and MariaDB integration tests exercise the persisted domain outcome.
+  - command: Fresh independent security audit
     result: NOT_RUN
-    evidence: GitHub Actions must validate the final waiting-checkpoint head created after this task update.
+    evidence: Issue 597 is open and agent:ready; the implementing session is forbidden from serving as the independent final validator.
 blockers:
-  - Independent security review is required before accepting or merging this high-risk payment-integrity repair.
-  - Final exact-head GitHub Actions checks must complete successfully.
-next_action: Keep the claim active while pull request 595 completes final exact-head CI and receives independent security approval, then merge and perform terminal lifecycle cleanup.
+  - A separate agent or person must complete Issue 597 and submit an approving review with zero open material findings on pull request 595.
+next_action: Have a separate agent or person claim Issue 597 and audit pull request 595; remediate any material findings, then merge and perform terminal lifecycle cleanup.
 ```

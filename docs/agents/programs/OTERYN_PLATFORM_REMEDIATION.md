@@ -20,7 +20,7 @@ Consume confirmed, implementation-authorized Platform findings and close them th
 
 ```yaml
 programme_state_version: 2
-updated_at: 2026-08-05T19:52:00Z
+updated_at: 2026-08-05T20:27:00Z
 status: waiting
 active_claims:
   - issue: 547
@@ -42,18 +42,19 @@ ready_issue_query: 'repo:blakinio/Oteryn-Platform is:issue is:open label:program
 proven:
   - Every remediation worker must obtain a valid Issue claim and repository task ownership before product mutation.
   - One Issue is assigned to one remediation worker at a time.
-  - Issue 547 is exclusively claimed by task OTERYN-20260805-payment-event-integrity on branch repair/issue-547 and pull request 595.
-  - The bounded payment-integrity implementation is present on the claimed branch and Agent Governance passed on implementation head 4f311efb2ff1ee21d3b03d2b9db398e3bc407efe.
+  - Issue 547 remains exclusively claimed by task OTERYN-20260805-payment-event-integrity on branch repair/issue-547 and pull request 595.
+  - The repair branch contains current main 3efcae79ed55a159f46bb9ffa3904dc81a2a3b1d through merge commit 09fd84ea70a6729e3608fc96fd2d37a21bfbb56e.
+  - Required exact-head CI classify-changes and test passed on 09fd84ea70a6729e3608fc96fd2d37a21bfbb56e.
+  - Independent AUDIT ONLY Issue 597 is open and labelled agent:ready for a separate validator.
   - This programme is immutably scoped to blakinio/Oteryn-Platform by docs/agents/OTERYN_PLATFORM_PROGRAM_SCOPE.md.
 derived:
   - Parallel dispatch remains safe only for Issues classified parallel_safe with different coordination keys and non-overlapping paths.
 unknown:
-  - Exact-head required CI conclusion for the final waiting checkpoint.
-  - Independent security-review disposition for pull request 595.
+  - Independent security-review disposition for pull request 595 from Issue 597.
 conflicts: []
 blockers:
-  - Independent security approval is required before merging this high-risk financial-integrity repair.
-next_action: Keep Issue 547 exclusively claimed while pull request 595 completes exact-head CI and receives independent security approval, then merge and perform terminal lifecycle cleanup.
+  - The implementing session cannot accept its own material payment risk or act as the independent final validator; Issue 597 must be completed by a separate agent or person.
+next_action: Have a separate agent or person claim Issue 597 and audit pull request 595; remediate any material findings, then merge and perform terminal lifecycle cleanup.
 ```
 
 ## Parallel dispatch checkpoint
