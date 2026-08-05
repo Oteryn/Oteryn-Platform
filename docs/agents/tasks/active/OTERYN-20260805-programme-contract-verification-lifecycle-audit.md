@@ -105,11 +105,11 @@ delivery_matrix:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-05T17:08:00Z
-head: 7319723520f3ee61e7dccc421742817253fdcfb9
+updated_at: 2026-08-05T17:15:00Z
+head: 9f8e4fb547c9c39735b118795ca2df3ca3883d41
 branch: audit/20260805-programme-contract-verification-lifecycle
-pr: none
-status: implementing
+pr: 589
+status: validating
 context_routes:
   - agent-governance
   - public-game-data
@@ -132,12 +132,13 @@ proven:
   - PR #409 merged the GET-only audit as cff0ee1b8ecfd1d795e2636d488be6d1d1d0b4ea and PR #415 merged blocked evidence as 2edd5e729a7201310444ced472e8fcc8e869eef4.
   - The Cloudflare evidence branch remains and the active task still claims workflow, script, tests, guide and evidence paths.
   - Protected run 30702827936 proved mutation none, no secret emission and HTTP 403 for all nine requested read surfaces.
+  - Draft PR #589 contains the task, evidence index, report and programme state only.
 derived:
   - Completed setup and proposal tasks must release ownership without closing their active programme or downstream consumer.
   - Completed Cloudflare implementation ownership must be released without erasing the real permission blocker or converting UNKNOWN edge state into a claim.
   - Issues #582, #583 and #584 are independent remediation owners because their historical task/archive identities do not overlap.
 unknown:
-  - Exact final audit PR and exact-head workflow results until the branch is finalized.
+  - Exact final workflow conclusions for PR #589.
 conflicts:
   - Three active task records contradict terminal PR state or mix completed implementation ownership with later programme, consumer or privileged-verification work.
 first_failure:
@@ -161,9 +162,9 @@ validation:
     evidence: documentation-only audit with no runtime, workflow, environment or historical-task mutation
   - command: exact-head GitHub Actions
     result: NOT_RUN
-    evidence: audit PR not opened yet
+    evidence: final metadata commit requires exact-head workflow generation
 blockers: []
-next_action: Create the evidence index, audit report and programme checkpoint, then open the draft audit PR.
+next_action: Verify PR #589 changed paths, full audit diff, comments and review threads, then persist the terminal-CI recovery checkpoint and inspect the exact-head check generation.
 ```
 
 ## Recovery checkpoint
@@ -174,21 +175,21 @@ recovery:
   generation: 1
   session_id: audit-20260805T170500Z-programme-contract-verification-lifecycle
   session_started_at: 2026-08-05T17:05:00Z
-  checkpointed_at: 2026-08-05T17:08:00Z
-  last_progress_at: 2026-08-05T17:08:00Z
-  phase: persist-audit-package
-  exact_head: 7319723520f3ee61e7dccc421742817253fdcfb9
-  pull_request: none
+  checkpointed_at: 2026-08-05T17:15:00Z
+  last_progress_at: 2026-08-05T17:15:00Z
+  phase: final-metadata-and-pr-audit
+  exact_head: 9f8e4fb547c9c39735b118795ca2df3ca3883d41
+  pull_request: 589
   active_operation: none
   external_run_ids: []
   operation_started_at: null
   wait_deadline_at: null
-  check_generation: null
+  check_generation: draft
   checks_used: 0
   status: active
   safe_to_resume: true
-  resume_condition: branch exists and no overlapping audit owner is present
-  next_action: Create the evidence index, audit report and programme checkpoint, then open the draft audit PR.
+  resume_condition: PR #589 remains open on the expected branch with no overlapping owner
+  next_action: Verify PR #589 changed paths, full audit diff, comments and review threads, then persist the terminal-CI recovery checkpoint and inspect the exact-head check generation.
 ```
 
 ## Notes
