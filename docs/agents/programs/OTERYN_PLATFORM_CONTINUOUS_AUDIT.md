@@ -20,14 +20,14 @@ Continuously audit every delivered or declared Platform module and surface for t
 
 ```yaml
 programme_state_version: 2
-updated_at: 2026-08-05T16:10:00Z
+updated_at: 2026-08-05T16:09:00Z
 status: validating
 current_cycle: 1
 current_domain: implementation-ownership-lifecycle
 active_task: docs/agents/tasks/active/OTERYN-20260805-implementation-ownership-lifecycle-audit.md
 branch: audit/20260805-implementation-ownership-lifecycle
-pull_request: pending
-exact_head: pending-branch-head
+pull_request: 572
+head_before_programme_checkpoint: 4dd26f26b93eebd2f21c02fcef3f6ca389ccd13a
 last_merged_audit_head: 4f96f1d01fdd216174e2444923dc4e6a5b8d245d
 last_completed_domain: public-module-stale-task-lifecycle
 coverage_inventory:
@@ -79,6 +79,7 @@ proven:
   - OPA-GOV-0006 through OPA-GOV-0010 are proven and deduplicated in Issues #565, #566, #567, #570 and #571.
   - Native-auth cutover and Synology staging tasks retain completed implementation ownership while valid later verification or activation blockers must be preserved separately.
   - Liquid20 has duplicate active/archive identity; runner-boundary and validation-cost policy tasks remain active despite completed acceptance and merged PRs.
+  - Draft PR #572 contains only the bounded audit task, evidence, report and programme-state paths.
 derived:
   - Payment provider activation remains blocked until Issue #547 is remediated and independently verified.
   - The documented PR and exact-head validation process remains advisory until Issue #552 is resolved.
@@ -93,7 +94,7 @@ conflicts:
   - Repository coordination treats task and Git state as authoritative while Agent Governance proves only local text validity.
   - Five current records claim completed implementation ownership or duplicate archive identity despite terminal PR, explicit supersession or canonical archive state.
 blockers: []
-next_action: Validate and merge the implementation-ownership lifecycle audit PR, archive its audit task, then continue the remaining active-task inventory against live PR, branch, archive and blocker state.
+next_action: Verify all emitted workflows and final review hygiene on PR #572, squash-merge it, archive the audit task, then continue the remaining active-task inventory against live PR, branch, archive and blocker state.
 ```
 
 ## Programme rules
