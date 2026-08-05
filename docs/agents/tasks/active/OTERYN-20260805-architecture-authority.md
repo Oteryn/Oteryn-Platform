@@ -2,13 +2,14 @@
 task_id: OTERYN-20260805-architecture-authority
 programme_id: OTERYN_PLATFORM_ARCHITECTURE_REVIEW
 issue: 548
-status: active
+pull_request: 550
+status: blocked
 agent: ChatGPT
 branch: task/OTERYN-20260805-architecture-authority
 base_branch: main
 exact_base: 3ab77c072dce796b09004c54b649db009a75d524
 created: 2026-08-05T16:48:00+02:00
-updated: 2026-08-05T16:48:00+02:00
+updated: 2026-08-05T16:54:00+02:00
 risk: medium
 execution_mode: github-only
 task_kind: architecture-review
@@ -47,22 +48,34 @@ Determine how current architecture truth, accepted decisions, implementation evi
 - [x] classify proven contradictions and unknowns;
 - [x] compare at least three authority-model alternatives;
 - [x] create a deduplicated decision Issue;
-- [ ] persist the complete review report and implementation handoffs;
-- [ ] update programme state with the durable next action;
-- [ ] open one documentation-only PR;
-- [ ] pass exact-head documentation/governance CI or persist the precise pending blocker;
+- [x] persist the complete review report and implementation handoffs;
+- [x] update programme state with the durable next action;
+- [x] open one documentation-only PR;
+- [ ] record the owner architecture decision;
+- [ ] implement the accepted documentation slice without runtime changes;
+- [ ] pass exact-head documentation/governance CI;
 - [ ] close or archive the task and release ownership after terminal PR state.
+
+## Decision gate
+
+Issue #548 compares:
+
+- **A:** one exhaustive living `SYSTEM_ARCHITECTURE.md`;
+- **B:** an authority index plus focused canonical documents — recommended;
+- **C:** retain informal precedence.
+
+Option B is recommended with high confidence because it preserves focused ownership, prevents duplicated truth and supports deterministic validation. It is not accepted until the owner or authoritative repository state records the decision.
 
 ## Checkpoint
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-05T16:48:00+02:00
-status: implementing
-phase: decision-package
+updated_at: 2026-08-05T16:54:00+02:00
+status: blocked
+phase: owner-decision
 exact_base: 3ab77c072dce796b09004c54b649db009a75d524
 branch: task/OTERYN-20260805-architecture-authority
-pull_request: none
+pull_request: 550
 issue: 548
 owned_paths:
   - docs/agents/tasks/active/OTERYN-20260805-architecture-authority.md
@@ -73,14 +86,17 @@ proven:
   - REPOSITORY_MAP.md references a missing docs/architecture/overview.md path.
   - The ADR directory contains duplicate 0008 numbering while README.md is non-exhaustive.
   - PR 453 already records module-catalogue drift and missing first-class boundaries.
+  - Issue 548 and draft PR 550 contain the bounded decision package.
 derived:
   - Implicit document precedence can cause an agent to select obsolete constraints or duplicate decisions.
+  - Option B is the lowest-risk durable authority model among the compared alternatives.
 unknown:
-  - Whether the owner accepts an authority-index model as the durable canonical solution.
+  - Which authority model the owner accepts.
 conflicts:
   - Initial target/non-goal text conflicts with current roadmap, module catalogue, contracts and merged implementation evidence.
-blockers: []
-next_action: Persist the decision matrix and handoff report, update programme state, then open a documentation-only PR.
+blockers:
+  - Owner must accept Option B or select Option A/C with rationale.
+next_action: Record the architecture authority decision in Issue 548; when B is accepted, allocate a collision-free ADR identifier through a deterministic full ADR inventory and implement documentation Slice 1.
 ```
 
 ## E2E
