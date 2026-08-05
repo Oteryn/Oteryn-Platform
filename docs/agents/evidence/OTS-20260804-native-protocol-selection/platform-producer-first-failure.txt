@@ -1,0 +1,73 @@
+
+  [30;43;1m WARN [39;49;22m[39m Tests\Feature\GameAuth\GameLoginContextApiTest[39m
+  [33;1m![39;22m[90m [39m[90mlogin context returns only exact account active characters for one[39m[90m… [39m [90m0.25s[39m  
+  [33;1m![39;22m[90m [39m[90mlogin context returns only enabled canonical candidates in authorit[39m[90m…[39m [90m0.02s[39m  
+  [33;1m![39;22m[90m [39m[90mzero worlds fail closed without character data[39m[90m [39m[33m→ file_get_contents([39m[90m…[39m [90m0.02s[39m  
+  [33;1m![39;22m[90m [39m[90mmultiple worlds fail closed until character world mapping exists[39m[90m [39m[33m→[39m[90m… [39m [90m0.02s[39m  
+  [33;1m![39;22m[90m [39m[90mdisabled or non online world is not login eligible[39m[90m [39m[33m→ file_get_conte[39m[90m…[39m [90m0.01s[39m  
+  [33;1m![39;22m[90m [39m[90mlogin context requires gateway service authentication[39m[90m [39m[33m→ file_get_co[39m[90m…[39m [90m0.01s[39m  
+
+  [39;41;1m FAIL [39;49;22m[39m Tests\Feature\GameAuth\WorldRegistryTest[39m
+  [33;1m![39;22m[90m [39m[90mregistry is empty by default and does not invent a production route[39m[90m…[39m [90m0.02s[39m  
+  [33;1m![39;22m[90m [39m[90mregistry returns only login enabled online routable worlds[39m[90m [39m[33m→ file_g[39m[90m…[39m [90m0.01s[39m  
+  [31;1m⨯[39;22m[90m [39m[90mprotocol candidates are disabled by default and ordered by authorit[39m[90m…[39m [90m0.01s[39m  
+  [31;1m⨯[39;22m[90m [39m[90menabled noncanonical candidate invalidates policy without breaking[39m[90m… [39m [90m0.01s[39m  
+  [31;1m⨯[39;22m[90m [39m[90mwrong native schema hash invalidates policy[39m[90m                         [39m [90m0.01s[39m  
+  [33;1m![39;22m[90m [39m[90mregistry fails closed for invalid account identifier[39m[90m [39m[33m→ file_get_con[39m[90m…[39m [90m0.01s[39m  
+  [31m────────────────────────────────────────────────────────────────────────────[39m  
+  [41;1m FAILED [49;22m [1mTests\Feature\GameAuth\WorldRegistryTest[22m [90m>[39m protoc… [41;1m ErrorException [49;22m  
+[39;1m  Undefined variable $nativeProtocolVersion[39;22m
+
+  at [32mtests/Feature/GameAuth/WorldRegistryTest.php[39m:[32m164[39m
+    160▕             'profile' => $profile,
+    161▕             'native_protocol_version' => null,
+    162▕             'transport' => $family === 'oteryn' ? 'tcp.tls13.protobuf.be32.v1' : 'canary.sequence.v1',
+    163▕             'schema_revision' => 2,
+  ➜ 164▕             'schema_sha256' => $family === 'oteryn' && $nativeProtocolVersion === 1
+    165▕                 ? self::NATIVE_SCHEMA_SHA256
+    166▕                 : str_repeat('a', 64),
+    167▕             'required_capabilities' => $requiredCapabilities ?? self::NATIVE_CAPABILITIES,
+    168▕             'optional_capabilities' => [],
+
+  [33m1   [39m[39;1mtests/Feature/GameAuth/WorldRegistryTest.php[39;22m:[39;1m70[39;22m
+
+  [31m────────────────────────────────────────────────────────────────────────────[39m  
+  [41;1m FAILED [49;22m [1mTests\Feature\GameAuth\WorldRegistryTest[22m [90m>[39m enable… [41;1m ErrorException [49;22m  
+[39;1m  Undefined variable $nativeProtocolVersion[39;22m
+
+  at [32mtests/Feature/GameAuth/WorldRegistryTest.php[39m:[32m164[39m
+    160▕             'profile' => $profile,
+    161▕             'native_protocol_version' => null,
+    162▕             'transport' => $family === 'oteryn' ? 'tcp.tls13.protobuf.be32.v1' : 'canary.sequence.v1',
+    163▕             'schema_revision' => 2,
+  ➜ 164▕             'schema_sha256' => $family === 'oteryn' && $nativeProtocolVersion === 1
+    165▕                 ? self::NATIVE_SCHEMA_SHA256
+    166▕                 : str_repeat('a', 64),
+    167▕             'required_capabilities' => $requiredCapabilities ?? self::NATIVE_CAPABILITIES,
+    168▕             'optional_capabilities' => [],
+
+  [33m1   [39m[39;1mtests/Feature/GameAuth/WorldRegistryTest.php[39;22m:[39;1m88[39;22m
+
+  [31m────────────────────────────────────────────────────────────────────────────[39m  
+  [41;1m FAILED [49;22m [1mTests\Feature\GameAuth\WorldRegistryTest[22m [90m>[39m wrong…  [41;1m ErrorException [49;22m  
+[39;1m  Undefined variable $nativeProtocolVersion[39;22m
+
+  at [32mtests/Feature/GameAuth/WorldRegistryTest.php[39m:[32m164[39m
+    160▕             'profile' => $profile,
+    161▕             'native_protocol_version' => null,
+    162▕             'transport' => $family === 'oteryn' ? 'tcp.tls13.protobuf.be32.v1' : 'canary.sequence.v1',
+    163▕             'schema_revision' => 2,
+  ➜ 164▕             'schema_sha256' => $family === 'oteryn' && $nativeProtocolVersion === 1
+    165▕                 ? self::NATIVE_SCHEMA_SHA256
+    166▕                 : str_repeat('a', 64),
+    167▕             'required_capabilities' => $requiredCapabilities ?? self::NATIVE_CAPABILITIES,
+    168▕             'optional_capabilities' => [],
+
+  [33m1   [39m[39;1mtests/Feature/GameAuth/WorldRegistryTest.php[39;22m:[39;1m104[39;22m
+
+
+  [90mTests:[39m    [31;1m3 failed[39;22m[90m,[39m[39m [39m[33;1m9 warnings[39;22m[90m (47 assertions)[39m
+  [90mDuration:[39m [39m0.50s[39m
+
+
+EXIT_STATUS=2
