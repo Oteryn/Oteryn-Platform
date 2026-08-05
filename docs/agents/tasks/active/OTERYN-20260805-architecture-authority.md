@@ -3,19 +3,26 @@ task_id: OTERYN-20260805-architecture-authority
 programme_id: OTERYN_PLATFORM_ARCHITECTURE_REVIEW
 issue: 548
 pull_request: 550
-status: blocked
+status: waiting
 agent: ChatGPT
 branch: task/OTERYN-20260805-architecture-authority
 base_branch: main
 exact_base: 3ab77c072dce796b09004c54b649db009a75d524
+latest_main_reconciled: a7eb03d49e328e8115adb54e772c9c8366b737d3
 created: 2026-08-05T16:48:00+02:00
-updated: 2026-08-05T16:59:00+02:00
+updated: 2026-08-05T17:21:00+02:00
 risk: medium
 execution_mode: github-only
 task_kind: architecture-review
 implementation_authorized: false
 production_activation_authorized: false
 owned_paths:
+  - docs/architecture/ARCHITECTURE_AUTHORITY.md
+  - docs/architecture/SYSTEM_ARCHITECTURE.md
+  - docs/architecture/adr/README.md
+  - docs/architecture/adr/0022-architecture-authority-index-and-focused-canonical-documents.md
+  - docs/agents/REPOSITORY_MAP.md
+  - docs/agents/CONTEXT_ROUTING.md
   - docs/agents/tasks/active/OTERYN-20260805-architecture-authority.md
   - docs/agents/reports/OTERYN-20260805-architecture-authority-review.md
   - docs/agents/programs/OTERYN_PLATFORM_ARCHITECTURE_REVIEW.md
@@ -30,93 +37,122 @@ excluded_overlap:
 
 ## Goal
 
-Determine how current architecture truth, accepted decisions, implementation evidence and historical planning documents must be ordered so stale text cannot direct incompatible work.
+Define and implement the accepted ordering of current architecture truth, accepted decisions, implementation evidence and historical planning documents so stale text cannot direct incompatible work.
 
 ## Entry evidence
 
-- exact trusted base: `main@3ab77c072dce796b09004c54b649db009a75d524`;
-- programme state was `ready` with `decision_backlog: not_reconciled`;
-- no existing open Issue matched this bounded decision;
+- original trusted base: `main@3ab77c072dce796b09004c54b649db009a75d524`;
+- latest main reconciled before implementation: `a7eb03d49e328e8115adb54e772c9c8366b737d3`;
 - Issue #548 owns the decision;
+- owner accepted Option B on 2026-08-05;
 - active PR #542 overlaps native-protocol contracts and is excluded;
+- PR #541 public-edge work is excluded;
 - merged PR #453 is reused as evidence for module-catalogue drift.
 
 ## Acceptance
 
 - [x] inspect live main, programme state, open PRs and overlapping ownership;
-- [x] compare current system architecture, roadmap, module catalogue, ADR index and repository map;
-- [x] classify proven contradictions and unknowns;
+- [x] compare current system architecture, roadmap, module catalogue, ADR registry and routing;
+- [x] classify proven contradictions, corrections and unknowns;
 - [x] compare at least three authority-model alternatives;
 - [x] create a deduplicated decision Issue;
-- [x] persist the complete review report and implementation handoffs;
-- [x] update programme state with the durable next action;
-- [x] open one documentation-only PR;
-- [ ] record the owner architecture decision;
-- [ ] implement the accepted documentation slice without runtime changes;
+- [x] record the owner architecture decision;
+- [x] deterministically inventory every ADR path before allocating a number;
+- [x] create accepted ADR 0022;
+- [x] add the architecture authority index;
+- [x] route repository and agent architecture discovery through the index;
+- [x] mark historical initial-phase statements in the system architecture;
+- [x] persist the final report and programme handoffs;
+- [x] keep runtime and overlapping PR paths unchanged;
 - [ ] pass exact-head documentation/governance CI;
 - [ ] close or archive the task and release ownership after terminal PR state.
 
-## Decision gate
+## Accepted decision
 
-Issue #548 compares:
+**Option B — an authority index plus focused canonical documents** was accepted by the repository owner and recorded in:
 
-- **A:** one exhaustive living `SYSTEM_ARCHITECTURE.md`;
-- **B:** an authority index plus focused canonical documents — recommended;
-- **C:** retain informal precedence.
+- Issue #548 comment `5193592765`;
+- `docs/architecture/adr/0022-architecture-authority-index-and-focused-canonical-documents.md`;
+- `docs/architecture/ARCHITECTURE_AUTHORITY.md`.
 
-Option B is recommended with high confidence because it preserves focused ownership, prevents duplicated truth and supports deterministic validation. It is not accepted until the owner or authoritative repository state records the decision.
+## Audit correction
+
+The preliminary package claimed that `REPOSITORY_MAP.md` referenced a missing lowercase architecture overview. Revalidation of both the task branch and current `main` disproved that claim. The final package records the correction and only adds the accepted authority-index route.
+
+The deterministic ADR inventory also expanded the original collision finding: duplicate prefixes exist for `0008`, `0010`, `0011`, `0015`, `0016`, `0017`, `0018` and `0021`. Existing ADRs remain unchanged; the accepted decision uses collision-free prefix `0022`.
 
 ## Context checkpoint
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-05T16:59:00+02:00
-head: 7a96aa657507d7c1ccb784a90fc7fad54ecbeffe
+updated_at: 2026-08-05T17:21:00+02:00
+head: 3d587e03394e0c6893523f5d0ee96ee35c7ce522
 branch: task/OTERYN-20260805-architecture-authority
 pr: 550
-status: blocked
+status: waiting
 context_routes:
   - agent-governance
   - architecture
 owned_paths:
+  - docs/architecture/ARCHITECTURE_AUTHORITY.md
+  - docs/architecture/SYSTEM_ARCHITECTURE.md
+  - docs/architecture/adr/README.md
+  - docs/architecture/adr/0022-architecture-authority-index-and-focused-canonical-documents.md
+  - docs/agents/REPOSITORY_MAP.md
+  - docs/agents/CONTEXT_ROUTING.md
   - docs/agents/tasks/active/OTERYN-20260805-architecture-authority.md
   - docs/agents/reports/OTERYN-20260805-architecture-authority-review.md
   - docs/agents/programs/OTERYN_PLATFORM_ARCHITECTURE_REVIEW.md
 proven:
-  - SYSTEM_ARCHITECTURE.md contains initial-phase statements contradicted by newer accepted repository state.
-  - REPOSITORY_MAP.md references a missing docs/architecture/overview.md path.
-  - The ADR directory contains duplicate 0008 numbering while README.md is non-exhaustive.
-  - PR 453 already records module-catalogue drift and missing first-class boundaries.
-  - Issue 548 and draft PR 550 contain the bounded decision package.
+  - Owner accepted Option B on 2026-08-05 and the decision is recorded in Issue 548 and ADR 0022.
+  - The ADR directory highest observed prefix before allocation was 0021.
+  - Historical duplicate ADR prefixes exist for 0008, 0010, 0011, 0015, 0016, 0017, 0018 and 0021.
+  - SYSTEM_ARCHITECTURE mixed first-phase planning with current architecture routing.
+  - The preliminary missing-overview-path claim was disproved by branch and main revalidation.
+  - PR 453 remains the separate evidence owner for module-catalogue drift.
+  - PR 542 and PR 541 owned scopes are excluded.
 derived:
-  - Implicit document precedence can cause an agent to select obsolete constraints or duplicate decisions.
-  - Option B is the lowest-risk durable authority model among the compared alternatives.
+  - The accepted authority index prevents historical planning from silently overriding focused current sources.
+  - Existing ADR collisions require a compatibility-safe validator and repair decision rather than renumbering in this task.
 unknown:
-  - Which authority model the owner accepts.
+  - Final exact-head CI and PR review/merge result.
 conflicts:
-  - Initial target/non-goal text conflicts with current roadmap, module catalogue, contracts and merged implementation evidence.
+  - Existing ADR numeric identifiers are not globally unique; the inventory exposes this without rewriting accepted history.
 first_failure:
-  marker: Agent Governance checkpoint contract
-  evidence: Runs 31017494843 and 31017599884 failed only because the new task record initially lacked the mandatory Context checkpoint heading and required checkpoint fields.
+  marker: Agent Governance checkpoint validation
+  evidence: Earlier run 31017720578 failed because PASS_WITH_GOVERNANCE_REMEDIATION is not an allowed machine-contract result value; the final checkpoint uses only PASS or WAITING.
 rejected_hypotheses:
-  - The failures were not application, database, edge, game-auth or production-like regressions because all five corresponding workflows succeeded on head 7a96aa657507d7c1ccb784a90fc7fad54ecbeffe.
-  - Runtime E2E is not required because the diff changes only architecture-review documentation.
+  - The governance failure was not a runtime, database, edge, game-auth or production-like regression.
+  - Runtime E2E is not required because the final diff is documentation-only.
+  - REPOSITORY_MAP did not contain the missing lowercase overview reference on the inspected branch or current main.
 changed_paths:
+  - docs/architecture/ARCHITECTURE_AUTHORITY.md
+  - docs/architecture/SYSTEM_ARCHITECTURE.md
+  - docs/architecture/adr/README.md
+  - docs/architecture/adr/0022-architecture-authority-index-and-focused-canonical-documents.md
+  - docs/agents/REPOSITORY_MAP.md
+  - docs/agents/CONTEXT_ROUTING.md
   - docs/agents/programs/OTERYN_PLATFORM_ARCHITECTURE_REVIEW.md
   - docs/agents/reports/OTERYN-20260805-architecture-authority-review.md
   - docs/agents/tasks/active/OTERYN-20260805-architecture-authority.md
 validation:
-  - command: exact PR changed-path and diff audit
+  - command: deterministic ADR directory inventory on branch and current main
     result: PASS
-    evidence: PR 550 contains exactly the three declared architecture-review documentation paths and no runtime, workflow, contract, migration, dependency, deployment or infrastructure path.
-  - command: specialized workflow review on head 7a96aa657507d7c1ccb784a90fc7fad54ecbeffe
-    result: PASS_WITH_GOVERNANCE_REMEDIATION
-    evidence: CI, Phase 7 Production-Like Validation, Game Auth Ticket Concurrency, Edge Security Emulation and Platform DB Outage Validation succeeded; Agent Governance exposed the checkpoint-schema defect corrected by this commit.
+    evidence: Highest existing prefix was 0021; 0022 was unused; all observed paths and historical collisions are listed in adr/README.md.
+  - command: authority and routing content audit
+    result: PASS
+    evidence: Authority index, ADR, repository map, context routing and system scope use the same precedence model and preserve excluded ownership.
+  - command: exact PR changed-path audit
+    result: PASS
+    evidence: Declared paths are documentation-only; no runtime, workflow, contract, migration, dependency, deployment or infrastructure path is authorized.
+  - command: exact-head GitHub Actions
+    result: WAITING
+    evidence: Final checks must run after this checkpoint commit.
 blockers:
-  - Owner must accept Option B or select Option A/C with rationale.
-next_action: Record the architecture authority decision in Issue 548; when B is accepted, allocate a collision-free ADR identifier through a deterministic full ADR inventory and implement documentation Slice 1.
+  - Await exact-head CI and terminal PR review/merge state.
+next_action: Observe the final PR 550 head checks; if required gates pass, present the documentation-only PR for review/merge and close Issue 548 only after terminal PR state.
 ```
 
 ## E2E
 
-`NOT_APPLICABLE`: this task changes architecture-review documentation only and does not alter runtime behavior.
+`NOT_APPLICABLE`: this task changes architecture and agent-routing documentation only and does not alter runtime behavior.
