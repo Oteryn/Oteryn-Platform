@@ -1,0 +1,161 @@
+name: OTS native producer migrate
+
+on:
+  push:
+    branches:
+      - feat/OTS-20260804-native-protocol-single-version-producer
+    paths:
+      - .github/workflows/ots-native-producer-migrate.yml
+
+permissions:
+  contents: write
+
+jobs:
+  migrate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: feat/OTS-20260804-native-protocol-single-version-producer
+          fetch-depth: 0
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.5'
+          coverage: none
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.24.x'
+      - name: Transform producer
+        shell: python
+        run: |
+          from pathlib import Path
+          import re
+
+          old_hash = "c7665223f09001e3294e9a03ab4784defed66b0ac04450e8679d4778421207f8"
+          new_hash = "9c67f19525400fb9890d2a3541ceb6d02eb955061540ad39ca1c1d891c06eba9"
+          paths = [
+              "app/GameAuth/Worlds/DatabaseWorldRegistry.php",
+              "app/GameAuth/Worlds/GameWorldProtocolCandidate.php",
+              "app/GameAuth/Worlds/GameWorldProtocolCandidateRoute.php",
+              "app/Http/Controllers/GameAuth/GameLoginContextController.php",
+              "database/migrations/2026_08_04_170000_add_native_gameplay_protocol_policy.php",
+              "docs/contracts/GAME_SESSION_CANARY_CONTRACT.md",
+              "docs/contracts/WORLD_REGISTRY_CONTRACT.md",
+              "docs/operations/OTERYN_NATIVE_PROTOCOL_PRODUCER.md",
+              "services/game-gateway/README.md",
+              "services/game-gateway/internal/e2e/native_producer_test.go",
+              "services/game-gateway/internal/gateway/login_context_bounds_test.go",
+              "services/game-gateway/internal/gateway/native_protocol.go",
+              "services/game-gateway/internal/gateway/native_protocol_test.go",
+              "services/game-gateway/internal/gateway/schema_hash_test.go",
+              "services/game-gateway/internal/gateway/service.go",
+              "services/game-gateway/internal/gateway/service_test.go",
+              "services/game-gateway/internal/gateway/types.go",
+              "services/game-gateway/internal/httpapi/server.go",
+              "services/game-gateway/internal/httpapi/server_test.go",
+              "services/game-gateway/internal/platform/client.go",
+              "services/game-gateway/internal/platform/client_test.go",
+              "services/game-gateway/internal/session/client.go",
+              "services/game-gateway/internal/session/client_test.go",
+              "tests/Feature/GameAuth/GameLoginContextApiTest.php",
+              "tests/Feature/GameAuth/WorldRegistryTest.php",
+          ]
+
+          for name in paths:
+              path = Path(name)
+              text = path.read_text(encoding="utf-8")
+              text = text.replace(old_hash, new_hash)
+              if path.suffix == ".go":
+                  text = text.replace("Profile", "NativeProtocolVersion")
+                  text = text.replace('json:"profile"', 'json:"native_protocol_version"')
+                  text = re.sub(r"\bprofile\b", "nativeProtocolVersion", text)
+                  text = text.replace('"oteryn.native.v1"', "1")
+                  text = re.sub(r"SchemaRevision(\s*:\s*)1\b", r"SchemaRevision\g<1>2", text)
+                  text = text.replace('"schema_revision":1', '"schema_revision":2')
+              elif path.suffix == ".php":
+                  text = text.replace("$profile", "$nativeProtocolVersion")
+                  text = text.replace("->profile", "->native_protocol_version")
+                  text = text.replace("profile:", "nativeProtocolVersion:")
+                  text = text.replace("'profile'", "'native_protocol_version'")
+                  text = text.replace('"profile"', '"native_protocol_version"')
+                  text = text.replace("'oteryn.native.v1'", "1")
+                  text = text.replace('"oteryn.native.v1"', "1")
+                  text = re.sub(r"('schema_revision'\s*=>\s*)1\b", r"\g<1>2", text)
+              else:
+                  text = text.replace("`profile`", "`native_protocol_version`")
+                  text = text.replace("profile=oteryn.native.v1", "native_protocol_version=1")
+                  text = text.replace("profile `oteryn.native.v1`", "native protocol version `1`")
+                  text = text.replace("profile", "native protocol version")
+                  text = text.replace("oteryn.native.v1", "1")
+                  text = text.replace("schema revision `1`", "schema revision `2`")
+              path.write_text(text, encoding="utf-8")
+
+          model = Path("app/GameAuth/Worlds/GameWorldProtocolCandidate.php")
+          text = model.read_text(encoding="utf-8")
+          text = text.replace("@property string $native_protocol_version", "@property int $native_protocol_version")
+          text = text.replace("'sort_order' => 'integer',", "'sort_order' => 'integer',\n            'native_protocol_version' => 'integer',")
+          model.write_text(text, encoding="utf-8")
+
+          route = Path("app/GameAuth/Worlds/GameWorldProtocolCandidateRoute.php")
+          text = route.read_text(encoding="utf-8").replace(
+              "public string $nativeProtocolVersion,",
+              "public int $nativeProtocolVersion,",
+          )
+          route.write_text(text, encoding="utf-8")
+
+          migration = Path("database/migrations/2026_08_04_170000_add_native_gameplay_protocol_policy.php")
+          text = migration.read_text(encoding="utf-8")
+          text = re.sub(
+              r"\$table->string\('native_protocol_version',\s*64\);",
+              "$table->unsignedTinyInteger('native_protocol_version');",
+              text,
+          )
+          text = text.replace("['enabled', 'family', 'native_protocol_version']", "['enabled', 'family', 'native_protocol_version']")
+          migration.write_text(text, encoding="utf-8")
+
+          registry = Path("app/GameAuth/Worlds/DatabaseWorldRegistry.php")
+          text = registry.read_text(encoding="utf-8")
+          text = text.replace("! $this->isIdentifier($candidate->native_protocol_version)", "$candidate->native_protocol_version !== 1")
+          text = text.replace("$candidate->native_protocol_version === 1", "$candidate->native_protocol_version === 1")
+          text = text.replace("nativeProtocolVersion: $candidate->native_protocol_version", "nativeProtocolVersion: $candidate->native_protocol_version")
+          text = text.replace("$candidate->schema_revision !== 1", "$candidate->schema_revision !== 2")
+          registry.write_text(text, encoding="utf-8")
+
+          native = Path("services/game-gateway/internal/gateway/native_protocol.go")
+          text = native.read_text(encoding="utf-8")
+          text = text.replace("candidate.NativeProtocolVersion == 1", "candidate.NativeProtocolVersion == 1")
+          text = text.replace("candidate.SchemaRevision != 1", "candidate.SchemaRevision != 2")
+          native.write_text(text, encoding="utf-8")
+
+          types = Path("services/game-gateway/internal/gateway/types.go")
+          text = types.read_text(encoding="utf-8")
+          text = text.replace("NativeProtocolVersion string", "NativeProtocolVersion uint32")
+          types.write_text(text, encoding="utf-8")
+
+          forbidden = []
+          for name in paths:
+              text = Path(name).read_text(encoding="utf-8")
+              if "oteryn.native.v1" in text:
+                  forbidden.append(f"{name}: legacy native profile literal")
+              if name.startswith(("app/", "database/", "services/", "tests/")) and re.search(r"[\"']profile[\"']|\bProfile\b|->profile\b|\$profile\b", text):
+                  forbidden.append(f"{name}: active profile field")
+          if forbidden:
+              raise SystemExit("\n".join(forbidden))
+      - name: Format and validate
+        shell: bash
+        run: |
+          set -euo pipefail
+          gofmt -w services/game-gateway/internal
+          composer install --no-interaction --prefer-dist --no-progress
+          vendor/bin/pint --test app/GameAuth/Worlds app/Http/Controllers/GameAuth/GameLoginContextController.php database/migrations/2026_08_04_170000_add_native_gameplay_protocol_policy.php tests/Feature/GameAuth
+          php artisan test tests/Feature/GameAuth/GameLoginContextApiTest.php tests/Feature/GameAuth/WorldRegistryTest.php
+          (cd services/game-gateway && go test ./...)
+      - name: Commit migration
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add app database docs services tests
+          git commit -m 'feat(native): migrate producer to protocol version 1'
+          git push origin HEAD:feat/OTS-20260804-native-protocol-single-version-producer
