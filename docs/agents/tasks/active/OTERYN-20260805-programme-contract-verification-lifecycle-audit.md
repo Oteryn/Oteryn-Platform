@@ -1,5 +1,12 @@
 ---
 task_id: OTERYN-20260805-programme-contract-verification-lifecycle-audit
+programme_id: OTERYN_PLATFORM_CONTINUOUS_AUDIT
+project_lane: oteryn-platform-core
+task_kind: audit
+implementation_authorized: false
+repository: blakinio/Oteryn-Platform
+finding_issues: [582, 583, 584]
+audited_base: 7319723520f3ee61e7dccc421742817253fdcfb9
 required_reads:
   - AGENTS.md
   - AGENTS.override.md
@@ -11,16 +18,6 @@ required_reads:
   - docs/agents/TASK_CLOSEOUT_AUDIT_E2E.md
   - docs/agents/ANTI_STALL_AND_EXECUTION_BUDGET.md
   - docs/agents/SESSION_RECOVERY_AND_ORPHANED_EXECUTION.md
-programme_id: OTERYN_PLATFORM_CONTINUOUS_AUDIT
-project_lane: oteryn-platform-core
-task_kind: audit
-implementation_authorized: false
-repository: blakinio/Oteryn-Platform
-finding_issues:
-  - 582
-  - 583
-  - 584
-audited_base: 7319723520f3ee61e7dccc421742817253fdcfb9
 ---
 
 # Programme, contract and verification lifecycle audit
@@ -34,11 +31,12 @@ Persist one bounded audit package for three proven lifecycle contradictions with
 - [x] Reconcile the completed Game Catalog programme-registration audit with merged PR #331 while preserving active programme Issue #330.
 - [x] Reconcile the completed schema 1.3 architecture proposal with merged PR #332 while preserving proposal bytes and downstream PR #338.
 - [x] Reconcile merged Cloudflare implementation/evidence PRs #409 and #415 while preserving the denied-read blocker and explicit `UNKNOWN` edge state.
-- [x] Verify retained source branches, missing archive records and current false-active ownership.
-- [x] Verify Issues #582, #583 and #584 remain deduplicated, open and implementation-ready.
-- [x] Persist a documentation-only evidence index, audit report and programme checkpoint.
-- [ ] Pass exact-head required checks with zero unresolved review threads.
-- [ ] Merge the audit record, archive this task and release ownership.
+- [x] Verify retained source branches, missing archive records and false-active ownership.
+- [x] Verify Issues #582, #583 and #584 remain open, deduplicated and independently actionable.
+- [x] Persist the audit task, evidence index, report and programme state in draft PR #589.
+- [x] Verify PR #589 changes exactly four authorized audit/governance paths and has zero comments or review threads.
+- [ ] Pass all emitted exact-head checks.
+- [ ] Merge PR #589, archive this task and release ownership.
 
 ## Ownership
 
@@ -49,31 +47,11 @@ owned_paths:
   - docs/agents/evidence/OTERYN-20260805-programme-contract-verification-lifecycle-audit/**
   - docs/agents/reports/OTERYN-20260805-programme-contract-verification-lifecycle-audit.md
   - docs/agents/programs/OTERYN_PLATFORM_CONTINUOUS_AUDIT.md
-modules:
-  - task-lifecycle-audit
-dependencies:
-  - Issue #582 owns Game Catalog programme-audit task closeout
-  - Issue #583 owns schema 1.3 architecture task closeout
-  - Issue #584 owns Cloudflare audit ownership reconciliation
-  - Issue #558 owns systemic live-state detection
-blockers:
-  - none for this audit package
-cross_repository_tasks:
-  - none
 forbidden_paths:
-  - docs/agents/tasks/active/OTERYN-20260730-game-catalog-program-audit.md
-  - docs/agents/tasks/active/OTERYN-20260730-game-catalog-schema-1-3-architecture.md
-  - docs/agents/tasks/active/OTERYN-20260801-cloudflare-zone-edge-audit.md
-  - docs/agents/programs/GAME_CATALOG_PRODUCTION_COMPLETION_PROGRAM.md
-  - docs/architecture/GAME_CATALOG_CURRENT_STATE_AUDIT.md
-  - docs/contracts/game-catalog/v1.3/**
-  - app/GameCatalog/**
-  - config/game-catalog.php
-  - database/migrations/**
+  - historical task records under audit
+  - Game Catalog programme, contracts, product, configuration and migrations
+  - Cloudflare workflow, script, tests, guide, environment, token or secret
   - .github/workflows/**
-  - scripts/operations/cloudflare-zone-edge-audit.sh
-  - tests/operations/cloudflare-zone-edge-audit/**
-  - Cloudflare configuration, tokens, environments and secrets
   - PR #338, PR #541 and PR #542
   - production and staging systems
   - external repositories
@@ -91,10 +69,8 @@ feature_scope:
   e2e_required: false
   completion_claim: internal_only
 delivery_matrix:
-  task_pr_branch_archive_reconciliation: required
-  active_programme_and_downstream_nonclaim_preservation: required
-  permission_blocker_and_unknown_state_preservation: required
-  duplicate_owner_verification: required
+  live_task_pr_branch_archive_reconciliation: required
+  programme_consumer_and_blocker_nonclaims: required
   durable_findings: required
   historical_task_repair: not_authorized
   product_or_workflow_changes: not_applicable
@@ -105,8 +81,8 @@ delivery_matrix:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-05T17:15:00Z
-head: 9f8e4fb547c9c39735b118795ca2df3ca3883d41
+updated_at: 2026-08-05T17:17:00Z
+head: 35c7f42b8c1b4645da491dbb0f3fd1fb15a1467d
 branch: audit/20260805-programme-contract-verification-lifecycle
 pr: 589
 status: validating
@@ -123,31 +99,28 @@ owned_paths:
   - docs/agents/programs/OTERYN_PLATFORM_CONTINUOUS_AUDIT.md
 proven:
   - Main at task start is 7319723520f3ee61e7dccc421742817253fdcfb9.
-  - Issue #582 remains open and owns the false-active Game Catalog programme-registration audit task.
-  - PR #331 merged as 42006f63381028f40d6e08721eac78b222b44c82, its source branch remains, its active task points to the terminal PR and no archive record exists.
-  - Issue #583 remains open and owns the false-active schema 1.3 architecture proposal task.
-  - PR #332 merged as d2a03b2cda05f5b42b135d847c95416a18b3d822, its source branch remains, its active task points to the terminal PR and no archive record exists.
-  - Open PR #338 is the independent inactive schema 1.3 consumer and does not make the completed proposal task active.
-  - Issue #584 remains open and owns Cloudflare task ownership reconciliation.
-  - PR #409 merged the GET-only audit as cff0ee1b8ecfd1d795e2636d488be6d1d1d0b4ea and PR #415 merged blocked evidence as 2edd5e729a7201310444ced472e8fcc8e869eef4.
-  - The Cloudflare evidence branch remains and the active task still claims workflow, script, tests, guide and evidence paths.
-  - Protected run 30702827936 proved mutation none, no secret emission and HTTP 403 for all nine requested read surfaces.
-  - Draft PR #589 contains the task, evidence index, report and programme state only.
+  - PR #331 merged as 42006f63381028f40d6e08721eac78b222b44c82 while its task remains active, branch remains and archive is absent.
+  - PR #332 merged as d2a03b2cda05f5b42b135d847c95416a18b3d822 while its task remains active, branch remains and archive is absent.
+  - Open PR #338 is an independent inactive consumer and does not make the completed proposal task active.
+  - PR #409 merged as cff0ee1b8ecfd1d795e2636d488be6d1d1d0b4ea and PR #415 merged as 2edd5e729a7201310444ced472e8fcc8e869eef4.
+  - Cloudflare run 30702827936 proved mutation none, no secret emission and HTTP 403 for all nine requested read surfaces.
+  - The Cloudflare evidence branch remains, archive is absent and its blocked task still claims completed workflow and tooling paths.
+  - Issues #582, #583 and #584 own the three independent lifecycle corrections.
+  - Draft PR #589 changes exactly the task, evidence index, report and programme state; comments and review threads are empty.
 derived:
-  - Completed setup and proposal tasks must release ownership without closing their active programme or downstream consumer.
-  - Completed Cloudflare implementation ownership must be released without erasing the real permission blocker or converting UNKNOWN edge state into a claim.
-  - Issues #582, #583 and #584 are independent remediation owners because their historical task/archive identities do not overlap.
+  - Completed setup/proposal tasks must release ownership without closing active programme #330 or downstream PR #338.
+  - Completed Cloudflare implementation ownership must be released without erasing the permission blocker or converting `UNKNOWN` edge state into a claim.
 unknown:
   - Exact final workflow conclusions for PR #589.
 conflicts:
   - Three active task records contradict terminal PR state or mix completed implementation ownership with later programme, consumer or privileged-verification work.
 first_failure:
   marker: OPA-GOV-0016-through-OPA-GOV-0018
-  evidence: Issues #582, #583 and #584 plus live task, PR, branch and archive state
+  evidence: Issues #582-#584 and the live task/PR/branch/archive reconciliation
 rejected_hypotheses:
   - An active parent programme keeps its completed setup task active.
   - A downstream consumer keeps its completed architecture proposal task active.
-  - A legitimate privileged verification blocker justifies retaining completed workflow and script ownership.
+  - A privileged verification blocker justifies retaining completed workflow and script ownership.
 changed_paths:
   - docs/agents/tasks/active/OTERYN-20260805-programme-contract-verification-lifecycle-audit.md
   - docs/agents/evidence/OTERYN-20260805-programme-contract-verification-lifecycle-audit/index.md
@@ -156,15 +129,18 @@ changed_paths:
 validation:
   - command: live Issue, task, PR, branch and archive reconciliation
     result: PASS
-    evidence: Issues #582-#584, PRs #331, #332, #409 and #415, retained branches and missing archive paths
+    evidence: Issues #582-#584, PRs #331, #332, #409 and #415, retained branches and absent archives
+  - command: PR #589 changed paths, patch and review hygiene
+    result: PASS
+    evidence: four authorized paths, zero comments and zero review threads
   - command: runtime E2E
     result: NOT_APPLICABLE
     evidence: documentation-only audit with no runtime, workflow, environment or historical-task mutation
-  - command: exact-head GitHub Actions
+  - command: PR #589 exact-head GitHub Actions
     result: NOT_RUN
-    evidence: final metadata commit requires exact-head workflow generation
+    evidence: terminal-CI checkpoint commit must emit the final check generation
 blockers: []
-next_action: Verify PR #589 changed paths, full audit diff, comments and review threads, then persist the terminal-CI recovery checkpoint and inspect the exact-head check generation.
+next_action: Inspect the exact-head workflow generation emitted by this terminal-CI checkpoint; merge only when every emitted check passes.
 ```
 
 ## Recovery checkpoint
@@ -175,23 +151,23 @@ recovery:
   generation: 1
   session_id: audit-20260805T170500Z-programme-contract-verification-lifecycle
   session_started_at: 2026-08-05T17:05:00Z
-  checkpointed_at: 2026-08-05T17:15:00Z
-  last_progress_at: 2026-08-05T17:15:00Z
-  phase: final-metadata-and-pr-audit
-  exact_head: 9f8e4fb547c9c39735b118795ca2df3ca3883d41
+  checkpointed_at: 2026-08-05T17:17:00Z
+  last_progress_at: 2026-08-05T17:17:00Z
+  phase: terminal-ci
+  exact_head: 35c7f42b8c1b4645da491dbb0f3fd1fb15a1467d
   pull_request: 589
-  active_operation: none
-  external_run_ids: []
-  operation_started_at: null
-  wait_deadline_at: null
-  check_generation: draft
-  checks_used: 0
-  status: active
+  active_operation: github-actions
+  external_run_ids: [31029151016, 31029151079, 31029151097, 31029151048, 31029150961, 31029150999]
+  operation_started_at: 2026-08-05T17:16:00Z
+  wait_deadline_at: 2026-08-05T17:47:00Z
+  check_generation: pre-terminal-checkpoint
+  checks_used: 1
+  status: waiting
   safe_to_resume: true
-  resume_condition: PR #589 remains open on the expected branch with no overlapping owner
-  next_action: Verify PR #589 changed paths, full audit diff, comments and review threads, then persist the terminal-CI recovery checkpoint and inspect the exact-head check generation.
+  resume_condition: the exact terminal-checkpoint head has emitted workflow runs and no branch/PR ownership conflict exists
+  next_action: Inspect the exact-head workflow generation emitted by this terminal-CI checkpoint; merge only when every emitted check passes.
 ```
 
 ## Notes
 
-This audit does not repair the historical tasks, delete their branches, modify Game Catalog contracts or consumers, change Cloudflare tooling or credentials, or touch active PRs #338, #541 or #542.
+This audit does not repair the historical tasks, delete their branches, modify Game Catalog or Cloudflare implementation surfaces, or touch active PRs #338, #541 or #542.
