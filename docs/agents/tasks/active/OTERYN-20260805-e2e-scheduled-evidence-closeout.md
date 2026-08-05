@@ -23,7 +23,7 @@ optional_reads: []
 
 ## Goal
 
-Recover and complete Issue #114 after the original unmerged PR #116 was closed: persist the first completed scheduled public-soak and three-iteration stability-repeat evidence, classify the later stability failure, and close the task lifecycle without adding thresholds or changing the production-verification boundary.
+Recover and complete Issue #114 after original PR #116 was closed without merge: persist the first scheduled public-soak and three-iteration stability-repeat evidence, classify the later stability failure, and close the lifecycle without adding thresholds or changing the production-verification boundary.
 
 ## Delivery classification
 
@@ -37,18 +37,16 @@ feature_scope:
   e2e_required: false
 ```
 
-The task documents already-completed exact-SHA E2E executions. It does not change runtime behavior or require a new E2E execution for the documentation itself.
+The task documents already-completed exact-SHA executions. It does not change runtime or E2E harness behavior.
 
 ## Acceptance criteria
 
-- [x] Inspect the first completed scheduled `Acceptance E2E Public Soak` run after PR #111 merge.
-- [x] Record its exact tested SHA, run/job, artifact identity/digest, duration, requests, latency distributions, Laravel RSS and Redis key counts.
-- [x] Inspect the first completed scheduled `Acceptance E2E Stability Repeat` run after PR #111 merge.
-- [x] Confirm all three isolated `critical` iterations executed with zero global Playwright retries and distinct identities.
-- [x] Record each iteration's exact SHA, job, artifact identity/digest, outcome and bounded profile evidence.
-- [x] Classify the later failed scheduled stability run without retry masking.
-- [x] Update durable non-secret E2E evidence and project state without introducing thresholds.
-- [ ] Complete exact-head required CI, merge, Issue #114 reconciliation, archival and ownership release.
+- [x] Inspect and record the first completed scheduled public-soak run and all required non-secret metrics.
+- [x] Inspect and record the first completed scheduled three-iteration stability-repeat run.
+- [x] Confirm three distinct isolated critical iterations with zero Playwright retries.
+- [x] Classify the later scheduled failure without retry masking.
+- [x] Update durable E2E evidence and project state without introducing thresholds.
+- [ ] Merge PR #615 after successful required checks, reconcile Issue #114, archive this task and release ownership.
 
 ## Ownership
 
@@ -67,6 +65,7 @@ dependencies:
   - issue #114
   - PR #111
   - closed unmerged PR #116
+  - merged CI-gate repair PR #626
 blockers:
   - none
 cross_repository_tasks:
@@ -84,10 +83,10 @@ session_id: agent-20260805-e2e-evidence-closeout
 session_role: implementer
 execution_mode: github
 execution_reason: GitHub-only artifact inspection and bounded documentation lifecycle closeout
-updated_at: 2026-08-05T21:12:00Z
+updated_at: 2026-08-05T21:54:00Z
 invocation_started_at: 2026-08-05T20:54:00Z
-last_progress_at: 2026-08-05T21:12:00Z
-head: 7de000221436f859053fa7217e99f35018c54761
+last_progress_at: 2026-08-05T21:54:00Z
+head: 217c9e89ccc88cb1073f64c7fdb6387dde82fe15
 branch: docs/OTERYN-20260805-e2e-scheduled-evidence-closeout
 pr: 615
 status: ready
@@ -113,8 +112,8 @@ heavy_validation_runs: 0
 stale_takeover_count: 1
 human_interruptions: 0
 ci_checks_for_current_head: 0
-ci_check_generation: ready
-terminal_ci_wait_started_at: 2026-08-05T21:12:00Z
+ci_check_generation: post-required-gate-repair
+terminal_ci_wait_started_at: 2026-08-05T21:54:00Z
 terminal_ci_checks_for_current_generation: 0
 unchanged_state_checks: 0
 identical_failure_retries: 0
@@ -122,31 +121,31 @@ repair_cycles_for_current_gate: 0
 context_reconstruction_attempts: 1
 stall_warnings: 0
 proven:
-  - PR #116 was closed without merge on 2026-08-02; its task record never reached main.
-  - The first scheduled public-soak run 29987560312 completed successfully on exact SHA 8006534108d835474dadd208b0ec934e4a12528b with job 89142739953 and artifact 8555768555.
-  - Soak artifact acceptance-e2e-soak-29987560312-1-soak has digest sha256:d3caa7c21f577616a1aacad45276ea21b1211d8727489c6c06d6ad9fc01cc7f4 and contains zero-retry exact-SHA metrics.
-  - The first scheduled stability run 30243589211 completed successfully on exact SHA 37eb31d60aa8a47914745cd326aff6b313851dd0; jobs 89905727036, 89905726989 and 89905727019 all passed as distinct iterations 1, 2 and 3 with zero retries.
+  - PR #116 was closed without merge and its task record never reached main.
+  - Scheduled soak run 29987560312 passed on SHA 8006534108d835474dadd208b0ec934e4a12528b with job 89142739953 and artifact 8555768555.
+  - The soak artifact digest is sha256:d3caa7c21f577616a1aacad45276ea21b1211d8727489c6c06d6ad9fc01cc7f4 and contains the recorded zero-retry baseline metrics.
+  - Scheduled stability run 30243589211 passed on SHA 37eb31d60aa8a47914745cd326aff6b313851dd0; jobs 89905727036, 89905726989 and 89905727019 passed as distinct zero-retry iterations.
   - Stability artifacts 8644201125, 8644204136 and 8644207634 have distinct repeat identities and recorded SHA-256 digests.
-  - Later scheduled run 30790638508 failed only in iteration 3 job 91613214607 at the responsive profile; iterations 1 and 2 passed.
-  - The failing responsive-mobile test had already reached durable Wiki state In Review while a transient success-flash role assertion timed out.
-  - Current main asserts the durable In Review state and available lifecycle actions after network quiescence instead of relying on the transient flash.
-  - PR #495 merged deep exact-SHA validation with responsive 42/42 PASS and aggregate 630 tests with zero failures, errors, skips or retries.
-  - Replacement PR #615 contains exactly four owned documentation paths and no temporary workflow.
-  - State sync run 31047134221 updated ACTIVE_WORK and PROJECT_STATE and removed its temporary workflow successfully.
-  - Main sync runs 31047241971 and 31047450215 merged current main into the task branch and removed their temporary workflows successfully.
+  - Later run 30790638508 failed only in iteration 3 job 91613214607 at responsive-mobile while iterations 1 and 2 passed.
+  - Its artifact already showed durable Wiki state In Review while a transient success-flash assertion timed out.
+  - Current main asserts durable In Review state and available lifecycle actions after network quiescence.
+  - PR #495 deep validation passed responsive 42/42 and 630 aggregate tests with zero failures, errors, skips or retries.
+  - PR #615 changes exactly four owned documentation paths and contains no temporary workflow.
+  - PR #626 merged as 8c0c19253bdc938876cdeeae24455b27e91c4049 and repaired the always-emitted required test context without weakening runtime-test enforcement.
+  - Main sync run 31050515046 merged repaired main into PR #615 and removed its temporary workflow.
 derived:
-  - The first scheduled soak and first scheduled three-iteration stability acceptance criteria are satisfied by completed exact-SHA runtime artifacts.
+  - The first scheduled soak and first scheduled three-iteration stability acceptance criteria are satisfied by completed exact-SHA artifacts.
   - The 2026-08-03 iteration-3 failure is a harness race around transient flash observation, not a product lifecycle or infrastructure failure.
-  - One soak and one repeat run remain calibration/stability evidence and do not justify new blocking latency, RSS, Redis or flakiness thresholds.
+  - One soak and one repeat run remain calibration/stability evidence and do not justify blocking latency, RSS, Redis or flakiness thresholds.
 unknown:
-  - final exact-head required CI and Agent Governance outcome for PR #615.
+  - final exact-head required CI and Agent Governance outcome for PR #615 after the repaired gate.
 conflicts: []
 first_failure:
   marker: responsive-mobile transient Wiki submit-for-review flash assertion
   evidence: run 30790638508; job 91613214607; artifact 8847001250; durable page state already showed Status In Review
 rejected_hypotheses:
   - product Wiki lifecycle failure: rejected because the failure artifact showed the durable article state had transitioned to In Review.
-  - infrastructure failure: rejected because setup, runtime, smoke and portability passed and the failure was one deterministic UI assertion after a successful mutation.
+  - infrastructure failure: rejected because setup, runtime, smoke and portability passed and the failure was one UI assertion after a successful mutation.
 changed_paths:
   - docs/agents/ACTIVE_WORK.md
   - docs/agents/PROJECT_STATE.md
@@ -155,28 +154,25 @@ changed_paths:
 validation:
   - command: inspect scheduled soak run 29987560312, job 89142739953 and artifact 8555768555
     result: PASS
-    evidence: completed success; exact SHA and complete non-secret calibration metrics extracted from artifact
+    evidence: completed success; exact SHA and complete non-secret calibration metrics recorded
   - command: inspect scheduled stability run 30243589211, three jobs and three artifacts
     result: PASS
     evidence: three distinct zero-retry iterations completed successfully on one exact SHA
   - command: classify later stability failure 30790638508
     result: PASS
-    evidence: responsive-mobile transient flash assertion failed after durable In Review state; current main uses durable-state assertions and PR #495 deep validation passed
+    evidence: transient flash assertion failed after durable In Review state; current-main assertion and PR #495 prove remediation
   - command: inspect PR #615 changed paths and complete patch
     result: PASS
     evidence: exactly four owned documentation paths; no runtime, threshold, secret, production or unrelated change
-  - command: Scheduled E2E Evidence State Sync run 31047134221
+  - command: Scheduled E2E Evidence Main Sync run 31050515046
     result: PASS
-    evidence: ACTIVE_WORK and PROJECT_STATE updated; temporary workflow self-removed
-  - command: Scheduled E2E Evidence Main Sync runs 31047241971 and 31047450215
-    result: PASS
-    evidence: current main merged without overlap; temporary workflows self-removed
+    evidence: repaired main merged without overlap and temporary workflow removed
   - command: runtime E2E for documentation-only closeout
     result: NOT_APPLICABLE
     evidence: no runtime code, workflow or E2E harness behavior is changed by this task
 blockers:
   - none
-next_action: Obtain exact-head required checks for ready PR #615, then squash-merge and perform Issue #114 plus task-lifecycle closeout.
+next_action: Obtain successful required checks on this user-authored post-repair generation, then squash-merge PR #615 and perform Issue #114 plus task-lifecycle closeout.
 ```
 
 ## Notes
