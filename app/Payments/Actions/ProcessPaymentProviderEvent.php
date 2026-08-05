@@ -5,6 +5,7 @@ namespace App\Payments\Actions;
 use App\Payments\Data\PaymentStateDecision;
 use App\Payments\Data\VerifiedProviderEvent;
 use App\Payments\Exceptions\PaymentException;
+use App\Payments\Models\PaymentAttempt;
 use App\Payments\Models\PaymentOrder;
 use App\Payments\Models\PaymentOrderTransition;
 use App\Payments\Models\PaymentProviderEvent;
@@ -18,6 +19,14 @@ use Illuminate\Support\Facades\DB;
 
 final class ProcessPaymentProviderEvent
 {
+    /** @var list<string> */
+    private const FULL_AMOUNT_EVENTS = [
+        'payment.succeeded',
+        'payment.refunded',
+        'payment.disputed',
+        'payment.charged_back',
+    ];
+
     public function __construct(
         private readonly PaymentProviderResolver $providers,
         private readonly PaymentOrderStateMachine $stateMachine,
@@ -118,6 +127,26 @@ final class ProcessPaymentProviderEvent
             );
         }
 
+        $objectMismatch = $this->providerObjectMismatch($order, $verified);
+        if ($objectMismatch !== null) {
+            return $this->reconcile(
+                $event,
+                $order,
+                'provider_object_mismatch',
+                $objectMismatch,
+            );
+        }
+
+        $settlementMismatch = $this->settlementMismatch($order, $verified);
+        if ($settlementMismatch !== null) {
+            return $this->reconcile(
+                $event,
+                $order,
+                'settlement_integrity_mismatch',
+                $settlementMismatch,
+            );
+        }
+
         $decision = $this->stateMachine->decide($order->status, $verified->eventType);
 
         if ($decision->action === PaymentStateDecision::NOOP) {
@@ -164,6 +193,76 @@ final class ProcessPaymentProviderEvent
         $event->save();
 
         return $event;
+    }
+
+    /**
+     * @return array<string, int|string|null>|null
+     */
+    private function providerObjectMismatch(
+        PaymentOrder $order,
+        VerifiedProviderEvent $verified,
+    ): ?array {
+        if ($verified->providerObjectReference === null) {
+            return null;
+        }
+
+        $attempt = PaymentAttempt::query()
+            ->where('provider_checkout_reference', $verified->providerObjectReference)
+            ->lockForUpdate()
+            ->first();
+
+        if ($attempt instanceof PaymentAttempt
+            && $attempt->payment_order_id === $order->id
+            && $attempt->provider === $verified->provider) {
+            return null;
+        }
+
+        return [
+            'provider_object_reference' => $verified->providerObjectReference,
+            'matched_payment_order_id' => $attempt?->payment_order_id,
+            'expected_payment_order_id' => $order->id,
+        ];
+    }
+
+    /**
+     * @return array<string, int|string>|null
+     */
+    private function settlementMismatch(
+        PaymentOrder $order,
+        VerifiedProviderEvent $verified,
+    ): ?array {
+        $requiresFullAmount = in_array($verified->eventType, self::FULL_AMOUNT_EVENTS, true);
+        $requiresPartialAmount = $verified->eventType === 'payment.partially_refunded';
+
+        if (! $requiresFullAmount && ! $requiresPartialAmount) {
+            return null;
+        }
+
+        if ($verified->currency !== $order->currency) {
+            return [
+                'event_type' => $verified->eventType,
+                'expected_currency' => $order->currency,
+                'verified_currency' => $verified->currency,
+                'expected_amount_minor' => $order->amount_minor,
+                'verified_amount_minor' => $verified->amountMinor,
+            ];
+        }
+
+        $amountMatches = $requiresFullAmount
+            ? $verified->amountMinor === $order->amount_minor
+            : $verified->amountMinor > 0 && $verified->amountMinor < $order->amount_minor;
+
+        if ($amountMatches) {
+            return null;
+        }
+
+        return [
+            'event_type' => $verified->eventType,
+            'expected_currency' => $order->currency,
+            'verified_currency' => $verified->currency,
+            'expected_amount_minor' => $order->amount_minor,
+            'verified_amount_minor' => $verified->amountMinor,
+        ];
     }
 
     /**
