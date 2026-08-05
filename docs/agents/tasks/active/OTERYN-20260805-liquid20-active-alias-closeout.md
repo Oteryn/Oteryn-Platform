@@ -9,7 +9,7 @@ pull_request: 605
 claim_nonce: issue-567-20260805T2242+0200
 coordination_key: task-lifecycle:OTERYN-20260724-liquid20-synology-control
 session_id: chatgpt-20260805T2242+0200-liquid20-closeout
-lease_expires_at: 2026-08-05T23:27:00+02:00
+lease_expires_at: 2026-08-05T23:40:00+02:00
 required_reads:
   - AGENTS.md
   - AGENTS.override.md
@@ -50,7 +50,7 @@ feature_scope:
 - [x] The stale ready state and obsolete merge action are eliminated.
 - [x] The retained historical branch is explicitly classified from live state as retained, merged and unowned.
 - [x] No forbidden workflow, collector, deployment, Synology, evidence, production, or external-repository path changes.
-- [ ] Proportionate fresh documentation audit reports zero material findings.
+- [x] Proportionate fresh documentation audit reports zero material findings.
 - [ ] Exact-head Agent Governance and all emitted required checks pass.
 - [ ] Related PRs are terminal, the Issue is closed completed, and the remediation claim is released.
 
@@ -77,8 +77,8 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-05T20:53:00Z
-head: 620c8284e3edd67999e6d9646e7d87c5f759b69d
+updated_at: 2026-08-05T20:55:00Z
+head: 06fe225f38a35192667813565dd072317c344af8
 branch: repair/issue-567
 pr: 605
 status: validating
@@ -98,10 +98,11 @@ proven:
   - The historical source branch docs/OTERYN-20260727-liquid20-acceptance-complete remains present but is explicitly classified as retained, merged and without live dependency, claim, lease or ownership.
   - Changed paths are limited to the two historical task records and this active repair checkpoint.
   - No workflow, collector, deployment, Synology, immutable evidence, production or external-repository path changed.
+  - Fresh validator role chatgpt-20260805T2254+0200-liquid20-doc-validator reviewed exact head 06fe225f38a35192667813565dd072317c344af8 and reported zero critical, high or material-medium findings.
+  - Runtime E2E is not applicable because this task changes repository lifecycle documentation only and has no runtime or user-facing behavior.
 derived:
-  - The bounded lifecycle repair satisfies implementation acceptance pending fresh documentation audit and exact-head validation.
+  - The bounded lifecycle repair satisfies all non-CI acceptance and is ready for exact-final-head validation.
 unknown:
-  - Fresh audit disposition.
   - Final exact-head governance and required CI results.
 conflicts: []
 first_failure:
@@ -127,8 +128,14 @@ validation:
   - command: changed-path boundary review
     result: PASS
     evidence: only declared task-lifecycle documentation paths changed.
+  - command: fresh proportionate documentation audit
+    result: PASS
+    evidence: review 4868643735 on exact head 06fe225f38a35192667813565dd072317c344af8; zero material findings.
+  - command: real end-to-end validation
+    result: NOT_APPLICABLE
+    evidence: documentation-only lifecycle repair with no runtime, public interface or user journey.
 blockers: []
-next_action: Perform a fresh proportionate documentation audit of the exact PR 605 diff, then finalize exact-head CI.
+next_action: Re-audit the exact final checkpoint head, mark PR 605 ready and verify required exact-head CI.
 ```
 
 ## Notes
