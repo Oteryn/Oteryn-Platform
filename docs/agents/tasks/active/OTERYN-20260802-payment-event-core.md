@@ -82,7 +82,7 @@ The audit finding is remediated by `PaymentAvailability::ensureEnabled()` at the
 
 No real provider, payment credential, charge, customer financial data, public webhook ingress, wallet delivery, entitlement delivery, production activation, deployment, Canary mutation or external-repository write is authorized or performed.
 
-## Validation checkpoint
+## Context checkpoint
 
 ```yaml
 checkpoint_version: 2
