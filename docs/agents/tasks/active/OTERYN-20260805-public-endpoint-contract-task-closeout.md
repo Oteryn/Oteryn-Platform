@@ -5,6 +5,7 @@ project_lane: oteryn-platform-core
 repository: blakinio/Oteryn-Platform
 issue: 579
 branch: repair/issue-579
+pull_request: 630
 claim_nonce: issue-579-d25ea812-20260805T2110Z
 coordination_key: task-lifecycle:OTERYN-20260731-public-domain-role-contract
 session_id: chatgpt-20260805T2310+0200-public-endpoint-closeout
@@ -77,11 +78,11 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-05T21:10:00Z
-head: UNKNOWN
+updated_at: 2026-08-05T21:12:00Z
+head: 4b26912c09b1e216d845bbc1a2f17ac3f3c21762
 branch: repair/issue-579
-pr: none
-status: investigating
+pr: 630
+status: implementing
 context_routes:
   - architecture
   - deployment
@@ -91,8 +92,8 @@ owned_paths:
   - docs/agents/tasks/active/OTERYN-20260805-public-endpoint-contract-task-closeout.md
   - docs/agents/tasks/archive/OTERYN-20260805-public-endpoint-contract-task-closeout.md
 proven:
-  - Issue 579 is implementation-authorized, parallel-safe and unclaimed at preflight.
-  - Deterministic branch repair/issue-579 was acquired from main d25ea8127e966315a7c41fc84bc2265f321357aa.
+  - Issue 579 is implementation-authorized, parallel-safe and atomically locked by repair/issue-579 from main d25ea8127e966315a7c41fc84bc2265f321357aa.
+  - Draft PR 630 targets main from the deterministic repair branch.
   - PR 382 is merged from head 2b295a170ba37bbbe1e7f7f4d711c14fed3fd26a as 4ba009ffd886d06c593ec3014b3219c2a887e9ab.
   - The historical task remains active with stale validating state and broad documentation ownership.
   - The historical source branch remains present.
@@ -112,7 +113,7 @@ validation:
     result: PASS
     evidence: Issue 579 metadata, PR 382 terminal state, active task and retained source branch were verified.
 blockers: []
-next_action: Open the draft repair PR, activate the claim and reconcile the historical task lifecycle.
+next_action: Reconcile the historical active task into a terminal archive without modifying forbidden paths.
 ```
 
 ## Notes
