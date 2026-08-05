@@ -5,83 +5,86 @@
 ```yaml
 task: OTERYN-20260805-system-module-reconciliation
 issue: 593
+implementation_pr: 594
+implementation_head: a3cf245b5b0eafff00a87ba97878adcc8154a8df
+implementation_merge: 4cd3c6daf8fcd152743db34f214abb531e1e2d01
 programme: OTERYN_PLATFORM_ARCHITECTURE_REVIEW
 repository: blakinio/Oteryn-Platform
-exact_base: bc9f64ac78b7f6483a8b0679c422cf772ca20ad6
-classification: documentation_drift
+status: completed
 runtime_change: false
 ```
 
-## Primary finding
+## Final result
 
-The canonical module table and system-context diagram lag merged repository delivery. PR #453 recorded this drift and required a later exact-evidence reconciliation rather than a narrative-only status upgrade.
+The focused canonical system and module documents now describe current merged repository boundaries without presenting repository availability as product completeness or production proof.
 
-## Evidence classification
+### Status model
 
-### PROVEN — available bounded modules
+`MODULE_CATALOG.md` now treats status as one dimension only:
 
-- EditorialMedia: PR #176 merged the secure private image library; later Wiki integration and portal acceptance prove an active consumer boundary.
-- Wiki: PR #194 merged public EN/PL reads/search, PR #196 merged trusted administration and PR #199 merged EditorialMedia integration.
-- Wallet and Marketplace: PR #270 merged the Oteryn Coins ledger, reservations, Character Bazaar, transfer saga, public/account/admin UI and isolated acceptance.
-- Marketplace staging: PR #368 merged a staging-only enablement/control package. It is staging evidence, not production proof.
-- GameCatalog: the detailed current catalogue already records a supported inactive import/activation boundary for schemas 1.0.0 through 1.2.0; the top module table omits the owner.
+- `AVAILABLE` means at least one explicitly documented capability is merged and validated on `main`;
+- it does not mean the accepted capability inventory is complete;
+- it does not mean staging or production deployment is proven;
+- it does not authorize product, security, legal or operational activation.
 
-### PROVEN — incomplete or blocked dimensions remain
+### Corrected current boundaries
 
-- Issue #365 preserves focused Wiki flash/thumbnail investigation without invalidating the delivered Wiki boundary.
-- Issue #488 owns Wiki expected-content, failure/recovery and portability completeness gaps.
-- Issue #489 owns Game Catalog, marketplace, product and provider-payment completeness gaps.
-- Issue #490 owns PlatformAPI, operations and public-edge applicability/evidence gaps.
-- Production-completion baseline evidence remains frozen historical proof and is not edited by this task.
+- EditorialMedia: `AVAILABLE` from the merged private normalized media library and Wiki consumer integration;
+- Wiki: `AVAILABLE` from merged public reads/search, trusted administration and media integration;
+- Wallet and Marketplace: `AVAILABLE` from the merged Oteryn Coins/Character Bazaar ledger, escrow and saga boundary;
+- GameCatalog: `AVAILABLE` for merged schemas 1.0.0–1.2.0; open PR #338 schema 1.3 remains outside current `main`;
+- OperationsObservability, PublicEdge and QualityE2E: explicit `AVAILABLE` repository ownership boundaries whose environment evidence remains separately classified;
+- ProductsEntitlements and LegalCommerce: explicit `PLANNED` boundaries;
+- PlatformAPI: remains `PLANNED`;
+- provider Payments: remains `PLANNED-LATER`.
 
-### DERIVED — status model
+### Preserved gaps
 
-A single status cannot safely represent implementation, completeness and environment proof. The focused canonical catalogue should therefore use:
+- Issue #365 retains the focused Wiki flash/thumbnail investigation;
+- Issue #488 retains Wiki/EditorialMedia completeness, recovery and portability gaps;
+- Issue #489 retains GameCatalog, Marketplace, product and provider-payment gaps;
+- Issue #490 retains PlatformAPI, Operations and PublicEdge applicability/environment evidence gaps;
+- open PR #338 remains outside the current GameCatalog availability claim;
+- frozen PR #453 evidence was not edited.
 
-1. module status for repository implementation availability;
-2. explicit current-boundary prose for what is delivered;
-3. linked exact evidence and open-gap Issues for completeness;
-4. separate staging/production evidence labels for environment claims.
+## Architecture boundary
 
-`AVAILABLE` means at least one documented capability is merged and validated on `main`. It never means product-complete, staging-proven or production-proven.
+The system-context diagram now distinguishes:
 
-## Reconciliation decisions
+- the implemented Wallet/Marketplace gameplay-economy foundation;
+- planned ProductsEntitlements;
+- planned-later provider Payments;
+- cross-cutting OperationsObservability, PublicEdge, QualityE2E and LegalCommerce ownership;
+- repository availability, completeness, environment proof and activation authority.
 
-1. Upgrade EditorialMedia, Wiki, Wallet and Marketplace from `IMPLEMENTING` to `AVAILABLE`.
-2. Add GameCatalog as `AVAILABLE` because a validated bounded import/projection capability exists on `main`; keep schema 1.3 PR #338 explicitly outside current availability because it remains open and inactive.
-3. Add ProductsEntitlements and LegalCommerce as `PLANNED` ownership boundaries.
-4. Add OperationsObservability, PublicEdge and QualityE2E as `AVAILABLE` repository boundaries, while explicitly retaining environment proof gaps and Issue #490 ownership.
-5. Keep PlatformAPI `PLANNED` and Payments `PLANNED-LATER`.
-6. Keep Wallet/Marketplace independent from provider Payments and ProductsEntitlements.
-7. Update the system diagram and dependency rules without implying a new deployable service or production state.
+No standalone service, production deployment or legal/product decision is inferred from a module row or diagram entry.
 
-## Rejected alternatives
+## Validation and repair evidence
 
-### Keep stale statuses until all open Issues close
+Head `a3cf245b5b0eafff00a87ba97878adcc8154a8df` passed:
 
-Rejected. That would conflate existence with completeness and contradict the catalogue's own `AVAILABLE` definition.
+- CI `31040924354`;
+- Agent Governance `31040924500`;
+- Phase 7 `31040924464`;
+- Edge Security `31040924362`;
+- Game Auth `31040924625`;
+- DB Outage `31040924171`;
+- Native protocol contract `31040924240`;
+- Native protocol contract audits `31040924342`.
 
-### Mark delivered modules complete
+A prior checkpoint-only head failed Agent Governance solely because the required `first_failure` mapping was absent. The checkpoint was repaired; no canonical content changed in that repair.
 
-Rejected. Open audit findings and deferred capabilities remain material; neither `AVAILABLE` nor the system diagram is a completion claim.
+Fresh final audit found:
 
-### Collapse Wallet, Marketplace, Products and Payments into commerce
+- exactly five implementation-PR paths, all documentation/task state;
+- no stale `Current implementing boundary` or `Future Payments` claim;
+- no closure or concealment of Issues #365/#488/#489/#490;
+- no unresolved review thread or submitted review;
+- no active repository ruleset and no independent direct collaborator available for approval;
+- no runtime, migration, dependency, workflow, deployment, production, ADR-status or external-repository change.
 
-Rejected. It would obscure different security, data, regulatory and activation boundaries.
+Runtime E2E is `NOT_APPLICABLE` because this is documentation-only architecture reconciliation.
 
-### Create a new ADR
+## Durable handoff
 
-Rejected. No durable architectural choice changes. This task applies the already accepted authority order and evidence-dimension separation from ADR 0022 and PR #453.
-
-## Scope and safety
-
-Only the two focused canonical documents plus task/programme/report records may change. Runtime, migration, dependency, workflow, deployment, production, frozen evidence and external repositories remain untouched.
-
-## Validation plan
-
-- verify exact changed paths and links;
-- search final canonical text for stale `IMPLEMENTING` and `Future Payments` claims;
-- confirm open audit Issues remain referenced as gaps rather than closed;
-- run exact-head Agent Governance and repository documentation/CI checks;
-- perform a fresh contradiction and PR-hygiene audit;
-- runtime E2E is `NOT_APPLICABLE` because no executable behavior changes.
+`ARCH-AUTH-005` is next: define and validate one machine-readable architecture decision backlog whose authority and lifecycle do not duplicate accepted ADRs, GitHub Issues or the compact programme queue.
