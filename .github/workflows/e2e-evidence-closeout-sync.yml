@@ -1,0 +1,57 @@
+name: Scheduled E2E Evidence State Sync
+
+on:
+  push:
+    branches:
+      - docs/OTERYN-20260805-e2e-scheduled-evidence-closeout
+    paths:
+      - .github/workflows/e2e-evidence-closeout-sync.yml
+
+permissions:
+  contents: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: docs/OTERYN-20260805-e2e-scheduled-evidence-closeout
+          fetch-depth: 0
+      - name: Apply bounded documentation state updates
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          active = Path('docs/agents/ACTIVE_WORK.md')
+          text = active.read_text()
+          old = 'None recorded by this index. Live active task files and pull requests remain authoritative when newer.'
+          new = '- `OTERYN-20260805-e2e-scheduled-evidence-closeout` — issue #114; PR #615; persist first scheduled soak/stability evidence, classify the retained zero-retry failure signal and complete lifecycle closeout.'
+          if old not in text:
+              raise SystemExit('ACTIVE_WORK anchor missing or already changed')
+          active.write_text(text.replace(old, new, 1))
+
+          state = Path('docs/agents/PROJECT_STATE.md')
+          text = state.read_text()
+          anchor = 'The repository has controlled evidence for clean migrations, rollback/redeploy, least-privilege database principals, Redis ACL behavior, test SMTP, security headers/cookies, request correlation, backup/restore smoke, dependency outage/recovery and browser portability/responsive/accessibility profiles.\n'
+          addition = '''\nScheduled E2E calibration is now backed by completed exact-SHA runtime evidence. Public-soak run `29987560312` on `8006534108d835474dadd208b0ec934e4a12528b` passed 1,764 read-only requests over 303 measured seconds with unchanged Redis key count. Stability-repeat run `30243589211` on `37eb31d60aa8a47914745cd326aff6b313851dd0` passed all three distinct zero-retry critical iterations. Later run `30790638508` retained a responsive-mobile failure signal that was classified from its artifact as a transient Wiki success-flash harness race after the durable state had already reached `In Review`; current-main durable-state assertions and PR #495 deep validation provide the remediation evidence. These samples remain controlled calibration/stability evidence and introduce no blocking performance or flakiness threshold.\n'''
+          if anchor not in text:
+              raise SystemExit('PROJECT_STATE anchor missing')
+          if 'Scheduled E2E calibration is now backed' in text:
+              raise SystemExit('PROJECT_STATE already changed')
+          state.write_text(text.replace(anchor, anchor + addition, 1))
+
+          workflow = Path('.github/workflows/e2e-evidence-closeout-sync.yml')
+          workflow.unlink()
+          PY
+      - name: Commit bounded state sync
+        shell: bash
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add docs/agents/ACTIVE_WORK.md docs/agents/PROJECT_STATE.md .github/workflows/e2e-evidence-closeout-sync.yml
+          git diff --cached --check
+          git commit -m 'docs(agents): sync scheduled E2E evidence state'
+          git push origin HEAD:docs/OTERYN-20260805-e2e-scheduled-evidence-closeout
