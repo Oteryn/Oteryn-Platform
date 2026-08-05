@@ -35,7 +35,9 @@ cross_repository_tasks:
 
 ## Context checkpoint
 
-`checkpoint_version` must match `shared_checkpoint_contract.version` in `docs/agents/GOVERNANCE_CONTRACT.json`. Validate the completed checkpoint with `python tools/agents/checkpoint.py <task-path> --require-checkpoint`.
+`checkpoint_version` remains structural version 1. Policy revision 2 adds accepted statuses `waiting` and `completed` and validation result `NOT_APPLICABLE` without invalidating existing checkpoints. Validate the completed checkpoint with `python tools/agents/checkpoint.py <task-path> --require-checkpoint`.
+
+`ROTATE` is a terminal invocation result, never a task status. Before returning `ROTATE`, persist `ready`, `waiting`, or `blocked` with one concrete `next_action`.
 
 ```yaml
 checkpoint_version: 1
@@ -43,7 +45,7 @@ updated_at: YYYY-MM-DDTHH:MM:SSZ
 head: UNKNOWN
 branch: <task-branch>
 pr: none
-status: investigating
+status: investigating # investigating|implementing|validating|ready|waiting|blocked|completed
 context_routes:
   - <route>
 owned_paths:
@@ -60,8 +62,8 @@ rejected_hypotheses: []
 changed_paths: []
 validation:
   - command: not-run
-    result: NOT_RUN
-    evidence: task not yet implemented
+    result: NOT_RUN # PASS|FAIL|BLOCKED|NOT_RUN|NOT_APPLICABLE
+    evidence: task not yet implemented # concrete reason required for NOT_APPLICABLE
 blockers:
   - none
 next_action: <one concrete next step>
@@ -69,4 +71,4 @@ next_action: <one concrete next step>
 
 ## Notes
 
-Keep this section concise. Durable continuation state belongs in the checkpoint above. Do not paste secrets, full logs or full diffs. Structural checkpoint validation does not replace live Git, PR or CI verification.
+Keep this section concise. Durable continuation state belongs in the checkpoint above. Do not paste secrets, full logs, or full diffs. Structural checkpoint validation does not replace live Git, PR, or CI verification.

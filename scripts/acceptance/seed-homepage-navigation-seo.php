@@ -30,13 +30,25 @@ DB::transaction(function () use ($now): void {
         'updated_at' => $now,
     ]);
 
-    $existingEventId = DB::table('event_translations')
-        ->where('locale', 'en')
-        ->where('slug', 'acceptance-tournament')
-        ->value('event_id');
-    if (is_int($existingEventId) || (is_string($existingEventId) && ctype_digit($existingEventId))) {
-        DB::table('event_translations')->where('event_id', (int) $existingEventId)->delete();
-        DB::table('events')->where('id', (int) $existingEventId)->delete();
+    $eventIds = DB::table('event_translations')
+        ->where(function ($query): void {
+            $query
+                ->where(function ($translation): void {
+                    $translation
+                        ->where('locale', 'en')
+                        ->where('slug', 'acceptance-tournament');
+                })
+                ->orWhere('slug', 'like', 'content-scale-event-%');
+        })
+        ->pluck('event_id')
+        ->map(static fn (mixed $id): int => (int) $id)
+        ->unique()
+        ->values()
+        ->all();
+
+    if ($eventIds !== []) {
+        DB::table('event_translations')->whereIn('event_id', $eventIds)->delete();
+        DB::table('events')->whereIn('id', $eventIds)->delete();
     }
 
     $eventId = DB::table('events')->insertGetId([

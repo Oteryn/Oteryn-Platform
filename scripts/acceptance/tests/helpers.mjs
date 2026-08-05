@@ -196,9 +196,23 @@ export async function register(page, email, password) {
 
 export async function login(page, email, password) {
   await page.goto('/login');
-  await page.getByLabel('Email').fill(email);
-  await page.getByLabel('Password').fill(password);
+  const emailInput = page.locator('input[name="email"]');
+  const passwordInput = page.locator('input[name="password"]');
+
+  // WebKit may restore a prior credential field while a repeated login form settles.
+  // Populate the password first and the identity last, then prove the exact request
+  // values before submission so cross-field autofill cannot corrupt the login.
+  await passwordInput.fill(password);
+  await emailInput.fill(email);
+  await expect(emailInput).toHaveValue(email);
+  await expect(passwordInput).toHaveValue(password);
+
+  const loginResponse = page.waitForResponse((response) => {
+    const url = new URL(response.url());
+    return response.request().method() === 'POST' && url.pathname === '/login';
+  });
   await page.getByRole('button', { name: 'Sign in' }).click();
+  await loginResponse;
 }
 
 export async function logout(page) {

@@ -1,8 +1,11 @@
 <?php
 
+$defaultAllowedHosts = env('APP_ENV') === 'acceptance'
+    ? 'downloads.example.test'
+    : '';
 $allowedHosts = array_values(array_filter(array_map(
     static fn (string $host): string => strtolower(rtrim(trim($host), '.')),
-    explode(',', (string) env('DOWNLOADS_ALLOWED_ARTIFACT_HOSTS', '')),
+    explode(',', (string) env('DOWNLOADS_ALLOWED_ARTIFACT_HOSTS', $defaultAllowedHosts)),
 )));
 
 return [
