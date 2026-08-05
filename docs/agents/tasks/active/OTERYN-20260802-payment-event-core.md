@@ -5,7 +5,7 @@ agent: payment-event-core continuation owner
 project_lane: payments
 track: backend-security
 created: 2026-08-02T14:45:00+02:00
-updated: 2026-08-05T09:35:00+02:00
+updated: 2026-08-05T09:38:00+02:00
 product_issue: 470
 parent_issue: 321
 product_pr: 471
@@ -85,21 +85,70 @@ No real provider, payment credential, charge, customer financial data, public we
 ## Context checkpoint
 
 ```yaml
-checkpoint_version: 2
-head: a128c184c5b581c20b7cda1e2e6980c63bf1117a
+checkpoint_version: 1
+updated_at: 2026-08-05T09:38:00+02:00
+head: 72ed8af55c2dc48ebdfd83cc5861aa2e45f81691
 branch: feat/OTERYN-20260802-payment-event-core
 pr: 471
 status: validating
-base_synced_to: 11541f2cce94ed6026d4d72a0a4013e64cafc380
-observed_passes:
-  - Agent Governance
-  - Portal Exhaustive Audit
-pending:
-  - terminal exact-head CI matrix
-  - ready-for-review transition
-  - protected squash merge
-  - archive move
-material_findings: 0
-unresolved_review_threads: 0
-next_action: Complete exact-head validation, archive this record, mark PR ready, squash-merge PR #471 and close Issue #470 while leaving Issue #321 open.
+context_routes:
+  - payments
+  - security
+  - database
+  - testing
+owned_paths:
+  - app/Payments/**
+  - app/Operations/ProductionConfigurationVerifier.php
+  - app/Providers/AppServiceProvider.php
+  - config/payments.php
+  - database/migrations/*payment*
+  - tests/Unit/Payments/**
+  - tests/Feature/Payments/**
+  - tests/Feature/Operations/ProductionConfigurationVerifierTest.php
+  - docs/architecture/adr/*payment*
+  - docs/operations/PAYMENTS_SECURITY_FOUNDATION.md
+  - docs/agents/tasks/active/OTERYN-20260802-payment-event-core.md
+  - docs/agents/tasks/archive/OTERYN-20260802-payment-event-core.md
+  - docs/agents/evidence/OTERYN-20260802-payment-event-core/**
+proven:
+  - PAY-CORE-001 is remediated by one guard before database work or provider resolution in all three public payment actions.
+  - The two PHPStan mixed-argument failures are removed by narrowing the pcntl wait status to int without suppressions.
+  - The deterministic test provider refuses production execution and production configuration remains fail-closed.
+  - The branch is synchronized with main commit 11541f2cce94ed6026d4d72a0a4013e64cafc380.
+  - Independent review found zero material findings and zero unresolved review threads.
+derived:
+  - The provider-neutral producer slice is ready for terminal exact-head validation and protected merge once the workflow matrix passes.
+unknown:
+  - Terminal conclusion of the exact-final-head workflow matrix.
+conflicts: []
+first_failure:
+  marker: Agent Governance checkpoint contract
+  evidence: The prior shortened checkpoint used unsupported nested keys; this revision restores contract version 1 and every required field.
+rejected_hypotheses:
+  - The temporary payment bootstrap workflow is required after generated source exists.
+  - A disabled payment action may safely resolve a provider before checking the feature flag.
+  - Issue 321 can close with this producer-only slice.
+changed_paths:
+  - app/Payments/**
+  - app/Operations/ProductionConfigurationVerifier.php
+  - app/Providers/AppServiceProvider.php
+  - config/payments.php
+  - database/migrations/2026_08_02_124700_create_payment_event_core_tables.php
+  - tests/Feature/Payments/**
+  - tests/Feature/Operations/ProductionConfigurationVerifierTest.php
+  - tests/Unit/Payments/**
+  - docs/architecture/adr/0021-provider-neutral-payment-security-core.md
+  - docs/operations/PAYMENTS_SECURITY_FOUNDATION.md
+  - docs/agents/evidence/OTERYN-20260802-payment-event-core/README.md
+  - docs/agents/tasks/active/OTERYN-20260802-payment-event-core.md
+validation:
+  - command: GitHub Actions Agent Governance on 72ed8af55c2dc48ebdfd83cc5861aa2e45f81691
+    result: FAIL
+    evidence: The validator rejected unsupported nested checkpoint keys; production code was not implicated and this checkpoint now conforms to contract version 1.
+  - command: Independent payment security and persistence review
+    result: PASS
+    evidence: Zero material findings, zero submitted reviews and zero unresolved inline review threads.
+blockers:
+  - Exact-final-head GitHub Actions have not yet reached a terminal green result.
+next_action: Run the exact-head workflow matrix on the corrected checkpoint, then archive the task, mark PR 471 ready and perform the protected squash merge while leaving Issue 321 open.
 ```
