@@ -8,7 +8,6 @@ required_reads:
 search_first:
   - Issue #583 claim state
   - PRs #332 and #629
-  - branch docs/OTERYN-20260730-game-catalog-schema-1-3-architecture
   - active programme Issue #330 and downstream PR #338
 optional_reads: []
 ---
@@ -28,7 +27,7 @@ Archive the completed schema 1.3 NPC/shop architecture-proposal slice and releas
 - [x] Programme #330, proposal bytes/hashes and PR #338 remain unchanged.
 - [x] The historical source branch is terminally classified.
 - [x] No forbidden contract, product, migration, workflow, Canary, staging or production changes.
-- [ ] Exact-head workflows pass with zero unresolved review threads.
+- [x] Exact-head workflows passed with zero unresolved review threads on validation head `40e1f56e32be956c66628cad6ae8fb8ca1c00363`.
 
 ## Ownership
 
@@ -43,7 +42,7 @@ dependencies:
   - Issue #583
   - PR #332 merged
 blockers:
-  - none
+  - fresh independent validator required before merge
 cross_repository_tasks:
   - none
 ```
@@ -53,27 +52,27 @@ cross_repository_tasks:
 ```yaml
 checkpoint_version: 1
 policy_version: 2
-updated_at: 2026-08-05T21:15:00Z
-phase: validate
+updated_at: 2026-08-05T21:20:00Z
+phase: audit
 session_id: chatgpt-20260805T2307+0200-game-catalog-schema-closeout
 session_role: implementer
 execution_mode: chat
 execution_reason: narrow lifecycle reconciliation
-lease_expires_at: 2026-08-05T22:00:00Z
+lease_expires_at: none
 context_pressure: low
 context_growth: stable
 context_score: 4
 estimate_confidence: high
 decomposition_decision: single
 validation_level: full
-heavy_validation_runs: 0
+heavy_validation_runs: 1
 session_rotation_count: 0
 stale_takeover_count: 0
 human_interruptions: 1
-head: 4d2ecf195a20caa6d834056d549545284b6ab727
+head: 40e1f56e32be956c66628cad6ae8fb8ca1c00363
 branch: repair/issue-583
 pr: 629
-status: validating
+status: waiting
 context_routes:
   - agent-governance
 owned_paths:
@@ -88,11 +87,18 @@ proven:
   - Programme #330, proposal bytes/hashes and downstream PR #338 remain unchanged.
   - The stale active task was removed and an archive with empty ownership/no next action was added.
   - The branch diff contains only three task lifecycle paths.
+  - CI 31047854003 passed on 40e1f56e32be956c66628cad6ae8fb8ca1c00363.
+  - Agent Governance 31047853014 passed on 40e1f56e32be956c66628cad6ae8fb8ca1c00363.
+  - Edge Security Emulation 31047853726 passed on 40e1f56e32be956c66628cad6ae8fb8ca1c00363.
+  - Platform DB Outage Validation 31047853496 passed on 40e1f56e32be956c66628cad6ae8fb8ca1c00363.
+  - Phase 7 Production-Like Validation 31047854053 passed on 40e1f56e32be956c66628cad6ae8fb8ca1c00363.
+  - Game Auth Ticket Concurrency 31047853990 passed on 40e1f56e32be956c66628cad6ae8fb8ca1c00363.
+  - PR #629 has zero unresolved review threads.
 derived:
   - Authoritative proposal artifacts can remain while historical task ownership is released.
   - Runtime E2E is not applicable because no contract bytes, product or runtime behavior changed.
 unknown:
-  - exact-head workflow conclusions
+  - independent audit conclusion
 conflicts: []
 first_failure:
   marker: none
@@ -110,10 +116,13 @@ validation:
   - command: runtime E2E
     result: NOT_APPLICABLE
     evidence: documentation/ownership-only repair
-  - command: exact-head workflows for PR #629
-    result: NOT_RUN
-    evidence: PR will be marked ready
+  - command: all six workflows on 40e1f56e32be956c66628cad6ae8fb8ca1c00363
+    result: PASS
+    evidence: workflow IDs recorded above
+  - command: PR #629 review-thread inventory
+    result: PASS
+    evidence: zero review threads
 blockers:
-  - none
-next_action: Mark PR #629 ready and verify all emitted workflows and review threads.
+  - fresh independent validator must falsify lifecycle acceptance before merge
+next_action: Fresh independent validator audits PR #629 exact diff and lifecycle outcome; merge only after zero material findings.
 ```
