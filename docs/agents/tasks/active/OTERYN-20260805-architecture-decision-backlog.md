@@ -33,13 +33,12 @@ Define the authority, schema, lifecycle and deterministic validation boundary fo
 - [x] Current authority and programme-state boundaries were grounded in ADR 0022 and live repository evidence.
 - [x] At least two meaningful alternatives plus status quo were compared.
 - [x] One recommendation and exact owner question were recorded.
-- [x] A collision-free proposed ADR was allocated from live state.
-- [x] No runtime, workflow, migration, deployment, infrastructure, production or external-repository path changed.
 - [x] Repository owner accepted Option B.
-- [x] ADR 0023 was updated to Accepted and a separate bounded implementation handoff was recorded.
-- [x] Exact-head workflows passed with zero unresolved review threads.
-- [ ] Protected-main required-check policy permits the documentation-only PR to merge without bypassing protection.
-- [ ] PR #604 is merged, this task is archived and ownership is released.
+- [x] ADR 0023 records the accepted authority, lifecycle, schema and validation boundary.
+- [x] Issue #552 repaired the protected documentation-only check mismatch through PR #626 without weakening runtime tests.
+- [ ] The synchronized documentation-only head proves `runtime-tests=skipped` while `classify-changes` and `test` pass.
+- [ ] PR #604 merges through protected main.
+- [ ] This task is archived, ownership is released and Issue #602 is closed.
 
 ## Ownership
 
@@ -61,42 +60,24 @@ forbidden_paths:
   - repository branch-protection settings
   - production and staging systems
   - external repositories
-blockers:
-  - Issue #552 required-check policy is inconsistent with conditional CI execution for documentation-only changes
-after_unblock:
-  - merge PR #604 at the validated exact head
+blockers: []
+after_merge:
   - archive this design task
   - release all five owned paths
   - close Issue #602 as completed
-  - start a separate bounded remediation task for the accepted ADR 0023 implementation
+  - create a separate bounded remediation task for the accepted ADR 0023 implementation
 ```
 
 ## Context checkpoint
 
 ```yaml
 checkpoint_version: 1
-policy_version: 2
-updated_at: 2026-08-05T21:03:00Z
+updated_at: 2026-08-05T21:54:00Z
 phase: validate
-session_id: chatgpt-20260805T2231+0200-architecture-decision-backlog
-session_role: architecture-adviser
-execution_mode: chat
-execution_reason: bounded GitHub-only architecture review
-lease_expires_at: 2026-08-05T22:30:00Z
-context_pressure: low
-context_growth: stable
-context_score: 4
-estimate_confidence: high
-decomposition_decision: single
-validation_level: documentation
-heavy_validation_runs: 1
-session_rotation_count: 0
-stale_takeover_count: 0
-human_interruptions: 1
-head: 155053448e1b090dd47f7b0bf84d7d2ea223109b
+head: 3795f6ba8a3b56cf787303b23d5aebe943823d3f
 branch: task/OTERYN-20260805-architecture-decision-backlog
 pr: 604
-status: blocked
+status: validating
 context_routes:
   - architecture
   - agent-governance
@@ -108,34 +89,27 @@ owned_paths:
   - docs/architecture/adr/0023-machine-readable-architecture-decision-backlog.md
   - docs/architecture/adr/README.md
 proven:
-  - Current architecture authority is defined by accepted ADR 0022 and ARCHITECTURE_AUTHORITY.md.
-  - The programme embeds a compact decision_backlog but no independent schema or validator exists.
-  - The ADR registry already has separate fail-closed validation and must not be duplicated.
-  - Repository-file, Issue and PR searches found no existing machine-readable architecture decision backlog owner.
-  - Issue #602 records the bounded decision and three alternatives.
-  - The repository owner accepted Option B in the current invocation and the decision was recorded on Issue #602.
+  - ADR 0022 defines the architecture authority boundary.
+  - No prior machine-readable architecture decision backlog owner existed.
+  - The repository owner accepted Option B on Issue #602.
   - ADR 0023 records the accepted dedicated JSON backlog model and separate implementation handoff.
-  - PR #604 head 0c3845b0a7a9a30f81fe42fcb2825693aacc20c4 passed all eight emitted workflows and has zero unresolved review threads.
-  - CI run 31046599415 reports classify-changes success and test skipped for the documentation-only change set.
-  - Main protection requires classify-changes and test; the merge API rejected the validated head with HTTP 405 because both required checks were expected.
-  - Issue #552 already owns protected-main and required exact-head check alignment; the new evidence was appended there.
+  - The original documentation package passed every emitted workflow but exposed the skipped required test-context defect.
+  - PR #626 merged as 8c0c19253bdc938876cdeeae24455b27e91c4049 and now emits an aggregate protected test context for every PR.
+  - Runtime-classified validation on PR #626 executed and passed the full MariaDB/PHP test lane before the aggregate test gate succeeded.
+  - PR #604 was synchronized with main through a merge commit that preserves current repository state and the accepted three new design artifacts.
 derived:
-  - A dedicated JSON backlog provides the clearest boundary between unresolved obligations, accepted ADR authority, Issue workflow and programme continuation.
-  - The design package is complete but cannot be merged safely until the required-check policy and conditional CI model agree.
+  - The current PR #604 generation is the real documentation-only acceptance proof for Issue #552.
 unknown:
-  - Issue #552 repair implementation and validation head
-  - final PR #604 merge commit and design-task archive commit
-conflicts:
-  - Protected-main requires a successful test context while the CI workflow intentionally skips that job for documentation-only changes.
+  - Exact synchronized PR #604 CI conclusions and merge commit.
+conflicts: []
 first_failure:
-  marker: protected-branch-required-check-mismatch
-  evidence: merge API HTTP 405 after all emitted workflows passed; CI job test concluded skipped
+  marker: none
+  evidence: Issue #552 root cause is repaired on main; current validation is an acceptance proof, not a known defect.
 rejected_hypotheses:
-  - The existing ADR registry can also serve as the unresolved-decision backlog.
-  - GitHub Issues alone provide reproducible exact-head repository validation.
-  - The programme queue can become a permanent registry without changing its authority role.
-  - A branch-protection bypass is an acceptable closeout path.
-  - Removing test enforcement without an always-running replacement gate preserves runtime safety.
+  - Use the ADR registry as the unresolved-decision backlog.
+  - Use GitHub Issues alone as deterministic authority.
+  - Bypass protected main for documentation-only work.
+  - Remove runtime test enforcement.
 changed_paths:
   - docs/agents/programs/OTERYN_PLATFORM_ARCHITECTURE_REVIEW.md
   - docs/agents/reports/OTERYN-20260805-architecture-decision-backlog-review.md
@@ -143,28 +117,15 @@ changed_paths:
   - docs/architecture/adr/0023-machine-readable-architecture-decision-backlog.md
   - docs/architecture/adr/README.md
 validation:
-  - command: repository, Issue and PR duplicate search
-    result: PASS
-    evidence: no existing machine-readable architecture decision backlog owner found
-  - command: ADR allocation inventory and open architecture PR search
-    result: PASS
-    evidence: highest observed prefix was 0022 and no competing 0023 allocation existed
   - command: owner decision reconciliation
     result: PASS
-    evidence: Option B acceptance is recorded on Issue #602 and ADR 0023 is Accepted
-  - command: exact-head GitHub Actions at 0c3845b0a7a9a30f81fe42fcb2825693aacc20c4
+    evidence: Option B acceptance is recorded on Issue #602 and ADR 0023 is Accepted.
+  - command: required CI gate repair
     result: PASS
-    evidence: all eight emitted workflows completed successfully
-  - command: PR review-thread inventory
-    result: PASS
-    evidence: zero unresolved review threads
-  - command: protected-main merge gate
-    result: BLOCKED
-    evidence: required test context is skipped for documentation-only changes and merge API returns HTTP 405
+    evidence: PR #626 merged through protected main after classify-changes, runtime-tests and aggregate test passed.
   - command: runtime E2E
     result: NOT_APPLICABLE
-    evidence: documentation-only architecture decision review changes no executable behavior
-blockers:
-  - Issue #552 must provide one stable always-emitted merge gate that accepts explicit documentation-only non-applicability while preserving full runtime test enforcement.
-next_action: Repair Issue #552 without bypassing protection, then revalidate and merge PR #604, archive this design task and start the separate ADR 0023 implementation package.
+    evidence: this package changes architecture decision documentation only.
+blockers: []
+next_action: Complete the documentation-only acceptance run on PR #604, merge through protected main, archive the task and start the separate ADR 0023 implementation package.
 ```
