@@ -94,17 +94,17 @@ delivery_matrix:
 ```yaml
 checkpoint_version: 1
 policy_version: 2
-updated_at: 2026-08-05T16:06:00Z
-head: 245e7f9e20825168c6a0e406e5ab5572c5473c34
+updated_at: 2026-08-05T16:08:00Z
+head: bf8a354ffec49dbc8a8eeb586adf2e3638ebf9b7
 branch: audit/20260805-implementation-ownership-lifecycle
-pr: none
+pr: 572
 status: validating
-phase: close
+phase: final_ci
 session_id: chat-20260805-platform-audit-continuation
 session_role: auditor
 execution_mode: github-only
 execution_reason: live task, PR, branch, archive and blocker reconciliation with narrow evidence writes
-lease_expires_at: 2026-08-05T16:51:00Z
+lease_expires_at: 2026-08-05T16:53:00Z
 context_pressure: medium
 context_growth: stable
 context_score: 9
@@ -129,6 +129,7 @@ proven:
   - Synology runner-boundary task remains ready on PR 128 and claims deployment/workflow paths although every acceptance criterion is complete and PR #128 is merged.
   - Validation-cost policy task remains validating on PR 129 and claims governance-document paths although every acceptance criterion is complete and PR #129 is merged.
   - Issues #565, #566, #567, #570 and #571 record independent concrete lifecycle ownership after negative duplicate searches.
+  - PR #572 contains only the four declared audit/governance paths.
 derived:
   - Completed implementation ownership must be released without discarding legitimate later verification or activation blockers.
   - The five Issues can be remediated independently because their task/archive paths and branches are distinct and product/workflow paths are forbidden.
@@ -156,12 +157,12 @@ validation:
   - command: runtime E2E
     result: NOT_APPLICABLE
     evidence: documentation-only audit with no product, workflow, deployment, production or historical-task mutation
-  - command: exact-head GitHub Actions
+  - command: PR #572 exact-head GitHub Actions
     result: NOT_RUN
-    evidence: PR not opened yet
+    evidence: final metadata head requires exact-head verification
 blockers:
   - none
-next_action: Open the audit PR, record its identity, and verify all emitted exact-head checks and review hygiene.
+next_action: Verify all emitted workflows, changed paths, diff, links and review threads on the final PR #572 head, then mark ready and squash-merge.
 ```
 
 ## Notes
