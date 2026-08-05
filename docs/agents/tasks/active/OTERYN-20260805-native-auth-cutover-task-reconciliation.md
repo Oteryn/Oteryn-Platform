@@ -31,7 +31,8 @@ Reconcile the stale native-auth production-cutover lifecycle without touching ru
 - [x] A narrow verification-only active record preserves unresolved exact-revision E2E and production network/TLS/secret evidence as blocked or unknown.
 - [x] Active PR #542, runtime, contracts, workflows, production systems and external repositories remain untouched.
 - [x] The historical branch `task/OTERYN-20260723-native-auth-production-cutover` is explicitly classified as retained evidence-only with no ownership or execution role.
-- [ ] Exact-head governance validation passes and review threads are clear.
+- [x] The exact changed-file set received a fresh proportionate audit with zero material findings.
+- [ ] Required exact-head checks pass and review threads remain clear on the final live PR head.
 
 ## Ownership
 
@@ -57,11 +58,11 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-05T20:47:00Z
-head: 4e1d0486f751d530c3ae15886c153f2796eb9e3e
+updated_at: 2026-08-05T20:49:00Z
+head: resolved-from-live-pr-603
 branch: repair/issue-565
 pr: 603
-status: validating
+status: ready
 context_routes:
   - architecture-governance
   - auth-identity
@@ -79,10 +80,11 @@ proven:
   - The remaining exact-revision E2E and production evidence gates now live in a blocked verification-only record owning only itself.
   - The historical branch is classified as retained evidence-only and may be deleted after reconciliation without affecting PR 542 or verification work.
   - No runtime, route, contract, workflow, environment, production or external-repository path changed.
+  - Fresh audit of the exact four-file lifecycle diff found zero critical, high or material-medium findings.
 derived:
   - The stale lifecycle conflict is repaired while all real safety gates remain fail-closed and explicit.
 unknown:
-  - final exact-head governance result for PR 603
+  - final exact-head required-check result, to be resolved from live PR 603 after this checkpoint commit
 conflicts: []
 first_failure:
   marker: stale-task-lifecycle
@@ -102,12 +104,12 @@ validation:
   - command: E2E applicability assessment
     result: NOT_APPLICABLE
     evidence: this repair changes only task lifecycle documentation; required native-auth E2E remains explicitly NOT_RUN in the separate blocked verification-only task
-  - command: fresh proportionate documentation audit
-    result: NOT_RUN
-    evidence: pending inspection of the exact final PR diff and live task states
-  - command: exact-head Agent Governance
-    result: NOT_RUN
-    evidence: pending final head generation
+  - command: fresh proportionate documentation audit on PR 603 head c7157cc430a4d1e6a3edba01e7da2bb51eb3967a
+    result: PASS
+    evidence: exact changed-file inventory and full lifecycle diff preserve blockers, release runtime ownership, avoid PR 542 and contain no material contradiction
+  - command: CI and Agent Governance on PR 603 head c7157cc430a4d1e6a3edba01e7da2bb51eb3967a
+    result: PASS
+    evidence: CI run 31045617617 and Agent Governance run 31045617607 completed successfully; final checkpoint commit requires one exact-head revalidation
 blockers: []
-next_action: Inspect the exact final diff as a fresh validator, correct any lifecycle contradiction, then verify exact-head Agent Governance and PR hygiene.
+next_action: Verify required checks and zero review threads on the final live PR 603 head, mark the PR ready and squash-merge it.
 ```
