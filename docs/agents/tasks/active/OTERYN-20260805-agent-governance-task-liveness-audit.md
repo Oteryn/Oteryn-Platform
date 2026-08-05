@@ -82,17 +82,17 @@ delivery_matrix:
 ```yaml
 checkpoint_version: 1
 policy_version: 2
-updated_at: 2026-08-05T15:34:00Z
-head: 968c8adc912beef0119da21a345b0afadc45a494
+updated_at: 2026-08-05T15:37:00Z
+head: be589e73fb8f649ddef712f0974e04a64521f4f2
 branch: audit/20260805-agent-governance-task-liveness
-pr: none
+pr: 559
 status: validating
-phase: close
+phase: final_ci
 session_id: chat-20260805-platform-audit-continuation
 session_role: auditor
 execution_mode: github-only
 execution_reason: live GitHub/task reconciliation and narrow audit-evidence writes
-lease_expires_at: 2026-08-05T16:19:00Z
+lease_expires_at: 2026-08-05T16:22:00Z
 context_pressure: medium
 context_growth: stable
 context_score: 8
@@ -116,6 +116,7 @@ proven:
   - control_room.py derives state from local status and age without live PR or branch reconciliation.
   - Game Gateway MVP, Announcements/Events and Download Center tasks remain active although PRs 122, 157 and 161 are merged, archives are missing and branches remain.
   - Issue #558 records OPA-GOV-0003 after negative duplicate and ownership searches.
+  - PR #559 contains only the four declared audit/governance paths.
 derived:
   - A schema-valid checkpoint can preserve false ownership and invalid continuation indefinitely while Agent Governance remains green.
 unknown:
@@ -141,12 +142,12 @@ validation:
   - command: runtime E2E
     result: NOT_APPLICABLE
     evidence: documentation-only audit with no governance or runtime mutation
-  - command: exact-head GitHub Actions
+  - command: PR #559 exact-head GitHub Actions
     result: NOT_RUN
-    evidence: PR not opened yet
+    evidence: final metadata head requires exact-head verification
 blockers:
   - none
-next_action: Open the audit PR, record its identity, and verify all emitted exact-head checks and review hygiene.
+next_action: Verify all emitted workflows, changed paths, diff, links and review threads on the final PR #559 head, then mark ready and squash-merge.
 ```
 
 ## Notes
