@@ -20,7 +20,7 @@ The initial native implementation has exactly one identity:
 | schema revision | `2` | this contract/IDL |
 | schema SHA-256 | `9c67f19525400fb9890d2a3541ceb6d02eb955061540ad39ca1c1d891c06eba9` | exact canonical IDL bytes |
 
-There is no native profile field, value, placeholder, catalogue, enum, registry, factory, ordering or user/admin selection. `oteryn.native.v1` is not a native identity. Future native variants require a separate ADR, contract/schema revision and coordinated migration.
+There is no native profile field, value, placeholder, catalogue, enum, registry, factory, ordering or user/admin selection. No dotted native profile identifier is part of the native identity. Future native variants require a separate ADR, contract/schema revision and coordinated migration.
 
 Canary compatibility profiles remain a separate compatibility mechanism. They are not changed by this contract and must not be imported into native Oteryn structures.
 
