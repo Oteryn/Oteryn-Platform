@@ -5,6 +5,7 @@ project_lane: oteryn-platform-core
 repository: blakinio/Oteryn-Platform
 issue: 567
 branch: repair/issue-567
+pull_request: 604
 claim_nonce: issue-567-20260805T2242+0200
 coordination_key: task-lifecycle:OTERYN-20260724-liquid20-synology-control
 session_id: chatgpt-20260805T2242+0200-liquid20-closeout
@@ -76,11 +77,11 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-05T20:42:00Z
-head: UNKNOWN
+updated_at: 2026-08-05T20:43:00Z
+head: 73359aea10bb556e59b582daa42b5b7fda5ffa8d
 branch: repair/issue-567
-pr: none
-status: investigating
+pr: 604
+status: implementing
 context_routes:
   - architecture
   - testing
@@ -92,6 +93,7 @@ owned_paths:
 proven:
   - Issue 567 is implementation-authorized, parallel-safe and unclaimed at preflight.
   - The deterministic branch repair/issue-567 was acquired from main aa3ddcd0513708276920cb2734f7be845c3f177a.
+  - Draft pull request 604 targets main from the deterministic repair branch.
   - PR 216 is terminal merged evidence for the historical Liquid20 archive task.
   - The historical active alias and canonical archive coexist on main with stale ready/merge state.
 derived:
@@ -110,7 +112,7 @@ validation:
     result: PASS
     evidence: Issue labels, claim comments, related PR search, active/archive records and main head were inspected.
 blockers: []
-next_action: Open the draft repair PR, activate the claim, then reconcile the historical active/archive pair.
+next_action: Reconcile the historical active/archive pair without touching forbidden paths.
 ```
 
 ## Notes
