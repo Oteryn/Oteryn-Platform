@@ -25,6 +25,7 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: '1.24.x'
+          cache: false
       - name: Transform producer
         shell: python
         run: |
@@ -110,20 +111,16 @@ jobs:
               "$table->unsignedTinyInteger('native_protocol_version');",
               text,
           )
-          text = text.replace("['enabled', 'family', 'native_protocol_version']", "['enabled', 'family', 'native_protocol_version']")
           migration.write_text(text, encoding="utf-8")
 
           registry = Path("app/GameAuth/Worlds/DatabaseWorldRegistry.php")
           text = registry.read_text(encoding="utf-8")
           text = text.replace("! $this->isIdentifier($candidate->native_protocol_version)", "$candidate->native_protocol_version !== 1")
-          text = text.replace("$candidate->native_protocol_version === 1", "$candidate->native_protocol_version === 1")
-          text = text.replace("nativeProtocolVersion: $candidate->native_protocol_version", "nativeProtocolVersion: $candidate->native_protocol_version")
           text = text.replace("$candidate->schema_revision !== 1", "$candidate->schema_revision !== 2")
           registry.write_text(text, encoding="utf-8")
 
           native = Path("services/game-gateway/internal/gateway/native_protocol.go")
           text = native.read_text(encoding="utf-8")
-          text = text.replace("candidate.NativeProtocolVersion == 1", "candidate.NativeProtocolVersion == 1")
           text = text.replace("candidate.SchemaRevision != 1", "candidate.SchemaRevision != 2")
           native.write_text(text, encoding="utf-8")
 
@@ -141,15 +138,17 @@ jobs:
                   forbidden.append(f"{name}: active profile field")
           if forbidden:
               raise SystemExit("\n".join(forbidden))
-      - name: Format and validate
-        shell: bash
-        run: |
-          set -euo pipefail
-          gofmt -w services/game-gateway/internal
-          composer install --no-interaction --prefer-dist --no-progress
-          vendor/bin/pint --test app/GameAuth/Worlds app/Http/Controllers/GameAuth/GameLoginContextController.php database/migrations/2026_08_04_170000_add_native_gameplay_protocol_policy.php tests/Feature/GameAuth
-          php artisan test tests/Feature/GameAuth/GameLoginContextApiTest.php tests/Feature/GameAuth/WorldRegistryTest.php
-          (cd services/game-gateway && go test ./...)
+      - name: Format Go sources
+        run: gofmt -w services/game-gateway/internal
+      - name: Install PHP dependencies
+        run: composer install --no-interaction --prefer-dist --no-progress
+      - name: Validate PHP formatting
+        run: vendor/bin/pint --test app/GameAuth/Worlds app/Http/Controllers/GameAuth/GameLoginContextController.php database/migrations/2026_08_04_170000_add_native_gameplay_protocol_policy.php tests/Feature/GameAuth
+      - name: Test Platform registry and API
+        run: php artisan test tests/Feature/GameAuth/GameLoginContextApiTest.php tests/Feature/GameAuth/WorldRegistryTest.php
+      - name: Test Game Gateway
+        working-directory: services/game-gateway
+        run: go test ./...
       - name: Commit migration
         shell: bash
         run: |
