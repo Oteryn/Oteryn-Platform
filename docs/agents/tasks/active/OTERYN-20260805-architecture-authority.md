@@ -9,7 +9,7 @@ branch: task/OTERYN-20260805-architecture-authority
 base_branch: main
 exact_base: 3ab77c072dce796b09004c54b649db009a75d524
 created: 2026-08-05T16:48:00+02:00
-updated: 2026-08-05T16:54:00+02:00
+updated: 2026-08-05T16:57:00+02:00
 risk: medium
 execution_mode: github-only
 task_kind: architecture-review
@@ -66,11 +66,11 @@ Issue #548 compares:
 
 Option B is recommended with high confidence because it preserves focused ownership, prevents duplicated truth and supports deterministic validation. It is not accepted until the owner or authoritative repository state records the decision.
 
-## Checkpoint
+## Context checkpoint
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-05T16:54:00+02:00
+updated_at: 2026-08-05T16:57:00+02:00
 status: blocked
 phase: owner-decision
 exact_base: 3ab77c072dce796b09004c54b649db009a75d524
