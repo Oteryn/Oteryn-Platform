@@ -1,24 +1,25 @@
 # Audit and Remediation Issue Taxonomy
 
 ```yaml
-taxonomy_version: 1
+taxonomy_version: 1.1
 repository: blakinio/Oteryn-Platform
 programmes:
   audit: OTERYN_PLATFORM_CONTINUOUS_AUDIT
   remediation: OTERYN_PLATFORM_REMEDIATION
+claim_protocol: docs/agents/REMEDIATION_WORK_CLAIM_PROTOCOL.md
 ```
 
 ## Purpose
 
-This contract lets the continuous auditor create consistently classified findings and lets multiple remediation agents claim independent work without editing the same paths, contracts or migration sequence.
+This contract lets the continuous auditor create consistently classified findings and lets multiple remediation agents discover independent work without editing the same paths, contracts or migration sequence.
 
-Labels are used for coarse GitHub filtering. The machine-readable `oteryn_work_item` block in every audit-created Issue is the source of truth for exact workstream, path ownership, dependencies and parallel-safety classification.
+Labels provide coarse GitHub filtering. The machine-readable `oteryn_work_item` block in every audit-created Issue is the source of truth for workstream, paths, dependencies and parallel-safety classification. The Issue claim plus active task record defined by `REMEDIATION_WORK_CLAIM_PROTOCOL.md` is the ownership lock.
 
-Labels alone never prove that work is safe to execute in parallel. Every remediation agent must verify active tasks, PRs and live changed paths before claiming an Issue.
+Labels, assignees, chat messages and local branches never prove that an Issue is safe or claimed.
 
 ## Required labels
 
-Use only labels that exist in the repository. The current baseline taxonomy uses:
+Use only labels that exist in the repository. The baseline taxonomy uses:
 
 ```yaml
 programme:
@@ -46,17 +47,18 @@ governance:
   - governance:managed
 ```
 
-Apply exactly one `type:*`, one `risk:*` and one `priority:*` label, plus both programme labels.
+Apply exactly one `type:*`, one `risk:*` and one `priority:*` label, plus both programme labels and `governance:managed`.
 
 State rules:
 
-- New evidence that still needs deduplication, acceptance or dependency review: `state:triage`.
+- New evidence needing deduplication, acceptance or dependency review: `state:triage`.
 - Confirmed, unblocked, implementation-authorized work with complete metadata: `agent:ready` and no `state:triage`/`state:blocked`.
 - Work that cannot proceed: `state:blocked`, with exact blockers and dependencies in the Issue body.
-- Claimed work is represented by an active task record, branch/PR link and a claim comment. Remove `agent:ready` after the claim is verified.
-- When remediation finishes and the merged outcome is independently verified, close the Issue as completed. Do not use labels as a substitute for verification.
+- A winning provisional claimant removes `agent:ready` only during activation after task/branch ownership is established.
+- After a valid release, restore `agent:ready` only when the Issue is revalidated, unblocked, implementation-authorized and truly unclaimed.
+- Close only after the merged outcome and every acceptance criterion are independently verified.
 
-Do not invent a label in an Issue create/update request when it does not exist. Extend the repository label taxonomy through a separately reviewed governance change when more GitHub-side filtering is required.
+Do not invent a label in an Issue request when it does not exist. Extend labels through a separately reviewed governance change when more GitHub-side filtering is required.
 
 ## Workstream classification
 
@@ -81,7 +83,7 @@ allowed_workstreams:
   - dependencies-tooling
 ```
 
-A secondary workstream may be listed when necessary, but one workstream remains the ownership and queue-routing key.
+A secondary workstream may be listed when necessary, but the primary workstream remains the ownership and queue-routing key.
 
 ## Required Issue title
 
@@ -89,7 +91,7 @@ A secondary workstream may be listed when necessary, but one workstream remains 
 [AUDIT][<WORKSTREAM>][<FINDING_ID>] <observable problem>
 ```
 
-Use stable uppercase finding IDs, for example `OPA-AUTH-0012` or `OPA-CI-0007`. Do not reuse an ID after an Issue is closed as duplicate or false positive.
+Use stable uppercase finding IDs, for example `OPA-AUTH-0012` or `OPA-CI-0007`. Do not reuse an ID after duplicate, false-positive or terminal closure.
 
 ## Required machine-readable Issue body
 
@@ -134,11 +136,15 @@ oteryn_work_item:
     - <observable criterion>
   suggested_task_id: OTERYN-YYYYMMDD-<slug>
   claim:
-    status: unclaimed | claimed | blocked | completed
+    protocol_version: 1
+    status: unclaimed | provisional | active | blocked | released | stale | completed
+    claim_nonce: none
+    session_id: none
     task: none
     branch: none
     pull_request: none
     claimed_at: none
+    lease_expires_at: none
 ```
 
 Keep secrets, raw tokens, production data and excessive logs out of the Issue body.
@@ -149,24 +155,24 @@ Set `parallel_safe` only when all are true:
 
 - exclusive paths do not overlap another ready or active Issue/task;
 - shared paths are empty, or a sequencing/lease mechanism is explicit;
-- no common migration ordering, schema contract, generated artifact or public API must be changed concurrently;
+- no common migration ordering, schema contract, generated artifact or public API must change concurrently;
 - no atomic cross-repository rollout is required;
 - acceptance can be independently implemented, validated, merged and rolled back;
 - one Issue completing cannot invalidate the other's assumptions.
 
 Set `serialized` when any apply:
 
-- both Issues touch the same module root, route group, service, policy, migration chain, frontend shell, workflow, shared test fixture or canonical contract;
-- one Issue changes a contract/types/schema consumed by another;
+- both Issues touch the same module root, route group, service, policy, migration chain, frontend shell, workflow, shared fixture or canonical contract;
+- one changes a contract/type/schema consumed by another;
 - merge order affects correctness;
 - both alter the same user journey or acceptance inventory;
-- independent PRs would require repeated conflict resolution or could produce a false-green integration state.
+- independent PRs could produce repeated conflicts or a false-green integration state.
 
 Set `blocked` when authority, product/architecture decision, external dependency, secret, environment or cross-repository contract is unresolved.
 
 ## Coordination keys
 
-Use a stable key that lets agents search for collisions before claiming work:
+Use a stable collision-search key:
 
 ```text
 module:<module-name>
@@ -178,43 +184,36 @@ frontend-shell:<shell-name>
 integration:<producer>-<consumer>
 ```
 
-Two `parallel_safe` Issues must not have the same coordination key unless their exclusive paths and acceptance are proven independent.
+Two `parallel_safe` Issues must not share a coordination key unless exclusive paths and acceptance are proven independent.
 
-## Claim protocol for remediation agents
+## Claim eligibility
 
-A remediation agent may claim an Issue only when:
+A remediation worker may attempt a claim only when:
 
-1. it has `agent:ready`;
-2. it does not have `state:triage` or `state:blocked`;
+1. the Issue has `agent:ready`;
+2. it has neither `state:triage` nor `state:blocked`;
 3. `implementation_authorized: true`;
-4. `parallelization.classification: parallel_safe`, or it is the sole serialized item selected by the coordinator;
-5. `claim.status: unclaimed`;
-6. all `blocked_by_issues` are terminally resolved;
-7. active task records, branches, PRs and changed paths show no overlap;
+4. it is `parallel_safe`, or the coordinator selected it as the sole serialized item;
+5. Issue metadata and claim comments show no valid live claim;
+6. every `blocked_by_issues` dependency is terminally resolved;
+7. active tasks, branches, PRs and changed paths show no overlap;
 8. required contracts/architecture decisions are accepted, not merely proposed.
 
-Claim sequence:
-
-1. create the active task record with exact `owned_paths` and coordination key;
-2. create a dedicated branch;
-3. add a claim comment containing task ID, branch, intended paths and timestamp;
-4. re-read the Issue, active tasks and open PRs;
-5. if another valid claim won the race, archive/close the duplicate claim without product mutation and select another Issue;
-6. otherwise remove `agent:ready`, update the Issue claim block when permitted, and open a draft PR early.
-
-The first valid durable claim wins. A chat message, local branch or unpushed task file is not a claim.
+The worker must then execute `docs/agents/REMEDIATION_WORK_CLAIM_PROTOCOL.md` exactly. It posts the provisional Issue claim before product edits. The earliest valid unexpired claim wins. The winner activates task/branch/PR ownership; later claimants release immediately and select another Issue.
 
 ## Multiple remediation agents
 
-The coordinator may run several remediation agents concurrently by selecting Issues that:
+A coordinator may dispatch several workers only for Issues that:
 
 - have different coordination keys;
 - have non-overlapping exclusive and shared paths;
-- have independent migration and rollout order;
-- do not depend on the same unaccepted ADR/contract;
-- do not require edits to a common canonical index or shared workflow in the same wave.
+- have independent migrations, contracts and rollout order;
+- do not depend on the same unaccepted ADR/decision;
+- do not require concurrent edits to a common canonical index, lockfile, root manifest, shared shell, migration sequence or CI workflow.
 
-Shared documentation indexes, dependency lockfiles, route registries, module catalogs, architecture registries and CI workflows should normally be assigned to one integration/closeout agent after independent implementation PRs are ready, rather than edited concurrently by every worker.
+Assign exactly one Issue number per worker. Coordinator dispatch is not a lock; each worker performs the global Issue claim protocol.
+
+Shared documentation indexes, dependency lockfiles, route registries, module catalogs, architecture registries, generated contracts and CI workflows should normally be assigned to one integration/closeout owner after independent implementation PRs are ready.
 
 ## Auditor responsibilities
 
@@ -224,22 +223,23 @@ Before marking an Issue `agent:ready`, the auditor must:
 - assign all required labels;
 - fill every mandatory metadata field;
 - define exclusive/shared/forbidden paths conservatively;
-- identify dependencies and rollout order;
-- classify whether the complete user-facing feature is in one Issue or split across exact dependent tasks;
-- set `implementation_authorized: false` when an owner/architecture decision is still needed;
-- keep uncertain path or dependency claims as `UNKNOWN` and use `state:triage` or `state:blocked` rather than guessing.
+- identify dependencies, coordination key and rollout order;
+- classify whether the complete user-facing feature is contained in the Issue or split across exact dependent tasks;
+- set `implementation_authorized: false` when an owner/architecture decision is required;
+- preserve uncertain paths/dependencies as UNKNOWN and use triage/blocked rather than guessing;
+- verify that no valid active claim already exists.
 
 ## Remediator responsibilities
 
-Before editing, the remediator must independently verify that the auditor's path and dependency classification still matches current main. If it does not, update the durable metadata or stop the claim; never rely on stale labels to justify overlapping work.
+Before claiming and again before editing, the remediator independently verifies that taxonomy, paths, dependencies and claim state match current main. Stale metadata must be corrected or the claim stopped; labels never justify overlapping work.
 
 ## Completion and release
 
 After merge and independent verification:
 
-- update the Issue claim state to `completed` or add exact terminal evidence when body editing is unsuitable;
-- link the merged PR and exact head/merge commit;
+- post the terminal claim-release/completion marker;
+- link the merged PR and exact merge commit;
 - reconcile the originating finding;
-- archive the task and release owned/shared paths;
-- close the Issue only when every acceptance criterion and required layer is proven;
-- if a dependent consumer remains, keep the parent capability open and report producer/consumer status truthfully.
+- archive the task and release all owned/shared paths;
+- close only when every acceptance criterion and required layer is proven;
+- keep a parent capability open when a required producer or consumer remains incomplete.
