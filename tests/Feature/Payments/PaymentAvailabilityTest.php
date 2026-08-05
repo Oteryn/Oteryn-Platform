@@ -64,6 +64,9 @@ final class PaymentAvailabilityTest extends TestCase
         self::assertSame(0, PaymentReconciliationEntry::query()->count());
     }
 
+    /**
+     * @param  callable(): void  $operation
+     */
     private function assertPaymentsDisabled(callable $operation): void
     {
         try {
