@@ -3,14 +3,14 @@ task_id: OTERYN-20260805-architecture-authority
 programme_id: OTERYN_PLATFORM_ARCHITECTURE_REVIEW
 issue: 548
 pull_request: 550
-status: waiting
+status: validating
 agent: ChatGPT
 branch: task/OTERYN-20260805-architecture-authority
 base_branch: main
 exact_base: 3ab77c072dce796b09004c54b649db009a75d524
 latest_main_reconciled: a7eb03d49e328e8115adb54e772c9c8366b737d3
 created: 2026-08-05T16:48:00+02:00
-updated: 2026-08-05T17:21:00+02:00
+updated: 2026-08-05T17:27:00+02:00
 risk: medium
 execution_mode: github-only
 task_kind: architecture-review
@@ -85,11 +85,11 @@ The deterministic ADR inventory also expanded the original collision finding: du
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-05T17:21:00+02:00
-head: 3d587e03394e0c6893523f5d0ee96ee35c7ce522
+updated_at: 2026-08-05T17:27:00+02:00
+head: d0ce6b9b88420cc9002da9c456d9af64b54c5f44
 branch: task/OTERYN-20260805-architecture-authority
 pr: 550
-status: waiting
+status: validating
 context_routes:
   - agent-governance
   - architecture
@@ -115,14 +115,14 @@ derived:
   - The accepted authority index prevents historical planning from silently overriding focused current sources.
   - Existing ADR collisions require a compatibility-safe validator and repair decision rather than renumbering in this task.
 unknown:
-  - Final exact-head CI and PR review/merge result.
+  - Final exact-head CI and PR review or merge result.
 conflicts:
   - Existing ADR numeric identifiers are not globally unique; the inventory exposes this without rewriting accepted history.
 first_failure:
   marker: Agent Governance checkpoint validation
-  evidence: Earlier run 31017720578 failed because PASS_WITH_GOVERNANCE_REMEDIATION is not an allowed machine-contract result value; the final checkpoint uses only PASS or WAITING.
+  evidence: Run 31019701360 failed because WAITING is a terminal invocation result, not an allowed checkpoint validation result; the pending exact-head check now uses NOT_RUN.
 rejected_hypotheses:
-  - The governance failure was not a runtime, database, edge, game-auth or production-like regression.
+  - The governance failure was not a runtime, database, edge, game-auth, protocol or production-like regression.
   - Runtime E2E is not required because the final diff is documentation-only.
   - REPOSITORY_MAP did not contain the missing lowercase overview reference on the inspected branch or current main.
 changed_paths:
@@ -145,12 +145,12 @@ validation:
   - command: exact PR changed-path audit
     result: PASS
     evidence: Declared paths are documentation-only; no runtime, workflow, contract, migration, dependency, deployment or infrastructure path is authorized.
-  - command: exact-head GitHub Actions
-    result: WAITING
-    evidence: Final checks must run after this checkpoint commit.
+  - command: exact-head GitHub Actions after checkpoint correction
+    result: NOT_RUN
+    evidence: A new exact-head workflow set is triggered by this checkpoint correction and must complete before the task can leave validation.
 blockers:
-  - Await exact-head CI and terminal PR review/merge state.
-next_action: Observe the final PR 550 head checks; if required gates pass, present the documentation-only PR for review/merge and close Issue 548 only after terminal PR state.
+  - Await exact-head CI and terminal PR review or merge state.
+next_action: Observe the new PR 550 head checks; when required gates pass, mark the documentation-only PR ready for review.
 ```
 
 ## E2E
