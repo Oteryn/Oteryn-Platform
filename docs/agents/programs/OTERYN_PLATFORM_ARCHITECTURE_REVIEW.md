@@ -1,8 +1,9 @@
 ---
 programme_id: OTERYN_PLATFORM_ARCHITECTURE_REVIEW
-programme_version: 1
+programme_version: 2
 canonical_prompt: docs/agents/prompts/OTERYN_PLATFORM_ARCHITECTURE_REVIEW_PROGRAM.md
 required_reads:
+  - docs/agents/OTERYN_PLATFORM_PROGRAM_SCOPE.md
   - docs/agents/SHORT_PROGRAM_INVOCATIONS.md
 repository: blakinio/Oteryn-Platform
 ---
@@ -16,8 +17,8 @@ Continuously challenge Platform architecture, repository structure and CI/CD; id
 ## Durable queue
 
 ```yaml
-programme_state_version: 1
-updated_at: 2026-08-05T13:45:00Z
+programme_state_version: 2
+updated_at: 2026-08-05T14:30:00Z
 status: ready
 current_review_domain: none
 active_task: none
@@ -30,6 +31,7 @@ ci_architecture_findings: unknown
 accepted_handoffs_ready_for_remediation: unknown
 proven:
   - The canonical architecture review prompt is repository-backed.
+  - This programme is immutably scoped to blakinio/Oteryn-Platform by docs/agents/OTERYN_PLATFORM_PROGRAM_SCOPE.md.
 derived:
   - The first review must reconcile existing ADRs, canonical architecture documents, active implementation work and CI evidence before proposing a new decision registry.
 unknown:
