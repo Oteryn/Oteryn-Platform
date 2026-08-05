@@ -1,23 +1,27 @@
 # Remediation Work Claim Protocol
 
 ```yaml
-claim_protocol_version: 1
+claim_protocol_version: 2
 repository: blakinio/Oteryn-Platform
 applies_to:
   - OTERYN_PLATFORM_REMEDIATION
   - audit-created implementation Issues
+atomic_lock: deterministic Git branch ref
+visibility_record: GitHub Issue claim comments
+ownership_record: active task checkpoint and pull request
 ```
 
 ## Purpose
 
 This contract prevents two remediation agents from implementing the same Issue or editing overlapping paths concurrently.
 
-The lock has two coordinated parts:
+A valid claim has three coordinated parts:
 
-1. **Issue claim** — the globally visible reservation and race arbiter.
-2. **Active task ownership** — the repository-backed declaration of exact paths, branch, PR, lease and continuation state.
+1. **Atomic branch lock** — the deterministic Git ref `repair/issue-<ISSUE_NUMBER>` is the race arbiter. GitHub can create one ref with that exact name; the first successful creation wins.
+2. **Issue claim** — machine-readable comments make ownership globally visible and record activation, renewal, takeover and release.
+3. **Active task ownership** — the repository-backed task checkpoint declares exact paths, coordination key, branch, PR, lease, recovery state and one `next_action`.
 
-Neither part alone is sufficient. A label, assignee, chat message, local branch, unpushed task record or agent UI spinner is not a valid lock.
+All three are required for an active claim. A label, assignee, chat message, local branch, arbitrary branch name, unpushed task record or UI spinner is not a lock.
 
 ## Lock states
 
@@ -32,26 +36,61 @@ claim_states:
   - completed
 ```
 
-- `unclaimed`: no valid live claim exists.
-- `provisional`: an agent has posted a claim marker but has not yet confirmed task/branch ownership.
-- `active`: the Issue claim, active task record, dedicated branch and draft/open PR agree.
-- `releasing`: the owner is closing or abandoning the claim without product mutation.
-- `released`: no agent owns the work; the Issue may return to `agent:ready` after revalidation.
-- `stale`: the lease expired and live state proves no agent is still writing.
+- `unclaimed`: no deterministic branch and no valid live claim exist.
+- `provisional`: eligibility is verified and a provisional Issue marker exists, but the deterministic branch has not yet been acquired.
+- `active`: deterministic branch, Issue activation marker, active task and draft/open PR agree.
+- `releasing`: the owner is closing or abandoning the claim without leaving ambiguous ownership.
+- `released`: ownership is terminally released; the Issue may return to `agent:ready` after revalidation.
+- `stale`: lease/recovery deadline expired and live state proves no worker is still writing.
 - `completed`: merged outcome is independently verified and ownership is released.
 
-## Canonical Issue claim marker
+## Deterministic lock identity
 
-The first action of a remediation agent, before product-code edits, is to post this machine-readable Issue comment:
+For Issue `#543`, the only valid initial remediation branch is:
+
+```text
+repair/issue-543
+```
+
+Rules:
+
+- Branch name is derived only from the repository and Issue number.
+- Do not append agent names, timestamps or random suffixes to bypass an existing lock.
+- Create the branch from the current synchronized `main` head after eligibility preflight.
+- A successful GitHub create-ref operation acquires the lock.
+- `already exists`, ref conflict or equivalent response means the lock was not acquired. Inspect the existing claim; do not create another implementation branch.
+- A pre-existing branch is never deleted or moved merely to obtain the claim.
+- Reopened or follow-up work after a terminal Issue requires either reuse under evidence-backed takeover or a separately approved new Issue. Do not create `-v2` branches silently.
+
+The Git ref is the race arbiter because Issue comments, labels and assignees do not provide atomic compare-and-set ownership.
+
+## Eligibility preflight
+
+Before any claim mutation, verify all of the following:
+
+1. The Issue has `agent:ready` and neither `state:triage` nor `state:blocked`.
+2. `implementation_authorized: true`.
+3. The work item is `parallel_safe`, or the coordinator selected it as the sole serialized item.
+4. `claim.status` is unclaimed/released/stale and no valid active claim marker exists.
+5. Every blocking Issue and required accepted contract is resolved.
+6. Active tasks, open PRs, branches, coordination keys and changed paths show no conflicting owner.
+7. The Issue metadata still matches current `main`.
+
+If any fact is `UNKNOWN` or conflicting, do not claim. Correct metadata or stop with the exact blocker.
+
+## Provisional marker
+
+Before attempting the branch lock, post this machine-readable Issue comment:
 
 ```yaml
 OTERYN_REMEDIATION_CLAIM:
-  protocol_version: 1
+  protocol_version: 2
   issue: <number>
   finding_id: <finding id>
   claim_nonce: <globally unique value>
   session_id: <agent/session identifier>
   task_id: <planned task id>
+  lock_branch: repair/issue-<number>
   coordination_key: <key from Issue metadata>
   intended_exclusive_paths:
     - <path or narrow glob>
@@ -61,107 +100,117 @@ OTERYN_REMEDIATION_CLAIM:
   state: provisional
 ```
 
-The claim comment must contain no secrets and must match the Issue metadata. A malformed or scope-expanding claim is invalid.
+This marker is visibility, not ownership. It cannot beat an agent that successfully acquires the deterministic branch ref.
 
-## Race arbitration
+## Atomic acquisition procedure
 
-After posting the provisional marker, the agent must re-read:
+1. Re-read the Issue, all claim/release comments, active tasks, open PRs and the deterministic branch.
+2. Attempt exactly once to create `repair/issue-<number>` from the verified current `main` head.
+3. If creation succeeds, record the exact base SHA and continue to activation.
+4. If creation fails because the ref exists or raced, re-read its task/PR/claim state:
+   - valid active claim: post a losing/release marker and select another Issue;
+   - stale candidate: follow the takeover procedure; do not create a competing branch;
+   - ambiguous state: stop with an ownership blocker.
+5. Never begin product edits while only provisional.
 
-- all Issue claim/release comments;
-- current Issue labels and metadata;
-- active task records;
-- open PRs and their branches/changed paths;
-- live ownership and leases.
+When several agents race, GitHub's unique ref creation determines the winner. Comment chronology is supporting evidence only.
 
-The winner is the earliest chronologically valid, unexpired provisional claim whose requested paths and coordination key match the Issue and do not overlap another active owner.
+A losing claimant posts:
 
-When two agents race:
+```yaml
+OTERYN_REMEDIATION_CLAIM_RELEASED:
+  protocol_version: 2
+  issue: <number>
+  claim_nonce: <nonce>
+  state: released
+  released_at: <timestamp>
+  reason: deterministic branch lock not acquired
+  winning_branch: repair/issue-<number>
+  next_action: select another eligible Issue
+```
 
-- the winner continues;
-- every later claimant must post a `released` marker, create no product mutation, remove any disposable branch/task it created when safe, and select another Issue;
-- timestamp order alone does not validate a claim whose scope, dependencies or authorization are invalid;
-- an agent may not overwrite or reinterpret another valid claim.
-
-The first valid global Issue claim wins. This rule is independent of which agent created a local branch first.
+It creates no product mutation and does not touch the winner's branch, task or PR.
 
 ## Activation sequence
 
-The winning provisional claimant must complete all steps before the provisional lease expires:
+The branch winner must activate before the provisional lease expires:
 
-1. Create the active task record from `docs/agents/tasks/TASK_TEMPLATE.md` with exact `owned_paths`, coordination key, Issue, session and lease.
-2. Create a dedicated branch from current synchronized `main`.
-3. Open a draft PR early when GitHub PR workflow is available.
-4. Re-read the Issue and live ownership one more time.
+1. On `repair/issue-<number>`, create the active task record from `docs/agents/tasks/TASK_TEMPLATE.md`.
+2. Record Issue, claim nonce, coordination key, exact `owned_paths`, shared paths, lease, recovery state and branch.
+3. Open one draft PR targeting `main`.
+4. Re-read the Issue, deterministic branch, task and open PRs once more.
 5. Remove `agent:ready` from the Issue.
-6. Post an activation comment:
+6. Post:
 
 ```yaml
 OTERYN_REMEDIATION_CLAIM_ACTIVATED:
-  protocol_version: 1
+  protocol_version: 2
   issue: <number>
   claim_nonce: <same nonce>
   state: active
   task_id: <task id>
   task_path: docs/agents/tasks/active/<task>.md
-  branch: <branch>
-  pull_request: <number or none with reason>
+  branch: repair/issue-<number>
+  pull_request: <number>
+  base_head_at_claim: <sha>
   exact_head: <sha>
   activated_at: <timestamp>
-  lease_expires_at: <timestamp derived from repository lease policy>
+  lease_expires_at: <timestamp from repository policy>
 ```
 
-7. Update the Issue `oteryn_work_item.claim` block when the programme has authority to edit it; otherwise the claim comments and task/PR are authoritative.
+7. Update the Issue `oteryn_work_item.claim` block when authorized; otherwise task, PR and claim comments remain authoritative.
 
-If activation cannot complete before the provisional lease expires, release the claim. Do not begin product edits under an unconfirmed provisional claim.
+If activation cannot complete, preserve exact state and release or mark blocked. Do not keep an unactivated branch as an indefinite lock.
 
 ## Active ownership and lease
 
-An active claim remains valid while all are true:
+An active claim remains valid only while:
 
+- `repair/issue-<number>` is the task branch;
 - the Issue claim nonce is not released or superseded;
-- the active task checkpoint names the same Issue, branch, PR, coordination key and owned paths;
-- the task lease is fresh under `docs/agents/PROJECT_LANES.json`;
+- the active task names the same Issue, branch, PR, coordination key and paths;
+- the task lease and recovery checkpoint are fresh;
 - live branch/PR state does not contradict the checkpoint;
-- no unresolved higher-priority ownership conflict exists.
+- no unresolved ownership or safety conflict exists.
 
-The task checkpoint is the detailed ownership source. The Issue claim is the global discovery source.
+The Issue is the global discovery surface. The task checkpoint is the detailed ownership and continuation source of truth. The deterministic branch is the atomic exclusion mechanism.
 
-Renew ownership only after measurable progress or a material checkpoint. When renewal is needed, update the task checkpoint and post one compact renewal comment:
+Renew only after measurable progress or a material checkpoint:
 
 ```yaml
 OTERYN_REMEDIATION_CLAIM_RENEWED:
-  protocol_version: 1
+  protocol_version: 2
   issue: <number>
   claim_nonce: <same nonce>
+  branch: repair/issue-<number>
   exact_head: <sha>
   checkpoint_updated_at: <timestamp>
   lease_expires_at: <timestamp>
   next_action: <one action>
 ```
 
-Do not create activity-only commits or comments merely to keep a claim alive.
+Do not create activity-only commits/comments to keep a claim alive.
 
 ## Stale-claim takeover
 
-A claim is not stale merely because the chat appears inactive.
+Chat silence or a UI spinner never proves abandonment.
 
-A replacement agent may take over only after it verifies:
+A replacement agent may take over the existing deterministic branch only after verifying:
 
-- the task lease and any recovery deadline have expired;
-- no worker is currently writing to the branch, PR, paths, runner or protected state;
-- the latest task checkpoint and recovery record are stale or explicitly waiting/ready for takeover;
-- live Git and PR state show no unrecorded progress;
-- takeover does not violate dependencies or cross-repository safety.
+- task lease and recovery deadline expired;
+- no worker is writing to the branch, PR, paths, runner or protected state;
+- live Git/PR state shows no unrecorded progress;
+- no external operation remains validly active;
+- takeover preserves dependencies and safety.
 
-Takeover uses the existing task/branch/PR when safe, increments recovery generation and preserves counters/deadlines. It does not create a second implementation branch by default.
-
-The takeover agent posts:
+Takeover normally reuses the same task, branch and PR. Increment recovery generation and preserve all counters, deadlines, run IDs, findings and exact heads.
 
 ```yaml
 OTERYN_REMEDIATION_CLAIM_TAKEOVER:
-  protocol_version: 1
+  protocol_version: 2
   issue: <number>
   previous_claim_nonce: <nonce>
+  branch: repair/issue-<number>
   new_session_id: <session>
   recovery_generation: <number>
   evidence: <expired lease and live-state identifiers>
@@ -169,74 +218,76 @@ OTERYN_REMEDIATION_CLAIM_TAKEOVER:
   next_action: <one action>
 ```
 
-If live ownership is ambiguous, stop with a blocker. Never guess that another agent is gone.
+If live ownership is ambiguous, stop. Never delete the branch and create a competing replacement.
 
 ## Release protocol
 
-Release before selecting another Issue when work is abandoned, superseded, blocked outside the task, or duplicated.
+Before abandoning, superseding, blocking or completing work:
 
-The owner must:
-
-1. preserve or close coherent work accurately;
-2. update the task checkpoint to `ready`, `waiting`, `blocked` or `completed`;
-3. reconcile/close the PR when appropriate;
-4. post a release marker;
-5. archive or release task ownership according to repository policy;
-6. restore `agent:ready` only when the Issue is still implementation-authorized, unblocked, revalidated and truly unclaimed.
+1. Preserve/close coherent work accurately.
+2. Set task status to `ready`, `waiting`, `blocked` or `completed` with one `next_action` when incomplete.
+3. Reconcile the PR and reviews.
+4. Post a release marker.
+5. Archive/release task ownership according to repository policy.
+6. Delete the deterministic branch only after its PR is terminal and no recovery or evidence dependency requires it.
+7. Restore `agent:ready` only after the Issue is revalidated as implementation-authorized, unblocked and unclaimed.
 
 ```yaml
 OTERYN_REMEDIATION_CLAIM_RELEASED:
-  protocol_version: 1
+  protocol_version: 2
   issue: <number>
   claim_nonce: <nonce>
+  branch: repair/issue-<number>
   state: released | completed | blocked
   released_at: <timestamp>
   task_id: <task>
   pull_request: <number or none>
   reason: <exact reason>
+  branch_terminal_state: retained | deleted
   next_action: <one action or none>
 ```
 
-## Shared-path rule
+## Shared-path serialization
 
-Paths such as these are serialized by default:
+These paths are serialized by default:
 
-- dependency lockfiles and root manifests;
+- root manifests and dependency lockfiles;
 - shared route registries;
 - common frontend shells/layouts;
 - module/architecture catalogs and global indexes;
-- shared migrations or schema aggregates;
+- migration chains or shared schema aggregates;
 - generated contracts/types;
-- common test fixtures and acceptance inventories;
+- common fixtures and acceptance inventories;
 - CI workflows and deployment manifests.
 
-Independent agents should avoid these paths during parallel implementation. Assign them to one integration/closeout task or require an explicit shared-path lease and merge order.
+Parallel workers avoid them. Assign one integration/closeout owner or an explicit shared-path lease and merge order.
 
-## Coordinator dispatch rule
+## Coordinator dispatch
 
-A coordinator may start several remediation agents only when every selected Issue has:
+Several remediation workers may be dispatched only when every Issue has:
 
 - `agent:ready`;
 - `implementation_authorized: true`;
 - `parallelization.classification: parallel_safe`;
-- a different coordination key;
+- a distinct coordination key;
 - non-overlapping exclusive/shared paths;
-- independent migrations, contracts and rollout order;
-- no common unaccepted architecture decision;
-- `claim.status: unclaimed` and no valid live claim marker.
+- independent migrations, contracts and rollout;
+- no common unaccepted decision;
+- no deterministic branch and no valid active claim.
 
-The coordinator should dispatch one Issue number per agent. Each agent still performs the claim protocol; coordinator selection is not itself a lock.
+Assign one Issue per worker. Coordinator dispatch is not a lock; each worker must acquire its deterministic branch.
 
 ## Forbidden patterns
 
 Do not:
 
-- start product edits before the claim becomes active;
-- treat `agent:ready` as ownership;
-- rely only on assignees when multiple agents use the same GitHub identity;
+- edit product code before branch-lock acquisition and activation;
+- treat labels, assignees or comments as atomic ownership;
+- use random branch suffixes to bypass an existing claim;
 - claim several Issues speculatively;
 - keep a claim while working on unrelated tasks;
-- renew an idle claim without measurable progress;
+- renew without measurable progress;
 - create a second PR for a valid active claim;
-- steal a claim based on chat silence or a UI spinner;
-- use labels or Issue comments to override repository safety, accepted architecture or path ownership.
+- steal a claim from chat/UI inactivity;
+- delete or force-move another claim branch;
+- use claim metadata to override repository safety, accepted architecture or path ownership.
