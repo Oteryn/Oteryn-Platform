@@ -21,8 +21,11 @@ use Tests\TestCase;
 final class PaymentEventConcurrencyMariaDbTest extends TestCase
 {
     private const DATABASE = 'oteryn_payment_event_concurrency_test';
+
     private const USER = 'oteryn_payment_event_concurrency';
+
     private const PASSWORD = 'oteryn-payment-event-concurrency-password';
+
     private const SECRET = 'oteryn-payment-event-concurrency-secret';
 
     private ?PDO $root = null;
