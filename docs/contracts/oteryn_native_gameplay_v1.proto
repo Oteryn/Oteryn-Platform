@@ -7,7 +7,7 @@ package oteryn.gameplay.v1;
 // Its SHA-256 is computed from these exact UTF-8 bytes with LF line endings and no BOM.
 
 message WireEnvelope {
-  uint32 schema_revision = 1; // Must be exactly 1.
+  uint32 schema_revision = 1; // Must be exactly 2.
   uint64 stream_sequence = 2; // Starts at 1 and increments by exactly 1 per direction.
   uint64 server_tick = 3;     // Zero in client-to-server envelopes.
 
@@ -31,10 +31,11 @@ message WireEnvelope {
 
 message ClientHello {
   uint32 game_session_contract_version = 1; // Must be 2.
-  string gameplay_family = 2;               // "oteryn".
-  string gameplay_profile = 3;              // "oteryn.native.v1".
-  string transport_profile = 4;             // "tcp.tls13.protobuf.be32.v1".
-  uint32 schema_revision = 5;                // Must be 1.
+  string family = 2;                        // "oteryn".
+  reserved 3;
+  reserved "gameplay_profile";
+  string transport = 4;                     // "tcp.tls13.protobuf.be32.v1".
+  uint32 schema_revision = 5;                // Must be 2.
   bytes schema_sha256 = 6;                   // Exactly 32 bytes.
   bytes capability_digest_sha256 = 7;        // Exactly 32 bytes.
   repeated string capabilities = 8;          // Sorted bytewise, unique, 1..64.
@@ -46,6 +47,7 @@ message ClientHello {
   uint64 world_policy_revision = 14;         // Non-zero.
   string client_build = 15;                  // 1..64 printable ASCII bytes.
   string client_platform = 16;               // Canonical lowercase identifier, <=64 bytes.
+  uint32 native_protocol_version = 17;        // Must be exactly 1.
 }
 
 message ServerHello {
@@ -54,9 +56,10 @@ message ServerHello {
   uint64 selected_character_id = 3;
   uint64 world_id = 4;
   uint64 channel_id = 5;
-  string gameplay_family = 6;
-  string gameplay_profile = 7;
-  string transport_profile = 8;
+  string family = 6;
+  reserved 7;
+  reserved "gameplay_profile";
+  string transport = 8;
   uint32 schema_revision = 9;
   bytes schema_sha256 = 10;                   // Exactly 32 bytes.
   bytes capability_digest_sha256 = 11;        // Exactly 32 bytes.
@@ -64,6 +67,7 @@ message ServerHello {
   uint64 world_policy_revision = 13;
   uint64 initial_state_revision = 14;
   uint64 initial_server_sequence = 15;        // Sequence of this envelope.
+  uint32 native_protocol_version = 16;         // Must be exactly 1.
 }
 
 enum ProtocolErrorCode {
@@ -72,7 +76,8 @@ enum ProtocolErrorCode {
   PROTOCOL_ERROR_FRAME_TOO_LARGE = 2;
   PROTOCOL_ERROR_INVALID_SEQUENCE = 3;
   PROTOCOL_ERROR_UNSUPPORTED_SCHEMA = 4;
-  PROTOCOL_ERROR_UNSUPPORTED_PROFILE = 5;
+  reserved 5;
+  reserved "PROTOCOL_ERROR_UNSUPPORTED_PROFILE";
   PROTOCOL_ERROR_UNSUPPORTED_CAPABILITY = 6;
   PROTOCOL_ERROR_SESSION_EXPIRED = 7;
   PROTOCOL_ERROR_SESSION_REPLAYED = 8;
@@ -84,6 +89,7 @@ enum ProtocolErrorCode {
   PROTOCOL_ERROR_SNAPSHOT_INVALID = 14;
   PROTOCOL_ERROR_STATE_REVISION_CONFLICT = 15;
   PROTOCOL_ERROR_INTERNAL_UNAVAILABLE = 16;
+  PROTOCOL_ERROR_UNSUPPORTED_NATIVE_PROTOCOL_VERSION = 17;
 }
 
 message ProtocolError {

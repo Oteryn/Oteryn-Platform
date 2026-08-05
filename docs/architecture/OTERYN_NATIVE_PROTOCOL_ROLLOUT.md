@@ -18,13 +18,13 @@ Canonical contract: `../contracts/OTERYN_NATIVE_GAMEPLAY_PROTOCOL_CONTRACT.md`
 |---:|---|---|---|---|
 | 0 | canonical contract and three correspondence PRs | documentation only | `backward-compatible` | exact-head docs CI, independent consistency/security PASS |
 | 1 | Platform World Registry + Gateway offer/selection + Game Session v2 producer | native candidate disabled | `server-first-safe`, `backward-compatible` | current Gateway v1/Canary regression plus contract fixtures |
-| 2 | Otheryn Game Session v2 consumer + native TLS/protobuf producer | listener/candidate disabled | `server-first-safe`, `backward-compatible` | Canary profile regression, native golden producer tests, admission-negative tests |
+| 2 | Otheryn Game Session v2 consumer + native TLS/protobuf producer | listener/candidate disabled | `server-first-safe`, `backward-compatible` | Canary compatibility-profile regression, native golden producer tests, admission-negative tests |
 | 3 | Rust `protocol-oteryn` adapter and codec support | not offered by production `Auto` | `client-first-safe`, `backward-compatible` | parser/encoder fixtures, fuzzing, normalized replay, no Tokio/API leakage |
 | 4 | automatic selection integration | staging-only exact manifest | `atomic-required` | exact client/Platform/Gateway/Otheryn revisions and schema hash |
 | 5 | bounded staging enablement | one controlled world/channel | `atomic-required`, initially `unverified` | real login, bind, snapshot, commands, deltas, disconnect and downgrade-negative E2E |
 | 6 | bounded production canary | low percentage or explicit test cohort | `atomic-required` | security/observability/rollback rehearsal and owner authorization |
 | 7 | broader native preference | native first, Canary retained | `backward-compatible` for supported clients | measured success/error/latency/resource thresholds |
-| 8 | any profile removal | not authorized by this programme | `breaking-migration` | separate ADR, population evidence, notice and rollback plan |
+| 8 | any Canary compatibility-profile removal | not authorized by this programme | `breaking-migration` | separate ADR, population evidence, notice and rollback plan |
 
 ## Safe merge order for the contract task
 
@@ -55,7 +55,7 @@ Required disabled-default controls:
 - Game Session v2 validation is available before native advertisement;
 - Canary listeners/profiles and ASIO architecture remain unchanged;
 - native frames cannot enter Canary parsers and Canary frames cannot enter the native parser;
-- listener readiness reports exact profile/schema/capability digest to deployment validation.
+- listener readiness reports exact native protocol version/schema/capability digest to deployment validation.
 
 Rollback: stop advertising native, drain/close native sessions, disable listener. Never convert an active native session to Canary.
 
@@ -83,9 +83,9 @@ gateway_image_digest: <exact>
 otheryn_sha_or_image_digest: <exact>
 game_session_contract_version: 2
 gameplay_family: oteryn
-gameplay_profile: oteryn.native.v1
-transport_profile: tcp.tls13.protobuf.be32.v1
-schema_revision: 1
+native_protocol_version: 1
+transport: tcp.tls13.protobuf.be32.v1
+schema_revision: 2
 schema_sha256: <exact>
 world_policy_revision: <exact>
 selected_capability_digest: <exact>
@@ -109,7 +109,7 @@ Minimum real journeys:
 
 Native advertisement is allowed only when:
 
-- exact Gateway and Otheryn readiness describe the same contract/profile/schema/capability digest;
+- exact Gateway and Otheryn readiness describe the same contract/native-protocol-version/schema/capability digest;
 - the client build is in the exact supported-pair matrix;
 - integrated staging evidence is from the exact candidate revisions;
 - error, latency, CPU, memory, frame, command and resync metrics have bounded thresholds;
@@ -128,4 +128,4 @@ Native advertisement is allowed only when:
 
 ## Stop/hold conditions
 
-Hold or roll back on any cross-profile admission, session replay, credential leakage, unbounded allocation/CPU, incompatible schema selection, state corruption, command double-apply, unexplained revision conflict, material Canary regression, missing observability, failed rollback rehearsal or inability to identify exact deployed revisions.
+Hold or roll back on any cross-native-protocol-version admission, session replay, credential leakage, unbounded allocation/CPU, incompatible schema selection, state corruption, command double-apply, unexplained revision conflict, material Canary regression, missing observability, failed rollback rehearsal or inability to identify exact deployed revisions.

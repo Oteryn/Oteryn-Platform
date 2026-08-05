@@ -22,16 +22,16 @@ An optional bounded `gameplay_offer` allows the Gateway to:
 6. issue exactly one opaque Game Session contract version 2 request;
 7. return the immutable gameplay selection and sanitized endpoint.
 
-There is no second candidate attempt after readiness or issuer invocation, no gameplay-byte sniffing and no fallback to another profile.
+There is no second candidate attempt after readiness or issuer invocation, no gameplay-byte sniffing and no fallback to another family or native protocol version.
 
 ## Canonical native identity
 
 ```text
 family: oteryn
-profile: oteryn.native.v1
+native_protocol_version: 1
 transport: tcp.tls13.protobuf.be32.v1
-schema_revision: 1
-schema_sha256: c7665223f09001e3294e9a03ab4784defed66b0ac04450e8679d4778421207f8
+schema_revision: 2
+schema_sha256: 9c67f19525400fb9890d2a3541ceb6d02eb955061540ad39ca1c1d891c06eba9
 channel_id: 1
 ```
 
@@ -44,7 +44,7 @@ The migration creates no protocol candidate rows. Every new `game_world_protocol
 Do not enable or advertise a native candidate until all of the following are proven for the exact revisions being deployed:
 
 - Otheryn implements the matching v2 issuer/readiness and native admission listener;
-- Otheryn readiness echoes the exact world, channel, policy revision, endpoint, audience, profile, transport, schema and capability digest;
+- Otheryn readiness echoes the exact world, channel, policy revision, endpoint, audience, native protocol version, transport, schema and capability digest;
 - the Rust client implements and offers the exact native candidate;
 - cross-repository authorization and gameplay E2E pass;
 - the public host, port, TLS server name and certificate identity are verified;
@@ -69,7 +69,7 @@ The v2 issuer request binds:
 - world and channel;
 - policy revision and endpoint identity;
 - audience `otheryn-world:<world>:channel:<channel>:endpoint:<endpoint>`;
-- exact family/profile/transport/schema/list/digest;
+- exact family/native_protocol_version/transport/schema/list/digest;
 - `bind_on_first_admission`;
 - single-admission intent.
 

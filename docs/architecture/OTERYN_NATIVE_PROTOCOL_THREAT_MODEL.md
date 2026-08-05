@@ -9,7 +9,7 @@ Canonical contract: `../contracts/OTERYN_NATIVE_GAMEPLAY_PROTOCOL_CONTRACT.md`
 - one-time Game Login Ticket;
 - opaque Game Session credential and server-side admission claims/state;
 - account, character, world, channel and endpoint authorization;
-- exact adapter/profile/transport/schema/capability selection;
+- exact adapter/native-protocol-version/transport/schema/capability selection;
 - authoritative commands, results and gameplay state;
 - service identity, World Registry policy and rollout state;
 - player communication and telemetry privacy.
@@ -32,11 +32,11 @@ Private APIs require authenticated service identity, private ingress and normal 
 
 | Threat | Control | Required negative proof |
 |---|---|---|
-| candidate stripping/reordering | offer is a bounded set; World Registry order is authoritative | stripping native cannot select an unadvertised profile or password fallback |
-| candidate injection | exact tuple, sorted list and deterministic digest must occur in offer and policy | injected family/profile/schema/capability is rejected |
+| candidate stripping/reordering | offer is a bounded set; World Registry order is authoritative | stripping native cannot select an unadvertised native protocol version or password fallback |
+| candidate injection | exact tuple, sorted list and deterministic digest must occur in offer and policy | injected family/native-protocol-version/schema/capability is rejected |
 | downgrade after redeem | one Gateway selection bound to Game Session; no second candidate | every post-selection native failure is terminal for that ticket/session |
 | stale or changed policy | current policy used at issuance; bound revision/tuple audited; Otheryn validates exact local readiness identity | tampered/mismatched revision fails; disabling advertisement stops new issuance without silently switching active sessions |
-| Game Session replay | opaque secret, hashed server-side lookup, expiry, generation, exact audience and atomic single admission | second connection/character/world/channel/profile/endpoint fails |
+| Game Session replay | opaque secret, hashed server-side lookup, expiry, generation, exact audience and atomic single admission | second connection/character/world/channel/native-protocol-version/endpoint fails |
 | cross-character use | authoritative ownership lookup plus atomic bind-on-first-admission | one credential cannot bind two characters |
 | endpoint redirection | selected endpoint and TLS name come from World Registry; TLS identity is verified | route/TLS contradiction fails closed |
 | credential leakage | structured redaction and synthetic fixtures | retained logs/artifacts contain no OAuth/ticket/session/identity/payload data |
@@ -65,7 +65,7 @@ UNAUTHENTICATED
   -> GAMEPLAY_ACTIVE
 ```
 
-Before `CANDIDATE_SELECTED`, Gateway chooses at most one exact intersection candidate. Afterwards family/profile/transport/schema/capabilities are immutable. Any failure transitions to `TERMINAL_FAILED`; a new attempt starts with new ticket, login attempt, session and command namespace.
+Before `CANDIDATE_SELECTED`, Gateway chooses at most one exact intersection candidate. Afterwards family/native-protocol-version/transport/schema/capabilities are immutable. Any failure transitions to `TERMINAL_FAILED`; a new attempt starts with new ticket, login attempt, session and command namespace.
 
 ## Policy-disable and emergency behavior
 
@@ -91,7 +91,7 @@ Allowed low-cardinality labels:
 
 ```text
 family
-profile
+native_protocol_version
 transport
 schema_revision
 selection_result
