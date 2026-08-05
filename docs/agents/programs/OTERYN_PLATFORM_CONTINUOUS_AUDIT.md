@@ -20,21 +20,20 @@ Continuously audit every delivered or declared Platform module and surface for t
 
 ```yaml
 programme_state_version: 2
-updated_at: 2026-08-05T14:59:00Z
-status: validating
+updated_at: 2026-08-05T15:02:00Z
+status: ready
 current_cycle: 1
-current_domain: payment-event-integrity
-active_task: docs/agents/tasks/active/OTERYN-20260805-payment-event-integrity-audit.md
-branch: audit/20260805-payment-event-integrity
-pull_request: 549
-exact_head: 840c82349376ac1c321c6704dd7635dfc012b5e6
-last_completed_domain: exhaustive-portal-current-main-baseline
+current_domain: none
+active_task: none
+branch: none
+pull_request: none
+last_merged_audit_head: 824f7ad10188f01dccaf0c0b7d8d19f724020a1d
+last_completed_domain: payment-event-integrity
 coverage_inventory:
   baseline: docs/agents/evidence/OTERYN-20260803-portal-exhaustive-current-main-audit/
   baseline_merge: cbbd7613cee13cf01931a0ba0f7ac089122132e0
-  audited_delta_head: 3ab77c072dce796b09004c54b649db009a75d524
-  delta_commits: 37
-  selected_delta_domain: payment-event-integrity
+  latest_audited_main: 3ab77c072dce796b09004c54b649db009a75d524
+  audited_delta_commits: 37
 finding_ledger:
   baseline_owners:
     - 486
@@ -50,20 +49,19 @@ ready_remediation_issues:
   - 547
 blocked_findings: none_in_current_package
 proven:
-  - PR #483 and its merged evidence are the authoritative existing module and observable-surface inventory; the previous not_created state was stale.
-  - Audited main is 37 commits ahead of the exhaustive-audit merge and contains material payment, native-protocol, operations and validation deltas.
-  - The archived payment producer task released ownership, so payment-event integrity was safe to audit without overlapping current native-protocol work.
+  - PR #483 and its merged evidence are the authoritative existing module and observable-surface inventory.
+  - The audited post-baseline delta contained 37 commits and payment-event integrity was selected without overlapping active work.
   - OPA-SEC-0001 is proven and deduplicated in Issue #547.
-  - PR #549 contains only audit task, evidence, report and programme-state paths.
-  - The first complete PR head c6eb0f6c714b6677d5798f8d40940835eaad116e passed all six emitted workflows.
+  - Audit PR #549 passed all six emitted exact-head workflows and merged as 824f7ad10188f01dccaf0c0b7d8d19f724020a1d.
+  - The payment-event integrity audit task is archived and all audit ownership is released by the lifecycle closeout PR.
 derived:
   - Payment provider sandbox or production activation must remain blocked until Issue #547 is remediated and independently verified.
 unknown:
-  - Provider-specific settlement semantics remain unknown until the separately required provider decision.
+  - The next audit domain must be selected after refreshing live tasks, PRs and path ownership.
 conflicts:
   - ADR 0021 declares payment-order amount/currency integrity protected, while the current verified-event contract cannot carry or validate those settlement facts.
 blockers: []
-next_action: Verify all emitted workflows on the final unchanged PR #549 head, squash-merge it, archive the task and continue with the next non-overlapping delta domain.
+next_action: Refresh live ownership and select the highest-risk non-overlapping post-baseline delta domain; do not audit native protocol while PR #542, public edge while PR #541, or architecture authority while PR #550 is active.
 ```
 
 ## Programme rules
