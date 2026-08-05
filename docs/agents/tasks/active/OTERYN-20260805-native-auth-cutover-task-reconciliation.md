@@ -4,7 +4,7 @@ programme_id: OTERYN_PLATFORM_REMEDIATION
 repository: blakinio/Oteryn-Platform
 issue: 565
 branch: repair/issue-565
-pull_request: none
+pull_request: 603
 session_id: chatgpt-20260805T2241+0200-native-auth-closeout
 claim_nonce: issue-565-aa3ddcd0-20260805T2041Z
 coordination_key: task-lifecycle:OTERYN-20260723-native-auth-production-cutover
@@ -59,9 +59,9 @@ cross_repository_tasks:
 ```yaml
 checkpoint_version: 1
 updated_at: 2026-08-05T20:43:00Z
-head: aa3ddcd0513708276920cb2734f7be845c3f177a
+head: 468675fac04c41d00454c33371a9c45e3a248fce
 branch: repair/issue-565
-pr: none
+pr: 603
 status: implementing
 context_routes:
   - architecture-governance
@@ -96,5 +96,5 @@ validation:
     result: PASS
     evidence: Issue 565 unclaimed, deterministic branch acquired, PR 124 merged, PR 542 open draft and historical branch retained
 blockers: []
-next_action: Create the draft PR, then replace the stale task with an archived implementation record and a narrow verification-only active record.
+next_action: Replace the stale task with an archived implementation record and a narrow verification-only active record.
 ```
