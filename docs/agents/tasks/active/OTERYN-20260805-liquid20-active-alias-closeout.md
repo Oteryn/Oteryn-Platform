@@ -5,7 +5,7 @@ project_lane: oteryn-platform-core
 repository: blakinio/Oteryn-Platform
 issue: 567
 branch: repair/issue-567
-pull_request: 604
+pull_request: 605
 claim_nonce: issue-567-20260805T2242+0200
 coordination_key: task-lifecycle:OTERYN-20260724-liquid20-synology-control
 session_id: chatgpt-20260805T2242+0200-liquid20-closeout
@@ -77,10 +77,10 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-05T20:51:00Z
-head: 652d0060c659e718806061b48fffb11a8cd51f6d
+updated_at: 2026-08-05T20:53:00Z
+head: 620c8284e3edd67999e6d9646e7d87c5f759b69d
 branch: repair/issue-567
-pr: 604
+pr: 605
 status: validating
 context_routes:
   - architecture
@@ -91,7 +91,7 @@ owned_paths:
   - docs/agents/tasks/active/OTERYN-20260805-liquid20-active-alias-closeout.md
   - docs/agents/tasks/archive/OTERYN-20260805-liquid20-active-alias-closeout.md
 proven:
-  - Issue 567 is implementation-authorized, parallel-safe and exclusively claimed by repair/issue-567 and pull request 604.
+  - Issue 567 is implementation-authorized, parallel-safe and exclusively claimed by repair/issue-567 and pull request 605.
   - PR 216 is closed and merged from final head bd7c573d9bf6f3cb247e88b87ffa02aa7c412fb3 as 49d887e843c8eae3e0ade215ca9cf44f94c4de20.
   - The obsolete historical active alias has been deleted on the repair branch.
   - The canonical archive now records status completed, terminal PR evidence, no live lease or claim, and ownership only of its own archive path.
@@ -105,9 +105,10 @@ unknown:
   - Final exact-head governance and required CI results.
 conflicts: []
 first_failure:
-  marker: none
-  evidence: none
+  marker: pull-request-number-race
+  evidence: Concurrent repository activity allocated PR 604 to an architecture-review branch; the deterministic repair branch is correctly represented by PR 605 and all durable claim metadata was reconciled before audit.
 rejected_hypotheses:
+  - PR 604 belonged to repair/issue-567; live GitHub state proved it belongs to task/OTERYN-20260805-architecture-decision-backlog.
   - The retained historical branch requires deletion; acceptance permits explicit terminal classification, and live state shows no dependency or ownership.
 changed_paths:
   - docs/agents/tasks/active/OTERYN-20260724-liquid20-synology-control.md
@@ -117,6 +118,9 @@ validation:
   - command: GitHub pull request 216 terminal-state verification
     result: PASS
     evidence: merged=true, final head bd7c573d9bf6f3cb247e88b87ffa02aa7c412fb3, merge commit 49d887e843c8eae3e0ade215ca9cf44f94c4de20
+  - command: deterministic branch to PR identity verification
+    result: PASS
+    evidence: repair/issue-567 is the head of open draft PR 605; PR 604 is unrelated concurrent architecture-review work.
   - command: historical branch classification
     result: PASS
     evidence: docs/OTERYN-20260727-liquid20-acceptance-complete exists and is terminally associated with merged PR 216; no live claim, task dependency or open PR was found.
@@ -124,7 +128,7 @@ validation:
     result: PASS
     evidence: only declared task-lifecycle documentation paths changed.
 blockers: []
-next_action: Perform a fresh proportionate documentation audit of the exact PR diff, then finalize exact-head CI.
+next_action: Perform a fresh proportionate documentation audit of the exact PR 605 diff, then finalize exact-head CI.
 ```
 
 ## Notes
