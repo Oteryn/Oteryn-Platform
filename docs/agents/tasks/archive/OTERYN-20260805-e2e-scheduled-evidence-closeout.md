@@ -8,13 +8,14 @@ status: completed
 completed_at: 2026-08-05T22:06:20Z
 pull_request: 615
 merge: 5dc711298517617a2897a719fefbc77710a94b9e
+lifecycle_pull_request: 643
 ---
 
 # OTERYN-20260805-e2e-scheduled-evidence-closeout — Completed
 
 ## Result
 
-Issue #114 was completed after the original PR #116 had been closed without merge. PR #615 persisted the first scheduled exact-SHA public-soak and three-iteration stability-repeat evidence and merged as `5dc711298517617a2897a719fefbc77710a94b9e`.
+Issue #114 was completed after original PR #116 had been closed without merge. PR #615 persisted the first scheduled exact-SHA public-soak and three-iteration stability-repeat evidence and merged as `5dc711298517617a2897a719fefbc77710a94b9e`.
 
 The evidence remains controlled staging/calibration evidence. No production claim, performance threshold, retry masking, new browser scenario or cross-repository write was introduced.
 
@@ -44,6 +45,8 @@ Later run `30790638508` retained a real failure signal in iteration 3 job `91613
 - Agent Governance run `31051310664` passed.
 - PR #615 was synchronized with main `5264712da5dff535b4612d8f221e148ccef0b6b0`, had no review threads and changed exactly four owned documentation paths.
 - Issue #114 closed automatically as completed when PR #615 merged.
+- Lifecycle sync run `31051537053` removed the completed `ACTIVE_WORK` entry and its temporary workflow.
+- Lifecycle PR #643 contains only archival, active-record removal and ownership-release documentation.
 
 ## Ownership release
 
