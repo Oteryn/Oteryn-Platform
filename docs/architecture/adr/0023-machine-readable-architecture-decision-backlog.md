@@ -1,9 +1,11 @@
 # ADR 0023: Machine-readable architecture decision backlog
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-08-05
+- Accepted on: 2026-08-05
 - Decision owner: repository owner
 - Decision record: Issue #602
+- Owner decision: Option B accepted
 - Programme: `OTERYN_PLATFORM_ARCHITECTURE_REVIEW`
 - Implementation scope: documentation governance and deterministic validation only
 
@@ -20,7 +22,7 @@ The repository therefore needs an explicit boundary for unresolved architecture 
 - implementation work owned by Issues, tasks and remediation;
 - compact programme continuation state.
 
-## Proposed decision
+## Decision
 
 Adopt a dedicated canonical JSON backlog at:
 
@@ -40,14 +42,14 @@ The backlog is an inventory of unresolved architecture decision obligations. It 
 
 ### Canonical document shape
 
-The JSON root should contain:
+The JSON root contains:
 
 - `schema_version`;
 - `registry_name`;
-- `authority` and explicit non-authority statement;
+- `authority` and an explicit non-authority statement;
 - `records`, ordered deterministically by stable `decision_id`.
 
-Each active record should contain at least:
+Each active record contains at least:
 
 - stable `decision_id` and title;
 - lifecycle state: `discovered`, `analysis_ready`, `decision_required`, `blocked` or `deferred`;
@@ -65,11 +67,11 @@ Resolved, rejected or superseded records leave the active backlog in the same bo
 
 ### Deterministic validation
 
-A standard-library validator should fail closed for:
+A standard-library validator fails closed for:
 
 - unsupported schema versions or unknown fields where the schema forbids them;
 - duplicate or malformed decision IDs;
-- invalid lifecycle transitions or terminal states retained in the active backlog;
+- invalid lifecycle values or terminal states retained in the active backlog;
 - missing owner, Issue, evidence-state or decision-question fields;
 - the same normalized fact appearing in multiple evidence-state lists;
 - missing local paths, ADR paths or malformed local references;
@@ -78,21 +80,21 @@ A standard-library validator should fail closed for:
 - programme references to unknown backlog IDs;
 - a `decision_required` record without alternatives and one exact blocking owner question.
 
-Remote Issue/PR state may be checked by a separate live reconciliation step when a lifecycle transition depends on it. Ordinary repository validation must remain reproducible without remote API access.
+Remote Issue/PR state may be checked by a separate live reconciliation step when a lifecycle transition depends on it. Ordinary repository validation remains reproducible without remote API access.
 
 ## Alternatives
 
 ### Validate the full backlog inside the programme Markdown
 
-This minimizes file count, but mixes execution state with durable architecture inventory, increases programme-file merge contention and makes independent schema evolution and reuse harder.
+Rejected because it mixes execution state with durable architecture inventory, increases programme-file merge contention and makes independent schema evolution and reuse harder.
 
 ### Use GitHub Issues and labels as the sole backlog
 
-This provides native collaboration but cannot produce deterministic exact-head, offline validation or reproducible historical repository snapshots. Labels also do not provide a sufficiently strict record schema.
+Rejected because it cannot provide deterministic exact-head offline validation or reproducible historical repository snapshots. Labels also do not provide a sufficiently strict record schema.
 
 ### Status quo
 
-Keeping only an informal programme queue leaves lifecycle, deduplication, evidence and authority boundaries unenforced and makes future drift likely.
+Rejected because an informal programme queue leaves lifecycle, deduplication, evidence and authority boundaries unenforced.
 
 ## Consequences
 
@@ -100,23 +102,23 @@ Keeping only an informal programme queue leaves lifecycle, deduplication, eviden
 - Programme state becomes smaller and lower-contention.
 - Exact-head validation can prove record structure and local referential integrity.
 - Issue and ADR transitions require synchronized bounded updates.
-- A validator and migration are required after this proposal is accepted.
+- A validator and migration are required in a separate implementation package.
 - Completed historical programme entries are not imported as active backlog obligations.
 
-## Migration after acceptance
+## Implementation handoff
 
-1. Add `ARCHITECTURE_DECISION_BACKLOG.json` with schema version 1.
-2. Add standard-library validator and positive, negative and boundary tests under `tools/validation/**`.
-3. Register validation through the existing repository test suite without changing workflow files unless later evidence proves that impossible.
-4. Seed only still-unresolved architecture decision obligations; do not copy completed ARCH-AUTH entries into the active registry.
-5. Replace the programme's full `decision_backlog` with a compact projection of active IDs and current `next_action`.
-6. Document transition and removal rules in `ARCHITECTURE_AUTHORITY.md` and the backlog file.
-7. Hand any runtime or workflow implementation separately to `OTERYN_PLATFORM_REMEDIATION`.
+A separate bounded remediation package must:
+
+1. add `ARCHITECTURE_DECISION_BACKLOG.json` with schema version 1;
+2. add a standard-library validator and positive, negative and boundary tests under `tools/validation/**`;
+3. register validation through the existing repository test suite without changing workflow files unless later evidence proves that impossible;
+4. seed only still-unresolved architecture decision obligations, excluding completed `ARCH-AUTH` history;
+5. replace the programme's full `decision_backlog` with a compact projection of active IDs and current `next_action`;
+6. document transition and removal rules in `ARCHITECTURE_AUTHORITY.md` and the backlog file;
+7. preserve `implementation_authorized: false` for every decision record.
+
+This ADR authorizes only the repository-owned documentation-governance implementation above. It authorizes no application runtime, migration, production, deployment, infrastructure, workflow or external-repository mutation.
 
 ## Rollback
 
-Before implementation, reject this ADR and close Issue #602 with the selected alternative. After implementation, revert the backlog, validator and programme projection together and supersede this ADR with a replacement authority decision. No runtime, database, deployment or production rollback is involved.
-
-## Owner decision required
-
-Accept this proposal, or select the programme-embedded or GitHub-Issues-only alternative with the reason that outweighs the authority and reproducibility costs described above.
+Revert the backlog, validator and programme projection together and supersede this ADR with a replacement authority decision. No runtime, database, deployment or production rollback is involved.
