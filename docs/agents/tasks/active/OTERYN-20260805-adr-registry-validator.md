@@ -10,7 +10,7 @@ branch: task/OTERYN-20260805-adr-registry-validator
 base_branch: main
 exact_base: 3f79987f47e5c7593daccdf1136e09d6641017de
 created: 2026-08-05T16:18:00Z
-updated: 2026-08-05T16:55:00Z
+updated: 2026-08-05T17:06:00Z
 execution_mode: github-only
 risk: medium
 feature_scope:
@@ -68,10 +68,10 @@ runtime_e2e: not_applicable_non_runtime_repository_integrity_tool
 - [x] add positive, negative and boundary fixture tests;
 - [x] execute the validator from the existing PHPUnit suite without workflow changes;
 - [x] update the ADR registry and authority documentation;
-- [x] diagnose the first exact-head failure from uploaded PHPUnit evidence;
-- [x] preserve all established lifecycle metadata formats without rewriting historical ADRs;
-- [x] move the PHPUnit bridge outside `tests/**` to respect the global native-contract documentation boundary;
-- [ ] pass repaired focused and exact-head validation;
+- [x] diagnose and repair historical lifecycle syntax compatibility;
+- [x] move the PHPUnit bridge outside `tests/**` to respect the native-contract boundary;
+- [x] pass CI, formatting, static analysis, PHPUnit, native contract, native contract audits, edge and database-outage validation on the repaired implementation head;
+- [ ] pass the corrected exact-head governance checkpoint and remaining exact-head workflows;
 - [ ] complete fresh post-implementation audit with zero material findings;
 - [ ] merge, archive, close Issue #577 and release ownership.
 
@@ -80,19 +80,19 @@ runtime_e2e: not_applicable_non_runtime_repository_integrity_tool
 ```yaml
 checkpoint_version: 1
 policy_version: 2
-updated_at: 2026-08-05T16:55:00Z
+updated_at: 2026-08-05T17:06:00Z
 invocation_started_at: 2026-08-05T15:50:00Z
-last_progress_at: 2026-08-05T16:55:00Z
-head: b541e7a7c54f73a186cdc8cc2da3491c4acc729f
+last_progress_at: 2026-08-05T17:06:00Z
+head: 0ac4500edc7fd6bcd8c6613ac14f47c248e18a7a
 branch: task/OTERYN-20260805-adr-registry-validator
 pr: 581
 status: validating
-phase: integration_boundary_repair
+phase: final_checkpoint_repair
 session_id: chat-20260805-architecture-continuation
 session_role: implementer
 execution_mode: github-only
 execution_reason: bounded repository tooling and documentation changes can be implemented through GitHub objects and validated by GitHub Actions
-lease_expires_at: 2026-08-05T17:40:00Z
+lease_expires_at: 2026-08-05T17:51:00Z
 context_pressure: medium
 context_growth: stable
 context_score: 8
@@ -116,34 +116,27 @@ owned_paths:
 proven:
   - ADR 0022 requires a fail-closed follow-up validator while preserving accepted historical paths.
   - Duplicate prefixes currently exist for 0008, 0010, 0011, 0015, 0016, 0017, 0018 and 0021.
-  - No exact existing Issue, PR or implementation owner was found before Issue 577 was created.
-  - Issue 558 owns tools/agents and task-liveness governance, not ADR registry integrity.
-  - Existing CI executes PHPUnit; workflow files need not be changed to consume this validator.
-  - CI run 31025277136 failed only because 17 accepted ADRs use plain or section lifecycle declarations in addition to bullet metadata.
-  - The repaired focused suite passes 10 tests and covers bullet, plain and section forms plus ambiguous declarations.
-  - Deep System Validation on b541e7a7c54f73a186cdc8cc2da3491c4acc729f passed the complete PHP regression and concurrency suites, proving the repaired validator against the live registry.
-  - Native protocol contract audits run 31026544250 failed only because Audit 1 treats any `tests/**` change as a forbidden runtime path; its other four audits passed.
-  - Registering the bridge from `tools/validation/phpunit/**` in `phpunit.xml` preserves CI enforcement without changing workflow files or entering the forbidden `tests/**` root.
+  - The validator preserves all accepted ADR paths through a closed exact-path legacy allowlist.
+  - Ten focused tests cover accepted lifecycle forms, ambiguity, new duplicates, allowlist drift, inventory drift, filenames and supersession targets.
+  - CI run 31027624692 passed formatting, static analysis and the complete PHPUnit suite on head 0ac4500edc7fd6bcd8c6613ac14f47c248e18a7a.
+  - Native protocol contract run 31027624602 and contract audits run 31027624703 passed after relocating the PHPUnit bridge to tools/validation/phpunit.
+  - Edge Security Emulation run 31027628085 and Platform DB Outage Validation run 31027624838 passed on the same head.
+  - Agent Governance run 31027624871 failed only because the checkpoint used an unsupported nested key named secondary_failure.
 derived:
   - A closed exact-path legacy allowlist is the least disruptive compatibility boundary.
-  - Parser compatibility is safer and narrower than rewriting 17 historical ADRs.
+  - Parser compatibility is safer and narrower than rewriting historical ADRs.
   - The PHPUnit bridge belongs with the repository validation tool rather than the application test tree.
 unknown:
-  - Exact-head result after moving the bridge outside the global native-contract forbidden roots.
+  - Final exact-head conclusions after this checkpoint-only correction.
 conflicts: []
 first_failure:
   marker: CI PHPUnit ADR registry validation
-  evidence: run 31025277136, job 92372884204, artifact 8938486455; test_repository_adr_registry_passes reported 17 established ADRs with zero recognized lifecycle declarations
-secondary_failure:
-  marker: Native protocol architecture boundary audit
-  evidence: run 31026544250, job 92376378411 rejected tests/Unit/Architecture/AdrRegistryValidationTest.php solely because Audit 1 forbids every tests/** path
+  evidence: run 31025277136, job 92372884204, artifact 8938486455; the first parser did not recognize established plain and section lifecycle declarations
 rejected_hypotheses:
-  - Neither failure was caused by a new ADR collision, README inventory drift or invalid filename.
-  - Neither failure was a runtime, database, edge, game-auth or native-protocol behavior regression.
-  - Python and Symfony Process are available because the focused bridge and full PHP regression executed.
-  - The native protocol audit did not identify a protocol invariant violation; all four substantive companion audits passed.
+  - The repaired implementation does not introduce a new ADR collision, README inventory drift or invalid filename.
+  - The native protocol audit failure on the prior head was a path-boundary violation, not a protocol invariant failure.
+  - The latest governance failure is not a validator, runtime, database, edge, game-auth or protocol regression.
   - Renumbering or normalizing historical ADRs is not required and would risk breaking references.
-  - An open-ended duplicate-prefix allowlist would not fail closed.
   - A workflow edit is not required for CI enforcement.
 changed_paths:
   - phpunit.xml
@@ -156,29 +149,29 @@ changed_paths:
   - docs/agents/reports/OTERYN-20260805-adr-registry-validator.md
   - docs/agents/programs/OTERYN_PLATFORM_ARCHITECTURE_REVIEW.md
 validation:
-  - command: python3 tools/validation/test_adr_registry.py after lifecycle parser repair
+  - command: python3 tools/validation/test_adr_registry.py
     result: PASS
-    evidence: 10 focused positive, negative and boundary tests passed
-  - command: Deep System Validation complete PHP regression on b541e7a7c54f73a186cdc8cc2da3491c4acc729f
+    evidence: 10 focused positive, negative and boundary tests
+  - command: CI on 0ac4500edc7fd6bcd8c6613ac14f47c248e18a7a
     result: PASS
-    evidence: run 31026544499 completed PHP regression and concurrency steps successfully
-  - command: Native protocol contract audits on b541e7a7c54f73a186cdc8cc2da3491c4acc729f
+    evidence: run 31027624692 passed formatting, static analysis and complete PHPUnit
+  - command: Native protocol contract audits on 0ac4500edc7fd6bcd8c6613ac14f47c248e18a7a
+    result: PASS
+    evidence: run 31027624703
+  - command: Agent Governance on 0ac4500edc7fd6bcd8c6613ac14f47c248e18a7a
     result: FAIL
-    evidence: run 31026544250 rejected only the tests/** bridge path; four other audit jobs passed
-  - command: exact validation after moving bridge to tools/validation/phpunit
-    result: NOT_RUN
-    evidence: new exact-head GitHub Actions required
-ci_checks_for_current_head: 9
-ci_check_generation: integration_boundary_repair
-terminal_ci_wait_started_at: null
-terminal_ci_checks_for_current_generation: 9
+    evidence: run 31027624871 rejected only unsupported checkpoint key secondary_failure; key removed in the next commit
+ci_checks_for_current_head: 8
+ci_check_generation: final_checkpoint_repair
+terminal_ci_wait_started_at: 2026-08-05T17:06:00Z
+terminal_ci_checks_for_current_generation: 8
 unchanged_state_checks: 0
 identical_failure_retries: 0
-repair_cycles_for_current_gate: 2
+repair_cycles_for_current_gate: 3
 context_reconstruction_attempts: 0
 stall_warnings: 0
 blockers: []
-next_action: Commit the PHPUnit bridge relocation and run all exact-head GitHub Actions on the new tree.
+next_action: Commit the checkpoint schema correction and verify all exact-head workflows before final PR audit and merge.
 ```
 
 ## E2E
