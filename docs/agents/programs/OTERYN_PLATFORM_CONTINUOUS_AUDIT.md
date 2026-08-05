@@ -20,14 +20,14 @@ Continuously audit every delivered or declared Platform module and surface for t
 
 ```yaml
 programme_state_version: 2
-updated_at: 2026-08-05T15:20:00Z
+updated_at: 2026-08-05T15:22:00Z
 status: validating
 current_cycle: 1
 current_domain: stale-game-gateway-task-lifecycle
 active_task: docs/agents/tasks/active/OTERYN-20260805-game-gateway-stale-task-audit.md
 branch: audit/20260805-game-gateway-stale-task
-pull_request: pending
-exact_head: pending-branch-head
+pull_request: 556
+head_before_programme_checkpoint: 35c2b0fb37263e09a4d4caeac869c64f7bcb540c
 last_merged_audit_head: 75ce5c8c39be35c7271049d6deb7ee733c5f35f2
 last_completed_domain: main-integrity-policy
 coverage_inventory:
@@ -61,6 +61,7 @@ proven:
   - OTERYN-20260722-game-gateway-mvp remains active despite PR #122 being merged and no matching archive record existing.
   - The stale task claims paths currently changed by active PR #542.
   - OPA-GOV-0002 is proven and deduplicated in Issue #555.
+  - Draft PR #556 contains only the bounded audit task, evidence, report and programme-state paths.
 derived:
   - Payment provider activation remains blocked until Issue #547 is remediated and independently verified.
   - The documented PR and exact-head validation process remains advisory until Issue #552 is resolved.
@@ -73,7 +74,7 @@ conflicts:
   - Repository governance requires exact-head CI, audit, E2E and PR closeout while GitHub applies no main-branch enforcement.
   - A merged historical task claims Game Gateway paths that have a newer active owner in PR #542.
 blockers: []
-next_action: Validate and merge the stale Game Gateway task audit PR, archive its audit task, then continue bounded active-task lifecycle reconciliation.
+next_action: Verify all emitted workflows and final review hygiene on PR #556, squash-merge it, archive the audit task, then continue bounded active-task lifecycle reconciliation.
 ```
 
 ## Programme rules
