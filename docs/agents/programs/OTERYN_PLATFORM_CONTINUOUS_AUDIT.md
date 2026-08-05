@@ -20,13 +20,13 @@ Continuously audit every delivered or declared Platform module and surface for t
 
 ```yaml
 programme_state_version: 2
-updated_at: 2026-08-05T17:11:00Z
+updated_at: 2026-08-05T17:14:00Z
 status: validating
 current_cycle: 1
 current_domain: programme-contract-verification-lifecycle
 active_task: docs/agents/tasks/active/OTERYN-20260805-programme-contract-verification-lifecycle-audit.md
 branch: audit/20260805-programme-contract-verification-lifecycle
-pull_request: none
+pull_request: 589
 last_merged_audit_head: 42a3725f3ad6d4c6863aa15049aa2a8264ab24f9
 last_completed_domain: security-content-contract-lifecycle
 coverage_inventory:
@@ -67,7 +67,7 @@ proven:
   - OPA-GOV-0017 is proven in Issue #583: completed schema 1.3 architecture proposal PR #332 remains falsely active while downstream PR #338 consumes the contract.
   - OPA-GOV-0018 is proven in Issue #584: completed Cloudflare audit implementation/evidence PRs #409 and #415 retain workflow and tooling ownership while denied live reads remain a legitimate blocker.
   - The source branches for all three historical tasks remain and the corresponding archive paths are absent.
-  - The current audit package changes only its task, evidence index, report and this programme state.
+  - Draft PR #589 changes only its task, evidence index, report and this programme state.
 derived:
   - Payment provider activation remains blocked until Issue #547 is remediated and independently verified.
   - The documented PR and exact-head validation process remains advisory until Issue #552 is resolved.
@@ -76,14 +76,14 @@ derived:
   - Completed audit tooling must release code/workflow ownership while preserving permission-dependent UNKNOWN evidence in a narrow blocked verification record.
 unknown:
   - The owner-approved main ruleset, emergency bypass and stable required-check list.
-  - Exact final CI and merge state for the current audit package.
+  - Exact final CI and merge state for PR #589.
 conflicts:
   - ADR 0021 protects payment amount/currency integrity while the verified-event contract cannot carry or validate those facts.
   - Repository governance requires exact-head CI, audit, E2E and PR closeout while GitHub applies no main-branch enforcement.
   - Agent Governance proves local text validity but not live PR, branch, archive or ownership truth.
   - Game Catalog and Cloudflare setup tasks remain active despite terminal setup/evidence PRs and newer programme, consumer or blocker ownership.
 blockers: []
-next_action: Open the documentation-only audit PR, record its exact identity, then verify its final changed paths, review hygiene and exact-head checks.
+next_action: Finalize PR #589 metadata, verify its exact changed paths and review hygiene, then enter bounded exact-head CI validation.
 ```
 
 ## Programme rules
