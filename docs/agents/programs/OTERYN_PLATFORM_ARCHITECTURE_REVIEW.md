@@ -18,7 +18,7 @@ Continuously challenge Platform architecture, repository structure and CI/CD; id
 
 ```yaml
 programme_state_version: 2
-updated_at: 2026-08-05T17:23:00+02:00
+updated_at: 2026-08-05T17:31:00+02:00
 status: waiting
 current_review_domain: canonical-architecture-authority
 active_task: OTERYN-20260805-architecture-authority
@@ -26,7 +26,8 @@ issue: 548
 branch: task/OTERYN-20260805-architecture-authority
 pull_request: 550
 original_exact_base: 3ab77c072dce796b09004c54b649db009a75d524
-latest_main_reconciled: a7eb03d49e328e8115adb54e772c9c8366b737d3
+latest_main_checked: 4646c43a14daad0e53a97cad96ef7e3afbdf77c3
+validated_head: 7712e675b1effef48b2a74ee0887e18253d08df7
 accepted_decision:
   option: B
   accepted_on: 2026-08-05
@@ -68,7 +69,8 @@ architecture_conflicts:
   - ADR directory contains historical duplicate prefixes 0008, 0010, 0011, 0015, 0016, 0017, 0018 and 0021.
   - Initial claim that REPOSITORY_MAP referenced a missing overview path was disproved by branch/main revalidation and corrected in the final report.
 ci_architecture_findings:
-  - Agent Governance requires checkpoint validation result values from the machine contract; PASS_WITH_GOVERNANCE_REMEDIATION was invalid and must not recur.
+  - Agent Governance result vocabulary is now compliant with GOVERNANCE_CONTRACT.json.
+  - All eight exact-head workflow runs completed successfully on 7712e675b1effef48b2a74ee0887e18253d08df7.
 accepted_handoffs_ready_for_remediation:
   - Add a fail-closed ADR registry validator without renumbering existing accepted paths.
   - Reconcile module and system current-state documentation from PR 453 and later exact merged evidence.
@@ -77,14 +79,15 @@ proven:
   - PR 550 implements only the bounded authority and routing documentation slice.
   - PR 453 remains the separate authoritative audit evidence for module-catalogue drift.
   - PR 542 and PR 541 scopes remain excluded.
+  - Main advanced by two non-overlapping documentation commits after a7eb03d49e328e8115adb54e772c9c8366b737d3.
 derived:
   - A machine validator is required to prevent additional ADR collisions and inventory drift.
 unknown:
-  - Whether PR 550 exact-head CI and review gates will pass after the accepted documentation slice.
+  - Final independent review and merge result for PR 550.
 conflicts: []
 blockers:
-  - Await exact-head CI and PR review/merge state.
-next_action: Validate the final PR 550 head; if all required checks and review gates pass, close Issue 548 and archive the task after terminal PR state.
+  - Await independent PR review and terminal merge state.
+next_action: Mark PR 550 ready for review after the final checkpoint commit passes Agent Governance and main CI.
 ```
 
 ## Programme rules
