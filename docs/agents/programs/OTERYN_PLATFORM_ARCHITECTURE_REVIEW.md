@@ -18,27 +18,62 @@ Continuously challenge Platform architecture, repository structure and CI/CD; id
 
 ```yaml
 programme_state_version: 2
-updated_at: 2026-08-05T14:30:00Z
-status: ready
-current_review_domain: none
-active_task: none
-branch: none
+updated_at: 2026-08-05T16:50:00+02:00
+status: active
+current_review_domain: canonical-architecture-authority
+active_task: OTERYN-20260805-architecture-authority
+issue: 548
+branch: task/OTERYN-20260805-architecture-authority
 pull_request: none
-exact_head: main-at-next-invocation
-decision_backlog: not_reconciled
-architecture_conflicts: unknown
-ci_architecture_findings: unknown
-accepted_handoffs_ready_for_remediation: unknown
+exact_base: 3ab77c072dce796b09004c54b649db009a75d524
+decision_backlog:
+  - id: ARCH-AUTH-001
+    severity: high
+    type: missing_decision
+    state: owner_decision_required
+    summary: Select the canonical architecture authority and precedence model.
+    issue: 548
+  - id: ARCH-AUTH-002
+    severity: medium
+    type: defect
+    state: ready_after_ARCH-AUTH-001
+    summary: Repair repository architecture routing to live canonical entry points.
+  - id: ARCH-AUTH-003
+    severity: high
+    type: defect
+    state: ready_after_ARCH-AUTH-001
+    summary: Reconcile the incomplete ADR index and duplicate 0008 identifiers with compatibility preserved.
+  - id: ARCH-AUTH-004
+    severity: high
+    type: documentation_drift
+    state: ready_after_ARCH-AUTH-001
+    summary: Reconcile current system and module architecture using PR 453 and later merged evidence.
+  - id: ARCH-AUTH-005
+    severity: medium
+    type: improvement
+    state: ready_after_ARCH-AUTH-001
+    summary: Add one validated machine-readable architecture decision backlog.
+architecture_conflicts:
+  - SYSTEM_ARCHITECTURE initial-phase/non-goal text conflicts with ROADMAP, MODULE_CATALOG, contracts and merged implementation.
+  - REPOSITORY_MAP references missing docs/architecture/overview.md.
+  - ADR README is non-exhaustive and the ADR directory contains duplicate 0008 numbering.
+ci_architecture_findings:
+  - Future architecture-link and ADR-inventory validation should be governance-scoped and fail closed without weakening runtime gates.
+accepted_handoffs_ready_for_remediation: []
 proven:
-  - The canonical architecture review prompt is repository-backed.
-  - This programme is immutably scoped to blakinio/Oteryn-Platform by docs/agents/OTERYN_PLATFORM_PROGRAM_SCOPE.md.
+  - The canonical architecture review prompt is repository-backed and immutably scoped to blakinio/Oteryn-Platform.
+  - Issue 548 is the deduplicated decision boundary for the first review package.
+  - PR 453 is the existing authoritative audit evidence for module-catalogue drift.
+  - Active PR 542 owns native-protocol implementation and related contracts and is excluded from this task.
 derived:
-  - The first review must reconcile existing ADRs, canonical architecture documents, active implementation work and CI evidence before proposing a new decision registry.
+  - An explicit authority model is required before safely repairing routing, ADR allocation and module/current-state documentation.
 unknown:
-  - Whether a complete canonical decision backlog/global architecture registry currently exists without contradictions.
-conflicts: []
-blockers: []
-next_action: Reconcile current canonical architecture sources, ADR status and numbering, active tasks and CI structure, then select the highest-risk unresolved decision or contradiction for one bounded review package.
+  - Whether the owner accepts the recommended authority-index model.
+conflicts:
+  - Initial target documentation can currently be mistaken for present implementation truth.
+blockers:
+  - decision: Accept authority model B, or select A/C with rationale.
+next_action: Open the documentation-only decision-package PR, validate its exact diff and request the single architecture decision in Issue 548.
 ```
 
 ## Programme rules
