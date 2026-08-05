@@ -6,18 +6,25 @@ use App\Identity\Models\Identity;
 use App\Payments\Exceptions\PaymentException;
 use App\Payments\Models\PaymentOrder;
 use App\Payments\Models\PaymentOrderTransition;
+use App\Payments\PaymentAvailability;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
 final class CreatePaymentOrder
 {
+    public function __construct(
+        private readonly PaymentAvailability $availability,
+    ) {}
+
     public function execute(
         Identity $identity,
         string $currency,
         int $amountMinor,
         string $idempotencyKey,
     ): PaymentOrder {
+        $this->availability->ensureEnabled();
+
         $normalizedCurrency = strtoupper(trim($currency));
         $provider = config('payments.provider');
         $maximumAmount = config('payments.maximum_order_amount_minor');
