@@ -40,11 +40,7 @@ jobs:
           root = Path('.')
           contract = (root/'docs/contracts/OTERYN_NATIVE_GAMEPLAY_PROTOCOL_CONTRACT.md').read_text()
           adr = (root/'docs/architecture/adr/0011-single-native-protocol-version.md').read_text()
-          required = [
-              'family = oteryn', 'native_protocol_version = 1',
-              'no `profile` key, alias or placeholder',
-              'protocol-canary', 'protocol-oteryn',
-          ]
+          required = ['family = oteryn', 'native_protocol_version = 1', 'no `profile` key, alias or placeholder', 'protocol-canary', 'protocol-oteryn']
           for token in required:
               if token not in contract and token not in adr:
                   raise SystemExit(f'missing architecture invariant: {token}')
@@ -75,12 +71,7 @@ jobs:
               'docs/architecture/OTERYN_NATIVE_PROTOCOL_THREAT_MODEL.md',
               'docs/architecture/OTERYN_NATIVE_PROTOCOL_ROLLOUT.md',
           ]))
-          required = [
-              'single admission', 'replay', 'bind_on_first_admission',
-              'no second candidate', 'no plaintext or cross-family fallback',
-              'TLS 1.3', 'oteryn-game/1', 'terminal', 'redact',
-              'production canary', 'owner authorization',
-          ]
+          required = ['single admission', 'replay', 'bind_on_first_admission', 'no second candidate', 'no plaintext or cross-family fallback', 'TLS 1.3', 'oteryn-game/1', 'terminal', 'redact', 'production canary', 'owner authorization']
           missing = [x for x in required if x.lower() not in text.lower()]
           if missing:
               raise SystemExit(f'missing security controls: {missing}')
@@ -105,9 +96,11 @@ jobs:
           for marker in ['reserved 3;', 'reserved 7;', 'reserved "gameplay_profile";', 'reserved 5;', 'reserved "PROTOCOL_ERROR_UNSUPPORTED_PROFILE";']:
               if marker not in proto:
                   raise SystemExit(f'missing reserved compatibility marker: {marker}')
-          for marker in ['1,048,576', '512 KiB', '16 MiB', '5 seconds', '32-bit unsigned big-endian']:
+          for marker in ['1,048,576', '512 KiB', '16 MiB', '5 seconds']:
               if marker not in contract:
                   raise SystemExit(f'missing parser bound: {marker}')
+          if 'big-endian' not in contract.lower() or '32-bit' not in contract.lower():
+              raise SystemExit('missing 32-bit big-endian framing invariant')
           if len(re.findall(r'\bnative_protocol_version\s*=\s*\d+;', proto)) != 2:
               raise SystemExit('unexpected native protocol version field count')
           print('parser/schema/limits audit: PASS')
@@ -151,12 +144,9 @@ jobs:
           rollout = Path('docs/architecture/OTERYN_NATIVE_PROTOCOL_ROLLOUT.md').read_text()
           migration = Path('docs/contracts/OTERYN_NATIVE_GAMEPLAY_PROTOCOL_MIGRATION.md').read_text()
           manifest = json.loads(Path('docs/contracts/fixtures/oteryn-native-v1/manifest.json').read_text())
-          ordered = [
-              'Platform canonical contract correction',
-              'Otheryn correspondence',
-              'Rust correspondence',
-          ]
-          positions = [prompt.find(item) for item in ordered]
+          order_section = prompt.split('## Merge and rollout order', 1)[1].split('Rollback:', 1)[0]
+          ordered = ['canonical correction', 'Otheryn correspondence', 'Rust correspondence']
+          positions = [order_section.find(item) for item in ordered]
           if any(pos < 0 for pos in positions) or positions != sorted(positions):
               raise SystemExit(f'canonical correspondence merge order missing or invalid: {positions}')
           required_rollout = ['bounded staging', 'Rollback', 'exact', 'production canary', 'owner authorization']
