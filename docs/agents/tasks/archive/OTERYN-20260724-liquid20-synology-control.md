@@ -1,5 +1,10 @@
 ---
 task_id: OTERYN-20260724-liquid20-synology-control
+repository: blakinio/Oteryn-Platform
+historical_pull_request: 216
+historical_head: bd7c573d9bf6f3cb247e88b87ffa02aa7c412fb3
+merge_commit: 49d887e843c8eae3e0ade215ca9cf44f94c4de20
+completed_at: 2026-07-26T22:18:22Z
 required_reads:
   - AGENTS.md
   - docs/agents/CONTEXT_HANDOFF.md
@@ -24,46 +29,43 @@ Use the existing `oteryn-staging` self-hosted GitHub Actions runner on Synology 
 - [x] A full uninterrupted 24-hour attempt completed and retained immutable evidence.
 - [x] A full uninterrupted 24-hour attempt passed every frozen acceptance gate.
 
-## Ownership
+## Terminal ownership
 
 ```yaml
 owned_paths:
+  - docs/agents/tasks/archive/OTERYN-20260724-liquid20-synology-control.md
+live_lease: none
+live_claim: none
+released_historical_paths:
   - .github/workflows/liquid20-synology-control.yml
   - deploy/liquid20/synology-control.sh
   - deploy/liquid20/publish-status.sh
   - deploy/liquid20/README.md
-  - docs/agents/tasks/archive/OTERYN-20260724-liquid20-synology-control.md
+  - docs/agents/tasks/active/OTERYN-20260724-liquid20-synology-control.md
 modules:
-  - Synology staging operations
-  - GitHub Actions self-hosted runner control
-  - Liquid20 data-only research collection
-dependencies:
-  - existing online self-hosted runner labeled oteryn-staging
-  - read-only Freqtrade source commit c00a091c5adc67cf75c46db5805e358ffc72fad7
-  - Synology host data path /volume1/docker/freqtrade-liquidations/data
-  - fixed non-secret status issue 148
+  - historical Synology staging operations evidence
+dependencies: []
 blockers: []
-cross_repository_tasks:
-  - blakinio/freqtrade remained read-only; its exact approved commit was consumed as image build input
+cross_repository_tasks: []
 ```
 
 ## Context checkpoint
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-07-26T22:17:35Z
-head: UNKNOWN
+updated_at: 2026-08-05T20:50:00Z
+head: bd7c573d9bf6f3cb247e88b87ffa02aa7c412fb3
 branch: docs/OTERYN-20260727-liquid20-acceptance-complete
 pr: 216
-status: ready
+status: completed
 context_routes:
   - testing
   - security
   - architecture
 owned_paths:
-  - docs/agents/tasks/active/OTERYN-20260724-liquid20-synology-control.md
   - docs/agents/tasks/archive/OTERYN-20260724-liquid20-synology-control.md
 proven:
+  - Pull request 216 is closed and merged as 49d887e843c8eae3e0ade215ca9cf44f94c4de20 from final head bd7c573d9bf6f3cb247e88b87ffa02aa7c412fb3.
   - Issue 148 reports completed run liquid20-20260725T212201Z-1 using immutable image ghcr.io/blakinio/liquid20-collector:c00a091c5adc67cf75c46db5805e358ffc72fad7.
   - The container ran uninterrupted from 2026-07-25T21:22:01Z through 2026-07-26T21:22:16Z and exited successfully with code 0.
   - The final multi-source acceptance report states passed=true with zero failed gates.
@@ -71,32 +73,35 @@ proven:
   - Bybit recorded 835 events with availability 0.999992 and zero disconnects per hour.
   - Binance recorded 1519 events with availability 0.999991 and zero disconnects per hour.
   - All six final evidence files passed SHA-256 verification.
-  - Issue 148 states the entire immutable run directory remains on the Synology data volume and hourly monitoring is metadata-only.
-  - The symbol universe, 86400-second duration, event schema, thresholds, frozen policy and collector security boundary were unchanged.
+  - The historical source branch remains present but is classified as a retained merged branch with no live claim, lease, dependency or ownership.
+  - This archive is the sole durable record for the completed historical task.
 derived:
-  - Liquid20 Synology acceptance is complete and the task can be archived without an infrastructure or collector change.
+  - Liquid20 Synology acceptance is complete and no implementation, workflow, deployment or external-system ownership remains attached to this historical task.
 unknown: []
 conflicts: []
 first_failure:
   marker: none
   evidence: final report for liquid20-20260725T212201Z-1 passed all frozen gates
 rejected_hypotheses:
-  - A policy relaxation is required: disproven by the unchanged retry passing every frozen gate.
-  - An implementation or Synology infrastructure repair is required: disproven by successful uninterrupted execution, hashing and final evaluation.
+  - A policy relaxation was required; the unchanged retry passed every frozen gate.
+  - An implementation or Synology infrastructure repair was required; uninterrupted execution, hashing and final evaluation succeeded.
 changed_paths:
-  - docs/agents/tasks/active/OTERYN-20260724-liquid20-synology-control.md
   - docs/agents/tasks/archive/OTERYN-20260724-liquid20-synology-control.md
+  - docs/agents/tasks/active/OTERYN-20260724-liquid20-synology-control.md
 validation:
+  - command: GitHub pull request 216 terminal-state verification
+    result: PASS
+    evidence: merged=true, final head bd7c573d9bf6f3cb247e88b87ffa02aa7c412fb3, merge commit 49d887e843c8eae3e0ade215ca9cf44f94c4de20
   - command: GitHub issue 148 final status publication
     result: PASS
     evidence: passed=true, failed_gates=0, run liquid20-20260725T212201Z-1
   - command: immutable evidence hash verification
     result: PASS
-    evidence: binance-usdm-summary.json, binance-usdm.ndjson, bybit-linear-summary.json, bybit-linear.ndjson, multi-source-acceptance-report.json and multi-source-manifest.json reported OK
+    evidence: six final evidence files reported OK in the preserved historical record
 blockers: []
-next_action: Merge PR 216 after repository checks pass.
+next_action: none
 ```
 
 ## Notes
 
-The completed evidence remains immutable under `/volume1/docker/freqtrade-liquidations/data/runs/liquid20-20260725T212201Z-1`. This task did not modify Freqtrade source, trading behavior, credentials, network exposure, symbol coverage, duration, schema, thresholds or frozen acceptance policy.
+The completed evidence remains immutable under `/volume1/docker/freqtrade-liquidations/data/runs/liquid20-20260725T212201Z-1`. This historical task did not modify Freqtrade source, trading behavior, credentials, network exposure, symbol coverage, duration, schema, thresholds or frozen acceptance policy. Later maintenance requires a new task and claim.
