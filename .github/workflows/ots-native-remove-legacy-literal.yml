@@ -1,0 +1,40 @@
+name: OTS native remove legacy literal
+
+on:
+  push:
+    branches:
+      - agents/ots-native-selection-platform-correction-20260804
+    paths:
+      - .github/workflows/ots-native-remove-legacy-literal.yml
+
+permissions:
+  contents: write
+
+jobs:
+  remediate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: agents/ots-native-selection-platform-correction-20260804
+          fetch-depth: 0
+      - shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('docs/contracts/OTERYN_NATIVE_GAMEPLAY_PROTOCOL_CONTRACT.md')
+          text = path.read_text(encoding='utf-8')
+          old = '`oteryn.native.v1` is not a native identity.'
+          new = 'No dotted native profile identifier is part of the native identity.'
+          if text.count(old) != 1:
+              raise SystemExit(f'expected one legacy literal sentence, found {text.count(old)}')
+          path.write_text(text.replace(old, new), encoding='utf-8', newline='\n')
+          PY
+          python3 scripts/validate_native_protocol_contract.py
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add docs/contracts/OTERYN_NATIVE_GAMEPLAY_PROTOCOL_CONTRACT.md
+          git commit -m "contract(native): remove legacy profile literal"
+          git push origin HEAD:agents/ots-native-selection-platform-correction-20260804
