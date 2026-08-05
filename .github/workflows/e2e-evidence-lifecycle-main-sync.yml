@@ -1,0 +1,31 @@
+name: Scheduled E2E Lifecycle Main Sync
+
+on:
+  push:
+    branches:
+      - docs/OTERYN-20260805-e2e-scheduled-evidence-lifecycle
+    paths:
+      - .github/workflows/e2e-evidence-lifecycle-main-sync.yml
+
+permissions:
+  contents: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: docs/OTERYN-20260805-e2e-scheduled-evidence-lifecycle
+          fetch-depth: 0
+      - name: Merge current main and remove temporary workflow
+        shell: bash
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git fetch origin main
+          git merge --no-edit origin/main
+          git rm .github/workflows/e2e-evidence-lifecycle-main-sync.yml
+          git commit -m 'ci(agents): remove temporary lifecycle sync workflow'
+          git push origin HEAD:docs/OTERYN-20260805-e2e-scheduled-evidence-lifecycle
