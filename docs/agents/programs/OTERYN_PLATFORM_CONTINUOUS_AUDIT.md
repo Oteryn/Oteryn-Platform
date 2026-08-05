@@ -20,14 +20,14 @@ Continuously audit every delivered or declared Platform module and surface for t
 
 ```yaml
 programme_state_version: 2
-updated_at: 2026-08-05T15:50:00Z
+updated_at: 2026-08-05T15:52:00Z
 status: validating
 current_cycle: 1
 current_domain: public-module-stale-task-lifecycle
 active_task: docs/agents/tasks/active/OTERYN-20260805-public-modules-stale-tasks-audit.md
 branch: audit/20260805-public-modules-stale-tasks
-pull_request: pending
-exact_head: pending-branch-head
+pull_request: 563
+head_before_programme_checkpoint: adee1581612c7901b4ac85cb52ec35f84d2b35f0
 last_merged_audit_head: bb6d2d86ffe418c20f11995b8abb9ec38c5dc49b
 last_completed_domain: agent-governance-live-task-liveness
 coverage_inventory:
@@ -69,6 +69,7 @@ proven:
   - OPA-GOV-0005 is proven and deduplicated in Issue #562.
   - Announcements/Events PR #157 and Download Center PR #161 are terminal while their task records remain active, archives are absent and branches remain.
   - Issues #561 and #562 are independent concrete cleanup owners and do not overlap product modules or systemic Issue #558 tooling paths.
+  - Draft PR #563 contains only the bounded audit task, evidence, report and programme-state paths.
 derived:
   - Payment provider activation remains blocked until Issue #547 is remediated and independently verified.
   - The documented PR and exact-head validation process remains advisory until Issue #552 is resolved.
@@ -82,7 +83,7 @@ conflicts:
   - Repository coordination treats task and Git state as authoritative while Agent Governance proves only local text validity.
   - Announcements/Events and Download Center claim active ownership and actions contradicted by terminal PR state.
 blockers: []
-next_action: Validate and merge the public-module stale-task audit PR, archive its audit task, then continue the remaining active-task inventory against live PR, branch and archive state.
+next_action: Verify all emitted workflows and final review hygiene on PR #563, squash-merge it, archive the audit task, then continue the remaining active-task inventory against live PR, branch and archive state.
 ```
 
 ## Programme rules
