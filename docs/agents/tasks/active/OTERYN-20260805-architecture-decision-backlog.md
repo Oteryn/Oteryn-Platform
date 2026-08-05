@@ -72,7 +72,7 @@ after_merge:
 ```yaml
 checkpoint_version: 1
 policy_version: 2
-updated_at: 2026-08-05T20:50:00Z
+updated_at: 2026-08-05T20:59:00Z
 phase: validate
 session_id: chatgpt-20260805T2231+0200-architecture-decision-backlog
 session_role: architecture-adviser
