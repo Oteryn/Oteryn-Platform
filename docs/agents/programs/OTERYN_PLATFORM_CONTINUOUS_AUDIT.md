@@ -1,8 +1,9 @@
 ---
 programme_id: OTERYN_PLATFORM_CONTINUOUS_AUDIT
-programme_version: 1
+programme_version: 2
 canonical_prompt: docs/agents/prompts/OTERYN_PLATFORM_CONTINUOUS_AUDIT_PROGRAM.md
 required_reads:
+  - docs/agents/OTERYN_PLATFORM_PROGRAM_SCOPE.md
   - docs/agents/AUDIT_REMEDIATION_ISSUE_TAXONOMY.md
   - docs/agents/REMEDIATION_WORK_CLAIM_PROTOCOL.md
   - docs/agents/SHORT_PROGRAM_INVOCATIONS.md
@@ -18,8 +19,8 @@ Continuously audit every delivered or declared Platform module and surface for t
 ## Durable queue
 
 ```yaml
-programme_state_version: 1
-updated_at: 2026-08-05T13:45:00Z
+programme_state_version: 2
+updated_at: 2026-08-05T14:30:00Z
 status: ready
 current_cycle: 1
 current_domain: none
@@ -35,6 +36,7 @@ ready_remediation_issues: unknown
 blocked_findings: unknown
 proven:
   - The canonical audit prompt and Issue taxonomy are repository-backed.
+  - This programme is immutably scoped to blakinio/Oteryn-Platform by docs/agents/OTERYN_PLATFORM_PROGRAM_SCOPE.md.
 derived:
   - The first cycle must establish a live module/surface inventory before selecting its first bounded audit package.
 unknown:
