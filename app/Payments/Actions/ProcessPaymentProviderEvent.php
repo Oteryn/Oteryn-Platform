@@ -206,20 +206,25 @@ final class ProcessPaymentProviderEvent
             return null;
         }
 
-        $attempt = PaymentAttempt::query()
+        $matchingAttempt = PaymentAttempt::query()
+            ->where('payment_order_id', $order->id)
+            ->where('provider', $verified->provider)
             ->where('provider_checkout_reference', $verified->providerObjectReference)
             ->lockForUpdate()
             ->first();
 
-        if ($attempt instanceof PaymentAttempt
-            && $attempt->payment_order_id === $order->id
-            && $attempt->provider === $verified->provider) {
+        if ($matchingAttempt instanceof PaymentAttempt) {
             return null;
         }
 
+        $otherAttempt = PaymentAttempt::query()
+            ->where('provider_checkout_reference', $verified->providerObjectReference)
+            ->lockForUpdate()
+            ->first();
+
         return [
             'provider_object_reference' => $verified->providerObjectReference,
-            'matched_payment_order_id' => $attempt?->payment_order_id,
+            'matched_payment_order_id' => $otherAttempt?->payment_order_id,
             'expected_payment_order_id' => $order->id,
         ];
     }
