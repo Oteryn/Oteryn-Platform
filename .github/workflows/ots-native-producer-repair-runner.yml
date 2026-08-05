@@ -33,9 +33,7 @@ jobs:
           import subprocess
 
           source = Path('.github/workflows/ots-native-producer-repair.yml').read_text(encoding='utf-8')
-          start_marker = '        run: |\n'
-          end_marker = '      - name: Format sources\n'
-          block = source.split(start_marker, 1)[1].split(end_marker, 1)[0]
+          block = source.split('        run: |\n', 1)[1].split('      - name: Format sources\n', 1)[0]
           script = '\n'.join(
               line[10:] if line.startswith('          ') else line
               for line in block.splitlines()
@@ -49,12 +47,7 @@ jobs:
           gofmt -w services/game-gateway/internal
           composer install --no-interaction --prefer-dist --no-progress
           vendor/bin/pint app/GameAuth/Worlds app/Http/Controllers/GameAuth/GameLoginContextController.php database/migrations/2026_08_05_130000_migrate_native_protocol_identity_to_version.php tests/Feature/GameAuth
-      - name: Test Platform migration registry and API
-        run: php artisan test tests/Feature/GameAuth/GameLoginContextApiTest.php tests/Feature/GameAuth/WorldRegistryTest.php
-      - name: Test Game Gateway
-        working-directory: services/game-gateway
-        run: go test ./...
-      - name: Commit repaired producer
+      - name: Commit repaired producer for diagnostics
         shell: bash
         run: |
           set -euo pipefail
@@ -63,3 +56,8 @@ jobs:
           git add app database services tests
           git commit -m 'fix(native): preserve Canary profile isolation'
           git push origin HEAD:feat/OTS-20260804-native-protocol-single-version-producer
+      - name: Test Platform migration registry and API
+        run: php artisan test tests/Feature/GameAuth/GameLoginContextApiTest.php tests/Feature/GameAuth/WorldRegistryTest.php
+      - name: Test Game Gateway
+        working-directory: services/game-gateway
+        run: go test ./...
