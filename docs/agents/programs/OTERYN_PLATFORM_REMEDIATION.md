@@ -20,8 +20,8 @@ Consume confirmed, implementation-authorized Platform findings and close them th
 
 ```yaml
 programme_state_version: 2
-updated_at: 2026-08-05T19:38:00Z
-status: active
+updated_at: 2026-08-05T19:52:00Z
+status: waiting
 active_claims:
   - issue: 547
     task: OTERYN-20260805-payment-event-integrity
@@ -42,15 +42,18 @@ ready_issue_query: 'repo:blakinio/Oteryn-Platform is:issue is:open label:program
 proven:
   - Every remediation worker must obtain a valid Issue claim and repository task ownership before product mutation.
   - One Issue is assigned to one remediation worker at a time.
-  - Issue 547 is exclusively claimed by task OTERYN-20260805-payment-event-integrity on branch repair/issue-547 and draft PR 595.
+  - Issue 547 is exclusively claimed by task OTERYN-20260805-payment-event-integrity on branch repair/issue-547 and pull request 595.
+  - The bounded payment-integrity implementation is present on the claimed branch and Agent Governance passed on implementation head 4f311efb2ff1ee21d3b03d2b9db398e3bc407efe.
   - This programme is immutably scoped to blakinio/Oteryn-Platform by docs/agents/OTERYN_PLATFORM_PROGRAM_SCOPE.md.
 derived:
-  - Parallel dispatch is safe only for Issues classified parallel_safe with different coordination keys and non-overlapping paths.
+  - Parallel dispatch remains safe only for Issues classified parallel_safe with different coordination keys and non-overlapping paths.
 unknown:
-  - Current count and dependency graph of the remaining ready remediation Issues.
+  - Exact-head required CI conclusion for the final waiting checkpoint.
+  - Independent security-review disposition for pull request 595.
 conflicts: []
-blockers: []
-next_action: Complete Issue 547 on PR 595, obtain exact-head CI and independent security validation, then release the claim and select the next ready Issue.
+blockers:
+  - Independent security approval is required before merging this high-risk financial-integrity repair.
+next_action: Keep Issue 547 exclusively claimed while pull request 595 completes exact-head CI and receives independent security approval, then merge and perform terminal lifecycle cleanup.
 ```
 
 ## Parallel dispatch checkpoint
