@@ -18,13 +18,13 @@ Continuously challenge Platform architecture, repository structure and CI/CD; id
 
 ```yaml
 programme_state_version: 2
-updated_at: 2026-08-05T22:15:00Z
-status: implementing
+updated_at: 2026-08-05T22:20:00Z
+status: validating
 current_review_domain: architecture-decision-backlog-implementation
 active_task: OTERYN-20260805-architecture-decision-backlog-implementation
 issue: 642
 branch: repair/issue-642-architecture-decision-backlog
-pull_request: none
+pull_request: 650
 last_completed_domain: architecture-decision-backlog-authority
 last_completed_issue: 602
 last_completed_pull_request: 604
@@ -35,19 +35,6 @@ accepted_authority:
   backlog_adr: docs/architecture/adr/0023-machine-readable-architecture-decision-backlog.md
   backlog_registry: docs/architecture/ARCHITECTURE_DECISION_BACKLOG.json
 active_architecture_decision_ids: ["ARCH-DEC-0001","ARCH-DEC-0002","ARCH-DEC-0003"]
-active_decision_summary:
-  - id: ARCH-DEC-0001
-    issue: 586
-    state: decision_required
-    title: Select merged source-branch lifecycle policy.
-  - id: ARCH-DEC-0002
-    issue: 587
-    state: decision_required
-    title: Select repository licensing and distribution policy.
-  - id: ARCH-DEC-0003
-    issue: 588
-    state: decision_required
-    title: Select confidential vulnerability disclosure policy.
 architecture_conflicts:
   - Historical duplicate ADR prefixes remain for 0008, 0010, 0011, 0015, 0016, 0017, 0018 and 0021, but the exact accepted path sets are machine-enforced and cannot expand silently.
 ci_architecture_findings:
@@ -58,6 +45,7 @@ proven:
   - ADR 0023 authorizes one repository-owned JSON inventory for unresolved architecture decision obligations.
   - Duplicate searches found no competing registry implementation Issue, PR or active task owner.
   - Issues 586, 587 and 588 contain unresolved owner policy decisions suitable for initial seeding.
+  - Current repository metadata reports automatic merged-branch deletion enabled, while no canonical exception and recovery policy was found.
   - Completed ARCH-AUTH history and implementation-only work are excluded from the active registry.
 derived:
   - Three initial records exercise the non-empty schema while preserving a narrow unresolved-decision boundary.
