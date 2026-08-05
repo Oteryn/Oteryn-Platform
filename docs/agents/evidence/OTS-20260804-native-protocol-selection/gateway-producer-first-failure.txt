@@ -1,0 +1,24 @@
+# github.com/blakinio/oteryn-platform/services/game-gateway/internal/gateway [github.com/blakinio/oteryn-platform/services/game-gateway/internal/gateway.test]
+internal/gateway/native_protocol_test.go:33:63: cannot use "nativeProtocolVersion." + string(rune('a' + index)) (value of type string) as uint32 value in assignment
+internal/gateway/service_test.go:89:30: cannot use 1 (untyped int constant) as string value in argument to policyCandidate
+internal/gateway/service_test.go:101:29: cannot use 1 (untyped int constant) as string value in argument to offerCandidate
+internal/gateway/service_test.go:128:29: cannot use 1 (untyped int constant) as string value in argument to policyCandidate
+internal/gateway/service_test.go:229:42: cannot use nativeProtocolVersion (variable of type string) as uint32 value in struct literal
+internal/gateway/service_test.go:235:52: invalid operation: nativeProtocolVersion == 1 (mismatched types string and untyped int)
+internal/gateway/service_test.go:247:42: cannot use nativeProtocolVersion (variable of type string) as uint32 value in struct literal
+# github.com/blakinio/oteryn-platform/services/game-gateway/internal/session
+internal/session/client.go:115:35: invalid operation: result.NativeProtocolVersion != selection.NativeProtocolVersion (mismatched types string and uint32)
+internal/session/client.go:197:27: cannot use selection.NativeProtocolVersion (variable of type uint32) as string value in struct literal
+FAIL	github.com/blakinio/oteryn-platform/services/game-gateway/cmd/game-gateway [build failed]
+ok  	github.com/blakinio/oteryn-platform/services/game-gateway/internal/config	0.004s
+FAIL	github.com/blakinio/oteryn-platform/services/game-gateway/internal/e2e [build failed]
+FAIL	github.com/blakinio/oteryn-platform/services/game-gateway/internal/gateway [build failed]
+--- FAIL: TestLoginMapsNoMatchToConflictWithoutPolicyDisclosure (0.00s)
+    server_test.go:212: unexpected no-match response: 400 {"error":"invalid_request"}
+FAIL
+FAIL	github.com/blakinio/oteryn-platform/services/game-gateway/internal/httpapi	0.005s
+ok  	github.com/blakinio/oteryn-platform/services/game-gateway/internal/platform	0.007s
+FAIL	github.com/blakinio/oteryn-platform/services/game-gateway/internal/session [build failed]
+FAIL
+
+EXIT_STATUS=1
