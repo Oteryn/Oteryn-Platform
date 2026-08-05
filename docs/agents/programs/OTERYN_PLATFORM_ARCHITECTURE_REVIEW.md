@@ -18,7 +18,7 @@ Continuously challenge Platform architecture, repository structure and CI/CD; id
 
 ```yaml
 programme_state_version: 2
-updated_at: 2026-08-05T16:40:00Z
+updated_at: 2026-08-05T16:55:00Z
 status: validating
 current_review_domain: adr-registry-integrity
 active_task: OTERYN-20260805-adr-registry-validator
@@ -26,7 +26,7 @@ issue: 577
 branch: task/OTERYN-20260805-adr-registry-validator
 pull_request: 581
 exact_base: 3f79987f47e5c7593daccdf1136e09d6641017de
-failed_head: 2d1d59fffe8d0163ff49a42afb7c0c18d7521655
+last_validated_parser_head: b541e7a7c54f73a186cdc8cc2da3491c4acc729f
 last_completed_domain: canonical-architecture-authority
 last_completed_issue: 548
 last_completed_pull_request: 550
@@ -69,22 +69,26 @@ architecture_conflicts:
 ci_architecture_findings:
   - Existing PHPUnit CI enforces the ADR validator without editing workflow files.
   - Failed head 2d1d59fffe8d0163ff49a42afb7c0c18d7521655 proved three established lifecycle declaration formats; the parser repair preserves all historical ADR bytes.
+  - Deep System Validation on b541e7a7c54f73a186cdc8cc2da3491c4acc729f passed the complete PHP regression and live registry validator.
+  - Native protocol audit 31026544250 forbids all tests/** changes globally; the tooling bridge is being relocated to tools/validation/phpunit and registered through phpunit.xml without workflow edits.
 accepted_handoffs_ready_for_remediation:
   - Reconcile module and system current-state documentation from PR 453 and later exact merged evidence after Issue 577 reaches terminal state.
 proven:
   - No exact existing Issue, PR or implementation owner existed before Issue 577.
   - ADR 0022 requires fail-closed validation while preserving existing accepted paths.
   - Issue 558 and tools/agents scope remain excluded.
-  - CI run 31025277136 failed only because the first parser accepted bullet status metadata but not established plain and section forms.
   - The repaired focused suite passes 10 tests and rejects ambiguous lifecycle declarations.
+  - The repaired validator passes the live repository registry in Deep System PHP regression.
+  - Native protocol audit failure was path classification only; four companion audits and the native contract workflow passed.
 derived:
   - A closed exact-path legacy allowlist is the smallest compatibility-safe collision model.
   - Supporting established lifecycle syntax is safer than rewriting accepted ADR history.
+  - A tooling-owned PHPUnit bridge is compatible with both existing CI and the global native-contract path boundary.
 unknown:
-  - Repaired exact final-head validation result.
+  - Exact final-head result after bridge relocation.
 conflicts: []
 blockers: []
-next_action: Run exact-head GitHub Actions on the repaired parser and complete the fresh diff and invariant audit.
+next_action: Validate the tooling-owned PHPUnit bridge on a new exact head, then complete the fresh diff and invariant audit.
 ```
 
 ## Programme rules

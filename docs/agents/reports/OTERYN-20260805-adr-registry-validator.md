@@ -9,7 +9,8 @@ pull_request: 581
 programme: OTERYN_PLATFORM_ARCHITECTURE_REVIEW
 repository: blakinio/Oteryn-Platform
 exact_base: 3f79987f47e5c7593daccdf1136e09d6641017de
-failed_head: 2d1d59fffe8d0163ff49a42afb7c0c18d7521655
+first_failed_head: 2d1d59fffe8d0163ff49a42afb7c0c18d7521655
+second_failed_head: b541e7a7c54f73a186cdc8cc2da3491c4acc729f
 classification: infrastructure
 runtime_change: false
 ```
@@ -36,31 +37,25 @@ Selected. Preserve the eight exact historical duplicate sets and reject any new 
 
 - `tools/validation/adr_registry.py` uses only the Python standard library.
 - `tools/validation/test_adr_registry.py` provides positive, negative and boundary fixtures.
-- `tests/Unit/Architecture/AdrRegistryValidationTest.php` makes the existing PHPUnit/CI path run the validator and focused suite.
-- No workflow file, dependency or runtime path is changed.
+- `tools/validation/phpunit/AdrRegistryValidationTest.php` makes the existing PHPUnit/CI path run the validator and focused suite.
+- `phpunit.xml` registers the tooling-owned bridge without editing workflow files.
+- No dependency, runtime or production path is changed.
 
-## First exact-head failure
+## First exact-head failure — lifecycle syntax compatibility
 
 CI run `31025277136`, PHPUnit job `92372884204`, failed only in `AdrRegistryValidationTest::test_repository_adr_registry_passes`.
 
-The first parser recognized only bullet metadata such as `- Status: Accepted`. Seventeen established ADRs instead used either:
+The first parser recognized only bullet metadata such as `- Status: Accepted`. Seventeen established ADRs instead used either a plain `Status: Accepted` key or a `## Status` section followed by the lifecycle value.
 
-- a plain `Status: Accepted` key; or
-- a `## Status` section followed by the lifecycle value.
+The parser was repaired to accept exactly one lifecycle declaration in any of the three established forms while still rejecting no declaration or multiple declarations. Ten focused fixtures pass. No historical ADR was rewritten.
 
-This was parser incompatibility with accepted repository history, not a new duplicate, README drift, invalid filename, missing Python dependency, runtime regression or corrupt ADR.
+Deep System Validation run `31026544499` subsequently passed the complete PHP regression and concurrency suites on `b541e7a7c54f73a186cdc8cc2da3491c4acc729f`, proving the repaired parser against the live registry.
 
-## Repair
+## Second exact-head failure — global native-contract path boundary
 
-The parser now accepts exactly one lifecycle declaration in any of the three established forms:
+Native protocol contract audits run `31026544250` failed only in Audit 1 because its global documentation-boundary check rejects every change under `tests/**`. The other four native protocol audit jobs passed and no protocol invariant failed.
 
-1. `- Status: <token>`;
-2. `Status: <token>`;
-3. `## Status` followed by `<token>`.
-
-It still fails closed when no declaration or more than one declaration exists. Focused fixtures now prove all three compatible forms and rejection of an ambiguous dual declaration.
-
-No historical ADR file was normalized or rewritten.
+The bridge is therefore moved from `tests/Unit/Architecture/**` to `tools/validation/phpunit/**` and registered in `phpunit.xml`. This preserves automatic execution in the existing `php artisan test` command without changing `.github/workflows/**` or weakening the native audit.
 
 ## Enforced invariants
 
@@ -77,8 +72,10 @@ The validator does not alter existing ADR bytes, paths, numeric prefixes or inbo
 
 ## Validation state
 
-- focused Python fixture suite after repair: PASS, 10 tests;
-- failed exact head `2d1d59fffe8d0163ff49a42afb7c0c18d7521655`: root cause proven from PHPUnit artifact `8938486455`;
-- repaired repository registry validation and PHPUnit bridge: pending new exact-head GitHub Actions;
-- exact changed-path audit: eight bounded tooling/documentation paths;
+- focused Python fixture suite after parser repair: PASS, 10 tests;
+- live repository validator through Deep System PHP regression: PASS;
+- Agent Governance on `b541e7a7c54f73a186cdc8cc2da3491c4acc729f`: PASS (`31026544387`);
+- Native protocol contract: PASS (`31026544346`);
+- Native protocol audit path boundary: root cause proven; bridge relocation pending new exact-head validation;
+- exact changed-path audit after relocation: nine bounded tooling/configuration/documentation paths;
 - runtime E2E: `NOT_APPLICABLE` because no runtime or user-facing behavior changes.

@@ -38,7 +38,7 @@ python3 tools/validation/adr_registry.py
 python3 tools/validation/test_adr_registry.py
 ```
 
-The repository test suite executes both through `tests/Unit/Architecture/AdrRegistryValidationTest.php`.
+The repository test suite executes both through `tools/validation/phpunit/AdrRegistryValidationTest.php`, registered in `phpunit.xml` without changing workflow files.
 
 The validator fails closed for:
 

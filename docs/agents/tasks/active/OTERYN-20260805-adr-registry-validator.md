@@ -10,7 +10,7 @@ branch: task/OTERYN-20260805-adr-registry-validator
 base_branch: main
 exact_base: 3f79987f47e5c7593daccdf1136e09d6641017de
 created: 2026-08-05T16:18:00Z
-updated: 2026-08-05T16:40:00Z
+updated: 2026-08-05T16:55:00Z
 execution_mode: github-only
 risk: medium
 feature_scope:
@@ -21,9 +21,10 @@ feature_scope:
   integration_required: true
   e2e_required: false
 owned_paths:
+  - phpunit.xml
   - tools/validation/adr_registry.py
   - tools/validation/test_adr_registry.py
-  - tests/Unit/Architecture/AdrRegistryValidationTest.php
+  - tools/validation/phpunit/AdrRegistryValidationTest.php
   - docs/architecture/ARCHITECTURE_AUTHORITY.md
   - docs/architecture/adr/README.md
   - docs/agents/tasks/active/OTERYN-20260805-adr-registry-validator.md
@@ -69,6 +70,7 @@ runtime_e2e: not_applicable_non_runtime_repository_integrity_tool
 - [x] update the ADR registry and authority documentation;
 - [x] diagnose the first exact-head failure from uploaded PHPUnit evidence;
 - [x] preserve all established lifecycle metadata formats without rewriting historical ADRs;
+- [x] move the PHPUnit bridge outside `tests/**` to respect the global native-contract documentation boundary;
 - [ ] pass repaired focused and exact-head validation;
 - [ ] complete fresh post-implementation audit with zero material findings;
 - [ ] merge, archive, close Issue #577 and release ownership.
@@ -78,22 +80,22 @@ runtime_e2e: not_applicable_non_runtime_repository_integrity_tool
 ```yaml
 checkpoint_version: 1
 policy_version: 2
-updated_at: 2026-08-05T16:40:00Z
+updated_at: 2026-08-05T16:55:00Z
 invocation_started_at: 2026-08-05T15:50:00Z
-last_progress_at: 2026-08-05T16:40:00Z
-head: 2d1d59fffe8d0163ff49a42afb7c0c18d7521655
+last_progress_at: 2026-08-05T16:55:00Z
+head: b541e7a7c54f73a186cdc8cc2da3491c4acc729f
 branch: task/OTERYN-20260805-adr-registry-validator
 pr: 581
 status: validating
-phase: repair_validation
+phase: integration_boundary_repair
 session_id: chat-20260805-architecture-continuation
 session_role: implementer
 execution_mode: github-only
 execution_reason: bounded repository tooling and documentation changes can be implemented through GitHub objects and validated by GitHub Actions
-lease_expires_at: 2026-08-05T17:25:00Z
+lease_expires_at: 2026-08-05T17:40:00Z
 context_pressure: medium
 context_growth: stable
-context_score: 7
+context_score: 8
 estimate_confidence: high
 decomposition_decision: single
 decomposition_reason: one validator, one compatibility contract and one existing CI consumer form a cohesive bounded slice
@@ -101,9 +103,10 @@ context_routes:
   - architecture
   - testing
 owned_paths:
+  - phpunit.xml
   - tools/validation/adr_registry.py
   - tools/validation/test_adr_registry.py
-  - tests/Unit/Architecture/AdrRegistryValidationTest.php
+  - tools/validation/phpunit/AdrRegistryValidationTest.php
   - docs/architecture/ARCHITECTURE_AUTHORITY.md
   - docs/architecture/adr/README.md
   - docs/agents/tasks/active/OTERYN-20260805-adr-registry-validator.md
@@ -116,29 +119,37 @@ proven:
   - No exact existing Issue, PR or implementation owner was found before Issue 577 was created.
   - Issue 558 owns tools/agents and task-liveness governance, not ADR registry integrity.
   - Existing CI executes PHPUnit; workflow files need not be changed to consume this validator.
-  - The initial focused Python fixture suite passed but omitted two established lifecycle syntax families.
-  - CI run 31025277136 failed only in the live registry bridge because 17 accepted ADRs use plain or section lifecycle declarations.
+  - CI run 31025277136 failed only because 17 accepted ADRs use plain or section lifecycle declarations in addition to bullet metadata.
   - The repaired focused suite passes 10 tests and covers bullet, plain and section forms plus ambiguous declarations.
+  - Deep System Validation on b541e7a7c54f73a186cdc8cc2da3491c4acc729f passed the complete PHP regression and concurrency suites, proving the repaired validator against the live registry.
+  - Native protocol contract audits run 31026544250 failed only because Audit 1 treats any `tests/**` change as a forbidden runtime path; its other four audits passed.
+  - Registering the bridge from `tools/validation/phpunit/**` in `phpunit.xml` preserves CI enforcement without changing workflow files or entering the forbidden `tests/**` root.
 derived:
   - A closed exact-path legacy allowlist is the least disruptive compatibility boundary.
   - Parser compatibility is safer and narrower than rewriting 17 historical ADRs.
+  - The PHPUnit bridge belongs with the repository validation tool rather than the application test tree.
 unknown:
-  - Repaired exact-head GitHub Actions result.
+  - Exact-head result after moving the bridge outside the global native-contract forbidden roots.
 conflicts: []
 first_failure:
   marker: CI PHPUnit ADR registry validation
   evidence: run 31025277136, job 92372884204, artifact 8938486455; test_repository_adr_registry_passes reported 17 established ADRs with zero recognized lifecycle declarations
+secondary_failure:
+  marker: Native protocol architecture boundary audit
+  evidence: run 31026544250, job 92376378411 rejected tests/Unit/Architecture/AdrRegistryValidationTest.php solely because Audit 1 forbids every tests/** path
 rejected_hypotheses:
-  - The failure was not caused by a new ADR collision, README inventory drift or invalid filename.
-  - The failure was not a runtime, database, edge, game-auth or native-protocol regression.
-  - Python and Symfony Process were available because the focused bridge test executed successfully.
+  - Neither failure was caused by a new ADR collision, README inventory drift or invalid filename.
+  - Neither failure was a runtime, database, edge, game-auth or native-protocol behavior regression.
+  - Python and Symfony Process are available because the focused bridge and full PHP regression executed.
+  - The native protocol audit did not identify a protocol invariant violation; all four substantive companion audits passed.
   - Renumbering or normalizing historical ADRs is not required and would risk breaking references.
   - An open-ended duplicate-prefix allowlist would not fail closed.
   - A workflow edit is not required for CI enforcement.
 changed_paths:
+  - phpunit.xml
   - tools/validation/adr_registry.py
   - tools/validation/test_adr_registry.py
-  - tests/Unit/Architecture/AdrRegistryValidationTest.php
+  - tools/validation/phpunit/AdrRegistryValidationTest.php
   - docs/architecture/ARCHITECTURE_AUTHORITY.md
   - docs/architecture/adr/README.md
   - docs/agents/tasks/active/OTERYN-20260805-adr-registry-validator.md
@@ -148,23 +159,26 @@ validation:
   - command: python3 tools/validation/test_adr_registry.py after lifecycle parser repair
     result: PASS
     evidence: 10 focused positive, negative and boundary tests passed
-  - command: exact failed-head GitHub Actions on 2d1d59fffe8d0163ff49a42afb7c0c18d7521655
+  - command: Deep System Validation complete PHP regression on b541e7a7c54f73a186cdc8cc2da3491c4acc729f
+    result: PASS
+    evidence: run 31026544499 completed PHP regression and concurrency steps successfully
+  - command: Native protocol contract audits on b541e7a7c54f73a186cdc8cc2da3491c4acc729f
     result: FAIL
-    evidence: CI run 31025277136 isolated parser incompatibility; other unrelated exact-head checks passed
-  - command: repaired exact repository ADR validation
+    evidence: run 31026544250 rejected only the tests/** bridge path; four other audit jobs passed
+  - command: exact validation after moving bridge to tools/validation/phpunit
     result: NOT_RUN
     evidence: new exact-head GitHub Actions required
 ci_checks_for_current_head: 9
-ci_check_generation: failed_head_diagnosed
+ci_check_generation: integration_boundary_repair
 terminal_ci_wait_started_at: null
 terminal_ci_checks_for_current_generation: 9
 unchanged_state_checks: 0
 identical_failure_retries: 0
-repair_cycles_for_current_gate: 1
+repair_cycles_for_current_gate: 2
 context_reconstruction_attempts: 0
 stall_warnings: 0
 blockers: []
-next_action: Commit the lifecycle parser repair and run all exact-head GitHub Actions on the repaired tree.
+next_action: Commit the PHPUnit bridge relocation and run all exact-head GitHub Actions on the new tree.
 ```
 
 ## E2E
