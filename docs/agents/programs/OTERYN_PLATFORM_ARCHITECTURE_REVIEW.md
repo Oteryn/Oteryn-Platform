@@ -18,13 +18,14 @@ Continuously challenge Platform architecture, repository structure and CI/CD; id
 
 ```yaml
 programme_state_version: 2
-updated_at: 2026-08-05T15:57:00Z
-status: ready
-current_review_domain: none
-active_task: none
-issue: none
-branch: none
-pull_request: none
+updated_at: 2026-08-05T16:24:00Z
+status: implementing
+current_review_domain: adr-registry-integrity
+active_task: OTERYN-20260805-adr-registry-validator
+issue: 577
+branch: task/OTERYN-20260805-adr-registry-validator
+pull_request: pending
+exact_base: 3f79987f47e5c7593daccdf1136e09d6641017de
 last_completed_domain: canonical-architecture-authority
 last_completed_issue: 548
 last_completed_pull_request: 550
@@ -40,7 +41,6 @@ decision_backlog:
     type: missing_decision
     state: completed
     summary: Select the canonical architecture authority and precedence model.
-    resolution: Option B accepted and recorded in ADR 0022 and merged through PR 550.
   - id: ARCH-AUTH-002
     severity: medium
     type: routing
@@ -49,8 +49,9 @@ decision_backlog:
   - id: ARCH-AUTH-003
     severity: high
     type: defect
-    state: ready
-    summary: Add a fail-closed ADR registry validator and define compatibility-safe treatment of historical duplicate identifiers.
+    state: implementing
+    issue: 577
+    summary: Add a fail-closed ADR registry validator using a closed exact-path legacy collision allowlist.
   - id: ARCH-AUTH-004
     severity: high
     type: documentation_drift
@@ -62,23 +63,22 @@ decision_backlog:
     state: queued
     summary: Add one validated machine-readable architecture decision backlog after its schema and ownership are accepted.
 architecture_conflicts:
-  - Historical duplicate ADR prefixes remain for 0008, 0010, 0011, 0015, 0016, 0017, 0018 and 0021.
+  - Historical duplicate ADR prefixes remain for 0008, 0010, 0011, 0015, 0016, 0017, 0018 and 0021; Issue 577 is converting them into a closed compatibility allowlist.
 ci_architecture_findings:
-  - All eight exact-head workflow runs passed on 2d9ba78067823cd45f5f5fa7dc9c95f2a782e8d8 before PR 550 merged.
+  - Existing PHPUnit CI can enforce the ADR validator without editing workflow files.
 accepted_handoffs_ready_for_remediation:
-  - Add a fail-closed ADR registry validator without renumbering existing accepted paths.
-  - Reconcile module and system current-state documentation from PR 453 and later exact merged evidence.
+  - Reconcile module and system current-state documentation from PR 453 and later exact merged evidence after Issue 577 reaches terminal state.
 proven:
-  - Option B is accepted and durable in ADR 0022.
-  - PR 550 merged as 05c7695149117e9cdb8e34937217033357175619 and Issue 548 is closed.
-  - The authority slice changed documentation only and preserved PR 542 and PR 541 ownership boundaries.
-  - Existing duplicate ADR identifiers remain visible compatibility debt rather than being silently renumbered.
+  - No exact existing Issue, PR or implementation owner existed before Issue 577.
+  - ADR 0022 requires fail-closed validation while preserving existing accepted paths.
+  - Issue 558 and tools/agents scope remain excluded.
 derived:
-  - The next highest-value bounded architecture review is ADR registry validation and collision compatibility.
-unknown: []
+  - A closed exact-path legacy allowlist is the smallest compatibility-safe enforcement model.
+unknown:
+  - Exact final-head validation result.
 conflicts: []
 blockers: []
-next_action: Start a bounded review of ADR registry validation and historical collision compatibility, deduplicating against live Issues and PRs before creating a new task.
+next_action: Complete the validator implementation, focused fixtures and existing-CI bridge on the task branch.
 ```
 
 ## Programme rules

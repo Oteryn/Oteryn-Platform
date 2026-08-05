@@ -36,7 +36,7 @@ A lower-ranked source must not silently override a higher-ranked invariant. Reco
 | Concern | Canonical source | Boundary |
 |---|---|---|
 | Authority, precedence and conflict handling | `docs/architecture/ARCHITECTURE_AUTHORITY.md` | Routes to focused truth; does not repeat domain detail. |
-| Durable decisions | `docs/architecture/adr/**` and `docs/architecture/adr/README.md` | Decisions, lifecycle and supersession history. |
+| Durable decisions | `docs/architecture/adr/**` and `docs/architecture/adr/README.md` | Decisions, lifecycle, allocation, machine validation and supersession history. |
 | System context and topology | `docs/architecture/SYSTEM_ARCHITECTURE.md` | Components, trust boundaries and high-level dependency direction. |
 | Modules and responsibility | `docs/architecture/MODULE_CATALOG.md` | Module ownership, responsibilities and dependency boundaries. |
 | Security | `docs/architecture/SECURITY_ARCHITECTURE.md` | Mandatory security invariants and trust controls. |
@@ -70,11 +70,13 @@ When two sources disagree:
 5. update the focused canonical owner and create or supersede an ADR when the resolution outlives one task;
 6. preserve links to the displaced historical evidence.
 
-## ADR allocation rule
+## ADR allocation and validation rule
 
-Until a machine validator is introduced, allocate a new ADR by scanning all ADR files and open architecture PRs, taking the highest numeric prefix, and using the next integer. Do not reuse gaps. Existing duplicate identifiers are historical defects and must not be renumbered without a compatibility decision.
+Before allocating a new ADR, scan all ADR files and open architecture PRs, take the highest numeric prefix, and use the next integer. Do not reuse gaps.
 
-As of the accepted decision, the highest observed prefix was `0021`; this decision therefore uses `0022`.
+`python3 tools/validation/adr_registry.py` enforces filename shape, lifecycle presence, README inventory equality, supersession targets and numeric-prefix uniqueness. Historical duplicate identifiers are preserved only through the validator's closed exact-path allowlist. Any new collision or change to a legacy path set fails closed.
+
+Existing accepted ADRs must not be renamed or renumbered without a separate compatibility decision.
 
 ## Change policy
 
