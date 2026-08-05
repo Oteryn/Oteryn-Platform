@@ -20,41 +20,27 @@ Consume confirmed, implementation-authorized Platform findings and close them th
 
 ```yaml
 programme_state_version: 2
-updated_at: 2026-08-05T20:27:00Z
-status: waiting
-active_claims:
-  - issue: 547
-    task: OTERYN-20260805-payment-event-integrity
-    branch: repair/issue-547
-    pr: 595
-    coordination_key: module:payment-event-integrity
-    session_id: chatgpt-20260805T2127+0200
-    claim_nonce: issue-547-bc9f64ac-20260805T1927Z
-    lease_expires_at: 2026-08-05T21:27:00Z
-active_tasks:
-  - OTERYN-20260805-payment-event-integrity
-active_pull_requests:
-  - 595
-serialized_coordination_keys:
-  - module:payment-event-integrity
+updated_at: 2026-08-05T20:35:00Z
+status: ready
+active_claims: []
+active_tasks: []
+active_pull_requests: []
+serialized_coordination_keys: []
 parallel_capacity: dynamic
 ready_issue_query: 'repo:blakinio/Oteryn-Platform is:issue is:open label:programme:platform label:programme:audit-repair label:agent:ready'
 proven:
   - Every remediation worker must obtain a valid Issue claim and repository task ownership before product mutation.
   - One Issue is assigned to one remediation worker at a time.
-  - Issue 547 remains exclusively claimed by task OTERYN-20260805-payment-event-integrity on branch repair/issue-547 and pull request 595.
-  - The repair branch contains current main 3efcae79ed55a159f46bb9ffa3904dc81a2a3b1d through merge commit 09fd84ea70a6729e3608fc96fd2d37a21bfbb56e.
-  - Required exact-head CI classify-changes and test passed on 09fd84ea70a6729e3608fc96fd2d37a21bfbb56e.
-  - Independent AUDIT ONLY Issue 597 is open and labelled agent:ready for a separate validator.
+  - Issue 547 was repaired through pull request 595 and closed completed by merge commit 5a04d055aa02b74cc741f69713d1ea26c91550c0.
+  - Independent audit Issue 597 inspected the exact final pull-request head, found zero critical, high or material-medium findings and closed completed.
   - This programme is immutably scoped to blakinio/Oteryn-Platform by docs/agents/OTERYN_PLATFORM_PROGRAM_SCOPE.md.
 derived:
   - Parallel dispatch remains safe only for Issues classified parallel_safe with different coordination keys and non-overlapping paths.
 unknown:
-  - Independent security-review disposition for pull request 595 from Issue 597.
+  - Current count and dependency graph of the remaining ready remediation Issues.
 conflicts: []
-blockers:
-  - The implementing session cannot accept its own material payment risk or act as the independent final validator; Issue 597 must be completed by a separate agent or person.
-next_action: Have a separate agent or person claim Issue 597 and audit pull request 595; remediate any material findings, then merge and perform terminal lifecycle cleanup.
+blockers: []
+next_action: Query live ready Issues, validate taxonomy and claim state, then select the highest-priority unclaimed non-overlapping work item.
 ```
 
 ## Parallel dispatch checkpoint
