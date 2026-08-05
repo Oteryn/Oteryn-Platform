@@ -20,14 +20,14 @@ Continuously audit every delivered or declared Platform module and surface for t
 
 ```yaml
 programme_state_version: 2
-updated_at: 2026-08-05T14:53:00Z
+updated_at: 2026-08-05T14:59:00Z
 status: validating
 current_cycle: 1
 current_domain: payment-event-integrity
 active_task: docs/agents/tasks/active/OTERYN-20260805-payment-event-integrity-audit.md
 branch: audit/20260805-payment-event-integrity
-pull_request: pending
-exact_head: pending-branch-head
+pull_request: 549
+exact_head: 840c82349376ac1c321c6704dd7635dfc012b5e6
 last_completed_domain: exhaustive-portal-current-main-baseline
 coverage_inventory:
   baseline: docs/agents/evidence/OTERYN-20260803-portal-exhaustive-current-main-audit/
@@ -51,9 +51,11 @@ ready_remediation_issues:
 blocked_findings: none_in_current_package
 proven:
   - PR #483 and its merged evidence are the authoritative existing module and observable-surface inventory; the previous not_created state was stale.
-  - Current main is 37 commits ahead of the exhaustive-audit merge and contains material payment, native-protocol, operations and validation deltas.
+  - Audited main is 37 commits ahead of the exhaustive-audit merge and contains material payment, native-protocol, operations and validation deltas.
   - The archived payment producer task released ownership, so payment-event integrity was safe to audit without overlapping current native-protocol work.
   - OPA-SEC-0001 is proven and deduplicated in Issue #547.
+  - PR #549 contains only audit task, evidence, report and programme-state paths.
+  - The first complete PR head c6eb0f6c714b6677d5798f8d40940835eaad116e passed all six emitted workflows.
 derived:
   - Payment provider sandbox or production activation must remain blocked until Issue #547 is remediated and independently verified.
 unknown:
@@ -61,7 +63,7 @@ unknown:
 conflicts:
   - ADR 0021 declares payment-order amount/currency integrity protected, while the current verified-event contract cannot carry or validate those settlement facts.
 blockers: []
-next_action: Validate and merge the payment-event integrity audit PR, archive its task, then select the next non-overlapping post-baseline delta domain.
+next_action: Verify all emitted workflows on the final unchanged PR #549 head, squash-merge it, archive the task and continue with the next non-overlapping delta domain.
 ```
 
 ## Programme rules
