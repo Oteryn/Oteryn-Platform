@@ -18,13 +18,13 @@ Continuously challenge Platform architecture, repository structure and CI/CD; id
 
 ```yaml
 programme_state_version: 2
-updated_at: 2026-08-05T16:50:00+02:00
-status: active
+updated_at: 2026-08-05T16:55:00+02:00
+status: blocked
 current_review_domain: canonical-architecture-authority
 active_task: OTERYN-20260805-architecture-authority
 issue: 548
 branch: task/OTERYN-20260805-architecture-authority
-pull_request: none
+pull_request: 550
 exact_base: 3ab77c072dce796b09004c54b649db009a75d524
 decision_backlog:
   - id: ARCH-AUTH-001
@@ -33,6 +33,7 @@ decision_backlog:
     state: owner_decision_required
     summary: Select the canonical architecture authority and precedence model.
     issue: 548
+    pull_request: 550
   - id: ARCH-AUTH-002
     severity: medium
     type: defect
@@ -63,17 +64,19 @@ accepted_handoffs_ready_for_remediation: []
 proven:
   - The canonical architecture review prompt is repository-backed and immutably scoped to blakinio/Oteryn-Platform.
   - Issue 548 is the deduplicated decision boundary for the first review package.
+  - Draft PR 550 contains only the bounded architecture task, report and programme-state paths.
   - PR 453 is the existing authoritative audit evidence for module-catalogue drift.
   - Active PR 542 owns native-protocol implementation and related contracts and is excluded from this task.
 derived:
   - An explicit authority model is required before safely repairing routing, ADR allocation and module/current-state documentation.
+  - Option B, an authority index plus focused canonical documents, has the strongest correctness and maintainability trade-off.
 unknown:
-  - Whether the owner accepts the recommended authority-index model.
+  - Whether the owner accepts Option B or selects A/C.
 conflicts:
   - Initial target documentation can currently be mistaken for present implementation truth.
 blockers:
-  - decision: Accept authority model B, or select A/C with rationale.
-next_action: Open the documentation-only decision-package PR, validate its exact diff and request the single architecture decision in Issue 548.
+  - decision: Accept Option B, or select Option A/C with rationale in Issue 548.
+next_action: Record the owner decision in Issue 548; if B is accepted, continue PR 550 with deterministic ADR inventory and documentation Slice 1.
 ```
 
 ## Programme rules
