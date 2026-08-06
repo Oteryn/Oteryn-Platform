@@ -1,0 +1,59 @@
+name: OTS native producer script fix
+
+on:
+  push:
+    branches:
+      - feat/OTS-20260804-native-protocol-single-version-producer
+    paths:
+      - .github/workflows/ots-native-producer-script-fix.yml
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: feat/OTS-20260804-native-protocol-single-version-producer
+          fetch-depth: 0
+      - name: Repair exact workflow anchors
+        shell: python
+        run: |
+          from pathlib import Path
+
+          repair = Path('.github/workflows/ots-native-producer-repair.yml')
+          lines = repair.read_text(encoding='utf-8').splitlines()
+          found_old = found_new = False
+          for index, line in enumerate(lines):
+              if line.startswith('          old_canary = '):
+                  lines[index] = "          old_canary = '\"family\":\"canary\",\"native_protocol_version\":\"canary.current\",\"transport\":\"canary.sequence.v1\",\"schema_revision\":2'"
+                  found_old = True
+              elif line.startswith('          new_canary = '):
+                  lines[index] = "          new_canary = '\"family\":\"canary\",\"profile\":\"canary.current\",\"transport\":\"canary.sequence.v1\",\"schema_revision\":1'"
+                  found_new = True
+          if not found_old or not found_new:
+              raise SystemExit('Canary repair anchors not found')
+          repair.write_text('\n'.join(lines) + '\n', encoding='utf-8')
+
+          finalize = Path('.github/workflows/ots-native-producer-finalize.yml')
+          text = finalize.read_text(encoding='utf-8')
+          anchor = '            .github/workflows/ots-native-producer-finalize.yml \\\n'
+          insertion = (
+              '            .github/workflows/ots-native-producer-finalize.yml \\\n'
+              '            .github/workflows/ots-native-producer-debug.yml \\\n'
+              '            .github/workflows/ots-native-producer-script-fix.yml \\\n'
+          )
+          if anchor not in text:
+              raise SystemExit('finalizer cleanup anchor not found')
+          finalize.write_text(text.replace(anchor, insertion, 1), encoding='utf-8')
+      - name: Commit workflow repairs
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add .github/workflows/ots-native-producer-repair.yml .github/workflows/ots-native-producer-finalize.yml
+          git commit -m 'chore(native): correct final repair anchors'
+          git push origin HEAD:feat/OTS-20260804-native-protocol-single-version-producer
