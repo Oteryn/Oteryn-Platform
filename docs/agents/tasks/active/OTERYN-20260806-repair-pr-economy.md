@@ -61,8 +61,8 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-06T12:23:00Z
-head_before_checkpoint_commit: 54205cd0d844d3b1dce9a2c2061960196d0406f6
+updated_at: 2026-08-06T12:26:00Z
+head: 9df7ab6489abd87ed89c806f4e0ac1c18bbc3478
 branch: docs/repair-pr-economy-20260806
 pr: 743
 status: ready
@@ -125,7 +125,7 @@ validation:
     result: PASS
     evidence: current main, PR #673, active tasks, related open PRs and controlling contracts inspected
   - command: independent audit generation 1
-    result: FINDING
+    result: FAIL
     evidence: Issue #744 and review 4874435874; AUDIT-744-001
   - command: static adversarial policy evaluation
     result: PASS
