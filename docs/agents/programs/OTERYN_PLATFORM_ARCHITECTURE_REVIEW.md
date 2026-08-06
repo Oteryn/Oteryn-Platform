@@ -18,13 +18,13 @@ Continuously challenge Platform architecture, repository structure and CI/CD; id
 
 ```yaml
 programme_state_version: 2
-updated_at: 2026-08-06T06:27:00Z
+updated_at: 2026-08-06T06:35:00Z
 status: waiting_owner_decision
 current_review_domain: merged-source-branch-lifecycle-policy
 active_task: OTERYN-20260806-merged-source-branch-lifecycle-decision
 issue: 586
 branch: task/OTERYN-20260806-merged-branch-lifecycle-decision
-pull_request: null
+pull_request: 653
 last_completed_domain: architecture-decision-backlog-implementation
 last_completed_issue: 642
 last_completed_pull_request: 650
@@ -49,7 +49,7 @@ proven:
   - Full branch enumeration returned 498 refs including main and the current task branch.
   - No accepted exception, retention, recovery, expiry or one-time cleanup policy was found.
   - GitHub branch protection and repository rules can prevent automatic deletion of approved long-lived branches.
-  - Proposed ADR 0024 defines Options A, B and C and grants no branch-deletion or repository-setting authority.
+  - Draft PR 653 proposes ADR 0024 and changes exactly five bounded documentation paths.
 derived:
   - Option A is the strongest default because it preserves low-cost automatic cleanup while making every retention exception explicit, protected and fail-closed.
 unknown:
@@ -57,7 +57,7 @@ unknown:
 conflicts: []
 blockers:
   - Repository-owner selection of A, B or C is required before ADR 0024 can be accepted and ARCH-DEC-0001 can leave decision_required.
-next_action: Obtain the repository owner's explicit A, B or C selection in Issue 586 or the decision PR; then accept/reject ADR 0024, transition ARCH-DEC-0001 and create a separate implementation/cleanup handoff without deleting branches in the decision package.
+next_action: Obtain the repository owner's explicit A, B or C selection in Issue 586 or PR 653; then accept/reject ADR 0024, transition ARCH-DEC-0001 and create a separate implementation/cleanup handoff without deleting branches in the decision package.
 ```
 
 ## Programme rules
