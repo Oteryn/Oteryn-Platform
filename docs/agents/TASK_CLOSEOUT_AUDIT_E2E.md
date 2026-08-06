@@ -1,20 +1,25 @@
 # Task Closeout, PR Hygiene, Audit and E2E Contract
 
+```yaml
+task_closeout_policy_version: 3
+remediation_audit_specialization: docs/agents/REMEDIATION_AUDIT_RISK_GATE.md
+```
+
 ## Purpose
 
-Implementation completion is not task completion. A task reaches terminal status only after the delivered outcome is independently audited, exercised end to end, validated on the exact final head, and cleaned up across task records, ownership, branches, reviews, and related pull requests.
+Implementation completion is not task completion. Terminal status requires complete acceptance, self-review, applicable audit, real applicable E2E, exact-head CI, PR hygiene, task archival and ownership release.
 
-Repository merge, production, authorization, and safety rules remain authoritative when stricter.
+For remediation tasks, `REMEDIATION_AUDIT_RISK_GATE.md` controls whether a distinct independent auditor is required. Every remediation still requires exact-head self-review.
 
-## Required lifecycle
-
-Use distinct states or equivalent repository phases:
+## Lifecycle
 
 ```yaml
 task_lifecycle:
   - implementing
   - validating
-  - auditing
+  - self_reviewing
+  - audit_gate
+  - auditing_when_required
   - e2e_testing
   - final_ci
   - closing_prs
@@ -24,30 +29,38 @@ task_lifecycle:
 
 Do not move directly from implementation to completed.
 
-## Required closeout sequence
+## Closeout sequence
 
 ```text
 implementation
 → focused validation
 → component/integration validation
-→ fresh post-implementation audit
-→ audit remediation
-→ real E2E
+→ exact-head self-review
+→ audit-risk decision
+→ independent audit only when REQUIRED or requested OPTIONAL
+→ finding remediation by the implementation owner
+→ real E2E or justified NOT_APPLICABLE
 → final exact-head CI
-→ PR and review cleanup
-→ task archive or terminal status
+→ PR/review cleanup
+→ merge/terminal delivery
+→ outcome verification
+→ Issue/task archive
 → ownership/lease release
-→ programme barrier review
-→ next READY task
 ```
 
-If remediation changes the final head, rerun every affected downstream gate.
+If the target head changes, rerun every affected downstream gate.
+
+## One remediation owner
+
+One remediation Issue normally has one implementation owner. That owner remains responsible through PR maintenance, finding remediation, merge, Issue closure, task archival and release.
+
+An independent auditor never takes Issue ownership. Findings return to the same owner. A different implementation session may resume only through valid continuation/takeover of the same owner role.
 
 ## Related PR inventory
 
-Before closeout search by task ID, programme/wave, branch, changed contracts, producer/consumer dependencies, validation work, audit work, archive work, and superseded attempts.
+Search by task ID, Issue, programme, branch, changed contracts, producer/consumer dependencies, validation, audit and superseded attempts.
 
-Every related PR must have one intentional terminal classification:
+Every related PR must have one terminal classification:
 
 ```yaml
 pr_terminal_state:
@@ -59,64 +72,91 @@ pr_terminal_state:
   - closed_request_only
 ```
 
-An unintentionally open PR, abandoned draft, unresolved validation PR, or superseded implementation attempt blocks task completion. If a required PR must remain open for an external dependency, the task remains `WAITING` or `BLOCKED`.
+An unintentionally open PR, abandoned draft, unresolved requested change or superseded attempt blocks completion.
 
-## PR closeout procedure
+For every related PR verify repository, base, head, exact SHA, changed-file set, required CI, unresolved review threads and final merge/close evidence.
 
-For every related PR:
+PASS-only audits, self-review, CI evidence, E2E evidence, Issue comments and ordinary ownership release do not require separate PRs.
 
-1. verify repository, base, head branch and exact head SHA;
-2. inspect the complete changed-file set and full relevant diff;
-3. verify required CI on the exact final head;
-4. inspect unresolved review threads, requested changes and material comments;
-5. remediate valid findings;
-6. merge only when repository policy and task authorization permit;
-7. close duplicate, obsolete, superseded, invalid, or request-only PRs with an accurate reason;
-8. confirm the final terminal state from GitHub/environment state;
-9. release or delete the source branch when repository policy permits;
-10. record exact merge/close evidence and zero unresolved threads.
+## Self-review
 
-Opening a replacement PR does not close the previous one. Green CI does not make a PR terminal.
-
-## PR evidence
-
-The terminal record should include:
+Every implementation owner records:
 
 ```yaml
-related_prs:
-  - repository: <owner/repo>
-    number: <number>
-    purpose: implementation | integration | validation | audit | archive | superseded_attempt
-    final_head: <sha>
-    terminal_state: <state>
-    merge_or_close_evidence: <exact evidence>
-    unresolved_threads: 0
+self_review:
+  result: PASS | FAIL
+  exact_head: <sha>
+  acceptance_checked: true
+  full_diff_checked: true
+  negative_paths_checked: true | NOT_APPLICABLE
+  authorization_and_data_exposure_checked: true
+  compatibility_and_rollback_checked: true
+  related_prs_checked: true
+  findings: []
+  evidence: []
 ```
 
-Include failed and superseded attempts, not only the final successful PR.
+Self-review findings are fixed before readiness. Self-review must never be represented as independent audit.
 
-## Fresh post-implementation audit
+## Remediation audit gate
 
-Material tasks require a fresh audit after coherent implementation and integration validation.
-
-The audit should use independent context and must not trust the implementer summary. Its objective is to falsify completion against the original acceptance inventory and resulting environment.
+Record the current decision:
 
 ```yaml
-audit_policy:
-  validator: fresh
-  independent_context: true
-  implementation_authorized: false
-  objective: falsify_acceptance
-  trust_worker_summary: false
-  inspect_final_diff: true
-  inspect_environment_outcome: true
+audit_gate:
+  version: 1
+  requirement: NOT_REQUIRED | OPTIONAL | REQUIRED
+  mandatory_triggers: []
+  optional_triggers: []
+  unknown_or_conflict: []
+  rationale: <evidence>
+  independent_audit:
+    result: NOT_REQUIRED | NOT_REQUESTED | PENDING | PASS | FAILED
+    generation: <integer>
+    evidence: []
 ```
 
-A trivial documentation-only task may use a proportionate audit, but the audit phase must still inspect final paths, links, contradictions, lifecycle state, and PR hygiene.
+Rules:
+
+- `NOT_REQUIRED` is allowed only when every mandatory trigger is disproved and no material uncertainty remains.
+- `OPTIONAL` may be requested; otherwise record `NOT_REQUESTED` with rationale.
+- `REQUIRED` needs an unchanged-target independent PASS before merge.
+- The implementation owner cannot waive a mandatory trigger.
+- A material scope/risk/head change recomputes the gate.
+
+## Independent audit when applicable
+
+A valid independent auditor:
+
+- has fresh independent context;
+- reads trusted acceptance directly;
+- inspects exact PR/base/head and primary evidence;
+- attempts to falsify completion;
+- does not mutate or remediate the target;
+- records exact whole-diff and Issue verdicts;
+- returns findings to the implementation owner.
+
+An auditor who writes a target fix loses final-auditor eligibility for that generation.
+
+```yaml
+independent_audit:
+  generation: <integer>
+  auditor: <identity/session>
+  target:
+    pull_request: <number>
+    base_sha: <sha>
+    head_sha: <sha>
+  whole_diff: PASS | FAILED | PENDING
+  issue_verdict: PASS | FINDING | PENDING
+  material_findings_open: <integer>
+  target_unchanged: true
+```
+
+Critical, high and material-medium findings block completion.
 
 ## Audit matrix
 
-Inspect all applicable areas:
+Inspect applicable:
 
 ```yaml
 audit_matrix:
@@ -127,7 +167,7 @@ audit_matrix:
   persistence_and_migrations: when_applicable
   api_or_protocol_contract: when_applicable
   authorization_and_validation: when_applicable
-  loading_empty_error_recovery_states: when_applicable
+  failure_and_recovery_states: when_applicable
   localization_accessibility_responsive_ui: when_applicable
   security_and_secret_boundaries: required
   compatibility_and_rollout: when_applicable
@@ -135,78 +175,36 @@ audit_matrix:
   logging_and_data_exposure: required
   test_coverage_and_evidence: required
   documentation_and_operability: when_applicable
-  stale_code_todos_and_dead_paths: required
   related_pr_and_task_hygiene: required
 ```
 
-## Audit findings
+For `NOT_REQUIRED`, the implementation owner's self-review covers applicable matrix items and records why a distinct auditor is unnecessary.
 
-Every finding uses durable evidence:
-
-```yaml
-audit_finding:
-  id: <stable ID>
-  severity: critical | high | medium | low | informational
-  confidence: high | medium | low
-  evidence: <path, command, behavior or environment result>
-  impact: <observable consequence>
-  disposition: fixed | accepted_risk | false_positive | blocked
-  verification: <exact recheck>
-```
-
-Critical, high, or material medium findings block completion. The implementing worker may not accept its own material risk merely to finish. Risk acceptance requires the authority defined by repository policy.
-
-## Remediation loop
+## Finding remediation
 
 For a material finding:
 
 1. return to implementing;
-2. keep the finding ID and evidence;
-3. repair the smallest complete scope;
-4. run focused validation;
-5. rerun affected integration checks;
-6. rerun the failed audit check;
-7. rerun E2E when user/system behaviour could be affected;
-8. update the exact-head evidence.
+2. preserve stable finding ID/evidence;
+3. repair the smallest complete scope by the same implementation owner;
+4. rerun focused and affected integration checks;
+5. rerun E2E when behavior may change;
+6. update exact-head evidence;
+7. if independent audit remains required, create a new audit generation.
 
 Do not archive with unresolved material findings.
 
 ## End-to-end validation
 
-After audit remediation, run E2E against the real resulting system boundary.
+For user-facing work prove the real actor, real frontend/client, real backend/system contract, authorization, valid/invalid behavior, persistence, visible outcome and recovery states.
 
-For a user-facing feature:
+A backend API test does not replace frontend E2E. A mocked frontend does not replace integration E2E.
 
-```yaml
-e2e_journey:
-  id: <journey ID>
-  actor: <real role>
-  starting_state: <fixture or precondition>
-  entry_point: <page, route, client or command>
-  actions:
-    - <real action>
-  producer_effect:
-    - <server, persistence or external effect>
-  final_observable_state:
-    - <UI/client result>
-  persistence_check:
-    - <refresh, reload or second-session check>
-  negative_path:
-    - <validation, authorization or failure behavior>
-  result: PASS | FAIL
-```
-
-The journey must prove the real frontend/client uses the real backend/system contract, permissions are enforced, valid input succeeds, invalid input fails visibly, expected state persists, and recovery/error states behave correctly.
-
-A backend API test does not replace frontend E2E. A frontend test with mocked data does not replace integration E2E.
-
-For non-UI work, test the complete applicable path:
+For non-UI work test:
 
 ```text
-real input → public/system entry point → processing → persistence/external effect → observable output
+real input → public/system entry → processing → persistence/external effect → observable output
 ```
-
-## E2E unavailable
 
 When required E2E cannot run:
 
@@ -214,87 +212,57 @@ When required E2E cannot run:
 e2e:
   result: NOT_RUN
   blocker: <exact blocker>
-  attempted: <exact actions>
-  required_environment: <exact requirement>
-  next_action: <one executable action>
+  attempted: <actions>
+  required_environment: <requirement>
+  next_action: <one action>
 ```
 
-Required E2E with `NOT_RUN` prevents `completed`. Use `WAITING`, `BLOCKED`, or an explicitly lower state such as `implementation_complete_unverified` if repository policy permits it.
+Use `NOT_APPLICABLE` only with a concrete reason.
 
 ## Final exact-head CI
 
-After all implementation, remediation, audit and E2E changes:
+Required checks must pass on the exact final head. A head change invalidates affected CI, E2E and required audit evidence.
 
-- resolve the exact final head SHA;
-- run every required repository check on that head;
-- verify required status names rather than inferring from an earlier head;
-- inspect the first relevant failure before rerunning;
-- do not merge with queued, stale, missing, skipped-required, or failing checks;
-- record the exact run/check evidence.
+Do not rerun unchanged failures without diagnosis and do not weaken checks to obtain green status.
 
-## Completion evidence
-
-A terminal task should contain:
+## Terminal evidence
 
 ```yaml
 closeout:
+  implementation_owner: <claim/session>
   implementation_complete: true
-  complete_feature_or_declared_partial: true
-  outcome_verified: true
-  audit:
+  self_review:
     result: PASS
-    validator: <identity or session>
-    findings_open_material: 0
-    evidence:
-      - <exact evidence>
+    exact_head: <sha>
+  audit_gate:
+    requirement: NOT_REQUIRED | OPTIONAL | REQUIRED
+    result: NOT_REQUIRED | NOT_REQUESTED | PASS
   e2e:
-    result: PASS | NOT_APPLICABLE_WITH_REASON
-    journeys:
-      - <journey ID>
-    evidence:
-      - <exact evidence>
+    result: PASS | NOT_APPLICABLE
+    reason: <when NOT_APPLICABLE>
   final_ci:
     head: <sha>
     result: PASS
-    checks:
-      - <required check>
-  pull_requests:
-    open_related_prs: 0
-    unresolved_review_threads: 0
-    terminal_prs:
-      - <repo#number state>
-  task_archived_or_terminal: true
+  related_prs:
+    open: 0
+    unresolved_threads: 0
+    terminal: []
+  issue_terminal: true
+  task_status: completed
+  task_archived: true
   ownership_released: true
-  stale_branches_reconciled: true
 ```
 
-## Hard completion gate
+Do not complete when self-review failed, a mandatory audit is absent, requested optional audit failed/pends, E2E is incomplete, exact-head CI is red, related PRs/review threads remain, Issue/task state is inaccurate or ownership remains claimed.
 
-Do not mark complete when any is true:
+## Parallel remediation
 
-- a required producer or consumer layer is missing;
-- frontend/client and backend/system are not integrated;
-- outcome evidence relies only on worker narrative;
-- a material audit finding remains;
-- required E2E failed or was not run;
-- final required CI is not green on the exact final head;
-- a related PR remains unintentionally open;
-- an unresolved review thread or requested change remains;
-- the task remains falsely active;
-- ownership or leases remain claimed;
-- terminal evidence conflicts with live repository state.
+Parallel commands create several independent Issue owners. No auditor is permanently reserved. Allocate an AUDIT ONLY role only when a valid REQUIRED/requested OPTIONAL handoff exists.
 
-## Autonomous continuation
+Workers do not wait for peers or internal roles. They persist durable state and use `ROTATE` at a required role boundary.
 
-After successful closeout:
+## Archival
 
-1. write terminal evidence;
-2. merge or close every remaining related PR;
-3. archive or terminally close the task;
-4. release ownership, worktree and leases;
-5. reconcile programme dependencies and barriers;
-6. search for stale PRs or active records left by the completed work;
-7. select the next safe `READY` task;
-8. continue without routine owner confirmation.
+Pre-merge task records may use `completed_on_merge` bound to exact PR/head/merged=true. Closing without merge cannot leave the task completed or ownership released.
 
-Implementation completion, green CI, merge, audit, E2E, PR cleanup, or task archival are milestones, not automatic programme stop conditions.
+Unavoidable post-merge governance-only reconciliation follows lifecycle batching; do not create one archive PR per repair.
