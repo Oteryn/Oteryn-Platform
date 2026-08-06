@@ -1,55 +1,61 @@
 # Lifecycle Closeout Batching and Audit Artifact Contract
 
 ```yaml
-lifecycle_closeout_batching_version: 1
+lifecycle_closeout_batching_version: 2
 repository: blakinio/Oteryn-Platform
 applies_to:
   - OTERYN_PLATFORM_CONTINUOUS_AUDIT
   - OTERYN_PLATFORM_REMEDIATION
+repair_delivery_contract: docs/agents/REPAIR_PR_ECONOMY.md
 controlling_specialization_over:
   - docs/agents/REMEDIATION_WORK_CLAIM_PROTOCOL.md
   - docs/agents/TASK_CLOSEOUT_AUDIT_E2E.md
   - docs/agents/DELIVERY_COMPLETENESS_AND_CLOSEOUT.md
-objective: reduce governance-only PR, Issue and CI churn without weakening independent exact-head validation
+objective: reduce terminal governance-only PR and audit churn without weakening independent exact-head validation
 ```
 
 ## Controlling rule
 
-Product, runtime, migration, contract, architecture, dependency, workflow, deployment and security changes remain bounded by one coherent root cause, one owned task, one branch and one implementation PR.
+This contract governs **terminal lifecycle-only reconciliation**. Active implementation delivery and repair trains are governed by `REPAIR_PR_ECONOMY.md`.
 
-This contract creates a narrow exception only for **lifecycle-only** reconciliation after the underlying implementation work is already terminal. It also defines the default artifact for an independent audit.
+The mechanisms are distinct:
+
+- **repair train** — compatible active implementations delivered in one bounded PR;
+- **audit artifact** — review/comment on the exact target delivery PR;
+- **lifecycle batch** — terminal governance-only reconciliation after underlying implementation is intentionally terminal.
+
+Never use a lifecycle batch to combine active product, runtime, migration, contract, architecture, dependency, workflow, deployment or security changes.
 
 ## Independent audit artifact policy
 
-A fresh independent audit normally produces evidence on the existing target PR:
+A fresh audit normally:
 
-1. inspect the exact final diff, acceptance evidence, environment outcome, checks and review state;
-2. submit a PR review or top-level PR comment anchored to the exact audited SHA;
-3. record `PASS_ZERO_MATERIAL_FINDINGS` or exact findings in the linked audit Issue or durable audit record;
-4. close the audit Issue after the result is durable.
+1. inspects exact PR number, base SHA, head SHA, effective diff, acceptance, environment result, checks and review state;
+2. is performed by an eligible distinct `AUDIT ONLY` agent/session that did not write or remediate target commits;
+3. records whole-diff and per-item/Issue verdicts;
+4. submits a review or top-level comment on the existing target PR;
+5. records `PASS_ZERO_MATERIAL_FINDINGS` or exact findings in the linked audit Issue/record.
 
-A PASS-only audit **must not create a new pull request**.
+A PASS-only audit must not create a PR. Automated checks, self-review, implementer summaries and coordinator approval never substitute for the required independent audit.
 
-An audit PR is permitted only when the auditor is separately authorized to change audit documentation or evidence files that cannot be recorded accurately in a review, comment, Issue or existing task record. An audit must never modify the implementation branch it is validating.
+Any effective target change invalidates the audit generation. Findings return to the implementation/closeout owner; an auditor that writes a fix becomes an implementer and cannot issue final PASS for that generation.
 
-A discovered defect returns to the owning implementation/remediation PR when ownership remains valid. If a separate root cause or ownership boundary is proven, create a separate remediation Issue and PR; do not disguise a fix as an audit PR.
+An audit PR is permitted only when separately authorized audit documentation/evidence cannot be recorded accurately in the existing PR, Issue or task. It must not mutate the audited implementation branch.
 
-## Eligible lifecycle-only closeout
+## Eligible lifecycle-only item
 
-A closeout item is eligible for batching only when every condition is proven:
+All conditions must be proven:
 
-- all underlying implementation, integration and remediation PRs are already intentionally terminal;
-- the delivered scope and nonclaims are already supported by exact evidence;
-- the remaining mutations are limited to task archival, programme or ledger reconciliation, Issue status evidence, ownership/lease release, branch terminal metadata and related PR classification;
-- no application, frontend, migration, schema, API/protocol contract, architecture decision, dependency manifest/lockfile, generated contract/type, test behavior, workflow, deployment manifest, environment configuration or production state changes;
-- no active product-code ownership or valid conflicting claim remains for the item;
-- the items are independent and can be reviewed without hidden merge order or shared runtime effects.
+- underlying implementation/integration/remediation PRs are intentionally terminal;
+- delivered scope and nonclaims have exact evidence;
+- remaining changes are limited to task archival, programme/ledger reconciliation, Issue status evidence, ownership/lease release, branch terminal metadata and related-PR classification;
+- no application, frontend, migration, schema, API/protocol, architecture, dependency/lockfile, generated contract/type, test behavior, workflow, deployment, environment or production change;
+- no valid active implementation/closeout ownership conflict;
+- items are independent and removable without hidden runtime or merge-order effects.
 
-If any condition is `UNKNOWN`, `CONFLICT`, or false, the item stays separate under the normal one-root-cause workflow.
+`UNKNOWN`, `CONFLICT` or false keeps the item outside the batch.
 
 ## Batch shape
-
-A lifecycle reconciliation wave uses:
 
 ```yaml
 batch:
@@ -57,18 +63,14 @@ batch:
   task: one coordinator task
   branch: docs/lifecycle-closeout-wave-<YYYYMMDD>-<sequence>
   pull_request: one governance-only PR
-  audit: one fresh independent exact-head audit with per-item verdicts
-  ci: one required exact-head workflow generation for the batch PR
+  audit: one eligible independent exact-head audit with whole-diff and per-item verdicts
+  ci: one required exact-head workflow generation
   follow_up_archive_pr: forbidden
 ```
 
-The batch PR may move several completed task records from `active/` to `archive/`, reconcile their Issues and release ownership in the same diff. It must not create one follow-up archive PR per item.
+Do not delay a ready closeout indefinitely merely to reach batch size 2. When no compatible terminal item is already available and same-PR closeout is impossible, use the smallest repository-safe terminal path and record why batching did not apply.
 
-The default one-Issue/one-branch/one-PR claim rule remains mandatory for product mutations. A lifecycle batch is a coordinator-owned governance task after product ownership is terminal; it is not a way to combine active implementation Issues.
-
-## Batch inventory
-
-The coordinator must include one independently reviewable record for every item:
+## Item inventory
 
 ```yaml
 items:
@@ -79,85 +81,112 @@ items:
     implementation_exact_heads:
       - <sha>
     implementation_merge_or_close_evidence:
-      - <sha or exact terminal reason>
+      - <sha or exact reason>
     delivered_scope: <bounded statement>
     preserved_nonclaims:
       - <statement>
     lifecycle_paths:
-      - <exact active/archive/programme paths>
+      - <path>
     ownership_release:
       owned_paths: []
       leases: []
     audit_verdict: pending | pass | finding
 ```
 
-The PR description must list all included task IDs and Issues. A reviewer must be able to remove one item without changing the meaning of the others.
+The PR description lists all task IDs and Issues. Removing one item must not alter the meaning of the others.
 
 ## Batch claim and collision prevention
 
 Before creating a batch:
 
-1. search active tasks, branches, PRs, Issues and claim comments for every candidate item;
-2. exclude any item with a valid active implementation or closeout owner;
-3. create one active coordinator task that owns the exact lifecycle paths for all included items;
-4. publish the batch branch and PR before editing additional shared lifecycle indexes;
-5. never reset, delete, supersede or absorb another agent's live branch merely to fill a batch.
+1. search tasks, branches, PRs, Issues and claim comments for every item;
+2. exclude any item with a valid owner;
+3. create one coordinator task owning exact lifecycle paths;
+4. publish branch and PR before editing further shared indexes;
+5. never reset, delete, supersede or absorb live work to fill a batch.
 
-Existing individual lifecycle-only PRs may be consolidated only by an explicit coordinator after verifying that no active session still owns them. Equivalent work must first exist on the batch branch; individual PRs are then closed accurately as superseded. Unique work must never be discarded.
+Existing lifecycle-only PRs may be consolidated only after proving no active session owns them and preserving all unique work before accurate superseded closure.
 
 ## Independent batch audit
 
-One fresh validator audits the entire exact batch SHA and records a verdict per item plus a whole-diff verdict.
-
 ```yaml
 audit_result:
-  exact_head: <sha>
-  whole_diff: PASS_ZERO_MATERIAL_FINDINGS | FINDINGS
+  generation: <integer>
+  auditor:
+    session_or_claim: <identity>
+    mode: AUDIT_ONLY
+    wrote_target_commits: false
+    mutated_target_branch: false
+  target:
+    pull_request: <number>
+    base_sha: <sha>
+    head_sha: <sha>
+  whole_diff: PASS_ZERO_MATERIAL_FINDINGS | FINDINGS | PENDING
   per_item:
     - task_id: <task>
-      result: PASS | FINDING
-      evidence: <exact paths and source state>
+      result: PASS | FINDING | PENDING
+      evidence: <exact evidence>
+  material_findings_open: <integer>
   unresolved_review_threads: 0
 ```
 
-The validator submits the result as a review/comment on the batch PR and may use one batch audit Issue when durable scheduling or claiming is needed. Do not create one audit Issue per item unless the items require different independent validators or security/authority boundaries.
+PASS requires whole-diff PASS, every per-item result PASS and zero material findings. If one item fails, remove or repair it, rerun affected checks and audit the new exact head. Unaffected items may remain only when evidence remains coherent.
 
-If one item fails, remove or repair that item, rerun affected checks and re-audit the new exact head. Unaffected items may remain in the batch when their evidence is still coherent.
+## Same-PR archival and completed-on-merge
 
-## Status and rotation semantics
+Prefer archival and final governance reconciliation in the implementation/delivery PR when technically safe. Before merge, archival must not claim already-completed work.
 
-Needing a fresh independent validator is a **role rotation**, not an external wait.
+Use:
 
-- The implementing checkpoint becomes `ready` with `next_action` naming the exact independent audit.
-- The implementing invocation returns `ROTATE` when no fresh validator can run in that session and no other safe authorized work remains.
-- Use `WAITING` only for a genuine external dependency, unavailable permission/environment, observation window, protected operation, owner decision or exhausted bounded terminal-CI wait.
-- A fresh session may claim the audit and must remain read-only toward the implementation branch.
+```yaml
+archive_state:
+  status: completed_on_merge
+  effective_when:
+    pull_request: <number>
+    exact_head: <sha>
+    merged: true
+```
+
+Rules:
+
+- `completed_on_merge` is conditional, not terminal completion;
+- closing the PR without merge leaves the task active/ready/waiting/blocked and ownership retained or explicitly recovered;
+- a changed exact head requires archive condition refresh;
+- after successful merge, Issue closure/release comments may finalize external state without another PR;
+- unavoidable post-merge repository housekeeping is consolidated at a programme barrier, not one PR per Issue.
+
+## Status and rotation
+
+Needing a distinct validator is role rotation, not external waiting.
+
+- implementing checkpoint becomes `ready` with exact audit `next_action`;
+- implementation invocation returns `ROTATE` if no eligible auditor can run in that session;
+- `WAITING` is reserved for a real external dependency, accepted external actor, permission/environment, observation window, protected operation, owner decision or exhausted terminal-CI limit;
+- a fresh audit session remains read-only toward the target branch.
 
 ## Non-eligible work
 
-Never batch:
+Never lifecycle-batch:
 
-- application or frontend behavior changes;
-- authentication, authorization, payments or other security-sensitive fixes;
+- active application/frontend behavior changes;
+- authentication, authorization, payment or security fixes;
 - migrations, shared schema changes or data repair;
-- API, protocol, contract or generated-type changes;
+- API/protocol/contract/generated-type changes;
 - architecture decisions or canonical architecture rewrites;
-- dependency or lockfile changes;
+- dependency/lockfile changes;
 - CI workflow, deployment, runner or environment changes;
-- changes with distinct rollback, release order or production risk;
-- unresolved audit findings that require implementation.
-
-These remain separate even when that creates more PRs.
+- distinct rollback, release order, observation or production risk;
+- unresolved findings requiring implementation.
 
 ## Closeout
 
-A lifecycle batch is complete only when:
+A lifecycle batch completes only when:
 
-- every item has exact source evidence and an explicit verdict;
-- the whole exact diff has a fresh independent PASS with zero material findings;
-- required CI passes on the exact batch head;
-- every included and superseded PR is intentionally terminal;
-- all included task records are archived or otherwise terminal;
-- Issues and programme state are reconciled;
+- every item has exact terminal source evidence and explicit PASS;
+- whole exact diff has eligible independent PASS;
+- required CI passes on the exact head;
+- all included/superseded PRs are intentional terminal states;
+- task records are archived/terminal;
+- Issues/programme state are reconciled;
 - ownership and leases are released;
 - no follow-up archive-only PR is required.
