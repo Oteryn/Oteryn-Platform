@@ -86,18 +86,18 @@ blockers: []
 ```yaml
 checkpoint_version: 1
 policy_version: 2
-updated_at: 2026-08-06T10:18:00Z
+updated_at: 2026-08-06T10:21:00Z
 invocation_started_at: 2026-08-06T10:03:00Z
-last_progress_at: 2026-08-06T10:18:00Z
-phase: publish_review
+last_progress_at: 2026-08-06T10:21:00Z
+phase: validate
 session_id: chatgpt-20260806-game-auth-topology-review
 session_role: architecture-reviewer
 execution_mode: github
 execution_reason: bounded documentation-only architecture review and handoff
-lease_expires_at: 2026-08-06T11:18:00Z
-head: 1e382fda21b6100f7b9a1dfd247a5b1b4b3fe5cc
+lease_expires_at: 2026-08-06T11:21:00Z
+head: tracked-by-pr-722
 branch: docs/OTERYN-20260806-game-auth-topology-review
-pr: pending
+pr: 722
 issue: 720
 status: validating
 validation_level: documentation
@@ -116,6 +116,7 @@ proven:
   - AUTH_GAME_LOGIN_CONTRACT still presents Platform absence and the Gateway flow as current/future respectively.
   - SYSTEM_ARCHITECTURE and MODULE_CATALOG omit or defer the merged bounded bridge.
   - PR 542 does not own the four canonical correction files identified by Issue 720.
+  - PR 722 contains exactly the bounded review report, active task and programme-state paths.
 derived:
   - One narrow canonical documentation reconciliation is sufficient; no new architecture decision or runtime implementation is required.
 unknown:
@@ -130,6 +131,7 @@ rejected_hypotheses:
 changed_paths:
   - docs/agents/reports/OTERYN-20260806-game-auth-topology-current-state-review.md
   - docs/agents/tasks/active/OTERYN-20260806-game-auth-topology-review.md
+  - docs/agents/programs/OTERYN_PLATFORM_ARCHITECTURE_REVIEW.md
 validation:
   - command: live GitHub Issue, PR, branch, task and changed-path reconciliation
     result: PASS
@@ -137,5 +139,5 @@ validation:
   - command: authority and primary-source comparison
     result: PASS
     evidence: one high-confidence documentation-drift finding recorded as OPA-ARCH-20260806-001
-next_action: Open the documentation-only review PR, synchronize the programme checkpoint, validate exact head, merge, archive the review task and then route Issue 720 as the next bounded architecture correction.
+next_action: Validate PR 722 on its exact final head, merge through protected main, archive this review task and route Issue 720 as the next bounded architecture correction.
 ```
