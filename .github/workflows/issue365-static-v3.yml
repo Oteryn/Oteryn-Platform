@@ -1,0 +1,129 @@
+name: Issue 365 Static Validator Proof v3
+
+on:
+  push:
+    branches:
+      - validation/issue365-static-v3-20260806
+    paths:
+      - .github/workflows/issue365-static-v3.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: issue365-static-validator-v3
+  cancel-in-progress: false
+
+env:
+  LEGACY_CONTROL_SHA: 8c58035cacb9fd4675d898a1652036fc8b9d4357
+  HARNESS_SHA: f23bd310eb8812ff61e7ad7227b2a950bf695b59
+
+jobs:
+  prove-generator:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout static validation control
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+          path: control
+          fetch-depth: 0
+          clean: true
+          persist-credentials: false
+
+      - name: Reconstruct and prove exact validator
+        shell: bash
+        run: |
+          set -euo pipefail
+          legacy=/tmp/issue365-static-v3
+          rm -rf "$legacy" control/generated
+          mkdir -p "$legacy" control/generated
+
+          git -C control show \
+            "${LEGACY_CONTROL_SHA}:.github/scripts/issue365_prepare_validator_original.py" \
+            > "$legacy/issue365_prepare_validator_original.py"
+          git -C control show \
+            "${LEGACY_CONTROL_SHA}:.github/scripts/issue365_prepare_validator.py" \
+            > "$legacy/issue365_prepare_validator.py"
+          git -C control show \
+            "${HARNESS_SHA}:.github/workflows/issue365-synology-preflight.yml" \
+            > "$legacy/issue365-harness-source.yml"
+
+          python3 -m py_compile \
+            "$legacy/issue365_prepare_validator_original.py" \
+            "$legacy/issue365_prepare_validator.py" \
+            control/.github/scripts/issue365_patch_php85_wrapper_v3.py
+
+          python3 \
+            "$legacy/issue365_prepare_validator.py" \
+            "$legacy/issue365-harness-source.yml" \
+            "$legacy/issue365-validator-legacy-repaired.sh"
+          python3 \
+            control/.github/scripts/issue365_patch_php85_wrapper_v3.py \
+            "$legacy/issue365-validator-legacy-repaired.sh" \
+            control/generated/issue365-validator.sh
+
+          bash -n control/generated/issue365-validator.sh
+
+          test "$(grep -Fc 'PHP_VERSION_ID >= 80500' control/generated/issue365-validator.sh)" -eq 1
+          test "$(grep -Fc -- '-e ISSUE365_APP_CONTAINER="$APP_CONTAINER_NAME"' control/generated/issue365-validator.sh)" -eq 1
+          test "$(grep -Fc -- '--workers=1 --retries=0' control/generated/issue365-validator.sh)" -eq 1
+          test "$(grep -Fc -- '-e PLAYWRIGHT_IMAGE="$playwright_php_image"' control/generated/issue365-validator.sh)" -eq 1
+          test "$(grep -Fc -- '-v /var/run/docker.sock:/var/run/docker.sock' control/generated/issue365-validator.sh)" -ge 2
+          ! grep -Fq -- '--no-install-recommends php-cli php-mysql' control/generated/issue365-validator.sh
+          ! grep -Fq -- 'apt-get install -y --no-install-recommends php-cli' control/generated/issue365-validator.sh
+
+          cp "$legacy/issue365_prepare_validator_original.py" control/generated/
+          cp "$legacy/issue365_prepare_validator.py" control/generated/
+          cp "$legacy/issue365-harness-source.yml" control/generated/
+          cp "$legacy/issue365-validator-legacy-repaired.sh" control/generated/
+          cp control/.github/scripts/issue365_patch_php85_wrapper_v3.py control/generated/
+
+          python3 - <<'PY'
+          from pathlib import Path
+          import json
+
+          root = Path('control/generated')
+          generated = (root / 'issue365-validator.sh').read_text(encoding='utf-8')
+          report = {
+              'schema': 1,
+              'static_only': True,
+              'self_hosted_jobs': 0,
+              'browser_samples': 0,
+              'required_counts': {
+                  'php_805_preflight': generated.count('PHP_VERSION_ID >= 80500'),
+                  'app_container_identity': generated.count('-e ISSUE365_APP_CONTAINER="$APP_CONTAINER_NAME"'),
+                  'zero_retry_single_worker': generated.count('--workers=1 --retries=0'),
+                  'derived_playwright_image': generated.count('-e PLAYWRIGHT_IMAGE="$playwright_php_image"'),
+                  'docker_socket_mounts': generated.count('-v /var/run/docker.sock:/var/run/docker.sock'),
+              },
+              'forbidden_per_sample_php_install': '--no-install-recommends php-cli php-mysql' in generated,
+              'bash_syntax': 'PASS',
+              'python_compile': 'PASS',
+              'immutable_generation': 'PASS',
+          }
+          (root / 'static-proof.json').write_text(json.dumps(report, indent=2), encoding='utf-8')
+          PY
+
+          (
+            cd control/generated
+            sha256sum \
+              issue365_prepare_validator_original.py \
+              issue365_prepare_validator.py \
+              issue365-harness-source.yml \
+              issue365-validator-legacy-repaired.sh \
+              issue365_patch_php85_wrapper_v3.py \
+              issue365-validator.sh \
+              static-proof.json \
+              > SHA256SUMS
+            sha256sum -c SHA256SUMS
+          )
+
+      - name: Upload immutable static proof
+        uses: actions/upload-artifact@v4
+        with:
+          name: issue365-static-validator-v3-${{ github.run_id }}
+          path: control/generated
+          if-no-files-found: error
+          retention-days: 14
