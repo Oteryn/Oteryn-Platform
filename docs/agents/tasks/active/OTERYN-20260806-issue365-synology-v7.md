@@ -7,7 +7,7 @@ issue: 740
 parent_issue: 365
 branch: validation/issue365-synology-v7-20260806
 pull_request: 741
-status: validating
+status: waiting
 task_kind: validation
 implementation_authorized: true
 production_activation_authorized: false
@@ -30,14 +30,14 @@ Execute the frozen Issue #365 matrix once with a source-backed Docker API `1.43`
 
 ```yaml
 policy_version: 2
-checkpoint_version: 3
-updated_at: 2026-08-06T13:24:00+02:00
+checkpoint_version: 4
+updated_at: 2026-08-06T13:25:00+02:00
 phase: validate
 session_id: chatgpt-20260806T1315+0200-issue365-synology-v7
 session_role: validator-infrastructure
 execution_mode: github
 execution_reason: exact Actions artifacts and the isolated Synology runner are the authoritative validation environment
-lease_expires_at: 2026-08-06T16:15:00+02:00
+lease_expires_at: null
 context_pressure: medium
 context_growth: stable
 context_score: 8
@@ -49,7 +49,7 @@ heavy_validation_runs: 1
 branch: validation/issue365-synology-v7-20260806
 workflow_head: 436734c4b42100f06eb9c51b8dbe0e1ab9c2063d
 pr: 741
-status: validating
+status: waiting
 context_routes:
   - testing
   - ci-repair
@@ -63,6 +63,8 @@ proven:
   - the validator passes /workspace/.issue365.env into every Playwright wrapper container
   - exact one-line transformation produces derived SHA-256 3280d961652b5aa6659d73fc8020fb8b6dba9d4879a1695d4323afe62e3d76b4 from original validator SHA-256 5e89a700d85cb362e374a500bd923d52eea1a9b1b86d0fe657e07c0e134f5945
   - exactly one push-triggered workflow run exists for the workflow head
+  - source artifact verification, environment proof and exact one-line derivative proof passed in job 92601572152
+  - derived validator was invoked exactly once and is currently executing
 unknown:
   - whether API 1.43 allows all browser samples to execute
   - terminal clean versus one-corrupt flash and thumbnail verdict
@@ -80,21 +82,22 @@ validation:
     evidence: Docker CLI and Engine API documentation for DOCKER_API_VERSION
   - command: one-shot runtime 31097086526
     result: IN_PROGRESS
-    evidence: job 92601572152 on workflow head 436734c4b42100f06eb9c51b8dbe0e1ab9c2063d
-blockers: []
+    evidence: job 92601572152; derivative proof passed and execution step is running
+blockers:
+  - external workflow run 31097086526 has not reached a terminal conclusion; no rerun or second self-hosted job is authorized
 anti_stall:
   invocation_started_at: 2026-08-06T13:15:00+02:00
-  last_progress_at: 2026-08-06T13:23:46+02:00
-  ci_checks_for_current_head: 1
+  last_progress_at: 2026-08-06T13:24:00+02:00
+  ci_checks_for_current_head: 2
   ci_check_generation: runtime-v7
   terminal_ci_wait_started_at: null
   terminal_ci_checks_for_current_generation: 0
-  unchanged_state_checks: 0
+  unchanged_state_checks: 1
   identical_failure_retries: 0
   repair_cycles_for_current_gate: 1
   context_reconstruction_attempts: 0
   stall_warnings: 0
-next_action: Fetch the terminal job steps, logs and evidence artifact for run 31097086526, classify the exact product or technical result and perform non-merge closeout.
+next_action: Fetch terminal steps, logs and artifacts for run 31097086526, classify the exact product or technical result and complete Issue 740 / PR 741 / parent Issue 365 closeout.
 ```
 
 ## Recovery checkpoint
@@ -105,8 +108,8 @@ recovery:
   generation: 1
   session_id: chatgpt-20260806T1315+0200-issue365-synology-v7
   session_started_at: 2026-08-06T13:15:00+02:00
-  checkpointed_at: 2026-08-06T13:24:00+02:00
-  last_progress_at: 2026-08-06T13:23:46+02:00
+  checkpointed_at: 2026-08-06T13:25:00+02:00
+  last_progress_at: 2026-08-06T13:24:00+02:00
   phase: Docker API compatibility matrix validation
   exact_head: 436734c4b42100f06eb9c51b8dbe0e1ab9c2063d
   pull_request: 741
@@ -117,8 +120,8 @@ recovery:
   operation_started_at: 2026-08-06T13:23:46+02:00
   wait_deadline_at: 2026-08-06T15:23:46+02:00
   check_generation: runtime-v7
-  checks_used: 1
-  status: active
+  checks_used: 2
+  status: waiting
   safe_to_resume: true
   resume_condition: workflow run 31097086526 reaches a terminal conclusion
   next_action: Fetch terminal steps, logs and artifacts for run 31097086526 and complete non-merge closeout.
