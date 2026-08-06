@@ -37,6 +37,32 @@ func TestReadyForRejectsForbiddenIdentityKeysEvenWhenNull(t *testing.T) {
 	}
 }
 
+func TestReadyForRejectsCaseVariantForbiddenIdentityKeys(t *testing.T) {
+	for _, test := range []struct {
+		name         string
+		request      gateway.SessionRequest
+		forbiddenKey string
+	}{
+		{name: "native Profile null", request: validV2Request(), forbiddenKey: "Profile"},
+		{name: "Canary uppercase native version null", request: validCanaryV2Request(), forbiddenKey: "NATIVE_PROTOCOL_VERSION"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			request := test.request
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				response := validReadinessResponse(request)
+				response[test.forbiddenKey] = nil
+				_ = json.NewEncoder(w).Encode(response)
+			}))
+			defer server.Close()
+
+			client := NewClient(server.URL, "session-service-token", server.Client())
+			if err := client.ReadyFor(context.Background(), request); !errors.Is(err, gateway.ErrUnavailable) {
+				t.Fatalf("expected non-canonical readiness identity key to fail closed, got %v", err)
+			}
+		})
+	}
+}
+
 func TestReadyForRejectsMissingRequiredIdentityKey(t *testing.T) {
 	for _, test := range []struct {
 		name        string
