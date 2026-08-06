@@ -4,10 +4,10 @@ coordination_id: OTS-20260804-native-protocol-selection
 status: implementing
 agent: ChatGPT
 branch: feat/OTS-20260804-native-protocol-single-version-producer
-repair_branch: repair/OTS-20260804-native-protocol-audit-756
+repair_branch: repair/OTS-20260804-synology-checkout-action
 base_branch: main
 created: 2026-08-05T14:58:00+02:00
-updated: 2026-08-06T17:09:00+02:00
+updated: 2026-08-06T17:20:00+02:00
 risk: high
 execution_mode: github-only
 implementation_authorized: true
@@ -23,6 +23,7 @@ owned_paths:
   - docs/contracts/WORLD_REGISTRY_CONTRACT.md
   - docs/operations/OTERYN_NATIVE_PROTOCOL_PRODUCER.md
   - .github/workflows/native-protocol-contract-audits.yml
+  - .github/workflows/build-synology-staging-images.yml
   - docs/agents/tasks/active/OTERYN-20260805-native-protocol-single-version-producer.md
 shared_path_lease: []
 ---
@@ -75,7 +76,7 @@ Audit #756 recorded `FAIL_MATERIAL_FINDINGS_OPEN` against immutable head `e97e95
 
 Repair review of the same immutable producer head also found `OTERYN-REPAIR-758-01`: Game Session v2 removed `profile` from every selected family, so a selected Canary compatibility tuple lost its required profile identity before readiness and session issuance.
 
-The repair branch:
+Repair PR #758:
 
 - detects identity-key presence independently from decoded values for both offer and policy candidates;
 - rejects native `profile` and compatibility-family `native_protocol_version` even when explicitly `null`;
@@ -86,16 +87,27 @@ The repair branch:
 - adds raw-JSON, capability-set and Canary Game Session v2 regression coverage;
 - aligns service fixtures with the canonical native set.
 
-The audited implementation SHA remains unchanged. A new exact head and fresh independent audit are required after the repair merges.
+PR #758 was squash-merged into the producer branch as `3d53a57f752f07d3eca07a05ed5e0f155ad33326`. The original audited SHA remains immutable.
+
+## Exact-head CI blocker discovered after remediation
+
+The first exact-head validation generation on `3d53a57f752f07d3eca07a05ed5e0f155ad33326` exposed a pre-existing invalid action reference in `.github/workflows/build-synology-staging-images.yml`:
+
+- run `31114628441`, attempt 1, failed before checkout because GitHub could not resolve action download information;
+- attempt 2 deterministically reported `Unable to resolve action actions/checkout@v7`;
+- all three image build jobs completed successfully;
+- only `Validate Synology deployment package` could not start.
+
+Repair PR #759 changes both invalid checkout references to the repository-supported `actions/checkout@v5` without changing deployment validation or image-build behavior. A new exact producer head and complete workflow generation are required after integration.
 
 ## Context checkpoint
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-06T17:09:00+02:00
-head: 5ca7084d93bf7f69722e1327b953b450db59148c
-branch: repair/OTS-20260804-native-protocol-audit-756
-pr: 758
+updated_at: 2026-08-06T17:20:00+02:00
+head: 15d66fe2f4e23ee27c6b42621c0d77e6ef42cd93
+branch: repair/OTS-20260804-synology-checkout-action
+pr: 759
 status: implementing
 context_routes:
   - agent-governance
@@ -106,54 +118,47 @@ context_routes:
   - testing
   - workflows
 owned_paths:
-  - services/game-gateway/**
+  - .github/workflows/build-synology-staging-images.yml
   - docs/agents/tasks/active/OTERYN-20260805-native-protocol-single-version-producer.md
 proven:
   - Protected main 1b737574851453e950fa485c26f1a322b8e8ddd2 is included by the producer history.
-  - Audit 756 independently validated behind_by zero, 21 declared producer paths, 14 successful exact-head workflows and zero pre-existing review threads.
-  - Audit 756 recorded two material fail-closed inconsistencies and blocked merge of PR 542.
-  - Repair review found that the v2 session client dropped the selected Canary profile while service selection still supported Canary compatibility candidates.
-  - The repair branch does not mutate the audited SHA or authorize production activation.
-  - Identity-key presence is now detected independently of JSON null decoding.
-  - Native offered, required and optional capabilities are now checked against the exact canonical contract.
-  - Game Session v2 now carries exactly one family-specific identity field and preserves Canary profile readiness matching.
+  - Audit 756 independently recorded two material fail-closed inconsistencies and blocked merge of PR 542.
+  - Repair PR 758 remediated audit findings and preserved Canary Game Session v2 profile identity.
+  - Exact head 3d53a57f752f07d3eca07a05ed5e0f155ad33326 remained behind_by zero with zero review threads.
+  - Game Gateway CI, native contract, governance, security, production-like and other completed workflows passed on that head.
+  - Synology validation attempts failed before executing repository validation because actions/checkout@v7 does not exist.
+  - Both Synology workflow checkout references are now pinned to actions/checkout@v5.
 derived:
-  - The repair must merge into the producer branch before any new exact-head audit can be valid.
+  - The workflow repair must merge into the producer branch and regenerate the exact-head workflow set before independent audit.
 unknown:
-  - Repair branch Game Gateway CI outcome after integration into the producer branch.
-  - New producer exact-head workflow outcome after repair integration.
+  - PR 759 governance result.
+  - Complete exact-head workflow outcome after PR 759 integration.
   - Outcome of the required fresh independent read-only audit.
 conflicts:
   - none
 first_failure:
-  marker: audit-756-material-findings
-  evidence: issue 756 and PR 542 comments record OTERYN-AUD-756-01 and OTERYN-AUD-756-02; repair review additionally records OTERYN-REPAIR-758-01
+  marker: synology-checkout-action-unresolvable
+  evidence: run 31114628441 attempts 1 and 2 failed at Set up job; attempt 2 named actions/checkout@v7 explicitly
 rejected_hypotheses:
-  - Record PASS_ZERO_MATERIAL_FINDINGS despite material findings.
-  - Merge PR 542 before remediation and fresh independent validation.
-  - Change the canonical contract to permit optional native capabilities within the repair.
-  - Remove compatibility profile identity from Canary Game Session v2 together with the forbidden native profile field.
+  - Treat the infrastructure/setup failure as successful validation.
+  - Merge PR 542 while a required exact-head workflow is red.
+  - Remove or bypass the Synology validation job.
 changed_paths:
-  - services/game-gateway/internal/gateway/types.go
-  - services/game-gateway/internal/gateway/native_protocol.go
-  - services/game-gateway/internal/gateway/native_protocol_test.go
-  - services/game-gateway/internal/gateway/service_test.go
-  - services/game-gateway/internal/session/client.go
-  - services/game-gateway/internal/session/client_test.go
+  - .github/workflows/build-synology-staging-images.yml
   - docs/agents/tasks/active/OTERYN-20260805-native-protocol-single-version-producer.md
 validation:
-  - command: independent audit 756 on e97e950946ed255dfd399f890591337166c30406
+  - command: Build Synology Staging Images run 31114628441 attempt 1
     result: FAIL
-    evidence: two durable material findings on issue 756 and PR 542
-  - command: Agent Governance run 31114085584 on 98c6c4cc46d1512cf8ab228b64b8beed559202ca
-    result: PASS
-    evidence: checkpoint validator completed successfully after contract normalization
-  - command: repair branch Game Gateway review and exact-head CI
+    evidence: action download resolution failed before repository steps
+  - command: Build Synology Staging Images run 31114628441 attempt 2
+    result: FAIL
+    evidence: actions/checkout@v7 could not be resolved
+  - command: PR 759 governance and integration validation
     result: NOT_RUN
-    evidence: code and regressions are prepared; Game Gateway CI runs when integrated into the producer PR targeting main
+    evidence: minimal workflow repair prepared against the producer branch
 blockers:
-  - repair branch integration into the producer branch
+  - PR 759 governance and integration
   - new producer exact-head CI generation
   - fresh independent audit with zero open material findings
-next_action: Merge PR 758 into the producer branch, validate the new PR 542 exact head, then create a fresh independent audit issue.
+next_action: Validate and merge PR 759 into the producer branch, then run a complete exact-head validation generation before creating a fresh audit issue.
 ```
