@@ -150,44 +150,40 @@ type SessionIssuer interface {
 
 func (candidate *GameplayOfferCandidate) UnmarshalJSON(data []byte) error {
 	type alias GameplayOfferCandidate
-	var decoded struct {
-		alias
-		Profile               *string `json:"profile"`
-		NativeProtocolVersion *uint32 `json:"native_protocol_version"`
-	}
+
+	var decoded alias
 	if err := json.Unmarshal(data, &decoded); err != nil {
 		return err
 	}
-	*candidate = GameplayOfferCandidate(decoded.alias)
-	if decoded.Profile != nil {
-		candidate.Profile = *decoded.Profile
-		candidate.profilePresent = true
+
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return err
 	}
-	if decoded.NativeProtocolVersion != nil {
-		candidate.NativeProtocolVersion = *decoded.NativeProtocolVersion
-		candidate.nativeVersionPresent = true
-	}
+
+	*candidate = GameplayOfferCandidate(decoded)
+	_, candidate.profilePresent = fields["profile"]
+	_, candidate.nativeVersionPresent = fields["native_protocol_version"]
+
 	return nil
 }
 
 func (candidate *GameplayPolicyCandidate) UnmarshalJSON(data []byte) error {
 	type alias GameplayPolicyCandidate
-	var decoded struct {
-		alias
-		Profile               *string `json:"profile"`
-		NativeProtocolVersion *uint32 `json:"native_protocol_version"`
-	}
+
+	var decoded alias
 	if err := json.Unmarshal(data, &decoded); err != nil {
 		return err
 	}
-	*candidate = GameplayPolicyCandidate(decoded.alias)
-	if decoded.Profile != nil {
-		candidate.Profile = *decoded.Profile
-		candidate.profilePresent = true
+
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return err
 	}
-	if decoded.NativeProtocolVersion != nil {
-		candidate.NativeProtocolVersion = *decoded.NativeProtocolVersion
-		candidate.nativeVersionPresent = true
-	}
+
+	*candidate = GameplayPolicyCandidate(decoded)
+	_, candidate.profilePresent = fields["profile"]
+	_, candidate.nativeVersionPresent = fields["native_protocol_version"]
+
 	return nil
 }
