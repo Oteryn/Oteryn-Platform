@@ -1,0 +1,147 @@
+name: Branch Lifecycle
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/branch-lifecycle.yml"
+      - "docs/agents/BRANCH_LIFECYCLE_POLICY.json"
+      - "docs/agents/BRANCH_DELETION_MANIFEST.json"
+      - "docs/agents/tasks/active/OTERYN-20260806-branch-lifecycle-implementation.md"
+      - "tools/agents/branch_lifecycle.py"
+      - "tools/agents/test_branch_lifecycle.py"
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/branch-lifecycle.yml"
+      - "docs/agents/BRANCH_LIFECYCLE_POLICY.json"
+      - "docs/agents/BRANCH_DELETION_MANIFEST.json"
+      - "tools/agents/branch_lifecycle.py"
+      - "tools/agents/test_branch_lifecycle.py"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: read
+  pull-requests: read
+
+concurrency:
+  group: branch-lifecycle-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    name: validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
+      - name: Run focused classifier tests
+        run: python3 tools/agents/test_branch_lifecycle.py
+
+      - name: Validate retention policy
+        run: python3 tools/agents/branch_lifecycle.py --mode validate-policy
+
+  inventory:
+    name: live-dry-run
+    needs: validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      issues: read
+      pull-requests: read
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
+      - name: Build fail-closed live inventory
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          python3 tools/agents/branch_lifecycle.py \
+            --mode inventory \
+            --output branch-lifecycle-report.json \
+            --generate-manifest branch-deletion-manifest.generated.json
+
+      - name: Publish dry-run evidence
+        uses: actions/upload-artifact@v7
+        with:
+          name: branch-lifecycle-dry-run-${{ github.run_id }}
+          path: |
+            branch-lifecycle-report.json
+            branch-deletion-manifest.generated.json
+          if-no-files-found: error
+          retention-days: 30
+
+  apply:
+    name: apply-reviewed-manifest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs:
+      - validate
+      - inventory
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: write
+      issues: read
+      pull-requests: read
+    steps:
+      - name: Check out protected main
+        uses: actions/checkout@v7
+        with:
+          ref: main
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
+      - name: Detect reviewed deletion manifest
+        id: manifest
+        shell: bash
+        run: |
+          if [[ -f docs/agents/BRANCH_DELETION_MANIFEST.json ]]; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+            echo "No reviewed deletion manifest is present; apply is NOT_APPLICABLE."
+          fi
+
+      - name: Apply exact reviewed manifest
+        if: steps.manifest.outputs.exists == 'true'
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          python3 tools/agents/branch_lifecycle.py \
+            --mode apply \
+            --event-name push \
+            --ref-name main \
+            --manifest docs/agents/BRANCH_DELETION_MANIFEST.json \
+            --output branch-lifecycle-apply-report.json \
+            --evidence branch-deletion-evidence.json \
+            --recovery-evidence branch-recovery-test-evidence.json
+
+      - name: Publish apply and recovery evidence
+        if: steps.manifest.outputs.exists == 'true'
+        uses: actions/upload-artifact@v7
+        with:
+          name: branch-lifecycle-apply-${{ github.run_id }}
+          path: |
+            branch-lifecycle-apply-report.json
+            branch-deletion-evidence.json
+            branch-recovery-test-evidence.json
+          if-no-files-found: error
+          retention-days: 90
