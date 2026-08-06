@@ -80,7 +80,7 @@ versions:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-06T14:20:00Z
+updated_at: 2026-08-06T14:23:00Z
 head: UNKNOWN
 branch: docs/issue-owned-remediation-audit-gate-20260806
 pr: 754
@@ -121,8 +121,8 @@ unknown:
   - Independent auditor identity and final audit verdict.
 conflicts: []
 first_failure:
-  marker: none
-  evidence: none
+  marker: AGENT-GOVERNANCE-CHECKPOINT-SCHEMA
+  evidence: initial candidate nested non-contract self_review and audit_gate maps inside the validator-owned checkpoint block; corrected on the same branch
 rejected_hypotheses:
   - Allowing the implementation owner to waive an explicit mandatory audit trigger.
   - Treating the user's ordinary continuation or completion wording as an implicit audit waiver.
@@ -159,7 +159,15 @@ validation:
     evidence: repository agent-governance and remediation routing only; no executable runtime or user journey changes
   - command: exact-head required workflows
     result: NOT_RUN
-    evidence: final candidate generation created by this checkpoint commit; resolve live head and workflow runs next
+    evidence: final candidate generation created by this checkpoint correction; resolve live head and workflow runs next
+blockers:
+  - none
+next_action: Resolve the exact final PR #754 head, verify all required exact-head workflows, then publish a generation-1 audit handoff to a distinct AUDIT ONLY session.
+```
+
+## Self-review
+
+```yaml
 self_review:
   result: PASS
   exact_head: resolve-from-live-pr-after-checkpoint-commit
@@ -169,11 +177,17 @@ self_review:
   negative_paths_checked: true
   authorization_and_data_exposure_checked: true
   compatibility_and_rollback_checked: true
-  findings: []
+  findings:
+    - AGENT-GOVERNANCE-CHECKPOINT-SCHEMA fixed before final candidate
   evidence:
     - docs/agents/evidence/OTERYN-20260806-issue-owned-remediation-audit-gate/prompt-eval.md
     - PR #754 full diff
     - branch comparison behind_by=0 with exactly twelve declared paths
+```
+
+## Audit gate
+
+```yaml
 audit_gate:
   version: trusted-base-predecessor
   requirement: REQUIRED
@@ -193,12 +207,14 @@ audit_gate:
     result: PENDING
     generation: 1
     evidence: []
+```
+
+## E2E
+
+```yaml
 e2e:
   result: NOT_APPLICABLE
   reason: governance documentation and agent-routing policy only; no runtime behavior or user journey changes
-blockers:
-  - none
-next_action: Resolve the exact final PR #754 head, verify all required exact-head workflows, then publish a generation-1 audit handoff to a distinct AUDIT ONLY session.
 ```
 
 ## Notes
