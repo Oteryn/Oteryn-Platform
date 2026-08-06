@@ -1,9 +1,10 @@
 ---
 programme_id: OTERYN_PLATFORM_CONTINUOUS_AUDIT
-programme_version: 2
+programme_version: 3
 canonical_prompt: docs/agents/prompts/OTERYN_PLATFORM_CONTINUOUS_AUDIT_PROGRAM.md
 required_reads:
   - docs/agents/OTERYN_PLATFORM_PROGRAM_SCOPE.md
+  - docs/agents/LIFECYCLE_CLOSEOUT_BATCHING.md
   - docs/agents/AUDIT_REMEDIATION_ISSUE_TAXONOMY.md
   - docs/agents/REMEDIATION_WORK_CLAIM_PROTOCOL.md
   - docs/agents/SHORT_PROGRAM_INVOCATIONS.md
@@ -19,8 +20,8 @@ Continuously audit every delivered or declared Platform module and surface for t
 ## Durable queue
 
 ```yaml
-programme_state_version: 2
-updated_at: 2026-08-05T17:31:00Z
+programme_state_version: 3
+updated_at: 2026-08-06T07:55:00Z
 status: ready
 current_cycle: 1
 current_domain: none
@@ -69,12 +70,14 @@ proven:
   - PR #589 passed all six exact-head workflows on d157341c9ca8fd29c8f2a5e2bbf202fc813ebc1a and merged as 5bb9bf8588dbbb76bba83a8d35a32dea0ffef40b.
   - The programme-contract-verification-lifecycle audit is archived and owns no paths or leases.
   - PR #591 was an accidental post-merge duplicate and is closed obsolete with no unique changes.
+  - Independent PASS-only validation is governed by docs/agents/LIFECYCLE_CLOSEOUT_BATCHING.md and is recorded on the existing target PR rather than a new audit PR.
 derived:
   - Payment provider activation remains blocked until Issue #547 is remediated and independently verified.
   - The documented PR and exact-head validation process remains advisory until Issue #552 is resolved.
   - Stale task records remain schema-valid until Issue #558 adds live-state governance.
   - Completed programme setup and contract-proposal tasks must release ownership without terminating their active programme or downstream consumers.
   - Completed audit tooling must release code/workflow ownership while preserving permission-dependent UNKNOWN evidence in a narrow blocked verification record.
+  - Compatible lifecycle-only findings should be handed to one bounded reconciliation wave instead of generating one closeout PR and one audit Issue per task.
 unknown:
   - The owner-approved main ruleset, emergency bypass and stable required-check list.
 conflicts:
@@ -83,13 +86,16 @@ conflicts:
   - Agent Governance proves local text validity but not live PR, branch, archive or ownership truth.
   - Game Catalog and Cloudflare setup tasks remain active despite terminal setup/evidence PRs and newer programme, consumer or blocker ownership.
 blockers: []
-next_action: Refresh live ownership, open PRs and recent main deltas, then select the highest-risk non-overlapping audit domain.
+next_action: Refresh live ownership, open PRs and recent main deltas, then select the highest-risk non-overlapping audit domain and route compatible lifecycle-only findings into a bounded batch handoff.
 ```
 
 ## Programme rules
 
 - Keep this file compact; detailed evidence belongs in bounded task records, Issues and evidence indexes.
-- Update it after a completed audit package, material queue change, new blocker or before rotation.
+- A PASS-only independent audit submits a review/comment on the exact existing target PR and updates its linked audit record; it does not create an audit PR.
+- Several compatible lifecycle-only findings may use one batch audit Issue and one exact-head review with per-item verdicts under `docs/agents/LIFECYCLE_CLOSEOUT_BATCHING.md`.
+- Material product findings remain independently actionable and must not be grouped merely to reduce PR count.
+- Update this file after a completed audit package, material queue change, lifecycle batch handoff, new blocker or before rotation.
 - Never store secrets, full logs or copied Issue bodies here.
 - Exactly one `next_action` is required while the programme is not terminal.
 - A completed package is not the end of the programme; refresh the queue and continue within the bounded invocation budget.
