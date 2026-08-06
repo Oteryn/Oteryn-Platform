@@ -83,7 +83,7 @@ forbidden_paths:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-06T06:40:00Z
+updated_at: 2026-08-06T06:44:00Z
 phase: validate
 head: tracked-by-pr-653
 branch: task/OTERYN-20260806-merged-branch-lifecycle-decision
@@ -92,6 +92,13 @@ status: validating
 context_routes:
   - architecture
   - repository-governance
+owned_paths:
+  - docs/architecture/adr/0024-merged-source-branch-lifecycle-policy.md
+  - docs/architecture/adr/README.md
+  - docs/architecture/ARCHITECTURE_DECISION_BACKLOG.json
+  - docs/agents/reports/OTERYN-20260806-merged-source-branch-lifecycle-review.md
+  - docs/agents/tasks/active/OTERYN-20260806-merged-source-branch-lifecycle-decision.md
+  - docs/agents/programs/OTERYN_PLATFORM_ARCHITECTURE_REVIEW.md
 proven:
   - Live repository metadata reports delete_branch_on_merge=true.
   - Squash is the only enabled merge method; merge commits and rebase merges are disabled.
@@ -108,8 +115,8 @@ unknown:
 conflicts:
   - Issue #586 historical evidence says automatic deletion was disabled, while current repository metadata proves it is enabled.
 first_failure:
-  marker: stale-setting-evidence
-  evidence: Issue #586 recorded delete_branch_on_merge=false on 2026-08-05; live metadata on 2026-08-06 reports true.
+  marker: missing-checkpoint-owned-paths
+  evidence: Agent Governance run 31078216272 rejected the task because checkpoint owned_paths was absent; the same six owned paths are now declared inside the checkpoint.
 rejected_hypotheses:
   - Treat the enabled toggle as a complete policy.
   - Bulk-delete branches by prefix or age.
@@ -132,6 +139,9 @@ validation:
   - command: duplicate PR and repository policy search
     result: PASS
     evidence: no competing open PR or canonical policy found
+  - command: Agent Governance run 31078216272
+    result: FAIL_THEN_FIXED
+    evidence: checkpoint owned_paths was missing and is now declared
   - command: runtime E2E
     result: NOT_APPLICABLE
     evidence: decision-only documentation package; no runtime, workflow or setting change
