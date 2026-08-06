@@ -18,46 +18,47 @@ Continuously challenge Platform architecture, repository structure and CI/CD; id
 
 ```yaml
 programme_state_version: 2
-updated_at: 2026-08-06T06:40:00Z
-status: validating
-current_review_domain: merged-source-branch-lifecycle-policy
-active_task: OTERYN-20260806-merged-source-branch-lifecycle-decision
-issue: 586
-branch: task/OTERYN-20260806-merged-branch-lifecycle-decision
-pull_request: 653
-last_completed_domain: architecture-decision-backlog-implementation
-last_completed_issue: 642
-last_completed_pull_request: 650
-last_completed_merge: 20754620b7a0a4363c70480bda0ee5dff885c9a7
+updated_at: 2026-08-06T06:51:12Z
+status: ready
+current_review_domain: repository-licensing-policy
+active_task: null
+issue: 587
+branch: null
+pull_request: null
+last_completed_domain: merged-source-branch-lifecycle-policy
+last_completed_issue: 586
+last_completed_pull_request: 653
+last_completed_merge: 2abfb961201f7f5d359c5b140dba68be492157be
 accepted_authority:
   authority_index: docs/architecture/ARCHITECTURE_AUTHORITY.md
   authority_adr: docs/architecture/adr/0022-architecture-authority-index-and-focused-canonical-documents.md
   backlog_adr: docs/architecture/adr/0023-machine-readable-architecture-decision-backlog.md
   backlog_registry: docs/architecture/ARCHITECTURE_DECISION_BACKLOG.json
   branch_lifecycle_adr: docs/architecture/adr/0024-merged-source-branch-lifecycle-policy.md
+implementation_handoffs:
+  - issue: 658
+    scope: deterministic branch inventory, retention metadata, conservative cleanup and recovery proof
 active_architecture_decision_ids: ["ARCH-DEC-0002","ARCH-DEC-0003"]
 architecture_conflicts:
   - Historical duplicate ADR prefixes remain for 0008, 0010, 0011, 0015, 0016, 0017, 0018 and 0021, but the exact accepted path sets are machine-enforced and cannot expand silently.
-  - Issue 586 records delete_branch_on_merge=false as historical evidence, while live repository metadata on 2026-08-06 proves the setting is true.
+  - Issue 586 retains historical evidence that delete_branch_on_merge was disabled; ADR 0024 and current metadata prove the accepted current state is enabled.
 ci_architecture_findings:
   - PR 626 separates conditional runtime-tests from an always-emitted aggregate protected test context.
   - Runtime/code changes require the complete MariaDB/PHP suite before the aggregate test gate can pass.
   - Documentation-only changes pass only after fail-closed classification proves runtime tests are NOT_APPLICABLE.
 proven:
-  - The repository owner explicitly selected Option A for ARCH-DEC-0001 on 2026-08-06.
-  - ADR 0024 records automatic deletion of ordinary merged PR branches with protected, documented retention exceptions.
-  - Live repository metadata enables automatic merged head-branch deletion, squash merge and auto-merge while disabling merge commits and rebase merges.
-  - Full branch enumeration returned 498 refs including main and the decision branch.
-  - ARCH-DEC-0001 has been removed from the active JSON backlog in the same bounded decision package.
-  - Issue 658 owns the separate implementation, dry-run classification, cleanup and recovery-evidence package.
+  - Repository owner selected Option A for the merged source-branch lifecycle policy.
+  - PR 653 merged ADR 0024 as 2abfb961201f7f5d359c5b140dba68be492157be after all eight final workflows passed.
+  - ARCH-DEC-0001 was removed from the active decision backlog in the same package.
+  - Issue 658 owns implementation and cleanup; no branch deletion occurred in the architecture package.
 derived:
-  - The architecture decision is resolved; remaining work is repository-governance implementation and conservative cleanup.
+  - The next unresolved architecture decision is repository licensing and distribution policy, ARCH-DEC-0002.
 unknown:
-  - Exact-head validation and protected merge outcome for PR 653.
+  - Repository-owner selection for ARCH-DEC-0002.
 conflicts: []
 blockers:
-  - PR 653 must pass exact-head validation and merge before Issue 658 can leave blocked state.
-next_action: Validate and merge PR 653, archive the decision task and release its ownership, then activate Issue 658 without deleting branches from the decision package.
+  - Repository-owner selection in Issue 587 is required before ARCH-DEC-0002 can leave decision_required.
+next_action: Present ARCH-DEC-0002 options from Issue 587 to the repository owner without inferring a licensing decision.
 ```
 
 ## Programme rules
