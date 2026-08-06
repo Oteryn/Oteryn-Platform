@@ -4,7 +4,7 @@ project_lane: oteryn-platform-core
 task_kind: implementation
 implementation_authorized: true
 issue: 753
-status: validating
+status: ready
 base_head: 1b737574851453e950fa485c26f1a322b8e8ddd2
 branch: docs/issue-owned-remediation-audit-gate-20260806
 pull_request: 754
@@ -14,22 +14,22 @@ pull_request: 754
 
 ## Goal
 
-Replace mandatory independent audit for every Platform repair with a fail-closed risk gate while making one implementation agent the durable owner of one Issue from claim through implementation, validation, PR, findings remediation, merge, Issue closure and task archival.
+Make one implementation agent own one remediation Issue from claim through terminal closeout, while replacing mandatory audit for every repair with a fail-closed risk gate.
 
 ## Acceptance criteria
 
-- [x] Default repair lifecycle is one Issue, one implementation owner, one deterministic branch and one delivery PR from claim through terminal closeout.
-- [x] Every repair records self-review and exact-head validation.
-- [x] A canonical machine-readable audit gate selects `NOT_REQUIRED`, `OPTIONAL`, or `REQUIRED` from explicit evidence.
-- [x] Mandatory triggers cover high/critical risk, security/auth/payment/data-integrity/migration/protocol/CI/deployment/architecture/cross-repository/irreversible boundaries and material uncertainty.
-- [x] An implementation agent cannot downgrade a mandatory trigger or describe self-review as independent audit.
-- [x] When audit is required, the same implementation owner remains responsible for findings and terminal closeout; the auditor remains read-only.
-- [x] Parallel repair commands allocate implementation owners by default; audit roles are created only for valid required/requested handoffs.
-- [x] Active repair trains are exceptional, opt-in and restricted to homogeneous low-risk mechanical, test-fixture, documentation or governance work; ordinary product repairs stay one Issue/one PR.
-- [x] Taxonomy, claim protocol, programme prompt/state, short-command registry and closeout contracts use coherent versions and semantics.
-- [x] Static adversarial evaluation has no safety-critical regression and records repeated model trials truthfully.
-- [x] Runtime E2E is `NOT_APPLICABLE` with a governance-only reason.
-- [ ] This policy change receives the fresh independent audit required by the trusted base, exact-head CI, terminal PR/Issue state, archival and ownership release.
+- [x] One Issue normally has one implementation owner, one deterministic branch and one delivery PR through closeout.
+- [x] Every repair requires documented exact-head self-review.
+- [x] Audit classification is `NOT_REQUIRED`, `OPTIONAL` or `REQUIRED` from explicit evidence.
+- [x] Critical/high risk and security, auth, payment, integrity, concurrency, migration, protocol, CI/deployment, architecture, cross-repository, irreversible and uncertain boundaries require independent audit.
+- [x] The implementation owner cannot waive a mandatory trigger or call self-review independent audit.
+- [x] Audit findings return to the same implementation owner.
+- [x] Parallel repair counts mean end-to-end implementation owners; no audit slot is permanently reserved.
+- [x] Repair trains are exceptional, opt-in and restricted to homogeneous low-risk work.
+- [x] Taxonomy, protocol, prompt, programme, registry and closeout versions are coherent.
+- [x] Static evaluation records 48/48 candidate PASS, no safety-critical regression and truthful `NOT_RUN` model trials.
+- [x] Runtime E2E is `NOT_APPLICABLE` for this governance-only change.
+- [ ] Fresh independent exact-target audit, merge, Issue closure, archival and ownership release.
 
 ## Ownership
 
@@ -52,15 +52,14 @@ modules:
   - agent-governance
   - remediation-programme
 dependencies:
-  - PR #743 merged repair PR economy and claim protocol version 3
-  - current trusted-base docs/agents/AGENTS.md requires fresh independent audit before archival
+  - current trusted-base independent-audit requirement
 blockers:
   - none
 cross_repository_tasks:
   - none
 ```
 
-## Delivered policy generation
+## Policy generation
 
 ```yaml
 versions:
@@ -80,11 +79,11 @@ versions:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-06T14:23:00Z
+updated_at: 2026-08-06T14:29:00Z
 head: UNKNOWN
 branch: docs/issue-owned-remediation-audit-gate-20260806
 pr: 754
-status: validating
+status: ready
 context_routes:
   - agent-governance
   - testing
@@ -103,31 +102,28 @@ owned_paths:
   - docs/agents/tasks/active/OTERYN-20260806-issue-owned-remediation-audit-gate.md
 proven:
   - Trusted base at task start is main commit 1b737574851453e950fa485c26f1a322b8e8ddd2.
-  - Issue #753 authorizes the bounded governance change and explicitly requires this policy change to follow the trusted-base independent-audit gate.
-  - PR #754 is the sole delivery PR for this task.
-  - Effective candidate diff is behind_by=0 and contains exactly the twelve declared governance, prompt, evidence and task paths.
-  - The canonical risk gate keeps one implementation owner responsible end to end and requires independent audit only for explicit mandatory triggers or requested optional review.
-  - Taxonomy 1.4, schema 4, claim protocol 4, repair economy 2, registry 1.5, programme 5 and prompt 1.2.0 are cross-referenced coherently.
-  - Parallel repair-agent counts now mean end-to-end implementation owners; no auditor or integrator slot is permanently reserved.
-  - Ordinary product remediation is excluded from repair trains by default.
-  - Static adversarial contract evaluation reports candidate 48/48 PASS, baseline 30 PASS / 11 ambiguous / 7 FAIL and zero safety-critical candidate regressions.
-  - Repeated nondeterministic model trials are explicitly NOT_RUN because no suitable isolated multi-session harness was identified.
+  - Issue #753 authorizes the bounded governance change.
+  - PR #754 is the sole delivery PR.
+  - Candidate differs by exactly twelve declared governance, prompt, evidence and task paths and is behind_by=0.
+  - Static adversarial evaluation is 48/48 PASS with zero safety-critical regressions.
+  - Repeated nondeterministic model trials are explicitly NOT_RUN.
+  - Pre-freeze head 59fe9c17c061e30118bfa0234062a628f69548a0 passed all six workflows including Agent Governance and required CI classify-changes/test.
+  - The checkpoint-schema finding on predecessor head 1dd0d808bbe1e64f331b5327fb13a342ddef7784 was repaired before freeze.
 derived:
-  - One central audit-risk gate avoids trigger drift across remediation, delivery and closeout contracts.
-  - Claim ownership, self-review and independent validation are separate concepts.
+  - One central audit-risk gate prevents trigger drift across remediation contracts.
+  - Issue ownership, self-review and independent validation remain separate concepts.
 unknown:
-  - Exact final candidate head must be resolved from live PR #754 after this checkpoint commit.
-  - Exact-head workflow results for the final candidate generation.
-  - Independent auditor identity and final audit verdict.
+  - Exact frozen head and final workflow generation are resolved from live PR #754 after this task-state commit.
+  - Independent auditor identity and final verdict.
 conflicts: []
 first_failure:
   marker: AGENT-GOVERNANCE-CHECKPOINT-SCHEMA
-  evidence: initial candidate nested non-contract self_review and audit_gate maps inside the validator-owned checkpoint block; corrected on the same branch
+  evidence: predecessor checkpoint nested unsupported maps; corrected and Agent Governance passed on 59fe9c17c061e30118bfa0234062a628f69548a0
 rejected_hypotheses:
-  - Allowing the implementation owner to waive an explicit mandatory audit trigger.
-  - Treating the user's ordinary continuation or completion wording as an implicit audit waiver.
-  - Reserving an audit slot when no required/requested handoff exists.
-  - Using repair trains as the normal product-remediation delivery mode.
+  - Letting the implementation owner waive a mandatory audit trigger.
+  - Treating ordinary owner wording as an implicit audit waiver.
+  - Reserving an idle audit slot without a valid handoff.
+  - Using repair trains as the normal product path.
 changed_paths:
   - docs/agents/AGENTS.md
   - docs/agents/AUDIT_REMEDIATION_ISSUE_TAXONOMY.md
@@ -142,27 +138,24 @@ changed_paths:
   - docs/agents/prompts/OTERYN_PLATFORM_REMEDIATION_PROGRAM.md
   - docs/agents/tasks/active/OTERYN-20260806-issue-owned-remediation-audit-gate.md
 validation:
-  - command: live governance and ownership preflight
-    result: PASS
-    evidence: current main, governing contracts, active tasks and open PRs inspected
   - command: full PR #754 diff self-review
     result: PASS
-    evidence: exact twelve-path diff inspected; no product, runtime, workflow, deployment, migration, production or external-repository mutation
+    evidence: exact twelve-path governance-only diff inspected
   - command: cross-document version and routing review
     result: PASS
     evidence: gate 1, economy 2, protocol 4, taxonomy/schema 1.4/4, registry 1.5, programme 5 and prompt 1.2.0 agree
   - command: static adversarial policy evaluation
     result: PASS
-    evidence: 48/48 candidate cases pass; zero safety-critical regressions; repeated model trials truthfully NOT_RUN
+    evidence: 48/48 candidate cases pass with zero safety-critical regressions
   - command: runtime E2E classification
     result: NOT_APPLICABLE
-    evidence: repository agent-governance and remediation routing only; no executable runtime or user journey changes
-  - command: exact-head required workflows
-    result: NOT_RUN
-    evidence: final candidate generation created by this checkpoint correction; resolve live head and workflow runs next
+    evidence: no executable runtime or user journey changes
+  - command: predecessor exact-head workflows
+    result: PASS
+    evidence: 59fe9c17c061e30118bfa0234062a628f69548a0 passed CI 31110467166, Agent Governance 31110462780 and all four supplementary workflows
 blockers:
   - none
-next_action: Resolve the exact final PR #754 head, verify all required exact-head workflows, then publish a generation-1 audit handoff to a distinct AUDIT ONLY session.
+next_action: A distinct AUDIT ONLY session verifies the live frozen PR #754 base/head, final exact-head workflows, whole diff and Issue #753 acceptance, then records PASS_ZERO_MATERIAL_FINDINGS or exact findings.
 ```
 
 ## Self-review
@@ -170,7 +163,7 @@ next_action: Resolve the exact final PR #754 head, verify all required exact-hea
 ```yaml
 self_review:
   result: PASS
-  exact_head: resolve-from-live-pr-after-checkpoint-commit
+  exact_head: resolve-from-live-pr-after-freeze-commit
   acceptance_checked: true
   full_diff_checked: true
   related_prs_checked: true
@@ -178,11 +171,10 @@ self_review:
   authorization_and_data_exposure_checked: true
   compatibility_and_rollback_checked: true
   findings:
-    - AGENT-GOVERNANCE-CHECKPOINT-SCHEMA fixed before final candidate
+    - AGENT-GOVERNANCE-CHECKPOINT-SCHEMA fixed before freeze
   evidence:
-    - docs/agents/evidence/OTERYN-20260806-issue-owned-remediation-audit-gate/prompt-eval.md
     - PR #754 full diff
-    - branch comparison behind_by=0 with exactly twelve declared paths
+    - docs/agents/evidence/OTERYN-20260806-issue-owned-remediation-audit-gate/prompt-eval.md
 ```
 
 ## Audit gate
@@ -193,20 +185,13 @@ audit_gate:
   requirement: REQUIRED
   risk: high
   mandatory_triggers:
-    - Issue #753 is labeled risk:high
+    - Issue #753 is risk:high
     - candidate changes independent-audit, merge and task-closeout policy
-  optional_triggers: []
   unknown_or_conflict: []
-  rationale: The current task must satisfy the trusted-base audit rule and cannot use its own unmerged selective-audit policy to waive that gate.
-  self_review:
-    result: PASS
-    evidence:
-      - full PR #754 diff inspected
-      - static evaluation 48/48 PASS
+  self_review: PASS
   independent_audit:
     result: PENDING
     generation: 1
-    evidence: []
 ```
 
 ## E2E
@@ -219,4 +204,4 @@ e2e:
 
 ## Notes
 
-This task cannot use its own unmerged policy to expand authority or waive the trusted-base audit requirement. The final auditor must be distinct from the implementation owner and keep the target branch read-only.
+The current implementation session cannot use its own unmerged policy to waive the trusted-base audit requirement and cannot issue the final independent PASS.
