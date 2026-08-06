@@ -1,21 +1,22 @@
 # Oteryn Platform Short Programme Invocation Registry
 
 ```yaml
-registry_version: 1.4
+registry_version: 1.5
 repository: blakinio/Oteryn-Platform
 trusted_base: main
 scope_contract: docs/agents/OTERYN_PLATFORM_PROGRAM_SCOPE.md
 repair_delivery_contract: docs/agents/REPAIR_PR_ECONOMY.md
+audit_gate_contract: docs/agents/REMEDIATION_AUDIT_RISK_GATE.md
 lifecycle_closeout_contract: docs/agents/LIFECYCLE_CLOSEOUT_BATCHING.md
 ```
 
 ## Purpose
 
-The owner's established short commands remain valid. Resolve work from canonical prompts, immutable scope, repair-delivery and lifecycle contracts, mutable programme state, active tasks, Issues, deterministic claim branches, PRs, reviews, CI, ownership and live repository state. Chat history is optional and never authoritative.
+The owner's established short commands remain valid. Resolve work from canonical prompts, immutable scope, current repair/audit/lifecycle contracts, programme state, active tasks, Issues, deterministic branches, PRs, reviews, CI and live ownership.
 
 No command authorizes hidden background execution, production operations, secrets, protected-environment approval, live-data mutation or writes outside `blakinio/Oteryn-Platform`.
 
-The three programme IDs remain permanently dedicated to Oteryn Platform and cannot be redirected to Otheryn, OTClient, Canary, Freqtrade, Quant Platform or another repository.
+The three programme IDs remain dedicated to Oteryn Platform.
 
 ## Continuous platform audit
 
@@ -33,13 +34,12 @@ canonical_prompt: docs/agents/prompts/OTERYN_PLATFORM_CONTINUOUS_AUDIT_PROGRAM.m
 programme_state: docs/agents/programs/OTERYN_PLATFORM_CONTINUOUS_AUDIT.md
 supporting_contracts:
   - docs/agents/OTERYN_PLATFORM_PROGRAM_SCOPE.md
-  - docs/agents/REPAIR_PR_ECONOMY.md
-  - docs/agents/LIFECYCLE_CLOSEOUT_BATCHING.md
   - docs/agents/AUDIT_REMEDIATION_ISSUE_TAXONOMY.md
+  - docs/agents/REMEDIATION_AUDIT_RISK_GATE.md
   - docs/agents/REMEDIATION_WORK_CLAIM_PROTOCOL.md
 ```
 
-Execute the programme instead of returning its long prompt. PASS-only audits are reviews/comments on existing target PRs, never standalone PASS PRs.
+The auditor finds and deduplicates problems, creates implementation-authorized Issues when proven, and provides a conservative preliminary audit-risk classification. It does not implement product fixes.
 
 ## Platform remediation
 
@@ -57,16 +57,46 @@ programme_state: docs/agents/programs/OTERYN_PLATFORM_REMEDIATION.md
 supporting_contracts:
   - docs/agents/OTERYN_PLATFORM_PROGRAM_SCOPE.md
   - docs/agents/REPAIR_PR_ECONOMY.md
+  - docs/agents/REMEDIATION_AUDIT_RISK_GATE.md
   - docs/agents/LIFECYCLE_CLOSEOUT_BATCHING.md
   - docs/agents/AUDIT_REMEDIATION_ISSUE_TAXONOMY.md
   - docs/agents/REMEDIATION_WORK_CLAIM_PROTOCOL.md
 ```
 
-Select the highest-priority safe unclaimed Issue, acquire `repair/issue-<number>`, activate branch/Issue/task ownership and apply the mandatory delivery selection order. A draft PR is not required merely because the claim became active.
+The agent selects or resumes one Issue and owns it end to end:
 
-## Independent audit of ready repairs
+```text
+claim → implementation → self-review → validation → PR → findings remediation → merge → Issue/task closeout
+```
 
-This is a role invocation within `OTERYN_PLATFORM_REMEDIATION`, not a fourth product programme.
+It does not stop merely because implementation, PR creation, CI, review or merge completed. It finishes every safe remaining phase in the same Issue-owned workflow.
+
+Independent audit is requested only when `REMEDIATION_AUDIT_RISK_GATE.md` returns `REQUIRED` or an `OPTIONAL` audit is explicitly requested.
+
+## Parallel remediation
+
+```text
+Uruchom 3 agentów naprawczych Platformy autonomicznie.
+Uruchom naprawę Platformy równolegle: 3 agentów.
+Kontynuuj równoległą naprawę Platformy autonomicznie.
+```
+
+The number means up to that many end-to-end implementation owners. Each agent:
+
+1. selects one distinct eligible Issue;
+2. attempts its exact deterministic branch once;
+3. releases immediately after losing the lock and selects another eligible Issue when authorized;
+4. keeps ownership from activation through terminal closeout;
+5. normally uses one Issue-owned PR;
+6. never waits for another repair worker, train capacity or an idle audit slot.
+
+The coordinator dispatches only the proven safe count. Paths, coordination keys, migrations, contracts and rollout must be independent.
+
+No audit role is permanently reserved. When a valid required audit handoff exists, an otherwise independent available agent may be routed to `AUDIT ONLY`, or the dedicated audit command may be invoked.
+
+## Independent audit of selected repairs
+
+This is a role inside `OTERYN_PLATFORM_REMEDIATION`, not a fourth product programme.
 
 ```text
 Uruchom niezależny audyt gotowych napraw Platformy autonomicznie.
@@ -76,70 +106,23 @@ Uruchom audyt napraw Platformy autonomicznie.
 
 Resolution rules:
 
-1. Query active remediation tasks and delivery PRs for durable `audit_handoff` records with checkpoint `status: ready`.
-2. Select the oldest highest-priority valid handoff whose exact PR/base/head still matches live state.
-3. Verify the auditor is distinct from the implementation owner, all contributing workers and train integration owner, and did not write/remediate target commits.
-4. Operate in `AUDIT ONLY`; do not mutate the target branch.
-5. Record a whole-diff verdict and one verdict per included Issue on the exact target PR.
-6. PASS requires zero material findings and every per-Issue verdict PASS.
-7. A target change invalidates the generation; findings return to the implementation owner on the same delivery PR unless a separate root cause is proven.
-8. Do not create an audit PR merely to record PASS.
+1. Query durable handoffs whose audit gate is `REQUIRED`, or `OPTIONAL` with an explicit request.
+2. Select the oldest highest-priority valid exact target.
+3. Verify independence from the implementation owner and target commits.
+4. Operate in `AUDIT ONLY`; do not mutate the branch.
+5. Record exact whole-diff and Issue verdicts.
+6. PASS requires zero material findings and unchanged target.
+7. Findings return to the same implementation owner.
+8. A target change invalidates the generation.
+9. Do not create a PASS-only audit PR.
 
-## Parallel remediation workers
+A repair with `NOT_REQUIRED` or unrequested `OPTIONAL` audit is not added to this queue.
 
-Literal implementation-worker command:
+## Exceptional repair train
 
-```text
-Uruchom 3 agentów naprawczych Platformy autonomicznie.
-Uruchom naprawę Platformy równolegle: 3 agentów.
-```
+There is no normal short command that automatically creates repair trains.
 
-Here `3` means up to three implementation workers. Each worker independently acquires one deterministic Issue branch. The coordinator dispatches only the proven safe number and does not fill capacity with blocked or overlapping work.
-
-Recommended total-slot command:
-
-```text
-Uruchom 3 sloty naprawy Platformy autonomicznie.
-Uruchom równoległą naprawę Platformy w 5 slotach autonomicznie.
-```
-
-Here the number is total concurrent roles. Default allocation:
-
-```yaml
-slot_allocation:
-  2:
-    repair_workers: 1
-    audit_workers: 1
-  3:
-    repair_workers: 2
-    audit_workers: 1
-  4:
-    repair_workers: 2
-    audit_workers: 1
-    integration_coordinator: 1
-  5:
-    repair_workers: 3
-    audit_workers: 1
-    integration_coordinator: 1
-```
-
-For larger counts, preserve at least one audit role when ready audit handoffs exist and add an integration coordinator when repair trains/shared paths require one. Never dispatch more implementation workers than proven independent ready Issues.
-
-### Parallel resolution
-
-1. Read Platform scope, repair economy, lifecycle, remediation prompt/state, Issue taxonomy and claim protocol.
-2. Query live ready/claimed Issues, deterministic branches, tasks and related PRs.
-3. Reject unauthorized, blocked, overlapping or external-repository mutations.
-4. Route compatible terminal governance-only items to lifecycle batching.
-5. Select independent product Issues with distinct coordination keys and non-overlapping paths.
-6. Each worker posts provisional visibility and attempts its exact branch once.
-7. A losing worker releases immediately and selects another eligible Issue when authorized.
-8. Branch winners activate task ownership; PR creation follows `REPAIR_PR_ECONOMY.md`, not an activity requirement.
-9. Compatible coherent candidates may enter a repair train only through exact immutable source-head handoff to one integration owner.
-10. A worker never waits for another worker, train capacity or auditor. It persists a durable handoff and returns `ROTATE` when role transition is required.
-11. The audit role drains valid ready handoffs independently.
-
-Coordinator dispatch, comments, labels and assignees do not acquire Issue ownership. The deterministic branch remains the atomic lock.
+An active repair train requires explicit coordinator authorization and is limited to homogeneous low-risk mechanical, documentation, test-fixture or governance work. Ordinary product/runtime repair remains one Issue, one owner and one PR. Terminal lifecycle-only work uses `LIFECYCLE_CLOSEOUT_BATCHING.md`.
 
 ## Architecture review
 
@@ -159,45 +142,45 @@ supporting_contracts:
   - docs/agents/OTERYN_PLATFORM_PROGRAM_SCOPE.md
 ```
 
-The agent analyses and persists proposed/accepted Platform architecture decisions and implementation handoffs. It does not become the final independent auditor of a repair it implemented or integrated.
+The architecture agent analyses and persists proposed/accepted decisions and implementation handoffs. It does not implement runtime code unless separately authorized and does not independently audit a repair it implemented.
 
 ## Status commands
 
 ```text
 Pokaż stan audytu Platformy.
 Pokaż stan napraw Platformy.
-Pokaż kolejkę audytów napraw Platformy.
+Pokaż kolejkę wymaganych audytów napraw Platformy.
 Pokaż stan architektury Platformy.
 Pokaż stan programów Platformy.
 ```
 
-Status commands inspect programme state, active tasks, Issues, deterministic branches, repair trains, audit handoffs, lifecycle waves, PRs, reviews and CI without mutation unless continuation is requested.
+Status inspection reads programme state, active tasks, Issues, deterministic branches, PRs, audit gates, handoffs, reviews and CI without mutation unless continuation is requested.
 
 ## Recovery
 
 `Kontynuuj ...` means:
 
-1. read immutable scope, repair/lifecycle contracts, programme state and task recovery checkpoint;
-2. verify branch/Issue/task/PR/audit handoff/external-operation live state;
-3. reject unauthorized external mutations;
-4. execute the recorded safe `next_action`;
-5. preserve leases, deadlines, counters, accepted source heads, audit generations and recovery generation;
-6. take over stale/orphaned work only under recovery and claim contracts;
-7. never ask the owner to paste the long prompt.
+1. read current scope/contracts/programme state/task checkpoint;
+2. verify Issue, implementation owner, branch, PR, audit gate and live exact head;
+3. resume the same Issue-owned role when valid;
+4. execute the recorded safe `next_action` immediately;
+5. preserve leases, deadlines, recovery and audit generations;
+6. use evidence-backed takeover only when ownership is stale;
+7. never reconstruct authority from chat memory.
 
 ## Status semantics
 
-- `ROTATE`: current role completed its bounded phase and a distinct role/session must execute the durable next action.
-- `WAITING`: genuine external dependency, accepted external actor, permission/environment, protected operation, observation window, owner decision or exhausted bounded terminal-CI procedure.
-- An implementer needing an independent auditor returns `ROTATE`, not `WAITING`.
-- A coherent repair never waits merely to fill a train.
+- `DONE`: the Issue-owned task is fully terminal or the selected audit role completed its verdict.
+- `ROTATE`: a required distinct role must execute a durable next action, normally a required auditor or implementation owner after findings.
+- `WAITING`: a genuine external dependency, accepted external actor, permission/environment, protected operation, observation window, owner decision or exhausted bounded terminal-CI procedure.
+- An agent never uses `WAITING` for another internal worker or audit slot.
 
 ## Terminal response
 
 ```text
 STATUS: DONE | WAITING | BLOCKED | ROTATE
 RESULT: <observable result>
-DURABLE_STATE: <programme/task/Issue/branch/head/PR/train/audit generation>
+DURABLE_STATE: <programme/task/Issue/owner/branch/head/PR/audit gate/generation>
 BLOCKER: <none or exact blocker>
 NEXT_ACTION: <one action or none>
 ```
