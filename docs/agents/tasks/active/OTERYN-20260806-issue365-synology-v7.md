@@ -7,7 +7,7 @@ issue: 740
 parent_issue: 365
 branch: validation/issue365-synology-v7-20260806
 pull_request: 741
-status: implementing
+status: validating
 task_kind: validation
 implementation_authorized: true
 production_activation_authorized: false
@@ -30,8 +30,8 @@ Execute the frozen Issue #365 matrix once with a source-backed Docker API `1.43`
 
 ```yaml
 policy_version: 2
-checkpoint_version: 2
-updated_at: 2026-08-06T13:21:00+02:00
+checkpoint_version: 3
+updated_at: 2026-08-06T13:24:00+02:00
 phase: validate
 session_id: chatgpt-20260806T1315+0200-issue365-synology-v7
 session_role: validator-infrastructure
@@ -45,11 +45,11 @@ estimate_confidence: medium
 decomposition_decision: single
 decomposition_reason: one isolated compatibility transformation and one exact matrix execution
 validation_level: full
-heavy_validation_runs: 0
+heavy_validation_runs: 1
 branch: validation/issue365-synology-v7-20260806
-base_at_claim: ed7fca09b396f496f8935736d375542e47452a51
+workflow_head: 436734c4b42100f06eb9c51b8dbe0e1ab9c2063d
 pr: 741
-status: implementing
+status: validating
 context_routes:
   - testing
   - ci-repair
@@ -62,13 +62,14 @@ proven:
   - Docker official documentation defines DOCKER_API_VERSION as the explicit client API override
   - the validator passes /workspace/.issue365.env into every Playwright wrapper container
   - exact one-line transformation produces derived SHA-256 3280d961652b5aa6659d73fc8020fb8b6dba9d4879a1695d4323afe62e3d76b4 from original validator SHA-256 5e89a700d85cb362e374a500bd923d52eea1a9b1b86d0fe657e07c0e134f5945
-  - draft observation PR 741 exists and is marked never merge
+  - exactly one push-triggered workflow run exists for the workflow head
 unknown:
   - whether API 1.43 allows all browser samples to execute
   - terminal clean versus one-corrupt flash and thumbnail verdict
 conflicts: []
 changed_paths:
   - .github/ISSUE365_SYNOLOGY_V7_VALIDATION_ONLY.md
+  - .github/workflows/issue365-synology-v7.yml
   - docs/agents/tasks/active/OTERYN-20260806-issue365-synology-v7.md
 validation:
   - command: local exact one-line transformation, bash -n and SHA-256
@@ -77,11 +78,14 @@ validation:
   - command: source-backed Docker compatibility review
     result: PASS
     evidence: Docker CLI and Engine API documentation for DOCKER_API_VERSION
+  - command: one-shot runtime 31097086526
+    result: IN_PROGRESS
+    evidence: job 92601572152 on workflow head 436734c4b42100f06eb9c51b8dbe0e1ab9c2063d
 blockers: []
 anti_stall:
   invocation_started_at: 2026-08-06T13:15:00+02:00
-  last_progress_at: 2026-08-06T13:21:00+02:00
-  ci_checks_for_current_head: 0
+  last_progress_at: 2026-08-06T13:23:46+02:00
+  ci_checks_for_current_head: 1
   ci_check_generation: runtime-v7
   terminal_ci_wait_started_at: null
   terminal_ci_checks_for_current_generation: 0
@@ -90,7 +94,7 @@ anti_stall:
   repair_cycles_for_current_gate: 1
   context_reconstruction_attempts: 0
   stall_warnings: 0
-next_action: Add the single-trigger workflow as the final branch mutation, record its exact run ID and classify the one terminal execution.
+next_action: Fetch the terminal job steps, logs and evidence artifact for run 31097086526, classify the exact product or technical result and perform non-merge closeout.
 ```
 
 ## Recovery checkpoint
@@ -101,19 +105,21 @@ recovery:
   generation: 1
   session_id: chatgpt-20260806T1315+0200-issue365-synology-v7
   session_started_at: 2026-08-06T13:15:00+02:00
-  checkpointed_at: 2026-08-06T13:21:00+02:00
-  last_progress_at: 2026-08-06T13:21:00+02:00
+  checkpointed_at: 2026-08-06T13:24:00+02:00
+  last_progress_at: 2026-08-06T13:23:46+02:00
   phase: Docker API compatibility matrix validation
-  exact_head: pending-workflow-commit
+  exact_head: 436734c4b42100f06eb9c51b8dbe0e1ab9c2063d
   pull_request: 741
-  active_operation: none
-  external_run_ids: []
-  operation_started_at: null
-  wait_deadline_at: null
+  active_operation: GitHub Actions workflow run 31097086526 job 92601572152
+  external_run_ids:
+    - 31097086526
+    - 92601572152
+  operation_started_at: 2026-08-06T13:23:46+02:00
+  wait_deadline_at: 2026-08-06T15:23:46+02:00
   check_generation: runtime-v7
-  checks_used: 0
-  status: ready
+  checks_used: 1
+  status: active
   safe_to_resume: true
-  resume_condition: workflow file is committed and the single push-triggered run exists
-  next_action: Add .github/workflows/issue365-synology-v7.yml last, then observe only its single run to terminal state.
+  resume_condition: workflow run 31097086526 reaches a terminal conclusion
+  next_action: Fetch terminal steps, logs and artifacts for run 31097086526 and complete non-merge closeout.
 ```
