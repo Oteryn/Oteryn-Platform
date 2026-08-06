@@ -1,12 +1,12 @@
 ---
 task_id: OTERYN-20260805-native-protocol-single-version-producer
 coordination_id: OTS-20260804-native-protocol-selection
-status: active
+status: ready
 agent: ChatGPT
 branch: feat/OTS-20260804-native-protocol-single-version-producer
 base_branch: main
 created: 2026-08-05T14:58:00+02:00
-updated: 2026-08-06T15:03:00+02:00
+updated: 2026-08-06T15:31:00+02:00
 risk: high
 execution_mode: github-only
 implementation_authorized: true
@@ -39,13 +39,13 @@ Migrate the disabled Platform and Game Gateway producer from the transitional na
 
 ## Acceptance
 
-- [ ] remove the native profile field from API, DB, World Registry, readiness, Game Session v2 and tests;
-- [ ] add required integer `native_protocol_version = 1` without alias or placeholder;
-- [ ] migrate existing disabled rows safely and provide reversible rollback;
-- [ ] require exact family/version/transport/schema/hash/capabilities in selection and readiness;
-- [ ] preserve legacy no-offer behavior and Canary compatibility mechanisms unchanged;
-- [ ] keep every native candidate disabled and production activation unauthorized;
-- [ ] pass parser, replay, downgrade, readiness, data migration, rollback and producer E2E tests;
+- [x] remove the native profile field from API, DB, World Registry, readiness, Game Session v2 and tests;
+- [x] add required integer `native_protocol_version = 1` without alias or placeholder;
+- [x] migrate existing disabled rows safely and provide reversible rollback;
+- [x] require exact family/version/transport/schema/hash/capabilities in selection and readiness;
+- [x] preserve legacy no-offer behavior and Canary compatibility mechanisms unchanged;
+- [x] keep every native candidate disabled and production activation unauthorized;
+- [x] pass parser, replay, downgrade, readiness, data migration, rollback and producer E2E tests;
 - [ ] pass exact-head CI and five independent audits;
 - [ ] merge, archive and release ownership.
 
@@ -53,12 +53,25 @@ Migrate the disabled Platform and Game Gateway producer from the transitional na
 
 The older `OTERYN-20260723-native-auth-production-cutover` record described completed hardening plus external production approvals and retained a stale broad Gateway lease. This task supersedes only that stale lease for the authorized native-protocol migration. It does not authorize any production cutover or weaken the older task's external-approval requirements.
 
+## Implementation validation
+
+- Included protected main: `1b737574851453e950fa485c26f1a322b8e8ddd2`.
+- Validated implementation merge head: `80c8b8035a33caadc2cbbb250676ce5afc64ae48`.
+- Finalizer run `31106026048`: PHP formatting, targeted Platform migration/producer tests, all Game Gateway Go tests and bounded-diff validation passed.
+- Current-main comparison at the implementation merge head: `behind_by = 0`; exactly 20 declared product, contract, migration, test and task paths; no transient repair workflow or diagnostic evidence remains.
+- Runtime activation remains disabled and unauthorized.
+
 ## Checkpoint
 
 ```yaml
-phase: validation
+phase: audit
 exact_base: 1b737574851453e950fa485c26f1a322b8e8ddd2
+implementation_head: 80c8b8035a33caadc2cbbb250676ce5afc64ae48
+final_candidate_head: resolve_live
 branch: feat/OTS-20260804-native-protocol-single-version-producer
 production_enabled: false
-next_action: complete exact-head CI, five independent audits, merge and archive
+exact_head_ci: pending
+independent_audits_required: 5
+independent_audits_completed: 0
+next_action: run exact-head CI and rotate to five independent read-only audits before merge
 ```
