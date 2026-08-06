@@ -4,10 +4,11 @@ coordination_id: OTS-20260804-native-protocol-selection
 status: implementing
 agent: ChatGPT
 branch: feat/OTS-20260804-native-protocol-single-version-producer
-repair_branch: repair/OTS-20260804-native-protocol-audit-756
+repair_branch: repair/OTS-20260804-native-protocol-audit-760
+prior_repair_branch: repair/OTS-20260804-native-protocol-audit-756
 base_branch: main
 created: 2026-08-05T14:58:00+02:00
-updated: 2026-08-06T17:09:00+02:00
+updated: 2026-08-06T17:29:00+02:00
 risk: high
 execution_mode: github-only
 implementation_authorized: true
@@ -48,7 +49,7 @@ Migrate the disabled Platform and Game Gateway producer from the transitional na
 - [x] preserve legacy no-offer behavior and Canary compatibility mechanisms unchanged;
 - [x] keep every native candidate disabled and production activation unauthorized;
 - [x] pass parser, replay, downgrade, readiness, data migration, rollback and producer E2E tests;
-- [ ] pass exact-head CI and a fresh independent zero-finding audit after audit #756 remediation;
+- [ ] pass exact-head CI and a fresh independent zero-finding audit after audit #760 remediation;
 - [ ] merge, archive and release ownership.
 
 ## Ownership transfer
@@ -66,36 +67,42 @@ The older `OTERYN-20260723-native-auth-production-cutover` record described comp
 - Exact audited head had 14 terminal successful workflow runs and zero unresolved review threads.
 - Runtime activation remains disabled and unauthorized.
 
-## Independent audit #756
+## Independent audit #756 and repair #758
 
-Audit #756 recorded `FAIL_MATERIAL_FINDINGS_OPEN` against immutable head `e97e950946ed255dfd399f890591337166c30406` with two material findings:
+Audit #756 recorded `FAIL_MATERIAL_FINDINGS_OPEN` against immutable head `e97e950946ed255dfd399f890591337166c30406`:
 
 1. `OTERYN-AUD-756-01`: explicit JSON `"profile": null` was treated as an absent key by the custom Go unmarshaler and could bypass the native no-profile boundary.
 2. `OTERYN-AUD-756-02`: Gateway accepted additional and optional native capabilities despite the canonical exact-capability contract and stricter Platform producer.
 
-Repair review of the same immutable producer head also found `OTERYN-REPAIR-758-01`: Game Session v2 removed `profile` from every selected family, so a selected Canary compatibility tuple lost its required profile identity before readiness and session issuance.
+Repair review additionally found `OTERYN-REPAIR-758-01`: Game Session v2 removed `profile` from every selected family, so a selected Canary compatibility tuple lost its required profile identity before readiness and session issuance.
 
-The repair branch:
+Merged repair PR #758 produced producer head `3d53a57f752f07d3eca07a05ed5e0f155ad33326` and resolved those three findings by tracking identity-key presence, enforcing the exact native capability set and preserving mutually exclusive Oteryn/Canary Game Session v2 identity.
 
-- detects identity-key presence independently from decoded values for both offer and policy candidates;
-- rejects native `profile` and compatibility-family `native_protocol_version` even when explicitly `null`;
-- requires the native offered and required capability lists to equal the canonical list exactly;
-- requires native optional capabilities to be empty;
-- preserves mutually exclusive family identity in Game Session v2: native version for Oteryn and profile for Canary compatibility;
-- rejects contradictory family identity locally before a session-service request;
-- adds raw-JSON, capability-set and Canary Game Session v2 regression coverage;
-- aligns service fixtures with the canonical native set.
+## Independent re-audit #760
 
-The audited implementation SHA remains unchanged. A new exact head and fresh independent audit are required after the repair merges.
+Fresh read-only audit #760 independently confirmed the #756 and #758 repairs but recorded two additional material findings against immutable head `3d53a57f752f07d3eca07a05ed5e0f155ad33326`:
+
+1. `OTERYN-AUD-760-01`: candidate custom `UnmarshalJSON` methods used internal permissive `json.Unmarshal`, so outer `DisallowUnknownFields` did not reject unknown fields inside offer or Platform-policy candidates.
+2. `OTERYN-AUD-760-02`: Game Session v2 readiness compared decoded identity values without tracking key presence, so native `"profile": null` or Canary `"native_protocol_version": null` could be accepted.
+
+The current repair branch:
+
+- parses candidate JSON objects with duplicate-key detection;
+- decodes candidate aliases with an internal strict decoder and EOF validation;
+- retains independent identity-key presence detection;
+- parses readiness responses with strict unknown-field, duplicate-key and EOF validation;
+- requires exactly `native_protocol_version` for Oteryn readiness and exactly `profile` for Canary compatibility readiness;
+- adds raw-JSON candidate and readiness regression tests;
+- does not modify the audited producer heads or authorize production activation.
 
 ## Context checkpoint
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-06T17:09:00+02:00
-head: 5ca7084d93bf7f69722e1327b953b450db59148c
-branch: repair/OTS-20260804-native-protocol-audit-756
-pr: 758
+updated_at: 2026-08-06T17:29:00+02:00
+head: c77cbe1473741a6abf187a5b5565a1225dd9df83
+branch: repair/OTS-20260804-native-protocol-audit-760
+pr: none
 status: implementing
 context_routes:
   - agent-governance
@@ -106,54 +113,51 @@ context_routes:
   - testing
   - workflows
 owned_paths:
-  - services/game-gateway/**
+  - services/game-gateway/internal/gateway/types.go
+  - services/game-gateway/internal/gateway/strict_json_regression_test.go
+  - services/game-gateway/internal/session/client.go
+  - services/game-gateway/internal/session/readiness_identity_regression_test.go
   - docs/agents/tasks/active/OTERYN-20260805-native-protocol-single-version-producer.md
 proven:
   - Protected main 1b737574851453e950fa485c26f1a322b8e8ddd2 is included by the producer history.
-  - Audit 756 independently validated behind_by zero, 21 declared producer paths, 14 successful exact-head workflows and zero pre-existing review threads.
-  - Audit 756 recorded two material fail-closed inconsistencies and blocked merge of PR 542.
-  - Repair review found that the v2 session client dropped the selected Canary profile while service selection still supported Canary compatibility candidates.
-  - The repair branch does not mutate the audited SHA or authorize production activation.
-  - Identity-key presence is now detected independently of JSON null decoding.
-  - Native offered, required and optional capabilities are now checked against the exact canonical contract.
-  - Game Session v2 now carries exactly one family-specific identity field and preserves Canary profile readiness matching.
+  - Audit 760 independently confirmed the prior explicit-null, exact-capability and Canary profile repairs.
+  - Audit 760 recorded OTERYN-AUD-760-01 and OTERYN-AUD-760-02 and blocked merge of PR 542.
+  - Go custom unmarshalling bypasses an outer Decoder DisallowUnknownFields unless strict decoding is performed inside UnmarshalJSON.
+  - Readiness identity values alone cannot distinguish an absent key from an explicit JSON null value.
+  - Production native advertisement and activation remain disabled and unauthorized.
 derived:
-  - The repair must merge into the producer branch before any new exact-head audit can be valid.
+  - Strict internal decoders and explicit readiness key-presence checks are required before another exact-head audit.
 unknown:
-  - Repair branch Game Gateway CI outcome after integration into the producer branch.
+  - Focused Game Gateway CI outcome for the current repair branch.
   - New producer exact-head workflow outcome after repair integration.
-  - Outcome of the required fresh independent read-only audit.
+  - Outcome of the next fresh independent read-only audit.
 conflicts:
   - none
 first_failure:
-  marker: audit-756-material-findings
-  evidence: issue 756 and PR 542 comments record OTERYN-AUD-756-01 and OTERYN-AUD-756-02; repair review additionally records OTERYN-REPAIR-758-01
+  marker: audit-760-material-findings
+  evidence: issue 760 and PR 542 comments record OTERYN-AUD-760-01 and OTERYN-AUD-760-02
 rejected_hypotheses:
-  - Record PASS_ZERO_MATERIAL_FINDINGS despite material findings.
+  - Waive unknown candidate fields because outer decoders use DisallowUnknownFields.
+  - Treat explicit-null readiness identity keys as equivalent to absent keys.
   - Merge PR 542 before remediation and fresh independent validation.
-  - Change the canonical contract to permit optional native capabilities within the repair.
-  - Remove compatibility profile identity from Canary Game Session v2 together with the forbidden native profile field.
+  - Broaden the canonical contract or authorize production activation.
 changed_paths:
   - services/game-gateway/internal/gateway/types.go
-  - services/game-gateway/internal/gateway/native_protocol.go
-  - services/game-gateway/internal/gateway/native_protocol_test.go
-  - services/game-gateway/internal/gateway/service_test.go
+  - services/game-gateway/internal/gateway/strict_json_regression_test.go
   - services/game-gateway/internal/session/client.go
-  - services/game-gateway/internal/session/client_test.go
+  - services/game-gateway/internal/session/readiness_identity_regression_test.go
   - docs/agents/tasks/active/OTERYN-20260805-native-protocol-single-version-producer.md
 validation:
-  - command: independent audit 756 on e97e950946ed255dfd399f890591337166c30406
+  - command: independent audit 760 on 3d53a57f752f07d3eca07a05ed5e0f155ad33326
     result: FAIL
-    evidence: two durable material findings on issue 756 and PR 542
-  - command: Agent Governance run 31114085584 on 98c6c4cc46d1512cf8ab228b64b8beed559202ca
-    result: PASS
-    evidence: checkpoint validator completed successfully after contract normalization
-  - command: repair branch Game Gateway review and exact-head CI
+    evidence: two durable material findings on issue 760 and PR 542
+  - command: repair branch focused and exact-head CI
     result: NOT_RUN
-    evidence: code and regressions are prepared; Game Gateway CI runs when integrated into the producer PR targeting main
+    evidence: repair code and regressions are committed; a repair PR will trigger validation
 blockers:
-  - repair branch integration into the producer branch
+  - focused repair validation
+  - repair integration into the producer branch
   - new producer exact-head CI generation
   - fresh independent audit with zero open material findings
-next_action: Merge PR 758 into the producer branch, validate the new PR 542 exact head, then create a fresh independent audit issue.
+next_action: Open a repair PR against the producer branch, validate it, merge it, then audit the resulting immutable PR 542 head.
 ```
