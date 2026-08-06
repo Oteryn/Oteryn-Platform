@@ -1,0 +1,151 @@
+name: OTS native producer finalize v3
+
+on:
+  push:
+    branches:
+      - feat/OTS-20260804-native-protocol-single-version-producer
+    paths:
+      - .github/workflows/ots-native-producer-finalize-v3.yml
+
+permissions:
+  contents: write
+
+concurrency:
+  group: ots-native-producer-finalize-v3
+  cancel-in-progress: false
+
+jobs:
+  finalize:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: feat/OTS-20260804-native-protocol-single-version-producer
+          fetch-depth: 0
+
+      - name: Extract validated repair program
+        shell: python
+        run: |
+          from pathlib import Path
+          source = Path('.github/workflows/ots-native-producer-finalize-v2.yml').read_text(encoding='utf-8')
+          start = '      - name: Repair producer, migration and regression coverage\n        shell: python\n        run: |\n'
+          end = '\n      - name: Remove all transient repair artifacts\n'
+          if start not in source or end not in source:
+              raise SystemExit('v2 repair program boundaries not found')
+          block = source.split(start, 1)[1].split(end, 1)[0]
+          lines = [line[10:] if line.startswith('          ') else line for line in block.splitlines()]
+          Path('/tmp/native-producer-repair.py').write_text('\n'.join(lines) + '\n', encoding='utf-8')
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.5'
+          coverage: none
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.24.x'
+          cache: false
+
+      - name: Rebuild bounded change set on protected main
+        shell: bash
+        run: |
+          set -euo pipefail
+          old_head=$(git rev-parse HEAD)
+          git fetch origin main
+          included_main=$(git rev-parse origin/main)
+          echo "OLD_HEAD=$old_head" >> "$GITHUB_ENV"
+          echo "INCLUDED_MAIN=$included_main" >> "$GITHUB_ENV"
+          git reset --hard "$included_main"
+          git checkout "$old_head" -- \
+            app/GameAuth/Worlds/DatabaseWorldRegistry.php \
+            app/GameAuth/Worlds/GameWorldProtocolCandidate.php \
+            app/GameAuth/Worlds/GameWorldProtocolCandidateRoute.php \
+            app/Http/Controllers/GameAuth/GameLoginContextController.php \
+            database/migrations/2026_08_05_130000_migrate_native_protocol_identity_to_version.php \
+            docs/agents/tasks/active/OTERYN-20260805-native-protocol-single-version-producer.md \
+            docs/contracts/GAME_SESSION_CANARY_CONTRACT.md \
+            docs/contracts/WORLD_REGISTRY_CONTRACT.md \
+            services/game-gateway/internal/e2e/native_producer_test.go \
+            services/game-gateway/internal/gateway/native_protocol.go \
+            services/game-gateway/internal/gateway/native_protocol_test.go \
+            services/game-gateway/internal/gateway/service_test.go \
+            services/game-gateway/internal/gateway/types.go \
+            services/game-gateway/internal/httpapi/server_test.go \
+            services/game-gateway/internal/platform/client_test.go \
+            services/game-gateway/internal/session/client.go \
+            services/game-gateway/internal/session/client_test.go \
+            tests/Feature/GameAuth/GameLoginContextApiTest.php \
+            tests/Feature/GameAuth/WorldRegistryTest.php
+
+      - name: Apply producer repair
+        run: python /tmp/native-producer-repair.py
+
+      - name: Remove all transient repair artifacts
+        shell: bash
+        run: |
+          git rm -f --ignore-unmatch \
+            .github/workflows/ots-native-producer-debug.yml \
+            .github/workflows/ots-native-producer-diagnostics.yml \
+            .github/workflows/ots-native-producer-finalize-v2.yml \
+            .github/workflows/ots-native-producer-finalize-v3.yml \
+            .github/workflows/ots-native-producer-finalize.yml \
+            .github/workflows/ots-native-producer-fix-fixture.yml \
+            .github/workflows/ots-native-producer-migrate.yml \
+            .github/workflows/ots-native-producer-repair-runner.yml \
+            .github/workflows/ots-native-producer-repair.yml \
+            .github/workflows/ots-native-producer-script-fix.yml \
+            docs/agents/evidence/OTS-20260804-native-protocol-selection/gateway-producer-first-failure.txt \
+            docs/agents/evidence/OTS-20260804-native-protocol-selection/platform-producer-first-failure.txt
+
+      - name: Format Go sources
+        run: gofmt -w services/game-gateway/internal
+
+      - name: Install PHP dependencies
+        run: composer install --no-interaction --prefer-dist --no-progress
+
+      - name: Format PHP sources
+        run: vendor/bin/pint app/GameAuth/Worlds app/Http/Controllers/GameAuth/GameLoginContextController.php database/migrations/2026_08_05_130000_migrate_native_protocol_identity_to_version.php tests/Feature/GameAuth
+
+      - name: Validate PHP formatting
+        run: vendor/bin/pint --test app/GameAuth/Worlds app/Http/Controllers/GameAuth/GameLoginContextController.php database/migrations/2026_08_05_130000_migrate_native_protocol_identity_to_version.php tests/Feature/GameAuth
+
+      - name: Test Platform producer and migration
+        run: php artisan test tests/Feature/GameAuth/GameLoginContextApiTest.php tests/Feature/GameAuth/WorldRegistryTest.php tests/Feature/GameAuth/NativeProtocolIdentityMigrationTest.php
+
+      - name: Test Game Gateway
+        working-directory: services/game-gateway
+        run: go test ./...
+
+      - name: Validate final bounded diff
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --check
+          if git diff --name-only "$INCLUDED_MAIN" | grep -q '^\.github/workflows/ots-native-producer-'; then
+            echo 'Transient repair workflow remains in final diff' >&2
+            exit 1
+          fi
+          if git diff --name-only "$INCLUDED_MAIN" | grep -q '^docs/agents/evidence/OTS-20260804-native-protocol-selection/.*first-failure'; then
+            echo 'Transient diagnostic evidence remains in final diff' >&2
+            exit 1
+          fi
+          if git grep -n 'nativeProtocolVersion' -- services/game-gateway; then
+            echo 'Non-canonical JSON key remains' >&2
+            exit 1
+          fi
+          if git grep -n 'NativeProtocolVersion  string' -- services/game-gateway; then
+            echo 'String native protocol version remains' >&2
+            exit 1
+          fi
+
+      - name: Create synchronized merge commit and push
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add -A
+          git diff --cached --check
+          tree=$(git write-tree)
+          commit=$(printf '%s\n' 'fix(native): complete single-version producer migration' | git commit-tree "$tree" -p "$OLD_HEAD" -p "$INCLUDED_MAIN")
+          git push origin "$commit":refs/heads/feat/OTS-20260804-native-protocol-single-version-producer
