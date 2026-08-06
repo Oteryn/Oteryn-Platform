@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -84,23 +85,7 @@ func (c *Client) ReadyFor(ctx context.Context, request gateway.SessionRequest) e
 		return err
 	}
 
-	var result struct {
-		ContractVersion        int      `json:"contract_version"`
-		Ready                  bool     `json:"ready"`
-		WorldID                int64    `json:"world_id"`
-		ChannelID              uint64   `json:"channel_id"`
-		WorldPolicyRevision    uint64   `json:"world_policy_revision"`
-		EndpointID             string   `json:"endpoint_id"`
-		Audience               string   `json:"audience"`
-		Family                 string   `json:"family"`
-		Profile                string   `json:"profile,omitempty"`
-		NativeProtocolVersion  uint32   `json:"native_protocol_version,omitempty"`
-		Transport              string   `json:"transport"`
-		SchemaRevision         uint32   `json:"schema_revision"`
-		SchemaSHA256           string   `json:"schema_sha256"`
-		Capabilities           []string `json:"capabilities"`
-		CapabilityDigestSHA256 string   `json:"capability_digest_sha256"`
-	}
+	var result v2ReadinessResponse
 	status, err := c.doJSON(ctx, "/internal/v2/game-sessions/readiness", payload, &result)
 	if err != nil || status != http.StatusOK || !result.Ready || result.ContractVersion != 2 {
 		return gateway.ErrUnavailable
@@ -113,8 +98,7 @@ func (c *Client) ReadyFor(ctx context.Context, request gateway.SessionRequest) e
 		result.EndpointID != request.EndpointID ||
 		result.Audience != request.Audience ||
 		result.Family != selection.Family ||
-		result.Profile != selection.Profile ||
-		result.NativeProtocolVersion != selection.NativeProtocolVersion ||
+		!validReadinessIdentity(&result, selection) ||
 		result.Transport != selection.Transport ||
 		result.SchemaRevision != selection.SchemaRevision ||
 		result.SchemaSHA256 != selection.SchemaSHA256 ||
@@ -142,6 +126,50 @@ func (c *Client) Ready(ctx context.Context) error {
 	if response.StatusCode != http.StatusOK {
 		return gateway.ErrUnavailable
 	}
+	return nil
+}
+
+type v2ReadinessResponse struct {
+	ContractVersion        int      `json:"contract_version"`
+	Ready                  bool     `json:"ready"`
+	WorldID                int64    `json:"world_id"`
+	ChannelID              uint64   `json:"channel_id"`
+	WorldPolicyRevision    uint64   `json:"world_policy_revision"`
+	EndpointID             string   `json:"endpoint_id"`
+	Audience               string   `json:"audience"`
+	Family                 string   `json:"family"`
+	Profile                string   `json:"profile,omitempty"`
+	NativeProtocolVersion  uint32   `json:"native_protocol_version,omitempty"`
+	profilePresent         bool
+	nativeVersionPresent   bool
+	Transport              string   `json:"transport"`
+	SchemaRevision         uint32   `json:"schema_revision"`
+	SchemaSHA256           string   `json:"schema_sha256"`
+	Capabilities           []string `json:"capabilities"`
+	CapabilityDigestSHA256 string   `json:"capability_digest_sha256"`
+}
+
+func (result *v2ReadinessResponse) UnmarshalJSON(data []byte) error {
+	type alias v2ReadinessResponse
+
+	fields, err := decodeUniqueJSONObjectFields(data)
+	if err != nil {
+		return err
+	}
+
+	var decoded alias
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&decoded); err != nil {
+		return err
+	}
+	if err := requireJSONEOF(decoder); err != nil {
+		return err
+	}
+
+	*result = v2ReadinessResponse(decoded)
+	_, result.profilePresent = fields["profile"]
+	_, result.nativeVersionPresent = fields["native_protocol_version"]
 	return nil
 }
 
@@ -215,6 +243,74 @@ func validSelectionIdentity(selection *gateway.GameplaySelection) bool {
 	return selection.Family != "" && selection.Profile != "" && selection.NativeProtocolVersion == 0
 }
 
+func validReadinessIdentity(result *v2ReadinessResponse, selection *gateway.GameplaySelection) bool {
+	if selection.Family == "oteryn" {
+		return !result.profilePresent &&
+			result.nativeVersionPresent &&
+			result.Profile == "" &&
+			result.NativeProtocolVersion == selection.NativeProtocolVersion
+	}
+	return result.profilePresent &&
+		!result.nativeVersionPresent &&
+		result.Profile == selection.Profile &&
+		result.NativeProtocolVersion == 0
+}
+
+func decodeUniqueJSONObjectFields(data []byte) (map[string]json.RawMessage, error) {
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	opening, err := decoder.Token()
+	if err != nil {
+		return nil, err
+	}
+	if opening != json.Delim('{') {
+		return nil, errors.New("response must be a JSON object")
+	}
+
+	fields := make(map[string]json.RawMessage)
+	for decoder.More() {
+		keyToken, err := decoder.Token()
+		if err != nil {
+			return nil, err
+		}
+		key, ok := keyToken.(string)
+		if !ok {
+			return nil, errors.New("response JSON key is not a string")
+		}
+		if _, exists := fields[key]; exists {
+			return nil, errors.New("response contains a duplicate JSON key")
+		}
+
+		var raw json.RawMessage
+		if err := decoder.Decode(&raw); err != nil {
+			return nil, err
+		}
+		fields[key] = raw
+	}
+
+	closing, err := decoder.Token()
+	if err != nil {
+		return nil, err
+	}
+	if closing != json.Delim('}') {
+		return nil, errors.New("response JSON object is not terminated")
+	}
+	if err := requireJSONEOF(decoder); err != nil {
+		return nil, err
+	}
+	return fields, nil
+}
+
+func requireJSONEOF(decoder *json.Decoder) error {
+	var extra any
+	if err := decoder.Decode(&extra); !errors.Is(err, io.EOF) {
+		if err != nil {
+			return err
+		}
+		return errors.New("JSON contains a trailing value")
+	}
+	return nil
+}
+
 func (c *Client) doJSON(ctx context.Context, path string, payload any, target any) (int, error) {
 	encoded, err := json.Marshal(payload)
 	if err != nil {
@@ -244,6 +340,9 @@ func (c *Client) doJSON(ctx context.Context, path string, payload any, target an
 	decoder := json.NewDecoder(limited)
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(target); err != nil {
+		return response.StatusCode, gateway.ErrUnavailable
+	}
+	if err := requireJSONEOF(decoder); err != nil {
 		return response.StatusCode, gateway.ErrUnavailable
 	}
 	return response.StatusCode, nil
