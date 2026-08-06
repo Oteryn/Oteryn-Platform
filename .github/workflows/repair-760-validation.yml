@@ -1,0 +1,53 @@
+name: Native audit 760 repair validation
+
+on:
+  pull_request:
+    branches:
+      - feat/OTS-20260804-native-protocol-single-version-producer
+    paths:
+      - services/game-gateway/**
+      - .github/workflows/repair-760-validation.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: native-audit-760-repair-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout exact repair head
+        uses: actions/checkout@v5
+
+      - name: Setup Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: services/game-gateway/go.mod
+          cache-dependency-path: services/game-gateway/go.mod
+
+      - name: Check formatting
+        shell: bash
+        working-directory: services/game-gateway
+        run: |
+          set -euo pipefail
+          unformatted="$(gofmt -l .)"
+          if [ -n "$unformatted" ]; then
+            printf 'Unformatted Go files:\n%s\n' "$unformatted"
+            exit 1
+          fi
+
+      - name: Run tests
+        working-directory: services/game-gateway
+        run: go test ./...
+
+      - name: Run vet
+        working-directory: services/game-gateway
+        run: go vet ./...
+
+      - name: Build gateway
+        working-directory: services/game-gateway
+        run: go build -trimpath -o /tmp/oteryn-game-gateway ./cmd/game-gateway
