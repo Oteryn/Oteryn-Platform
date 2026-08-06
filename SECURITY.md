@@ -4,30 +4,66 @@
 
 Until versioned releases are published, only the current `main` branch is supported for security fixes. Historical branches, forks and unmerged pull requests are not supported release channels.
 
-## Reporting a vulnerability
+## Report a vulnerability privately
 
-Do not disclose suspected vulnerabilities, credentials, personal data or exploit details in a public Issue, Discussion, pull request or commit.
+Do not disclose suspected vulnerabilities, credentials, personal data, exploit details or sensitive reproduction evidence in a public Issue, Discussion, pull request, commit or other public repository surface.
 
-Use GitHub's **Security → Report a vulnerability** flow when private vulnerability reporting is available. Include:
+Use the canonical GitHub Private Vulnerability Reporting form:
 
-- the affected component and exact commit or release;
+**https://github.com/blakinio/Oteryn-Platform/security/advisories/new**
+
+GitHub Private Vulnerability Reporting is enabled for this repository. The role-based contact is the Oteryn Platform repository security maintainers and administrators who can access private vulnerability reports. The repository owner is accountable for ensuring that at least one authorized maintainer monitors GitHub security notifications and that access is transferred or revoked when responsibilities change.
+
+When the private form is unexpectedly unavailable, open a public Issue containing only a request to restore or provide a private reporting channel. Do not include technical vulnerability details in that Issue.
+
+## Information to include
+
+Provide only the information needed for safe validation:
+
+- the affected Oteryn Platform component;
+- the exact commit, branch or release when known;
 - reproducible steps or a minimal proof of concept;
 - expected and actual security behavior;
-- impact and prerequisites;
-- suggested remediation, when known.
+- impact, prerequisites and required privileges;
+- whether sensitive data was encountered;
+- suggested remediation or regression coverage when known;
+- any disclosure timing constraints that should be considered.
 
-When the private reporting form is unavailable, open a public Issue containing only a request for a private reporting channel. Do not include technical vulnerability details in that Issue.
+Do not include unrelated personal data, production credentials, destructive payloads or persistence mechanisms.
 
 ## Response process
 
-The maintainer will acknowledge a private report, validate the affected boundary, assign severity, prepare a fix and regression coverage, and coordinate disclosure after remediation. Timelines depend on severity and reproducibility; no report is considered resolved until the resulting state is verified.
+Repository security maintainers will:
+
+1. acknowledge the private report as soon as practical;
+2. validate repository scope, reproducibility and affected versions;
+3. assign severity and a remediation owner;
+4. preserve confidentiality while a fix and regression coverage are prepared;
+5. provide material status updates when assessment or remediation state changes;
+6. coordinate disclosure after remediation or an explicit risk decision.
+
+Timelines depend on severity, reproducibility and maintainer availability. This policy does not promise a fixed acknowledgement or remediation service-level agreement.
 
 ## Scope
 
-Security-sensitive areas include authentication, sessions, MFA, recovery, authorization, administrator actions, uploads, webhooks, payments, wallet or currency state, cross-repository game contracts, deployment automation and secrets handling.
+Security-sensitive Oteryn Platform areas include authentication, sessions, MFA, recovery, authorization, administrator actions, uploads, webhooks, payments, wallet or currency state, cross-repository game contracts, deployment automation, public-edge controls and secrets handling.
 
-Reports concerning third-party services or dependencies may be redirected to the responsible upstream project while preserving confidential details.
+This policy governs findings in `blakinio/Oteryn-Platform` and repository-owned deployment or integration behavior documented here. Findings whose root cause belongs exclusively to another Oteryn repository, an upstream dependency or a third-party service may be confidentially redirected to the responsible owner. Sensitive details must not be copied into public records during that handoff.
 
-## Safe-harbor expectations
+## Good-faith research and safe harbor
 
-Good-faith research must avoid privacy violations, service disruption, destructive data changes, persistence, credential misuse, social engineering and access beyond what is necessary to demonstrate the issue. Stop testing and report immediately when sensitive data or an unsafe production effect is encountered.
+Good-faith research must avoid:
+
+- privacy violations or access to unrelated data;
+- service disruption or resource exhaustion;
+- destructive data changes;
+- persistence or lateral movement;
+- credential misuse;
+- social engineering;
+- testing beyond what is necessary to demonstrate the suspected issue safely.
+
+Stop testing and report immediately when sensitive data, credentials or an unsafe production effect is encountered. This policy does not authorize activity prohibited by law, third-party terms or systems outside the stated repository scope.
+
+## Route verification
+
+The reporting route may be verified non-destructively through GitHub's private-vulnerability-reporting API state and the direct reporting URL. Do not create a fake advisory, disclose a real vulnerability or place sensitive material in public repository records merely to test reachability.
