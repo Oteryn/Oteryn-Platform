@@ -86,15 +86,15 @@ blockers: []
 ```yaml
 checkpoint_version: 1
 policy_version: 2
-updated_at: 2026-08-06T10:21:00Z
+updated_at: 2026-08-06T10:27:00Z
 invocation_started_at: 2026-08-06T10:03:00Z
-last_progress_at: 2026-08-06T10:21:00Z
+last_progress_at: 2026-08-06T10:27:00Z
 phase: validate
 session_id: chatgpt-20260806-game-auth-topology-review
 session_role: architecture-reviewer
 execution_mode: github
 execution_reason: bounded documentation-only architecture review and handoff
-lease_expires_at: 2026-08-06T11:21:00Z
+lease_expires_at: 2026-08-06T11:27:00Z
 head: tracked-by-pr-722
 branch: docs/OTERYN-20260806-game-auth-topology-review
 pr: 722
@@ -124,10 +124,13 @@ unknown:
 conflicts:
   - Canonical contract and architecture status disagree with merged Gateway evidence.
 blockers: []
-first_failure: none
+first_failure:
+  marker: Agent Governance checkpoint validation on PR 722 head a6382658839b92c94843ab4e374ce85b65edd54d
+  evidence: The checkpoint used scalar `first_failure: none`; the enforced schema requires a mapping. This head replaces it with an explicit marker and evidence without changing review scope.
 rejected_hypotheses:
   - Status quo is safe because implementation evidence exists elsewhere.
   - A new monolithic game-auth contract is required.
+  - The Agent Governance failure was a product, runtime or architecture defect.
 changed_paths:
   - docs/agents/reports/OTERYN-20260806-game-auth-topology-current-state-review.md
   - docs/agents/tasks/active/OTERYN-20260806-game-auth-topology-review.md
@@ -139,5 +142,8 @@ validation:
   - command: authority and primary-source comparison
     result: PASS
     evidence: one high-confidence documentation-drift finding recorded as OPA-ARCH-20260806-001
+  - command: Agent Governance run 31092731990
+    result: FAIL
+    evidence: schema-only first_failure mapping defect; repaired in this exact successor head
 next_action: Validate PR 722 on its exact final head, merge through protected main, archive this review task and route Issue 720 as the next bounded architecture correction.
 ```
