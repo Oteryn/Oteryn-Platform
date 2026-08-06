@@ -1,0 +1,174 @@
+name: Issue 365 Exact Frozen PHP 8.5 Validation
+
+on:
+  push:
+    branches:
+      - validation/issue365-php85-20260806
+    paths:
+      - .github/workflows/issue365-synology-php85.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: issue365-exact-frozen-php85
+  cancel-in-progress: false
+
+env:
+  TARGET_SHA: b6f7b12a43aa72a52dc98c3fa07a7c4607fcb608
+  LEGACY_CONTROL_SHA: 8c58035cacb9fd4675d898a1652036fc8b9d4357
+  HARNESS_REF: "3739e3ccf3c3b750aa4e7f0f096712a04a2d5235^"
+  PLAYWRIGHT_IMAGE: mcr.microsoft.com/playwright:v1.60.0-noble
+
+jobs:
+  validate:
+    runs-on: oteryn-staging
+    timeout-minutes: 120
+    steps:
+      - name: Checkout validator control
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+          path: control
+          fetch-depth: 0
+          clean: true
+          persist-credentials: false
+
+      - name: Checkout exact frozen target
+        uses: actions/checkout@v7
+        with:
+          ref: b6f7b12a43aa72a52dc98c3fa07a7c4607fcb608
+          path: frozen
+          fetch-depth: 0
+          clean: true
+          persist-credentials: false
+
+      - name: Generate and preflight PHP 8.5 validator
+        shell: bash
+        run: |
+          set -euo pipefail
+          legacy=/tmp/issue365-legacy
+          rm -rf "$legacy"
+          mkdir -p "$legacy"
+
+          git -C control show \
+            "${LEGACY_CONTROL_SHA}:.github/scripts/issue365_prepare_validator_original.py" \
+            > "$legacy/issue365_prepare_validator_original.py"
+          git -C control show \
+            "${LEGACY_CONTROL_SHA}:.github/scripts/issue365_prepare_validator.py" \
+            > "$legacy/issue365_prepare_validator.py"
+          git -C control show \
+            "${HARNESS_REF}:.github/workflows/issue365-synology-preflight.yml" \
+            > /tmp/issue365-harness-source.yml
+
+          python3 \
+            "$legacy/issue365_prepare_validator.py" \
+            /tmp/issue365-harness-source.yml \
+            /tmp/issue365-validator-prior.sh
+          python3 \
+            control/.github/scripts/issue365_patch_php85_wrapper.py \
+            /tmp/issue365-validator-prior.sh \
+            /tmp/issue365-validator.sh
+
+          python3 -m py_compile \
+            control/.github/scripts/issue365_patch_php85_wrapper.py \
+            "$legacy/issue365_prepare_validator.py" \
+            "$legacy/issue365_prepare_validator_original.py"
+          bash -n /tmp/issue365-validator.sh
+          grep -Fq 'playwright_php_image=' /tmp/issue365-validator.sh
+          grep -Fq 'ISSUE365_APP_CONTAINER' /tmp/issue365-validator.sh
+          grep -Fq 'PHP_VERSION_ID >= 80500' /tmp/issue365-validator.sh
+          grep -Fq -- '--workers=1 --retries=0' /tmp/issue365-validator.sh
+          if grep -Fq -- '--no-install-recommends php-cli php-mysql' /tmp/issue365-validator.sh; then
+            echo 'Per-sample Playwright PHP installation remains in generated validator.' >&2
+            exit 1
+          fi
+
+          sha256sum \
+            /tmp/issue365-harness-source.yml \
+            /tmp/issue365-validator-prior.sh \
+            /tmp/issue365-validator.sh \
+            > /tmp/issue365-generator-sha256.txt
+
+      - name: Execute one exact-frozen 12-sample matrix
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          export GITHUB_WORKSPACE="$PWD/frozen"
+          cd "$GITHUB_WORKSPACE"
+          test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+          test -z "$(git status --porcelain=v1)"
+          exec bash /tmp/issue365-validator.sh
+
+      - name: Collect partial evidence from validation volume
+        if: always()
+        shell: bash
+        run: |
+          set +e
+          prefix="issue365-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          evidence_volume="${prefix}-evidence"
+          output="frozen/issue365-synology-partial-${GITHUB_RUN_ID}.tar.gz"
+          if docker volume inspect "$evidence_volume" >/dev/null 2>&1; then
+            docker run --rm \
+              -v "$evidence_volume:/evidence:ro" \
+              alpine:3.22 \
+              sh -ec 'test -d /evidence/issue365-run && tar -C /evidence -czf - issue365-run' \
+              > "$output"
+          fi
+          cp /tmp/issue365-generator-sha256.txt \
+            "frozen/issue365-generator-sha256-${GITHUB_RUN_ID}.txt" \
+            2>/dev/null || true
+
+      - name: Upload immutable or partial Issue 365 evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: issue365-exact-frozen-php85-${{ github.run_id }}
+          path: |
+            frozen/issue365-synology-evidence-${{ github.run_id }}.tar.gz
+            frozen/issue365-synology-evidence-${{ github.run_id }}.tar.gz.sha256
+            frozen/issue365-synology-matrix-summary-${{ github.run_id }}.json
+            frozen/issue365-synology-partial-${{ github.run_id }}.tar.gz
+            frozen/issue365-generator-sha256-${{ github.run_id }}.txt
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Remove isolated validation runtime
+        if: always()
+        shell: bash
+        run: |
+          set +e
+          prefix="issue365-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          for container in \
+            "${prefix}-app" \
+            "${prefix}-mailhog" \
+            "${prefix}-redis" \
+            "${prefix}-mariadb"; do
+            docker rm -f "$container" >/dev/null 2>&1 || true
+          done
+          docker network rm "${prefix}-net" >/dev/null 2>&1 || true
+          docker volume rm -f \
+            "${prefix}-work" \
+            "${prefix}-evidence" \
+            >/dev/null 2>&1 || true
+          docker image rm -f \
+            "oteryn-issue365-playwright-php85:${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" \
+            "oteryn-issue365-validator:${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" \
+            "oteryn-issue365-platform:${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" \
+            >/dev/null 2>&1 || true
+          rm -rf /tmp/issue365-legacy
+          rm -f \
+            "/tmp/${prefix}.env" \
+            "/tmp/${prefix}-runbook.md" \
+            /tmp/issue365-harness-source.yml \
+            /tmp/issue365-validator-prior.sh \
+            /tmp/issue365-validator.sh \
+            /tmp/issue365-generator-sha256.txt
+          for checkout in frozen control; do
+            if [[ -d "$checkout/.git" ]]; then
+              git -C "$checkout" reset --hard HEAD >/dev/null 2>&1 || true
+              git -C "$checkout" clean -ffdqx >/dev/null 2>&1 || true
+            fi
+          done
