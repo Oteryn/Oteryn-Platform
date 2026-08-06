@@ -87,6 +87,7 @@ Inventory reconciled on 2026-08-06. Duplicate prefixes are intentionally shown r
 - `0022-architecture-authority-index-and-focused-canonical-documents.md`
 - `0023-machine-readable-architecture-decision-backlog.md`
 - `0024-merged-source-branch-lifecycle-policy.md`
+- `0025-player-companion-and-portal-tools-boundary.md`
 
 ## Preserved legacy duplicate paths
 
