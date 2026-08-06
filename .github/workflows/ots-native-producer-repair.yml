@@ -1,4 +1,4 @@
-name: OTS native producer repair
+name: OTS native producer final repair
 
 on:
   push:
@@ -9,6 +9,10 @@ on:
 
 permissions:
   contents: write
+
+concurrency:
+  group: ots-native-producer-final-repair
+  cancel-in-progress: false
 
 jobs:
   repair:
@@ -26,338 +30,385 @@ jobs:
         with:
           go-version: '1.24.x'
           cache: false
-      - name: Repair family-specific identity
+
+      - name: Synchronize protected main
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin main
+          git merge --no-edit origin/main
+
+      - name: Repair producer implementation and tests
         shell: python
         run: |
           from pathlib import Path
           import re
           import subprocess
 
-          def write(path: str, content: str) -> None:
-              Path(path).write_text(content, encoding="utf-8")
+          def replace_once(path: str, old: str, new: str) -> None:
+              target = Path(path)
+              text = target.read_text(encoding="utf-8")
+              if old not in text:
+                  raise SystemExit(f"expected repair anchor missing in {path}: {old[:120]!r}")
+              target.write_text(text.replace(old, new, 1), encoding="utf-8")
 
-          # Preserve the already-shipped migration as the rollback source of truth.
-          original_migration = subprocess.check_output([
-              "git", "show", "origin/main:database/migrations/2026_08_04_170000_add_native_gameplay_protocol_policy.php"
-          ], text=True)
-          write("database/migrations/2026_08_04_170000_add_native_gameplay_protocol_policy.php", original_migration)
-
-          write("app/GameAuth/Worlds/GameWorldProtocolCandidate.php", r'''<?php
-
-namespace App\GameAuth\Worlds;
-
-use Illuminate\Database\Eloquent\Model;
-use Illuminate\Database\Eloquent\Relations\BelongsTo;
-
-/**
- * @property int $id
- * @property int $game_world_id
- * @property int $channel_id
- * @property int $sort_order
- * @property string $family
- * @property string|null $profile Canary compatibility identity only
- * @property int|null $native_protocol_version Oteryn native identity only
- * @property string $transport
- * @property int $schema_revision
- * @property string $schema_sha256
- * @property list<string> $required_capabilities
- * @property list<string> $optional_capabilities
- * @property string $endpoint_id
- * @property string $game_host
- * @property int $game_port
- * @property string $tls_server_name
- * @property bool $enabled
- */
-final class GameWorldProtocolCandidate extends Model
-{
-    protected $table = 'game_world_protocol_candidates';
-
-    /** @var list<string> */
-    protected $fillable = [
-        'game_world_id', 'channel_id', 'sort_order', 'family', 'profile',
-        'native_protocol_version', 'transport', 'schema_revision', 'schema_sha256',
-        'required_capabilities', 'optional_capabilities', 'endpoint_id', 'game_host',
-        'game_port', 'tls_server_name', 'enabled',
-    ];
-
-    /** @return array<string, string> */
-    protected function casts(): array
-    {
-        return [
-            'channel_id' => 'integer',
-            'sort_order' => 'integer',
-            'native_protocol_version' => 'integer',
-            'schema_revision' => 'integer',
-            'required_capabilities' => 'array',
-            'optional_capabilities' => 'array',
-            'game_port' => 'integer',
-            'enabled' => 'boolean',
-        ];
-    }
-
-    /** @return BelongsTo<GameWorld, $this> */
-    public function world(): BelongsTo
-    {
-        return $this->belongsTo(GameWorld::class, 'game_world_id');
-    }
-}
-''')
-
-          write("app/GameAuth/Worlds/GameWorldProtocolCandidateRoute.php", r'''<?php
-
-namespace App\GameAuth\Worlds;
-
-final readonly class GameWorldProtocolCandidateRoute
-{
-    /**
-     * @param list<string> $requiredCapabilities
-     * @param list<string> $optionalCapabilities
-     */
-    public function __construct(
-        public string $family,
-        public ?string $profile,
-        public ?int $nativeProtocolVersion,
-        public string $transport,
-        public int $schemaRevision,
-        public string $schemaSha256,
-        public array $requiredCapabilities,
-        public array $optionalCapabilities,
-        public string $endpointId,
-        public string $host,
-        public int $port,
-        public string $tlsServerName,
-    ) {}
-}
-''')
-
-          registry = Path("app/GameAuth/Worlds/DatabaseWorldRegistry.php")
-          text = subprocess.check_output(["git", "show", "origin/main:app/GameAuth/Worlds/DatabaseWorldRegistry.php"], text=True)
-          text = text.replace(
-              "private const NATIVE_SCHEMA_SHA256 = 'c7665223f09001e3294e9a03ab4784defed66b0ac04450e8679d4778421207f8';",
-              "private const NATIVE_SCHEMA_SHA256 = '9c67f19525400fb9890d2a3541ceb6d02eb955061540ad39ca1c1d891c06eba9';",
+          # The Game Session v2 contract carries an integer protocol version.
+          session_client = Path("services/game-gateway/internal/session/client.go")
+          text = session_client.read_text(encoding="utf-8")
+          count = text.count("NativeProtocolVersion  string")
+          if count != 2:
+              raise SystemExit(f"expected two string protocol-version fields, found {count}")
+          session_client.write_text(
+              text.replace("NativeProtocolVersion  string", "NativeProtocolVersion  uint32"),
+              encoding="utf-8",
           )
-          text = text.replace(
-              "            || ! $this->isIdentifier($candidate->profile)\n",
-              "",
-          )
-          old = """        if ($candidate->family === 'oteryn'\n            && $candidate->profile === 'oteryn.native.v1'\n            && ($candidate->transport !== 'tcp.tls13.protobuf.be32.v1'\n                || $candidate->schema_revision !== 1\n                || $candidate->schema_sha256 !== self::NATIVE_SCHEMA_SHA256\n                || array_diff(self::NATIVE_BASE_CAPABILITIES, $required) !== [])\n        ) {\n            return null;\n        }\n"""
-          new = """        if ($candidate->family === 'oteryn') {\n            if ($candidate->profile !== null\n                || $candidate->native_protocol_version !== 1\n                || $candidate->transport !== 'tcp.tls13.protobuf.be32.v1'\n                || $candidate->schema_revision !== 2\n                || $candidate->schema_sha256 !== self::NATIVE_SCHEMA_SHA256\n                || array_diff(self::NATIVE_BASE_CAPABILITIES, $required) !== []\n                || array_diff($required, self::NATIVE_BASE_CAPABILITIES) !== []\n                || $optional !== []\n            ) {\n                return null;\n            }\n        } elseif (! $this->isIdentifier((string) $candidate->profile)\n            || $candidate->native_protocol_version !== null\n        ) {\n            return null;\n        }\n"""
-          if old not in text:
-              raise SystemExit("registry native validation block not found")
-          text = text.replace(old, new)
-          text = text.replace(
-              "            profile: $candidate->profile,\n",
-              "            profile: $candidate->profile,\n            nativeProtocolVersion: $candidate->native_protocol_version,\n",
-          )
-          registry.write_text(text, encoding="utf-8")
 
-          controller = Path("app/Http/Controllers/GameAuth/GameLoginContextController.php")
-          text = subprocess.check_output(["git", "show", "origin/main:app/Http/Controllers/GameAuth/GameLoginContextController.php"], text=True)
-          old = """                    static fn (GameWorldProtocolCandidateRoute $candidate): array => [\n                        'family' => $candidate->family,\n                        'profile' => $candidate->profile,\n                        'transport' => $candidate->transport,\n                        'schema_revision' => $candidate->schemaRevision,\n                        'schema_sha256' => $candidate->schemaSha256,\n                        'required_capabilities' => $candidate->requiredCapabilities,\n                        'optional_capabilities' => $candidate->optionalCapabilities,\n                        'endpoint_id' => $candidate->endpointId,\n                        'host' => $candidate->host,\n                        'port' => $candidate->port,\n                        'tls_server_name' => $candidate->tlsServerName,\n                    ],\n"""
-          new = """                    static function (GameWorldProtocolCandidateRoute $candidate): array {\n                        $identity = $candidate->family === 'oteryn'\n                            ? ['native_protocol_version' => $candidate->nativeProtocolVersion]\n                            : ['profile' => $candidate->profile];\n\n                        return array_merge([\n                            'family' => $candidate->family,\n                        ], $identity, [\n                            'transport' => $candidate->transport,\n                            'schema_revision' => $candidate->schemaRevision,\n                            'schema_sha256' => $candidate->schemaSha256,\n                            'required_capabilities' => $candidate->requiredCapabilities,\n                            'optional_capabilities' => $candidate->optionalCapabilities,\n                            'endpoint_id' => $candidate->endpointId,\n                            'host' => $candidate->host,\n                            'port' => $candidate->port,\n                            'tls_server_name' => $candidate->tlsServerName,\n                        ]);\n                    },\n"""
-          if old not in text:
-              raise SystemExit("controller candidate serializer not found")
-          controller.write_text(text.replace(old, new), encoding="utf-8")
-
-          write("database/migrations/2026_08_05_130000_migrate_native_protocol_identity_to_version.php", r'''<?php
-
-use Illuminate\Database\Migrations\Migration;
-use Illuminate\Database\Schema\Blueprint;
-use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Schema;
-
-return new class extends Migration
-{
-    private const OLD_SCHEMA_SHA256 = 'c7665223f09001e3294e9a03ab4784defed66b0ac04450e8679d4778421207f8';
-    private const NEW_SCHEMA_SHA256 = '9c67f19525400fb9890d2a3541ceb6d02eb955061540ad39ca1c1d891c06eba9';
-
-    public function up(): void
-    {
-        Schema::table('game_world_protocol_candidates', function (Blueprint $table): void {
-            $table->dropUnique('world_protocol_candidate_tuple_unique');
-            $table->unsignedTinyInteger('native_protocol_version')->nullable()->after('profile');
-            $table->string('profile', 64)->nullable()->change();
-        });
-
-        DB::table('game_world_protocol_candidates')
-            ->where('family', 'oteryn')
-            ->update([
-                'profile' => null,
-                'native_protocol_version' => 1,
-                'schema_revision' => 2,
-                'schema_sha256' => self::NEW_SCHEMA_SHA256,
-                'updated_at' => now(),
-            ]);
-
-        Schema::table('game_world_protocol_candidates', function (Blueprint $table): void {
-            $table->index(
-                ['game_world_id', 'channel_id', 'family', 'native_protocol_version'],
-                'world_protocol_native_identity_index',
-            );
-            $table->index(
-                ['game_world_id', 'channel_id', 'family', 'profile'],
-                'world_protocol_compat_identity_index',
-            );
-        });
-    }
-
-    public function down(): void
-    {
-        DB::table('game_world_protocol_candidates')
-            ->where('family', 'oteryn')
-            ->update([
-                'profile' => 'oteryn.native.v1',
-                'native_protocol_version' => null,
-                'schema_revision' => 1,
-                'schema_sha256' => self::OLD_SCHEMA_SHA256,
-                'updated_at' => now(),
-            ]);
-
-        Schema::table('game_world_protocol_candidates', function (Blueprint $table): void {
-            $table->dropIndex('world_protocol_native_identity_index');
-            $table->dropIndex('world_protocol_compat_identity_index');
-            $table->string('profile', 64)->nullable(false)->change();
-            $table->dropColumn('native_protocol_version');
-            $table->unique(
-                ['game_world_id', 'channel_id', 'family', 'profile', 'transport', 'schema_revision'],
-                'world_protocol_candidate_tuple_unique',
-            );
-        });
-    }
-};
-''')
-
-          # Repair PHP fixtures: native rows use version, all other families retain profile.
-          for name in ("tests/Feature/GameAuth/GameLoginContextApiTest.php", "tests/Feature/GameAuth/WorldRegistryTest.php"):
+          # Repair mechanically transformed JSON fixture keys while keeping Go identifiers intact.
+          for name in (
+              "services/game-gateway/internal/e2e/native_producer_test.go",
+              "services/game-gateway/internal/httpapi/server_test.go",
+              "services/game-gateway/internal/platform/client_test.go",
+              "services/game-gateway/internal/session/client_test.go",
+          ):
               path = Path(name)
-              text = path.read_text(encoding="utf-8")
-              text = text.replace("'schema_revision' => 1,\n            'schema_sha256' => self::NATIVE_SCHEMA_SHA256", "'schema_revision' => 2,\n            'schema_sha256' => self::NATIVE_SCHEMA_SHA256")
-              text = text.replace("->assertJsonPath('gameplay_policy.candidates.0.schema_revision', 1)", "->assertJsonPath('gameplay_policy.candidates.0.schema_revision', 2)")
-              text = text.replace("string $nativeProtocolVersion,", "string $profile,")
-              text = text.replace("'native_protocol_version' => $nativeProtocolVersion,", "'profile' => $profile,\n            'native_protocol_version' => null,")
-              # Generic/non-native fixture rows changed mechanically; restore profile.
-              text = re.sub(r"('family'\s*=>\s*'(?!oteryn)[^']+',\n\s*)'native_protocol_version'\s*=>\s*([^,]+),", r"\1'profile' => \2,\n            'native_protocol_version' => null,", text)
-              # Native fixture rows must have no profile.
-              text = text.replace("'family' => 'oteryn',\n            'native_protocol_version' => 1,", "'family' => 'oteryn',\n            'profile' => null,\n            'native_protocol_version' => 1,")
-              path.write_text(text, encoding="utf-8")
+              path.write_text(
+                  path.read_text(encoding="utf-8").replace(
+                      "nativeProtocolVersion", "native_protocol_version"
+                  ),
+                  encoding="utf-8",
+              )
 
-          # Go candidate structs retain Canary profile and add a presence-aware native version.
-          types_path = Path("services/game-gateway/internal/gateway/types.go")
-          text = subprocess.check_output(["git", "show", "origin/main:services/game-gateway/internal/gateway/types.go"], text=True)
+          e2e = Path("services/game-gateway/internal/e2e/native_producer_test.go")
+          text = e2e.read_text(encoding="utf-8")
           text = text.replace(
-              'Profile        string   `json:"profile"`',
-              'Profile                string   `json:"profile,omitempty"`\n\tNativeProtocolVersion uint32   `json:"native_protocol_version,omitempty"`\n\tprofilePresent        bool\n\tnativeVersionPresent  bool',
+              '"schema_revision":       1,',
+              '"schema_revision":       2,',
+              1,
           )
+          e2e.write_text(text, encoding="utf-8")
+
+          # Canary remains profile-based and on its existing schema revision.
+          server_test = Path("services/game-gateway/internal/httpapi/server_test.go")
+          text = server_test.read_text(encoding="utf-8")
+          old_canary = '\\"family\\":\\"canary\\",\\"native_protocol_version\\":\\"canary.current\\",\\"transport\\":\\"canary.sequence.v1\\",\\"schema_revision\\":2'
+          new_canary = '\\"family\\":\\"canary\\",\\"profile\\":\\"canary.current\\",\\"transport\\":\\"canary.sequence.v1\\",\\"schema_revision\\":1'
+          if text.count(old_canary) != 2:
+              raise SystemExit(f"expected two Canary JSON fixtures, found {text.count(old_canary)}")
+          server_test.write_text(text.replace(old_canary, new_canary), encoding="utf-8")
+
+          # Restore family-specific test helpers instead of treating Canary profiles as integers.
+          service_test = Path("services/game-gateway/internal/gateway/service_test.go")
+          text = service_test.read_text(encoding="utf-8")
+          marker = "func offerCandidate("
+          if marker not in text:
+              raise SystemExit("service helper anchor missing")
+          prefix = text.split(marker, 1)[0]
+          helpers = r'''func offerCandidate(family string, identity any, transport string, capabilities []string) GameplayOfferCandidate {
+              sorted := append([]string(nil), capabilities...)
+              sort.Strings(sorted)
+              candidate := GameplayOfferCandidate{
+                  Family: family, Transport: transport, Capabilities: sorted,
+                  SchemaSHA256: schemaHashForCandidate(family),
+              }
+              if family == "oteryn" {
+                  version, ok := identity.(int)
+                  if !ok {
+                      panic("native test identity must be an integer")
+                  }
+                  candidate.NativeProtocolVersion = uint32(version)
+                  candidate.SchemaRevision = 2
+              } else {
+                  profile, ok := identity.(string)
+                  if !ok {
+                      panic("compatibility test identity must be a profile string")
+                  }
+                  candidate.Profile = profile
+                  candidate.SchemaRevision = 1
+              }
+              return candidate
+          }
+
+          func schemaHashForCandidate(family string) string {
+              if family == "oteryn" {
+                  return canonicalNativeSchemaSHA256
+              }
+              return strings.Repeat("a", 64)
+          }
+
+          func policyCandidate(family string, identity any, transport, endpoint string, port int, required, optional []string) GameplayPolicyCandidate {
+              requiredCopy := append([]string(nil), required...)
+              optionalCopy := append([]string(nil), optional...)
+              sort.Strings(requiredCopy)
+              sort.Strings(optionalCopy)
+              candidate := GameplayPolicyCandidate{
+                  Family: family, Transport: transport,
+                  SchemaSHA256: schemaHashForCandidate(family),
+                  RequiredCapabilities: requiredCopy, OptionalCapabilities: optionalCopy,
+                  EndpointID: endpoint, Host: "game.example.test", Port: port, TLSServerName: "game.example.test",
+              }
+              if family == "oteryn" {
+                  version, ok := identity.(int)
+                  if !ok {
+                      panic("native test identity must be an integer")
+                  }
+                  candidate.NativeProtocolVersion = uint32(version)
+                  candidate.SchemaRevision = 2
+              } else {
+                  profile, ok := identity.(string)
+                  if !ok {
+                      panic("compatibility test identity must be a profile string")
+                  }
+                  candidate.Profile = profile
+                  candidate.SchemaRevision = 1
+              }
+              return candidate
+          }
+          '''
+          helpers = re.sub(r"^          ", "", helpers, flags=re.MULTILINE)
+          service_test.write_text(prefix + helpers, encoding="utf-8")
+
+          native_test = Path("services/game-gateway/internal/gateway/native_protocol_test.go")
+          text = native_test.read_text(encoding="utf-8")
+          bad_line = '\t\t\t\tr.GameplayOffer.Candidates[index].NativeProtocolVersion = "nativeProtocolVersion." + string(rune(\'a\'+index))\n'
+          if bad_line not in text:
+              raise SystemExit("nine-candidate fixture repair anchor missing")
+          native_test.write_text(
+              text.replace(bad_line, "", 1).replace(
+                  "TestSelectGameplayCandidateRejectsNativeNativeProtocolVersionMissingBaseCapability",
+                  "TestSelectGameplayCandidateRejectsNativeProtocolVersionMissingBaseCapability",
+              ),
+              encoding="utf-8",
+          )
+
+          # Native v1 requires the canonical base capability set, while negotiated optional
+          # capabilities remain supported and are bound by the selection digest.
+          replace_once(
+              "services/game-gateway/internal/gateway/native_protocol.go",
+              "return nativeVersion == 1 && transport == \"tcp.tls13.protobuf.be32.v1\" && schemaRevision == 2 && schemaSHA256 == canonicalNativeSchemaSHA256 && containsEvery(required, nativeV1BaseCapabilities) && containsEvery(nativeV1BaseCapabilities, required) && len(optional) == 0",
+              "return nativeVersion == 1 && transport == \"tcp.tls13.protobuf.be32.v1\" && schemaRevision == 2 && schemaSHA256 == canonicalNativeSchemaSHA256 && containsEvery(required, nativeV1BaseCapabilities)",
+          )
+
+          # Use two family-specific unique identities. Each family has exactly one non-null
+          # identity column, so the corresponding unique constraint enforces its tuple.
+          migration = Path("database/migrations/2026_08_05_130000_migrate_native_protocol_identity_to_version.php")
+          migration.write_text(r'''<?php
+
+          use Illuminate\Database\Migrations\Migration;
+          use Illuminate\Database\Schema\Blueprint;
+          use Illuminate\Support\Facades\DB;
+          use Illuminate\Support\Facades\Schema;
+
+          return new class extends Migration
+          {
+              private const OLD_PROFILE = 'oteryn.native.v1';
+
+              private const OLD_SCHEMA_SHA256 = 'c7665223f09001e3294e9a03ab4784defed66b0ac04450e8679d4778421207f8';
+
+              private const NEW_SCHEMA_SHA256 = '9c67f19525400fb9890d2a3541ceb6d02eb955061540ad39ca1c1d891c06eba9';
+
+              public function up(): void
+              {
+                  Schema::table('game_world_protocol_candidates', function (Blueprint $table): void {
+                      $table->dropUnique('world_protocol_candidate_tuple_unique');
+                      $table->unsignedTinyInteger('native_protocol_version')->nullable()->after('profile');
+                      $table->string('profile', 64)->nullable()->change();
+                  });
+
+                  DB::table('game_world_protocol_candidates')
+                      ->where('family', 'oteryn')
+                      ->where('profile', self::OLD_PROFILE)
+                      ->whereNull('native_protocol_version')
+                      ->update([
+                          'profile' => null,
+                          'native_protocol_version' => 1,
+                          'schema_revision' => 2,
+                          'schema_sha256' => self::NEW_SCHEMA_SHA256,
+                          'enabled' => false,
+                          'updated_at' => now(),
+                      ]);
+
+                  Schema::table('game_world_protocol_candidates', function (Blueprint $table): void {
+                      $table->unique(
+                          ['game_world_id', 'channel_id', 'family', 'native_protocol_version', 'transport', 'schema_revision'],
+                          'world_protocol_native_tuple_unique',
+                      );
+                      $table->unique(
+                          ['game_world_id', 'channel_id', 'family', 'profile', 'transport', 'schema_revision'],
+                          'world_protocol_compat_tuple_unique',
+                      );
+                  });
+              }
+
+              public function down(): void
+              {
+                  DB::table('game_world_protocol_candidates')
+                      ->where('family', 'oteryn')
+                      ->where('native_protocol_version', 1)
+                      ->whereNull('profile')
+                      ->update([
+                          'profile' => self::OLD_PROFILE,
+                          'native_protocol_version' => null,
+                          'schema_revision' => 1,
+                          'schema_sha256' => self::OLD_SCHEMA_SHA256,
+                          'enabled' => false,
+                          'updated_at' => now(),
+                      ]);
+
+                  Schema::table('game_world_protocol_candidates', function (Blueprint $table): void {
+                      $table->dropUnique('world_protocol_native_tuple_unique');
+                      $table->dropUnique('world_protocol_compat_tuple_unique');
+                      $table->string('profile', 64)->nullable(false)->change();
+                      $table->dropColumn('native_protocol_version');
+                      $table->unique(
+                          ['game_world_id', 'channel_id', 'family', 'profile', 'transport', 'schema_revision'],
+                          'world_protocol_candidate_tuple_unique',
+                      );
+                  });
+              }
+          };
+          '''.replace("          ", ""), encoding="utf-8")
+
+          Path("tests/Feature/GameAuth/NativeProtocolIdentityMigrationTest.php").write_text(r'''<?php
+
+          namespace Tests\Feature\GameAuth;
+
+          use App\GameAuth\Worlds\GameWorld;
+          use App\GameAuth\Worlds\GameWorldStatus;
+          use Illuminate\Foundation\Testing\RefreshDatabase;
+          use Illuminate\Support\Facades\DB;
+          use Tests\TestCase;
+
+          final class NativeProtocolIdentityMigrationTest extends TestCase
+          {
+              use RefreshDatabase;
+
+              private const OLD_PROFILE = 'oteryn.native.v1';
+
+              private const OLD_SCHEMA_SHA256 = 'c7665223f09001e3294e9a03ab4784defed66b0ac04450e8679d4778421207f8';
+
+              private const NEW_SCHEMA_SHA256 = '9c67f19525400fb9890d2a3541ceb6d02eb955061540ad39ca1c1d891c06eba9';
+
+              public function test_migration_and_rollback_preserve_disabled_native_identity(): void
+              {
+                  $migration = require database_path('migrations/2026_08_05_130000_migrate_native_protocol_identity_to_version.php');
+                  $migration->down();
+
+                  $world = GameWorld::query()->create([
+                      'slug' => 'migration-test',
+                      'name' => 'Migration Test',
+                      'region' => 'TEST',
+                      'status' => GameWorldStatus::Online,
+                      'login_enabled' => true,
+                      'game_host' => 'migration.example.test',
+                      'game_port' => 7172,
+                      'gameplay_policy_revision' => 1,
+                  ]);
+
+                  DB::table('game_world_protocol_candidates')->insert([
+                      'game_world_id' => $world->id,
+                      'channel_id' => 1,
+                      'sort_order' => 1,
+                      'family' => 'oteryn',
+                      'profile' => self::OLD_PROFILE,
+                      'transport' => 'tcp.tls13.protobuf.be32.v1',
+                      'schema_revision' => 1,
+                      'schema_sha256' => self::OLD_SCHEMA_SHA256,
+                      'required_capabilities' => json_encode([], JSON_THROW_ON_ERROR),
+                      'optional_capabilities' => json_encode([], JSON_THROW_ON_ERROR),
+                      'endpoint_id' => 'native-migration-test',
+                      'game_host' => 'migration.example.test',
+                      'game_port' => 7173,
+                      'tls_server_name' => 'migration.example.test',
+                      'enabled' => true,
+                      'created_at' => now(),
+                      'updated_at' => now(),
+                  ]);
+
+                  $migration->up();
+                  $migrated = DB::table('game_world_protocol_candidates')->first();
+                  self::assertNotNull($migrated);
+                  self::assertNull($migrated->profile);
+                  self::assertSame(1, (int) $migrated->native_protocol_version);
+                  self::assertSame(2, (int) $migrated->schema_revision);
+                  self::assertSame(self::NEW_SCHEMA_SHA256, $migrated->schema_sha256);
+                  self::assertFalse((bool) $migrated->enabled);
+
+                  $migration->down();
+                  $rolledBack = DB::table('game_world_protocol_candidates')->first();
+                  self::assertNotNull($rolledBack);
+                  self::assertSame(self::OLD_PROFILE, $rolledBack->profile);
+                  self::assertSame(1, (int) $rolledBack->schema_revision);
+                  self::assertSame(self::OLD_SCHEMA_SHA256, $rolledBack->schema_sha256);
+                  self::assertFalse((bool) $rolledBack->enabled);
+
+                  $migration->up();
+              }
+          }
+          '''.replace("          ", ""), encoding="utf-8")
+
+          # Record a validation checkpoint without claiming audit or merge completion.
+          task = Path("docs/agents/tasks/active/OTERYN-20260805-native-protocol-single-version-producer.md")
+          text = task.read_text(encoding="utf-8")
+          text = re.sub(r"updated: .*", "updated: 2026-08-06T15:03:00+02:00", text, count=1)
+          text = text.replace("  - database/migrations/**native_gameplay_protocol**", "  - database/migrations/**native_protocol_identity**")
+          text = text.replace("phase: implementation", "phase: validation")
+          text = re.sub(r"exact_base: .*", "exact_base: " + subprocess.check_output(["git", "rev-parse", "origin/main"], text=True).strip(), text, count=1)
           text = text.replace(
-              'Profile              string   `json:"profile"`',
-              'Profile                string   `json:"profile,omitempty"`\n\tNativeProtocolVersion uint32   `json:"native_protocol_version,omitempty"`\n\tprofilePresent        bool\n\tnativeVersionPresent  bool',
+              "next_action: migrate producer and run exact-head validation",
+              "next_action: complete exact-head CI, independent audits, merge and archive",
           )
-          text = text.replace(
-              'Profile                string   `json:"profile"`',
-              'Profile                string   `json:"profile,omitempty"`\n\tNativeProtocolVersion uint32   `json:"native_protocol_version,omitempty"`',
-          )
-          text = text.replace('"context"\n', '"context"\n\t"encoding/json"\n')
-          text += r'''
+          task.write_text(text, encoding="utf-8")
 
-func (candidate *GameplayOfferCandidate) UnmarshalJSON(data []byte) error {
-	type alias GameplayOfferCandidate
-	var decoded struct {
-		alias
-		Profile *string `json:"profile"`
-		NativeProtocolVersion *uint32 `json:"native_protocol_version"`
-	}
-	if err := json.Unmarshal(data, &decoded); err != nil { return err }
-	*candidate = GameplayOfferCandidate(decoded.alias)
-	if decoded.Profile != nil { candidate.Profile = *decoded.Profile; candidate.profilePresent = true }
-	if decoded.NativeProtocolVersion != nil { candidate.NativeProtocolVersion = *decoded.NativeProtocolVersion; candidate.nativeVersionPresent = true }
-	return nil
-}
-
-func (candidate *GameplayPolicyCandidate) UnmarshalJSON(data []byte) error {
-	type alias GameplayPolicyCandidate
-	var decoded struct {
-		alias
-		Profile *string `json:"profile"`
-		NativeProtocolVersion *uint32 `json:"native_protocol_version"`
-	}
-	if err := json.Unmarshal(data, &decoded); err != nil { return err }
-	*candidate = GameplayPolicyCandidate(decoded.alias)
-	if decoded.Profile != nil { candidate.Profile = *decoded.Profile; candidate.profilePresent = true }
-	if decoded.NativeProtocolVersion != nil { candidate.NativeProtocolVersion = *decoded.NativeProtocolVersion; candidate.nativeVersionPresent = true }
-	return nil
-}
-'''
-          types_path.write_text(text, encoding="utf-8")
-
-          native_path = Path("services/game-gateway/internal/gateway/native_protocol.go")
-          text = subprocess.check_output(["git", "show", "origin/main:services/game-gateway/internal/gateway/native_protocol.go"], text=True)
-          text = text.replace("c7665223f09001e3294e9a03ab4784defed66b0ac04450e8679d4778421207f8", "9c67f19525400fb9890d2a3541ceb6d02eb955061540ad39ca1c1d891c06eba9")
-          text = text.replace(
-              "candidateTupleKey(candidate.Family, candidate.Profile, candidate.Transport, candidate.SchemaRevision, candidate.SchemaSHA256)",
-              "candidateTupleKey(candidate.Family, candidate.Profile, candidate.NativeProtocolVersion, candidate.Transport, candidate.SchemaRevision, candidate.SchemaSHA256)",
-          )
-          text = text.replace("\t\t\tProfile:                candidate.Profile,\n", "\t\t\tProfile:                candidate.Profile,\n\t\t\tNativeProtocolVersion: candidate.NativeProtocolVersion,\n")
-          old_offer = """func validOfferedCandidate(candidate GameplayOfferCandidate) bool {\n\treturn isIdentifier(candidate.Family) &&\n\t\tisIdentifier(candidate.Profile) &&\n\t\tisIdentifier(candidate.Transport) &&\n\t\tcandidate.SchemaRevision > 0 &&\n\t\tisLowerHexSHA256(candidate.SchemaSHA256) &&\n\t\tisCanonicalCapabilities(candidate.Capabilities)\n}\n"""
-          new_offer = """func validOfferedCandidate(candidate GameplayOfferCandidate) bool {\n\treturn isIdentifier(candidate.Family) &&\n\t\tvalidCandidateIdentity(candidate.Family, candidate.Profile, candidate.NativeProtocolVersion, candidate.profilePresent, candidate.nativeVersionPresent) &&\n\t\tisIdentifier(candidate.Transport) &&\n\t\tcandidate.SchemaRevision > 0 &&\n\t\tisLowerHexSHA256(candidate.SchemaSHA256) &&\n\t\tisCanonicalCapabilities(candidate.Capabilities) &&\n\t\tvalidNativeTuple(candidate.Family, candidate.NativeProtocolVersion, candidate.Transport, candidate.SchemaRevision, candidate.SchemaSHA256, candidate.Capabilities, nil)\n}\n"""
-          if old_offer not in text: raise SystemExit("Go offered validator not found")
-          text = text.replace(old_offer, new_offer)
-          text = text.replace("\t\t!isIdentifier(candidate.Profile) ||\n", "\t\t!validCandidateIdentity(candidate.Family, candidate.Profile, candidate.NativeProtocolVersion, candidate.profilePresent, candidate.nativeVersionPresent) ||\n")
-          start = text.index('\tif candidate.Family == "oteryn" && candidate.Profile == "oteryn.native.v1" {')
-          end = text.index('\n\treturn true\n}', start)
-          text = text[:start] + "\tif !validNativeTuple(candidate.Family, candidate.NativeProtocolVersion, candidate.Transport, candidate.SchemaRevision, candidate.SchemaSHA256, candidate.RequiredCapabilities, candidate.OptionalCapabilities) {\n\t\treturn false\n\t}\n" + text[end:]
-          old_key = 'func candidateTupleKey(family, profile, transport string, schemaRevision uint32, schemaSHA256 string) string {\n\treturn fmt.Sprintf("%s\\x00%s\\x00%s\\x00%d\\x00%s", family, profile, transport, schemaRevision, schemaSHA256)\n}'
-          new_key = '''func candidateTupleKey(family, profile string, nativeProtocolVersion uint32, transport string, schemaRevision uint32, schemaSHA256 string) string {
-	identity := profile
-	if family == "oteryn" { identity = fmt.Sprintf("native:%d", nativeProtocolVersion) }
-	return fmt.Sprintf("%s\\x00%s\\x00%s\\x00%d\\x00%s", family, identity, transport, schemaRevision, schemaSHA256)
-}
-
-func validCandidateIdentity(family, profile string, nativeVersion uint32, profilePresent, nativePresent bool) bool {
-	if family == "oteryn" {
-		return profile == "" && !profilePresent && nativeVersion == 1 && (nativePresent || nativeVersion != 0)
-	}
-	return isIdentifier(profile) && (profilePresent || profile != "") && nativeVersion == 0 && !nativePresent
-}
-
-func validNativeTuple(family string, nativeVersion uint32, transport string, schemaRevision uint32, schemaSHA256 string, required, optional []string) bool {
-	if family != "oteryn" { return true }
-	return nativeVersion == 1 && transport == "tcp.tls13.protobuf.be32.v1" && schemaRevision == 2 && schemaSHA256 == canonicalNativeSchemaSHA256 && containsEvery(required, nativeV1BaseCapabilities) && containsEvery(nativeV1BaseCapabilities, required) && len(optional) == 0
-}'''
-          if old_key not in text: raise SystemExit("Go tuple key not found")
-          native_path.write_text(text.replace(old_key, new_key), encoding="utf-8")
-
-          # Repair mechanically changed Go fixtures and JSON: strings are compatibility profiles; numeric 1 is native.
-          for path in Path("services/game-gateway/internal").rglob("*.go"):
-              if path.name in ("types.go", "native_protocol.go"): continue
-              text = path.read_text(encoding="utf-8")
-              text = re.sub(r'NativeProtocolVersion:\s*"([^"]+)"', r'Profile: "\1"', text)
-              text = re.sub(r'NativeProtocolVersion:\s*1\b', r'NativeProtocolVersion: 1', text)
-              text = re.sub(r'"native_protocol_version"\s*:\s*"([^"]+)"', r'"profile":"\1"', text)
-              text = text.replace('"schema_revision":1,"schema_sha256":"9c67f195', '"schema_revision":2,"schema_sha256":"9c67f195')
-              path.write_text(text, encoding="utf-8")
-
-          # Enforce native rows carry no profile and compatibility rows no native version in PHP tests.
-          for path in Path("tests/Feature/GameAuth").glob("*.php"):
-              text = path.read_text(encoding="utf-8")
-              text = text.replace("'family' => 'oteryn',\n            'native_protocol_version' => 1,", "'family' => 'oteryn',\n            'profile' => null,\n            'native_protocol_version' => 1,")
-              path.write_text(text, encoding="utf-8")
-      - name: Format sources
+      - name: Remove transient branch-mutating workflows and diagnostics
         shell: bash
         run: |
-          gofmt -w services/game-gateway/internal
-          composer install --no-interaction --prefer-dist --no-progress
-          vendor/bin/pint app/GameAuth/Worlds app/Http/Controllers/GameAuth/GameLoginContextController.php database/migrations/2026_08_05_130000_migrate_native_protocol_identity_to_version.php tests/Feature/GameAuth
-      - name: Test Platform migration registry and API
-        run: php artisan test tests/Feature/GameAuth/GameLoginContextApiTest.php tests/Feature/GameAuth/WorldRegistryTest.php
+          set -euo pipefail
+          git rm -f \
+            .github/workflows/ots-native-producer-diagnostics.yml \
+            .github/workflows/ots-native-producer-fix-fixture.yml \
+            .github/workflows/ots-native-producer-migrate.yml \
+            .github/workflows/ots-native-producer-repair-runner.yml \
+            .github/workflows/ots-native-producer-repair.yml \
+            docs/agents/evidence/OTS-20260804-native-protocol-selection/gateway-producer-first-failure.txt \
+            docs/agents/evidence/OTS-20260804-native-protocol-selection/platform-producer-first-failure.txt
+
+      - name: Format Go sources
+        shell: bash
+        run: gofmt -w services/game-gateway/internal
+
+      - name: Install PHP dependencies
+        run: composer install --no-interaction --prefer-dist --no-progress
+
+      - name: Validate PHP formatting
+        run: vendor/bin/pint --test app/GameAuth/Worlds app/Http/Controllers/GameAuth/GameLoginContextController.php database/migrations/2026_08_05_130000_migrate_native_protocol_identity_to_version.php tests/Feature/GameAuth
+
+      - name: Test Platform producer and migration
+        run: php artisan test tests/Feature/GameAuth/GameLoginContextApiTest.php tests/Feature/GameAuth/WorldRegistryTest.php tests/Feature/GameAuth/NativeProtocolIdentityMigrationTest.php
+
       - name: Test Game Gateway
         working-directory: services/game-gateway
         run: go test ./...
-      - name: Commit repaired producer
+
+      - name: Validate final diff
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --check
+          if git diff --name-only origin/main...HEAD | grep -q '^\.github/workflows/ots-native-producer-'; then
+            echo 'Transient workflow remains in final diff' >&2
+            exit 1
+          fi
+          if git grep -n 'nativeProtocolVersion' -- services/game-gateway; then
+            echo 'Non-canonical JSON key remains' >&2
+            exit 1
+          fi
+
+      - name: Commit validated repair
         shell: bash
         run: |
           set -euo pipefail
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-          git add app database services tests
-          git commit -m 'fix(native): preserve Canary profile isolation'
+          git add -A
+          git commit -m 'fix(native): complete single-version producer migration'
           git push origin HEAD:feat/OTS-20260804-native-protocol-single-version-producer
