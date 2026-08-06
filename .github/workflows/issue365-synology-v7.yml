@@ -1,0 +1,314 @@
+name: Issue 365 Docker API 1.43 Matrix Execution v7
+
+on:
+  push:
+    branches:
+      - validation/issue365-synology-v7-20260806
+    paths:
+      - .github/workflows/issue365-synology-v7.yml
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: issue365-docker-api143-v7
+  cancel-in-progress: false
+
+env:
+  TARGET_SHA: b6f7b12a43aa72a52dc98c3fa07a7c4607fcb608
+  RUNBOOK_REF: fb8a54d849a2f74f92ff429aea3bac06eb6a543c
+  PLAYWRIGHT_IMAGE: mcr.microsoft.com/playwright:v1.60.0-noble
+  VALIDATOR_RUN_ID: "31092791643"
+  VALIDATOR_ARTIFACT_ID: "8964153679"
+  VALIDATOR_ARTIFACT_NAME: issue365-static-validator-v3-31092791643
+  VALIDATOR_ARTIFACT_DIGEST: sha256:d46988eb5c465f115380ac10778af48e648124bd1e7a0f42ab3c65e50143749c
+  VALIDATOR_ARTIFACT_SIZE: "33610"
+  ORIGINAL_VALIDATOR_SHA256: 5e89a700d85cb362e374a500bd923d52eea1a9b1b86d0fe657e07c0e134f5945
+  DERIVED_VALIDATOR_SHA256: 3280d961652b5aa6659d73fc8020fb8b6dba9d4879a1695d4323afe62e3d76b4
+  DOCKER_API_VERSION_PIN: "1.43"
+  CONTRACT_RUN_ID: "31094295511"
+  CONTRACT_ARTIFACT_ID: "8964791387"
+  CONTRACT_ARTIFACT_NAME: issue365-validator-environment-contract-v2-31094295511
+  CONTRACT_ARTIFACT_DIGEST: sha256:442b1a6a1a0250283f1cedc5f2fda569d50ab691dc68b5aadafd1aafefd86831
+  CONTRACT_ARTIFACT_SIZE: "28101"
+
+jobs:
+  execute-derived-validator:
+    runs-on: oteryn-staging
+    timeout-minutes: 120
+    steps:
+      - name: Checkout exact frozen target
+        uses: actions/checkout@v7
+        with:
+          ref: b6f7b12a43aa72a52dc98c3fa07a7c4607fcb608
+          fetch-depth: 0
+          clean: true
+          persist-credentials: false
+
+      - name: Verify both approved artifact metadata records
+        uses: actions/github-script@v8
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const fs = require('fs');
+            const path = require('path');
+            const expected = [
+              {
+                id: Number(process.env.VALIDATOR_ARTIFACT_ID),
+                name: process.env.VALIDATOR_ARTIFACT_NAME,
+                digest: process.env.VALIDATOR_ARTIFACT_DIGEST,
+                size: Number(process.env.VALIDATOR_ARTIFACT_SIZE),
+                run: Number(process.env.VALIDATOR_RUN_ID),
+              },
+              {
+                id: Number(process.env.CONTRACT_ARTIFACT_ID),
+                name: process.env.CONTRACT_ARTIFACT_NAME,
+                digest: process.env.CONTRACT_ARTIFACT_DIGEST,
+                size: Number(process.env.CONTRACT_ARTIFACT_SIZE),
+                run: Number(process.env.CONTRACT_RUN_ID),
+              },
+            ];
+            const observed = [];
+            for (const item of expected) {
+              const { data } = await github.rest.actions.getArtifact({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                artifact_id: item.id,
+              });
+              const bad = [];
+              if (data.id !== item.id) bad.push(`id=${data.id}`);
+              if (data.name !== item.name) bad.push(`name=${data.name}`);
+              if (data.digest !== item.digest) bad.push(`digest=${data.digest}`);
+              if (data.size_in_bytes !== item.size) bad.push(`size=${data.size_in_bytes}`);
+              if (Number(data.workflow_run?.id) !== item.run) bad.push(`run=${data.workflow_run?.id}`);
+              if (data.expired) bad.push('expired=true');
+              if (bad.length) {
+                core.setFailed(`Artifact ${item.id} mismatch: ${bad.join(', ')}`);
+                return;
+              }
+              observed.push(data);
+            }
+            const out = path.join(process.env.RUNNER_TEMP, 'issue365-v7-status');
+            fs.mkdirSync(out, { recursive: true });
+            fs.writeFileSync(path.join(out, 'source-artifacts.json'), JSON.stringify({ schema: 1, expected, observed }, null, 2));
+
+      - name: Download approved validator
+        uses: actions/download-artifact@v4
+        with:
+          name: issue365-static-validator-v3-31092791643
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          repository: blakinio/Oteryn-Platform
+          run-id: 31092791643
+          path: ${{ runner.temp }}/issue365-v7-validator
+
+      - name: Download approved environment proof
+        uses: actions/download-artifact@v4
+        with:
+          name: issue365-validator-environment-contract-v2-31094295511
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          repository: blakinio/Oteryn-Platform
+          run-id: 31094295511
+          path: ${{ runner.temp }}/issue365-v7-contract
+
+      - name: Verify source and derive exact Docker API compatibility validator
+        shell: bash
+        run: |
+          set -euo pipefail
+          validator_dir="$RUNNER_TEMP/issue365-v7-validator"
+          contract_dir="$RUNNER_TEMP/issue365-v7-contract"
+          status_dir="$RUNNER_TEMP/issue365-v7-status"
+          source_validator="$validator_dir/issue365-validator.sh"
+          derived_validator="$validator_dir/issue365-validator-docker-api143.sh"
+          mkdir -p "$status_dir"
+
+          cd "$validator_dir"
+          sha256sum -c SHA256SUMS
+          test "$(sha256sum "$source_validator" | awk '{print $1}')" = "$ORIGINAL_VALIDATOR_SHA256"
+          bash -n "$source_validator"
+
+          SOURCE_VALIDATOR="$source_validator" \
+          DERIVED_VALIDATOR="$derived_validator" \
+          STATUS_DIR="$status_dir" \
+          python3 - <<'PY'
+          import hashlib
+          import json
+          import os
+          from pathlib import Path
+
+          source = Path(os.environ['SOURCE_VALIDATOR'])
+          derived = Path(os.environ['DERIVED_VALIDATOR'])
+          status = Path(os.environ['STATUS_DIR'])
+          text = source.read_text(encoding='utf-8')
+          needle = 'CI=1\nEOF\n'
+          replacement = 'CI=1\nDOCKER_API_VERSION=1.43\nEOF\n'
+          if text.count(needle) != 1:
+              raise SystemExit(f'expected one compatibility insertion point, found {text.count(needle)}')
+          if 'DOCKER_API_VERSION=' in text:
+              raise SystemExit('source validator already contains a Docker API override')
+          output = text.replace(needle, replacement, 1)
+          derived.write_text(output, encoding='utf-8')
+
+          source_lines = text.splitlines(keepends=True)
+          derived_lines = output.splitlines(keepends=True)
+          index = source_lines.index('CI=1\n') + 1
+          expected_lines = source_lines[:index] + ['DOCKER_API_VERSION=1.43\n'] + source_lines[index:]
+          if derived_lines != expected_lines:
+              raise SystemExit('derived validator differs beyond the authorized one-line insertion')
+          if output.count('DOCKER_API_VERSION=1.43') != 1:
+              raise SystemExit('derived validator must contain exactly one API pin')
+
+          source_sha = hashlib.sha256(source.read_bytes()).hexdigest()
+          derived_sha = hashlib.sha256(derived.read_bytes()).hexdigest()
+          proof = {
+              'schema': 1,
+              'source_sha256': source_sha,
+              'derived_sha256': derived_sha,
+              'authorized_insertion': 'DOCKER_API_VERSION=1.43',
+              'insertions': 1,
+              'other_changes': 0,
+          }
+          (status / 'derivation-proof.json').write_text(json.dumps(proof, indent=2) + '\n', encoding='utf-8')
+          PY
+
+          test "$(sha256sum "$derived_validator" | awk '{print $1}')" = "$DERIVED_VALIDATOR_SHA256"
+          test "$(grep -c '^DOCKER_API_VERSION=1\.43$' "$derived_validator")" -eq 1
+          bash -n "$derived_validator"
+          chmod 0700 "$derived_validator"
+          diff -u "$source_validator" "$derived_validator" > "$status_dir/validator-authorized.diff" || diff_rc=$?
+          test "${diff_rc:-0}" -eq 1
+          grep -Fxq '+DOCKER_API_VERSION=1.43' "$status_dir/validator-authorized.diff"
+          test "$(grep -c '^+' "$status_dir/validator-authorized.diff")" -eq 2
+          test "$(grep -c '^-' "$status_dir/validator-authorized.diff")" -eq 1
+
+          cd "$contract_dir"
+          sha256sum -c PROOF_SHA256SUMS
+          test -f environment-contract.json
+
+          CONTRACT_DIR="$contract_dir" python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          manifest = json.loads(
+              (Path(os.environ['CONTRACT_DIR']) / 'environment-contract.json').read_text(encoding='utf-8')
+          )
+          assert manifest['verdict'] == 'PASS_COMPLETE_ENVIRONMENT_CONTRACT'
+          assert manifest['approved_artifact_id'] == 8964153679
+          assert manifest['explicit_non_secret'] == {
+              'TARGET_SHA': os.environ['TARGET_SHA'],
+              'RUNBOOK_REF': os.environ['RUNBOOK_REF'],
+              'PLAYWRIGHT_IMAGE': os.environ['PLAYWRIGHT_IMAGE'],
+          }
+          assert manifest['explicit_secret_source'] == {'GH_TOKEN': 'secrets.GITHUB_TOKEN'}
+          assert manifest['extracted']['unresolved'] == []
+          required_auto = {
+              'GITHUB_REPOSITORY',
+              'GITHUB_RUN_ID',
+              'GITHUB_RUN_ATTEMPT',
+              'GITHUB_WORKSPACE',
+          }
+          assert required_auto.issubset(set(manifest['automatic_github']))
+          PY
+
+          cp "$validator_dir/SHA256SUMS" "$status_dir/validator-SHA256SUMS"
+          cp "$contract_dir/PROOF_SHA256SUMS" "$status_dir/contract-PROOF_SHA256SUMS"
+          cp "$contract_dir/environment-contract.json" "$status_dir/environment-contract.json"
+
+      - name: Execute derived validator exactly once
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          status_dir="$RUNNER_TEMP/issue365-v7-status"
+          validator="$RUNNER_TEMP/issue365-v7-validator/issue365-validator-docker-api143.sh"
+
+          test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+          test -z "$(git status --porcelain=v1)"
+          test "$(sha256sum "$validator" | awk '{print $1}')" = "$DERIVED_VALIDATOR_SHA256"
+
+          printf '{"schema":1,"run_id":%s,"run_attempt":%s,"target_sha":"%s","validator_artifact_id":%s,"contract_artifact_id":%s,"derived_validator_sha256":"%s","docker_api_version":"%s","stage":"validator-started"}\n' \
+            "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT" "$TARGET_SHA" "$VALIDATOR_ARTIFACT_ID" "$CONTRACT_ARTIFACT_ID" "$DERIVED_VALIDATOR_SHA256" "$DOCKER_API_VERSION_PIN" \
+            > "$status_dir/technical-status.json"
+
+          export GITHUB_WORKSPACE="$PWD"
+          set +e
+          bash "$validator"
+          rc=$?
+          set -e
+
+          printf '{"schema":1,"run_id":%s,"run_attempt":%s,"target_sha":"%s","validator_artifact_id":%s,"contract_artifact_id":%s,"derived_validator_sha256":"%s","docker_api_version":"%s","stage":"validator-terminal","exit_code":%s}\n' \
+            "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT" "$TARGET_SHA" "$VALIDATOR_ARTIFACT_ID" "$CONTRACT_ARTIFACT_ID" "$DERIVED_VALIDATOR_SHA256" "$DOCKER_API_VERSION_PIN" "$rc" \
+            > "$status_dir/technical-status.json"
+          exit "$rc"
+
+      - name: Collect partial evidence from validation volume
+        if: always()
+        shell: bash
+        run: |
+          set +e
+          prefix="issue365-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          evidence_volume="${prefix}-evidence"
+          if docker volume inspect "$evidence_volume" >/dev/null 2>&1; then
+            docker run --rm \
+              -v "$evidence_volume:/evidence:ro" \
+              alpine:3.22 \
+              sh -ec 'test -d /evidence/issue365-run && tar -C /evidence -czf - issue365-run' \
+              > "issue365-synology-partial-${GITHUB_RUN_ID}.tar.gz"
+          fi
+
+      - name: Remove isolated validation runtime
+        if: always()
+        shell: bash
+        run: |
+          set +e
+          prefix="issue365-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          status_dir="$RUNNER_TEMP/issue365-v7-status"
+          cleanup_rc=0
+          for container in "${prefix}-app" "${prefix}-mailhog" "${prefix}-redis" "${prefix}-mariadb"; do
+            docker rm -f "$container" >/dev/null 2>&1 || true
+          done
+          docker network rm "${prefix}-net" >/dev/null 2>&1 || true
+          docker volume rm -f "${prefix}-work" "${prefix}-evidence" >/dev/null 2>&1 || cleanup_rc=1
+          docker image rm -f \
+            "oteryn-issue365-playwright-php85:${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" \
+            "oteryn-issue365-validator:${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" \
+            "oteryn-issue365-platform:${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" \
+            >/dev/null 2>&1 || true
+          printf '{"schema":1,"run_id":%s,"stage":"runtime-cleanup","result":"%s"}\n' \
+            "$GITHUB_RUN_ID" "$([[ "$cleanup_rc" -eq 0 ]] && echo PASS || echo PARTIAL)" \
+            > "$status_dir/cleanup-status.json"
+          exit 0
+
+      - name: Upload full, partial and technical evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: issue365-docker-api143-v7-${{ github.run_id }}
+          path: |
+            issue365-synology-evidence-${{ github.run_id }}.tar.gz
+            issue365-synology-evidence-${{ github.run_id }}.tar.gz.sha256
+            issue365-synology-matrix-summary-${{ github.run_id }}.json
+            issue365-synology-partial-${{ github.run_id }}.tar.gz
+            ${{ runner.temp }}/issue365-v7-status/source-artifacts.json
+            ${{ runner.temp }}/issue365-v7-status/validator-SHA256SUMS
+            ${{ runner.temp }}/issue365-v7-status/contract-PROOF_SHA256SUMS
+            ${{ runner.temp }}/issue365-v7-status/environment-contract.json
+            ${{ runner.temp }}/issue365-v7-status/derivation-proof.json
+            ${{ runner.temp }}/issue365-v7-status/validator-authorized.diff
+            ${{ runner.temp }}/issue365-v7-status/technical-status.json
+            ${{ runner.temp }}/issue365-v7-status/cleanup-status.json
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Remove downloaded artifacts and reset checkout
+        if: always()
+        shell: bash
+        run: |
+          set +e
+          rm -rf "$RUNNER_TEMP/issue365-v7-validator" "$RUNNER_TEMP/issue365-v7-contract" "$RUNNER_TEMP/issue365-v7-status"
+          prefix="issue365-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          rm -f "/tmp/${prefix}.env" "/tmp/${prefix}-runbook.md"
+          git reset --hard HEAD >/dev/null 2>&1 || true
+          git clean -ffdqx >/dev/null 2>&1 || true
