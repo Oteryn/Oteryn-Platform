@@ -169,3 +169,5 @@ docs/contracts/GAME_GATEWAY_IDENTITY_CONTRACT.md"
           test "$actual" = "$expected"
           git diff --check origin/main...HEAD
           git push origin HEAD:docs/issue-720-game-auth-topology-reconcile
+
+# Second commit triggers the workflow after registration on the branch.
