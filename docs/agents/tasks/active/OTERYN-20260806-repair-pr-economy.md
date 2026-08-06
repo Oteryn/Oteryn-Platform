@@ -61,8 +61,8 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-06T12:19:00Z
-head_before_checkpoint_commit: 57c7fdbf0649cf7e291d760eb6078163c0a4d5be
+updated_at: 2026-08-06T12:23:00Z
+head_before_checkpoint_commit: 54205cd0d844d3b1dce9a2c2061960196d0406f6
 branch: docs/repair-pr-economy-20260806
 pr: 743
 status: ready
@@ -88,8 +88,11 @@ proven:
   - Existing audit, remediation and architecture short commands remain valid.
   - New independent-repair-audit role and total-slot allocation prevent internal worker waiting.
   - Independent audit generation 1 returned material finding AUDIT-744-001 on exact head 1d8e7d0d40a662b964d852a6a29769efeee5ab69.
-  - AUDIT-744-001 is remediated by taxonomy 1.3, claim protocol v3/work-item schema v3 alignment and explicit cross-document drift fail-closed rules.
-  - Static adversarial policy evaluation now records 32 of 32 candidate cases passing with zero safety-critical regressions; repeated model trials remain NOT_RUN.
+  - AUDIT-744-001 is remediated pending exact-head validation and generation 2 reaudit.
+  - Taxonomy version 1.3, claim protocol version 3 and work-item schema version 3 are aligned.
+  - Work-item metadata now records delivery state and an optional Pull Request.
+  - Static adversarial evaluation case 32 rejects cross-document protocol/schema drift.
+  - Static adversarial policy evaluation records 32 of 32 candidate cases passing with zero safety-critical regressions; repeated model trials remain NOT_RUN.
   - PR #743 contains exactly nine declared governance/task/evidence paths and no product/runtime/workflow/deployment paths.
 derived:
   - A controlling specialization avoids duplicating complete train and audit schemas across every programme document.
@@ -101,11 +104,6 @@ conflicts: []
 first_failure:
   marker: AUDIT-744-001
   evidence: docs/agents/AUDIT_REMEDIATION_ISSUE_TAXONOMY.md declared protocol v2 while the candidate governing claim protocol was v3
-resolved_audit_findings:
-  - AUDIT-744-001 remediated pending exact-head validation and generation 2 reaudit
-  - taxonomy_version 1.3 and claim_protocol version 3 aligned
-  - oteryn_work_item schema_version 3 with delivery_state and optional pull_request metadata
-  - static evaluation case 32 added
 rejected_hypotheses:
   - Replacing the deterministic branch lock with labels, comments or assignees.
   - Making repair workers wait for an auditor or train peer.
