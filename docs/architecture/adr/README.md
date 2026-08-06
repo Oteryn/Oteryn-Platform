@@ -89,6 +89,7 @@ Inventory reconciled on 2026-08-06. Duplicate prefixes are intentionally shown r
 - `0024-merged-source-branch-lifecycle-policy.md`
 - `0025-player-companion-and-portal-tools-boundary.md`
 - `0026-proprietary-repository-licensing-policy.md`
+- `0027-confidential-vulnerability-disclosure-policy.md`
 
 ## Preserved legacy duplicate paths
 
