@@ -18,17 +18,18 @@ Continuously challenge Platform architecture, repository structure and CI/CD; id
 
 ```yaml
 programme_state_version: 2
-updated_at: 2026-08-06T10:22:00Z
-status: validating
-current_review_domain: game-auth-topology-current-state-review
-active_task: docs/agents/tasks/active/OTERYN-20260806-game-auth-topology-review.md
-issue: 720
-branch: docs/OTERYN-20260806-game-auth-topology-review
-pull_request: 722
-last_completed_domain: confidential-vulnerability-disclosure-policy
+updated_at: 2026-08-06T10:29:00Z
+status: ready
+current_review_domain: game-auth-topology-canonical-reconciliation
+active_task: null
+issue: null
+branch: null
+pull_request: null
+last_completed_domain: game-auth-topology-current-state-review
 last_completed_issue: 588
-last_completed_pull_request: 702
-last_completed_merge: ab6ac645595813653618d91574c717fb4d9c7edd
+last_completed_pull_request: 722
+last_completed_merge: 1919f7eb55f6c2a08058652f422b47f841467009
+latest_review_finding_issue: 720
 accepted_authority:
   authority_index: docs/architecture/ARCHITECTURE_AUTHORITY.md
   authority_adr: docs/architecture/adr/0022-architecture-authority-index-and-focused-canonical-documents.md
@@ -46,7 +47,7 @@ active_architecture_decision_ids: []
 architecture_conflicts:
   - Historical duplicate ADR prefixes remain for 0008, 0010, 0011, 0015, 0016, 0017, 0018 and 0021, but the exact accepted path sets are machine-enforced and cannot expand silently.
   - Issue 586 retains historical evidence that delete_branch_on_merge was disabled; ADR 0024 and current metadata prove the accepted current state is enabled.
-  - GAME_GATEWAY_IDENTITY_CONTRACT and AUTH_GAME_LOGIN_CONTRACT retain pre-delivery status while merged Gateway and Game Session evidence proves a bounded Oteryn authentication path exists.
+  - GAME_GATEWAY_IDENTITY_CONTRACT and AUTH_GAME_LOGIN_CONTRACT retain pre-delivery status while merged Gateway and Game Session evidence proves a bounded Oteryn authentication path exists; Issue 720 owns the correction.
 ci_architecture_findings:
   - PR 626 separates conditional runtime-tests from an always-emitted aggregate protected test context.
   - Runtime/code changes require the complete MariaDB/PHP suite before the aggregate test gate can pass.
@@ -57,9 +58,9 @@ proven:
   - Repository owner selected Option A for confidential vulnerability disclosure.
   - GitHub Private Vulnerability Reporting is enabled for blakinio/Oteryn-Platform.
   - PR 702 merged ADR 0027, canonical SECURITY.md routing, public-Issue diversion and the empty active decision backlog as ab6ac645595813653618d91574c717fb4d9c7edd after all eight exact-head workflows and independent audit passed.
-  - Reviewed main d12a4f4a14db0319a8563cb16b1d92a7b1e117b8 contains the separately deployable Game Gateway and terminal Phase 4 delivery evidence.
-  - Current canonical game-auth status and topology documents disagree with that merged evidence; Issue 720 owns the bounded correction.
-  - PR 722 contains the bounded review report and lifecycle state only.
+  - The completed review at docs/agents/reports/OTERYN-20260806-game-auth-topology-current-state-review.md proves the current game-auth documentation drift and preserves exact evidence classification.
+  - PR 722 merged the bounded review as 1919f7eb55f6c2a08058652f422b47f841467009 after all exact-head workflows passed.
+  - Issue 720 remains the sole documentation-only correction owner and does not overlap active native-protocol PR 542 targets.
 derived:
   - The three owner decisions formerly tracked by the architecture decision backlog are resolved and preserved by accepted ADRs.
   - The current game-auth discrepancy is documentation drift, not a new owner decision or runtime architecture choice.
@@ -67,7 +68,7 @@ unknown:
   - Exact deployed game-auth topology, alternate-path network isolation and production activation evidence.
 conflicts: []
 blockers: []
-next_action: Validate PR 722 on its exact final head, archive the review task after protected merge and then execute Issue 720 as the next documentation-only canonical reconciliation if live ownership remains non-overlapping.
+next_action: Execute Issue 720 as one bounded documentation-only canonical reconciliation after confirming live path ownership remains non-overlapping; preserve legacy-v1/native-v2 separation and PRODUCTION_PROVEN=false.
 ```
 
 ## Programme rules
