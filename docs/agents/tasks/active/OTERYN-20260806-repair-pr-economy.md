@@ -3,7 +3,7 @@ task_id: OTERYN-20260806-repair-pr-economy
 project_lane: oteryn-platform-core
 task_kind: implementation
 implementation_authorized: true
-status: validating
+status: ready
 base_head: 5c06bb4f1b79459d41e04d9e185e17918b88a948
 branch: docs/repair-pr-economy-20260806
 implementation_pull_request: 743
@@ -61,11 +61,11 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-06T12:17:00Z
-head_before_checkpoint_commit: 0fa864e62ac0e20f8031db6edfd951940d7ac4bd
+updated_at: 2026-08-06T12:19:00Z
+head_before_checkpoint_commit: 57c7fdbf0649cf7e291d760eb6078163c0a4d5be
 branch: docs/repair-pr-economy-20260806
 pr: 743
-status: validating
+status: ready
 context_routes:
   - agent-governance
   - testing
@@ -90,12 +90,12 @@ proven:
   - Independent audit generation 1 returned material finding AUDIT-744-001 on exact head 1d8e7d0d40a662b964d852a6a29769efeee5ab69.
   - AUDIT-744-001 is remediated by taxonomy 1.3, claim protocol v3/work-item schema v3 alignment and explicit cross-document drift fail-closed rules.
   - Static adversarial policy evaluation now records 32 of 32 candidate cases passing with zero safety-critical regressions; repeated model trials remain NOT_RUN.
-  - PR #743 now contains exactly nine declared governance/task/evidence paths and no product/runtime/workflow/deployment paths.
+  - PR #743 contains exactly nine declared governance/task/evidence paths and no product/runtime/workflow/deployment paths.
 derived:
   - A controlling specialization avoids duplicating complete train and audit schemas across every programme document.
   - Durable handoff plus ROTATE preserves recoverable ownership without holding an active worker slot.
 unknown:
-  - Required exact-head workflow results for the post-remediation checkpoint head.
+  - Required exact-head workflow results for the final post-checkpoint head.
   - Independent auditor identity and generation 2 verdict.
 conflicts: []
 first_failure:
@@ -137,9 +137,9 @@ validation:
     evidence: repository agent-governance and delivery-routing documentation only; no executable runtime or user journey changed
 blockers:
   - none
-next_action: Verify all required workflows on the exact post-checkpoint PR head; if successful, publish the exact generation 2 audit handoff and rotate to a distinct AUDIT ONLY session.
+next_action: Verify all required workflows on the exact final PR head; if successful, publish the generation 2 audit handoff in Issue #744 and rotate to a distinct AUDIT ONLY session.
 ```
 
 ## Notes
 
-The session that remediated `AUDIT-744-001` is an implementation session and cannot perform the required generation 2 independent audit. The exact final head and audit handoff are maintained in PR #743 after the checkpoint commit.
+The session that remediated `AUDIT-744-001` is an implementation session and cannot perform the required generation 2 independent audit. The exact final head and audit handoff are maintained in PR #743 after this checkpoint commit.
