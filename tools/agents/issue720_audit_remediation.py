@@ -8,6 +8,12 @@ def replace_once(text: str, old: str, new: str, label: str) -> str:
     return text.replace(old, new, 1)
 
 
+def replace_first(text: str, old: str, new: str, label: str) -> str:
+    if old not in text:
+        raise SystemExit(f"{label}: required match not found")
+    return text.replace(old, new, 1)
+
+
 auth_path = Path("docs/contracts/AUTH_GAME_LOGIN_CONTRACT.md")
 task_path = Path("docs/agents/tasks/active/OTERYN-20260806-game-auth-topology-reconciliation.md")
 
@@ -42,13 +48,13 @@ If Platform Identity becomes the sole global credential authority, its availabil
     "Platform outage semantics",
 )
 
-task = replace_once(
+task = replace_first(
     task,
     "updated_at: 2026-08-06T12:49:00+02:00",
     "updated_at: 2026-08-06T15:12:00+02:00",
     "checkpoint updated_at",
 )
-task = replace_once(
+task = replace_first(
     task,
     "last_progress_at: 2026-08-06T12:49:00+02:00",
     "last_progress_at: 2026-08-06T15:12:00+02:00",
