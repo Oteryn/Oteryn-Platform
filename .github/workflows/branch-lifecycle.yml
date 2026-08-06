@@ -76,6 +76,22 @@ jobs:
             --output branch-lifecycle-report.json \
             --generate-manifest branch-deletion-manifest.generated.json
 
+      - name: Verify protected default branch classification
+        run: |
+          python3 - <<'PY'
+          import json, pathlib
+          report = json.loads(pathlib.Path("branch-lifecycle-report.json").read_text())
+          if report.get("default_branch") != "main":
+              raise SystemExit(f"unexpected default branch: {report.get('default_branch')!r}")
+          entries = {item["branch"]: item for item in report.get("branches", [])}
+          main = entries.get("main")
+          if not main or main.get("classification") != "PROTECTED" or main.get("protected") is not True:
+              raise SystemExit(f"default branch is not fail-closed PROTECTED: {main!r}")
+          if main.get("deletion_candidate") is not False:
+              raise SystemExit("default branch must never be a deletion candidate")
+          print("Protected default branch classification verified.")
+          PY
+
       - name: Validate reviewed candidate-set approval
         if: hashFiles('docs/agents/BRANCH_DELETION_APPROVAL.json') != ''
         run: |
@@ -180,6 +196,15 @@ jobs:
           def canonical(value):
               return json.dumps(value, indent=2, sort_keys=True, ensure_ascii=False) + "\n"
           approval = json.loads(pathlib.Path("docs/agents/BRANCH_DELETION_APPROVAL.json").read_text())
+          report = json.loads(pathlib.Path("branch-lifecycle-apply-report.json").read_text())
+          entries = {item["branch"]: item for item in report.get("branches", [])}
+          main = entries.get("main")
+          if report.get("default_branch") != "main" or not main:
+              raise SystemExit("default branch is absent from live apply inventory")
+          if main.get("classification") != "PROTECTED" or main.get("protected") is not True:
+              raise SystemExit(f"default branch is not protected before apply: {main!r}")
+          if main.get("deletion_candidate") is not False:
+              raise SystemExit("default branch became a deletion candidate")
           manifest_path = pathlib.Path("branch-deletion-manifest.runtime.json")
           manifest = json.loads(manifest_path.read_text())
           entries_hash = hashlib.sha256(canonical(manifest["entries"]).encode()).hexdigest()
