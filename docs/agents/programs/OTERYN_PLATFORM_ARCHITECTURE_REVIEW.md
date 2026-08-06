@@ -18,12 +18,12 @@ Continuously challenge Platform architecture, repository structure and CI/CD; id
 
 ```yaml
 programme_state_version: 2
-updated_at: 2026-08-06T06:17:03Z
+updated_at: 2026-08-06T06:27:00Z
 status: waiting_owner_decision
 current_review_domain: merged-source-branch-lifecycle-policy
-active_task: null
+active_task: OTERYN-20260806-merged-source-branch-lifecycle-decision
 issue: 586
-branch: null
+branch: task/OTERYN-20260806-merged-branch-lifecycle-decision
 pull_request: null
 last_completed_domain: architecture-decision-backlog-implementation
 last_completed_issue: 642
@@ -34,27 +34,30 @@ accepted_authority:
   authority_adr: docs/architecture/adr/0022-architecture-authority-index-and-focused-canonical-documents.md
   backlog_adr: docs/architecture/adr/0023-machine-readable-architecture-decision-backlog.md
   backlog_registry: docs/architecture/ARCHITECTURE_DECISION_BACKLOG.json
+proposed_authority:
+  branch_lifecycle_adr: docs/architecture/adr/0024-merged-source-branch-lifecycle-policy.md
 active_architecture_decision_ids: ["ARCH-DEC-0001","ARCH-DEC-0002","ARCH-DEC-0003"]
 architecture_conflicts:
   - Historical duplicate ADR prefixes remain for 0008, 0010, 0011, 0015, 0016, 0017, 0018 and 0021, but the exact accepted path sets are machine-enforced and cannot expand silently.
+  - Issue 586 records delete_branch_on_merge=false as historical evidence, while live repository metadata on 2026-08-06 proves the setting is true.
 ci_architecture_findings:
   - PR 626 separates conditional runtime-tests from an always-emitted aggregate protected test context.
   - Runtime/code changes require the complete MariaDB/PHP suite before the aggregate test gate can pass.
   - Documentation-only changes pass only after fail-closed classification proves runtime tests are NOT_APPLICABLE.
 proven:
-  - PR 650 merged through protected main as 20754620b7a0a4363c70480bda0ee5dff885c9a7 and closed Issue 642 as completed.
-  - Final synchronized head f5c3365b5d0353a988820eaeb41c7e076b4de347 passed all eight emitted workflows, including full runtime-tests and the aggregate protected test gate.
-  - The canonical registry contains exactly ARCH-DEC-0001, ARCH-DEC-0002 and ARCH-DEC-0003 and grants no accepted-decision, implementation or activation authority.
-  - Issue 586 remains open and is the linked owner-decision route for ARCH-DEC-0001.
-  - Zero unresolved review threads remained at merge.
+  - Live repository metadata enables automatic merged head-branch deletion, squash merge and auto-merge while disabling merge commits and rebase merges.
+  - Full branch enumeration returned 498 refs including main and the current task branch.
+  - No accepted exception, retention, recovery, expiry or one-time cleanup policy was found.
+  - GitHub branch protection and repository rules can prevent automatic deletion of approved long-lived branches.
+  - Proposed ADR 0024 defines Options A, B and C and grants no branch-deletion or repository-setting authority.
 derived:
-  - The highest-priority next architecture action is the repository-owner decision for the merged source-branch exception, recovery and cleanup policy.
+  - Option A is the strongest default because it preserves low-cost automatic cleanup while making every retention exception explicit, protected and fail-closed.
 unknown:
   - The repository owner's selected option for ARCH-DEC-0001.
 conflicts: []
 blockers:
-  - Repository-owner selection in Issue 586 is required before ARCH-DEC-0001 can leave decision_required.
-next_action: Present ARCH-DEC-0001 options A, B and C from Issue 586 to the repository owner, record the selected policy in one bounded architecture package, and do not infer acceptance.
+  - Repository-owner selection of A, B or C is required before ADR 0024 can be accepted and ARCH-DEC-0001 can leave decision_required.
+next_action: Obtain the repository owner's explicit A, B or C selection in Issue 586 or the decision PR; then accept/reject ADR 0024, transition ARCH-DEC-0001 and create a separate implementation/cleanup handoff without deleting branches in the decision package.
 ```
 
 ## Programme rules
