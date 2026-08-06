@@ -33,7 +33,7 @@ Record the repository owner's acceptance of `ARCH-DEC-0002` Option A and establi
 - [x] README and contribution guidance consistently describe the licensing and inbound-contribution boundary.
 - [x] `ARCH-DEC-0002` leaves the active decision backlog while `ARCH-DEC-0003` remains unchanged.
 - [x] Architecture programme projection advances to Issue #588 without inferring its owner decision.
-- [ ] Exact-head architecture/backlog/governance validation passes and a fresh independent documentation audit finds no material issue.
+- [ ] Exact final-head architecture/backlog/governance validation passes and a fresh independent documentation audit finds no material issue.
 - [ ] Issue #587 closes only after protected merge, archival and ownership release.
 
 ## Ownership
@@ -70,16 +70,16 @@ cross_repository_tasks:
 ```yaml
 checkpoint_version: 1
 policy_version: 2
-updated_at: 2026-08-06T08:58:00Z
+updated_at: 2026-08-06T09:01:00Z
 invocation_started_at: 2026-08-06T08:41:00Z
-last_progress_at: 2026-08-06T08:58:00Z
+last_progress_at: 2026-08-06T09:01:00Z
 phase: validate
 session_id: chatgpt-20260806-platform-licensing
 session_role: implementer
 execution_mode: github
 execution_reason: bounded repository documentation, architecture registry and pull-request lifecycle work
-lease_expires_at: 2026-08-06T09:43:00Z
-head: a7c3d115f3dca18e06541d975e015b4a63fe8f9b
+lease_expires_at: 2026-08-06T09:46:00Z
+head: tracked-by-pr-690
 branch: docs/OTERYN-20260806-platform-licensing-policy
 pr: 690
 issue: 587
@@ -95,8 +95,8 @@ estimate_confidence: high
 decomposition_decision: phased
 decomposition_reason: one cohesive decision package followed by required protected merge and lifecycle archival
 validation_level: full
-ci_checks_for_current_head: 0
-ci_check_generation: draft
+ci_checks_for_current_head: 1
+ci_check_generation: ready
 terminal_ci_wait_started_at: null
 terminal_ci_checks_for_current_generation: 0
 unchanged_state_checks: 0
@@ -120,11 +120,13 @@ proven:
   - composer.json declares license proprietary.
   - PR 690 contains a canonical proprietary notice and an explicit third-party provenance boundary.
   - ADR 0026 is allocated after ADR 0025 and is listed in the ADR inventory.
-  - ARCH-DEC-0002 is removed while ARCH-DEC-0003 remains byte-for-byte equivalent in decision content.
+  - ARCH-DEC-0002 is removed while ARCH-DEC-0003 remains unchanged in decision content.
+  - Exact head 64616225e072f25ef1b7f07ec5189244e306e53d passed all eight emitted workflows, including CI classification/test and Agent Governance.
+  - Independent review 4872839999 found zero material findings on head 64616225e072f25ef1b7f07ec5189244e306e53d.
 derived:
   - A rights-holder-neutral proprietary notice avoids inventing a legal entity or relicensing third-party material.
 unknown:
-  - Final exact-head CI, independent audit, protected merge and archive outcome.
+  - Final exact-head checks after this checkpoint, protected merge and archive outcome.
 conflicts: []
 first_failure:
   marker: none
@@ -144,13 +146,19 @@ changed_paths:
   - docs/agents/programs/OTERYN_PLATFORM_ARCHITECTURE_REVIEW.md
   - docs/agents/tasks/active/OTERYN-20260806-platform-licensing-policy.md
 validation:
-  - command: exact-head GitHub Actions
-    result: NOT_RUN
-    evidence: final implementation head has just been assembled
-  - command: independent documentation audit
-    result: NOT_RUN
-    evidence: scheduled after exact diff review
+  - command: GitHub Actions on 64616225e072f25ef1b7f07ec5189244e306e53d
+    result: PASS
+    evidence: CI 31086916169, Agent Governance 31086916276, Phase 7 31086916361, Edge Security 31086916186, Game Auth 31086916497, Platform DB Outage 31086916220 and native protocol workflows 31086916231/31086916312
+  - command: CI classify-changes and aggregate test
+    result: PASS
+    evidence: jobs 92568426609 and 92568461730; runtime-tests 92568461840 correctly skipped for documentation-only scope
+  - command: independent documentation audit 4872839999
+    result: PASS
+    evidence: zero material findings and zero review threads on audited head
+  - command: runtime E2E
+    result: NOT_APPLICABLE
+    evidence: repository licensing and architecture documentation only; no runtime behavior or user journey changed
 blockers:
   - none
-next_action: Inspect the exact PR diff, run repository validation, repair material findings and complete independent audit on the frozen head.
+next_action: Verify all required checks and repeat the independent audit on the new frozen final head, then complete the protected squash merge.
 ```
