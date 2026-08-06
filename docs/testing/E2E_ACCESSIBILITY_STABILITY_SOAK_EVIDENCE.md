@@ -8,7 +8,7 @@ This record covers issue #110 / PR #111 and the bounded hardening slices added a
 - P2 repeated-run flakiness measurement;
 - P2 read-only public soak measurement.
 
-All evidence in this document is repository or controlled production-like staging evidence. It does not establish `PRODUCTION_PROVEN` behavior and does not change the independent Production Go-Live Gate in issue #91.
+Issue #114 owns the first scheduled runtime evidence recorded below. All evidence in this document is repository or controlled production-like staging evidence. It does not establish `PRODUCTION_PROVEN` behavior and does not change the independent Production Go-Live Gate in issue #91.
 
 ## Accessibility interaction profile
 
@@ -65,7 +65,43 @@ Policy:
 
 This profile measures whether the bounded required critical acceptance remains stable across independent executions. A failed iteration is not masked by Playwright retry success.
 
-First scheduled/manual three-iteration evidence remains `PENDING_FIRST_RUN`; the current connector exposes workflow definitions and run inspection but not a workflow-dispatch action. The workflow definition is validated through repository governance/CI and will produce iteration-labelled exact-SHA artifacts when first scheduled or manually dispatched.
+### First scheduled three-iteration evidence
+
+The first completed scheduled run after PR #111 merge is runtime-proven:
+
+- workflow run: `30243589211`, attempt 1;
+- event: `schedule`;
+- started: `2026-07-27T06:42:08Z`;
+- exact tested SHA: `37eb31d60aa8a47914745cd326aff6b313851dd0`;
+- aggregate conclusion: PASS;
+- retries: zero in every iteration;
+- execution identity: three distinct matrix jobs and three distinct `repeat-1`, `repeat-2`, `repeat-3` artifact identities.
+
+| Iteration | Job | Result | Profile wall-clock evidence | JUnit evidence | Artifact | Digest |
+|---|---:|---|---|---|---:|---|
+| 1 | `89905727036` | PASS | smoke 11 s; portability 59 s; responsive 32 s; resilience 2 s; accessibility 10 s | 7 + 27 + 24 + 2 + 6 tests; 0 failures/errors/skips | `8644201125` / `acceptance-e2e-critical-30243589211-1-repeat-1` | `sha256:ce1542b0815fb006d15f22cd92a5977fe0d3c1df6aca85bc4589a37a6afe3968` |
+| 2 | `89905726989` | PASS | smoke 10 s; portability 60 s; responsive 34 s; resilience 3 s; accessibility 10 s | 7 + 27 + 24 + 2 + 6 tests; 0 failures/errors/skips | `8644204136` / `acceptance-e2e-critical-30243589211-1-repeat-2` | `sha256:1ada3ea282e9c77644824d424010004bdc378fc0b0ead262f83e8185f78168fd` |
+| 3 | `89905727019` | PASS | smoke 10 s; portability 60 s; responsive 31 s; resilience 3 s; accessibility 9 s | 7 + 27 + 24 + 2 + 6 tests; 0 failures/errors/skips | `8644207634` / `acceptance-e2e-critical-30243589211-1-repeat-3` | `sha256:e98ab0296a5fc3a2b87467a1c6270a29d7819be0d8965747568e3cee184aa0cb` |
+
+The first scheduled run therefore proves three successful independent zero-retry executions of the bounded critical profile on one exact SHA. It is a stability sample, not a universal flakiness guarantee and not a blocking threshold.
+
+### Subsequent scheduled failure classification
+
+Scheduled run `30790638508` on exact SHA `f2de161edc54ccb276b33d5901e03385c7d88c62` produced a meaningful later instability signal:
+
+- iterations 1 and 2 passed in jobs `91613214517` and `91613214565`;
+- iteration 3 failed in job `91613214607`;
+- first failing profile: responsive;
+- first failing project/test: `responsive-mobile` / `admin-wiki-administration.spec.mjs`;
+- Playwright retries: zero;
+- failure artifact: `8847001250` / `acceptance-e2e-critical-30790638508-1-repeat-3`;
+- artifact digest: `sha256:f4cf18fcbf59065fb82437070935770e76f5b40038777a81d6d1ab9e99409db7`.
+
+The failed assertion waited for the transient success flash `Wiki article submitted for review.` after the submit-for-review mutation. The same artifact's page-state evidence already showed durable `Status: In Review` plus the expected `Return to draft`, `Publish` and `Archive` actions. Setup, exact-SHA runtime, smoke and portability had passed. The failure is therefore classified as a **harness race around transient flash observation**, not a product lifecycle or infrastructure failure.
+
+Current main waits for authenticated thumbnail activity to quiesce and verifies the durable `In Review` state and available next actions instead of treating the transient flash as the lifecycle source of truth. PR #495 subsequently merged deep exact-SHA validation evidence from run `30897646594`, artifact `8888425228`, digest `sha256:232e7ca9c3b5209f06ab850d8beb88cd429ce1d7fd8ef2d86b3ba2519242ad54`: responsive completed 42 tests with zero failures and the aggregate 630-test execution reported zero failures, errors, skips and retries.
+
+This classification does not erase the failed run. It preserves the instability signal, the exact first failure and the verified remediation evidence without rerunning or retry-masking the original iteration.
 
 ## Read-only public soak profile
 
@@ -94,13 +130,58 @@ Collected non-secret metrics:
 
 No latency, memory or Redis-key budget is enforced in the initial profile. Metrics are calibration evidence only until repeated runs establish normal variance and a defensible regression threshold.
 
-First scheduled/manual soak evidence remains `PENDING_FIRST_RUN`; the current connector does not expose workflow dispatch. The soak implementation is therefore not claimed as runtime-proven until its first scheduled/manual execution completes.
+### First scheduled soak evidence
+
+The first completed scheduled run after PR #111 merge is runtime-proven:
+
+- workflow run: `29987560312`, attempt 1;
+- event: `schedule`;
+- started: `2026-07-23T07:13:00Z`;
+- exact tested SHA: `8006534108d835474dadd208b0ec934e4a12528b`;
+- job: `89142739953`, `public-soak / acceptance`;
+- conclusion: PASS;
+- profile/project: `soak` / `soak-chromium`;
+- retries: zero;
+- target duration: 300 seconds;
+- browser loop duration: 300 seconds;
+- measured profile duration: 303 seconds;
+- iterations: 441;
+- requests: 1,764;
+- artifact: `8555768555` / `acceptance-e2e-soak-29987560312-1-soak`;
+- artifact digest: `sha256:d3caa7c21f577616a1aacad45276ea21b1211d8727489c6c06d6ad9fc01cc7f4`.
+
+Overall navigation time in milliseconds:
+
+| Minimum | p50 | p95 | Maximum |
+|---:|---:|---:|---:|
+| 23.023 | 97.995 | 262.457 | 1,406.794 |
+
+Per-route navigation time in milliseconds:
+
+| Route | Requests | p50 | p95 | Maximum |
+|---|---:|---:|---:|---:|
+| `/` | 441 | 177.640 | 311.512 | 450.357 |
+| `/highscores` | 441 | 85.521 | 143.162 | 189.705 |
+| `/online` | 441 | 106.657 | 151.386 | 1,406.794 |
+| `/servers` | 441 | 86.677 | 139.920 | 235.402 |
+
+Controlled-runtime resource calibration:
+
+| Signal | Start | End | Maximum |
+|---|---:|---:|---:|
+| Laravel serve process-tree RSS | 181,476 KiB | 181,980 KiB | 183,424 KiB |
+| Redis key count | 1 | 1 | not applicable |
+
+Every navigation and representative UI assertion passed. Redis key count was unchanged. These values are the first non-secret isolated calibration baseline only; no latency, RSS or Redis-key threshold is inferred from this single run.
 
 ## Current implementation classification
 
 - accessibility interaction mechanism and bounded required profile: `STAGING_PROVEN` on the exact SHA/run above;
-- repeated-run workflow mechanism: `REPO_PROVEN`, first multi-iteration runtime evidence pending;
-- soak workflow/profile mechanism: `REPO_PROVEN`, first scheduled/manual runtime evidence pending;
+- repeated-run workflow mechanism: `REPO_PROVEN`;
+- first scheduled three-iteration runtime sample: `STAGING_PROVEN` for the controlled exact-SHA run `30243589211` only;
+- later scheduled failure: retained and classified as a zero-retry harness race with subsequent exact-SHA remediation evidence;
+- soak workflow/profile mechanism: `REPO_PROVEN`;
+- first scheduled soak runtime sample: `STAGING_PROVEN` for the controlled exact-SHA run `29987560312` only;
 - production behavior: `UNKNOWN` until directly verified where applicable.
 
 ## Production boundary
