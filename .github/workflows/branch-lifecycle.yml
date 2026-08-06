@@ -67,6 +67,43 @@ jobs:
         with:
           python-version: "3.12"
 
+      - name: Verify accepted repository settings
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          import urllib.request
+
+          request = urllib.request.Request(
+              f"https://api.github.com/repos/{os.environ['GITHUB_REPOSITORY']}",
+              headers={
+                  "Accept": "application/vnd.github+json",
+                  "Authorization": f"Bearer {os.environ['GITHUB_TOKEN']}",
+                  "User-Agent": "oteryn-branch-lifecycle/1",
+                  "X-GitHub-Api-Version": "2022-11-28",
+              },
+          )
+          with urllib.request.urlopen(request, timeout=60) as response:
+              repository = json.load(response)
+          actual = {
+              "delete_branch_on_merge": repository.get("delete_branch_on_merge"),
+              "allow_squash_merge": repository.get("allow_squash_merge"),
+              "allow_merge_commit": repository.get("allow_merge_commit"),
+              "allow_rebase_merge": repository.get("allow_rebase_merge"),
+          }
+          expected = {
+              "delete_branch_on_merge": True,
+              "allow_squash_merge": True,
+              "allow_merge_commit": False,
+              "allow_rebase_merge": False,
+          }
+          if actual != expected:
+              raise SystemExit(f"repository setting drift: expected {expected!r}, got {actual!r}")
+          print(f"Repository settings match accepted ADR 0024: {actual}")
+          PY
+
       - name: Build fail-closed live inventory
         env:
           GITHUB_TOKEN: ${{ github.token }}
@@ -76,6 +113,16 @@ jobs:
             --output branch-lifecycle-report.json \
             --generate-manifest branch-deletion-manifest.generated.json
 
+      - name: Validate committed manifest against live evidence
+        if: hashFiles('docs/agents/BRANCH_DELETION_MANIFEST.json') != ''
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          python3 tools/agents/branch_lifecycle.py \
+            --mode validate-manifest \
+            --manifest docs/agents/BRANCH_DELETION_MANIFEST.json \
+            --output branch-lifecycle-manifest-validation-report.json
+
       - name: Publish dry-run evidence
         uses: actions/upload-artifact@v7
         with:
@@ -83,6 +130,7 @@ jobs:
           path: |
             branch-lifecycle-report.json
             branch-deletion-manifest.generated.json
+            branch-lifecycle-manifest-validation-report.json
           if-no-files-found: error
           retention-days: 30
 
@@ -135,7 +183,7 @@ jobs:
             --recovery-evidence branch-recovery-test-evidence.json
 
       - name: Publish apply and recovery evidence
-        if: steps.manifest.outputs.exists == 'true'
+        if: always() && steps.manifest.outputs.exists == 'true'
         uses: actions/upload-artifact@v7
         with:
           name: branch-lifecycle-apply-${{ github.run_id }}
@@ -143,5 +191,5 @@ jobs:
             branch-lifecycle-apply-report.json
             branch-deletion-evidence.json
             branch-recovery-test-evidence.json
-          if-no-files-found: error
+          if-no-files-found: warn
           retention-days: 90
