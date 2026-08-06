@@ -84,28 +84,28 @@ owned_paths:
   - docs/architecture/MODULE_CATALOG.md
   - docs/agents/tasks/active/OTERYN-20260806-game-auth-topology-reconciliation.md
 policy_version: 2
-updated_at: 2026-08-06T12:46:00+02:00
+updated_at: 2026-08-06T12:49:00+02:00
 invocation_started_at: 2026-08-06T12:43:00+02:00
-last_progress_at: 2026-08-06T12:46:00+02:00
+last_progress_at: 2026-08-06T12:49:00+02:00
 branch: docs/issue-720-game-auth-topology-reconcile
 base_main: 5efd3c2dfad66aa27d0018e1e5f6ae01b32e8e38
 head: derive-from-live-pr-731
 implementation_content_head: 2e78d4728c0504cbda7e90e8c9827b246771e94b
 pr: 731
-status: validating
+status: ready
 phase: validate
-session_id: chatgpt-20260806T1243+0200-game-auth-topology-ci-repair
-session_role: implementer
+session_id: none
+session_role: none
 execution_mode: github
-execution_reason: repair the exact checkpoint-contract failure and rerun exact-head repository validation
-lease_expires_at: 2026-08-06T13:28:00+02:00
+execution_reason: implementation and the checkpoint-contract repair are complete; a fresh independent validator must now audit the exact final diff while exact-head CI runs
+lease_expires_at: null
 context_pressure: medium
 context_growth: stable
 context_score: 6
 estimate_confidence: high
 decomposition_decision: single
 ci_checks_for_current_head: 0
-ci_check_generation: checkpoint_contract_repair
+ci_check_generation: final_audit_target
 terminal_ci_wait_started_at: null
 terminal_ci_checks_for_current_generation: 0
 unchanged_state_checks: 0
@@ -122,8 +122,9 @@ proven:
   - The temporary GitHub-only helper and workflow removed themselves and do not exist in the effective PR diff.
   - Branch-only reconciliation run 31094045640 succeeded and produced implementation content head 2e78d4728c0504cbda7e90e8c9827b246771e94b.
   - Agent Governance run 31094250084 failed only because the Context checkpoint omitted required lists context_routes and owned_paths.
+  - The required context_routes and owned_paths lists were added on ef749a8e6bbdc2964429305513be24500927c946; Agent Governance run 31094598548 then passed.
 derived:
-  - Adding the two required checkpoint lists repairs the governance schema without changing runtime, architecture assertions or PR #542 ownership.
+  - The checkpoint-contract defect is repaired without changing runtime, architecture assertions or PR #542 ownership.
   - The canonical documents may state repository delivery, but cannot infer deployment identity, ingress isolation, production activation or native-v2 consumer completion.
 unknown:
   - exact production Gateway/Identity/Canary deployment identity
@@ -133,7 +134,7 @@ unknown:
 conflicts: []
 first_failure:
   marker: checkpoint-contract-required-fields
-  evidence: Agent Governance run 31094250084 reported missing checkpoint fields context_routes and owned_paths
+  evidence: Agent Governance run 31094250084 reported missing checkpoint fields context_routes and owned_paths; repaired and proven by run 31094598548
 rejected_hypotheses:
   - treating merged repository code as proof of production deployment
   - treating active PR #542 as a merged native-v2 consumer or cutover
@@ -156,16 +157,16 @@ validation:
   - command: effective PR #731 changed-path inventory
     result: PASS
     evidence: exactly the four canonical documents and this active task record
-  - command: Agent Governance run 31094250084
-    result: FAIL
-    evidence: deterministic missing context_routes and owned_paths checkpoint fields; repaired in the next exact head
+  - command: Agent Governance run 31094598548
+    result: PASS
+    evidence: checkpoint validator accepts the required context_routes and owned_paths fields
   - command: runtime E2E
     result: NOT_APPLICABLE
     evidence: documentation-only correction changes no executable behavior
 blockers:
-  - repaired exact-head workflows not yet terminal
   - fresh independent documentation audit not yet performed
-next_action: Inspect one aggregate workflow snapshot for the repaired exact PR head; when all required checks pass and review threads are zero, publish a fresh independent documentation audit target on that unchanged SHA.
+  - final exact-head workflow generation not yet terminal
+next_action: A fresh independent validator claims the exact-head audit Issue linked from PR #731, audits the unchanged five-path diff and records PASS or exact findings; final exact-head CI and zero-thread state are then reconciled before merge.
 ```
 
 ## Recovery checkpoint
@@ -173,22 +174,22 @@ next_action: Inspect one aggregate workflow snapshot for the repaired exact PR h
 ```yaml
 recovery:
   policy_version: 1
-  generation: 2
-  session_id: chatgpt-20260806T1243+0200-game-auth-topology-ci-repair
-  session_started_at: 2026-08-06T12:43:00+02:00
-  checkpointed_at: 2026-08-06T12:46:00+02:00
-  last_progress_at: 2026-08-06T12:46:00+02:00
+  generation: 3
+  session_id: none
+  session_started_at: null
+  checkpointed_at: 2026-08-06T12:49:00+02:00
+  last_progress_at: 2026-08-06T12:49:00+02:00
   phase: validate
   exact_head: derive-from-live-pr-731
   pull_request: 731
-  active_operation: exact-head governance and documentation CI after checkpoint-contract repair
-  external_run_ids: []
-  operation_started_at: 2026-08-06T12:46:00+02:00
+  active_operation: none
+  external_run_ids: derive-from-live-pr
+  operation_started_at: null
   wait_deadline_at: null
-  check_generation: checkpoint_contract_repair
+  check_generation: final_audit_target
   checks_used: 0
-  status: active
+  status: ready
   safe_to_resume: true
-  resume_condition: current PR #731 head remains unchanged and exact-head workflows are terminal
-  next_action: Inspect one aggregate exact-head workflow snapshot and publish the independent audit target only after every required check passes.
+  resume_condition: PR #731 head is unchanged and no conflicting auditor owns the audit Issue
+  next_action: Claim and execute the independent exact-head documentation audit, then reconcile final CI and merge gates.
 ```
