@@ -27,6 +27,9 @@ Introduce a Platform-owned payment event core with these boundaries:
 10. Payment settlement remains separate from Wallet and future Products/Entitlements. This core performs no value delivery.
 11. A deterministic HMAC adapter exists only for tests and non-production validation. It refuses production execution.
 12. Production configuration rejects enabled payments until an approved real provider, adapter, verifier and direct verification flag are configured outside Git.
+13. A verified provider event must carry provider-authenticated ISO currency and a positive integer minor-unit amount. Identifiers alone cannot authorize a settlement transition.
+14. Before success, full refund, dispute or chargeback, the verified currency and amount must exactly match the immutable order. A partial-refund event must use the same currency and a positive amount smaller than the order total. Mismatches create reconciliation and never mutate order truth.
+15. When a verified provider object reference is present, it must resolve to a checkout attempt owned by the same order and provider. Unknown or cross-order references create reconciliation.
 
 ## Threat model
 
@@ -53,6 +56,8 @@ Introduce a Platform-owned payment event core with these boundaries:
 | Threat | Control |
 |---|---|
 | Forged webhook | Verify timestamp and HMAC before parsing in the deterministic adapter; real adapters must implement equivalent provider-authentic verification. |
+| Signed event with wrong amount or currency | Carry authenticated settlement facts in the verified-event contract and compare them with immutable order semantics before transition; reconcile mismatches. |
+| Provider object rebound to another order | Resolve any supplied provider object reference to the same provider and payment order before transition; reconcile unknown or cross-order references. |
 | Replay | Timestamp tolerance plus unique provider event identity; exact duplicate is a no-op, conflicting duplicate fails. |
 | Out-of-order event | Explicit state machine refuses regressions and creates reconciliation work. |
 | Duplicate checkout | Unique idempotency key and exact replay matching. |

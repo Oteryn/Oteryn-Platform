@@ -93,7 +93,7 @@ func (c *Client) ReadyFor(ctx context.Context, request gateway.SessionRequest) e
 		EndpointID             string   `json:"endpoint_id"`
 		Audience               string   `json:"audience"`
 		Family                 string   `json:"family"`
-		NativeProtocolVersion  string   `json:"native_protocol_version"`
+		NativeProtocolVersion  uint32   `json:"native_protocol_version"`
 		Transport              string   `json:"transport"`
 		SchemaRevision         uint32   `json:"schema_revision"`
 		SchemaSHA256           string   `json:"schema_sha256"`
@@ -156,7 +156,7 @@ type v2RequestPayload struct {
 	CharacterBindingMode   string   `json:"character_binding_mode"`
 	SingleAdmission        bool     `json:"single_admission"`
 	Family                 string   `json:"family"`
-	NativeProtocolVersion  string   `json:"native_protocol_version"`
+	NativeProtocolVersion  uint32   `json:"native_protocol_version"`
 	Transport              string   `json:"transport"`
 	SchemaRevision         uint32   `json:"schema_revision"`
 	SchemaSHA256           string   `json:"schema_sha256"`

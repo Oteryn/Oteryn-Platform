@@ -107,9 +107,13 @@ final class DeterministicTestPaymentProvider implements PaymentProviderGateway, 
         }
 
         $orderPublicId = $data['order_public_id'] ?? null;
+        $currency = $data['currency'] ?? null;
+        $amountMinor = $data['amount_minor'] ?? null;
         $providerObjectReference = $data['provider_object_reference'] ?? null;
 
         if (! is_string($orderPublicId) || $orderPublicId === '' || strlen($orderPublicId) > 36
+            || ! is_string($currency) || preg_match('/^[A-Z]{3}$/D', $currency) !== 1
+            || ! is_int($amountMinor) || $amountMinor < 1
             || ($providerObjectReference !== null
                 && (! is_string($providerObjectReference)
                     || $providerObjectReference === ''
@@ -122,6 +126,8 @@ final class DeterministicTestPaymentProvider implements PaymentProviderGateway, 
             eventId: $eventId,
             eventType: $eventType,
             orderPublicId: $orderPublicId,
+            currency: $currency,
+            amountMinor: $amountMinor,
             providerObjectReference: $providerObjectReference,
             payloadSha256: hash('sha256', $rawPayload),
             signatureTimestamp: $timestamp,

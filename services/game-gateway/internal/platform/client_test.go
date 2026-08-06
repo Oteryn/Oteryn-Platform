@@ -104,7 +104,7 @@ func TestLoginContextUsesExactAccountPathAndParsesBoundedProjection(t *testing.T
 				"channel_id":1,
 				"candidates":[{
 					"family":"oteryn",
-					"nativeProtocolVersion":1,
+					"native_protocol_version":1,
 					"transport":"tcp.tls13.protobuf.be32.v1",
 					"schema_revision":2,
 					"schema_sha256":"` + strings.Repeat("a", 64) + `",

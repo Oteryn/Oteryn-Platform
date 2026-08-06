@@ -115,7 +115,9 @@ final class PaymentEventConcurrencyMariaDbTest extends TestCase
             'created' => $now->getTimestamp(),
             'data' => [
                 'order_public_id' => $order->public_id,
-                'provider_object_reference' => 'test_payment_concurrency',
+                'currency' => 'PLN',
+                'amount_minor' => 5_000,
+                'provider_object_reference' => null,
             ],
         ], JSON_THROW_ON_ERROR);
         $headers = [

@@ -1,0 +1,21 @@
+{
+  "authority": {
+    "accepted_decision_authority": "docs/architecture/adr/README.md",
+    "canonical_routing": "docs/architecture/ARCHITECTURE_AUTHORITY.md",
+    "non_authority_statement": "This active inventory grants no accepted-decision, implementation, or activation authority.",
+    "role": "unresolved_decision_inventory"
+  },
+  "lifecycle": {
+    "active_states": [
+      "analysis_ready",
+      "blocked",
+      "decision_required",
+      "deferred",
+      "discovered"
+    ],
+    "terminal_handling": "Remove resolved, rejected, or superseded records in the same bounded package that records their accepted ADR, canonical rationale, or explicit rejection; preserve history in Git and linked Issues rather than in a second permanent archive."
+  },
+  "records": [],
+  "registry_name": "Oteryn Platform Architecture Decision Backlog",
+  "schema_version": 1
+}

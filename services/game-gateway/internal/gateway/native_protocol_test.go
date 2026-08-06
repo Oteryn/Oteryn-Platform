@@ -30,7 +30,6 @@ func TestValidateLoginRequestRejectsMalformedOffers(t *testing.T) {
 			r.GameplayOffer.Candidates = make([]GameplayOfferCandidate, 9)
 			for index := range r.GameplayOffer.Candidates {
 				r.GameplayOffer.Candidates[index] = candidate
-				r.GameplayOffer.Candidates[index].NativeProtocolVersion = "nativeProtocolVersion." + string(rune('a'+index))
 			}
 		}},
 		{name: "duplicate tuple", mutate: func(r *LoginRequest) {
@@ -86,7 +85,7 @@ func TestSelectGameplayCandidateIntersectsOptionalCapabilitiesAndUsesStableDiges
 	}
 }
 
-func TestSelectGameplayCandidateRejectsNativeNativeProtocolVersionMissingBaseCapability(t *testing.T) {
+func TestSelectGameplayCandidateRejectsNativeProtocolVersionMissingBaseCapability(t *testing.T) {
 	offer := validNativeLoginRequest().GameplayOffer
 	policy := GameplayPolicy{Revision: 1, ChannelID: 1, Candidates: []GameplayPolicyCandidate{{
 		Family: "oteryn", NativeProtocolVersion: 1, Transport: "tcp.tls13.protobuf.be32.v1",

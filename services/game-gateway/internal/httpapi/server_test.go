@@ -157,7 +157,7 @@ func TestLoginRejectsInvalidShapeBeforeDependencies(t *testing.T) {
 		{name: "duplicate top-level key", url: "/v1/login", body: `{"protocol_version":1,"protocol_version":1,"game_login_ticket":"ticket"}`},
 		{name: "duplicate nested key", url: "/v1/login", body: `{"protocol_version":1,"game_login_ticket":"ticket","gameplay_offer":{"offer_version":1,"offer_version":1,"client_build":"test","client_platform":"linux","candidates":[]}}`},
 		{name: "zero candidates", url: "/v1/login", body: `{"protocol_version":1,"game_login_ticket":"ticket","gameplay_offer":{"offer_version":1,"client_build":"test","client_platform":"linux","candidates":[]}}`},
-		{name: "unsorted capabilities", url: "/v1/login", body: `{"protocol_version":1,"game_login_ticket":"ticket","gameplay_offer":{"offer_version":1,"client_build":"test","client_platform":"linux","candidates":[{"family":"canary","nativeProtocolVersion":"canary.current","transport":"canary.sequence.v1","schema_revision":2,"schema_sha256":"` + strings.Repeat("a", 64) + `","capabilities":["z.v1","a.v1"]}]}}`},
+		{name: "unsorted capabilities", url: "/v1/login", body: `{"protocol_version":1,"game_login_ticket":"ticket","gameplay_offer":{"offer_version":1,"client_build":"test","client_platform":"linux","candidates":[{"family":"canary","profile":"canary.current","transport":"canary.sequence.v1","schema_revision":1,"schema_sha256":"` + strings.Repeat("a", 64) + `","capabilities":["z.v1","a.v1"]}]}}`},
 		{name: "query", url: "/v1/login?ticket=secret", body: `{"protocol_version":1,"game_login_ticket":"ticket"}`},
 		{name: "oversized", url: "/v1/login", body: strings.Repeat(" ", extendedLoginRequestLimit+1)},
 		{name: "legacy remains 4KiB bounded", url: "/v1/login", body: `{"protocol_version":1,"game_login_ticket":"ticket"}` + strings.Repeat(" ", legacyLoginRequestLimit)},
@@ -205,7 +205,7 @@ func TestLoginMapsNoMatchToConflictWithoutPolicyDisclosure(t *testing.T) {
 	platform := legacyTestPlatform()
 	platform.loginContext.GameplayPolicy = gateway.GameplayPolicy{Revision: 1, ChannelID: 1}
 	server := NewServer(gateway.NewService(platform, &testSessionIssuer{}), "test", slog.New(slog.NewTextHandler(&bytes.Buffer{}, nil)))
-	body := `{"protocol_version":1,"game_login_ticket":"ticket","gameplay_offer":{"offer_version":1,"client_build":"test","client_platform":"linux","candidates":[{"family":"canary","nativeProtocolVersion":"canary.current","transport":"canary.sequence.v1","schema_revision":2,"schema_sha256":"` + strings.Repeat("a", 64) + `","capabilities":[]}]}}`
+	body := `{"protocol_version":1,"game_login_ticket":"ticket","gameplay_offer":{"offer_version":1,"client_build":"test","client_platform":"linux","candidates":[{"family":"canary","profile":"canary.current","transport":"canary.sequence.v1","schema_revision":1,"schema_sha256":"` + strings.Repeat("a", 64) + `","capabilities":[]}]}}`
 	response := httptest.NewRecorder()
 	server.Handler().ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/v1/login", strings.NewReader(body)))
 	if response.Code != http.StatusConflict || response.Body.String() != "{\"error\":\"unsupported_gameplay_pair\"}\n" {

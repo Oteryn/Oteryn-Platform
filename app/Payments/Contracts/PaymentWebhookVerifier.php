@@ -8,6 +8,10 @@ use Carbon\CarbonImmutable;
 interface PaymentWebhookVerifier
 {
     /**
+     * Authenticate the provider message before parsing and return only bounded,
+     * provider-authenticated facts. Currency and minor-unit amount are required
+     * so settlement integrity can be checked before payment truth changes.
+     *
      * @param  array<string, string|list<string>>  $headers
      */
     public function verify(

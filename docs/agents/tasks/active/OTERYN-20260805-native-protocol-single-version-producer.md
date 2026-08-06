@@ -6,7 +6,7 @@ agent: ChatGPT
 branch: feat/OTS-20260804-native-protocol-single-version-producer
 base_branch: main
 created: 2026-08-05T14:58:00+02:00
-updated: 2026-08-05T14:58:00+02:00
+updated: 2026-08-06T15:03:00+02:00
 risk: high
 execution_mode: github-only
 implementation_authorized: true
@@ -15,7 +15,7 @@ supersedes_task: OTERYN-20260723-native-auth-production-cutover
 owned_paths:
   - app/GameAuth/Worlds/**
   - app/Http/Controllers/GameAuth/GameLoginContextController.php
-  - database/migrations/**native_gameplay_protocol**
+  - database/migrations/**native_protocol_identity**
   - services/game-gateway/**
   - tests/Feature/GameAuth/**
   - docs/contracts/GAME_SESSION_CANARY_CONTRACT.md
@@ -56,9 +56,9 @@ The older `OTERYN-20260723-native-auth-production-cutover` record described comp
 ## Checkpoint
 
 ```yaml
-phase: implementation
-exact_base: c0b8703d326a04b43ae8e06f6192b0cb91c859b7
+phase: validation
+exact_base: 1b737574851453e950fa485c26f1a322b8e8ddd2
 branch: feat/OTS-20260804-native-protocol-single-version-producer
 production_enabled: false
-next_action: migrate producer and run exact-head validation
+next_action: complete exact-head CI, five independent audits, merge and archive
 ```

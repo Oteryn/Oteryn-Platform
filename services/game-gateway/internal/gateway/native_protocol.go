@@ -198,7 +198,7 @@ func validNativeTuple(family string, nativeVersion uint32, transport string, sch
 	if family != "oteryn" {
 		return true
 	}
-	return nativeVersion == 1 && transport == "tcp.tls13.protobuf.be32.v1" && schemaRevision == 2 && schemaSHA256 == canonicalNativeSchemaSHA256 && containsEvery(required, nativeV1BaseCapabilities) && containsEvery(nativeV1BaseCapabilities, required) && len(optional) == 0
+	return nativeVersion == 1 && transport == "tcp.tls13.protobuf.be32.v1" && schemaRevision == 2 && schemaSHA256 == canonicalNativeSchemaSHA256 && containsEvery(required, nativeV1BaseCapabilities)
 }
 
 func isIdentifier(value string) bool {

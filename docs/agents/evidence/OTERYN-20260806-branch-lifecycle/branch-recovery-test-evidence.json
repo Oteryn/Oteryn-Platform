@@ -1,0 +1,8 @@
+{
+  "branch": "recovery-test/issue-658-31081595058",
+  "issue": 658,
+  "result": "PASS",
+  "schema_version": 1,
+  "sha": "700fa5d0d75a7badd7cb8583d36341c711673942",
+  "tested_at": "2026-08-06T07:43:13+00:00"
+}

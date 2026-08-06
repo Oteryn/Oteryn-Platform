@@ -30,7 +30,7 @@ Then classify the task and load only the matching context.
 | Route | Trigger | Load / search |
 |---|---|---|
 | `agent-governance` | `AGENTS.md`, `docs/agents/**`, `tools/agents/**`, ownership or handoff | Read `GOVERNANCE_CONTRACT.json`, relevant governance/handoff records, `TASK_TEMPLATE.md`, `ACTIVE_WORK.md` and overlapping active tasks. |
-| `architecture` | new module, durable boundary, major dependency, product architecture | Read `SYSTEM_ARCHITECTURE.md`, search `MODULE_CATALOG.md`, relevant ADRs and contracts. Create/update ADR when decision outlives one task. |
+| `architecture` | new module, durable boundary, major dependency, product architecture | Read `ARCHITECTURE_AUTHORITY.md` first, then the focused owner named there, relevant ADRs and contracts. Create or supersede an ADR when a decision outlives one task. |
 | `web-cms` | Blade/views/CMS/news/public pages | Read relevant module catalog section; search affected routes, controllers, views and tests. Check escaping, sanitization, authorization and CSRF boundaries. |
 | `auth-identity` | login, password, sessions, MFA, verification, recovery | Read `SECURITY_ARCHITECTURE.md` and `AUTH_GAME_LOGIN_CONTRACT.md`, then relevant auth config/code/tests. Treat unresolved game-login compatibility as a blocker for global-security claims. |
 | `accounts-characters` | account/player creation or management | Read `DATA_OWNERSHIP.md` and `CANARY_DATA_CONTRACT.md`; load affected models/services/tests only after required contract fields are proven. |
@@ -41,32 +41,38 @@ Then classify the task and load only the matching context.
 | `api` | REST/API endpoints, external clients | Load routes, request validation, auth middleware, rate limits and API tests. Reuse module services rather than duplicating business logic. |
 | `security` | vulnerability, secret, traversal, XSS, CSRF, SSRF, injection, abuse | Read `SECURITY_ARCHITECTURE.md` and affected surface/tests. Record threat assumptions explicitly and add regression tests where practical. |
 | `testing` | test infrastructure, CI validation, E2E | Apply `BUILD_TEST_MATRIX.md`, then read `TEST_STRATEGY.md` and affected contracts/modules. Tie compatibility evidence to exact versions/SHAs where practical. |
-| `payments` | payment provider, coins, premium currency, webhook, shop | Read ADR 0003 and security/data ownership sections. Payments are deferred unless the user explicitly starts that phase. Require a new payment ADR/threat model. |
+| `payments` | payment provider, coins, premium currency, webhook, shop | Read current payment ADRs plus security/data ownership sections. Distinguish repository foundation from provider selection, customer value delivery and production activation. |
 | `ci-repair` | required GitHub check fails | Read the failing workflow/job/step and current task. Investigate root cause before rerun. |
 
 Multiple routes may apply, but each must be justified by task scope or evidence.
 
 ## Authoritative architecture documents
 
+Start architecture-wide work at `docs/architecture/ARCHITECTURE_AUTHORITY.md`. It defines precedence and routes each concern to its focused owner.
+
 Use targeted sections, not automatic full-document loading:
 
+- `docs/architecture/ARCHITECTURE_AUTHORITY.md` — authority, precedence, source state and conflict handling;
 - `docs/architecture/SYSTEM_ARCHITECTURE.md` — system boundaries and target topology;
 - `docs/architecture/MODULE_CATALOG.md` — responsibility and dependency ownership;
 - `docs/architecture/SECURITY_ARCHITECTURE.md` — mandatory security invariants;
 - `docs/architecture/DATA_OWNERSHIP.md` — persistent data ownership and shared write rules;
 - `docs/architecture/TEST_STRATEGY.md` — validation layers and production E2E expectations;
 - `docs/architecture/ROADMAP.md` — phase ordering and gates;
-- `docs/architecture/adr/**` — durable decisions;
+- `docs/architecture/adr/**` — durable decisions and supersession history;
 - `docs/contracts/**` — cross-component compatibility contracts.
+
+Implementation evidence proves delivered state but does not silently supersede accepted decisions. Historical or explicitly superseded sections are context only.
 
 ## Search before read
 
 Before creating a new abstraction or integration point, search:
 
 1. active task records and open PRs for overlapping paths or intent;
-2. `MODULE_CATALOG.md` for an existing owner;
-3. repository source/tests for existing implementations;
-4. relevant ADRs and contracts.
+2. `ARCHITECTURE_AUTHORITY.md` for the focused canonical owner;
+3. `MODULE_CATALOG.md` for an existing module owner;
+4. repository source/tests for existing implementations;
+5. relevant ADRs and contracts.
 
 Do not recursively follow documentation links without evidence that they are relevant.
 
