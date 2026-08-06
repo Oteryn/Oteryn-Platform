@@ -1,0 +1,238 @@
+name: Issue 365 Validator Environment Contract Proof
+
+on:
+  push:
+    branches:
+      - validation/issue365-env-contract-20260806
+    paths:
+      - .github/workflows/issue365-env-contract.yml
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: issue365-validator-environment-contract
+  cancel-in-progress: false
+
+env:
+  SOURCE_RUN_ID: "31092791643"
+  SOURCE_ARTIFACT_ID: "8964153679"
+  SOURCE_ARTIFACT_NAME: issue365-static-validator-v3-31092791643
+  SOURCE_ARTIFACT_DIGEST: sha256:d46988eb5c465f115380ac10778af48e648124bd1e7a0f42ab3c65e50143749c
+  SOURCE_ARTIFACT_SIZE: "33610"
+  HISTORICAL_WORKFLOW_SHA: f23bd310eb8812ff61e7ad7227b2a950bf695b59
+
+jobs:
+  prove-environment-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout static validation control
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+          path: control
+          fetch-depth: 0
+          clean: true
+          persist-credentials: false
+
+      - name: Verify approved artifact metadata
+        uses: actions/github-script@v8
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const fs = require('fs');
+            const path = require('path');
+            const artifactId = Number(process.env.SOURCE_ARTIFACT_ID);
+            const { data } = await github.rest.actions.getArtifact({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              artifact_id: artifactId,
+            });
+            const mismatches = [];
+            if (data.id !== artifactId) mismatches.push(`id=${data.id}`);
+            if (data.name !== process.env.SOURCE_ARTIFACT_NAME) mismatches.push(`name=${data.name}`);
+            if (data.digest !== process.env.SOURCE_ARTIFACT_DIGEST) mismatches.push(`digest=${data.digest}`);
+            if (data.size_in_bytes !== Number(process.env.SOURCE_ARTIFACT_SIZE)) mismatches.push(`size=${data.size_in_bytes}`);
+            if (Number(data.workflow_run?.id) !== Number(process.env.SOURCE_RUN_ID)) mismatches.push(`run=${data.workflow_run?.id}`);
+            if (data.expired) mismatches.push('expired=true');
+            if (mismatches.length) {
+              core.setFailed(`Approved artifact mismatch: ${mismatches.join(', ')}`);
+              return;
+            }
+            const out = path.join(process.env.RUNNER_TEMP, 'issue365-env-contract');
+            fs.mkdirSync(out, { recursive: true });
+            fs.writeFileSync(path.join(out, 'artifact-metadata.json'), JSON.stringify(data, null, 2));
+
+      - name: Download exact approved validator artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: issue365-static-validator-v3-31092791643
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          repository: blakinio/Oteryn-Platform
+          run-id: 31092791643
+          path: ${{ runner.temp }}/issue365-env-contract/approved
+
+      - name: Extract and prove complete environment contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/issue365-env-contract"
+          approved="$root/approved"
+          mkdir -p "$root/proof"
+
+          cd "$approved"
+          sha256sum -c SHA256SUMS
+          bash -n issue365-validator.sh
+          cd "$GITHUB_WORKSPACE/control"
+          git show \
+            "${HISTORICAL_WORKFLOW_SHA}:.github/workflows/issue365-synology-preflight.yml" \
+            > "$root/proof/historical-workflow.yml"
+
+          APPROVED_DIR="$approved" PROOF_DIR="$root/proof" python3 - <<'PY'
+          from __future__ import annotations
+
+          import hashlib
+          import json
+          import os
+          import re
+          from pathlib import Path
+
+          approved = Path(os.environ['APPROVED_DIR'])
+          proof = Path(os.environ['PROOF_DIR'])
+          final_text = (approved / 'issue365-validator.sh').read_text(encoding='utf-8')
+          legacy_text = (approved / 'issue365-validator-legacy-repaired.sh').read_text(encoding='utf-8')
+          workflow_text = (proof / 'historical-workflow.yml').read_text(encoding='utf-8')
+
+          explicit_non_secret = {
+              'TARGET_SHA': 'b6f7b12a43aa72a52dc98c3fa07a7c4607fcb608',
+              'RUNBOOK_REF': 'fb8a54d849a2f74f92ff429aea3bac06eb6a543c',
+              'PLAYWRIGHT_IMAGE': 'mcr.microsoft.com/playwright:v1.60.0-noble',
+          }
+          explicit_secret_source = {'GH_TOKEN': 'secrets.GITHUB_TOKEN'}
+          automatic_github = {
+              'GITHUB_REPOSITORY',
+              'GITHUB_RUN_ID',
+              'GITHUB_RUN_ATTEMPT',
+              'GITHUB_WORKSPACE',
+          }
+
+          for name, value in explicit_non_secret.items():
+              marker = f'  {name}: {value}'
+              if marker not in workflow_text:
+                  raise SystemExit(f'historical workflow missing exact global env marker: {marker}')
+          if '          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}' not in workflow_text:
+              raise SystemExit('historical workflow missing exact GH_TOKEN source')
+
+          os_env_pattern = re.compile(r"os\.environ\[['\"]([A-Z][A-Z0-9_]*)['\"]\]")
+          shell_github_pattern = re.compile(r'\$(?:\{)?(GITHUB_[A-Z0-9_]+)')
+          final_os_env = set(os_env_pattern.findall(final_text))
+          legacy_os_env = set(os_env_pattern.findall(legacy_text))
+          final_github_shell = set(shell_github_pattern.findall(final_text))
+
+          expected_os_env = {'GITHUB_REPOSITORY', 'RUNBOOK_REF', 'GH_TOKEN'}
+          if final_os_env != expected_os_env:
+              raise SystemExit(f'unexpected final os.environ contract: {sorted(final_os_env)}')
+          if final_os_env != legacy_os_env:
+              raise SystemExit(
+                  'v3 patch changed top-level Python environment contract: '
+                  f'legacy={sorted(legacy_os_env)}, final={sorted(final_os_env)}'
+              )
+          if final_github_shell != {'GITHUB_RUN_ID', 'GITHUB_RUN_ATTEMPT', 'GITHUB_WORKSPACE'}:
+              raise SystemExit(
+                  f'unexpected automatic GitHub shell references: {sorted(final_github_shell)}'
+              )
+
+          for name in explicit_non_secret:
+              if name not in final_text:
+                  raise SystemExit(f'approved validator does not reference required explicit input {name}')
+          if 'GH_TOKEN' not in final_text:
+              raise SystemExit('approved validator does not reference GH_TOKEN')
+
+          if final_text.count('playwright_php_image=') != 1:
+              raise SystemExit('v3 derived Playwright image identity must be assigned exactly once')
+          if final_text.count('-e ISSUE365_APP_CONTAINER="$APP_CONTAINER_NAME"') != 1:
+              raise SystemExit('child app-container identity must be supplied exactly once')
+          if final_text.count('PHP_VERSION_ID >= 80500') != 1:
+              raise SystemExit('PHP 8.5 preflight must occur exactly once')
+          if final_text.count('--workers=1 --retries=0') != 1:
+              raise SystemExit('zero-retry single-worker Playwright command must occur exactly once')
+
+          sourced_names = set(explicit_non_secret) | set(explicit_secret_source) | automatic_github
+          extracted_top_level = final_os_env | final_github_shell | {'TARGET_SHA', 'PLAYWRIGHT_IMAGE'}
+          unresolved = sorted(extracted_top_level - sourced_names)
+          if unresolved:
+              raise SystemExit(f'unresolved top-level environment inputs: {unresolved}')
+
+          manifest = {
+              'schema': 1,
+              'verdict': 'PASS_COMPLETE_ENVIRONMENT_CONTRACT',
+              'approved_artifact_id': 8964153679,
+              'approved_validator_sha256': hashlib.sha256(final_text.encode()).hexdigest(),
+              'historical_workflow_sha': os.environ['HISTORICAL_WORKFLOW_SHA'],
+              'explicit_non_secret': explicit_non_secret,
+              'explicit_secret_source': explicit_secret_source,
+              'automatic_github': sorted(automatic_github),
+              'process_standard_inside_child_wrapper': ['PWD'],
+              'internally_supplied_child_inputs': {
+                  'ISSUE365_APP_CONTAINER': 'generated sample docker run -e from APP_CONTAINER_NAME',
+                  'WORK_VOLUME': 'application validator docker run -e from work_volume',
+                  'EVIDENCE_VOLUME': 'application validator docker run -e from evidence_volume',
+                  'RUN_ROOT': 'generated .issue365.env',
+                  'ISSUE365_SERVER_TRACE': 'generated .issue365.env',
+                  'sample_environment': [
+                      'ACCEPTANCE_RUN_ID',
+                      'ACCEPTANCE_OUTPUT_DIR',
+                      'ISSUE365_SAMPLE_ID',
+                      'ISSUE365_ACTION_MODE',
+                      'ISSUE365_FIXTURE_MODE',
+                  ],
+              },
+              'extracted': {
+                  'python_os_environ': sorted(final_os_env),
+                  'github_shell_refs': sorted(final_github_shell),
+                  'top_level_required': sorted(extracted_top_level),
+                  'unresolved': unresolved,
+              },
+              'v3_patch': {
+                  'changed_python_os_environ_contract': False,
+                  'derived_playwright_image_assignment_count': 1,
+                  'child_app_identity_supply_count': 1,
+                  'php_805_preflight_count': 1,
+                  'workers_1_retries_0_count': 1,
+              },
+          }
+          (proof / 'environment-contract.json').write_text(
+              json.dumps(manifest, indent=2, sort_keys=True),
+              encoding='utf-8',
+          )
+          extraction = {
+              'legacy_python_os_environ': sorted(legacy_os_env),
+              'final_python_os_environ': sorted(final_os_env),
+              'final_github_shell_refs': sorted(final_github_shell),
+          }
+          (proof / 'extraction-report.json').write_text(
+              json.dumps(extraction, indent=2, sort_keys=True),
+              encoding='utf-8',
+          )
+          PY
+
+          cp "$approved/issue365-validator.sh" "$root/proof/"
+          cp "$approved/issue365-validator-legacy-repaired.sh" "$root/proof/"
+          cp "$approved/static-proof.json" "$root/proof/"
+          cp "$approved/SHA256SUMS" "$root/proof/approved-artifact-SHA256SUMS"
+          cp "$root/artifact-metadata.json" "$root/proof/"
+          (
+            cd "$root/proof"
+            sha256sum * > PROOF_SHA256SUMS
+            sha256sum -c PROOF_SHA256SUMS
+          )
+
+      - name: Upload canonical environment-contract proof
+        uses: actions/upload-artifact@v4
+        with:
+          name: issue365-validator-environment-contract-${{ github.run_id }}
+          path: ${{ runner.temp }}/issue365-env-contract/proof
+          if-no-files-found: error
+          retention-days: 14
