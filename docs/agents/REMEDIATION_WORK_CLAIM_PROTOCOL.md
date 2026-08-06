@@ -1,7 +1,7 @@
 # Remediation Work Claim Protocol
 
 ```yaml
-claim_protocol_version: 3
+claim_protocol_version: 4
 repository: blakinio/Oteryn-Platform
 applies_to:
   - OTERYN_PLATFORM_REMEDIATION
@@ -9,23 +9,37 @@ applies_to:
 atomic_lock: deterministic Git branch ref
 visibility_record: GitHub Issue claim comments
 ownership_record: active task checkpoint
-optional_delivery_record: existing or newly opened Pull Request
+optional_delivery_record: one Issue-owned Pull Request
 repair_delivery_contract: docs/agents/REPAIR_PR_ECONOMY.md
+audit_gate_contract: docs/agents/REMEDIATION_AUDIT_RISK_GATE.md
 ```
 
 ## Purpose
 
-This contract prevents two remediation agents from implementing the same Issue or editing overlapping paths concurrently. `REPAIR_PR_ECONOMY.md` controls PR selection, repair trains, independent audit separation and delivery mapping.
+This contract prevents two remediation agents from implementing the same Issue or editing overlapping paths concurrently. It also keeps one implementation owner accountable from claim through terminal closeout.
 
 A valid active claim has three mandatory parts:
 
-1. **Atomic branch lock** — deterministic Git ref `repair/issue-<ISSUE_NUMBER>`; first successful creation wins.
-2. **Issue claim** — machine-readable comments record provisional, activation, renewal, takeover and release state.
-3. **Active task ownership** — exact paths, coordination key, branch, lease, recovery state and one `next_action`.
+1. deterministic branch `repair/issue-<ISSUE_NUMBER>` as the atomic race arbiter;
+2. machine-readable Issue claim evidence;
+3. an active task checkpoint with exact ownership and one `next_action`.
 
-A PR is a delivery/review artifact, not a mandatory ownership primitive. Labels, assignees, comments, chat, local branches, random branch names, unpushed task records and UI spinners are not atomic locks.
+A PR is a delivery/review artifact, not a lock. Labels, assignees, comments, arbitrary branch names, chat messages, unpushed files and UI state are not ownership.
 
-## Lock states
+## Ownership invariant
+
+One Issue has one active implementation owner at a time. That owner remains responsible for:
+
+- implementation;
+- self-review and validation;
+- delivery PR maintenance;
+- review, CI and audit finding remediation;
+- merge and outcome verification;
+- Issue closure, task archival and ownership release.
+
+An auditor does not become the Issue owner. A distinct integration owner is allowed only for an explicitly authorized exceptional repair train. Evidence-backed takeover is the only normal way to replace an implementation owner.
+
+## Claim states
 
 ```yaml
 claim_states:
@@ -38,17 +52,11 @@ claim_states:
   - completed
 ```
 
-- `unclaimed`: no deterministic branch and no valid live claim.
-- `provisional`: eligibility verified and marker posted, but branch not yet acquired.
-- `active`: deterministic branch, activation marker and active task agree; PR may be absent.
-- `releasing`: owner is terminally reconciling or abandoning the claim.
-- `released`: ownership terminally released; requeue requires revalidation.
-- `stale`: lease/recovery deadline expired and live evidence proves no worker remains active.
-- `completed`: merged or otherwise terminal accepted outcome independently verified and ownership released.
+`active` means deterministic branch, activation marker and task agree. A PR may still be absent. `completed` requires a terminal accepted outcome and released ownership, not merely an open or merged PR.
 
-## Deterministic lock identity
+## Deterministic lock
 
-For Issue `#543`, the only valid initial remediation branch is:
+For Issue `#543`, the only valid initial branch is:
 
 ```text
 repair/issue-543
@@ -57,62 +65,58 @@ repair/issue-543
 Rules:
 
 - derive the name only from repository and Issue number;
-- never append agent names, timestamps or random suffixes to bypass a lock;
-- create from synchronized current `main` after eligibility preflight;
-- one successful GitHub create-ref operation acquires the lock;
-- `already exists`, ref conflict or equivalent means the lock was not acquired;
-- never delete or move a pre-existing branch merely to obtain the claim;
-- reopened/follow-up work reuses the branch through evidence-backed takeover or requires a separately approved Issue; do not create silent `-v2` branches.
-
-Issue comments, labels and assignees do not provide atomic compare-and-set ownership.
+- create it from synchronized current `main` after eligibility preflight;
+- first successful unique-ref creation wins;
+- a ref conflict means the claim was not acquired;
+- never add random suffixes, delete or move another owner's branch, or create a competing implementation branch;
+- reopened work reuses the branch through valid takeover or requires a separately authorized Issue.
 
 ## Eligibility preflight
 
 Before claim mutation verify:
 
-1. Issue has `agent:ready` and neither `state:triage` nor `state:blocked`.
-2. `implementation_authorized: true`.
-3. Work is `parallel_safe`, or selected as the sole serialized item.
-4. Claim is unclaimed/released/stale and no valid active marker exists.
-5. Blocking Issues and required accepted decisions/contracts are resolved.
-6. Active tasks, PRs, branches, coordination keys and paths show no conflict.
-7. Issue metadata still matches current `main`.
-8. Related open and closed PRs were searched so an authoritative existing delivery is not duplicated.
+1. Issue is implementation-authorized, ready and not blocked/triage.
+2. Work is parallel-safe or selected as the sole serialized item.
+3. No valid active claim or deterministic branch conflicts.
+4. Dependencies and accepted contracts are resolved.
+5. Active tasks, branches, related open/closed PRs, coordination keys and paths do not conflict.
+6. Issue metadata matches current taxonomy and protocol versions.
+7. Required ownership and audit-risk metadata is complete enough to fail closed.
 
-If any material fact is `UNKNOWN` or `CONFLICT`, do not claim. Correct metadata or stop with the exact blocker.
+Any material `UNKNOWN` or `CONFLICT` blocks the claim until resolved.
 
 ## Provisional marker
 
-Before the branch attempt post:
+Post before the branch attempt:
 
 ```yaml
 OTERYN_REMEDIATION_CLAIM:
-  protocol_version: 3
+  protocol_version: 4
   issue: <number>
   finding_id: <finding id>
   claim_nonce: <globally unique value>
-  session_id: <agent/session identifier>
-  task_id: <planned task id>
+  session_id: <agent/session>
+  task_id: <task>
   lock_branch: repair/issue-<number>
   coordination_key: <key>
   intended_exclusive_paths:
-    - <path or narrow glob>
+    - <path>
   intended_shared_paths: []
-  claimed_at: <ISO-8601 timestamp>
-  provisional_lease_expires_at: <normally 15 minutes later>
+  claimed_at: <timestamp>
+  provisional_lease_expires_at: <timestamp>
   state: provisional
 ```
 
-This marker provides visibility only.
+The marker is visibility only.
 
 ## Atomic acquisition
 
-1. Re-read Issue, claim/release comments, active tasks, related PRs and deterministic branch.
-2. Attempt exactly once to create `repair/issue-<number>` from verified current `main`.
-3. On success, record exact base SHA and activate.
-4. On ref conflict:
-   - valid active claim: post losing/release marker and select another eligible Issue when authorized;
-   - stale candidate: use takeover; never create a competing branch;
+1. Re-read Issue, claim comments, active tasks, related PRs and deterministic branch.
+2. Attempt exactly once to create the deterministic branch from verified current `main`.
+3. On success, record exact base and activate.
+4. On conflict:
+   - valid active claim: release and select another eligible Issue;
+   - stale candidate: follow takeover;
    - ambiguous state: stop with an ownership blocker.
 5. Never edit product paths while only provisional.
 
@@ -120,122 +124,116 @@ Losing marker:
 
 ```yaml
 OTERYN_REMEDIATION_CLAIM_RELEASED:
-  protocol_version: 3
+  protocol_version: 4
   issue: <number>
   claim_nonce: <nonce>
   state: released
-  released_at: <timestamp>
   reason: deterministic branch lock not acquired
   winning_branch: repair/issue-<number>
+  released_at: <timestamp>
   next_action: select another eligible Issue
 ```
 
-## Activation sequence
+## Activation
 
-The branch winner must activate before the provisional lease expires:
+The branch winner activates before the provisional lease expires:
 
-1. Create the active task record on `repair/issue-<number>`.
-2. Record Issue, claim nonce, coordination key, exact owned/shared paths, lease, recovery state and branch.
-3. Apply the delivery selection order in `REPAIR_PR_ECONOMY.md`:
-   - reuse an authoritative existing PR;
-   - join a compatible train through its integration owner;
-   - remain branch-only until coherent;
-   - create one dedicated PR when needed.
-4. Re-read Issue, branch, task, related PRs and ownership.
-5. Remove `agent:ready`.
-6. Post:
+1. create the active task record on the deterministic branch;
+2. record Issue, nonce, owner, paths, coordination key, lease, recovery and audit-gate state;
+3. search related PRs and apply `REPAIR_PR_ECONOMY.md`;
+4. remain branch-only until a PR is useful, or reuse/open one Issue-owned PR;
+5. re-read ownership and remove `agent:ready`;
+6. post:
 
 ```yaml
 OTERYN_REMEDIATION_CLAIM_ACTIVATED:
-  protocol_version: 3
+  protocol_version: 4
   issue: <number>
-  claim_nonce: <same nonce>
+  claim_nonce: <nonce>
   state: active
-  task_id: <task id>
+  implementation_owner: <session/claim>
+  task_id: <task>
   task_path: docs/agents/tasks/active/<task>.md
   branch: repair/issue-<number>
   pull_request: none | <number>
-  delivery_state: branch_only | reused_existing | dedicated_pr | train_candidate | repair_train
+  delivery_state: branch_only | reused_existing | issue_owned_pr | exceptional_train_candidate | exceptional_repair_train
+  audit_requirement: UNCLASSIFIED | NOT_REQUIRED | OPTIONAL | REQUIRED
   base_head_at_claim: <sha>
   exact_head: <sha>
   activated_at: <timestamp>
   lease_expires_at: <timestamp>
 ```
 
-7. Update Issue claim metadata when authorized; otherwise branch, task and machine comments remain authoritative.
+A PR must not be created only to prove activity.
 
-A PR must not be created solely to demonstrate activity. If PR-triggered CI, early high-risk review, authoritative PR reuse, coherent reviewability or train integration requires a PR, create/reuse it and update the activation/renewal record.
+## Active claim and renewal
 
-If activation cannot complete, preserve exact state and release or mark blocked. Do not keep an unactivated branch as an indefinite lock.
-
-## Active ownership and lease
-
-A claim remains valid only while:
-
-- deterministic branch is the source branch;
-- nonce is not released/superseded;
-- active task names the same Issue, branch, coordination key and paths;
-- task lease and recovery checkpoint are fresh;
-- optional PR/delivery mapping does not contradict the task;
-- no ownership or safety conflict exists.
+A claim remains valid only while branch, nonce, implementation owner, task, paths, lease and live delivery state agree.
 
 Renew only after measurable progress:
 
 ```yaml
 OTERYN_REMEDIATION_CLAIM_RENEWED:
-  protocol_version: 3
+  protocol_version: 4
   issue: <number>
-  claim_nonce: <same nonce>
+  claim_nonce: <nonce>
+  implementation_owner: <session/claim>
   branch: repair/issue-<number>
   pull_request: none | <number>
-  delivery_state: branch_only | reused_existing | dedicated_pr | train_candidate | repair_train
+  delivery_state: <state>
+  audit_requirement: NOT_REQUIRED | OPTIONAL | REQUIRED
   exact_head: <sha>
   checkpoint_updated_at: <timestamp>
   lease_expires_at: <timestamp>
   next_action: <one action>
 ```
 
-Do not create activity-only commits/comments.
+Do not create activity-only commits or comments.
 
-## PR creation and train handoff
+## End-to-end ownership
 
-When a PR becomes necessary, update task and Issue claim evidence; do not create a second delivery PR when a compatible authoritative PR exists.
+The implementation owner must continue the same Issue through every safe phase available in the current invocation. Completing implementation, opening a PR, obtaining CI, receiving audit findings or merging is not by itself a reason to abandon ownership.
 
-A worker joining a train keeps its own deterministic branch and task. It publishes the exact immutable source-head acceptance block required by `REPAIR_PR_ECONOMY.md`; only the train integration owner writes the train branch.
+When a different execution session resumes the same valid task, it is a continuation/takeover of the implementation-owner role, not a new parallel owner.
 
-The worker must not silently advance an accepted source head. New source content requires a new handoff and revalidation generation.
+## Audit gate
 
-## Independent audit role rotation
+Before final readiness, record the machine-readable decision from `REMEDIATION_AUDIT_RISK_GATE.md`.
 
-When a coherent candidate reaches the final audit gate:
+- `NOT_REQUIRED`: complete self-review, applicable E2E and exact-head CI; do not create an audit handoff.
+- `OPTIONAL`: request a distinct audit only when chosen; otherwise record `NOT_REQUESTED` with rationale.
+- `REQUIRED`: publish the exact handoff, keep ownership, set checkpoint `ready` and return `ROTATE` if no eligible auditor is available.
 
-1. publish exact PR/base/head audit handoff;
-2. set checkpoint `status: ready` with one audit `next_action`;
-3. preserve the Issue claim, branch and task for findings/recovery;
-4. return `ROTATE` when no distinct eligible auditor can run in the session;
-5. never use `WAITING` merely because another agent must perform the audit.
+The owner cannot downgrade a mandatory trigger. Self-review is never independent audit.
 
-The implementing agent, contributing workers and train integration owner cannot perform the required final independent PASS. The auditor is `AUDIT ONLY`, does not mutate the target and follows `REPAIR_PR_ECONOMY.md`.
+If an auditor returns findings, the same implementation owner resumes, repairs them, reruns affected validation and emits a new candidate/audit generation. The auditor never owns or mutates the target.
+
+## Exceptional repair train
+
+A worker may offer an exact source head to a repair train only when `REPAIR_PR_ECONOMY.md` eligibility and explicit coordinator authorization are proven. The worker keeps its Issue ownership; exactly one integration owner controls the train branch.
+
+Ordinary product repairs do not wait for or join trains by default.
 
 ## Stale-claim takeover
 
-Chat silence or a spinner never proves abandonment. Takeover is allowed only after verifying:
+Silence or a UI spinner never proves abandonment. Takeover requires proof that:
 
 - lease and recovery deadline expired;
-- no worker writes branch, PR, paths, runner or protected state;
-- live Git/PR state shows no unrecorded progress;
-- no external operation remains validly active;
-- takeover preserves dependencies, accepted train heads and audit/CI counters.
+- no worker is writing branch, PR, paths, runner or protected state;
+- live state shows no unrecorded progress;
+- no external operation remains active;
+- dependencies, audit generations and accepted source heads remain safe.
 
-Normally reuse the task, branch and PR. Increment recovery generation and preserve deadlines, runs, findings and exact heads.
+Normally reuse the same branch, task and PR. Increment recovery generation and preserve exact evidence.
 
 ```yaml
 OTERYN_REMEDIATION_CLAIM_TAKEOVER:
-  protocol_version: 3
+  protocol_version: 4
   issue: <number>
   previous_claim_nonce: <nonce>
+  previous_implementation_owner: <owner>
   branch: repair/issue-<number>
-  new_session_id: <session>
+  new_implementation_owner: <session>
   recovery_generation: <number>
   evidence: <expired lease and live-state identifiers>
   taken_over_at: <timestamp>
@@ -244,70 +242,57 @@ OTERYN_REMEDIATION_CLAIM_TAKEOVER:
 
 Ambiguous ownership blocks takeover.
 
-## Release protocol
+## Release and completion
 
-Before abandoning, superseding, blocking or completing:
+Before abandoning, blocking or completing:
 
-1. preserve/close coherent work accurately;
-2. set task to `ready`, `waiting`, `blocked` or `completed` with one `next_action` when incomplete;
-3. reconcile delivery PR, train mapping, audits and review threads;
-4. post release marker;
-5. archive/release ownership according to policy;
-6. delete deterministic branch only after terminal delivery and no recovery/evidence dependency;
+1. preserve coherent work and exact evidence;
+2. reconcile PR, audit gate, validation, reviews and related attempts;
+3. set an accurate task status with one `next_action` when incomplete;
+4. post release evidence;
+5. archive/release only after terminal conditions are proven;
+6. delete the deterministic branch only when no recovery/evidence dependency remains;
 7. restore `agent:ready` only after revalidation.
 
 ```yaml
 OTERYN_REMEDIATION_CLAIM_RELEASED:
-  protocol_version: 3
+  protocol_version: 4
   issue: <number>
   claim_nonce: <nonce>
+  implementation_owner: <owner>
   branch: repair/issue-<number>
   state: released | completed | blocked
   released_at: <timestamp>
   task_id: <task>
   pull_request: <number or none>
+  audit_requirement: NOT_REQUIRED | OPTIONAL | REQUIRED
+  audit_result: NOT_REQUIRED | NOT_REQUESTED | PASS | FAILED | PENDING
   reason: <exact reason>
   branch_terminal_state: retained | deleted
   next_action: <one action or none>
 ```
 
-A pre-merge task archive may use only `completed_on_merge` semantics. A PR closed without merge cannot leave ownership released or the task completed.
+`completed` requires merged/accepted outcome, completed self-review, required audit result, applicable E2E, exact-head CI, terminal related PRs, archived task and released ownership.
 
-## Shared-path serialization
+## Parallel dispatch
 
-Serialized by default:
+A coordinator may dispatch several implementation owners only for distinct ready Issues with non-overlapping paths, coordination keys, migrations, contracts and rollout.
 
-- root manifests and lockfiles;
-- shared route registries;
-- common frontend shells/layouts;
-- module/architecture catalogs and global indexes;
-- migration chains/shared schema aggregates;
-- generated contracts/types;
-- common fixtures/acceptance inventories;
-- CI workflows/deployment manifests.
-
-Assign one integration owner or explicit shared-path lease and merge order.
-
-## Coordinator dispatch
-
-Multiple workers may be dispatched only when every Issue is ready, authorized, parallel-safe, dependency-resolved, distinct in coordination key, non-overlapping in paths and independent in migration/contract/rollout, with no existing deterministic branch or valid claim.
-
-Coordinator dispatch is not a lock. Each worker acquires its own ref. A worker that loses immediately releases and selects another eligible Issue when authorized. Coordinators must not hold coherent repairs open merely to fill a repair train.
+`N agentów naprawczych` means up to `N` implementation owners. No audit slot is permanently reserved. Allocate an independent auditor only when a valid `REQUIRED` handoff exists.
 
 ## Forbidden patterns
 
 Do not:
 
-- edit product code before lock acquisition and activation;
-- replace atomic ref ownership with labels, assignees or comments;
-- bypass locks with random branch suffixes;
+- edit before deterministic branch acquisition and activation;
+- use labels/comments/PRs as atomic ownership;
+- bypass a branch with random suffixes;
 - claim several Issues speculatively;
-- keep a claim while doing unrelated work;
-- renew without progress;
-- create a duplicate PR for a valid active claim;
-- create a PR solely as an activity signal;
-- steal a claim based on chat/UI inactivity;
-- delete/force-move another claim branch;
-- silently change an accepted train source head;
-- let an implementer self-approve the required independent audit;
-- use claim metadata to override safety, architecture or path ownership.
+- create a second active implementation owner;
+- transfer Issue ownership to an auditor;
+- let an auditor repair and then self-PASS the same generation;
+- waive a mandatory audit trigger;
+- call self-review independent;
+- use an ordinary repair train to reduce PR count;
+- keep a claim alive with activity-only evidence;
+- delete or force-move another owner's branch.
