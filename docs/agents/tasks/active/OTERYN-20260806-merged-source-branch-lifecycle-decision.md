@@ -80,11 +80,11 @@ forbidden_paths:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-06T06:27:00Z
+updated_at: 2026-08-06T06:35:00Z
 phase: decision
-head: UNKNOWN
+head: tracked-by-pr-653
 branch: task/OTERYN-20260806-merged-branch-lifecycle-decision
-pr: null
+pr: 653
 status: waiting
 context_routes:
   - architecture
@@ -96,6 +96,7 @@ proven:
   - No open duplicate PR or canonical lifecycle policy was found.
   - GitHub documentation states branch protection and repository rules can prevent automatic branch deletion.
   - ADR prefix 0024 is unused and is the next value after 0023.
+  - Draft PR 653 contains exactly the five bounded decision-documentation paths.
 derived:
   - Option A provides the lowest recurring cost and strongest deterministic default when retention exceptions are protected and fail closed.
 unknown:
