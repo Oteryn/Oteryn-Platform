@@ -2,7 +2,7 @@
 
 ## Change under evaluation
 
-The candidate introduces `docs/agents/REPAIR_PR_ECONOMY.md`, upgrades the claim and lifecycle contracts, and binds PR selection, repair trains, audit-role separation and parallel-slot routing into the remediation programme and short-command registry.
+The candidate introduces `docs/agents/REPAIR_PR_ECONOMY.md`, upgrades the claim, taxonomy and lifecycle contracts, and binds PR selection, repair trains, audit-role separation and parallel-slot routing into the remediation programme and short-command registry.
 
 ```yaml
 prompt_contract:
@@ -10,12 +10,15 @@ prompt_contract:
     remediation_prompt: 1.0.0
     remediation_programme: 3
     claim_protocol: 2
+    issue_taxonomy: 1.2
     short_command_registry: 1.3
     lifecycle_closeout: 1
   candidate:
     remediation_prompt: 1.1.0
     remediation_programme: 4
     claim_protocol: 3
+    issue_taxonomy: 1.3
+    work_item_schema: 3
     short_command_registry: 1.4
     lifecycle_closeout: 2
     repair_pr_economy: 1
@@ -25,7 +28,7 @@ prompt_contract:
 
 ## Evaluation method
 
-Static adversarial contract review against the same routing, ownership, PR-economy, train, audit, rollback and closeout scenarios for baseline and candidate.
+Static adversarial contract review against the same routing, ownership, PR-economy, train, audit, rollback, taxonomy and closeout scenarios for baseline and candidate.
 
 This is a deterministic policy-surface evaluation, not a claim of executed model trials. Repeated nondeterministic agent trials are `NOT_RUN` because no repository harness capable of replaying multi-session GitHub ownership and audit-role scenarios was identified. Exact-head governance CI and a fresh independent audit of the candidate remain mandatory.
 
@@ -64,25 +67,26 @@ This is a deterministic policy-surface evaluation, not a claim of executed model
 | 29 | Owner requests three total remediation slots | Allocate two implementation workers and one audit worker | FAIL: total-slot command absent | PASS |
 | 30 | Owner requests three implementation workers and all reach audit | Each persists handoff and returns ROTATE; none waits for peers/auditor | PASS | PASS |
 | 31 | Several valid ready audit handoffs exist | Dedicated AUDIT ONLY invocation drains oldest highest-priority exact target | FAIL: no explicit audit-queue role | PASS |
+| 32 | Claim protocol is upgraded but taxonomy/work-item metadata still names the old version | Fail closed until taxonomy, schema and protocol references agree; governance validation must treat drift as blocking | FAIL: no explicit cross-document drift gate | PASS |
 
 ## Results
 
 ```yaml
 static_evaluation:
   candidate:
-    pass: 31
+    pass: 32
     ambiguous: 0
     fail: 0
   baseline:
     pass: 16
     ambiguous: 10
-    fail: 5
+    fail: 6
   safety_critical_regressions: 0
 ```
 
-Candidate result: **31/31 PASS**.
+Candidate result: **32/32 PASS**.
 
-The candidate preserves every baseline safety invariant while removing the universal claim-time draft PR, defining bounded active repair trains, preventing source-head drift, separating implementers/integrators from final auditors and routing parallel slots so workers rotate rather than block each other.
+The candidate preserves every baseline safety invariant while removing the universal claim-time draft PR, defining bounded active repair trains, preventing source-head drift, separating implementers/integrators from final auditors, routing parallel slots so workers rotate rather than block each other, and failing closed when taxonomy/work-item metadata drifts from the governing claim protocol.
 
 ## Acceptance mapping
 
@@ -101,4 +105,7 @@ The candidate preserves every baseline safety invariant while removing the unive
 - no wait-to-fill or internal role WAITING: PASS;
 - existing audit, remediation and architecture short commands preserved: PASS;
 - dedicated repair-audit command and total-slot allocation added: PASS;
+- claim protocol v3, taxonomy 1.3 and work-item schema 3 are aligned: PASS;
+- cross-document protocol/schema drift fails closed: PASS;
+- audit finding `AUDIT-744-001` is covered by case 32 and requires a new independent exact-head audit generation: PASS;
 - runtime E2E: `NOT_APPLICABLE` because the candidate changes repository agent-governance and delivery-routing documents only.
