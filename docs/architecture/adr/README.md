@@ -53,7 +53,7 @@ The historical exception is a closed exact-path allowlist, not permission to cre
 
 ## Inventory
 
-Inventory reconciled on 2026-08-05. Duplicate prefixes are intentionally shown rather than hidden.
+Inventory reconciled on 2026-08-06. Duplicate prefixes are intentionally shown rather than hidden.
 
 - `0001-laravel-modular-monolith.md`
 - `0002-separate-platform-and-canary-repositories.md`
@@ -86,6 +86,7 @@ Inventory reconciled on 2026-08-05. Duplicate prefixes are intentionally shown r
 - `0021-require-canary-owned-character-deletion-lifecycle.md`
 - `0022-architecture-authority-index-and-focused-canonical-documents.md`
 - `0023-machine-readable-architecture-decision-backlog.md`
+- `0024-merged-source-branch-lifecycle-policy.md`
 
 ## Preserved legacy duplicate paths
 
