@@ -18,17 +18,17 @@ Continuously challenge Platform architecture, repository structure and CI/CD; id
 
 ```yaml
 programme_state_version: 2
-updated_at: 2026-08-06T09:10:00Z
-status: waiting_owner_decision
-current_review_domain: confidential-vulnerability-disclosure-policy
+updated_at: 2026-08-06T09:55:00Z
+status: ready
+current_review_domain: architecture-review-rotation
 active_task: null
-issue: 588
+issue: null
 branch: null
 pull_request: null
-last_completed_domain: repository-licensing-policy
-last_completed_issue: 587
-last_completed_pull_request: 690
-last_completed_merge: d353235a3c7d4b7b34f35a745871c10a71192cc6
+last_completed_domain: confidential-vulnerability-disclosure-policy
+last_completed_issue: 588
+last_completed_pull_request: 702
+last_completed_merge: ab6ac645595813653618d91574c717fb4d9c7edd
 accepted_authority:
   authority_index: docs/architecture/ARCHITECTURE_AUTHORITY.md
   authority_adr: docs/architecture/adr/0022-architecture-authority-index-and-focused-canonical-documents.md
@@ -36,10 +36,11 @@ accepted_authority:
   backlog_registry: docs/architecture/ARCHITECTURE_DECISION_BACKLOG.json
   branch_lifecycle_adr: docs/architecture/adr/0024-merged-source-branch-lifecycle-policy.md
   licensing_adr: docs/architecture/adr/0026-proprietary-repository-licensing-policy.md
+  vulnerability_disclosure_adr: docs/architecture/adr/0027-confidential-vulnerability-disclosure-policy.md
 implementation_handoffs:
   - issue: 658
     scope: deterministic branch inventory, retention metadata, conservative cleanup and recovery proof
-active_architecture_decision_ids: ["ARCH-DEC-0003"]
+active_architecture_decision_ids: []
 architecture_conflicts:
   - Historical duplicate ADR prefixes remain for 0008, 0010, 0011, 0015, 0016, 0017, 0018 and 0021, but the exact accepted path sets are machine-enforced and cannot expand silently.
   - Issue 586 retains historical evidence that delete_branch_on_merge was disabled; ADR 0024 and current metadata prove the accepted current state is enabled.
@@ -48,19 +49,18 @@ ci_architecture_findings:
   - Runtime/code changes require the complete MariaDB/PHP suite before the aggregate test gate can pass.
   - Documentation-only changes pass only after fail-closed classification proves runtime tests are NOT_APPLICABLE.
 proven:
-  - Repository owner selected Option A for the merged source-branch lifecycle policy.
-  - PR 653 merged ADR 0024 as 2abfb961201f7f5d359c5b140dba68be492157be after all eight final workflows passed.
-  - Repository owner selected Option A for ARCH-DEC-0002 on 2026-08-06.
-  - PR 690 merged ADR 0026 and the proprietary/no-permission policy as d353235a3c7d4b7b34f35a745871c10a71192cc6 after all exact-head workflows and independent audit passed.
-  - ARCH-DEC-0002 was removed from the active backlog in the same bounded package.
+  - Repository owner selected Option A for the merged source-branch lifecycle policy; PR 653 merged ADR 0024.
+  - Repository owner selected Option A for repository licensing; PR 690 merged ADR 0026 and the proprietary/no-permission policy.
+  - Repository owner selected Option A for confidential vulnerability disclosure.
+  - GitHub Private Vulnerability Reporting is enabled for blakinio/Oteryn-Platform.
+  - PR 702 merged ADR 0027, canonical SECURITY.md routing, public-Issue diversion and the empty active decision backlog as ab6ac645595813653618d91574c717fb4d9c7edd after all eight exact-head workflows and independent audit passed.
 derived:
-  - The next unresolved architecture decision is confidential vulnerability disclosure policy, ARCH-DEC-0003 / Issue 588.
+  - The three owner decisions formerly tracked by the architecture decision backlog are resolved and preserved by accepted ADRs.
 unknown:
-  - Repository-owner selection for ARCH-DEC-0003.
+  - The next evidence-backed architecture contradiction or missing decision to review.
 conflicts: []
-blockers:
-  - Repository-owner selection in Issue 588 is required before ARCH-DEC-0003 can leave decision_required.
-next_action: Present ARCH-DEC-0003 options from Issue 588 to the repository owner, recommend the safest supported route and do not infer acceptance.
+blockers: []
+next_action: Re-scan accepted authority, active tasks and open audit findings; select one bounded architecture contradiction only when evidence proves that a new decision or correction is required.
 ```
 
 ## Programme rules
