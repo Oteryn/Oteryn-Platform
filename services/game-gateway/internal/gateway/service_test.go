@@ -86,7 +86,7 @@ func TestLoginWithOfferUsesAuthoritativePolicyOrderAndBindsV2(t *testing.T) {
 		ChannelID: 1,
 		Candidates: []GameplayPolicyCandidate{
 			policyCandidate("canary", "canary.current", "canary.sequence.v1", "canary-endpoint", 7172, []string{"session.single-admission.v1"}, nil),
-			policyCandidate("oteryn", 1, "tcp.tls13.protobuf.be32.v1", "native-endpoint", 7173, nativeV1BaseCapabilities, []string{"zz.optional.v1"}),
+			policyCandidate("oteryn", 1, "tcp.tls13.protobuf.be32.v1", "native-endpoint", 7173, nativeV1BaseCapabilities, nil),
 		},
 	}
 	sessions := &fakeSessionIssuer{session: Session{Credential: "v2-session", ExpiresAt: now.Add(time.Minute)}}
@@ -98,7 +98,7 @@ func TestLoginWithOfferUsesAuthoritativePolicyOrderAndBindsV2(t *testing.T) {
 		ClientBuild:    "oteryn-client-test",
 		ClientPlatform: "windows-x86_64",
 		Candidates: []GameplayOfferCandidate{
-			offerCandidate("oteryn", 1, "tcp.tls13.protobuf.be32.v1", append(append([]string(nil), nativeV1BaseCapabilities...), "zz.optional.v1")),
+			offerCandidate("oteryn", 1, "tcp.tls13.protobuf.be32.v1", nativeV1BaseCapabilities),
 			offerCandidate("canary", "canary.current", "canary.sequence.v1", []string{"session.single-admission.v1"}),
 		},
 	}

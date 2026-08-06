@@ -110,6 +110,107 @@ func TestReadyForAndCreateV2UseExactBoundContract(t *testing.T) {
 	}
 }
 
+func TestReadyForAndCreateV2PreserveCanaryProfile(t *testing.T) {
+	expiresAt := time.Now().UTC().Add(time.Minute).Truncate(time.Second)
+	request := validCanaryV2Request()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assertServiceAuthentication(t, r)
+		var payload v2RequestPayload
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			t.Fatalf("decode Canary v2 payload: %v", err)
+		}
+		assertV2Payload(t, payload, request)
+		if payload.Profile != "canary.current" || payload.NativeProtocolVersion != 0 {
+			t.Fatalf("Canary family identity was not preserved: %#v", payload)
+		}
+
+		switch r.URL.Path {
+		case "/internal/v2/game-sessions/readiness":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"contract_version":         2,
+				"ready":                    true,
+				"world_id":                 payload.WorldID,
+				"channel_id":               payload.ChannelID,
+				"world_policy_revision":    payload.WorldPolicyRevision,
+				"endpoint_id":              payload.EndpointID,
+				"audience":                 payload.Audience,
+				"family":                   payload.Family,
+				"profile":                  payload.Profile,
+				"transport":                payload.Transport,
+				"schema_revision":          payload.SchemaRevision,
+				"schema_sha256":            payload.SchemaSHA256,
+				"capabilities":             payload.Capabilities,
+				"capability_digest_sha256": payload.CapabilityDigestSHA256,
+			})
+		case "/internal/v2/game-sessions":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"contract_version": 2,
+				"session":          map[string]any{"credential": "canary-session-secret", "expires_at": expiresAt},
+			})
+		default:
+			t.Fatalf("unexpected Canary v2 path: %s", r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	client := NewClient(server.URL, "session-service-token", server.Client())
+	if err := client.ReadyFor(context.Background(), request); err != nil {
+		t.Fatalf("Canary ReadyFor returned error: %v", err)
+	}
+	created, err := client.Create(context.Background(), request)
+	if err != nil {
+		t.Fatalf("Create Canary v2 returned error: %v", err)
+	}
+	if created.Credential != "canary-session-secret" || !created.ExpiresAt.Equal(expiresAt) {
+		t.Fatalf("unexpected Canary v2 session: %#v", created)
+	}
+}
+
+func TestV2PayloadSerializesExclusiveFamilyIdentity(t *testing.T) {
+	tests := []struct {
+		name       string
+		request    gateway.SessionRequest
+		presentKey string
+		absentKey  string
+	}{
+		{
+			name:       "native version only",
+			request:    validV2Request(),
+			presentKey: "native_protocol_version",
+			absentKey:  "profile",
+		},
+		{
+			name:       "Canary profile only",
+			request:    validCanaryV2Request(),
+			presentKey: "profile",
+			absentKey:  "native_protocol_version",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			payload, err := newV2Payload(test.request)
+			if err != nil {
+				t.Fatalf("newV2Payload returned error: %v", err)
+			}
+			encoded, err := json.Marshal(payload)
+			if err != nil {
+				t.Fatalf("marshal payload: %v", err)
+			}
+			var fields map[string]json.RawMessage
+			if err := json.Unmarshal(encoded, &fields); err != nil {
+				t.Fatalf("decode payload fields: %v", err)
+			}
+			if _, present := fields[test.presentKey]; !present {
+				t.Fatalf("missing required family identity key %q in %s", test.presentKey, encoded)
+			}
+			if _, present := fields[test.absentKey]; present {
+				t.Fatalf("forbidden family identity key %q present in %s", test.absentKey, encoded)
+			}
+		})
+	}
+}
+
 func TestReadyForFailsClosedOnContradictoryIdentity(t *testing.T) {
 	request := validV2Request()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -169,6 +270,32 @@ func TestCreateRejectsNegativeV2SecurityGenerationBeforeNetwork(t *testing.T) {
 	}
 }
 
+func TestCreateRejectsContradictoryV2FamilyIdentityBeforeNetwork(t *testing.T) {
+	tests := []struct {
+		name   string
+		mutate func(*gateway.GameplaySelection)
+	}{
+		{name: "native profile alias", mutate: func(selection *gateway.GameplaySelection) { selection.Profile = "native.alias" }},
+		{name: "Canary native version", mutate: func(selection *gateway.GameplaySelection) {
+			selection.Family = "canary"
+			selection.Profile = "canary.current"
+			selection.NativeProtocolVersion = 1
+		}},
+	}
+
+	client := NewClient("https://session.example.test", "session-service-token", http.DefaultClient)
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			request := validV2Request()
+			test.mutate(request.GameplaySelection)
+			_, err := client.Create(context.Background(), request)
+			if !errors.Is(err, gateway.ErrUnavailable) {
+				t.Fatalf("expected contradictory family identity to fail locally, got %v", err)
+			}
+		})
+	}
+}
+
 func TestReadyChecksSessionServiceHealth(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/health" {
@@ -215,6 +342,27 @@ func validV2Request() gateway.SessionRequest {
 	}
 }
 
+func validCanaryV2Request() gateway.SessionRequest {
+	request := validV2Request()
+	request.EndpointID = "canary-eu-1"
+	request.Audience = "otheryn-world:1:channel:1:endpoint:canary-eu-1"
+	request.GameplaySelection = &gateway.GameplaySelection{
+		PolicyRevision:         42,
+		Family:                 "canary",
+		Profile:                "canary.current",
+		Transport:              "canary.sequence.v1",
+		SchemaRevision:         1,
+		SchemaSHA256:           strings.Repeat("d", 64),
+		Capabilities:           []string{"session.single-admission.v1"},
+		CapabilityDigestSHA256: strings.Repeat("e", 64),
+		EndpointID:             "canary-eu-1",
+		Host:                   "canary.example.test",
+		Port:                   7172,
+		TLSServerName:          "canary.example.test",
+	}
+	return request
+}
+
 func assertServiceAuthentication(t *testing.T, r *http.Request) {
 	t.Helper()
 	if r.Header.Get("Authorization") != "Bearer session-service-token" {
@@ -240,6 +388,7 @@ func assertV2Payload(t *testing.T, payload v2RequestPayload, request gateway.Ses
 		payload.CharacterBindingMode != request.CharacterBindingMode ||
 		!payload.SingleAdmission ||
 		payload.Family != selection.Family ||
+		payload.Profile != selection.Profile ||
 		payload.NativeProtocolVersion != selection.NativeProtocolVersion ||
 		payload.Transport != selection.Transport ||
 		payload.SchemaRevision != selection.SchemaRevision ||

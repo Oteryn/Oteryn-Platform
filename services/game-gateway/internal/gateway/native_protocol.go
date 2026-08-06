@@ -198,7 +198,24 @@ func validNativeTuple(family string, nativeVersion uint32, transport string, sch
 	if family != "oteryn" {
 		return true
 	}
-	return nativeVersion == 1 && transport == "tcp.tls13.protobuf.be32.v1" && schemaRevision == 2 && schemaSHA256 == canonicalNativeSchemaSHA256 && containsEvery(required, nativeV1BaseCapabilities)
+	return nativeVersion == 1 &&
+		transport == "tcp.tls13.protobuf.be32.v1" &&
+		schemaRevision == 2 &&
+		schemaSHA256 == canonicalNativeSchemaSHA256 &&
+		equalStringSlices(required, nativeV1BaseCapabilities) &&
+		len(optional) == 0
+}
+
+func equalStringSlices(left, right []string) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	for index := range left {
+		if left[index] != right[index] {
+			return false
+		}
+	}
+	return true
 }
 
 func isIdentifier(value string) bool {
