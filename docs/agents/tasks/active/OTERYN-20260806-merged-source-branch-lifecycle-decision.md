@@ -83,7 +83,7 @@ forbidden_paths:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-06T06:44:00Z
+updated_at: 2026-08-06T06:47:00Z
 phase: validate
 head: tracked-by-pr-653
 branch: task/OTERYN-20260806-merged-branch-lifecycle-decision
@@ -139,9 +139,9 @@ validation:
   - command: duplicate PR and repository policy search
     result: PASS
     evidence: no competing open PR or canonical policy found
-  - command: Agent Governance run 31078216272
-    result: FAIL_THEN_FIXED
-    evidence: checkpoint owned_paths was missing and is now declared
+  - command: Agent Governance runs 31078216272 and 31078408247
+    result: FAIL
+    evidence: first checkpoint owned_paths was absent, then an unsupported result token was used; both schema defects are corrected for the next exact-head run
   - command: runtime E2E
     result: NOT_APPLICABLE
     evidence: decision-only documentation package; no runtime, workflow or setting change
