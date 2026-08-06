@@ -6,6 +6,7 @@ repair_issue: 575
 repair_pr: 611
 repair_final_head: ac14cac1b593ae48f49ab42e472eef3babfa4ea7
 repair_merge_commit: 0ec36b6f65a723da32eeb51f266075974a8f1fb8
+lifecycle_pr: 664
 historical_finding: OPA-GOV-0013-AUDIT-01
 ---
 
