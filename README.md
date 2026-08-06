@@ -4,21 +4,28 @@ Oteryn Platform is the first-party web/application platform for the Oteryn Open 
 
 ## Current implementation
 
-The repository contains the Laravel application foundation plus initial evidence-backed read-only PublicGameData surfaces:
+The repository contains a Laravel 13 modular monolith on PHP 8.5 with a server-rendered Blade UI and explicit module/data boundaries.
 
-- Laravel 13 on PHP 8.5;
-- server-rendered Blade UI;
-- safe local `.env.example` defaults with no committed secrets;
-- SQLite as the default local/test database connection;
-- dedicated Canary read connection for public game-data queries;
-- `GET /health` using Laravel's health route;
-- public level highscores, character profiles, guild details and configured channel metadata;
-- baseline unit/feature/integration tests;
-- Laravel Pint formatting checks;
-- lockfile-backed Composer installs;
-- GitHub Actions CI.
+Evidence-backed capabilities on `main` include bounded slices of:
 
-Authentication, credential migration, MFA, account/character mutations, payments and all direct Canary/shared-data writes remain out of scope until their contracts and implementation tasks are explicitly approved.
+- public portal shell, homepage, news, announcements, events, SEO, downloads and legal/informational content;
+- public characters, guilds, highscores, online/status, servers and deaths through least-privilege read boundaries;
+- Platform Identity, login/logout, registered sessions, recovery, security lifecycle and MFA;
+- greenfield account provisioning/binding and character creation through operation-specific contracts and least-privilege adapters;
+- CMS, Wiki, EditorialMedia, Support/Moderation, Admin/RBAC and Audit;
+- versioned Game Catalog foundations;
+- Oteryn Coins Wallet and Character Bazaar foundations;
+- operational, public-edge and exact-head E2E/quality controls;
+- baseline local/test configuration, lockfile-backed Composer installs and GitHub Actions CI.
+
+`AVAILABLE` means at least one validated repository capability exists; it does not imply complete product scope, production proof or activation authority. Read `docs/architecture/MODULE_CATALOG.md` and exact task/PR evidence before making a completeness claim.
+
+Current planned boundaries include:
+
+- `PlayerCompanion` for versioned calculators, build planning, hunt guidance, private session analysis, progression tracking and recommendations;
+- `LiveOps` for authoritative time-sensitive world/service status and schedules;
+- a concrete-consumer-driven `PlatformAPI`;
+- Products/Entitlements, LegalCommerce and later provider Payments under separate gates.
 
 ## Local setup
 
@@ -34,22 +41,15 @@ php artisan serve
 
 The application is then available at `http://localhost:8000`.
 
-The health endpoint is available at `GET /health`. It reports only application availability and does not expose environment variables, configuration, version details, or secrets.
+The health endpoint is available at `GET /health`. It reports only application availability and does not expose environment variables, configuration, version details or secrets.
 
-## Read-only Canary game data
+## Canary and integration boundaries
 
-The public read routes use the dedicated `canary` database connection:
+Canary and login-server behavior are external contracts. The generic `canary` database connection is read-only and must use an externally provisioned least-privilege principal.
 
-- `GET /highscores`
-- `GET /characters/{name}`
-- `GET /guilds/{name}`
-- `GET /servers`
+Shared writes are allowed only through separately documented operation-specific contracts and adapters. Current bounded examples include greenfield account provisioning, character creation and Character Bazaar ownership transfer. No module may infer generic TFS/MyAAC schema or silently broaden those privileges.
 
-Configure `CANARY_DB_*` values in the local `.env`. The database user must be provisioned outside this repository with least-privilege `SELECT` access only to the required Canary tables. Do not reuse Canary's server credential or a database root/admin account.
-
-The current public read model intentionally does **not** implement a cluster-wide online character list or claim live per-channel availability. The authoritative source/freshness contract for that data remains unresolved.
-
-No application caching is used for these initial game-data reads because acceptable staleness semantics have not yet been defined.
+Configure applicable `CANARY_DB_*` and runtime values in local environment files. Do not reuse Canary server credentials or database root/admin accounts.
 
 ## Validation
 
@@ -65,25 +65,21 @@ To apply formatting:
 composer format
 ```
 
-GitHub Actions installs dependencies from `composer.lock`, validates Composer metadata/lock consistency, checks formatting, and runs the Laravel/PHPUnit test suite on PHP 8.5.
-
-The PublicGameData integration tests seed an isolated SQLite Canary connection and enable SQLite `query_only` mode before requests, so accidental writes from the read endpoints fail validation.
-
-## Data and integration boundaries
-
-Canary and login-server behavior are external contracts. Shared account/player/authentication mutations remain blocked unless a future operation-level contract explicitly approves them.
-
-Public game-data queries use explicit selected columns and exclude deleted characters where required by `docs/contracts/CANARY_DATA_CONTRACT.md`.
+GitHub Actions installs dependencies from `composer.lock`, validates Composer metadata and lock consistency, checks formatting and runs the applicable Laravel/PHPUnit and repository validation suites. Required evidence remains tied to the exact tested head.
 
 ## Authoritative project documentation
 
-- `AGENTS.md` — mandatory operating rules for agents.
+- `AGENTS.md` and `AGENTS.override.md` — mandatory operating rules for agents.
 - `docs/agents/PROJECT_STATE.md` — current project phase and next work.
 - `docs/agents/REPOSITORY_MAP.md` — repository navigation and ownership map.
+- `docs/architecture/ARCHITECTURE_AUTHORITY.md` — architecture precedence and canonical routing.
 - `docs/architecture/SYSTEM_ARCHITECTURE.md` — system boundaries and target topology.
+- `docs/architecture/MODULE_CATALOG.md` — module ownership and repository-availability classification.
+- `docs/architecture/PORTAL_COMPLETENESS_ARCHITECTURE.md` — current portal assessment, remaining decisions and completion gate.
+- `docs/architecture/PLAYER_COMPANION_ARCHITECTURE.md` — accepted player-tools architecture and delivery priorities.
 - `docs/architecture/SECURITY_ARCHITECTURE.md` — mandatory security invariants.
 - `docs/architecture/DATA_OWNERSHIP.md` — persistent-data ownership rules.
-- `docs/contracts/` — Canary/login-server integration contracts.
-- `docs/agents/tasks/active/` — active implementation task records.
+- `docs/contracts/` — Canary/login-server and operation-specific integration contracts.
+- `docs/agents/tasks/active/` — active implementation/task records.
 
-Repository state, task records, Git and live PR/CI state are authoritative over chat history.
+Repository state, accepted ADRs, focused architecture, task records, Git and live PR/CI state are authoritative over chat history.

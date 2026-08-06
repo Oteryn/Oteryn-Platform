@@ -1,0 +1,500 @@
+# Oteryn Player Companion Architecture
+
+## Status
+
+**CURRENT — accepted architecture boundary.**
+
+Accepted by ADR 0025. This document owns the focused architecture for player calculators, planning, hunt guidance, session analysis, progression tracking and personalized recommendations inside Oteryn Platform.
+
+It defines ownership and future delivery constraints. It does not claim that any listed `PLANNED` capability is implemented or production-activated.
+
+## Purpose
+
+`PlayerCompanion` turns versioned game knowledge and authorized character data into useful player workflows:
+
+- calculate deterministic outcomes;
+- plan builds and upgrades;
+- discover appropriate hunts;
+- analyse sessions and party economics;
+- track quests, accesses and progression;
+- save goals and plans;
+- provide clearly labelled recommendations.
+
+It is a bounded application/domain module inside the existing Laravel modular monolith. It is not a second website, generic Wiki extension, arbitrary CMS plugin system or default microservice.
+
+## Product principles
+
+1. **Useful before clever** — prioritize common player decisions over speculative AI features.
+2. **Versioned truth** — every formula and recommendation is bound to explicit ruleset/catalog evidence.
+3. **No hidden assumptions** — unknown or stale data is visible and may disable a calculation.
+4. **Facts differ from advice** — deterministic results, simulations and recommendations are labelled separately.
+5. **Private by default** — character plans and session logs are not public unless the owner deliberately shares a bounded representation.
+6. **One domain implementation** — formulas are reusable by web UI, future Platform API and approved client integrations.
+7. **Server-side ownership** — account and character association is resolved from trusted bindings, never browser claims.
+8. **Progressive delivery** — small vertical slices with complete backend, frontend, states, tests and real E2E.
+
+## Boundary map
+
+```text
+GameCatalog ----------------------+
+  entities, relations, formulas,  |
+  ruleset and snapshot metadata   |
+                                  v
+Wiki ----------------------> PlayerCompanion <---------------- PublicGameData
+  explanations, guides,       |   |   |                         public/authorized
+  editorial recommendations   |   |   |                         character/world views
+                               |   |   |
+GameAnalytics --------------------+   +------------------------- LiveOps
+  measured aggregates, confidence     maintenance, schedules,
+  and balance evidence                 runtime events/freshness
+
+                               |
+                               v
+                      Web UI / future PlatformAPI
+                      / approved client consumers
+```
+
+## Module ownership
+
+### Owns
+
+- calculator definitions and executions;
+- saved calculator inputs where product value justifies persistence;
+- character build plans and equipment sets;
+- shareable bounded build representations;
+- hunt search criteria and ranked result presentation;
+- session-log parsing, normalized private session records and derived party/economy metrics;
+- progression goals, checklists and completion projections;
+- recommendation orchestration and explanation metadata;
+- user preferences specific to companion workflows;
+- calculator/recommendation freshness and compatibility presentation.
+
+### Must not own
+
+- canonical item, creature, spell, vocation, quest, NPC, achievement or ruleset definitions;
+- arbitrary editorial articles or Wiki publication lifecycle;
+- raw Canary schema access from UI/controllers;
+- game-runtime mutations;
+- authoritative market prices without a contracted source;
+- payment-provider state or product fulfilment;
+- game-balance decisions;
+- private Game Analytics source events beyond explicitly approved projections;
+- generic account authentication or authorization policy.
+
+## Internal capability families
+
+### `Calculators`
+
+Candidate tools:
+
+- experience between levels and time-to-goal;
+- shared-experience range;
+- stamina regeneration and usage planning;
+- online/offline/exercise training;
+- blessing and death-loss estimates;
+- imbuement cost and cost per hour;
+- health/mana leech and sustain;
+- forge/upgrade probability and expected-cost analysis;
+- weekly reward calculations;
+- deterministic server-specific system calculations.
+
+Rules:
+
+- input schema is typed and bounded;
+- formula version and source snapshot are stored with persisted results;
+- output declares units, rounding and precision;
+- incompatible ruleset data fails closed;
+- currency inputs distinguish configured NPC price, observed market price and user override.
+
+### `BuildPlanner`
+
+Candidate tools:
+
+- equipment sets;
+- charm/perk/proficiency planning;
+- skill or specialization trees;
+- spell/rune/ability loadouts;
+- upgrade sequencing and cost projections;
+- build comparison;
+- shareable builds.
+
+A build reference stores stable IDs and versions rather than copied display text. Rendering resolves current localized names through `GameCatalog` while preserving the originally pinned snapshot for reproducibility.
+
+### `HuntAdvisor`
+
+Candidate tools:
+
+- solo, duo and team hunts;
+- level/vocation/build filters;
+- required damage types and defensive profile;
+- required quest/access state;
+- expected experience, profit and difficulty ranges;
+- party composition and shared-experience compatibility;
+- route/map references when a later map programme is available;
+- freshness and evidence confidence.
+
+Hunt rankings may combine:
+
+- deterministic eligibility;
+- editorial recommendations;
+- measured Game Analytics aggregates;
+- user preferences.
+
+The UI must explain which inputs affected ranking and must not present a sparse or biased sample as universal truth.
+
+### `SessionAnalysis`
+
+Candidate tools:
+
+- parser for approved session-log formats;
+- loot split and payment settlement suggestions;
+- extra expenses and manual adjustments;
+- damage/healing contribution;
+- experience, profit and supplies per hour;
+- personal efficiency history;
+- private comparisons across the player's own sessions;
+- export/share of sanitized summaries.
+
+Session analysis does not execute bank transfers or game economy mutations. A calculated split is advice until an independently contracted transaction feature exists.
+
+### `ProgressTracker`
+
+Candidate tools:
+
+- quests and access chains;
+- bestiary and bosstiary;
+- achievements;
+- weekly tasks and recurring goals;
+- character development objectives;
+- equipment acquisition goals;
+- prerequisite graphs;
+- reminders exposed through the separate Notifications boundary when approved.
+
+Completion state may be:
+
+- imported from an authoritative contracted projection;
+- manually confirmed by the player;
+- inferred with a visible confidence label.
+
+Inferred state must never silently become authoritative game state.
+
+### `Recommendations`
+
+Candidate outputs:
+
+- next useful quest/access;
+- equipment upgrade priority;
+- build refinement order;
+- suitable hunts;
+- best next charm/perk/proficiency investment;
+- training or currency-spend alternatives;
+- goal suggestions based on the player's stated objective.
+
+Each recommendation records:
+
+```text
+recommendation_type
+basis: editorial | deterministic | analytics | personalized
+ruleset_version
+catalog_snapshot
+input_summary
+confidence
+freshness
+explanation_key
+limitations
+```
+
+Generative AI may later help explain results, but it must not invent formulas, game entities, account state or unsupported recommendations. Deterministic and retrieved evidence remains authoritative.
+
+## Result classification
+
+Every output is one of:
+
+### `DETERMINISTIC`
+
+A reproducible result computed from pinned rules and exact inputs.
+
+Examples:
+
+- experience required between levels;
+- shared-experience eligibility;
+- configured imbuement cost;
+- expected training duration under an accepted formula.
+
+### `SIMULATION`
+
+A model with stated assumptions, distributions or uncertainty.
+
+Examples:
+
+- forge expected cost;
+- survivability range;
+- projected time to complete a bestiary set.
+
+### `RECOMMENDATION`
+
+Advice that depends on priorities, editorial judgement, measured data or personalization.
+
+Examples:
+
+- best hunt for profit;
+- preferred perk order;
+- next equipment upgrade.
+
+The UI must not visually collapse these classifications into one certainty level.
+
+## Version and applicability contract
+
+Every persisted plan, calculation or recommendation carries applicable dimensions:
+
+```text
+game_profile
+ruleset_version
+catalog_snapshot_id
+world_id or null
+season_id or null
+effective_from
+effective_until
+formula_version
+source_status
+```
+
+Supported source statuses:
+
+- `CURRENT` — compatible with the active ruleset and required sources;
+- `STALE` — previously valid but superseded or beyond its freshness policy;
+- `EXPERIMENTAL` — available with incomplete validation or intentionally limited evidence;
+- `DEPRECATED` — retained for historical reproducibility but unavailable for new plans;
+- `UNAVAILABLE` — required source missing or incompatible.
+
+Ruleset activation must invalidate or reclassify affected cached outputs. Silent reuse of a prior-balance formula is forbidden.
+
+## Data ownership
+
+### Platform-owned data
+
+Potential Platform tables include:
+
+- saved companion workspaces;
+- build-plan headers and versioned selections;
+- calculation records only where history is product-relevant;
+- progression goals and manual completion state;
+- normalized private session analyses;
+- share grants or opaque share tokens;
+- user companion preferences;
+- recommendation snapshots and explanation metadata.
+
+These records reference trusted Platform Identity and immutable ready account/character bindings where applicable.
+
+### External/read data
+
+- `GameCatalog` owns game entities, relations, rules and source snapshots;
+- `Wiki` owns editorial explanation and guide publication;
+- `PublicGameData` owns public and contract-approved character/world projections;
+- `GameAnalytics` owns measured aggregate evidence and confidence;
+- `LiveOps` owns current operational schedules/runtime-state projections.
+
+PlayerCompanion consumes bounded application interfaces or versioned projections. It must not bypass them with ad hoc raw table queries.
+
+## Privacy and security
+
+### Private by default
+
+Private data includes:
+
+- saved builds associated with an Identity;
+- account-linked character goals;
+- raw and normalized session logs;
+- party membership, contribution and payment calculations;
+- private notes and user-entered market prices;
+- recommendation history tied to a character.
+
+Default visibility is owner-only.
+
+### Shareable representations
+
+A shared build or summary must:
+
+- contain only allowlisted fields;
+- use opaque, high-entropy server-generated identifiers when stored server-side;
+- support revocation and expiry when linked to private persisted data;
+- avoid Platform Identity IDs, Canary account IDs, sessions, emails and raw logs;
+- be size-bounded and schema-validated when encoded in a URL;
+- declare its ruleset/catalog version;
+- fail safely when referenced entities no longer exist or are incompatible.
+
+### Session-log handling
+
+- accept only documented text formats and bounded payload sizes;
+- parse as untrusted input;
+- escape all displayed names and values;
+- never execute embedded markup, URLs or commands;
+- retain raw logs only when explicitly required and under a documented retention period;
+- permit deletion of the user's private history;
+- exclude raw logs and player-identifying details from ordinary application logs and audit metadata;
+- require explicit consent before sharing a party summary.
+
+### Authorization
+
+- authenticated owner access for private workspaces and histories;
+- server-side character ownership resolution;
+- exact admin permission plus confirmed MFA for any privileged catalog/formula/recommendation management surface;
+- no wildcard permission;
+- rate limits for expensive simulations, parsers and public share resolution;
+- CSRF protection for browser state changes.
+
+## Formula and rules engine direction
+
+Formula implementations should be reusable domain services with:
+
+- stable calculator identifier;
+- semantic formula version;
+- typed input and output contracts;
+- supported game-profile/ruleset range;
+- deterministic rounding policy;
+- source references;
+- fixtures and boundary cases;
+- migration/reclassification rules for saved calculations;
+- optional client-safe representation only when exact parity can be proven.
+
+Do not duplicate business formulas independently in Blade templates, browser JavaScript, Platform API and the Rust client. Interactive frontends may preview results, but the server remains the authoritative calculator unless a separately versioned shared library and parity contract is adopted.
+
+## Cache and freshness
+
+- immutable catalog snapshots may be cached by snapshot identity;
+- active ruleset aliases require deterministic invalidation;
+- LiveOps/runtime state keeps its own short freshness boundary and must not inherit long page-cache TTLs;
+- Game Analytics aggregates declare observation window and sample size;
+- user-entered price overrides are scoped to the user/workspace and never promoted to global truth;
+- stale recommendations remain visible only when useful and clearly labelled.
+
+## Multi-world and seasons
+
+World and season are explicit dimensions, not globally assumed constants.
+
+A tool declares whether it is:
+
+- global to a game profile/ruleset;
+- world-specific because prices, PvP type or availability differ;
+- season-specific because progression or systems reset;
+- character-specific;
+- party-specific.
+
+The initial product may expose only one world, but schemas, cache keys, URLs and saved plans must not rely on an irreversible single-world assumption.
+
+## Platform API and client integration
+
+Future API/client exposure must use the same application services as the web UI.
+
+Candidate API capabilities:
+
+- list calculator metadata;
+- execute selected deterministic calculators;
+- read/save owner workspaces;
+- resolve shareable builds;
+- fetch compatible recommendation summaries;
+- receive version/freshness metadata.
+
+Requirements:
+
+- versioned API contracts;
+- appropriate user/service authentication;
+- per-capability scopes and rate limits;
+- no raw database model serialization;
+- no formula duplication;
+- explicit compatibility with client/game profile;
+- graceful unsupported-version behavior.
+
+## Observability
+
+Record bounded metrics for:
+
+- calculator success/failure and latency by calculator ID/version;
+- stale/incompatible source rejection;
+- parser failure class without raw input;
+- recommendation source availability;
+- share resolution and revocation outcomes;
+- expensive simulation limits;
+- dependency failure and recovery.
+
+Never log credentials, session identifiers, raw session logs, complete private build contents or unredacted party data.
+
+## Delivery priorities
+
+### P0 — essential player utility
+
+1. Loot Split and private Session Analyzer.
+2. Hunt Finder with versioned eligibility and editorial evidence.
+3. Equipment Explorer/Comparison using Game Catalog.
+4. Character Build Planner.
+5. Charm/Perk/Proficiency Planner.
+6. Quest and Access Tracker.
+7. EXP and Training calculators.
+8. Validated shareable builds.
+
+### P1 — deeper planning and personalization
+
+1. Bestiary/Bosstiary Planner.
+2. Forge/Upgrade Calculator.
+3. Imbuement and sustain calculators.
+4. Team Hunt Composer.
+5. Weekly-task and personal-goal planner.
+6. Equipment-set comparison.
+7. Damage, sustain and resistance simulation after formula proof.
+8. Explainable next-action recommendations after Game Analytics contracts exist.
+
+### P2 — separate later programmes
+
+1. Interactive maps and route planning.
+2. Raid/boss scheduling integrations.
+3. Market-price trends and economy analytics.
+4. Public build profiles and comparisons.
+5. Advanced full-build simulation.
+6. Community contribution workflows.
+
+P2 capabilities require separate architecture, content provenance, moderation, privacy and operational decisions where applicable.
+
+## Vertical-slice implementation rule
+
+Each capability must ship as a bounded complete slice:
+
+1. accepted input/output and source contract;
+2. persistence only when required;
+3. domain implementation;
+4. authorization, validation and abuse limits;
+5. real reachable UI;
+6. current/stale/unavailable/invalid/empty states;
+7. localization;
+8. responsive and accessible behavior;
+9. focused and integration tests;
+10. real E2E on the exact head;
+11. version/freshness evidence;
+12. documentation and module-catalog update.
+
+A formula library, endpoint or dormant view alone is not a delivered player tool.
+
+## Explicit non-goals
+
+- copying TibiaPal, Tibia, RubinOT or another portal implementation;
+- making Wiki or CMS a generic executable plugin system;
+- automatic game actions or botting;
+- client memory inspection or unauthorized telemetry;
+- hidden scoring based on private players' data;
+- financial settlement or bank transfer execution;
+- unversioned formulas;
+- claiming an editorial recommendation is objectively optimal;
+- microservice extraction without measured need.
+
+## Completion criteria for the architecture programme
+
+The PlayerCompanion architecture is defined by this document and ADR 0025. Product delivery remains incomplete until the owner-approved capability inventory has an explicit implementation/defer/reject disposition and each implemented slice passes repository delivery gates.
+
+A later architecture review may consider the boundary mature when:
+
+- P0 scope is explicitly selected;
+- required Game Catalog entities/formulas and source inventories exist;
+- privacy/retention policy is accepted;
+- first vertical slices prove the boundary works without domain duplication;
+- API/client reuse is tested where adopted;
+- version transition behavior is exercised across at least one ruleset change;
+- Game Analytics recommendations, if enabled, declare evidence and confidence.
