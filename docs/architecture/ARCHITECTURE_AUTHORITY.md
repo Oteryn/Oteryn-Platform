@@ -37,6 +37,7 @@ A lower-ranked source must not silently override a higher-ranked invariant. Reco
 |---|---|---|
 | Authority, precedence and conflict handling | `docs/architecture/ARCHITECTURE_AUTHORITY.md` | Routes to focused truth; does not repeat domain detail. |
 | Durable decisions | `docs/architecture/adr/**` and `docs/architecture/adr/README.md` | Decisions, lifecycle, allocation, machine validation and supersession history. |
+| Unresolved architecture decision obligations | `docs/architecture/ARCHITECTURE_DECISION_BACKLOG.json` | Active inventory only; never accepted-decision, implementation or activation authority. |
 | System context and topology | `docs/architecture/SYSTEM_ARCHITECTURE.md` | Components, trust boundaries and high-level dependency direction. |
 | Modules and responsibility | `docs/architecture/MODULE_CATALOG.md` | Module ownership, responsibilities and dependency boundaries. |
 | Security | `docs/architecture/SECURITY_ARCHITECTURE.md` | Mandatory security invariants and trust controls. |
@@ -78,9 +79,37 @@ Before allocating a new ADR, scan all ADR files and open architecture PRs, take 
 
 Existing accepted ADRs must not be renamed or renumbered without a separate compatibility decision.
 
+## Architecture decision backlog routing
+
+`docs/architecture/ARCHITECTURE_DECISION_BACKLOG.json` is the sole repository inventory of unresolved architecture decision obligations. It is subordinate to accepted ADRs and focused canonical documents and must never be treated as proof that a decision is accepted, implemented or activated.
+
+Use the backlog only when a material architecture or repository-governance question remains unresolved after duplicate searches of accepted ADRs, focused canonical documents, live Issues, open PRs and programme state. Do not import ordinary implementation tasks, completed programme history, audit symptoms that already have a repair owner or questions that can be answered directly from an existing authority.
+
+The active lifecycle is:
+
+1. `discovered` — the obligation is proven but evidence or alternatives are incomplete;
+2. `analysis_ready` — evidence, alternatives, trade-offs and a recommendation are complete;
+3. `decision_required` — one exact owner question blocks resolution;
+4. `blocked` — required authority or primary evidence is unavailable;
+5. `deferred` — the owner intentionally postponed the decision with a reason and revisit trigger.
+
+Transitions must be recorded in one bounded PR that updates the JSON record, its linked Issue and the compact programme projection as applicable. Ordinary repository validation is offline and does not guess live Issue or PR state. A separate live reconciliation may verify remote state before a transition that depends on it.
+
+A record leaves the active backlog when the obligation is accepted, rejected, proven false or superseded. The same bounded package must record the terminal authority or rationale in an accepted/rejected ADR, focused canonical document, linked Issue or report. Do not retain terminal records in the JSON file and do not create a second permanent decision archive; Git history and linked authority preserve the history.
+
+Run:
+
+```bash
+python3 tools/validation/test_architecture_decision_backlog.py
+python3 tools/validation/architecture_decision_backlog.py
+```
+
+The validator fails closed for schema drift, unsupported lifecycle values, authority claims, evidence duplication, unresolved-reference defects, duplicate obligations, non-canonical serialization and programme-projection drift.
+
 ## Change policy
 
 - Update this file only when authority, canonical ownership or conflict handling changes.
 - Update focused documents for domain detail.
 - Add a new ADR and supersede the old one when a durable decision changes.
+- Add, transition or remove decision backlog records only with their linked Issue and exact programme projection.
 - Never turn an execution report, chat transcript or PR description into an implicit architecture source of truth.
