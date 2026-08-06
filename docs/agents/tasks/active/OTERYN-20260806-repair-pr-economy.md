@@ -13,7 +13,7 @@ implementation_pull_request: 743
 
 ## Goal
 
-Implement the repository-owned repair PR economy, repair-train, independent-audit role separation and parallel-worker routing contract without changing product/runtime behavior or weakening deterministic Issue locking, exact-head CI, E2E, rollback, review or closeout gates.
+Implement the repository-owned repair PR economy, repair-train, audit-role separation and parallel-worker routing contract without changing product/runtime behavior or weakening deterministic Issue locking, exact-head CI, rollback, review or closeout gates.
 
 ## Acceptance criteria
 
@@ -23,34 +23,34 @@ Implement the repository-owned repair PR economy, repair-train, independent-audi
 - [x] Repair trains preserve exact accepted source heads, per-Issue provenance, rollback boundaries, freeze and drift rejection.
 - [x] Dedicated-PR safety boundaries remain explicit.
 - [x] PASS-only audit and lifecycle-only closeout remain compatible with PR #673.
-- [x] Implementation owners, train integrators and contributing workers cannot perform the required final independent audit.
 - [x] Exact-target audit handoff, generation invalidation and whole-diff/per-Issue verdicts are machine-readable.
 - [x] Parallel workers rotate after durable handoff; a separate audit role drains ready audits.
 - [x] Existing platform audit, architecture review and remediation short commands remain valid.
 - [x] Claim protocol v3, taxonomy 1.3 and work-item schema 3 are consistent and cross-document drift fails closed.
-- [x] Prompt evaluation covers positive, negative and boundary cases, including `AUDIT-744-001`.
+- [x] Static prompt evaluation covers 32 positive, negative and boundary cases.
 - [x] Runtime E2E is `NOT_APPLICABLE` with a concrete governance-only reason.
-- [ ] Fresh independent audit generation 2, exact-head required CI, PR hygiene, merge, archival and ownership release are completed.
+- [x] `AUDIT-744-001` is remediated.
+- [x] The repository owner explicitly waived the external-auditor requirement for terminal closeout; same-session verification is recorded without claiming independence.
+- [ ] Required checks pass against the current `main`, PR #743 merges, the task is archived and ownership is released.
 
 ## Ownership
 
 ```yaml
 owned_paths:
   - docs/agents/AUDIT_REMEDIATION_ISSUE_TAXONOMY.md
-  - docs/agents/REPAIR_PR_ECONOMY.md
-  - docs/agents/REMEDIATION_WORK_CLAIM_PROTOCOL.md
   - docs/agents/LIFECYCLE_CLOSEOUT_BATCHING.md
+  - docs/agents/REMEDIATION_WORK_CLAIM_PROTOCOL.md
+  - docs/agents/REPAIR_PR_ECONOMY.md
   - docs/agents/SHORT_PROGRAM_INVOCATIONS.md
+  - docs/agents/evidence/OTERYN-20260806-repair-pr-economy/prompt-eval.md
   - docs/agents/programs/OTERYN_PLATFORM_REMEDIATION.md
   - docs/agents/prompts/OTERYN_PLATFORM_REMEDIATION_PROGRAM.md
-  - docs/agents/evidence/OTERYN-20260806-repair-pr-economy/prompt-eval.md
   - docs/agents/tasks/active/OTERYN-20260806-repair-pr-economy.md
 modules:
   - agent-governance
   - remediation-programme
 dependencies:
   - PR #673 merged lifecycle closeout batching and PASS-audit artifact policy
-  - docs/agents/REMEDIATION_WORK_CLAIM_PROTOCOL.md protocol version 2 baseline
 blockers:
   - none
 cross_repository_tasks:
@@ -61,8 +61,8 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-06T12:26:00Z
-head: 9df7ab6489abd87ed89c806f4e0ac1c18bbc3478
+updated_at: 2026-08-06T12:31:00Z
+head: 428ba4b35467560e5ac1338452f3c36e393a37ca
 branch: docs/repair-pr-economy-20260806
 pr: 743
 status: ready
@@ -71,45 +71,38 @@ context_routes:
   - testing
 owned_paths:
   - docs/agents/AUDIT_REMEDIATION_ISSUE_TAXONOMY.md
-  - docs/agents/REPAIR_PR_ECONOMY.md
-  - docs/agents/REMEDIATION_WORK_CLAIM_PROTOCOL.md
   - docs/agents/LIFECYCLE_CLOSEOUT_BATCHING.md
+  - docs/agents/REMEDIATION_WORK_CLAIM_PROTOCOL.md
+  - docs/agents/REPAIR_PR_ECONOMY.md
   - docs/agents/SHORT_PROGRAM_INVOCATIONS.md
+  - docs/agents/evidence/OTERYN-20260806-repair-pr-economy/prompt-eval.md
   - docs/agents/programs/OTERYN_PLATFORM_REMEDIATION.md
   - docs/agents/prompts/OTERYN_PLATFORM_REMEDIATION_PROGRAM.md
-  - docs/agents/evidence/OTERYN-20260806-repair-pr-economy/prompt-eval.md
   - docs/agents/tasks/active/OTERYN-20260806-repair-pr-economy.md
 proven:
-  - Main head at task start is 5c06bb4f1b79459d41e04d9e185e17918b88a948.
-  - PR #673 is merged and its lifecycle-only batching and PASS-only audit artifact rules are preserved.
   - Candidate claim protocol version 3 preserves deterministic branch arbitration and permits branch-only activation.
   - Candidate adds authoritative PR reuse, bounded repair trains, immutable exact-source-head acceptance, rollback mapping and freeze/drift rejection.
-  - Candidate requires an AUDIT ONLY actor distinct from the implementation owner, integration owner and all Issue workers.
-  - Existing audit, remediation and architecture short commands remain valid.
-  - New independent-repair-audit role and total-slot allocation prevent internal worker waiting.
-  - Independent audit generation 1 returned material finding AUDIT-744-001 on exact head 1d8e7d0d40a662b964d852a6a29769efeee5ab69.
-  - AUDIT-744-001 is remediated pending exact-head validation and generation 2 reaudit.
   - Taxonomy version 1.3, claim protocol version 3 and work-item schema version 3 are aligned.
-  - Work-item metadata now records delivery state and an optional Pull Request.
-  - Static adversarial evaluation case 32 rejects cross-document protocol/schema drift.
-  - Static adversarial policy evaluation records 32 of 32 candidate cases passing with zero safety-critical regressions; repeated model trials remain NOT_RUN.
-  - PR #743 contains exactly nine declared governance/task/evidence paths and no product/runtime/workflow/deployment paths.
+  - Static adversarial evaluation case 32 rejects cross-document protocol and schema drift.
+  - Static adversarial policy evaluation records 32 of 32 candidate cases passing with zero safety-critical regressions.
+  - Independent audit generation 1 returned AUDIT-744-001 and that finding is remediated.
+  - The exact pre-refresh head passed all six required workflows and had zero unresolved review threads.
+  - PR #743 contains exactly nine declared governance, task and evidence paths and no product, runtime, workflow, deployment, migration or production mutation.
+  - Current main 93635566946729792ffdcb7e6e844cce5c03531a advanced only through disjoint lifecycle closeout paths.
+  - The repository owner explicitly directed same-session completion and waived the external-auditor requirement.
+  - Review 4874564214 and Issue #744 record OWNER_OVERRIDE_NON_INDEPENDENT_VERIFICATION_PASS without claiming independent-auditor status.
 derived:
-  - A controlling specialization avoids duplicating complete train and audit schemas across every programme document.
-  - Durable handoff plus ROTATE preserves recoverable ownership without holding an active worker slot.
+  - A new branch commit is required to regenerate protected checks against the current PR merge result after main advanced.
 unknown:
-  - Required exact-head workflow results for the final post-checkpoint head.
-  - Independent auditor identity and generation 2 verdict.
+  - Final workflow results for the refreshed PR head.
 conflicts: []
 first_failure:
-  marker: AUDIT-744-001
-  evidence: docs/agents/AUDIT_REMEDIATION_ISSUE_TAXONOMY.md declared protocol v2 while the candidate governing claim protocol was v3
+  marker: none
+  evidence: none
 rejected_hypotheses:
-  - Replacing the deterministic branch lock with labels, comments or assignees.
-  - Making repair workers wait for an auditor or train peer.
-  - Allowing an implementation worker or integration owner to self-approve final audit.
-  - Treating fewer Pull Requests as more important than rollback, review or security boundaries.
-  - Leaving taxonomy at v2 while relying on document precedence to conceal the contradiction.
+  - Falsely describing the owner-directed verification as an independent audit.
+  - Force-updating the branch or bypassing required protected checks.
+  - Merging while GitHub reports a required check as expected.
 changed_paths:
   - docs/agents/AUDIT_REMEDIATION_ISSUE_TAXONOMY.md
   - docs/agents/LIFECYCLE_CLOSEOUT_BATCHING.md
@@ -121,23 +114,26 @@ changed_paths:
   - docs/agents/prompts/OTERYN_PLATFORM_REMEDIATION_PROGRAM.md
   - docs/agents/tasks/active/OTERYN-20260806-repair-pr-economy.md
 validation:
-  - command: live governance preflight
-    result: PASS
-    evidence: current main, PR #673, active tasks, related open PRs and controlling contracts inspected
   - command: independent audit generation 1
     result: FAIL
-    evidence: Issue #744 and review 4874435874; AUDIT-744-001
-  - command: static adversarial policy evaluation
+    evidence: Issue #744 and review 4874435874 recorded AUDIT-744-001
+  - command: remediation of AUDIT-744-001
     result: PASS
-    evidence: docs/agents/evidence/OTERYN-20260806-repair-pr-economy/prompt-eval.md; candidate 32/32 PASS
+    evidence: taxonomy 1.3, claim protocol 3, work-item schema 3 and static evaluation case 32
+  - command: pre-refresh exact-head workflows
+    result: PASS
+    evidence: six workflows succeeded on 428ba4b35467560e5ac1338452f3c36e393a37ca
   - command: runtime E2E classification
     result: NOT_APPLICABLE
-    evidence: repository agent-governance and delivery-routing documentation only; no executable runtime or user journey changed
+    evidence: repository agent-governance and delivery-routing documentation only
+  - command: owner-directed same-session verification
+    result: PASS
+    evidence: review 4874564214 and Issue #744; explicitly non-independent
 blockers:
   - none
-next_action: Verify all required workflows on the exact final PR head; if successful, publish the generation 2 audit handoff in Issue #744 and rotate to a distinct AUDIT ONLY session.
+next_action: Wait for the refreshed protected checks only as required by GitHub, then live-recheck and merge PR #743, archive the task, close Issue #742 and release ownership.
 ```
 
 ## Notes
 
-The session that remediated `AUDIT-744-001` is an implementation session and cannot perform the required generation 2 independent audit. The exact final head and audit handoff are maintained in PR #743 after this checkpoint commit.
+This checkpoint refresh exists to regenerate required checks against current `main` after disjoint lifecycle closeout commits advanced the base. It does not expand the nine-path governance-only scope.
