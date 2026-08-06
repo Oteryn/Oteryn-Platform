@@ -67,9 +67,21 @@ composer format
 
 GitHub Actions installs dependencies from `composer.lock`, validates Composer metadata and lock consistency, checks formatting and runs the applicable Laravel/PHPUnit and repository validation suites. Required evidence remains tied to the exact tested head.
 
+## Licensing and contributions
+
+Oteryn Platform is proprietary. Public repository visibility does not make the project open source and does not grant permission to copy, modify, redistribute, sublicense, host or commercially use the project or a derivative of it.
+
+`LICENSE.md` is the canonical proprietary notice. It applies only to original Oteryn Platform material that does not carry a separate notice. Third-party dependencies, assets, game data, fixtures and protocol or compatibility material remain governed by their own rights and are bounded by `THIRD_PARTY_NOTICES.md`.
+
+External contributions are not accepted by default. Do not submit code, documentation, assets or data unless the repository owner has invited the contribution and agreed written contribution terms before acceptance. See `CONTRIBUTING.md`.
+
+A future source-available, open-source, dual-license or component-specific policy requires a separate owner-approved decision and a provenance review of the exact material covered.
+
 ## Authoritative project documentation
 
 - `AGENTS.md` and `AGENTS.override.md` — mandatory operating rules for agents.
+- `LICENSE.md` — canonical repository licensing and use boundary.
+- `THIRD_PARTY_NOTICES.md` — third-party rights and unresolved provenance boundary.
 - `docs/agents/PROJECT_STATE.md` — current project phase and next work.
 - `docs/agents/REPOSITORY_MAP.md` — repository navigation and ownership map.
 - `docs/architecture/ARCHITECTURE_AUTHORITY.md` — architecture precedence and canonical routing.
