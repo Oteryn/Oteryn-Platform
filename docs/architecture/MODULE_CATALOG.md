@@ -25,14 +25,20 @@ The frozen PR #453 production-completion baseline and later exact merged PRs pro
 | Identity | AVAILABLE | Platform web authentication policy, credentials lifecycle, registered sessions, MFA, confirmed email changes, privacy, recovery and Platform termination | Payments, game runtime, arbitrary Canary account or character mutations |
 | Accounts | AVAILABLE | Greenfield account provisioning/binding and future explicitly contracted account-level operations | Canary password verification logic, undocumented shared writes, game runtime |
 | Characters | AVAILABLE | Contract-approved web-triggered character operations; currently create plus Character Bazaar ownership transfer | Direct undocumented Canary writes; uncontracted rename/delete |
+| PublicPortal | AVAILABLE | Homepage composition, shared public shell/navigation/footer, SEO discovery and already-authorized view-model orchestration | Authentication policy, raw Canary queries, arbitrary CMS persistence or module business rules |
+| Announcements | AVAILABLE | Typed scheduled public announcements and permission-scoped publication lifecycle | Authoritative runtime world/service state or unrestricted site settings |
+| Events | AVAILABLE | Localized editorial event schedule/detail and audited administration lifecycle | Runtime raid/service truth unless consumed from an explicit LiveOps contract |
+| Downloads | AVAILABLE | Approved client release/artifact metadata, platform variants, checksums and publication lifecycle | Arbitrary executable upload/proxy, release signing authority or client updater runtime without a contract |
 | PublicGameData | AVAILABLE | Read models/queries for characters, guilds, highscores, online/status | Privileged mutations |
+| LiveOps | PLANNED | Authoritative time-sensitive world/service status, maintenance, server save, raid schedules, runtime events/boost freshness and service history | Free-form editorial content, gameplay mutation or fabricated offline/zero state |
 | CMS | AVAILABLE | Public content reads and permission-scoped Platform content management | Identity policy, game state, unreviewed rich/upload surfaces |
 | Support | AVAILABLE | Platform tickets, reports, enforcement records, notifications, retention and privacy-safe user/moderator presentation | Canary ban mutation, file attachments, disclosure of reporter identity or private moderator notes |
 | EditorialMedia | AVAILABLE | Private normalized raster-image objects, integrity metadata, bounded consumer references and administrator lifecycle | Generic public file hosting, executable uploads, arbitrary documents, consumer-specific publication rules |
 | Wiki | AVAILABLE | Localized Wiki public reads/search, categories, lifecycle, trusted administration, revisions and approved media references | Generic CMS pages, arbitrary HTML, player editing, claims of complete authoritative game content |
+| GameCatalog | AVAILABLE | Versioned deterministic game-catalogue snapshot validation, inactive import, activation/rollback and bounded public projections | Inventing missing content, silent producer assumptions, production activation without a gate |
+| PlayerCompanion | PLANNED | Versioned calculators, build plans, hunt guidance, session analysis, progression goals, shareable plans and explained recommendations | Canonical game entities/formulas, raw Canary access, game mutation, payment settlement or hidden balance policy |
 | Admin | AVAILABLE | Admin UI, explicit RBAC/policies, privileged Platform use cases | Bypassing domain/application invariants or granting implicit wildcard authority |
 | Audit | AVAILABLE | Security/admin audit primitives, privileged-action audit and bounded admin audit visibility | Secrets, raw credentials, business-rule authorization decisions |
-| GameCatalog | AVAILABLE | Versioned deterministic game-catalogue snapshot validation, inactive import, activation/rollback and bounded public projections | Inventing missing content, silent producer assumptions, production activation without a gate |
 | Integration | AVAILABLE | Implemented Canary read/write adapters, schema translation and contract enforcement; future login bridge remains separate | Product policy that belongs in domain modules |
 | Wallet | AVAILABLE | Oteryn Coins available/reserved projection and append-oriented idempotent ledger | Canary coins, payment-provider settlement, arbitrary balance edits |
 | Marketplace | AVAILABLE | Character Bazaar listings, escrow saga, bids, watches, settlement, history and recovery policy | Canary gameplay state, generic character mutation, payment-provider commerce |
@@ -164,6 +170,95 @@ Character deletion/soft deletion and rename are not implemented or authorized. T
 - each new mutation operation gets its own contract and least-privilege boundary;
 - the Character Bazaar transfer never changes character name, skills, inventory, guild, house, market or session state.
 
+## PublicPortal
+
+### Responsibilities
+
+- production homepage composition;
+- shared public header, navigation, footer and route discoverability;
+- public view models that combine already-authorized data from bounded modules;
+- sitemap/robots and public SEO orchestration;
+- explicit empty, stale, unavailable and not-found presentation.
+
+### Current available boundary
+
+The merged public shell provides the production homepage, public navigation and SEO endpoints. The homepage composes published editorial content and bounded public game/runtime projections without making Blade templates a raw data-access layer.
+
+### Invariants
+
+- PublicPortal is presentation/orchestration, not a generic domain module;
+- controllers and templates do not create raw Canary or cross-module persistence paths;
+- a failed dependency does not fabricate `0 online`, `offline`, no news or no event;
+- links and sitemap entries activate only for real published/enabled routes;
+- authentication and account policy remain owned by Identity/Accounts.
+
+## Announcements
+
+### Responsibilities
+
+- typed time-bounded public notices;
+- localized title/body and severity;
+- draft/publication scheduling;
+- trusted internal or allowlisted external action links;
+- exact-permission administration and audit.
+
+### Current available boundary
+
+The merged announcements module provides public active-announcement projection and permission-scoped administration. It is editorial communication, not proof of runtime world or service status.
+
+### Invariants
+
+- only active published records are public;
+- time boundaries are deterministic;
+- links are validated and cannot become open redirects or active-content URLs;
+- runtime maintenance/offline truth comes from LiveOps when that boundary exists;
+- privileged mutations require authentication, confirmed MFA, exact permission and audit.
+
+## Events
+
+### Responsibilities
+
+- localized editorial event records and slugs;
+- draft, scheduled, active, completed and cancelled lifecycle;
+- time-zone normalization and deterministic public visibility;
+- optional approved links, news/media associations and homepage previews;
+- exact-permission administration and audit.
+
+### Current available boundary
+
+The merged module exposes public event list/detail routes and separate administration/publishing permission gates.
+
+### Invariants
+
+- unpublished and cancelled state follows explicit visibility policy;
+- event schedules are not inferred from free-form news;
+- runtime raids, world events and service windows require a LiveOps source when presented as authoritative current state;
+- consumer-specific EditorialMedia integration remains reviewed and bounded;
+- time-zone behavior is tested at boundaries.
+
+## Downloads
+
+### Responsibilities
+
+- supported client release records and channels;
+- platform/architecture artifact metadata;
+- immutable approved artifact references;
+- version, size, checksum and release-note presentation;
+- publication and withdrawal lifecycle;
+- future minimum-version, mandatory-update and provenance/signature policy.
+
+### Current available boundary
+
+The merged Download Center provides a public platform-filtered route and permission-scoped create/edit/publish administration for approved release metadata.
+
+### Invariants
+
+- no arbitrary executable upload, proxy or user-supplied artifact URL;
+- allowed artifact hosts and immutable references are validated;
+- public output shows supplied version/platform/size/checksum facts without claiming a publisher signature that is not proven;
+- a checksum provides integrity only after the expected value is trusted and does not by itself establish origin;
+- release signing, updater manifests and automatic client updates require separate contracts/threat modelling.
+
 ## PublicGameData
 
 ### Responsibilities
@@ -188,6 +283,26 @@ Character Bazaar listing creation uses its own operation-specific transfer conne
 - dependency failure is explicit, not fabricated empty/offline state;
 - freshness boundaries are not extended by unbounded caching;
 - Character Bazaar snapshots exclude Canary account IDs, IPs, sessions, credentials and arbitrary blobs.
+
+## LiveOps — planned
+
+### Responsibilities
+
+- authoritative current service/world status and freshness;
+- maintenance and server-save schedules;
+- service-status and maintenance history;
+- raid/boss/runtime-event schedules when an authoritative producer exists;
+- boosted creature/boss or other rotating runtime projections when their exact source and semantics are contracted;
+- explicit unavailable/stale behavior and operational ownership.
+
+### Invariants
+
+- CMS, Announcements and Events may explain or present state but cannot originate authoritative runtime truth;
+- zero players, offline, maintenance, stale and unavailable are distinct states;
+- every projection declares producer, observation time, TTL and failover behavior;
+- no gameplay mutation is implied;
+- multi-world/season identity is explicit;
+- production claims require exact environment evidence.
 
 ## CMS
 
@@ -301,6 +416,70 @@ Player editing, comments, arbitrary HTML and a complete authoritative game-conte
 - public output is published-only, locale-scoped and safely rendered;
 - media access requires an effective published translation reference and integrity verification.
 
+## Game Catalog
+
+### Responsibilities
+
+- validate versioned deterministic Canary catalogue snapshots against pinned byte-identical schemas;
+- import immutable snapshots transactionally and inactive by default;
+- preserve release, completeness, availability and provenance facts without inventing missing evidence;
+- activate and roll back only compatible snapshots with a concrete verified-content boundary;
+- project public item, creature and loot visibility fail closed.
+
+### Current available boundary
+
+Schema `1.0.0` remains supported for retained imports and rollback. Schema `1.1.0` additionally represents an unknown `verified_content_through_release` as null. Schema `1.2.0` preserves exact Canary `canary_dynamic_threshold_v1` loot thresholds and declared roll maxima without presenting contextual thresholds as static probabilities. Unknown-boundary snapshots may be imported for review but cannot be activated or exposed publicly.
+
+Open draft PR #338 contains an inactive schema `1.3.0` NPC-shop consumer and remains outside the current `main` boundary until its separate producer/compatibility gate is terminal. Issue #489 retains authoritative expected-inventory, capability, failure/recovery and portability gaps.
+
+### Invariants
+
+- schema bytes and hashes are pinned per supported version;
+- null verified-content means unknown, never complete;
+- unsupported schema versions, malformed snapshots and schema/hash mismatches fail closed;
+- legacy rational loot probabilities and contextual runtime thresholds remain distinct persisted models;
+- threshold values are never clamped or rendered as percentages;
+- import never activates automatically;
+- activation failure preserves the prior active snapshot and projections;
+- production import or activation requires a separate environment-gated task.
+
+## PlayerCompanion — planned
+
+### Responsibilities
+
+- deterministic calculators and formula executions;
+- saved character/build/equipment plans;
+- hunt discovery and explained ranking orchestration;
+- private session-log analysis and loot-split calculations;
+- quest/access/bestiary/bosstiary/goal tracking;
+- bounded shareable plans and sanitized summaries;
+- clearly classified simulations and recommendations;
+- ruleset/catalog/world/season freshness presentation.
+
+The focused architecture is `docs/architecture/PLAYER_COMPANION_ARCHITECTURE.md`; ADR 0025 owns the durable module decision.
+
+### Dependencies
+
+- `GameCatalog` supplies canonical versioned entities, relations, formulas and snapshot identity;
+- `Wiki` supplies guides and editorial explanation;
+- `PublicGameData` supplies public or separately authorized character/world projections;
+- future `GameAnalytics` supplies measured aggregates, sample/confidence and balance evidence;
+- `LiveOps` supplies time-sensitive world/service state;
+- `PlatformAPI` may later expose the same application services to approved clients.
+
+### Invariants
+
+- output is explicitly `DETERMINISTIC`, `SIMULATION` or `RECOMMENDATION`;
+- formulas and persisted results are pinned to game profile, ruleset, catalog snapshot, formula version and applicable world/season/effective dates;
+- stale, deprecated, experimental and unavailable data is visible and fails closed where correctness requires it;
+- browser-provided account or character identifiers never establish ownership;
+- saved builds, goals and raw/normalized session data are private by default;
+- shared representations are allowlisted, bounded, versioned, non-identifying and revocable where linked to private persisted state;
+- raw session logs and private plans never enter ordinary logs or audit metadata;
+- domain formulas are not independently duplicated across Blade, JavaScript, API and clients;
+- recommendations expose basis, confidence, freshness, explanation and limitations;
+- no game, payment or economy mutation is implied by a calculation.
+
 ## Support and Moderation
 
 ### Responsibilities
@@ -381,33 +560,6 @@ Identity security events remain append-oriented security primitives. The account
 Phase 6 adds dedicated append-oriented administrator audit storage, bounded audit visibility and events for first-admin bootstrap, role assignment/removal and privileged CMS operations. Wiki and Marketplace reuse the recorder for bounded lifecycle, wallet adjustment and recovery actions.
 
 Audit storage is not a replacement for infrastructure/application logs and must never contain raw credentials, session/reset/email tokens, complete registered-session identifiers, MFA secrets, raw recovery keys or complete source addresses.
-
-## Game Catalog
-
-### Responsibilities
-
-- validate versioned deterministic Canary catalogue snapshots against pinned byte-identical schemas;
-- import immutable snapshots transactionally and inactive by default;
-- preserve release, completeness, availability and provenance facts without inventing missing evidence;
-- activate and roll back only compatible snapshots with a concrete verified-content boundary;
-- project public item, creature and loot visibility fail closed.
-
-### Current available boundary
-
-Schema `1.0.0` remains supported for retained imports and rollback. Schema `1.1.0` additionally represents an unknown `verified_content_through_release` as null. Schema `1.2.0` preserves exact Canary `canary_dynamic_threshold_v1` loot thresholds and declared roll maxima without presenting contextual thresholds as static probabilities. Unknown-boundary snapshots may be imported for review but cannot be activated or exposed publicly.
-
-Open draft PR #338 contains an inactive schema `1.3.0` NPC-shop consumer and remains outside the current `main` boundary until its separate producer/compatibility gate is terminal. Issue #489 retains authoritative expected-inventory, capability, failure/recovery and portability gaps.
-
-### Invariants
-
-- schema bytes and hashes are pinned per supported version;
-- null verified-content means unknown, never complete;
-- unsupported schema versions, malformed snapshots and schema/hash mismatches fail closed;
-- legacy rational loot probabilities and contextual runtime thresholds remain distinct persisted models;
-- threshold values are never clamped or rendered as percentages;
-- import never activates automatically;
-- activation failure preserves the prior active snapshot and projections;
-- production import or activation requires a separate environment-gated task.
 
 ## Integration
 
@@ -599,6 +751,8 @@ Issues #488, #489 and #490 retain missing expected inventories, failure/recovery
 Expose API endpoints only for a concrete client/use case. API endpoints must reuse module services/policies and must not implement a second business-rule path.
 
 Bounded internal endpoints, game-auth tickets or operational probes are not a general public/first-party Platform API. Issue #490 retains the decision and evidence gap.
+
+PlayerCompanion is a concrete future consumer candidate: the API may expose calculator metadata/execution, owner workspaces, compatible recommendations and share resolution only through the same application services, version/freshness semantics, authentication and rate limits as the web UI.
 
 ## Products and Entitlements — planned
 

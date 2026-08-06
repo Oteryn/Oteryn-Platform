@@ -18,43 +18,49 @@ Continuously challenge Platform architecture, repository structure and CI/CD; id
 
 ```yaml
 programme_state_version: 2
-updated_at: 2026-08-06T06:17:03Z
+updated_at: 2026-08-06T09:10:00Z
 status: waiting_owner_decision
-current_review_domain: merged-source-branch-lifecycle-policy
+current_review_domain: confidential-vulnerability-disclosure-policy
 active_task: null
-issue: 586
+issue: 588
 branch: null
 pull_request: null
-last_completed_domain: architecture-decision-backlog-implementation
-last_completed_issue: 642
-last_completed_pull_request: 650
-last_completed_merge: 20754620b7a0a4363c70480bda0ee5dff885c9a7
+last_completed_domain: repository-licensing-policy
+last_completed_issue: 587
+last_completed_pull_request: 690
+last_completed_merge: d353235a3c7d4b7b34f35a745871c10a71192cc6
 accepted_authority:
   authority_index: docs/architecture/ARCHITECTURE_AUTHORITY.md
   authority_adr: docs/architecture/adr/0022-architecture-authority-index-and-focused-canonical-documents.md
   backlog_adr: docs/architecture/adr/0023-machine-readable-architecture-decision-backlog.md
   backlog_registry: docs/architecture/ARCHITECTURE_DECISION_BACKLOG.json
-active_architecture_decision_ids: ["ARCH-DEC-0001","ARCH-DEC-0002","ARCH-DEC-0003"]
+  branch_lifecycle_adr: docs/architecture/adr/0024-merged-source-branch-lifecycle-policy.md
+  licensing_adr: docs/architecture/adr/0026-proprietary-repository-licensing-policy.md
+implementation_handoffs:
+  - issue: 658
+    scope: deterministic branch inventory, retention metadata, conservative cleanup and recovery proof
+active_architecture_decision_ids: ["ARCH-DEC-0003"]
 architecture_conflicts:
   - Historical duplicate ADR prefixes remain for 0008, 0010, 0011, 0015, 0016, 0017, 0018 and 0021, but the exact accepted path sets are machine-enforced and cannot expand silently.
+  - Issue 586 retains historical evidence that delete_branch_on_merge was disabled; ADR 0024 and current metadata prove the accepted current state is enabled.
 ci_architecture_findings:
   - PR 626 separates conditional runtime-tests from an always-emitted aggregate protected test context.
   - Runtime/code changes require the complete MariaDB/PHP suite before the aggregate test gate can pass.
   - Documentation-only changes pass only after fail-closed classification proves runtime tests are NOT_APPLICABLE.
 proven:
-  - PR 650 merged through protected main as 20754620b7a0a4363c70480bda0ee5dff885c9a7 and closed Issue 642 as completed.
-  - Final synchronized head f5c3365b5d0353a988820eaeb41c7e076b4de347 passed all eight emitted workflows, including full runtime-tests and the aggregate protected test gate.
-  - The canonical registry contains exactly ARCH-DEC-0001, ARCH-DEC-0002 and ARCH-DEC-0003 and grants no accepted-decision, implementation or activation authority.
-  - Issue 586 remains open and is the linked owner-decision route for ARCH-DEC-0001.
-  - Zero unresolved review threads remained at merge.
+  - Repository owner selected Option A for the merged source-branch lifecycle policy.
+  - PR 653 merged ADR 0024 as 2abfb961201f7f5d359c5b140dba68be492157be after all eight final workflows passed.
+  - Repository owner selected Option A for ARCH-DEC-0002 on 2026-08-06.
+  - PR 690 merged ADR 0026 and the proprietary/no-permission policy as d353235a3c7d4b7b34f35a745871c10a71192cc6 after all exact-head workflows and independent audit passed.
+  - ARCH-DEC-0002 was removed from the active backlog in the same bounded package.
 derived:
-  - The highest-priority next architecture action is the repository-owner decision for the merged source-branch exception, recovery and cleanup policy.
+  - The next unresolved architecture decision is confidential vulnerability disclosure policy, ARCH-DEC-0003 / Issue 588.
 unknown:
-  - The repository owner's selected option for ARCH-DEC-0001.
+  - Repository-owner selection for ARCH-DEC-0003.
 conflicts: []
 blockers:
-  - Repository-owner selection in Issue 586 is required before ARCH-DEC-0001 can leave decision_required.
-next_action: Present ARCH-DEC-0001 options A, B and C from Issue 586 to the repository owner, record the selected policy in one bounded architecture package, and do not infer acceptance.
+  - Repository-owner selection in Issue 588 is required before ARCH-DEC-0003 can leave decision_required.
+next_action: Present ARCH-DEC-0003 options from Issue 588 to the repository owner, recommend the safest supported route and do not infer acceptance.
 ```
 
 ## Programme rules

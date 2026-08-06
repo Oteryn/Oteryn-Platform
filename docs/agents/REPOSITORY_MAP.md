@@ -12,6 +12,7 @@ Navigation map for autonomous agents. This is not an exhaustive inventory. Confi
 | Database | `database/migrations/**`, `database/seeders/**`, `database/factories/**` | Platform schema/data changes. Shared Canary schema is contract-controlled. |
 | Canary integration | planned integration adapters, `config/**`, `docs/contracts/**` | Never assume generic TFS/MyAAC schema. Verify Oteryn Canary evidence. |
 | Public web / CMS | `resources/views/**`, `resources/js/**`, `resources/css/**` | Blade/frontend/CMS. Escape untrusted output and preserve CSRF protections. |
+| Player Companion | future module paths under `app/PlayerCompanion/**`, module routes/views/tests | Versioned calculators, planning, hunt guidance, private session analysis and recommendations. Read ADR 0025 and the focused architecture before implementation. |
 | Admin | planned admin controllers/routes/policies/views | Privileged operations. Explicit policies, MFA target and auditability required. |
 | Tests | `tests/**` | Unit, feature, integration, contract and security regression tests. |
 | Configuration | `config/**`, `.env.example` | Commit examples only. Never commit real credentials, tokens or production secrets. |
@@ -28,6 +29,8 @@ Navigation map for autonomous agents. This is not an exhaustive inventory. Confi
 | Architecture authority | `docs/architecture/ARCHITECTURE_AUTHORITY.md` | Canonical entry point for architecture precedence, focused ownership and conflict handling. Read this first for architecture-wide work. |
 | System architecture | `docs/architecture/SYSTEM_ARCHITECTURE.md` | Current system context, trust boundaries and high-level dependency rules; explicitly labelled historical sections are context only. |
 | Module catalog | `docs/architecture/MODULE_CATALOG.md` | Module responsibility and ownership. |
+| Portal completeness | `docs/architecture/PORTAL_COMPLETENESS_ARCHITECTURE.md` | Current portal assessment, benchmark dispositions, remaining architectural gaps and release-scope completion gate. |
+| Player Companion | `docs/architecture/PLAYER_COMPANION_ARCHITECTURE.md` | Player calculators/planners/session-analysis boundary, versioning, privacy, API/client reuse and P0–P2 delivery priorities. |
 | Security architecture | `docs/architecture/SECURITY_ARCHITECTURE.md` | Mandatory security invariants. |
 | Data ownership | `docs/architecture/DATA_OWNERSHIP.md` | Platform/Canary/shared persistent data rules. |
 | Test strategy | `docs/architecture/TEST_STRATEGY.md` | Unit/feature/integration/contract/E2E strategy. |
@@ -47,6 +50,14 @@ Before implementing shared auth/account/character mutations, search/read:
 - `docs/architecture/DATA_OWNERSHIP.md`;
 - `docs/architecture/SECURITY_ARCHITECTURE.md`.
 
+Before implementing portal-completeness or player-tools work, also read:
+
+- `docs/architecture/PORTAL_COMPLETENESS_ARCHITECTURE.md`;
+- `docs/architecture/PLAYER_COMPANION_ARCHITECTURE.md`;
+- `docs/architecture/adr/0025-player-companion-and-portal-tools-boundary.md`;
+- `docs/architecture/MODULE_CATALOG.md`;
+- the exact Game Catalog/Wiki/PublicGameData/LiveOps/Game Analytics contracts required by the slice.
+
 For public-domain, Cloudflare Tunnel, website-origin or Game Gateway hostname work, also read:
 
 - `docs/contracts/PUBLIC_ENDPOINTS_CONTRACT.md`;
@@ -62,6 +73,7 @@ find . -name AGENTS.md -print
 find docs/agents/tasks/active -maxdepth 1 -type f -print
 rg -n "UNKNOWN|CONFLICT|DISCOVERY" docs/architecture docs/contracts docs/agents
 rg -n "auth|session|mfa|password|account|player|guild|canary|login-server" app routes config database tests docs
+rg -n "PlayerCompanion|LiveOps|calculator|ruleset_version|catalog_snapshot" app routes config database tests docs
 rg -n "Route::|middleware|Gate::|Policy|Hash::|DB::transaction" app routes tests
 ```
 
