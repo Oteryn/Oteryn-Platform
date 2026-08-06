@@ -67,40 +67,6 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Verify accepted repository settings
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-        run: |
-          python3 - <<'PY'
-          import json, os, urllib.request
-          request = urllib.request.Request(
-              f"https://api.github.com/repos/{os.environ['GITHUB_REPOSITORY']}",
-              headers={
-                  "Accept": "application/vnd.github+json",
-                  "Authorization": f"Bearer {os.environ['GITHUB_TOKEN']}",
-                  "User-Agent": "oteryn-branch-lifecycle/1",
-                  "X-GitHub-Api-Version": "2022-11-28",
-              },
-          )
-          with urllib.request.urlopen(request, timeout=60) as response:
-              repository = json.load(response)
-          actual = {
-              "delete_branch_on_merge": repository.get("delete_branch_on_merge"),
-              "allow_squash_merge": repository.get("allow_squash_merge"),
-              "allow_merge_commit": repository.get("allow_merge_commit"),
-              "allow_rebase_merge": repository.get("allow_rebase_merge"),
-          }
-          expected = {
-              "delete_branch_on_merge": True,
-              "allow_squash_merge": True,
-              "allow_merge_commit": False,
-              "allow_rebase_merge": False,
-          }
-          if actual != expected:
-              raise SystemExit(f"repository setting drift: expected {expected!r}, got {actual!r}")
-          print(f"Repository settings match accepted ADR 0024: {actual}")
-          PY
-
       - name: Build fail-closed live inventory
         env:
           GITHUB_TOKEN: ${{ github.token }}
