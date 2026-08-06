@@ -55,15 +55,15 @@ cross_repository_tasks: []
 ```yaml
 checkpoint_version: 1
 policy_version: 2
-updated_at: 2026-08-06T12:02:00Z
+updated_at: 2026-08-06T12:10:00Z
 invocation_started_at: 2026-08-06T12:02:00Z
-last_progress_at: 2026-08-06T12:02:00Z
+last_progress_at: 2026-08-06T12:10:00Z
 head: derive-from-live-pr-627
 base_main_at_recovery: 5c06bb4f1b79459d41e04d9e185e17918b88a948
 branch: repair/issue-576
 pr: 627
-status: validating
-phase: validate
+status: ready
+phase: audit
 session_id: chatgpt-20260806T1402+0200-content-scale-finalization
 session_role: implementer
 execution_mode: github
@@ -87,7 +87,7 @@ proven:
   - Historical audit #632 found the earlier present-state parent-open claim inaccurate; the archive records both historical and current states and disclaims causation or overall product completion.
   - Independent audit #729 found that the historical source branch was incorrectly described as retained although the live ref was absent.
   - Live branch search and direct ref lookup confirm that test/OTERYN-20260730-long-content-large-results does not exist; the archive classifies it as deleted/ref absent while preserving evidence through PRs #363/#369 and immutable commits.
-  - Prior audit target #738 remained unclaimed and became non-current when protected main advanced through independently audited lifecycle-governance closeout PRs #673 and #739.
+  - Prior audit targets #738 and #745 remained unclaimed and became obsolete before validation of the final ready checkpoint.
   - Protected main 5c06bb4f1b79459d41e04d9e185e17918b88a948 includes the terminal lifecycle-closeout batching policy and its archived task.
   - The package remains limited to exactly three lifecycle paths and changes no evidence, acceptance, product, workflow, deployment or runtime path.
   - This checkpoint intentionally does not duplicate mutable GitHub check, thread, audit-claim or future current-main state.
@@ -122,7 +122,7 @@ validation:
     result: NOT_APPLICABLE
     evidence: documentation and ownership lifecycle only
 blockers: []
-next_action: Read live PR #627 and current main; stop at the first unsatisfied gate among exact head, current-main ancestry, required checks, zero unresolved threads and fresh independent audit, otherwise perform the protected squash merge and terminal archival.
+next_action: A fresh independent validator audits the unchanged live PR #627 head and records PASS_ZERO_MATERIAL_FINDINGS or exact findings; after PASS, the integrator performs the protected squash merge and terminal archival.
 ```
 
 ## Merge-gate rule
