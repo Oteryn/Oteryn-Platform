@@ -30,11 +30,11 @@ Execute the frozen Issue #365 matrix once with a source-backed Docker API `1.43`
 
 ```yaml
 policy_version: 2
-checkpoint_version: 4
-updated_at: 2026-08-06T13:25:00+02:00
+checkpoint_version: 5
+updated_at: 2026-08-06T13:29:00+02:00
 phase: validate
-session_id: chatgpt-20260806T1315+0200-issue365-synology-v7
-session_role: validator-infrastructure
+session_id: chatgpt-20260806T1329+0200-issue365-synology-v7-continuation
+session_role: validator-closeout
 execution_mode: github
 execution_reason: exact Actions artifacts and the isolated Synology runner are the authoritative validation environment
 lease_expires_at: null
@@ -64,7 +64,8 @@ proven:
   - exact one-line transformation produces derived SHA-256 3280d961652b5aa6659d73fc8020fb8b6dba9d4879a1695d4323afe62e3d76b4 from original validator SHA-256 5e89a700d85cb362e374a500bd923d52eea1a9b1b86d0fe657e07c0e134f5945
   - exactly one push-triggered workflow run exists for the workflow head
   - source artifact verification, environment proof and exact one-line derivative proof passed in job 92601572152
-  - derived validator was invoked exactly once and is currently executing
+  - derived validator was invoked exactly once and remained in its execution step at both observations in this continuation
+  - PR 741 has zero review threads and zero comments
 unknown:
   - whether API 1.43 allows all browser samples to execute
   - terminal clean versus one-corrupt flash and thumbnail verdict
@@ -82,20 +83,20 @@ validation:
     evidence: Docker CLI and Engine API documentation for DOCKER_API_VERSION
   - command: one-shot runtime 31097086526
     result: IN_PROGRESS
-    evidence: job 92601572152; derivative proof passed and execution step is running
+    evidence: job 92601572152; derivative proof passed and execution step remained active
 blockers:
   - external workflow run 31097086526 has not reached a terminal conclusion; no rerun or second self-hosted job is authorized
 anti_stall:
-  invocation_started_at: 2026-08-06T13:15:00+02:00
+  invocation_started_at: 2026-08-06T13:29:00+02:00
   last_progress_at: 2026-08-06T13:24:00+02:00
   ci_checks_for_current_head: 2
   ci_check_generation: runtime-v7
   terminal_ci_wait_started_at: null
   terminal_ci_checks_for_current_generation: 0
-  unchanged_state_checks: 1
+  unchanged_state_checks: 2
   identical_failure_retries: 0
   repair_cycles_for_current_gate: 1
-  context_reconstruction_attempts: 0
+  context_reconstruction_attempts: 1
   stall_warnings: 0
 next_action: Fetch terminal steps, logs and artifacts for run 31097086526, classify the exact product or technical result and complete Issue 740 / PR 741 / parent Issue 365 closeout.
 ```
@@ -106,9 +107,9 @@ next_action: Fetch terminal steps, logs and artifacts for run 31097086526, class
 recovery:
   policy_version: 1
   generation: 1
-  session_id: chatgpt-20260806T1315+0200-issue365-synology-v7
-  session_started_at: 2026-08-06T13:15:00+02:00
-  checkpointed_at: 2026-08-06T13:25:00+02:00
+  session_id: chatgpt-20260806T1329+0200-issue365-synology-v7-continuation
+  session_started_at: 2026-08-06T13:29:00+02:00
+  checkpointed_at: 2026-08-06T13:29:00+02:00
   last_progress_at: 2026-08-06T13:24:00+02:00
   phase: Docker API compatibility matrix validation
   exact_head: 436734c4b42100f06eb9c51b8dbe0e1ab9c2063d
