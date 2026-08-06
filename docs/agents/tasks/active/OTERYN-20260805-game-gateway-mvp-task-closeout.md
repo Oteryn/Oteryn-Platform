@@ -57,7 +57,7 @@ cross_repository_tasks: []
 ```yaml
 checkpoint_version: 1
 policy_version: 2
-updated_at: 2026-08-06T09:51:00Z
+updated_at: 2026-08-06T09:54:00Z
 head: derive-from-live-pr-598
 branch: repair/issue-555
 pr: 598
@@ -66,12 +66,12 @@ phase: audit
 session_id: none
 session_role: none
 execution_mode: github
-execution_reason: implementation and exact-head validation are complete; only fresh independent audit and protected merge remain
+execution_reason: implementation is complete; exact-head validation must pass before a fresh independent audit
 claim_nonce: issue-555-3efcae79-20260805T2028Z
 lease_expires_at: null
 recovery_generation: 2
 stale_takeover_count: 2
-repair_cycles_for_current_gate: 1
+repair_cycles_for_current_gate: 2
 stall_warnings: 0
 context_pressure: low
 context_growth: stable
@@ -97,8 +97,8 @@ derived:
 unknown: []
 conflicts: []
 first_failure:
-  marker: OPA-GOV-0002-FINAL-AUDIT-04
-  evidence: audit #699 found that protected main advanced after exact-head validation; the canonical PR was then synchronized and revalidated
+  marker: agent-governance-validation-result-enum
+  evidence: exact-head Agent Governance rejected unsupported validation result derive-from-live-pr; this checkpoint uses the canonical NOT_RUN result until live exact-head checks complete
 rejected_hypotheses:
   - encoding mutable checks or audit state as durable current facts in this task.
   - treating producer completion as complete client-to-world entry.
@@ -114,14 +114,15 @@ validation:
     result: PASS
     evidence: exactly the three declared lifecycle paths; unrelated current-main state is preserved
   - command: exact-head GitHub Actions
-    result: derive-from-live-pr
-    evidence: required check names and conclusions must be read from the current PR head
+    result: NOT_RUN
+    evidence: read required check names and conclusions from the live current PR head; this static checkpoint does not duplicate future results
   - command: runtime E2E
     result: NOT_APPLICABLE
     evidence: documentation and ownership lifecycle only
 blockers:
+  - final exact-head checks
   - fresh independent exact-head audit
-next_action: A fresh independent validator audits the live PR #598 head; after PASS, the implementer rechecks current-main ancestry, required checks and review threads, then performs the protected merge and terminal archival.
+next_action: After live exact-head checks pass, publish one fresh independent audit target; after PASS, recheck current-main ancestry, required checks and review threads, then perform the protected merge and terminal archival.
 ```
 
 ## Recovery checkpoint
@@ -132,21 +133,21 @@ recovery:
   generation: 2
   session_id: none
   session_started_at: null
-  checkpointed_at: 2026-08-06T09:51:00Z
-  last_progress_at: 2026-08-06T09:51:00Z
-  phase: audit
+  checkpointed_at: 2026-08-06T09:54:00Z
+  last_progress_at: 2026-08-06T09:54:00Z
+  phase: validate
   exact_head: derive-from-live-pr-598
   pull_request: 598
-  active_operation: independent exact-head audit
+  active_operation: exact-head required checks
   external_run_ids: derive-from-live-pr
   operation_started_at: null
   wait_deadline_at: null
   check_generation: exact_head
-  checks_used: 1
+  checks_used: 0
   status: waiting
   safe_to_resume: true
-  resume_condition: a fresh independent audit result exists for the unchanged live PR #598 head
-  next_action: Read the live audit result and current-main ancestry; merge only after PASS with all gates still satisfied, otherwise remediate the exact finding.
+  resume_condition: all required exact-head checks complete on the unchanged live PR #598 head
+  next_action: Inspect one aggregate exact-head workflow snapshot; publish a fresh independent audit target only after every required check passes.
 ```
 
 ## Merge-gate rule
