@@ -72,28 +72,28 @@ cross_repository_tasks: []
 ```yaml
 checkpoint_version: 1
 policy_version: 2
-updated_at: 2026-08-06T12:40:00+02:00
+updated_at: 2026-08-06T12:43:00+02:00
 invocation_started_at: 2026-08-06T12:27:00+02:00
-last_progress_at: 2026-08-06T12:40:00+02:00
+last_progress_at: 2026-08-06T12:43:00+02:00
 branch: docs/issue-720-game-auth-topology-reconcile
 base_main: 5efd3c2dfad66aa27d0018e1e5f6ae01b32e8e38
 head: derive-from-live-pr-731
 implementation_content_head: 2e78d4728c0504cbda7e90e8c9827b246771e94b
 pr: 731
-status: validating
+status: waiting
 phase: validate
-session_id: chatgpt-20260806T1230+0200-game-auth-topology-reconcile
-session_role: implementer
+session_id: none
+session_role: none
 execution_mode: github
-execution_reason: narrow canonical documentation correction using a dedicated branch and exact-head repository CI
-lease_expires_at: 2026-08-06T13:25:00+02:00
+execution_reason: implementation is complete; exact-head repository CI and a fresh independent documentation audit remain
+lease_expires_at: null
 context_pressure: medium
 context_growth: stable
 context_score: 6
 estimate_confidence: high
 decomposition_decision: single
 ci_checks_for_current_head: 0
-ci_check_generation: draft
+ci_check_generation: current_user_authored_head
 terminal_ci_wait_started_at: null
 terminal_ci_checks_for_current_generation: 0
 unchanged_state_checks: 0
@@ -144,8 +144,10 @@ validation:
   - command: runtime E2E
     result: NOT_APPLICABLE
     evidence: documentation-only correction changes no executable behavior
-blockers: []
-next_action: Observe one aggregate exact-head workflow snapshot on the current user-authored PR head; after all checks pass and threads remain zero, publish one fresh independent documentation audit target.
+blockers:
+  - current exact-head workflows not yet terminal
+  - fresh independent documentation audit not yet performed
+next_action: A fresh session inspects one aggregate exact-head workflow snapshot for live PR #731; if every check passes and threads are zero, it publishes one independent audit target on the unchanged SHA.
 ```
 
 ## Recovery checkpoint
@@ -154,20 +156,20 @@ next_action: Observe one aggregate exact-head workflow snapshot on the current u
 recovery:
   policy_version: 1
   generation: 1
-  session_id: chatgpt-20260806T1230+0200-game-auth-topology-reconcile
-  session_started_at: 2026-08-06T12:27:00+02:00
-  checkpointed_at: 2026-08-06T12:40:00+02:00
-  last_progress_at: 2026-08-06T12:40:00+02:00
+  session_id: none
+  session_started_at: null
+  checkpointed_at: 2026-08-06T12:43:00+02:00
+  last_progress_at: 2026-08-06T12:43:00+02:00
   phase: validate
   exact_head: derive-from-live-pr-731
   pull_request: 731
   active_operation: exact-head governance and documentation CI
-  external_run_ids: []
-  operation_started_at: 2026-08-06T12:40:00+02:00
+  external_run_ids: derive-from-live-pr
+  operation_started_at: null
   wait_deadline_at: null
-  check_generation: draft
+  check_generation: current_user_authored_head
   checks_used: 0
-  status: active
+  status: waiting
   safe_to_resume: true
   resume_condition: current PR #731 head remains unchanged and exact-head workflows are terminal
   next_action: Inspect one aggregate exact-head workflow snapshot; publish the independent audit target only after every required check passes.
