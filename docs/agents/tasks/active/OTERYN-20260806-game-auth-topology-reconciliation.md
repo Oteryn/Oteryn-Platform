@@ -78,9 +78,9 @@ last_progress_at: 2026-08-06T12:31:00+02:00
 branch: docs/issue-720-game-auth-topology-reconcile
 base_main: 5efd3c2dfad66aa27d0018e1e5f6ae01b32e8e38
 head: derive-from-live-branch
-pr: pending
-status: implementing
-phase: implement
+pr: 731
+status: validating
+phase: validate
 session_id: chatgpt-20260806T1230+0200-game-auth-topology-reconcile
 session_role: implementer
 execution_mode: github
@@ -114,6 +114,10 @@ unknown:
   - global retirement or network isolation of all legacy password paths
 conflicts: []
 changed_paths:
+  - docs/contracts/GAME_GATEWAY_IDENTITY_CONTRACT.md
+  - docs/contracts/AUTH_GAME_LOGIN_CONTRACT.md
+  - docs/architecture/SYSTEM_ARCHITECTURE.md
+  - docs/architecture/MODULE_CATALOG.md
   - docs/agents/tasks/active/OTERYN-20260806-game-auth-topology-reconciliation.md
 validation:
   - command: PR #542 changed-file overlap inventory
@@ -123,7 +127,7 @@ validation:
     result: NOT_APPLICABLE
     evidence: documentation-only correction changes no executable behavior
 blockers: []
-next_action: Apply the four canonical documentation corrections, remove the temporary helper, and open the draft PR.
+next_action: Verify the exact five-path diff, run exact-head governance/documentation CI, then publish one fresh independent documentation audit target.
 ```
 
 ## Recovery checkpoint

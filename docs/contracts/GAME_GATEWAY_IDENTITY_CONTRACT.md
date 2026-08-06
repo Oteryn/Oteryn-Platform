@@ -2,7 +2,21 @@
 
 ## Status
 
-`TARGET CONTRACT — NOT YET IMPLEMENTED`
+`IMPLEMENTED REPOSITORY CONTRACT — DEPLOYMENT AND PRODUCTION ACTIVATION NOT PROVEN`
+
+`PRODUCTION_PROVEN=false`.
+
+## Delivered repository boundary
+
+The bounded contract producer is delivered on `main`:
+
+- Oteryn Platform PR #121 delivered Game Login Ticket issuance and the private atomic redeem endpoint;
+- Oteryn Platform PR #122 delivered the separately buildable Game Gateway, authoritative login-context orchestration, World Registry use, account-scoped character projection and the Game Session issuer boundary, merged as `8006534108d835474dadd208b0ec934e4a12528b`;
+- `GAME_SESSION_CANARY_CONTRACT.md` is the current operation-specific authority for the legacy-compatible Game Session contract version 1 and records its bounded cross-repository E2E evidence.
+
+Repository delivery proves the application and service contract, not a production deployment. Exact public/private ingress, TLS termination, service identity, credential rotation, deployed revisions, global legacy-path retirement and effective network isolation remain `UNKNOWN` until verified against one exact environment.
+
+The selected native Game Session contract version 2 remains disabled by default and separately governed. Active PR #542 is producer-only work and is not evidence that a native consumer or production cutover is complete.
 
 This contract defines the security boundary between the separately deployable Oteryn Game Gateway and Oteryn Platform Identity.
 

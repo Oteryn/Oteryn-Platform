@@ -74,6 +74,38 @@ The diagram is a system-context abstraction, not a complete module inventory or 
 
 `OperationsObservability`, `PublicEdge`, `QualityE2E` and `LegalCommerce` are explicit ownership boundaries. They do not imply a standalone service or user interface, and repository availability does not prove a particular environment is production-ready.
 
+## Current game-authentication topology
+
+The current repository topology includes a separately deployable Game Gateway in addition to the Laravel modular monolith:
+
+```text
+OTClient
+   |
+   v
+Oteryn Identity / OAuth + PKCE
+   |
+   +--> one-time Game Login Ticket
+            |
+            v
+     Oteryn Game Gateway (Go service)
+            |
+            +--> private Platform ticket redeem
+            +--> private Platform login context
+            |       +--> Platform World Registry
+            |       +--> read-only account-scoped Canary character projection
+            |
+            +--> Game Session issuer contract v1
+                    |
+                    v
+              Canary world-entry admission
+```
+
+This is a repository-delivered bounded path, not proof of one exact deployed production topology. Oteryn Platform PR #122 merged the Gateway producer as `8006534108d835474dadd208b0ec934e4a12528b`; the detailed identity and world-entry semantics remain owned by `GAME_GATEWAY_IDENTITY_CONTRACT.md` and `GAME_SESSION_CANARY_CONTRACT.md`.
+
+The earlier `login-server / auth path` in the broad system-context diagram represents retained legacy/external compatibility paths, not the only current authentication topology. Exact exposure or isolation of native Canary login, external login-server and old-protocol password paths remains environment-specific and `UNKNOWN` without deployment/network evidence.
+
+Native Game Session contract version 2 is a separate disabled-by-default rollout. Active producer PR #542 does not prove an Otheryn/OTClient consumer, cross-repository cutover or production activation. `PRODUCTION_PROVEN=false` until exact deployed revisions, edge/private ingress, service authentication/rotation and legacy-path disposition are verified together.
+
 ## Evidence dimensions
 
 Architecture and delivery claims must keep these facts separate:

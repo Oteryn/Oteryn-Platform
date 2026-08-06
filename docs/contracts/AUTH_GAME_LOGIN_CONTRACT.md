@@ -2,7 +2,7 @@
 
 ## Status
 
-`PARTIALLY PROVEN — CURRENT FLOW MAPPED / CREDENTIAL MIGRATION BLOCKED`
+`PARTIALLY PROVEN — LEGACY PATHS MAPPED / OTERYN GATEWAY PATH DELIVERED / PRODUCTION CUTOVER UNKNOWN`
 
 This document separates:
 
@@ -12,6 +12,48 @@ This document separates:
 4. a **recommended target contract** that is design direction, not implemented behavior.
 
 Do not implement shared credential migration, global game-login MFA/email enforcement or a new game-login token path until a separately approved implementation task satisfies the rollout gates in this document. Platform-local web Identity controls may be implemented without changing that global-auth boundary, but they must not be represented as Canary/login-server enforcement.
+
+## Current Oteryn path overlay
+
+This section is the current repository-state overlay. It does not erase the legacy-path discovery below.
+
+### Delivered on `main` — PROVEN
+
+```text
+OTClient
+  -> Oteryn Identity / OAuth + PKCE
+  -> short-lived single-use Game Login Ticket
+  -> separately deployable Oteryn Game Gateway
+  -> private Platform ticket redeem
+  -> private Platform login context
+       -> Platform World Registry
+       -> account-scoped active character projection
+  -> Game Session issuer contract version 1
+  -> opaque short-lived Game Session credential
+  -> Canary world-entry admission
+```
+
+The Platform/Gateway producer boundary was delivered through PR #121 and PR #122; PR #122 merged as `8006534108d835474dadd208b0ec934e4a12528b`. The operation-specific world-entry authority is `GAME_SESSION_CANARY_CONTRACT.md`, which records the bounded Canary and OTClient consumer evidence for legacy-compatible Game Session contract version 1.
+
+The delivered path does not send the user's Oteryn password across the Gateway-to-Canary boundary. Gateway authorization is derived from authoritative ticket redeem and the exact ready Platform-to-Canary account binding; client-supplied account or character ownership data cannot establish authority.
+
+### Still retained or unresolved
+
+The legacy native Canary, external login-server, reusable `account_sessions`, old-protocol direct-password and source-level alternate-path findings below remain relevant until exact deployment evidence proves that each unsupported path is disabled, isolated or intentionally retained.
+
+```yaml
+repository_gateway_path: PROVEN
+legacy_path_source_capability: PROVEN
+native_v2_platform_producer: DISABLED_BY_DEFAULT
+native_v2_cross_repository_consumer: NOT_PROVEN_BY_THIS_REPOSITORY
+production_deployment_identity: UNKNOWN
+production_private_ingress: UNKNOWN
+production_service_auth_rotation: UNKNOWN
+global_legacy_path_retirement: UNKNOWN
+PRODUCTION_PROVEN: false
+```
+
+No repository document may infer global MFA, email-verification, password-migration or session-revocation enforcement merely from the delivered Gateway path while an alternate deployed password path may remain reachable.
 
 ## Evidence baseline
 
