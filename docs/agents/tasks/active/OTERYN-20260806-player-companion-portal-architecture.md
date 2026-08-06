@@ -51,7 +51,7 @@ feature_scope:
 - [x] `MODULE_CATALOG.md` reconciles implemented `PublicPortal`, `Announcements`, `Downloads` and `Events` boundaries and adds planned `PlayerCompanion` and `LiveOps` boundaries.
 - [x] System architecture, architecture authority, repository navigation and README consistently reference the new focused portal-completeness and Player Companion architecture.
 - [x] The documented launch and post-launch inventory records implement/defer/reject decision points instead of implying every Tibia/RubinOT/TibiaPal feature is mandatory.
-- [ ] Documentation-only validation and fresh contradiction/diff audit pass on the exact final head.
+- [x] Documentation-only validation and fresh contradiction/diff audit pass on the validated architecture head; the final checkpoint-only head remains subject to the protected exact-head merge gate.
 
 ## Ownership
 
@@ -93,18 +93,18 @@ cross_repository_tasks:
 ```yaml
 checkpoint_version: 1
 policy_version: 2
-updated_at: 2026-08-06T08:01:00Z
+updated_at: 2026-08-06T08:05:29Z
 invocation_started_at: 2026-08-06T07:32:00Z
-last_progress_at: 2026-08-06T08:01:00Z
-head: 8cd199cf262cd7af6c0e8225a908f61e6c2d5f07
+last_progress_at: 2026-08-06T08:05:29Z
+head: 8cd10caab3fce4cdd55503bdcb18e022d0053786
 branch: task/OTERYN-20260806-player-companion-portal-architecture
 pr: 667
-status: validating
-phase: validate
+status: ready
+phase: merge
 session_id: chatgpt-20260806-player-companion-architecture
 session_role: architect
 execution_mode: github
-execution_reason: documentation-only architecture package can be completed and validated through the repository connection
+execution_reason: documentation-only architecture package was authored and validated through the repository connection
 context_routes:
   - architecture
   - content
@@ -128,9 +128,12 @@ proven:
   - the former module table did not list those four boundaries
   - TibiaPal exposes player calculators, planning, hunt-reference and session-analysis capabilities
   - Tibia and RubinOT expose broader portal/community information architectures than the launch core
-  - ADR 0025 and focused portal/PlayerCompanion architecture now persist the owner-approved direction
-  - module catalogue now reconciles implemented portal boundaries and planned PlayerCompanion/LiveOps boundaries
+  - ADR 0025 and focused portal/PlayerCompanion architecture persist the owner-approved direction
+  - module catalogue reconciles implemented portal boundaries and planned PlayerCompanion/LiveOps boundaries
   - all changes are documentation-only and do not mutate runtime, database, routes, deployment, production or external repositories
+  - exact architecture head 8cd10caab3fce4cdd55503bdcb18e022d0053786 passed all eight emitted workflow runs
+  - fresh full-diff and focused-file review found no runtime scope drift, removed canonical boundary or unresolved material contradiction
+  - PR #667 has zero unresolved review threads
 derived:
   - the modular-monolith foundation should be retained
   - player-useful tools require a dedicated orchestration and personalization boundary rather than being placed in Wiki or CMS
@@ -157,16 +160,19 @@ changed_paths:
   - docs/architecture/adr/0025-player-companion-and-portal-tools-boundary.md
   - docs/architecture/adr/README.md
 validation:
-  - command: pending GitHub exact-head checks
-    result: NOT_RUN
-    evidence: package authored; draft PR #667 is ready for validation
+  - command: GitHub workflow aggregate on 8cd10caab3fce4cdd55503bdcb18e022d0053786
+    result: PASS
+    evidence: Agent Governance 31082991740; Edge Security Emulation 31082991375; Native protocol contract 31082991514; Native protocol contract audits 31082991526; Game Auth Ticket Concurrency 31082991505; CI 31082991427; Platform DB Outage Validation 31082991482; Phase 7 Production-Like Validation 31082991418
+  - command: full PR changed-file and diff review plus focused canonical document review
+    result: PASS
+    evidence: exactly 11 declared documentation paths; no executable/runtime/schema/config/deployment or external-repository change; zero unresolved review threads
   - command: runtime E2E
     result: NOT_APPLICABLE
-    evidence: documentation-only architecture package changes no executable behavior, route, schema, configuration or deployment
-ci_checks_for_current_head: 0
-ci_check_generation: pending-final-head
+    evidence: documentation-only architecture package changes no executable behavior, route, schema, configuration or deployment; broad repository workflows nevertheless passed on the architecture head
+ci_checks_for_current_head: 8
+ci_check_generation: validated-architecture-head
 terminal_ci_wait_started_at: null
-terminal_ci_checks_for_current_generation: 0
+terminal_ci_checks_for_current_generation: 1
 unchanged_state_checks: 0
 identical_failure_retries: 0
 repair_cycles_for_current_gate: 0
@@ -180,7 +186,7 @@ decomposition_decision: single
 decomposition_reason: one cohesive documentation package with shared architecture authority and no runtime implementation
 blockers:
   - none
-next_action: inspect the exact PR diff for contradiction or scope drift, mark PR #667 ready and require all exact-head checks before merge
+next_action: require all protected checks on the final checkpoint-only PR head and squash-merge PR #667 without bypass
 ```
 
 ## Notes
