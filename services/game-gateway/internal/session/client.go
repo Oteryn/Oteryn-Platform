@@ -93,7 +93,8 @@ func (c *Client) ReadyFor(ctx context.Context, request gateway.SessionRequest) e
 		EndpointID             string   `json:"endpoint_id"`
 		Audience               string   `json:"audience"`
 		Family                 string   `json:"family"`
-		NativeProtocolVersion  uint32   `json:"native_protocol_version"`
+		Profile                string   `json:"profile,omitempty"`
+		NativeProtocolVersion  uint32   `json:"native_protocol_version,omitempty"`
 		Transport              string   `json:"transport"`
 		SchemaRevision         uint32   `json:"schema_revision"`
 		SchemaSHA256           string   `json:"schema_sha256"`
@@ -112,6 +113,7 @@ func (c *Client) ReadyFor(ctx context.Context, request gateway.SessionRequest) e
 		result.EndpointID != request.EndpointID ||
 		result.Audience != request.Audience ||
 		result.Family != selection.Family ||
+		result.Profile != selection.Profile ||
 		result.NativeProtocolVersion != selection.NativeProtocolVersion ||
 		result.Transport != selection.Transport ||
 		result.SchemaRevision != selection.SchemaRevision ||
@@ -156,7 +158,8 @@ type v2RequestPayload struct {
 	CharacterBindingMode   string   `json:"character_binding_mode"`
 	SingleAdmission        bool     `json:"single_admission"`
 	Family                 string   `json:"family"`
-	NativeProtocolVersion  uint32   `json:"native_protocol_version"`
+	Profile                string   `json:"profile,omitempty"`
+	NativeProtocolVersion  uint32   `json:"native_protocol_version,omitempty"`
 	Transport              string   `json:"transport"`
 	SchemaRevision         uint32   `json:"schema_revision"`
 	SchemaSHA256           string   `json:"schema_sha256"`
@@ -177,7 +180,8 @@ func newV2Payload(request gateway.SessionRequest) (v2RequestPayload, error) {
 		request.EndpointID == "" ||
 		request.Audience == "" ||
 		request.CharacterBindingMode != "bind_on_first_admission" ||
-		!request.SingleAdmission {
+		!request.SingleAdmission ||
+		!validSelectionIdentity(selection) {
 		return v2RequestPayload{}, gateway.ErrUnavailable
 	}
 
@@ -194,6 +198,7 @@ func newV2Payload(request gateway.SessionRequest) (v2RequestPayload, error) {
 		CharacterBindingMode:   request.CharacterBindingMode,
 		SingleAdmission:        request.SingleAdmission,
 		Family:                 selection.Family,
+		Profile:                selection.Profile,
 		NativeProtocolVersion:  selection.NativeProtocolVersion,
 		Transport:              selection.Transport,
 		SchemaRevision:         selection.SchemaRevision,
@@ -201,6 +206,13 @@ func newV2Payload(request gateway.SessionRequest) (v2RequestPayload, error) {
 		Capabilities:           selection.Capabilities,
 		CapabilityDigestSHA256: selection.CapabilityDigestSHA256,
 	}, nil
+}
+
+func validSelectionIdentity(selection *gateway.GameplaySelection) bool {
+	if selection.Family == "oteryn" {
+		return selection.Profile == "" && selection.NativeProtocolVersion == 1
+	}
+	return selection.Family != "" && selection.Profile != "" && selection.NativeProtocolVersion == 0
 }
 
 func (c *Client) doJSON(ctx context.Context, path string, payload any, target any) (int, error) {
