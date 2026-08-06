@@ -55,20 +55,20 @@ jobs:
               auth,
               """### Platform outage — CURRENTLY NOT AUTHORITATIVE FOR GAME AUTHENTICATION
 
-Because Oteryn Platform is not yet in the game authentication path, its outage does not currently prevent native Canary or external login-server authentication.
+          Because Oteryn Platform is not yet in the game authentication path, its outage does not currently prevent native Canary or external login-server authentication.
 
-### DERIVED target implication
+          ### DERIVED target implication
 
-If Platform Identity becomes the sole credential authority, its availability becomes part of the login critical path unless the architecture uses narrowly scoped pre-issued authorizations with explicit expiry/failure semantics.""",
+          If Platform Identity becomes the sole credential authority, its availability becomes part of the login critical path unless the architecture uses narrowly scoped pre-issued authorizations with explicit expiry/failure semantics.""".replace("          ", ""),
               """### Platform outage — PATH-DEPENDENT
 
-For the delivered Oteryn Gateway path, Oteryn Platform Identity is in the game-authentication critical path: ticket issuance, private ticket redeem and private login-context dependencies fail closed when Platform is unavailable.
+          For the delivered Oteryn Gateway path, Oteryn Platform Identity is in the game-authentication critical path: ticket issuance, private ticket redeem and private login-context dependencies fail closed when Platform is unavailable.
 
-Native Canary, external login-server and other retained legacy password/session paths may still authenticate independently when deployed and reachable. Therefore a Platform outage is not yet a proven global game-login shutdown condition, and exact production exposure or isolation of those alternate paths remains `UNKNOWN`.
+          Native Canary, external login-server and other retained legacy password/session paths may still authenticate independently when deployed and reachable. Therefore a Platform outage is not yet a proven global game-login shutdown condition, and exact production exposure or isolation of those alternate paths remains `UNKNOWN`.
 
-### DERIVED sole-authority implication
+          ### DERIVED sole-authority implication
 
-If Platform Identity becomes the sole global credential authority, its availability becomes part of every supported login critical path unless the architecture uses narrowly scoped pre-issued authorizations with explicit expiry/failure semantics.""",
+          If Platform Identity becomes the sole global credential authority, its availability becomes part of every supported login critical path unless the architecture uses narrowly scoped pre-issued authorizations with explicit expiry/failure semantics.""".replace("          ", ""),
               "Platform outage semantics",
           )
 
@@ -77,49 +77,48 @@ If Platform Identity becomes the sole global credential authority, its availabil
           task = replace_once(
               task,
               """status: ready
-phase: validate
-session_id: none
-session_role: none
-execution_mode: github
-execution_reason: implementation and the checkpoint-contract repair are complete; a fresh independent validator must now audit the exact final diff while exact-head CI runs""",
+          phase: validate
+          session_id: none
+          session_role: none
+          execution_mode: github
+          execution_reason: implementation and the checkpoint-contract repair are complete; a fresh independent validator must now audit the exact final diff while exact-head CI runs""".replace("          ", ""),
               """status: validating
-phase: audit_remediation_validate
-session_id: chatgpt-20260806T1512+0200-game-auth-topology-audit-remediation
-session_role: implementer
-execution_mode: github
-execution_reason: independent audit review 4874934896 identified one high-severity internal contradiction; apply the smallest documentation-only repair and return the new exact head to CI and a different fresh validator""",
+          phase: audit_remediation_validate
+          session_id: chatgpt-20260806T1512+0200-game-auth-topology-audit-remediation
+          session_role: implementer
+          execution_mode: github
+          execution_reason: independent audit review 4874934896 identified one high-severity internal contradiction; apply the smallest documentation-only repair and return the new exact head to CI and a different fresh validator""".replace("          ", ""),
               "checkpoint execution state",
           )
           task = replace_once(task, "repair_cycles_for_current_gate: 1", "repair_cycles_for_current_gate: 2", "repair cycle counter")
           task = replace_once(
               task,
               "  - The required context_routes and owned_paths lists were added on ef749a8e6bbdc2964429305513be24500927c946; Agent Governance run 31094598548 then passed.",
-              """  - The required context_routes and owned_paths lists were added on ef749a8e6bbdc2964429305513be24500927c946; Agent Governance run 31094598548 then passed.
-  - Independent audit Issue #737 and PR review 4874934896 recorded high finding OPA-AUD-731-001: the current overlay was contradicted by stale later wording that said Platform was not in the game-authentication path.""",
+              "  - The required context_routes and owned_paths lists were added on ef749a8e6bbdc2964429305513be24500927c946; Agent Governance run 31094598548 then passed.\n  - Independent audit Issue #737 and PR review 4874934896 recorded high finding OPA-AUD-731-001: the current overlay was contradicted by stale later wording that said Platform was not in the game-authentication path.",
               "audit finding evidence",
           )
           task = replace_once(
               task,
               """  - command: runtime E2E
-    result: NOT_APPLICABLE
-    evidence: documentation-only correction changes no executable behavior
-blockers:
-  - fresh independent documentation audit not yet performed
-  - final exact-head workflow generation not yet terminal
-next_action: A fresh independent validator claims the exact-head audit Issue linked from PR #731, audits the unchanged five-path diff and records PASS or exact findings; final exact-head CI and zero-thread state are then reconciled before merge.""",
+              result: NOT_APPLICABLE
+              evidence: documentation-only correction changes no executable behavior
+          blockers:
+            - fresh independent documentation audit not yet performed
+            - final exact-head workflow generation not yet terminal
+          next_action: A fresh independent validator claims the exact-head audit Issue linked from PR #731, audits the unchanged five-path diff and records PASS or exact findings; final exact-head CI and zero-thread state are then reconciled before merge.""".replace("          ", ""),
               """  - command: runtime E2E
-    result: NOT_APPLICABLE
-    evidence: documentation-only correction changes no executable behavior
-  - command: independent audit Issue #737 / PR review 4874934896
-    result: FAIL
-    evidence: OPA-AUD-731-001 proved contradictory Platform-authority and outage wording in AUTH_GAME_LOGIN_CONTRACT.md
-  - command: bounded OPA-AUD-731-001 remediation
-    result: PASS
-    evidence: stale evidence-baseline and outage wording is scoped to retained legacy paths while the delivered Gateway path, production unknowns and five-path effective scope are preserved
-blockers:
-  - fresh independent re-audit of the remediated exact head not yet performed
-  - final exact-head workflow generation after remediation not yet terminal
-next_action: After the remediated exact head is terminal-green, create a fresh independent audit Issue for a validator that did not implement this repair; then reconcile zero-thread state and merge gates.""",
+              result: NOT_APPLICABLE
+              evidence: documentation-only correction changes no executable behavior
+            - command: independent audit Issue #737 / PR review 4874934896
+              result: FAIL
+              evidence: OPA-AUD-731-001 proved contradictory Platform-authority and outage wording in AUTH_GAME_LOGIN_CONTRACT.md
+            - command: bounded OPA-AUD-731-001 remediation
+              result: PASS
+              evidence: stale evidence-baseline and outage wording is scoped to retained legacy paths while the delivered Gateway path, production unknowns and five-path effective scope are preserved
+          blockers:
+            - fresh independent re-audit of the remediated exact head not yet performed
+            - final exact-head workflow generation after remediation not yet terminal
+          next_action: After the remediated exact head is terminal-green, create a fresh independent audit Issue for a validator that did not implement this repair; then reconcile zero-thread state and merge gates.""".replace("          ", ""),
               "validation and next action",
           )
 
@@ -130,25 +129,14 @@ next_action: After the remediated exact head is terminal-green, create a fresh i
           task = replace_once(task, "  phase: validate", "  phase: audit_remediation_validate", "recovery phase")
           task = replace_once(task, "  active_operation: none", "  active_operation: apply bounded OPA-AUD-731-001 documentation remediation", "recovery operation")
           task = replace_once(task, "  check_generation: final_audit_target", "  check_generation: audit_remediation", "recovery check generation")
-          task = replace_once(
-              task,
-              "  resume_condition: PR #731 head is unchanged and no conflicting auditor owns the audit Issue",
-              "  resume_condition: PR #731 contains the bounded remediation and no conflicting writer owns the five declared paths",
-              "recovery resume condition",
-          )
-          task = replace_once(
-              task,
-              "  next_action: Claim and execute the independent exact-head documentation audit, then reconcile final CI and merge gates.",
-              "  next_action: Verify the remediated exact-head CI, then route the unchanged five-path diff to a different fresh independent validator.",
-              "recovery next action",
-          )
+          task = replace_once(task, "  resume_condition: PR #731 head is unchanged and no conflicting auditor owns the audit Issue", "  resume_condition: PR #731 contains the bounded remediation and no conflicting writer owns the five declared paths", "recovery resume condition")
+          task = replace_once(task, "  next_action: Claim and execute the independent exact-head documentation audit, then reconcile final CI and merge gates.", "  next_action: Verify the remediated exact-head CI, then route the unchanged five-path diff to a different fresh independent validator.", "recovery next action")
 
           auth_path.write_text(auth)
           task_path.write_text(task)
           PY
 
           git diff --check
-          git diff -- docs/contracts/AUTH_GAME_LOGIN_CONTRACT.md docs/agents/tasks/active/OTERYN-20260806-game-auth-topology-reconciliation.md
 
       - name: Commit remediation and remove temporary workflow
         shell: bash
@@ -160,14 +148,23 @@ next_action: After the remediated exact head is terminal-green, create a fresh i
           git add docs/contracts/AUTH_GAME_LOGIN_CONTRACT.md docs/agents/tasks/active/OTERYN-20260806-game-auth-topology-reconciliation.md
           git commit -m "docs(auth): resolve Gateway authority contradiction"
 
-          expected="docs/agents/tasks/active/OTERYN-20260806-game-auth-topology-reconciliation.md
-docs/architecture/MODULE_CATALOG.md
-docs/architecture/SYSTEM_ARCHITECTURE.md
-docs/contracts/AUTH_GAME_LOGIN_CONTRACT.md
-docs/contracts/GAME_GATEWAY_IDENTITY_CONTRACT.md"
-          actual="$(git diff --name-only origin/main...HEAD | sort)"
-          test "$actual" = "$expected"
+          python3 - <<'PY'
+          import subprocess
+
+          expected = [
+              "docs/agents/tasks/active/OTERYN-20260806-game-auth-topology-reconciliation.md",
+              "docs/architecture/MODULE_CATALOG.md",
+              "docs/architecture/SYSTEM_ARCHITECTURE.md",
+              "docs/contracts/AUTH_GAME_LOGIN_CONTRACT.md",
+              "docs/contracts/GAME_GATEWAY_IDENTITY_CONTRACT.md",
+          ]
+          actual = subprocess.check_output(
+              ["git", "diff", "--name-only", "origin/main...HEAD"],
+              text=True,
+          ).splitlines()
+          if sorted(actual) != sorted(expected):
+              raise SystemExit(f"unexpected effective paths: {actual}")
+          PY
+
           git diff --check origin/main...HEAD
           git push origin HEAD:docs/issue-720-game-auth-topology-reconcile
-
-# Second commit triggers the workflow after registration on the branch.
