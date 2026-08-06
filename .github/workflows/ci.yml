@@ -33,8 +33,10 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 0
 
-      - name: Validate change classifier
-        run: python tests/ci/test_classify_changes.py
+      - name: Validate CI routing contracts
+        run: |
+          python tests/ci/test_classify_changes.py
+          python tests/ci/test_required_test_gate.py
 
       - name: Classify changed paths
         id: classify
@@ -44,14 +46,22 @@ jobs:
           HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
         run: |
           if [[ "$EVENT_NAME" == "pull_request" ]]; then
-            python scripts/ci/classify_changes.py               --base "$BASE_SHA"               --head "$HEAD_SHA"               --github-output "$GITHUB_OUTPUT"               --summary "$GITHUB_STEP_SUMMARY"
+            python scripts/ci/classify_changes.py \
+              --base "$BASE_SHA" \
+              --head "$HEAD_SHA" \
+              --github-output "$GITHUB_OUTPUT" \
+              --summary "$GITHUB_STEP_SUMMARY"
           else
-            python scripts/ci/classify_changes.py               --all               --github-output "$GITHUB_OUTPUT"               --summary "$GITHUB_STEP_SUMMARY"
+            python scripts/ci/classify_changes.py \
+              --all \
+              --github-output "$GITHUB_OUTPUT" \
+              --summary "$GITHUB_STEP_SUMMARY"
           fi
 
-  test:
+  runtime_tests:
+    name: runtime-tests
     needs: classify_changes
-    if: ${{ always() && (needs.classify_changes.result != 'success' || needs.classify_changes.outputs.ci == 'true') }}
+    if: ${{ needs.classify_changes.result == 'success' && needs.classify_changes.outputs.ci == 'true' }}
     runs-on: ubuntu-latest
     services:
       mariadb:
@@ -74,12 +84,6 @@ jobs:
       CANARY_CHARACTER_CREATE_INTEGRATION_PORT: 3306
       CANARY_CHARACTER_CREATE_INTEGRATION_ROOT_PASSWORD: oteryn-ci-root-password
     steps:
-      - name: Require successful change classification
-        if: ${{ needs.classify_changes.result != 'success' }}
-        run: |
-          echo "Change classification failed; this required gate is failing closed."
-          exit 1
-
       - name: Checkout
         uses: actions/checkout@v7
 
@@ -124,3 +128,27 @@ jobs:
           path: artifacts/ci/phpunit-junit.xml
           if-no-files-found: error
           retention-days: 7
+
+  test:
+    needs:
+      - classify_changes
+      - runtime_tests
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout exact required-gate implementation
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Evaluate required test gate
+        env:
+          CLASSIFICATION_RESULT: ${{ needs.classify_changes.result }}
+          CI_REQUIRED: ${{ needs.classify_changes.outputs.ci }}
+          RUNTIME_TESTS_RESULT: ${{ needs.runtime_tests.result }}
+        run: >-
+          python scripts/ci/required_test_gate.py
+          --classification-result "$CLASSIFICATION_RESULT"
+          --ci-required "$CI_REQUIRED"
+          --runtime-tests-result "$RUNTIME_TESTS_RESULT"
+          --summary "$GITHUB_STEP_SUMMARY"
