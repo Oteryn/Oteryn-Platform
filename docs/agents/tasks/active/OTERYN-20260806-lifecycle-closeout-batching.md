@@ -31,7 +31,7 @@ Reduce governance-only PR and Issue churn without weakening independent validati
 - [x] `ROTATE` is used when an implementer requires a fresh independent validator; `WAITING` remains reserved for real external waiting.
 - [x] The short-command registry and audit/remediation programme states require the new contract.
 - [x] Static adversarial evaluation passes.
-- [ ] Fresh independent audit and exact-head required CI pass on the corrected current-main-synchronized head.
+- [ ] Fresh independent audit and exact-head required CI pass on the final checkpoint head.
 - [ ] The task is archived and ownership released after merge.
 
 ## Ownership
@@ -50,7 +50,7 @@ modules:
 dependencies:
   - none
 blockers:
-  - fresh independent re-audit of corrected PR 673 head
+  - fresh independent re-audit of final PR 673 head through Issue 719
 cross_repository_tasks:
   - none
 ```
@@ -59,11 +59,11 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-06T10:04:00Z
+updated_at: 2026-08-06T10:13:00Z
 head: resolved-from-live-pr-673
 branch: docs/lifecycle-closeout-batching-20260806
 pr: 673
-status: validating
+status: ready
 context_routes:
   - agent-governance
 owned_paths:
@@ -81,19 +81,21 @@ proven:
   - Eligible lifecycle reconciliation is bounded to 2–10 items, one coordinator task, one wave PR, one exact-head audit and one CI generation.
   - The registry and both programme states require the contract.
   - Static adversarial evaluation passes 18 of 18 candidate cases.
-  - Initial exact-head workflows all passed on 40f9da479728e0ec475e07684a208fbe5e7499c7.
   - Implementer exact-diff preflight found no material scope or safety defect in the batching contract.
-  - Independent audit Issue 674 reported one material finding LCB-AUDIT-01 on 7da00538239f633d993497cb454c9ceba1d3ef85: refreshed programme files preserved false exhaustive mutable queue snapshots.
+  - Independent audit Issue 674 reported material finding LCB-AUDIT-01 on 7da00538239f633d993497cb454c9ceba1d3ef85: refreshed programme files preserved false exhaustive mutable queue snapshots.
   - The remediation programme now marks active claims, tasks, pull requests and coordination keys as live-query-required UNKNOWN rather than false empty arrays.
   - The continuous-audit programme now separates its historical finding identity ledger from mutable live queue state and removes the resolved Issue 547 blocker contradiction.
   - PRs 598, 601 and 670 are terminal merged closeout work and are no longer represented as active remediation claims.
+  - Candidate head 77f2eadda9afc56f2feca72a19d420a9eb2ee434 included protected main d12a4f4a14db0319a8563cb16b1d92a7b1e117b8, was behind_by 0 and changed exactly six declared governance paths.
+  - All six emitted workflows passed on candidate head 77f2eadda9afc56f2feca72a19d420a9eb2ee434: Agent Governance 31092282515, CI 31092283076, Edge 31092280833, Phase 7 31092280883, Game Auth Concurrency 31092281683 and DB Outage 31092280506.
+  - Fresh audit-only rotation target is Issue 719 and the implementation branch remains read-only for that validator.
 derived:
   - Live-query-derived UNKNOWN state is safer than a stale empty snapshot and prevents duplicate dispatch or hidden ownership.
   - This removes the recurring pattern of per-task closeout PR plus per-task audit Issue plus follow-up archive PR while retaining independent falsification.
 unknown:
-  - Exact final SHA after synchronization with current protected main.
-  - Exact-head workflow result for the corrected generation.
-  - Fresh independent re-audit conclusion for the corrected immutable PR head.
+  - Exact final SHA created by this checkpoint-only commit; resolve from live PR 673.
+  - Exact-head workflow result for that final checkpoint head.
+  - Fresh independent re-audit conclusion for the final immutable PR head.
 conflicts: []
 first_failure:
   marker: LCB-AUDIT-01
@@ -120,23 +122,23 @@ validation:
   - command: runtime E2E
     result: NOT_APPLICABLE
     evidence: agent-governance routing and lifecycle policy only
-  - command: initial exact-head GitHub Actions on 40f9da479728e0ec475e07684a208fbe5e7499c7
-    result: PASS
-    evidence: CI 31082813694, Agent Governance 31082812882, Edge 31082814016, DB Outage 31082811405, Phase 7 31082812984 and concurrency 31082810330 succeeded
   - command: independent audit on 7da00538239f633d993497cb454c9ceba1d3ef85
     result: FAIL
     evidence: LCB-AUDIT-01; false durable programme queue state
-  - command: corrected exact-head GitHub Actions
+  - command: corrected exact-head GitHub Actions on 77f2eadda9afc56f2feca72a19d420a9eb2ee434
+    result: PASS
+    evidence: all six emitted workflows succeeded; review threads zero
+  - command: final checkpoint-head GitHub Actions
     result: NOT_RUN
-    evidence: pending current-main synchronization and new exact head
+    evidence: pending exact head created by this checkpoint-only commit
   - command: fresh independent re-audit
     result: NOT_RUN
-    evidence: must be performed by a separate validator role on the corrected final immutable PR head
+    evidence: Issue 719; must be performed by a separate validator role on the final immutable PR head
 blockers:
   - fresh independent validator required before merge
-next_action: Synchronize the corrected six-path branch with current protected main, update PR 673 to the new exact head, observe exact-head checks, and create a fresh audit-only rotation target for a separate validator.
+next_action: Update Issue 719 and PR 673 to the exact live head created by this checkpoint commit, observe one aggregate exact-head CI snapshot, then a fresh audit-only session must validate that immutable head and record PASS_ZERO_MATERIAL_FINDINGS or exact findings without modifying the implementation branch.
 ```
 
 ## Notes
 
-This task changes agent-governance documentation only. Runtime E2E is not applicable; exact routing, scope, live-state semantics, review behavior and lifecycle outcomes must be validated on the corrected final PR head.
+This task changes agent-governance documentation only. Runtime E2E is not applicable; exact routing, scope, live-state semantics, review behavior and lifecycle outcomes must be validated on the final PR head.
