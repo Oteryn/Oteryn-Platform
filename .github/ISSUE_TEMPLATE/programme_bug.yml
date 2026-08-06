@@ -3,6 +3,19 @@ description: Report a reproducible Oteryn Platform defect or regression.
 title: "[Bug] "
 labels: [state:triage, type:bug]
 body:
+  - type: markdown
+    attributes:
+      value: |
+        **Do not use this public form for security vulnerabilities, credentials, personal data or exploit details.**
+
+        Report security vulnerabilities privately at https://github.com/blakinio/Oteryn-Platform/security/advisories/new.
+  - type: checkboxes
+    id: security_boundary
+    attributes:
+      label: Security disclosure boundary
+      options:
+        - label: This report contains no vulnerability details, credentials, personal data or exploit material that should be submitted through the private security-reporting route.
+          required: true
   - type: textarea
     id: objective
     attributes:
