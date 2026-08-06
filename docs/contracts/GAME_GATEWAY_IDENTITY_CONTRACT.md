@@ -16,7 +16,7 @@ The bounded contract producer is delivered on `main`:
 
 Repository delivery proves the application and service contract, not a production deployment. Exact public/private ingress, TLS termination, service identity, credential rotation, deployed revisions, global legacy-path retirement and effective network isolation remain `UNKNOWN` until verified against one exact environment.
 
-The selected native Game Session contract version 2 remains disabled by default and separately governed. Active PR #542 is producer-only work and is not evidence that a native consumer or production cutover is complete.
+The selected native Game Session contract version 2 remains disabled by default and separately governed. The producer package associated with PR #542 is not, by itself, evidence that a native consumer, cross-repository cutover or production activation is complete.
 
 This contract defines the security boundary between the separately deployable Oteryn Game Gateway and Oteryn Platform Identity.
 

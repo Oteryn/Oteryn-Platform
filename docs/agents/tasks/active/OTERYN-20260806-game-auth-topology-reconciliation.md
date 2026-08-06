@@ -84,20 +84,20 @@ owned_paths:
   - docs/architecture/MODULE_CATALOG.md
   - docs/agents/tasks/active/OTERYN-20260806-game-auth-topology-reconciliation.md
 policy_version: 2
-updated_at: 2026-08-06T15:12:00+02:00
+updated_at: 2026-08-06T15:55:00+02:00
 invocation_started_at: 2026-08-06T12:43:00+02:00
-last_progress_at: 2026-08-06T15:12:00+02:00
+last_progress_at: 2026-08-06T15:55:00+02:00
 branch: docs/issue-720-game-auth-topology-reconcile
 base_main: 5efd3c2dfad66aa27d0018e1e5f6ae01b32e8e38
 head: derive-from-live-pr-731
 implementation_content_head: 2e78d4728c0504cbda7e90e8c9827b246771e94b
 pr: 731
 status: validating
-phase: audit_remediation_validate
-session_id: chatgpt-20260806T1512+0200-game-auth-topology-audit-remediation
+phase: audit02_remediation_validate
+session_id: chatgpt-20260806T1555+0200-game-auth-topology-audit02-remediation
 session_role: implementer
 execution_mode: github
-execution_reason: independent audit review 4874934896 identified one high-severity internal contradiction; apply the smallest documentation-only repair and return the new exact head to CI and a different fresh validator
+execution_reason: independent re-audit Issue #750 / review 4875167020 preserved medium finding OPA-ARCH-20260806-001-AUDIT-02; replace transient PR-liveness wording with status-independent evidence wording and return the successor exact head to CI and a different fresh validator
 lease_expires_at: null
 context_pressure: medium
 context_growth: stable
@@ -105,12 +105,12 @@ context_score: 6
 estimate_confidence: high
 decomposition_decision: single
 ci_checks_for_current_head: 0
-ci_check_generation: final_audit_target
+ci_check_generation: audit02_remediation
 terminal_ci_wait_started_at: null
 terminal_ci_checks_for_current_generation: 0
 unchanged_state_checks: 0
 identical_failure_retries: 0
-repair_cycles_for_current_gate: 2
+repair_cycles_for_current_gate: 3
 context_reconstruction_attempts: 0
 stall_warnings: 0
 proven:
@@ -124,6 +124,7 @@ proven:
   - Agent Governance run 31094250084 failed only because the Context checkpoint omitted required lists context_routes and owned_paths.
   - The required context_routes and owned_paths lists were added on ef749a8e6bbdc2964429305513be24500927c946; Agent Governance run 31094598548 then passed.
   - Independent audit Issue #737 and PR review 4874934896 recorded high finding OPA-AUD-731-001: the current overlay was contradicted by stale later wording that said Platform was not in the game-authentication path.
+  - Independent re-audit Issue #750 and PR review 4875167020 confirmed OPA-AUD-731-001 resolved and preserved medium finding OPA-ARCH-20260806-001-AUDIT-02: durable canonical documents encoded transient `Active PR #542` liveness wording.
 derived:
   - The checkpoint-contract defect is repaired without changing runtime, architecture assertions or PR #542 ownership.
   - The canonical documents may state repository delivery, but cannot infer deployment identity, ingress isolation, production activation or native-v2 consumer completion.
@@ -138,7 +139,7 @@ first_failure:
   evidence: Agent Governance run 31094250084 reported missing checkpoint fields context_routes and owned_paths; repaired and proven by run 31094598548
 rejected_hypotheses:
   - treating merged repository code as proof of production deployment
-  - treating active PR #542 as a merged native-v2 consumer or cutover
+  - treating the producer package associated with PR #542 as proof of a native-v2 consumer, cutover or production activation
   - deleting legacy discovery because the bounded Gateway path exists
   - changing any runtime or PR #542 path to fix documentation drift
   - rerunning the failed governance job without changing the checkpoint schema
@@ -170,10 +171,16 @@ validation:
   - command: bounded OPA-AUD-731-001 remediation
     result: PASS
     evidence: stale evidence-baseline and outage wording is scoped to retained legacy paths while the delivered Gateway path, production unknowns and five-path effective scope are preserved
+  - command: independent re-audit Issue #750 / PR review 4875167020
+    result: FAIL
+    evidence: OPA-ARCH-20260806-001-AUDIT-02 proved that SYSTEM_ARCHITECTURE.md and GAME_GATEWAY_IDENTITY_CONTRACT.md encoded transient `Active PR #542` liveness wording
+  - command: bounded OPA-ARCH-20260806-001-AUDIT-02 remediation
+    result: PASS
+    evidence: both canonical documents now reference the producer package associated with PR #542 as immutable evidence context while preserving disabled-by-default, producer-only, no-consumer, no-cutover and no-production-activation invariants
 blockers:
-  - fresh independent re-audit of the remediated exact head not yet performed
-  - final exact-head workflow generation after remediation not yet terminal
-next_action: After the remediated exact head is terminal-green, create a fresh independent audit Issue for a validator that did not implement this repair; then reconcile zero-thread state and merge gates.
+  - fresh independent audit of the successor exact head not yet performed
+  - final exact-head workflow generation after audit02 remediation not yet terminal
+next_action: After the successor exact head is terminal-green, create a fresh independent audit Issue for a validator that did not implement this repair; then reconcile zero-thread state and merge gates.
 ```
 
 ## Recovery checkpoint
@@ -181,22 +188,22 @@ next_action: After the remediated exact head is terminal-green, create a fresh i
 ```yaml
 recovery:
   policy_version: 1
-  generation: 4
-  session_id: chatgpt-20260806T1512+0200-game-auth-topology-audit-remediation
+  generation: 5
+  session_id: chatgpt-20260806T1555+0200-game-auth-topology-audit02-remediation
   session_started_at: null
-  checkpointed_at: 2026-08-06T15:12:00+02:00
-  last_progress_at: 2026-08-06T15:12:00+02:00
-  phase: audit_remediation_validate
+  checkpointed_at: 2026-08-06T15:55:00+02:00
+  last_progress_at: 2026-08-06T15:55:00+02:00
+  phase: audit02_remediation_validate
   exact_head: derive-from-live-pr-731
   pull_request: 731
-  active_operation: apply bounded OPA-AUD-731-001 documentation remediation
+  active_operation: apply bounded OPA-ARCH-20260806-001-AUDIT-02 documentation remediation
   external_run_ids: derive-from-live-pr
   operation_started_at: null
   wait_deadline_at: null
-  check_generation: audit_remediation
+  check_generation: audit02_remediation
   checks_used: 0
   status: ready
   safe_to_resume: true
-  resume_condition: PR #731 contains the bounded remediation and no conflicting writer owns the five declared paths
-  next_action: Verify the remediated exact-head CI, then route the unchanged five-path diff to a different fresh independent validator.
+  resume_condition: PR #731 contains the bounded audit02 remediation and no conflicting writer owns the five declared paths
+  next_action: Verify the audit02-remediated exact-head CI, then route the unchanged five-path diff to a different fresh independent validator.
 ```

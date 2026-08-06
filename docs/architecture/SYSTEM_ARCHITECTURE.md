@@ -104,7 +104,7 @@ This is a repository-delivered bounded path, not proof of one exact deployed pro
 
 The earlier `login-server / auth path` in the broad system-context diagram represents retained legacy/external compatibility paths, not the only current authentication topology. Exact exposure or isolation of native Canary login, external login-server and old-protocol password paths remains environment-specific and `UNKNOWN` without deployment/network evidence.
 
-Native Game Session contract version 2 is a separate disabled-by-default rollout. Active producer PR #542 does not prove an Otheryn/OTClient consumer, cross-repository cutover or production activation. `PRODUCTION_PROVEN=false` until exact deployed revisions, edge/private ingress, service authentication/rotation and legacy-path disposition are verified together.
+Native Game Session contract version 2 is a separate disabled-by-default rollout. The producer package associated with PR #542 does not by itself prove an Otheryn/OTClient consumer, cross-repository cutover or production activation. `PRODUCTION_PROVEN=false` until exact deployed revisions, edge/private ingress, service authentication/rotation and legacy-path disposition are verified together.
 
 ## Evidence dimensions
 
