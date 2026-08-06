@@ -5,10 +5,10 @@ repository: blakinio/Oteryn-Platform
 issue: 584
 branch: repair/issue-584
 pull_request: 635
-session_id: chatgpt-20260805T2324+0200-cloudflare-zone-edge-closeout
+session_id: chatgpt-20260806T0813+0200-cloudflare-zone-edge-closeout
 claim_nonce: issue-584-d37ad6de-20260805T2124Z
 coordination_key: task-lifecycle:OTERYN-20260801-cloudflare-zone-edge-audit
-lease_expires_at: 2026-08-05T23:24:00Z
+lease_expires_at: 2026-08-06T09:13:00Z
 required_reads:
   - AGENTS.md
   - AGENTS.override.md
@@ -33,8 +33,10 @@ Reconcile completed Cloudflare zone-edge audit implementation and evidence witho
 - [x] PR #541, audit tooling, workflows, evidence, environments, secrets, Cloudflare, production and external repositories remain untouched.
 - [x] Historical evidence branch is explicitly classified.
 - [x] The exact changed-file inventory is limited to four declared lifecycle paths.
-- [ ] A separate independent validator reports zero material findings on the final head.
-- [ ] Exact-head checks pass and review threads remain clear.
+- [x] The branch contains current `main` and therefore the terminal required-test CI gate.
+- [ ] Exact-head CI proves `classify-changes=success`, `test=success`, docs-only `runtime-tests=skipped` and all emitted workflows successful.
+- [ ] A separate independent validator reports zero material findings on the new immutable head.
+- [ ] Review threads remain clear.
 
 ## Ownership
 
@@ -51,7 +53,7 @@ dependencies:
   - PR 409 merged
   - PR 415 merged
 blockers:
-  - fresh independent lifecycle audit on PR 635
+  - exact-head required-test validation and fresh independent re-audit
 cross_repository_tasks:
   - none
 ```
@@ -60,11 +62,11 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-05T21:32:00Z
+updated_at: 2026-08-06T06:14:00Z
 head: resolved-from-live-pr-635
 branch: repair/issue-584
 pr: 635
-status: waiting
+status: validating
 context_routes:
   - architecture-governance
   - deployment-operations
@@ -75,7 +77,7 @@ owned_paths:
   - docs/agents/tasks/active/OTERYN-20260805-cloudflare-zone-edge-verification.md
   - docs/agents/tasks/active/OTERYN-20260805-cloudflare-zone-edge-task-reconciliation.md
 proven:
-  - Issue 584 is implementation-authorized, parallel-safe and atomically locked by repair/issue-584 from main d37ad6de4d0a981cb9fdd834e76c020f89d72888.
+  - Issue 584 is implementation-authorized, parallel-safe and atomically locked by repair/issue-584.
   - PR 409 merged as cff0ee1b8ecfd1d795e2636d488be6d1d1d0b4ea from final head ee9dde0593dcebea693db91e25c5da0a55d55e32.
   - PR 415 merged as 2edd5e729a7201310444ced472e8fcc8e869eef4 from final head efb6c4ffcfce460b38b775d7bd9ebe691a77eeda.
   - Protected run 30702827936 performed no mutation, emitted no secrets and all nine required reads returned HTTP 403.
@@ -84,41 +86,42 @@ proven:
   - Explicit owner authorization remains required before any separate token or protected secret action.
   - PR 541, audit tooling, workflows, evidence, environments, secrets, Cloudflare and external state were not modified.
   - Historical branch agent/cloudflare-zone-edge-audit-evidence remains at PR 415 final head and is classified evidence-only.
-  - PR 635 changes exactly the four declared task-lifecycle paths.
+  - Independent audit #636 accepted the lifecycle scope and evidence boundaries but found old-head required context test=skipped.
+  - Current main 2f451ee3be9caa6b9b506ab2420c55242a49d1c7 was merged into repair/issue-584 as 101d2380e15fe64ef15e2b38c51a9be0f16b25f6 without broadening the four-file diff.
 derived:
-  - Completed repository implementation and unresolved privileged verification are separated without weakening fail-closed boundaries.
+  - Finding OPA-GOV-0018-AUDIT-01 is remediated structurally; exact-head CI and fresh re-audit must prove it.
 unknown:
-  - independent lifecycle-audit conclusion on the final PR 635 head
-  - exact-head required-check conclusions after the final checkpoint commit
+  - final exact-head CI result after current-main synchronization
+  - independent re-audit conclusion on the new immutable head
 conflicts: []
 first_failure:
-  marker: zone-edge-read-permissions-denied
-  evidence: protected run 30702827936 returned HTTP 403 for all nine zone-edge read surfaces
+  marker: required-test-context-skipped-on-old-head
+  evidence: audit review 4871573361 found CI run 31048839793 emitted test=skipped before the terminal required-test gate existed on the branch
 rejected_hypotheses:
-  - infer edge readiness from Tunnel and DNS convergence
-  - retain broad tooling ownership while awaiting a different token
+  - treat successful workflow conclusion with skipped required test context as terminal proof
+  - weaken branch protection or change Cloudflare tooling to obtain a merge
 changed_paths:
   - docs/agents/tasks/active/OTERYN-20260801-cloudflare-zone-edge-audit.md
   - docs/agents/tasks/archive/OTERYN-20260801-cloudflare-zone-edge-audit.md
   - docs/agents/tasks/active/OTERYN-20260805-cloudflare-zone-edge-verification.md
   - docs/agents/tasks/active/OTERYN-20260805-cloudflare-zone-edge-task-reconciliation.md
 validation:
-  - command: live GitHub lifecycle verification
+  - command: independent audit #636 on 5b5404cb685b4e66a5546af2910842fc37390dd5
+    result: FAIL
+    evidence: OPA-GOV-0018-AUDIT-01; required test context was skipped
+  - command: merge current main 2f451ee3be9caa6b9b506ab2420c55242a49d1c7 into repair/issue-584
     result: PASS
-    evidence: PRs 409 and 415 terminal, PR 541 separate and historical branch exact
-  - command: exact changed-file inventory for PR 635
-    result: PASS
-    evidence: only stale active deletion, terminal archive addition, verification-only task addition and reconciliation checkpoint addition
+    evidence: merge commit 101d2380e15fe64ef15e2b38c51a9be0f16b25f6 preserves only four declared lifecycle paths
   - command: E2E applicability assessment
     result: NOT_APPLICABLE
-    evidence: lifecycle-only documentation repair; authorized live zone-edge audit remains explicitly NOT_RUN in the blocked verification-only task
-  - command: fresh independent lifecycle audit
+    evidence: lifecycle-only documentation repair; authorized live zone-edge audit remains NOT_RUN in the blocked verification-only task
+  - command: exact-head required CI
     result: NOT_RUN
-    evidence: a separate AUDIT ONLY Issue must be claimed by a different session
-  - command: exact-head Agent Governance and emitted checks
+    evidence: pending workflow completion on the new final checkpoint head
+  - command: fresh independent lifecycle re-audit
     result: NOT_RUN
-    evidence: pending workflow completion on the final checkpoint head
+    evidence: must target the new immutable final head after CI generation exists
 blockers:
-  - separate independent audit must report zero material findings
-next_action: Have a separate agent claim the dedicated AUDIT ONLY Issue, audit PR 635 on its exact final head and record PASS or exact required changes.
+  - exact-head required CI and fresh independent re-audit
+next_action: Verify exact-head CI on the live PR #635 head; after all required contexts pass, create a fresh AUDIT ONLY issue targeting that immutable SHA.
 ```
