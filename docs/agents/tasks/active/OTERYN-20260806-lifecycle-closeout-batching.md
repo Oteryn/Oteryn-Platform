@@ -31,7 +31,7 @@ Reduce governance-only PR and Issue churn without weakening independent validati
 - [x] `ROTATE` is used when an implementer requires a fresh independent validator; `WAITING` remains reserved for real external waiting.
 - [x] The short-command registry and audit/remediation programme states require the new contract.
 - [x] Static adversarial evaluation passes.
-- [ ] Fresh independent audit and exact-head required CI pass.
+- [ ] Fresh independent audit and exact-head required CI pass on the corrected current-main-synchronized head.
 - [ ] The task is archived and ownership released after merge.
 
 ## Ownership
@@ -50,7 +50,7 @@ modules:
 dependencies:
   - none
 blockers:
-  - fresh independent audit of PR 673
+  - fresh independent re-audit of corrected PR 673 head
 cross_repository_tasks:
   - none
 ```
@@ -59,11 +59,11 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-06T08:05:00Z
+updated_at: 2026-08-06T10:04:00Z
 head: resolved-from-live-pr-673
 branch: docs/lifecycle-closeout-batching-20260806
 pr: 673
-status: ready
+status: validating
 context_routes:
   - agent-governance
 owned_paths:
@@ -75,27 +75,34 @@ owned_paths:
   - docs/agents/tasks/active/OTERYN-20260806-lifecycle-closeout-batching.md
   - docs/agents/tasks/archive/OTERYN-20260806-lifecycle-closeout-batching.md
 proven:
-  - Multiple current open PRs each change exactly three lifecycle-only task paths and each has a separate independent audit Issue.
+  - Multiple historical closeout PRs each changed only lifecycle task paths and generated separate audit Issues, creating avoidable governance churn.
   - Independent audit is required, but a PASS-only audit can be recorded on the existing target PR without creating another PR.
   - The new contract preserves one-root-cause isolation for product/runtime/security work.
   - Eligible lifecycle reconciliation is bounded to 2–10 items, one coordinator task, one wave PR, one exact-head audit and one CI generation.
-  - The registry and both programme states now require the contract.
+  - The registry and both programme states require the contract.
   - Static adversarial evaluation passes 18 of 18 candidate cases.
   - Initial exact-head workflows all passed on 40f9da479728e0ec475e07684a208fbe5e7499c7.
-  - Implementer exact-diff preflight found no material scope or safety defect in PR 673.
+  - Implementer exact-diff preflight found no material scope or safety defect in the batching contract.
+  - Independent audit Issue 674 reported one material finding LCB-AUDIT-01 on 7da00538239f633d993497cb454c9ceba1d3ef85: refreshed programme files preserved false exhaustive mutable queue snapshots.
+  - The remediation programme now marks active claims, tasks, pull requests and coordination keys as live-query-required UNKNOWN rather than false empty arrays.
+  - The continuous-audit programme now separates its historical finding identity ledger from mutable live queue state and removes the resolved Issue 547 blocker contradiction.
+  - PRs 598, 601 and 670 are terminal merged closeout work and are no longer represented as active remediation claims.
 derived:
+  - Live-query-derived UNKNOWN state is safer than a stale empty snapshot and prevents duplicate dispatch or hidden ownership.
   - This removes the recurring pattern of per-task closeout PR plus per-task audit Issue plus follow-up archive PR while retaining independent falsification.
 unknown:
-  - Fresh independent audit conclusion for the final immutable PR head.
-  - Exact-head workflow result for this checkpoint generation.
+  - Exact final SHA after synchronization with current protected main.
+  - Exact-head workflow result for the corrected generation.
+  - Fresh independent re-audit conclusion for the corrected immutable PR head.
 conflicts: []
 first_failure:
-  marker: none
-  evidence: none
+  marker: LCB-AUDIT-01
+  evidence: PR 673 independent audit comment and closed audit Issue 674 on exact head 7da00538239f633d993497cb454c9ceba1d3ef85
 rejected_hypotheses:
   - Removing independent audit to reduce repository noise.
   - Combining unrelated product or security changes into one PR.
   - Treating an active individually owned closeout PR as safe to absorb without coordination.
+  - Preserving mutable queue arrays as empty without same-generation live repository evidence.
 changed_paths:
   - docs/agents/LIFECYCLE_CLOSEOUT_BATCHING.md
   - docs/agents/SHORT_PROGRAM_INVOCATIONS.md
@@ -107,26 +114,29 @@ validation:
   - command: static adversarial routing evaluation
     result: PASS
     evidence: docs/agents/evidence/OTERYN-20260806-lifecycle-closeout-batching/prompt-eval.md; 18/18 candidate cases pass
-  - command: compare main@700fa5d0d75a7badd7cb8583d36341c711673942 to PR 673
-    result: PASS
-    evidence: six declared agent-governance files only; no runtime, workflow, architecture, contract or product path
   - command: implementer exact-diff preflight
     result: PASS
-    evidence: batching is narrowly gated; active ownership cannot be absorbed; material/security work remains separate
+    evidence: batching remains narrowly gated; active ownership cannot be absorbed; material/security work remains separate
   - command: runtime E2E
     result: NOT_APPLICABLE
     evidence: agent-governance routing and lifecycle policy only
   - command: initial exact-head GitHub Actions on 40f9da479728e0ec475e07684a208fbe5e7499c7
     result: PASS
     evidence: CI 31082813694, Agent Governance 31082812882, Edge 31082814016, DB Outage 31082811405, Phase 7 31082812984 and concurrency 31082810330 succeeded
-  - command: fresh independent audit
+  - command: independent audit on 7da00538239f633d993497cb454c9ceba1d3ef85
+    result: FAIL
+    evidence: LCB-AUDIT-01; false durable programme queue state
+  - command: corrected exact-head GitHub Actions
     result: NOT_RUN
-    evidence: must be performed by a separate session on the final immutable PR head
+    evidence: pending current-main synchronization and new exact head
+  - command: fresh independent re-audit
+    result: NOT_RUN
+    evidence: must be performed by a separate validator role on the corrected final immutable PR head
 blockers:
   - fresh independent validator required before merge
-next_action: A fresh audit-only session must inspect PR 673 at its exact final SHA, submit a review/comment with PASS_ZERO_MATERIAL_FINDINGS or exact findings, and close the linked audit Issue; merge only after that result and final exact-head CI pass.
+next_action: Synchronize the corrected six-path branch with current protected main, update PR 673 to the new exact head, observe exact-head checks, and create a fresh audit-only rotation target for a separate validator.
 ```
 
 ## Notes
 
-This task changes agent-governance documentation only. Runtime E2E is not applicable; exact routing, scope, review behavior and lifecycle outcomes must be validated on the final PR head.
+This task changes agent-governance documentation only. Runtime E2E is not applicable; exact routing, scope, live-state semantics, review behavior and lifecycle outcomes must be validated on the corrected final PR head.
