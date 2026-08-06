@@ -5,8 +5,8 @@ repository: blakinio/Oteryn-Platform
 issue: 712
 parent_issue: 365
 branch: validation/issue365-php85-20260806
-pull_request: pending
-status: implementing
+pull_request: 714
+status: waiting
 task_kind: validation
 implementation_authorized: true
 production_activation_authorized: false
@@ -60,20 +60,15 @@ forbidden_paths:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-06T09:58:00Z
-invocation_started_at: 2026-08-06T09:55:00Z
-last_progress_at: 2026-08-06T09:58:00Z
-head: resolved-from-live-branch
-base_main: 438dcb83aa2f72022a7fd80f037dcfc65a258a8e
+updated_at: 2026-08-06T10:03:00Z
+head: e38f4aa4148cd896a99926619a1e7eb06611e3c7
 branch: validation/issue365-php85-20260806
-pr: pending
-status: implementing
-phase: harness-preflight
-session_id: chatgpt-20260806T1155+0200-issue365-php85-validation
-lease_expires_at: 2026-08-06T11:55:00Z
-context_pressure: medium
-context_growth: stable
-context_score: 5
+pr: 714
+status: waiting
+context_routes:
+  - testing
+  - frontend-ux
+  - ci-repair
 owned_paths:
   - .github/ISSUE365_PHP85_VALIDATION_ONLY.md
   - .github/scripts/issue365_patch_php85_wrapper.py
@@ -81,25 +76,41 @@ owned_paths:
   - docs/agents/tasks/active/OTERYN-20260806-issue365-php85-validation.md
 proven:
   - the frozen Platform image is based on php:8.5-cli-alpine
-  - the prior Playwright-local apt install exposed PHP 8.3.6 and invalidated all attempted samples
-  - the existing validator application container already mounts the Docker socket and contains the frozen application plus PHP 8.5
-  - a wrapper can delegate Playwright child-process PHP calls to that exact application container without modifying the frozen checkout
-  - no open Issue #365 implementation PR owns the selected unique harness paths
+  - prior run 30763456046 used PHP 8.3.6 and invalidated all attempted samples before browser execution
+  - the wrapper-enabled workflow was committed once on head e38f4aa4148cd896a99926619a1e7eb06611e3c7
+  - custom run 31091364264 exists exactly once and has not started a runner step
+  - the temporary observation pull request is draft PR 714 and must close without merge
+derived:
+  - delegating Playwright php commands to the frozen Platform validator container preserves the lockfile-compatible PHP 8.5 runtime without changing the frozen checkout
+  - changing only this task checkpoint does not match the custom workflow push path and therefore does not create a second matrix run
 unknown:
-  - whether the generated legacy validator matches every fail-closed patch anchor
+  - whether the generated validator passes every fail-closed patch anchor
   - whether the wrapper-enabled Playwright image can access the Docker socket on the Synology runner
   - the product result of the 12-sample matrix
 conflicts: []
 first_failure:
   marker: playwright-php-version-mismatch
-  evidence: run 30763456046 used PHP 8.3.6 while the frozen lockfile requires PHP >=8.5.0
+  evidence: run 30763456046 exposed PHP 8.3.6 while the frozen lockfile requires PHP at least 8.5.0
+rejected_hypotheses:
+  - install distribution PHP packages in every Playwright sample
+  - modify application code or the frozen dependency lock to accommodate PHP 8.3
+  - rerun the heavy matrix more than once under this task
+changed_paths:
+  - .github/ISSUE365_PHP85_VALIDATION_ONLY.md
+  - .github/scripts/issue365_patch_php85_wrapper.py
+  - .github/workflows/issue365-synology-php85.yml
+  - docs/agents/tasks/active/OTERYN-20260806-issue365-php85-validation.md
 validation:
-  - command: generated validator patch markers and bash syntax
-    result: NOT_RUN
-    evidence: workflow is created last so only one bounded execution is triggered
+  - command: Agent Governance run 31091366906
+    result: FAIL
+    evidence: the initial checkpoint omitted required structural fields; the harness did not execute in this workflow
+  - command: custom Issue 365 run 31091364264
+    result: BLOCKED
+    evidence: the single job remains queued for the oteryn-staging runner and has executed no steps
   - command: exact frozen 12-sample matrix
     result: NOT_RUN
-    evidence: pending one bounded Synology run
-blockers: []
-next_action: Create the unique workflow last, allow its cheap preflight to generate and syntax-check the validator, then classify the single terminal Synology run and close the temporary PR without merge.
+    evidence: the only authorized custom run has not acquired its runner
+blockers:
+  - custom run 31091364264 is queued until the dedicated oteryn-staging runner becomes available
+next_action: Read the terminal result of the existing run 31091364264 without triggering another matrix run, classify retained evidence, then close PR 714 without merge.
 ```
