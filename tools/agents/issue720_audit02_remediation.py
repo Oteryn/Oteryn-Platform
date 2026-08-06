@@ -31,7 +31,10 @@ gateway = replace_once(
 )
 
 task = replace_once(task, "updated_at: 2026-08-06T15:12:00+02:00", "updated_at: 2026-08-06T15:55:00+02:00", "checkpoint updated_at")
-task = replace_once(task, "last_progress_at: 2026-08-06T15:12:00+02:00", "last_progress_at: 2026-08-06T15:55:00+02:00", "checkpoint last_progress_at")
+progress_marker = "last_progress_at: 2026-08-06T15:12:00+02:00"
+if task.count(progress_marker) != 2:
+    raise SystemExit(f"checkpoint/recovery last_progress_at: expected exactly two matches, found {task.count(progress_marker)}")
+task = task.replace(progress_marker, "last_progress_at: 2026-08-06T15:55:00+02:00", 1)
 task = replace_once(
     task,
     """status: validating
