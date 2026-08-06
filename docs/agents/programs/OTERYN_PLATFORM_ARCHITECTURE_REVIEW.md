@@ -18,23 +18,24 @@ Continuously challenge Platform architecture, repository structure and CI/CD; id
 
 ```yaml
 programme_state_version: 2
-updated_at: 2026-08-06T08:55:00Z
-status: validating
-current_review_domain: repository-licensing-policy
-active_task: docs/agents/tasks/active/OTERYN-20260806-platform-licensing-policy.md
-issue: 587
-branch: docs/OTERYN-20260806-platform-licensing-policy
-pull_request: 690
-last_completed_domain: merged-source-branch-lifecycle-policy
-last_completed_issue: 586
-last_completed_pull_request: 653
-last_completed_merge: 2abfb961201f7f5d359c5b140dba68be492157be
+updated_at: 2026-08-06T09:10:00Z
+status: waiting_owner_decision
+current_review_domain: confidential-vulnerability-disclosure-policy
+active_task: null
+issue: 588
+branch: null
+pull_request: null
+last_completed_domain: repository-licensing-policy
+last_completed_issue: 587
+last_completed_pull_request: 690
+last_completed_merge: d353235a3c7d4b7b34f35a745871c10a71192cc6
 accepted_authority:
   authority_index: docs/architecture/ARCHITECTURE_AUTHORITY.md
   authority_adr: docs/architecture/adr/0022-architecture-authority-index-and-focused-canonical-documents.md
   backlog_adr: docs/architecture/adr/0023-machine-readable-architecture-decision-backlog.md
   backlog_registry: docs/architecture/ARCHITECTURE_DECISION_BACKLOG.json
   branch_lifecycle_adr: docs/architecture/adr/0024-merged-source-branch-lifecycle-policy.md
+  licensing_adr: docs/architecture/adr/0026-proprietary-repository-licensing-policy.md
 implementation_handoffs:
   - issue: 658
     scope: deterministic branch inventory, retention metadata, conservative cleanup and recovery proof
@@ -50,14 +51,16 @@ proven:
   - Repository owner selected Option A for the merged source-branch lifecycle policy.
   - PR 653 merged ADR 0024 as 2abfb961201f7f5d359c5b140dba68be492157be after all eight final workflows passed.
   - Repository owner selected Option A for ARCH-DEC-0002 on 2026-08-06.
-  - PR 690 contains ADR 0026, the proprietary notice, third-party boundary and synchronized backlog projection.
+  - PR 690 merged ADR 0026 and the proprietary/no-permission policy as d353235a3c7d4b7b34f35a745871c10a71192cc6 after all exact-head workflows and independent audit passed.
+  - ARCH-DEC-0002 was removed from the active backlog in the same bounded package.
 derived:
-  - After licensing closeout, the next unresolved architecture decision is confidential vulnerability disclosure policy, ARCH-DEC-0003 / Issue 588.
+  - The next unresolved architecture decision is confidential vulnerability disclosure policy, ARCH-DEC-0003 / Issue 588.
 unknown:
-  - Final exact-head validation, protected merge and archival outcome for PR 690.
+  - Repository-owner selection for ARCH-DEC-0003.
 conflicts: []
-blockers: []
-next_action: Complete PR 690 validation, independent audit, protected merge and task archival, then advance the programme to Issue 588 without inferring its owner decision.
+blockers:
+  - Repository-owner selection in Issue 588 is required before ARCH-DEC-0003 can leave decision_required.
+next_action: Present ARCH-DEC-0003 options from Issue 588 to the repository owner, recommend the safest supported route and do not infer acceptance.
 ```
 
 ## Programme rules
