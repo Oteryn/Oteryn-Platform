@@ -18,13 +18,13 @@ Continuously challenge Platform architecture, repository structure and CI/CD; id
 
 ```yaml
 programme_state_version: 2
-updated_at: 2026-08-06T09:55:00Z
-status: ready
-current_review_domain: architecture-review-rotation
-active_task: null
-issue: null
-branch: null
-pull_request: null
+updated_at: 2026-08-06T10:19:00Z
+status: validating
+current_review_domain: game-auth-topology-current-state-review
+active_task: docs/agents/tasks/active/OTERYN-20260806-game-auth-topology-review.md
+issue: 720
+branch: docs/OTERYN-20260806-game-auth-topology-review
+pull_request: pending
 last_completed_domain: confidential-vulnerability-disclosure-policy
 last_completed_issue: 588
 last_completed_pull_request: 702
@@ -40,10 +40,13 @@ accepted_authority:
 implementation_handoffs:
   - issue: 658
     scope: deterministic branch inventory, retention metadata, conservative cleanup and recovery proof
+  - issue: 720
+    scope: reconcile current game-auth topology and Gateway contract delivery status without runtime or production changes
 active_architecture_decision_ids: []
 architecture_conflicts:
   - Historical duplicate ADR prefixes remain for 0008, 0010, 0011, 0015, 0016, 0017, 0018 and 0021, but the exact accepted path sets are machine-enforced and cannot expand silently.
   - Issue 586 retains historical evidence that delete_branch_on_merge was disabled; ADR 0024 and current metadata prove the accepted current state is enabled.
+  - GAME_GATEWAY_IDENTITY_CONTRACT and AUTH_GAME_LOGIN_CONTRACT retain pre-delivery status while merged Gateway and Game Session evidence proves a bounded Oteryn authentication path exists.
 ci_architecture_findings:
   - PR 626 separates conditional runtime-tests from an always-emitted aggregate protected test context.
   - Runtime/code changes require the complete MariaDB/PHP suite before the aggregate test gate can pass.
@@ -54,13 +57,16 @@ proven:
   - Repository owner selected Option A for confidential vulnerability disclosure.
   - GitHub Private Vulnerability Reporting is enabled for blakinio/Oteryn-Platform.
   - PR 702 merged ADR 0027, canonical SECURITY.md routing, public-Issue diversion and the empty active decision backlog as ab6ac645595813653618d91574c717fb4d9c7edd after all eight exact-head workflows and independent audit passed.
+  - Reviewed main d12a4f4a14db0319a8563cb16b1d92a7b1e117b8 contains the separately deployable Game Gateway and terminal Phase 4 delivery evidence.
+  - Current canonical game-auth status and topology documents disagree with that merged evidence; Issue 720 owns the bounded correction.
 derived:
   - The three owner decisions formerly tracked by the architecture decision backlog are resolved and preserved by accepted ADRs.
+  - The current game-auth discrepancy is documentation drift, not a new owner decision or runtime architecture choice.
 unknown:
-  - The next evidence-backed architecture contradiction or missing decision to review.
+  - Exact deployed game-auth topology, alternate-path network isolation and production activation evidence.
 conflicts: []
 blockers: []
-next_action: Re-scan accepted authority, active tasks and open audit findings; select one bounded architecture contradiction only when evidence proves that a new decision or correction is required.
+next_action: Publish and validate the bounded game-auth topology current-state review, archive its task, then execute Issue 720 as the next documentation-only canonical reconciliation if live ownership remains non-overlapping.
 ```
 
 ## Programme rules
