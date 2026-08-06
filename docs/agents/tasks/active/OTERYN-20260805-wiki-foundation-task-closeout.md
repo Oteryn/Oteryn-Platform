@@ -46,24 +46,24 @@ Read the current PR head, checks, review threads, protected base and latest inde
 ```yaml
 checkpoint_version: 1
 policy_version: 2
-updated_at: 2026-08-06T09:11:00Z
-invocation_started_at: 2026-08-06T09:09:00Z
-last_progress_at: 2026-08-06T09:11:00Z
+updated_at: 2026-08-06T09:18:00Z
+invocation_started_at: 2026-08-06T09:16:00Z
+last_progress_at: 2026-08-06T09:18:00Z
 head: resolved-from-live-pr-609
-base_main: ba6138daf1821b37b5cdc27fd59b84a6916908b6
+base_main: d353235a3c7d4b7b34f35a745871c10a71192cc6
 branch: repair/issue-573
 pr: 609
 status: validating
 phase: validate
-session_id: chatgpt-20260806T1109+0200-wiki-closeout-recovery
+session_id: chatgpt-20260806T1116+0200-wiki-closeout-final
 session_role: implementer
 execution_mode: github
 execution_reason: lifecycle-only three-path recovery is supported by the GitHub connection
-lease_expires_at: 2026-08-06T09:54:00Z
-recovery_generation: 3
-stale_takeover_count: 2
-base_advancement_count: 2
-repair_cycles_for_current_gate: 2
+lease_expires_at: 2026-08-06T10:01:00Z
+recovery_generation: 4
+stale_takeover_count: 3
+base_advancement_count: 3
+repair_cycles_for_current_gate: 3
 stall_warnings: 0
 context_pressure: low
 context_growth: stable
@@ -79,21 +79,21 @@ owned_paths:
 proven:
   - PR #158 merged from 52fd34fea71d74be62e32f033debb33a02c9507e as c6f0ab22739f84051a1ef6128242171be4f7c206.
   - Completion is limited to the Wiki architecture and persistence foundation.
-  - The archive releases historical ownership and preserves all later public Wiki surfaces as non-goals.
-  - Historical audit #678 accepted semantic scope and found stale static merge-gate state and a behind-main target; those defects were removed.
-  - Head 8b9bcd10f52e9746434fa296c929472757fb9fda passed all emitted workflows, but main advanced before audit #694 was claimed.
-  - Audit #694 was closed unclaimed as superseded.
-  - This recovery incorporates current main ba6138daf1821b37b5cdc27fd59b84a6916908b6 without expanding the three-path lifecycle scope.
+  - The archive releases historical ownership and preserves later public Wiki surfaces as explicit non-goals.
+  - Historical audit #678 accepted semantic scope and identified stale static merge-gate state plus a behind-main target; those defects were removed.
+  - Prior exact heads passed all emitted workflows, but protected main advanced before audits #686 and #694 were claimed; both were closed unclaimed as superseded.
+  - This continuation reclaims the released task and incorporates current protected main d353235a3c7d4b7b34f35a745871c10a71192cc6 without expanding the effective three-path diff.
 derived:
   - Runtime E2E is not applicable because executable behavior is unchanged.
   - Every changed head requires fresh exact-head validation and independent audit.
 unknown:
-  - current-head workflow conclusions
-  - current-head independent audit conclusion
+  - synchronized exact head
+  - synchronized exact-head workflow conclusions
+  - fresh independent audit conclusion
 conflicts: []
 first_failure:
-  marker: current-base-advanced-before-audit-claim
-  evidence: PR #692 merged after prior exact-head CI and before audit #694 was claimed
+  marker: repeated-current-base-advancement-before-audit
+  evidence: independently owned merges advanced protected main after prior exact-head CI and before an audit claim
 rejected_hypotheses:
   - treating foundation completion as public Wiki completion
   - modifying Wiki product, schema, routes, tests or workflows
@@ -107,18 +107,15 @@ validation:
   - command: historical independent audit #678
     result: PASS
     evidence: semantic scope, non-goals, ownership release and three-path boundary accepted
-  - command: exact-head workflows on 8b9bcd10f52e9746434fa296c929472757fb9fda
-    result: PASS
-    evidence: all six emitted workflows succeeded before the base advanced
   - command: runtime E2E
     result: NOT_APPLICABLE
     evidence: documentation and ownership only
-  - command: current-head workflows
+  - command: synchronized exact-head workflows
     result: NOT_RUN
-    evidence: triggered by current-base recovery
-  - command: current-head independent audit
+    evidence: triggered after current-base synchronization
+  - command: synchronized exact-head independent audit
     result: NOT_RUN
     evidence: publish only after exact-head CI and current-base recheck
 blockers: []
-next_action: Verify exact-head workflows and zero review threads, then publish one fresh independent audit target and merge only after PASS.
+next_action: Synchronize the unchanged three-path tree with current protected main, verify exact-head workflows and zero threads, publish one fresh independent audit and squash-merge after PASS.
 ```
