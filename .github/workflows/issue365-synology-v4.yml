@@ -1,0 +1,203 @@
+name: Issue 365 Approved PHP 8.5 Validator Execution v4
+
+on:
+  push:
+    branches:
+      - validation/issue365-synology-v4-20260806
+    paths:
+      - .github/workflows/issue365-synology-v4.yml
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: issue365-approved-validator-v4
+  cancel-in-progress: false
+
+env:
+  TARGET_SHA: b6f7b12a43aa72a52dc98c3fa07a7c4607fcb608
+  SOURCE_RUN_ID: "31092791643"
+  SOURCE_JOB_ID: "92587516914"
+  SOURCE_HEAD_SHA: bfb6e97c3f610b9897543e95f9feddce2c9ec4ee
+  SOURCE_ARTIFACT_ID: "8964153679"
+  SOURCE_ARTIFACT_NAME: issue365-static-validator-v3-31092791643
+  SOURCE_ARTIFACT_DIGEST: sha256:d46988eb5c465f115380ac10778af48e648124bd1e7a0f42ab3c65e50143749c
+  SOURCE_ARTIFACT_SIZE: "33610"
+
+jobs:
+  execute-approved-validator:
+    runs-on: oteryn-staging
+    timeout-minutes: 120
+    steps:
+      - name: Checkout exact frozen target
+        uses: actions/checkout@v7
+        with:
+          ref: b6f7b12a43aa72a52dc98c3fa07a7c4607fcb608
+          fetch-depth: 0
+          clean: true
+          persist-credentials: false
+
+      - name: Verify approved GitHub artifact metadata
+        uses: actions/github-script@v8
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const fs = require('fs');
+            const path = require('path');
+            const artifactId = Number(process.env.SOURCE_ARTIFACT_ID);
+            const { data } = await github.rest.actions.getArtifact({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              artifact_id: artifactId,
+            });
+
+            const expected = {
+              id: artifactId,
+              name: process.env.SOURCE_ARTIFACT_NAME,
+              digest: process.env.SOURCE_ARTIFACT_DIGEST,
+              size_in_bytes: Number(process.env.SOURCE_ARTIFACT_SIZE),
+              source_run_id: Number(process.env.SOURCE_RUN_ID),
+              source_job_id: Number(process.env.SOURCE_JOB_ID),
+              source_head_sha: process.env.SOURCE_HEAD_SHA,
+              frozen_target: process.env.TARGET_SHA,
+            };
+
+            const mismatches = [];
+            if (data.id !== expected.id) mismatches.push(`id=${data.id}`);
+            if (data.name !== expected.name) mismatches.push(`name=${data.name}`);
+            if (data.digest !== expected.digest) mismatches.push(`digest=${data.digest}`);
+            if (data.size_in_bytes !== expected.size_in_bytes) mismatches.push(`size=${data.size_in_bytes}`);
+            if (data.expired) mismatches.push('expired=true');
+            if (Number(data.workflow_run?.id) !== expected.source_run_id) {
+              mismatches.push(`run=${data.workflow_run?.id}`);
+            }
+            if (data.workflow_run?.head_sha !== expected.source_head_sha) {
+              mismatches.push(`head=${data.workflow_run?.head_sha}`);
+            }
+            if (mismatches.length > 0) {
+              core.setFailed(`Approved artifact metadata mismatch: ${mismatches.join(', ')}`);
+              return;
+            }
+
+            const outputDir = path.join(process.env.GITHUB_WORKSPACE, 'issue365-runtime-status');
+            fs.mkdirSync(outputDir, { recursive: true });
+            fs.writeFileSync(
+              path.join(outputDir, 'source-artifact.json'),
+              JSON.stringify({ schema: 1, expected, observed: data }, null, 2),
+              { encoding: 'utf8', mode: 0o600 },
+            );
+
+      - name: Download exact approved validator artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: issue365-static-validator-v3-31092791643
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          repository: blakinio/Oteryn-Platform
+          run-id: 31092791643
+          path: /tmp/issue365-static-v3
+
+      - name: Verify transferred validator bytes and contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd /tmp/issue365-static-v3
+          test -f SHA256SUMS
+          test -f issue365-validator.sh
+          test -f static-proof.json
+          sha256sum -c SHA256SUMS
+          bash -n issue365-validator.sh
+          test "$(grep -Fc 'PHP_VERSION_ID >= 80500' issue365-validator.sh)" -eq 1
+          test "$(grep -Fc -- '-e ISSUE365_APP_CONTAINER="$APP_CONTAINER_NAME"' issue365-validator.sh)" -eq 1
+          test "$(grep -Fc -- '--workers=1 --retries=0' issue365-validator.sh)" -eq 1
+          test "$(grep -Fc -- '-e PLAYWRIGHT_IMAGE="$playwright_php_image"' issue365-validator.sh)" -eq 1
+          test "$(grep -Fc -- '-v /var/run/docker.sock:/var/run/docker.sock' issue365-validator.sh)" -ge 2
+          ! grep -Fq -- '--no-install-recommends php-cli php-mysql' issue365-validator.sh
+          chmod 0700 issue365-validator.sh
+          cp SHA256SUMS "$GITHUB_WORKSPACE/issue365-runtime-status/approved-validator-SHA256SUMS"
+          cp static-proof.json "$GITHUB_WORKSPACE/issue365-runtime-status/static-proof.json"
+
+      - name: Execute approved validator exactly once
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          set -uo pipefail
+          status_dir="$GITHUB_WORKSPACE/issue365-runtime-status"
+          mkdir -p "$status_dir"
+          printf '{"schema":1,"run_id":%s,"run_attempt":%s,"target_sha":"%s","source_artifact_id":%s,"stage":"validator-started"}\n' \
+            "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT" "$TARGET_SHA" "$SOURCE_ARTIFACT_ID" \
+            > "$status_dir/technical-status.json"
+
+          test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+          test -z "$(git status --porcelain=v1)"
+
+          export GITHUB_WORKSPACE="$PWD"
+          bash /tmp/issue365-static-v3/issue365-validator.sh
+          rc=$?
+
+          printf '{"schema":1,"run_id":%s,"run_attempt":%s,"target_sha":"%s","source_artifact_id":%s,"stage":"validator-terminal","exit_code":%s}\n' \
+            "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT" "$TARGET_SHA" "$SOURCE_ARTIFACT_ID" "$rc" \
+            > "$status_dir/technical-status.json"
+          exit "$rc"
+
+      - name: Collect partial evidence from validation volume
+        if: always()
+        shell: bash
+        run: |
+          set +e
+          prefix="issue365-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          evidence_volume="${prefix}-evidence"
+          output="issue365-synology-partial-${GITHUB_RUN_ID}.tar.gz"
+          if docker volume inspect "$evidence_volume" >/dev/null 2>&1; then
+            docker run --rm \
+              -v "$evidence_volume:/evidence:ro" \
+              alpine:3.22 \
+              sh -ec 'test -d /evidence/issue365-run && tar -C /evidence -czf - issue365-run' \
+              > "$output"
+          fi
+
+      - name: Upload full, partial and technical evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: issue365-approved-validator-v4-${{ github.run_id }}
+          path: |
+            issue365-synology-evidence-${{ github.run_id }}.tar.gz
+            issue365-synology-evidence-${{ github.run_id }}.tar.gz.sha256
+            issue365-synology-matrix-summary-${{ github.run_id }}.json
+            issue365-synology-partial-${{ github.run_id }}.tar.gz
+            issue365-runtime-status/source-artifact.json
+            issue365-runtime-status/approved-validator-SHA256SUMS
+            issue365-runtime-status/static-proof.json
+            issue365-runtime-status/technical-status.json
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Remove isolated validation runtime
+        if: always()
+        shell: bash
+        run: |
+          set +e
+          prefix="issue365-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          for container in \
+            "${prefix}-app" \
+            "${prefix}-mailhog" \
+            "${prefix}-redis" \
+            "${prefix}-mariadb"; do
+            docker rm -f "$container" >/dev/null 2>&1 || true
+          done
+          docker network rm "${prefix}-net" >/dev/null 2>&1 || true
+          docker volume rm -f \
+            "${prefix}-work" \
+            "${prefix}-evidence" \
+            >/dev/null 2>&1 || true
+          docker image rm -f \
+            "oteryn-issue365-playwright-php85:${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" \
+            "oteryn-issue365-validator:${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" \
+            "oteryn-issue365-platform:${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" \
+            >/dev/null 2>&1 || true
+          rm -rf /tmp/issue365-static-v3
+          rm -f "/tmp/${prefix}.env" "/tmp/${prefix}-runbook.md"
+          git reset --hard HEAD >/dev/null 2>&1 || true
+          git clean -ffdqx >/dev/null 2>&1 || true
