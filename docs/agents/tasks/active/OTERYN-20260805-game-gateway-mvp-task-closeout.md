@@ -48,7 +48,7 @@ cross_repository_tasks: []
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-06T08:46:00Z
+updated_at: 2026-08-06T08:49:00Z
 head: derive-from-live-pr-598
 branch: repair/issue-555
 pr: 598
