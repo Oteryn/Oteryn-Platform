@@ -35,7 +35,7 @@ Implement accepted ADR 0024 as deterministic, fail-closed branch inventory, revi
 - [x] Every deletion preserves branch, SHA, merged PR and timestamp evidence.
 - [x] Recovery create/delete/restore/delete proof passed.
 - [x] One-time approval removed after successful apply.
-- [ ] Fresh post-cleanup dry-run proves no reviewed terminal batch remains.
+- [x] Fresh post-cleanup dry-run proves zero deletion candidates remain.
 - [ ] Evidence PR merges, Issues #586/#658 close and task is archived.
 
 ## Ownership
@@ -70,7 +70,7 @@ blockers: []
 ```yaml
 checkpoint_version: 1
 policy_version: 2
-updated_at: 2026-08-06T07:47:00Z
+updated_at: 2026-08-06T07:57:00Z
 phase: validate
 session_id: chatgpt-20260806-branch-lifecycle
 session_role: implementer
@@ -82,7 +82,7 @@ context_routes:
   - agent-governance
   - repository-governance
   - testing
-head: tracked-by-evidence-pr
+head: tracked-by-pr-671
 context_pressure: high
 context_growth: stable
 context_score: 10
@@ -90,13 +90,13 @@ estimate_confidence: high
 decomposition_decision: phased
 decomposition_reason: implementation, protected apply, evidence persistence and archival require sequential proof
 validation_level: full
-last_completed_step: preserved exact apply and recovery evidence and retired the one-time approval
+last_completed_step: preserved apply, recovery and zero-candidate post-cleanup inventory evidence
 session_rotation_count: 0
-heavy_validation_runs: 3
+heavy_validation_runs: 4
 stale_takeover_count: 0
 human_interruptions: 0
 branch: docs/OTERYN-20260806-branch-lifecycle-evidence
-pr: null
+pr: 671
 issue: 658
 claim_nonce: OTERYN-20260806-branch-lifecycle-658-01
 coordination_key: repository:merged-branch-lifecycle
@@ -109,20 +109,21 @@ owned_paths:
   - docs/agents/tasks/active/OTERYN-20260806-branch-lifecycle-implementation.md
   - docs/agents/evidence/OTERYN-20260806-branch-lifecycle/**
 proven:
-  - PR 666 merged implementation as 700fa5d0d75a7badd7cb8583d36341c711673942 after all final checks passed.
+  - PR 666 merged implementation as 700fa5d0d75a7badd7cb8583d36341c711673942 after all exact-head checks passed.
   - Branch Lifecycle push run 31081595058 rebuilt and exactly matched the reviewed 354-entry candidate set.
-  - Apply job 92551500995 completed successfully and deleted exactly 354 refs.
-  - Apply artifact 8959831558 has digest sha256:391a5a030fa4bfa7c2e0fac197b491925de8006f931577f5318a77de78a91848.
-  - Exact deletion evidence contains 354 branch, head SHA, merged PR and merged timestamp records.
-  - Recovery test recovery-test/issue-658-31081595058 recreated SHA 700fa5d0d75a7badd7cb8583d36341c711673942 and passed cleanup.
+  - Apply job 92551500995 deleted exactly 354 refs and artifact 8959831558 preserves the full evidence.
+  - Recovery test recreated SHA 700fa5d0d75a7badd7cb8583d36341c711673942 and removed its temporary ref.
   - The implementation source branch repair/issue-658 was automatically deleted after merge.
-  - One-time BRANCH_DELETION_APPROVAL.json is removed in this evidence package.
-  - Exact workflow evidence is preserved under docs/agents/evidence/OTERYN-20260806-branch-lifecycle/.
+  - One-time BRANCH_DELETION_APPROVAL.json is removed in PR 671.
+  - Exact apply and recovery evidence is preserved under docs/agents/evidence/OTERYN-20260806-branch-lifecycle/.
+  - Post-cleanup Branch Lifecycle run 31082681809 inventoried 150 branches and found zero TERMINAL_MERGED deletion candidates.
+  - Post-cleanup counts are 85 UNMERGED_ORPHAN, 32 UNKNOWN, 23 OPEN_PR, 9 ACTIVE_CLAIM and 1 PROTECTED main.
+  - Post-cleanup artifact 8960111537 has digest sha256:9d54b8c6ce7d8ad896f662abdba9090d8d67288bfe1575ce6fa682a745e630d6.
+  - Exact post-cleanup report is preserved in compressed form in PR 671.
 derived:
-  - A fresh PR dry-run after cleanup is the authoritative post-state proof because it re-enumerates live refs without write permission.
+  - The remaining 150 branches are intentionally fail-closed and require separate merge, ownership or recovery evidence rather than bulk deletion.
 unknown:
-  - Post-cleanup classification counts until the evidence PR artifact is produced.
-  - Evidence PR exact-head validation and protected merge outcome.
+  - PR 671 final exact-head workflow and protected merge outcome.
 conflicts: []
 first_failure:
   marker: unavailable-actions-admin-metadata
@@ -130,12 +131,13 @@ first_failure:
 rejected_hypotheses:
   - Delete by branch age or prefix.
   - Retain an activated approval after one-time apply.
-  - Treat artifact success alone as durable evidence without repository persistence.
+  - Delete unmerged, unknown, open, active or protected refs to reach an artificial zero-branch target.
 changed_paths:
   - docs/agents/BRANCH_DELETION_APPROVAL.json
   - docs/agents/evidence/OTERYN-20260806-branch-lifecycle/README.md
   - docs/agents/evidence/OTERYN-20260806-branch-lifecycle/branch-deletion-evidence.json.xz
   - docs/agents/evidence/OTERYN-20260806-branch-lifecycle/branch-recovery-test-evidence.json
+  - docs/agents/evidence/OTERYN-20260806-branch-lifecycle/post-cleanup-branch-lifecycle-report.json.xz
   - docs/agents/tasks/active/OTERYN-20260806-branch-lifecycle-implementation.md
 validation:
   - command: PR 666 exact-head workflows
@@ -150,9 +152,9 @@ validation:
   - command: durable evidence SHA-256 verification
     result: PASS
     evidence: README records artifact and decompressed evidence hashes
-  - command: post-cleanup live dry-run
-    result: NOT_RUN
-    evidence: will be emitted by the evidence PR
+  - command: Branch Lifecycle run 31082681809
+    result: PASS
+    evidence: 150 branches inventoried, zero deletion candidates, apply skipped
 blockers: []
-next_action: Open the evidence PR, inspect its fresh post-cleanup inventory artifact, merge through protection, then archive the task and close Issues 586 and 658.
+next_action: Complete PR 671 exact-head checks and protected merge, then archive this task and close Issues 586 and 658.
 ```
