@@ -18,8 +18,8 @@ Continuously challenge Platform architecture, repository structure and CI/CD; id
 
 ```yaml
 programme_state_version: 2
-updated_at: 2026-08-06T06:35:00Z
-status: waiting_owner_decision
+updated_at: 2026-08-06T06:40:00Z
+status: validating
 current_review_domain: merged-source-branch-lifecycle-policy
 active_task: OTERYN-20260806-merged-source-branch-lifecycle-decision
 issue: 586
@@ -34,9 +34,8 @@ accepted_authority:
   authority_adr: docs/architecture/adr/0022-architecture-authority-index-and-focused-canonical-documents.md
   backlog_adr: docs/architecture/adr/0023-machine-readable-architecture-decision-backlog.md
   backlog_registry: docs/architecture/ARCHITECTURE_DECISION_BACKLOG.json
-proposed_authority:
   branch_lifecycle_adr: docs/architecture/adr/0024-merged-source-branch-lifecycle-policy.md
-active_architecture_decision_ids: ["ARCH-DEC-0001","ARCH-DEC-0002","ARCH-DEC-0003"]
+active_architecture_decision_ids: ["ARCH-DEC-0002","ARCH-DEC-0003"]
 architecture_conflicts:
   - Historical duplicate ADR prefixes remain for 0008, 0010, 0011, 0015, 0016, 0017, 0018 and 0021, but the exact accepted path sets are machine-enforced and cannot expand silently.
   - Issue 586 records delete_branch_on_merge=false as historical evidence, while live repository metadata on 2026-08-06 proves the setting is true.
@@ -45,19 +44,20 @@ ci_architecture_findings:
   - Runtime/code changes require the complete MariaDB/PHP suite before the aggregate test gate can pass.
   - Documentation-only changes pass only after fail-closed classification proves runtime tests are NOT_APPLICABLE.
 proven:
+  - The repository owner explicitly selected Option A for ARCH-DEC-0001 on 2026-08-06.
+  - ADR 0024 records automatic deletion of ordinary merged PR branches with protected, documented retention exceptions.
   - Live repository metadata enables automatic merged head-branch deletion, squash merge and auto-merge while disabling merge commits and rebase merges.
-  - Full branch enumeration returned 498 refs including main and the current task branch.
-  - No accepted exception, retention, recovery, expiry or one-time cleanup policy was found.
-  - GitHub branch protection and repository rules can prevent automatic deletion of approved long-lived branches.
-  - Draft PR 653 proposes ADR 0024 and changes exactly five bounded documentation paths.
+  - Full branch enumeration returned 498 refs including main and the decision branch.
+  - ARCH-DEC-0001 has been removed from the active JSON backlog in the same bounded decision package.
+  - Issue 658 owns the separate implementation, dry-run classification, cleanup and recovery-evidence package.
 derived:
-  - Option A is the strongest default because it preserves low-cost automatic cleanup while making every retention exception explicit, protected and fail-closed.
+  - The architecture decision is resolved; remaining work is repository-governance implementation and conservative cleanup.
 unknown:
-  - The repository owner's selected option for ARCH-DEC-0001.
+  - Exact-head validation and protected merge outcome for PR 653.
 conflicts: []
 blockers:
-  - Repository-owner selection of A, B or C is required before ADR 0024 can be accepted and ARCH-DEC-0001 can leave decision_required.
-next_action: Obtain the repository owner's explicit A, B or C selection in Issue 586 or PR 653; then accept/reject ADR 0024, transition ARCH-DEC-0001 and create a separate implementation/cleanup handoff without deleting branches in the decision package.
+  - PR 653 must pass exact-head validation and merge before Issue 658 can leave blocked state.
+next_action: Validate and merge PR 653, archive the decision task and release its ownership, then activate Issue 658 without deleting branches from the decision package.
 ```
 
 ## Programme rules
