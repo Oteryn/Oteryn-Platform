@@ -4,6 +4,7 @@ namespace Tests\Feature\GameAuth;
 
 use App\GameAuth\Worlds\GameWorld;
 use App\GameAuth\Worlds\GameWorldStatus;
+use Illuminate\Database\Migrations\Migration;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Tests\TestCase;
@@ -20,7 +21,7 @@ final class NativeProtocolIdentityMigrationTest extends TestCase
 
     public function test_migration_and_rollback_preserve_disabled_native_identity(): void
     {
-        $migration = require database_path('migrations/2026_08_05_130000_migrate_native_protocol_identity_to_version.php');
+        $migration = self::migration();
         $migration->down();
 
         $world = GameWorld::query()->create([
@@ -58,19 +59,69 @@ final class NativeProtocolIdentityMigrationTest extends TestCase
         $migrated = DB::table('game_world_protocol_candidates')->first();
         self::assertNotNull($migrated);
         self::assertNull($migrated->profile);
-        self::assertSame(1, (int) $migrated->native_protocol_version);
-        self::assertSame(2, (int) $migrated->schema_revision);
-        self::assertSame(self::NEW_SCHEMA_SHA256, $migrated->schema_sha256);
-        self::assertFalse((bool) $migrated->enabled);
+        self::assertSame(1, self::integerValue($migrated->native_protocol_version));
+        self::assertSame(2, self::integerValue($migrated->schema_revision));
+        self::assertSame(self::NEW_SCHEMA_SHA256, self::stringValue($migrated->schema_sha256));
+        self::assertFalse(self::booleanValue($migrated->enabled));
 
         $migration->down();
         $rolledBack = DB::table('game_world_protocol_candidates')->first();
         self::assertNotNull($rolledBack);
-        self::assertSame(self::OLD_PROFILE, $rolledBack->profile);
-        self::assertSame(1, (int) $rolledBack->schema_revision);
-        self::assertSame(self::OLD_SCHEMA_SHA256, $rolledBack->schema_sha256);
-        self::assertFalse((bool) $rolledBack->enabled);
+        self::assertSame(self::OLD_PROFILE, self::stringValue($rolledBack->profile));
+        self::assertSame(1, self::integerValue($rolledBack->schema_revision));
+        self::assertSame(self::OLD_SCHEMA_SHA256, self::stringValue($rolledBack->schema_sha256));
+        self::assertFalse(self::booleanValue($rolledBack->enabled));
 
         $migration->up();
+    }
+
+    private static function migration(): Migration
+    {
+        $migration = require database_path('migrations/2026_08_05_130000_migrate_native_protocol_identity_to_version.php');
+
+        if (! $migration instanceof Migration) {
+            self::fail('Native protocol identity migration did not return a Migration instance.');
+        }
+
+        return $migration;
+    }
+
+    private static function integerValue(mixed $value): int
+    {
+        if (is_int($value)) {
+            return $value;
+        }
+
+        if (is_string($value) && preg_match('/^-?\d+$/D', $value) === 1) {
+            return (int) $value;
+        }
+
+        self::fail('Expected an integer-compatible database value.');
+    }
+
+    private static function stringValue(mixed $value): string
+    {
+        if (! is_string($value)) {
+            self::fail('Expected a string database value.');
+        }
+
+        return $value;
+    }
+
+    private static function booleanValue(mixed $value): bool
+    {
+        if (is_bool($value)) {
+            return $value;
+        }
+
+        if ($value === 0 || $value === '0') {
+            return false;
+        }
+
+        if ($value === 1 || $value === '1') {
+            return true;
+        }
+
+        self::fail('Expected a boolean-compatible database value.');
     }
 }
