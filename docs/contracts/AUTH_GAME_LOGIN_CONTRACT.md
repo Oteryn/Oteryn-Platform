@@ -61,7 +61,7 @@ No repository document may infer global MFA, email-verification, password-migrat
 
 - Repository: `blakinio/Oteryn-Platform`
 - Base revision at discovery start: `f968681732ec3e0688ff29426108b49dce79af16`
-- Current state: Platform-owned web Identity is implemented for registration, framework-hashed credentials, login/logout, revocable web sessions, password recovery/change and opt-in web MFA. It remains separate from Canary/login-server reusable credentials and is not yet the authoritative game-login credential verifier.
+- Current state: Platform-owned web Identity is implemented for registration, framework-hashed credentials, login/logout, revocable web sessions, password recovery/change and opt-in web MFA. It is authoritative for the delivered Oteryn Game Gateway path, but it is not yet the sole global game-login credential authority while native Canary, external login-server and other legacy password/session paths may remain reachable.
 
 ### Canary
 
@@ -602,13 +602,15 @@ LoginSessionManager token issuance fails closed if CSPRNG seeding/generation fai
 
 Canary cluster runtime can fail closed for new sessions when it cannot safely verify cluster session state.
 
-### Platform outage — CURRENTLY NOT AUTHORITATIVE FOR GAME AUTHENTICATION
+### Platform outage — PATH-DEPENDENT
 
-Because Oteryn Platform is not yet in the game authentication path, its outage does not currently prevent native Canary or external login-server authentication.
+For the delivered Oteryn Gateway path, Oteryn Platform Identity is in the game-authentication critical path: ticket issuance, private ticket redeem and private login-context dependencies fail closed when Platform is unavailable.
 
-### DERIVED target implication
+Native Canary, external login-server and other retained legacy password/session paths may still authenticate independently when deployed and reachable. Therefore a Platform outage is not yet a proven global game-login shutdown condition, and exact production exposure or isolation of those alternate paths remains `UNKNOWN`.
 
-If Platform Identity becomes the sole credential authority, its availability becomes part of the login critical path unless the architecture uses narrowly scoped pre-issued authorizations with explicit expiry/failure semantics.
+### DERIVED sole-authority implication
+
+If Platform Identity becomes the sole global credential authority, its availability becomes part of every supported login critical path unless the architecture uses narrowly scoped pre-issued authorizations with explicit expiry/failure semantics.
 
 ## Direct alternate/bypass paths
 

@@ -84,20 +84,20 @@ owned_paths:
   - docs/architecture/MODULE_CATALOG.md
   - docs/agents/tasks/active/OTERYN-20260806-game-auth-topology-reconciliation.md
 policy_version: 2
-updated_at: 2026-08-06T12:49:00+02:00
+updated_at: 2026-08-06T15:12:00+02:00
 invocation_started_at: 2026-08-06T12:43:00+02:00
-last_progress_at: 2026-08-06T12:49:00+02:00
+last_progress_at: 2026-08-06T15:12:00+02:00
 branch: docs/issue-720-game-auth-topology-reconcile
 base_main: 5efd3c2dfad66aa27d0018e1e5f6ae01b32e8e38
 head: derive-from-live-pr-731
 implementation_content_head: 2e78d4728c0504cbda7e90e8c9827b246771e94b
 pr: 731
-status: ready
-phase: validate
-session_id: none
-session_role: none
+status: validating
+phase: audit_remediation_validate
+session_id: chatgpt-20260806T1512+0200-game-auth-topology-audit-remediation
+session_role: implementer
 execution_mode: github
-execution_reason: implementation and the checkpoint-contract repair are complete; a fresh independent validator must now audit the exact final diff while exact-head CI runs
+execution_reason: independent audit review 4874934896 identified one high-severity internal contradiction; apply the smallest documentation-only repair and return the new exact head to CI and a different fresh validator
 lease_expires_at: null
 context_pressure: medium
 context_growth: stable
@@ -110,7 +110,7 @@ terminal_ci_wait_started_at: null
 terminal_ci_checks_for_current_generation: 0
 unchanged_state_checks: 0
 identical_failure_retries: 0
-repair_cycles_for_current_gate: 1
+repair_cycles_for_current_gate: 2
 context_reconstruction_attempts: 0
 stall_warnings: 0
 proven:
@@ -123,6 +123,7 @@ proven:
   - Branch-only reconciliation run 31094045640 succeeded and produced implementation content head 2e78d4728c0504cbda7e90e8c9827b246771e94b.
   - Agent Governance run 31094250084 failed only because the Context checkpoint omitted required lists context_routes and owned_paths.
   - The required context_routes and owned_paths lists were added on ef749a8e6bbdc2964429305513be24500927c946; Agent Governance run 31094598548 then passed.
+  - Independent audit Issue #737 and PR review 4874934896 recorded high finding OPA-AUD-731-001: the current overlay was contradicted by stale later wording that said Platform was not in the game-authentication path.
 derived:
   - The checkpoint-contract defect is repaired without changing runtime, architecture assertions or PR #542 ownership.
   - The canonical documents may state repository delivery, but cannot infer deployment identity, ingress isolation, production activation or native-v2 consumer completion.
@@ -163,10 +164,16 @@ validation:
   - command: runtime E2E
     result: NOT_APPLICABLE
     evidence: documentation-only correction changes no executable behavior
+  - command: independent audit Issue #737 / PR review 4874934896
+    result: FAIL
+    evidence: OPA-AUD-731-001 proved contradictory Platform-authority and outage wording in AUTH_GAME_LOGIN_CONTRACT.md
+  - command: bounded OPA-AUD-731-001 remediation
+    result: PASS
+    evidence: stale evidence-baseline and outage wording is scoped to retained legacy paths while the delivered Gateway path, production unknowns and five-path effective scope are preserved
 blockers:
-  - fresh independent documentation audit not yet performed
-  - final exact-head workflow generation not yet terminal
-next_action: A fresh independent validator claims the exact-head audit Issue linked from PR #731, audits the unchanged five-path diff and records PASS or exact findings; final exact-head CI and zero-thread state are then reconciled before merge.
+  - fresh independent re-audit of the remediated exact head not yet performed
+  - final exact-head workflow generation after remediation not yet terminal
+next_action: After the remediated exact head is terminal-green, create a fresh independent audit Issue for a validator that did not implement this repair; then reconcile zero-thread state and merge gates.
 ```
 
 ## Recovery checkpoint
@@ -174,22 +181,22 @@ next_action: A fresh independent validator claims the exact-head audit Issue lin
 ```yaml
 recovery:
   policy_version: 1
-  generation: 3
-  session_id: none
+  generation: 4
+  session_id: chatgpt-20260806T1512+0200-game-auth-topology-audit-remediation
   session_started_at: null
-  checkpointed_at: 2026-08-06T12:49:00+02:00
-  last_progress_at: 2026-08-06T12:49:00+02:00
-  phase: validate
+  checkpointed_at: 2026-08-06T15:12:00+02:00
+  last_progress_at: 2026-08-06T15:12:00+02:00
+  phase: audit_remediation_validate
   exact_head: derive-from-live-pr-731
   pull_request: 731
-  active_operation: none
+  active_operation: apply bounded OPA-AUD-731-001 documentation remediation
   external_run_ids: derive-from-live-pr
   operation_started_at: null
   wait_deadline_at: null
-  check_generation: final_audit_target
+  check_generation: audit_remediation
   checks_used: 0
   status: ready
   safe_to_resume: true
-  resume_condition: PR #731 head is unchanged and no conflicting auditor owns the audit Issue
-  next_action: Claim and execute the independent exact-head documentation audit, then reconcile final CI and merge gates.
+  resume_condition: PR #731 contains the bounded remediation and no conflicting writer owns the five declared paths
+  next_action: Verify the remediated exact-head CI, then route the unchanged five-path diff to a different fresh independent validator.
 ```
