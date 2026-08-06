@@ -283,8 +283,8 @@ func marshalWithNullIdentityField(t *testing.T, value any, family, field string)
 	if err != nil {
 		t.Fatalf("encode value: %v", err)
 	}
-	anchor := []byte(`"family":"` + family + `"`)
-	replacement := []byte(`"family":"` + family + `","` + field + `":null`)
+	anchor := []byte("\"family\":\"" + family + "\"")
+	replacement := []byte("\"family\":\"" + family + "\",\"" + field + "\":null")
 	if !bytes.Contains(payload, anchor) {
 		t.Fatalf("missing family anchor %q in %s", anchor, payload)
 	}
