@@ -1,0 +1,206 @@
+name: Issue 365 Exact Frozen PHP 8.5 Validation v2
+
+on:
+  push:
+    branches:
+      - validation/issue365-php85-v2-20260806
+    paths:
+      - .github/workflows/issue365-synology-php85-v2.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: issue365-exact-frozen-php85-v2
+  cancel-in-progress: false
+
+env:
+  TARGET_SHA: b6f7b12a43aa72a52dc98c3fa07a7c4607fcb608
+  LEGACY_CONTROL_SHA: 8c58035cacb9fd4675d898a1652036fc8b9d4357
+  HARNESS_SHA: f23bd310eb8812ff61e7ad7227b2a950bf695b59
+  PLAYWRIGHT_IMAGE: mcr.microsoft.com/playwright:v1.60.0-noble
+
+jobs:
+  generate-validator:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout validation control
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+          path: control
+          fetch-depth: 0
+          clean: true
+          persist-credentials: false
+
+      - name: Generate and structurally validate exact script
+        shell: bash
+        run: |
+          set -euo pipefail
+          legacy=/tmp/issue365-legacy-v2
+          rm -rf "$legacy" control/generated
+          mkdir -p "$legacy" control/generated
+
+          git -C control show \
+            "${LEGACY_CONTROL_SHA}:.github/scripts/issue365_prepare_validator_original.py" \
+            > "$legacy/issue365_prepare_validator_original.py"
+          git -C control show \
+            "${LEGACY_CONTROL_SHA}:.github/scripts/issue365_prepare_validator.py" \
+            > "$legacy/issue365_prepare_validator.py"
+          git -C control show \
+            "${HARNESS_SHA}:.github/workflows/issue365-synology-preflight.yml" \
+            > "$legacy/issue365-harness-source.yml"
+
+          python3 \
+            "$legacy/issue365_prepare_validator.py" \
+            "$legacy/issue365-harness-source.yml" \
+            "$legacy/issue365-validator-legacy-repaired.sh"
+          python3 \
+            control/.github/scripts/issue365_patch_php85_wrapper_v2.py \
+            "$legacy/issue365-validator-legacy-repaired.sh" \
+            control/generated/issue365-validator.sh
+
+          python3 -m py_compile \
+            "$legacy/issue365_prepare_validator_original.py" \
+            "$legacy/issue365_prepare_validator.py" \
+            control/.github/scripts/issue365_patch_php85_wrapper_v2.py
+          bash -n control/generated/issue365-validator.sh
+
+          test "$(grep -Fc 'PHP_VERSION_ID >= 80500' control/generated/issue365-validator.sh)" -eq 1
+          test "$(grep -Fc -- '-e ISSUE365_APP_CONTAINER="$APP_CONTAINER_NAME"' control/generated/issue365-validator.sh)" -eq 1
+          test "$(grep -Fc -- '--workers=1 --retries=0' control/generated/issue365-validator.sh)" -eq 1
+          test "$(grep -Fc -- '-v /var/run/docker.sock:/var/run/docker.sock' control/generated/issue365-validator.sh)" -ge 2
+          ! grep -Fq -- '--no-install-recommends php-cli php-mysql' control/generated/issue365-validator.sh
+
+          cp "$legacy/issue365-harness-source.yml" control/generated/
+          cp "$legacy/issue365-validator-legacy-repaired.sh" control/generated/
+          (
+            cd control/generated
+            sha256sum \
+              issue365-harness-source.yml \
+              issue365-validator-legacy-repaired.sh \
+              issue365-validator.sh \
+              > issue365-validator.sha256
+          )
+
+      - name: Upload exact generated validator
+        uses: actions/upload-artifact@v4
+        with:
+          name: issue365-generated-validator-v2-${{ github.run_id }}
+          path: control/generated
+          if-no-files-found: error
+          retention-days: 14
+
+  execute-synology-matrix:
+    needs: generate-validator
+    runs-on: oteryn-staging
+    timeout-minutes: 120
+    steps:
+      - name: Checkout exact frozen target
+        uses: actions/checkout@v7
+        with:
+          ref: b6f7b12a43aa72a52dc98c3fa07a7c4607fcb608
+          fetch-depth: 0
+          clean: true
+          persist-credentials: false
+
+      - name: Download exact generated validator
+        uses: actions/download-artifact@v4
+        with:
+          name: issue365-generated-validator-v2-${{ github.run_id }}
+          path: /tmp/issue365-generated-v2
+
+      - name: Verify transferred validator
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd /tmp/issue365-generated-v2
+          sha256sum -c issue365-validator.sha256
+          bash -n issue365-validator.sh
+          chmod 0700 issue365-validator.sh
+          cp issue365-validator.sha256 \
+            "$GITHUB_WORKSPACE/issue365-generated-validator-${GITHUB_RUN_ID}.sha256"
+
+      - name: Execute one exact-frozen 12-sample matrix
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          set -uo pipefail
+          status_dir="$GITHUB_WORKSPACE/issue365-runtime-status"
+          mkdir -p "$status_dir"
+          printf '{"schema":1,"run_id":%s,"target_sha":"%s","stage":"validator-started"}\n' \
+            "$GITHUB_RUN_ID" "$TARGET_SHA" \
+            > "$status_dir/technical-status.json"
+
+          test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+          test -z "$(git status --porcelain=v1)"
+
+          export GITHUB_WORKSPACE="$PWD"
+          bash /tmp/issue365-generated-v2/issue365-validator.sh
+          rc=$?
+
+          printf '{"schema":1,"run_id":%s,"target_sha":"%s","stage":"validator-terminal","exit_code":%s}\n' \
+            "$GITHUB_RUN_ID" "$TARGET_SHA" "$rc" \
+            > "$status_dir/technical-status.json"
+          exit "$rc"
+
+      - name: Collect partial evidence from validation volume
+        if: always()
+        shell: bash
+        run: |
+          set +e
+          prefix="issue365-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          evidence_volume="${prefix}-evidence"
+          output="issue365-synology-partial-${GITHUB_RUN_ID}.tar.gz"
+          if docker volume inspect "$evidence_volume" >/dev/null 2>&1; then
+            docker run --rm \
+              -v "$evidence_volume:/evidence:ro" \
+              alpine:3.22 \
+              sh -ec 'test -d /evidence/issue365-run && tar -C /evidence -czf - issue365-run' \
+              > "$output"
+          fi
+
+      - name: Upload immutable, partial and technical evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: issue365-exact-frozen-php85-v2-${{ github.run_id }}
+          path: |
+            issue365-synology-evidence-${{ github.run_id }}.tar.gz
+            issue365-synology-evidence-${{ github.run_id }}.tar.gz.sha256
+            issue365-synology-matrix-summary-${{ github.run_id }}.json
+            issue365-synology-partial-${{ github.run_id }}.tar.gz
+            issue365-generated-validator-${{ github.run_id }}.sha256
+            issue365-runtime-status/technical-status.json
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Remove isolated validation runtime
+        if: always()
+        shell: bash
+        run: |
+          set +e
+          prefix="issue365-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          for container in \
+            "${prefix}-app" \
+            "${prefix}-mailhog" \
+            "${prefix}-redis" \
+            "${prefix}-mariadb"; do
+            docker rm -f "$container" >/dev/null 2>&1 || true
+          done
+          docker network rm "${prefix}-net" >/dev/null 2>&1 || true
+          docker volume rm -f \
+            "${prefix}-work" \
+            "${prefix}-evidence" \
+            >/dev/null 2>&1 || true
+          docker image rm -f \
+            "oteryn-issue365-playwright-php85:${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" \
+            "oteryn-issue365-validator:${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" \
+            "oteryn-issue365-platform:${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" \
+            >/dev/null 2>&1 || true
+          rm -rf /tmp/issue365-generated-v2
+          rm -f "/tmp/${prefix}.env" "/tmp/${prefix}-runbook.md"
+          git reset --hard HEAD >/dev/null 2>&1 || true
+          git clean -ffdqx >/dev/null 2>&1 || true
