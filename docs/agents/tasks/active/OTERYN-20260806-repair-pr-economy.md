@@ -61,8 +61,8 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-06T12:14:00Z
-head_before_checkpoint_commit: 2bba416749184dbcbf95bb0a4081df42ba69d162
+updated_at: 2026-08-06T12:17:00Z
+head_before_checkpoint_commit: 0fa864e62ac0e20f8031db6edfd951940d7ac4bd
 branch: docs/repair-pr-economy-20260806
 pr: 743
 status: validating
@@ -102,14 +102,10 @@ first_failure:
   marker: AUDIT-744-001
   evidence: docs/agents/AUDIT_REMEDIATION_ISSUE_TAXONOMY.md declared protocol v2 while the candidate governing claim protocol was v3
 resolved_audit_findings:
-  - id: AUDIT-744-001
-    disposition: remediated_pending_exact_head_validation_and_reaudit
-    changes:
-      - taxonomy_version 1.3
-      - claim_protocol version 3
-      - oteryn_work_item schema_version 3
-      - delivery_state and optional pull_request metadata
-      - static evaluation case 32
+  - AUDIT-744-001 remediated pending exact-head validation and generation 2 reaudit
+  - taxonomy_version 1.3 and claim_protocol version 3 aligned
+  - oteryn_work_item schema_version 3 with delivery_state and optional pull_request metadata
+  - static evaluation case 32 added
 rejected_hypotheses:
   - Replacing the deterministic branch lock with labels, comments or assignees.
   - Making repair workers wait for an auditor or train peer.
