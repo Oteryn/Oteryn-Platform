@@ -18,17 +18,17 @@ Continuously challenge Platform architecture, repository structure and CI/CD; id
 
 ```yaml
 programme_state_version: 2
-updated_at: 2026-08-06T09:45:00Z
-status: validating
-current_review_domain: confidential-vulnerability-disclosure-policy
-active_task: docs/agents/tasks/active/OTERYN-20260806-vulnerability-disclosure-policy.md
-issue: 588
-branch: docs/OTERYN-20260806-vulnerability-disclosure-policy
-pull_request: 702
-last_completed_domain: repository-licensing-policy
-last_completed_issue: 587
-last_completed_pull_request: 690
-last_completed_merge: d353235a3c7d4b7b34f35a745871c10a71192cc6
+updated_at: 2026-08-06T09:55:00Z
+status: ready
+current_review_domain: architecture-review-rotation
+active_task: null
+issue: null
+branch: null
+pull_request: null
+last_completed_domain: confidential-vulnerability-disclosure-policy
+last_completed_issue: 588
+last_completed_pull_request: 702
+last_completed_merge: ab6ac645595813653618d91574c717fb4d9c7edd
 accepted_authority:
   authority_index: docs/architecture/ARCHITECTURE_AUTHORITY.md
   authority_adr: docs/architecture/adr/0022-architecture-authority-index-and-focused-canonical-documents.md
@@ -49,20 +49,18 @@ ci_architecture_findings:
   - Runtime/code changes require the complete MariaDB/PHP suite before the aggregate test gate can pass.
   - Documentation-only changes pass only after fail-closed classification proves runtime tests are NOT_APPLICABLE.
 proven:
-  - Repository owner selected Option A for the merged source-branch lifecycle policy.
-  - PR 653 merged ADR 0024 as 2abfb961201f7f5d359c5b140dba68be492157be after all eight final workflows passed.
-  - Repository owner selected Option A for ARCH-DEC-0002 on 2026-08-06.
-  - PR 690 merged ADR 0026 and the proprietary/no-permission policy as d353235a3c7d4b7b34f35a745871c10a71192cc6 after all exact-head workflows and independent audit passed.
-  - Repository owner selected Option A for ARCH-DEC-0003 on 2026-08-06.
-  - GitHub API proves private vulnerability reporting is enabled for blakinio/Oteryn-Platform.
-  - PR 702 contains ADR 0027, canonical SECURITY.md routing, Issue-form diversion and an empty active decision backlog.
+  - Repository owner selected Option A for the merged source-branch lifecycle policy; PR 653 merged ADR 0024.
+  - Repository owner selected Option A for repository licensing; PR 690 merged ADR 0026 and the proprietary/no-permission policy.
+  - Repository owner selected Option A for confidential vulnerability disclosure.
+  - GitHub Private Vulnerability Reporting is enabled for blakinio/Oteryn-Platform.
+  - PR 702 merged ADR 0027, canonical SECURITY.md routing, public-Issue diversion and the empty active decision backlog as ab6ac645595813653618d91574c717fb4d9c7edd after all eight exact-head workflows and independent audit passed.
 derived:
-  - Repository security maintainers and administrators form the role-based contact while GitHub private advisories provide the confidential transport.
+  - The three owner decisions formerly tracked by the architecture decision backlog are resolved and preserved by accepted ADRs.
 unknown:
-  - Final exact-head validation, protected merge and archival outcome for PR 702.
+  - The next evidence-backed architecture contradiction or missing decision to review.
 conflicts: []
 blockers: []
-next_action: Complete exact-head validation and independent audit for PR 702, merge through the protected route, archive the task and close Issue 588.
+next_action: Re-scan accepted authority, active tasks and open audit findings; select one bounded architecture contradiction only when evidence proves that a new decision or correction is required.
 ```
 
 ## Programme rules
