@@ -38,6 +38,7 @@ A lower-ranked source must not silently override a higher-ranked invariant. Reco
 | Authority, precedence and conflict handling | `docs/architecture/ARCHITECTURE_AUTHORITY.md` | Routes to focused truth; does not repeat domain detail. |
 | Durable decisions | `docs/architecture/adr/**` and `docs/architecture/adr/README.md` | Decisions, lifecycle, allocation, machine validation and supersession history. |
 | Unresolved architecture decision obligations | `docs/architecture/ARCHITECTURE_DECISION_BACKLOG.json` | Active inventory only; never accepted-decision, implementation or activation authority. |
+| Repository licensing, distribution and contribution rights | `LICENSE.md`, `THIRD_PARTY_NOTICES.md`, ADR 0026 and `CONTRIBUTING.md` | Proprietary/no-permission baseline for original Oteryn Platform material; file-specific and third-party notices govern their own scope. |
 | System context and topology | `docs/architecture/SYSTEM_ARCHITECTURE.md` | Components, trust boundaries and high-level dependency direction. |
 | Modules and responsibility | `docs/architecture/MODULE_CATALOG.md` | Module ownership, responsibilities and dependency boundaries. |
 | Portal completeness, benchmark disposition and release-scope closure | `docs/architecture/PORTAL_COMPLETENESS_ARCHITECTURE.md` | Current portal assessment, remaining architectural gaps, implement/defer/reject baseline and portal completion gate. |

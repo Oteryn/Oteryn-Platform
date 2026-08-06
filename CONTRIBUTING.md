@@ -51,9 +51,17 @@ Follow `SECURITY.md`. Never commit credentials, tokens, private keys, `.env` fil
 
 Prefer existing framework and repository capabilities. Explain new dependencies and assess maintenance and security impact. Do not edit vendored or generated dependency directories directly.
 
-## Licensing
+## Licensing and contribution rights
 
-The project metadata in `composer.json` declares the package `proprietary`. Public repository visibility does not make the project open source and does not grant permission to use, modify, redistribute or sublicense the code. No external redistribution terms may be claimed unless the repository owner publishes an explicit written license or notice.
+Oteryn Platform is proprietary under `LICENSE.md`. Public visibility and repository collaboration do not grant permission to use, modify, redistribute, sublicense, host or commercially exploit the project. Third-party material remains governed by its own terms as described in `THIRD_PARTY_NOTICES.md`.
+
+External contributions are not accepted by default. Before submitting source code, documentation, designs, assets, fixtures, data or other material, obtain a written invitation from the repository owner and written contribution terms covering the exact contribution.
+
+An invited contributor must be able to prove that they created the contribution or otherwise hold sufficient rights to provide it. Do not submit copied code, assets, game data, proprietary documentation, confidential information or material whose provenance or redistribution rights are uncertain.
+
+Opening an Issue, discussion or pull request does not guarantee acceptance and does not change the repository's licensing policy. A contribution may merge only after the agreed written terms establish rights sufficient for the repository owner to use, modify and distribute it under the repository's then-current policy. The project does not infer an assignment, license or waiver from silence or informal review.
+
+No maintainer or agent may publish broader redistribution terms, accept incompatible inbound material or copy a license from another repository without a separate owner-approved decision and provenance review.
 
 ## Conduct
 
