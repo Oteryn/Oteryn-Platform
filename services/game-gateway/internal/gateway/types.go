@@ -16,6 +16,31 @@ var (
 	ErrUnavailable             = errors.New("login unavailable")
 )
 
+var gameplayOfferCandidateJSONFields = map[string]struct{}{
+	"family":                  {},
+	"profile":                 {},
+	"native_protocol_version": {},
+	"transport":               {},
+	"schema_revision":         {},
+	"schema_sha256":           {},
+	"capabilities":            {},
+}
+
+var gameplayPolicyCandidateJSONFields = map[string]struct{}{
+	"family":                  {},
+	"profile":                 {},
+	"native_protocol_version": {},
+	"transport":               {},
+	"schema_revision":         {},
+	"schema_sha256":           {},
+	"required_capabilities":   {},
+	"optional_capabilities":   {},
+	"endpoint_id":             {},
+	"host":                    {},
+	"port":                    {},
+	"tls_server_name":         {},
+}
+
 type Authorization struct {
 	CanaryAccountID    int64
 	SecurityGeneration int64
@@ -153,7 +178,7 @@ type SessionIssuer interface {
 func (candidate *GameplayOfferCandidate) UnmarshalJSON(data []byte) error {
 	type alias GameplayOfferCandidate
 
-	fields, err := decodeUniqueJSONObjectFields(data)
+	fields, err := decodeUniqueJSONObjectFields(data, gameplayOfferCandidateJSONFields)
 	if err != nil {
 		return err
 	}
@@ -173,7 +198,7 @@ func (candidate *GameplayOfferCandidate) UnmarshalJSON(data []byte) error {
 func (candidate *GameplayPolicyCandidate) UnmarshalJSON(data []byte) error {
 	type alias GameplayPolicyCandidate
 
-	fields, err := decodeUniqueJSONObjectFields(data)
+	fields, err := decodeUniqueJSONObjectFields(data, gameplayPolicyCandidateJSONFields)
 	if err != nil {
 		return err
 	}
@@ -199,7 +224,7 @@ func decodeStrictJSON(data []byte, target any) error {
 	return requireJSONEOF(decoder)
 }
 
-func decodeUniqueJSONObjectFields(data []byte) (map[string]json.RawMessage, error) {
+func decodeUniqueJSONObjectFields(data []byte, allowedFields map[string]struct{}) (map[string]json.RawMessage, error) {
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	opening, err := decoder.Token()
 	if err != nil {
@@ -218,6 +243,9 @@ func decodeUniqueJSONObjectFields(data []byte) (map[string]json.RawMessage, erro
 		key, ok := keyToken.(string)
 		if !ok {
 			return nil, errors.New("candidate JSON key is not a string")
+		}
+		if _, allowed := allowedFields[key]; !allowed {
+			return nil, errors.New("candidate contains a non-canonical or unknown JSON key")
 		}
 		if _, exists := fields[key]; exists {
 			return nil, errors.New("candidate contains a duplicate JSON key")
