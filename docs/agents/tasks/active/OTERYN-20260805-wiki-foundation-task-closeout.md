@@ -26,46 +26,44 @@ optional_reads: []
 
 ## Goal
 
-Close Issue #573 by archiving the merged Wiki foundation slice and releasing obsolete ownership while preserving explicit foundation-only non-goals.
+Close Issue #573 by archiving the merged Wiki architecture and persistence foundation and releasing obsolete ownership without claiming later public Wiki delivery.
 
 ## Acceptance criteria
 
 - [x] PR #158 and merge `c6f0ab22739f84051a1ef6128242171be4f7c206` are recorded.
 - [x] The stale original task is removed from active and preserved in archive.
-- [x] All historical Wiki implementation, migration, test, ADR and module-catalog ownership is released.
+- [x] Historical Wiki implementation, migration, test, ADR and module-catalog ownership is released.
 - [x] Public routes, rendering, navigation, media, search, comments, player editing and editor UI remain explicit non-goals.
 - [x] No product, schema, route, navigation, ADR, catalog, test or workflow path is changed.
-- [ ] Live PR #609 satisfies the protected exact-head merge gate and a fresh independent audit on the identical SHA reports zero material findings.
+- [ ] Live PR #609 passes exact-head validation and a fresh independent audit on the identical SHA.
 
-## Live merge gates
+## Live merge gate
 
-The immutable PR head, emitted GitHub checks, review threads, current protected base and fresh independent audit are authoritative mutable state. This checkpoint deliberately does not freeze them as pending or completed assertions.
-
-Merge PR #609 only when its live exact head has all required checks passing, zero unresolved review threads, a fresh independent audit with zero material findings and a current-base mergeable state. Any head change invalidates the previous exact-head audit and validation.
+Read the current PR head, checks, review threads, protected base and latest independent audit live. Merge only when the identical current head is current-base mergeable, every required check passes, review threads are zero and the fresh audit reports zero material findings.
 
 ## Context checkpoint
 
 ```yaml
 checkpoint_version: 1
 policy_version: 2
-updated_at: 2026-08-06T08:59:00Z
-invocation_started_at: 2026-08-06T08:53:00Z
-last_progress_at: 2026-08-06T08:59:00Z
+updated_at: 2026-08-06T09:11:00Z
+invocation_started_at: 2026-08-06T09:09:00Z
+last_progress_at: 2026-08-06T09:11:00Z
 head: resolved-from-live-pr-609
-base_main: 28979854116150eb47831eb1fde2f94c41f9d428
+base_main: ba6138daf1821b37b5cdc27fd59b84a6916908b6
 branch: repair/issue-573
 pr: 609
 status: validating
 phase: validate
-session_id: chatgpt-20260806T1053+0200-platform-repair
+session_id: chatgpt-20260806T1109+0200-wiki-closeout-recovery
 session_role: implementer
 execution_mode: github
-execution_reason: lifecycle-only three-path recovery and exact-head validation are fully supported by the GitHub connection
-lease_expires_at: 2026-08-06T09:44:00Z
-recovery_generation: 2
-stale_takeover_count: 1
-base_advancement_count: 1
-repair_cycles_for_current_gate: 1
+execution_reason: lifecycle-only three-path recovery is supported by the GitHub connection
+lease_expires_at: 2026-08-06T09:54:00Z
+recovery_generation: 3
+stale_takeover_count: 2
+base_advancement_count: 2
+repair_cycles_for_current_gate: 2
 stall_warnings: 0
 context_pressure: low
 context_growth: stable
@@ -75,35 +73,31 @@ decomposition_decision: single
 context_routes:
   - agent-governance
 owned_paths:
-  - docs/agents/tasks/active/OTERYN-20260805-wiki-foundation-task-closeout.md
   - docs/agents/tasks/active/OTERYN-20260724-wiki-foundation.md
+  - docs/agents/tasks/active/OTERYN-20260805-wiki-foundation-task-closeout.md
   - docs/agents/tasks/archive/OTERYN-20260724-wiki-foundation.md
 proven:
   - PR #158 merged from 52fd34fea71d74be62e32f033debb33a02c9507e as c6f0ab22739f84051a1ef6128242171be4f7c206.
-  - The delivered boundary is architecture and persistence foundation only.
-  - Public routes, rendering, navigation, media, search, comments, player editing and editor UI remain explicit non-goals.
-  - Historical Wiki implementation, migration, factory, test, ADR and module-catalog ownership is released by the archive package.
-  - Historical audit #678 verified the semantic, ownership and scope claims before later identifying stale static gate state and a behind-main merge-readiness condition.
-  - Head 5d80913e124789d3b671de8c45d9f361e7fe36a5 corrected the static-state finding and passed all emitted workflows, but protected main advanced before audit #686 could be consumed.
-  - Audit #686 was closed not_planned before any claim because its exact base became non-current.
-  - The prior implementation session released ownership after a concurrent writer moved the branch; the branch then remained unchanged with no later claim or progress.
-  - This recovery rebuilds the same three lifecycle paths directly on current main 28979854116150eb47831eb1fde2f94c41f9d428.
+  - Completion is limited to the Wiki architecture and persistence foundation.
+  - The archive releases historical ownership and preserves all later public Wiki surfaces as non-goals.
+  - Historical audit #678 accepted semantic scope and found stale static merge-gate state and a behind-main target; those defects were removed.
+  - Head 8b9bcd10f52e9746434fa296c929472757fb9fda passed all emitted workflows, but main advanced before audit #694 was claimed.
+  - Audit #694 was closed unclaimed as superseded.
+  - This recovery incorporates current main ba6138daf1821b37b5cdc27fd59b84a6916908b6 without expanding the three-path lifecycle scope.
 derived:
   - Runtime E2E is not applicable because executable behavior is unchanged.
-  - A fresh independent audit is required for every changed exact head.
-  - Mutable GitHub merge-gate state must be read live rather than duplicated as durable current facts.
+  - Every changed head requires fresh exact-head validation and independent audit.
 unknown:
   - current-head workflow conclusions
   - current-head independent audit conclusion
 conflicts: []
 first_failure:
-  marker: OPA-GOV-0011-RE-AUDIT-01-and-02
-  evidence: audit #678 found stale static gate state and a behind-main immutable target; later base movement superseded audit #686 before claim
+  marker: current-base-advanced-before-audit-claim
+  evidence: PR #692 merged after prior exact-head CI and before audit #694 was claimed
 rejected_hypotheses:
-  - encoding mutable check or audit state as durable current facts
   - treating foundation completion as public Wiki completion
   - modifying Wiki product, schema, routes, tests or workflows
-  - reusing an audit after the PR head changes
+  - reusing an audit after a head change
   - bypassing branch protection
 changed_paths:
   - docs/agents/tasks/active/OTERYN-20260724-wiki-foundation.md
@@ -112,19 +106,19 @@ changed_paths:
 validation:
   - command: historical independent audit #678
     result: PASS
-    evidence: PR #158 evidence, foundation-only boundary, non-goals, ownership release and three-path scope passed; later merge-readiness findings are separately remediated
-  - command: exact-head workflows on 5d80913e124789d3b671de8c45d9f361e7fe36a5
+    evidence: semantic scope, non-goals, ownership release and three-path boundary accepted
+  - command: exact-head workflows on 8b9bcd10f52e9746434fa296c929472757fb9fda
     result: PASS
-    evidence: all six emitted workflows passed before the base advanced; this result is non-current for the rebuilt head
+    evidence: all six emitted workflows succeeded before the base advanced
   - command: runtime E2E
     result: NOT_APPLICABLE
     evidence: documentation and ownership only
   - command: current-head workflows
     result: NOT_RUN
-    evidence: workflow generation is triggered by this current-base rebuild
+    evidence: triggered by current-base recovery
   - command: current-head independent audit
     result: NOT_RUN
-    evidence: publish only after exact-head CI completes and live main remains the recorded base
+    evidence: publish only after exact-head CI and current-base recheck
 blockers: []
-next_action: Verify all workflows and zero review threads on the live PR head; if main advances before the audit target is claimed, rotate with the exact current-base-churn blocker, otherwise publish one fresh independent audit target and merge only after PASS.
+next_action: Verify exact-head workflows and zero review threads, then publish one fresh independent audit target and merge only after PASS.
 ```
