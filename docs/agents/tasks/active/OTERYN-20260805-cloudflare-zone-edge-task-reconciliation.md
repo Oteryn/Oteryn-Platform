@@ -34,9 +34,9 @@ Reconcile completed Cloudflare zone-edge audit implementation and evidence witho
 - [x] Historical evidence branch is explicitly classified.
 - [x] The exact changed-file inventory is limited to four declared lifecycle paths.
 - [x] The branch contains current `main` and therefore the terminal required-test CI gate.
-- [x] Exact-head CI proves `classify-changes=success`, `test=success`, docs-only `runtime-tests=skipped` and all emitted workflows successful.
-- [ ] A separate independent validator reports zero material findings on exact head `7271c55c474aec5e78878bd894258f7e1434bd0f`.
-- [x] Review threads remain clear before re-audit.
+- [ ] Exact-head CI proves `classify-changes=success`, `test=success`, docs-only `runtime-tests=skipped` and all emitted workflows successful on the final live head.
+- [ ] A separate independent validator reports zero material findings on the final live head.
+- [x] Review threads remain clear before final audit.
 
 ## Ownership
 
@@ -53,7 +53,7 @@ dependencies:
   - PR 409 merged
   - PR 415 merged
 blockers:
-  - fresh independent re-audit Issue 652
+  - final exact-head CI and fresh independent audit
 cross_repository_tasks:
   - none
 ```
@@ -62,11 +62,11 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-06T06:31:00Z
-head: 7271c55c474aec5e78878bd894258f7e1434bd0f
+updated_at: 2026-08-06T06:33:00Z
+head: resolved-from-live-pr-635
 branch: repair/issue-584
 pr: 635
-status: waiting
+status: validating
 context_routes:
   - architecture-governance
   - deployment-operations
@@ -88,21 +88,20 @@ proven:
   - Historical branch agent/cloudflare-zone-edge-audit-evidence remains at PR 415 final head and is classified evidence-only.
   - Independent audit 636 accepted the lifecycle scope and evidence boundaries but found old-head required context test=skipped.
   - Current main 2f451ee3be9caa6b9b506ab2420c55242a49d1c7 was merged into repair/issue-584 without broadening the four-file diff.
-  - CI run 31076723860 on exact head 7271c55c474aec5e78878bd894258f7e1434bd0f completed successfully.
-  - CI jobs classify-changes and terminal test succeeded; docs-only runtime-tests was skipped as intended.
-  - Agent Governance 31076723864, Edge Security 31076723786, DB Outage 31076723918, Phase 7 31076723733, Game Auth Concurrency 31076723750 and Cloudflare Zone Edge Audit 31076723737 all succeeded on the exact head.
-  - Pull request 635 has zero unresolved review threads before re-audit.
-  - Fresh independent re-audit Issue 652 targets exact immutable head 7271c55c474aec5e78878bd894258f7e1434bd0f.
+  - CI run 31076723860 on intermediate head 7271c55c474aec5e78878bd894258f7e1434bd0f proved classify-changes success, terminal test success and docs-only runtime-tests skipped.
+  - Agent Governance, Edge Security, DB Outage, Phase 7, Game Auth Concurrency and Cloudflare Zone Edge Audit all succeeded on intermediate head 7271c55c474aec5e78878bd894258f7e1434bd0f.
+  - Pull request 635 has zero unresolved review threads.
 derived:
-  - Finding OPA-GOV-0018-AUDIT-01 is remediated and exact-head CI now proves the current terminal required-test gate.
+  - Finding OPA-GOV-0018-AUDIT-01 is structurally remediated; the final checkpoint commit must receive its own exact-head CI before re-audit.
 unknown:
-  - independent re-audit conclusion from Issue 652
+  - final exact-head CI result
+  - independent audit conclusion on the final immutable head
 conflicts: []
 first_failure:
   marker: required-test-context-skipped-on-old-head
   evidence: audit review 4871573361 found CI run 31048839793 emitted test=skipped before the terminal required-test gate existed on the branch
 rejected_hypotheses:
-  - treat successful workflow conclusion with skipped required test context as terminal proof
+  - treat an intermediate-head CI result as proof for a later checkpoint commit
   - weaken branch protection or change Cloudflare tooling to obtain a merge
 changed_paths:
   - docs/agents/tasks/active/OTERYN-20260801-cloudflare-zone-edge-audit.md
@@ -116,19 +115,19 @@ validation:
   - command: merge current main 2f451ee3be9caa6b9b506ab2420c55242a49d1c7 into repair/issue-584
     result: PASS
     evidence: current-main synchronization preserves exactly four declared lifecycle paths
-  - command: CI run 31076723860 on 7271c55c474aec5e78878bd894258f7e1434bd0f
+  - command: CI run 31076723860 on intermediate head 7271c55c474aec5e78878bd894258f7e1434bd0f
     result: PASS
     evidence: classify-changes success; terminal test success; runtime-tests skipped for docs-only scope
-  - command: emitted exact-head workflows
-    result: PASS
-    evidence: Agent Governance, Edge Security, DB Outage, Phase 7, Game Auth Concurrency and Cloudflare Zone Edge Audit succeeded
   - command: E2E applicability assessment
     result: NOT_APPLICABLE
     evidence: lifecycle-only documentation repair; authorized live zone-edge audit remains NOT_RUN in the blocked verification-only task
+  - command: final exact-head required CI
+    result: NOT_RUN
+    evidence: pending workflow generation for this final checkpoint commit
   - command: fresh independent lifecycle re-audit
     result: NOT_RUN
-    evidence: Issue 652 is ready for a separate session and targets the exact immutable head
+    evidence: must target the final immutable live PR head after exact-head CI completes
 blockers:
-  - separate independent re-audit Issue 652 must report zero material findings
-next_action: Have a separate session claim Issue 652, audit PR 635 exact head 7271c55c474aec5e78878bd894258f7e1434bd0f and record PASS or exact required changes.
+  - final exact-head CI and fresh independent audit
+next_action: Verify exact-head CI on the final live PR head; after all required contexts pass, create one fresh AUDIT ONLY issue targeting that immutable SHA and do not modify the branch again.
 ```
