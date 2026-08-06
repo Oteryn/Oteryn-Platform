@@ -18,13 +18,13 @@ Continuously challenge Platform architecture, repository structure and CI/CD; id
 
 ```yaml
 programme_state_version: 2
-updated_at: 2026-08-06T09:32:00Z
+updated_at: 2026-08-06T09:45:00Z
 status: validating
 current_review_domain: confidential-vulnerability-disclosure-policy
 active_task: docs/agents/tasks/active/OTERYN-20260806-vulnerability-disclosure-policy.md
 issue: 588
 branch: docs/OTERYN-20260806-vulnerability-disclosure-policy
-pull_request: null
+pull_request: 702
 last_completed_domain: repository-licensing-policy
 last_completed_issue: 587
 last_completed_pull_request: 690
@@ -55,14 +55,14 @@ proven:
   - PR 690 merged ADR 0026 and the proprietary/no-permission policy as d353235a3c7d4b7b34f35a745871c10a71192cc6 after all exact-head workflows and independent audit passed.
   - Repository owner selected Option A for ARCH-DEC-0003 on 2026-08-06.
   - GitHub API proves private vulnerability reporting is enabled for blakinio/Oteryn-Platform.
-  - The current package contains ADR 0027, canonical SECURITY.md routing, Issue-form diversion and an empty active decision backlog.
+  - PR 702 contains ADR 0027, canonical SECURITY.md routing, Issue-form diversion and an empty active decision backlog.
 derived:
   - Repository security maintainers and administrators form the role-based contact while GitHub private advisories provide the confidential transport.
 unknown:
-  - Final exact-head validation, protected merge and archival outcome for the current package.
+  - Final exact-head validation, protected merge and archival outcome for PR 702.
 conflicts: []
 blockers: []
-next_action: Open the implementation pull request, complete exact-head validation and independent audit, merge through the protected route, archive the task and close Issue 588.
+next_action: Complete exact-head validation and independent audit for PR 702, merge through the protected route, archive the task and close Issue 588.
 ```
 
 ## Programme rules
