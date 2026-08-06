@@ -7,7 +7,7 @@ issue: 740
 parent_issue: 365
 branch: validation/issue365-synology-v7-20260806
 pull_request: 741
-status: waiting
+status: completed
 task_kind: validation
 implementation_authorized: true
 production_activation_authorized: false
@@ -26,22 +26,38 @@ required_reads:
 
 Execute the frozen Issue #365 matrix once with a source-backed Docker API `1.43` compatibility pin and close the temporary observation PR without merge.
 
+## Terminal result
+
+```yaml
+classification: COMPLETED_WITH_VALID_BROWSER_MATRIX_AND_INCOMPLETE_TRACE_RETENTION
+bounded_task_result: PASS
+product_assertion_result: PASS_12_OF_12
+workflow_conclusion: failure
+workflow_failure_reason: strict validator classification could not locate the issue365-browser-trace attachment for passed Playwright tests
+product_failure_observed: false
+flash_loss_reproduced: false
+thumbnail_500_sufficient_to_remove_flash: false_in_this_matrix
+root_cause_proven: false
+```
+
+The workflow-level failure is not a Playwright assertion failure. All twelve zero-retry browser executions passed the explicit assertions that the publication flash `Wiki article published.` was visible, durable `Status: Published` was visible and `Unpublish to draft` was available. The strict evidence classifier then returned exit code `1` because no `issue365-browser-trace` attachment was retained or discovered for the passed tests, leaving its browser observation object empty and the complete browser/server causal chain unavailable.
+
 ## Context checkpoint
 
 ```yaml
 policy_version: 2
-checkpoint_version: 5
-updated_at: 2026-08-06T13:29:00+02:00
-phase: validate
+checkpoint_version: 6
+updated_at: 2026-08-06T13:55:00+02:00
+phase: closeout
 session_id: chatgpt-20260806T1329+0200-issue365-synology-v7-continuation
 session_role: validator-closeout
 execution_mode: github
-execution_reason: exact Actions artifacts and the isolated Synology runner are the authoritative validation environment
+execution_reason: exact Actions logs and retained artifact are the authoritative validation evidence
 lease_expires_at: null
-context_pressure: medium
-context_growth: stable
-context_score: 8
-estimate_confidence: medium
+context_pressure: low
+context_growth: terminal
+context_score: 4
+estimate_confidence: high
 decomposition_decision: single
 decomposition_reason: one isolated compatibility transformation and one exact matrix execution
 validation_level: full
@@ -49,56 +65,77 @@ heavy_validation_runs: 1
 branch: validation/issue365-synology-v7-20260806
 workflow_head: 436734c4b42100f06eb9c51b8dbe0e1ab9c2063d
 pr: 741
-status: waiting
+status: completed
 context_routes:
   - testing
   - ci-repair
-owned_paths:
-  - .github/ISSUE365_SYNOLOGY_V7_VALIDATION_ONLY.md
-  - .github/workflows/issue365-synology-v7.yml
-  - docs/agents/tasks/active/OTERYN-20260806-issue365-synology-v7.md
+owned_paths: []
 proven:
-  - run 31094665110 reached the matrix and all twelve samples failed before browser execution on Docker client API 1.52 versus daemon maximum 1.43
-  - Docker official documentation defines DOCKER_API_VERSION as the explicit client API override
-  - the validator passes /workspace/.issue365.env into every Playwright wrapper container
-  - exact one-line transformation produces derived SHA-256 3280d961652b5aa6659d73fc8020fb8b6dba9d4879a1695d4323afe62e3d76b4 from original validator SHA-256 5e89a700d85cb362e374a500bd923d52eea1a9b1b86d0fe657e07c0e134f5945
-  - exactly one push-triggered workflow run exists for the workflow head
-  - source artifact verification, environment proof and exact one-line derivative proof passed in job 92601572152
-  - derived validator was invoked exactly once and remained in its execution step at both observations in this continuation
-  - PR 741 has zero review threads and zero comments
+  - source validator artifact 8964153679 matched the expected metadata, outer digest and internal hashes
+  - environment proof artifact 8964791387 matched the expected metadata, outer digest and internal hashes and reported no unresolved inputs
+  - the only validator transformation was one insertion of DOCKER_API_VERSION=1.43 after CI=1
+  - original validator SHA-256 was 5e89a700d85cb362e374a500bd923d52eea1a9b1b86d0fe657e07c0e134f5945
+  - derived validator SHA-256 was 3280d961652b5aa6659d73fc8020fb8b6dba9d4879a1695d4323afe62e3d76b4
+  - Docker client API reported 1.43 downgraded from 1.55 and the Synology daemon reported API 1.43
+  - exactly one push-triggered workflow run 31097086526 and one job 92601572152 executed on oteryn-synology-staging
+  - the derived validator was invoked exactly once with one worker and zero retries
+  - all twelve Playwright executions passed
+  - clean immediate passed 3 of 3 and clean prescroll passed 3 of 3
+  - one-corrupt immediate passed 3 of 3 and one-corrupt prescroll passed 3 of 3
+  - every passed browser test asserted visible publication flash, visible durable Published state and visible Unpublish to draft action
+  - clean samples produced zero admin.wiki.media.thumbnail HTTP 500 completions
+  - each of the six one-corrupt samples produced four admin.wiki.media.thumbnail HTTP 500 completions, twenty-four total
+  - each corrupt sample contained one thumbnail HTTP 500 completion after the publish 302 and redirected article-edit 200 response while the browser assertions still passed
+  - thumbnail HTTP 500 responses from the controlled corrupt fixture were not sufficient to remove the publication flash in this matrix
+  - runtime evidence artifact 8966613658 was uploaded as issue365-docker-api143-v7-31097086526 with digest sha256:e00fb34e54eb3834599eff38379ddf869faff52d8291ffe25f80c168b441dfcf
+  - runtime cleanup passed
+  - StartSession.php restored from instrumented SHA-256 4826f80a62f2d26894b6a0cd5f2462c4e094ddc0f6f231e94b9cc00444dbfe7f to original SHA-256 ad054f3b21fcf67f6a088c13b4496c4e747db64acc38ccc2399323552793b5bc
+  - PR 741 had zero review threads and zero comments before terminal closeout
+  - no application, route, view, migration, dependency-lock, deployment, production, Cloudflare, Canary or external-repository mutation occurred
 unknown:
-  - whether API 1.43 allows all browser samples to execute
-  - terminal clean versus one-corrupt flash and thumbnail verdict
-conflicts: []
+  - exact browser request-start phase for the retained thumbnail requests because the issue365-browser-trace attachment was not retained or discovered
+  - complete browser/server causal chain for the historical intermittent flash-loss reproduction
+  - root cause of the historical intermittent flash loss
+  - whether the historical flash loss can still reproduce on current main outside this frozen twelve-sample run
+conflicts:
+  - the strict generated verdicts label all samples TECHNICAL_OR_DURABLE_STATE_FAILURE because their browser observation objects are empty, while the authoritative Playwright exit codes and explicit assertion logs show twelve passed tests; this is an evidence-retention/classifier limitation, not a browser product failure
 changed_paths:
   - .github/ISSUE365_SYNOLOGY_V7_VALIDATION_ONLY.md
   - .github/workflows/issue365-synology-v7.yml
   - docs/agents/tasks/active/OTERYN-20260806-issue365-synology-v7.md
 validation:
-  - command: local exact one-line transformation, bash -n and SHA-256
+  - command: source artifact, environment contract and derivative integrity checks
     result: PASS
-    evidence: original 5e89a700...; derived 3280d961...
-  - command: source-backed Docker compatibility review
+    evidence: exact metadata, digests, internal hashes, bash syntax and one-line diff passed
+  - command: Docker client and daemon API preflight
     result: PASS
-    evidence: Docker CLI and Engine API documentation for DOCKER_API_VERSION
-  - command: one-shot runtime 31097086526
-    result: IN_PROGRESS
-    evidence: job 92601572152; derivative proof passed and execution step remained active
-blockers:
-  - external workflow run 31097086526 has not reached a terminal conclusion; no rerun or second self-hosted job is authorized
+    evidence: client API 1.43 downgraded from 1.55 against daemon API 1.43
+  - command: exact frozen twelve-sample Playwright matrix
+    result: PASS_12_OF_12_PRODUCT_ASSERTIONS
+    evidence: twelve zero-retry executions each reported one passed test
+  - command: strict browser-trace causal-chain classifier
+    result: INCOMPLETE
+    evidence: browser_trace_found=false for all samples despite Playwright exit code 0; no retained attachment under test-results
+  - command: controlled corrupt thumbnail response analysis
+    result: PASS
+    evidence: twenty-four correlated thumbnail HTTP 500 completions, four in every corrupt sample and zero in clean samples
+  - command: runtime cleanup and framework restoration
+    result: PASS
+    evidence: cleanup-status PASS and StartSession restore-check OK with original hash restored
+blockers: []
 anti_stall:
-  invocation_started_at: 2026-08-06T13:29:00+02:00
-  last_progress_at: 2026-08-06T13:24:00+02:00
-  ci_checks_for_current_head: 2
+  invocation_started_at: 2026-08-06T13:15:00+02:00
+  last_progress_at: 2026-08-06T13:55:00+02:00
+  ci_checks_for_current_head: terminal
   ci_check_generation: runtime-v7
-  terminal_ci_wait_started_at: null
-  terminal_ci_checks_for_current_generation: 0
-  unchanged_state_checks: 2
+  terminal_ci_wait_started_at: 2026-08-06T13:23:46+02:00
+  terminal_ci_checks_for_current_generation: 1
+  unchanged_state_checks: 0
   identical_failure_retries: 0
   repair_cycles_for_current_gate: 1
   context_reconstruction_attempts: 1
   stall_warnings: 0
-next_action: Fetch terminal steps, logs and artifacts for run 31097086526, classify the exact product or technical result and complete Issue 740 / PR 741 / parent Issue 365 closeout.
+next_action: Keep parent Issue 365 open for the unresolved historical causal chain; do not rerun this completed matrix or reopen PR 741. Any future work must be a separately justified, narrow evidence-retention or product-cause task and must not infer a repair from this non-reproduction.
 ```
 
 ## Recovery checkpoint
@@ -109,21 +146,17 @@ recovery:
   generation: 1
   session_id: chatgpt-20260806T1329+0200-issue365-synology-v7-continuation
   session_started_at: 2026-08-06T13:29:00+02:00
-  checkpointed_at: 2026-08-06T13:29:00+02:00
-  last_progress_at: 2026-08-06T13:24:00+02:00
-  phase: Docker API compatibility matrix validation
-  exact_head: 436734c4b42100f06eb9c51b8dbe0e1ab9c2063d
+  checkpointed_at: 2026-08-06T13:55:00+02:00
+  last_progress_at: 2026-08-06T13:55:00+02:00
+  phase: terminal closeout
+  exact_workflow_head: 436734c4b42100f06eb9c51b8dbe0e1ab9c2063d
   pull_request: 741
-  active_operation: GitHub Actions workflow run 31097086526 job 92601572152
   external_run_ids:
     - 31097086526
     - 92601572152
-  operation_started_at: 2026-08-06T13:23:46+02:00
-  wait_deadline_at: 2026-08-06T15:23:46+02:00
-  check_generation: runtime-v7
-  checks_used: 2
-  status: waiting
-  safe_to_resume: true
-  resume_condition: workflow run 31097086526 reaches a terminal conclusion
-  next_action: Fetch terminal steps, logs and artifacts for run 31097086526 and complete non-merge closeout.
+    - 8966613658
+  status: completed
+  safe_to_resume: false
+  resume_condition: none
+  next_action: none for Issue 740; parent Issue 365 owns any future investigation.
 ```
