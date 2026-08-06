@@ -7,7 +7,7 @@ issue: 735
 parent_issue: 365
 branch: validation/issue365-synology-v6-20260806
 pull_request: 736
-status: waiting
+status: completed
 task_kind: validation
 implementation_authorized: true
 production_activation_authorized: false
@@ -29,107 +29,68 @@ required_reads:
 
 Execute the exact approved PHP 8.5 validator once with the complete proven environment contract, retain terminal evidence and close the observation PR without merge.
 
-## Context checkpoint
+## Terminal checkpoint
 
 ```yaml
 policy_version: 2
-checkpoint_version: 2
-updated_at: 2026-08-06T13:04:00+02:00
-phase: validate
-session_id: chatgpt-20260806T1259+0200-issue365-synology-v6-continuation
+checkpoint_version: 3
+updated_at: 2026-08-06T13:12:36+02:00
+phase: close
+session_id: chatgpt-20260806T1306+0200-issue365-synology-v6-closeout
 session_role: validator-closeout
 execution_mode: github
-execution_reason: exact GitHub Actions run and immutable artifacts are the authoritative validation environment
-lease_expires_at: null
-context_pressure: medium
-context_growth: stable
-context_score: 8
-estimate_confidence: medium
-decomposition_decision: phased
-decomposition_reason: one validation task with a single long-running immutable runtime and terminal closeout
-validation_level: full
-heavy_validation_runs: 1
-session_rotation_count: 1
-stale_takeover_count: 0
-human_interruptions: 0
 branch: validation/issue365-synology-v6-20260806
-branch_head_before_checkpoint: 5cdf7f41847a5e822bdcd19ca47acdf59bf3e78a
 workflow_head: a46615ae077079a062dd9e9ebe1e5b94ac0ce941
 pr: 736
-status: waiting
-context_routes:
-  - testing
-  - ci-repair
-owned_paths:
-  - .github/ISSUE365_SYNOLOGY_V6_VALIDATION_ONLY.md
-  - .github/workflows/issue365-synology-v6.yml
-  - docs/agents/tasks/active/OTERYN-20260806-issue365-synology-v6.md
+status: completed
+validation_result: INVALID_TECHNICAL_FAILURE_DOCKER_API_NEGOTIATION
+product_conclusion: NOT_AVAILABLE
+owned_paths_released: true
 proven:
-  - validator artifact 8964153679 passed immutable generation, structural patch, Bash syntax and all internal hashes
-  - environment proof artifact 8964791387 passed exact historical-source extraction with unresolved inputs empty
-  - canonical explicit inputs are TARGET_SHA, RUNBOOK_REF, PLAYWRIGHT_IMAGE and GH_TOKEN from secrets.GITHUB_TOKEN
-  - automatic GITHUB-prefixed inputs are supplied by Actions
-  - run 31094665110 passed checkout, both artifact metadata records, all internal hashes and environment-manifest verification
-  - approved validator was invoked exactly once in job 92593662578
+  - exact validator artifact 8964153679 and environment proof artifact 8964791387 passed metadata, digest, internal hash and manifest verification
+  - approved validator was invoked exactly once in run 31094665110 / job 92593662578
+  - platform image, validator image and Playwright PHP-wrapper image built successfully
+  - PHP wrapper path resolved as /usr/local/bin/php
+  - acceptance dependencies, application health, observer installation and all twelve sample directories were created
+  - every one of the twelve sample attempts stopped before browser trace generation with the same Docker daemon error
+  - first failure was Docker client API 1.52 versus Synology daemon maximum API 1.43
+  - all twelve verdicts were TECHNICAL_OR_DURABLE_STATE_FAILURE with browser_trace_found=false, server_event_count=0 and causal_chain_complete=false
+  - runtime cleanup passed and the instrumented StartSession.php was restored to its original hash
+  - evidence artifact 8965530555 was uploaded with digest sha256:a27141f98237f60465c9085dd3213389863ea3666c1288d62d34f391d9489a74
 unknown:
-  - terminal result of validator execution step 7
-  - whether the PHP 8.5 wrapper and all 12 browser samples complete
-  - final evidence artifact identity and matrix verdict
-conflicts: []
-changed_paths:
-  - .github/ISSUE365_SYNOLOGY_V6_VALIDATION_ONLY.md
-  - .github/workflows/issue365-synology-v6.yml
-  - docs/agents/tasks/active/OTERYN-20260806-issue365-synology-v6.md
+  - publication-flash behavior under clean versus one-corrupt media fixtures
+  - thumbnail HTTP 500 behavior in the required matrix
+  - exact request/session causal chain
+blockers:
+  - frozen validator's Playwright wrapper image contains a Docker client that negotiates API 1.52 while the runner daemon supports at most 1.43
+  - Issue 735 forbids a rerun, second self-hosted job or mutation of the approved artifact
 validation:
   - command: static validator proof 31092791643
     result: PASS
     evidence: artifact 8964153679
   - command: environment contract proof 31094295511
     result: PASS
-    evidence: artifact 8964791387; unresolved inputs empty
+    evidence: artifact 8964791387
   - command: complete-contract one-shot runtime 31094665110
-    result: IN_PROGRESS
-    evidence: job 92593662578; validator invocation step running after two aggregate observations in this continuation
-blockers:
-  - external workflow run 31094665110 has not reached a terminal conclusion; no rerun or second job is authorized
-anti_stall:
-  invocation_started_at: 2026-08-06T12:59:00+02:00
-  last_progress_at: 2026-08-06T12:48:00+02:00
-  ci_checks_for_current_head: 2
-  ci_check_generation: runtime-v6
-  terminal_ci_wait_started_at: null
-  terminal_ci_checks_for_current_generation: 0
-  unchanged_state_checks: 2
-  identical_failure_retries: 0
-  repair_cycles_for_current_gate: 0
-  context_reconstruction_attempts: 1
-  stall_warnings: 0
-next_action: Fetch terminal job steps, full job logs and workflow artifacts for run 31094665110, classify the exact product or technical result, then close PR 736 without merge and complete Issue 735 / parent Issue 365 lifecycle records.
-```
-
-## Recovery checkpoint
-
-```yaml
-recovery:
-  policy_version: 1
-  generation: 1
-  session_id: chatgpt-20260806T1259+0200-issue365-synology-v6-continuation
-  session_started_at: 2026-08-06T12:59:00+02:00
-  checkpointed_at: 2026-08-06T13:04:00+02:00
-  last_progress_at: 2026-08-06T12:48:00+02:00
-  phase: complete-contract runtime validation
-  exact_head: a46615ae077079a062dd9e9ebe1e5b94ac0ce941
-  pull_request: 736
-  active_operation: GitHub Actions workflow run 31094665110 job 92593662578
-  external_run_ids:
-    - 31094665110
-    - 92593662578
-  operation_started_at: 2026-08-06T12:47:42+02:00
-  wait_deadline_at: 2026-08-06T14:47:42+02:00
-  check_generation: runtime-v6
-  checks_used: 2
-  status: waiting
-  safe_to_resume: true
-  resume_condition: workflow run 31094665110 reaches a terminal conclusion
-  next_action: Fetch terminal job steps, full job logs and workflow artifacts for run 31094665110, classify the exact result, and perform non-merge closeout.
+    result: INVALID_TECHNICAL_FAILURE_DOCKER_API_NEGOTIATION
+    evidence: job 92593662578; artifact 8965530555
+closeout:
+  implementation_complete: true
+  audit:
+    result: NOT_APPLICABLE
+    reason: validation-only observation produced immutable technical evidence and no product change
+  e2e:
+    result: NOT_RUN
+    reason: browser execution was blocked before trace generation by Docker API negotiation failure
+  final_ci:
+    head: a46615ae077079a062dd9e9ebe1e5b94ac0ce941
+    result: TERMINAL_FAILURE_RETAINED
+  pull_requests:
+    open_related_prs: 0
+    unresolved_review_threads: 0
+    terminal_prs:
+      - blakinio/Oteryn-Platform#736 closed without merge
+  task_status: completed
+  ownership_released: true
+next_action: Open a fresh bounded validator-infrastructure task only after choosing one source-backed Docker API compatibility mechanism, then run one exact matrix attempt without modifying the approved product target.
 ```
