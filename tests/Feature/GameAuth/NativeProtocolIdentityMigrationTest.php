@@ -22,7 +22,7 @@ final class NativeProtocolIdentityMigrationTest extends TestCase
     public function test_migration_and_rollback_preserve_disabled_native_identity(): void
     {
         $migration = self::migration();
-        $migration->down();
+        self::runDown($migration);
 
         $world = GameWorld::query()->create([
             'slug' => 'migration-test',
@@ -55,7 +55,7 @@ final class NativeProtocolIdentityMigrationTest extends TestCase
             'updated_at' => now(),
         ]);
 
-        $migration->up();
+        self::runUp($migration);
         $migrated = DB::table('game_world_protocol_candidates')->first();
         self::assertNotNull($migrated);
         self::assertNull($migrated->profile);
@@ -64,7 +64,7 @@ final class NativeProtocolIdentityMigrationTest extends TestCase
         self::assertSame(self::NEW_SCHEMA_SHA256, self::stringValue($migrated->schema_sha256));
         self::assertFalse(self::booleanValue($migrated->enabled));
 
-        $migration->down();
+        self::runDown($migration);
         $rolledBack = DB::table('game_world_protocol_candidates')->first();
         self::assertNotNull($rolledBack);
         self::assertSame(self::OLD_PROFILE, self::stringValue($rolledBack->profile));
@@ -72,7 +72,7 @@ final class NativeProtocolIdentityMigrationTest extends TestCase
         self::assertSame(self::OLD_SCHEMA_SHA256, self::stringValue($rolledBack->schema_sha256));
         self::assertFalse(self::booleanValue($rolledBack->enabled));
 
-        $migration->up();
+        self::runUp($migration);
     }
 
     private static function migration(): Migration
@@ -84,6 +84,24 @@ final class NativeProtocolIdentityMigrationTest extends TestCase
         }
 
         return $migration;
+    }
+
+    private static function runUp(Migration $migration): void
+    {
+        if (! method_exists($migration, 'up')) {
+            self::fail('Native protocol identity migration does not define up().');
+        }
+
+        $migration->up();
+    }
+
+    private static function runDown(Migration $migration): void
+    {
+        if (! method_exists($migration, 'down')) {
+            self::fail('Native protocol identity migration does not define down().');
+        }
+
+        $migration->down();
     }
 
     private static function integerValue(mixed $value): int
