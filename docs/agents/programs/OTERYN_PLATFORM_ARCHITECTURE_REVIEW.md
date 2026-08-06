@@ -18,17 +18,17 @@ Continuously challenge Platform architecture, repository structure and CI/CD; id
 
 ```yaml
 programme_state_version: 2
-updated_at: 2026-08-05T22:20:00Z
-status: validating
-current_review_domain: architecture-decision-backlog-implementation
-active_task: OTERYN-20260805-architecture-decision-backlog-implementation
-issue: 642
-branch: repair/issue-642-architecture-decision-backlog
-pull_request: 650
-last_completed_domain: architecture-decision-backlog-authority
-last_completed_issue: 602
-last_completed_pull_request: 604
-last_completed_merge: 2cb10c7a916fff670ce1ec7f813ae75d95fb9f3e
+updated_at: 2026-08-06T06:17:03Z
+status: waiting_owner_decision
+current_review_domain: merged-source-branch-lifecycle-policy
+active_task: null
+issue: 586
+branch: null
+pull_request: null
+last_completed_domain: architecture-decision-backlog-implementation
+last_completed_issue: 642
+last_completed_pull_request: 650
+last_completed_merge: 20754620b7a0a4363c70480bda0ee5dff885c9a7
 accepted_authority:
   authority_index: docs/architecture/ARCHITECTURE_AUTHORITY.md
   authority_adr: docs/architecture/adr/0022-architecture-authority-index-and-focused-canonical-documents.md
@@ -42,18 +42,19 @@ ci_architecture_findings:
   - Runtime/code changes require the complete MariaDB/PHP suite before the aggregate test gate can pass.
   - Documentation-only changes pass only after fail-closed classification proves runtime tests are NOT_APPLICABLE.
 proven:
-  - ADR 0023 authorizes one repository-owned JSON inventory for unresolved architecture decision obligations.
-  - Duplicate searches found no competing registry implementation Issue, PR or active task owner.
-  - Issues 586, 587 and 588 contain unresolved owner policy decisions suitable for initial seeding.
-  - Current repository metadata reports automatic merged-branch deletion enabled, while no canonical exception and recovery policy was found.
-  - Completed ARCH-AUTH history and implementation-only work are excluded from the active registry.
+  - PR 650 merged through protected main as 20754620b7a0a4363c70480bda0ee5dff885c9a7 and closed Issue 642 as completed.
+  - Final synchronized head f5c3365b5d0353a988820eaeb41c7e076b4de347 passed all eight emitted workflows, including full runtime-tests and the aggregate protected test gate.
+  - The canonical registry contains exactly ARCH-DEC-0001, ARCH-DEC-0002 and ARCH-DEC-0003 and grants no accepted-decision, implementation or activation authority.
+  - Issue 586 remains open and is the linked owner-decision route for ARCH-DEC-0001.
+  - Zero unresolved review threads remained at merge.
 derived:
-  - Three initial records exercise the non-empty schema while preserving a narrow unresolved-decision boundary.
+  - The highest-priority next architecture action is the repository-owner decision for the merged source-branch exception, recovery and cleanup policy.
 unknown:
-  - Exact-head validation and merge outcome for Issue 642.
+  - The repository owner's selected option for ARCH-DEC-0001.
 conflicts: []
-blockers: []
-next_action: Validate and merge the ADR 0023 registry implementation, archive Issue 642 ownership, then route the highest-priority active decision through its linked Issue without inferring owner acceptance.
+blockers:
+  - Repository-owner selection in Issue 586 is required before ARCH-DEC-0001 can leave decision_required.
+next_action: Present ARCH-DEC-0001 options A, B and C from Issue 586 to the repository owner, record the selected policy in one bounded architecture package, and do not infer acceptance.
 ```
 
 ## Programme rules
