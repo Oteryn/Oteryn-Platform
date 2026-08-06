@@ -1,9 +1,10 @@
 ---
 programme_id: OTERYN_PLATFORM_REMEDIATION
-programme_version: 3
+programme_version: 4
 canonical_prompt: docs/agents/prompts/OTERYN_PLATFORM_REMEDIATION_PROGRAM.md
 required_reads:
   - docs/agents/OTERYN_PLATFORM_PROGRAM_SCOPE.md
+  - docs/agents/REPAIR_PR_ECONOMY.md
   - docs/agents/LIFECYCLE_CLOSEOUT_BATCHING.md
   - docs/agents/AUDIT_REMEDIATION_ISSUE_TAXONOMY.md
   - docs/agents/REMEDIATION_WORK_CLAIM_PROTOCOL.md
@@ -15,13 +16,13 @@ repository: blakinio/Oteryn-Platform
 
 ## Mission
 
-Consume confirmed, implementation-authorized Platform findings and close them through bounded, non-overlapping, complete vertical slices with independent audit, real E2E when applicable, exact-head CI and terminal PR/task cleanup.
+Consume confirmed implementation-authorized Platform findings and close them through bounded, non-overlapping, complete slices with atomic Issue ownership, economical PR delivery, eligible independent audit, real applicable E2E, exact-head CI and terminal cleanup.
 
-## Durable queue
+## Durable state
 
 ```yaml
-programme_state_version: 3
-updated_at: 2026-08-06T10:04:00Z
+programme_state_version: 4
+updated_at: 2026-08-06T11:45:00Z
 status: ready
 live_state_snapshot:
   mode: live_query_required
@@ -29,57 +30,114 @@ live_state_snapshot:
   active_claims: unknown
   active_tasks: unknown
   active_pull_requests: unknown
+  open_repair_trains: unknown
+  ready_audit_handoffs: unknown
   serialized_coordination_keys: unknown
-  reason: Mutable ownership and queue state must be resolved from live Issues, PRs, branches and active task records at invocation time; unknown must never be interpreted as an empty queue.
+  reason: Mutable ownership, delivery and audit queues must be resolved from live Issues, branches, tasks, PRs, reviews and exact heads at invocation time; unknown never means empty.
 parallel_capacity: dynamic
 live_queries:
   ready_issues: 'repo:blakinio/Oteryn-Platform is:issue is:open label:programme:platform label:programme:audit-repair label:agent:ready'
   active_claim_issues: 'repo:blakinio/Oteryn-Platform is:issue is:open label:programme:platform label:programme:audit-repair label:agent:claimed'
   open_remediation_pull_requests: 'repo:blakinio/Oteryn-Platform is:pr is:open label:programme:audit-repair'
   active_tasks_path: docs/agents/tasks/active/
+  audit_handoff_marker: audit_handoff
+  repair_delivery_marker: repair_delivery
 proven:
-  - Every product-remediation worker must obtain a valid Issue claim and repository task ownership before product mutation.
-  - One product Issue is assigned to one remediation worker at a time.
-  - Issue 547 was repaired through pull request 595 and closed completed by merge commit 5a04d055aa02b74cc741f69713d1ea26c91550c0.
-  - Independent audit Issue 597 inspected the exact final pull-request head, found zero critical, high or material-medium findings and closed completed.
-  - Lifecycle closeout PRs 598, 601 and 670 are terminal merged work and must not be represented as active claims.
-  - This programme is immutably scoped to blakinio/Oteryn-Platform by docs/agents/OTERYN_PLATFORM_PROGRAM_SCOPE.md.
-  - Eligible lifecycle-only and archive-only reconciliation is governed by docs/agents/LIFECYCLE_CLOSEOUT_BATCHING.md and may use one bounded wave PR instead of one PR per completed task.
+  - Every implementation worker must independently acquire deterministic branch repair/issue-<number> before product mutation.
+  - The deterministic Git ref remains the atomic race arbiter; comments, labels and coordinator dispatch are not locks.
+  - One Issue belongs to one active worker claim and source branch at a time.
+  - Claim activation does not universally require a Pull Request.
+  - Existing authoritative delivery PR reuse precedes train or dedicated PR creation.
+  - Compatible independently claimed repairs may use a bounded repair train with one integration owner and immutable accepted source heads.
+  - PASS-only independent audits are reviews/comments on the existing exact target PR, not additional PRs.
+  - Eligible lifecycle-only/archive-only reconciliation follows docs/agents/LIFECYCLE_CLOSEOUT_BATCHING.md.
+  - The remediation programme is immutably scoped to blakinio/Oteryn-Platform by docs/agents/OTERYN_PLATFORM_PROGRAM_SCOPE.md.
 derived:
-  - Parallel product dispatch remains safe only for Issues classified parallel_safe with different coordination keys and non-overlapping paths.
-  - PASS-only independent audits should be reviews or comments on existing target PRs, not additional PRs.
-  - A stored empty mutable queue is unsafe unless it is proven from a same-generation live query; this file therefore records unknown live state rather than a false empty snapshot.
+  - Parallel implementation dispatch is safe only for ready authorized Issues with distinct coordination keys and non-overlapping paths.
+  - Repair workers must rotate after durable audit handoff rather than staying active while waiting for another role.
+  - A dedicated audit role should drain valid ready audit handoffs independently from implementation workers.
+  - A stored empty mutable queue is unsafe unless proven by same-generation live queries.
 unknown:
-  - Current count, ownership and dependency graph of ready or active remediation work until the live queries are executed.
+  - Current ready, claimed, train and audit-handoff counts until live queries run.
 conflicts: []
 blockers: []
-next_action: Query live ready and claimed Issues, open remediation PRs, branches and active task records; reconcile terminal work; then route eligible lifecycle-only items into a bounded batch or select the highest-priority safe unclaimed product Issue.
+next_action: Query live ready/claimed Issues, deterministic branches, active tasks, related PRs, repair trains and ready audit handoffs; drain the highest-priority valid audit handoff or select the highest-priority safe unclaimed implementation Issue according to the invoked role.
 ```
 
-## Parallel dispatch checkpoint
+## Role queues
 
-The structure below is a template, not a claim that no wave exists. Resolve live state before dispatch. Each product worker still performs the claim protocol independently. A lifecycle-only reconciliation wave uses the separate coordinator structure required by `docs/agents/LIFECYCLE_CLOSEOUT_BATCHING.md`.
+```yaml
+role_queues:
+  implementation:
+    source: ready authorized unclaimed Issues
+    ownership: deterministic branch plus Issue activation plus active task
+    terminal_phase_handoff: audit_handoff
+  independent_audit:
+    source: valid ready audit_handoff records
+    mode: AUDIT_ONLY
+    mutation_allowed: false
+    result: PASS_ZERO_MATERIAL_FINDINGS or exact findings
+  integration:
+    source: compatible coherent train candidates
+    owner_count: 1
+    accepted_input: exact immutable worker source heads
+  lifecycle_closeout:
+    source: terminal governance-only items
+    contract: docs/agents/LIFECYCLE_CLOSEOUT_BATCHING.md
+```
+
+## Parallel dispatch template
 
 ```yaml
 parallel_wave_template:
-  wave_id: <resolve-from-live-state>
-  requested_workers: <resolve-from-owner-command>
-  dispatched_issues: <resolve-from-live-state>
-  coordination_keys: <resolve-from-live-state>
-  shared_paths: <resolve-from-live-state>
-  integration_owner: <resolve-from-live-state>
-  barrier_state: <resolve-from-live-state>
+  wave_id: <live-state-derived>
+  requested_mode: implementation_workers | total_slots
+  requested_count: <owner command>
+  implementation_workers: <proven safe count>
+  audit_workers: <0 or at least 1 when valid handoffs exist>
+  integration_coordinator: <0 or 1>
+  dispatched_issues: <live-state-derived>
+  ready_audit_handoffs: <live-state-derived>
+  coordination_keys: <live-state-derived>
+  shared_paths: <live-state-derived>
+  repair_train_ids: <live-state-derived>
+  barrier_state: <live-state-derived>
 ```
+
+Literal `N agentów naprawczych` means up to N implementation workers. `N slotów naprawy` means total roles and uses the allocation in `SHORT_PROGRAM_INVOCATIONS.md`.
 
 ## Programme rules
 
-- Keep one Issue, task, branch and PR per material product/runtime root cause.
-- Claims and leases for product work are governed by `docs/agents/REMEDIATION_WORK_CLAIM_PROTOCOL.md`.
-- Eligible lifecycle-only/archive-only reconciliations are the sole exception: group 2–10 compatible items into one coordinator task, one wave branch, one PR, one fresh exact-head audit and one CI generation under `docs/agents/LIFECYCLE_CLOSEOUT_BATCHING.md`.
-- Do not create one audit PR merely to record PASS. Put the independent verdict on the existing implementation or lifecycle-batch PR and in the linked audit record.
-- When an implementer reaches the fresh-audit gate, leave the task `ready` and return `ROTATE` if a separate validator cannot run in that session; do not report `WAITING` unless a real external dependency exists.
-- Never infer that no work is active from an absent, stale or unknown snapshot. Query live Issues, PRs, branches and active task records before claiming or dispatching.
-- Do not dispatch more product agents than the number of proven independent ready Issues.
-- Shared root manifests, lockfiles, route registries, common shells, migrations, global catalogs and CI workflows are serialized unless an explicit integration owner is declared.
-- Update this file after a durable programme-policy change; mutable queue and ownership truth remains live-query-derived.
+- Claims and leases follow `REMEDIATION_WORK_CLAIM_PROTOCOL.md` version 3.
+- PR selection, repair trains, delivery mapping, rollback, independent audit and role rotation follow `REPAIR_PR_ECONOMY.md`.
+- Search open and closed related PRs before creating a new one.
+- Do not create a PR solely because an Issue was claimed.
+- Do not create duplicate implementation, audit-only, evidence-only, ownership-release-only or per-Issue archive-only PRs.
+- Keep dedicated PR boundaries for security, auth, payments, migrations, protocol/API authority, dependencies, CI/workflow, architecture, protected rollout and unclear rollback.
+- A coherent candidate does not wait for another candidate merely to fill a train.
+- A worker that loses its deterministic branch race releases immediately and selects another eligible Issue when authorized.
+- Exactly one integration owner writes a train branch; accepted worker source heads are immutable per train generation.
+- Train freeze rejects new Issues and silent source-head drift.
+- Final audit requires a distinct eligible `AUDIT ONLY` agent/session, exact PR/base/head, whole-diff verdict and per-Issue verdicts.
+- Implementers, train workers and the integration owner cannot self-issue the required final PASS.
+- A finding returns to implementation on the same delivery PR unless a separate root cause/authority boundary is proven.
+- At the audit gate, persist handoff, set task `ready` and return `ROTATE` when a distinct auditor cannot run in the session.
+- `WAITING` is only for genuine external dependency/actor, permission/environment, observation window, protected operation, owner decision or exhausted bounded terminal-CI procedure.
+- Same-PR pre-merge archival uses `completed_on_merge`; closing without merge cannot leave completion or ownership release.
+- Query live state before every claim, train acceptance, audit pickup, merge and terminal completion.
 - Exactly one `next_action` is required while work remains.
+
+## Success metrics
+
+```yaml
+metrics:
+  duplicate_implementation_prs: 0
+  audit_only_prs_per_repair: 0
+  archive_only_prs_per_repair: 0
+  unintentionally_open_related_prs_at_completion: 0
+  workers_implementing_same_issue: 0
+  trains_reverted_for_incoherent_scope: 0
+  repair_prs_per_completed_issue: normally_lte_1
+```
+
+Metrics never override safety, reviewability, rollback, audit, E2E, exact-head CI or closeout.
