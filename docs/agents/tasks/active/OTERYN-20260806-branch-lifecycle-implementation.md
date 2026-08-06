@@ -71,7 +71,7 @@ blockers: []
 ```yaml
 checkpoint_version: 1
 policy_version: 2
-updated_at: 2026-08-06T07:09:00Z
+updated_at: 2026-08-06T07:11:00Z
 phase: validate
 session_id: chatgpt-20260806-branch-lifecycle
 session_role: implementer
@@ -79,6 +79,11 @@ execution_mode: github
 execution_reason: repository governance files, GitHub API classifier and Actions validation are all repository-owned
 lease_expires_at: 2026-08-06T08:30:00Z
 status: validating
+context_routes:
+  - agent-governance
+  - repository-governance
+  - testing
+head: a763877e3d20fb389561dbdad674e7aa569cbd8b
 context_pressure: high
 context_growth: stable
 context_score: 10
@@ -119,8 +124,8 @@ unknown:
   - Exact live classification counts and candidate set until PR 666 publishes its read-only dry-run artifact.
 conflicts: []
 first_failure:
-  marker: none
-  evidence: no implementation failure yet
+  marker: missing-required-checkpoint-fields
+  evidence: Agent Governance run 31079853837 required context_routes and head; both are now present.
 rejected_hypotheses:
   - Delete branches by prefix or age.
   - Give pull-request validation write permission.
@@ -145,9 +150,12 @@ validation:
   - command: python3 -m py_compile tools/agents/branch_lifecycle.py tools/agents/test_branch_lifecycle.py
     result: PASS
     evidence: both Python files compile
+  - command: Agent Governance run 31079853837
+    result: FAIL
+    evidence: missing context_routes and head; corrected on the next exact head
   - command: live dry-run
     result: NOT_RUN
-    evidence: PR workflow generation is starting on exact head after this checkpoint update
+    evidence: PR workflow generation is running on the corrected head
 blockers: []
 next_action: Inspect PR 666 exact-head checks and live dry-run artifact, repair any fail-closed defect, then commit an inert reviewed candidate manifest with apply_on_main=false.
 ```
