@@ -32,12 +32,13 @@ Implement accepted ADR 0024 as deterministic, fail-closed branch inventory, dry-
 - [x] Standard-library classifier inventories branches and reconciles protection, open PRs, active tasks/claims and exact merged-PR head SHAs.
 - [x] Focused tests cover classifications, policy defects, manifest drift and apply-context refusal.
 - [x] Pull-request workflow produced a complete live dry-run artifact without write permission.
-- [x] Candidate deletion set was generated with `apply_on_main=false`, reviewed and bound by exact count, policy hash and entries hash.
+- [x] Candidate deletion set was generated, independently reviewed and bound by exact count, policy hash and entries hash.
 - [x] Apply mode is restricted to protected-main push, exact reviewed candidate digest and zero live drift.
 - [ ] Every deletion preserves branch, SHA, PR and evidence; non-candidates remain untouched.
 - [ ] Recovery create/delete/restore/delete test passes using an ephemeral test ref.
 - [x] Ordinary merged closeout branch deletion is proven; protected `main` survives.
-- [ ] Exact-head CI, independent audit, cleanup evidence, Issue #586/#658 closeout and task archival complete.
+- [x] Pre-activation exact-head CI and independent audit passed.
+- [ ] Protected-main apply, post-cleanup inventory, Issue #586/#658 closeout and task archival complete.
 
 ## Ownership
 
@@ -71,13 +72,13 @@ blockers: []
 ```yaml
 checkpoint_version: 1
 policy_version: 2
-updated_at: 2026-08-06T07:24:00Z
-phase: validate
+updated_at: 2026-08-06T07:31:00Z
+phase: integrate
 session_id: chatgpt-20260806-branch-lifecycle
 session_role: implementer
 execution_mode: github
 execution_reason: repository governance files, GitHub API classifier and Actions validation are all repository-owned
-lease_expires_at: 2026-08-06T09:00:00Z
+lease_expires_at: 2026-08-06T09:15:00Z
 status: validating
 context_routes:
   - agent-governance
@@ -91,9 +92,9 @@ estimate_confidence: high
 decomposition_decision: phased
 decomposition_reason: one task requires tooling, reviewed live dry-run, protected-main apply and terminal evidence in sequential phases
 validation_level: full
-last_completed_step: reviewed and cryptographically bound the inert 354-branch candidate set from live artifact 8959037792
+last_completed_step: activated the exact reviewed 354-entry approval after independent review 4872141953
 session_rotation_count: 0
-heavy_validation_runs: 1
+heavy_validation_runs: 2
 stale_takeover_count: 0
 human_interruptions: 0
 branch: repair/issue-658
@@ -120,14 +121,15 @@ proven:
   - Live dry-run run 31079934408 inventoried 501 branches: 354 TERMINAL_MERGED, 85 UNMERGED_ORPHAN, 31 UNKNOWN, 22 OPEN_PR, 8 ACTIVE_CLAIM and 1 PROTECTED.
   - Artifact 8959037792 has digest sha256:3fe9c93022d867ea5c4d243b103dc37a2a3e31bd473eb4b915dff63f191c208d.
   - Reviewed entries hash eeb980e8baab019b592a21712e607f4c27bf8655ccfd5becfb1fd9cdc7cbfa0f binds exactly 354 branch/SHA/merged-PR records.
-  - The 354 candidates contain no protected, open-PR, active-claim, reserved release, rollback, recovery or backup branch names.
-  - The current approval remains inert with apply_on_main=false.
-  - The workflow now fails closed unless main is live-protected and never a deletion candidate.
+  - Branch Lifecycle run 31080948857 reconfirmed the candidate digest and protected-main classification.
+  - CI run 31080949029, Agent Governance 31080948898, Phase 7 run 31080948897 and all other emitted workflows passed on pre-activation head 3957ba0c48f694761adf2cd128eb5186723407d5.
+  - Independent review 4872141953 found no material issue and explicitly audited permissions, classification precedence, exact SHA binding and apply restrictions.
+  - The approval is activated with apply_on_main=true; every live difference still causes a stop before deletion.
 derived:
   - A reviewed candidate digest rebuilt and compared immediately before deletion is safer and more reviewable than committing a large mutable manifest.
 unknown:
-  - Final exact-head conclusions after the latest default-branch protection hardening.
-  - Apply and recovery evidence until the activated approval merges through protected main.
+  - Final activation-head conclusions and protected merge outcome.
+  - Apply and recovery evidence until protected-main workflow completes.
 conflicts: []
 first_failure:
   marker: unavailable-actions-admin-metadata
@@ -155,18 +157,18 @@ validation:
   - command: Branch Lifecycle run 31079934408
     result: PASS
     evidence: full read-only live inventory and inert candidate manifest artifact produced
-  - command: Branch Lifecycle run 31080663708
+  - command: Branch Lifecycle run 31080948857
     result: PASS
-    evidence: reviewed 354-entry candidate digest matched unchanged live evidence
-  - command: Agent Governance run 31080435489
+    evidence: reviewed candidate digest and protected main matched unchanged live evidence
+  - command: full pre-activation exact-head workflows
     result: PASS
-    evidence: active checkpoint schema and ownership passed
-  - command: live repository settings
+    evidence: all seven emitted workflows passed on head 3957ba0c48f694761adf2cd128eb5186723407d5
+  - command: independent review 4872141953
     result: PASS
-    evidence: owner-authorized connection reports delete_branch_on_merge=true, squash=true, merge=false and rebase=false
+    evidence: no material finding; residual partial-API-failure risk bounded by exact runtime manifest, logs and post-apply reconciliation
   - command: apply and recovery
     result: NOT_RUN
-    evidence: candidate approval is intentionally inert pending final exact-head audit
+    evidence: awaits final activation-head validation and protected merge
 blockers: []
-next_action: Complete exact-head CI and independent audit on the fail-closed implementation, activate the reviewed approval, synchronize with current main and merge PR 666 through protection.
+next_action: Validate the activation head, mark PR 666 ready, enable protected auto-merge and inspect branch deletion plus recovery evidence from the main push workflow.
 ```
