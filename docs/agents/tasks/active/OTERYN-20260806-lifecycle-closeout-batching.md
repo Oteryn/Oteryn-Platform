@@ -30,7 +30,8 @@ Reduce governance-only PR and Issue churn without weakening independent validati
 - [x] One fresh independent audit can validate the entire exact batch head with per-item verdicts.
 - [x] `ROTATE` is used when an implementer requires a fresh independent validator; `WAITING` remains reserved for real external waiting.
 - [x] The short-command registry and audit/remediation programme states require the new contract.
-- [ ] Static adversarial evaluation and exact-head required CI pass.
+- [x] Static adversarial evaluation passes.
+- [ ] Fresh independent audit and exact-head required CI pass.
 - [ ] The task is archived and ownership released after merge.
 
 ## Ownership
@@ -49,7 +50,7 @@ modules:
 dependencies:
   - none
 blockers:
-  - none
+  - fresh independent audit of PR 673
 cross_repository_tasks:
   - none
 ```
@@ -58,11 +59,11 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-06T08:01:00Z
-head: a62fc94eba30375661656531cffe0530a8fe1c1d
+updated_at: 2026-08-06T08:05:00Z
+head: resolved-from-live-pr-673
 branch: docs/lifecycle-closeout-batching-20260806
-pr: none
-status: validating
+pr: 673
+status: ready
 context_routes:
   - agent-governance
 owned_paths:
@@ -80,10 +81,13 @@ proven:
   - Eligible lifecycle reconciliation is bounded to 2–10 items, one coordinator task, one wave PR, one exact-head audit and one CI generation.
   - The registry and both programme states now require the contract.
   - Static adversarial evaluation passes 18 of 18 candidate cases.
+  - Initial exact-head workflows all passed on 40f9da479728e0ec475e07684a208fbe5e7499c7.
+  - Implementer exact-diff preflight found no material scope or safety defect in PR 673.
 derived:
   - This removes the recurring pattern of per-task closeout PR plus per-task audit Issue plus follow-up archive PR while retaining independent falsification.
 unknown:
-  - Exact-head GitHub Actions result for the final PR head.
+  - Fresh independent audit conclusion for the final immutable PR head.
+  - Exact-head workflow result for this checkpoint generation.
 conflicts: []
 first_failure:
   marker: none
@@ -103,18 +107,24 @@ validation:
   - command: static adversarial routing evaluation
     result: PASS
     evidence: docs/agents/evidence/OTERYN-20260806-lifecycle-closeout-batching/prompt-eval.md; 18/18 candidate cases pass
-  - command: compare main@700fa5d0d75a7badd7cb8583d36341c711673942 to task branch
+  - command: compare main@700fa5d0d75a7badd7cb8583d36341c711673942 to PR 673
     result: PASS
     evidence: six declared agent-governance files only; no runtime, workflow, architecture, contract or product path
+  - command: implementer exact-diff preflight
+    result: PASS
+    evidence: batching is narrowly gated; active ownership cannot be absorbed; material/security work remains separate
   - command: runtime E2E
     result: NOT_APPLICABLE
     evidence: agent-governance routing and lifecycle policy only
-  - command: exact-head GitHub Actions
+  - command: initial exact-head GitHub Actions on 40f9da479728e0ec475e07684a208fbe5e7499c7
+    result: PASS
+    evidence: CI 31082813694, Agent Governance 31082812882, Edge 31082814016, DB Outage 31082811405, Phase 7 31082812984 and concurrency 31082810330 succeeded
+  - command: fresh independent audit
     result: NOT_RUN
-    evidence: PR not opened yet
+    evidence: must be performed by a separate session on the final immutable PR head
 blockers:
-  - none
-next_action: Open the bounded governance PR, perform fresh exact-diff review and verify required checks on its exact final head.
+  - fresh independent validator required before merge
+next_action: A fresh audit-only session must inspect PR 673 at its exact final SHA, submit a review/comment with PASS_ZERO_MATERIAL_FINDINGS or exact findings, and close the linked audit Issue; merge only after that result and final exact-head CI pass.
 ```
 
 ## Notes
