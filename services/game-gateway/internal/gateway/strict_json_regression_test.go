@@ -6,7 +6,7 @@ import (
 	"testing"
 )
 
-func TestGameplayOfferCandidateRejectsUnknownAndDuplicateJSONFields(t *testing.T) {
+func TestGameplayOfferCandidateRejectsUnknownDuplicateAndNonCanonicalJSONFields(t *testing.T) {
 	payload := mustMarshalJSON(t, validNativeLoginRequest())
 
 	for _, test := range []struct {
@@ -15,6 +15,8 @@ func TestGameplayOfferCandidateRejectsUnknownAndDuplicateJSONFields(t *testing.T
 	}{
 		{name: "unknown field", replacement: `"family":"oteryn","unexpected":true`},
 		{name: "duplicate field", replacement: `"family":"oteryn","family":"oteryn"`},
+		{name: "case variant profile", replacement: `"family":"oteryn","Profile":null`},
+		{name: "case variant native version", replacement: `"family":"oteryn","NATIVE_PROTOCOL_VERSION":1`},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			mutated := replaceFirstFamilyField(t, payload, test.replacement)
@@ -26,7 +28,7 @@ func TestGameplayOfferCandidateRejectsUnknownAndDuplicateJSONFields(t *testing.T
 	}
 }
 
-func TestGameplayPolicyCandidateRejectsUnknownAndDuplicateJSONFields(t *testing.T) {
+func TestGameplayPolicyCandidateRejectsUnknownDuplicateAndNonCanonicalJSONFields(t *testing.T) {
 	payload := mustMarshalJSON(t, validNativePolicy())
 
 	for _, test := range []struct {
@@ -35,6 +37,8 @@ func TestGameplayPolicyCandidateRejectsUnknownAndDuplicateJSONFields(t *testing.
 	}{
 		{name: "unknown field", replacement: `"family":"oteryn","unexpected":true`},
 		{name: "duplicate field", replacement: `"family":"oteryn","family":"oteryn"`},
+		{name: "case variant profile", replacement: `"family":"oteryn","Profile":null`},
+		{name: "case variant native version", replacement: `"family":"oteryn","NATIVE_PROTOCOL_VERSION":1`},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			mutated := replaceFirstFamilyField(t, payload, test.replacement)
