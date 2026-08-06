@@ -129,6 +129,24 @@ func (c *Client) Ready(ctx context.Context) error {
 	return nil
 }
 
+var v2ReadinessResponseJSONFields = map[string]struct{}{
+	"contract_version":         {},
+	"ready":                    {},
+	"world_id":                 {},
+	"channel_id":               {},
+	"world_policy_revision":    {},
+	"endpoint_id":              {},
+	"audience":                 {},
+	"family":                   {},
+	"profile":                  {},
+	"native_protocol_version":  {},
+	"transport":                {},
+	"schema_revision":          {},
+	"schema_sha256":            {},
+	"capabilities":             {},
+	"capability_digest_sha256": {},
+}
+
 type v2ReadinessResponse struct {
 	ContractVersion        int      `json:"contract_version"`
 	Ready                  bool     `json:"ready"`
@@ -152,7 +170,7 @@ type v2ReadinessResponse struct {
 func (result *v2ReadinessResponse) UnmarshalJSON(data []byte) error {
 	type alias v2ReadinessResponse
 
-	fields, err := decodeUniqueJSONObjectFields(data)
+	fields, err := decodeUniqueJSONObjectFields(data, v2ReadinessResponseJSONFields)
 	if err != nil {
 		return err
 	}
@@ -256,7 +274,7 @@ func validReadinessIdentity(result *v2ReadinessResponse, selection *gateway.Game
 		result.NativeProtocolVersion == 0
 }
 
-func decodeUniqueJSONObjectFields(data []byte) (map[string]json.RawMessage, error) {
+func decodeUniqueJSONObjectFields(data []byte, allowedFields map[string]struct{}) (map[string]json.RawMessage, error) {
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	opening, err := decoder.Token()
 	if err != nil {
@@ -275,6 +293,9 @@ func decodeUniqueJSONObjectFields(data []byte) (map[string]json.RawMessage, erro
 		key, ok := keyToken.(string)
 		if !ok {
 			return nil, errors.New("response JSON key is not a string")
+		}
+		if _, allowed := allowedFields[key]; !allowed {
+			return nil, errors.New("response contains a non-canonical or unknown JSON key")
 		}
 		if _, exists := fields[key]; exists {
 			return nil, errors.New("response contains a duplicate JSON key")
