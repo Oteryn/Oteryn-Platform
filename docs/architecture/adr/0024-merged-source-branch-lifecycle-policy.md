@@ -1,15 +1,17 @@
 # ADR 0024: Merged source-branch lifecycle policy
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-08-06
 - Decision owner: repository owner
 - Decision record: Issue #586 / `ARCH-DEC-0001`
+- Accepted option: A
+- Implementation handoff: Issue #658
 
 ## Context
 
 The repository currently uses squash-only pull-request merges, allows auto-merge and reports `delete_branch_on_merge=true`. The original audit evidence in Issue #586 that automatic deletion was disabled is therefore historical and no longer current.
 
-The remaining problem is policy, not the repository toggle. The repository has 498 branch refs, dominated by old task, documentation, audit, feature, fix, operations and closeout branches. No accepted source defines:
+The remaining problem is policy, not the repository toggle. The repository has 498 branch refs, dominated by old task, documentation, audit, feature, fix, operations and closeout branches. No accepted source previously defined:
 
 - which merged head branches are disposable;
 - which long-lived branches may survive a merge;
@@ -19,7 +21,7 @@ The remaining problem is policy, not the repository toggle. The repository has 4
 
 GitHub documents that automatic head-branch deletion can be prevented by branch protection rules or repository rules. Protected branches are non-deletable by default unless deletion is explicitly allowed. This makes a fail-closed protected exception model compatible with the currently enabled repository setting.
 
-## Options
+## Options considered
 
 ### Option A — automatic deletion with explicit protected exceptions
 
@@ -36,7 +38,7 @@ A branch may remain long-lived only when all of the following are true before it
 
 Recovery for an ordinary deleted branch uses the pull request, immutable commit SHA and GitHub branch restoration rather than indefinite retention.
 
-A one-time reconciliation classifies each existing branch as `PROTECTED`, `OPEN_PR`, `ACTIVE_CLAIM`, `RELEASE`, `ROLLBACK`, `RECOVERY`, `TERMINAL_MERGED`, `UNMERGED_ORPHAN` or `UNKNOWN`. Only `TERMINAL_MERGED` branches proven unnecessary for recovery may be deleted automatically. `UNKNOWN`, conflicting and unmerged branches fail closed.
+A one-time reconciliation classifies each existing branch as `PROTECTED`, `OPEN_PR`, `ACTIVE_CLAIM`, `RELEASE`, `ROLLBACK`, `RECOVERY`, `TERMINAL_MERGED`, `UNMERGED_ORPHAN` or `UNKNOWN`. Only `TERMINAL_MERGED` branches proven unnecessary for recovery may be deleted. `UNKNOWN`, conflicting and unmerged branches fail closed.
 
 ### Option B — disable automatic deletion and require manual closeout
 
@@ -50,11 +52,11 @@ Keep automatic deletion for selected standardized prefixes while manually retain
 
 GitHub's repository-level automatic deletion setting does not itself provide arbitrary prefix-specific deletion behavior. This option therefore requires additional rules or automation, depends heavily on naming discipline and leaves nonstandard branches ambiguous.
 
-## Proposed decision
+## Decision
 
-Adopt **Option A**.
+The repository owner explicitly accepted **Option A** on 2026-08-06.
 
-The accepted policy would be:
+The durable policy is:
 
 - keep squash merge as the sole merge method;
 - keep automatic deletion of merged head branches enabled;
@@ -73,7 +75,7 @@ The accepted policy would be:
 - Retention becomes explicit, reviewable and fail-closed.
 - Recovery remains possible without preserving every historical ref forever.
 - Branch discovery and task ownership become less ambiguous.
-- One-time cleanup can be separated from the durable policy decision and independently audited.
+- One-time cleanup is separated from the durable policy decision and independently audited.
 
 ### Negative
 
@@ -88,16 +90,18 @@ The accepted policy would be:
 - Infer that every old `archive/`, `docs/`, `task/` or `repair/` branch is safe to delete.
 - Keep all branches indefinitely as a substitute for immutable commit and PR history.
 
-## Activation boundary
+## Activation and implementation boundary
 
-This ADR remains proposed until the repository owner explicitly accepts A, B or C in Issue #586 or the associated pull request.
+This ADR is authoritative after merge of PR #653.
 
-Acceptance authorizes a separate bounded implementation and cleanup package. It does not authorize branch deletion from this decision PR and does not by itself prove that existing branches are terminal or safe to remove.
+Acceptance authorizes the bounded implementation and cleanup work tracked by Issue #658. It does not prove that any existing branch is terminal or safe to remove. Actual deletion requires a deterministic dry-run inventory, fail-closed classification, independent audit and preservation of exact recovery evidence.
 
 ## References
 
 - Issue #586
-- `docs/architecture/ARCHITECTURE_DECISION_BACKLOG.json` (`ARCH-DEC-0001`)
+- Issue #658
+- PR #653
+- `docs/architecture/ARCHITECTURE_DECISION_BACKLOG.json`
 - `docs/agents/EXECUTION_PROTOCOL.md`
 - `docs/agents/REMEDIATION_WORK_CLAIM_PROTOCOL.md`
 - GitHub Docs: Managing the automatic deletion of branches
