@@ -7,7 +7,7 @@ branch: feat/OTS-20260804-native-protocol-single-version-producer
 repair_branch: repair/OTS-20260804-native-protocol-audit-756
 base_branch: main
 created: 2026-08-05T14:58:00+02:00
-updated: 2026-08-06T17:00:00+02:00
+updated: 2026-08-06T17:05:00+02:00
 risk: high
 execution_mode: github-only
 implementation_authorized: true
@@ -88,12 +88,10 @@ The audited implementation SHA remains unchanged. A new exact head and fresh ind
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-06T17:00:00+02:00
-head: resolve-live-from-repair-branch
+updated_at: 2026-08-06T17:05:00+02:00
+head: 1387acc1193dbe943c1a7b2c0ee5ea5dd40b2098
 branch: repair/OTS-20260804-native-protocol-audit-756
-producer_branch: feat/OTS-20260804-native-protocol-single-version-producer
-producer_pr: 542
-audit_issue: 756
+pr: 758
 status: implementing
 context_routes:
   - agent-governance
@@ -136,14 +134,14 @@ changed_paths:
   - docs/agents/tasks/active/OTERYN-20260805-native-protocol-single-version-producer.md
 validation:
   - command: independent audit 756 on e97e950946ed255dfd399f890591337166c30406
-    result: FAIL_MATERIAL_FINDINGS_OPEN
+    result: FAIL
     evidence: two durable material findings on issue 756 and PR 542
   - command: repair branch review and CI
-    result: PENDING
+    result: NOT_RUN
     evidence: repair changes prepared for review against the immutable audited head
 blockers:
   - repair branch validation and integration
   - new exact-head CI generation
   - fresh independent audit with zero open material findings
-next_action: Open the repair PR against the producer branch, validate and merge it, then create a fresh exact-head audit issue.
+next_action: Validate and merge PR 758 into the producer branch, then create a fresh exact-head audit issue.
 ```
