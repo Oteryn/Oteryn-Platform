@@ -35,13 +35,13 @@ Reconcile the canonical game-authentication topology and operation-specific Gate
 
 ## Acceptance criteria
 
-- [ ] `GAME_GATEWAY_IDENTITY_CONTRACT.md` records the delivered repository boundary and exact evidence without claiming production activation.
-- [ ] `AUTH_GAME_LOGIN_CONTRACT.md` separates the delivered Oteryn ticket/Gateway/Game Session path from retained legacy discovery and unresolved cutover/network-isolation facts.
-- [ ] `SYSTEM_ARCHITECTURE.md` shows the current Gateway, private Platform redeem/login-context boundaries, World Registry and Game Session issuer topology.
-- [ ] `MODULE_CATALOG.md` no longer calls the merged bounded login bridge future work.
-- [ ] Legacy v1, delivered Gateway path, disabled native-v2 producer and production activation remain distinct.
-- [ ] `PRODUCTION_PROVEN=false`; exact cross-repository, edge and deployment evidence remains required.
-- [ ] No PR #542 path or runtime/deployment/external-repository path changes.
+- [x] `GAME_GATEWAY_IDENTITY_CONTRACT.md` records the delivered repository boundary and exact evidence without claiming production activation.
+- [x] `AUTH_GAME_LOGIN_CONTRACT.md` separates the delivered Oteryn ticket/Gateway/Game Session path from retained legacy discovery and unresolved cutover/network-isolation facts.
+- [x] `SYSTEM_ARCHITECTURE.md` shows the current Gateway, private Platform redeem/login-context boundaries, World Registry and Game Session issuer topology.
+- [x] `MODULE_CATALOG.md` no longer calls the merged bounded login bridge future work.
+- [x] Legacy v1, delivered Gateway path, disabled native-v2 producer and production activation remain distinct.
+- [x] `PRODUCTION_PROVEN=false`; exact cross-repository, edge and deployment evidence remains required.
+- [x] No PR #542 path or runtime/deployment/external-repository path changes.
 - [ ] Exact-head governance/documentation CI passes with zero unresolved review threads.
 - [ ] Fresh independent documentation audit reports zero material findings.
 
@@ -58,7 +58,7 @@ runtime_ownership: []
 shared_paths: []
 forbidden_paths:
   - all paths changed by PR #542
-  - .github/workflows/** except the temporary branch-only self-removing implementation helper
+  - .github/workflows/**
   - app/**
   - services/**
   - routes/**
@@ -72,12 +72,13 @@ cross_repository_tasks: []
 ```yaml
 checkpoint_version: 1
 policy_version: 2
-updated_at: 2026-08-06T12:31:00+02:00
+updated_at: 2026-08-06T12:40:00+02:00
 invocation_started_at: 2026-08-06T12:27:00+02:00
-last_progress_at: 2026-08-06T12:31:00+02:00
+last_progress_at: 2026-08-06T12:40:00+02:00
 branch: docs/issue-720-game-auth-topology-reconcile
 base_main: 5efd3c2dfad66aa27d0018e1e5f6ae01b32e8e38
-head: derive-from-live-branch
+head: derive-from-live-pr-731
+implementation_content_head: 2e78d4728c0504cbda7e90e8c9827b246771e94b
 pr: 731
 status: validating
 phase: validate
@@ -85,7 +86,7 @@ session_id: chatgpt-20260806T1230+0200-game-auth-topology-reconcile
 session_role: implementer
 execution_mode: github
 execution_reason: narrow canonical documentation correction using a dedicated branch and exact-head repository CI
-lease_expires_at: 2026-08-06T13:15:00+02:00
+lease_expires_at: 2026-08-06T13:25:00+02:00
 context_pressure: medium
 context_growth: stable
 context_score: 6
@@ -97,7 +98,7 @@ terminal_ci_wait_started_at: null
 terminal_ci_checks_for_current_generation: 0
 unchanged_state_checks: 0
 identical_failure_retries: 0
-repair_cycles_for_current_gate: 0
+repair_cycles_for_current_gate: 1
 context_reconstruction_attempts: 0
 stall_warnings: 0
 proven:
@@ -105,6 +106,9 @@ proven:
   - GAME_SESSION_CANARY_CONTRACT classifies legacy-compatible Game Session v1 as implemented, bounded-E2E proven and production-activation gated.
   - PR #542 does not change any of the four Issue #720 canonical correction targets.
   - PR #726 closed the architecture-review lifecycle and names Issue #720 as the sole next canonical reconciliation owner.
+  - The canonical correction is limited to four authority documents plus this task record.
+  - The temporary GitHub-only helper and workflow removed themselves and do not exist in the effective PR diff.
+  - Branch-only reconciliation run 31094045640 succeeded and produced implementation content head 2e78d4728c0504cbda7e90e8c9827b246771e94b.
 derived:
   - The canonical documents may state repository delivery, but cannot infer deployment identity, ingress isolation, production activation or native-v2 consumer completion.
 unknown:
@@ -113,6 +117,14 @@ unknown:
   - production service-authentication mechanism and rotation state
   - global retirement or network isolation of all legacy password paths
 conflicts: []
+first_failure:
+  marker: temporary-workflow-parse
+  evidence: runs 31093949283 and 31094024534 failed before job creation because the initial embedded workflow form was not accepted; it was replaced by a minimal workflow plus bounded script, and run 31094045640 passed
+rejected_hypotheses:
+  - treating merged repository code as proof of production deployment
+  - treating active PR #542 as a merged native-v2 consumer or cutover
+  - deleting legacy discovery because the bounded Gateway path exists
+  - changing any runtime or PR #542 path to fix documentation drift
 changed_paths:
   - docs/contracts/GAME_GATEWAY_IDENTITY_CONTRACT.md
   - docs/contracts/AUTH_GAME_LOGIN_CONTRACT.md
@@ -123,11 +135,17 @@ validation:
   - command: PR #542 changed-file overlap inventory
     result: PASS
     evidence: no overlap with the four canonical correction targets
+  - command: branch-only reconciliation run 31094045640
+    result: PASS
+    evidence: all exact anchors were found, git diff --check passed and the temporary helper/workflow removed themselves
+  - command: effective PR #731 changed-path inventory
+    result: PASS
+    evidence: exactly the four canonical documents and this active task record
   - command: runtime E2E
     result: NOT_APPLICABLE
     evidence: documentation-only correction changes no executable behavior
 blockers: []
-next_action: Verify the exact five-path diff, run exact-head governance/documentation CI, then publish one fresh independent documentation audit target.
+next_action: Observe one aggregate exact-head workflow snapshot on the current user-authored PR head; after all checks pass and threads remain zero, publish one fresh independent documentation audit target.
 ```
 
 ## Recovery checkpoint
@@ -138,19 +156,19 @@ recovery:
   generation: 1
   session_id: chatgpt-20260806T1230+0200-game-auth-topology-reconcile
   session_started_at: 2026-08-06T12:27:00+02:00
-  checkpointed_at: 2026-08-06T12:31:00+02:00
-  last_progress_at: 2026-08-06T12:31:00+02:00
-  phase: implement
-  exact_head: derive-from-live-branch
-  pull_request: none
-  active_operation: branch-only documentation transformation
+  checkpointed_at: 2026-08-06T12:40:00+02:00
+  last_progress_at: 2026-08-06T12:40:00+02:00
+  phase: validate
+  exact_head: derive-from-live-pr-731
+  pull_request: 731
+  active_operation: exact-head governance and documentation CI
   external_run_ids: []
-  operation_started_at: 2026-08-06T12:31:00+02:00
+  operation_started_at: 2026-08-06T12:40:00+02:00
   wait_deadline_at: null
   check_generation: draft
   checks_used: 0
   status: active
   safe_to_resume: true
-  resume_condition: dedicated branch exists and Issue #720 claim remains uncontested
-  next_action: Apply the four canonical documentation corrections and remove the temporary helper in the same generated commit.
+  resume_condition: current PR #731 head remains unchanged and exact-head workflows are terminal
+  next_action: Inspect one aggregate exact-head workflow snapshot; publish the independent audit target only after every required check passes.
 ```
