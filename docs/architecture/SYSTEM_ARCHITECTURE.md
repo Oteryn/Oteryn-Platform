@@ -34,35 +34,41 @@ Microservices are not the default. A module may be extracted later only when the
                       Reverse proxy / web tier
                                  |
                                  v
-+------------------------------------------------------------------+
-|                    Oteryn Platform (Laravel)                     |
-|                                                                  |
-|  Public Web/CMS      Identity/Auth       Accounts/Characters      |
-|  Public Game Data    Wiki/EditorialMedia Support/Moderation       |
-|  Game Catalog        Wallet/Marketplace  Admin/RBAC/Audit         |
-|  Integration         Notifications       Platform API (planned)   |
-|  Products/Entitlements (planned)         Payments (planned later) |
-|                                                                  |
-+---------------------------+-------------------------+--------------+
-                            |                         |
-                   explicit contracts       app-owned storage
-                            |                         |
-          +-----------------+-----------------+       |
-          |                                   |       |
-          v                                   v       v
-  login-server / auth path         Canary-compatible DB   cache/queue/mail
-          |                                   |
-          +-----------------+-----------------+
-                            |
-                            v
-                       Canary server
-                    (separate repository)
++--------------------------------------------------------------------------+
+|                         Oteryn Platform (Laravel)                        |
+|                                                                          |
+|  PublicPortal/CMS     Identity/Auth       Accounts/Characters            |
+|  Announcements/Events PublicGameData     LiveOps                         |
+|  Wiki/EditorialMedia  GameCatalog         PlayerCompanion                 |
+|  Support/Moderation   Downloads           Admin/RBAC/Audit                |
+|  Wallet/Marketplace   Integration         Notifications                   |
+|  Platform API (planned) Products/Entitlements (planned)                  |
+|  Payments (planned later)                                                |
+|                                                                          |
++-------------------------------+-------------------------+------------------+
+                                |                         |
+                       explicit contracts       app-owned storage
+                                |                         |
+              +-----------------+-----------------+       |
+              |                                   |       |
+              v                                   v       v
+      login-server / auth path         Canary-compatible DB   cache/queue/mail
+              |                                   |
+              +-----------------+-----------------+
+                                |
+                                v
+                           Canary server
+                        (separate repository)
 
 Cross-cutting repository boundaries:
-  Operations/Observability | Quality/E2E | LegalCommerce
+  Operations/Observability | PublicEdge | Quality/E2E | LegalCommerce
 ```
 
 The diagram is a system-context abstraction, not a complete module inventory or proof of current deployment. Use `MODULE_CATALOG.md`, focused contracts and exact deployment evidence for those questions.
+
+`PlayerCompanion` is the accepted boundary for calculators, build plans, hunt guidance, session analysis, progression tracking and recommendations. Its focused architecture is `PLAYER_COMPANION_ARCHITECTURE.md` and ADR 0025.
+
+`LiveOps` is a planned boundary for authoritative time-sensitive service/world state such as maintenance, server save, service history, raid schedules and runtime events. Editorial CMS or Events content must not impersonate authoritative runtime state.
 
 `Wallet` and `Marketplace` represent the implemented Oteryn Coins and Character Bazaar foundation. They are not provider Payments. Regulated provider charging, products/entitlements fulfilment and production activation remain separately owned and gated.
 
@@ -124,6 +130,22 @@ Wallet and Marketplace own Oteryn Coins reservation/ledger semantics and Charact
 
 Provider events, refunds, chargebacks, tax/invoice handling, product fulfilment, expiry and revocation belong to `Payments`, `ProductsEntitlements` and `LegalCommerce` under separate accepted contracts and activation gates.
 
+### Boundary F — player tools to game truth and private player data
+
+`PlayerCompanion` may combine authorized inputs from several modules, but it is not the source of truth for game entities, formulas, runtime state or character ownership.
+
+Before a player tool is delivered, it must define:
+
+- the exact `GameCatalog` snapshot/ruleset and formula version;
+- whether the result is `DETERMINISTIC`, `SIMULATION` or `RECOMMENDATION`;
+- world, season and effective-date applicability;
+- the authoritative source of any character, market, analytics or LiveOps input;
+- stale/incompatible/unavailable behavior;
+- privacy, retention and share semantics for saved plans or session logs;
+- web/API/client parity expectations.
+
+Raw session logs and owner-linked plans are private by default. Public or shared representations must be allowlisted, bounded and non-identifying.
+
 ## Historical baseline — initial modules
 
 The following list preserves the original first-phase module model. It is not the current exhaustive catalogue.
@@ -148,11 +170,18 @@ See `MODULE_CATALOG.md` for current responsibility, ownership and capability sta
 - `Identity` must not depend on payment settlement, product fulfilment or commerce delivery.
 - `Accounts` may depend on `Identity` identity references, but must not implement authentication itself.
 - `Characters` may mutate Canary-owned/shared data only through a documented integration boundary.
+- `PublicPortal` composes already-authorized module view models and must not own domain policy or raw Canary queries.
+- `Announcements` and `Events` own typed editorial schedules/publication; they do not own runtime world state.
+- `Downloads` owns approved release metadata and provenance policy; it must not become an arbitrary executable upload/proxy surface.
 - `PublicGameData` should prefer read-only models/query services and must not become a hidden mutation path.
+- `LiveOps` owns authoritative freshness/status projections and must not derive runtime truth from free-form CMS content.
 - `GameCatalog` consumes versioned deterministic external snapshots and must not infer completeness or activate an unknown boundary.
+- `PlayerCompanion` consumes bounded module interfaces, owns player plans/calculations, and must not duplicate GameCatalog/Wiki/PublicGameData/GameAnalytics/LiveOps truth.
+- PlayerCompanion formulas are versioned domain services; Blade, browser JavaScript, Platform API and clients must not independently reimplement business formulas without an explicit shared-library/parity contract.
 - `Wallet` owns Platform Oteryn Coins balance invariants; `Marketplace` uses Wallet services and operation-specific Character transfer contracts.
 - `Payments` and `ProductsEntitlements` may depend on accepted Wallet/product contracts, but Wallet and basic Identity must not depend on provider activation.
 - `Admin` invokes the same domain/application services as normal flows with stronger authorization; it must not bypass invariants with raw SQL.
+- `PlatformAPI` is an adapter over module application services and must not duplicate domain logic.
 - `Integration` contains compatibility translation, not core business policy.
 - `OperationsObservability`, `PublicEdge` and `QualityE2E` prove operational and delivery properties without taking ownership of module business rules.
 - `LegalCommerce` owns commerce-specific presentation/retention/refund/tax decision boundaries, not generic CMS publication or payment settlement.
@@ -171,6 +200,8 @@ Examples:
 - MFA metadata;
 - password recovery/verification metadata where appropriate;
 - CMS, Wiki and editorial-media content;
+- announcements, events and approved download-release metadata;
+- PlayerCompanion saved builds, goals, private session-analysis records and share grants;
 - Wallet, Marketplace and future entitlement records;
 - RBAC metadata;
 - audit records;
@@ -183,6 +214,8 @@ Oteryn Platform owns migrations and lifecycle for these tables unless a focused 
 Accounts, players, guilds and game-specific state may cross repository boundaries. Exact ownership and writer rules are defined by `DATA_OWNERSHIP.md` and operation-specific contracts.
 
 No agent may assume shared table names or columns from MyAAC conventions without verifying the actual Oteryn Canary schema and current contract evidence.
+
+PlayerCompanion must consume approved projections/interfaces rather than reading arbitrary shared tables directly.
 
 ## Authentication direction
 
@@ -205,6 +238,25 @@ Current compatibility and delivery state must be read from accepted authenticati
 The original preference was Laravel Blade/server-rendered pages because it reduced moving parts, shared one authorization model and avoided requiring a public SPA API before product need justified it.
 
 Current frontend structure and accepted shell/information architecture are governed by the relevant frontend ADRs, module catalogue and implementation evidence. A framework or topology change that outlives one task requires an ADR.
+
+Complex PlayerCompanion planners may use progressive client-side enhancement, but public content and basic tool states should remain server-rendered where practical. Interactive code must call the same versioned application/domain contracts rather than define a second rules engine.
+
+## Player tools direction
+
+The accepted player-tools architecture is defined by ADR 0025 and `PLAYER_COMPANION_ARCHITECTURE.md`.
+
+Initial priority is:
+
+1. loot split and private session analysis;
+2. hunt finder/advisor;
+3. equipment explorer/comparison;
+4. character build planner;
+5. charm/perk/proficiency planner;
+6. quest/access tracker;
+7. experience and training calculators;
+8. validated shareable builds.
+
+Advanced maps, market analytics, public build profiles and full simulation remain later bounded programmes. Product research from Tibia, RubinOT and TibiaPal informs the inventory but is not implementation authority.
 
 ## Deployment direction
 
@@ -237,9 +289,10 @@ The `OperationsObservability` boundary requires:
 - admin audit trail;
 - health/readiness endpoints suitable for infrastructure monitoring;
 - metrics for login failure, rate limits, queue failures and critical integrations;
+- PlayerCompanion calculator/parser compatibility failures without raw private inputs;
 - release identity, alert ownership and documented backup/restore/rollback expectations.
 
-Current availability and production proof belong to exact implementation and operational evidence. Do not log passwords, session tokens, MFA secrets, reset tokens or other credentials.
+Current availability and production proof belong to exact implementation and operational evidence. Do not log passwords, session tokens, MFA secrets, reset tokens, raw private session logs, complete saved builds or other credentials/private player data.
 
 ## Historical baseline — first-release non-goals
 
