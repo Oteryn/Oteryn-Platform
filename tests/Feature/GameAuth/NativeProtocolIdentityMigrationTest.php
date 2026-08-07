@@ -1,0 +1,145 @@
+<?php
+
+namespace Tests\Feature\GameAuth;
+
+use App\GameAuth\Worlds\GameWorld;
+use App\GameAuth\Worlds\GameWorldStatus;
+use Illuminate\Database\Migrations\Migration;
+use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
+use Tests\TestCase;
+
+final class NativeProtocolIdentityMigrationTest extends TestCase
+{
+    use RefreshDatabase;
+
+    private const OLD_PROFILE = 'oteryn.native.v1';
+
+    private const OLD_SCHEMA_SHA256 = 'c7665223f09001e3294e9a03ab4784defed66b0ac04450e8679d4778421207f8';
+
+    private const NEW_SCHEMA_SHA256 = '9c67f19525400fb9890d2a3541ceb6d02eb955061540ad39ca1c1d891c06eba9';
+
+    public function test_migration_and_rollback_preserve_disabled_native_identity(): void
+    {
+        $migration = self::migration();
+        self::runDown($migration);
+
+        $world = GameWorld::query()->create([
+            'slug' => 'migration-test',
+            'name' => 'Migration Test',
+            'region' => 'TEST',
+            'status' => GameWorldStatus::Online,
+            'login_enabled' => true,
+            'game_host' => 'migration.example.test',
+            'game_port' => 7172,
+            'gameplay_policy_revision' => 1,
+        ]);
+
+        DB::table('game_world_protocol_candidates')->insert([
+            'game_world_id' => $world->id,
+            'channel_id' => 1,
+            'sort_order' => 1,
+            'family' => 'oteryn',
+            'profile' => self::OLD_PROFILE,
+            'transport' => 'tcp.tls13.protobuf.be32.v1',
+            'schema_revision' => 1,
+            'schema_sha256' => self::OLD_SCHEMA_SHA256,
+            'required_capabilities' => json_encode([], JSON_THROW_ON_ERROR),
+            'optional_capabilities' => json_encode([], JSON_THROW_ON_ERROR),
+            'endpoint_id' => 'native-migration-test',
+            'game_host' => 'migration.example.test',
+            'game_port' => 7173,
+            'tls_server_name' => 'migration.example.test',
+            'enabled' => true,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        self::runUp($migration);
+        $migrated = DB::table('game_world_protocol_candidates')->first();
+        self::assertNotNull($migrated);
+        self::assertNull($migrated->profile);
+        self::assertSame(1, self::integerValue($migrated->native_protocol_version));
+        self::assertSame(2, self::integerValue($migrated->schema_revision));
+        self::assertSame(self::NEW_SCHEMA_SHA256, self::stringValue($migrated->schema_sha256));
+        self::assertFalse(self::booleanValue($migrated->enabled));
+
+        self::runDown($migration);
+        $rolledBack = DB::table('game_world_protocol_candidates')->first();
+        self::assertNotNull($rolledBack);
+        self::assertSame(self::OLD_PROFILE, self::stringValue($rolledBack->profile));
+        self::assertSame(1, self::integerValue($rolledBack->schema_revision));
+        self::assertSame(self::OLD_SCHEMA_SHA256, self::stringValue($rolledBack->schema_sha256));
+        self::assertFalse(self::booleanValue($rolledBack->enabled));
+
+        self::runUp($migration);
+    }
+
+    private static function migration(): Migration
+    {
+        $migration = require database_path('migrations/2026_08_05_130000_migrate_native_protocol_identity_to_version.php');
+
+        if (! $migration instanceof Migration) {
+            self::fail('Native protocol identity migration did not return a Migration instance.');
+        }
+
+        return $migration;
+    }
+
+    private static function runUp(Migration $migration): void
+    {
+        if (! method_exists($migration, 'up')) {
+            self::fail('Native protocol identity migration does not define up().');
+        }
+
+        $migration->up();
+    }
+
+    private static function runDown(Migration $migration): void
+    {
+        if (! method_exists($migration, 'down')) {
+            self::fail('Native protocol identity migration does not define down().');
+        }
+
+        $migration->down();
+    }
+
+    private static function integerValue(mixed $value): int
+    {
+        if (is_int($value)) {
+            return $value;
+        }
+
+        if (is_string($value) && preg_match('/^-?\d+$/D', $value) === 1) {
+            return (int) $value;
+        }
+
+        self::fail('Expected an integer-compatible database value.');
+    }
+
+    private static function stringValue(mixed $value): string
+    {
+        if (! is_string($value)) {
+            self::fail('Expected a string database value.');
+        }
+
+        return $value;
+    }
+
+    private static function booleanValue(mixed $value): bool
+    {
+        if (is_bool($value)) {
+            return $value;
+        }
+
+        if ($value === 0 || $value === '0') {
+            return false;
+        }
+
+        if ($value === 1 || $value === '1') {
+            return true;
+        }
+
+        self::fail('Expected a boolean-compatible database value.');
+    }
+}

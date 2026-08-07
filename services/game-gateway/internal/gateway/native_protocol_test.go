@@ -1,10 +1,9 @@
 package gateway
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
+	"bytes"
+	"encoding/json"
 	"errors"
-	"sort"
 	"strings"
 	"testing"
 )
@@ -30,7 +29,6 @@ func TestValidateLoginRequestRejectsMalformedOffers(t *testing.T) {
 			r.GameplayOffer.Candidates = make([]GameplayOfferCandidate, 9)
 			for index := range r.GameplayOffer.Candidates {
 				r.GameplayOffer.Candidates[index] = candidate
-				r.GameplayOffer.Candidates[index].Profile = "profile." + string(rune('a'+index))
 			}
 		}},
 		{name: "duplicate tuple", mutate: func(r *LoginRequest) {
@@ -52,65 +50,123 @@ func TestValidateLoginRequestRejectsMalformedOffers(t *testing.T) {
 	}
 }
 
-func TestSelectGameplayCandidateIntersectsOptionalCapabilitiesAndUsesStableDigest(t *testing.T) {
-	offer := validNativeLoginRequest().GameplayOffer
-	offer.Candidates[0].Capabilities = append(offer.Candidates[0].Capabilities, "state.optional-a.v1", "state.optional-c.v1")
-	sort.Strings(offer.Candidates[0].Capabilities)
-	policy := GameplayPolicy{
-		Revision:  41,
-		ChannelID: 1,
-		Candidates: []GameplayPolicyCandidate{{
-			Family: "oteryn", Profile: "oteryn.native.v1", Transport: "tcp.tls13.protobuf.be32.v1",
-			SchemaRevision: 1, SchemaSHA256: canonicalNativeSchemaSHA256,
-			RequiredCapabilities: nativeV1BaseCapabilities,
-			OptionalCapabilities: []string{"state.optional-a.v1", "state.optional-b.v1", "state.optional-c.v1"},
-			EndpointID:           "native-1", Host: "game.example.test", Port: 7173, TLSServerName: "game.example.test",
-		}},
+func TestValidateLoginRequestRejectsForbiddenIdentityKeysEvenWhenNull(t *testing.T) {
+	tests := []struct {
+		name   string
+		value  LoginRequest
+		family string
+		field  string
+	}{
+		{name: "native profile null", value: validNativeLoginRequest(), family: "oteryn", field: "profile"},
+		{name: "canary native version null", value: validCanaryLoginRequest(), family: "canary", field: "native_protocol_version"},
 	}
 
-	selection, err := SelectGameplayCandidate(policy, *offer)
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			payload := marshalWithNullIdentityField(t, test.value, test.family, test.field)
+			var request LoginRequest
+			if err := json.Unmarshal(payload, &request); err != nil {
+				t.Fatalf("decode request: %v", err)
+			}
+			if err := ValidateLoginRequest(request); !errors.Is(err, ErrInvalidRequest) {
+				t.Fatalf("expected forbidden identity key to fail closed, got %v", err)
+			}
+		})
+	}
+}
+
+func TestSelectGameplayCandidateRejectsForbiddenPolicyIdentityKeysEvenWhenNull(t *testing.T) {
+	tests := []struct {
+		name   string
+		policy GameplayPolicy
+		offer  GameplayOffer
+		family string
+		field  string
+	}{
+		{name: "native profile null", policy: validNativePolicy(), offer: *validNativeLoginRequest().GameplayOffer, family: "oteryn", field: "profile"},
+		{name: "canary native version null", policy: validCanaryPolicy(), offer: *validCanaryLoginRequest().GameplayOffer, family: "canary", field: "native_protocol_version"},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			payload := marshalWithNullIdentityField(t, test.policy, test.family, test.field)
+			var policy GameplayPolicy
+			if err := json.Unmarshal(payload, &policy); err != nil {
+				t.Fatalf("decode policy: %v", err)
+			}
+			if _, err := SelectGameplayCandidate(policy, test.offer); !errors.Is(err, ErrUnavailable) {
+				t.Fatalf("expected forbidden policy identity key to fail closed, got %v", err)
+			}
+		})
+	}
+}
+
+func TestSelectGameplayCandidateUsesExactNativeCapabilitiesAndStableDigest(t *testing.T) {
+	selection, err := SelectGameplayCandidate(validNativePolicy(), *validNativeLoginRequest().GameplayOffer)
 	if err != nil {
 		t.Fatalf("selection failed: %v", err)
 	}
-	if !containsSorted(selection.Capabilities, "state.optional-a.v1") || containsSorted(selection.Capabilities, "state.optional-b.v1") || !containsSorted(selection.Capabilities, "state.optional-c.v1") {
-		t.Fatalf("unexpected capability intersection: %#v", selection.Capabilities)
+	if !equalStringSlices(selection.Capabilities, nativeV1BaseCapabilities) {
+		t.Fatalf("unexpected selected capabilities: %#v", selection.Capabilities)
 	}
-
-	hash := sha256.New()
-	for _, capability := range selection.Capabilities {
-		_, _ = hash.Write([]byte(capability))
-		_, _ = hash.Write([]byte{'\n'})
-	}
-	if selection.CapabilityDigestSHA256 != hex.EncodeToString(hash.Sum(nil)) {
+	if selection.CapabilityDigestSHA256 != capabilityDigest(nativeV1BaseCapabilities) {
 		t.Fatalf("unexpected capability digest: %s", selection.CapabilityDigestSHA256)
 	}
 }
 
-func TestSelectGameplayCandidateRejectsNativeProfileMissingBaseCapability(t *testing.T) {
-	offer := validNativeLoginRequest().GameplayOffer
-	policy := GameplayPolicy{Revision: 1, ChannelID: 1, Candidates: []GameplayPolicyCandidate{{
-		Family: "oteryn", Profile: "oteryn.native.v1", Transport: "tcp.tls13.protobuf.be32.v1",
-		SchemaRevision: 1, SchemaSHA256: canonicalNativeSchemaSHA256,
-		RequiredCapabilities: nativeV1BaseCapabilities[:len(nativeV1BaseCapabilities)-1],
-		EndpointID:           "native-1", Host: "game.example.test", Port: 7173, TLSServerName: "game.example.test",
-	}}}
+func TestValidateLoginRequestRejectsNoncanonicalNativeCapabilities(t *testing.T) {
+	tests := []struct {
+		name   string
+		mutate func([]string) []string
+	}{
+		{name: "missing capability", mutate: func(values []string) []string { return values[:len(values)-1] }},
+		{name: "additional capability", mutate: func(values []string) []string { return append(values, "zz.additional.v1") }},
+	}
 
-	_, err := SelectGameplayCandidate(policy, *offer)
-	if !errors.Is(err, ErrUnavailable) {
-		t.Fatalf("expected invalid authoritative policy to fail closed, got %v", err)
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			request := validNativeLoginRequest()
+			capabilities := append([]string(nil), request.GameplayOffer.Candidates[0].Capabilities...)
+			request.GameplayOffer.Candidates[0].Capabilities = test.mutate(capabilities)
+			if err := ValidateLoginRequest(request); !errors.Is(err, ErrInvalidRequest) {
+				t.Fatalf("expected noncanonical native offer to fail closed, got %v", err)
+			}
+		})
+	}
+}
+
+func TestSelectGameplayCandidateRejectsNoncanonicalNativePolicyCapabilities(t *testing.T) {
+	tests := []struct {
+		name   string
+		mutate func(*GameplayPolicyCandidate)
+	}{
+		{name: "missing required capability", mutate: func(candidate *GameplayPolicyCandidate) {
+			candidate.RequiredCapabilities = candidate.RequiredCapabilities[:len(candidate.RequiredCapabilities)-1]
+		}},
+		{name: "additional required capability", mutate: func(candidate *GameplayPolicyCandidate) {
+			candidate.RequiredCapabilities = append(candidate.RequiredCapabilities, "zz.additional.v1")
+		}},
+		{name: "optional capability", mutate: func(candidate *GameplayPolicyCandidate) {
+			candidate.OptionalCapabilities = []string{"zz.optional.v1"}
+		}},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			policy := validNativePolicy()
+			test.mutate(&policy.Candidates[0])
+			if _, err := SelectGameplayCandidate(policy, *validNativeLoginRequest().GameplayOffer); !errors.Is(err, ErrUnavailable) {
+				t.Fatalf("expected noncanonical authoritative policy to fail closed, got %v", err)
+			}
+		})
 	}
 }
 
 func TestSelectGameplayCandidateRejectsWrongNativeSchemaIdentity(t *testing.T) {
-	offer := validNativeLoginRequest().GameplayOffer
-	policy := GameplayPolicy{Revision: 1, ChannelID: 1, Candidates: []GameplayPolicyCandidate{{
-		Family: "oteryn", Profile: "oteryn.native.v1", Transport: "tcp.tls13.protobuf.be32.v1",
-		SchemaRevision: 1, SchemaSHA256: strings.Repeat("a", 64),
-		RequiredCapabilities: nativeV1BaseCapabilities,
-		EndpointID:           "native-1", Host: "game.example.test", Port: 7173, TLSServerName: "game.example.test",
-	}}}
+	policy := validNativePolicy()
+	policy.Candidates[0].SchemaSHA256 = strings.Repeat("a", 64)
 
-	_, err := SelectGameplayCandidate(policy, *offer)
+	_, err := SelectGameplayCandidate(policy, *validNativeLoginRequest().GameplayOffer)
 	if !errors.Is(err, ErrUnavailable) {
 		t.Fatalf("expected noncanonical native schema to fail closed, got %v", err)
 	}
@@ -119,8 +175,8 @@ func TestSelectGameplayCandidateRejectsWrongNativeSchemaIdentity(t *testing.T) {
 func TestNewV2SessionRequestBindsExactAuthority(t *testing.T) {
 	selection := GameplaySelection{
 		PolicyRevision: 3,
-		Family:         "oteryn", Profile: "oteryn.native.v1", Transport: "tcp.tls13.protobuf.be32.v1",
-		SchemaRevision: 1, SchemaSHA256: canonicalNativeSchemaSHA256,
+		Family:         "oteryn", NativeProtocolVersion: 1, Transport: "tcp.tls13.protobuf.be32.v1",
+		SchemaRevision: 2, SchemaSHA256: canonicalNativeSchemaSHA256,
 		Capabilities: nativeV1BaseCapabilities, CapabilityDigestSHA256: capabilityDigest(nativeV1BaseCapabilities),
 		EndpointID: "native-1", Host: "game.example.test", Port: 7173, TLSServerName: "game.example.test",
 	}
@@ -144,8 +200,8 @@ func TestNewV2SessionRequestBindsExactAuthority(t *testing.T) {
 func TestNewV2SessionRequestRejectsNegativeSecurityGeneration(t *testing.T) {
 	selection := GameplaySelection{
 		PolicyRevision: 3,
-		Family:         "oteryn", Profile: "oteryn.native.v1", Transport: "tcp.tls13.protobuf.be32.v1",
-		SchemaRevision: 1, SchemaSHA256: canonicalNativeSchemaSHA256,
+		Family:         "oteryn", NativeProtocolVersion: 1, Transport: "tcp.tls13.protobuf.be32.v1",
+		SchemaRevision: 2, SchemaSHA256: canonicalNativeSchemaSHA256,
 		Capabilities: nativeV1BaseCapabilities, CapabilityDigestSHA256: capabilityDigest(nativeV1BaseCapabilities),
 		EndpointID: "native-1", Host: "game.example.test", Port: 7173, TLSServerName: "game.example.test",
 	}
@@ -170,9 +226,67 @@ func validNativeLoginRequest() LoginRequest {
 			ClientBuild:    "oteryn-client-test",
 			ClientPlatform: "windows-x86_64",
 			Candidates: []GameplayOfferCandidate{{
-				Family: "oteryn", Profile: "oteryn.native.v1", Transport: "tcp.tls13.protobuf.be32.v1",
-				SchemaRevision: 1, SchemaSHA256: canonicalNativeSchemaSHA256, Capabilities: capabilities,
+				Family: "oteryn", NativeProtocolVersion: 1, Transport: "tcp.tls13.protobuf.be32.v1",
+				SchemaRevision: 2, SchemaSHA256: canonicalNativeSchemaSHA256, Capabilities: capabilities,
 			}},
 		},
 	}
+}
+
+func validNativePolicy() GameplayPolicy {
+	return GameplayPolicy{
+		Revision:  41,
+		ChannelID: 1,
+		Candidates: []GameplayPolicyCandidate{{
+			Family: "oteryn", NativeProtocolVersion: 1, Transport: "tcp.tls13.protobuf.be32.v1",
+			SchemaRevision: 2, SchemaSHA256: canonicalNativeSchemaSHA256,
+			RequiredCapabilities: append([]string(nil), nativeV1BaseCapabilities...),
+			OptionalCapabilities: []string{},
+			EndpointID:           "native-1", Host: "game.example.test", Port: 7173, TLSServerName: "game.example.test",
+		}},
+	}
+}
+
+func validCanaryLoginRequest() LoginRequest {
+	return LoginRequest{
+		ProtocolVersion: 1,
+		GameLoginTicket: "ticket",
+		GameplayOffer: &GameplayOffer{
+			OfferVersion:   1,
+			ClientBuild:    "oteryn-client-test",
+			ClientPlatform: "windows-x86_64",
+			Candidates: []GameplayOfferCandidate{{
+				Family: "canary", Profile: "canary.current", Transport: "canary.sequence.v1",
+				SchemaRevision: 1, SchemaSHA256: strings.Repeat("a", 64), Capabilities: []string{"session.single-admission.v1"},
+			}},
+		},
+	}
+}
+
+func validCanaryPolicy() GameplayPolicy {
+	return GameplayPolicy{
+		Revision:  41,
+		ChannelID: 1,
+		Candidates: []GameplayPolicyCandidate{{
+			Family: "canary", Profile: "canary.current", Transport: "canary.sequence.v1",
+			SchemaRevision: 1, SchemaSHA256: strings.Repeat("a", 64),
+			RequiredCapabilities: []string{"session.single-admission.v1"}, OptionalCapabilities: []string{},
+			EndpointID: "canary-1", Host: "game.example.test", Port: 7172, TLSServerName: "game.example.test",
+		}},
+	}
+}
+
+func marshalWithNullIdentityField(t *testing.T, value any, family, field string) []byte {
+	t.Helper()
+
+	payload, err := json.Marshal(value)
+	if err != nil {
+		t.Fatalf("encode value: %v", err)
+	}
+	anchor := []byte("\"family\":\"" + family + "\"")
+	replacement := []byte("\"family\":\"" + family + "\",\"" + field + "\":null")
+	if !bytes.Contains(payload, anchor) {
+		t.Fatalf("missing family anchor %q in %s", anchor, payload)
+	}
+	return bytes.Replace(payload, anchor, replacement, 1)
 }

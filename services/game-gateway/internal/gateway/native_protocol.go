@@ -15,7 +15,7 @@ const (
 	gameSessionContractVersionV2 = 2
 	initialGameplayChannelID     = 1
 	characterBindingModeFirst    = "bind_on_first_admission"
-	canonicalNativeSchemaSHA256  = "c7665223f09001e3294e9a03ab4784defed66b0ac04450e8679d4778421207f8"
+	canonicalNativeSchemaSHA256  = "9c67f19525400fb9890d2a3541ceb6d02eb955061540ad39ca1c1d891c06eba9"
 )
 
 var nativeV1BaseCapabilities = []string{
@@ -51,7 +51,7 @@ func ValidateLoginRequest(request LoginRequest) error {
 		if !validOfferedCandidate(candidate) {
 			return ErrInvalidRequest
 		}
-		key := candidateTupleKey(candidate.Family, candidate.Profile, candidate.Transport, candidate.SchemaRevision, candidate.SchemaSHA256)
+		key := candidateTupleKey(candidate.Family, candidate.Profile, candidate.NativeProtocolVersion, candidate.Transport, candidate.SchemaRevision, candidate.SchemaSHA256)
 		if _, exists := seen[key]; exists {
 			return ErrInvalidRequest
 		}
@@ -68,7 +68,7 @@ func SelectGameplayCandidate(policy GameplayPolicy, offer GameplayOffer) (Gamepl
 
 	offered := make(map[string]GameplayOfferCandidate, len(offer.Candidates))
 	for _, candidate := range offer.Candidates {
-		offered[candidateTupleKey(candidate.Family, candidate.Profile, candidate.Transport, candidate.SchemaRevision, candidate.SchemaSHA256)] = candidate
+		offered[candidateTupleKey(candidate.Family, candidate.Profile, candidate.NativeProtocolVersion, candidate.Transport, candidate.SchemaRevision, candidate.SchemaSHA256)] = candidate
 	}
 
 	for _, candidate := range policy.Candidates {
@@ -76,7 +76,7 @@ func SelectGameplayCandidate(policy GameplayPolicy, offer GameplayOffer) (Gamepl
 			return GameplaySelection{}, ErrUnavailable
 		}
 
-		clientCandidate, exists := offered[candidateTupleKey(candidate.Family, candidate.Profile, candidate.Transport, candidate.SchemaRevision, candidate.SchemaSHA256)]
+		clientCandidate, exists := offered[candidateTupleKey(candidate.Family, candidate.Profile, candidate.NativeProtocolVersion, candidate.Transport, candidate.SchemaRevision, candidate.SchemaSHA256)]
 		if !exists || !containsEvery(clientCandidate.Capabilities, candidate.RequiredCapabilities) {
 			continue
 		}
@@ -93,6 +93,7 @@ func SelectGameplayCandidate(policy GameplayPolicy, offer GameplayOffer) (Gamepl
 			PolicyRevision:         policy.Revision,
 			Family:                 candidate.Family,
 			Profile:                candidate.Profile,
+			NativeProtocolVersion:  candidate.NativeProtocolVersion,
 			Transport:              candidate.Transport,
 			SchemaRevision:         candidate.SchemaRevision,
 			SchemaSHA256:           candidate.SchemaSHA256,
@@ -134,16 +135,17 @@ func NewV2SessionRequest(authorization Authorization, world World, loginAttemptI
 
 func validOfferedCandidate(candidate GameplayOfferCandidate) bool {
 	return isIdentifier(candidate.Family) &&
-		isIdentifier(candidate.Profile) &&
+		validCandidateIdentity(candidate.Family, candidate.Profile, candidate.NativeProtocolVersion, candidate.profilePresent, candidate.nativeVersionPresent) &&
 		isIdentifier(candidate.Transport) &&
 		candidate.SchemaRevision > 0 &&
 		isLowerHexSHA256(candidate.SchemaSHA256) &&
-		isCanonicalCapabilities(candidate.Capabilities)
+		isCanonicalCapabilities(candidate.Capabilities) &&
+		validNativeTuple(candidate.Family, candidate.NativeProtocolVersion, candidate.Transport, candidate.SchemaRevision, candidate.SchemaSHA256, candidate.Capabilities, nil)
 }
 
 func validPolicyCandidate(candidate GameplayPolicyCandidate) bool {
 	if !isIdentifier(candidate.Family) ||
-		!isIdentifier(candidate.Profile) ||
+		!validCandidateIdentity(candidate.Family, candidate.Profile, candidate.NativeProtocolVersion, candidate.profilePresent, candidate.nativeVersionPresent) ||
 		!isIdentifier(candidate.Transport) ||
 		candidate.SchemaRevision == 0 ||
 		!isLowerHexSHA256(candidate.SchemaSHA256) ||
@@ -161,15 +163,8 @@ func validPolicyCandidate(candidate GameplayPolicyCandidate) bool {
 		return false
 	}
 
-	if candidate.Family == "oteryn" && candidate.Profile == "oteryn.native.v1" {
-		if candidate.Transport != "tcp.tls13.protobuf.be32.v1" ||
-			candidate.SchemaRevision != 1 ||
-			candidate.SchemaSHA256 != canonicalNativeSchemaSHA256 {
-			return false
-		}
-		if !containsEvery(candidate.RequiredCapabilities, nativeV1BaseCapabilities) {
-			return false
-		}
+	if !validNativeTuple(candidate.Family, candidate.NativeProtocolVersion, candidate.Transport, candidate.SchemaRevision, candidate.SchemaSHA256, candidate.RequiredCapabilities, candidate.OptionalCapabilities) {
+		return false
 	}
 
 	return true
@@ -184,8 +179,43 @@ func capabilityDigest(capabilities []string) string {
 	return hex.EncodeToString(hash.Sum(nil))
 }
 
-func candidateTupleKey(family, profile, transport string, schemaRevision uint32, schemaSHA256 string) string {
-	return fmt.Sprintf("%s\x00%s\x00%s\x00%d\x00%s", family, profile, transport, schemaRevision, schemaSHA256)
+func candidateTupleKey(family, profile string, nativeProtocolVersion uint32, transport string, schemaRevision uint32, schemaSHA256 string) string {
+	identity := profile
+	if family == "oteryn" {
+		identity = fmt.Sprintf("native:%d", nativeProtocolVersion)
+	}
+	return fmt.Sprintf("%s\x00%s\x00%s\x00%d\x00%s", family, identity, transport, schemaRevision, schemaSHA256)
+}
+
+func validCandidateIdentity(family, profile string, nativeVersion uint32, profilePresent, nativePresent bool) bool {
+	if family == "oteryn" {
+		return profile == "" && !profilePresent && nativeVersion == 1 && (nativePresent || nativeVersion != 0)
+	}
+	return isIdentifier(profile) && (profilePresent || profile != "") && nativeVersion == 0 && !nativePresent
+}
+
+func validNativeTuple(family string, nativeVersion uint32, transport string, schemaRevision uint32, schemaSHA256 string, required, optional []string) bool {
+	if family != "oteryn" {
+		return true
+	}
+	return nativeVersion == 1 &&
+		transport == "tcp.tls13.protobuf.be32.v1" &&
+		schemaRevision == 2 &&
+		schemaSHA256 == canonicalNativeSchemaSHA256 &&
+		equalStringSlices(required, nativeV1BaseCapabilities) &&
+		len(optional) == 0
+}
+
+func equalStringSlices(left, right []string) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	for index := range left {
+		if left[index] != right[index] {
+			return false
+		}
+	}
+	return true
 }
 
 func isIdentifier(value string) bool {

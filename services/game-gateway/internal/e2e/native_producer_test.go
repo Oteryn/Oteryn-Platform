@@ -19,7 +19,7 @@ import (
 
 func TestNativeProducerJourneyBindsOneSelectionAndIssuesOnce(t *testing.T) {
 	const serviceToken = "synthetic-service-token"
-	const schemaHash = "c7665223f09001e3294e9a03ab4784defed66b0ac04450e8679d4778421207f8"
+	const schemaHash = "9c67f19525400fb9890d2a3541ceb6d02eb955061540ad39ca1c1d891c06eba9"
 	capabilities := nativeCapabilities()
 
 	var lock sync.Mutex
@@ -55,17 +55,17 @@ func TestNativeProducerJourneyBindsOneSelectionAndIssuesOnce(t *testing.T) {
 					"revision":   17,
 					"channel_id": 1,
 					"candidates": []map[string]any{{
-						"family":                "oteryn",
-						"profile":               "oteryn.native.v1",
-						"transport":             "tcp.tls13.protobuf.be32.v1",
-						"schema_revision":       1,
-						"schema_sha256":         schemaHash,
-						"required_capabilities": capabilities,
-						"optional_capabilities": []string{},
-						"endpoint_id":           "native-test-1",
-						"host":                  "native.example.test",
-						"port":                  7173,
-						"tls_server_name":       "native.example.test",
+						"family":                  "oteryn",
+						"native_protocol_version": 1,
+						"transport":               "tcp.tls13.protobuf.be32.v1",
+						"schema_revision":         2,
+						"schema_sha256":           schemaHash,
+						"required_capabilities":   capabilities,
+						"optional_capabilities":   []string{},
+						"endpoint_id":             "native-test-1",
+						"host":                    "native.example.test",
+						"port":                    7173,
+						"tls_server_name":         "native.example.test",
 					}},
 				},
 			})
@@ -101,7 +101,7 @@ func TestNativeProducerJourneyBindsOneSelectionAndIssuesOnce(t *testing.T) {
 				"endpoint_id":              payload["endpoint_id"],
 				"audience":                 payload["audience"],
 				"family":                   payload["family"],
-				"profile":                  payload["profile"],
+				"native_protocol_version":  payload["native_protocol_version"],
 				"transport":                payload["transport"],
 				"schema_revision":          payload["schema_revision"],
 				"schema_sha256":            payload["schema_sha256"],
@@ -138,12 +138,12 @@ func TestNativeProducerJourneyBindsOneSelectionAndIssuesOnce(t *testing.T) {
 			ClientBuild:    "oteryn-client-e2e",
 			ClientPlatform: "linux-x86_64",
 			Candidates: []gateway.GameplayOfferCandidate{{
-				Family:         "oteryn",
-				Profile:        "oteryn.native.v1",
-				Transport:      "tcp.tls13.protobuf.be32.v1",
-				SchemaRevision: 1,
-				SchemaSHA256:   schemaHash,
-				Capabilities:   capabilities,
+				Family:                "oteryn",
+				NativeProtocolVersion: 1,
+				Transport:             "tcp.tls13.protobuf.be32.v1",
+				SchemaRevision:        2,
+				SchemaSHA256:          schemaHash,
+				Capabilities:          capabilities,
 			}},
 		},
 	})

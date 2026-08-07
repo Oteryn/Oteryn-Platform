@@ -86,7 +86,7 @@ func TestLoginWithOfferUsesAuthoritativePolicyOrderAndBindsV2(t *testing.T) {
 		ChannelID: 1,
 		Candidates: []GameplayPolicyCandidate{
 			policyCandidate("canary", "canary.current", "canary.sequence.v1", "canary-endpoint", 7172, []string{"session.single-admission.v1"}, nil),
-			policyCandidate("oteryn", "oteryn.native.v1", "tcp.tls13.protobuf.be32.v1", "native-endpoint", 7173, nativeV1BaseCapabilities, []string{"zz.optional.v1"}),
+			policyCandidate("oteryn", 1, "tcp.tls13.protobuf.be32.v1", "native-endpoint", 7173, nativeV1BaseCapabilities, nil),
 		},
 	}
 	sessions := &fakeSessionIssuer{session: Session{Credential: "v2-session", ExpiresAt: now.Add(time.Minute)}}
@@ -98,7 +98,7 @@ func TestLoginWithOfferUsesAuthoritativePolicyOrderAndBindsV2(t *testing.T) {
 		ClientBuild:    "oteryn-client-test",
 		ClientPlatform: "windows-x86_64",
 		Candidates: []GameplayOfferCandidate{
-			offerCandidate("oteryn", "oteryn.native.v1", "tcp.tls13.protobuf.be32.v1", append(append([]string(nil), nativeV1BaseCapabilities...), "zz.optional.v1")),
+			offerCandidate("oteryn", 1, "tcp.tls13.protobuf.be32.v1", nativeV1BaseCapabilities),
 			offerCandidate("canary", "canary.current", "canary.sequence.v1", []string{"session.single-admission.v1"}),
 		},
 	}
@@ -125,7 +125,7 @@ func TestLoginWithOfferUsesAuthoritativePolicyOrderAndBindsV2(t *testing.T) {
 func TestLoginWithOfferConsumesValidLoginBeforeNoMatchAndDoesNotIssue(t *testing.T) {
 	platform := successfulPlatform()
 	platform.loginContext.GameplayPolicy = GameplayPolicy{Revision: 2, ChannelID: 1, Candidates: []GameplayPolicyCandidate{
-		policyCandidate("oteryn", "oteryn.native.v1", "tcp.tls13.protobuf.be32.v1", "native", 7173, nativeV1BaseCapabilities, nil),
+		policyCandidate("oteryn", 1, "tcp.tls13.protobuf.be32.v1", "native", 7173, nativeV1BaseCapabilities, nil),
 	}}
 	sessions := &fakeSessionIssuer{}
 	service := NewService(platform, sessions)
@@ -222,31 +222,63 @@ func successfulPlatform() *fakePlatform {
 	}
 }
 
-func offerCandidate(family, profile, transport string, capabilities []string) GameplayOfferCandidate {
+func offerCandidate(family string, identity any, transport string, capabilities []string) GameplayOfferCandidate {
 	sorted := append([]string(nil), capabilities...)
 	sort.Strings(sorted)
-	return GameplayOfferCandidate{
-		Family: family, Profile: profile, Transport: transport,
-		SchemaRevision: 1, SchemaSHA256: schemaHashForCandidate(family, profile), Capabilities: sorted,
+	candidate := GameplayOfferCandidate{
+		Family: family, Transport: transport, Capabilities: sorted,
+		SchemaSHA256: schemaHashForCandidate(family),
 	}
+	if family == "oteryn" {
+		version, ok := identity.(int)
+		if !ok {
+			panic("native test identity must be an integer")
+		}
+		candidate.NativeProtocolVersion = uint32(version)
+		candidate.SchemaRevision = 2
+	} else {
+		profile, ok := identity.(string)
+		if !ok {
+			panic("compatibility test identity must be a profile string")
+		}
+		candidate.Profile = profile
+		candidate.SchemaRevision = 1
+	}
+	return candidate
 }
 
-func schemaHashForCandidate(family, profile string) string {
-	if family == "oteryn" && profile == "oteryn.native.v1" {
+func schemaHashForCandidate(family string) string {
+	if family == "oteryn" {
 		return canonicalNativeSchemaSHA256
 	}
 	return strings.Repeat("a", 64)
 }
 
-func policyCandidate(family, profile, transport, endpoint string, port int, required, optional []string) GameplayPolicyCandidate {
+func policyCandidate(family string, identity any, transport, endpoint string, port int, required, optional []string) GameplayPolicyCandidate {
 	requiredCopy := append([]string(nil), required...)
 	optionalCopy := append([]string(nil), optional...)
 	sort.Strings(requiredCopy)
 	sort.Strings(optionalCopy)
-	return GameplayPolicyCandidate{
-		Family: family, Profile: profile, Transport: transport,
-		SchemaRevision: 1, SchemaSHA256: schemaHashForCandidate(family, profile),
+	candidate := GameplayPolicyCandidate{
+		Family: family, Transport: transport,
+		SchemaSHA256:         schemaHashForCandidate(family),
 		RequiredCapabilities: requiredCopy, OptionalCapabilities: optionalCopy,
 		EndpointID: endpoint, Host: "game.example.test", Port: port, TLSServerName: "game.example.test",
 	}
+	if family == "oteryn" {
+		version, ok := identity.(int)
+		if !ok {
+			panic("native test identity must be an integer")
+		}
+		candidate.NativeProtocolVersion = uint32(version)
+		candidate.SchemaRevision = 2
+	} else {
+		profile, ok := identity.(string)
+		if !ok {
+			panic("compatibility test identity must be a profile string")
+		}
+		candidate.Profile = profile
+		candidate.SchemaRevision = 1
+	}
+	return candidate
 }

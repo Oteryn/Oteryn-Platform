@@ -17,7 +17,7 @@ final class GameLoginContextApiTest extends TestCase
 
     private const SERVICE_CREDENTIAL = 'gateway-login-context-test-credential';
 
-    private const NATIVE_SCHEMA_SHA256 = 'c7665223f09001e3294e9a03ab4784defed66b0ac04450e8679d4778421207f8';
+    private const NATIVE_SCHEMA_SHA256 = '9c67f19525400fb9890d2a3541ceb6d02eb955061540ad39ca1c1d891c06eba9';
 
     private const NATIVE_CAPABILITIES = [
         'actions.command-result.v1',
@@ -103,7 +103,7 @@ final class GameLoginContextApiTest extends TestCase
             ->assertJsonPath('gameplay_policy.candidates.0.endpoint_id', 'native-first')
             ->assertJsonPath('gameplay_policy.candidates.1.endpoint_id', 'compatible-second')
             ->assertJsonPath('gameplay_policy.candidates.0.family', 'oteryn')
-            ->assertJsonPath('gameplay_policy.candidates.0.schema_revision', 1)
+            ->assertJsonPath('gameplay_policy.candidates.0.schema_revision', 2)
             ->assertJsonPath('gameplay_policy.candidates.0.schema_sha256', self::NATIVE_SCHEMA_SHA256)
             ->assertJsonPath('gameplay_policy.candidates.0.required_capabilities', self::NATIVE_CAPABILITIES);
 
@@ -184,9 +184,10 @@ final class GameLoginContextApiTest extends TestCase
             'channel_id' => 1,
             'sort_order' => $sortOrder,
             'family' => 'oteryn',
-            'profile' => 'oteryn.native.v1',
+            'profile' => null,
+            'native_protocol_version' => 1,
             'transport' => 'tcp.tls13.protobuf.be32.v1',
-            'schema_revision' => 1,
+            'schema_revision' => 2,
             'schema_sha256' => self::NATIVE_SCHEMA_SHA256,
             'required_capabilities' => self::NATIVE_CAPABILITIES,
             'optional_capabilities' => [],
@@ -211,8 +212,9 @@ final class GameLoginContextApiTest extends TestCase
             'sort_order' => $sortOrder,
             'family' => 'test',
             'profile' => $profile,
+            'native_protocol_version' => null,
             'transport' => 'tcp.test.v1',
-            'schema_revision' => 1,
+            'schema_revision' => 2,
             'schema_sha256' => str_repeat('a', 64),
             'required_capabilities' => [],
             'optional_capabilities' => [],

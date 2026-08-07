@@ -31,12 +31,13 @@ jobs:
       - uses: actions/checkout@v5
         with:
           fetch-depth: 0
-      - name: Verify single native identity and documentation-only boundary
+      - name: Verify single native identity and governed change boundary
         shell: bash
         run: |
           python3 - <<'PY'
           from pathlib import Path
           import subprocess
+
           root = Path('.')
           contract = (root/'docs/contracts/OTERYN_NATIVE_GAMEPLAY_PROTOCOL_CONTRACT.md').read_text()
           adr = (root/'docs/architecture/adr/0011-single-native-protocol-version.md').read_text()
@@ -46,13 +47,35 @@ jobs:
                   raise SystemExit(f'missing architecture invariant: {token}')
           if 'There is no current native `profile` field' not in adr:
               raise SystemExit('native profile boundary is not explicit')
-          base = subprocess.check_output(['git','merge-base','HEAD','origin/main'], text=True).strip()
-          changed = subprocess.check_output(['git','diff','--name-only',f'{base}...HEAD'], text=True).splitlines()
-          forbidden_roots = ('app/','services/','database/','config/','routes/','tests/')
-          bad = [p for p in changed if p.startswith(forbidden_roots)]
-          if bad:
-              raise SystemExit(f'contract correction changed runtime paths: {bad}')
-          print('architecture boundary audit: PASS')
+
+          base = subprocess.check_output(['git', 'merge-base', 'HEAD', 'origin/main'], text=True).strip()
+          changed = subprocess.check_output(['git', 'diff', '--name-only', f'{base}...HEAD'], text=True).splitlines()
+          runtime_roots = ('app/', 'services/', 'database/', 'config/', 'routes/', 'tests/')
+          runtime = [path for path in changed if path.startswith(runtime_roots)]
+
+          if runtime:
+              task = 'docs/agents/tasks/active/OTERYN-20260805-native-protocol-single-version-producer.md'
+              if task not in changed or not Path(task).is_file():
+                  raise SystemExit('runtime producer change is missing its active governed task record')
+
+              allowed_prefixes = (
+                  'app/GameAuth/Worlds/',
+                  'services/game-gateway/',
+                  'tests/Feature/GameAuth/',
+              )
+              allowed_exact = {
+                  'app/Http/Controllers/GameAuth/GameLoginContextController.php',
+                  'database/migrations/2026_08_05_130000_migrate_native_protocol_identity_to_version.php',
+              }
+              invalid = [
+                  path for path in runtime
+                  if path not in allowed_exact and not path.startswith(allowed_prefixes)
+              ]
+              if invalid:
+                  raise SystemExit(f'producer correction escaped its governed runtime boundary: {invalid}')
+              print('architecture and governed producer boundary audit: PASS')
+          else:
+              print('architecture and documentation-only boundary audit: PASS')
           PY
 
   security-auth-downgrade:

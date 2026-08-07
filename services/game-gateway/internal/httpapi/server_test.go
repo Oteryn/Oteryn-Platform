@@ -103,8 +103,8 @@ func TestLoginAcceptsBoundedOfferAndReturnsDistinctSelectionFields(t *testing.T)
 		Revision:  9,
 		ChannelID: 1,
 		Candidates: []gateway.GameplayPolicyCandidate{{
-			Family: "oteryn", Profile: "oteryn.native.v1", Transport: "tcp.tls13.protobuf.be32.v1",
-			SchemaRevision: 1, SchemaSHA256: "c7665223f09001e3294e9a03ab4784defed66b0ac04450e8679d4778421207f8", RequiredCapabilities: capabilities,
+			Family: "oteryn", NativeProtocolVersion: 1, Transport: "tcp.tls13.protobuf.be32.v1",
+			SchemaRevision: 2, SchemaSHA256: "9c67f19525400fb9890d2a3541ceb6d02eb955061540ad39ca1c1d891c06eba9", RequiredCapabilities: capabilities,
 			EndpointID: "native-eu-1", Host: "native.example.test", Port: 7173, TLSServerName: "native.example.test",
 		}},
 	}
@@ -117,8 +117,8 @@ func TestLoginAcceptsBoundedOfferAndReturnsDistinctSelectionFields(t *testing.T)
 		GameplayOffer: &gateway.GameplayOffer{
 			OfferVersion: 1, ClientBuild: "oteryn-client-test", ClientPlatform: "windows-x86_64",
 			Candidates: []gateway.GameplayOfferCandidate{{
-				Family: "oteryn", Profile: "oteryn.native.v1", Transport: "tcp.tls13.protobuf.be32.v1",
-				SchemaRevision: 1, SchemaSHA256: "c7665223f09001e3294e9a03ab4784defed66b0ac04450e8679d4778421207f8", Capabilities: capabilities,
+				Family: "oteryn", NativeProtocolVersion: 1, Transport: "tcp.tls13.protobuf.be32.v1",
+				SchemaRevision: 2, SchemaSHA256: "9c67f19525400fb9890d2a3541ceb6d02eb955061540ad39ca1c1d891c06eba9", Capabilities: capabilities,
 			}},
 		},
 	})

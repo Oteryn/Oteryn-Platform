@@ -21,7 +21,7 @@ Implemented in Oteryn Platform:
 - fail-closed `DatabaseWorldRegistry` implementation;
 - sanitized `GameWorldRoute` projection;
 - no seeded world and no invented production hostname or port.
-- `game_world_protocol_candidates` storage with disabled-by-default rows, deterministic order and exact endpoint/profile/schema/capability projection;
+- `game_world_protocol_candidates` storage with disabled-by-default rows, deterministic order and exact endpoint/native protocol version/schema/capability projection;
 - monotonic `gameplay_policy_revision` on each world;
 - Gateway API v1 optional gameplay offer, deterministic selection and Game Session v2 producer binding.
 
