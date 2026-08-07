@@ -4,6 +4,19 @@
 
 `GATEWAY PRODUCER IMPLEMENTED — NATIVE ADVERTISEMENT DISABLED BY DEFAULT`
 
+## Native Oteryn-v2 authority note
+
+This document remains authoritative implementation/compatibility evidence for the currently delivered Canary-oriented World Registry and Gateway producer.
+
+For **native Oteryn-v2 world/channel identity and topology semantics**, the narrower accepted authorities are:
+
+- ADR 0029 — Platform-owned UUIDv7 WorldId, ChannelId and first-class topology identity;
+- `OTERYN_V2_WORLD_TOPOLOGY_CONTRACT.md`.
+
+Accordingly, statements below that equate `world_id` with the `game_worlds` database primary key, use `WorldRegistry::forAccount(canary_account_id)`, hard-code integer `channel_id = 1`, or couple a channel to protocol-candidate/endpoint storage describe **LEGACY / CURRENT IMPLEMENTATION COMPATIBILITY STATE**. They do not define the native target identity model.
+
+No current runtime payload, database schema or Canary path is changed by this authority clarification.
+
 This contract defines the authoritative world-routing and ordered gameplay-candidate policy consumed by the Oteryn Game Gateway.
 
 The Platform-owned world route is consumed by the existing Gateway. The native producer extension stores ordered per-world/channel candidates and policy revision, while creating no candidate rows and keeping every candidate disabled by default. It does not prove an Otheryn native consumer, a Rust native consumer, production activation or a production world route.

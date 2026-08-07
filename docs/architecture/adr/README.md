@@ -91,6 +91,7 @@ Inventory reconciled on 2026-08-07. Duplicate prefixes are intentionally shown r
 - `0026-proprietary-repository-licensing-policy.md`
 - `0027-confidential-vulnerability-disclosure-policy.md`
 - `0028-platform-accountid-cross-boundary-identity.md`
+- `0029-platform-world-channel-identity-and-topology.md`
 
 ## Preserved legacy duplicate paths
 
