@@ -10,7 +10,7 @@ execution_mode: github_only
 branch: audit/native-oauth-revocation-integrity-20260807
 base_branch: main
 base_sha: 84922e4a24be9759c864b41efd34b1e43634d407
-pr: none
+pr: 844
 production_activation_authorized: false
 cross_repository_mutation_authorized: false
 required_reads:
@@ -96,12 +96,12 @@ This is not yet a finding.
 ```yaml
 checkpoint_version: 1
 policy_version: 2
-updated_at: 2026-08-07T19:55:00+02:00
+updated_at: 2026-08-07T20:00:00+02:00
 invocation_started_at: 2026-08-07T19:51:00+02:00
-last_progress_at: 2026-08-07T19:55:00+02:00
-head: 84922e4a24be9759c864b41efd34b1e43634d407
+last_progress_at: 2026-08-07T20:00:00+02:00
+head: ee35f64c5858a98443cb0833f0d3adfbd035f70e
 branch: audit/native-oauth-revocation-integrity-20260807
-pr: none
+pr: 844
 status: investigating
 phase: investigate
 execution_mode: github_only
