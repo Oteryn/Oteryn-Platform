@@ -1,371 +1,146 @@
-# OTERYN-20260808-native-character-portfolio-context
-
-```yaml
+---
 task_id: OTERYN-20260808-native-character-portfolio-context
-repository: blakinio/Oteryn-Platform
-programme: OTERYN_PLATFORM_ARCHITECTURE
-mode: ARCHITECTURE_CONTINUATION
-status: analysis_ready
-base_branch: main
-base_sha: 5929e088df618ca35713b8a7004baa52d0e5af83
-branch: docs/OTERYN-20260808-native-character-portfolio-context
-created_at: 2026-08-08T00:18:00+02:00
-owner: next architecture agent
-implementation_authorized: false
-runtime_changes_authorized: false
-cross_repository_runtime_changes_authorized: false
-```
+required_reads:
+  - AGENTS.md
+  - docs/agents/AGENTS.md
+  - docs/agents/DELIVERY_COMPLETENESS_AND_CLOSEOUT.md
+  - docs/agents/ANTI_STALL_AND_EXECUTION_BUDGET.md
+  - docs/architecture/ARCHITECTURE_AUTHORITY.md
+  - docs/architecture/adr/0028-platform-accountid-cross-boundary-identity.md
+  - docs/architecture/adr/0029-platform-world-channel-identity-and-topology.md
+search_first:
+  - Native Character Portfolio
+  - CharacterProfiles
+  - canary_player_id
+optional_reads:
+  - docs/architecture/PLAYER_COMPANION_ARCHITECTURE.md
+---
+
+# OTERYN-20260808-native-character-portfolio-context
 
 ## Goal
 
-Continue architecture work for the Oteryn web platform, with `blakinio/Oteryn-Platform` as the primary repository and `blakinio/Oteryn-v2` treated as the game-domain system integrated through explicit contracts.
+Accept and canonically reconcile the Platform-side **Native Character Portfolio / Account Center v2** boundary selected by the repository owner as Option A, without changing runtime code, persistence, protocol wire format, external repositories or production state.
 
-The immediate architecture subject is a **Native Character Portfolio / Account Center v2 boundary** that removes Canary numeric identifiers and direct Canary assumptions from the target web-platform model without prematurely implementing runtime migrations.
+## Acceptance criteria
 
-## Scope guard
+- [x] Current Canary compatibility behavior is distinguished from the native Oteryn-v2 target.
+- [x] Repository owner explicitly selected Option A and the decision is durably recorded in Issue #857.
+- [x] ADR 0030 records Accounts-owned authenticated portfolio composition inside the Laravel modular monolith.
+- [x] Oteryn-v2 Character Authority remains authoritative for `CharacterId`, current `AccountId <-> CharacterId` ownership, lifecycle and native mutation outcomes.
+- [x] `Characters`, `PublicGameData` and `CharacterProfiles` responsibilities remain non-overlapping and explicit.
+- [x] Canary numeric identifiers remain compatibility-only pending a separately authorized additive migration.
+- [x] Exact transport, cache TTL, capability-code vocabulary, entitlement exchange and migration implementation remain deferred rather than invented.
+- [ ] Exact-head Agent Governance and architecture/documentation validation pass.
+- [ ] Exact-head full diff review reports zero open material findings.
+- [ ] PR #859 is merged, Issue #857 is closed and this task is archived.
 
-This task is about the **web platform**. Do not switch the primary workstream to game-server architecture.
+## Ownership
 
-Use Oteryn-v2 only to verify and consume the accepted cross-repository ownership contracts needed by the Platform.
-
-Do not implement runtime code, database migrations, Oteryn-v2 changes, Canary changes, protocol changes or production changes unless the repository owner explicitly authorizes implementation.
-
-## Current verified Platform state
-
-Verified Platform `main` at task creation:
-
-`5929e088df618ca35713b8a7004baa52d0e5af83`
-
-The portal foundation is considered sound and scalable. The current canonical direction retains:
-
-- Laravel modular monolith;
-- server-rendered Blade as the baseline UI;
-- explicit bounded modules;
-- Platform/game-domain separation;
-- explicit operation-specific mutation contracts;
-- no default SPA rewrite;
-- no default microservice decomposition.
-
-`docs/architecture/PORTAL_COMPLETENESS_ARCHITECTURE.md` explicitly states that the portal architecture is not globally product-complete.
-
-## Existing accepted portal architecture relevant to this task
-
-### Portal completeness
-
-`docs/architecture/PORTAL_COMPLETENESS_ARCHITECTURE.md`
-
-Key current gaps include:
-
-- PlayerCompanion implementation;
-- LiveOps;
-- first-party Platform API;
-- multi-world/profile/season-safe presentation;
-- client distribution provenance/update policy;
-- expanded community/read surfaces;
-- federated search;
-- production completion evidence.
-
-### PlayerCompanion
-
-ADR 0025 and `docs/architecture/PLAYER_COMPANION_ARCHITECTURE.md` already accept `PlayerCompanion` as a bounded module in the Laravel modular monolith.
-
-It consumes versioned data from GameCatalog, Wiki, PublicGameData, future GameAnalytics and LiveOps.
-
-It must not become the canonical owner of characters or game state.
-
-### Frontend / Account Center
-
-ADR 0008 defines Public Portal, Account Center and Admin Console as distinct but related UI systems.
-
-The ADR contains historical wording that a general Account Overview was not yet delivered. That statement is now stale: `routes/web.php` contains `/account` and the current repository contains `AccountOverviewController` and `AccountOverviewReadModel`.
-
-Do not rewrite ADR history silently. If the stale statement becomes materially misleading, resolve it through a new focused ADR/clarification or other authority-compatible update.
-
-## Current implementation evidence and architecture drift
-
-### Account Center exists
-
-Current route:
-
-```text
-GET /account -> AccountOverviewController::show
+```yaml
+owned_paths:
+  - docs/agents/tasks/active/OTERYN-20260808-native-character-portfolio-context.md
+  - docs/agents/programs/OTERYN_PLATFORM_ARCHITECTURE_REVIEW.md
+  - docs/architecture/ARCHITECTURE_DECISION_BACKLOG.json
+  - docs/architecture/adr/0030-native-character-portfolio-account-center-v2.md
+  - docs/architecture/MODULE_CATALOG.md
+  - docs/architecture/DATA_OWNERSHIP.md
+  - docs/architecture/PORTAL_COMPLETENESS_ARCHITECTURE.md
+modules:
+  - Accounts
+  - Characters
+  - CharacterProfiles
+  - PublicGameData
+dependencies:
+  - Issue #857 owner decision: Option A accepted
+  - Oteryn-v2 merged PR #90 / ADR-0012 read-only authority evidence
+blockers:
+  - none
+cross_repository_tasks:
+  - none; Oteryn-v2 is evidence-only for this Platform task
 ```
 
-Current Account Center implementation uses:
+## Decision result
 
-- `IdentityCanaryAccount`;
-- `canary_account_id`;
-- `CanaryGameDataRepository::activeCharactersForAccount()`;
-- a Platform-local `CHARACTER_LIMIT = 10`;
-- direct counting of Canary-backed character rows to infer whether character creation is allowed.
+The accepted responsibility split is:
 
-This is valid current Canary compatibility behavior but is not the desired native Oteryn-v2 target model.
+- `Accounts` owns authenticated Account Center / Character Portfolio composition and presentation-ready effective capability state;
+- `Characters` owns Platform-side orchestration of explicitly approved character commands, while the native mutation itself remains game-owned;
+- Oteryn-v2 Character Authority owns canonical `CharacterId`, current `AccountId <-> CharacterId` ownership, character lifecycle, game-domain capability decisions and mutation receipts/results;
+- `PublicGameData` owns public/general game projections and never becomes proof of authenticated Account Center ownership;
+- `CharacterProfiles` owns only Platform presentation/privacy preferences and targets canonical `CharacterId` after a later additive migration;
+- `PlayerCompanion`, `PlatformAPI`, Marketplace and Support consume module application boundaries rather than raw Canary/Oteryn-v2 character tables.
 
-### Character profile preferences exist
+Current `IdentityCanaryAccount`, `canary_account_id`, `canary_player_id`, direct Canary read models and the current ten-character compatibility rule remain valid only for their already delivered Canary compatibility scope. Acceptance of ADR 0030 does not delete or migrate them.
 
-Current `app/CharacterProfiles` contains Platform-owned presentation/privacy preferences including:
+## Validation classification
 
-- public comment;
-- account-association visibility;
-- status/guild/house/skills/deaths/kills visibility;
-- main-character flag.
+E2E is `NOT_APPLICABLE`: this task changes architecture/task documentation only and creates no executable user or integration journey.
 
-The current persistence key uses numeric `canary_player_id`.
+Issue #858 remains a separate governance remediation for the merge-gate/regression-control defect that allowed PR #856 to merge while Agent Governance was red. This task repairs the malformed active-task checkpoint because it directly blocks PR #859, but it does not claim to close the broader Issue #858 acceptance inventory.
 
-This is another Canary compatibility identity that should not be the long-term cross-boundary character identity.
+## Context checkpoint
 
-### Module catalog drift to review
-
-`app/CharacterProfiles` and `routes/modules/character-profile-preferences.php` exist, but the top-level module table in `docs/architecture/MODULE_CATALOG.md` does not list `CharacterProfiles` as a standalone module.
-
-This needs an explicit architecture classification rather than accidental growth.
-
-Recommended direction for review:
-
-- `Characters`: Platform orchestration of explicitly approved character operations;
-- `PublicGameData`: public game-owned character/world projections;
-- `Accounts`: authenticated Account Center and character portfolio composition;
-- `CharacterProfiles`: small Platform-owned privacy/presentation preference subdomain, not a second authoritative character system.
-
-A rename such as `CharacterPresentation` may be considered later, but do not perform a repository-wide rename without a bounded decision and migration justification.
-
-## Cross-repository source of truth already accepted
-
-Oteryn-v2 has accepted native Character Authority semantics in its canonical architecture.
-
-The important consumer-side facts for Platform are:
-
-- Platform Identity owns and issues `AccountId`;
-- Oteryn-v2 Character Authority owns and issues canonical `CharacterId`;
-- authoritative current `AccountId <-> CharacterId` ownership is game-domain owned;
-- Platform may consume an authorized account-to-character query/projection;
-- Platform caches/read models are non-authoritative;
-- final gameplay admission revalidates authoritative ownership;
-- create, rename, delete/restore/finalize, world transfer and account/Bazaar transfer use versioned game-owned command boundaries in the native target;
-- Platform direct SQL writes to native game character tables are not the steady-state target;
-- rename/world transfer/account transfer preserve `CharacterId`;
-- terminal deletion never permits CharacterId reuse.
-
-Do not re-open these ownership questions unless current source-of-truth documents have changed.
-
-## Candidate target: Native Character Portfolio / Account Center v2
-
-This candidate is the immediate architecture subject. It has been recorded for continuation, but details must be reconciled with canonical Platform authority before being promoted to an Accepted ADR.
-
-Target shape:
-
-```text
-Platform Identity
-  AccountId
-    |
-    v
-Account Center
-    |
-    v
-Character Portfolio application boundary
-    |
-    +-- Platform privacy/preferences
-    +-- PlayerCompanion character context
-    +-- Marketplace/Bazaar orchestration
-    +-- character lifecycle command orchestration
-    |
-    v
-Character projection / command adapter
-    |
-    | versioned contract
-    v
-Oteryn-v2 Character Authority
-    CharacterId
+```yaml
+checkpoint_version: 1
+updated_at: 2026-08-07T22:48:19Z
+head: UNKNOWN
+branch: docs/OTERYN-20260808-native-character-portfolio-decision
+pr: 859
+status: validating
+context_routes:
+  - architecture
+  - accounts-characters
+  - canary-integration
+  - testing
+owned_paths:
+  - docs/agents/tasks/active/OTERYN-20260808-native-character-portfolio-context.md
+  - docs/agents/programs/OTERYN_PLATFORM_ARCHITECTURE_REVIEW.md
+  - docs/architecture/ARCHITECTURE_DECISION_BACKLOG.json
+  - docs/architecture/adr/0030-native-character-portfolio-account-center-v2.md
+  - docs/architecture/MODULE_CATALOG.md
+  - docs/architecture/DATA_OWNERSHIP.md
+  - docs/architecture/PORTAL_COMPLETENESS_ARCHITECTURE.md
+proven:
+  - Repository owner explicitly accepted Option A for the Native Character Portfolio / Account Center v2 boundary on 2026-08-08 and Issue 857 contains the durable decision record.
+  - Current AccountOverviewReadModel and CharacterProfilePreference use Canary numeric identifiers in the delivered compatibility implementation.
+  - Oteryn-v2 merged PR 90 keeps CharacterId, current AccountId-to-CharacterId ownership and native character lifecycle mutations in Character Authority.
+  - PR 859 exists on branch docs/OTERYN-20260808-native-character-portfolio-decision.
+derived:
+  - Accounts is the narrowest existing Platform owner for authenticated Character Portfolio composition without introducing a new service boundary.
+  - CharacterProfiles remains presentation and privacy state rather than authoritative character ownership state.
+  - New native consumers must use canonical AccountId and CharacterId semantics instead of inheriting Canary numeric identifiers.
+unknown:
+  - Exact Character Portfolio transport, cache TTL, capability-code vocabulary, entitlement exchange and Canary-to-CharacterId migration mechanics remain deliberately deferred.
+  - Final exact PR 859 head and exact-head CI result are not known until the coherent acceptance commit is created and validated.
+conflicts: []
+first_failure:
+  marker: Agent Governance run 31224204311 checkpoint-validation
+  evidence: The active task introduced by PR 856 lacked the canonical checkpoint_version and required Context checkpoint fields; Issue 858 records the same root cause.
+rejected_hypotheses:
+  - No Laravel runtime or product defect is required to explain the Agent Governance failure; the deterministic root cause is malformed task governance state.
+changed_paths:
+  - docs/agents/tasks/active/OTERYN-20260808-native-character-portfolio-context.md
+  - docs/agents/programs/OTERYN_PLATFORM_ARCHITECTURE_REVIEW.md
+  - docs/architecture/ARCHITECTURE_DECISION_BACKLOG.json
+  - docs/architecture/adr/0030-native-character-portfolio-account-center-v2.md
+  - docs/architecture/MODULE_CATALOG.md
+  - docs/architecture/DATA_OWNERSHIP.md
+  - docs/architecture/PORTAL_COMPLETENESS_ARCHITECTURE.md
+validation:
+  - command: focused architecture source reconciliation against ADR 0001, 0008, 0025, 0028, 0029 and Oteryn-v2 PR 90
+    result: PASS
+    evidence: Option A is consistent with existing authority and introduces no new deployment or mutation authority.
+  - command: owner decision gate
+    result: PASS
+    evidence: Repository owner explicitly selected Option A and the decision was recorded in Issue 857.
+  - command: repository exact-head Agent Governance and architecture validators
+    result: NOT_RUN
+    evidence: The coherent accepted-decision commit has not yet been created; exact-head workflow evidence must run after this checkpoint is committed.
+  - command: user or integration E2E
+    result: NOT_APPLICABLE
+    evidence: Documentation-only architecture reconciliation changes no executable user or system journey.
+blockers:
+  - none
+next_action: Create the coherent accepted-decision commit, validate PR 859 exact head including Agent Governance and architecture registries, perform final diff review, then merge and close Issue 857 if every gate passes.
 ```
-
-### Candidate invariant: no native game DB coupling
-
-The Account Center must not know the physical Oteryn-v2 database schema and must not use direct SQL to infer native character ownership or mutation authority.
-
-### Candidate account-to-character query
-
-Conceptually consume a game-owned authorized projection such as:
-
-```text
-GetCharactersForAccount(AccountId)
-    -> CharacterSummary[]
-```
-
-Candidate summary fields:
-
-```text
-CharacterId
-WorldId
-name
-vocation_or_class
-level
-lifecycle_status
-projection_revision
-freshness
-capabilities
-```
-
-Exact API transport, wire schema and FND-02 protocol mechanics remain out of scope until their respective architecture gates are resolved.
-
-### Candidate portfolio response
-
-The Platform should prefer a semantic portfolio/capability response over reconstructing game policy from raw rows:
-
-```text
-CharacterPortfolio
-{
-    characters
-    active_count
-    allowed_count
-    can_create
-    create_block_reason
-    projection_revision
-    freshness
-}
-```
-
-The exact names are not frozen. The key architectural point is that the producer supplies authoritative policy/capability facts rather than the browser or Platform deriving them from legacy table shape.
-
-## Candidate capability rule
-
-The Platform should not decide native creation eligibility using logic equivalent to:
-
-```text
-if character_count < 10
-    allow creation
-```
-
-The preferred target is capability-driven:
-
-```text
-can_create_character = true | false
-reason = SLOT_LIMIT | WORLD_CLOSED | ACCOUNT_STATE | RULESET | ENTITLEMENT | OTHER_TYPED_REASON
-```
-
-This supports future policies such as:
-
-- account-wide or world-specific slot rules;
-- entitlements/premium slot additions;
-- seasonal/test/reference world restrictions;
-- ruleset changes;
-- temporary creation closures;
-- account lifecycle restrictions.
-
-The Platform may render the allowed/current counts for UX, but should not become the authoritative owner of game-domain character-slot policy.
-
-## Candidate identity migration direction
-
-Target native Platform references should use canonical `CharacterId`, not `canary_player_id`.
-
-Current numeric Canary identifiers should remain only in an explicitly named compatibility adapter/migration boundary while Canary compatibility is required.
-
-Do not simply replace integer columns in-place without deciding:
-
-- dual-read/dual-reference migration period;
-- projection backfill strategy;
-- idempotent mapping between legacy numeric ID and CharacterId where required;
-- stale/missing mapping semantics;
-- rollback/removal conditions;
-- privacy and audit consequences.
-
-## Character profile/privacy ownership
-
-Recommended semantic split:
-
-Game domain owns:
-
-- character identity;
-- current ownership;
-- authoritative gameplay state;
-- lifecycle state;
-- game-domain world placement.
-
-Platform owns presentation/privacy preferences, for example:
-
-```text
-public_comment
-show_account_association
-show_status
-show_guild
-show_house
-show_skills
-show_deaths
-show_kills
-is_main_character
-```
-
-These Platform preferences should reference canonical `CharacterId` in the native target.
-
-They must never become proof of character ownership or gameplay authority.
-
-## Why this should precede PlayerCompanion implementation
-
-Character Portfolio is a shared dependency for many future web capabilities:
-
-- Account Center;
-- Character Profiles/privacy;
-- PlayerCompanion personalization;
-- saved builds/goals tied to owned characters;
-- Marketplace/Bazaar orchestration;
-- Support views;
-- future first-party Platform API;
-- authorized Game Analytics projections.
-
-Building PlayerCompanion directly on `canary_player_id` or `IdentityCanaryAccount` would create migration debt and duplicate the compatibility model in new modules.
-
-## Recommended Platform architecture order
-
-Use this as current continuation priority unless newer authority changes it:
-
-1. Native Character Portfolio / Account Center v2 boundary.
-2. LiveOps + World Registry presentation boundary.
-3. PlatformAPI boundary for first-party client/tools consumers.
-4. PlayerCompanion P0 vertical slices.
-5. Expanded Community/PublicGameData surfaces: houses, guilds, statistics as approved.
-6. Federated portal/content search.
-7. Client updater/download provenance and release policy.
-
-This is an architecture-planning order, not implementation authorization.
-
-## Required next-agent work
-
-The next architecture agent should:
-
-1. Re-read current `main` and repository agent instructions before relying on this checkpoint.
-2. Reconcile this candidate boundary against `ARCHITECTURE_AUTHORITY.md`, ADR 0001, ADR 0008, ADR 0025, ADR 0028, ADR 0029, `DATA_OWNERSHIP.md`, `MODULE_CATALOG.md`, `PORTAL_COMPLETENESS_ARCHITECTURE.md`, current Characters/Accounts/PublicGameData/CharacterProfiles code and the accepted Oteryn-v2 Character Authority contract.
-3. Identify contradictions caused by current Canary-specific Account Center behavior.
-4. Decide whether a new Platform ADR is needed for `Native Character Portfolio / Account Center v2`.
-5. Propose explicit producer/consumer ownership, freshness/failure semantics, capability semantics, migration/compatibility boundaries and module ownership.
-6. Keep wire format, exact HTTP/gRPC endpoints and Oteryn-v2 runtime implementation deferred unless their gate is already accepted.
-7. Present any material new architecture decisions to the repository owner for explicit acceptance before recording them as Accepted.
-8. If accepted, record the decision canonically in one bounded documentation package and update any affected focused architecture/module inventory documents without rewriting historical ADRs.
-
-## Questions still deliberately unresolved
-
-- Exact placement/name of the Character Portfolio application service inside Platform modules.
-- Whether `CharacterProfiles` remains a small subdomain/package or receives a formal module-catalog row.
-- Exact native projection API shape and transport.
-- Exact capability/error taxonomy.
-- Exact character-slot product policy.
-- Exact entitlement integration.
-- Exact legacy Canary-to-CharacterId migration/backfill strategy.
-- Exact cache TTL/freshness policy and projection consistency model.
-- Exact rename/delete/transfer web UX.
-- Exact Platform API exposure.
-
-These are for architecture analysis, not assumptions.
-
-## Explicit non-goals
-
-- Do not design game combat/progression here.
-- Do not continue GAME-CHAR-01 as the primary task.
-- Do not implement Oteryn-v2 runtime.
-- Do not migrate databases yet.
-- Do not delete Canary compatibility code yet.
-- Do not hard-code new slot limits.
-- Do not create a microservice solely for Character Portfolio without measured need.
-- Do not make Platform authoritative for native character ownership or gameplay state.
-
-## Completion condition for this checkpoint
-
-This checkpoint is complete when another agent can enter `blakinio/Oteryn-Platform`, read this file plus the referenced canonical architecture sources, and continue the Native Character Portfolio / Account Center v2 architecture discussion without relying on chat history.
