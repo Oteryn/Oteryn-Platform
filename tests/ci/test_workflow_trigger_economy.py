@@ -58,7 +58,16 @@ assert "group: agent-governance-${{ github.event.pull_request.number || github.r
 assert "cancel-in-progress: true" in agent_governance
 
 ci = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
-assert "cancel-in-progress: true" in ci
+assert (
+    "group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.sha }}"
+    in ci
+), "ci.yml: CI generations are not isolated by PR identity or push commit SHA"
+assert "cancel-in-progress: ${{ github.event_name == 'pull_request' }}" in ci, (
+    "ci.yml: main-push generations may still be cancelled by a later main push"
+)
+assert "group: ci-${{ github.workflow }}-${{ github.ref }}" not in ci, (
+    "ci.yml: shared main ref concurrency can preempt required runtime validation"
+)
 assert "scripts/ci/classify_changes.py" in ci
 assert "scripts/ci/classify_push_changes.py" in ci
 assert "github.event.pull_request.base.sha || github.event.before || ''" in ci
