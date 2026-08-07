@@ -21,7 +21,7 @@ Continuously audit every delivered or declared Platform module and surface for t
 
 ```yaml
 programme_state_version: 3
-updated_at: 2026-08-07T09:47:00Z
+updated_at: 2026-08-07T09:51:00Z
 status: ready
 current_cycle: 1
 programme_execution_snapshot:
@@ -32,8 +32,8 @@ programme_execution_snapshot:
   branch: unknown
   pull_request: unknown
   reason: Mutable execution ownership must be resolved from live tasks, branches, Issues and PRs at invocation time; unknown must never be interpreted as none.
-last_merged_audit_head: 26a92a5d49b86fb121cebd2cbd57525c3a3140ad
-last_completed_domain: agent-governance-branch-pr-reconciliation
+last_merged_audit_head: 67cbe391967ee7fd2bf26e4eda412820b805f981
+last_completed_domain: branch-lifecycle-atomic-delete
 coverage_inventory:
   baseline: docs/agents/evidence/OTERYN-20260803-portal-exhaustive-current-main-audit/
   baseline_merge: cbbd7613cee13cf01931a0ba0f7ac089122132e0
@@ -89,6 +89,7 @@ proven:
   - Audit PR #781 passed exact-head CI and Agent Governance and merged as f72fafd461f6bd2f41c5a58b975a5532f8e426ef; its audit task is archived.
   - Audit PR #784 passed exact-head CI run 31164308992 and Agent Governance run 31164310591 and merged as 8478b627609f9d82799bc5866c8ba504d5751f19; its audit task is archived.
   - Audit PR #790 passed exact-head CI run 31165266121 and Agent Governance run 31165266632 on 06fb33d0e4d905ad821a49f3814a66a11e1a354d and merged as 26a92a5d49b86fb121cebd2cbd57525c3a3140ad; its audit task is archived.
+  - Audit PR #794 passed exact-head CI run 31167549465 and Agent Governance run 31167550571 on af7de7d1b479bd478a1cd96254a8753d2f0339e0 and merged as 67cbe391967ee7fd2bf26e4eda412820b805f981.
   - Issue #558 is closed completed and current main contains the live active-task liveness enforcement introduced by PR #779; OPA-GOV-0021 records a bounded omitted-PR reconciliation gap in that implementation.
   - Issue #780 is closed completed through PR #789 and lifecycle closeout PR #792; OPA-GOV-0022 is a distinct residual remote atomicity finding after that repair.
   - Issue #547 is closed completed after repair PR #595 and independent audit #597; it is not a live remediation blocker.
@@ -112,7 +113,7 @@ conflicts:
 blockers:
   mode: live_query_required
   items: unknown
-next_action: Complete the branch-lifecycle atomic-delete audit package, merge and archive it, then refresh live ownership and select the next highest-risk non-overlapping domain if invocation budget remains.
+next_action: Refresh live ownership, open and blocked Issues, active tasks, PRs and recent main deltas, then select the next highest-risk non-overlapping audit domain in the next bounded package.
 ```
 
 ## Programme rules
