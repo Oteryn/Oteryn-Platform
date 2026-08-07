@@ -1,0 +1,63 @@
+name: Native audit 760 repair validation
+
+on:
+  pull_request:
+    branches:
+      - feat/OTS-20260804-native-protocol-single-version-producer
+    paths:
+      - services/game-gateway/**
+      - .github/workflows/repair-760-validation.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: native-audit-760-repair-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      EXACT_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+    steps:
+      - name: Fetch exact repair head without external actions
+        shell: bash
+        run: |
+          set -euo pipefail
+          git init .
+          git remote add origin "https://github.com/${GITHUB_REPOSITORY}.git"
+          git fetch --depth=1 origin "$EXACT_HEAD_SHA"
+          git checkout --detach FETCH_HEAD
+          test "$(git rev-parse HEAD)" = "$EXACT_HEAD_SHA"
+
+      - name: Verify Go toolchain
+        shell: bash
+        run: |
+          set -euo pipefail
+          go version
+          go env GOVERSION | grep -Eq '^go1\.24([.]|$)'
+
+      - name: Check formatting
+        shell: bash
+        working-directory: services/game-gateway
+        run: |
+          set -euo pipefail
+          unformatted="$(gofmt -l .)"
+          if [ -n "$unformatted" ]; then
+            printf 'Unformatted Go files:\n%s\n' "$unformatted"
+            exit 1
+          fi
+
+      - name: Run tests
+        working-directory: services/game-gateway
+        run: go test ./...
+
+      - name: Run vet
+        working-directory: services/game-gateway
+        run: go vet ./...
+
+      - name: Build gateway
+        working-directory: services/game-gateway
+        run: go build -trimpath -o /tmp/oteryn-game-gateway ./cmd/game-gateway
