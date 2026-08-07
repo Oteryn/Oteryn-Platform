@@ -190,6 +190,17 @@ class LivenessTests(unittest.TestCase):
         self.assertEqual(result["live_state"], "BRANCH_ONLY")
         self.assertTrue(result["ownership_active"])
 
+    def test_foreign_repo_same_branch_name_is_not_a_matching_pr(self):
+        self.write(task_text(pr="none"))
+        self.client.branches["repair/live"] = branch_ref()
+        self.client.branch_prs["repair/live"] = [
+            pr_payload(repo="blakinio/other-fork", number=20)
+        ]
+        result, report = self.one()
+        self.assertTrue(report["live_valid"])
+        self.assertEqual(result["live_state"], "BRANCH_ONLY")
+        self.assertTrue(result["ownership_active"])
+
     def test_branch_only_with_omitted_open_pr_fails_closed(self):
         self.write(task_text(pr="none"))
         self.client.branches["repair/live"] = branch_ref()
