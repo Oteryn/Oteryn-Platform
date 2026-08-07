@@ -4,7 +4,7 @@
 
 **CURRENT — focused portal-completeness architecture.**
 
-This document owns the current architectural assessment and completion boundary for the Oteryn web portal. It complements the older phased proposal in `PUBLIC_WEBSITE_EXPANSION_PLAN.md`, current module ownership in `MODULE_CATALOG.md`, and the player-tools boundary in `PLAYER_COMPANION_ARCHITECTURE.md`.
+This document owns the current architectural assessment and completion boundary for the Oteryn web portal. It complements the older phased proposal in `PUBLIC_WEBSITE_EXPANSION_PLAN.md`, current module ownership in `MODULE_CATALOG.md`, the native Account Center boundary in ADR 0030, and the player-tools boundary in `PLAYER_COMPANION_ARCHITECTURE.md`.
 
 Implementation availability, capability completeness, environment evidence and production activation remain separate facts.
 
@@ -14,8 +14,9 @@ The current foundation is sound:
 
 - retain the Laravel modular monolith;
 - retain server-rendered Blade as the baseline public/application UI;
-- retain the Platform/Canary repository and ownership split;
+- retain the Platform/game-domain repository and ownership split;
 - retain explicit operation-specific contracts for shared writes;
+- use ADR 0030's Accounts-owned Character Portfolio boundary for native authenticated Account Center composition;
 - do not replace the portal with WordPress, a separate SPA or default microservices;
 - extract a service only after measured independent scaling, isolation, lifecycle or ownership need.
 
@@ -23,7 +24,7 @@ The portal architecture is **not globally exhausted or product-complete**. It is
 
 ## Current module reconciliation
 
-The codebase contains and the canonical module catalog now recognizes:
+The codebase contains and the canonical module catalog recognizes:
 
 - `PublicPortal`;
 - `Announcements`;
@@ -35,6 +36,7 @@ The codebase contains and the canonical module catalog now recognizes:
 - `GameCatalog`;
 - `Support`;
 - `Identity`, `Accounts` and `Characters`;
+- `CharacterProfiles` as an implemented Platform-owned presentation/privacy preference subdomain pending top-level catalog-row reconciliation;
 - `Wallet` and `Marketplace`;
 - `Admin`, `Audit` and operational boundaries.
 
@@ -42,6 +44,14 @@ ADR 0025 additionally accepts:
 
 - `PlayerCompanion` as the planned player-tools boundary;
 - `LiveOps` as the planned time-sensitive world/service-state boundary.
+
+ADR 0030 accepts the native Account Center responsibility split:
+
+- `Accounts` owns authenticated Character Portfolio composition;
+- `Characters` owns Platform-side orchestration of approved character commands;
+- Oteryn-v2 Character Authority owns canonical `CharacterId`, current `AccountId <-> CharacterId` ownership, character lifecycle and native mutation outcomes;
+- `PublicGameData` remains public/general projection rather than authenticated ownership authority;
+- `CharacterProfiles` remains presentation/privacy state and targets canonical `CharacterId` after a separately authorized additive migration.
 
 `PlatformAPI` remains planned as an adapter over module services, not a second business-logic implementation.
 
@@ -107,6 +117,37 @@ Typed editorial events and announcements must not impersonate runtime state. `Li
 - rotating boosted creature/boss or similar systems;
 - explicit zero/offline/maintenance/stale/unavailable distinctions.
 
+### Native Character Portfolio / Account Center v2
+
+The architectural owner is resolved by ADR 0030; runtime implementation remains intentionally separate.
+
+The native target must replace new reliance on Canary numeric identifiers with canonical cross-boundary identities and an authorized game-owned projection/command boundary:
+
+```text
+Platform Identity / AccountId
+  -> Accounts / Character Portfolio composition
+       -> authorized Oteryn-v2 Character Authority projection
+       -> Platform CharacterProfiles preferences
+       -> effective Account Center state
+
+Characters
+  -> versioned Oteryn-v2 Character Authority commands
+```
+
+Required implementation decisions and evidence before native activation include:
+
+- the concrete `Accounts` application interface/read model for Character Portfolio;
+- typed portfolio success/empty/stale/unavailable/ambiguous/incompatible semantics;
+- authoritative revision/observation and freshness policy;
+- the versioned Character Authority projection adapter;
+- command orchestration and idempotent mutation receipt/result handling;
+- additive `canary_player_id` -> `CharacterId` preference migration, backfill, rollback and removal gates;
+- game-owned versus Platform-owned capability/denial semantics;
+- entitlement-to-game capability exchange if product policy needs it;
+- integration, migration, negative-path and real E2E proof before activation.
+
+PlayerCompanion P0 should not create a parallel Canary-numeric ownership model while this native boundary is unimplemented. It should consume owned-character context through `Accounts` and consume game facts/rules through its accepted GameCatalog/PublicGameData/LiveOps/GameAnalytics dependencies.
+
 ### Multi-world, profiles and seasons
 
 The launch may use one world, but architecture must preserve explicit dimensions for:
@@ -120,6 +161,8 @@ The launch may use one world, but architecture must preserve explicit dimensions
 
 These dimensions apply to portal URLs, cache keys, events, LiveOps, Game Catalog and PlayerCompanion. A single-world launch must not create irreversible global assumptions.
 
+`ChannelId` is not a durable Character Portfolio identity dimension under ADR 0030. Channel is topology/runtime placement and belongs only in a separately justified runtime/session projection.
+
 ### Platform API
 
 A versioned first-party API becomes justified by concrete consumers such as:
@@ -131,6 +174,8 @@ A versioned first-party API becomes justified by concrete consumers such as:
 - approved Discord/community integrations.
 
 The API must reuse module application services, authorization, validation and version/freshness semantics. It must not serialize raw database models or recreate formulas and domain decisions.
+
+For owned-character consumers the API must reuse the ADR 0030 Accounts Character Portfolio service rather than exposing `canary_account_id`, `canary_player_id` or raw game-owned tables as a permanent contract.
 
 ### Search and discoverability
 
@@ -171,7 +216,7 @@ Recommended baseline:
 The portal should become more than an account website and Wiki. The accepted `PlayerCompanion` direction combines:
 
 - TibiaPal-like player utilities;
-- automatic authorized character context;
+- automatic authorized character context through the ADR 0030 Accounts Character Portfolio boundary;
 - Oteryn-specific versioned rules and catalog data;
 - optional Game Analytics evidence;
 - shared application services for portal and client.
@@ -196,8 +241,9 @@ The following statuses are planning decisions, not implementation authority.
 | Capability family | Disposition |
 |---|---|
 | Existing public/account/admin foundations | KEEP/EVOLVE |
+| Native Character Portfolio / Account Center v2 | ARCHITECTURE ACCEPTED; implementation/migration gated |
 | Wiki and structured Game Catalog | KEEP/EVOLVE; close expected-content inventories |
-| PlayerCompanion P0 tools | PLANNED; deliver as separate vertical slices |
+| PlayerCompanion P0 tools | PLANNED; deliver as separate vertical slices after the required ownership/context boundary is available |
 | LiveOps and service history | PLANNED |
 | Platform API for concrete first-party consumers | PLANNED |
 | Houses, guild wars and expanded leaderboards | DISCOVERY |
@@ -228,6 +274,8 @@ This is a forward convention, not authority for an unrelated repository-wide mov
 
 Cross-module access should use application interfaces/query objects rather than arbitrary model imports or raw table access.
 
+ADR 0030 specifically keeps Character Portfolio as an `Accounts` application/read boundary rather than creating a new `CharacterPortfolio` deployable module. `CharacterProfiles` remains a small Platform-owned presentation/privacy subdomain; its top-level module-catalog classification should be reconciled without forcing a repository-wide namespace rename.
+
 ## Portal completion gate
 
 The architecture subject may be considered closed for a named release scope only when all of the following are true:
@@ -241,14 +289,16 @@ The architecture subject may be considered closed for a named release scope only
 7. client distribution has an accepted provenance/update policy for the release;
 8. LiveOps sources and stale/unavailable semantics are explicit for every displayed runtime claim;
 9. multi-world/profile/season applicability is explicit or validly not applicable;
-10. exact production edge, observability, backup/restore/rollback and smoke evidence passes when claiming production readiness;
-11. required exact-head CI passes and all related PR/task ownership is terminal.
+10. native Character Portfolio consumers use the accepted AccountId/CharacterId boundary or are explicitly compatibility-scoped; no new permanent Canary-numeric ownership contract is introduced;
+11. exact production edge, observability, backup/restore/rollback and smoke evidence passes when claiming production readiness;
+12. required exact-head CI passes and all related PR/task ownership is terminal.
 
 ## Current verdict
 
 - **Foundation quality:** sound and scalable.
 - **Need for architectural rewrite:** no.
 - **Need for architectural improvement:** yes, through the accepted bounded additions and completion gates above.
+- **Native Character Portfolio ownership:** accepted through ADR 0030; runtime implementation not yet authorized by this architecture package.
 - **Portal topic globally complete:** no.
 - **Player-tools architecture defined:** yes, through ADR 0025 and `PLAYER_COMPANION_ARCHITECTURE.md`.
 - **Player tools implemented:** no claim; module status remains `PLANNED`.
@@ -257,8 +307,10 @@ The architecture subject may be considered closed for a named release scope only
 
 - `docs/architecture/SYSTEM_ARCHITECTURE.md`
 - `docs/architecture/MODULE_CATALOG.md`
+- `docs/architecture/DATA_OWNERSHIP.md`
 - `docs/architecture/PUBLIC_WEBSITE_EXPANSION_PLAN.md`
 - `docs/architecture/PLAYER_COMPANION_ARCHITECTURE.md`
-- `docs/agents/reports/OTERYN-20260806-portal-player-tools-benchmark.md`
 - ADR 0025
+- ADR 0030
+- `docs/agents/reports/OTERYN-20260806-portal-player-tools-benchmark.md`
 - Issues #365, #488, #489 and #490

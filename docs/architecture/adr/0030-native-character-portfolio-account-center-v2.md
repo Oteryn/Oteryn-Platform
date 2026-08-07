@@ -2,10 +2,11 @@
 
 ## Status
 
-Proposed — 2026-08-08
+Accepted — 2026-08-08
 
 - Decision owner: repository owner
 - Decision Issue: #857
+- Accepted option: A
 - Coordination ID: `OTV2-CHARACTER-LIFECYCLE-BOUNDARY`
 - Applies to: authenticated Account Center character portfolio composition, native character identity references, Platform presentation/privacy preferences, character-command orchestration, capability/freshness semantics and Canary compatibility migration direction
 - Does not authorize: Laravel runtime changes, database migrations, Oteryn-v2/Canary writes, protocol wire-format changes, deployment or production activation
@@ -27,16 +28,16 @@ Accepted architecture has since established:
 
 The Platform therefore needs a durable native consumer boundary before PlayerCompanion, PlatformAPI and future account features copy Canary-specific identifiers or policy inference into new code.
 
-## Options
+## Options considered
 
-### Option A — Accounts-owned Character Portfolio application boundary — recommended
+### Option A — Accounts-owned Character Portfolio application boundary
 
 Keep Character Portfolio inside the modular monolith as an `Accounts` application/read boundary used by Account Center.
 
 - `Accounts` owns authenticated portfolio composition and presentation-ready account state.
 - `Characters` owns Platform orchestration of explicitly approved character commands.
 - Oteryn-v2 Character Authority remains authoritative for character identity, ownership, lifecycle and native mutation results.
-- `PublicGameData` remains the owner of public game-data projections; it may continue to provide general authorized game facts where its existing contracts apply, but it does not own Account Center composition or prove character ownership.
+- `PublicGameData` remains the owner of public/general game-data projections; it may continue to provide authorized game facts where its contracts apply, but it does not own Account Center composition or prove character ownership.
 - `CharacterProfiles` is formally classified as the Platform-owned presentation/privacy preference subdomain and never becomes a second character authority.
 - No separate service or deployment unit is introduced.
 
@@ -52,9 +53,9 @@ Create a new top-level module or deployable service for portfolio reads, capabil
 
 This provides naming isolation but introduces another domain/deployment boundary before independent scaling, security isolation or lifecycle requirements are proven.
 
-## Proposed decision
+## Decision
 
-Accept **Option A**.
+The repository owner accepted **Option A** on 2026-08-08 and the decision is durably recorded in Issue #857.
 
 ### 1. Accounts owns the authenticated portfolio use case
 
@@ -69,7 +70,7 @@ Authenticated Platform Identity
   -> Account Center
 ```
 
-`CharacterPortfolio` is an application/read model, not an authoritative character aggregate and not a new deployment unit.
+`CharacterPortfolio` is an application/read model inside `Accounts`, not an authoritative character aggregate and not a new deployment unit.
 
 The concrete class/interface names are implementation details and are not frozen by this ADR.
 
@@ -160,7 +161,7 @@ Exact TTL, caching implementation and consistency mechanism are deferred.
 
 ### 6. CharacterProfiles remains Platform-owned presentation/privacy state
 
-`CharacterProfiles` is a real Platform subdomain and should be represented explicitly in `MODULE_CATALOG.md` after this ADR is accepted.
+`CharacterProfiles` is a real Platform subdomain and is classified explicitly in `MODULE_CATALOG.md`.
 
 It owns only Platform presentation/privacy preferences such as:
 
@@ -220,7 +221,7 @@ This refines the authenticated ownership-context boundary without making `Accoun
 
 ### 9. Current Canary paths remain supported compatibility evidence
 
-This proposed decision does not invalidate delivered Canary compatibility behavior.
+This accepted decision does not invalidate delivered Canary compatibility behavior.
 
 Until separately authorized native implementation and migration tasks are merged and proven:
 
@@ -267,21 +268,31 @@ Its statement that Account Overview was not yet delivered was true for its accep
 - rewrite accepted historical ADRs to match later implementation;
 - remove Canary compatibility before a proven migration/cutover.
 
-## Acceptance and follow-up
+## Implementation and activation boundary
 
-This ADR remains **Proposed** until the repository owner answers Issue #857.
+Acceptance of this ADR is architecture authority only.
 
-If Option A is accepted, the same bounded architecture package should:
+It does not authorize:
 
-1. change this ADR lifecycle to `Accepted`;
-2. remove `ARCH-DEC-0001` from the active architecture decision backlog;
-3. update `MODULE_CATALOG.md` to classify `CharacterProfiles` and clarify Accounts/Characters/PublicGameData responsibilities;
-4. update `DATA_OWNERSHIP.md` to distinguish current Canary preference keys from the native CharacterId target;
-5. update `PORTAL_COMPLETENESS_ARCHITECTURE.md` with the accepted Character Portfolio dependency before PlayerCompanion;
-6. preserve ADR 0008 history unchanged;
-7. leave runtime, schema, transport and cross-repository implementation for separately authorized tasks.
+- Laravel runtime implementation of the native Character Portfolio;
+- database migration from `canary_player_id` to `CharacterId`;
+- native Character Authority HTTP/gRPC/protocol endpoints;
+- Oteryn-v2 or Canary repository writes;
+- changes to FND-02 wire encoding;
+- production deployment or activation;
+- entitlement/product implementation;
+- deletion of any current Canary compatibility path.
 
-No implementation, database migration, Oteryn-v2/Canary repository write, protocol activation, deployment or production change is authorized by accepting this ADR alone.
+Separately authorized follow-up tasks must later define and prove:
+
+1. the concrete Accounts application interface/read model for Character Portfolio;
+2. the authorized Character Authority projection adapter and typed failure/freshness contract;
+3. the Characters command adapter and idempotent operation receipt handling;
+4. the additive `CharacterId` preference migration/backfill/rollback plan;
+5. effective capability composition and source-specific denial reasons;
+6. entitlement-to-game capability exchange where product policy requires it;
+7. PlatformAPI exposure only for concrete approved consumers;
+8. complete integration, migration, negative-path and real E2E evidence before activation.
 
 ## References
 

@@ -27,7 +27,7 @@ Expected examples:
 - primary-email change requests, cooldown and old-address recovery state;
 - account privacy flags and Platform termination state;
 - recovery-key verifier, generation, use and revocation state;
-- platform-specific user preferences;
+- platform-specific user preferences, including character presentation/privacy preferences;
 - platform notification metadata;
 - support tickets/messages, player/content/guild reports, Platform enforcement records and support notification delivery state;
 - Character Bazaar auctions, bids, watchlists, saga state and immutable listing snapshots;
@@ -58,6 +58,8 @@ Other candidates requiring discovery include:
 
 No candidate is confirmed solely by this document.
 
+For the native Oteryn-v2 target, ADR 0030 and the Oteryn-v2 Character Authority contract define a different steady-state boundary: Platform consumes authorized character projections and versioned game-owned commands rather than becoming a direct writer of native game character tables.
+
 ## Write policy
 
 For every shared write path document:
@@ -77,13 +79,17 @@ For every shared write path document:
 
 Public read features such as highscores or character profiles may query Canary-compatible data through dedicated read/query services.
 
+Authenticated native Character Portfolio reads must follow ADR 0030: `Accounts` composes an owner-scoped application result from canonical `AccountId`, an authorized game-owned character projection and Platform-owned presentation/privacy state. A Platform cache/read model is non-authoritative and never establishes current character ownership or mutation authority.
+
 Rules:
 
 - use explicit selected columns rather than depending on arbitrary whole-row shapes when practical;
 - handle missing/deprecated fields deliberately;
 - document freshness/cache expectations;
 - avoid N+1/mass-query patterns;
-- do not accidentally turn read models into mutation-capable domain models.
+- do not accidentally turn read models into mutation-capable domain models;
+- distinguish authoritative empty, stale, unavailable, ambiguous and incompatible projection states where the source contract supports them;
+- never convert dependency failure into an empty owner portfolio.
 
 ## Database credentials
 
@@ -97,6 +103,8 @@ Target production direction:
 - no shared root/admin database credential in application configuration.
 
 The Character Bazaar transfer principal is restricted to approved column-level reads on `accounts`, `players` and `cluster_sessions`, plus `UPDATE (account_id)` on `players`. It cannot read credentials/coins, update other player fields or write sessions.
+
+Native Oteryn-v2 Character Authority integration must not inherit these Canary SQL grants as its steady-state mutation model. Native write authority is expressed through the game-owned command boundary accepted by ADR 0030 and the Oteryn-v2 Character Authority contract.
 
 Exact credential split depends on final deployment/database topology.
 
@@ -120,6 +128,8 @@ A required shared schema change must:
 
 Character Bazaar v1 requires no Canary schema migration. It uses the verified existing `players.account_id`, `accounts.id` and `cluster_sessions` schema at the pinned evidence revision.
 
+ADR 0030 does not authorize a CharacterId migration. A later Platform-owned preference migration must be additive: canonical `CharacterId` is added before legacy `canary_player_id` removal, mapping must come from authoritative migration/projection evidence, unresolved mappings fail closed, rollback remains possible while compatibility references are retained and legacy removal occurs only after all consumers and rollback gates are proven.
+
 ## Identity data special rule
 
 Platform Identity is the authority for supported web-user credentials and the Platform-owned account-security lifecycle. The following are Platform-owned and migrated only by Oteryn Platform:
@@ -135,13 +145,15 @@ Platform Identity is the authority for supported web-user credentials and the Pl
 
 The authenticated Identity and its ready server-resolved binding establish the user-scoped Canary account relationship. Browser-supplied Canary account IDs, web-session IDs or email-change identifiers never establish ownership.
 
+For native Oteryn-v2 integration, canonical cross-boundary account identity is the Platform-issued `AccountId` defined by ADR 0028. Current `canary_account_id` remains compatibility state and must not be promoted to native account identity.
+
 Account-security operations may revoke Platform web sessions and the separately contracted game-authorization generation. They do not delete, unlink, rebind or transfer the bound Canary account or any Canary-owned character data. Platform termination disables and anonymizes Platform login while preserving the immutable binding for audit and safety.
 
 Any new cross-system credential, game-session or account-binding mutation still requires an explicit contract defining ownership, compatibility, rollout and rollback. The delivered lifecycle does not prove that native Canary/external login-server authentication has been replaced by Platform authorization.
 
 ## Character data special rule
 
-Before web character creation/deletion/rename or ownership transfer, verify:
+Before web character creation/deletion/rename or ownership transfer on the current Canary compatibility path, verify:
 
 - required columns/defaults;
 - name uniqueness and normalization rules;
@@ -152,9 +164,26 @@ Before web character creation/deletion/rename or ownership transfer, verify:
 - foreign keys and dependent rows;
 - Canary caches/runtime assumptions.
 
+### Native Oteryn-v2 Character Authority boundary
+
+ADR 0030 accepts the native steady-state split:
+
+- Oteryn Platform Identity owns/issues canonical `AccountId`;
+- Oteryn-v2 Character Authority owns/issues canonical `CharacterId`;
+- Character Authority owns authoritative current `AccountId <-> CharacterId` ownership, character lifecycle, final game-domain capability decisions and native mutation results;
+- `Accounts` owns authenticated Character Portfolio composition for Account Center but consumes an authorized game-owned projection and remains non-authoritative for ownership;
+- `Characters` owns Platform-side command orchestration only; native create, rename, delete/restore/finalize, world transfer and account/Bazaar transfer execute through versioned game-owned command boundaries;
+- a Platform cache, preference row, prior portfolio response or browser-supplied identifier never authorizes a native character mutation;
+- native command handling revalidates current authoritative ownership and preconditions;
+- rename, legal world transfer and legal account transfer preserve `CharacterId`; terminal deletion never permits CharacterId reuse.
+
+Platform must not infer native game-owned capability from raw row counts. In particular, the current Canary-compatible ten-character rule in Account Center remains implementation/compatibility evidence, not the native source of truth. Platform-owned authentication, MFA, legal/business or entitlement gates may be combined with game-owned capability results fail-closed, but a Platform entitlement that changes a game-domain limit must cross an explicit versioned contract rather than bypass Character Authority locally.
+
+Exact transport, command envelope, projection TTL, capability-code vocabulary, entitlement exchange and migration implementation remain separately gated.
+
 ### Character Bazaar transfer boundary
 
-Canary remains the semantic owner of the character and all gameplay-dependent rows keyed by `player_id`. The Platform may change only `players.account_id` through the dedicated transfer contract.
+For the delivered Canary compatibility path, Canary remains the semantic owner of the character and all gameplay-dependent rows keyed by `player_id`. The Platform may change only `players.account_id` through the dedicated transfer contract.
 
 The transfer operation:
 
@@ -167,6 +196,8 @@ The transfer operation:
 - never changes name, skills, inventory, guild, house, market or session state.
 
 A listing is not public merely because the first transfer succeeds. Platform-owned saga state waits for the configured quiescence interval and reconfirms escrow ownership plus absence of a cluster session before activation.
+
+For the native target, Character Bazaar remains a Platform-owned commercial saga while final character ownership mutation is performed atomically by Character Authority through the versioned game-owned command boundary and reconciled from an idempotent game-owned result/receipt. The existing Canary direct-write transfer remains compatibility-only until a separately authorized cutover.
 
 ## Character Bazaar and wallet data
 
@@ -236,15 +267,22 @@ Classification affects logging, access, retention and export behavior.
 
 ## Public community read ownership
 
-Canary owns character levels, vocation, experience, magic/skill values, comments, boss points, guild membership/ranks, houses, deaths and runtime leases. Oteryn Platform reads the approved subset through the dedicated direct-table `SELECT` principal and does not copy these values into a competing mutable source of truth.
+Canary owns character levels, vocation, experience, magic/skill values, comments, boss points, guild membership/ranks, houses, deaths and runtime leases for the current compatibility model. Oteryn Platform reads the approved subset through the dedicated direct-table `SELECT` principal and does not copy these values into a competing mutable source of truth.
 
 Platform Identity owns `public_account_association` and `public_status_visible`. A ready server-resolved Identity-to-Canary binding is required before related characters or status timestamps may be disclosed. Browser-supplied account, Identity or player identifiers are never ownership evidence.
 
 The current character model is global across channels. Per-channel highscore ownership, world-transfer history and selectable achievements have no authoritative current source and remain explicitly unavailable rather than inferred. Canary continues to own guild mutations; Platform delivers directory/search/detail only.
 
+For the native target, public/general projections remain a `PublicGameData` concern while authenticated owner portfolio composition belongs to `Accounts` under ADR 0030. A public projection must not be reused as proof of owner-private character authority.
 
 ## Character profile preference ownership
 
-Platform owns `character_profile_preferences`: the owner-authored public comment, per-character visibility flags and optional main-character selection. Canary remains the source of current character identity, account ownership and gameplay/profile facts. Every management write re-resolves the ready binding and reads the active Canary character before changing Platform state; stored player IDs never become ownership proof.
+Platform owns `character_profile_preferences`: the owner-authored public comment, per-character visibility flags and optional main-character selection.
 
-Account-level association and status flags are disclosure upper bounds. Per-character preferences may only narrow them. Platform comments are bounded plain text rendered escaped and do not update `players.comment`. Main-character replacement locks the Platform Identity row, writes atomically and is proven under concurrent real-MariaDB processes. This boundary authorizes no Canary rename, deletion, restore, transfer, achievement or generic player update.
+Current Canary compatibility behavior uses numeric `canary_player_id`. Canary remains the source of current character identity, account ownership and gameplay/profile facts for that delivered path. Every management write re-resolves the ready binding and reads the active Canary character before changing Platform state; stored player IDs never become ownership proof.
+
+The accepted native target under ADR 0030 uses canonical `CharacterId` for the game-character reference while Platform-local `identity_id` may remain an internal persistence surrogate. The preference record remains Platform-owned presentation/privacy state only. It never proves current game ownership, lifecycle eligibility or mutation authority, and `is_main_character` is presentation preference rather than game state.
+
+Migration from `canary_player_id` must be additive and mapping-driven. Canonical `CharacterId` is added before legacy removal; mapping comes from authoritative migration/projection evidence; missing/conflicting mapping fails closed; rollback remains possible while compatibility state is retained; legacy removal is a later gated task.
+
+Account-level association and status flags are disclosure upper bounds. Per-character preferences may only narrow them. Platform comments are bounded plain text rendered escaped and do not update `players.comment`. Main-character replacement locks the Platform Identity row, writes atomically and is proven under concurrent real-MariaDB processes. This boundary authorizes no Canary/native rename, deletion, restore, transfer, achievement or generic player update.
