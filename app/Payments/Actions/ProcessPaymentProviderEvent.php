@@ -147,6 +147,16 @@ final class ProcessPaymentProviderEvent
             );
         }
 
+        $refundTruth = $this->refundTruth($order, $verified);
+        if ($refundTruth['mismatch'] !== null) {
+            return $this->reconcile(
+                $event,
+                $order,
+                'refund_integrity_mismatch',
+                $refundTruth['mismatch'],
+            );
+        }
+
         $decision = $this->stateMachine->decide($order->status, $verified->eventType);
 
         if ($decision->action === PaymentStateDecision::NOOP) {
@@ -184,6 +194,8 @@ final class ProcessPaymentProviderEvent
             'from_status' => $fromStatus,
             'to_status' => $decision->targetStatus,
             'reason' => $decision->reason,
+            'verified_refund_amount_minor' => $refundTruth['verified_refund_amount_minor'],
+            'refunded_total_minor' => $refundTruth['refunded_total_minor'],
             'version' => $order->version,
             'created_at' => now(),
         ]);
@@ -267,6 +279,126 @@ final class ProcessPaymentProviderEvent
             'verified_currency' => $verified->currency,
             'expected_amount_minor' => $order->amount_minor,
             'verified_amount_minor' => $verified->amountMinor,
+        ];
+    }
+
+    /**
+     * @return array{
+     *     verified_refund_amount_minor: int|null,
+     *     refunded_total_minor: int|null,
+     *     mismatch: array<string, int|string|null>|null
+     * }
+     */
+    private function refundTruth(
+        PaymentOrder $order,
+        VerifiedProviderEvent $verified,
+    ): array {
+        $isPartialRefund = $verified->eventType === 'payment.partially_refunded';
+        $isFullRefund = $verified->eventType === 'payment.refunded';
+
+        if (! $isPartialRefund && ! $isFullRefund) {
+            return [
+                'verified_refund_amount_minor' => null,
+                'refunded_total_minor' => null,
+                'mismatch' => null,
+            ];
+        }
+
+        $latestRefundTransition = PaymentOrderTransition::query()
+            ->where('payment_order_id', $order->id)
+            ->whereNotNull('refunded_total_minor')
+            ->orderByDesc('version')
+            ->first();
+
+        $currentRefundedTotal = $latestRefundTransition->refunded_total_minor ?? 0;
+
+        if ($currentRefundedTotal < 0 || $currentRefundedTotal > $order->amount_minor) {
+            return $this->refundMismatch(
+                'stored_refund_total_out_of_bounds',
+                $order,
+                $verified,
+                $currentRefundedTotal,
+            );
+        }
+
+        if ($order->status === PaymentOrder::STATUS_PARTIALLY_REFUNDED
+            && ! $latestRefundTransition instanceof PaymentOrderTransition) {
+            return $this->refundMismatch(
+                'partial_refund_history_missing',
+                $order,
+                $verified,
+                $currentRefundedTotal,
+            );
+        }
+
+        if ($currentRefundedTotal > 0
+            && $order->status === PaymentOrder::STATUS_SUCCEEDED) {
+            return $this->refundMismatch(
+                'refund_history_state_mismatch',
+                $order,
+                $verified,
+                $currentRefundedTotal,
+            );
+        }
+
+        if ($isPartialRefund) {
+            if ($currentRefundedTotal >= $order->amount_minor
+                || $verified->amountMinor >= $order->amount_minor - $currentRefundedTotal) {
+                return $this->refundMismatch(
+                    'partial_refund_reaches_or_exceeds_order_total',
+                    $order,
+                    $verified,
+                    $currentRefundedTotal,
+                );
+            }
+
+            return [
+                'verified_refund_amount_minor' => $verified->amountMinor,
+                'refunded_total_minor' => $currentRefundedTotal + $verified->amountMinor,
+                'mismatch' => null,
+            ];
+        }
+
+        if ($currentRefundedTotal === $order->amount_minor
+            && $order->status !== PaymentOrder::STATUS_REFUNDED) {
+            return $this->refundMismatch(
+                'refund_history_state_mismatch',
+                $order,
+                $verified,
+                $currentRefundedTotal,
+            );
+        }
+
+        return [
+            'verified_refund_amount_minor' => $verified->amountMinor,
+            'refunded_total_minor' => $order->amount_minor,
+            'mismatch' => null,
+        ];
+    }
+
+    /**
+     * @return array{
+     *     verified_refund_amount_minor: null,
+     *     refunded_total_minor: null,
+     *     mismatch: array<string, int|string|null>
+     * }
+     */
+    private function refundMismatch(
+        string $reason,
+        PaymentOrder $order,
+        VerifiedProviderEvent $verified,
+        int $currentRefundedTotal,
+    ): array {
+        return [
+            'verified_refund_amount_minor' => null,
+            'refunded_total_minor' => null,
+            'mismatch' => [
+                'refund_reason' => $reason,
+                'current_status' => $order->status,
+                'order_amount_minor' => $order->amount_minor,
+                'current_refunded_total_minor' => $currentRefundedTotal,
+                'verified_refund_amount_minor' => $verified->amountMinor,
+            ],
         ];
     }
 

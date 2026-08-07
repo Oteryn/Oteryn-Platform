@@ -12,6 +12,8 @@ use Illuminate\Support\Carbon;
  * @property string|null $from_status
  * @property string $to_status
  * @property string $reason
+ * @property int|null $verified_refund_amount_minor
+ * @property int|null $refunded_total_minor
  * @property int $version
  * @property Carbon $created_at
  */
@@ -26,6 +28,8 @@ final class PaymentOrderTransition extends Model
         'from_status',
         'to_status',
         'reason',
+        'verified_refund_amount_minor',
+        'refunded_total_minor',
         'version',
         'created_at',
     ];
@@ -36,6 +40,8 @@ final class PaymentOrderTransition extends Model
         return [
             'payment_order_id' => 'integer',
             'payment_provider_event_id' => 'integer',
+            'verified_refund_amount_minor' => 'integer',
+            'refunded_total_minor' => 'integer',
             'version' => 'integer',
             'created_at' => 'datetime',
         ];
