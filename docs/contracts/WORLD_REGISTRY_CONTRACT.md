@@ -4,6 +4,19 @@
 
 `GATEWAY PRODUCER IMPLEMENTED — NATIVE ADVERTISEMENT DISABLED BY DEFAULT`
 
+## Native Oteryn-v2 authority note
+
+This document remains authoritative implementation/compatibility evidence for the currently delivered Canary-oriented World Registry and Gateway producer.
+
+For **native Oteryn-v2 world/channel identity and topology semantics**, the narrower accepted authorities are:
+
+- ADR 0029 — Platform-owned UUIDv7 WorldId, ChannelId and first-class topology identity;
+- `OTERYN_V2_WORLD_TOPOLOGY_CONTRACT.md`.
+
+Accordingly, statements below that equate `world_id` with the `game_worlds` database primary key, use `WorldRegistry::forAccount(canary_account_id)`, hard-code integer `channel_id = 1`, or couple a channel to protocol-candidate/endpoint storage describe **LEGACY / CURRENT IMPLEMENTATION COMPATIBILITY STATE**. They do not define the native target identity model.
+
+No current runtime payload, database schema or Canary path is changed by this authority clarification.
+
 This contract defines the authoritative world-routing and ordered gameplay-candidate policy consumed by the Oteryn Game Gateway.
 
 The Platform-owned world route is consumed by the existing Gateway. The native producer extension stores ordered per-world/channel candidates and policy revision, while creating no candidate rows and keeping every candidate disabled by default. It does not prove an Otheryn native consumer, a Rust native consumer, production activation or a production world route.
@@ -25,7 +38,7 @@ Implemented in Oteryn Platform:
 - monotonic `gameplay_policy_revision` on each world;
 - Gateway API v1 optional gameplay offer, deterministic selection and Game Session v2 producer binding.
 
-Sections below that retain the label “Phase 1” describe the original foundation. Where they conflict with this status section, the merged native gameplay contract and this implemented-state section are authoritative.
+Sections below that retain the label “Phase 1” describe the original foundation. Where they conflict with this status section, the merged native gameplay contract and this implemented-state section are authoritative for the implemented compatibility slice. For native WorldId/ChannelId semantics, the native authority note above takes precedence.
 
 Current world authorization policy:
 
@@ -54,7 +67,7 @@ Oteryn Platform owns World Registry configuration and policy.
 
 Game Gateway consumes World Registry through a narrow interface.
 
-Canary remains the runtime owner of each game world/process.
+Canary remains the runtime owner of each game world/process in the compatibility path.
 
 OTClient consumes only sanitized routing data returned by Gateway.
 
@@ -81,7 +94,7 @@ The first release does not implement:
 
 ## World identity
 
-Minimum logical record:
+Minimum logical record in the current compatibility implementation:
 
 ```text
 world_id
@@ -94,17 +107,17 @@ game_host
 game_port
 ```
 
-Semantics:
+Current compatibility semantics:
 
 ```text
-world_id       stable database primary identity
+world_id       stable database primary identity in the current implementation; not native UUIDv7 WorldId
 slug           unique stable machine identifier
 name           player-facing display name
 region         normalized region metadata
 status         operational presentation state
 login_enabled  authoritative gate for new login/session routing
-game_host      authoritative client routing hostname or IP
-game_port      authoritative client routing TCP port
+game_host      authoritative client routing hostname or IP for the current route model
+game_port      authoritative client routing TCP port for the current route model
 ```
 
 Phase 1 persistence is the Platform database table:
@@ -129,6 +142,8 @@ login_enabled: true
 game_host: game-eu.oteryn.com
 game_port: 7172
 ```
+
+The numeric `world_id` in this example is compatibility-state illustration only and is not an example of native canonical WorldId.
 
 No production endpoint should be inferred from this document.
 
@@ -175,11 +190,13 @@ The exact future relationship between runtime health and persisted `status` rema
 
 ## World authorization
 
-Logical interface:
+Current compatibility logical interface:
 
 ```text
 WorldRegistry::forAccount(canary_account_id) -> list<GameWorldRoute>
 ```
+
+For native Oteryn-v2, canonical account authorization identity is Platform `AccountId` under ADR 0028 and `OTERYN_V2_ACCOUNT_IDENTITY_CONTRACT.md`; the exact future versioned API shape is not frozen here.
 
 The interface is account-aware from the first implementation.
 
@@ -197,7 +214,7 @@ Client input cannot grant world access.
 
 Every Gateway-returned character must eventually resolve to a World Registry world.
 
-Logical projection:
+Current compatibility logical projection:
 
 ```text
 character_name
@@ -212,19 +229,19 @@ Before true multiworld rollout, character-to-world persistence/ownership must be
 
 ## Game Session world binding
 
-Every target Game Session is logically bound to one `world_id`.
+Every target Game Session is logically bound to one world identity.
 
-The Phase 1 Game Session value/interface contract carries `worldId`, but no Canary persistence adapter is implemented yet.
+The Phase 1 Game Session value/interface contract carries current compatibility `worldId`, but no Canary persistence adapter is implemented yet. Native Oteryn-v2 uses canonical UUIDv7 WorldId under ADR 0029.
 
 Gateway must eventually create/return routing only for the bound world.
 
 OTClient cannot transform a session into authorization for another world by editing host/port.
 
-Exact enforcement depends on the selected Game Session↔Canary adapter and remains an implementation gate.
+Exact enforcement depends on the selected Game Session/runtime adapter and remains an implementation gate.
 
 ## Sanitized Gateway projection
 
-Target public projection:
+Current compatibility target public projection:
 
 ```json
 {
@@ -238,7 +255,7 @@ Target public projection:
 }
 ```
 
-The example values are illustrative.
+The example values are illustrative. The numeric `id` is not the native canonical WorldId representation.
 
 Do not expose:
 
@@ -272,9 +289,9 @@ Trusted static configuration is no longer the selected Phase 1 persistence mecha
 
 ## Route validation
 
-Persisted schema enforces:
+Persisted schema currently enforces:
 
-- unique world primary identity;
+- unique local world primary identity;
 - unique `slug`;
 - bounded database field types;
 - boolean `login_enabled`;
@@ -295,6 +312,7 @@ Do not allow arbitrary URL schemes/paths where only host+port are expected.
 OTClient is not authoritative for:
 
 - world ID;
+- channel ID;
 - world availability;
 - host;
 - port;
@@ -303,7 +321,7 @@ OTClient is not authoritative for:
 
 Game Gateway must use Registry values, not client-provided routing.
 
-A future admin UI editing worlds is a privileged operation requiring:
+A future admin UI editing worlds/channels is a privileged operation requiring:
 
 - explicit RBAC permission;
 - confirmed MFA under existing admin policy;
@@ -350,7 +368,7 @@ Required before enabling multiple worlds:
 - separate routing endpoints;
 - maintenance behavior;
 - cross-world character name semantics if databases are separated;
-- exact Canary database/runtime topology;
+- exact compatibility/runtime topology where Canary remains involved;
 - E2E per world.
 
 ## Multiregion evolution
@@ -368,35 +386,35 @@ region-specific Gateway endpoints
 
 The first release must not make client geolocation or latency measurements authoritative for access control.
 
-## Future channel extension
+## Channel evolution
 
-Future routing may add:
+The current implementation stores integer `channel_id` on protocol candidates and uses channel `1`. That state is compatibility-only.
+
+Native target identity is governed by ADR 0029 and `OTERYN_V2_WORLD_TOPOLOGY_CONTRACT.md`:
 
 ```text
-world_id
-channel_id
-game_host
-game_port
+WorldId   = UUIDv7
+ChannelId = UUIDv7
+ChannelRef = WorldId + ChannelId
 ```
 
-World remains the persistent player-facing logical world.
-
-Channel is an allocated runtime subdivision/instance.
+World remains the persistent player-facing logical world. Channel is a first-class topology subdivision with identity independent from route, endpoint, protocol candidate, GameNode or deployment.
 
 Channel allocation must not be implemented by overloading `world_id`.
 
-Authentication remains:
+Authentication/admission remains conceptually:
 
 ```text
 Identity
 -> Ticket
 -> Gateway
 -> world authorization
--> optional future channel allocation
+-> channel/topology authorization
+-> authoritative game admission
 -> Game Session
 ```
 
-Gameplay-state synchronization between channels is outside this contract.
+Gameplay-state synchronization between channels is outside this compatibility contract.
 
 ## Maintenance behavior
 
@@ -411,12 +429,12 @@ Effects:
 
 - no new Game Sessions;
 - Gateway does not return the world as login-available;
-- existing player connections are governed by separate operational/Canary policy;
+- existing player connections are governed by separate operational/runtime policy;
 - Registry alone does not imply forced disconnect.
 
 ## Endpoint changes
 
-Changing `game_host`/`game_port` affects new routing responses.
+Changing `game_host`/`game_port` affects new routing responses in the current compatibility implementation.
 
 Recommended safe operational sequence:
 
@@ -427,6 +445,8 @@ Recommended safe operational sequence:
 5. re-enable login.
 
 Exact deployment automation remains outside Phase 1.
+
+Under native ADR 0029 semantics, an endpoint change does not by itself change WorldId or ChannelId.
 
 ## Phase 1 tests
 
@@ -455,36 +475,41 @@ Before public Gateway use, prove:
 - single-world character adapter does not claim intrinsic `players.world_id`;
 - public projection does not expose private configuration fields.
 
-## Required multiworld tests before Phase 9 completion
+## Required native topology tests before activation
 
-- account sees only authorized worlds;
-- character lists preserve correct world association;
-- session for world A cannot be used for world B according to the selected Canary adapter;
-- maintenance world denies new sessions;
-- one world outage does not corrupt other world routing;
-- region/routing fields are returned correctly;
-- duplicate/ambiguous character/world mapping fails closed;
-- dynamic endpoint routing uses the exact selected world.
+In addition to compatibility tests, a separately authorized native implementation must prove:
+
+- canonical AccountId is used for native account-aware authorization;
+- WorldId and ChannelId preserve all 128 bits and reject nil/invalid/mixed identifier forms;
+- ChannelId is validated in WorldId scope;
+- local row IDs never leak as canonical native WorldId/ChannelId;
+- route or GameNode replacement preserves logical ChannelRef when appropriate;
+- stale topology revision/ownership generation fails closed;
+- one world/channel outage does not corrupt unrelated routing;
+- legacy numeric channel `1` cannot be accepted as native ChannelId;
+- rollback preserves already issued canonical identifiers.
 
 ## Versioning
 
-Initial registry/API projection belongs to:
+Initial implemented compatibility registry/API projection belongs to:
 
 ```text
 protocol_version = 1
 ```
 
-Additive optional fields may be backward compatible.
+Additive optional fields may be backward compatible within that compatibility contract.
 
-Changing the meaning of `world_id`, session world binding, or routing authority is a breaking contract change.
+Changing the meaning of native WorldId, ChannelId, ChannelRef scope or routing authority is governed by ADR 0029 and the native topology contract and is a breaking semantic change.
 
 ## Remaining unknowns
 
 1. Exact production Oteryn world public hostname/port.
 2. Character-to-world persistence model for true multiworld.
-3. Exact Game Session world-scope enforcement in Canary.
+3. Exact native Game Session world/channel enforcement implementation.
 4. Future runtime health source and how it affects persisted `status` versus live readiness.
-5. Future admin/world-management surface and its privileged write workflow.
+5. Future admin/world/channel-management surface and its privileged write workflow.
 6. Future per-account world entitlement persistence/policy beyond the current single-world-ready MVP.
+7. Exact first-class Channel persistence schema, allocation policy and topology fencing representation.
+8. Exact FND-02 protocol/transport tuple after cross-repository reconciliation.
 
-These are not blockers for the implemented Phase 1 registry foundation, but they must be resolved before the corresponding functionality is implemented or claimed.
+These are not blockers for recording the accepted identity/topology architecture, but they must be resolved before the corresponding functionality is implemented or claimed.
