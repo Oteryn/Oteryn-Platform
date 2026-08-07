@@ -12,6 +12,7 @@ required_reads:
 search_first:
   - issue #858
   - PR #859
+  - PR #861
 optional_reads: []
 ---
 
@@ -19,17 +20,18 @@ optional_reads: []
 
 ## Goal
 
-Repair Issue #858 so invalid active-task checkpoint state cannot remain nominally mergeable through the protected required CI gates, while preserving the blocked Native Character Portfolio architecture decision and changing no runtime/product/production behavior.
+Repair Issue #858 so invalid active-task governance cannot remain nominally mergeable through the protected required CI gates, and restore resulting-main Agent Governance after the now-merged Native Character Portfolio architecture task reaches terminal closeout.
 
 ## Acceptance criteria
 
-- [x] The current Native Character Portfolio active record satisfies checkpoint contract version 1 without accepting Option A/B/C.
+- [x] The Native Character Portfolio task uses canonical checkpoint contract version 1 without re-opening the accepted Option A decision.
+- [x] The now-terminal Native Character Portfolio task is moved from active state to archive state.
 - [x] A branch-protection-required CI context fails closed when active task checkpoints violate the canonical contract.
 - [x] CI regression coverage proves the protected workflow retains that governance gate.
-- [ ] Agent Governance and repository-required exact-head CI pass.
+- [ ] Agent Governance and repository-required exact-head CI pass on PR #861.
 - [x] E2E is recorded as `NOT_APPLICABLE` with a concrete non-runtime reason.
 - [ ] Exact-head self-review reports zero material findings.
-- [ ] Issue #858 is closed and this task is archived after merge.
+- [ ] Issue #858 is closed and this repair task is archived after merge.
 
 ## Ownership
 
@@ -37,6 +39,7 @@ Repair Issue #858 so invalid active-task checkpoint state cannot remain nominall
 owned_paths:
   - docs/agents/tasks/active/OTERYN-20260808-agent-governance-required-gate-repair.md
   - docs/agents/tasks/active/OTERYN-20260808-native-character-portfolio-context.md
+  - docs/agents/tasks/archive/OTERYN-20260808-native-character-portfolio-context.md
   - .github/workflows/ci.yml
   - tests/ci/test_required_test_gate.py
 modules:
@@ -44,7 +47,7 @@ modules:
   - ci-repair
 dependencies:
   - issue #858
-  - PR #859 retains architecture-decision ownership and must rebase after this repair
+  - PR #859 merged as 73c2426b37cfd5028fe9fbcec8254cc8aab3bc80
 blockers:
   - none
 cross_repository_tasks:
@@ -58,25 +61,30 @@ validation_gate:
   version: 2
   intensity: HEIGHTENED
   classified_by: implementation owner
-  classified_at: 2026-08-07T22:55:20Z
+  classified_at: 2026-08-07T22:59:53Z
   risk: high
   triggers:
     - CI merge enforcement
     - active-task governance
+    - terminal task closeout
   unknown_or_conflict: []
-  rationale: The repair changes a branch-protection-required CI path and governance validity enforcement, but no runtime/product/production behavior.
+  rationale: The repair changes a branch-protection-required CI path and governance lifecycle state, but no runtime/product/production behavior.
   self_review:
     result: PENDING
     exact_head: none
     evidence: []
 ```
 
+## Baseline drift disposition
+
+During repair execution, `main` advanced from `b3788c3414b716743baa0500903b02f2e64cca7f` to `73c2426b37cfd5028fe9fbcec8254cc8aab3bc80` because PR #859 was owner-approved and merged. That merge already repaired the malformed Native Character Portfolio checkpoint and accepted Option A. This repair therefore preserves the new canonical architecture state, archives the now-terminal task, and retains only the independent merge-gate/regression fix from #858.
+
 ## Context checkpoint
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-07T22:55:20Z
-head: e1989e49bdecd6d02dd41cb4b01b820fd2fb489c
+updated_at: 2026-08-07T22:59:53Z
+head: 4a2bb58d13d850c332db5b508e6d22dc0434d792
 branch: fix/OTERYN-20260808-agent-governance-required-gate
 pr: 861
 status: validating
@@ -86,38 +94,48 @@ context_routes:
 owned_paths:
   - docs/agents/tasks/active/OTERYN-20260808-agent-governance-required-gate-repair.md
   - docs/agents/tasks/active/OTERYN-20260808-native-character-portfolio-context.md
+  - docs/agents/tasks/archive/OTERYN-20260808-native-character-portfolio-context.md
   - .github/workflows/ci.yml
   - tests/ci/test_required_test_gate.py
 proven:
-  - Issue #858 records current main Agent Governance failure caused first by an invalid Native Character Portfolio active-task checkpoint.
-  - Protected main requires classify-changes and test; classify-changes now validates all active task checkpoints with the canonical validator.
-  - PR #859 remains draft and blocked on an explicit owner architecture decision; repair coordination was recorded on that PR without selecting an option.
+  - PR #859 merged as main commit 73c2426b37cfd5028fe9fbcec8254cc8aab3bc80 after exact-head Agent Governance and CI passed and Issue #857 was closed.
+  - Main Agent Governance run 31225419202 fails only because the merged PR #859 task remains active with a stale merge next action and no explicit terminal archive transition.
+  - Protected main requires classify-changes and test; this repair makes classify-changes validate all active task checkpoints with the canonical validator.
+  - tests/ci/test_required_test_gate.py now asserts that the required classifier retains active checkpoint validation.
 derived:
-  - The repaired required classifier prevents the same invalid checkpoint state from remaining nominally mergeable even if the separate path-filtered Agent Governance workflow is not itself a required status.
+  - The repair must be rebased onto current main, preserve the accepted architecture, archive the terminal PR #859 task, and keep the independent required-CI checkpoint gate.
 unknown: []
 conflicts: []
 first_failure:
-  marker: active task checkpoint rejected by Agent Governance
-  evidence: Issue #858; main Agent Governance run 31223532847 and PR #859 follow-up run 31224204311
+  marker: terminal_pr_stale_next_action on resulting main
+  evidence: Agent Governance run 31225419202 reports terminal_pr_stale_next_action and terminal_pr_active_task for PR #859.
 rejected_hypotheses:
-  - Normal CI being green is sufficient: branch protection did not previously validate active checkpoint structure and allowed the invalid task state to merge.
+  - The repair should overwrite the Native Character Portfolio architecture checkpoint: PR #859 already supplied the canonical accepted Option A state on current main.
+  - Normal CI being green is sufficient: branch protection did not previously validate active checkpoint structure and allowed the #858 failure mode to merge.
 changed_paths:
+  - .github/workflows/ci.yml
   - docs/agents/tasks/active/OTERYN-20260808-agent-governance-required-gate-repair.md
   - docs/agents/tasks/active/OTERYN-20260808-native-character-portfolio-context.md
-  - .github/workflows/ci.yml
+  - docs/agents/tasks/archive/OTERYN-20260808-native-character-portfolio-context.md
   - tests/ci/test_required_test_gate.py
 validation:
-  - command: exact-head GitHub Actions on PR #861
+  - command: PR #859 exact-head Agent Governance and required CI
+    result: PASS
+    evidence: PR #859 validation records exact head b3e08b2251a755baddacfe709504227b8534dfb5 with Agent Governance and CI PASS.
+  - command: resulting-main Agent Governance run 31225419202
+    result: FAIL
+    evidence: only terminal task liveness remains invalid after PR #859 merge; structural checkpoint validation passes.
+  - command: PR #861 exact-head GitHub Actions
     result: NOT_RUN
-    evidence: final required checks are pending inspection on the current repair head
+    evidence: current repair branch must first reconcile baseline drift to main 73c2426b37cfd5028fe9fbcec8254cc8aab3bc80.
   - command: repair E2E
     result: NOT_APPLICABLE
-    evidence: governance/task/CI-only repair creates no executable user or integration journey
+    evidence: governance/task/CI-only repair creates no executable user or integration journey.
 blockers:
   - none
-next_action: Inspect PR #861 exact-head Agent Governance and required CI results, then repair only evidence-backed failures before final self-review.
+next_action: Reconcile PR #861 onto current main with the terminal architecture task archived, then validate exact-head Agent Governance and required CI before self-review.
 ```
 
 ## Notes
 
-No Laravel runtime, application data, authentication, payment, external repository, deployment or production state is changed. The architecture decision in PR #859 remains owner-blocked and Proposed.
+No Laravel runtime, application data, authentication, payment, external repository, deployment or production state is changed. ADR 0030 remains Accepted and Option A is not re-opened.
