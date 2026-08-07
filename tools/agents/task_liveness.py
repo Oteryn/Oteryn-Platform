@@ -519,7 +519,8 @@ def evaluate_task(
             findings.append(Finding("error", "github_state_unavailable", str(exc)))
         else:
             terminal = merged or state == "closed"
-            if head_repo.casefold() != repository.casefold():
+            head_repo_matches = head_repo.casefold() == repository.casefold()
+            if not head_repo_matches:
                 findings.append(
                     Finding(
                         "error",
@@ -528,7 +529,31 @@ def evaluate_task(
                     )
                 )
 
+            terminal_branch_identity_valid = True
             if terminal:
+                if _none(task.branch):
+                    terminal_branch_identity_valid = False
+                    findings.append(
+                        Finding(
+                            "error",
+                            "missing_branch_identity",
+                            f"terminal PR #{pr_number} task has no claimed branch",
+                        )
+                    )
+                elif task.branch != head_ref:
+                    terminal_branch_identity_valid = False
+                    findings.append(
+                        Finding(
+                            "error",
+                            "branch_pr_mismatch",
+                            f"task branch {task.branch!r} does not match PR #{pr_number} head {head_ref!r}",
+                        )
+                    )
+
+            if terminal and (not head_repo_matches or not terminal_branch_identity_valid):
+                live_state = "TERMINAL_PR_IDENTITY_INVALID"
+                ownership_active = False
+            elif terminal:
                 live_state = "TERMINAL_ARCHIVE_PENDING"
                 ownership_active = False
                 action = task.next_action.casefold()
