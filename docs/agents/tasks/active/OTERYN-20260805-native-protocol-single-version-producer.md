@@ -9,7 +9,7 @@ phase: validate
 branch: feat/OTS-20260804-native-protocol-single-version-producer
 base_branch: main
 created: 2026-08-05T14:58:00+02:00
-updated: 2026-08-07T09:25:00+02:00
+updated: 2026-08-07T09:28:00+02:00
 risk: high
 execution_mode: github-only
 implementation_authorized: true
@@ -79,8 +79,8 @@ Historical independent audits remain useful falsification evidence but are not a
 
 - The former repository-wide `league/commonmark` advisory blocker was repaired on protected main by PR #768 (`league/commonmark` 2.9.0); no advisory suppression was introduced.
 - Protected main later incorporated the owner-directed one-Issue/one-owner remediation model and reduced Actions fan-out in PR #764, plus lifecycle closeouts and Wiki fixture repair PR #751.
-- Producer synchronization currently includes protected main `503eb774bb485703b1f2212857ef5c1375c8ebbb` as a parent through synchronization commit `e748aa4c674448a9bb3f07284a4393c09e8f25ea` before this documentation checkpoint commit.
-- The effective PR #542 diff before this checkpoint remained exactly 24 intended producer implementation/migration/contract/test/workflow/task paths and `behind_by = 0`.
+- Producer synchronization includes protected main `503eb774bb485703b1f2212857ef5c1375c8ebbb` as a parent through synchronization commit `e748aa4c674448a9bb3f07284a4393c09e8f25ea` before the final documentation checkpoints.
+- The effective PR #542 diff remains exactly 24 intended producer implementation/migration/contract/test/workflow/task paths and was `behind_by = 0` at the synchronized candidate.
 
 ## Validation gate
 
@@ -89,7 +89,7 @@ validation_gate:
   version: 2
   intensity: HEIGHTENED
   classified_by: ChatGPT
-  classified_at: 2026-08-07T09:25:00+02:00
+  classified_at: 2026-08-07T09:28:00+02:00
   risk: high
   triggers:
     - public protocol identity and downgrade boundary
@@ -103,43 +103,76 @@ validation_gate:
     exact_head: resolve-live-after-this-checkpoint-commit
     evidence:
       - Historical #756/#760 findings are repaired and preserved as provenance.
-      - Final full-diff review must be repeated on the live immutable head after this checkpoint commit.
+      - Final full-diff review must be anchored to the live immutable head after this checkpoint commit.
   external_repair_auditor_required: false
 ```
 
 ## Context checkpoint
 
 ```yaml
-checkpoint_version: 2
+checkpoint_version: 1
+updated_at: 2026-08-07T09:28:00+02:00
+head: resolve-live-after-this-checkpoint-commit
+branch: feat/OTS-20260804-native-protocol-single-version-producer
+pr: 542
+status: validating
 phase: validate
 session_id: chatgpt-20260807-0914-producer-closeout
 session_role: implementer-validator
 execution_mode: github-only
-status: validating
 project_lane: oteryn-platform-core
 task_kind: implementation
 context_pressure: medium
 context_growth: stable
 decomposition_decision: phased
-branch: feat/OTS-20260804-native-protocol-single-version-producer
-pr: 542
-head: resolve-live-after-this-checkpoint-commit
-current_main_before_checkpoint: 503eb774bb485703b1f2212857ef5c1375c8ebbb
-last_completed_step: synchronized current protected main into producer and reclassified final gate under current one-owner remediation policy
+context_routes:
+  - agent-governance
+  - api
+  - game-gateway
+  - protocol
+  - security
+  - testing
+  - workflows
+owned_paths:
+  - app/GameAuth/Worlds/**
+  - app/Http/Controllers/GameAuth/GameLoginContextController.php
+  - database/migrations/**native_protocol_identity**
+  - services/game-gateway/**
+  - tests/Feature/GameAuth/**
+  - docs/contracts/GAME_SESSION_CANARY_CONTRACT.md
+  - docs/contracts/WORLD_REGISTRY_CONTRACT.md
+  - docs/operations/OTERYN_NATIVE_PROTOCOL_PRODUCER.md
+  - .github/workflows/native-protocol-contract-audits.yml
+  - .github/workflows/build-synology-staging-images.yml
+  - docs/agents/tasks/active/OTERYN-20260805-native-protocol-single-version-producer.md
+changed_paths:
+  - app/GameAuth/Worlds/DatabaseWorldRegistry.php
+  - app/GameAuth/Worlds/GameWorldProtocolCandidate.php
+  - app/GameAuth/Worlds/GameWorldProtocolCandidateRoute.php
+  - app/Http/Controllers/GameAuth/GameLoginContextController.php
+  - database/migrations/2026_08_05_130000_migrate_native_protocol_identity_to_version.php
+  - services/game-gateway/**
+  - tests/Feature/GameAuth/**
+  - docs/contracts/GAME_SESSION_CANARY_CONTRACT.md
+  - docs/contracts/WORLD_REGISTRY_CONTRACT.md
+  - .github/workflows/native-protocol-contract-audits.yml
+  - .github/workflows/build-synology-staging-images.yml
+  - docs/agents/tasks/active/OTERYN-20260805-native-protocol-single-version-producer.md
+last_completed_step: synchronized current protected main, repaired the checkpoint schema rejected by Agent Governance, and prepared the final HEIGHTENED exact-head validation generation
 proven:
   - PR #762 fixes audit #760 findings and passed focused exact-head Go validation before integration.
   - Exact canonical JSON-key allowlists close the case-insensitive alias path discovered during repair self-review.
-  - CommonMark 2.9.0 security repair is on protected main and therefore included by current synchronization.
+  - CommonMark 2.9.0 security repair is on protected main and included by current synchronization.
   - Current protected-main remediation policy does not require a second implementation auditor to approve the repair.
   - Production activation remains disabled and unauthorized.
 derived:
-  - Historical CI on superseded runtime heads is supporting evidence only; final exact-head validation must be re-established after current-main synchronization.
+  - Historical CI on superseded runtime heads is supporting evidence only; final exact-head validation must be re-established after current-main synchronization and checkpoint correction.
 unknown:
   - Terminal outcome of applicable workflows emitted for the new final PR #542 head.
 conflicts: []
 first_failure:
-  marker: historical-audit-760-material-findings
-  evidence: OTERYN-AUD-760-01 and OTERYN-AUD-760-02, both repaired by PR #762
+  marker: final-agent-governance-checkpoint-schema
+  evidence: run 31157556134 rejected missing changed_paths/context_routes/owned_paths/updated_at and checkpoint_version=2; this checkpoint restores governance contract version 1 and all required fields
 rejected_hypotheses:
   - suppress CommonMark advisories instead of consuming the protected-main dependency repair
   - retain a mandatory different-agent repair-audit handoff after protected-main governance explicitly removed it
@@ -153,9 +186,12 @@ validation:
   - command: PR #762 focused Game Gateway validation
     result: PASS
     evidence: run 31153521116 on 042d7aa4fb03f3a6a8b7c63aa79b2cbe0f0f9723
+  - command: final Agent Governance generation before checkpoint schema repair
+    result: FAIL
+    evidence: run 31157556134; deterministic checkpoint schema failure repaired by this commit
 blockers:
-  - final exact-head self-review and HEIGHTENED validation not yet recorded for the post-synchronization head
-next_action: Resolve the live PR #542 head, inspect its full diff and review state, record exact-head self-review, then verify all applicable exact-head CI/E2E and merge only if every gate remains green.
+  - final exact-head self-review and HEIGHTENED validation not yet recorded for the checkpoint-corrected head
+next_action: Resolve the live PR #542 head, record exact-head full-diff self-review, then verify all applicable exact-head CI/E2E and merge only if every gate remains green.
 ```
 
 ## Recovery checkpoint
@@ -166,8 +202,8 @@ recovery:
   generation: 1
   session_id: chatgpt-20260807-0914-producer-closeout
   session_started_at: 2026-08-07T09:14:00+02:00
-  checkpointed_at: 2026-08-07T09:25:00+02:00
-  last_progress_at: 2026-08-07T09:25:00+02:00
+  checkpointed_at: 2026-08-07T09:28:00+02:00
+  last_progress_at: 2026-08-07T09:28:00+02:00
   phase: final-validation
   exact_head: resolve-live-after-this-checkpoint-commit
   pull_request: 542
