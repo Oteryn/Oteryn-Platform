@@ -7,6 +7,7 @@ import hashlib
 import json
 import os
 import re
+import subprocess
 import sys
 import urllib.error
 import urllib.parse
@@ -30,6 +31,7 @@ RESERVED_NAME_PARTS = ("release", "rollback", "recovery", "backup")
 CONFIRMATION = "DELETE_REVIEWED_TERMINAL_MERGED_BRANCHES_ISSUE_658"
 TASK_BRANCH_RE = re.compile(r"^\s*(?:branch|lock_branch):\s*([^\s#]+)\s*$", re.M)
 REPAIR_ISSUE_RE = re.compile(r"^repair/issue-(\d+)$")
+FULL_SHA_RE = re.compile(r"^[0-9a-fA-F]{40}$")
 
 
 class ValidationError(RuntimeError):
@@ -98,15 +100,65 @@ class GitHubClient:
             next_url = _next_link(headers.get("link", ""))
         return items
 
+    def _delete_ref_with_lease(self, branch: str, expected_sha: str) -> None:
+        if not FULL_SHA_RE.fullmatch(expected_sha):
+            raise ValidationError(
+                f"atomic delete expected SHA for {branch} must be a full 40-character hexadecimal object ID"
+            )
+        ref = f"refs/heads/{branch}"
+        remote = getattr(self, "git_remote", "origin")
+        command = [
+            "git",
+            "push",
+            "--porcelain",
+            f"--force-with-lease={ref}:{expected_sha}",
+            remote,
+            f":{ref}",
+        ]
+        try:
+            result = subprocess.run(
+                command,
+                check=False,
+                capture_output=True,
+                text=True,
+                timeout=60,
+            )
+        except FileNotFoundError as exc:
+            raise ValidationError(
+                "atomic branch deletion requires the git executable in the checked-out repository environment"
+            ) from exc
+        except subprocess.TimeoutExpired as exc:
+            raise ValidationError(
+                f"atomic branch deletion timed out for {branch}; remote state must be revalidated"
+            ) from exc
+        if result.returncode == 0:
+            return
+
+        current_sha = _ref_sha(self.get_ref(branch))
+        if current_sha is None:
+            raise ValidationError(
+                f"atomic branch deletion returned failure for {branch} but the remote ref is now missing; "
+                "result is ambiguous and requires manual evidence review"
+            )
+        if current_sha != expected_sha:
+            raise ValidationError(
+                f"atomic delete lease rejected for {branch}: expected {expected_sha}, got {current_sha}"
+            )
+        raise ValidationError(
+            f"atomic branch deletion push was rejected for {branch} while the reviewed SHA remained current"
+        )
+
     def delete_branch(self, branch: str, *, expected_sha: str | None = None) -> None:
-        if expected_sha is not None:
-            current_sha = _ref_sha(self.get_ref(branch))
-            if current_sha != expected_sha:
-                raise ValidationError(
-                    f"pre-delete SHA drift for {branch}: expected {expected_sha}, got {current_sha or 'missing'}"
-                )
-        encoded = "heads/" + urllib.parse.quote(branch, safe="/")
-        self.request("DELETE", f"/repos/{self.repo}/git/refs/{encoded}", expected=(204,))
+        current_sha = _ref_sha(self.get_ref(branch))
+        if current_sha is None:
+            raise ValidationError(f"pre-delete branch is missing: {branch}")
+        if expected_sha is None:
+            expected_sha = current_sha
+        elif current_sha != expected_sha:
+            raise ValidationError(
+                f"pre-delete SHA drift for {branch}: expected {expected_sha}, got {current_sha}"
+            )
+        self._delete_ref_with_lease(branch, expected_sha)
 
     def create_branch(self, branch: str, sha: str) -> None:
         self.request(
