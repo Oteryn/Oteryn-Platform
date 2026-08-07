@@ -464,20 +464,57 @@ class BranchLifecycleTest(unittest.TestCase):
         client.delete_branch("recovery-test/example")
         self.assertEqual([("recovery-test/example", "a" * 40)], client.leases)
 
+    def test_github_remote_normalization_accepts_supported_forms(self) -> None:
+        expected = "blakinio/Oteryn-Platform"
+        for remote in (
+            "https://github.com/blakinio/Oteryn-Platform.git",
+            "git@github.com:blakinio/Oteryn-Platform.git",
+            "ssh://git@github.com/blakinio/Oteryn-Platform.git",
+        ):
+            with self.subTest(remote=remote):
+                self.assertEqual(
+                    expected, branch_lifecycle._github_repository_from_remote(remote)
+                )
+        for remote in (
+            "https://gitlab.com/blakinio/Oteryn-Platform.git",
+            "file:///tmp/Oteryn-Platform",
+            "https://github.com/blakinio/Oteryn-Platform/extra",
+            "https://token@github.com/blakinio/Oteryn-Platform.git",
+        ):
+            with self.subTest(remote=remote):
+                self.assertIsNone(branch_lifecycle._github_repository_from_remote(remote))
+
     def test_github_client_atomic_delete_uses_exact_remote_lease_without_token(self) -> None:
         client = branch_lifecycle.GitHubClient(
-            "blakinio/Oteryn-Platform", "super-secret-token"
+            "blakinio/Oteryn-Platform", "super-secret-token", root=self.root
         )
         expected_sha = "a" * 40
         client.get_ref = lambda branch: {"object": {"sha": expected_sha}}
-        completed = branch_lifecycle.subprocess.CompletedProcess(
-            args=[], returncode=0, stdout="", stderr=""
-        )
+
+        def git_run(command: list[str], **kwargs: object):
+            if command == ["git", "rev-parse", "--show-toplevel"]:
+                return branch_lifecycle.subprocess.CompletedProcess(
+                    args=command, returncode=0, stdout=f"{self.root}\n", stderr=""
+                )
+            if command == ["git", "remote", "get-url", "--push", "--all", "origin"]:
+                return branch_lifecycle.subprocess.CompletedProcess(
+                    args=command,
+                    returncode=0,
+                    stdout="git@github.com:blakinio/Oteryn-Platform.git\n",
+                    stderr="",
+                )
+            if command[:2] == ["git", "push"]:
+                return branch_lifecycle.subprocess.CompletedProcess(
+                    args=command, returncode=0, stdout="", stderr=""
+                )
+            raise AssertionError(f"unexpected git command: {command!r}")
+
         with mock.patch.object(
-            branch_lifecycle.subprocess, "run", return_value=completed
+            branch_lifecycle.subprocess, "run", side_effect=git_run
         ) as run:
             client.delete_branch("docs/merged", expected_sha=expected_sha)
-        command = run.call_args.args[0]
+        self.assertEqual(3, run.call_count)
+        command = run.call_args_list[2].args[0]
         self.assertEqual(
             [
                 "git",
@@ -490,13 +527,102 @@ class BranchLifecycleTest(unittest.TestCase):
             command,
         )
         self.assertNotIn("super-secret-token", " ".join(command))
-        self.assertFalse(run.call_args.kwargs["check"])
-        self.assertTrue(run.call_args.kwargs["capture_output"])
-        self.assertEqual(60, run.call_args.kwargs["timeout"])
+        for call in run.call_args_list:
+            self.assertEqual(self.root, call.kwargs["cwd"])
+            self.assertFalse(call.kwargs["check"])
+            self.assertTrue(call.kwargs["capture_output"])
+            self.assertTrue(call.kwargs["text"])
+        self.assertEqual(60, run.call_args_list[2].kwargs["timeout"])
+
+    def test_github_client_atomic_delete_rejects_foreign_remote_before_push(self) -> None:
+        client = branch_lifecycle.GitHubClient(
+            "blakinio/Oteryn-Platform", "token", root=self.root
+        )
+        expected_sha = "a" * 40
+        client.get_ref = lambda branch: {"object": {"sha": expected_sha}}
+
+        def git_run(command: list[str], **kwargs: object):
+            if command == ["git", "rev-parse", "--show-toplevel"]:
+                return branch_lifecycle.subprocess.CompletedProcess(
+                    args=command, returncode=0, stdout=f"{self.root}\n", stderr=""
+                )
+            if command == ["git", "remote", "get-url", "--push", "--all", "origin"]:
+                return branch_lifecycle.subprocess.CompletedProcess(
+                    args=command,
+                    returncode=0,
+                    stdout="https://github.com/someone/fork.git\n",
+                    stderr="",
+                )
+            raise AssertionError("destructive push must not execute for a foreign remote")
+
+        with mock.patch.object(
+            branch_lifecycle.subprocess, "run", side_effect=git_run
+        ) as run:
+            with self.assertRaisesRegex(
+                branch_lifecycle.ValidationError, "remote repository mismatch"
+            ):
+                client.delete_branch("docs/merged", expected_sha=expected_sha)
+        self.assertEqual(2, run.call_count)
+
+    def test_github_client_atomic_delete_rejects_wrong_git_root_before_remote(self) -> None:
+        client = branch_lifecycle.GitHubClient(
+            "blakinio/Oteryn-Platform", "token", root=self.root
+        )
+        expected_sha = "a" * 40
+        client.get_ref = lambda branch: {"object": {"sha": expected_sha}}
+        foreign_root = self.root / "foreign"
+        completed = branch_lifecycle.subprocess.CompletedProcess(
+            args=["git", "rev-parse", "--show-toplevel"],
+            returncode=0,
+            stdout=f"{foreign_root}\n",
+            stderr="",
+        )
+        with mock.patch.object(
+            branch_lifecycle.subprocess, "run", return_value=completed
+        ) as run:
+            with self.assertRaisesRegex(
+                branch_lifecycle.ValidationError, "does not match the Git working tree"
+            ):
+                client.delete_branch("docs/merged", expected_sha=expected_sha)
+        self.assertEqual(1, run.call_count)
+        self.assertEqual(self.root, run.call_args.kwargs["cwd"])
+
+    def test_github_client_atomic_delete_rejects_ambiguous_push_urls(self) -> None:
+        client = branch_lifecycle.GitHubClient(
+            "blakinio/Oteryn-Platform", "token", root=self.root
+        )
+        expected_sha = "a" * 40
+        client.get_ref = lambda branch: {"object": {"sha": expected_sha}}
+
+        def git_run(command: list[str], **kwargs: object):
+            if command == ["git", "rev-parse", "--show-toplevel"]:
+                return branch_lifecycle.subprocess.CompletedProcess(
+                    args=command, returncode=0, stdout=f"{self.root}\n", stderr=""
+                )
+            if command == ["git", "remote", "get-url", "--push", "--all", "origin"]:
+                return branch_lifecycle.subprocess.CompletedProcess(
+                    args=command,
+                    returncode=0,
+                    stdout=(
+                        "https://github.com/blakinio/Oteryn-Platform.git\n"
+                        "git@github.com:blakinio/Oteryn-Platform.git\n"
+                    ),
+                    stderr="",
+                )
+            raise AssertionError("destructive push must not execute for ambiguous push URLs")
+
+        with mock.patch.object(
+            branch_lifecycle.subprocess, "run", side_effect=git_run
+        ) as run:
+            with self.assertRaisesRegex(
+                branch_lifecycle.ValidationError, "exactly one push URL"
+            ):
+                client.delete_branch("docs/merged", expected_sha=expected_sha)
+        self.assertEqual(2, run.call_count)
 
     def test_github_client_atomic_delete_rejects_last_instruction_race(self) -> None:
         client = branch_lifecycle.GitHubClient(
-            "blakinio/Oteryn-Platform", "super-secret-token"
+            "blakinio/Oteryn-Platform", "super-secret-token", root=self.root
         )
         expected_sha = "a" * 40
         advanced_sha = "b" * 40
@@ -506,6 +632,17 @@ class BranchLifecycleTest(unittest.TestCase):
             return {"object": {"sha": state["sha"]}}
 
         def race_remote(command: list[str], **kwargs: object):
+            if command == ["git", "rev-parse", "--show-toplevel"]:
+                return branch_lifecycle.subprocess.CompletedProcess(
+                    args=command, returncode=0, stdout=f"{self.root}\n", stderr=""
+                )
+            if command == ["git", "remote", "get-url", "--push", "--all", "origin"]:
+                return branch_lifecycle.subprocess.CompletedProcess(
+                    args=command,
+                    returncode=0,
+                    stdout="git@github.com:blakinio/Oteryn-Platform.git\n",
+                    stderr="",
+                )
             self.assertIn(
                 f"--force-with-lease=refs/heads/docs/merged:{expected_sha}", command
             )
