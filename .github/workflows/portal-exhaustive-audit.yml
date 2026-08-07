@@ -9,9 +9,11 @@ on:
       - 'tools/audit/portal_exhaustive_audit.py'
       - 'tools/audit/portal_exhaustive_reconcile.py'
       - 'tools/audit/portal_exhaustive_strictness.py'
+      - 'tools/audit/validate_portal_exhaustive_retained_evidence.py'
       - 'tools/audit/test_portal_exhaustive_audit.py'
       - 'tools/audit/test_portal_exhaustive_reconcile.py'
       - 'tools/audit/test_portal_exhaustive_strictness.py'
+      - 'tools/audit/test_validate_portal_exhaustive_retained_evidence.py'
       - 'docs/agents/tasks/active/OTERYN-20260803-portal-exhaustive-current-main-audit.md'
       - 'docs/agents/evidence/OTERYN-20260803-portal-exhaustive-current-main-audit/**'
       - 'docs/agents/reports/OTERYN-20260803-portal-exhaustive-current-main-audit.md'
@@ -32,9 +34,11 @@ on:
       - 'tools/audit/portal_exhaustive_audit.py'
       - 'tools/audit/portal_exhaustive_reconcile.py'
       - 'tools/audit/portal_exhaustive_strictness.py'
+      - 'tools/audit/validate_portal_exhaustive_retained_evidence.py'
       - 'tools/audit/test_portal_exhaustive_audit.py'
       - 'tools/audit/test_portal_exhaustive_reconcile.py'
       - 'tools/audit/test_portal_exhaustive_strictness.py'
+      - 'tools/audit/test_validate_portal_exhaustive_retained_evidence.py'
       - 'docs/agents/evidence/OTERYN-20260803-portal-exhaustive-current-main-audit/**'
       - 'docs/agents/reports/OTERYN-20260803-portal-exhaustive-current-main-audit.md'
       - 'docs/testing/**'
@@ -108,7 +112,11 @@ jobs:
           python -m unittest \
             tools/audit/test_portal_exhaustive_audit.py \
             tools/audit/test_portal_exhaustive_reconcile.py \
-            tools/audit/test_portal_exhaustive_strictness.py
+            tools/audit/test_portal_exhaustive_strictness.py \
+            tools/audit/test_validate_portal_exhaustive_retained_evidence.py
+
+      - name: Validate retained audit provenance
+        run: python tools/audit/validate_portal_exhaustive_retained_evidence.py
 
       - name: Generate exhaustive current-main audit
         run: |
@@ -162,9 +170,12 @@ jobs:
               tools/audit/portal_exhaustive_audit.py \
               tools/audit/portal_exhaustive_reconcile.py \
               tools/audit/portal_exhaustive_strictness.py \
+              tools/audit/validate_portal_exhaustive_retained_evidence.py \
               tools/audit/test_portal_exhaustive_audit.py \
               tools/audit/test_portal_exhaustive_reconcile.py \
               tools/audit/test_portal_exhaustive_strictness.py \
+              tools/audit/test_validate_portal_exhaustive_retained_evidence.py \
+              docs/agents/evidence/OTERYN-20260803-portal-exhaustive-current-main-audit/manifest.json \
               docs/testing/ROUTE_VIEW_NAVIGATION_INVENTORY.json \
               docs/testing/product-completeness-benchmark.json \
               docs/testing/product-backend-frontend-completeness.json \

@@ -31,6 +31,24 @@ function safeFile(repoRoot, owner, relative, errors) {
   return absolute;
 }
 
+function loadPortalManifestSurfaces(repoRoot) {
+  const manifest = readJson(path.join(repoRoot, 'scripts/acceptance/coverage/portal-coverage-manifest.json'));
+  const surfaces = Array.isArray(manifest.surfaces) ? [...manifest.surfaces] : [];
+  const fragmentRoot = path.join(repoRoot, 'scripts/acceptance/coverage/surfaces');
+  if (!fs.existsSync(fragmentRoot)) return surfaces;
+
+  for (const name of fs.readdirSync(fragmentRoot).filter((entry) => entry.endsWith('.json')).sort()) {
+    const fragment = readJson(path.join(fragmentRoot, name));
+    const fragmentSurfaces = Array.isArray(fragment) ? fragment : fragment?.surfaces;
+    if (!Array.isArray(fragmentSurfaces) || fragmentSurfaces.length === 0) {
+      throw new Error(`Portal coverage fragment ${name} must define at least one surface.`);
+    }
+    surfaces.push(...fragmentSurfaces);
+  }
+
+  return surfaces;
+}
+
 function validateProfile(repoRoot, id, profile, packageScripts, errors) {
   const owner = `content scale profile ${id}`;
   if (!nonEmpty(profile?.npm_profile) || !nonEmpty(packageScripts?.[profile.npm_profile])) errors.push(`${owner} references unknown npm profile ${JSON.stringify(profile?.npm_profile)}.`);
@@ -146,11 +164,10 @@ export function validatePortalContentScaleEvidence({ contract, manifestSurfaces,
 }
 
 export function loadRepositoryInputs(repoRoot = defaultRepoRoot) {
-  const manifest = readJson(path.join(repoRoot, 'scripts/acceptance/coverage/portal-coverage-manifest.json'));
   const packageJson = readJson(path.join(repoRoot, 'scripts/acceptance/package.json'));
   return {
     contract: readJson(path.join(repoRoot, 'docs/testing/PORTAL_CONTENT_SCALE_EVIDENCE.json')),
-    manifestSurfaces: Array.isArray(manifest.surfaces) ? manifest.surfaces : [],
+    manifestSurfaces: loadPortalManifestSurfaces(repoRoot),
     packageScripts: packageJson.scripts ?? {},
     repoRoot,
   };
