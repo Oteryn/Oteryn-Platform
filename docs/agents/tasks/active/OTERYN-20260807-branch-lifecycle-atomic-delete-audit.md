@@ -52,10 +52,10 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-07T09:46:00Z
-head: 993b3561feb75644d4a07f3e3377020be051eed6
+updated_at: 2026-08-07T09:49:00Z
+head: a340b4c2026a6b150bf9102d12894f5a9a5a9c50
 branch: audit/OTERYN-20260807-branch-lifecycle-atomic-delete
-pr: none
+pr: 794
 status: validating
 context_routes:
   - ci
@@ -101,5 +101,5 @@ validation:
     result: NOT_APPLICABLE
     evidence: this audit package changes documentation/evidence only.
 blockers: []
-next_action: Publish the audit PR, complete exact-head documentation/governance checks, merge, archive the task and release ownership.
+next_action: Complete exact-head checks on PR #794, merge it, then archive this task and release ownership.
 ```
