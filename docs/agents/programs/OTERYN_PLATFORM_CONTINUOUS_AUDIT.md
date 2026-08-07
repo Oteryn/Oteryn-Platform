@@ -21,7 +21,7 @@ Continuously audit every delivered or declared Platform module and surface for t
 
 ```yaml
 programme_state_version: 3
-updated_at: 2026-08-07T18:10:00Z
+updated_at: 2026-08-07T18:21:00Z
 status: ready
 current_cycle: 1
 programme_execution_snapshot:
@@ -31,14 +31,14 @@ programme_execution_snapshot:
   active_task: unknown
   branch: unknown
   pull_request: unknown
-  reason: The native-oauth-revocation-integrity post-repair audit is terminal; mutable execution ownership must be resolved from live tasks, branches, Issues and PRs before selecting the next domain.
-last_merged_audit_head: 56db7175e955d315cb6b7df6cc4e0c6533195311
-last_completed_domain: native-oauth-revocation-integrity
+  reason: The branch-lifecycle-remote-identity post-repair audit is terminal; mutable execution ownership must be resolved from live tasks, branches, Issues and PRs before selecting the next domain.
+last_merged_audit_head: 8bb6fe043dd3b321d3bf2e4a762f4b07f8f16a87
+last_completed_domain: branch-lifecycle-remote-identity
 coverage_inventory:
   baseline: docs/agents/evidence/OTERYN-20260803-portal-exhaustive-current-main-audit/
   baseline_merge: cbbd7613cee13cf01931a0ba0f7ac089122132e0
-  latest_audited_main: 84922e4a24be9759c864b41efd34b1e43634d407
-  selected_delta_domain: native-oauth-revocation-integrity
+  latest_audited_main: 5041a669a811f47fe11b3e6dec0993a28cfa26d7
+  selected_delta_domain: branch-lifecycle-remote-identity
 finding_ledger_semantics: historical_identity_map_not_live_queue
 finding_ledger:
   baseline_owners: [486, 487, 488, 489, 490, 491]
@@ -91,11 +91,13 @@ proven:
   - OPA-GOV-0019 / Issue #780 is historical and repaired through PR #789.
   - OPA-GOV-0020 / Issue #783 records the historical docs-only heavy-workflow routing defect; subsequent routing work must be evaluated from live repository state rather than this ledger entry.
   - OPA-GOV-0021 / Issue #788 is historical and repaired through PR #808, which added exact current branch/head PR-history reconciliation.
-  - OPA-GOV-0022 / Issue #793 is historical and repaired through PR #796 with a force-with-lease deletion boundary; its repair task was archived through PR #798.
-  - OPA-GOV-0023 / Issue #811 and OPA-GOV-0024 / Issue #815 remain historical finding identities; their current open/closed/remediated state is live-query-derived and must not be inferred from this ledger.
+  - OPA-GOV-0022 / Issue #793 is historical and repaired through PR #796 with an exact expected-SHA force-with-lease deletion boundary; its repair task was archived through PR #798.
+  - OPA-GOV-0023 / Issue #811 remains a historical finding identity; its current open/closed/remediated state is live-query-derived and must not be inferred from this ledger.
+  - OPA-GOV-0024 / Issue #815 is historical and repaired through PR #822; independent post-repair Audit PR #846 verified configured-root binding, GitHub remote identity validation, fail-closed negative paths and preserved force-with-lease atomicity without proving a new material defect.
   - Audit PR #838 passed CI 31202121106 and Agent Governance 31202121678 on exact head 3ef586f3fd5538658037604f7b54b5021524c00c, had zero unresolved review threads and merged as 92161131726ea866c0163972525a9a0f64c6b8ca; its task is archived.
   - Audit PR #842 passed CI 31202817840 and Agent Governance 31202817572 on exact head dfaf087111877fb19b6b2d4737d2c81a87fcf8d6, had zero unresolved review threads and merged as 7edef05d499de0a41c5718dd507be4baad905333; its task is archived.
-  - Audit PR #844 passed CI 31205506241 and Agent Governance 31205506320 on exact head 0e225d039abd4548ca8c4c12ee460c869d5b97de, had zero unresolved review threads and merged as 56db7175e955d315cb6b7df6cc4e0c6533195311; its task is archived by this lifecycle closeout.
+  - Audit PR #844 passed CI 31205506241 and Agent Governance 31205506320 on exact head 0e225d039abd4548ca8c4c12ee460c869d5b97de, had zero unresolved review threads and merged as 56db7175e955d315cb6b7df6cc4e0c6533195311; its task is archived.
+  - Audit PR #846 passed CI 31206163738 and Agent Governance 31206162714 on exact head bd406f87f196ea7754f00750352c36dfe3bc7c8d, had zero unresolved review threads and merged as 8bb6fe043dd3b321d3bf2e4a762f4b07f8f16a87; its task is archived by this lifecycle closeout.
   - Issue #558 is historically completed and current main contains live active-task liveness enforcement; later governance findings remain separately identified in the ledger.
   - Independent PASS-only validation and lifecycle reconciliation are governed by docs/agents/LIFECYCLE_CLOSEOUT_BATCHING.md.
 derived:
@@ -104,6 +106,7 @@ derived:
   - The bounded Platform native OAuth `game:ticket` path no longer permits pre-revocation authorization/access/refresh security context to mint a usable post-revocation Game Login Ticket after PR #825 and independent Audit PR #844.
   - Native-auth production cutover, deployment identity, private ingress and retirement/isolation of alternate legacy login paths remain separate deployment/architecture facts and must not be inferred from the Platform OAuth audit.
   - Character Bazaar terminal recovery is monotonic under the audited stale-failure interleavings after PR #812 and independent Audit PR #842.
+  - Branch Lifecycle destructive git mutation is bound to the configured repository root and normalized GitHub owner/name identity before push after PR #822 and independent Audit PR #846; the original cross-repository remote/CWD mismatch is no longer a proven blocker.
   - Mutable queue state, current governance-finding disposition and active ownership must always be refreshed live before dispatch.
 unknown:
   - The owner-approved emergency bypass and complete stable required-check set beyond currently observable protected contexts.
