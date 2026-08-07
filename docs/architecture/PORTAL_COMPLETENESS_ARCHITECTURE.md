@@ -36,7 +36,7 @@ The codebase contains and the canonical module catalog recognizes:
 - `GameCatalog`;
 - `Support`;
 - `Identity`, `Accounts` and `Characters`;
-- `CharacterProfiles` as an implemented Platform-owned presentation/privacy preference subdomain pending top-level catalog-row reconciliation;
+- `CharacterProfiles` as an implemented top-level `AVAILABLE` Platform-owned presentation/privacy preference subdomain;
 - `Wallet` and `Marketplace`;
 - `Admin`, `Audit` and operational boundaries.
 
@@ -274,7 +274,7 @@ This is a forward convention, not authority for an unrelated repository-wide mov
 
 Cross-module access should use application interfaces/query objects rather than arbitrary model imports or raw table access.
 
-ADR 0030 specifically keeps Character Portfolio as an `Accounts` application/read boundary rather than creating a new `CharacterPortfolio` deployable module. `CharacterProfiles` remains a small Platform-owned presentation/privacy subdomain; its top-level module-catalog classification should be reconciled without forcing a repository-wide namespace rename.
+ADR 0030 specifically keeps Character Portfolio as an `Accounts` application/read boundary rather than creating a new `CharacterPortfolio` deployable module. `CharacterProfiles` remains a small Platform-owned presentation/privacy subdomain; its top-level module-catalog classification is reconciled without forcing a repository-wide namespace rename. Canonical `CharacterId` preference migration remains separately authorized and pending under ADR 0030.
 
 ## Portal completion gate
 
