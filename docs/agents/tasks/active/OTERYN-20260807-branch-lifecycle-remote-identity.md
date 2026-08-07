@@ -93,16 +93,11 @@ validation_gate:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-07T14:01:00Z
-head: e4e832c23f683d245f922b9f2e7497356ba20c1b
+updated_at: 2026-08-07T14:12:40Z
+head: 9d359e6fd01c696a9f53ddbc4105a14422624d62
 branch: repair/issue-815
 pr: 822
 status: validating
-phase: validation
-session_id: OTERYN-20260807T1533+0200-issue-815
-session_role: implementer
-execution_mode: github-only
-execution_reason: bounded branch-lifecycle destructive-remote identity repair with deterministic mocked validation
 context_routes:
   - ci-repair
   - agent-governance
@@ -117,24 +112,33 @@ proven:
   - Deterministic branch repair/issue-815 is claimed by this task.
   - PR #822 is the only open delivery PR for repair/issue-815.
   - Destructive git execution is root-bound and the selected push remote is repository-identity checked before push.
+  - Branch Lifecycle run 31185496000 passed on head 9d359e6fd01c696a9f53ddbc4105a14422624d62.
+  - Repository CI run 31185495814 passed on head 9d359e6fd01c696a9f53ddbc4105a14422624d62.
 derived:
-  - The repair is validated without production or external-repository mutation by deterministic mocked git remote and push behavior.
+  - The repair can be validated without production or external-repository mutation by deterministic mocked git remote and push behavior.
 unknown: []
 conflicts: []
 first_failure:
-  marker: branch-lifecycle-remote-identity-unbound
-  evidence: Issue #815 exact evidence and pre-repair implementation.
-rejected_hypotheses: []
+  marker: agent-governance-checkpoint-validation-shape
+  evidence: Agent Governance run 31185496141 failed because validation list entries in this task checkpoint were plain strings instead of required command/result/evidence mappings.
+rejected_hypotheses:
+  - The exact-head Branch Lifecycle implementation test itself failed; run 31185496000 passed.
 changed_paths:
   - tools/agents/branch_lifecycle.py
   - tools/agents/test_branch_lifecycle.py
   - docs/agents/tasks/active/OTERYN-20260807-branch-lifecycle-remote-identity.md
 validation:
-  - PR #822 opened from repair/issue-815 to main.
-  - Exact-head Agent Governance first run exposed missing task PR identity; this checkpoint records PR #822 and supersedes that head.
-blockers:
-  - none
-next_action: Validate the new exact PR head with Branch Lifecycle, Agent Governance, repository-selected CI and HEIGHTENED self-review; repair any material failure on the same branch.
+  - command: GitHub Actions Branch Lifecycle run 31185496000 on 9d359e6fd01c696a9f53ddbc4105a14422624d62
+    result: PASS
+    evidence: Branch Lifecycle completed successfully on the repair head.
+  - command: GitHub Actions CI run 31185495814 on 9d359e6fd01c696a9f53ddbc4105a14422624d62
+    result: PASS
+    evidence: Repository-selected CI completed successfully on the repair head.
+  - command: GitHub Actions Agent Governance run 31185496141 on 9d359e6fd01c696a9f53ddbc4105a14422624d62
+    result: FAIL
+    evidence: Checkpoint validator reported validation item must start with a key/value pair; this checkpoint update repairs that schema defect.
+blockers: []
+next_action: Validate the new exact PR head with Branch Lifecycle, Agent Governance and repository-selected CI, then perform HEIGHTENED full-diff self-review and review-thread hygiene.
 ```
 
 ## Recovery checkpoint
@@ -142,27 +146,30 @@ next_action: Validate the new exact PR head with Branch Lifecycle, Agent Governa
 ```yaml
 recovery:
   policy_version: 1
-  generation: 2
-  session_id: OTERYN-20260807T1533+0200-issue-815
-  session_started_at: 2026-08-07T13:33:00Z
-  checkpointed_at: 2026-08-07T14:01:00Z
-  last_progress_at: 2026-08-07T14:01:00Z
+  generation: 3
+  session_id: OTERYN-20260807T1612+0200-issue-815
+  session_started_at: 2026-08-07T14:08:00Z
+  checkpointed_at: 2026-08-07T14:12:40Z
+  last_progress_at: 2026-08-07T14:12:40Z
   phase: validation
-  exact_head: e4e832c23f683d245f922b9f2e7497356ba20c1b
+  exact_head: 9d359e6fd01c696a9f53ddbc4105a14422624d62
   pull_request: 822
-  active_operation: exact-head validation and heightened self-review
+  active_operation: repair Agent Governance checkpoint schema and revalidate exact PR head
   external_run_ids:
     - 31185209898
     - 31185209109
     - 31185209133
-  operation_started_at: 2026-08-07T13:58:01Z
+    - 31185496141
+    - 31185496000
+    - 31185495814
+  operation_started_at: 2026-08-07T14:12:40Z
   wait_deadline_at: none
-  check_generation: validation-2
+  check_generation: validation-3
   checks_used: 1
   status: active
   safe_to_resume: true
   resume_condition: PR #822 remains open on repair/issue-815 and exact-head validation is incomplete.
-  next_action: Re-run exact-head governance and selected CI after this ownership checkpoint update.
+  next_action: Inspect the new PR head and its exact-head Branch Lifecycle, Agent Governance and selected CI results; repair only a material failure on the same branch.
 ```
 
 ## Notes
