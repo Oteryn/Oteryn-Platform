@@ -1,9 +1,10 @@
 # ADR 0010: Gateway-owned native gameplay protocol selection
 
-- Status: Accepted for contract; runtime unimplemented and disabled
+- Status: Superseded by ADR 0031
 - Date: 2026-08-04
 - Coordination: `OTS-20260804-native-protocol-selection`
 - Canonical contract: `docs/contracts/OTERYN_NATIVE_GAMEPLAY_PROTOCOL_CONTRACT.md`
+- Superseded by: `docs/architecture/adr/0031-native-oteryn-v2-integration-boundary.md`
 
 ## Context
 
@@ -23,6 +24,10 @@ Automatic native selection must not create a second login authority, overload Ga
 8. Native v1 has no session resume, command replay after disconnect or in-session adapter switch.
 9. Native identity is exactly `family = oteryn` and `native_protocol_version = 1`; there is no native profile field, placeholder, catalogue, ordering or selector.
 10. Contract and disabled producers/consumers may merge server-first; enablement requires exact three-repository staging evidence and an atomic rollout decision.
+
+## Supersession note
+
+ADR 0031 replaces this ADR as the target authority for native gameplay protocol ownership, target family semantics and the Platform pre-admission versus game-domain admission boundary. This document remains historical evidence for the earlier disabled producer design and its security constraints where they do not conflict with ADR 0031.
 
 ## Consequences
 

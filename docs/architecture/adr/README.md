@@ -93,6 +93,7 @@ Inventory reconciled on 2026-08-08. Duplicate prefixes are intentionally shown r
 - `0028-platform-accountid-cross-boundary-identity.md`
 - `0029-platform-world-channel-identity-and-topology.md`
 - `0030-native-character-portfolio-account-center-v2.md`
+- `0031-native-oteryn-v2-integration-boundary.md`
 
 ## Preserved legacy duplicate paths
 
