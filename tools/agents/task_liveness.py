@@ -402,13 +402,6 @@ def _reconcile_branch_only(
         for payload in branch_pulls:
             number, state, draft, ref, repo_name, head_sha = _branch_pull_identity(payload)
             if repo_name.casefold() != repository.casefold():
-                findings.append(
-                    Finding(
-                        "error",
-                        "foreign_branch_pr_head",
-                        f"PR #{number} head repository {repo_name!r} does not match {repository!r}",
-                    )
-                )
                 continue
             if ref == task.branch and head_sha == branch_sha:
                 current.append((number, state, draft))
