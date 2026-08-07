@@ -21,7 +21,7 @@ Continuously audit every delivered or declared Platform module and surface for t
 
 ```yaml
 programme_state_version: 3
-updated_at: 2026-08-06T10:04:00Z
+updated_at: 2026-08-07T08:35:00Z
 status: ready
 current_cycle: 1
 programme_execution_snapshot:
@@ -32,13 +32,13 @@ programme_execution_snapshot:
   branch: unknown
   pull_request: unknown
   reason: Mutable execution ownership must be resolved from live tasks, branches, Issues and PRs at invocation time; unknown must never be interpreted as none.
-last_merged_audit_head: 5bb9bf8588dbbb76bba83a8d35a32dea0ffef40b
-last_completed_domain: programme-contract-verification-lifecycle
+last_merged_audit_head: f72fafd461f6bd2f41c5a58b975a5532f8e426ef
+last_completed_domain: branch-lifecycle-deletion-safety
 coverage_inventory:
   baseline: docs/agents/evidence/OTERYN-20260803-portal-exhaustive-current-main-audit/
   baseline_merge: cbbd7613cee13cf01931a0ba0f7ac089122132e0
-  latest_audited_main: 7319723520f3ee61e7dccc421742817253fdcfb9
-  selected_delta_domain: live_query_required
+  latest_audited_main: 021bf44d99de4430b2e054d25872eabfa322eba2
+  selected_delta_domain: branch-lifecycle-deletion-safety
 finding_ledger_semantics: historical_identity_map_not_live_queue
 finding_ledger:
   baseline_owners: [486, 487, 488, 489, 490, 491]
@@ -62,6 +62,7 @@ finding_ledger:
     - OPA-GOV-0016: 582
     - OPA-GOV-0017: 583
     - OPA-GOV-0018: 584
+    - OPA-GOV-0019: 780
 live_queue:
   mode: live_query_required
   exhaustive: false
@@ -79,8 +80,10 @@ proven:
   - OPA-GOV-0016 is proven in Issue #582: completed Game Catalog programme-registration audit PR #331 remains falsely active while programme #330 correctly continues.
   - OPA-GOV-0017 is proven in Issue #583: completed schema 1.3 architecture proposal PR #332 remains falsely active while downstream PR #338 consumes the contract.
   - OPA-GOV-0018 is proven in Issue #584: completed Cloudflare audit implementation/evidence PRs #409 and #415 retain workflow and tooling ownership while denied live reads remain a legitimate blocker.
+  - OPA-GOV-0019 is proven in Issue #780: destructive branch cleanup validates one snapshot and later deletes refs by name without per-entry live SHA/PR/claim/protection revalidation.
+  - Audit PR #781 passed exact-head CI and Agent Governance on a0ba255e721c040c7fcfaaaae8e3593f3fd7557a and merged as f72fafd461f6bd2f41c5a58b975a5532f8e426ef.
   - PR #589 passed all six exact-head workflows on d157341c9ca8fd29c8f2a5e2bbf202fc813ebc1a and merged as 5bb9bf8588dbbb76bba83a8d35a32dea0ffef40b.
-  - The programme-contract-verification-lifecycle audit is archived and owns no paths or leases.
+  - The branch-lifecycle-deletion-safety audit is archived and owns no paths or leases after its closeout merges.
   - PR #591 was an accidental post-merge duplicate and is closed obsolete with no unique changes.
   - Issue #547 is closed completed after repair PR #595 and independent audit #597; it is not a live remediation blocker.
   - Issues #555, #561 and #562 are terminal completed through merged lifecycle closeout PRs #598, #670 and #601 respectively.
@@ -92,6 +95,7 @@ derived:
   - Completed programme setup and contract-proposal tasks must release ownership without terminating their active programme or downstream consumers.
   - Completed audit tooling must release code/workflow ownership while preserving permission-dependent UNKNOWN evidence in a narrow blocked verification record.
   - Compatible lifecycle-only findings should be handed to one bounded reconciliation wave instead of generating one closeout PR and one audit Issue per task.
+  - Destructive ref cleanup requires a live guard at deletion time; a reviewed snapshot cannot safely authorize later name-only deletion after mutable branch state changes.
   - A refreshed timestamp or programme version must never preserve a stale exhaustive queue; mutable queue fields remain explicitly live-query-derived.
 unknown:
   - The owner-approved main ruleset, emergency bypass and stable required-check list.
@@ -100,6 +104,7 @@ conflicts:
   - ADR 0021 protects payment amount/currency integrity while the verified-event contract cannot carry or validate those facts.
   - Repository governance requires exact-head CI, audit, E2E and PR closeout while GitHub applies no main-branch enforcement.
   - Agent Governance proves local text validity but not live PR, branch, archive or ownership truth.
+  - ADR 0024 requires active/open/ambiguous branches to fail closed, while the current destructive apply loop has a time-of-check/time-of-use gap before ref deletion.
   - Game Catalog and Cloudflare setup tasks remain active despite terminal setup/evidence PRs and newer programme, consumer or blocker ownership.
 blockers:
   mode: live_query_required
