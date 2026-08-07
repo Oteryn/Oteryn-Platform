@@ -3,10 +3,14 @@ task_id: OTERYN-20260808-native-character-portfolio-context
 required_reads:
   - AGENTS.md
   - docs/agents/AGENTS.md
+  - docs/agents/DELIVERY_COMPLETENESS_AND_CLOSEOUT.md
+  - docs/agents/ANTI_STALL_AND_EXECUTION_BUDGET.md
   - docs/architecture/ARCHITECTURE_AUTHORITY.md
   - docs/architecture/adr/0030-native-character-portfolio-account-center-v2.md
 search_first:
   - Native Character Portfolio
+  - CharacterProfiles
+  - canary_player_id
 optional_reads:
   - docs/architecture/PLAYER_COMPANION_ARCHITECTURE.md
 ---
@@ -17,97 +21,64 @@ optional_reads:
 
 Accept and canonically reconcile the Platform-side **Native Character Portfolio / Account Center v2** boundary selected by the repository owner as Option A, without changing runtime code, persistence, protocol wire format, external repositories or production state.
 
-## Acceptance criteria
+## Result
 
-- [x] Current Canary compatibility behavior is distinguished from the native Oteryn-v2 target.
-- [x] Repository owner explicitly selected Option A and the decision is durably recorded in Issue #857.
-- [x] ADR 0030 records Accounts-owned authenticated portfolio composition inside the Laravel modular monolith.
-- [x] Oteryn-v2 Character Authority remains authoritative for `CharacterId`, current `AccountId <-> CharacterId` ownership, lifecycle and native mutation outcomes.
-- [x] `Characters`, `PublicGameData` and `CharacterProfiles` responsibilities remain non-overlapping and explicit.
-- [x] Canary numeric identifiers remain compatibility-only pending a separately authorized additive migration.
-- [x] Exact transport, cache TTL, capability-code vocabulary, entitlement exchange and migration implementation remain deferred rather than invented.
-- [x] Exact-head Agent Governance and architecture/documentation validation passed.
-- [x] Exact-head full diff review reported zero open material findings.
-- [x] PR #859 merged, Issue #857 closed and this task is archived.
+`completed`
 
-## Decision result
+- Owner decision: Option A accepted in Issue #857.
+- Canonical ADR: `docs/architecture/adr/0030-native-character-portfolio-account-center-v2.md`.
+- Delivery PR: #859.
+- Squash merge: `73c2426b37cfd5028fe9fbcec8254cc8aab3bc80`.
+- Issue #857: closed as completed.
+- External repository writes: none.
+- Runtime/schema/protocol/deployment/production changes: none.
 
-Option A is Accepted:
+## Accepted architecture
 
-- `Accounts` owns authenticated Account Center / Character Portfolio composition inside the Laravel modular monolith;
-- `Characters` owns Platform-side orchestration of explicitly approved character commands;
-- Oteryn-v2 Character Authority remains authoritative for canonical `CharacterId`, current `AccountId <-> CharacterId` ownership, lifecycle and native mutation outcomes;
-- `PublicGameData` remains public/general projection and is not authenticated ownership proof;
-- `CharacterProfiles` owns Platform presentation/privacy preferences and targets canonical `CharacterId` after a separately authorized additive migration;
-- Canary numeric identifiers and direct Canary paths remain compatibility-only until that migration/cutover is separately authorized.
+- `Accounts` owns authenticated Account Center / Character Portfolio composition inside the Laravel modular monolith.
+- `Characters` owns Platform orchestration of explicitly approved character commands; native mutation authority remains game-owned.
+- Oteryn-v2 Character Authority remains authoritative for canonical `CharacterId`, current `AccountId <-> CharacterId` ownership, lifecycle and native mutation outcomes.
+- `PublicGameData` remains public/general game projection and never becomes authenticated ownership proof.
+- `CharacterProfiles` remains Platform-owned presentation/privacy state and targets canonical `CharacterId` through a later additive migration.
+- Current `canary_account_id`, `canary_player_id`, direct Canary-backed reads and the current ten-character compatibility rule remain compatibility-only and are not native Oteryn-v2 architecture.
+- Exact transport, cache TTL, capability-code vocabulary, entitlement exchange and Canary-to-`CharacterId` migration mechanics remain deliberately deferred.
 
-The canonical architecture authority is ADR 0030 and the focused architecture documents merged by PR #859. This archived task record is historical execution evidence, not a replacement architecture authority.
+## Validation
 
-## Closeout
+Exact PR #859 head before merge: `b3e08b2251a755baddacfe709504227b8534dfb5`.
 
-PR #859 exact head `b3e08b2251a755baddacfe709504227b8534dfb5` passed Agent Governance, CI and the documented architecture validation set, then merged to `main` as `73c2426b37cfd5028fe9fbcec8254cc8aab3bc80` on 2026-08-07T22:54:43Z. Issue #857 is closed as completed.
-
-The resulting-main Agent Governance run `31225419202` found only that this already-completed task was still represented in `tasks/active` with a stale merge next action. Issue #858 repair moves the record to archive; it does not alter the Accepted architecture.
-
-E2E is `NOT_APPLICABLE`: this task changed architecture/task documentation only and created no executable user or integration journey.
+- CI: PASS.
+- Agent Governance: PASS.
+- Native protocol contract: PASS.
+- Native protocol contract audits: PASS.
+- Game Auth Ticket Concurrency: PASS.
+- Platform DB Outage Validation: PASS.
+- Edge Security Emulation: PASS.
+- Phase 7 Production-Like Validation: PASS.
+- Full changed-file/diff review: PASS, zero material findings.
+- Unresolved review threads: 0.
+- E2E: `NOT_APPLICABLE` because the delivery changed architecture/documentation only and no executable user or integration journey.
 
 ## Context checkpoint
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-07T22:59:53Z
-head: 73c2426b37cfd5028fe9fbcec8254cc8aab3bc80
+updated_at: 2026-08-08T00:55:02+02:00
+status: completed
 branch: docs/OTERYN-20260808-native-character-portfolio-decision
 pr: 859
-status: completed
-terminal_pr_policy: archive_pending
-context_routes:
-  - architecture
-  - accounts-characters
-  - canary-integration
-  - testing
-owned_paths:
-  - docs/agents/tasks/archive/OTERYN-20260808-native-character-portfolio-context.md
-  - docs/agents/programs/OTERYN_PLATFORM_ARCHITECTURE_REVIEW.md
-  - docs/architecture/ARCHITECTURE_DECISION_BACKLOG.json
-  - docs/architecture/adr/0030-native-character-portfolio-account-center-v2.md
-  - docs/architecture/MODULE_CATALOG.md
-  - docs/architecture/DATA_OWNERSHIP.md
-  - docs/architecture/PORTAL_COMPLETENESS_ARCHITECTURE.md
+merge_sha: 73c2426b37cfd5028fe9fbcec8254cc8aab3bc80
+issue: 857
 proven:
-  - Repository owner accepted Option A and Issue #857 is closed as completed.
-  - PR #859 exact head b3e08b2251a755baddacfe709504227b8534dfb5 passed Agent Governance and CI before merge.
-  - PR #859 merged to main as 73c2426b37cfd5028fe9fbcec8254cc8aab3bc80.
-  - ADR 0030 is the canonical Accepted Native Character Portfolio architecture decision.
+  - Repository owner explicitly accepted Option A.
+  - ADR 0030 is Accepted on main through PR 859.
+  - PR 859 exact-head required workflows passed and the PR merged by squash.
+  - Issue 857 is closed completed.
 derived:
-  - The architecture task is terminal and no longer owns an active execution lease.
+  - New native Platform consumers must use canonical AccountId/CharacterId semantics instead of inheriting Canary numeric identifiers.
 unknown:
-  - Exact Character Portfolio transport, cache TTL, capability-code vocabulary, entitlement exchange and Canary-to-CharacterId migration mechanics remain deliberately deferred to separately authorized future tasks.
+  - Exact Character Portfolio transport, cache TTL, capability-code vocabulary, entitlement exchange and Canary-to-CharacterId migration implementation remain intentionally deferred.
 conflicts: []
-first_failure:
-  marker: none
-  evidence: PR #859 exact-head gates passed; the post-merge failure was a task-lifecycle closeout defect resolved by archival under Issue #858.
-rejected_hypotheses:
-  - The post-merge Agent Governance failure invalidates ADR 0030: run 31225419202 reports only terminal active-task lifecycle findings, not architecture or checkpoint-structure failure.
-changed_paths:
-  - docs/agents/tasks/archive/OTERYN-20260808-native-character-portfolio-context.md
-  - docs/agents/programs/OTERYN_PLATFORM_ARCHITECTURE_REVIEW.md
-  - docs/architecture/ARCHITECTURE_DECISION_BACKLOG.json
-  - docs/architecture/adr/0030-native-character-portfolio-account-center-v2.md
-  - docs/architecture/MODULE_CATALOG.md
-  - docs/architecture/DATA_OWNERSHIP.md
-  - docs/architecture/PORTAL_COMPLETENESS_ARCHITECTURE.md
-validation:
-  - command: PR #859 exact-head Agent Governance
-    result: PASS
-    evidence: PR #859 records exact head b3e08b2251a755baddacfe709504227b8534dfb5 with Agent Governance PASS.
-  - command: PR #859 exact-head CI and architecture validation
-    result: PASS
-    evidence: PR #859 records CI and all documented architecture validation jobs PASS with zero material diff findings.
-  - command: user or integration E2E
-    result: NOT_APPLICABLE
-    evidence: Documentation-only architecture reconciliation changes no executable user or system journey.
-blockers:
-  - none
-next_action: Archive completed; any runtime implementation or compatibility migration requires a separately authorized future task.
+blockers: []
+next_action: Select the next architecture review domain from current main; do not reopen the accepted Character Portfolio ownership decision unless higher-ranked authority changes.
 ```
