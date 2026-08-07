@@ -7,6 +7,7 @@ on:
       - docs/architecture/**
       - docs/operations/OTERYN_NATIVE_PROTOCOL_PRODUCER.md
       - docs/agents/prompts/OTS_NATIVE_PROTOCOL_SINGLE_VERSION_COMPLETION_AGENT.md
+      - docs/agents/tasks/active/OTERYN-20260805-native-protocol-single-version-producer.md
       - scripts/validate_native_protocol_contract.py
       - scripts/validate_native_protocol_change_boundary.py
       - scripts/test_native_protocol_change_boundary.py
@@ -18,6 +19,7 @@ on:
       - docs/architecture/**
       - docs/operations/OTERYN_NATIVE_PROTOCOL_PRODUCER.md
       - docs/agents/prompts/OTS_NATIVE_PROTOCOL_SINGLE_VERSION_COMPLETION_AGENT.md
+      - docs/agents/tasks/active/OTERYN-20260805-native-protocol-single-version-producer.md
       - scripts/validate_native_protocol_contract.py
       - scripts/validate_native_protocol_change_boundary.py
       - scripts/test_native_protocol_change_boundary.py

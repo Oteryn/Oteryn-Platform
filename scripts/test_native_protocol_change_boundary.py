@@ -62,6 +62,16 @@ class NativeProtocolChangeBoundaryTest(unittest.TestCase):
                 producer_task_exists=False,
             )
 
+    def test_producer_task_signal_keeps_escaped_runtime_fail_closed(self) -> None:
+        with self.assertRaisesRegex(BoundaryViolation, "escaped its governed runtime boundary"):
+            evaluate_changed_paths(
+                [
+                    PRODUCER_TASK,
+                    "app/Identity/Models/Identity.php",
+                ],
+                producer_task_exists=True,
+            )
+
     def test_native_runtime_outside_allowlist_fails_closed(self) -> None:
         with self.assertRaisesRegex(BoundaryViolation, "escaped its governed runtime boundary"):
             evaluate_changed_paths(
@@ -72,6 +82,19 @@ class NativeProtocolChangeBoundaryTest(unittest.TestCase):
                 ],
                 producer_task_exists=True,
             )
+
+    def test_producer_task_signal_allows_valid_governed_runtime(self) -> None:
+        result = evaluate_changed_paths(
+            [
+                PRODUCER_TASK,
+                "app/GameAuth/Worlds/NativeProtocolWorld.php",
+                "services/game-gateway/src/native.rs",
+                "tests/Feature/GameAuth/NativeProtocolContractTest.php",
+            ],
+            producer_task_exists=True,
+        )
+
+        self.assertEqual("GOVERNED_RUNTIME", result)
 
     def test_valid_native_producer_runtime_passes(self) -> None:
         result = evaluate_changed_paths(

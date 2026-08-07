@@ -63,8 +63,10 @@ def _is_allowed_runtime(path: str) -> bool:
 
 
 def is_native_producer_signal(path: str) -> bool:
-    return path in NATIVE_PRODUCER_SIGNAL_EXACT or path.startswith(
-        NATIVE_PRODUCER_SIGNAL_PREFIXES
+    return (
+        path == PRODUCER_TASK
+        or path in NATIVE_PRODUCER_SIGNAL_EXACT
+        or path.startswith(NATIVE_PRODUCER_SIGNAL_PREFIXES)
     )
 
 
