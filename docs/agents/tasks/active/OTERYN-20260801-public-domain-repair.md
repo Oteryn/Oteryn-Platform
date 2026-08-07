@@ -70,11 +70,11 @@ blockers:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-01T14:04:00Z
+updated_at: 2026-08-07T11:30:00Z
 status: blocked
 phase: cloudflare_token_rotation_blocked
-branch: docs/OTERYN-20260801-cloudflare-token-blocker
-head: 1971e764715701b9a09911e5563672c29a92c22e
+branch: none
+head: none
 pr: none
 context_routes:
   - agent-governance
@@ -100,6 +100,7 @@ proven:
   - Live capability audit 30702827344 artifact 8819368872 proved permission_denied for token self-details and the permission-group catalog.
   - Account API Tokens Read and Account API Tokens Write are not proven; the current token cannot self-expand.
   - No Cloudflare mutation occurred in either remaining-edge audit.
+  - The former task branch docs/OTERYN-20260801-cloudflare-token-blocker is terminal through PR #417 and no longer represents active implementation ownership; the task remains active only as an external waiting/blocker record.
 derived:
   - Cloudflare API integration is working; the exact current blocker is token scope.
   - Tunnel/DNS is not the cause of the remaining TLS and policy failures.
