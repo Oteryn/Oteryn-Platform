@@ -2,7 +2,7 @@
 task_id: OTERYN-20260807-agent-governance-explicit-terminal-pr-identity
 issue: 811
 programme_id: OTERYN_PLATFORM_REMEDIATION
-status: implementing
+status: validating
 risk: high
 run_scope: autonomous_program
 continuation_policy: continue_until_real_stop
@@ -25,7 +25,7 @@ required_reads:
 search_first:
   - Issue #811
   - deterministic branch repair/issue-811
-  - related open pull requests
+  - pull request #819
 optional_reads: []
 ---
 
@@ -37,12 +37,12 @@ Repair Issue #811 so an explicit numeric terminal PR can release task ownership 
 
 ## Acceptance criteria
 
-- [ ] Numeric terminal PRs fail closed when `task.branch` differs from PR `head.ref`.
-- [ ] Unrelated merged or closed-unmerged PRs cannot release ownership for another task branch.
-- [ ] Existing open/draft numeric-PR and branch-only reconciliation behavior remains valid.
-- [ ] Matching terminal PR behavior remains valid, including retained-branch advisory handling.
-- [ ] Missing, foreign or malformed PR identity remains fail-closed.
-- [ ] Deterministic tests cover merged mismatch, closed-unmerged mismatch and matching terminal behavior.
+- [x] Numeric terminal PRs fail closed when `task.branch` differs from PR `head.ref`.
+- [x] Unrelated merged or closed-unmerged PRs cannot release ownership for another task branch.
+- [x] Existing open/draft numeric-PR and branch-only reconciliation behavior remains valid.
+- [x] Matching terminal PR behavior remains valid, including retained-branch advisory handling.
+- [x] Missing, foreign or malformed PR identity remains fail-closed.
+- [x] Deterministic tests cover merged mismatch, closed-unmerged mismatch and matching terminal behavior.
 - [ ] Exact-head focused validation, Agent Governance and repository-selected CI pass with no unresolved material findings or review threads.
 
 ## Ownership
@@ -83,19 +83,20 @@ validation_gate:
   self_review:
     result: PENDING
     exact_head: none
-    evidence: []
+    evidence:
+      - PR #819 full diff inspected after implementation; final exact-head review remains pending after this checkpoint update.
 ```
 
 ## Context checkpoint
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-07T13:34:00Z
-head: e93b11fd9671400a52ae135db1564ad77b700393
+updated_at: 2026-08-07T13:40:00Z
+head: 87faa31a67860626e31a5ea7853653dbb5418d3e
 branch: repair/issue-811
-pr: none
-status: implementing
-phase: implement
+pr: 819
+status: validating
+phase: final_ci
 session_id: OTERYN-20260807T1533+0200-issue-811
 session_role: implementer
 execution_mode: github-only
@@ -109,28 +110,65 @@ owned_paths:
   - tools/agents/test_task_liveness.py
   - docs/agents/tasks/active/OTERYN-20260807-agent-governance-explicit-terminal-pr-identity.md
 proven:
-  - Issue #811 is open, implementation-authorized, high-risk P1 work with agent:ready and no blocker.
-  - The deterministic branch repair/issue-811 did not exist and was created from main e93b11fd9671400a52ae135db1564ad77b700393.
-  - Current numeric open/draft PR reconciliation checks task branch against PR head.ref.
-  - Current numeric terminal PR reconciliation releases ownership before checking task branch against PR head.ref.
+  - Issue #811 was claimed through deterministic branch repair/issue-811 from main e93b11fd9671400a52ae135db1564ad77b700393.
+  - PR #819 is the single authoritative delivery PR for Issue #811.
+  - Terminal merged and closed-unmerged branch mismatch paths now fail with branch_pr_mismatch before archive-pending handling.
+  - Missing terminal branch identity and foreign terminal PR heads fail before archive-pending handling.
+  - Matching terminal identity retains existing archive-pending and retained-branch advisory behavior.
+  - Agent Governance run 31183622144 executed 25 task-liveness tests successfully, including the new regressions.
+  - CI run 31183621671 passed on implementation head 87faa31a67860626e31a5ea7853653dbb5418d3e.
 derived:
-  - The smallest repair is to enforce branch/head-ref identity before either open or terminal numeric PR state can affect ownership.
+  - The Agent Governance failure on implementation head is lifecycle metadata only: live validation correctly detected that the newly created PR #819 had not yet been recorded in this task checkpoint.
 unknown: []
 conflicts: []
 first_failure:
-  marker: terminal-explicit-pr-branch-identity-not-checked
-  evidence: tools/agents/task_liveness.py numeric terminal path enters TERMINAL_ARCHIVE_PENDING without comparing task.branch to head_ref.
+  marker: agent-governance-branch-pr-identity-omitted
+  evidence: run 31183622144 reported branch_pr_identity_omitted for repair/issue-811 because checkpoint pr was none after PR #819 was created.
 rejected_hypotheses:
-  - A new terminal-only ownership state is required; the existing branch_pr_mismatch finding can fail closed before terminal state handling.
+  - The focused task-liveness regression suite failed; it passed all 25 tests.
+  - The implementation introduced an application CI failure; CI run 31183621671 passed.
 changed_paths:
+  - tools/agents/task_liveness.py
+  - tools/agents/test_task_liveness.py
   - docs/agents/tasks/active/OTERYN-20260807-agent-governance-explicit-terminal-pr-identity.md
 validation:
-  - command: focused task-liveness tests
-    result: NOT_RUN
-    evidence: implementation not yet committed
+  - command: python tools/agents/test_task_liveness.py
+    result: PASS
+    evidence: Agent Governance run 31183622144 step Run live task liveness tests; 25 tests passed.
+  - command: repository CI
+    result: PASS
+    evidence: CI run 31183621671 passed on implementation head 87faa31a67860626e31a5ea7853653dbb5418d3e; exact post-checkpoint head rerun pending.
+  - command: Agent Governance live ownership validation
+    result: FAIL
+    evidence: run 31183622144 correctly rejected omitted PR identity; this checkpoint records PR #819 and creates the new exact head to validate.
 blockers:
   - none
-next_action: Implement the common numeric-PR branch identity gate and deterministic terminal mismatch regressions, then run focused validation.
+next_action: Observe the exact-head PR #819 workflow generation; inspect any failure, then perform exact-head self-review and merge if all required checks pass.
+```
+
+## Recovery checkpoint
+
+```yaml
+recovery:
+  policy_version: 1
+  generation: 1
+  session_id: OTERYN-20260807T1533+0200-issue-811
+  session_started_at: 2026-08-07T13:33:52Z
+  checkpointed_at: 2026-08-07T13:40:00Z
+  last_progress_at: 2026-08-07T13:40:00Z
+  phase: final_ci
+  exact_head: pending-checkpoint-commit
+  pull_request: 819
+  active_operation: observe exact-head GitHub Actions after recording PR identity
+  external_run_ids: []
+  operation_started_at: 2026-08-07T13:40:00Z
+  wait_deadline_at: 2026-08-07T14:10:00Z
+  check_generation: post-pr-identity-checkpoint
+  checks_used: 0
+  status: active
+  safe_to_resume: true
+  resume_condition: PR #819 exact-head workflows reach a terminal state or a material failure appears.
+  next_action: Query aggregate workflow state for PR #819 exact head once and inspect only failed jobs if any.
 ```
 
 ## Notes
