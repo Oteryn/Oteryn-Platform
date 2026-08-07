@@ -27,14 +27,14 @@ Repair Issue #788 so branch-only active tasks are reconciled against live pull-r
 
 ## Acceptance criteria
 
-- [ ] A task with `pr: none` does not remain authoritative BRANCH_ONLY when the same live branch/head already has an open matching PR.
-- [ ] A retained branch cannot preserve active ownership after a matching merged or closed PR for the same branch/head.
-- [ ] Branch reuse with new commits is distinguished from the terminal PR head.
-- [ ] Multiple or ambiguous matching PR histories fail closed instead of granting ownership.
-- [ ] Genuine pre-PR branches with no matching PR remain supported.
-- [ ] Deterministic tests cover genuine branch-only, omitted-PR open PR, retained merged PR, retained closed-unmerged PR, branch reuse, ambiguous history and GitHub API failure.
-- [ ] Control Room reflects reconciled ownership.
-- [ ] Exact-head focused tests, Agent Governance and repository-selected CI pass with zero unresolved review findings.
+- [x] A task with `pr: none` does not remain authoritative BRANCH_ONLY when the same live branch/head already has an open matching PR.
+- [x] A retained branch cannot preserve active ownership after a matching merged or closed PR for the same branch/head.
+- [x] Branch reuse with new commits is distinguished from the terminal PR head.
+- [x] Multiple or ambiguous matching PR histories fail closed instead of granting ownership.
+- [x] Genuine pre-PR branches with no matching PR remain supported.
+- [x] Deterministic tests cover genuine branch-only, omitted-PR open PR, retained merged PR, retained closed-unmerged PR, branch reuse, ambiguous history and GitHub API failure.
+- [x] Control Room reflects reconciled ownership through the live-validity report without a separate Control Room code path.
+- [ ] Exact-head Agent Governance and repository-selected CI pass with zero unresolved review findings.
 
 ## Ownership
 
@@ -56,32 +56,49 @@ blockers: []
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-07T11:14:00Z
-status: investigating
+updated_at: 2026-08-07T11:17:00Z
+head: 0a9729be763558ce3a13090522d0b4be937e938d
 branch: repair/issue-788
 pr: none
-phase: investigate
-execution_mode: github-only
-context_pressure: medium
-context_growth: stable
-decomposition_decision: single
+status: validating
+context_routes:
+  - ci-repair
+  - agent-governance
 owned_paths:
   - tools/agents/task_liveness.py
   - tools/agents/test_task_liveness.py
-  - tools/agents/control_room.py
-  - tools/agents/test_control_room.py
-  - .github/workflows/agent-governance.yml
-  - docs/agents/GOVERNANCE_CONTRACT.json
+  - docs/agents/tasks/active/OTERYN-20260807-agent-governance-branch-pr-reconciliation.md
 proven:
-  - Issue #788 is open, implementation-authorized, risk:high, priority:P1 and agent:ready.
-  - Deterministic claim branch repair/issue-788 was created from main at 6b0efc015812d699c20424c4048e2fdba570c2dd.
-  - No pre-existing repair/issue-788 branch or open PR for Issue #788 was found before the claim.
-unknown:
-  - smallest backward-compatible GitHub API shape for exact branch/head PR-history reconciliation
-  - whether control_room.py requires direct changes or inherits corrected task_liveness results
+  - Issue #788 is open, implementation-authorized, risk:high and priority:P1; deterministic branch repair/issue-788 was claimed from main 6b0efc015812d699c20424c4048e2fdba570c2dd with no pre-existing claim or open Issue #788 PR.
+  - The original branch-only path granted ownership from branch existence alone and could not discover open or terminal PR history when task metadata omitted the PR number.
+  - GitHubState and GitHubClient now support fail-closed pull-request history lookup for the claimed source branch, and branch-only reconciliation compares the current branch SHA with exact PR head repo, ref and SHA identity.
+  - An exact-current-head open or draft PR with omitted task PR identity fails live validity; an exact-current-head terminal PR also fails live validity and cannot preserve ownership through a retained branch.
+  - Multiple exact-current-head PR identities and unavailable or malformed GitHub state fail closed.
+  - A branch with no exact-current-head PR remains legitimate BRANCH_ONLY ownership, including branch reuse after a terminal PR whose recorded head SHA differs from the current branch SHA.
+  - Twenty deterministic task-liveness tests pass for numeric PR behavior, genuine branch-only work, omitted open/draft/terminal PRs, branch reuse, ambiguity, malformed state and API failures.
+derived:
+  - Control Room already consumes task_liveness report validity and surfaces live contradictions while keeping schema/local task state separate, so corrected liveness truth satisfies the Control Room acceptance boundary without modifying control_room.py.
+  - Agent Governance already executes task-liveness tests, live ownership validation and live-aware Control Room enforcement, so no workflow change is required.
+unknown: []
 conflicts: []
+first_failure:
+  marker: Issue #788 proven omitted-PR branch-only bypass.
+  evidence: The pre-repair evaluate_task branch-only path called get_branch only and set ownership_active true whenever the ref existed.
+rejected_hypotheses:
+  - Treat every historical PR on the same branch name as terminal ownership evidence; that would falsely invalidate a deliberately reused branch with new commits.
+  - Query only open pull requests; that would leave retained merged or closed-unmerged source branches able to preserve stale ownership.
+changed_paths:
+  - tools/agents/task_liveness.py
+  - tools/agents/test_task_liveness.py
+  - docs/agents/tasks/active/OTERYN-20260807-agent-governance-branch-pr-reconciliation.md
 validation:
-  - pending focused deterministic tests
+  - command: python tools/agents/test_task_liveness.py
+    result: PASS
+    evidence: Twenty deterministic tests passed, including omitted open/draft/merged/closed PR, branch reuse, ambiguity and API/shape failure cases.
 blockers: []
-next_action: Inspect the current liveness client, tests, governance contract and Control Room consumption, then implement the smallest fail-closed branch-to-PR reconciliation with deterministic fixtures.
+next_action: Create the single Issue #788 delivery PR, bind this task to its PR identity, then perform exact-head full-diff self-review and required Agent Governance/CI validation before merge.
 ```
+
+## Notes
+
+No application runtime, production, protected environment or external repository mutation is required by this repair. The implementation deliberately leaves Control Room, workflow and governance-contract bytes unchanged because their existing report/enforcement interfaces already consume the corrected liveness result.
