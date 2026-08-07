@@ -22,12 +22,12 @@ Repair Issue #783 so documentation/governance-only pushes to `main` do not run o
 
 ## Acceptance criteria
 
-- [ ] Main-push CI classifies the exact pushed base/head range instead of unconditionally forcing `--all`.
-- [ ] Missing, zero, empty or unusable push ranges fail closed to all heavy CI gates.
-- [ ] Documentation/governance-only pushes to `main` do not emit full Acceptance E2E runs.
-- [ ] Existing product-path Acceptance triggers, pull-request routing and manual `workflow_dispatch` remain intact.
-- [ ] Deterministic tests cover docs-only/product main routing, zero/ambiguous range fallback, Acceptance path filtering and concurrency/preemption safety.
-- [ ] Exact-head self-review, focused validation and repository-required CI pass with zero unresolved material findings.
+- [x] Main-push CI classifies the exact pushed base/head range instead of unconditionally forcing `--all`.
+- [x] Missing, zero, empty or unusable push ranges fail closed to all heavy CI gates.
+- [x] Documentation/governance-only pushes to `main` do not emit full Acceptance E2E runs.
+- [x] Existing product-path Acceptance triggers, pull-request routing and manual `workflow_dispatch` remain intact.
+- [x] Deterministic tests cover docs-only/product main routing, zero/ambiguous range fallback, Acceptance path filtering and concurrency/preemption safety.
+- [x] Exact implementation-head self-review, focused validation and repository-required CI pass with zero unresolved material findings; final docs-only checkpoint head still requires its selected exact-head governance checks before merge.
 
 ## Ownership
 
@@ -55,8 +55,8 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-07T09:25:00Z
-head: 3fd8c7acec864777e4876a36eaf8d2ef648cee47
+updated_at: 2026-08-07T10:18:00Z
+head: 55aecd772447709355437c44e810f82c2b4fdbf0
 branch: repair/issue-783
 pr: 786
 status: validating
@@ -71,19 +71,19 @@ owned_paths:
   - tests/ci/test_workflow_trigger_economy.py
   - docs/agents/tasks/active/OTERYN-20260807-main-push-ci-routing.md
 proven:
-  - Issue #783 is implementation-authorized and PR #786 is the active repair delivery.
+  - Issue #783 is implementation-authorized and PR #786 is the active one-Issue repair delivery.
+  - Exact implementation head 55aecd772447709355437c44e810f82c2b4fdbf0 is one coherent repair commit directly over main fed4ea954cd34d8b1b3a06a3de6f7307f619c747.
   - CI push routing uses the GitHub push before/head range through a dedicated fail-closed adapter while pull-request routing remains on the canonical classifier.
-  - Acceptance push routing mirrors its existing product-path pull-request filter.
-  - PR #786 is maintained as one repair commit over the current main base.
-  - The compact checkpoint correction passes checkpoint schema validation and live ownership evaluation for this task.
+  - Acceptance push routing mirrors its existing product-path pull-request filter, so docs/governance-only main pushes do not create the full Acceptance workflow generation.
+  - All eight emitted workflows on implementation head 55aecd772447709355437c44e810f82c2b4fdbf0 completed successfully.
 derived:
-  - Filtering Acceptance at the push trigger prevents documentation-only main pushes from creating a run that could enter the shared main concurrency generation.
-  - Reusing the canonical path classifier through a push adapter keeps the path policy single-sourced while adding push-range failure handling.
+  - Trigger-level Acceptance filtering removes docs-only main pushes from the shared main Acceptance concurrency generation and therefore prevents them from preempting a required prior runtime generation.
+  - Reusing the canonical path classifier through a push adapter keeps path policy single-sourced while adding push-range failure handling.
 unknown: []
 conflicts: []
 first_failure:
   marker: Agent Governance run 31165291464 failed active task checkpoint validation.
-  evidence: The original task checkpoint contained unsupported nested validation_gate metadata; replacing it with the version-1 compact contract made active checkpoint validation pass on the next exact head.
+  evidence: The original task checkpoint contained unsupported nested validation_gate metadata; replacing it with the version-1 compact contract made active checkpoint validation pass, and the inherited terminal audit task was later archived on main.
 rejected_hypotheses:
   - Keep unconditional main --all and only tune concurrency; documentation-only pushes would still allocate heavy CI.
   - Add only an in-job Acceptance guard; the workflow would still be created and could preempt an in-progress main run before the guard executes.
@@ -95,24 +95,45 @@ changed_paths:
   - tests/ci/test_workflow_trigger_economy.py
   - docs/agents/tasks/active/OTERYN-20260807-main-push-ci-routing.md
 validation:
-  - command: exact base/head compare review
+  - command: exact base/head full-diff self-review on 55aecd772447709355437c44e810f82c2b4fdbf0
     result: PASS
-    evidence: The repair remains one commit and is limited to the six owned paths.
-  - command: GitHub workflow parse/load
+    evidence: Scope is limited to the six owned paths; acceptance, negative paths, rollback by reverting the workflow/classifier commit, PR/manual compatibility and related-PR state were checked with no material findings.
+  - command: CI run 31165893804
     result: PASS
-    evidence: GitHub created exact-head CI, Acceptance and governed validation workflow runs for the changed workflow definitions.
-  - command: Agent Governance checkpoint validation on 3fd8c7acec864777e4876a36eaf8d2ef648cee47
+    evidence: Exact implementation-head CI routing tests and selected runtime validation completed successfully.
+  - command: Acceptance E2E and Visual UX run 31165892762
     result: PASS
-    evidence: Checkpoint schema validation and live active-task ownership both completed successfully for the corrected checkpoint generation.
-  - command: Agent Governance full job on 3fd8c7acec864777e4876a36eaf8d2ef648cee47
-    result: FAIL
-    evidence: An inherited terminal active task from merged audit PR #790 caused live-state enforcement failure; its owner merged closeout PR #791 into main as fed4ea954cd34d8b1b3a06a3de6f7307f619c747.
-  - command: repository-required exact-head checks after rebasing onto closeout main
-    result: NOT_RUN
-    evidence: The rebased exact head has not been created yet.
+    evidence: Existing pull-request/manual product acceptance behavior remained executable on the implementation head.
+  - command: Agent Governance run 31165891179
+    result: PASS
+    evidence: Active-task checkpoint and live ownership evaluation completed successfully on the implementation head.
+  - command: remaining exact-head workflows
+    result: PASS
+    evidence: Game Auth Ticket Concurrency 31165890952, Edge Security Emulation 31165891600, Platform DB Outage Validation 31165891559, Phase 7 Production-Like Validation 31165891639 and Deep System Validation 31165891386 all completed successfully.
 blockers: []
-next_action: Rebase the single repair commit onto main at fed4ea954cd34d8b1b3a06a3de6f7307f619c747, then require Agent Governance and CI to pass on the new exact head before evaluating the remaining required workflows.
+next_action: Validate the final checkpoint-only head, mark PR #786 ready, reverify reviews/mergeability and required exact-head checks, then squash-merge and complete Issue/task closeout.
 ```
+
+## Self-review
+
+```yaml
+result: PASS
+exact_head: 55aecd772447709355437c44e810f82c2b4fdbf0
+acceptance_checked: true
+full_diff_checked: true
+negative_paths_checked: true
+rollback_checked: true
+compatibility_checked: true
+related_prs_checked: true
+findings: []
+evidence:
+  - CI 31165893804 PASS
+  - Acceptance E2E and Visual UX 31165892762 PASS
+  - Agent Governance 31165891179 PASS
+  - all other emitted exact-head workflows PASS
+```
+
+E2E result: `PASS` via Acceptance E2E and Visual UX run `31165892762`. No production or external-service mutation was required or performed.
 
 ## Notes
 
