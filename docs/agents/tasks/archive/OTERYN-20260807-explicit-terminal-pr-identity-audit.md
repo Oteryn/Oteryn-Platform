@@ -26,13 +26,12 @@ Audit the post-Issue-788 live task-liveness implementation for exact task→bran
 - [x] Existing regression coverage was inspected for terminal branch/head mismatch behavior.
 - [x] Open and closed Issues were searched for the same root cause.
 - [x] One material finding was routed to Issue #811 as `OPA-GOV-0023`.
-- [ ] Exact-head documentation/governance CI passes, the audit package merges, and this task is archived with ownership released.
+- [x] Exact-head documentation/governance CI passed, the audit package merged, and this task is archived with ownership released.
 
 ## Ownership
 
 ```yaml
 owned_paths:
-  - docs/agents/tasks/active/OTERYN-20260807-explicit-terminal-pr-identity-audit.md
   - docs/agents/tasks/archive/OTERYN-20260807-explicit-terminal-pr-identity-audit.md
   - docs/agents/reports/OTERYN-20260807-explicit-terminal-pr-identity-audit.md
   - docs/agents/evidence/OTERYN-20260807-explicit-terminal-pr-identity-audit/index.md
@@ -51,28 +50,29 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-07T12:57:00Z
-head: 16e1ca8590f08bb135fccd1ad5c1c98c9b33bc7d
+updated_at: 2026-08-07T12:59:30Z
+head: d2bdfb0c9043f8179918ede067e3b4a319f1b242
 branch: audit/OTERYN-20260807-explicit-terminal-pr-identity
 pr: 813
-status: validating
+status: completed
 context_routes:
   - continuous-audit
   - ci-build-test
   - architecture-governance
 owned_paths:
-  - docs/agents/tasks/active/OTERYN-20260807-explicit-terminal-pr-identity-audit.md
   - docs/agents/tasks/archive/OTERYN-20260807-explicit-terminal-pr-identity-audit.md
   - docs/agents/reports/OTERYN-20260807-explicit-terminal-pr-identity-audit.md
   - docs/agents/evidence/OTERYN-20260807-explicit-terminal-pr-identity-audit/index.md
   - docs/agents/programs/OTERYN_PLATFORM_CONTINUOUS_AUDIT.md
 proven:
-  - Current audit input is main ae716e3b955808916cb203bb97b59df0b44070cf after Issue #788 repair PR #808 and lifecycle closeout PR #810.
+  - Current audit input was main ae716e3b955808916cb203bb97b59df0b44070cf after Issue #788 repair PR #808 and lifecycle closeout PR #810.
   - Numeric open/draft PR handling compares task.branch with PR head.ref and emits branch_pr_mismatch on disagreement.
   - Numeric terminal PR handling releases ownership and validates archive-pending metadata without first comparing task.branch with PR head.ref.
   - Existing terminal numeric-PR test coverage exercises only the matching branch case; no negative terminal branch/head mismatch fixture exists.
-  - Duplicate search found no actionable Issue for this explicit terminal numeric-PR identity gap; Issue #811 now owns remediation.
-  - PR #813 is the single documentation/evidence delivery for this bounded audit and contains no executable behavior change.
+  - Duplicate search found no actionable Issue for this explicit terminal numeric-PR identity gap; Issue #811 owns remediation.
+  - PR #813 was the single documentation/evidence delivery for this bounded audit and changed no executable behavior.
+  - Agent Governance run 31180455796 and CI run 31180456085 passed on exact audit head d2bdfb0c9043f8179918ede067e3b4a319f1b242; CI skipped runtime-tests as expected for the documentation-only diff.
+  - PR #813 merged through protected repository policy as 19170cf686622e25b1eb493544760ba4b001dd4b.
 derived:
   - A task can reference an unrelated same-repository terminal PR and be treated as terminal archive-pending with ownership inactive despite its declared branch belonging to different work.
 unknown: []
@@ -84,19 +84,28 @@ first_failure:
 rejected_hypotheses:
   - Issue #788 fully closed all branch/PR identity paths; it repaired omitted-PR branch-history reconciliation but did not add the terminal numeric-PR branch comparison.
 changed_paths:
-  - docs/agents/tasks/active/OTERYN-20260807-explicit-terminal-pr-identity-audit.md
-  - docs/agents/reports/OTERYN-20260807-explicit-terminal-pr-identity-audit.md
   - docs/agents/evidence/OTERYN-20260807-explicit-terminal-pr-identity-audit/index.md
   - docs/agents/programs/OTERYN_PLATFORM_CONTINUOUS_AUDIT.md
+  - docs/agents/reports/OTERYN-20260807-explicit-terminal-pr-identity-audit.md
+  - docs/agents/tasks/archive/OTERYN-20260807-explicit-terminal-pr-identity-audit.md
 validation:
   - command: current-main static path and regression-coverage review
     result: PASS
     evidence: The mismatch check is present only in the non-terminal numeric-PR branch and the terminal mismatch fixture is absent.
+  - command: Agent Governance run 31180455796
+    result: PASS
+    evidence: Exact-head checkpoint validation, liveness tests, live ownership validation and Control Room validation passed on d2bdfb0c9043f8179918ede067e3b4a319f1b242.
+  - command: CI run 31180456085
+    result: PASS
+    evidence: classify-changes and required test gate passed on d2bdfb0c9043f8179918ede067e3b4a319f1b242; runtime-tests was skipped by documentation-only routing.
+  - command: protected squash merge PR #813
+    result: PASS
+    evidence: Exact head d2bdfb0c9043f8179918ede067e3b4a319f1b242 merged as 19170cf686622e25b1eb493544760ba4b001dd4b.
 blockers:
   - none
-next_action: Validate exact-head required checks and review state for PR #813, merge only through protected repository policy, then archive this audit task in lifecycle closeout.
+next_action: No further audit-task action; Issue #811 owns the independent remediation and the continuous-audit programme returns to live-query selection.
 ```
 
 ## Safety
 
-Audit-only. No governance implementation, product runtime, workflow, production/staging environment or external repository is modified in this task.
+Audit-only. No governance implementation, product runtime, workflow, production/staging environment or external repository was modified in this task.
