@@ -34,13 +34,14 @@ final class NativeOAuthRevocationGenerationTest extends TestCase
         $accessToken = Token::query()->where('user_id', $identity->id)->firstOrFail();
         $authCodeGeneration = DB::table('oauth_auth_codes')->value('game_auth_generation');
 
-        self::assertSame(0, (int) $authCodeGeneration);
-        self::assertSame(0, (int) $accessToken->getAttribute('game_auth_generation'));
+        self::assertSame(0, $authCodeGeneration);
+        self::assertSame(0, $accessToken->getAttribute('game_auth_generation'));
 
         $this->app->make(RevokeIdentityGameAuthorizations::class)->execute($identity);
 
         self::assertSame(1, $identity->fresh()?->game_auth_generation);
-        self::assertTrue(Token::query()->findOrFail($accessToken->getKey())->revoked);
+        $revokedAccessToken = Token::query()->whereKey($accessToken->getKey())->firstOrFail();
+        self::assertTrue((bool) $revokedAccessToken->getAttribute('revoked'));
         self::assertTrue((bool) RefreshToken::query()
             ->where('access_token_id', $accessToken->getKey())
             ->value('revoked'));
@@ -69,7 +70,8 @@ final class NativeOAuthRevocationGenerationTest extends TestCase
         ])->assertStatus(400);
 
         self::assertSame(1, Token::query()->where('user_id', $identity->id)->count());
-        self::assertTrue(Token::query()->findOrFail($accessToken->getKey())->revoked);
+        $revokedAccessToken = Token::query()->whereKey($accessToken->getKey())->firstOrFail();
+        self::assertTrue((bool) $revokedAccessToken->getAttribute('revoked'));
     }
 
     public function test_refresh_descendant_inherits_authorization_generation(): void
@@ -89,7 +91,7 @@ final class NativeOAuthRevocationGenerationTest extends TestCase
             ->where('revoked', false)
             ->firstOrFail();
 
-        self::assertSame(0, (int) $newAccessToken->getAttribute('game_auth_generation'));
+        self::assertSame(0, $newAccessToken->getAttribute('game_auth_generation'));
 
         $newRefreshToken = $refresh->json('refresh_token');
 
@@ -114,7 +116,7 @@ final class NativeOAuthRevocationGenerationTest extends TestCase
         $bootstrap = $this->issueNativeOAuthBootstrapToken($identity->fresh() ?? $identity);
         $accessToken = Token::query()->where('user_id', $identity->id)->firstOrFail();
 
-        self::assertSame(1, (int) $accessToken->getAttribute('game_auth_generation'));
+        self::assertSame(1, $accessToken->getAttribute('game_auth_generation'));
 
         $this->withToken($bootstrap['access_token'])
             ->postJson('/api/v1/game-auth/tickets', ['protocol_version' => 1])
