@@ -20,8 +20,8 @@ const baseline = validatePortalContentScaleEvidence(inputs);
 assert.deepEqual(baseline.errors, [], `Repository content-scale ledger is invalid:\n${baseline.errors.join('\n')}`);
 assert.equal(baseline.schema_version, 2);
 assert.equal(baseline.status, 'complete');
-assert.equal(baseline.portal_surface_count, 18);
-assert.equal(baseline.classified_surface_count, 18);
+assert.equal(baseline.portal_surface_count, 27);
+assert.equal(baseline.classified_surface_count, 27);
 assert.equal(baseline.consumer_surface_count, 12);
 assert.equal(baseline.mapped_surface_count, 12);
 assert.equal(baseline.profile_count, 2);
@@ -31,6 +31,10 @@ assert.equal(baseline.gap_surface_count, 0);
 expectError(inputs, (candidate) => {
   delete candidate.contract.surfaces['public.home-and-seo'];
 }, 'Missing content scale classification for portal surface: public.home-and-seo');
+
+expectError(inputs, (candidate) => {
+  candidate.manifestSurfaces.push({ id: 'fragment.future-surface', status: 'covered' });
+}, 'Missing content scale classification for portal surface: fragment.future-surface');
 
 expectError(inputs, (candidate) => {
   candidate.contract.surfaces['unknown.portal.surface'] = {
@@ -101,6 +105,6 @@ process.stdout.write(`${JSON.stringify({
   baseline_profiles: baseline.profile_count,
   baseline_evidence_groups: baseline.evidence_group_count,
   baseline_gaps: baseline.gap_surface_count,
-  negative_fixtures: 14,
+  negative_fixtures: 15,
   result: 'PASS',
 }, null, 2)}\n`);
