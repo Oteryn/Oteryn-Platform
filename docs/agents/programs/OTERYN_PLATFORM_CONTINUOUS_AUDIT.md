@@ -21,7 +21,7 @@ Continuously audit every delivered or declared Platform module and surface for t
 
 ```yaml
 programme_state_version: 3
-updated_at: 2026-08-07T09:21:00Z
+updated_at: 2026-08-07T09:51:00Z
 status: ready
 current_cycle: 1
 programme_execution_snapshot:
@@ -32,13 +32,13 @@ programme_execution_snapshot:
   branch: unknown
   pull_request: unknown
   reason: Mutable execution ownership must be resolved from live tasks, branches, Issues and PRs at invocation time; unknown must never be interpreted as none.
-last_merged_audit_head: 26a92a5d49b86fb121cebd2cbd57525c3a3140ad
-last_completed_domain: agent-governance-branch-pr-reconciliation
+last_merged_audit_head: 67cbe391967ee7fd2bf26e4eda412820b805f981
+last_completed_domain: branch-lifecycle-atomic-delete
 coverage_inventory:
   baseline: docs/agents/evidence/OTERYN-20260803-portal-exhaustive-current-main-audit/
   baseline_merge: cbbd7613cee13cf01931a0ba0f7ac089122132e0
-  latest_audited_main: a1b3690c85fe4fb585d5725474769a8aced2e686
-  selected_delta_domain: agent-governance-branch-pr-reconciliation
+  latest_audited_main: 993b3561feb75644d4a07f3e3377020be051eed6
+  selected_delta_domain: branch-lifecycle-atomic-delete
 finding_ledger_semantics: historical_identity_map_not_live_queue
 finding_ledger:
   baseline_owners: [486, 487, 488, 489, 490, 491]
@@ -65,6 +65,7 @@ finding_ledger:
     - OPA-GOV-0019: 780
     - OPA-GOV-0020: 783
     - OPA-GOV-0021: 788
+    - OPA-GOV-0022: 793
 live_queue:
   mode: live_query_required
   exhaustive: false
@@ -81,20 +82,23 @@ proven:
   - OPA-GOV-0016 is proven in Issue #582: completed Game Catalog programme-registration audit PR #331 remained falsely active while programme #330 correctly continued.
   - OPA-GOV-0017 is proven in Issue #583: completed schema 1.3 architecture proposal PR #332 remained falsely active while downstream PR #338 consumed the contract.
   - OPA-GOV-0018 is proven in Issue #584: completed Cloudflare audit implementation/evidence PRs #409 and #415 retained workflow and tooling ownership while denied live reads remained a legitimate blocker.
-  - OPA-GOV-0019 is proven in Issue #780: destructive branch cleanup validates one snapshot and later deletes refs by name without per-entry live SHA/PR/claim/protection revalidation.
+  - OPA-GOV-0019 is proven in Issue #780: destructive branch cleanup originally relied on stale pre-delete snapshot state; PR #789 narrowed that defect with immediate live revalidation and Issue #780 is now closed completed.
   - OPA-GOV-0020 is proven in Issue #783: docs-only main pushes force all CI gates and full Acceptance, and a newer docs-only main generation cancelled the prior in-progress Acceptance run.
   - OPA-GOV-0021 is proven in Issue #788: tasks with pr none and an existing branch bypass live PR discovery and are treated as active BRANCH_ONLY ownership even when matching PR state exists.
+  - OPA-GOV-0022 is proven in Issue #793: the Issue #780 repair still performs a client-side GET expected-SHA check followed by a separate name-only REST DELETE, leaving a final non-atomic ref-change window.
   - Audit PR #781 passed exact-head CI and Agent Governance and merged as f72fafd461f6bd2f41c5a58b975a5532f8e426ef; its audit task is archived.
   - Audit PR #784 passed exact-head CI run 31164308992 and Agent Governance run 31164310591 and merged as 8478b627609f9d82799bc5866c8ba504d5751f19; its audit task is archived.
-  - Audit PR #790 passed exact-head CI run 31165266121 and Agent Governance run 31165266632 on 06fb33d0e4d905ad821a49f3814a66a11e1a354d and merged as 26a92a5d49b86fb121cebd2cbd57525c3a3140ad.
+  - Audit PR #790 passed exact-head CI run 31165266121 and Agent Governance run 31165266632 on 06fb33d0e4d905ad821a49f3814a66a11e1a354d and merged as 26a92a5d49b86fb121cebd2cbd57525c3a3140ad; its audit task is archived.
+  - Audit PR #794 passed exact-head CI run 31167549465 and Agent Governance run 31167550571 on af7de7d1b479bd478a1cd96254a8753d2f0339e0 and merged as 67cbe391967ee7fd2bf26e4eda412820b805f981.
   - Issue #558 is closed completed and current main contains the live active-task liveness enforcement introduced by PR #779; OPA-GOV-0021 records a bounded omitted-PR reconciliation gap in that implementation.
+  - Issue #780 is closed completed through PR #789 and lifecycle closeout PR #792; OPA-GOV-0022 is a distinct residual remote atomicity finding after that repair.
   - Issue #547 is closed completed after repair PR #595 and independent audit #597; it is not a live remediation blocker.
   - Issues #555, #561 and #562 are terminal completed through their recorded lifecycle closeouts.
   - Independent PASS-only validation is governed by docs/agents/LIFECYCLE_CLOSEOUT_BATCHING.md and is recorded on the existing target PR rather than a new audit PR.
 derived:
   - Any remaining payment activation gate must be resolved from current architecture, security and live Issue state; Issue #547 itself is no longer a blocker.
   - Compatible lifecycle-only findings should be handed to one bounded reconciliation wave instead of generating one closeout PR and one audit Issue per task.
-  - Destructive ref cleanup requires a live guard at deletion time; a reviewed snapshot cannot safely authorize later name-only deletion after mutable branch state changes.
+  - Destructive ref cleanup requires both live safety revalidation and a remote operation that rejects deletion when the ref no longer equals the reviewed expected SHA.
   - Docs-only heavy-workflow economy currently holds at pull-request time but not after merge to main; main-push routing must preserve the same risk classification without suppressing required product-path validation.
   - Live task liveness must discover PR truth from branch identity when the task omits a PR number, while preserving genuine pre-PR branches and exact branch-reuse semantics.
   - A refreshed timestamp or programme version must never preserve a stale exhaustive queue; mutable queue fields remain explicitly live-query-derived.
@@ -103,13 +107,13 @@ unknown:
   - Current open, ready, blocked and actively owned findings until live repository queries are executed.
 conflicts:
   - ADR 0021 protects payment amount/currency integrity while the verified-event contract cannot carry or validate those facts.
-  - ADR 0024 requires active/open/ambiguous branches to fail closed, while the current destructive apply loop has the OPA-GOV-0019 time-of-check/time-of-use gap before ref deletion.
+  - ADR 0024 forbids deleting changed or active work; the current branch-lifecycle implementation narrows the earlier stale-snapshot race but its final expected-SHA check and REST DELETE remain separate remote requests.
   - Completed baseline Issue #452 requires docs/task/metadata-only changes not to run unrelated heavy browser/container/application gates, while current main-push CI and Acceptance routing has the OPA-GOV-0020 gap.
   - Issue #558 requires branch/PR/task identity reconciliation and terminal retained-branch classification, while the branch-only path can bypass PR reconciliation when pr is none.
 blockers:
   mode: live_query_required
   items: unknown
-next_action: Refresh live ownership, open and blocked Issues, active tasks, PRs and recent main deltas, then select the next highest-risk non-overlapping audit domain in a future bounded invocation.
+next_action: Refresh live ownership, open and blocked Issues, active tasks, PRs and recent main deltas, then select the next highest-risk non-overlapping audit domain in the next bounded package.
 ```
 
 ## Programme rules
