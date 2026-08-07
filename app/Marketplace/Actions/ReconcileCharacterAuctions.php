@@ -292,13 +292,30 @@ final class ReconcileCharacterAuctions
 
     private function markRecovery(int $auctionId, string $failureCode): CharacterAuction
     {
-        CharacterAuction::query()->whereKey($auctionId)->update([
-            'status' => CharacterAuction::STATUS_RECOVERY_REQUIRED,
-            'saga_state' => CharacterAuction::SAGA_RECOVERY_REQUIRED,
-            'failure_code' => $failureCode,
-            'updated_at' => now(),
-        ]);
+        return DB::transaction(function () use ($auctionId, $failureCode): CharacterAuction {
+            $locked = CharacterAuction::query()->whereKey($auctionId)->lockForUpdate()->firstOrFail();
 
-        return CharacterAuction::query()->findOrFail($auctionId);
+            if ($locked->isTerminal()) {
+                return $locked;
+            }
+
+            if (! in_array($locked->status, [
+                CharacterAuction::STATUS_ESCROW_PENDING,
+                CharacterAuction::STATUS_ACTIVE,
+                CharacterAuction::STATUS_SETTLEMENT_PENDING,
+                CharacterAuction::STATUS_CANCEL_PENDING,
+                CharacterAuction::STATUS_RECOVERY_REQUIRED,
+            ], true)) {
+                return $locked;
+            }
+
+            $locked->status = CharacterAuction::STATUS_RECOVERY_REQUIRED;
+            $locked->saga_state = CharacterAuction::SAGA_RECOVERY_REQUIRED;
+            $locked->failure_code = $failureCode;
+            $locked->lock_version++;
+            $locked->save();
+
+            return $locked;
+        }, 3);
     }
 }
