@@ -21,6 +21,7 @@ on:
 
 permissions:
   contents: read
+  pull-requests: read
 
 concurrency:
   group: agent-governance-${{ github.event.pull_request.number || github.ref }}
@@ -41,6 +42,12 @@ jobs:
       - name: Run checkpoint validator tests
         run: python tools/agents/test_checkpoint.py
 
+      - name: Run live task liveness tests
+        run: python tools/agents/test_task_liveness.py
+
+      - name: Run Control Room tests
+        run: python tools/agents/test_control_room.py
+
       - name: Validate active task checkpoints
         shell: bash
         run: |
@@ -49,3 +56,31 @@ jobs:
           else
             echo "Validated 0 active task checkpoints."
           fi
+
+      - name: Validate live active-task ownership
+        id: task_liveness
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python tools/agents/task_liveness.py \
+            --repository "$GITHUB_REPOSITORY" \
+            --token-env GH_TOKEN \
+            --active docs/agents/tasks/active \
+            --archive docs/agents/tasks/archive \
+            --report-json "$RUNNER_TEMP/task-liveness.json"
+
+      - name: Render live-aware Control Room
+        if: always()
+        run: |
+          python tools/agents/control_room.py \
+            --format json \
+            --liveness-report "$RUNNER_TEMP/task-liveness.json" \
+            --fail-on-live-invalid \
+            > "$RUNNER_TEMP/control-room.json"
+
+      - name: Enforce live task liveness
+        if: always() && steps.task_liveness.outcome != 'success'
+        run: |
+          echo "Live active-task ownership validation failed."
+          exit 1
