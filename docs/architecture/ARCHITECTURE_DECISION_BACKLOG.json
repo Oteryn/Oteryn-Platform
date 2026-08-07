@@ -15,7 +15,94 @@
     ],
     "terminal_handling": "Remove resolved, rejected, or superseded records in the same bounded package that records their accepted ADR, canonical rationale, or explicit rejection; preserve history in Git and linked Issues rather than in a second permanent archive."
   },
-  "records": [],
+  "records": [
+    {
+      "blockers": [],
+      "blocking_owner_question": "Accept Option A for the Native Character Portfolio / Account Center v2 boundary, or choose Option B or C?",
+      "canonical_owners": [
+        "docs/architecture/ARCHITECTURE_AUTHORITY.md",
+        "docs/architecture/MODULE_CATALOG.md",
+        "docs/architecture/DATA_OWNERSHIP.md",
+        "docs/architecture/PORTAL_COMPLETENESS_ARCHITECTURE.md"
+      ],
+      "created_at": "2026-08-08",
+      "decision_id": "ARCH-DEC-0001",
+      "decision_owner": "repository owner",
+      "decision_question": "Which Platform boundary should own authenticated native character portfolio composition and how should it consume Oteryn-v2 Character Authority?",
+      "deferral_reason": null,
+      "dependencies": {
+        "decision_ids": [],
+        "issues": [],
+        "local_paths": [
+          "docs/architecture/adr/0001-laravel-modular-monolith.md",
+          "docs/architecture/adr/0008-oteryn-frontend-information-and-shell-architecture.md",
+          "docs/architecture/adr/0025-player-companion-and-portal-tools-boundary.md",
+          "docs/architecture/adr/0028-platform-accountid-cross-boundary-identity.md",
+          "docs/architecture/adr/0029-platform-world-channel-identity-and-topology.md"
+        ]
+      },
+      "evidence": {
+        "CONFLICT": [],
+        "DERIVED": [
+          "A durable Platform ADR is required because the target boundary changes long-lived module ownership, native identity use, capability/freshness semantics and migration direction.",
+          "PlayerCompanion should not be implemented against Canary numeric account/player identifiers because that would duplicate compatibility debt in a new module."
+        ],
+        "PROVEN": [
+          "Current AccountOverviewReadModel uses IdentityCanaryAccount, canary_account_id, CanaryGameDataRepository and CHARACTER_LIMIT=10 to derive character creation availability.",
+          "Current CharacterProfilePreference stores canary_player_id while Platform owns the privacy and presentation preferences.",
+          "ADR 0028 defines Platform-issued AccountId and keeps Canary account IDs inside the legacy compatibility boundary.",
+          "Oteryn-v2 merged PR 90 makes Character Authority the owner of CharacterId, current AccountId-to-CharacterId ownership and native character lifecycle mutations."
+        ],
+        "UNKNOWN": [
+          "The repository owner has not yet selected the Platform-side Native Character Portfolio ownership option.",
+          "Exact native transport, cache TTL, entitlement exchange and Canary-to-CharacterId migration mechanics remain deliberately unresolved."
+        ]
+      },
+      "implementation_authorized": false,
+      "options": [
+        {
+          "description": "Keep Character Portfolio as an Accounts application/read boundary; keep Characters as Platform command orchestration, PublicGameData as public projections and CharacterProfiles as the Platform-owned presentation/privacy subdomain.",
+          "option_id": "A",
+          "title": "Accounts-owned portfolio boundary",
+          "trade_offs": [
+            "Requires a new authorized Character Authority projection/command adapter and later additive CharacterId migration.",
+            "Keeps several explicit module boundaries that must be coordinated carefully."
+          ]
+        },
+        {
+          "description": "Expand PublicGameData to own authenticated account portfolio composition in addition to public game-data projections.",
+          "option_id": "B",
+          "title": "PublicGameData-owned portfolio",
+          "trade_offs": [
+            "Fewer named boundaries.",
+            "Mixes public-read semantics with owner-private portfolio and command-preparation concerns."
+          ]
+        },
+        {
+          "description": "Create a new standalone CharacterPortfolio module or deployable service for portfolio reads, capabilities and orchestration.",
+          "option_id": "C",
+          "title": "Standalone portfolio boundary",
+          "trade_offs": [
+            "Strong naming isolation.",
+            "Adds a new module/service boundary before independent scaling, security isolation or lifecycle need is proven."
+          ]
+        }
+      ],
+      "problem_statement": "The current Account Center and CharacterProfiles implementation is Canary-compatible but the native Oteryn-v2 target needs a stable Platform-side character portfolio boundary that does not turn Canary numeric identifiers, direct game-database reads or row-count policy inference into permanent architecture.",
+      "recommendation": "Accept Option A and record Proposed ADR 0030 as Accepted only after explicit repository-owner approval.",
+      "recommended_owner": "repository owner",
+      "references": {
+        "issue": 857,
+        "proposed_adr": "docs/architecture/adr/0030-native-character-portfolio-account-center-v2.md",
+        "related_prs": []
+      },
+      "revisit_trigger": null,
+      "severity": "high",
+      "state": "decision_required",
+      "title": "Native Character Portfolio and Account Center v2 boundary",
+      "updated_at": "2026-08-08"
+    }
+  ],
   "registry_name": "Oteryn Platform Architecture Decision Backlog",
   "schema_version": 1
 }

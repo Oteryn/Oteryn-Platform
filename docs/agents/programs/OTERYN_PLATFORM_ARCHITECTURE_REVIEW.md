@@ -18,18 +18,18 @@ Continuously challenge Platform architecture, repository structure and CI/CD; id
 
 ```yaml
 programme_state_version: 2
-updated_at: 2026-08-07T06:49:33Z
-status: ready
-current_review_domain: next-risk-based-rotation
-active_task: null
-issue: null
-branch: null
+updated_at: 2026-08-07T22:32:00Z
+status: blocked
+current_review_domain: native-character-portfolio-account-center-v2
+active_task: OTERYN-20260808-native-character-portfolio-context
+issue: 857
+branch: docs/OTERYN-20260808-native-character-portfolio-decision
 pull_request: null
 last_completed_domain: game-auth-topology-canonical-reconciliation
 last_completed_issue: 720
 last_completed_pull_request: 731
 last_completed_merge: 3c806583d2a0c12d5698f7c30755c22c48da60a4
-latest_review_finding_issue: 720
+latest_review_finding_issue: 857
 accepted_authority:
   authority_index: docs/architecture/ARCHITECTURE_AUTHORITY.md
   authority_adr: docs/architecture/adr/0022-architecture-authority-index-and-focused-canonical-documents.md
@@ -41,7 +41,7 @@ accepted_authority:
 implementation_handoffs:
   - issue: 658
     scope: deterministic branch inventory, retention metadata, conservative cleanup and recovery proof
-active_architecture_decision_ids: []
+active_architecture_decision_ids: ["ARCH-DEC-0001"]
 architecture_conflicts:
   - Historical duplicate ADR prefixes remain for 0008, 0010, 0011, 0015, 0016, 0017, 0018 and 0021, but the exact accepted path sets are machine-enforced and cannot expand silently.
   - Issue 586 retains historical evidence that delete_branch_on_merge was disabled; ADR 0024 and current metadata prove the accepted current state is enabled.
@@ -59,15 +59,20 @@ proven:
   - PR 722 merged the bounded current-state review as 1919f7eb55f6c2a08058652f422b47f841467009.
   - Issue 720 was reconciled by documentation-only PR 731; final head a45df8563fcd51d2ec28741bf326734b3a24bfa4 passed all emitted workflows after independent audit Issue 755 recorded PASS_ZERO_MATERIAL_FINDINGS.
   - PR 731 merged the canonical game-auth reconciliation as 3c806583d2a0c12d5698f7c30755c22c48da60a4 with exactly five effective documentation/task paths and zero unresolved review threads.
+  - Current Platform Account Center still uses Canary numeric account/player identifiers and row-count-derived character creation availability in its compatibility implementation.
+  - Oteryn-v2 merged PR 90 establishes game-owned CharacterId/current AccountId-to-CharacterId ownership and native character lifecycle commands.
 derived:
   - The three owner decisions formerly tracked by the architecture decision backlog are resolved and preserved by accepted ADRs.
   - Finding OPA-ARCH-20260806-001 is resolved on main; the focused game-auth contracts, topology and module wording no longer contradict the bounded repository-delivered Gateway path.
-  - Repository delivery still does not prove production deployment, private-ingress isolation, native-v2 consumer cutover or production activation.
+  - Native Character Portfolio needs a Platform-side durable boundary before PlayerCompanion or PlatformAPI adopts legacy Canary identifiers.
 unknown:
   - Exact deployed game-auth topology, alternate-path network isolation and production activation evidence.
+  - Repository-owner selection for ARCH-DEC-0001.
+  - Exact Character Portfolio transport, freshness TTL, entitlement exchange and legacy mapping implementation.
 conflicts: []
-blockers: []
-next_action: Select the highest-risk unresolved architecture, repository-structure or CI/CD question from current main after a fresh overlap search; keep Issue 658 as a separate implementation handoff and preserve current accepted authority.
+blockers:
+  - ARCH-DEC-0001 requires repository-owner selection before Proposed ADR 0030 may become Accepted.
+next_action: Obtain the repository-owner decision for ARCH-DEC-0001; if Option A is accepted, promote ADR 0030 and reconcile MODULE_CATALOG, DATA_OWNERSHIP and PORTAL_COMPLETENESS_ARCHITECTURE without runtime changes.
 ```
 
 ## Programme rules
