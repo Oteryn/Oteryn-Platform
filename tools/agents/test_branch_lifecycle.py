@@ -8,6 +8,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 MODULE_PATH = Path(__file__).with_name("branch_lifecycle.py")
 SPEC = importlib.util.spec_from_file_location("branch_lifecycle", MODULE_PATH)
@@ -432,29 +433,96 @@ class BranchLifecycleTest(unittest.TestCase):
             def __init__(client_self) -> None:
                 client_self.repo = "blakinio/Oteryn-Platform"
                 client_self.current_sha = "a" * 40
-                client_self.delete_requests = 0
+                client_self.leases: list[tuple[str, str]] = []
 
             def get_ref(client_self, branch: str) -> dict | None:
                 return {"object": {"sha": client_self.current_sha}}
 
-            def request(
-                client_self,
-                method: str,
-                path: str,
-                *,
-                data: dict | None = None,
-                expected=(200,),
-            ) -> tuple[object, dict[str, str]]:
-                self.assertEqual("DELETE", method)
-                client_self.delete_requests += 1
-                return None, {}
+            def _delete_ref_with_lease(client_self, branch: str, expected_sha: str) -> None:
+                client_self.leases.append((branch, expected_sha))
 
         client = GuardClient()
         with self.assertRaisesRegex(branch_lifecycle.ValidationError, "pre-delete SHA drift"):
             client.delete_branch("docs/merged", expected_sha="b" * 40)
-        self.assertEqual(0, client.delete_requests)
+        self.assertEqual([], client.leases)
         client.delete_branch("docs/merged", expected_sha="a" * 40)
-        self.assertEqual(1, client.delete_requests)
+        self.assertEqual([("docs/merged", "a" * 40)], client.leases)
+
+    def test_github_client_delete_without_expected_sha_leases_observed_sha(self) -> None:
+        class RecoveryClient(branch_lifecycle.GitHubClient):
+            def __init__(client_self) -> None:
+                client_self.repo = "blakinio/Oteryn-Platform"
+                client_self.leases: list[tuple[str, str]] = []
+
+            def get_ref(client_self, branch: str) -> dict | None:
+                return {"object": {"sha": "a" * 40}}
+
+            def _delete_ref_with_lease(client_self, branch: str, expected_sha: str) -> None:
+                client_self.leases.append((branch, expected_sha))
+
+        client = RecoveryClient()
+        client.delete_branch("recovery-test/example")
+        self.assertEqual([("recovery-test/example", "a" * 40)], client.leases)
+
+    def test_github_client_atomic_delete_uses_exact_remote_lease_without_token(self) -> None:
+        client = branch_lifecycle.GitHubClient(
+            "blakinio/Oteryn-Platform", "super-secret-token"
+        )
+        expected_sha = "a" * 40
+        client.get_ref = lambda branch: {"object": {"sha": expected_sha}}
+        completed = branch_lifecycle.subprocess.CompletedProcess(
+            args=[], returncode=0, stdout="", stderr=""
+        )
+        with mock.patch.object(
+            branch_lifecycle.subprocess, "run", return_value=completed
+        ) as run:
+            client.delete_branch("docs/merged", expected_sha=expected_sha)
+        command = run.call_args.args[0]
+        self.assertEqual(
+            [
+                "git",
+                "push",
+                "--porcelain",
+                f"--force-with-lease=refs/heads/docs/merged:{expected_sha}",
+                "origin",
+                ":refs/heads/docs/merged",
+            ],
+            command,
+        )
+        self.assertNotIn("super-secret-token", " ".join(command))
+        self.assertFalse(run.call_args.kwargs["check"])
+        self.assertTrue(run.call_args.kwargs["capture_output"])
+        self.assertEqual(60, run.call_args.kwargs["timeout"])
+
+    def test_github_client_atomic_delete_rejects_last_instruction_race(self) -> None:
+        client = branch_lifecycle.GitHubClient(
+            "blakinio/Oteryn-Platform", "super-secret-token"
+        )
+        expected_sha = "a" * 40
+        advanced_sha = "b" * 40
+        state = {"sha": expected_sha}
+
+        def get_ref(branch: str) -> dict:
+            return {"object": {"sha": state["sha"]}}
+
+        def race_remote(command: list[str], **kwargs: object):
+            self.assertIn(
+                f"--force-with-lease=refs/heads/docs/merged:{expected_sha}", command
+            )
+            state["sha"] = advanced_sha
+            return branch_lifecycle.subprocess.CompletedProcess(
+                args=command, returncode=1, stdout="", stderr="stale info"
+            )
+
+        client.get_ref = get_ref
+        with mock.patch.object(
+            branch_lifecycle.subprocess, "run", side_effect=race_remote
+        ):
+            with self.assertRaisesRegex(
+                branch_lifecycle.ValidationError, "atomic delete lease rejected"
+            ):
+                client.delete_branch("docs/merged", expected_sha=expected_sha)
+        self.assertEqual(advanced_sha, state["sha"])
 
 
 if __name__ == "__main__":
