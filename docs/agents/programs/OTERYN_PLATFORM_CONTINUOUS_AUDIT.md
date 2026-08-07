@@ -21,7 +21,7 @@ Continuously audit every delivered or declared Platform module and surface for t
 
 ```yaml
 programme_state_version: 3
-updated_at: 2026-08-07T10:02:00Z
+updated_at: 2026-08-07T10:07:00Z
 status: ready
 current_cycle: 1
 programme_execution_snapshot:
@@ -32,12 +32,12 @@ programme_execution_snapshot:
   branch: unknown
   pull_request: unknown
   reason: Mutable execution ownership must be resolved from live tasks, branches, Issues and PRs at invocation time; unknown must never be interpreted as none.
-last_merged_audit_head: 67cbe391967ee7fd2bf26e4eda412820b805f981
-last_completed_domain: branch-lifecycle-atomic-delete
+last_merged_audit_head: bf16812e4720fdd90a2483a048c2706592f662d8
+last_completed_domain: payment-partial-refund-integrity
 coverage_inventory:
   baseline: docs/agents/evidence/OTERYN-20260803-portal-exhaustive-current-main-audit/
   baseline_merge: cbbd7613cee13cf01931a0ba0f7ac089122132e0
-  latest_audited_main: 1a72040b1ecb367090f21ec8a767294ff376ae5e
+  latest_audited_main: befb5ca3d148ffdb0c582c26d06a6f644367e5be
   selected_delta_domain: payment-partial-refund-integrity
 finding_ledger_semantics: historical_identity_map_not_live_queue
 finding_ledger:
@@ -88,11 +88,12 @@ proven:
   - OPA-GOV-0019 is proven in Issue #780 and repaired through PR #789; the stale-snapshot deletion gap is historical identity evidence.
   - OPA-GOV-0020 is proven in Issue #783: docs-only main pushes force all CI gates and full Acceptance, and a newer docs-only main generation cancelled the prior in-progress Acceptance run.
   - OPA-GOV-0021 is proven in Issue #788: tasks with pr none and an existing branch bypass live PR discovery and are treated as active BRANCH_ONLY ownership even when matching PR state exists.
-  - OPA-GOV-0022 is historically proven in Issue #793 and repaired through PR #796 using a remote force-with-lease deletion boundary; Issue #793 is closed completed.
+  - OPA-GOV-0022 is historically proven in Issue #793 and repaired through PR #796 using a remote force-with-lease deletion boundary; Issue #793 is closed completed and its repair task is archived through PR #798.
   - Audit PR #781 passed exact-head CI and Agent Governance and merged as f72fafd461f6bd2f41c5a58b975a5532f8e426ef; its audit task is archived.
   - Audit PR #784 passed exact-head CI run 31164308992 and Agent Governance run 31164310591 and merged as 8478b627609f9d82799bc5866c8ba504d5751f19; its audit task is archived.
   - Audit PR #790 passed exact-head CI run 31165266121 and Agent Governance run 31165266632 and merged as 26a92a5d49b86fb121cebd2cbd57525c3a3140ad; its audit task is archived.
   - Audit PR #794 passed exact-head CI run 31167549465 and Agent Governance run 31167550571 and merged as 67cbe391967ee7fd2bf26e4eda412820b805f981; its audit task is archived through PR #795.
+  - Audit PR #799 passed Agent Governance run 31168550882 on exact head 58e64dba046811d8b837ef61fc390fa7e306f73e; protected merge accepted that exact head as bf16812e4720fdd90a2483a048c2706592f662d8 after the repository-required merge contexts were satisfied.
   - Issue #558 is closed completed and current main contains the live active-task liveness enforcement introduced by PR #779; OPA-GOV-0021 records a bounded omitted-PR reconciliation gap in that implementation.
   - Issues #555, #561 and #562 are terminal completed through their recorded lifecycle closeouts.
   - Independent PASS-only validation is governed by docs/agents/LIFECYCLE_CLOSEOUT_BATCHING.md and is recorded on the existing target PR rather than a new audit PR.
@@ -109,12 +110,12 @@ unknown:
   - Current open, ready, blocked and actively owned findings until live repository queries are executed.
 conflicts:
   - ADR 0021 and parent Issue #321 require durable partial-refund financial truth and refund lifecycle evidence, while the current state-only model can consume a distinct second partial refund as duplicate_state without preserving its amount.
-  - Completed baseline Issue #452 requires docs/task/metadata-only changes not to run unrelated heavy browser/container/application gates, while current main-push CI and Acceptance routing has the OPA-GOV-0020 gap.
+  - Completed baseline Issue #452 requires docs/task/metadata-only changes not to run unrelated heavy browser/container/application gates, while current main-push CI and Acceptance routing has the OPA-GOV-0020 gap until its live repair is terminally verified.
   - Issue #558 requires branch/PR/task identity reconciliation and terminal retained-branch classification, while the branch-only path can bypass PR reconciliation when pr is none.
 blockers:
   mode: live_query_required
   items: unknown
-next_action: Complete the payment partial-refund integrity audit package, merge and archive it, then stop this invocation at the additional-package boundary.
+next_action: Refresh live ownership, open and blocked Issues, active tasks, PRs and recent main deltas in the next invocation, then select the next highest-risk non-overlapping audit domain.
 ```
 
 ## Programme rules
