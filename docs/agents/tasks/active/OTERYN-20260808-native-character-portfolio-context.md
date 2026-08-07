@@ -369,3 +369,55 @@ These are for architecture analysis, not assumptions.
 ## Completion condition for this checkpoint
 
 This checkpoint is complete when another agent can enter `blakinio/Oteryn-Platform`, read this file plus the referenced canonical architecture sources, and continue the Native Character Portfolio / Account Center v2 architecture discussion without relying on chat history.
+
+## Context checkpoint
+
+```yaml
+checkpoint_version: 1
+updated_at: 2026-08-07T22:53:00Z
+head: 3bbf25616497abf5d7f2608c635c0942fc2b949a
+branch: docs/OTERYN-20260808-native-character-portfolio-decision
+pr: 859
+status: blocked
+context_routes:
+  - architecture
+  - agent-governance
+owned_paths:
+  - docs/agents/programs/OTERYN_PLATFORM_ARCHITECTURE_REVIEW.md
+  - docs/agents/tasks/active/OTERYN-20260808-native-character-portfolio-context.md
+  - docs/architecture/DATA_OWNERSHIP.md
+  - docs/architecture/PORTAL_COMPLETENESS_ARCHITECTURE.md
+  - docs/architecture/adr/0030-native-character-portfolio-account-center-v2.md
+  - docs/architecture/adr/README.md
+proven:
+  - PR #859 is the live draft architecture PR for this task and its current head is 3bbf25616497abf5d7f2608c635c0942fc2b949a.
+  - Issue #857 and PR #859 leave ADR 0030 Proposed pending an explicit repository-owner selection of Option A, B or C.
+  - This task is architecture and documentation only and does not authorize runtime or cross-repository writes.
+derived:
+  - The task must remain blocked until the repository owner selects the Native Character Portfolio boundary option.
+unknown:
+  - Repository-owner selection of Option A, B or C remains unresolved.
+conflicts: []
+first_failure:
+  marker: PR #859 Agent Governance rejects the active-task checkpoint structure
+  evidence: Agent Governance run 31224204311; Issue #858 audit continuation comment
+rejected_hypotheses:
+  - Adding only the Context checkpoint heading is sufficient: run 31224204311 proves the required checkpoint fields were still missing.
+changed_paths:
+  - docs/agents/programs/OTERYN_PLATFORM_ARCHITECTURE_REVIEW.md
+  - docs/agents/tasks/active/OTERYN-20260808-native-character-portfolio-context.md
+  - docs/architecture/DATA_OWNERSHIP.md
+  - docs/architecture/PORTAL_COMPLETENESS_ARCHITECTURE.md
+  - docs/architecture/adr/0030-native-character-portfolio-account-center-v2.md
+  - docs/architecture/adr/README.md
+validation:
+  - command: Agent Governance run 31224204311 on PR #859
+    result: FAIL
+    evidence: checkpoint validation rejected missing canonical version-1 fields before repair #858
+  - command: architecture decision E2E
+    result: NOT_APPLICABLE
+    evidence: documentation-only architecture proposal creates no executable runtime journey
+blockers:
+  - Explicit repository-owner selection of Option A, B or C is required before ADR 0030 may become Accepted.
+next_action: After repair #858 merges, rebase PR #859 onto current main, preserve this canonical checkpoint structure, and wait for the repository owner to select Option A, B or C before accepting ADR 0030.
+```
