@@ -18,17 +18,17 @@ Continuously challenge Platform architecture, repository structure and CI/CD; id
 
 ```yaml
 programme_state_version: 2
-updated_at: 2026-08-07T22:48:19Z
-status: validating
-current_review_domain: native-character-portfolio-account-center-v2
-active_task: OTERYN-20260808-native-character-portfolio-context
-issue: 857
-branch: docs/OTERYN-20260808-native-character-portfolio-decision
-pull_request: 859
-last_completed_domain: game-auth-topology-canonical-reconciliation
-last_completed_issue: 720
-last_completed_pull_request: 731
-last_completed_merge: 3c806583d2a0c12d5698f7c30755c22c48da60a4
+updated_at: 2026-08-08T00:55:02+02:00
+status: ready
+current_review_domain: next-risk-based-rotation
+active_task: null
+issue: null
+branch: null
+pull_request: null
+last_completed_domain: native-character-portfolio-account-center-v2
+last_completed_issue: 857
+last_completed_pull_request: 859
+last_completed_merge: 73c2426b37cfd5028fe9fbcec8254cc8aab3bc80
 latest_review_finding_issue: 858
 accepted_authority:
   authority_index: docs/architecture/ARCHITECTURE_AUTHORITY.md
@@ -42,7 +42,7 @@ implementation_handoffs:
   - issue: 658
     scope: deterministic branch inventory, retention metadata, conservative cleanup and recovery proof
   - issue: 858
-    scope: close the remaining governance merge-gate/regression gap after this PR restores the active-task checkpoint schema; do not conflate that CI-governance repair with the Character Portfolio architecture decision
+    scope: close the remaining governance merge-gate/regression gap; do not conflate that CI-governance repair with accepted product architecture
 active_architecture_decision_ids: []
 architecture_conflicts:
   - Historical duplicate ADR prefixes remain for 0008, 0010, 0011, 0015, 0016, 0017, 0018 and 0021, but the exact accepted path sets are machine-enforced and cannot expand silently.
@@ -51,7 +51,7 @@ ci_architecture_findings:
   - PR 626 separates conditional runtime-tests from an always-emitted aggregate protected test context.
   - Runtime/code changes require the complete MariaDB/PHP suite before the aggregate test gate can pass.
   - Documentation-only changes pass only after fail-closed classification proves runtime tests are NOT_APPLICABLE where policy allows narrower validation; authority/contract paths may still route through broader gates.
-  - Issue 858 proves that PR 856 introduced an invalid active-task checkpoint while Agent Governance was not a required protected merge gate; PR 859 repairs the task schema only, while the branch-protection/regression-control disposition remains Issue 858.
+  - Issue 858 proves that PR 856 introduced an invalid active-task checkpoint while Agent Governance was not a required protected merge gate; PR 859 repaired the task schema, while the branch-protection/regression-control disposition remains Issue 858.
 proven:
   - Repository owner selected Option A for the merged source-branch lifecycle policy; PR 653 merged ADR 0024.
   - Repository owner selected Option A for repository licensing; PR 690 merged ADR 0026 and the proprietary/no-permission policy.
@@ -64,7 +64,7 @@ proven:
   - PR 731 merged the canonical game-auth reconciliation as 3c806583d2a0c12d5698f7c30755c22c48da60a4 with exactly five effective documentation/task paths and zero unresolved review threads.
   - Current Platform Account Center uses Canary numeric account/player identifiers and row-count-derived character creation availability only in its current compatibility implementation.
   - Oteryn-v2 merged PR 90 establishes game-owned CharacterId/current AccountId-to-CharacterId ownership and native character lifecycle commands.
-  - On 2026-08-08 the repository owner explicitly accepted Option A for the Native Character Portfolio / Account Center v2 boundary; Issue 857 now contains the durable owner-decision record.
+  - Repository owner explicitly accepted Option A for the Native Character Portfolio / Account Center v2 boundary; PR 859 merged accepted ADR 0030 as 73c2426b37cfd5028fe9fbcec8254cc8aab3bc80 and Issue 857 is closed completed.
 derived:
   - The accepted Native Character Portfolio boundary belongs inside the existing Laravel modular monolith rather than a new microservice.
   - Accounts owns authenticated portfolio composition, Characters owns Platform command orchestration, PublicGameData remains public/general projection, and CharacterProfiles remains Platform-owned presentation/privacy state.
@@ -74,7 +74,7 @@ unknown:
   - Exact Character Portfolio transport, cache TTL, entitlement exchange, capability code vocabulary and Canary-to-CharacterId migration implementation remain deliberately deferred.
 conflicts: []
 blockers: []
-next_action: Validate the accepted ADR 0030 reconciliation and canonical checkpoint on PR 859 exact head, obtain zero-material-finding architecture review, then merge and close Issue 857 while leaving Issue 858's separate governance merge-gate repair open.
+next_action: Select the highest-risk unresolved architecture, repository-structure or CI/CD question from current main after a fresh overlap search; keep Issue 858 as a separate governance implementation handoff.
 ```
 
 ## Programme rules
