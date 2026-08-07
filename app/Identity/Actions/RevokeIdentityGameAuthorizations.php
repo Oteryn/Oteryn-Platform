@@ -12,7 +12,7 @@ final class RevokeIdentityGameAuthorizations
 {
     public function __construct(
         private readonly SecurityEventRecorder $securityEvents,
-        private readonly NativeOAuthGenerationBinding $oauthBindings,
+        private readonly ?NativeOAuthGenerationBinding $oauthBindings = null,
     ) {}
 
     public function execute(Identity $identity): int
@@ -30,7 +30,8 @@ final class RevokeIdentityGameAuthorizations
             $generation = $lockedIdentity->game_auth_generation + 1;
             $lockedIdentity->forceFill(['game_auth_generation' => $generation])->save();
 
-            $this->oauthBindings->revokeForIdentity($lockedIdentity);
+            ($this->oauthBindings ?? app(NativeOAuthGenerationBinding::class))
+                ->revokeForIdentity($lockedIdentity);
             $this->securityEvents->recordIdentityGameAuthorizationsRevoked($lockedIdentity->id);
 
             $identity->setAttribute('game_auth_generation', $generation);
