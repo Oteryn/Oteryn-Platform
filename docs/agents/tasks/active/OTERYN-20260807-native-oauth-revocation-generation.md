@@ -32,7 +32,7 @@ Remediate Issue #801 so native OAuth authorization established before an identit
 - [x] Refresh-token descendants of pre-revocation authorization remain unable to bypass the generation boundary.
 - [x] Post-revocation authorization can issue a game-login ticket when all other security gates pass.
 - [x] Existing single-use, disabled/terminated identity, scope and native-client gates remain enforced in code and regression coverage.
-- [ ] Security regression coverage and the authoritative auth/game-login contract are updated and validated.
+- [x] Security regression coverage and the authoritative auth/game-login contract are updated and validated.
 - [ ] Heightened exact-head validation passes before merge; no production activation or external-repository mutation occurs.
 
 ## Ownership
@@ -70,8 +70,8 @@ validation_intensity: HEIGHTENED
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-07T14:40:40Z
-head: 4849d61958f5b1708806bdac8f7f6a5194b2e60c
+updated_at: 2026-08-07T15:47:00Z
+head: caf1011ae4d0de362307c222c4258c9be2b6f92d
 branch: repair/issue-801
 pr: 825
 status: validating
@@ -96,20 +96,24 @@ owned_paths:
   - docs/agents/tasks/active/OTERYN-20260807-native-oauth-revocation-generation.md
 proven:
   - Identity game authorization revocation increments game_auth_generation transactionally.
-  - Native OAuth authorization codes carrying game:ticket now persist the current Identity game_auth_generation.
+  - Native OAuth authorization codes carrying game:ticket persist the current Identity game_auth_generation.
   - Access tokens carrying game:ticket inherit generation from authorization-code or refresh-token security context and fail closed if it differs from current Identity state.
-  - Native OAuth bootstrap now compares token generation with a locked current Identity generation before issuing a Game Login Ticket.
+  - Native OAuth bootstrap compares token generation with a locked current Identity generation before issuing a Game Login Ticket.
   - Identity revocation proactively revokes native game:ticket authorization codes, access tokens and refresh descendants in the same transaction as the generation increment.
   - Passport 13.7.5 and league/oauth2-server 9.4.1 payload shapes used by the binding were verified against pinned dependency source.
+  - The MariaDB concurrency fixture now reloads the persisted Identity database defaults before constructing synthetic Passport token state; Game Auth Ticket Concurrency run 31195150972 passes on commit 1d282e7df51e1aa41eb65b97d662f99aa8b36abe.
+  - The authoritative auth/game-login contract records the Platform-native OAuth generation boundary and explicitly preserves UNKNOWN status for retained Canary, account_sessions, legacy, active-session and production-cutover revocation.
+  - Current main f523977f852def1f5f1b722a11fbb98196370f5d was synchronized into the repair branch without overlapping task-owned paths.
 derived:
   - Pre-revocation OAuth material cannot cross the generation boundary even if an access-token revoked flag is independently reopened, because bootstrap also enforces generation equality.
 unknown: []
 conflicts: []
 first_failure:
-  marker: acceptance-e2e-31188457028
-  evidence: eager service-provider binding resolution required APP_KEY during composer package discovery; fixed by lazy event-time resolution in 4849d61958f5b1708806bdac8f7f6a5194b2e60c
+  marker: game-auth-concurrency-31190093475
+  evidence: the synthetic Passport token fixture wrote null game_auth_generation because the freshly created Eloquent Identity had not reloaded the database default; both OAuth racers therefore failed closed. Reloading the persisted Identity before token construction repaired the fixture without weakening runtime enforcement.
 rejected_hypotheses:
   - Revoking only current access-token rows is sufficient; rejected because authorization codes and refresh descendants also require a deterministic generation boundary.
+  - Runtime OAuth bootstrap serialization caused the two-denial concurrency failure; rejected because the non-concurrency revocation suite passed and the fixture token generation was null before either racer executed.
 changed_paths:
   - app/Identity/Actions/RevokeIdentityGameAuthorizations.php
   - app/GameAuth/OAuth/IssueGameLoginTicketFromOAuth.php
@@ -119,17 +123,27 @@ changed_paths:
   - database/migrations/2026_08_07_142500_add_game_auth_generation_to_passport_authorizations.php
   - tests/Feature/GameAuth/OAuth/NativeOAuthRevocationGenerationTest.php
   - tests/Feature/GameAuth/Concurrency/GameTicketConcurrencyTest.php
+  - docs/contracts/AUTH_GAME_LOGIN_CONTRACT.md
   - docs/agents/tasks/active/OTERYN-20260807-native-oauth-revocation-generation.md
 validation:
-  - command: Agent Governance / run 31188458065
+  - command: Game Auth Ticket Concurrency / run 31190093475
     result: FAIL
-    evidence: branch PR identity was omitted from the task checkpoint; repaired by recording PR 825, pending exact-head revalidation.
-  - command: Acceptance E2E and Visual UX / run 31188457028
-    result: FAIL
-    evidence: composer package discovery failed because the provider eagerly resolved Encrypter without APP_KEY; repaired by lazy event-time resolution, pending exact-head revalidation.
+    evidence: identified stale in-memory Identity fixture state as the first actionable failure.
+  - command: Game Auth Ticket Concurrency / run 31195150972
+    result: PASS
+    evidence: exact commit 1d282e7df51e1aa41eb65b97d662f99aa8b36abe passes after the targeted fixture repair.
+  - command: CI / run 31195151356
+    result: PASS
+    evidence: exact commit 1d282e7df51e1aa41eb65b97d662f99aa8b36abe passes repository CI.
+  - command: Agent Governance / run 31195152618
+    result: PASS
+    evidence: exact commit 1d282e7df51e1aa41eb65b97d662f99aa8b36abe passes governance.
+  - command: Phase 7 Production-Like Validation / run 31195150409
+    result: PASS
+    evidence: exact commit 1d282e7df51e1aa41eb65b97d662f99aa8b36abe passes production-like validation without production activation.
 blockers:
   - none
-next_action: update the authoritative auth contract, synchronize with current main, then execute heightened exact-head validation and repair the first attributable failure
+next_action: execute HEIGHTENED validation on the final synchronized head, self-review the exact final diff, verify PR review-thread hygiene and merge only if every required gate passes
 ```
 
 ## Notes
