@@ -334,6 +334,80 @@ class LivenessTests(unittest.TestCase):
             "branch_pr_mismatch", {item["code"] for item in result["findings"]}
         )
 
+    def test_terminal_merged_pr_branch_mismatch_fails_closed(self):
+        self.write(
+            task_text(
+                status="validating",
+                branch="repair/wrong",
+                next_action="Archive this task after the implementation PR merges.",
+                terminal_policy="archive_pending",
+            )
+        )
+        self.client.prs[12] = pr_payload("closed", True)
+        result, report = self.one()
+        codes = {item["code"] for item in result["findings"]}
+        self.assertFalse(report["live_valid"])
+        self.assertEqual(result["live_state"], "TERMINAL_PR_IDENTITY_INVALID")
+        self.assertFalse(result["ownership_active"])
+        self.assertIn("branch_pr_mismatch", codes)
+        self.assertNotIn("terminal_branch_retained", codes)
+
+    def test_terminal_closed_unmerged_pr_branch_mismatch_fails_closed(self):
+        self.write(
+            task_text(
+                status="validating",
+                branch="repair/wrong",
+                next_action="Archive this task after the implementation PR closes.",
+                terminal_policy="archive_pending",
+            )
+        )
+        self.client.prs[12] = pr_payload("closed", False)
+        result, report = self.one()
+        codes = {item["code"] for item in result["findings"]}
+        self.assertFalse(report["live_valid"])
+        self.assertEqual(result["live_state"], "TERMINAL_PR_IDENTITY_INVALID")
+        self.assertFalse(result["ownership_active"])
+        self.assertIn("branch_pr_mismatch", codes)
+        self.assertNotIn("terminal_branch_retained", codes)
+
+    def test_terminal_pr_missing_branch_identity_fails_closed(self):
+        self.write(
+            task_text(
+                status="validating",
+                branch="none",
+                next_action="Archive this task after the implementation PR merges.",
+                terminal_policy="archive_pending",
+            )
+        )
+        self.client.prs[12] = pr_payload("closed", True)
+        result, report = self.one()
+        codes = {item["code"] for item in result["findings"]}
+        self.assertFalse(report["live_valid"])
+        self.assertEqual(result["live_state"], "TERMINAL_PR_IDENTITY_INVALID")
+        self.assertFalse(result["ownership_active"])
+        self.assertIn("missing_branch_identity", codes)
+        self.assertNotIn("terminal_branch_retained", codes)
+
+    def test_terminal_pr_foreign_head_fails_before_archive_pending(self):
+        self.write(
+            task_text(
+                status="validating",
+                next_action="Archive this task after the implementation PR merges.",
+                terminal_policy="archive_pending",
+            )
+        )
+        self.client.prs[12] = pr_payload(
+            "closed", True, repo="blakinio/foreign-repository"
+        )
+        self.client.branches["repair/live"] = branch_ref()
+        result, report = self.one()
+        codes = {item["code"] for item in result["findings"]}
+        self.assertFalse(report["live_valid"])
+        self.assertEqual(result["live_state"], "TERMINAL_PR_IDENTITY_INVALID")
+        self.assertFalse(result["ownership_active"])
+        self.assertIn("foreign_pr_head", codes)
+        self.assertNotIn("terminal_branch_retained", codes)
+
     def test_terminal_archive_pending(self):
         self.write(
             task_text(
