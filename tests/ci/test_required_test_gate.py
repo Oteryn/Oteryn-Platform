@@ -104,6 +104,15 @@ class RequiredTestWorkflowContractTest(unittest.TestCase):
         self.assertIn("python tests/ci/test_classify_changes.py", self.workflow)
         self.assertIn("python tests/ci/test_required_test_gate.py", self.workflow)
 
+    def test_protected_classifier_validates_active_task_checkpoints(self) -> None:
+        classifier = self.workflow.split("\n  runtime_tests:\n", 1)[0]
+
+        self.assertIn("name: classify-changes", classifier)
+        self.assertIn(
+            "python tools/agents/checkpoint.py --tasks docs/agents/tasks/active --require-checkpoint",
+            classifier,
+        )
+
     def test_runtime_suite_is_conditional_on_successful_runtime_classification(self) -> None:
         self.assertIn("  runtime_tests:\n    name: runtime-tests", self.workflow)
         self.assertIn(
