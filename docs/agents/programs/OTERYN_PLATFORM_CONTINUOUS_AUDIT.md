@@ -21,7 +21,7 @@ Continuously audit every delivered or declared Platform module and surface for t
 
 ```yaml
 programme_state_version: 3
-updated_at: 2026-08-07T10:34:00Z
+updated_at: 2026-08-07T11:25:00Z
 status: ready
 current_cycle: 1
 programme_execution_snapshot:
@@ -31,14 +31,14 @@ programme_execution_snapshot:
   active_task: unknown
   branch: unknown
   pull_request: unknown
-  reason: Mutable execution ownership must be resolved from live tasks, branches, Issues and PRs at invocation time; unknown must never be interpreted as none.
-last_merged_audit_head: 99d3b3aaa00084466f756c6631b301e3191477af
-last_completed_domain: native-oauth-revocation-generation
+  reason: The marketplace terminal-recovery audit is terminal and archived; mutable execution ownership must be resolved from live tasks, branches, Issues and PRs before selecting the next domain.
+last_merged_audit_head: d823e335cb7a40f330e9ff294531b5c3adda1159
+last_completed_domain: marketplace-terminal-recovery
 coverage_inventory:
   baseline: docs/agents/evidence/OTERYN-20260803-portal-exhaustive-current-main-audit/
   baseline_merge: cbbd7613cee13cf01931a0ba0f7ac089122132e0
-  latest_audited_main: acc7a5dc58c501cdcd235e5da16464060363ef43
-  selected_delta_domain: native-oauth-revocation-generation
+  latest_audited_main: d823e335cb7a40f330e9ff294531b5c3adda1159
+  selected_delta_domain: marketplace-terminal-recovery
 finding_ledger_semantics: historical_identity_map_not_live_queue
 finding_ledger:
   baseline_owners: [486, 487, 488, 489, 490, 491]
@@ -46,6 +46,7 @@ finding_ledger:
     - OPA-SEC-0001: 547
     - OPA-SEC-0002: 797
     - OPA-SEC-0003: 801
+    - OPA-REC-0001: 804
     - OPA-GOV-0001: 552
     - OPA-GOV-0002: 555
     - OPA-GOV-0003: 558
@@ -83,6 +84,7 @@ proven:
   - OPA-SEC-0001 is historically proven in Issue #547 and repaired through merged PR #595; current verified provider events carry authenticated currency/amount and enforce per-event settlement matching.
   - OPA-SEC-0002 is proven in Issue #797: after the first partial refund, a distinct later partial-refund event can become duplicate_state NOOP while its authenticated refund amount is not accumulated or durably represented.
   - OPA-SEC-0003 is proven in Issue #801: credential/game-auth generation revocation does not invalidate a previously-issued native Passport bearer before it bootstraps a fresh current-generation Game Login Ticket.
+  - OPA-REC-0001 is proven in Issue #804: the Character Bazaar generic recovery fallback can overwrite a newer terminal auction state because it updates by primary key without a current-state guard.
   - Findings OPA-GOV-0001 through OPA-GOV-0015 are proven and retain their durable identities in the finding ledger.
   - OPA-GOV-0016 is proven in Issue #582: completed Game Catalog programme-registration audit PR #331 remained falsely active while programme #330 correctly continued.
   - OPA-GOV-0017 is proven in Issue #583: completed schema 1.3 architecture proposal PR #332 remained falsely active while downstream PR #338 consumed the contract.
@@ -97,6 +99,7 @@ proven:
   - Audit PR #794 passed exact-head CI run 31167549465 and Agent Governance run 31167550571 and merged as 67cbe391967ee7fd2bf26e4eda412820b805f981; its audit task is archived through PR #795.
   - Audit PR #799 passed Agent Governance run 31168550882 on exact head 58e64dba046811d8b837ef61fc390fa7e306f73e; protected merge accepted that exact head as bf16812e4720fdd90a2483a048c2706592f662d8 after the repository-required merge contexts were satisfied; its audit task is archived through PR #800.
   - Audit PR #802 passed CI run 31170308932 and Agent Governance run 31170308806 on exact head 1dfcc41a39059e1d0f952525271ea7fd0f19d270, had zero unresolved review threads and merged by protected auto-merge as 99d3b3aaa00084466f756c6631b301e3191477af; its audit task is archived by the lifecycle closeout.
+  - Audit PR #805 passed CI run 31173841440 and Agent Governance run 31173841536 on exact head 167fd3e7e1b3d5f5ca078b6ebfb3872b20495ff3, had no unresolved review threads and merged through protected auto-merge as d823e335cb7a40f330e9ff294531b5c3adda1159; its audit task is archived by this lifecycle closeout.
   - Issue #558 is closed completed and current main contains the live active-task liveness enforcement introduced by PR #779; OPA-GOV-0021 records a bounded omitted-PR reconciliation gap in that implementation.
   - Issues #555, #561 and #562 are terminal completed through their recorded lifecycle closeouts.
   - Independent PASS-only validation is governed by docs/agents/LIFECYCLE_CLOSEOUT_BATCHING.md and is recorded on the existing target PR rather than a new audit PR.
@@ -104,9 +107,10 @@ derived:
   - Payment amount/currency contract support is no longer the current payment-integrity conflict; the remaining proven payment blocker is repeated/cumulative partial-refund accounting in OPA-SEC-0002.
   - Issue #321 must remain pre-production until OPA-SEC-0002 and its separate real-provider/customer-facing acceptance gates are terminally satisfied.
   - Native OAuth revocation is incomplete until authorization/access/refresh material issued before game_auth_generation changes is prevented from minting a current-generation Game Login Ticket; Issue #801 is the remediation owner.
+  - Character Bazaar terminal saga state is not currently monotonic under stale failure fallback; Issue #804 owns the bounded recovery-state repair.
   - OPA-GOV-0022 is no longer a live branch-lifecycle blocker after PR #796; future branch-lifecycle auditing must use current main rather than the historical finding body.
   - Compatible lifecycle-only findings should be handed to one bounded reconciliation wave instead of generating one closeout PR and one audit Issue per task.
-  - Docs-only heavy-workflow economy currently holds at pull-request time but not after merge to main; main-push routing must preserve the same risk classification without suppressing required product-path validation.
+  - Docs-only heavy-workflow economy now has a merged main-push routing repair in PR #786; future audit claims about OPA-GOV-0020 must refresh its terminal acceptance and archival state rather than infer completion from merge alone.
   - Live task liveness must discover PR truth from branch identity when the task omits a PR number, while preserving genuine pre-PR branches and exact branch-reuse semantics.
   - A refreshed timestamp or programme version must never preserve a stale exhaustive queue; mutable queue fields remain explicitly live-query-derived.
 unknown:
@@ -115,7 +119,7 @@ unknown:
 conflicts:
   - ADR 0021 and parent Issue #321 require durable partial-refund financial truth and refund lifecycle evidence, while the current state-only model can consume a distinct second partial refund as duplicate_state without preserving its amount.
   - AUTH_GAME_LOGIN_CONTRACT requires credential-change/reset session/token revocation coupling, while a native OAuth bearer issued before the generation change can bootstrap a new ticket stamped with the current generation.
-  - Completed baseline Issue #452 requires docs/task/metadata-only changes not to run unrelated heavy browser/container/application gates, while current main-push CI and Acceptance routing has the OPA-GOV-0020 gap until its live repair is terminally verified.
+  - Character Bazaar terminal-state semantics conflict with the unconditional `markRecovery()` write, which can replace a newer `completed`, `cancelled` or `expired` state with `recovery_required`.
   - Issue #558 requires branch/PR/task identity reconciliation and terminal retained-branch classification, while the branch-only path can bypass PR reconciliation when pr is none.
 blockers:
   mode: live_query_required
