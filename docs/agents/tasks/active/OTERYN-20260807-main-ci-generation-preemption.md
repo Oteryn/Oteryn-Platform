@@ -10,7 +10,7 @@ branch: repair/issue-848
 base_branch: main
 base_sha: d331365163ba44acbbb3cfd9e785926aa57ed41a
 created: 2026-08-07T20:33:00Z
-updated: 2026-08-07T20:36:00Z
+updated: 2026-08-07T20:37:00Z
 implementation_authorized: true
 claim_protocol_version: 5
 coordination_key: workflow:main-ci-generation-preemption
@@ -71,7 +71,7 @@ validation_gate:
       - PR #854 effective diff is limited to the CI concurrency block, deterministic concurrency assertions, and this task checkpoint.
 ```
 
-## Checkpoint
+## Context checkpoint
 
 ```yaml
 checkpoint_version: 2
