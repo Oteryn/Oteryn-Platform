@@ -21,7 +21,7 @@ Continuously audit every delivered or declared Platform module and surface for t
 
 ```yaml
 programme_state_version: 3
-updated_at: 2026-08-07T13:11:30Z
+updated_at: 2026-08-07T17:25:17Z
 status: ready
 current_cycle: 1
 programme_execution_snapshot:
@@ -31,14 +31,14 @@ programme_execution_snapshot:
   active_task: unknown
   branch: unknown
   pull_request: unknown
-  reason: The branch-lifecycle-remote-identity audit is terminal and archived; mutable execution ownership must be resolved from live tasks, branches, Issues and PRs before selecting the next domain.
-last_merged_audit_head: 3bc3e24da10c832b1c7efcc466d071aee4128cf9
-last_completed_domain: branch-lifecycle-remote-identity
+  reason: The payments-refund-settlement-integrity audit is terminal and being archived by its lifecycle closeout; mutable execution ownership must be resolved from live tasks, branches, Issues and PRs before selecting the next domain.
+last_merged_audit_head: 92161131726ea866c0163972525a9a0f64c6b8ca
+last_completed_domain: payments-refund-settlement-integrity
 coverage_inventory:
   baseline: docs/agents/evidence/OTERYN-20260803-portal-exhaustive-current-main-audit/
   baseline_merge: cbbd7613cee13cf01931a0ba0f7ac089122132e0
-  latest_audited_main: 3bc3e24da10c832b1c7efcc466d071aee4128cf9
-  selected_delta_domain: branch-lifecycle-remote-identity
+  latest_audited_main: e37b41cc1d7feaaa31758d242d8c61b12afddf6a
+  selected_delta_domain: payments-refund-settlement-integrity
 finding_ledger_semantics: historical_identity_map_not_live_queue
 finding_ledger:
   baseline_owners: [486, 487, 488, 489, 490, 491]
@@ -84,7 +84,7 @@ live_queue:
 proven:
   - PR #483 and its merged evidence are the authoritative existing module and observable-surface inventory.
   - OPA-SEC-0001 is historically proven in Issue #547 and repaired through merged PR #595; current verified provider events carry authenticated currency/amount and enforce per-event settlement matching.
-  - OPA-SEC-0002 is proven in Issue #797: after the first partial refund, a distinct later partial-refund event can become duplicate_state NOOP while its authenticated refund amount is not accumulated or durably represented.
+  - OPA-SEC-0002 is historically proven in Issue #797 and repaired through merged PR #826; independent post-repair Audit PR #838 verified repeated partial-refund accumulation, replay, negative paths and MariaDB concurrency without proving a new material defect.
   - OPA-SEC-0003 is proven in Issue #801: credential/game-auth generation revocation does not invalidate a previously-issued native Passport bearer before it bootstraps a fresh current-generation Game Login Ticket.
   - OPA-REC-0001 is proven in Issue #804: the Character Bazaar generic recovery fallback can overwrite a newer terminal auction state because it updates by primary key without a current-state guard.
   - Findings OPA-GOV-0001 through OPA-GOV-0015 are proven and retain their durable identities in the finding ledger.
@@ -105,13 +105,14 @@ proven:
   - Audit PR #802 passed CI run 31170308932 and Agent Governance run 31170308806 on exact head 1dfcc41a39059e1d0f952525271ea7fd0f19d270, had zero unresolved review threads and merged by protected auto-merge as 99d3b3aaa00084466f756c6631b301e3191477af; its audit task is archived by the lifecycle closeout.
   - Audit PR #805 passed CI run 31173841440 and Agent Governance run 31173841536 on exact head 167fd3e7e1b3d5f5ca078b6ebfb3872b20495ff3, had no unresolved review threads and merged through protected auto-merge as d823e335cb7a40f330e9ff294531b5c3adda1159; its audit task is archived by its lifecycle closeout.
   - Audit PR #813 passed Agent Governance run 31180455796 and CI run 31180456085 on exact head d2bdfb0c9043f8179918ede067e3b4a319f1b242 and merged through protected squash as 19170cf686622e25b1eb493544760ba4b001dd4b; its audit task is archived by its lifecycle closeout.
-  - Audit PR #816 passed Agent Governance run 31181372898 and CI run 31181372937 on exact head cb9fc25675cf8a1687b73be1eb019909ac58be0f and merged through protected squash as 3bc3e24da10c832b1c7efcc466d071aee4128cf9; its audit task is archived by this lifecycle closeout.
+  - Audit PR #816 passed Agent Governance run 31181372898 and CI run 31181372937 on exact head cb9fc25675cf8a1687b73be1eb019909ac58be0f and merged through protected squash as 3bc3e24da10c832b1c7efcc466d071aee4128cf9; its audit task is archived by its lifecycle closeout.
+  - Audit PR #838 passed CI run 31202121106 and Agent Governance run 31202121678 on exact head 3ef586f3fd5538658037604f7b54b5021524c00c, had zero unresolved review threads and merged through protected squash as 92161131726ea866c0163972525a9a0f64c6b8ca; its audit task is archived by this lifecycle closeout.
   - Issue #558 is closed completed and current main contains the live active-task liveness enforcement introduced by PR #779; Issue #788 / PR #808 repaired its omitted-PR branch-history gap, while OPA-GOV-0023 records the remaining explicit terminal numeric-PR identity gap.
   - Issues #555, #561 and #562 are terminal completed through their recorded lifecycle closeouts.
   - Independent PASS-only validation is governed by docs/agents/LIFECYCLE_CLOSEOUT_BATCHING.md and is recorded on the existing target PR rather than a new audit PR.
 derived:
-  - Payment amount/currency contract support is no longer the current payment-integrity conflict; the remaining proven payment blocker is repeated/cumulative partial-refund accounting in OPA-SEC-0002.
-  - Issue #321 must remain pre-production until OPA-SEC-0002 and its separate real-provider/customer-facing acceptance gates are terminally satisfied.
+  - Payment amount/currency matching and repeated/cumulative partial-refund accounting are no longer a proven core payment-integrity conflict after PR #826 and independent Audit PR #838.
+  - Issue #321 must remain pre-production until its separate real-provider and customer-facing acceptance gates are terminally satisfied; OPA-SEC-0002 is no longer that blocker.
   - Native OAuth revocation is incomplete until authorization/access/refresh material issued before game_auth_generation changes is prevented from minting a current-generation Game Login Ticket; Issue #801 is the remediation owner.
   - Character Bazaar terminal saga state is not currently monotonic under stale failure fallback; Issue #804 owns the bounded recovery-state repair.
   - OPA-GOV-0022 is no longer a live branch-lifecycle atomicity blocker after PR #796, but destructive remote/worktree identity remains independently unsafe until OPA-GOV-0024 is repaired.
@@ -124,7 +125,6 @@ unknown:
   - The owner-approved emergency bypass and complete stable required-check set beyond the currently observable protected contexts.
   - Current open, ready, blocked and actively owned findings until live repository queries are executed.
 conflicts:
-  - ADR 0021 and parent Issue #321 require durable partial-refund financial truth and refund lifecycle evidence, while the current state-only model can consume a distinct second partial refund as duplicate_state without preserving its amount.
   - AUTH_GAME_LOGIN_CONTRACT requires credential-change/reset session/token revocation coupling, while a native OAuth bearer issued before the generation change can bootstrap a new ticket stamped with the current generation.
   - Character Bazaar terminal-state semantics conflict with the unconditional `markRecovery()` write, which can replace a newer `completed`, `cancelled` or `expired` state with `recovery_required`.
   - Issue #558 requires exact task/branch/PR identity before live ownership changes, while the explicit numeric terminal-PR path can release ownership without comparing task.branch to PR head.ref.
