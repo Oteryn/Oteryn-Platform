@@ -21,7 +21,7 @@ Continuously audit every delivered or declared Platform module and surface for t
 
 ```yaml
 programme_state_version: 3
-updated_at: 2026-08-07T17:25:17Z
+updated_at: 2026-08-07T17:34:00Z
 status: ready
 current_cycle: 1
 programme_execution_snapshot:
@@ -31,14 +31,14 @@ programme_execution_snapshot:
   active_task: unknown
   branch: unknown
   pull_request: unknown
-  reason: The payments-refund-settlement-integrity audit is terminal and being archived by its lifecycle closeout; mutable execution ownership must be resolved from live tasks, branches, Issues and PRs before selecting the next domain.
-last_merged_audit_head: 92161131726ea866c0163972525a9a0f64c6b8ca
-last_completed_domain: payments-refund-settlement-integrity
+  reason: The marketplace-terminal-recovery-integrity audit is terminal and being archived by its lifecycle closeout; mutable execution ownership must be resolved from live tasks, branches, Issues and PRs before selecting the next domain.
+last_merged_audit_head: 7edef05d499de0a41c5718dd507be4baad905333
+last_completed_domain: marketplace-terminal-recovery-integrity
 coverage_inventory:
   baseline: docs/agents/evidence/OTERYN-20260803-portal-exhaustive-current-main-audit/
   baseline_merge: cbbd7613cee13cf01931a0ba0f7ac089122132e0
-  latest_audited_main: e37b41cc1d7feaaa31758d242d8c61b12afddf6a
-  selected_delta_domain: payments-refund-settlement-integrity
+  latest_audited_main: 5fa1095a6c7aa440ce463c02c5af2bace862cd46
+  selected_delta_domain: marketplace-terminal-recovery-integrity
 finding_ledger_semantics: historical_identity_map_not_live_queue
 finding_ledger:
   baseline_owners: [486, 487, 488, 489, 490, 491]
@@ -86,7 +86,7 @@ proven:
   - OPA-SEC-0001 is historically proven in Issue #547 and repaired through merged PR #595; current verified provider events carry authenticated currency/amount and enforce per-event settlement matching.
   - OPA-SEC-0002 is historically proven in Issue #797 and repaired through merged PR #826; independent post-repair Audit PR #838 verified repeated partial-refund accumulation, replay, negative paths and MariaDB concurrency without proving a new material defect.
   - OPA-SEC-0003 is proven in Issue #801: credential/game-auth generation revocation does not invalidate a previously-issued native Passport bearer before it bootstraps a fresh current-generation Game Login Ticket.
-  - OPA-REC-0001 is proven in Issue #804: the Character Bazaar generic recovery fallback can overwrite a newer terminal auction state because it updates by primary key without a current-state guard.
+  - OPA-REC-0001 is historically proven in Issue #804 and repaired through merged PR #812; independent post-repair Audit PR #842 verified terminal-state monotonicity, stale-worker recovery races and preserved auction/ownership/bid/wallet truth without proving a new material defect.
   - Findings OPA-GOV-0001 through OPA-GOV-0015 are proven and retain their durable identities in the finding ledger.
   - OPA-GOV-0016 is proven in Issue #582: completed Game Catalog programme-registration audit PR #331 remained falsely active while programme #330 correctly continued.
   - OPA-GOV-0017 is proven in Issue #583: completed schema 1.3 architecture proposal PR #332 remained falsely active while downstream PR #338 consumed the contract.
@@ -106,7 +106,8 @@ proven:
   - Audit PR #805 passed CI run 31173841440 and Agent Governance run 31173841536 on exact head 167fd3e7e1b3d5f5ca078b6ebfb3872b20495ff3, had no unresolved review threads and merged through protected auto-merge as d823e335cb7a40f330e9ff294531b5c3adda1159; its audit task is archived by its lifecycle closeout.
   - Audit PR #813 passed Agent Governance run 31180455796 and CI run 31180456085 on exact head d2bdfb0c9043f8179918ede067e3b4a319f1b242 and merged through protected squash as 19170cf686622e25b1eb493544760ba4b001dd4b; its audit task is archived by its lifecycle closeout.
   - Audit PR #816 passed Agent Governance run 31181372898 and CI run 31181372937 on exact head cb9fc25675cf8a1687b73be1eb019909ac58be0f and merged through protected squash as 3bc3e24da10c832b1c7efcc466d071aee4128cf9; its audit task is archived by its lifecycle closeout.
-  - Audit PR #838 passed CI run 31202121106 and Agent Governance run 31202121678 on exact head 3ef586f3fd5538658037604f7b54b5021524c00c, had zero unresolved review threads and merged through protected squash as 92161131726ea866c0163972525a9a0f64c6b8ca; its audit task is archived by this lifecycle closeout.
+  - Audit PR #838 passed CI run 31202121106 and Agent Governance run 31202121678 on exact head 3ef586f3fd5538658037604f7b54b5021524c00c, had zero unresolved review threads and merged through protected squash as 92161131726ea866c0163972525a9a0f64c6b8ca; its audit task is archived.
+  - Audit PR #842 passed CI run 31202817840 and Agent Governance run 31202817572 on exact head dfaf087111877fb19b6b2d4737d2c81a87fcf8d6, had zero unresolved review threads and merged through protected squash as 7edef05d499de0a41c5718dd507be4baad905333; its audit task is archived by this lifecycle closeout.
   - Issue #558 is closed completed and current main contains the live active-task liveness enforcement introduced by PR #779; Issue #788 / PR #808 repaired its omitted-PR branch-history gap, while OPA-GOV-0023 records the remaining explicit terminal numeric-PR identity gap.
   - Issues #555, #561 and #562 are terminal completed through their recorded lifecycle closeouts.
   - Independent PASS-only validation is governed by docs/agents/LIFECYCLE_CLOSEOUT_BATCHING.md and is recorded on the existing target PR rather than a new audit PR.
@@ -114,7 +115,7 @@ derived:
   - Payment amount/currency matching and repeated/cumulative partial-refund accounting are no longer a proven core payment-integrity conflict after PR #826 and independent Audit PR #838.
   - Issue #321 must remain pre-production until its separate real-provider and customer-facing acceptance gates are terminally satisfied; OPA-SEC-0002 is no longer that blocker.
   - Native OAuth revocation is incomplete until authorization/access/refresh material issued before game_auth_generation changes is prevented from minting a current-generation Game Login Ticket; Issue #801 is the remediation owner.
-  - Character Bazaar terminal saga state is not currently monotonic under stale failure fallback; Issue #804 owns the bounded recovery-state repair.
+  - Character Bazaar terminal recovery is monotonic under the audited stale-failure interleavings after PR #812 and independent Audit PR #842; OPA-REC-0001 is no longer a current recovery-state blocker.
   - OPA-GOV-0022 is no longer a live branch-lifecycle atomicity blocker after PR #796, but destructive remote/worktree identity remains independently unsafe until OPA-GOV-0024 is repaired.
   - Compatible lifecycle-only findings should be handed to one bounded reconciliation wave instead of generating one closeout PR and one audit Issue per task.
   - Docs-only heavy-workflow economy now has a merged main-push routing repair in PR #786; future audit claims about OPA-GOV-0020 must refresh its terminal acceptance and archival state rather than infer completion from merge alone.
@@ -126,7 +127,6 @@ unknown:
   - Current open, ready, blocked and actively owned findings until live repository queries are executed.
 conflicts:
   - AUTH_GAME_LOGIN_CONTRACT requires credential-change/reset session/token revocation coupling, while a native OAuth bearer issued before the generation change can bootstrap a new ticket stamped with the current generation.
-  - Character Bazaar terminal-state semantics conflict with the unconditional `markRecovery()` write, which can replace a newer `completed`, `cancelled` or `expired` state with `recovery_required`.
   - Issue #558 requires exact task/branch/PR identity before live ownership changes, while the explicit numeric terminal-PR path can release ownership without comparing task.branch to PR head.ref.
   - Branch Lifecycle safety evidence targets GitHubClient.repo, while the destructive force-with-lease command targets an unverified local remote selected from process CWD rather than a repository identity proven against the configured root.
 blockers:
