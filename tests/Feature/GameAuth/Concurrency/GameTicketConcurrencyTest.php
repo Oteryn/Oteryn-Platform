@@ -272,6 +272,6 @@ final class GameTicketConcurrencyTest extends TestCase
             'ready_at' => now(),
         ]);
 
-        return $identity;
+        return $identity->refresh();
     }
 }
