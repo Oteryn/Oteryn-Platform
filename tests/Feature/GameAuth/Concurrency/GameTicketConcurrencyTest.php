@@ -10,6 +10,7 @@ use App\GameAuth\Tickets\GameLoginTicket;
 use App\GameAuth\Tickets\GameLoginTicketDenied;
 use App\GameAuth\Tickets\IssueGameLoginTicket;
 use App\GameAuth\Tickets\RedeemGameLoginTicket;
+use App\Identity\Actions\RevokeIdentityGameAuthorizations;
 use App\Identity\Models\Identity;
 use Illuminate\Foundation\Testing\DatabaseMigrations;
 use Illuminate\Support\Facades\DB;
@@ -58,23 +59,7 @@ final class GameTicketConcurrencyTest extends TestCase
     {
         $identity = $this->createIdentityWithReadyBinding(1001);
         $client = $this->app->make(NativeOAuthClientManager::class)->ensure();
-        $accessTokenId = Str::random(80);
-
-        Token::query()->create([
-            'id' => $accessTokenId,
-            'user_id' => $identity->id,
-            'client_id' => $client->getKey(),
-            'name' => null,
-            'scopes' => ['game:ticket'],
-            'revoked' => false,
-            'expires_at' => now()->addMinutes(5),
-        ]);
-        RefreshToken::query()->create([
-            'id' => Str::random(80),
-            'access_token_id' => $accessTokenId,
-            'revoked' => false,
-            'expires_at' => now()->addMinutes(10),
-        ]);
+        $accessTokenId = $this->createBootstrapTokenFamily($identity, (string) $client->getKey());
 
         $results = $this->race(function () use ($identity, $accessTokenId): string {
             try {
@@ -97,15 +82,71 @@ final class GameTicketConcurrencyTest extends TestCase
             ->value('revoked'));
     }
 
+    public function test_game_authorization_revocation_serializes_against_oauth_bootstrap(): void
+    {
+        $identity = $this->createIdentityWithReadyBinding(1001);
+        $client = $this->app->make(NativeOAuthClientManager::class)->ensure();
+        $accessTokenId = $this->createBootstrapTokenFamily($identity, (string) $client->getKey());
+
+        $results = $this->racePair(
+            function () use ($identity, $accessTokenId): string {
+                try {
+                    $freshIdentity = Identity::query()->findOrFail($identity->id);
+                    $this->app->make(IssueGameLoginTicketFromOAuth::class)
+                        ->execute($freshIdentity, $accessTokenId);
+
+                    return 'bootstrap';
+                } catch (OAuthBootstrapDenied|GameLoginTicketDenied) {
+                    return 'bootstrap-denied';
+                }
+            },
+            function () use ($identity): string {
+                $freshIdentity = Identity::query()->findOrFail($identity->id);
+                $this->app->make(RevokeIdentityGameAuthorizations::class)->execute($freshIdentity);
+
+                return 'revoked';
+            },
+        );
+
+        self::assertContains('revoked', $results);
+        self::assertCount(1, array_intersect($results, ['bootstrap', 'bootstrap-denied']));
+
+        $freshIdentity = Identity::query()->findOrFail($identity->id);
+        self::assertSame(1, $freshIdentity->game_auth_generation);
+        self::assertTrue(Token::query()->findOrFail($accessTokenId)->revoked);
+        self::assertTrue((bool) RefreshToken::query()
+            ->where('access_token_id', $accessTokenId)
+            ->value('revoked'));
+        self::assertLessThanOrEqual(1, GameLoginTicket::query()->count());
+
+        $ticket = GameLoginTicket::query()->first();
+
+        if ($ticket instanceof GameLoginTicket) {
+            self::assertSame(0, $ticket->security_generation);
+            self::assertLessThan($freshIdentity->game_auth_generation, $ticket->security_generation);
+        }
+    }
+
     /**
      * @param  callable(): string  $operation
      * @return list<string>
      */
     private function race(callable $operation): array
     {
+        return $this->racePair($operation, $operation);
+    }
+
+    /**
+     * @param  callable(): string  $firstOperation
+     * @param  callable(): string  $secondOperation
+     * @return list<string>
+     */
+    private function racePair(callable $firstOperation, callable $secondOperation): array
+    {
         $directory = sys_get_temp_dir().'/oteryn-game-auth-'.bin2hex(random_bytes(8));
         self::assertTrue(mkdir($directory, 0700));
         $children = [];
+        $operations = [$firstOperation, $secondOperation];
 
         for ($index = 0; $index < 2; $index++) {
             $pid = pcntl_fork();
@@ -124,7 +165,7 @@ final class GameTicketConcurrencyTest extends TestCase
                 }
 
                 try {
-                    $result = $operation();
+                    $result = $operations[$index]();
                 } catch (Throwable $exception) {
                     $result = 'error:'.$exception::class;
                 }
@@ -178,6 +219,30 @@ final class GameTicketConcurrencyTest extends TestCase
         DB::reconnect();
 
         return $results;
+    }
+
+    private function createBootstrapTokenFamily(Identity $identity, string $clientId): string
+    {
+        $accessTokenId = Str::random(80);
+
+        Token::query()->create([
+            'id' => $accessTokenId,
+            'user_id' => $identity->id,
+            'client_id' => $clientId,
+            'name' => null,
+            'scopes' => ['game:ticket'],
+            'revoked' => false,
+            'game_auth_generation' => $identity->game_auth_generation,
+            'expires_at' => now()->addMinutes(5),
+        ]);
+        RefreshToken::query()->create([
+            'id' => Str::random(80),
+            'access_token_id' => $accessTokenId,
+            'revoked' => false,
+            'expires_at' => now()->addMinutes(10),
+        ]);
+
+        return $accessTokenId;
     }
 
     private function createIdentityWithReadyBinding(int $canaryAccountId): Identity

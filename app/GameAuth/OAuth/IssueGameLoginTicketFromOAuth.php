@@ -21,13 +21,26 @@ final class IssueGameLoginTicketFromOAuth
     public function execute(Identity $identity, string $accessTokenId): IssuedGameLoginTicket
     {
         return DB::transaction(function () use ($identity, $accessTokenId): IssuedGameLoginTicket {
+            $lockedIdentity = Identity::query()
+                ->whereKey($identity->id)
+                ->lockForUpdate()
+                ->first();
+
+            if (! $lockedIdentity instanceof Identity
+                || $lockedIdentity->disabled_at !== null
+                || $lockedIdentity->isTerminated()
+            ) {
+                throw new OAuthBootstrapDenied;
+            }
+
             $accessToken = Token::query()
                 ->whereKey($accessTokenId)
                 ->lockForUpdate()
                 ->first();
 
             $tokenUserId = $accessToken?->getAttribute('user_id');
-            $identityId = $identity->getAuthIdentifier();
+            $identityId = $lockedIdentity->getAuthIdentifier();
+            $tokenGeneration = $this->generation($accessToken?->getAttribute('game_auth_generation'));
 
             if (! $accessToken instanceof Token
                 || (! is_int($tokenUserId) && ! is_string($tokenUserId))
@@ -36,6 +49,8 @@ final class IssueGameLoginTicketFromOAuth
                 || $accessToken->expires_at === null
                 || $accessToken->expires_at->lte(now())
                 || (string) $tokenUserId !== (string) $identityId
+                || $tokenGeneration === null
+                || $tokenGeneration !== $lockedIdentity->game_auth_generation
                 || ! $accessToken->can('game:ticket')
             ) {
                 throw new OAuthBootstrapDenied;
@@ -56,7 +71,7 @@ final class IssueGameLoginTicketFromOAuth
                 throw new OAuthBootstrapDenied;
             }
 
-            $issued = $this->tickets->execute($identity);
+            $issued = $this->tickets->execute($lockedIdentity);
 
             RefreshToken::query()
                 ->where('access_token_id', $accessToken->getKey())
@@ -67,5 +82,18 @@ final class IssueGameLoginTicketFromOAuth
 
             return $issued;
         });
+    }
+
+    private function generation(mixed $generation): ?int
+    {
+        if (is_int($generation) && $generation >= 0) {
+            return $generation;
+        }
+
+        if (is_string($generation) && ctype_digit($generation)) {
+            return (int) $generation;
+        }
+
+        return null;
     }
 }

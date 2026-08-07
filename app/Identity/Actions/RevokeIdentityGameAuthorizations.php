@@ -3,26 +3,39 @@
 namespace App\Identity\Actions;
 
 use App\Audit\SecurityEventRecorder;
+use App\GameAuth\OAuth\NativeOAuthGenerationBinding;
 use App\Identity\Models\Identity;
 use Illuminate\Support\Facades\DB;
+use LogicException;
 
 final class RevokeIdentityGameAuthorizations
 {
     public function __construct(
         private readonly SecurityEventRecorder $securityEvents,
+        private readonly NativeOAuthGenerationBinding $oauthBindings,
     ) {}
 
     public function execute(Identity $identity): int
     {
         return DB::transaction(function () use ($identity): int {
-            Identity::query()
+            $lockedIdentity = Identity::query()
                 ->whereKey($identity->id)
-                ->increment('game_auth_generation');
+                ->lockForUpdate()
+                ->first();
 
-            $identity->refresh();
-            $this->securityEvents->recordIdentityGameAuthorizationsRevoked($identity->id);
+            if (! $lockedIdentity instanceof Identity) {
+                throw new LogicException('Identity is unavailable for game authorization revocation.');
+            }
 
-            return $identity->game_auth_generation;
+            $generation = $lockedIdentity->game_auth_generation + 1;
+            $lockedIdentity->forceFill(['game_auth_generation' => $generation])->save();
+
+            $this->oauthBindings->revokeForIdentity($lockedIdentity);
+            $this->securityEvents->recordIdentityGameAuthorizationsRevoked($lockedIdentity->id);
+
+            $identity->setAttribute('game_auth_generation', $generation);
+
+            return $generation;
         });
     }
 }
