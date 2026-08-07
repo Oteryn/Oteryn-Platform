@@ -21,23 +21,23 @@ Continuously audit every delivered or declared Platform module and surface for t
 
 ```yaml
 programme_state_version: 3
-updated_at: 2026-08-07T11:00:00Z
+updated_at: 2026-08-07T11:25:00Z
 status: ready
 current_cycle: 1
 programme_execution_snapshot:
   mode: live_query_required
   exhaustive: false
-  current_domain: marketplace-terminal-recovery
-  active_task: docs/agents/tasks/active/OTERYN-20260807-marketplace-terminal-recovery-audit.md
-  branch: audit/OTERYN-20260807-marketplace-terminal-recovery
-  pull_request: none
-  reason: This bounded audit package has a durable task and branch; pull-request and later ownership state remain live-query-derived.
-last_merged_audit_head: 99d3b3aaa00084466f756c6631b301e3191477af
-last_completed_domain: native-oauth-revocation-generation
+  current_domain: unknown
+  active_task: unknown
+  branch: unknown
+  pull_request: unknown
+  reason: The marketplace terminal-recovery audit is terminal and archived; mutable execution ownership must be resolved from live tasks, branches, Issues and PRs before selecting the next domain.
+last_merged_audit_head: d823e335cb7a40f330e9ff294531b5c3adda1159
+last_completed_domain: marketplace-terminal-recovery
 coverage_inventory:
   baseline: docs/agents/evidence/OTERYN-20260803-portal-exhaustive-current-main-audit/
   baseline_merge: cbbd7613cee13cf01931a0ba0f7ac089122132e0
-  latest_audited_main: 7dbb35e2257bd3265d4dc75a1723bf6a315afa80
+  latest_audited_main: d823e335cb7a40f330e9ff294531b5c3adda1159
   selected_delta_domain: marketplace-terminal-recovery
 finding_ledger_semantics: historical_identity_map_not_live_queue
 finding_ledger:
@@ -99,6 +99,7 @@ proven:
   - Audit PR #794 passed exact-head CI run 31167549465 and Agent Governance run 31167550571 and merged as 67cbe391967ee7fd2bf26e4eda412820b805f981; its audit task is archived through PR #795.
   - Audit PR #799 passed Agent Governance run 31168550882 on exact head 58e64dba046811d8b837ef61fc390fa7e306f73e; protected merge accepted that exact head as bf16812e4720fdd90a2483a048c2706592f662d8 after the repository-required merge contexts were satisfied; its audit task is archived through PR #800.
   - Audit PR #802 passed CI run 31170308932 and Agent Governance run 31170308806 on exact head 1dfcc41a39059e1d0f952525271ea7fd0f19d270, had zero unresolved review threads and merged by protected auto-merge as 99d3b3aaa00084466f756c6631b301e3191477af; its audit task is archived by the lifecycle closeout.
+  - Audit PR #805 passed CI run 31173841440 and Agent Governance run 31173841536 on exact head 167fd3e7e1b3d5f5ca078b6ebfb3872b20495ff3, had no unresolved review threads and merged through protected auto-merge as d823e335cb7a40f330e9ff294531b5c3adda1159; its audit task is archived by this lifecycle closeout.
   - Issue #558 is closed completed and current main contains the live active-task liveness enforcement introduced by PR #779; OPA-GOV-0021 records a bounded omitted-PR reconciliation gap in that implementation.
   - Issues #555, #561 and #562 are terminal completed through their recorded lifecycle closeouts.
   - Independent PASS-only validation is governed by docs/agents/LIFECYCLE_CLOSEOUT_BATCHING.md and is recorded on the existing target PR rather than a new audit PR.
@@ -123,7 +124,7 @@ conflicts:
 blockers:
   mode: live_query_required
   items: unknown
-next_action: Complete the marketplace terminal-recovery audit package, merge and archive it, then refresh live state before selecting any additional bounded domain.
+next_action: Refresh live ownership, open and blocked Issues, active tasks, PRs and recent main deltas, then select the next highest-risk non-overlapping audit domain in a future bounded invocation.
 ```
 
 ## Programme rules
