@@ -4,6 +4,7 @@ programme_id: OTERYN_PLATFORM_CONTINUOUS_AUDIT
 project_lane: oteryn-platform-core
 task_kind: audit
 implementation_authorized: false
+terminal_pr_policy: archive_pending
 required_reads:
   - AGENTS.md
   - AGENTS.override.md
@@ -52,10 +53,10 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-07T09:15:00Z
-head: a1b3690c85fe4fb585d5725474769a8aced2e686
+updated_at: 2026-08-07T09:17:00Z
+head: 6aa16e18fc866f5364feac6844fd89b175c694df
 branch: audit/OTERYN-20260807-agent-governance-branch-pr-reconciliation
-pr: none
+pr: 790
 status: validating
 context_routes:
   - agent-governance
@@ -73,6 +74,7 @@ proven:
   - Focused tests explicitly accept branch-only `pr: none` and cover terminal behavior only when the task already declares a numeric PR.
   - The prior audit task associated with PR #784 remained `pr: none` after the PR existed and exact-head Agent Governance still passed, demonstrating the live omitted-PR condition.
   - OPA-GOV-0021 is recorded as Issue #788 with risk high, priority P1 and implementation authorization.
+  - Audit package is bound to PR #790 and uses explicit archive-pending terminal policy for post-merge closeout.
 derived:
   - A retained branch can continue to claim active ownership after its PR becomes terminal when the task omits the PR number.
   - A correct repair must preserve genuine pre-PR branch-only work while tying terminal classification to exact branch/head identity.
@@ -101,5 +103,5 @@ validation:
     result: NOT_APPLICABLE
     evidence: this audit package changes documentation/evidence only.
 blockers: []
-next_action: Publish and bind the audit PR, then complete exact-head documentation/governance checks, merge, archive the task and release ownership.
+next_action: Complete exact-head documentation/governance checks for PR #790, merge it, archive this task and release ownership.
 ```
