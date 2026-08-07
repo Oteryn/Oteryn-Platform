@@ -87,10 +87,14 @@ final class PaymentPartialRefundIntegrityTest extends TestCase
             ->get();
 
         self::assertCount(2, $refundTransitions);
-        self::assertSame(300, $refundTransitions[0]->verified_refund_amount_minor);
-        self::assertSame(300, $refundTransitions[0]->refunded_total_minor);
-        self::assertSame(200, $refundTransitions[1]->verified_refund_amount_minor);
-        self::assertSame(500, $refundTransitions[1]->refunded_total_minor);
+        $firstRefundTransition = $refundTransitions->get(0);
+        $secondRefundTransition = $refundTransitions->get(1);
+        self::assertInstanceOf(PaymentOrderTransition::class, $firstRefundTransition);
+        self::assertInstanceOf(PaymentOrderTransition::class, $secondRefundTransition);
+        self::assertSame(300, $firstRefundTransition->verified_refund_amount_minor);
+        self::assertSame(300, $firstRefundTransition->refunded_total_minor);
+        self::assertSame(200, $secondRefundTransition->verified_refund_amount_minor);
+        self::assertSame(500, $secondRefundTransition->refunded_total_minor);
 
         $overRefund = $this->process(
             (string) Str::uuid(),

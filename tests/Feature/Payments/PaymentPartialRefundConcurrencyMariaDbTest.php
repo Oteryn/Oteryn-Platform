@@ -182,6 +182,11 @@ final class PaymentPartialRefundConcurrencyMariaDbTest extends TestCase
         foreach ($pids as $pid) {
             $waitStatus = 0;
             self::assertSame($pid, pcntl_waitpid($pid, $waitStatus));
+
+            if (! is_int($waitStatus)) {
+                self::fail('The partial-refund concurrency worker returned an invalid wait status.');
+            }
+
             self::assertTrue(pcntl_wifexited($waitStatus));
             self::assertSame(0, pcntl_wexitstatus($waitStatus));
         }

@@ -310,7 +310,7 @@ final class ProcessPaymentProviderEvent
             ->orderByDesc('version')
             ->first();
 
-        $currentRefundedTotal = $latestRefundTransition?->refunded_total_minor ?? 0;
+        $currentRefundedTotal = $latestRefundTransition->refunded_total_minor ?? 0;
 
         if ($currentRefundedTotal < 0 || $currentRefundedTotal > $order->amount_minor) {
             return $this->refundMismatch(
