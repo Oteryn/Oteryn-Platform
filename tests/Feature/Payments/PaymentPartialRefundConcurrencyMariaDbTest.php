@@ -23,7 +23,7 @@ final class PaymentPartialRefundConcurrencyMariaDbTest extends TestCase
 {
     private const DATABASE = 'oteryn_partial_refund_concurrency_test';
 
-    private const USER = 'oteryn_partial_refund_concurrency';
+    private const USER = 'oteryn_partial_refund_race';
 
     private const PASSWORD = 'oteryn-partial-refund-concurrency-password';
 
@@ -96,7 +96,7 @@ final class PaymentPartialRefundConcurrencyMariaDbTest extends TestCase
         parent::tearDown();
     }
 
-    public function test_concurrent_distinct_partial_refunds_are_serialized_and_cannot_over_refund(): void
+    public function test_concurrent_distinct_partial_refunds_are_serialized_without_losing_refund_value(): void
     {
         $identity = Identity::query()->create([
             'email' => 'partial-refund-concurrency@example.com',
@@ -122,7 +122,7 @@ final class PaymentPartialRefundConcurrencyMariaDbTest extends TestCase
         $pids = [];
         $resultPaths = [];
 
-        foreach ([1, 2] as $worker) {
+        foreach ([1 => 300, 2 => 400] as $worker => $amountMinor) {
             $readyPath = $prefix.'.'.$worker.'.ready';
             $resultPath = $prefix.'.'.$worker.'.json';
             $resultPaths[] = $resultPath;
@@ -148,7 +148,7 @@ final class PaymentPartialRefundConcurrencyMariaDbTest extends TestCase
                             $eventId,
                             'payment.partially_refunded',
                             $order,
-                            600,
+                            $amountMinor,
                             $now,
                         );
                         $result = [
@@ -201,23 +201,31 @@ final class PaymentPartialRefundConcurrencyMariaDbTest extends TestCase
         sort($statuses);
         self::assertSame([
             PaymentProviderEvent::STATE_PROCESSED,
-            PaymentProviderEvent::STATE_RECONCILIATION,
+            PaymentProviderEvent::STATE_PROCESSED,
         ], $statuses);
 
         $storedOrder = PaymentOrder::query()->findOrFail($order->id);
         self::assertSame(PaymentOrder::STATUS_PARTIALLY_REFUNDED, $storedOrder->status);
-        self::assertSame(3, $storedOrder->version);
+        self::assertSame(4, $storedOrder->version);
         self::assertSame(3, PaymentProviderEvent::query()->count());
-        self::assertSame(3, PaymentOrderTransition::query()->count());
-        self::assertSame(1, PaymentReconciliationEntry::query()
-            ->where('issue_type', 'refund_integrity_mismatch')
-            ->count());
+        self::assertSame(4, PaymentOrderTransition::query()->count());
+        self::assertSame(0, PaymentReconciliationEntry::query()->count());
 
-        $refundTransition = PaymentOrderTransition::query()
+        $refundTransitions = PaymentOrderTransition::query()
             ->whereNotNull('refunded_total_minor')
-            ->firstOrFail();
-        self::assertSame(600, $refundTransition->verified_refund_amount_minor);
-        self::assertSame(600, $refundTransition->refunded_total_minor);
+            ->orderBy('version')
+            ->get();
+        self::assertCount(2, $refundTransitions);
+
+        $verifiedRefunded = 0;
+        foreach ($refundTransitions as $transition) {
+            $verifiedRefunded += (int) $transition->verified_refund_amount_minor;
+        }
+        self::assertSame(700, $verifiedRefunded);
+
+        $latestRefundTransition = $refundTransitions->last();
+        self::assertInstanceOf(PaymentOrderTransition::class, $latestRefundTransition);
+        self::assertSame(700, $latestRefundTransition->refunded_total_minor);
 
         foreach (glob($prefix.'.*') ?: [] as $path) {
             @unlink($path);
