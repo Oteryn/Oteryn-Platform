@@ -21,7 +21,7 @@ Continuously audit every delivered or declared Platform module and surface for t
 
 ```yaml
 programme_state_version: 3
-updated_at: 2026-08-07T10:26:00Z
+updated_at: 2026-08-07T10:34:00Z
 status: ready
 current_cycle: 1
 programme_execution_snapshot:
@@ -32,8 +32,8 @@ programme_execution_snapshot:
   branch: unknown
   pull_request: unknown
   reason: Mutable execution ownership must be resolved from live tasks, branches, Issues and PRs at invocation time; unknown must never be interpreted as none.
-last_merged_audit_head: bf16812e4720fdd90a2483a048c2706592f662d8
-last_completed_domain: payment-partial-refund-integrity
+last_merged_audit_head: 99d3b3aaa00084466f756c6631b301e3191477af
+last_completed_domain: native-oauth-revocation-generation
 coverage_inventory:
   baseline: docs/agents/evidence/OTERYN-20260803-portal-exhaustive-current-main-audit/
   baseline_merge: cbbd7613cee13cf01931a0ba0f7ac089122132e0
@@ -96,6 +96,7 @@ proven:
   - Audit PR #790 passed exact-head CI run 31165266121 and Agent Governance run 31165266632 and merged as 26a92a5d49b86fb121cebd2cbd57525c3a3140ad; its audit task is archived.
   - Audit PR #794 passed exact-head CI run 31167549465 and Agent Governance run 31167550571 and merged as 67cbe391967ee7fd2bf26e4eda412820b805f981; its audit task is archived through PR #795.
   - Audit PR #799 passed Agent Governance run 31168550882 on exact head 58e64dba046811d8b837ef61fc390fa7e306f73e; protected merge accepted that exact head as bf16812e4720fdd90a2483a048c2706592f662d8 after the repository-required merge contexts were satisfied; its audit task is archived through PR #800.
+  - Audit PR #802 passed CI run 31170308932 and Agent Governance run 31170308806 on exact head 1dfcc41a39059e1d0f952525271ea7fd0f19d270, had zero unresolved review threads and merged by protected auto-merge as 99d3b3aaa00084466f756c6631b301e3191477af; its audit task is archived by the lifecycle closeout.
   - Issue #558 is closed completed and current main contains the live active-task liveness enforcement introduced by PR #779; OPA-GOV-0021 records a bounded omitted-PR reconciliation gap in that implementation.
   - Issues #555, #561 and #562 are terminal completed through their recorded lifecycle closeouts.
   - Independent PASS-only validation is governed by docs/agents/LIFECYCLE_CLOSEOUT_BATCHING.md and is recorded on the existing target PR rather than a new audit PR.
@@ -119,7 +120,7 @@ conflicts:
 blockers:
   mode: live_query_required
   items: unknown
-next_action: Complete the native OAuth revocation-generation audit package, merge and archive it, then refresh live state before selecting any additional bounded domain.
+next_action: Refresh live ownership, open and blocked Issues, active tasks, PRs and recent main deltas, then select the next highest-risk non-overlapping audit domain in a future bounded invocation.
 ```
 
 ## Programme rules
