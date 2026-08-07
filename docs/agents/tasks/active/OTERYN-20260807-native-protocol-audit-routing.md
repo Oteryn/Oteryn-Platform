@@ -45,8 +45,8 @@ Repair Issue #829 so the native-protocol architecture boundary audit does not re
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-07T18:49:00+02:00
-head: ca7674cb9aa1111907111c2a30240fbec32a9e18
+updated_at: 2026-08-07T18:53:00+02:00
+head: ac47473d2a6bea5cd82abb4121d5f0aa14566392
 branch: repair/issue-829
 pr: 834
 status: validating
@@ -65,6 +65,7 @@ proven:
   - Post-merge acceptance review found that the canonical producer task path itself was omitted from the merged producer-signal classifier and workflow path triggers.
   - Follow-up candidate ca7674cb9aa1111907111c2a30240fbec32a9e18 adds the exact canonical producer task as both a workflow trigger and producer signal without promoting generic runtime paths.
   - Focused local regressions pass for unrelated contract/runtime, unrelated architecture/runtime, documentation-only, missing task, missing task file, task-led escaped runtime, task-led governed runtime, and native-document-led governed runtime.
+  - Native protocol contract audits run 31199222578 passed all five lanes on the exact code candidate, including Audit 1 change-boundary regressions.
   - Main branch protection requires classify-changes and test.
 derived:
   - The narrow producer-task trigger/signal closes the post-merge gap without recreating the Issue #829 false positive for unrelated contracts/runtime.
@@ -88,11 +89,11 @@ validation:
     result: PASS
     evidence: 9 deterministic unittest cases passed locally before publishing the candidate.
   - command: Native protocol contract audits / run 31199222578
-    result: IN_PROGRESS
-    evidence: exact code candidate ca7674cb9aa1111907111c2a30240fbec32a9e18; Audits 3, 4 and 5 passed at first check.
-  - command: Agent Governance / run 31199222367
+    result: PASS
+    evidence: exact code candidate ca7674cb9aa1111907111c2a30240fbec32a9e18; Audits 1 through 5 all passed and Audit 1 ran the focused change-boundary regressions successfully.
+  - command: Agent Governance / run 31199335627
     result: FAIL
-    evidence: code/checkpoint schema validation passed; liveness failed only because the initial reopened checkpoint used pr pending instead of existing PR #834. This checkpoint repairs that identity.
+    evidence: checkpoint validation failed only because a temporary validation item used unsupported result IN_PROGRESS; this checkpoint replaces it with the now-terminal PASS evidence.
 blockers: []
 next_action: validate the current PR #834 head, perform exact-head self-review, mark ready and merge only after required CI, Agent Governance and Native protocol audit evidence pass
 ```
