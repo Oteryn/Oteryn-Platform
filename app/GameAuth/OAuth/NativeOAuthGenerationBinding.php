@@ -76,7 +76,7 @@ final class NativeOAuthGenerationBinding
             ->get();
 
         foreach ($authCodes as $authCode) {
-            if ($authCode instanceof AuthCode && $this->authCodeHasGameTicketScope($authCode)) {
+            if ($this->authCodeHasGameTicketScope($authCode)) {
                 $authCode->forceFill(['revoked' => true])->save();
             }
         }
@@ -88,7 +88,7 @@ final class NativeOAuthGenerationBinding
             ->filter(static fn (Token $token): bool => $token->can('game:ticket'));
 
         $accessTokenIds = $accessTokens
-            ->map(static fn (Token $token): string => (string) $token->getKey())
+            ->map(fn (Token $token): string => $this->tokenId($token))
             ->values()
             ->all();
 
@@ -150,7 +150,7 @@ final class NativeOAuthGenerationBinding
     }
 
     /**
-     * @return array<string, mixed>
+     * @return array<array-key, mixed>
      */
     private function decryptPayload(string $encrypted): array
     {
@@ -173,13 +173,7 @@ final class NativeOAuthGenerationBinding
 
     private function currentRequest(): Request
     {
-        $request = $this->container->make('request');
-
-        if (! $request instanceof Request) {
-            throw new LogicException('Native OAuth request context is unavailable.');
-        }
-
-        return $request;
+        return $this->container->make(Request::class);
     }
 
     private function requiredStringInput(Request $request, string $key): string
@@ -213,6 +207,17 @@ final class NativeOAuthGenerationBinding
     private function identityGeneration(Identity $identity): int
     {
         return $this->storedGeneration($identity->getAttribute('game_auth_generation'));
+    }
+
+    private function tokenId(Token $token): string
+    {
+        $key = $token->getKey();
+
+        if (! is_int($key) && ! is_string($key)) {
+            throw new LogicException('Native OAuth access-token identifier is unavailable.');
+        }
+
+        return (string) $key;
     }
 
     private function storedGeneration(mixed $generation): int
