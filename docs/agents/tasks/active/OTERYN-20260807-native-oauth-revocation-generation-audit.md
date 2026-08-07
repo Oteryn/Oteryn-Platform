@@ -52,11 +52,12 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-07T10:27:00Z
-head: 1460efe7bdc1d5c78dcc26664e0fa1d484271a2a
+updated_at: 2026-08-07T10:30:00Z
+head: 1822c3a7b025c12585e7d79c228b7a1ac2f102a3
 branch: audit/OTERYN-20260807-native-oauth-revocation-generation
-pr: none
-status: implementing
+pr: 802
+terminal_pr_policy: archive_pending
+status: validating
 context_routes:
   - security
   - authentication-identity
@@ -105,5 +106,5 @@ validation:
     result: NOT_APPLICABLE
     evidence: this audit package changes documentation/evidence only and performs no native-auth activation.
 blockers: []
-next_action: Create the audit PR, bind this task to it, complete exact-head checks, merge, then archive the task and release ownership.
+next_action: Complete exact-head CI and Agent Governance on PR #802, merge it, then archive this task and release ownership.
 ```
