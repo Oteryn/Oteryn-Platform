@@ -21,7 +21,7 @@ Continuously audit every delivered or declared Platform module and surface for t
 
 ```yaml
 programme_state_version: 3
-updated_at: 2026-08-07T09:16:00Z
+updated_at: 2026-08-07T09:21:00Z
 status: ready
 current_cycle: 1
 programme_execution_snapshot:
@@ -32,8 +32,8 @@ programme_execution_snapshot:
   branch: unknown
   pull_request: unknown
   reason: Mutable execution ownership must be resolved from live tasks, branches, Issues and PRs at invocation time; unknown must never be interpreted as none.
-last_merged_audit_head: 8478b627609f9d82799bc5866c8ba504d5751f19
-last_completed_domain: main-push-ci-routing
+last_merged_audit_head: 26a92a5d49b86fb121cebd2cbd57525c3a3140ad
+last_completed_domain: agent-governance-branch-pr-reconciliation
 coverage_inventory:
   baseline: docs/agents/evidence/OTERYN-20260803-portal-exhaustive-current-main-audit/
   baseline_merge: cbbd7613cee13cf01931a0ba0f7ac089122132e0
@@ -85,7 +85,8 @@ proven:
   - OPA-GOV-0020 is proven in Issue #783: docs-only main pushes force all CI gates and full Acceptance, and a newer docs-only main generation cancelled the prior in-progress Acceptance run.
   - OPA-GOV-0021 is proven in Issue #788: tasks with pr none and an existing branch bypass live PR discovery and are treated as active BRANCH_ONLY ownership even when matching PR state exists.
   - Audit PR #781 passed exact-head CI and Agent Governance and merged as f72fafd461f6bd2f41c5a58b975a5532f8e426ef; its audit task is archived.
-  - Audit PR #784 passed exact-head CI run 31164308992 and Agent Governance run 31164310591 on 7af0adb484daf2c414ae97df51b235d8e2528426 and merged as 8478b627609f9d82799bc5866c8ba504d5751f19; its audit task is archived.
+  - Audit PR #784 passed exact-head CI run 31164308992 and Agent Governance run 31164310591 and merged as 8478b627609f9d82799bc5866c8ba504d5751f19; its audit task is archived.
+  - Audit PR #790 passed exact-head CI run 31165266121 and Agent Governance run 31165266632 on 06fb33d0e4d905ad821a49f3814a66a11e1a354d and merged as 26a92a5d49b86fb121cebd2cbd57525c3a3140ad.
   - Issue #558 is closed completed and current main contains the live active-task liveness enforcement introduced by PR #779; OPA-GOV-0021 records a bounded omitted-PR reconciliation gap in that implementation.
   - Issue #547 is closed completed after repair PR #595 and independent audit #597; it is not a live remediation blocker.
   - Issues #555, #561 and #562 are terminal completed through their recorded lifecycle closeouts.
@@ -108,7 +109,7 @@ conflicts:
 blockers:
   mode: live_query_required
   items: unknown
-next_action: Complete the current Agent Governance branch/PR reconciliation audit package, archive it, then refresh live ownership and select the next highest-risk non-overlapping domain in a future bounded invocation.
+next_action: Refresh live ownership, open and blocked Issues, active tasks, PRs and recent main deltas, then select the next highest-risk non-overlapping audit domain in a future bounded invocation.
 ```
 
 ## Programme rules
