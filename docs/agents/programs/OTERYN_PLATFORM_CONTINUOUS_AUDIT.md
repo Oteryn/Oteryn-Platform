@@ -21,24 +21,24 @@ Continuously audit every delivered or declared Platform module and surface for t
 
 ```yaml
 programme_state_version: 3
-updated_at: 2026-08-07T11:25:00Z
+updated_at: 2026-08-07T12:57:00Z
 status: ready
 current_cycle: 1
 programme_execution_snapshot:
   mode: live_query_required
   exhaustive: false
-  current_domain: unknown
-  active_task: unknown
-  branch: unknown
-  pull_request: unknown
-  reason: The marketplace terminal-recovery audit is terminal and archived; mutable execution ownership must be resolved from live tasks, branches, Issues and PRs before selecting the next domain.
+  current_domain: explicit-terminal-pr-identity
+  active_task: docs/agents/tasks/active/OTERYN-20260807-explicit-terminal-pr-identity-audit.md
+  branch: audit/OTERYN-20260807-explicit-terminal-pr-identity
+  pull_request: 813
+  reason: This bounded audit package has a durable task, branch and pull request; terminal ownership and later closeout remain live-query-derived.
 last_merged_audit_head: d823e335cb7a40f330e9ff294531b5c3adda1159
 last_completed_domain: marketplace-terminal-recovery
 coverage_inventory:
   baseline: docs/agents/evidence/OTERYN-20260803-portal-exhaustive-current-main-audit/
   baseline_merge: cbbd7613cee13cf01931a0ba0f7ac089122132e0
-  latest_audited_main: d823e335cb7a40f330e9ff294531b5c3adda1159
-  selected_delta_domain: marketplace-terminal-recovery
+  latest_audited_main: ae716e3b955808916cb203bb97b59df0b44070cf
+  selected_delta_domain: explicit-terminal-pr-identity
 finding_ledger_semantics: historical_identity_map_not_live_queue
 finding_ledger:
   baseline_owners: [486, 487, 488, 489, 490, 491]
@@ -69,6 +69,7 @@ finding_ledger:
     - OPA-GOV-0020: 783
     - OPA-GOV-0021: 788
     - OPA-GOV-0022: 793
+    - OPA-GOV-0023: 811
 live_queue:
   mode: live_query_required
   exhaustive: false
@@ -91,16 +92,17 @@ proven:
   - OPA-GOV-0018 is proven in Issue #584: completed Cloudflare audit implementation/evidence PRs #409 and #415 retained workflow and tooling ownership while denied live reads remained a legitimate blocker.
   - OPA-GOV-0019 is proven in Issue #780 and repaired through PR #789; the stale-snapshot deletion gap is historical identity evidence.
   - OPA-GOV-0020 is proven in Issue #783: docs-only main pushes force all CI gates and full Acceptance, and a newer docs-only main generation cancelled the prior in-progress Acceptance run.
-  - OPA-GOV-0021 is proven in Issue #788: tasks with pr none and an existing branch bypass live PR discovery and are treated as active BRANCH_ONLY ownership even when matching PR state exists.
+  - OPA-GOV-0021 is proven in Issue #788 and repaired through PR #808: branch-only tasks now reconcile exact current branch/head identity against open and terminal PR history, including branch reuse and ambiguity.
   - OPA-GOV-0022 is historically proven in Issue #793 and repaired through PR #796 using a remote force-with-lease deletion boundary; Issue #793 is closed completed and its repair task is archived through PR #798.
+  - OPA-GOV-0023 is proven in Issue #811: explicit numeric terminal PR handling can release task ownership without comparing the task branch to the PR head branch, while the equivalent open/draft path does enforce that identity.
   - Audit PR #781 passed exact-head CI and Agent Governance and merged as f72fafd461f6bd2f41c5a58b975a5532f8e426ef; its audit task is archived.
   - Audit PR #784 passed exact-head CI run 31164308992 and Agent Governance run 31164310591 and merged as 8478b627609f9d82799bc5866c8ba504d5751f19; its audit task is archived.
   - Audit PR #790 passed exact-head CI run 31165266121 and Agent Governance run 31165266632 and merged as 26a92a5d49b86fb121cebd2cbd57525c3a3140ad; its audit task is archived.
   - Audit PR #794 passed exact-head CI run 31167549465 and Agent Governance run 31167550571 and merged as 67cbe391967ee7fd2bf26e4eda412820b805f981; its audit task is archived through PR #795.
   - Audit PR #799 passed Agent Governance run 31168550882 on exact head 58e64dba046811d8b837ef61fc390fa7e306f73e; protected merge accepted that exact head as bf16812e4720fdd90a2483a048c2706592f662d8 after the repository-required merge contexts were satisfied; its audit task is archived through PR #800.
   - Audit PR #802 passed CI run 31170308932 and Agent Governance run 31170308806 on exact head 1dfcc41a39059e1d0f952525271ea7fd0f19d270, had zero unresolved review threads and merged by protected auto-merge as 99d3b3aaa00084466f756c6631b301e3191477af; its audit task is archived by the lifecycle closeout.
-  - Audit PR #805 passed CI run 31173841440 and Agent Governance run 31173841536 on exact head 167fd3e7e1b3d5f5ca078b6ebfb3872b20495ff3, had no unresolved review threads and merged through protected auto-merge as d823e335cb7a40f330e9ff294531b5c3adda1159; its audit task is archived by this lifecycle closeout.
-  - Issue #558 is closed completed and current main contains the live active-task liveness enforcement introduced by PR #779; OPA-GOV-0021 records a bounded omitted-PR reconciliation gap in that implementation.
+  - Audit PR #805 passed CI run 31173841440 and Agent Governance run 31173841536 on exact head 167fd3e7e1b3d5f5ca078b6ebfb3872b20495ff3, had no unresolved review threads and merged through protected auto-merge as d823e335cb7a40f330e9ff294531b5c3adda1159; its audit task is archived by its lifecycle closeout.
+  - Issue #558 is closed completed and current main contains the live active-task liveness enforcement introduced by PR #779; Issue #788 / PR #808 repaired its omitted-PR branch-history gap, while OPA-GOV-0023 records the remaining explicit terminal numeric-PR identity gap.
   - Issues #555, #561 and #562 are terminal completed through their recorded lifecycle closeouts.
   - Independent PASS-only validation is governed by docs/agents/LIFECYCLE_CLOSEOUT_BATCHING.md and is recorded on the existing target PR rather than a new audit PR.
 derived:
@@ -111,7 +113,7 @@ derived:
   - OPA-GOV-0022 is no longer a live branch-lifecycle blocker after PR #796; future branch-lifecycle auditing must use current main rather than the historical finding body.
   - Compatible lifecycle-only findings should be handed to one bounded reconciliation wave instead of generating one closeout PR and one audit Issue per task.
   - Docs-only heavy-workflow economy now has a merged main-push routing repair in PR #786; future audit claims about OPA-GOV-0020 must refresh its terminal acceptance and archival state rather than infer completion from merge alone.
-  - Live task liveness must discover PR truth from branch identity when the task omits a PR number, while preserving genuine pre-PR branches and exact branch-reuse semantics.
+  - Branch-only liveness now discovers PR truth from exact current branch/head identity after PR #808, but explicit numeric terminal PR state must still prove task-branch/head-ref identity before releasing ownership.
   - A refreshed timestamp or programme version must never preserve a stale exhaustive queue; mutable queue fields remain explicitly live-query-derived.
 unknown:
   - The owner-approved emergency bypass and complete stable required-check set beyond the currently observable protected contexts.
@@ -120,11 +122,11 @@ conflicts:
   - ADR 0021 and parent Issue #321 require durable partial-refund financial truth and refund lifecycle evidence, while the current state-only model can consume a distinct second partial refund as duplicate_state without preserving its amount.
   - AUTH_GAME_LOGIN_CONTRACT requires credential-change/reset session/token revocation coupling, while a native OAuth bearer issued before the generation change can bootstrap a new ticket stamped with the current generation.
   - Character Bazaar terminal-state semantics conflict with the unconditional `markRecovery()` write, which can replace a newer `completed`, `cancelled` or `expired` state with `recovery_required`.
-  - Issue #558 requires branch/PR/task identity reconciliation and terminal retained-branch classification, while the branch-only path can bypass PR reconciliation when pr is none.
+  - Issue #558 requires exact task/branch/PR identity before live ownership changes, while the explicit numeric terminal-PR path can release ownership without comparing task.branch to PR head.ref.
 blockers:
   mode: live_query_required
   items: unknown
-next_action: Refresh live ownership, open and blocked Issues, active tasks, PRs and recent main deltas, then select the next highest-risk non-overlapping audit domain in a future bounded invocation.
+next_action: Complete the explicit-terminal-PR-identity audit package in PR #813, merge and archive it, then refresh live state before selecting any additional bounded domain.
 ```
 
 ## Programme rules

@@ -51,11 +51,11 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-07T12:55:00Z
-head: ae716e3b955808916cb203bb97b59df0b44070cf
+updated_at: 2026-08-07T12:57:00Z
+head: 16e1ca8590f08bb135fccd1ad5c1c98c9b33bc7d
 branch: audit/OTERYN-20260807-explicit-terminal-pr-identity
-pr: none
-status: investigating
+pr: 813
+status: validating
 context_routes:
   - continuous-audit
   - ci-build-test
@@ -72,6 +72,7 @@ proven:
   - Numeric terminal PR handling releases ownership and validates archive-pending metadata without first comparing task.branch with PR head.ref.
   - Existing terminal numeric-PR test coverage exercises only the matching branch case; no negative terminal branch/head mismatch fixture exists.
   - Duplicate search found no actionable Issue for this explicit terminal numeric-PR identity gap; Issue #811 now owns remediation.
+  - PR #813 is the single documentation/evidence delivery for this bounded audit and contains no executable behavior change.
 derived:
   - A task can reference an unrelated same-repository terminal PR and be treated as terminal archive-pending with ownership inactive despite its declared branch belonging to different work.
 unknown: []
@@ -86,13 +87,14 @@ changed_paths:
   - docs/agents/tasks/active/OTERYN-20260807-explicit-terminal-pr-identity-audit.md
   - docs/agents/reports/OTERYN-20260807-explicit-terminal-pr-identity-audit.md
   - docs/agents/evidence/OTERYN-20260807-explicit-terminal-pr-identity-audit/index.md
+  - docs/agents/programs/OTERYN_PLATFORM_CONTINUOUS_AUDIT.md
 validation:
   - command: current-main static path and regression-coverage review
     result: PASS
     evidence: The mismatch check is present only in the non-terminal numeric-PR branch and the terminal mismatch fixture is absent.
 blockers:
   - none
-next_action: Open the single audit PR, record its exact identity in this checkpoint and programme state, then validate exact-head required checks before protected merge.
+next_action: Validate exact-head required checks and review state for PR #813, merge only through protected repository policy, then archive this audit task in lifecycle closeout.
 ```
 
 ## Safety
