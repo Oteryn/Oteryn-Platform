@@ -4,13 +4,13 @@ issue: 829
 project_lane: oteryn-platform-core
 task_kind: implementation
 implementation_authorized: true
-status: implementing
+status: validating
 risk: high
 validation_intensity: HEIGHTENED
 execution_mode: github_only
 branch: repair/issue-829
 base_branch: main
-pr: pending
+pr: 834
 production_activation_authorized: false
 cross_repository_mutation_authorized: false
 owned_paths:
@@ -34,9 +34,9 @@ Repair Issue #829 so the native-protocol architecture boundary audit does not re
 ## Acceptance criteria
 
 - [x] Unrelated contract + unrelated runtime changes do not invoke native-protocol producer ownership enforcement.
-- [ ] A native-protocol producer correction with runtime changes still requires the canonical active producer task record for every producer-path routing case.
-- [ ] Native-protocol producer runtime changes outside the existing allowlist still fail closed when the canonical producer task is the producer signal.
-- [ ] Focused deterministic regression fixtures cover unrelated-change PASS, missing-task FAIL, escaped-runtime FAIL, native-doc-only PASS, producer-task-only valid/escaped cases, and valid producer PASS.
+- [x] A native-protocol producer correction with runtime changes still requires the canonical active producer task record for every producer-path routing case.
+- [x] Native-protocol producer runtime changes outside the existing allowlist still fail closed when the canonical producer task is the producer signal.
+- [x] Focused deterministic regression fixtures cover unrelated-change PASS, missing-task FAIL, escaped-runtime FAIL, native-doc-only PASS, producer-task-only valid/escaped cases, and valid producer PASS.
 - [x] Existing architecture, security/downgrade, parser/schema, Canary regression, rollout and rollback audits remain present and unchanged in meaning.
 - [ ] Required exact-head CI and Agent Governance pass; workflow-specific validation passes.
 - [x] E2E is `NOT_APPLICABLE`: this task changes CI routing/validation code only and no product/runtime user journey.
@@ -45,11 +45,11 @@ Repair Issue #829 so the native-protocol architecture boundary audit does not re
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-07T18:45:00+02:00
-head: 04faba107218fba7aa43325270ccb19226358171
+updated_at: 2026-08-07T18:49:00+02:00
+head: ca7674cb9aa1111907111c2a30240fbec32a9e18
 branch: repair/issue-829
-pr: pending
-status: implementing
+pr: 834
+status: validating
 context_routes:
   - agent-governance
   - testing
@@ -62,17 +62,17 @@ owned_paths:
 proven:
   - Issue #829 originally reproduced because generic docs/contracts or docs/architecture triggering caused Audit 1 to classify every runtime path in the PR as a native-protocol producer correction.
   - PR #832 merged as 04faba107218fba7aa43325270ccb19226358171 and fixed the proven unrelated-contract/runtime false positive while preserving Audits 2-5.
-  - Post-merge acceptance review found that the canonical producer task path itself is not included in the merged producer-signal classifier and is not a workflow path trigger.
-  - A change set containing the canonical producer task plus governed or escaped producer runtime can therefore be classified NOT_APPLICABLE unless another enumerated native contract/architecture signal happens to be present.
-  - The canonical producer task is itself a producer governance path and must route into the existing task/runtime allowlist checks without making generic runtime a producer signal.
+  - Post-merge acceptance review found that the canonical producer task path itself was omitted from the merged producer-signal classifier and workflow path triggers.
+  - Follow-up candidate ca7674cb9aa1111907111c2a30240fbec32a9e18 adds the exact canonical producer task as both a workflow trigger and producer signal without promoting generic runtime paths.
+  - Focused local regressions pass for unrelated contract/runtime, unrelated architecture/runtime, documentation-only, missing task, missing task file, task-led escaped runtime, task-led governed runtime, and native-document-led governed runtime.
   - Main branch protection requires classify-changes and test.
 derived:
-  - Adding the exact canonical producer task path as both a workflow trigger and an explicit producer signal closes the discovered route without recreating the Issue #829 false positive for unrelated contracts/runtime.
+  - The narrow producer-task trigger/signal closes the post-merge gap without recreating the Issue #829 false positive for unrelated contracts/runtime.
 unknown: []
 conflicts: []
 first_failure:
   marker: post-merge-acceptance-review-04faba
-  evidence: merged is_native_producer_signal() enumerates native docs/architecture/producer operation/prompt/fixtures/validator but excludes PRODUCER_TASK, while the workflow paths also exclude PRODUCER_TASK.
+  evidence: merged is_native_producer_signal() enumerated native docs/architecture/producer operation/prompt/fixtures/validator but excluded PRODUCER_TASK, while the workflow paths also excluded PRODUCER_TASK.
 rejected_hypotheses:
   - Removing the producer ownership check would fix the false positive; rejected because it would weaken a real native-protocol governance boundary.
   - Narrowing the whole workflow trigger to only native files is sufficient; rejected because Audits 2-5 intentionally validate broader contract and architecture changes and must retain their existing trigger surface.
@@ -82,18 +82,19 @@ changed_paths:
   - scripts/validate_native_protocol_change_boundary.py
   - scripts/test_native_protocol_change_boundary.py
   - docs/agents/tasks/active/OTERYN-20260807-native-protocol-audit-routing.md
+  - docs/agents/tasks/archive/OTERYN-20260807-native-protocol-audit-routing.md
 validation:
-  - command: Native protocol contract audits / run 31198529483 on PR #832 head 114f0c4ff59c83a86277a895609ccd44aa5226b8
+  - command: focused native-protocol change-boundary fixtures
     result: PASS
-    evidence: all five existing audit lanes passed before the post-merge acceptance gap was identified.
-  - command: Agent Governance / run 31198527556 on PR #832 head 114f0c4ff59c83a86277a895609ccd44aa5226b8
-    result: PASS
-    evidence: governance passed for the first repair candidate.
-  - command: post-merge acceptance review
+    evidence: 9 deterministic unittest cases passed locally before publishing the candidate.
+  - command: Native protocol contract audits / run 31199222578
+    result: IN_PROGRESS
+    evidence: exact code candidate ca7674cb9aa1111907111c2a30240fbec32a9e18; Audits 3, 4 and 5 passed at first check.
+  - command: Agent Governance / run 31199222367
     result: FAIL
-    evidence: canonical producer task is neither a producer signal nor a workflow trigger on merged main 04faba107218fba7aa43325270ccb19226358171.
+    evidence: code/checkpoint schema validation passed; liveness failed only because the initial reopened checkpoint used pr pending instead of existing PR #834. This checkpoint repairs that identity.
 blockers: []
-next_action: commit the narrow producer-task trigger/signal regression repair, open the single follow-up PR for reopened Issue #829, validate exact-head Native protocol audits, CI and Agent Governance, then merge only after self-review PASS
+next_action: validate the current PR #834 head, perform exact-head self-review, mark ready and merge only after required CI, Agent Governance and Native protocol audit evidence pass
 ```
 
 ## Design
