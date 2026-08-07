@@ -32,6 +32,7 @@ CONFIRMATION = "DELETE_REVIEWED_TERMINAL_MERGED_BRANCHES_ISSUE_658"
 TASK_BRANCH_RE = re.compile(r"^\s*(?:branch|lock_branch):\s*([^\s#]+)\s*$", re.M)
 REPAIR_ISSUE_RE = re.compile(r"^repair/issue-(\d+)$")
 FULL_SHA_RE = re.compile(r"^[0-9a-fA-F]{40}$")
+SCP_GITHUB_REMOTE_RE = re.compile(r"^git@github\.com:([^/\s]+)/([^/\s]+)$", re.I)
 
 
 class ValidationError(RuntimeError):
@@ -48,12 +49,28 @@ class ApiError(RuntimeError):
 
 
 class GitHubClient:
-    def __init__(self, repo: str, token: str, api_url: str = "https://api.github.com") -> None:
+    def __init__(
+        self,
+        repo: str,
+        token: str,
+        api_url: str = "https://api.github.com",
+        *,
+        root: Path | None = None,
+        git_remote: str = "origin",
+    ) -> None:
         if "/" not in repo:
             raise ValidationError("repository must use owner/name form")
+        if (
+            not git_remote
+            or git_remote.startswith("-")
+            or any(character.isspace() for character in git_remote)
+        ):
+            raise ValidationError("git remote name must be a non-option token without whitespace")
         self.repo = repo
         self.token = token
         self.api_url = api_url.rstrip("/")
+        self.git_root = (root or Path(".")).resolve()
+        self.git_remote = git_remote
 
     def request(
         self,
@@ -100,13 +117,73 @@ class GitHubClient:
             next_url = _next_link(headers.get("link", ""))
         return items
 
+    def _run_git(
+        self, command: list[str], *, timeout: int, purpose: str
+    ) -> subprocess.CompletedProcess[str]:
+        try:
+            return subprocess.run(
+                command,
+                check=False,
+                capture_output=True,
+                text=True,
+                timeout=timeout,
+                cwd=self.git_root,
+            )
+        except FileNotFoundError as exc:
+            raise ValidationError(
+                f"{purpose} requires the git executable in the configured repository environment"
+            ) from exc
+        except subprocess.TimeoutExpired as exc:
+            raise ValidationError(f"{purpose} timed out") from exc
+
+    def _validated_git_remote(self) -> str:
+        root_probe = self._run_git(
+            ["git", "rev-parse", "--show-toplevel"],
+            timeout=15,
+            purpose="git repository root validation",
+        )
+        if root_probe.returncode != 0:
+            raise ValidationError("configured --root is not a Git working tree")
+        reported_root = root_probe.stdout.strip()
+        if not reported_root:
+            raise ValidationError("git repository root validation returned no path")
+        if Path(reported_root).resolve() != self.git_root:
+            raise ValidationError(
+                "configured --root does not match the Git working tree used for destructive operations"
+            )
+
+        remote_probe = self._run_git(
+            ["git", "remote", "get-url", "--push", "--all", self.git_remote],
+            timeout=15,
+            purpose="git remote identity validation",
+        )
+        if remote_probe.returncode != 0:
+            raise ValidationError(
+                f"configured git remote {self.git_remote!r} is missing or has no push URL"
+            )
+        push_urls = [line.strip() for line in remote_probe.stdout.splitlines() if line.strip()]
+        if len(push_urls) != 1:
+            raise ValidationError(
+                f"configured git remote {self.git_remote!r} must resolve to exactly one push URL"
+            )
+        remote_repo = _github_repository_from_remote(push_urls[0])
+        if remote_repo is None:
+            raise ValidationError(
+                f"configured git remote {self.git_remote!r} does not use a supported GitHub SSH or HTTPS repository URL"
+            )
+        if remote_repo.casefold() != self.repo.casefold():
+            raise ValidationError(
+                f"configured git remote repository mismatch: expected {self.repo}, got {remote_repo}"
+            )
+        return self.git_remote
+
     def _delete_ref_with_lease(self, branch: str, expected_sha: str) -> None:
         if not FULL_SHA_RE.fullmatch(expected_sha):
             raise ValidationError(
                 f"atomic delete expected SHA for {branch} must be a full 40-character hexadecimal object ID"
             )
         ref = f"refs/heads/{branch}"
-        remote = getattr(self, "git_remote", "origin")
+        remote = self._validated_git_remote()
         command = [
             "git",
             "push",
@@ -115,22 +192,11 @@ class GitHubClient:
             remote,
             f":{ref}",
         ]
-        try:
-            result = subprocess.run(
-                command,
-                check=False,
-                capture_output=True,
-                text=True,
-                timeout=60,
-            )
-        except FileNotFoundError as exc:
-            raise ValidationError(
-                "atomic branch deletion requires the git executable in the checked-out repository environment"
-            ) from exc
-        except subprocess.TimeoutExpired as exc:
-            raise ValidationError(
-                f"atomic branch deletion timed out for {branch}; remote state must be revalidated"
-            ) from exc
+        result = self._run_git(
+            command,
+            timeout=60,
+            purpose=f"atomic branch deletion for {branch}",
+        )
         if result.returncode == 0:
             return
 
@@ -229,6 +295,51 @@ def _next_link(header: str) -> str | None:
         match = re.match(r"<([^>]+)>", section)
         return match.group(1) if match else None
     return None
+
+
+def _github_repository_from_remote(value: str) -> str | None:
+    remote = value.strip()
+    if not remote:
+        return None
+
+    scp_match = SCP_GITHUB_REMOTE_RE.fullmatch(remote)
+    if scp_match:
+        owner, repo = scp_match.groups()
+    else:
+        parsed = urllib.parse.urlsplit(remote)
+        scheme = parsed.scheme.casefold()
+        if scheme not in {"https", "ssh"}:
+            return None
+        if (parsed.hostname or "").casefold() != "github.com":
+            return None
+        if parsed.query or parsed.fragment:
+            return None
+        if scheme == "https":
+            if parsed.username is not None or parsed.password is not None:
+                return None
+            if parsed.port not in {None, 443}:
+                return None
+        else:
+            if parsed.username != "git" or parsed.password is not None:
+                return None
+            if parsed.port not in {None, 22}:
+                return None
+        parts = [part for part in parsed.path.split("/") if part]
+        if len(parts) != 2:
+            return None
+        owner, repo = parts
+
+    if repo.casefold().endswith(".git"):
+        repo = repo[:-4]
+    if (
+        not owner
+        or not repo
+        or owner in {".", ".."}
+        or repo in {".", ".."}
+        or any(character.isspace() for character in owner + repo)
+    ):
+        return None
+    return f"{owner}/{repo}"
 
 
 def canonical_json(value: object) -> str:
@@ -910,7 +1021,7 @@ def main(argv: list[str] | None = None) -> int:
     else:
         if not args.repo or not args.token:
             raise ValidationError("--repo and --token (or GitHub environment variables) are required")
-        client = GitHubClient(args.repo, args.token)
+        client = GitHubClient(args.repo, args.token, root=root)
         report = classify_snapshot(policy, fetch_live_snapshot(client, root), root=root)
 
     output_path = args.output if args.output.is_absolute() else root / args.output
