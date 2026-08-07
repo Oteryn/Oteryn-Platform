@@ -18,17 +18,17 @@ Continuously challenge Platform architecture, repository structure and CI/CD; id
 
 ```yaml
 programme_state_version: 2
-updated_at: 2026-08-08T01:04:56+02:00
-status: validating
-current_review_domain: native-oteryn-v2-integration-baseline
-active_task: OTERYN-20260808-oteryn-v2-integration-baseline
-issue: 863
-branch: docs/OTERYN-20260808-oteryn-v2-integration-baseline
-pull_request: 866
-last_completed_domain: native-character-portfolio-account-center-v2
-last_completed_issue: 857
-last_completed_pull_request: 859
-last_completed_merge: 73c2426b37cfd5028fe9fbcec8254cc8aab3bc80
+updated_at: 2026-08-08T01:07:40+02:00
+status: ready
+current_review_domain: next-risk-based-rotation
+active_task: null
+issue: null
+branch: null
+pull_request: null
+last_completed_domain: native-oteryn-v2-integration-baseline
+last_completed_issue: 863
+last_completed_pull_request: 866
+last_completed_merge: 4bbed105a66b55476698c8f6ce4075671b3a10fe
 latest_review_finding_issue: 863
 accepted_authority:
   authority_index: docs/architecture/ARCHITECTURE_AUTHORITY.md
@@ -39,6 +39,8 @@ accepted_authority:
   licensing_adr: docs/architecture/adr/0026-proprietary-repository-licensing-policy.md
   vulnerability_disclosure_adr: docs/architecture/adr/0027-confidential-vulnerability-disclosure-policy.md
   character_portfolio_adr: docs/architecture/adr/0030-native-character-portfolio-account-center-v2.md
+  native_v2_integration_adr: docs/architecture/adr/0031-native-oteryn-v2-integration-boundary.md
+  native_v2_integration_architecture: docs/architecture/OTERYN_V2_INTEGRATION_ARCHITECTURE.md
 implementation_handoffs:
   - issue: 658
     scope: deterministic branch inventory, retention metadata, conservative cleanup and recovery proof
@@ -48,7 +50,6 @@ active_architecture_decision_ids: []
 architecture_conflicts:
   - Historical duplicate ADR prefixes remain for 0008, 0010, 0011, 0015, 0016, 0017, 0018 and 0021, but the exact accepted path sets are machine-enforced and cannot expand silently.
   - Issue 586 retains historical evidence that delete_branch_on_merge was disabled; ADR 0024 and current metadata prove the accepted current state is enabled.
-  - Current Platform ADR 0010/0011 and native-protocol contract history assign native gameplay protocol/session semantics more broadly to Platform/Gateway than the accepted target Oteryn-v2 ownership model; PR 866 resolves the durable architecture conflict through ADR 0031 while preserving transitional evidence.
 ci_architecture_findings:
   - PR 626 separates conditional runtime-tests from an always-emitted aggregate protected test context.
   - Runtime/code changes require the complete MariaDB/PHP suite before the aggregate test gate can pass.
@@ -61,24 +62,20 @@ proven:
   - GitHub Private Vulnerability Reporting is enabled for blakinio/Oteryn-Platform.
   - PR 702 merged ADR 0027, canonical SECURITY.md routing, public-Issue diversion and the empty active decision backlog as ab6ac645595813653618d91574c717fb4d9c7edd after all eight exact-head workflows and independent audit passed.
   - The completed review at docs/agents/reports/OTERYN-20260806-game-auth-topology-current-state-review.md proved the game-auth documentation drift and preserved exact evidence classification.
-  - PR 722 merged the bounded current-state review as 1919f7eb55f6c2a08058652f422b47f841467009.
-  - Issue 720 was reconciled by documentation-only PR 731; final head a45df8563fcd51d2ec28741bf326734b3a24bfa4 passed all emitted workflows after independent audit Issue 755 recorded PASS_ZERO_MATERIAL_FINDINGS.
   - PR 731 merged the canonical game-auth reconciliation as 3c806583d2a0c12d5698f7c30755c22c48da60a4 with exactly five effective documentation/task paths and zero unresolved review threads.
-  - Current Platform Account Center uses Canary numeric account/player identifiers and row-count-derived character creation availability only in its current compatibility implementation.
-  - Oteryn-v2 merged PR 90 establishes game-owned CharacterId/current AccountId-to-CharacterId ownership and native character lifecycle commands.
   - Repository owner explicitly accepted Option A for the Native Character Portfolio / Account Center v2 boundary; PR 859 merged accepted ADR 0030 as 73c2426b37cfd5028fe9fbcec8254cc8aab3bc80 and Issue 857 is closed completed.
-  - Repository owner authorized persistence of the reviewed Platform-v2 reconciliation; Issue 863 and PR 866 now carry the bounded Platform-only architecture package.
+  - PR 866 merged ADR 0031 and the focused native Oteryn-v2 integration architecture as 4bbed105a66b55476698c8f6ce4075671b3a10fe after all eight exact-head workflows passed and full 9-file self-review found zero material findings.
+  - Issue 863 is closed completed; Oteryn-v2 remained read-only throughout the Platform task.
 derived:
-  - The Platform core remains a sound Laravel modular monolith; the material gap is cross-repository integration reconciliation rather than platform decomposition.
-  - Native Oteryn-v2 integration must be separated from Legacy Canary Compatibility so new consumers do not inherit Canary numeric IDs, table shapes, session semantics or gameplay protocol ownership.
-  - Platform should own Identity/AccountId/tickets/World Registry/Gateway pre-admission/business workflows while Oteryn-v2 remains authoritative for CharacterId/current ownership/gameplay admission-session semantics/game persistence/native gameplay protocol semantics and analytics source facts.
+  - The Platform core remains a sound Laravel modular monolith; native Oteryn-v2 integration is now explicitly separated from Legacy Canary Compatibility.
+  - New native Platform consumers must use canonical AccountId/CharacterId and explicit command/query/event/projection boundaries instead of inheriting Canary numeric IDs, table shapes, session semantics or gameplay protocol ownership.
+  - ADR 0031 resolves the former target native-protocol ownership conflict while preserving current Canary/transitional implementation evidence for migration.
 unknown:
   - Exact deployed game-auth topology, alternate-path network isolation and production activation evidence.
-  - Exact transport/schema choices for several deferred Platform-v2 command/query/event/projection contracts.
-  - Exact per-adapter Canary sunset dates and cutover mechanics.
+  - Deferred P1/P2 Platform-v2 contract details recorded in the focused architecture remain intentionally unresolved.
 conflicts: []
 blockers: []
-next_action: Validate PR 866 exact head, review the full diff for zero material findings and merge only if required checks pass; then archive the task and return the programme to ready.
+next_action: Select the highest-risk unresolved Platform architecture, repository-structure or CI/CD question from current main after a fresh overlap search; preserve ADR 0031 as the canonical native-v2/compatibility boundary unless higher-ranked authority changes.
 ```
 
 ## Programme rules
