@@ -37,6 +37,7 @@ jobs:
         run: |
           python tests/ci/test_classify_changes.py
           python tests/ci/test_required_test_gate.py
+          python tests/ci/test_workflow_trigger_economy.py
 
       - name: Classify changed paths
         id: classify

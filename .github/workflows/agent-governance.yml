@@ -4,6 +4,7 @@ on:
   pull_request:
     paths:
       - AGENTS.md
+      - AGENTS.override.md
       - docs/agents/**
       - tools/agents/**
       - .github/workflows/agent-governance.yml
@@ -12,6 +13,7 @@ on:
       - main
     paths:
       - AGENTS.md
+      - AGENTS.override.md
       - docs/agents/**
       - tools/agents/**
       - .github/workflows/agent-governance.yml
@@ -19,6 +21,10 @@ on:
 
 permissions:
   contents: read
+
+concurrency:
+  group: agent-governance-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 jobs:
   checkpoint-validation:

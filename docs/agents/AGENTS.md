@@ -2,7 +2,7 @@
 
 Before advising the repository owner or writing a prompt for another agent, read `PROMPTING_HANDOVER.md` and the normative `PROMPTING_STANDARD.md`. Use the handover to inspect live repository state and the standard to construct the prompt. Return a direct recommendation in Polish, a compact reason, and one ready-to-paste worker prompt.
 
-Before substantial implementation, product-facing validation, audit, E2E, PR cleanup, or task closeout, read and follow `DELIVERY_COMPLETENESS_AND_CLOSEOUT.md`. It is mandatory for delivery classification, frontend/backend vertical-slice completeness, prompt evaluation discipline, trust and authority boundaries, real E2E, exact-head validation, related-PR terminal states, and final archival. For remediation work, `REMEDIATION_AUDIT_RISK_GATE.md` is the controlling specialization for deciding whether a distinct independent auditor is required; every repair still requires documented self-review. A worker summary is not terminal evidence.
+Before substantial implementation, product-facing validation, audit, E2E, PR cleanup, or task closeout, read and follow `DELIVERY_COMPLETENESS_AND_CLOSEOUT.md`. It is mandatory for delivery classification, frontend/backend vertical-slice completeness, prompt evaluation discipline, trust and authority boundaries, real E2E, exact-head validation, related-PR terminal states, and final archival. For remediation work, `REMEDIATION_AUDIT_RISK_GATE.md` is retained as the controlling self-review and validation-intensity specialization; it does not require a different agent to approve the repair. A worker summary is not terminal evidence.
 
 Before autonomous, long-running, retry-prone, CI-waiting, repair, continuation, or multi-task work, read and follow `ANTI_STALL_AND_EXECUTION_BUDGET.md`. Its runtime, no-progress, ordinary-CI and terminal-CI checks, retry, repair-cycle, context-reconstruction, command-timeout, and additional-task limits are mandatory. Budget exhaustion or unchanged pending state outside the bounded terminal-CI exception is a real stop condition even when another contract says to continue autonomously.
 
@@ -28,6 +28,31 @@ DONE | WAITING | BLOCKED | ROTATE
 
 `ROTATE` is not a checkpoint status. Before returning it, persist `ready`, `waiting`, or `blocked` with exactly one concrete `next_action`. Use validation result `NOT_APPLICABLE` only with a concrete evidence reason.
 
+## One-Issue remediation ownership
+
+One implementation owner keeps one remediation Issue from claim through analysis, implementation, focused validation, exact-head self-review, PR handling, findings repair, merge, Issue closure, task archival and ownership release.
+
+A different-agent PASS is not a remediation merge requirement. A separate continuous-audit programme may inspect the platform and open new Issues, but it does not receive or approve every repair candidate.
+
+Every repair still requires:
+
+- exact-head full-diff self-review;
+- relevant tests and required CI;
+- real E2E `PASS` or justified `NOT_APPLICABLE`;
+- risk-proportional rollback and compatibility evidence;
+- zero unresolved material findings, requested changes, review threads or blockers.
+
+Critical/high and security, payment, data-integrity, concurrency, migration, protocol, dependency, deployment and production changes require heightened focused evidence. Material `UNKNOWN` or `CONFLICT` blocks merge.
+
+## Actions and commit economy
+
+- Build a coherent reviewable package before pushing whenever practical.
+- Do not create one commit per file, checkpoint field, comment or evidence line.
+- During construction, run cheap focused checks and defer broad validation until the candidate is coherent.
+- Run full applicable validation once on the exact final head.
+- Checkpoint-only and agent-governance-only updates must not start unrelated heavy runtime workflows.
+- Supersedable PR workflows must cancel older runs for the same PR/ref.
+
 ## Communication and context budget
 
 - Default autonomous communication mode is `terminal_only`, including scheduled audit and repair runs.
@@ -51,8 +76,8 @@ Before creating, claiming, resuming, updating, handing off, or closing any task 
 10. Record `execution_mode` and let the worker decide whether Chat/GitHub, Codex, or a permitted runner is appropriate.
 11. At a synchronization barrier, run `python tools/agents/control_room.py --format markdown` and escalate only material decisions.
 12. Do not mark user-facing work complete unless all required backend and frontend consumers are integrated and real E2E passes.
-13. Before archival, apply `REMEDIATION_AUDIT_RISK_GATE.md` for remediation tasks: always complete self-review, perform a fresh independent audit only when the gate is `REQUIRED` or an `OPTIONAL` audit was requested, then verify exact-head required CI, resolve review threads, and merge or intentionally close every related or superseded PR. Non-remediation work continues to follow its own stricter audit policy.
+13. Before archival, complete exact-head self-review, risk-proportional validation, applicable E2E, required CI, review-thread cleanup and related-PR reconciliation. Do not create or wait for a different-agent repair-audit handoff.
 14. Treat repository-mandated post-merge archival, Issue reconciliation, and ownership release as part of the entry task, not as an additional READY task.
-15. Start at most one additional task after the fully terminal entry task, only when at least 30 minutes of declared budget remains, no stall warning occurred, and the anti-stall gate permits it.
+15. Start at most one additional task after the fully terminal entry task, only when at least 30 minutes remains and no stall warning occurred.
 
-These rules supplement the repository root `AGENTS.md`. When rules overlap, follow the more restrictive safety requirement unless a named controlling specialization explicitly governs the exact decision. The bounded terminal-CI exception controls final exact-head CI; `TERMINAL_ONLY_COMMUNICATION.md` controls autonomous user-facing progress; `REMEDIATION_AUDIT_RISK_GATE.md` controls whether a remediation delivery requires a distinct independent auditor. None weakens branch protection, merge gates, authority, production, data, payment, authentication, or cross-repository restrictions.
+These rules supplement the repository root `AGENTS.md`. When rules overlap, follow the more restrictive safety requirement unless a named controlling specialization explicitly governs the exact decision. The bounded terminal-CI exception controls final exact-head CI; `TERMINAL_ONLY_COMMUNICATION.md` controls autonomous user-facing progress; `REMEDIATION_AUDIT_RISK_GATE.md` controls remediation validation intensity and self-review. None weakens branch protection, merge gates, authority, production, data, payment, authentication, or cross-repository restrictions.
