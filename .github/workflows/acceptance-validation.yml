@@ -19,6 +19,18 @@ on:
   push:
     branches:
       - main
+    paths:
+      - 'app/**'
+      - 'bootstrap/**'
+      - 'config/**'
+      - 'database/**'
+      - 'public/**'
+      - 'resources/views/**'
+      - 'routes/**'
+      - 'scripts/acceptance/**'
+      - '.github/workflows/acceptance-validation.yml'
+      - 'composer.json'
+      - 'composer.lock'
   workflow_dispatch:
     inputs:
       profile:
