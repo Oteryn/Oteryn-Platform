@@ -10,7 +10,7 @@ branch: repair/issue-848
 base_branch: main
 base_sha: d331365163ba44acbbb3cfd9e785926aa57ed41a
 created: 2026-08-07T20:33:00Z
-updated: 2026-08-07T20:37:00Z
+updated: 2026-08-07T20:38:00Z
 implementation_authorized: true
 claim_protocol_version: 5
 coordination_key: workflow:main-ci-generation-preemption
@@ -74,12 +74,16 @@ validation_gate:
 ## Context checkpoint
 
 ```yaml
-checkpoint_version: 2
-status: validating
+checkpoint_version: 1
+updated_at: 2026-08-07T20:38:00Z
+head: 70ca6b1e326110dbac7b74cca8efa133fe63abfa
 branch: repair/issue-848
 pr: 854
-implementation_head: 30e0e2323fd5b9b623f3b23df5ccb86d6fc5257c
-base_sha: d331365163ba44acbbb3cfd9e785926aa57ed41a
+status: validating
+context_routes:
+  - ci-build-test
+  - architecture-governance
+  - dependencies-tooling
 owned_paths:
   - .github/workflows/ci.yml
   - tests/ci/test_workflow_trigger_economy.py
@@ -92,7 +96,35 @@ proven:
   - cancel-in-progress is now true only for pull_request events.
   - existing exact-range push routing tests remain in the CI classifier and deterministic workflow-economy assertions lock the new concurrency contract.
   - full PR patch review found no product/runtime, production, database, deployment, secret, or external-repository changes.
+derived:
+  - a pull_request event resolves the concurrency identity to its stable PR number and remains supersedable.
+  - a push event has no pull_request number and therefore resolves the concurrency identity to github.sha, isolating each main commit.
 unknown: []
 conflicts: []
-next_action: validate the final exact PR head under HEIGHTENED gate, confirm zero unresolved review threads, then merge, verify Issue #848 closure, archive this task, and release ownership.
+blockers: []
+changed_paths:
+  - .github/workflows/ci.yml
+  - tests/ci/test_workflow_trigger_economy.py
+  - docs/agents/tasks/active/OTERYN-20260807-main-ci-generation-preemption.md
+first_failure:
+  marker: agent-governance-checkpoint-schema
+  evidence: Agent Governance run 31216560966 first rejected the task because the required Context checkpoint heading was missing; run 31216616236 then exposed the remaining required checkpoint fields. The implementation diff itself was not implicated.
+rejected_hypotheses:
+  - disable cancel-in-progress globally for every CI event
+  - key main pushes only by github.ref
+  - broaden the repair into push classification or application runtime changes
+validation:
+  - command: full PR #854 patch self-review
+    result: PASS
+    evidence: only the CI concurrency block, deterministic regression assertions, and task checkpoint are changed.
+  - command: tests/ci/test_push_change_routing.py retained in CI classifier
+    result: PENDING_EXACT_HEAD_CI
+    evidence: preserves docs-only suppression, product routing, and fail-closed push ranges.
+  - command: tests/ci/test_workflow_trigger_economy.py
+    result: PENDING_EXACT_HEAD_CI
+    evidence: asserts PR-number-or-push-SHA grouping, pull-request-only cancellation, and removal of the shared-main-ref group.
+  - command: Agent Governance
+    result: PENDING_RETRY
+    evidence: checkpoint schema corrected after exact failure logs.
+next_action: run final exact-head HEIGHTENED validation, confirm zero unresolved review threads, merge PR #854, verify Issue #848 closure, archive this task, and release ownership.
 ```
