@@ -30,6 +30,7 @@ class LivenessError(RuntimeError):
 class GitHubState(Protocol):
     def get_pull_request(self, number: int) -> dict[str, Any]: ...
     def get_branch(self, branch: str) -> dict[str, Any] | None: ...
+    def get_pull_requests_for_branch(self, branch: str) -> list[dict[str, Any]]: ...
 
 
 @dataclasses.dataclass(frozen=True)
@@ -100,7 +101,7 @@ class GitHubClient:
         self.api_url = api_url.rstrip("/")
         self.timeout = timeout
 
-    def _request(self, path: str) -> dict[str, Any]:
+    def _request_json(self, path: str) -> Any:
         url = f"{self.api_url}{path}"
         request = urllib.request.Request(
             url,
@@ -122,11 +123,24 @@ class GitHubClient:
         except (urllib.error.URLError, TimeoutError, OSError) as exc:
             raise LivenessError(f"GitHub state unavailable: GET {path} failed") from exc
         try:
-            payload = json.loads(raw)
+            return json.loads(raw)
         except json.JSONDecodeError as exc:
-            raise LivenessError(f"GitHub state unavailable: GET {path} returned invalid JSON") from exc
+            raise LivenessError(
+                f"GitHub state unavailable: GET {path} returned invalid JSON"
+            ) from exc
+
+    def _request(self, path: str) -> dict[str, Any]:
+        payload = self._request_json(path)
         if not isinstance(payload, dict):
             raise LivenessError(f"GitHub state unavailable: GET {path} returned a non-object")
+        return payload
+
+    def _request_list(self, path: str) -> list[dict[str, Any]]:
+        payload = self._request_json(path)
+        if not isinstance(payload, list) or not all(isinstance(item, dict) for item in payload):
+            raise LivenessError(
+                f"GitHub state unavailable: GET {path} returned a non-object list"
+            )
         return payload
 
     def get_pull_request(self, number: int) -> dict[str, Any]:
@@ -141,6 +155,26 @@ class GitHubClient:
             if "HTTP 404" in str(exc):
                 return None
             raise
+
+    def get_pull_requests_for_branch(self, branch: str) -> list[dict[str, Any]]:
+        owner = self.repository.split("/", 1)[0]
+        query = urllib.parse.urlencode(
+            {
+                "state": "all",
+                "head": f"{owner}:{branch}",
+                "per_page": "100",
+                "sort": "updated",
+                "direction": "desc",
+            }
+        )
+        path = f"/repos/{self.repository}/pulls?{query}"
+        pulls = self._request_list(path)
+        if len(pulls) >= 100:
+            raise LivenessError(
+                f"GitHub state unavailable: branch {branch!r} has at least 100 PR records; "
+                "history is ambiguous"
+            )
+        return pulls
 
 
 def _scalar(value: str) -> str:
@@ -224,13 +258,19 @@ def load_policy(path: Path = DEFAULT_CONTRACT) -> Policy:
 
     def string_list(key: str) -> list[str]:
         value = policy[key]
-        if not isinstance(value, list) or not all(isinstance(item, str) and item for item in value):
-            raise LivenessError(f"{path}: live_task_liveness.{key} must be a non-empty string list")
+        if not isinstance(value, list) or not all(
+            isinstance(item, str) and item for item in value
+        ):
+            raise LivenessError(
+                f"{path}: live_task_liveness.{key} must be a non-empty string list"
+            )
         return value
 
     for key in ("schema_version", "report_schema_version"):
         if not isinstance(policy[key], int) or policy[key] < 1:
-            raise LivenessError(f"{path}: live_task_liveness.{key} must be a positive integer")
+            raise LivenessError(
+                f"{path}: live_task_liveness.{key} must be a positive integer"
+            )
 
     for key in ("terminal_policy_field", "archive_pending_value"):
         if not isinstance(policy[key], str) or not policy[key].strip():
@@ -240,9 +280,15 @@ def load_policy(path: Path = DEFAULT_CONTRACT) -> Policy:
         schema_version=policy["schema_version"],
         terminal_policy_field=policy["terminal_policy_field"],
         archive_pending_value=policy["archive_pending_value"],
-        terminal_allowed_statuses=frozenset(item.casefold() for item in string_list("terminal_allowed_statuses")),
-        terminal_next_action_requires=tuple(item.casefold() for item in string_list("terminal_next_action_requires")),
-        terminal_next_action_forbids=tuple(item.casefold() for item in string_list("terminal_next_action_forbids")),
+        terminal_allowed_statuses=frozenset(
+            item.casefold() for item in string_list("terminal_allowed_statuses")
+        ),
+        terminal_next_action_requires=tuple(
+            item.casefold() for item in string_list("terminal_next_action_requires")
+        ),
+        terminal_next_action_forbids=tuple(
+            item.casefold() for item in string_list("terminal_next_action_forbids")
+        ),
         no_pr_no_branch_allowed_statuses=frozenset(
             item.casefold() for item in string_list("no_pr_no_branch_allowed_statuses")
         ),
@@ -258,7 +304,9 @@ def _numeric_pr(value: str) -> int | None:
     if _none(value):
         return None
     if not re.fullmatch(r"[1-9][0-9]*", value.strip()):
-        raise LivenessError(f"invalid PR identity {value!r}; expected a positive integer or none")
+        raise LivenessError(
+            f"invalid PR identity {value!r}; expected a positive integer or none"
+        )
     return int(value)
 
 
@@ -288,9 +336,125 @@ def _pull_state(payload: dict[str, Any]) -> tuple[str, bool, bool, str, str]:
     ref = head.get("ref")
     repo = head.get("repo")
     repo_name = repo.get("full_name") if isinstance(repo, dict) else None
-    if not isinstance(ref, str) or not ref or not isinstance(repo_name, str) or not repo_name:
+    if (
+        not isinstance(ref, str)
+        or not ref
+        or not isinstance(repo_name, str)
+        or not repo_name
+    ):
         raise LivenessError("GitHub pull request response is missing head identity")
     return state, merged, draft, ref, repo_name
+
+
+def _branch_sha(payload: dict[str, Any]) -> str:
+    obj = payload.get("object")
+    sha = obj.get("sha") if isinstance(obj, dict) else None
+    if not isinstance(sha, str) or not re.fullmatch(r"[0-9a-fA-F]{40}", sha):
+        raise LivenessError("GitHub branch response is missing a valid head SHA")
+    return sha.casefold()
+
+
+def _branch_pull_identity(
+    payload: dict[str, Any],
+) -> tuple[int, str, bool, str, str, str]:
+    number = payload.get("number")
+    state = payload.get("state")
+    draft = payload.get("draft")
+    head = payload.get("head")
+    if (
+        not isinstance(number, int)
+        or number < 1
+        or state not in {"open", "closed"}
+        or not isinstance(draft, bool)
+        or not isinstance(head, dict)
+    ):
+        raise LivenessError(
+            "GitHub branch pull-request response is missing required state fields"
+        )
+    ref = head.get("ref")
+    sha = head.get("sha")
+    repo = head.get("repo")
+    repo_name = repo.get("full_name") if isinstance(repo, dict) else None
+    if (
+        not isinstance(ref, str)
+        or not ref
+        or not isinstance(sha, str)
+        or not re.fullmatch(r"[0-9a-fA-F]{40}", sha)
+        or not isinstance(repo_name, str)
+        or not repo_name
+    ):
+        raise LivenessError("GitHub branch pull-request response is missing head identity")
+    return number, state, draft, ref, repo_name, sha.casefold()
+
+
+def _reconcile_branch_only(
+    task: TaskRecord,
+    *,
+    repository: str,
+    branch_payload: dict[str, Any],
+    client: GitHubState,
+    findings: list[Finding],
+) -> tuple[str, bool]:
+    try:
+        branch_sha = _branch_sha(branch_payload)
+        branch_pulls = client.get_pull_requests_for_branch(task.branch)
+        current: list[tuple[int, str, bool]] = []
+        for payload in branch_pulls:
+            number, state, draft, ref, repo_name, head_sha = _branch_pull_identity(payload)
+            if repo_name.casefold() != repository.casefold():
+                findings.append(
+                    Finding(
+                        "error",
+                        "foreign_branch_pr_head",
+                        f"PR #{number} head repository {repo_name!r} does not match {repository!r}",
+                    )
+                )
+                continue
+            if ref == task.branch and head_sha == branch_sha:
+                current.append((number, state, draft))
+    except LivenessError as exc:
+        findings.append(Finding("error", "github_state_unavailable", str(exc)))
+        return "UNKNOWN", False
+
+    if len(current) > 1:
+        numbers = ", ".join(f"#{number}" for number, _, _ in current)
+        findings.append(
+            Finding(
+                "error",
+                "ambiguous_branch_pr_history",
+                f"claimed branch {task.branch!r} current head matches multiple PRs ({numbers}); "
+                "explicit task PR identity is required",
+            )
+        )
+        return "AMBIGUOUS_BRANCH_PR", False
+
+    if not current:
+        return "BRANCH_ONLY", True
+
+    number, state, draft = current[0]
+    if state == "open":
+        findings.append(
+            Finding(
+                "error",
+                "branch_pr_identity_omitted",
+                f"claimed branch {task.branch!r} current head already has "
+                f"{'draft ' if draft else ''}open PR #{number}; task must record that PR identity",
+            )
+        )
+        return (
+            "DRAFT_PR_IDENTITY_OMITTED" if draft else "OPEN_PR_IDENTITY_OMITTED",
+            False,
+        )
+
+    findings.append(
+        Finding(
+            "error",
+            "terminal_pr_identity_omitted",
+            f"claimed branch {task.branch!r} current head belongs to terminal PR #{number}; "
+            "retained branch existence cannot preserve active ownership",
+        )
+    )
+    return "TERMINAL_PR_IDENTITY_OMITTED", False
 
 
 def evaluate_task(
@@ -332,18 +496,28 @@ def evaluate_task(
                     )
                 )
         else:
-            live_state = "BRANCH_ONLY"
             try:
                 branch = client.get_branch(task.branch)
             except LivenessError as exc:
                 findings.append(Finding("error", "github_state_unavailable", str(exc)))
             else:
                 if branch is None:
+                    live_state = "BRANCH_ONLY"
                     findings.append(
-                        Finding("error", "missing_branch", f"claimed branch {task.branch!r} does not exist")
+                        Finding(
+                            "error",
+                            "missing_branch",
+                            f"claimed branch {task.branch!r} does not exist",
+                        )
                     )
                 else:
-                    ownership_active = True
+                    live_state, ownership_active = _reconcile_branch_only(
+                        task,
+                        repository=repository,
+                        branch_payload=branch,
+                        client=client,
+                        findings=findings,
+                    )
     else:
         try:
             payload = client.get_pull_request(pr_number)
@@ -421,7 +595,11 @@ def evaluate_task(
                 ownership_active = True
                 if _none(task.branch):
                     findings.append(
-                        Finding("error", "missing_branch_identity", f"open PR #{pr_number} task has no claimed branch")
+                        Finding(
+                            "error",
+                            "missing_branch_identity",
+                            f"open PR #{pr_number} task has no claimed branch",
+                        )
                     )
                 elif task.branch != head_ref:
                     findings.append(
