@@ -2,7 +2,7 @@
 task_id: OTERYN-20260807-payment-partial-refund-integrity
 issue: 797
 programme_id: OTERYN_PLATFORM_REMEDIATION
-status: investigating
+status: validating
 risk: high
 run_scope: autonomous_program
 continuation_policy: continue_until_real_stop
@@ -37,14 +37,14 @@ Repair Issue #797 so every distinct verified partial-refund event contributes to
 
 ## Acceptance criteria
 
-- [ ] Provider-neutral partial-refund amount semantics are explicit and unambiguous.
-- [ ] Durable payment truth records reconstructable refunded minor units without raw provider payloads or unnecessary personal data.
-- [ ] Distinct sequential partial refunds are independently accounted for after the order is already `partially_refunded`.
-- [ ] Cumulative verified refunds cannot exceed the immutable order amount and fail closed into reconciliation on mismatch.
-- [ ] Full-refund handling is consistent with accumulated refund truth.
-- [ ] Duplicate provider-event IDs remain idempotent while distinct event IDs remain independent.
-- [ ] Order locking/transaction boundaries prevent concurrent partial refunds from losing value or over-refunding.
-- [ ] Forward-only migration safely upgrades deployed schemas without deleting immutable payment history.
+- [x] Provider-neutral partial-refund amount semantics are explicit and unambiguous.
+- [x] Durable payment truth records reconstructable refunded minor units without raw provider payloads or unnecessary personal data.
+- [x] Distinct sequential partial refunds are independently accounted for after the order is already `partially_refunded`.
+- [x] Cumulative verified refunds cannot exceed the immutable order amount and fail closed into reconciliation on mismatch.
+- [x] Full-refund handling is consistent with accumulated refund truth.
+- [x] Duplicate provider-event IDs remain idempotent while distinct event IDs remain independent.
+- [x] Order locking/transaction boundaries prevent concurrent partial refunds from losing value or over-refunding.
+- [x] Forward-only migration safely upgrades deployed schemas without deleting immutable payment history.
 - [ ] Focused payment regressions and applicable repository CI pass on the exact final head.
 
 ## Ownership
@@ -95,11 +95,11 @@ validation_gate:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-07T14:22:13Z
-head: 51208defaa9ccf03c9e14489e0c7095685361f30
+updated_at: 2026-08-07T14:33:28Z
+head: cd9d1cc51634689427532d3d1c4715a590de75fd
 branch: repair/issue-797
 pr: none
-status: investigating
+status: validating
 context_routes:
   - payments
   - database-persistence
@@ -112,24 +112,40 @@ owned_paths:
   - docs/architecture/adr/0021-provider-neutral-payment-security-core.md
   - docs/operations/PAYMENTS_SECURITY_FOUNDATION.md
 proven:
-  - Issue #797 is implementation-authorized, P1/high, agent-ready and unblocked.
-  - Deterministic branch repair/issue-797 was created from trusted main 51208defaa9ccf03c9e14489e0c7095685361f30.
-  - PaymentOrderStateMachine currently returns duplicate_state when a second partial-refund event targets an already partially_refunded order.
-  - ProcessPaymentProviderEvent currently validates each partial amount independently and does not persist cumulative refunded minor units.
+  - Issue #797 is implementation-authorized, P1/high and unblocked; deterministic branch repair/issue-797 is exclusively claimed by this task.
+  - Root cause is the combination of duplicate-state handling for repeated partial refunds and absence of durable refund-value accounting.
+  - Provider-neutral contract now defines payment.partially_refunded amount_minor as an incremental authenticated refund delta and payment.refunded amount_minor as cumulative terminal truth equal to the immutable order total.
+  - Accepted refund events persist verified_refund_amount_minor and resulting refunded_total_minor on append-oriented versioned payment-order transitions.
+  - Repeated partial refunds on an already partially_refunded order intentionally create same-state versioned transitions instead of duplicate-state NOOPs.
+  - Refund accumulation executes inside the existing payment-order row lock and transaction; a partial event that would reach or exceed the immutable order total reconciles without mutating financial truth.
+  - A legacy partially_refunded state without durable refund-value history fails closed into refund_integrity_mismatch reconciliation.
+  - Exact duplicate provider-event IDs remain idempotent before refund accounting; distinct event IDs are processed independently.
+  - A forward-only additive migration preserves authenticated refund settlement evidence and intentionally does not drop it in down().
+  - Deterministic sequential, replay, over-refund, full-refund, mismatch, legacy-gap and MariaDB concurrent-distinct-partial regressions are implemented.
 derived:
-  - Durable refunded-value accounting must be updated under the existing locked-order transaction before an event is acknowledged processed.
-unknown:
-  - Exact current payment model, migration and focused-test shapes needed for the smallest compatible repair.
+  - Two concurrent +600 partial refunds against a 1000 order serialize on the order lock: one can establish total 600 and the other must reconcile because 1200 would exceed the order total.
+unknown: []
 conflicts: []
 first_failure:
   marker: repeated-partial-refund-durable-value-missing
-  evidence: Issue #797 and current payment state-machine/event-processing implementation.
-rejected_hypotheses: []
+  evidence: Issue #797 and the pre-repair state machine/event-processing path silently consumed a second distinct partial refund as duplicate_state and stored no cumulative refund amount.
+rejected_hypotheses:
+  - Provider-event idempotency alone could preserve repeated refund value; distinct provider event IDs intentionally bypass exact replay deduplication.
+  - A mutable refunded accumulator on payment_orders alone would provide sufficient financial history; append-oriented transition evidence is required to reconstruct each accepted refund delta.
 changed_paths:
+  - app/Payments/Actions/ProcessPaymentProviderEvent.php
+  - app/Payments/Data/VerifiedProviderEvent.php
+  - app/Payments/Models/PaymentOrderTransition.php
+  - app/Payments/PaymentOrderStateMachine.php
+  - database/migrations/2026_08_07_143000_add_refund_truth_to_payment_order_transitions.php
+  - tests/Feature/Payments/PaymentPartialRefundIntegrityTest.php
+  - tests/Feature/Payments/PaymentPartialRefundConcurrencyMariaDbTest.php
+  - docs/architecture/adr/0021-provider-neutral-payment-security-core.md
+  - docs/operations/PAYMENTS_SECURITY_FOUNDATION.md
   - docs/agents/tasks/active/OTERYN-20260807-payment-partial-refund-integrity.md
 validation: []
 blockers: []
-next_action: Inspect payment models, migrations, verified-event contract and focused tests; define the smallest forward-compatible durable refund ledger/accumulator and implement one coherent repair package.
+next_action: Open the single authoritative Issue #797 PR, run exact-head focused payment/concurrency and repository-selected CI, repair any material failure on the same branch, then perform HEIGHTENED full-diff self-review and terminal closeout.
 ```
 
 ## Recovery checkpoint
@@ -137,24 +153,24 @@ next_action: Inspect payment models, migrations, verified-event contract and foc
 ```yaml
 recovery:
   policy_version: 1
-  generation: 1
+  generation: 2
   session_id: OTERYN-20260807T1622+0200-issue-797
   session_started_at: 2026-08-07T14:22:13Z
-  checkpointed_at: 2026-08-07T14:22:13Z
-  last_progress_at: 2026-08-07T14:22:13Z
-  phase: investigation
-  exact_head: 51208defaa9ccf03c9e14489e0c7095685361f30
+  checkpointed_at: 2026-08-07T14:33:28Z
+  last_progress_at: 2026-08-07T14:33:28Z
+  phase: validation
+  exact_head: cd9d1cc51634689427532d3d1c4715a590de75fd
   pull_request: none
-  active_operation: inspect current payment persistence and focused regressions
+  active_operation: exact-head validation of cumulative partial-refund financial truth
   external_run_ids: []
-  operation_started_at: 2026-08-07T14:22:13Z
+  operation_started_at: 2026-08-07T14:33:28Z
   wait_deadline_at: none
-  check_generation: claim-1
+  check_generation: implementation-2
   checks_used: 0
   status: active
   safe_to_resume: true
-  resume_condition: Issue #797 remains open and deterministic branch repair/issue-797 remains owned by this task.
-  next_action: Continue root-cause inspection and implement the bounded repair on repair/issue-797.
+  resume_condition: Issue #797 remains open and repair/issue-797 remains owned by this task until terminal merge/closeout.
+  next_action: Create the authoritative PR and validate the exact branch head before HEIGHTENED self-review and merge.
 ```
 
 ## Notes
