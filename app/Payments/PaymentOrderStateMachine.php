@@ -67,6 +67,16 @@ final class PaymentOrderStateMachine
             );
         }
 
+        if ($eventType === 'payment.partially_refunded'
+            && $currentStatus === PaymentOrder::STATUS_PARTIALLY_REFUNDED) {
+            return new PaymentStateDecision(
+                PaymentStateDecision::APPLY,
+                $currentStatus,
+                $targetStatus,
+                'provider_partial_refund',
+            );
+        }
+
         if ($targetStatus === $currentStatus) {
             return new PaymentStateDecision(
                 PaymentStateDecision::NOOP,
