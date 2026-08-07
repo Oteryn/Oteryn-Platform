@@ -1,10 +1,11 @@
 # ADR 0011: One native protocol version without a profile catalogue
 
-- Status: Accepted
+- Status: Superseded by ADR 0031
 - Date: 2026-08-05
 - Coordination ID: `OTS-20260804-native-protocol-selection`
 - Supersedes: the native-profile dimension in ADR 0010 and canonical contract revision 1
 - Does not supersede: Canary compatibility profiles, login/API versions, transport/schema versioning, authority, downgrade or rollout rules
+- Superseded by: `docs/architecture/adr/0031-native-oteryn-v2-integration-boundary.md`
 
 ## Context
 
@@ -75,6 +76,10 @@ Protobuf field numbers removed during the correction remain `reserved`. JSON and
 ## Canary boundary
 
 Existing Canary-compatible server/client profiles are legacy compatibility implementation details and are not removed by this ADR. They must remain isolated inside Canary compatibility boundaries and must not be copied into the native Oteryn design.
+
+## Supersession note
+
+ADR 0031 now owns the target native Platform ↔ Oteryn-v2 integration boundary and native gameplay protocol ownership. The useful no-profile principle is carried forward by ADR 0031, while this document remains historical evidence for the earlier disabled producer design.
 
 ## Consequences
 
