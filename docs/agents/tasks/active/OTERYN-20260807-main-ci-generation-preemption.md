@@ -10,7 +10,7 @@ branch: repair/issue-848
 base_branch: main
 base_sha: d331365163ba44acbbb3cfd9e785926aa57ed41a
 created: 2026-08-07T20:33:00Z
-updated: 2026-08-07T20:38:00Z
+updated: 2026-08-07T20:39:00Z
 implementation_authorized: true
 claim_protocol_version: 5
 coordination_key: workflow:main-ci-generation-preemption
@@ -75,8 +75,8 @@ validation_gate:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-07T20:38:00Z
-head: 70ca6b1e326110dbac7b74cca8efa133fe63abfa
+updated_at: 2026-08-07T20:39:00Z
+head: c8252419089b2ceb5d5cf48dab25c2676564e88d
 branch: repair/issue-848
 pr: 854
 status: validating
@@ -108,7 +108,7 @@ changed_paths:
   - docs/agents/tasks/active/OTERYN-20260807-main-ci-generation-preemption.md
 first_failure:
   marker: agent-governance-checkpoint-schema
-  evidence: Agent Governance run 31216560966 first rejected the task because the required Context checkpoint heading was missing; run 31216616236 then exposed the remaining required checkpoint fields. The implementation diff itself was not implicated.
+  evidence: Agent Governance run 31216560966 first rejected the task because the required Context checkpoint heading was missing; run 31216616236 exposed the remaining required checkpoint fields; run 31216676515 then rejected only unsupported provisional validation result names. The implementation diff itself was not implicated.
 rejected_hypotheses:
   - disable cancel-in-progress globally for every CI event
   - key main pushes only by github.ref
@@ -118,13 +118,13 @@ validation:
     result: PASS
     evidence: only the CI concurrency block, deterministic regression assertions, and task checkpoint are changed.
   - command: tests/ci/test_push_change_routing.py retained in CI classifier
-    result: PENDING_EXACT_HEAD_CI
-    evidence: preserves docs-only suppression, product routing, and fail-closed push ranges.
+    result: NOT_RUN
+    evidence: final exact-head CI rerun is required after this checkpoint-only correction.
   - command: tests/ci/test_workflow_trigger_economy.py
-    result: PENDING_EXACT_HEAD_CI
-    evidence: asserts PR-number-or-push-SHA grouping, pull-request-only cancellation, and removal of the shared-main-ref group.
+    result: NOT_RUN
+    evidence: final exact-head CI rerun is required after this checkpoint-only correction.
   - command: Agent Governance
-    result: PENDING_RETRY
-    evidence: checkpoint schema corrected after exact failure logs.
+    result: NOT_RUN
+    evidence: final exact-head governance rerun is required after normalizing checkpoint validation states.
 next_action: run final exact-head HEIGHTENED validation, confirm zero unresolved review threads, merge PR #854, verify Issue #848 closure, archive this task, and release ownership.
 ```
