@@ -59,7 +59,7 @@ final class GameTicketConcurrencyTest extends TestCase
     {
         $identity = $this->createIdentityWithReadyBinding(1001);
         $client = $this->app->make(NativeOAuthClientManager::class)->ensure();
-        $accessTokenId = $this->createBootstrapTokenFamily($identity, (string) $client->getKey());
+        $accessTokenId = $this->createBootstrapTokenFamily($identity, $this->clientId($client->getKey()));
 
         $results = $this->race(function () use ($identity, $accessTokenId): string {
             try {
@@ -76,7 +76,8 @@ final class GameTicketConcurrencyTest extends TestCase
         sort($results);
         self::assertSame(['denied', 'success'], $results);
         self::assertSame(1, GameLoginTicket::query()->count());
-        self::assertTrue(Token::query()->findOrFail($accessTokenId)->revoked);
+        $accessToken = Token::query()->whereKey($accessTokenId)->firstOrFail();
+        self::assertTrue((bool) $accessToken->getAttribute('revoked'));
         self::assertTrue((bool) RefreshToken::query()
             ->where('access_token_id', $accessTokenId)
             ->value('revoked'));
@@ -86,7 +87,7 @@ final class GameTicketConcurrencyTest extends TestCase
     {
         $identity = $this->createIdentityWithReadyBinding(1001);
         $client = $this->app->make(NativeOAuthClientManager::class)->ensure();
-        $accessTokenId = $this->createBootstrapTokenFamily($identity, (string) $client->getKey());
+        $accessTokenId = $this->createBootstrapTokenFamily($identity, $this->clientId($client->getKey()));
 
         $results = $this->racePair(
             function () use ($identity, $accessTokenId): string {
@@ -113,7 +114,8 @@ final class GameTicketConcurrencyTest extends TestCase
 
         $freshIdentity = Identity::query()->findOrFail($identity->id);
         self::assertSame(1, $freshIdentity->game_auth_generation);
-        self::assertTrue(Token::query()->findOrFail($accessTokenId)->revoked);
+        $accessToken = Token::query()->whereKey($accessTokenId)->firstOrFail();
+        self::assertTrue((bool) $accessToken->getAttribute('revoked'));
         self::assertTrue((bool) RefreshToken::query()
             ->where('access_token_id', $accessTokenId)
             ->value('revoked'));
@@ -243,6 +245,15 @@ final class GameTicketConcurrencyTest extends TestCase
         ]);
 
         return $accessTokenId;
+    }
+
+    private function clientId(mixed $key): string
+    {
+        if (! is_int($key) && ! is_string($key)) {
+            self::fail('Native OAuth client identifier is unavailable.');
+        }
+
+        return (string) $key;
     }
 
     private function createIdentityWithReadyBinding(int $canaryAccountId): Identity
