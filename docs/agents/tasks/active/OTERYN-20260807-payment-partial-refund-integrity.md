@@ -95,10 +95,10 @@ validation_gate:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-07T14:33:28Z
-head: cd9d1cc51634689427532d3d1c4715a590de75fd
+updated_at: 2026-08-07T14:43:56Z
+head: 7972bfd5c1f980b1dbf9e571c92596c77fcdc1f1
 branch: repair/issue-797
-pr: none
+pr: 826
 status: validating
 context_routes:
   - payments
@@ -112,7 +112,7 @@ owned_paths:
   - docs/architecture/adr/0021-provider-neutral-payment-security-core.md
   - docs/operations/PAYMENTS_SECURITY_FOUNDATION.md
 proven:
-  - Issue #797 is implementation-authorized, P1/high and unblocked; deterministic branch repair/issue-797 is exclusively claimed by this task.
+  - Issue #797 is implementation-authorized, P1/high and unblocked; deterministic branch repair/issue-797 is exclusively claimed by this task and PR #826 is its single delivery PR.
   - Root cause is the combination of duplicate-state handling for repeated partial refunds and absence of durable refund-value accounting.
   - Provider-neutral contract now defines payment.partially_refunded amount_minor as an incremental authenticated refund delta and payment.refunded amount_minor as cumulative terminal truth equal to the immutable order total.
   - Accepted refund events persist verified_refund_amount_minor and resulting refunded_total_minor on append-oriented versioned payment-order transitions.
@@ -120,18 +120,22 @@ proven:
   - Refund accumulation executes inside the existing payment-order row lock and transaction; a partial event that would reach or exceed the immutable order total reconciles without mutating financial truth.
   - A legacy partially_refunded state without durable refund-value history fails closed into refund_integrity_mismatch reconciliation.
   - Exact duplicate provider-event IDs remain idempotent before refund accounting; distinct event IDs are processed independently.
-  - A forward-only additive migration preserves authenticated refund settlement evidence and intentionally does not drop it in down().
-  - Deterministic sequential, replay, over-refund, full-refund, mismatch, legacy-gap and MariaDB concurrent-distinct-partial regressions are implemented.
+  - The additive migration is forward-only and its down path throws rather than allowing Laravel to mark a destructive refund-history rollback as completed.
+  - Deterministic sequential, replay, over-refund, full-refund, mismatch and legacy-gap regressions are implemented.
+  - MariaDB concurrency coverage now uses two distinct legitimate partial refunds whose total remains below the order amount and proves both verified values survive serialization.
+  - Main advanced by unrelated Wallet audit PR #823; repair/issue-797 merged main 92d887372a1961251b9ec8ad7803549d28f1054b without overlap and is no longer behind the protected base.
 derived:
-  - Two concurrent +600 partial refunds against a 1000 order serialize on the order lock: one can establish total 600 and the other must reconcile because 1200 would exceed the order total.
+  - The locked cumulative calculation prevents both lost-update accounting and arithmetic over-refund; the sequential over-refund regression exercises the fail-closed bound while the concurrent regression proves both legitimate values survive.
 unknown: []
 conflicts: []
 first_failure:
-  marker: repeated-partial-refund-durable-value-missing
-  evidence: Issue #797 and the pre-repair state machine/event-processing path silently consumed a second distinct partial refund as duplicate_state and stored no cumulative refund amount.
+  marker: stale-base-required-checks
+  evidence: Main advanced after PR #826 opened; the repair branch was merged with current main before terminal exact-head validation rather than relying on stale-base checks.
 rejected_hypotheses:
   - Provider-event idempotency alone could preserve repeated refund value; distinct provider event IDs intentionally bypass exact replay deduplication.
   - A mutable refunded accumulator on payment_orders alone would provide sufficient financial history; append-oriented transition evidence is required to reconstruct each accepted refund delta.
+  - A no-op migration down method safely implements forward-only evidence preservation; Laravel could mark the migration rolled back while leaving columns behind, so down now fails closed instead.
+  - One concurrent over-refund race alone proves no legitimate refund value is lost; the final concurrency regression instead requires two valid concurrent deltas to both persist and reach the exact cumulative total.
 changed_paths:
   - app/Payments/Actions/ProcessPaymentProviderEvent.php
   - app/Payments/Data/VerifiedProviderEvent.php
@@ -145,7 +149,7 @@ changed_paths:
   - docs/agents/tasks/active/OTERYN-20260807-payment-partial-refund-integrity.md
 validation: []
 blockers: []
-next_action: Open the single authoritative Issue #797 PR, run exact-head focused payment/concurrency and repository-selected CI, repair any material failure on the same branch, then perform HEIGHTENED full-diff self-review and terminal closeout.
+next_action: Validate the synchronized exact PR head with focused payment/concurrency tests, repository CI and Agent Governance; repair any material failure on the same branch, then complete HEIGHTENED self-review and terminal closeout.
 ```
 
 ## Recovery checkpoint
@@ -153,24 +157,26 @@ next_action: Open the single authoritative Issue #797 PR, run exact-head focused
 ```yaml
 recovery:
   policy_version: 1
-  generation: 2
+  generation: 3
   session_id: OTERYN-20260807T1622+0200-issue-797
   session_started_at: 2026-08-07T14:22:13Z
-  checkpointed_at: 2026-08-07T14:33:28Z
-  last_progress_at: 2026-08-07T14:33:28Z
+  checkpointed_at: 2026-08-07T14:43:56Z
+  last_progress_at: 2026-08-07T14:43:56Z
   phase: validation
-  exact_head: cd9d1cc51634689427532d3d1c4715a590de75fd
-  pull_request: none
-  active_operation: exact-head validation of cumulative partial-refund financial truth
-  external_run_ids: []
-  operation_started_at: 2026-08-07T14:33:28Z
+  exact_head: 7972bfd5c1f980b1dbf9e571c92596c77fcdc1f1
+  pull_request: 826
+  active_operation: exact-head validation of cumulative partial-refund financial truth after synchronizing current main
+  external_run_ids:
+    - 31188869721
+    - 31188869672
+  operation_started_at: 2026-08-07T14:43:56Z
   wait_deadline_at: none
-  check_generation: implementation-2
+  check_generation: validation-3
   checks_used: 0
   status: active
   safe_to_resume: true
-  resume_condition: Issue #797 remains open and repair/issue-797 remains owned by this task until terminal merge/closeout.
-  next_action: Create the authoritative PR and validate the exact branch head before HEIGHTENED self-review and merge.
+  resume_condition: Issue #797 remains open and PR #826 remains unmerged until terminal exact-head validation completes.
+  next_action: Inspect the newest PR head workflow results; fix only a material failure on repair/issue-797, otherwise perform HEIGHTENED self-review and merge.
 ```
 
 ## Notes
