@@ -21,7 +21,7 @@ Continuously audit every delivered or declared Platform module and surface for t
 
 ```yaml
 programme_state_version: 3
-updated_at: 2026-08-07T18:21:00Z
+updated_at: 2026-08-07T18:46:00Z
 status: ready
 current_cycle: 1
 programme_execution_snapshot:
@@ -31,14 +31,14 @@ programme_execution_snapshot:
   active_task: unknown
   branch: unknown
   pull_request: unknown
-  reason: The branch-lifecycle-remote-identity post-repair audit is terminal; mutable execution ownership must be resolved from live tasks, branches, Issues and PRs before selecting the next domain.
+  reason: The bounded explicit-terminal-PR and main-push-routing revalidation packages are complete; mutable execution ownership must be refreshed live before the next non-overlapping audit domain is selected.
 last_merged_audit_head: 8bb6fe043dd3b321d3bf2e4a762f4b07f8f16a87
-last_completed_domain: branch-lifecycle-remote-identity
+last_completed_domain: main-push-ci-routing-revalidation
 coverage_inventory:
   baseline: docs/agents/evidence/OTERYN-20260803-portal-exhaustive-current-main-audit/
   baseline_merge: cbbd7613cee13cf01931a0ba0f7ac089122132e0
-  latest_audited_main: 5041a669a811f47fe11b3e6dec0993a28cfa26d7
-  selected_delta_domain: branch-lifecycle-remote-identity
+  latest_audited_main: f8a727f3aa33cb123cbab5ff0d04a9d3cefcd69c
+  selected_delta_domain: explicit-terminal-pr-identity-and-main-push-routing-revalidation
 finding_ledger_semantics: historical_identity_map_not_live_queue
 finding_ledger:
   baseline_owners: [486, 487, 488, 489, 490, 491]
@@ -71,6 +71,7 @@ finding_ledger:
     - OPA-GOV-0022: 793
     - OPA-GOV-0023: 811
     - OPA-GOV-0024: 815
+    - OPA-GOV-0025: 848
 live_queue:
   mode: live_query_required
   exhaustive: false
@@ -80,54 +81,52 @@ live_queue:
   ready_query: 'repo:blakinio/Oteryn-Platform is:issue is:open label:programme:platform label:programme:audit-repair label:agent:ready'
   blocked_query: 'repo:blakinio/Oteryn-Platform is:issue is:open label:programme:platform label:programme:audit-repair label:state:blocked'
   active_task_path: docs/agents/tasks/active/
-  reason: The historical finding ledger preserves stable identities only. Open, ready, blocked and owned state must be recomputed from live repository evidence and cannot be inferred from this file.
+  reason: The finding ledger preserves stable identities only. Current open, ready, blocked and owned disposition must always be recomputed from live repository state.
 proven:
   - PR #483 and its merged evidence remain the authoritative baseline module and observable-surface inventory.
-  - OPA-SEC-0001 / Issue #547 is historical and repaired through merged PR #595; authenticated payment settlement facts are enforced by the delivered provider-event core.
-  - OPA-SEC-0002 / Issue #797 is historical and repaired through merged PR #826; independent post-repair Audit PR #838 verified cumulative partial-refund truth, replay, negative paths and MariaDB concurrency without proving a new material defect.
-  - OPA-SEC-0003 / Issue #801 is historical and repaired through merged PR #825; independent post-repair Audit PR #844 verified authorization/access/refresh generation binding, revocation, ticket-bootstrap fail-closed behavior and relevant concurrency without proving a new material defect.
-  - OPA-REC-0001 / Issue #804 is historical and repaired through merged PR #812; independent post-repair Audit PR #842 verified terminal-state monotonicity, stale-worker recovery races and preserved auction/ownership/bid/wallet truth without proving a new material defect.
-  - OPA-GOV-0001 through OPA-GOV-0018 retain their stable historical finding identities; detailed terminal evidence belongs to their Issues and archived task records rather than this mutable queue.
+  - OPA-SEC-0001 / Issue #547 is historical and repaired through PR #595.
+  - OPA-SEC-0002 / Issue #797 is historical and repaired through PR #826; independent Audit PR #838 verified cumulative partial-refund integrity without a new material finding.
+  - OPA-SEC-0003 / Issue #801 is historical and repaired through PR #825; independent Audit PR #844 verified native OAuth generation revocation without a new material finding.
+  - OPA-REC-0001 / Issue #804 is historical and repaired through PR #812; independent Audit PR #842 verified terminal Character Bazaar recovery integrity without a new material finding.
+  - OPA-GOV-0001 through OPA-GOV-0018 retain stable historical finding identities; detailed evidence belongs to their Issues and archived task records.
   - OPA-GOV-0019 / Issue #780 is historical and repaired through PR #789.
-  - OPA-GOV-0020 / Issue #783 records the historical docs-only heavy-workflow routing defect; subsequent routing work must be evaluated from live repository state rather than this ledger entry.
-  - OPA-GOV-0021 / Issue #788 is historical and repaired through PR #808, which added exact current branch/head PR-history reconciliation.
-  - OPA-GOV-0022 / Issue #793 is historical and repaired through PR #796 with an exact expected-SHA force-with-lease deletion boundary; its repair task was archived through PR #798.
-  - OPA-GOV-0023 / Issue #811 remains a historical finding identity; its current open/closed/remediated state is live-query-derived and must not be inferred from this ledger.
-  - OPA-GOV-0024 / Issue #815 is historical and repaired through PR #822; independent post-repair Audit PR #846 verified configured-root binding, GitHub remote identity validation, fail-closed negative paths and preserved force-with-lease atomicity without proving a new material defect.
-  - Audit PR #838 passed CI 31202121106 and Agent Governance 31202121678 on exact head 3ef586f3fd5538658037604f7b54b5021524c00c, had zero unresolved review threads and merged as 92161131726ea866c0163972525a9a0f64c6b8ca; its task is archived.
-  - Audit PR #842 passed CI 31202817840 and Agent Governance 31202817572 on exact head dfaf087111877fb19b6b2d4737d2c81a87fcf8d6, had zero unresolved review threads and merged as 7edef05d499de0a41c5718dd507be4baad905333; its task is archived.
-  - Audit PR #844 passed CI 31205506241 and Agent Governance 31205506320 on exact head 0e225d039abd4548ca8c4c12ee460c869d5b97de, had zero unresolved review threads and merged as 56db7175e955d315cb6b7df6cc4e0c6533195311; its task is archived.
-  - Audit PR #846 passed CI 31206163738 and Agent Governance 31206162714 on exact head bd406f87f196ea7754f00750352c36dfe3bc7c8d, had zero unresolved review threads and merged as 8bb6fe043dd3b321d3bf2e4a762f4b07f8f16a87; its task is archived by this lifecycle closeout.
-  - Issue #558 is historically completed and current main contains live active-task liveness enforcement; later governance findings remain separately identified in the ledger.
+  - OPA-GOV-0020 / Issue #783 is historical and repaired through PR #786 for path-aware main-push CI classification, docs-only runtime-test suppression and docs-only Acceptance filtering/preemption. Independent post-repair revalidation review 4885661122 on PR #786 confirmed those repaired behaviors on current main.
+  - OPA-GOV-0021 / Issue #788 is historical and repaired through PR #808.
+  - OPA-GOV-0022 / Issue #793 is historical and repaired through PR #796 with exact expected-SHA force-with-lease deletion semantics.
+  - OPA-GOV-0023 / Issue #811 is historical and repaired through PR #819. Independent post-repair review 4885624015 on exact implementation head 8fef68cdff54ed61792ed139813913e04c497bd3 verified terminal numeric-PR repository/branch identity, negative paths and preserved open/draft/branch-only behavior without a new material finding.
+  - OPA-GOV-0024 / Issue #815 is historical and repaired through PR #822; independent Audit PR #846 verified repository-root and remote-identity binding while preserving force-with-lease atomicity.
+  - OPA-GOV-0025 / Issue #848 is proven: core CI still groups all main pushes under one cancel-in-progress concurrency key, allowing a later docs-only generation to cancel a prior runtime-required product main CI generation and replace it with a generation whose runtime-tests are skipped.
+  - Live OPA-GOV-0025 evidence includes product/security CI 31197719726 being cancelled as docs-only main CI 31197906544 started; that replacement succeeded with runtime-tests SKIPPED. A second occurrence is CI 31200041790 on 97c3b24f3d642ac0589efc61e48b66472538aeb9 followed by lifecycle-only main 3109d5e15e98c9c463130dc736db90667ab83c9a.
+  - Current docs-only main f8a727f3aa33cb123cbab5ff0d04a9d3cefcd69c emitted CI 31206676504 with runtime-tests SKIPPED and emitted zero Acceptance push runs, proving the intended OPA-GOV-0020 economy behavior remains active.
+  - Product main fe5a177af64d28ab4a2780d7ceb629502a257a80 emitted runtime CI 31190892147 PASS and Acceptance 31190893005 PASS, proving affected product validation remains routed.
   - Independent PASS-only validation and lifecycle reconciliation are governed by docs/agents/LIFECYCLE_CLOSEOUT_BATCHING.md.
 derived:
-  - Core payment amount/currency matching and cumulative partial-refund accounting are no longer proven current blockers after PR #826 and independent Audit PR #838.
-  - Issue #321 remains a separate pre-production/product-completion owner for real-provider and customer-facing payment acceptance; no payment audit here claims production readiness.
-  - The bounded Platform native OAuth `game:ticket` path no longer permits pre-revocation authorization/access/refresh security context to mint a usable post-revocation Game Login Ticket after PR #825 and independent Audit PR #844.
-  - Native-auth production cutover, deployment identity, private ingress and retirement/isolation of alternate legacy login paths remain separate deployment/architecture facts and must not be inferred from the Platform OAuth audit.
-  - Character Bazaar terminal recovery is monotonic under the audited stale-failure interleavings after PR #812 and independent Audit PR #842.
-  - Branch Lifecycle destructive git mutation is bound to the configured repository root and normalized GitHub owner/name identity before push after PR #822 and independent Audit PR #846; the original cross-repository remote/CWD mismatch is no longer a proven blocker.
-  - Mutable queue state, current governance-finding disposition and active ownership must always be refreshed live before dispatch.
+  - OPA-GOV-0023 is no longer a current ownership-collision blocker after PR #819 and independent post-repair review 4885624015.
+  - OPA-GOV-0020 does not need reopening: its docs-only heavy-CI and Acceptance objectives remain satisfied; OPA-GOV-0025 / Issue #848 is the distinct residual core-CI concurrency root cause.
+  - Issue #848 is the remediation handoff for protecting runtime-required main CI generations from replacement by later docs/governance-only main pushes while preserving same-PR superseded-run cancellation.
+  - Core payment integrity, bounded native OAuth generation revocation, Character Bazaar terminal recovery and Branch Lifecycle remote identity remain independently verified repaired in their audited scopes.
+  - Mutable queue state and current ownership must always be refreshed live before dispatch.
 unknown:
   - The owner-approved emergency bypass and complete stable required-check set beyond currently observable protected contexts.
-  - Current open, ready, blocked and actively owned findings until live repository queries are executed at the next invocation.
+  - Current ready/blocked/claimed disposition of Issue #848 and any other live finding until the next live query.
   - Global native-auth production cutover and alternate legacy-login-path retirement/isolation, as preserved by docs/contracts/AUTH_GAME_LOGIN_CONTRACT.md.
   - Exact client-visible OAuth error shape for an exceptionally narrow generation-mismatched issuance race; no security bypass or material defect was proven by Audit PR #844.
-conflicts: []
+conflicts:
+  - Current core CI main-push concurrency uses one cancel-in-progress group for all main generations, so a docs-only generation can terminate a prior product/runtime-required main CI generation while its own exact docs-only classification skips runtime-tests; OPA-GOV-0025 / Issue #848 owns remediation.
 blockers:
   mode: live_query_required
   items: unknown
-next_action: Refresh live ownership, open and blocked Issues, active tasks, PRs and recent main deltas, then select the next highest-risk non-overlapping audit domain in a future bounded invocation.
+next_action: Refresh live ownership, open and blocked Issues, active tasks, PRs and recent main deltas; keep Issue #848 with its independent remediation owner/claim and select the next highest-risk non-overlapping audit domain in a future bounded invocation.
 ```
 
 ## Programme rules
 
-- Keep this file compact; detailed evidence belongs in bounded task records, Issues and evidence indexes.
+- Keep this file compact; detailed evidence belongs in bounded task records, Issues and exact target PR audit artifacts.
 - Treat `finding_ledger` as a historical identity map only; never use it as proof that an Issue is currently open, ready, blocked or unclaimed.
 - Resolve mutable queue and ownership state from live Issues, tasks, branches and PRs before dispatch or collision decisions.
-- A PASS-only independent audit normally records its verdict on the exact target delivery artifact under `docs/agents/LIFECYCLE_CLOSEOUT_BATCHING.md`; a separate audit PR is reserved for separately authorized durable evidence that cannot be represented accurately on the target artifact.
+- A PASS-only independent audit normally records its verdict on the exact target delivery artifact under `docs/agents/LIFECYCLE_CLOSEOUT_BATCHING.md`; a separate audit PR is reserved for durable evidence that cannot be represented accurately on the target artifact.
+- Material findings must be deduplicated and routed to independently actionable Issues; do not fold implementation into the audit task.
 - Several compatible lifecycle-only findings may use one bounded reconciliation wave under `docs/agents/LIFECYCLE_CLOSEOUT_BATCHING.md`.
-- Material product findings remain independently actionable and must not be grouped merely to reduce PR count.
 - Update this file after a durable programme-policy or finding-identity change; do not persist a mutable queue snapshot as authoritative live truth.
 - Never store secrets, full logs or copied Issue bodies here.
 - Exactly one `next_action` is required while the programme is not terminal.
