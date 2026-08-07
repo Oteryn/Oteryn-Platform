@@ -107,9 +107,9 @@ test('@wiki-admin trusted editor creates, previews and publishes bilingual Wiki 
   await expectNoHorizontalOverflow(preview);
   await preview.close();
 
-  // The responsive editor loads approved-media thumbnails through authenticated requests.
-  // The transient success flash can be consumed by a concurrent session-bearing request, so prove
-  // the lifecycle mutation from the durable article state and available next actions instead.
+  // Keep the historical publication-flash failure as a current zero-retry regression gate.
+  // The separately proven Editorial Media fixture isolation prevents stale damaged rows from
+  // contaminating this clean journey, while diagnostics fail it on any unexplained HTTP 5xx.
   await page.waitForLoadState('networkidle');
   await page.getByRole('button', { name: 'Submit for review' }).click();
   await expect(page.getByText(/Status:\s*In Review/i)).toBeVisible();
@@ -119,8 +119,13 @@ test('@wiki-admin trusted editor creates, previews and publishes bilingual Wiki 
   // Quiesce the refreshed picker again before the next lifecycle mutation.
   await page.waitForLoadState('networkidle');
   await page.getByRole('button', { name: 'Publish', exact: true }).click();
+  await expect(page.getByRole('status')).toContainText('Wiki article published.');
   await expect(page.getByText(/Status:\s*Published/i)).toBeVisible();
   await expect(page.getByRole('button', { name: 'Unpublish to draft' })).toBeVisible();
+  expect(
+    page.__acceptanceDiagnostics.serverErrors,
+    'clean Wiki administration lifecycle emitted unexplained HTTP 5xx responses',
+  ).toEqual([]);
 
   await page.goto(`/en/wiki/${articleSlug}`);
   await expect(page.getByRole('heading', { name: articleTitle })).toBeVisible();
