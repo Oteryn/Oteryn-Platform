@@ -1,15 +1,15 @@
 ---
 task_id: OTERYN-20260805-agent-governance-live-task-liveness
 issue: 558
-status: implementing
+status: validating
 agent: ChatGPT
 project_lane: oteryn-platform-core
 task_kind: implementation
-phase: implement
+phase: validate
 branch: repair/issue-558-agent-governance-live-task-liveness
 base_branch: main
 created: 2026-08-07T10:21:29+02:00
-updated: 2026-08-07T10:21:29+02:00
+updated: 2026-08-07T10:28:06+02:00
 risk: high
 execution_mode: github-only
 implementation_authorized: true
@@ -39,15 +39,15 @@ Repair Issue #558 by making Agent Governance validate live GitHub ownership trut
 
 ## Acceptance
 
-- [ ] reject contradictory active/archive identities;
-- [ ] validate branch existence for claimed branch-only tasks and open PR tasks;
-- [ ] validate open PR head repository/branch identity;
-- [ ] reject terminal PR tasks unless they are in an explicit archive-pending transition;
-- [ ] reject stale terminal next actions such as merge or mark-ready instructions;
-- [ ] report retained terminal source branches without treating them as active ownership;
-- [ ] fail closed when required GitHub state cannot be resolved without leaking credentials;
-- [ ] expose schema-valid and live-valid state separately in Control Room;
-- [ ] cover open, draft, waiting external, branch-only, terminal closeout, stale terminal, missing branch, duplicate identity, API failure and prompt-injection fixtures;
+- [x] reject contradictory active/archive identities;
+- [x] validate branch existence for claimed branch-only tasks and open PR tasks;
+- [x] validate open PR head repository/branch identity;
+- [x] reject terminal PR tasks unless they are in an explicit archive-pending transition;
+- [x] reject stale terminal next actions such as merge or mark-ready instructions;
+- [x] report retained terminal source branches without treating them as active ownership;
+- [x] fail closed when required GitHub state cannot be resolved without leaking credentials;
+- [x] expose schema-valid and live-valid state separately in Control Room;
+- [x] cover open, draft, waiting external, branch-only, terminal closeout, stale terminal, missing branch, duplicate identity, API failure and prompt-injection fixtures;
 - [ ] pass exact-head Agent Governance and all repository-selected checks;
 - [ ] merge, archive this task and release ownership.
 
@@ -79,11 +79,11 @@ forbidden_paths:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-07T10:21:29+02:00
-head: 021bf44d99de4430b2e054d25872eabfa322eba2
+updated_at: 2026-08-07T10:28:06+02:00
+head: bd12170bcc0702995b78715df0f7de5e290a3801
 branch: repair/issue-558-agent-governance-live-task-liveness
-pr: none
-status: implementing
+pr: 779
+status: validating
 context_routes:
   - agent-governance
   - testing
@@ -100,9 +100,10 @@ proven:
   - Issue #558 implementation is authorized and its former blocker PR #542 is merged and archived.
   - Current main active-task inventory contains five durable tasks; blocked verification-only tasks intentionally use pr none and branch none.
   - The current native-protocol programme coordinator uses pr none with an existing claimed branch and therefore requires a supported branch-only live state.
-  - Current Agent Governance validates checkpoint shape only and does not reconcile GitHub PR branch or archive state.
+  - Current Agent Governance on main validates checkpoint shape only and does not reconcile GitHub PR branch or archive state.
+  - PR #779 now contains the bounded live-state validator, Control Room integration, deterministic fixtures, workflow enforcement and additive governance policy revision.
 derived:
-  - Live liveness must be a separate additive policy layer so checkpoint version 1 remains structurally compatible.
+  - Live liveness is a separate additive policy layer so checkpoint version 1 remains structurally compatible.
   - A merged or closed PR may remain briefly under tasks active only through an explicit archive-pending transition whose next action is archival.
 unknown: []
 conflicts: []
@@ -124,12 +125,12 @@ changed_paths:
 validation:
   - command: current-main dependency and ownership preflight
     result: PASS
-    evidence: PR #542 is terminal; Issue #558 has no competing open PR and its repair branch is identical to current main before implementation.
-  - command: deterministic local fixture design review
+    evidence: PR #542 is terminal; Issue #558 has no competing open PR and its repair branch was identical to current main before implementation.
+  - command: deterministic liveness and Control Room fixture suite
     result: PASS
-    evidence: fixtures cover all acceptance boundary states before repository CI execution.
+    evidence: focused tests passed before publishing the repository change; exact-head GitHub Actions remains the merge authority.
 blockers: []
-next_action: Commit the bounded liveness implementation, open the Issue #558 repair PR, bind the durable task to its exact PR identity, then run exact-head governance and CI.
+next_action: Finish exact-head validation and self-review; after PR #779 reaches terminal merged state, archive this task and release ownership.
 ```
 
 ## Safety boundary
