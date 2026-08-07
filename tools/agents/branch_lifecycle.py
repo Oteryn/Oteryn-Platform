@@ -7,6 +7,7 @@ import hashlib
 import json
 import os
 import re
+import subprocess
 import sys
 import urllib.error
 import urllib.parse
@@ -30,6 +31,7 @@ RESERVED_NAME_PARTS = ("release", "rollback", "recovery", "backup")
 CONFIRMATION = "DELETE_REVIEWED_TERMINAL_MERGED_BRANCHES_ISSUE_658"
 TASK_BRANCH_RE = re.compile(r"^\s*(?:branch|lock_branch):\s*([^\s#]+)\s*$", re.M)
 REPAIR_ISSUE_RE = re.compile(r"^repair/issue-(\d+)$")
+FULL_SHA_RE = re.compile(r"^[0-9a-fA-F]{40}$")
 
 
 class ValidationError(RuntimeError):
@@ -98,9 +100,65 @@ class GitHubClient:
             next_url = _next_link(headers.get("link", ""))
         return items
 
-    def delete_branch(self, branch: str) -> None:
-        encoded = "heads/" + urllib.parse.quote(branch, safe="/")
-        self.request("DELETE", f"/repos/{self.repo}/git/refs/{encoded}", expected=(204,))
+    def _delete_ref_with_lease(self, branch: str, expected_sha: str) -> None:
+        if not FULL_SHA_RE.fullmatch(expected_sha):
+            raise ValidationError(
+                f"atomic delete expected SHA for {branch} must be a full 40-character hexadecimal object ID"
+            )
+        ref = f"refs/heads/{branch}"
+        remote = getattr(self, "git_remote", "origin")
+        command = [
+            "git",
+            "push",
+            "--porcelain",
+            f"--force-with-lease={ref}:{expected_sha}",
+            remote,
+            f":{ref}",
+        ]
+        try:
+            result = subprocess.run(
+                command,
+                check=False,
+                capture_output=True,
+                text=True,
+                timeout=60,
+            )
+        except FileNotFoundError as exc:
+            raise ValidationError(
+                "atomic branch deletion requires the git executable in the checked-out repository environment"
+            ) from exc
+        except subprocess.TimeoutExpired as exc:
+            raise ValidationError(
+                f"atomic branch deletion timed out for {branch}; remote state must be revalidated"
+            ) from exc
+        if result.returncode == 0:
+            return
+
+        current_sha = _ref_sha(self.get_ref(branch))
+        if current_sha is None:
+            raise ValidationError(
+                f"atomic branch deletion returned failure for {branch} but the remote ref is now missing; "
+                "result is ambiguous and requires manual evidence review"
+            )
+        if current_sha != expected_sha:
+            raise ValidationError(
+                f"atomic delete lease rejected for {branch}: expected {expected_sha}, got {current_sha}"
+            )
+        raise ValidationError(
+            f"atomic branch deletion push was rejected for {branch} while the reviewed SHA remained current"
+        )
+
+    def delete_branch(self, branch: str, *, expected_sha: str | None = None) -> None:
+        current_sha = _ref_sha(self.get_ref(branch))
+        if current_sha is None:
+            raise ValidationError(f"pre-delete branch is missing: {branch}")
+        if expected_sha is None:
+            expected_sha = current_sha
+        elif current_sha != expected_sha:
+            raise ValidationError(
+                f"pre-delete SHA drift for {branch}: expected {expected_sha}, got {current_sha}"
+            )
+        self._delete_ref_with_lease(branch, expected_sha)
 
     def create_branch(self, branch: str, sha: str) -> None:
         self.request(
@@ -121,6 +179,46 @@ class GitHubClient:
         if not isinstance(payload, dict):
             raise ValidationError("GitHub ref response must be an object")
         return payload
+
+    def get_branch(self, branch: str) -> dict[str, Any] | None:
+        encoded = urllib.parse.quote(branch, safe="")
+        try:
+            payload, _ = self.request("GET", f"/repos/{self.repo}/branches/{encoded}")
+        except ApiError as exc:
+            if exc.status == 404:
+                return None
+            raise
+        if not isinstance(payload, dict):
+            raise ValidationError("GitHub branch response must be an object")
+        return payload
+
+    def open_pulls_for_branch(self, branch: str) -> list[dict[str, Any]]:
+        owner = self.repo.split("/", 1)[0]
+        query = urllib.parse.urlencode({
+            "state": "open",
+            "head": f"{owner}:{branch}",
+            "per_page": 100,
+        })
+        raw_pulls = self.paginate(f"/repos/{self.repo}/pulls?{query}")
+        pulls: list[dict[str, Any]] = []
+        for index, pull in enumerate(raw_pulls):
+            if not isinstance(pull, dict):
+                raise ValidationError(f"open pulls[{index}]: expected object")
+            if (
+                pull.get("state") == "open"
+                and _same_repo_pull(pull, self.repo)
+                and _pull_branch(pull) == branch
+            ):
+                pulls.append(pull)
+        return pulls
+
+    def get_issue_state(self, issue_number: int) -> str:
+        payload, _ = self.request(
+            "GET", f"/repos/{self.repo}/issues/{issue_number}", expected=(200, 404)
+        )
+        if isinstance(payload, dict) and payload.get("state") in {"open", "closed"}:
+            return payload["state"]
+        return "unknown"
 
 
 def _next_link(header: str) -> str | None:
@@ -177,6 +275,26 @@ def _text(value: object, context: str) -> str:
     if not isinstance(value, str) or not value.strip():
         raise ValidationError(f"{context}: expected non-empty string")
     return value
+
+
+def _ref_sha(ref: object) -> str | None:
+    if not isinstance(ref, dict):
+        return None
+    value = ref.get("object")
+    if not isinstance(value, dict):
+        return None
+    sha = value.get("sha")
+    return sha if isinstance(sha, str) and sha else None
+
+
+def _branch_sha(branch: object) -> str | None:
+    if not isinstance(branch, dict):
+        return None
+    value = branch.get("commit")
+    if not isinstance(value, dict):
+        return None
+    sha = value.get("sha")
+    return sha if isinstance(sha, str) and sha else None
 
 
 def validate_policy(policy: dict[str, Any], root: Path) -> dict[str, dict[str, Any]]:
@@ -603,11 +721,94 @@ def write_report_files(
         )
 
 
+def revalidate_delete_entry(
+    client: GitHubClient,
+    policy: dict[str, Any],
+    report: dict[str, Any],
+    entry: dict[str, Any],
+    *,
+    root: Path,
+) -> None:
+    exceptions = validate_policy(policy, root)
+    current_policy_hash = sha256_bytes(canonical_json(policy).encode("utf-8"))
+    if current_policy_hash != report["policy_sha256"]:
+        raise ValidationError("pre-delete policy drift detected")
+
+    branch = _text(entry.get("branch"), "pre-delete entry.branch")
+    expected_sha = _text(entry.get("head_sha"), f"pre-delete {branch}.head_sha")
+    default_branch = _text(report.get("default_branch"), "report.default_branch")
+    default_branch_sha = _text(
+        report.get("default_branch_sha"), "report.default_branch_sha"
+    )
+
+    if branch == default_branch:
+        raise ValidationError("pre-delete default branch refusal")
+    if branch in exceptions:
+        raise ValidationError(f"pre-delete retention exception appeared for {branch}")
+    marker = _reserved_name(branch)
+    if marker:
+        raise ValidationError(
+            f"pre-delete reserved retention-sensitive branch refused: {branch} ({marker})"
+        )
+
+    live_branch = client.get_branch(branch)
+    if live_branch is None:
+        raise ValidationError(f"pre-delete branch disappeared: {branch}")
+    live_branch_sha = _branch_sha(live_branch)
+    if live_branch_sha != expected_sha:
+        raise ValidationError(
+            f"pre-delete SHA drift for {branch}: expected {expected_sha}, "
+            f"got {live_branch_sha or 'missing'}"
+        )
+    protected = live_branch.get("protected")
+    if protected is not False:
+        if protected is True:
+            raise ValidationError(f"pre-delete branch became protected: {branch}")
+        raise ValidationError(f"pre-delete protection state is ambiguous: {branch}")
+
+    open_pulls = client.open_pulls_for_branch(branch)
+    if open_pulls:
+        numbers = sorted(
+            number for number in (_pull_number(pull) for pull in open_pulls)
+            if number is not None
+        )
+        suffix = ", ".join(f"#{number}" for number in numbers) or "unknown"
+        raise ValidationError(f"pre-delete open pull request appeared for {branch}: {suffix}")
+
+    if branch in active_task_branches(root):
+        raise ValidationError(f"pre-delete active task claim appeared for {branch}")
+
+    issue_match = REPAIR_ISSUE_RE.fullmatch(branch)
+    if issue_match:
+        issue_number = int(issue_match.group(1))
+        issue_state = client.get_issue_state(issue_number)
+        if issue_state != "closed":
+            raise ValidationError(
+                f"pre-delete remediation Issue #{issue_number} is {issue_state} for {branch}"
+            )
+
+    live_default_sha = _ref_sha(client.get_ref(default_branch))
+    if live_default_sha != default_branch_sha:
+        raise ValidationError(
+            f"pre-delete default branch drift: expected {default_branch_sha}, "
+            f"got {live_default_sha or 'missing'}"
+        )
+
+    final_sha = _ref_sha(client.get_ref(branch))
+    if final_sha != expected_sha:
+        raise ValidationError(
+            f"pre-delete final SHA drift for {branch}: expected {expected_sha}, "
+            f"got {final_sha or 'missing'}"
+        )
+
+
 def apply_manifest(
     client: GitHubClient,
     report: dict[str, Any],
     manifest: dict[str, Any],
     *,
+    policy: dict[str, Any],
+    root: Path,
     evidence_path: Path,
     event_name: str,
     ref_name: str,
@@ -619,7 +820,8 @@ def apply_manifest(
         raise ValidationError("apply manifest contains no reviewed entries")
     deleted: list[dict[str, Any]] = []
     for entry in entries:
-        client.delete_branch(entry["branch"])
+        revalidate_delete_entry(client, policy, report, entry, root=root)
+        client.delete_branch(entry["branch"], expected_sha=entry["head_sha"])
         if client.get_ref(entry["branch"]) is not None:
             raise ValidationError(f"branch deletion could not be verified: {entry['branch']}")
         deleted.append(entry)
@@ -739,6 +941,8 @@ def main(argv: list[str] | None = None) -> int:
         client,
         report,
         manifest,
+        policy=policy,
+        root=root,
         evidence_path=args.evidence if args.evidence.is_absolute() else root / args.evidence,
         event_name=args.event_name,
         ref_name=args.ref_name,

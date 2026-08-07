@@ -8,6 +8,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 MODULE_PATH = Path(__file__).with_name("branch_lifecycle.py")
 SPEC = importlib.util.spec_from_file_location("branch_lifecycle", MODULE_PATH)
@@ -103,6 +104,98 @@ class BranchLifecycleTest(unittest.TestCase):
     def classify(self, snapshot: dict | None = None) -> dict:
         return branch_lifecycle.classify_snapshot(
             self.policy, snapshot or self.snapshot(), root=self.root
+        )
+
+    def apply_fixture(
+        self, report: dict | None = None, *, branch: str = "docs/merged"
+    ) -> tuple[object, dict]:
+        report = report or self.classify()
+        manifest = branch_lifecycle.make_manifest(report)
+        manifest["apply_on_main"] = True
+        manifest["entries"] = [
+            entry for entry in manifest["entries"] if entry["branch"] == branch
+        ]
+        self.assertEqual(1, len(manifest["entries"]))
+        entry = manifest["entries"][0]
+        expected_sha = entry["head_sha"]
+        default_branch = report["default_branch"]
+        default_sha = report["default_branch_sha"]
+
+        class FakeApplyClient:
+            repo = "blakinio/Oteryn-Platform"
+
+            def __init__(client_self) -> None:
+                client_self.refs = {
+                    default_branch: default_sha,
+                    branch: expected_sha,
+                }
+                client_self.branches = {
+                    branch: {
+                        "name": branch,
+                        "protected": False,
+                        "commit": {"sha": expected_sha},
+                    }
+                }
+                client_self.open_pulls: dict[str, list[dict]] = {}
+                client_self.issue_states: dict[int, str] = {}
+                match = branch_lifecycle.REPAIR_ISSUE_RE.fullmatch(branch)
+                if match:
+                    client_self.issue_states[int(match.group(1))] = "closed"
+                client_self.deleted: list[str] = []
+                client_self.mutate_on_delete_sha: str | None = None
+
+            def get_ref(client_self, name: str) -> dict | None:
+                sha = client_self.refs.get(name)
+                if sha is None:
+                    return None
+                return {"ref": f"refs/heads/{name}", "object": {"sha": sha}}
+
+            def get_branch(client_self, name: str) -> dict | None:
+                return copy.deepcopy(client_self.branches.get(name))
+
+            def open_pulls_for_branch(client_self, name: str) -> list[dict]:
+                return copy.deepcopy(client_self.open_pulls.get(name, []))
+
+            def get_issue_state(client_self, issue_number: int) -> str:
+                return client_self.issue_states.get(issue_number, "unknown")
+
+            def delete_branch(
+                client_self, name: str, *, expected_sha: str | None = None
+            ) -> None:
+                if client_self.mutate_on_delete_sha is not None:
+                    changed = client_self.mutate_on_delete_sha
+                    client_self.mutate_on_delete_sha = None
+                    client_self.refs[name] = changed
+                    client_self.branches[name]["commit"]["sha"] = changed
+                current_sha = client_self.refs.get(name)
+                if expected_sha is not None and current_sha != expected_sha:
+                    raise branch_lifecycle.ValidationError(
+                        f"pre-delete SHA drift for {name}: expected {expected_sha}, "
+                        f"got {current_sha or 'missing'}"
+                    )
+                client_self.deleted.append(name)
+                client_self.refs.pop(name, None)
+                client_self.branches.pop(name, None)
+
+        return FakeApplyClient(), manifest
+
+    def apply(
+        self,
+        client: object,
+        report: dict,
+        manifest: dict,
+        *,
+        policy: dict | None = None,
+    ) -> None:
+        branch_lifecycle.apply_manifest(
+            client,
+            report,
+            manifest,
+            policy=policy or self.policy,
+            root=self.root,
+            evidence_path=self.root / "evidence.json",
+            event_name="push",
+            ref_name="main",
         )
 
     def test_valid_policy(self) -> None:
@@ -231,7 +324,7 @@ class BranchLifecycleTest(unittest.TestCase):
         manifest["apply_on_main"] = True
 
         class NeverDelete:
-            def delete_branch(self, branch: str) -> None:
+            def delete_branch(self, branch: str, *, expected_sha: str | None = None) -> None:
                 raise AssertionError("must not delete")
 
         with self.assertRaisesRegex(branch_lifecycle.ValidationError, "push to main"):
@@ -239,10 +332,197 @@ class BranchLifecycleTest(unittest.TestCase):
                 NeverDelete(),
                 report,
                 manifest,
+                policy=self.policy,
+                root=self.root,
                 evidence_path=self.root / "evidence.json",
                 event_name="pull_request",
                 ref_name="feature",
             )
+
+    def test_apply_revalidates_and_deletes_unchanged_entry(self) -> None:
+        report = self.classify()
+        client, manifest = self.apply_fixture(report)
+        self.apply(client, report, manifest)
+        self.assertEqual(["docs/merged"], client.deleted)
+        evidence = json.loads((self.root / "evidence.json").read_text(encoding="utf-8"))
+        self.assertEqual("docs/merged", evidence["deleted"][0]["branch"])
+
+    def test_apply_rejects_sha_change_after_manifest_validation(self) -> None:
+        report = self.classify()
+        client, manifest = self.apply_fixture(report)
+        client.refs["docs/merged"] = "9" * 40
+        client.branches["docs/merged"]["commit"]["sha"] = "9" * 40
+        with self.assertRaisesRegex(branch_lifecycle.ValidationError, "pre-delete SHA drift"):
+            self.apply(client, report, manifest)
+        self.assertEqual([], client.deleted)
+
+    def test_apply_rejects_new_open_pull_request(self) -> None:
+        report = self.classify()
+        client, manifest = self.apply_fixture(report)
+        client.open_pulls["docs/merged"] = [
+            self.pull(99, "docs/merged", "c" * 40, state="open", merged_at=None)
+        ]
+        with self.assertRaisesRegex(branch_lifecycle.ValidationError, "open pull request appeared"):
+            self.apply(client, report, manifest)
+        self.assertEqual([], client.deleted)
+
+    def test_apply_rejects_new_active_task_claim(self) -> None:
+        report = self.classify()
+        client, manifest = self.apply_fixture(report)
+        task = self.root / "docs/agents/tasks/active/race.md"
+        task.write_text("```yaml\nbranch: docs/merged\n```\n", encoding="utf-8")
+        with self.assertRaisesRegex(branch_lifecycle.ValidationError, "active task claim appeared"):
+            self.apply(client, report, manifest)
+        self.assertEqual([], client.deleted)
+
+    def test_apply_rejects_reactivated_remediation_issue(self) -> None:
+        snapshot = self.snapshot()
+        snapshot["issue_states"]["777"] = "closed"
+        snapshot["pulls"].append(self.pull(13, "repair/issue-777", "1" * 40))
+        report = self.classify(snapshot)
+        client, manifest = self.apply_fixture(report, branch="repair/issue-777")
+        client.issue_states[777] = "open"
+        with self.assertRaisesRegex(branch_lifecycle.ValidationError, "Issue #777 is open"):
+            self.apply(client, report, manifest)
+        self.assertEqual([], client.deleted)
+
+    def test_apply_rejects_branch_that_becomes_protected(self) -> None:
+        report = self.classify()
+        client, manifest = self.apply_fixture(report)
+        client.branches["docs/merged"]["protected"] = True
+        with self.assertRaisesRegex(branch_lifecycle.ValidationError, "became protected"):
+            self.apply(client, report, manifest)
+        self.assertEqual([], client.deleted)
+
+    def test_apply_rejects_retention_policy_race(self) -> None:
+        report = self.classify()
+        client, manifest = self.apply_fixture(report)
+        changed_policy = copy.deepcopy(self.policy)
+        changed_policy["retention_exceptions"].append(
+            {
+                "branch": "docs/merged",
+                "classification": "RECOVERY",
+                "owner": "recovery owner",
+                "protected_required": True,
+                "purpose": "new recovery hold",
+                "review_trigger": "recovery complete",
+            }
+        )
+        with self.assertRaisesRegex(branch_lifecycle.ValidationError, "policy drift"):
+            self.apply(client, report, manifest, policy=changed_policy)
+        self.assertEqual([], client.deleted)
+
+    def test_apply_rejects_default_branch_drift(self) -> None:
+        report = self.classify()
+        client, manifest = self.apply_fixture(report)
+        client.refs["main"] = "8" * 40
+        with self.assertRaisesRegex(branch_lifecycle.ValidationError, "default branch drift"):
+            self.apply(client, report, manifest)
+        self.assertEqual([], client.deleted)
+
+    def test_delete_call_rechecks_expected_sha(self) -> None:
+        report = self.classify()
+        client, manifest = self.apply_fixture(report)
+        client.mutate_on_delete_sha = "7" * 40
+        with self.assertRaisesRegex(branch_lifecycle.ValidationError, "pre-delete SHA drift"):
+            self.apply(client, report, manifest)
+        self.assertEqual([], client.deleted)
+
+    def test_github_client_delete_branch_guards_expected_sha(self) -> None:
+        class GuardClient(branch_lifecycle.GitHubClient):
+            def __init__(client_self) -> None:
+                client_self.repo = "blakinio/Oteryn-Platform"
+                client_self.current_sha = "a" * 40
+                client_self.leases: list[tuple[str, str]] = []
+
+            def get_ref(client_self, branch: str) -> dict | None:
+                return {"object": {"sha": client_self.current_sha}}
+
+            def _delete_ref_with_lease(client_self, branch: str, expected_sha: str) -> None:
+                client_self.leases.append((branch, expected_sha))
+
+        client = GuardClient()
+        with self.assertRaisesRegex(branch_lifecycle.ValidationError, "pre-delete SHA drift"):
+            client.delete_branch("docs/merged", expected_sha="b" * 40)
+        self.assertEqual([], client.leases)
+        client.delete_branch("docs/merged", expected_sha="a" * 40)
+        self.assertEqual([("docs/merged", "a" * 40)], client.leases)
+
+    def test_github_client_delete_without_expected_sha_leases_observed_sha(self) -> None:
+        class RecoveryClient(branch_lifecycle.GitHubClient):
+            def __init__(client_self) -> None:
+                client_self.repo = "blakinio/Oteryn-Platform"
+                client_self.leases: list[tuple[str, str]] = []
+
+            def get_ref(client_self, branch: str) -> dict | None:
+                return {"object": {"sha": "a" * 40}}
+
+            def _delete_ref_with_lease(client_self, branch: str, expected_sha: str) -> None:
+                client_self.leases.append((branch, expected_sha))
+
+        client = RecoveryClient()
+        client.delete_branch("recovery-test/example")
+        self.assertEqual([("recovery-test/example", "a" * 40)], client.leases)
+
+    def test_github_client_atomic_delete_uses_exact_remote_lease_without_token(self) -> None:
+        client = branch_lifecycle.GitHubClient(
+            "blakinio/Oteryn-Platform", "super-secret-token"
+        )
+        expected_sha = "a" * 40
+        client.get_ref = lambda branch: {"object": {"sha": expected_sha}}
+        completed = branch_lifecycle.subprocess.CompletedProcess(
+            args=[], returncode=0, stdout="", stderr=""
+        )
+        with mock.patch.object(
+            branch_lifecycle.subprocess, "run", return_value=completed
+        ) as run:
+            client.delete_branch("docs/merged", expected_sha=expected_sha)
+        command = run.call_args.args[0]
+        self.assertEqual(
+            [
+                "git",
+                "push",
+                "--porcelain",
+                f"--force-with-lease=refs/heads/docs/merged:{expected_sha}",
+                "origin",
+                ":refs/heads/docs/merged",
+            ],
+            command,
+        )
+        self.assertNotIn("super-secret-token", " ".join(command))
+        self.assertFalse(run.call_args.kwargs["check"])
+        self.assertTrue(run.call_args.kwargs["capture_output"])
+        self.assertEqual(60, run.call_args.kwargs["timeout"])
+
+    def test_github_client_atomic_delete_rejects_last_instruction_race(self) -> None:
+        client = branch_lifecycle.GitHubClient(
+            "blakinio/Oteryn-Platform", "super-secret-token"
+        )
+        expected_sha = "a" * 40
+        advanced_sha = "b" * 40
+        state = {"sha": expected_sha}
+
+        def get_ref(branch: str) -> dict:
+            return {"object": {"sha": state["sha"]}}
+
+        def race_remote(command: list[str], **kwargs: object):
+            self.assertIn(
+                f"--force-with-lease=refs/heads/docs/merged:{expected_sha}", command
+            )
+            state["sha"] = advanced_sha
+            return branch_lifecycle.subprocess.CompletedProcess(
+                args=command, returncode=1, stdout="", stderr="stale info"
+            )
+
+        client.get_ref = get_ref
+        with mock.patch.object(
+            branch_lifecycle.subprocess, "run", side_effect=race_remote
+        ):
+            with self.assertRaisesRegex(
+                branch_lifecycle.ValidationError, "atomic delete lease rejected"
+            ):
+                client.delete_branch("docs/merged", expected_sha=expected_sha)
+        self.assertEqual(advanced_sha, state["sha"])
 
 
 if __name__ == "__main__":
