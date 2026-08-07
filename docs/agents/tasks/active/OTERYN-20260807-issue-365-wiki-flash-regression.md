@@ -43,16 +43,16 @@ Restore deterministic browser regression coverage for the historically reproduce
 - [x] Durable `Published` state and `Unpublish to draft` assertions remain unchanged.
 - [x] Existing zero-retry/browser/authentication/MFA/publication semantics remain unchanged.
 - [x] Prior exact-head generation `ea4fa0b3721448229df15c389c9dc3f92709f55f` passed all applicable required workflows, including zero-retry Acceptance E2E and Deep System Validation.
-- [ ] Current synchronized exact-head required checks pass.
-- [ ] Current exact-head self-review and PR hygiene are clean immediately before merge.
-- [ ] PR #837 merges and Issue #365 receives a terminal evidence-backed disposition without claiming an unknown root cause.
+- [ ] Current recovered exact-head required checks pass.
+- [ ] Current exact-head self-review and PR hygiene are clean immediately before terminal delivery.
+- [ ] PR #837 reaches the protected terminal delivery state and Issue #365 receives a bounded evidence-backed disposition without claiming an unknown root cause.
 
 ## Context checkpoint
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-07T19:55:00+02:00
-head: 10c21742649d854daa81d676080130958148fe5c
+updated_at: 2026-08-07T19:58:00+02:00
+head: 1912399cd98218bff63265371a9943900ff1780b
 branch: fix/issue-365-wiki-flash-regression
 pr: 837
 status: validating
@@ -63,21 +63,21 @@ owned_paths:
   - scripts/acceptance/tests/admin-wiki-administration.spec.mjs
   - docs/agents/tasks/active/OTERYN-20260807-issue-365-wiki-flash-regression.md
 proven:
-  - Issue #365 remains the repair target and PR #837 is its single active repair PR.
+  - Issue #365 remains the repair target and PR #837 is its single repair PR.
   - The implementation changes only the Wiki browser regression gate; no product runtime path changes.
+  - The branch currently contains the restored `Wiki article published.` assertion and the clean-journey no-HTTP-5xx assertion.
   - Exact prior head ea4fa0b3721448229df15c389c9dc3f92709f55f passed CI 31202472381, Acceptance E2E 31202471870, Deep System Validation 31202471572, Agent Governance 31202471569, Game Auth Ticket Concurrency 31202471568, Edge Security Emulation 31202471587, Platform DB Outage Validation 31202471515, Phase 7 Production-Like Validation 31202471511, Wiki Reconciliation Acceptance 31202471612, and Portal Acceptance Contract 31202471591.
-  - Acceptance E2E on that prior exact head passed zero-retry Chromium smoke, browser portability, responsive, dependency-resilience and keyboard-accessibility profiles.
-  - Direct merge of that prior head was rejected because main advanced and GitHub reported mergeable_state behind; no validation failure occurred.
-  - The branch is now synchronized onto main 84922e4a24be9759c864b41efd34b1e43634d407 and the same two-path repair is re-applied.
+  - The prior protected delivery attempt was rejected after main advanced; no validation failure occurred.
+  - A synchronization transition temporarily made PR #837 appear closed with zero diff; the PR has been reopened against current main and the intended two-path diff is again visible.
 derived:
-  - Current-head checks must be allowed to re-establish the protected-branch exact-head gate after synchronization; no additional runtime repair is justified by current evidence.
+  - Fresh current-head checks are required because the synchronized branch identity changed after the prior successful validation generation.
 unknown:
   - Exact historical runtime cause of the intermittent flash loss.
-  - Current synchronized-head CI conclusions until workflows complete.
+  - Current recovered-head CI conclusions until workflows complete.
 conflicts: []
 first_failure:
-  marker: protected_branch_behind
-  evidence: merge attempt after all prior exact-head checks passed returned `2 of 2 required status checks are expected`; GitHub REST reported mergeable_state `behind`, so the branch was synchronized instead of bypassing protection.
+  marker: branch_sync_pr_state_transition
+  evidence: Agent Governance run 31204450731 failed only because PR #837 was temporarily terminal while the active task still referenced a future terminal action; the PR was reopened before this checkpoint recovery.
 rejected_hypotheses:
   - Treat controlled corrupt-thumbnail responses as the flash-loss root cause; rejected by the 12-sample frozen matrix.
   - Add speculative session/media runtime workaround; rejected because causal evidence is absent.
@@ -88,11 +88,11 @@ validation:
   - command: prior exact-head workflow generation on ea4fa0b3721448229df15c389c9dc3f92709f55f
     result: PASS
     evidence: all ten applicable workflow families completed successfully, including Acceptance E2E and Deep System Validation zero-retry browser coverage.
-  - command: prior exact-head full-diff self-review and PR review hygiene
+  - command: branch-content verification after PR-state recovery
     result: PASS
-    evidence: two changed paths only, zero material findings, zero review threads, zero submitted reviews/requested changes.
+    evidence: current branch still contains both intended acceptance assertions and no runtime change.
 blockers: []
-next_action: validate the synchronized exact PR head; if required checks and hygiene pass while the branch is current with main, merge PR #837, close Issue #365, then archive this task through lifecycle closeout
+next_action: validate the current recovered PR head with required workflows and exact-head hygiene, then complete the protected terminal delivery and lifecycle closeout if all gates pass
 ```
 
 ## Safety
