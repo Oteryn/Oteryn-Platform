@@ -27,7 +27,7 @@ Repair Issue #783 so documentation/governance-only pushes to `main` do not run o
 - [x] Documentation/governance-only pushes to `main` do not emit full Acceptance E2E runs.
 - [x] Existing product-path Acceptance triggers, pull-request routing and manual `workflow_dispatch` remain intact.
 - [x] Deterministic tests cover docs-only/product main routing, zero/ambiguous range fallback, Acceptance path filtering and concurrency/preemption safety.
-- [x] Exact implementation-head self-review, focused validation and repository-required CI pass with zero unresolved material findings; final docs-only checkpoint head still requires its selected exact-head governance checks before merge.
+- [x] Exact implementation-head self-review, focused validation and repository-required CI pass with zero unresolved material findings; final checkpoint-only head still requires its selected exact-head checks before merge.
 
 ## Ownership
 
@@ -111,7 +111,7 @@ validation:
     result: PASS
     evidence: Game Auth Ticket Concurrency 31165890952, Edge Security Emulation 31165891600, Platform DB Outage Validation 31165891559, Phase 7 Production-Like Validation 31165891639 and Deep System Validation 31165891386 all completed successfully.
 blockers: []
-next_action: Validate the final checkpoint-only head, mark PR #786 ready, reverify reviews/mergeability and required exact-head checks, then squash-merge and complete Issue/task closeout.
+next_action: Validate the final checkpoint-only head, reverify reviews/mergeability and required exact-head checks, then squash-merge and complete Issue/task closeout.
 ```
 
 ## Self-review
@@ -134,6 +134,39 @@ evidence:
 ```
 
 E2E result: `PASS` via Acceptance E2E and Visual UX run `31165892762`. No production or external-service mutation was required or performed.
+
+## Recovery checkpoint
+
+```yaml
+recovery:
+  policy_version: 1
+  generation: 1
+  session_id: repair-issue-783-20260807T1018Z
+  session_started_at: 2026-08-07T10:15:00Z
+  checkpointed_at: 2026-08-07T10:19:00Z
+  last_progress_at: 2026-08-07T10:18:28Z
+  phase: validate-and-merge
+  exact_head: a175d388db6b2bfd12dd621c4e754e53f6e19f5f
+  pull_request: 786
+  active_operation: final exact-head CI after ready-for-review transition
+  external_run_ids:
+    - 31169518770
+    - 31169518719
+    - 31169518736
+    - 31169518799
+    - 31169518910
+    - 31169518939
+    - 31169518843
+    - 31169518713
+  operation_started_at: 2026-08-07T10:18:28Z
+  wait_deadline_at: 2026-08-07T11:03:28Z
+  check_generation: ready
+  checks_used: 1
+  status: active
+  safe_to_resume: true
+  resume_condition: Reconcile the live PR head created by this checkpoint-only commit, then observe its aggregate required-check state no sooner than the minimum terminal-CI interval.
+  next_action: Observe the aggregate required checks for the live PR head; if all pass, reverify merge gates and squash-merge PR #786.
+```
 
 ## Notes
 
