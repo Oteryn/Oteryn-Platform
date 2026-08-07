@@ -90,11 +90,16 @@ test.setTimeout(180_000);
 test.describe.configure({ mode: 'serial', retries: 0 });
 
 test.beforeEach(async ({ page }) => {
+  editorialMediaFixture('reset');
   page.__acceptanceDiagnostics = installDiagnostics(page);
 });
 
 test.afterEach(async ({ page }, testInfo) => {
-  await attachDiagnostics(testInfo, page.__acceptanceDiagnostics);
+  try {
+    await attachDiagnostics(testInfo, page.__acceptanceDiagnostics);
+  } finally {
+    editorialMediaFixture('reset');
+  }
 });
 
 test('@wiki-media exact Wiki editor discovers inserts previews and publishes private EditorialMedia responsively', async ({ page, context }) => {
