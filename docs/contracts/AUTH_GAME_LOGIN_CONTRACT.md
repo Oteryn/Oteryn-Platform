@@ -546,7 +546,7 @@ No evidence proves that Platform password change/reset currently:
 - disconnects active game sessions;
 - enforces Platform email-verification or MFA policy across every game-login path.
 
-### Proven non-coupling
+### proven non-coupling
 
 The LoginSessionManager token contains account/character/profile authorization state and does not re-check the password after successful token redemption.
 
@@ -882,3 +882,15 @@ Before merging any future production auth migration, test exact deployed version
 - active-session ban/disable behavior.
 
 Evidence must include exact component SHAs/image digests/configuration and network exposure.
+
+## Platform-native OAuth revocation generation — PROVEN
+
+For the repository-owned Oteryn native OAuth `game:ticket` producer, authorization codes capture the current `Identity.game_auth_generation`; authorization-code and refresh-token access-token descendants inherit that same generation.
+
+Game-ticket bootstrap locks the current Identity and access token, fails closed when the generation is missing or stale, and preserves the existing revoked, expired, ownership, scope, native-client, disabled and terminated gates before issuing a single-use Game Login Ticket. A successful bootstrap revokes the presenting access token and its refresh descendants atomically.
+
+`RevokeIdentityGameAuthorizations` increments the Identity generation and revokes outstanding native `game:ticket` authorization codes, access tokens and refresh descendants in the same database transaction. Consequently, OAuth material issued before password change/reset or another caller of that revocation action cannot mint a fresh Game Login Ticket after the generation changes; a newly authorized token family receives the new generation.
+
+The Passport generation columns are nullable for additive-schema compatibility. For `game:ticket` bootstrap, a missing generation is intentionally invalid, so pre-binding or stale game-ticket access tokens fail closed rather than being grandfathered.
+
+This proof is limited to the Platform-owned native OAuth producer/bootstrap path. It does not prove revocation of retained Canary `LoginSessionManager` tokens, external `account_sessions`, legacy direct-password paths, active game sessions, or production deployment/cutover.

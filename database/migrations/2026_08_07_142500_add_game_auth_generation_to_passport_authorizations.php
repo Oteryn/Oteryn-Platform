@@ -1,0 +1,30 @@
+<?php
+
+use Illuminate\Database\Migrations\Migration;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Schema;
+
+return new class extends Migration
+{
+    public function up(): void
+    {
+        Schema::table('oauth_auth_codes', function (Blueprint $table): void {
+            $table->unsignedBigInteger('game_auth_generation')->nullable();
+        });
+
+        Schema::table('oauth_access_tokens', function (Blueprint $table): void {
+            $table->unsignedBigInteger('game_auth_generation')->nullable();
+        });
+    }
+
+    public function down(): void
+    {
+        Schema::table('oauth_access_tokens', function (Blueprint $table): void {
+            $table->dropColumn('game_auth_generation');
+        });
+
+        Schema::table('oauth_auth_codes', function (Blueprint $table): void {
+            $table->dropColumn('game_auth_generation');
+        });
+    }
+};
