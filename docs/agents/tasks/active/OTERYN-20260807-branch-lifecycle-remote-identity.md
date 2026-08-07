@@ -2,7 +2,7 @@
 task_id: OTERYN-20260807-branch-lifecycle-remote-identity
 issue: 815
 programme_id: OTERYN_PLATFORM_REMEDIATION
-status: implementing
+status: validating
 risk: high
 run_scope: autonomous_program
 continuation_policy: continue_until_real_stop
@@ -38,13 +38,13 @@ Repair Issue #815 so destructive Branch Lifecycle git operations are bound to th
 
 ## Acceptance criteria
 
-- [ ] Destructive branch deletion cannot execute until the git working tree used for push is bound to the configured repository root.
-- [ ] Selected git remote identity is normalized and proven equal to `GitHubClient.repo` before destructive push.
-- [ ] Missing, ambiguous, unparsable or mismatched remotes fail closed before `git push`.
-- [ ] `--root` controls destructive git subprocess CWD rather than ambient process CWD.
-- [ ] Supported SSH and HTTPS GitHub remote forms normalize correctly without accepting a foreign repository.
-- [ ] Existing exact `--force-with-lease=<ref>:<expected_sha>` atomicity remains intact.
-- [ ] Deterministic wrong-CWD and foreign-origin regressions pass.
+- [x] Destructive branch deletion cannot execute until the git working tree used for push is bound to the configured repository root.
+- [x] Selected git remote identity is normalized and proven equal to `GitHubClient.repo` before destructive push.
+- [x] Missing, ambiguous, unparsable or mismatched remotes fail closed before `git push`.
+- [x] `--root` controls destructive git subprocess CWD rather than ambient process CWD.
+- [x] Supported SSH and HTTPS GitHub remote forms normalize correctly without accepting a foreign repository.
+- [x] Existing exact `--force-with-lease=<ref>:<expected_sha>` atomicity remains intact.
+- [x] Deterministic wrong-CWD and foreign-origin regressions are implemented.
 - [ ] Exact-head Branch Lifecycle, Agent Governance and repository-selected CI pass with zero unresolved material findings or review threads.
 
 ## Ownership
@@ -93,12 +93,12 @@ validation_gate:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-07T13:33:00Z
-head: e93b11fd9671400a52ae135db1564ad77b700393
+updated_at: 2026-08-07T14:01:00Z
+head: e4e832c23f683d245f922b9f2e7497356ba20c1b
 branch: repair/issue-815
-pr: none
-status: implementing
-phase: implementation
+pr: 822
+status: validating
+phase: validation
 session_id: OTERYN-20260807T1533+0200-issue-815
 session_role: implementer
 execution_mode: github-only
@@ -113,23 +113,28 @@ owned_paths:
   - .github/workflows/branch-lifecycle.yml
   - docs/agents/tasks/active/OTERYN-20260807-branch-lifecycle-remote-identity.md
 proven:
-  - Issue #815 is implementation-authorized, P1/high, unblocked and labelled agent:ready.
-  - Deterministic branch repair/issue-815 was created from trusted main e93b11fd9671400a52ae135db1564ad77b700393.
-  - Current deletion code uses ambient CWD and an unverified remote name for destructive `git push`.
+  - Issue #815 is implementation-authorized, P1/high and unblocked.
+  - Deterministic branch repair/issue-815 is claimed by this task.
+  - PR #822 is the only open delivery PR for repair/issue-815.
+  - Destructive git execution is root-bound and the selected push remote is repository-identity checked before push.
 derived:
-  - The repair can be validated without production or external-repository mutation by mocking/localizing git remote queries and push execution.
+  - The repair is validated without production or external-repository mutation by deterministic mocked git remote and push behavior.
 unknown: []
 conflicts: []
 first_failure:
   marker: branch-lifecycle-remote-identity-unbound
-  evidence: Issue #815 exact evidence and current main implementation.
+  evidence: Issue #815 exact evidence and pre-repair implementation.
 rejected_hypotheses: []
 changed_paths:
+  - tools/agents/branch_lifecycle.py
+  - tools/agents/test_branch_lifecycle.py
   - docs/agents/tasks/active/OTERYN-20260807-branch-lifecycle-remote-identity.md
-validation: []
+validation:
+  - PR #822 opened from repair/issue-815 to main.
+  - Exact-head Agent Governance first run exposed missing task PR identity; this checkpoint records PR #822 and supersedes that head.
 blockers:
   - none
-next_action: Implement root-bound git execution, remote repository identity verification, and deterministic negative-path tests; then create the single delivery PR.
+next_action: Validate the new exact PR head with Branch Lifecycle, Agent Governance, repository-selected CI and HEIGHTENED self-review; repair any material failure on the same branch.
 ```
 
 ## Recovery checkpoint
@@ -137,24 +142,27 @@ next_action: Implement root-bound git execution, remote repository identity veri
 ```yaml
 recovery:
   policy_version: 1
-  generation: 1
+  generation: 2
   session_id: OTERYN-20260807T1533+0200-issue-815
   session_started_at: 2026-08-07T13:33:00Z
-  checkpointed_at: 2026-08-07T13:33:00Z
-  last_progress_at: 2026-08-07T13:33:00Z
-  phase: implementation
-  exact_head: e93b11fd9671400a52ae135db1564ad77b700393
-  pull_request: none
-  active_operation: implement branch lifecycle repository identity binding
-  external_run_ids: []
-  operation_started_at: 2026-08-07T13:33:00Z
+  checkpointed_at: 2026-08-07T14:01:00Z
+  last_progress_at: 2026-08-07T14:01:00Z
+  phase: validation
+  exact_head: e4e832c23f683d245f922b9f2e7497356ba20c1b
+  pull_request: 822
+  active_operation: exact-head validation and heightened self-review
+  external_run_ids:
+    - 31185209898
+    - 31185209109
+    - 31185209133
+  operation_started_at: 2026-08-07T13:58:01Z
   wait_deadline_at: none
-  check_generation: implementation
-  checks_used: 0
+  check_generation: validation-2
+  checks_used: 1
   status: active
   safe_to_resume: true
-  resume_condition: deterministic branch and active task ownership remain exact and conflict-free.
-  next_action: Implement root/remote identity binding and focused regressions.
+  resume_condition: PR #822 remains open on repair/issue-815 and exact-head validation is incomplete.
+  next_action: Re-run exact-head governance and selected CI after this ownership checkpoint update.
 ```
 
 ## Notes
