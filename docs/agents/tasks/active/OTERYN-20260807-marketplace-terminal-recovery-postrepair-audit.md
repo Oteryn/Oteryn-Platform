@@ -10,7 +10,7 @@ execution_mode: github_only
 branch: audit/marketplace-terminal-recovery-integrity-20260807
 base_branch: main
 base_sha: 5fa1095a6c7aa440ce463c02c5af2bace862cd46
-pr: none
+pr: 842
 production_activation_authorized: false
 cross_repository_mutation_authorized: false
 required_reads:
@@ -116,10 +116,10 @@ No new Issue is created.
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-07T17:31:00Z
-head: 5fa1095a6c7aa440ce463c02c5af2bace862cd46
+updated_at: 2026-08-07T17:32:40Z
+head: 37915315d08405643ab1c9b63d37121db1cc65dc
 branch: audit/marketplace-terminal-recovery-integrity-20260807
-pr: none
+pr: 842
 status: validating
 context_routes:
   - continuous-audit
@@ -155,7 +155,7 @@ validation:
     evidence: this audit changes evidence only; the audited invariant is backend concurrency and has direct integration coverage plus existing acceptance workflows.
 blockers:
   - none
-next_action: open the bounded audit-record PR, bind its numeric PR identity, require exact-head CI and Agent Governance, then merge and archive if hygiene stays clean
+next_action: require exact-head CI and Agent Governance on PR #842, inspect PR hygiene, then merge and archive if clean
 ```
 
 ## Safety
