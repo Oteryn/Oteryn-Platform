@@ -113,20 +113,16 @@ The native ticket is authorization to attempt admission. It is not the canonical
 
 The target native private redeem/login context must expose the minimum account authority required by Gateway using canonical identity.
 
-Conceptually:
+Semantic minimum only:
 
-```json
-{
-  "protocol_version": 2,
-  "authorization": {
-    "account_id": "<uuidv7>",
-    "security_generation": 7,
-    "redeemed_at": "<server timestamp>"
-  }
-}
+```text
+NativeRedeemAuthorization
+    AccountId
+    security_generation
+    redeemed_at
 ```
 
-The exact protocol version number, JSON shape, endpoint path and implementation rollout remain future implementation-contract work; the example freezes semantics only.
+This section does not freeze a protocol version number, JSON field layout, endpoint path, transport or implementation rollout. Those remain future implementation-contract work.
 
 A native response must not require `canary_account_id`.
 
