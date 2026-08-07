@@ -64,6 +64,10 @@ class Task:
     heavy_validation_runs: int
     stale_takeover_count: int
     human_interruptions: int
+    schema_valid: bool = True
+    live_valid: bool | None = None
+    live_state: str = "NOT_CHECKED"
+    live_findings: tuple[str, ...] = ()
 
 
 def parse_args() -> argparse.Namespace:
@@ -103,6 +107,17 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Exit with status 2 when at least one task is stale.",
     )
+    parser.add_argument(
+        "--liveness-report",
+        type=pathlib.Path,
+        default=None,
+        help="Optional JSON report produced by tools/agents/task_liveness.py.",
+    )
+    parser.add_argument(
+        "--fail-on-live-invalid",
+        action="store_true",
+        help="Exit with status 3 when the liveness report contains an invalid active task.",
+    )
     return parser.parse_args()
 
 
@@ -132,12 +147,12 @@ def scalar_map(text: str) -> dict[str, str]:
 
     match = re.search(r"(?m)^## Context checkpoint\s*$", text)
     if match:
-        remainder = text[match.end() :]
+        remainder = text[match.end():]
         fence = re.search(r"```(?:yaml|yml)\s*\n", remainder, re.IGNORECASE)
         if fence:
             block_end = remainder.find("```", fence.end())
             if block_end >= 0:
-                read_scalar_lines(remainder[fence.end() : block_end].splitlines(), values)
+                read_scalar_lines(remainder[fence.end():block_end].splitlines(), values)
 
     return values
 
@@ -301,7 +316,7 @@ def task_from_file(
         updated_at=updated_raw,
         age_minutes=age_minutes,
         branch=values.get("branch", ""),
-        pr=values.get("pr", ""),
+        pr=values.get("pr", values.get("pull_request", "")),
         phase=values.get("phase", ""),
         execution_mode=values.get("execution_mode", ""),
         next_action=values.get("next_action", ""),
@@ -345,6 +360,66 @@ def load_tasks(
     ]
 
 
+def load_liveness_report(path: pathlib.Path) -> dict[str, dict[str, object]]:
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(raw, dict) or raw.get("schema_version") != 1:
+        raise ValueError("liveness report must use schema_version 1")
+    tasks = raw.get("tasks")
+    if not isinstance(tasks, list):
+        raise ValueError("liveness report tasks must be a list")
+    result: dict[str, dict[str, object]] = {}
+    for index, item in enumerate(tasks):
+        if not isinstance(item, dict):
+            raise ValueError(f"liveness report task {index + 1} must be an object")
+        task_id = item.get("task_id")
+        live_valid = item.get("live_valid")
+        live_state = item.get("live_state")
+        findings = item.get("findings", [])
+        if not isinstance(task_id, str) or not task_id:
+            raise ValueError(f"liveness report task {index + 1} has invalid task_id")
+        if not isinstance(live_valid, bool) or not isinstance(live_state, str):
+            raise ValueError(f"liveness report task {task_id} has invalid live state")
+        if not isinstance(findings, list):
+            raise ValueError(f"liveness report task {task_id} findings must be a list")
+        result[task_id] = item
+    return result
+
+
+def apply_liveness(
+    tasks: list[Task], report: dict[str, dict[str, object]]
+) -> list[Task]:
+    updated: list[Task] = []
+    for task in tasks:
+        live = report.get(task.task_id)
+        if live is None:
+            updated.append(
+                dataclasses.replace(
+                    task,
+                    live_valid=False,
+                    live_state="MISSING_FROM_REPORT",
+                    live_findings=("task is absent from the live-state report",),
+                )
+            )
+            continue
+        finding_messages: list[str] = []
+        for finding in typing.cast(list[object], live.get("findings", [])):
+            if isinstance(finding, dict):
+                severity = str(finding.get("severity", ""))
+                code = str(finding.get("code", ""))
+                message = str(finding.get("message", ""))
+                if severity == "error":
+                    finding_messages.append(f"{code}: {message}".strip())
+        updated.append(
+            dataclasses.replace(
+                task,
+                live_valid=bool(live["live_valid"]),
+                live_state=str(live["live_state"]),
+                live_findings=tuple(finding_messages),
+            )
+        )
+    return updated
+
+
 def task_dict(task: Task) -> dict[str, object]:
     return {
         "task_id": task.task_id,
@@ -374,6 +449,10 @@ def task_dict(task: Task) -> dict[str, object]:
         "heavy_validation_runs": task.heavy_validation_runs,
         "stale_takeover_count": task.stale_takeover_count,
         "human_interruptions": task.human_interruptions,
+        "schema_valid": task.schema_valid,
+        "live_valid": task.live_valid,
+        "live_state": task.live_state,
+        "live_findings": list(task.live_findings),
     }
 
 
@@ -391,6 +470,8 @@ def coordination_metrics(tasks: list[Task]) -> dict[str, int]:
         "heavy_validation_runs": sum(task.heavy_validation_runs for task in tasks),
         "stale_takeovers": sum(task.stale_takeover_count for task in tasks),
         "human_interruptions": sum(task.human_interruptions for task in tasks),
+        "live_invalid_tasks": sum(task.live_valid is False for task in tasks),
+        "live_valid_tasks": sum(task.live_valid is True for task in tasks),
     }
 
 
@@ -410,6 +491,10 @@ def task_details(task: Task) -> list[str]:
         details.append(f"age={task.age_minutes}m")
     if task.policy_status == "LEGACY":
         details.append("policy=legacy")
+    if task.live_valid is True:
+        details.append(f"live=VALID/{task.live_state}")
+    elif task.live_valid is False:
+        details.append(f"live=INVALID/{task.live_state}")
     return details
 
 
@@ -421,6 +506,8 @@ def append_task(lines: list[str], task: Task, state: str) -> None:
         lines.append(f"  - blocker: {task.blocker}")
     if task.next_action:
         lines.append(f"  - next: {task.next_action}")
+    for finding in task.live_findings:
+        lines.append(f"  - live contradiction: {finding}")
 
 
 def append_lane(
@@ -454,6 +541,7 @@ def markdown(config: dict[str, object], tasks: list[Task], stale_after: int) -> 
         f"Stale threshold: {stale_after} minutes. "
         "STALE is derived; it does not rewrite task files.",
         f"Policy rollout: {rollout.get('enforcement_mode', 'advisory')}.",
+        "Schema validity is local checkpoint validity; live validity is independent GitHub ownership truth.",
         f"Metrics: {metrics_line}",
         "",
     ]
@@ -477,6 +565,8 @@ def main() -> int:
         raise SystemExit("--now must be a valid ISO-8601 timestamp")
 
     tasks = load_tasks(config, now, stale_after)
+    if args.liveness_report:
+        tasks = apply_liveness(tasks, load_liveness_report(args.liveness_report))
     if args.lane:
         selected = set(args.lane)
         tasks = [task for task in tasks if task.lane in selected]
@@ -495,6 +585,8 @@ def main() -> int:
     else:
         print(markdown(config, tasks, stale_after), end="")
 
+    if args.fail_on_live_invalid and any(task.live_valid is False for task in tasks):
+        return 3
     return 2 if args.fail_on_stale and any(task.state == "STALE" for task in tasks) else 0
 
 
