@@ -46,6 +46,11 @@ class RetainedEvidenceProvenanceTest(unittest.TestCase):
         documents.append(("rogue.json", {"exact_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}))
         self.assert_error("unexplained embedded source SHA", documents=documents)
 
+    def test_non_string_embedded_sha_fails(self) -> None:
+        documents = copy.deepcopy(self.documents)
+        documents.append(("malformed.json", {"nested": {"source_sha": None}}))
+        self.assert_error("non-string embedded source SHA", documents=documents)
+
     def test_final_artifact_digest_must_be_sha256(self) -> None:
         manifest = copy.deepcopy(self.manifest)
         manifest["provenance"]["final_pr_head"]["artifact_digest"] = "not-a-digest"
