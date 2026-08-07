@@ -56,10 +56,10 @@ blockers: []
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-07T11:17:00Z
-head: 0a9729be763558ce3a13090522d0b4be937e938d
+updated_at: 2026-08-07T11:22:00Z
+head: d087fe9b1581ad79fdd63b6449c104d2f1367feb
 branch: repair/issue-788
-pr: none
+pr: 808
 status: validating
 context_routes:
   - ci-repair
@@ -70,6 +70,7 @@ owned_paths:
   - docs/agents/tasks/active/OTERYN-20260807-agent-governance-branch-pr-reconciliation.md
 proven:
   - Issue #788 is open, implementation-authorized, risk:high and priority:P1; deterministic branch repair/issue-788 was claimed from main 6b0efc015812d699c20424c4048e2fdba570c2dd with no pre-existing claim or open Issue #788 PR.
+  - PR #808 is the single authoritative Issue #788 delivery and its source branch is repair/issue-788.
   - The original branch-only path granted ownership from branch existence alone and could not discover open or terminal PR history when task metadata omitted the PR number.
   - GitHubState and GitHubClient now support fail-closed pull-request history lookup for the claimed source branch, and branch-only reconciliation compares the current branch SHA with exact PR head repo, ref and SHA identity.
   - An exact-current-head open or draft PR with omitted task PR identity fails live validity; an exact-current-head terminal PR also fails live validity and cannot preserve ownership through a retained branch.
@@ -96,7 +97,7 @@ validation:
     result: PASS
     evidence: Twenty deterministic tests passed, including omitted open/draft/merged/closed PR, branch reuse, ambiguity and API/shape failure cases.
 blockers: []
-next_action: Create the single Issue #788 delivery PR, bind this task to its PR identity, then perform exact-head full-diff self-review and required Agent Governance/CI validation before merge.
+next_action: Perform exact-head full-diff self-review on PR #808, mark it ready, then require exact-head Agent Governance and repository-selected CI before merge.
 ```
 
 ## Notes
