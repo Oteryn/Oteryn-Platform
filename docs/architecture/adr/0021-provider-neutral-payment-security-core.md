@@ -30,6 +30,10 @@ Introduce a Platform-owned payment event core with these boundaries:
 13. A verified provider event must carry provider-authenticated ISO currency and a positive integer minor-unit amount. Identifiers alone cannot authorize a settlement transition.
 14. Before success, full refund, dispute or chargeback, the verified currency and amount must exactly match the immutable order. A partial-refund event must use the same currency and a positive amount smaller than the order total. Mismatches create reconciliation and never mutate order truth.
 15. When a verified provider object reference is present, it must resolve to a checkout attempt owned by the same order and provider. Unknown or cross-order references create reconciliation.
+16. `payment.partially_refunded.amount_minor` is a provider-authenticated incremental refund delta. Every distinct accepted partial-refund event is recorded as its own versioned payment-order transition, including the verified delta and resulting cumulative refunded minor-unit total.
+17. The cumulative refunded total is calculated while the payment-order row is locked. A partial refund is accepted only when the prior durable refund history is internally consistent and the resulting total remains strictly below the immutable order total. A partial event that would reach or exceed the total creates reconciliation instead of financial truth.
+18. `payment.refunded.amount_minor` is cumulative terminal refund truth and must equal the immutable order total. Its accepted transition records the terminal cumulative total without erasing earlier partial-refund history. A legacy `partially_refunded` state without durable refund-value history fails closed into reconciliation.
+19. Refund-value columns on payment-order transitions are forward-only financial evidence. Runtime rollback may stop ingestion or revert application behavior, but a schema rollback must not drop populated authenticated refund settlement history.
 
 ## Threat model
 
@@ -57,6 +61,8 @@ Introduce a Platform-owned payment event core with these boundaries:
 |---|---|
 | Forged webhook | Verify timestamp and HMAC before parsing in the deterministic adapter; real adapters must implement equivalent provider-authentic verification. |
 | Signed event with wrong amount or currency | Carry authenticated settlement facts in the verified-event contract and compare them with immutable order semantics before transition; reconcile mismatches. |
+| Repeated or concurrent partial refunds | Treat partial amounts as incremental deltas; serialize on the locked order, persist every accepted delta plus cumulative total, and reconcile any event that would reach/exceed the immutable order total. |
+| Missing historic partial-refund value | A `partially_refunded` order without durable refund-value history cannot accept another refund transition; create reconciliation instead of guessing prior value. |
 | Provider object rebound to another order | Resolve any supplied provider object reference to the same provider and payment order before transition; reconcile unknown or cross-order references. |
 | Replay | Timestamp tolerance plus unique provider event identity; exact duplicate is a no-op, conflicting duplicate fails. |
 | Out-of-order event | Explicit state machine refuses regressions and creates reconciliation work. |
@@ -66,7 +72,7 @@ Introduce a Platform-owned payment event core with these boundaries:
 | Raw payload or personal-data leakage | Store only digest and bounded sanitized fields; no raw body. |
 | Test adapter used in production | Adapter runtime refusal and production configuration violation. |
 | Direct wallet/entitlement mutation | No dependency on Wallet or Products/Entitlements in this core. |
-| Concurrent transition race | Database transaction, row lock, unique event key and monotonic order version. |
+| Concurrent transition race | Database transaction, payment-order row lock, unique event key and monotonic order version; refund accumulation occurs inside that same serialized boundary. |
 | Operator/admin abuse | No privileged mutation UI is introduced; future reconciliation UI requires exact permission, confirmed MFA and audit. |
 
 ## Consequences
@@ -76,7 +82,8 @@ Introduce a Platform-owned payment event core with these boundaries:
 - Issue #322 remains the owner of product, entitlement, coin-delivery and service-history behavior.
 - Production and customer charging remain disabled.
 - The test adapter is not evidence of provider sandbox or production correctness.
+- Accepted partial refunds now create same-state versioned transitions while the order remains `partially_refunded`; this is intentional financial history, not duplicate-state churn.
 
 ## Rollback
 
-The schema is additive and reversible while no downstream consumer has been activated. Disable payments, stop event ingestion, preserve evidence as required, roll back the migration, and remove provider bindings. No wallet, Canary or entitlement rollback is needed because this core does not deliver value.
+Disable payments and provider ingress before application rollback. Preserve provider events, reconciliation records, payment-order transitions and authenticated refund-value columns. Application code can be reverted while payments remain disabled, but populated refund settlement evidence is forward-only and must not be dropped by a migration rollback. No wallet, Canary or entitlement rollback is needed because this core does not deliver value.

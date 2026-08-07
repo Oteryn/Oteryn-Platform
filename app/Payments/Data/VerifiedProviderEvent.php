@@ -5,6 +5,11 @@ namespace App\Payments\Data;
 final readonly class VerifiedProviderEvent
 {
     /**
+     * `amountMinor` is provider-authenticated settlement truth. For
+     * `payment.partially_refunded` it is an incremental refund delta. For
+     * `payment.refunded` it is the cumulative terminal refunded amount and
+     * must equal the immutable payment-order total.
+     *
      * @param  array<string, bool|int|string|null>  $metadata
      */
     public function __construct(
