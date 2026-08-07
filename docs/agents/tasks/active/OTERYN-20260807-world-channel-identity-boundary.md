@@ -104,7 +104,7 @@ proven:
   - current DatabaseWorldRegistry hardcodes channel_id 1 and consumes canary_account_id
   - Oteryn-v2 FND-ID-01 already expects Platform-owned UUIDv7 WorldId and ChannelId with ChannelRef = WorldId + ChannelId
   - owner explicitly accepted the Platform UUIDv7 WorldId/ChannelId and first-class Channel decision on 2026-08-07
-  - ADR 0029 and OTERY N_V2_WORLD_TOPOLOGY_CONTRACT are bounded to architecture semantics and explicitly authorize no runtime/schema/deployment change
+  - ADR 0029 and OTERYN_V2_WORLD_TOPOLOGY_CONTRACT are bounded to architecture semantics and explicitly authorize no runtime/schema/deployment change
   - WORLD_REGISTRY_CONTRACT preserves the delivered compatibility text and only adds a native authority clarification
   - PR 852 changes only the five declared documentation paths
 derived:
