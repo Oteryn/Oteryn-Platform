@@ -21,7 +21,7 @@ Continuously audit every delivered or declared Platform module and surface for t
 
 ```yaml
 programme_state_version: 3
-updated_at: 2026-08-07T08:35:00Z
+updated_at: 2026-08-07T08:44:00Z
 status: ready
 current_cycle: 1
 programme_execution_snapshot:
@@ -37,8 +37,8 @@ last_completed_domain: branch-lifecycle-deletion-safety
 coverage_inventory:
   baseline: docs/agents/evidence/OTERYN-20260803-portal-exhaustive-current-main-audit/
   baseline_merge: cbbd7613cee13cf01931a0ba0f7ac089122132e0
-  latest_audited_main: 021bf44d99de4430b2e054d25872eabfa322eba2
-  selected_delta_domain: branch-lifecycle-deletion-safety
+  latest_audited_main: 17f4d5a0de3f029c036df61d326e369cc53bb0ef
+  selected_delta_domain: main-push-ci-routing
 finding_ledger_semantics: historical_identity_map_not_live_queue
 finding_ledger:
   baseline_owners: [486, 487, 488, 489, 490, 491]
@@ -63,6 +63,7 @@ finding_ledger:
     - OPA-GOV-0017: 583
     - OPA-GOV-0018: 584
     - OPA-GOV-0019: 780
+    - OPA-GOV-0020: 783
 live_queue:
   mode: live_query_required
   exhaustive: false
@@ -81,6 +82,7 @@ proven:
   - OPA-GOV-0017 is proven in Issue #583: completed schema 1.3 architecture proposal PR #332 remains falsely active while downstream PR #338 consumes the contract.
   - OPA-GOV-0018 is proven in Issue #584: completed Cloudflare audit implementation/evidence PRs #409 and #415 retain workflow and tooling ownership while denied live reads remain a legitimate blocker.
   - OPA-GOV-0019 is proven in Issue #780: destructive branch cleanup validates one snapshot and later deletes refs by name without per-entry live SHA/PR/claim/protection revalidation.
+  - OPA-GOV-0020 is proven in Issue #783: docs-only main pushes force all CI gates and full Acceptance, and a newer docs-only main generation cancelled the prior in-progress Acceptance run.
   - Audit PR #781 passed exact-head CI and Agent Governance on a0ba255e721c040c7fcfaaaae8e3593f3fd7557a and merged as f72fafd461f6bd2f41c5a58b975a5532f8e426ef.
   - PR #589 passed all six exact-head workflows on d157341c9ca8fd29c8f2a5e2bbf202fc813ebc1a and merged as 5bb9bf8588dbbb76bba83a8d35a32dea0ffef40b.
   - The branch-lifecycle-deletion-safety audit is archived and owns no paths or leases after its closeout merges.
@@ -96,6 +98,7 @@ derived:
   - Completed audit tooling must release code/workflow ownership while preserving permission-dependent UNKNOWN evidence in a narrow blocked verification record.
   - Compatible lifecycle-only findings should be handed to one bounded reconciliation wave instead of generating one closeout PR and one audit Issue per task.
   - Destructive ref cleanup requires a live guard at deletion time; a reviewed snapshot cannot safely authorize later name-only deletion after mutable branch state changes.
+  - Docs-only heavy-workflow economy currently holds at pull-request time but not after merge to main; main-push routing must preserve the same risk classification without suppressing required product-path validation.
   - A refreshed timestamp or programme version must never preserve a stale exhaustive queue; mutable queue fields remain explicitly live-query-derived.
 unknown:
   - The owner-approved main ruleset, emergency bypass and stable required-check list.
@@ -105,6 +108,7 @@ conflicts:
   - Repository governance requires exact-head CI, audit, E2E and PR closeout while GitHub applies no main-branch enforcement.
   - Agent Governance proves local text validity but not live PR, branch, archive or ownership truth.
   - ADR 0024 requires active/open/ambiguous branches to fail closed, while the current destructive apply loop has a time-of-check/time-of-use gap before ref deletion.
+  - Completed baseline Issue #452 requires docs/task/metadata-only changes not to run unrelated heavy browser/container/application gates, while current main-push CI and Acceptance routing does so.
   - Game Catalog and Cloudflare setup tasks remain active despite terminal setup/evidence PRs and newer programme, consumer or blocker ownership.
 blockers:
   mode: live_query_required
