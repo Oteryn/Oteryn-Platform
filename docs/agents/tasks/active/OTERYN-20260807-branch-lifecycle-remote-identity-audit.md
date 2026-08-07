@@ -51,11 +51,11 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-07T13:04:30Z
-head: 7ae96633871e1d970f22d8de69499adb3d1e6d37
+updated_at: 2026-08-07T13:07:30Z
+head: dfa24083bf99c7d953d25910e2779d8c8279feb4
 branch: audit/OTERYN-20260807-branch-lifecycle-remote-identity
-pr: none
-status: investigating
+pr: 816
+status: validating
 context_routes:
   - continuous-audit
   - ci-build-test
@@ -73,6 +73,7 @@ proven:
   - The CLI accepts and resolves --root but the destructive subprocess is not executed with cwd bound to that root.
   - Existing atomic-delete tests assert the literal origin command and expected-SHA lease behavior but do not cover wrong-CWD or foreign-origin identity.
   - Duplicate search found no actionable Issue for this repository-identity boundary; Issue #815 owns remediation.
+  - PR #816 is the single documentation/evidence delivery for this bounded audit and contains no executable behavior change.
 derived:
   - Safety checks can describe repository A while a successful force-with-lease deletion is executed against repository B selected by local CWD/origin.
 unknown: []
@@ -87,13 +88,14 @@ changed_paths:
   - docs/agents/tasks/active/OTERYN-20260807-branch-lifecycle-remote-identity-audit.md
   - docs/agents/reports/OTERYN-20260807-branch-lifecycle-remote-identity-audit.md
   - docs/agents/evidence/OTERYN-20260807-branch-lifecycle-remote-identity-audit/index.md
+  - docs/agents/programs/OTERYN_PLATFORM_CONTINUOUS_AUDIT.md
 validation:
   - command: current-main destructive-path and focused regression-coverage review
     result: PASS
     evidence: Repository API identity and local git remote/CWD identity are independent in the current code path and no negative identity fixture exists.
 blockers:
   - none
-next_action: Open the single audit PR, record its exact identity in this checkpoint and programme state, then validate exact-head required checks before protected merge.
+next_action: Validate exact-head required checks and review state for PR #816, merge only through protected repository policy, then archive this audit task in lifecycle closeout.
 ```
 
 ## Safety
