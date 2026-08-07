@@ -36,6 +36,7 @@ jobs:
       - name: Validate CI routing contracts
         run: |
           python tests/ci/test_classify_changes.py
+          python tests/ci/test_push_change_routing.py
           python tests/ci/test_required_test_gate.py
           python tests/ci/test_workflow_trigger_economy.py
 
@@ -43,7 +44,7 @@ jobs:
         id: classify
         env:
           EVENT_NAME: ${{ github.event_name }}
-          BASE_SHA: ${{ github.event.pull_request.base.sha || '' }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before || '' }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
         run: |
           if [[ "$EVENT_NAME" == "pull_request" ]]; then
@@ -53,8 +54,9 @@ jobs:
               --github-output "$GITHUB_OUTPUT" \
               --summary "$GITHUB_STEP_SUMMARY"
           else
-            python scripts/ci/classify_changes.py \
-              --all \
+            python scripts/ci/classify_push_changes.py \
+              --base "$BASE_SHA" \
+              --head "$HEAD_SHA" \
               --github-output "$GITHUB_OUTPUT" \
               --summary "$GITHUB_STEP_SUMMARY"
           fi
