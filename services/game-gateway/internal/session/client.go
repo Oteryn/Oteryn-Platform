@@ -148,16 +148,16 @@ var v2ReadinessResponseJSONFields = map[string]struct{}{
 }
 
 type v2ReadinessResponse struct {
-	ContractVersion        int      `json:"contract_version"`
-	Ready                  bool     `json:"ready"`
-	WorldID                int64    `json:"world_id"`
-	ChannelID              uint64   `json:"channel_id"`
-	WorldPolicyRevision    uint64   `json:"world_policy_revision"`
-	EndpointID             string   `json:"endpoint_id"`
-	Audience               string   `json:"audience"`
-	Family                 string   `json:"family"`
-	Profile                string   `json:"profile,omitempty"`
-	NativeProtocolVersion  uint32   `json:"native_protocol_version,omitempty"`
+	ContractVersion        int    `json:"contract_version"`
+	Ready                  bool   `json:"ready"`
+	WorldID                int64  `json:"world_id"`
+	ChannelID              uint64 `json:"channel_id"`
+	WorldPolicyRevision    uint64 `json:"world_policy_revision"`
+	EndpointID             string `json:"endpoint_id"`
+	Audience               string `json:"audience"`
+	Family                 string `json:"family"`
+	Profile                string `json:"profile,omitempty"`
+	NativeProtocolVersion  uint32 `json:"native_protocol_version,omitempty"`
 	profilePresent         bool
 	nativeVersionPresent   bool
 	Transport              string   `json:"transport"`
