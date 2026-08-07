@@ -16,6 +16,8 @@ return new class extends Migration
 
     public function down(): void
     {
-        // Intentionally forward-only: authenticated refund settlement evidence must not be dropped.
+        throw new RuntimeException(
+            'Refund settlement truth is forward-only and cannot be removed by migration rollback.',
+        );
     }
 };
