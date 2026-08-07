@@ -24,7 +24,7 @@ Independently falsify the destructive branch-lifecycle apply path on current `ma
 
 - [x] Live programme ownership, open PRs and material audit/remediation Issues were refreshed before selection.
 - [x] The package is non-overlapping with active Issue #558 ownership.
-- [x] ADR 0024, lifecycle policy, workflow and primary implementation were inspected on `main@021bf44d99de4430b2e054d25872eabfa322eba2`.
+- [x] ADR 0024, lifecycle policy, workflow, primary implementation and focused tests were inspected on `main@021bf44d99de4430b2e054d25872eabfa322eba2`.
 - [x] Destructive apply was checked for stale-SHA, newly opened PR, newly active claim/task and protection/retention race behavior.
 - [x] Confirmed material findings were deduplicated and given one durable remediation Issue.
 - [ ] Exact-head documentation/governance CI passes and this audit task is archived with ownership released.
@@ -52,10 +52,10 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-07T08:28:00Z
+updated_at: 2026-08-07T08:31:00Z
 head: 021bf44d99de4430b2e054d25872eabfa322eba2
 branch: audit/OTERYN-20260807-branch-lifecycle-deletion-safety
-pr: none
+pr: 781
 status: validating
 context_routes:
   - ci
@@ -72,6 +72,7 @@ proven:
   - Issue #558 was independently claimed after PR #542 became terminal, so its Agent Governance paths were excluded from this package.
   - Completed branch-lifecycle implementation Issue #658 and its task have released ownership.
   - apply_manifest validates against one in-memory report and then deletes refs by branch name without a per-entry live revalidation.
+  - Focused tests validate snapshot classification, manifest drift and non-main apply context but contain no race/pre-delete live-state test.
   - OPA-GOV-0019 is recorded as Issue #780 with risk high, priority P1 and implementation authorization.
 derived:
   - A branch can become active or move after inventory and still be deleted later in the same apply loop.
@@ -84,20 +85,25 @@ first_failure:
 rejected_hypotheses:
   - The reviewed manifest hash alone prevents the race; rejected because it binds the earlier snapshot, not state immediately before DELETE.
   - Workflow concurrency prevents branch activity during apply; rejected because it serializes lifecycle workflow runs, not ordinary branch pushes, PR creation or task claims.
+  - Existing focused tests cover the destructive race; rejected because no apply-time ref/PR/claim mutation test exists.
 changed_paths:
   - docs/agents/tasks/active/OTERYN-20260807-branch-lifecycle-deletion-safety-audit.md
   - docs/agents/reports/OTERYN-20260807-branch-lifecycle-deletion-safety-audit.md
   - docs/agents/evidence/OTERYN-20260807-branch-lifecycle-deletion-safety-audit/index.md
+  - docs/agents/programs/OTERYN_PLATFORM_CONTINUOUS_AUDIT.md
 validation:
   - command: primary-source static falsification on main@021bf44d99de4430b2e054d25872eabfa322eba2
     result: PASS
     evidence: issue #780 records exact functions, destructive call path and missing per-entry live guard.
+  - command: tools/agents/test_branch_lifecycle.py source review
+    result: PASS
+    evidence: tests cover classification and manifest snapshot drift, but no apply-time TOCTOU boundary.
   - command: destructive live race reproduction
     result: NOT_APPLICABLE
     evidence: intentionally not performed because creating a real race against repository refs would add destructive risk; deterministic offline regression belongs to remediation acceptance.
 blockers:
   - none
-next_action: Open the documentation-only audit PR, run exact-head governance CI, then archive the audit task and release ownership.
+next_action: Complete exact-head checks for PR #781, then merge the documentation-only audit package and archive this task with ownership released.
 ```
 
 ## Notes
