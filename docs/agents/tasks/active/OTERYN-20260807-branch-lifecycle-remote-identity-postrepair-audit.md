@@ -10,7 +10,7 @@ execution_mode: github_only
 branch: audit/branch-lifecycle-remote-identity-postrepair-20260807
 base_branch: main
 base_sha: 5041a669a811f47fe11b3e6dec0993a28cfa26d7
-pr: none
+pr: 846
 production_activation_authorized: false
 cross_repository_mutation_authorized: false
 required_reads:
@@ -59,23 +59,11 @@ No destructive branch operation, workflow change, product/runtime change or exte
 
 ## Current safety chain
 
-`GitHubClient` now receives an explicit repository root and stores its resolved path as `git_root`. Every git subprocess used by the destructive boundary runs with `cwd=self.git_root`.
+`GitHubClient` receives an explicit repository root and resolves it to `git_root`. Every git subprocess used by the destructive boundary runs with `cwd=self.git_root`.
 
-Before any deletion push, `_validated_git_remote()`:
+Before deletion `_validated_git_remote()` proves the configured root is the actual git worktree root, resolves all push URLs for the configured remote, requires exactly one push URL, accepts only supported GitHub HTTPS/SSH forms, normalizes the URL to `owner/name`, and requires that identity to equal `GitHubClient.repo` case-insensitively.
 
-1. executes `git rev-parse --show-toplevel` under the configured root;
-2. requires the reported worktree root to resolve exactly to `git_root`;
-3. resolves all push URLs for the configured git remote;
-4. requires exactly one push URL;
-5. accepts only supported GitHub HTTPS/SSH forms;
-6. normalizes the URL to `owner/name`;
-7. requires that normalized identity to equal `GitHubClient.repo` case-insensitively.
-
-Only after those checks does `_delete_ref_with_lease()` execute:
-
-`git push --porcelain --force-with-lease=refs/heads/<branch>:<expected_sha> <validated_remote> :refs/heads/<branch>`
-
-The expected SHA must be a full 40-character object ID. A rejected push re-reads the authoritative GitHub ref and distinguishes lease drift, ambiguous missing-ref result and unchanged-ref rejection without treating the failure as success.
+Only then does `_delete_ref_with_lease()` execute an exact `--force-with-lease=refs/heads/<branch>:<expected_sha>` deletion. The expected SHA must be a full 40-character object ID. Push failure is re-read through the authoritative GitHub ref and fails closed on lease drift, ambiguous ref disappearance or unchanged-ref rejection.
 
 ## Negative and boundary evidence
 
@@ -86,15 +74,15 @@ The repair regression suite directly covers:
 - foreign GitHub repository identity rejected before destructive push;
 - configured root differing from the actual git worktree rejected before remote lookup/push;
 - ambiguous multiple push URLs rejected before destructive push;
-- all git subprocesses executing with the configured root as `cwd`;
+- every git subprocess using the configured root as `cwd`;
 - exact expected-SHA force-with-lease deletion semantics;
-- the last-instruction race where the remote ref advances after review and the lease rejects deletion.
+- the last-instruction race where a remote ref advances after review and the lease rejects deletion.
 
-The original Issue #815 mismatch — GitHub API safety reads describing repository A while local `origin`/CWD could delete repository B — is therefore not present in the inspected repaired path.
+The original Issue #815 mismatch — GitHub API safety reads describing repository A while local `origin`/CWD could delete repository B — is therefore absent from the inspected repaired path.
 
 ## Workflow integration
 
-`.github/workflows/branch-lifecycle.yml` runs focused Branch Lifecycle tests and a read-only live inventory on applicable PRs. The protected-main apply lane is separately gated by reviewed candidate approval, rebuilds live evidence, verifies the protected default branch, checks candidate/policy hashes and then invokes the same Branch Lifecycle apply path. This audit does not execute that destructive apply lane.
+`.github/workflows/branch-lifecycle.yml` runs focused Branch Lifecycle tests and a read-only live inventory on applicable PRs. Its protected-main apply lane is separately gated by reviewed candidate approval, rebuilds live evidence, verifies protected `main`, validates candidate/policy hashes and invokes the same apply path. This audit intentionally does not execute destructive apply.
 
 ## Validation evidence
 
@@ -113,7 +101,7 @@ PR #822 exact implementation head `911837bed2daa57be59323395bf0552d67de05a1`:
 No new material finding is proven and no new Issue is created.
 
 - OPA-GOV-0024 / Issue #815 remains the historical identity of the pre-repair remote/CWD authority defect.
-- Issue #793 remains the historical expected-SHA atomicity predecessor; PR #822 preserves its force-with-lease semantics rather than replacing them.
+- Issue #793 remains the expected-SHA atomicity predecessor; PR #822 preserves its force-with-lease semantics.
 - No open Branch Lifecycle audit/repair owner overlaps this post-repair verification.
 
 ## Acceptance inventory
@@ -125,7 +113,7 @@ No new material finding is proven and no new Issue is created.
 - [x] Exact expected-SHA force-with-lease atomicity remains intact.
 - [x] Exact repair-head Branch Lifecycle, CI and Agent Governance evidence passed.
 - [x] No destructive validation and no runtime/tooling fix were performed by this audit.
-- [ ] Exact-head CI / Agent Governance for this audit record pass and PR hygiene is clean.
+- [ ] Exact-head CI / Agent Governance for audit PR #846 pass and PR hygiene is clean.
 - [ ] Lifecycle closeout archives the task and advances programme state.
 
 ## Context checkpoint
@@ -133,12 +121,12 @@ No new material finding is proven and no new Issue is created.
 ```yaml
 checkpoint_version: 1
 policy_version: 2
-updated_at: 2026-08-07T20:18:00+02:00
+updated_at: 2026-08-07T20:20:00+02:00
 invocation_started_at: 2026-08-07T19:51:00+02:00
-last_progress_at: 2026-08-07T20:18:00+02:00
-head: 5041a669a811f47fe11b3e6dec0993a28cfa26d7
+last_progress_at: 2026-08-07T20:20:00+02:00
+head: 4ca732815725246c604ad3cbfe19fdc494013756
 branch: audit/branch-lifecycle-remote-identity-postrepair-20260807
-pr: none
+pr: 846
 status: validating
 phase: final_ci
 execution_mode: github_only
@@ -165,7 +153,7 @@ first_failure:
 rejected_hypotheses:
   - A wrong CWD can still select the destructive git repository; rejected because every git subprocess is bound to git_root and root identity is checked.
   - A foreign GitHub origin with the same branch/SHA can still receive deletion; rejected because normalized remote repository identity must match GitHubClient.repo before push.
-  - The remote-identity repair weakened Issue #793 atomicity; rejected because the exact expected-SHA force-with-lease remains in the destructive command and race regression.
+  - The remote-identity repair weakened Issue #793 atomicity; rejected because exact expected-SHA force-with-lease remains in the destructive command and race regression.
 changed_paths:
   - docs/agents/tasks/active/OTERYN-20260807-branch-lifecycle-remote-identity-postrepair-audit.md
 validation:
@@ -192,7 +180,7 @@ identical_failure_retries: 0
 repair_cycles_for_current_gate: 0
 context_reconstruction_attempts: 0
 stall_warnings: 0
-next_action: open the bounded audit-record PR, bind its numeric identity, require exact-head CI and Agent Governance, then merge and archive if hygiene stays clean
+next_action: mark PR #846 ready, require exact-head CI and Agent Governance, inspect PR hygiene, then merge and archive if clean
 ```
 
 ## Safety
