@@ -1,12 +1,13 @@
 ---
 task_id: OTERYN-20260805-native-protocol-single-version-completion
 coordination_id: OTS-20260804-native-protocol-selection
-status: implementing
+status: validating
+terminal_pr_policy: archive_pending
 agent: ChatGPT
 branch: agents/ots-native-selection-platform-correction-20260804
 base_branch: main
 created: 2026-08-05T12:41:00+02:00
-updated: 2026-08-05T12:41:00+02:00
+updated: 2026-08-07T11:31:00Z
 risk: high
 run_scope: autonomous_program
 continuation_policy: continue_until_real_stop
@@ -98,11 +99,12 @@ The Platform producer phase will explicitly supersede or reconcile stale ownersh
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-05T12:41:00+02:00
-head: b56c2b27ceae5c7798632631b1386d726f2425f7
+updated_at: 2026-08-07T11:31:00Z
+head: eaed70477258e0e1dfb5b03c1e74002913e919dc
 branch: agents/ots-native-selection-platform-correction-20260804
-pr: none
-status: implementing
+pr: 540
+status: validating
+terminal_pr_policy: archive_pending
 context_routes:
   - agent-governance
   - architecture
@@ -115,35 +117,33 @@ owned_paths:
 proven:
   - The canonical completion prompt was read completely from current Platform main.
   - The owner decision requires exactly family oteryn and native protocol version 1 with no native profile field, alias, placeholder or selection mechanism.
-  - No open PR using coordination ID OTS-20260804-native-protocol-selection existed in the three authorized repositories at preflight.
-  - Platform contract and disabled producer work from the earlier programme are merged but still contain the transitional profile dimension.
-  - Otheryn has no active native-protocol owner; its active PRS coordinator owns only its own task record.
-  - Rust protocol-canary ownership is isolated to protocol-canary paths and declares no shared-path lease; protocol-oteryn paths are free.
-  - Production activation is not authorized.
+  - Platform contract correction PR #540 merged from branch agents/ots-native-selection-platform-correction-20260804 at exact source head eaed70477258e0e1dfb5b03c1e74002913e919dc as c0b8703d326a04b43ae8e06f6192b0cb91c859b7.
+  - Later Platform producer work was delivered through separate phase-specific task ownership, including merged PR #542 and its archived producer task; this umbrella record must not keep ownership alive through the retained PR #540 source branch.
+  - Platform contract and disabled producer work from the earlier programme are merged; production activation remains unauthorized.
+  - Otheryn and Rust continuation state must be reconciled from their own current repositories before any claim of whole-programme completion.
 derived:
-  - This programme is a correction and completion of merged transitional work, not a greenfield contract.
-  - Contract and correspondence must merge before runtime producers and consumers.
+  - The PR #540 branch phase is terminal and this task record is archive-pending for that ownership identity.
+  - This archive-pending transition does not claim that the full cross-repository programme is complete; any remaining work must continue through current phase-specific task ownership after fresh live reconciliation.
 unknown:
+  - Exact current terminal/completion state of every Otheryn and Rust phase-specific task.
   - Exact final staging environment availability and protected secret readiness for the bounded E2E phase.
-conflicts:
-  - Stale Platform native-auth task ownership still lists services/game-gateway/** and must be explicitly reconciled before the producer phase.
-  - Otheryn PR #339 touches legacy protocolgame.cpp; native runtime changes must remain isolated or wait for terminal state.
+conflicts: []
 first_failure:
-  marker: none
-  evidence: none
+  marker: stale-branch-only-ownership
+  evidence: Issue #788 validation proved this active task still treated retained terminal PR #540 source branch as BRANCH_ONLY ownership because pr was omitted.
 rejected_hypotheses:
   - Preserve an empty native profile field for future variants.
   - Use oteryn.native.v1 as a native profile.
   - Reuse Canary compatibility profile machinery for the native protocol.
+  - Treat retained PR #540 source-branch existence as current implementation ownership.
 changed_paths:
   - docs/agents/tasks/active/OTERYN-20260805-native-protocol-single-version-completion.md
 validation:
-  - command: live repository, task, ownership, lease and open-PR preflight
+  - command: live GitHub reconciliation of PR #540 and retained source branch under Issue #788 liveness semantics
     result: PASS
-    evidence: three current repositories and their relevant active records and open diffs were inspected before branch creation
-blockers:
-  - none
-next_action: Correct the Platform contract, IDL, migration/rollout documents, correspondence and fixtures on the canonical correction branch.
+    evidence: PR #540 is closed merged, exact source branch/ref/head identity is known, and ownership is explicitly terminal/archive-pending rather than branch-only.
+blockers: []
+next_action: Archive this terminal contract-phase ownership record; continue any remaining native-protocol programme work only through freshly reconciled phase-specific tasks without reusing PR #540 branch ownership.
 ```
 
 ## Recovery checkpoint
@@ -151,26 +151,26 @@ next_action: Correct the Platform contract, IDL, migration/rollout documents, co
 ```yaml
 recovery:
   policy_version: 1
-  generation: 1
+  generation: 2
   session_id: OTS-20260805T1241+0200-platform-contract-correction
   session_started_at: 2026-08-05T12:41:00+02:00
-  checkpointed_at: 2026-08-05T12:41:00+02:00
-  last_progress_at: 2026-08-05T12:41:00+02:00
-  phase: platform-contract-correction
-  exact_head: b56c2b27ceae5c7798632631b1386d726f2425f7
-  pull_request: none
-  active_operation: correct Platform contract and IDL
+  checkpointed_at: 2026-08-07T11:31:00Z
+  last_progress_at: 2026-08-07T11:31:00Z
+  phase: platform-contract-terminal-reconciliation
+  exact_head: eaed70477258e0e1dfb5b03c1e74002913e919dc
+  pull_request: 540
+  active_operation: archive terminal contract-phase ownership identity
   external_run_ids: []
-  operation_started_at: 2026-08-05T12:41:00+02:00
+  operation_started_at: 2026-08-07T11:31:00Z
   wait_deadline_at: null
-  check_generation: draft
+  check_generation: terminal
   checks_used: 0
   status: active
   safe_to_resume: true
-  resume_condition: canonical correction branch exists and no conflicting owner has claimed the correction paths
-  next_action: Correct the Platform contract, IDL, migration/rollout documents, correspondence and fixtures.
+  resume_condition: PR #540 is terminal and the retained branch must not be used as active ownership
+  next_action: Archive this terminal contract-phase ownership record, then reconcile any remaining phase-specific native-protocol tasks from live repository state.
 ```
 
 ## Notes
 
-This task authorizes repository changes and isolated validation only. It does not authorize production deployment, protected-environment approval, production secret mutation or live-data mutation.
+This task authorizes repository changes and isolated validation only. It does not authorize production deployment, protected-environment approval, production secret mutation or live-data mutation. The 2026-08-07 reconciliation changes only durable task ownership truth; it does not claim full cross-repository programme completion.
