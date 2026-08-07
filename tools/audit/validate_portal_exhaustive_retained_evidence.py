@@ -14,15 +14,24 @@ DIGEST_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
 EVIDENCE_RELATIVE = Path("docs/agents/evidence/OTERYN-20260803-portal-exhaustive-current-main-audit")
 
 
-def _collect_source_shas(value: Any, found: set[str]) -> None:
+def _collect_source_shas(
+    value: Any,
+    found: set[str],
+    malformed: list[tuple[str, str]],
+    path: str = "$",
+) -> None:
     if isinstance(value, dict):
         for key, child in value.items():
-            if key in {"exact_sha", "source_sha"} and isinstance(child, str):
-                found.add(child)
-            _collect_source_shas(child, found)
+            child_path = f"{path}.{key}"
+            if key in {"exact_sha", "source_sha"}:
+                if isinstance(child, str):
+                    found.add(child)
+                else:
+                    malformed.append((child_path, type(child).__name__))
+            _collect_source_shas(child, found, malformed, child_path)
     elif isinstance(value, list):
-        for child in value:
-            _collect_source_shas(child, found)
+        for index, child in enumerate(value):
+            _collect_source_shas(child, found, malformed, f"{path}[{index}]")
 
 
 def _valid_positive_int(value: Any) -> bool:
@@ -105,8 +114,13 @@ def validate_retained_evidence(manifest: dict[str, Any], evidence_documents: lis
             errors.append("allowed embedded source SHAs must exactly declare base_generation and strict_source")
 
     observed: set[str] = set()
-    for _name, document in evidence_documents:
-        _collect_source_shas(document, observed)
+    for name, document in evidence_documents:
+        malformed: list[tuple[str, str]] = []
+        _collect_source_shas(document, observed, malformed)
+        for embedded_path, value_type in malformed:
+            errors.append(
+                f"retained evidence {name} contains non-string embedded source SHA at {embedded_path}: {value_type}"
+            )
 
     invalid_observed = sorted(value for value in observed if SHA_RE.fullmatch(value) is None)
     for value in invalid_observed:
