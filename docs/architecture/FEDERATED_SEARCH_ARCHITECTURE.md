@@ -78,17 +78,34 @@ Future PlatformAPI
   -> adapter over the same PublicPortal FederatedSearch application service
 ```
 
-The arrows express application-query dependencies. They do not transfer source ownership into `PublicPortal`.
+The arrows express the **target federated-search application-query dependencies**. They do not transfer source ownership into `PublicPortal` and do not claim that every current homepage/composition dependency already follows this direction.
+
+## Existing compatibility reverse edge
+
+Current repository code contains a pre-existing reverse dependency that must be accounted for before federated-search provider onboarding:
+
+- `app/Announcements/Queries/AnnouncementTickerProvider.php` imports `App\PublicPortal\PublicContentState`;
+- `app/Announcements/ViewModels/AnnouncementTicker.php` imports `App\PublicPortal\PublicContentState`;
+- `app/Events/Queries/UpcomingEventProvider.php` imports `App\PublicPortal\PublicContentState`;
+- `app/Events/ViewModels/UpcomingEventSummary.php` imports `App\PublicPortal\PublicContentState`.
+
+This coupling supports existing homepage composition and predates ADR 0033. It is compatibility debt, not the accepted federated-search dependency direction.
+
+Before `Announcements` or `Events` is added as a federated-search provider, a bounded implementation task must remove that reverse edge. The preferred shape is that each source returns a source-owned application response/availability state and the PublicPortal adapter maps that state into PublicPortal composition/search presentation state. An explicitly neutral existing boundary may be used only if it has genuine cross-module ownership; ADR 0033 does not authorize creating a generic shared dumping-ground module.
+
+The cleanup must preserve existing homepage behavior and tests. Federated search must not deepen the existing cycle by adding `PublicPortal -> Announcements/Events` search dependencies while `Announcements/Events -> PublicPortal` still exists.
 
 ## Provider model
 
 A source participates only through an explicit public provider adapter owned by `PublicPortal` that calls a bounded source-module application query.
 
-Source modules do **not** implement a `PublicPortal` interface directly and do not depend back on `PublicPortal`. This preserves one-way dependency direction:
+The **target** provider dependency direction is:
 
 ```text
 PublicPortal -> source module application interface
 ```
+
+Source modules do **not** implement a `PublicPortal` interface directly and must not depend on PublicPortal search contracts, normalized search-result types or search/presentation view models. Existing non-search reverse imports such as the Announcements/Events `PublicContentState` coupling above are migration prerequisites, not exceptions to the target direction.
 
 The adapter normalizes already-authorized public results. It must not fetch broad private rows and filter them later in the presentation layer.
 
@@ -107,9 +124,13 @@ CMS remains authoritative for publication state, localization and canonical publ
 
 May expose only announcements eligible under the source module's public/search policy. Expired or historical discoverability is a product decision inside the source query contract; PublicPortal must not infer it from dates independently.
 
+**Onboarding prerequisite:** remove the existing Announcements -> PublicPortal `PublicContentState` dependency before adding the PublicPortal -> Announcements federated-search provider edge.
+
 #### `Events`
 
 May expose publicly searchable event records under source-owned lifecycle rules. Cancelled, draft, scheduled and historical behavior remains owned by Events.
+
+**Onboarding prerequisite:** remove the existing Events -> PublicPortal `PublicContentState` dependency before adding the PublicPortal -> Events federated-search provider edge.
 
 #### `Wiki`
 
@@ -282,9 +303,10 @@ A standalone search engine is **not** a prerequisite for the first delivery.
 
 The preferred sequence is:
 
-1. use existing module-owned public application queries and bounded fan-out;
-2. measure latency, result quality, query volume and database cost;
-3. introduce a dedicated derived index only when evidence shows fan-out/local search is insufficient.
+1. remove any reverse module dependency that would create a cycle for the providers selected by the implementation slice;
+2. use module-owned public application queries and bounded fan-out;
+3. measure latency, result quality, query volume and database cost;
+4. introduce a dedicated derived index only when evidence shows fan-out/local search is insufficient.
 
 If a dedicated index is introduced later:
 
@@ -407,7 +429,9 @@ app/PublicPortal/Http/
 resources/views/public/search/
 ```
 
-Provider adapters depend on application/query interfaces from their source modules. They do not import arbitrary Eloquent models across module boundaries.
+Provider adapters depend on application/query interfaces and source-owned response/availability types from their source modules. They do not import arbitrary Eloquent models across module boundaries.
+
+For any provider whose current module already imports PublicPortal composition state, removal of that reverse import is part of the provider-onboarding prerequisite and must be validated before the new PublicPortal -> source search edge is added.
 
 This is a direction, not authorization to refactor unrelated code.
 
@@ -431,6 +455,8 @@ A delivered search surface must prove at least:
 
 If a derived index exists, also prove rebuild, stale generation, deletion/tombstone and rollback/cutover behavior.
 
+Provider onboarding must additionally prove that the resulting module dependency graph has no new `PublicPortal <-> provider` cycle.
+
 ## Explicit non-goals
 
 - replacing source-module search/business rules;
@@ -451,4 +477,5 @@ The architecture is satisfied when:
 - ADR 0033 is accepted;
 - `PublicPortal` ownership in `MODULE_CATALOG.md` reflects federated-search orchestration without claiming implementation;
 - `PORTAL_COMPLETENESS_ARCHITECTURE.md` moves federated content search from unresolved discovery to architecture-accepted/planned implementation;
+- the known Announcements/Events reverse edge is recorded as an implementation prerequisite rather than hidden by the target dependency diagram;
 - Issue #935 is terminal after exact-head self-review, CI, review hygiene, merge and task archival.
