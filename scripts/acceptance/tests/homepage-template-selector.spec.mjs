@@ -49,7 +49,7 @@ test('@portal-homepage-template-selector administrator preview activation rollba
   expect(previewResponse?.headers()['x-robots-tag']).toBe('noindex, nofollow');
   expect(previewResponse?.headers()['cache-control']).toContain('no-store');
   expect(previewResponse?.headers()['cache-control']).toContain('private');
-  await expect(page.locator('body')).toHaveClass(/classic-home-shell/);
+  await expect(page.locator('#main-content')).toHaveClass(/classic-home-shell/);
 
   await page.goto('/admin/portal/homepage');
   const classicCard = page.locator('article').filter({ hasText: 'Classic portal' });
@@ -60,7 +60,7 @@ test('@portal-homepage-template-selector administrator preview activation rollba
   await expect(page.getByRole('status')).toContainText('Homepage template activated.');
 
   await page.goto('/');
-  await expect(page.locator('body')).toHaveClass(/classic-home-shell/);
+  await expect(page.locator('#main-content')).toHaveClass(/classic-home-shell/);
 
   await page.goto('/login?locale=pl');
   await page.goto('/admin/portal/homepage');
@@ -74,5 +74,5 @@ test('@portal-homepage-template-selector administrator preview activation rollba
   await expect(page.getByRole('status')).toContainText('Poprzedni szablon strony głównej został przywrócony.');
 
   await page.goto('/');
-  await expect(page.locator('body')).toHaveClass(/production-home-shell/);
+  await expect(page.locator('#main-content')).toHaveClass(/production-home-shell/);
 });
