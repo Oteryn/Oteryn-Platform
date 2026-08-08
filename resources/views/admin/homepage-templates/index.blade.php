@@ -9,10 +9,6 @@
         <p class="muted">{{ __('homepage_templates.admin.intro') }}</p>
     </div>
 
-    @if (session('status'))
-        <p class="notice" role="status">{{ session('status') }}</p>
-    @endif
-
     @if (session('error'))
         <p class="notice" role="alert">{{ session('error') }}</p>
     @endif
