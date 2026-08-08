@@ -20,9 +20,9 @@ A global search feature creates architecture risk if it becomes:
 
 The current repository also contains a pre-existing compatibility reverse edge: Announcements and Events homepage provider/view-model paths import `App\PublicPortal\PublicContentState`. This predates ADR 0033. Adding PublicPortal -> Announcements/Events federated-search calls without first removing that reverse edge would create a bidirectional module dependency.
 
-Search caching also has a privacy/correctness constraint: distinct normalized queries must never collide into one cached result merely because locale/filter/provider generations match, but the raw query must not be persisted as cache-key material. A plain unkeyed hash is also insufficient privacy protection for common dictionary-recoverable search terms.
+Search caching also has a privacy/correctness constraint: distinct semantic response-shaping requests must never collide into one cached response merely because some dimensions match, while raw query or opaque cursor material must not be persisted as cache-key/log/metric data. Query text alone is not sufficient cache identity because pagination, filters, provider selection, limit, ranking-policy version and source/index generations can all change the returned slice. A plain unkeyed hash is also insufficient privacy protection for common dictionary-recoverable search terms.
 
-The decision must therefore preserve the repository's minimum-module rule while allowing later implementation and API reuse **without hiding current dependency debt or leaking query text through cache identity**.
+The decision must therefore preserve the repository's minimum-module rule while allowing later implementation and API reuse **without hiding current dependency debt or leaking request material through cache identity**.
 
 ## Decision
 
@@ -141,16 +141,19 @@ No specific Elasticsearch/OpenSearch/Meilisearch dependency is accepted by this 
 
 ### 9. Query privacy, cache identity, security and abuse are first-class
 
-Search queries may contain personal or sensitive text.
+Search queries and opaque pagination material may contain personal, sensitive or high-cardinality data.
 
 Therefore:
 
-- raw queries are not metric labels and are not written to ordinary structured logs by default;
-- any result cache includes a privacy-safe, collision-resistant identity for the canonical normalized query in addition to locale, filters, provider selection and provider/index generation;
-- that query identity is a **versioned server-keyed digest**, such as `HMAC-SHA-256(cache-key-secret, normalized-query)`, not the raw term and not an unkeyed/plain hash vulnerable to practical dictionary recovery;
+- raw queries and raw opaque cursors are not metric labels and are not written to ordinary structured logs by default;
+- paginated-result cache correctness is bound to the **entire semantic response-shaping request**, not only the normalized query;
+- a versioned canonical cache-input structure includes normalized query, explicit locale, canonicalized provider/type filters, effective provider set, pagination mode and validated page/opaque cursor value, limit, ranking/grouping policy version and the provider/source/index generation vector required to prevent stale cross-generation reuse;
+- the externally stored cache identity is a **versioned server-keyed digest** of that canonical structure, such as `HMAC-SHA-256(cache-key-secret, canonical-cache-input)`, not raw request text and not an unkeyed/plain hash vulnerable to practical dictionary recovery;
+- semantically different query/page/cursor/limit/filter/provider/ranking-policy/generation inputs cannot intentionally share one paginated `SearchResponse` cache entry;
 - the cache-key secret is managed as application secret material; the key identifier/version participates in the cache namespace so rotation produces a distinct cache generation;
-- query digests are not emitted as ordinary logs or metric labels and are not reused as analytics/user-tracking identifiers;
-- query length, page size and filters are bounded;
+- cache request digests are not emitted as ordinary logs or metric labels and are not reused as analytics/user-tracking identifiers;
+- a future pre-pagination cache is a distinct layer and may exclude pagination only if it caches a complete object before slicing and proves slicing cannot change source/ranking semantics;
+- query length, cursor size, page size and filters are bounded;
 - provider/type filters are server-side allowlists;
 - arbitrary SQL/search-engine query languages and client-selected fields/sorts are rejected;
 - titles/snippets/highlights are rendered safely;
@@ -176,7 +179,7 @@ A future materially different non-portal discovery product may justify extractio
 - exact-name character search is protected from accidental fuzzy enumeration;
 - a later search engine remains replaceable derived infrastructure;
 - existing dependency debt is explicit and cannot be accidentally deepened by provider onboarding;
-- cache correctness distinguishes queries without storing or exposing raw query text as cache identity.
+- cache correctness distinguishes every response-shaping request without storing or exposing raw query/cursor material as cache identity.
 
 ### Costs
 
@@ -184,7 +187,7 @@ A future materially different non-portal discovery product may justify extractio
 - grouped search may initially feel less “globally ranked” than one blended score;
 - partial dependency failure must be designed and tested explicitly;
 - Announcements/Events require a bounded compatibility cleanup before federated-search onboarding;
-- cache implementations require managed keyed-digest secret/version rotation semantics;
+- cache implementations require canonical request serialization plus managed keyed-digest secret/version rotation semantics;
 - future dedicated indexing requires revision/tombstone/generation contracts rather than a simple bulk copy.
 
 ## Rejected alternatives
@@ -221,13 +224,17 @@ Rejected. Adding the opposite federated-search dependency while that compatibili
 
 Rejected. A neutral boundary needs genuine ownership and semantics; generic shared-code extraction is not a substitute for source-owned application responses.
 
-### Use raw query text in result-cache keys
+### Use raw query or opaque cursor material in result-cache keys
 
-Rejected. Search terms can contain personal or sensitive text and should not be persisted as direct cache-key material.
+Rejected. Search/pagination inputs can contain personal or sensitive text and should not be persisted as direct cache-key material.
 
-### Use a plain/unkeyed hash of the query as privacy protection
+### Use a plain/unkeyed hash of request material as privacy protection
 
-Rejected. Common search terms are dictionary-recoverable; a server-keyed versioned digest provides a stronger privacy boundary while retaining deterministic cache isolation.
+Rejected. Common search terms are dictionary-recoverable; a server-keyed versioned digest of the full canonical response-shaping request provides a stronger privacy boundary while retaining deterministic cache isolation.
+
+### Cache a paginated response without page/cursor/limit identity
+
+Rejected. Different response slices could collide and return the wrong page or limit. Pagination may be excluded only by a separately defined pre-pagination cache that slices strictly after retrieval.
 
 ## Implementation and activation limits
 
@@ -240,7 +247,7 @@ This ADR defines architecture only. It does not authorize:
 - private-content indexing;
 - server/client repository access or mutation.
 
-Implementation requires a separate bounded task with exact source contracts, dependency-cycle cleanup for every selected provider that currently imports PublicPortal, cache isolation/privacy and key-rotation tests, state/error coverage, security/rate-limit validation, localization, accessibility/responsive behavior and real exact-head E2E.
+Implementation requires a separate bounded task with exact source contracts, dependency-cycle cleanup for every selected provider that currently imports PublicPortal, full semantic cache-identity/privacy and key-rotation tests, state/error coverage, security/rate-limit validation, localization, accessibility/responsive behavior and real exact-head E2E.
 
 ## Focused architecture
 
