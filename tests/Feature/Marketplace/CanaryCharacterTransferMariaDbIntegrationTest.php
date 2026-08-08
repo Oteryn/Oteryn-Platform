@@ -280,7 +280,7 @@ final class CanaryCharacterTransferMariaDbIntegrationTest extends TestCase
             $operation();
             self::fail('The dedicated character-transfer principal unexpectedly exceeded its privileges.');
         } catch (QueryException) {
-            return;
+            self::addToAssertionCount(1);
         }
     }
 
