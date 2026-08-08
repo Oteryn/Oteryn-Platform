@@ -24,6 +24,7 @@ search_first:
   - open PRs and active branches for native character command/result work
 optional_reads:
   - docs/contracts/CHARACTER_DELETION_CONTRACT.md
+  - docs/contracts/CHARACTER_TRANSFER_CONTRACT.md
 ---
 
 # OTERYN-20260808 native Character Authority command contract
@@ -37,13 +38,15 @@ Define one reusable Platform-side semantic command/result contract for native Ot
 - [x] Common command envelope and result/receipt semantics are explicit.
 - [x] Canonical AccountId/CharacterId and applicable WorldId/ChannelId are used; Canary numeric IDs remain compatibility-only.
 - [x] Stable operation identity, idempotency and conflicting-reuse behavior are defined.
-- [x] Typed terminal/retryable/ambiguous outcomes and reconciliation semantics are defined.
+- [x] Typed terminal/non-terminal/ambiguous outcomes and reconciliation semantics are defined.
 - [x] Oteryn-v2 revalidation and Platform orchestration authority remain separated.
 - [x] Cross-command/session/Bazaar concurrency and mutual-exclusion semantics are explicit without distributed ACID.
 - [x] Per-command profiles cover create, rename, schedule deletion, restore/cancel, finalize deletion, optional world transfer and Bazaar/account ownership transfer.
 - [x] Public projection effects route to the accepted PublicGameData projection/privacy contract rather than creating a second authority.
 - [x] Existing lifecycle routing guide points to the new focused contract.
-- [ ] Exact-head self-review, Agent Governance and repository-selected CI pass.
+- [x] Bazaar ownership transfer preserves authoritative game transfer before wallet settlement.
+- [x] Retryable producer failure remains non-terminal/reconcilable under the same operation identity; terminal rejection permits only a later new semantic attempt after fresh Platform gates.
+- [ ] Exact-head self-review, Agent Governance and repository-selected CI pass on the post-review-repair release candidate.
 - [x] Runtime/browser E2E is `NOT_APPLICABLE`: architecture/documentation-only change with no executable producer, consumer, schema, route or product activation.
 
 ## Ownership
@@ -70,12 +73,12 @@ cross_repository_tasks:
   - none
 ```
 
-## Exact-content self-review
+## Exact-content self-review after review repairs
 
 ```yaml
 self_review:
   result: PASS
-  exact_head: 351d1a54ff047c56da283e7f042d49fcc7cde203
+  exact_head: dd8e35400bf882f79a30f9ff8cecd572673e1fd0
   acceptance_checked: true
   full_diff_checked: true
   negative_paths_checked: true
@@ -85,22 +88,23 @@ self_review:
   findings: []
   evidence:
     - Exactly four intended documentation/task/report paths are changed.
-    - Shared operation identity, idempotency, conflicting reuse, terminal/pending/ambiguous outcome and reconciliation semantics are explicit.
+    - P1 review finding is repaired: funds remain reserved until authoritative Oteryn-v2 ownership transfer COMPLETED, then wallet settlement executes under existing wallet idempotency semantics.
+    - P2 review finding is repaired: terminal REJECTED is distinct from ACCEPTED_PENDING/RETRYABLE_PENDING/AMBIGUOUS, and uncertain operations retain the same operation identity.
+    - Shared operation identity, idempotency, conflicting reuse, terminal/non-terminal result and reconciliation semantics are explicit.
     - Oteryn-v2 remains authoritative for ownership/lifecycle/game-state mutation while Platform remains orchestration/business authority.
-    - Create, rename, deletion/restore/finalization, capability-gated world transfer and Bazaar/account ownership transfer profiles are explicitly bounded.
     - Public projection/privacy routing points to OTERY​N_V2_PUBLIC_GAME_DATA_PROJECTION_CONTRACT rather than creating a second read authority.
     - Canary direct SQL/numeric identifiers remain Legacy Canary Compatibility only; ambiguous native operations cannot fall back blindly to a second authority.
     - No runtime/schema/workflow/deployment/payment/production/external-repository path changed.
 ```
 
-A later task-checkpoint-only commit does not change the reviewed architecture semantics. The final exact-head review will be recorded on PR #920 after this checkpoint establishes the release-candidate head.
+This checkpoint-only commit will become the final validation head without changing the reviewed architecture semantics.
 
 ## Context checkpoint
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-08T19:56:00+02:00
-head: 351d1a54ff047c56da283e7f042d49fcc7cde203
+updated_at: 2026-08-08T20:06:00+02:00
+head: dd8e35400bf882f79a30f9ff8cecd572673e1fd0
 branch: docs/OTERYN-20260808-native-character-command-contract
 pr: 920
 status: validating
@@ -115,13 +119,14 @@ owned_paths:
   - docs/agents/reports/OTERYN-20260808-native-character-command-contract.md
   - docs/agents/tasks/active/OTERYN-20260808-native-character-command-contract.md
 proven:
-  - Issue #919 is the focused P1 owner for the shared native Character Authority command/result semantic boundary.
-  - PR #920 is the single delivery PR for this task.
-  - No other open PR or active branch was found owning this exact shared command/result contract.
-  - Issues #317 and #319 require an accepted game-owned command/result contract before runtime implementation; #320 requires one if world transfer is adopted.
-  - The focused contract now defines shared operation identity, idempotency, typed result, ambiguity/reconciliation, concurrency and per-command profile semantics.
-  - The lifecycle routing guide now routes future native mutation implementations through the focused contract.
-  - Current main base for the delivery diff is f5e56a78e65dfae90b5b8e1694b10e70545de262 and branch was behind_by=0 at content self-review.
+  - Issue #919 and PR #920 are the single focused owner/delivery for the shared native Character Authority command/result boundary.
+  - No other open PR or active branch owns this exact shared contract.
+  - Initial release candidate 95700bbf02316f13891bbadb1a2b35e07c851d5e passed all eight selected workflows but was not merged because review then identified one P1 and one P2 semantic finding.
+  - P1 Bazaar ordering finding is repaired in 585704c3b38dee8eaa28cd1cc12e5780698083f9 and routing follow-up f00001e633c2b14222ccb9a0ae9eb8bc68f4981d.
+  - P2 retryable-failure operation-identity finding is repaired in 585704c3b38dee8eaa28cd1cc12e5780698083f9.
+  - Architecture report records both findings and their dispositions in dd8e35400bf882f79a30f9ff8cecd572673e1fd0.
+  - Both review threads are resolved after verifying the repaired text.
+  - Branch remains behind_by=0 against main at post-repair review.
 derived:
   - #317/#319 can consume one architecture baseline instead of inventing independent cross-system mutation semantics.
   - #320 receives reusable transport-independent semantics without approving the world-transfer product capability.
@@ -132,14 +137,16 @@ unknown:
   - exact native world-transfer product adoption and transfer rules
 conflicts: []
 first_failure:
-  marker: typo-only-status-label
-  evidence: full-diff review found `OTeryn-v2` capitalization in the contract status line; corrected on commit 351d1a54ff047c56da283e7f042d49fcc7cde203 with no semantic change
+  marker: pr-review-semantic-findings
+  evidence: PR #920 review identified P1 Bazaar transfer-before-wallet-settlement ordering and P2 retryable failure operation-identity terminality ambiguity; both are repaired and threads resolved
 rejected_hypotheses:
   - each lifecycle issue should independently invent idempotency and result semantics
   - current Canary SQL contracts should define the native command boundary
   - Platform operation rows or public projections can prove current character ownership or mutation completion
   - operation_id can substitute for service authentication or replay protection
   - ambiguous native mutations may safely fall back to direct Canary/native SQL
+  - wallet settlement may precede authoritative game ownership transfer
+  - retryable_internal_failure can be a terminal rejection while still retrying the same operation as non-terminal
 changed_paths:
   - docs/contracts/OTERYN_V2_CHARACTER_AUTHORITY_COMMAND_CONTRACT.md
   - docs/architecture/character-lifecycle/NATIVE_CHARACTER_LIFECYCLE_AUTHORITY.md
@@ -149,15 +156,21 @@ validation:
   - command: overlap and authority preflight
     result: PASS
     evidence: no overlapping owner found; Issue #919 and PR #920 are the focused owner/delivery
-  - command: exact content-head full-diff architecture self-review
+  - command: initial exact-head workflow generation on 95700bbf02316f13891bbadb1a2b35e07c851d5e
     result: PASS
-    evidence: commit 351d1a54ff047c56da283e7f042d49fcc7cde203 satisfies all semantic acceptance criteria with zero material findings after typo correction
+    evidence: Agent Governance 31270752002, Native protocol contract 31270752040, Native protocol contract audits 31270752018, Game Auth Ticket Concurrency 31270752043, Edge Security Emulation 31270752027, Platform DB Outage Validation 31270752016, CI 31270752009 and Phase 7 Production-Like Validation 31270752010 all passed; later semantic review repairs invalidate this as final merge evidence
+  - command: post-review exact content-head full-diff architecture self-review
+    result: PASS
+    evidence: dd8e35400bf882f79a30f9ff8cecd572673e1fd0 resolves P1/P2 findings with zero remaining material findings in the four-path diff
+  - command: PR #920 review-thread hygiene after repair
+    result: PASS
+    evidence: both P1/P2 review threads resolved after repaired text verification
   - command: runtime/browser E2E
     result: NOT_APPLICABLE
     evidence: architecture/documentation-only task with no executable producer, consumer, schema, route or product activation
 blockers:
   - none
-next_action: Mark PR #920 ready, run repository-selected exact-head CI on the resulting release-candidate head, and merge only after all required checks plus final review hygiene pass.
+next_action: Observe repository-selected CI on the new checkpoint release-candidate head, repair any exact-head failure, and merge only after all required checks pass and review hygiene remains clean.
 ```
 
 ## Recovery checkpoint
@@ -165,24 +178,24 @@ next_action: Mark PR #920 ready, run repository-selected exact-head CI on the re
 ```yaml
 recovery:
   policy_version: 1
-  generation: 1
+  generation: 2
   session_id: chatgpt-20260808T1948+0200-issue-919
   session_started_at: 2026-08-08T19:48:00+02:00
-  checkpointed_at: 2026-08-08T19:56:00+02:00
-  last_progress_at: 2026-08-08T19:56:00+02:00
+  checkpointed_at: 2026-08-08T20:06:00+02:00
+  last_progress_at: 2026-08-08T20:06:00+02:00
   phase: validate
-  exact_head: 351d1a54ff047c56da283e7f042d49fcc7cde203
+  exact_head: dd8e35400bf882f79a30f9ff8cecd572673e1fd0
   pull_request: 920
-  active_operation: prepare exact-head PR validation
+  active_operation: final exact-head CI after review repairs
   external_run_ids: []
-  operation_started_at: null
-  wait_deadline_at: null
-  check_generation: ready
+  operation_started_at: 2026-08-08T20:06:00+02:00
+  wait_deadline_at: 2026-08-08T20:51:00+02:00
+  check_generation: post-review-repair-ready
   checks_used: 0
   status: ready
   safe_to_resume: true
-  resume_condition: PR #920 release-candidate head is ready for repository-selected CI
-  next_action: Mark PR #920 ready and observe the first aggregate exact-head workflow state.
+  resume_condition: GitHub Actions emits repository-selected checks for the post-review-repair release candidate
+  next_action: Observe one aggregate PR/head workflow snapshot and proceed to merge only if the final unchanged head is fully green and review hygiene remains clean.
 ```
 
 ## Notes
