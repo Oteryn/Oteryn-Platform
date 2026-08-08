@@ -1,0 +1,54 @@
+{
+  "surfaces": [
+    {
+      "id": "admin.homepage-template-selector",
+      "kind": "rendered",
+      "critical": false,
+      "evidence": [
+        {
+          "id": "selector-desktop",
+          "file": "scripts/acceptance/tests/homepage-template-selector.spec.mjs",
+          "markers": [
+            "@portal-homepage-template-selector administrator preview activation rollback localization responsive layout keyboard and cache controls",
+            "{ width: 1440, height: 1000 }"
+          ]
+        },
+        {
+          "id": "selector-tablet",
+          "file": "scripts/acceptance/tests/homepage-template-selector.spec.mjs",
+          "markers": [
+            "@portal-homepage-template-selector administrator preview activation rollback localization responsive layout keyboard and cache controls",
+            "{ width: 820, height: 1180 }"
+          ]
+        },
+        {
+          "id": "selector-mobile",
+          "file": "scripts/acceptance/tests/homepage-template-selector.spec.mjs",
+          "markers": [
+            "@portal-homepage-template-selector administrator preview activation rollback localization responsive layout keyboard and cache controls",
+            "{ width: 390, height: 844 }"
+          ]
+        },
+        {
+          "id": "selector-browser",
+          "file": "scripts/acceptance/tests/homepage-template-selector.spec.mjs",
+          "markers": [
+            "@portal-homepage-template-selector administrator preview activation rollback localization responsive layout keyboard and cache controls"
+          ]
+        }
+      ],
+      "viewports": {
+        "desktop-1440x1000": {"profile": "standard-primary", "project": "chromium-primary", "mode": "test-controlled", "evidence": "selector-desktop"},
+        "tablet-820x1180": {"profile": "standard-primary", "project": "chromium-primary", "mode": "test-controlled", "evidence": "selector-tablet"},
+        "mobile-390x844": {"profile": "standard-primary", "project": "chromium-primary", "mode": "test-controlled", "evidence": "selector-mobile"}
+      },
+      "browsers": {
+        "chromium-primary": {"profile": "standard-primary", "projects": ["chromium-primary"], "evidence": "selector-browser"}
+      },
+      "portability": {
+        "status": "excluded",
+        "rationale": "The selector is a privileged bounded two-template administrator mutation surface; Firefox and WebKit expansion is not required by Issue #244, while authorization, concurrency, rollback and fail-closed selection are independently covered below the browser layer."
+      }
+    }
+  ]
+}

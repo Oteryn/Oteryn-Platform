@@ -1,0 +1,79 @@
+{
+  "surfaces": [
+    {
+      "id": "admin.homepage-template-selector",
+      "owner": "PublicPortal / Admin",
+      "status": "covered",
+      "route_names": [
+        "admin.homepage-templates.index",
+        "admin.homepage-templates.preview",
+        "admin.homepage-templates.activate",
+        "admin.homepage-templates.rollback"
+      ],
+      "roles": [
+        "guest",
+        "authenticated-no-mfa",
+        "mfa-confirmed-no-permission",
+        "mfa-confirmed-portal-settings-manager"
+      ],
+      "states": [
+        "production-default",
+        "approved-preview",
+        "activation-success",
+        "invalid-template-validation",
+        "stale-version-conflict",
+        "rollback-success",
+        "removed-key-safe-fallback",
+        "permission-denied",
+        "localized-en",
+        "localized-pl"
+      ],
+      "viewports": [
+        "desktop-1440x1000",
+        "tablet-820x1180",
+        "mobile-390x844"
+      ],
+      "browsers": [
+        "chromium-primary"
+      ],
+      "evidence_layers": [
+        "feature",
+        "database-integration",
+        "authorization",
+        "localization",
+        "responsive",
+        "accessibility",
+        "playwright"
+      ],
+      "evidence": [
+        {
+          "file": "tests/Feature/HomepageTemplates/HomepageTemplateSelectorTest.php",
+          "markers": [
+            "test_production_template_is_the_default_and_public_design_gallery_stays_removed",
+            "test_selector_requires_authentication_mfa_and_the_exact_permission",
+            "test_approved_preview_is_private_noindex_and_does_not_mutate_public_selection",
+            "test_activation_is_versioned_audited_and_changes_only_to_a_registered_template",
+            "test_unregistered_template_is_rejected_server_side",
+            "test_stale_activation_is_rejected_without_overwriting_newer_state",
+            "test_rollback_swaps_the_approved_templates_and_is_audited",
+            "test_removed_template_key_falls_back_publicly_and_warns_the_administrator",
+            "test_selector_has_polish_localization"
+          ]
+        },
+        {
+          "file": "tests/Feature/HomepageTemplates/HomepageTemplateMigrationTest.php",
+          "markers": [
+            "test_migration_seeds_the_existing_production_home_without_activating_an_alternative"
+          ]
+        },
+        {
+          "file": "scripts/acceptance/tests/homepage-template-selector.spec.mjs",
+          "markers": [
+            "@portal-homepage-template-selector administrator preview activation rollback localization responsive layout keyboard and cache controls"
+          ]
+        }
+      ],
+      "gaps": []
+    }
+  ]
+}

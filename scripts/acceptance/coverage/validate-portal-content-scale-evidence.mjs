@@ -49,6 +49,28 @@ function loadPortalManifestSurfaces(repoRoot) {
   return surfaces;
 }
 
+function loadSurfaceClassifications(repoRoot, baseRecords) {
+  const records = { ...(baseRecords ?? {}) };
+  const fragmentRoot = path.join(repoRoot, 'docs/testing/portal-content-scale-surfaces');
+  if (!fs.existsSync(fragmentRoot)) return records;
+
+  for (const name of fs.readdirSync(fragmentRoot).filter((entry) => entry.endsWith('.json')).sort()) {
+    const fragment = readJson(path.join(fragmentRoot, name));
+    const fragmentRecords = fragment?.surfaces;
+    if (!fragmentRecords || typeof fragmentRecords !== 'object' || Array.isArray(fragmentRecords)) {
+      throw new Error(`Content scale fragment ${name} must define a surfaces object.`);
+    }
+    for (const [id, record] of Object.entries(fragmentRecords)) {
+      if (Object.prototype.hasOwnProperty.call(records, id)) {
+        throw new Error(`Duplicate content scale classification across base and fragments: ${id}`);
+      }
+      records[id] = record;
+    }
+  }
+
+  return records;
+}
+
 function validateProfile(repoRoot, id, profile, packageScripts, errors) {
   const owner = `content scale profile ${id}`;
   if (!nonEmpty(profile?.npm_profile) || !nonEmpty(packageScripts?.[profile.npm_profile])) errors.push(`${owner} references unknown npm profile ${JSON.stringify(profile?.npm_profile)}.`);
@@ -165,8 +187,10 @@ export function validatePortalContentScaleEvidence({ contract, manifestSurfaces,
 
 export function loadRepositoryInputs(repoRoot = defaultRepoRoot) {
   const packageJson = readJson(path.join(repoRoot, 'scripts/acceptance/package.json'));
+  const contract = readJson(path.join(repoRoot, 'docs/testing/PORTAL_CONTENT_SCALE_EVIDENCE.json'));
+  contract.surfaces = loadSurfaceClassifications(repoRoot, contract.surfaces);
   return {
-    contract: readJson(path.join(repoRoot, 'docs/testing/PORTAL_CONTENT_SCALE_EVIDENCE.json')),
+    contract,
     manifestSurfaces: loadPortalManifestSurfaces(repoRoot),
     packageScripts: packageJson.scripts ?? {},
     repoRoot,

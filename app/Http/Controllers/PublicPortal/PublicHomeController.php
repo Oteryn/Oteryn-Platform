@@ -3,16 +3,24 @@
 namespace App\Http\Controllers\PublicPortal;
 
 use App\PublicPortal\HomePageQuery;
-use Illuminate\Contracts\View\View;
+use App\PublicPortal\HomepageTemplates\HomepageTemplateRegistry;
+use App\PublicPortal\HomepageTemplates\HomepageTemplateStore;
+use Illuminate\View\View;
 
 final readonly class PublicHomeController
 {
-    public function __construct(private HomePageQuery $homePage) {}
+    public function __construct(
+        private HomePageQuery $query,
+        private HomepageTemplateRegistry $templates,
+        private HomepageTemplateStore $templateStore,
+    ) {}
 
     public function __invoke(): View
     {
-        return view('home', [
-            'homePage' => $this->homePage->get(),
+        $snapshot = $this->templateStore->snapshot();
+
+        return view($this->templates->view($snapshot->activeKey), [
+            'homePage' => $this->query->get(),
         ]);
     }
 }

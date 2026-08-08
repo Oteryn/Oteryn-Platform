@@ -1,0 +1,8 @@
+{
+  "surfaces": {
+    "admin.homepage-template-selector": {
+      "classification": "not_applicable",
+      "rationale": "Homepage template administration renders a bounded code-owned template allowlist, scalar version state and fixed controls; it has no independently managed long body or paginated large collection."
+    }
+  }
+}
