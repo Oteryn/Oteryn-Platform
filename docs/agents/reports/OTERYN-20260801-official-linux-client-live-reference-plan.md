@@ -1,210 +1,181 @@
 # Official Tibia Linux client live-reference plan
 
+## Status
+
+`HISTORICAL RESEARCH PLAN / CURRENT AUTHORITY RECONCILED / LIVE EXECUTION NOT READY`
+
+This plan preserves the safe research design and synthetic harness delivered on historical PR #391. It no longer treats historical `blakinio/otclient` or Canary as the current native implementation target.
+
+Current native authority is governed by ADR 0031:
+
+- Oteryn Platform owns Identity, OAuth/PKCE, Game Login Ticket, Gateway pre-admission/routing and Platform-side interoperability workflow;
+- `blakinio/Oteryn-v2` owns the native Rust client, native game server and `protocol-oteryn` implementation authority;
+- historical OTClient, Canary and official Tibia behavior are reference/compatibility evidence only.
+
+The live official service remains a reference system, never an implementation or architecture authority.
+
 ## Purpose
 
-This plan corrects the gap left by the completed static audit. The required capability is not merely to understand the Linux binary statically, but to run the unmodified official client in a controlled Linux environment, authenticate with the repository owner's account through a non-logged mechanism, enter a bounded official-game session, and turn the observed behavior into implementable compatibility requirements for the project-owned OTClient/Oteryn/Canary stack.
+Preserve a bounded capability to observe the lawfully obtained, unmodified official Tibia Linux client under strict owner authorization and convert safe observations into evidence for current Oteryn architecture.
 
-The live official service is a reference system only. The target of implementation is the project-owned OTS.
+The capability is intentionally separated into:
+
+1. synthetic/no-network harness validation;
+2. official package/component validation without authentication;
+3. owner-gated bounded live observation;
+4. evidence classification and current-authority handoff.
+
+Only phase 1 is proven. Phases 2 and 3 remain blocked.
 
 ## Safety and authorization boundary
 
-Authorized:
+Authorized only after its phase-specific gates are satisfied:
 
-- launch the lawfully obtained, unmodified official Linux client;
+- launch the unmodified official Linux client;
 - use only an account owned and explicitly designated by the repository owner;
-- perform one bounded login/world-entry observation session and later owner-approved repetitions when a specific evidence gap requires them;
-- collect local process, graphical, timing, filesystem and network evidence on the researcher's own host;
-- compare observed behavior with project-owned source and services;
-- build private research tooling and redacted interoperability fixtures.
+- authenticate only through manual local entry or another approved non-logged ephemeral mechanism;
+- collect bounded local process/window/timing/filesystem/network metadata without modifying, decrypting, injecting into or replaying official traffic;
+- retain raw sensitive evidence only on a private encrypted volume outside Git;
+- publish only redacted text evidence, hashes and non-sensitive manifests.
 
-Not authorized:
+Never authorized:
 
-- modifying, patching, hooking or injecting into the official client or BattlEye;
-- bypassing anti-cheat, route policy, authentication or server controls;
-- automating gameplay, farming, combat, interaction with other players or persistence on the official service;
-- extracting or redistributing proprietary client binaries or assets;
-- publishing credentials, account identifiers, session tokens, raw sensitive payloads or reusable bypass material;
-- treating TCP reachability or one accepted session as proof of complete protocol compatibility.
+- patching, hooking, injection, process-memory modification or BattlEye/anti-cheat bypass;
+- traffic modification, credential interception, replay or protocol abuse;
+- gameplay automation, farming, combat, trade or interaction with other players;
+- redistribution of official binaries/assets;
+- storing credentials/session material in ChatGPT, GitHub, shell arguments, ordinary environment variables, logs or artifacts;
+- converting one observed official session into a claim of complete Oteryn-v2 compatibility.
 
-## Recommended environment
+## Research environment
 
-Use a dedicated Linux x86-64 research host or VM with an interactive graphical session and no access to Oteryn staging or production secrets.
+Preferred future environment:
 
-Preferred properties:
-
-- disposable OS image or snapshot;
+- dedicated interactive Linux x86-64 research host;
+- disposable/snapshotted OS where practical;
 - dedicated non-privileged user;
-- encrypted evidence volume mounted outside the Git checkout;
-- outbound network access limited to package dependencies and the official client endpoints required for the test;
+- encrypted private evidence volume outside Git;
+- no Oteryn staging/production secrets;
 - no inbound exposure;
-- screen recording and packet capture disabled by default and enabled only for an approved session;
-- automatic cleanup of temporary home, cache, environment and history files;
-- a separate label such as `oteryn-research`, not the staging runner label, if GitHub Actions orchestration is used.
+- bounded outbound connectivity only for the approved official component/session phase;
+- deterministic cleanup of temporary profile/history state.
 
-Whether BattlEye permits the chosen VM/headless setup is `UNKNOWN` until Phase 1. Do not attempt to work around a refusal. Move to a normal interactive Linux host if necessary.
+Historical WSL2/WSLg evidence proves the synthetic harness can exercise graphical lifecycle and network isolation. It does **not** prove the official client or BattlEye accepts virtualization. A refusal must not be worked around.
 
 ## Credential handling
 
-The repository owner must not paste the account password or authenticator code into ChatGPT, GitHub, a task file, a PR, an issue, workflow input, command line or shell history.
+The owner must never paste a password, authenticator code or reusable session material into ChatGPT, GitHub, task/PR/issue text, workflow input, command line or shell history.
 
-Acceptable mechanisms, in priority order:
+Acceptable mechanisms, in preference order:
 
-1. manual credential entry directly into the official client on the research desktop;
-2. a local interactive secret prompt whose value is passed only through a private pipe or protected temporary descriptor and is never echoed, logged or retained;
-3. an owner-created secret in a dedicated protected local secret store, consumed only on the isolated host and deleted/revoked after the session.
+1. manual entry directly into the official client;
+2. local interactive secret prompt using a private pipe/protected descriptor with no logging/retention;
+3. owner-created temporary local secret-store entry that is deleted/revoked after use.
 
-Credentials must not be placed in process arguments or ordinary environment variables visible through process inspection. The harness must prove cleanup after dry-run and after live execution.
+The harness must fail closed if secret-like material appears in configuration, process arguments, retained outputs or tracked files.
 
-## Harness architecture
+## Preserved harness architecture
 
-The implementation should remain small and inspectable.
+The existing PR #391 harness is preserved unchanged by Issue #886.
 
 ### Preflight
 
-Responsibilities:
-
-- verify OS, architecture, display/session and required libraries;
-- verify official package and executable hash/version/Build ID;
-- verify the evidence volume is encrypted/private and outside Git;
-- verify no tracing mode or command echo is enabled;
-- verify the session ID and retention deadline;
-- refuse to start if credentials appear in configuration, environment, arguments or tracked files;
-- record a redacted preflight manifest.
+- verifies Linux/display/runtime conditions;
+- verifies exact package/executable hash and ELF Build ID before official launch;
+- requires encrypted/private evidence storage outside Git;
+- rejects tracing/injection indicators and unsafe secret exposure;
+- records only redacted preflight metadata.
 
 ### Launcher
 
-Responsibilities:
+- launches the exact unmodified client or deterministic fake client;
+- never modifies/preloads/debugs/injects into the official process;
+- supports no-network fake-client dry run;
+- official component mode forbids authentication and outbound connectivity until its gate is satisfied.
 
-- launch the exact unmodified client as a dedicated user;
-- never alter, preload, wrap, inject or debug the client/BattlEye process;
-- expose manual or protected interactive authentication;
-- track process/window lifecycle and exit status;
-- stop on unexpected modification/anti-cheat warnings;
-- support a fake-client dry-run mode without official network access.
+### Evidence / redaction / cleanup
 
-### Evidence collector
+Allowed evidence is bounded process/window/timing/endpoint metadata, local file inventory and owner-approved observations. Raw captures/screenshots, if later explicitly enabled, remain private.
 
-Allowed evidence:
+Before anything leaves private storage, scan for credentials, account/character identifiers, session/token material, raw payloads and unnecessarily identifying local paths. Cleanup must prove temporary secrets/processes/files are gone and Git-visible outputs remain clean.
 
-- monotonic and wall-clock timestamps;
-- process start/exit and window-state transitions;
-- executable/library hashes and package metadata;
-- redacted screenshots or screen recording when explicitly enabled;
-- network endpoint tuples, connection timing, sizes and packet captures stored only on the private volume;
-- local filesystem change inventory limited to the dedicated research profile;
-- user-approved observation notes.
+## Phase gates
 
-The collector must not decrypt, modify, replay or inject official traffic. Raw captures remain private. GitHub receives only a redacted timeline, hashes and high-level observations.
+### Phase 1 — synthetic/no-network harness
 
-### Redactor and leak scanner
+`PROVEN`
 
-Before any output leaves the private volume, scan for:
+Historical branch evidence demonstrated a graphical fake client in a distinct loopback-only network namespace, denied reserved-address connection, synthetic secret scanning, manifest validation and deterministic cleanup without contacting the official service.
 
-- email/login/account identifiers;
-- character names unless replaced by an approved alias;
-- passwords and authenticator codes;
-- cookies, session keys, authorization headers and token-like values;
-- command lines and environment dumps;
-- raw packet payloads;
-- local host/user paths that identify the owner unnecessarily.
+### Phase 2 — exact official component, no authentication
 
-A redacted artifact is publishable only after the leak scan passes.
+`BLOCKED`
 
-### Cleanup verifier
+Requires all of:
 
-The verifier must confirm:
+- provably encrypted private evidence storage;
+- exact owner-approved official package path and expected identity;
+- dedicated accepted research environment;
+- unmodified official client/BattlEye launch without bypass;
+- authentication disabled for this gate.
 
-- client and capture processes stopped;
-- protected temporary descriptors/files removed;
-- shell/history files contain no secret material;
-- temporary client profile handling matches the retention policy;
-- raw evidence remains only in the declared private location;
-- owner-created temporary secrets are deleted or revoked;
-- Git working tree and GitHub-visible outputs contain no sensitive material.
+### Phase 3 — bounded owner-gated live observation
 
-## Observation script
+`BLOCKED`
 
-The first live session is intentionally small:
+Requires Phase 2 plus owner-supplied local account/character selection, secure manual/ephemeral credential entry and an exact minimal observation script. Stop on any anti-cheat/account-security warning or evidence-risk expansion.
 
-1. start capture and record the verified client identity;
-2. launch the official client;
-3. authenticate using the approved mechanism;
-4. observe account login and character-list presentation;
-5. enter the designated research character;
-6. remain stationary until initial world state stabilizes;
-7. record the visible map viewport, player/creature state, statistics, inventory and UI state without asset extraction;
-8. perform only separately approved normal-client actions required to distinguish a specific state transition, preferably manually;
-9. log out through the normal client flow;
-10. stop capture, redact, scan and clean up.
+### Phase 4 — analyze and hand off
 
-No combat, trading, chat, automation, repeated movement route, interaction with other players or long-running observation belongs in the first session.
+Classify every result as `PROVEN`, `DERIVED`, `UNKNOWN` or `CONFLICT`.
 
-## Evidence-to-OTS mapping
+Current handoff matrix:
 
-The live report must map observations into these independent domains:
-
-| Domain | Live evidence target | Expected follow-up owner |
+| Observation domain | Current implementation/follow-up authority | Reference-only evidence |
 |---|---|---|
-| Login service | account login, world/character selection, errors and transitions | Oteryn Platform / gateway |
-| Game transport | route selection, connection lifecycle, framing boundaries observable without bypass | OTClient and Canary protocol owners |
-| Initial world state | map viewport, player placement, creatures and known tiles | OTClient + Canary |
-| Player state | health, mana, level, skills, conditions and statistics | OTClient + Canary |
-| Inventory/equipment | visible slots, containers and item-state transitions | OTClient + Canary |
-| UI state | messages, dialogs and client state changes relevant to protocol behavior | OTClient |
-| Secondary connection | whether and when a second route is used, without defeating protection | OTClient + Canary |
+| Identity/login/ticket/Gateway routing | Oteryn Platform | official client behavior, historical login/Canary paths |
+| Native Rust client | Oteryn-v2 | historical `blakinio/otclient`, official client behavior |
+| Native gameplay protocol | Oteryn-v2 | Canary/Tibia protocol observations |
+| Native game/world state | Oteryn-v2 | Canary runtime/content observations |
+| Legacy compatibility | separately authorized compatibility task | OTClient/Canary/Tibia evidence |
 
-For every row, separate:
+No external repository is modified by this task. A cross-repository implementation follow-up requires separate authorization in the owning repository.
 
-- `PROVEN`: directly observed and timestamped;
-- `DERIVED`: explicit inference from proven observations;
-- `UNKNOWN`: not visible or not safely testable;
-- `CONFLICT`: live evidence disagrees with static analysis or current project behavior.
+## Evidence-to-Oteryn rules
 
-## Deliverables
+- Official observations may reveal behavior to investigate; they do not define Oteryn-v2 architecture by themselves.
+- Historical OTClient and Canary source may explain compatibility behavior; they do not supersede Oteryn-v2 native authority.
+- Platform documents only Platform-owned Identity/Gateway/control-plane requirements and references native game/client authority rather than duplicating it.
+- No raw official packet payload or protected implementation detail is required to state a safe behavioral gap.
+- Unknown or unsafe-to-observe behavior remains `UNKNOWN`; do not fill it with assumptions.
 
-Expected repository outputs:
+## Deliverables retained on historical PR #391
 
 - `tools/tibia-linux-reference/README.md`;
-- bounded launcher/preflight/collector/redactor/cleanup tooling;
-- deterministic fake-client dry-run tests;
-- `docs/agents/reports/OTERYN-20260801-official-linux-client-live-observation.md`;
-- redacted session manifest schema and example using synthetic values;
-- compatibility-gap matrix;
-- follow-up task proposals for each independently owned implementation domain.
+- bounded preflight/launcher/redaction/cleanup tooling;
+- deterministic fake-client tests;
+- redacted session-manifest schema/example;
+- Linux workflow;
+- this plan;
+- `docs/agents/reports/OTERYN-20260801-official-linux-client-live-observation.md`.
 
-Private-only outputs:
+The harness/workflow are not modified by Issue #886.
 
-- official client package and binaries;
-- raw packet capture;
-- unredacted screenshots/video;
-- detailed local runtime logs;
-- any account/session identifiers;
-- temporary client profile where retention is justified.
+## Current readiness decision
 
-## Stop and escalation rules
+`external_service_execution_ready = false`
 
-Stop immediately when:
+Current decisive blockers remain:
 
-- the environment requires client/BattlEye modification to proceed;
-- credentials or session material may have leaked;
-- the official service shows an anti-cheat, account-security or unusual authorization warning;
-- the requested observation would become gameplay automation or affect another player;
-- the first decisive login failure is captured and a cheap local cause has not yet been isolated;
-- ownership expands into OTClient or Canary source changes before the evidence package is complete;
-- a material product, legal, account-risk or safety decision requires the owner.
+- encrypted evidence storage is not proven;
+- exact approved official package identity is unavailable;
+- unmodified official component/BattlEye launch has not been proven;
+- no current owner-gated live session is authorized for a specific native-v2 evidence gap.
 
-The worker checkpoints and exits instead of waiting for credentials or keeping a live session open.
+Therefore no official-service authentication or live session is performed as part of the authority reconciliation.
 
-## Local-harness-readiness checkpoint (2026-08-01)
+## PR #391 disposition
 
-The compact Python harness, schema/example, unit suite and Linux workflow are implemented under the
-declared owned paths. A WSL2/WSLg fake-client run proved the graphical lifecycle, distinct
-loopback-only network namespace, denied reserved-address connection, exact synthetic-secret scan and
-cleanup behavior without contacting the official service.
+PR #391 is a historical research branch whose unique harness remains recoverable from Git. It must not be merged from its old base merely to preserve that work.
 
-This phase remains fail-closed with `external_service_execution_ready: false` because the current
-worker cannot prove host-volume encryption, the private official package and approved package hash
-are unavailable, and the official client/BattlEye component launch has therefore not run. The next
-phase must use a dedicated interactive Linux host with a provably encrypted private volume and the
-owner-approved exact package identity; it must run only the no-authentication component gate before
-any separate owner-gated live authorization.
+After the Issue #886 documentation reconciliation, close PR #391 as superseded. If live-reference research is resumed later, open a fresh task/PR from then-current `main`, revalidate the harness pieces deliberately, and route native findings to Oteryn-v2 while keeping Platform findings in Oteryn-Platform.
