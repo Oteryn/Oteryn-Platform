@@ -51,11 +51,15 @@ The safe remediation is not to erase Canary evidence. It is to reconcile the bac
 - Issues #876, #877 and #885 plus PR #541 retain their independent infrastructure/edge/lifecycle ownership.
 - No existing open finding owned this exact cross-issue character-lifecycle authority contradiction before #890.
 
-A mistaken empty duplicate Issue #891 was created during audit bookkeeping and was immediately closed with `state_reason=duplicate`; canonical ownership remains Issue #890.
+A mistaken empty duplicate Issue #891 was created during audit bookkeeping and immediately closed with `state_reason=duplicate`; canonical ownership remains Issue #890.
+
+## Validation history
+
+The initial PR #892 candidate head `2e895e0a31df22f3ea9f5a4c66c016339913b284` passed repository CI run `31246885615`. Agent Governance run `31246885567` failed only at live task liveness because the task checkpoint still recorded `pr: pending` after PR #892 had already been opened. The checkpoint schema tests themselves passed. The task was corrected to `pr: 892`; this bookkeeping failure does not change the finding or its evidence.
 
 ## Validation disposition
 
 - Runtime/application build: `NOT_APPLICABLE` — no executable behavior changed.
 - Browser/runtime E2E: `NOT_APPLICABLE`.
 - External repositories: read-only evidence only; no mutation.
-- Required final evidence: exact-head Agent Governance, repository-selected CI, complete three-path diff review, zero unresolved review threads, merge and lifecycle closeout.
+- Required final evidence: corrected exact-head Agent Governance, repository-selected CI, complete three-path diff review, zero unresolved review threads, merge and lifecycle closeout.
