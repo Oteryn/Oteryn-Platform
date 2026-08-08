@@ -68,8 +68,8 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-08T06:32:00Z
-head: 2f55560dc91473994eeb8c3f5a8f0e9c5dfb534e
+updated_at: 2026-08-08T06:35:00Z
+head: b6fc4f7a49b9acb2887d631010ced46d5cba2649
 branch: docs/OTERYN-20260808-native-runtime-status-boundary
 pr: 881
 status: validating
@@ -91,6 +91,7 @@ proven:
   - MODULE_CATALOG.md assigns authoritative time-sensitive world/service status plus freshness to planned LiveOps and forbids fabricated offline/zero state.
   - Read-only Oteryn-v2 ADR-0009 defines separate GameNode health/readiness/capacity, Channel lifecycle and fail-closed routing after unhealthy/suspected runtime state while deferring exact OPS-CHANNEL-01 producer details.
   - Candidate PR 881 adds an accepted Platform consumer semantic boundary and reconciles World Registry plus the focused v2 architecture without implementing or inventing the external producer.
+  - Candidate self-review removed a stale implication that the historical Platform Game Session v2/native producer remained current native authority; it is now explicitly historical/disabled reconciliation evidence.
 derived:
   - The P1 Platform-side runtime-status architecture gap is resolved by existing authority; exact Oteryn-v2 producer transport/health/cadence details remain external implementation contracts.
   - Native new-admission readiness is an intersection of Platform configured policy and fresh, applicable, current-owner Oteryn-v2 runtime evidence.
@@ -120,7 +121,7 @@ validation:
     evidence: architecture/documentation only; no executable behavior, schema, workflow, deployment or environment changed.
   - command: exact-head GitHub Actions and full changed-file review
     result: NOT_RUN
-    evidence: final candidate checkpoint commit must be pushed before exact-head workflow and diff evidence is evaluated.
+    evidence: final candidate checkpoint commit is the last intended mutation before exact-head workflow and diff evaluation.
 blockers:
   - none
 next_action: Verify exact PR 881 head workflows, inspect the full five-file diff and all review threads/comments, then mark ready and squash-merge only if every required gate passes.
