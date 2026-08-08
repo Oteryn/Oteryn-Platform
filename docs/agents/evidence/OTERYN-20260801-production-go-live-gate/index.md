@@ -1,30 +1,35 @@
 # Production Go-Live Gate evidence — 2026-08-01
 
-## Verdict
+## Evidence lifecycle
+
+`HISTORICAL DIRECT OBSERVATION — SUPERSEDED FOR CURRENT EDGE STATE`
+
+This index preserves the sanitized direct evidence collected on **2026-08-01**. It is not a current production-state snapshot and must not be resumed as a privileged operations checklist.
+
+The historical verdict remains:
 
 ```text
 BLOCKED — PENDING PRODUCTION VERIFICATION
 PRODUCTION_PROVEN=false
 ```
 
-Issue #91 remains open. Direct evidence proves that the Synology target is a healthy staging runtime, not an effective production runtime, and that the canonical public edge does not deliver the expected applications.
+Issue #91 remains the durable current Production Go-Live Gate. A future production verdict requires fresh direct evidence tied to one exact deployed production release.
 
-## Evaluated repository state
+## Evaluated historical repository/runtime state
 
 - task branch base: `de949075d14ebecc57423237b9330d865da28645`;
-- task branch: `agent/production-go-live-gate`;
-- draft PR: #405;
-- no Cloudflare, DNS, Synology runtime, database, Redis, secret, deployment, rollback, restore or application-data mutation was performed.
+- historical branch: `agent/production-go-live-gate`;
+- historical PR: #405;
+- no Cloudflare, DNS, Synology runtime, database, Redis, secret, deployment, rollback, restore or application-data mutation was performed by this evidence collection.
 
-The task branch SHA is not the deployed application identity.
+The task branch SHA was not the deployed application identity.
 
-## PROVEN
+## PROVEN on 2026-08-01
 
-### Exact Synology runtime identity and topology
+### Synology staging runtime identity and topology
 
 Sanitized read-only inventory:
 
-- observer run: `30701773214`;
 - dispatched inventory run: `30701775782`;
 - live inventory job: `91373911925`;
 - observed at: `2026-08-01T13:38:45.781133+00:00`;
@@ -34,133 +39,104 @@ Sanitized read-only inventory:
 - production mutation: `NONE`;
 - restore drill: `NOT_RUN`.
 
-Exact deployed application images:
+Observed images:
 
-| Service | Source/tag | Repository digest | Local image ID |
-|---|---|---|---|
-| Platform | `3eb109b505f7d1c8718cffb823de6d9d5166717c` | `sha256:ac0e88a1627a8ab78b4bca87dbce16035c29da8f3ab01c152fe2bf0946651b7a` | `sha256:6e6ceedeb900761089e449136fc272c9916f3396237e80793f4bf60417111872` |
-| Game Gateway | `3eb109b505f7d1c8718cffb823de6d9d5166717c` | `sha256:9a731ca6528faec0ae70106898b757a22a6e561d99efc639d1fe71e5ece687ed` | `sha256:e55cd036d283c21ad845ddccb883a7496354c7f590dace19454a98faae353ee8` |
-| Canary | immutable digest reference | `sha256:784e5dbdcc64e311c48c51cd94aa206e2efa1e5eefb2f4ef40170d5aac55031f` | `sha256:adbb592a96e3ea4a2c44f09462330f73e150fd0b515b175186aea79856f9299b` |
+| Service | Historical source/tag | Repository digest |
+|---|---|---|
+| Platform | `3eb109b505f7d1c8718cffb823de6d9d5166717c` | `sha256:ac0e88a1627a8ab78b4bca87dbce16035c29da8f3ab01c152fe2bf0946651b7a` |
+| Game Gateway | `3eb109b505f7d1c8718cffb823de6d9d5166717c` | `sha256:9a731ca6528faec0ae70106898b757a22a6e561d99efc639d1fe71e5ece687ed` |
+| Canary | immutable digest reference | `sha256:784e5dbdcc64e311c48c51cd94aa206e2efa1e5eefb2f4ef40170d5aac55031f` |
 
-Platform and Gateway use the same exact source SHA. The Compose project is `oteryn-staging`, all six expected service containers are singletons and running, and all use network `oteryn-staging_private`.
+The observed Compose project was `oteryn-staging`; all six expected service containers were running. MariaDB and Redis were healthy and bounded Platform/Gateway container/host-loopback probes passed.
 
-| Service | Container | Start time UTC | Restart policy/count | Health |
-|---|---|---|---|---|
-| MariaDB | `oteryn-staging-mariadb-1` | `2026-07-31T10:16:30.084801205Z` | `always` / 0 | `healthy` |
-| Redis | `oteryn-staging-redis-1` | `2026-07-31T10:16:27.575408438Z` | `always` / 0 | `healthy` |
-| Canary | `oteryn-staging-canary-1` | `2026-08-01T06:05:35.182280883Z` | `always` / 1 | no Docker healthcheck |
-| Platform | `oteryn-staging-platform-1` | `2026-08-01T10:16:38.114260294Z` | `always` / 0 | no Docker healthcheck |
-| Internal proxy | `oteryn-staging-internal-proxy-1` | `2026-08-01T10:17:37.107468550Z` | `always` / 0 | no Docker healthcheck |
-| Gateway | `oteryn-staging-gateway-1` | `2026-08-01T10:14:18.642439716Z` | `always` / 0 | no Docker healthcheck |
-
-All bounded Platform/Gateway container-namespace and Synology host-loopback health, ready and version probes passed. No critical/fatal/panic/exception/error marker was counted in the last 30 minutes for any expected service.
-
-Published bindings:
-
-- Platform: loopback-only `8000/tcp`;
-- Game Gateway: loopback-only `8080/tcp`;
-- Canary legacy login: loopback-only `7171/tcp`;
-- Canary game protocol: one private-IP `7172/tcp` binding;
-- MariaDB, Redis and internal proxy: no published host ports.
-
-Effective application profile:
+Historical effective profile:
 
 - `APP_ENV=staging`;
-- `APP_ENV=production`: false;
 - debug disabled;
 - file sessions;
 - file cache;
 - synchronous queue;
 - array/non-delivery mail;
-- `production:verify-configuration` exit code: `1`;
-- runtime classification: `STAGING_TARGET`;
-- production environment proven: `false`.
+- `production:verify-configuration` exit code `1`;
+- runtime classification `STAGING_TARGET`;
+- production environment proven `false`.
 
-No cloudflared container was visible through Docker. Whether cloudflared runs as a host process remains `UNKNOWN`; no effective host-process/network-path proof was collected.
+No cloudflared container was visible through Docker. Host-process/network-path state was not proven by that observation.
 
-### Cloudflare fixed scope
+### Managed Tunnel/DNS scope
 
 - audit run `30699270139`: PASS;
 - apply run `30700054602`: PASS;
 - managed Tunnel/DNS state after apply: `current`.
 
-This proves only the guarded Tunnel ingress and canonical DNS records managed by that workflow.
+This proved only that guarded scope at that time.
 
-### Public edge after Cloudflare apply
+### Public edge observation at that time
 
-Independent observation:
+Independent run `30701140509`, job `91372237869`, artifact `8818850803`, digest `sha256:787ea72c616812ade431eb1cc396e921a6c8b04e459c89557221cbf6caebe656` observed:
 
-- run: `30701140509`;
-- job: `91372237869`;
-- observed at: `2026-08-01T13:09:16.214513+00:00`;
-- artifact: `8818850803`;
-- artifact digest: `sha256:787ea72c616812ade431eb1cc396e921a6c8b04e459c89557221cbf6caebe656`;
-- runner region: West US.
+- WWW returning Cloudflare 403 challenge content instead of Platform;
+- Game Gateway TLS failing before HTTP;
+- plain HTTP returning 403 rather than redirecting to HTTPS;
+- WWW HSTS `max-age=0`.
 
-Direct observations:
+These are **historical observations**, not current blockers.
 
-- both canonical hostnames resolved through the same Cloudflare IPv4/IPv6 anycast set;
-- `oteryn.molehill.cloud` verified only with TLS 1.3 and presented the expected wildcard-domain certificate;
-- all representative HTTPS WWW routes returned Cloudflare `403` challenge content instead of Platform;
-- `login.oteryn.molehill.cloud` failed TLS 1.2 and TLS 1.3 before HTTP and exposed no certificate;
-- plain HTTP on both canonical names returned Cloudflare `403` rather than redirecting to HTTPS;
-- WWW returned `Strict-Transport-Security: max-age=0; includeSubDomains; preload`.
+## Later evidence superseding the edge-generation facts
 
-### Repository validation
+Protected-main PR #516 later closed the separately authorized Cloudflare edge programme and records:
 
-PR #405 head `0c435dd02d2afcc7f0e8d963a79b5441b29a6cb7` passed:
+- guarded HSTS apply run `30855934824` reaching `state=staged`, `max_age=2592000`;
+- complete public E2E PASS and `positive_hsts_www=true`;
+- independent trusted-main audit run `30857136575` reproducing the staged target with `desired_state=true` and `mutation=none`;
+- stable WAF/Bot repair with the canonical skip rule first and Bot Fight Mode false;
+- terminal archival of the Cloudflare edge task.
 
-- Agent Governance `30701773251`;
-- CI `30701773237`;
-- Synology Production Target Preflight static validation `30701773212`;
-- Edge Security Emulation `30701773227`;
-- Game Auth Ticket Concurrency `30701773203`;
-- Platform DB Outage Validation `30701773233`;
-- Phase 7 Production-Like Validation `30701773198`;
-- Build Synology Staging Images `30701773188`.
+Therefore this evidence index must not claim that the August 1 WWW-403, Gateway-TLS, redirect or HSTS state is still current, and it must not retain the old “request Cloudflare zone-edge audit/apply” action as a current next step.
 
-These are repository/staging-support results, not production proof.
+Open PR #541 contains later public-domain reconciliation that also treats the edge/HSTS repair as complete, but because it remains unmerged it is work-in-progress corroboration rather than protected-main authority.
 
-## DERIVED
+Issue #877 owns residual Cloudflare verification-evidence reconciliation. This historical PR does not duplicate that work.
 
-- The exact running target is a staging deployment and cannot be classified as `PRODUCTION_PROVEN`.
-- File sessions/cache and array mail are incompatible with the unproven multi-instance/delivery requirements until a launch topology explicitly justifies them; array mail directly blocks real password-recovery delivery.
-- Cloudflare Tunnel/DNS convergence did not resolve the separately controlled certificate, WAF/Bot/Access, redirect or HSTS failures.
-- Local loopback health does not substitute for canonical public application delivery.
-- Mutation smoke is unsafe and prohibited while production runtime, rollback, dated restore, controlled identities/data and public application reachability remain unproven.
-- The final result cannot be `PRODUCTION_PROVEN`.
+## Historical DERIVED conclusions
 
-## UNKNOWN
+The following were valid deductions from the August 1 observation generation:
 
-- cloudflared host-process status, network mode and effective path to both loopback origins;
-- production DB topology, credential ownership, least privilege, backup policy and dated restore evidence;
-- effective production Canary SQL grants;
-- production Redis ACL/TLS/freshness monitoring;
-- selected production session/cache/queue topology;
-- production mail provider, sender-domain readiness and bounce monitoring;
-- centralized logs, metrics, alerts and on-call ownership;
-- actual production deployment, migration and emergency rollback mechanism;
-- launch-scope decisions and controlled smoke identities/data;
-- all mutation-authorized critical production smoke results.
+- the exact observed runtime was staging and could not be `PRODUCTION_PROVEN`;
+- local loopback health did not substitute for public application delivery;
+- array mail blocked real production password-recovery delivery in that observed staging profile;
+- production mutation smoke was unsafe without a proven production runtime, rollback, restore, controlled identity/data and public reachability;
+- the August 1 evidence could not produce `PRODUCTION_PROVEN`.
 
-## CONFLICT
+They do not prove the current value of those runtime/configuration facts.
 
-- archived Synology preflight requires restart policy `unless-stopped`;
-- the current live runtime directly proves `always` for all six expected services;
-- open PR #335 also proposes `always`, but remains unmerged and therefore does not yet reconcile the authoritative repository check.
+## Current UNKNOWN boundary
 
-## Blockers and ownership
+This historical evidence does not prove today's:
 
-| Blocker | Responsible operator |
-|---|---|
-| Synology runtime is `STAGING_TARGET`; production verifier exits 1 | Production/Synology runtime operator |
-| WWW returns Cloudflare challenge instead of Platform | Cloudflare zone/security-policy operator |
-| Game Gateway hostname has no usable TLS | Cloudflare zone/certificate operator |
-| HTTP does not redirect to HTTPS and HSTS is disabled | Cloudflare zone/TLS operator |
-| cloudflared host topology remains unproven | Synology/Cloudflare Tunnel operator |
-| Production backup/restore, rollback, mail, observability and smoke prerequisites are absent | Production owner/operator |
-| Launch-scope and controlled mutation-smoke inputs are unresolved | Repository owner |
+- exact production Platform/Gateway/game release;
+- Synology production topology or current container state;
+- cloudflared host/network path;
+- production DB/Redis grants/topology/backup/dated restore;
+- session/cache/queue choice;
+- production mail provider and sender-domain readiness;
+- logs/metrics/alerts/on-call ownership;
+- deployment/migration/emergency rollback mechanism;
+- launch scope and controlled production smoke;
+- any public-edge fact not covered by a later current evidence package.
 
-## Single next action
+Do not copy the historical UNKNOWN set blindly into a future verification; rediscover the current scope from then-current canonical documents and environment evidence.
 
-Obtain explicit owner authorization for a separately guarded Cloudflare zone-edge audit/apply task covering certificate issuance for `login.oteryn.molehill.cloud`, the WWW challenge policy, HTTP-to-HTTPS redirect and HSTS. The task must first audit read-only, present the exact diff, risk and rollback, and must not change Tunnel ingress or DNS that are already current.
+## Current authority and next action
+
+Issue #91 remains authoritative and `PRODUCTION_PROVEN=false` until fresh exact-release production evidence satisfies it.
+
+There is no current Cloudflare mutation next action in this index.
+
+If a new production attempt is authorized, create a fresh current-main bounded verification task that starts with read-only discovery and requests any privileged mutation only after a current exact failure proves it necessary and the owner approves the exact change/rollback.
+
+PR #405 should close unmerged as a superseded historical evidence branch. This index remains recoverable from the closed PR/branch and Git history without reintroducing stale operational instructions into current `main`.
+
+## Safety
+
+Issue #885 performs documentation/lifecycle reconciliation only. It authorizes no Cloudflare/Synology/environment/secret/deployment/database/Redis/restore/smoke/production or external-repository mutation.
