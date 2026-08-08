@@ -1,9 +1,10 @@
 <?php
 
 use App\Http\Controllers\Admin\AdminHomepageTemplateController;
+use App\Identity\Localization\SetIdentityLocale;
 use Illuminate\Support\Facades\Route;
 
-Route::middleware(['auth', 'mfa.confirmed', 'admin.permission:portal.settings.manage'])
+Route::middleware([SetIdentityLocale::class, 'auth', 'mfa.confirmed', 'admin.permission:portal.settings.manage'])
     ->prefix('admin/portal/homepage')
     ->group(function (): void {
         Route::get('/', [AdminHomepageTemplateController::class, 'index'])

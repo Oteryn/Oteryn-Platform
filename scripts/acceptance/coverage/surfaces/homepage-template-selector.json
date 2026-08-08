@@ -42,7 +42,8 @@
         "authorization",
         "localization",
         "responsive",
-        "accessibility"
+        "accessibility",
+        "playwright"
       ],
       "evidence": [
         {
@@ -63,6 +64,12 @@
           "file": "tests/Feature/HomepageTemplates/HomepageTemplateMigrationTest.php",
           "markers": [
             "test_migration_seeds_the_existing_production_home_without_activating_an_alternative"
+          ]
+        },
+        {
+          "file": "scripts/acceptance/tests/homepage-template-selector.spec.mjs",
+          "markers": [
+            "@portal-homepage-template-selector administrator preview activation rollback localization responsive layout keyboard and cache controls"
           ]
         }
       ],

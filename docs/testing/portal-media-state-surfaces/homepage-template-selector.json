@@ -1,0 +1,9 @@
+{
+  "surfaces": [
+    {
+      "id": "admin.homepage-template-selector",
+      "classification": "not_applicable",
+      "rationale": "Homepage template selection renders code-owned layouts and static decorative assets; it does not consume repository-managed EditorialMedia records or user-managed image state."
+    }
+  ]
+}
