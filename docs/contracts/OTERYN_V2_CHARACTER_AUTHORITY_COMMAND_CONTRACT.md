@@ -152,33 +152,48 @@ CharacterCommandResult
   authoritative_subject_identity
   authoritative_result_facts?     # only fields owned by this command
   authoritative_result_revision?  # comparable/reconcilable producer evidence
-  rejection?                      # typed when rejected
+  rejection?                      # typed when terminally rejected
   recorded/effective semantics?   # when meaningful to the command profile
 ```
 
-### Outcome classes
+## Outcome state machine
 
-The native producer contract must distinguish these semantic classes.
+The producer contract must make terminal versus non-terminal semantics explicit.
 
-#### `COMPLETED`
+### `COMPLETED`
 
 Terminal authoritative result. The mutation represented by the operation identity is durably committed under game authority.
 
 A completed result must contain enough authoritative result facts for Platform to update the user-visible saga and to trigger/reconcile downstream projections without inventing facts.
 
-#### `REJECTED`
+### `REJECTED`
 
-Terminal authoritative result for this operation identity: the requested mutation did not complete and the reason is represented by an approved typed rejection.
+Terminal authoritative result for this operation identity: the requested mutation did not complete and the producer guarantees that this operation identity will not later commit the mutation.
 
-A rejection must not leak unnecessary private gameplay state.
+A rejection carries an approved typed reason and must not leak unnecessary private gameplay state.
 
-#### `ACCEPTED_PENDING`
+After a terminal `REJECTED`, the same `operation_id` remains terminal and exact retries return/reconcile to that rejection. A later user/business decision to attempt the mutation again is a **new semantic attempt** and therefore uses a new operation identity after Platform re-runs all current gates.
+
+### `ACCEPTED_PENDING`
 
 Optional non-terminal result for implementations that legitimately execute asynchronously.
 
 It means the game authority has accepted responsibility for the operation identity, **not** that the mutation completed. Platform remains pending/reconciling until a terminal result is observed.
 
-#### Platform-local `AMBIGUOUS`
+### `RETRYABLE_PENDING`
+
+Optional non-terminal producer result for a transient condition where the producer cannot yet return a terminal result but retains/requires the same operation identity.
+
+Rules:
+
+- it is not a terminal `REJECTED`;
+- Platform retries/reconciles the **same** operation identity according to bounded operational policy;
+- it cannot authorize a new operation identity while the original operation remains capable of completing;
+- the producer must eventually make the operation terminal or expose durable operational escalation/reconciliation state.
+
+A producer may represent this condition using a different machine code/state, but it must preserve these semantics.
+
+### Platform-local `AMBIGUOUS`
 
 `AMBIGUOUS` is a Platform orchestration state, not a game success/failure result.
 
@@ -186,12 +201,11 @@ It is entered when Platform cannot know whether the game authority received/comm
 
 Platform must reconcile by the same `operation_id`. It must not fabricate completion, rejection or issue a different semantic mutation merely to obtain certainty.
 
-## Typed rejection taxonomy
+## Typed terminal rejection taxonomy
 
-The final producer contract may use different machine codes, but it must preserve enough structure for Platform to distinguish at least the following semantic categories where applicable:
+The final producer contract may use different machine codes, but terminal `REJECTED` outcomes must preserve enough structure for Platform to distinguish at least the following semantic categories where applicable:
 
-- `invalid_command` — malformed/unsupported intent or semantic version;
-- `authentication_or_service_authority_failed` — producer channel/service authority failure, normally transport/security level rather than a domain mutation result;
+- `invalid_command` — malformed/unsupported intent or semantic version and producer guarantees no mutation can later commit under this operation;
 - `ownership_mismatch` — current authoritative AccountId↔CharacterId relation does not authorize the mutation;
 - `character_not_found_or_not_applicable` — subject no longer exists or the command cannot apply, without leaking private existence where policy forbids it;
 - `stale_precondition` — optimistic revision/precondition no longer matches;
@@ -201,11 +215,24 @@ The final producer contract may use different machine codes, but it must preserv
 - `topology_or_placement_conflict` — destination/source placement is invalid for a transfer profile;
 - `operation_identity_conflict` — same operation identity was reused with incompatible semantics;
 - `capability_not_supported` — command profile/version is not supported by the target authority;
-- `dependency_unavailable` — authoritative dependency cannot safely answer now;
-- `retryable_internal_failure` — no terminal success is claimed and retry/reconciliation policy applies;
-- `non_retryable_internal_failure` — terminal producer failure class where retrying the same semantic request is not appropriate without operator/product action.
+- `non_retryable_internal_failure` — terminal producer failure **only when** the producer guarantees the mutation did not and cannot later commit under this operation identity.
 
 Platform-owned product/business-policy denial is separately represented in Platform orchestration and should not be misreported as a game-domain rejection unless the game contract also owns that policy.
+
+## Non-terminal / transport failure taxonomy
+
+These classes must not be collapsed into terminal `REJECTED` unless the producer can prove terminal no-commit semantics:
+
+- `authentication_or_service_authority_failed` — transport/service authority failed before a privileged mutation could be accepted; exact behavior belongs to the transport security contract;
+- `dependency_unavailable` — an authoritative dependency cannot safely answer and operation terminality is not proven;
+- `retryable_internal_failure` — transient producer failure represented as `RETRYABLE_PENDING`, `ACCEPTED_PENDING`, transport failure or another explicitly non-terminal/reconcilable state.
+
+If any failure occurs after the producer may have accepted or committed the command, Platform treats the result as pending/ambiguous and reconciles the same operation identity.
+
+This distinction prevents both failure modes:
+
+- looping forever on a terminal operation identity while pretending it is retryable; and
+- minting a second operation identity while the first operation may still commit.
 
 ## Idempotency and conflicting reuse
 
@@ -233,14 +260,15 @@ Required semantics:
 ```text
 submit operation_id X
   -> COMPLETED                    => terminal success
-  -> REJECTED                     => terminal rejection
-  -> ACCEPTED_PENDING             => reconcile X until terminal/bounded operational handling
+  -> REJECTED                     => terminal rejection; X stays terminal
+  -> ACCEPTED_PENDING             => reconcile X
+  -> RETRYABLE_PENDING            => retry/reconcile X under bounded policy
   -> timeout / transport loss     => Platform state AMBIGUOUS
                                      reconcile X
                                      never mint X2 as a blind replacement
 ```
 
-A reconciliation response that means "operation not found" is not automatically permission to mint a new operation unless the producer contract guarantees that the original operation can no longer appear later. Retrying the **same** operation identity remains the safe default.
+A reconciliation response that means "operation not found" is not automatically permission to mint a new operation unless the producer contract guarantees that the original operation can no longer appear later. Retrying the **same** operation identity remains the safe default while terminality is uncertain.
 
 Platform may additionally reconcile authoritative current character state, but state comparison alone must not erase the operation receipt when durable operation history is required for audit/business recovery.
 
@@ -348,9 +376,9 @@ No Canary world column or numeric channel ID defines native capability semantics
 
 ### 7. Account / Bazaar ownership transfer
 
-This is a higher-risk profile subordinate to the Character Bazaar/commercial saga.
+This is a higher-risk profile subordinate to the Character Bazaar/commercial saga and preserves the accepted transfer-before-wallet-settlement ordering in `CHARACTER_TRANSFER_CONTRACT.md`.
 
-Platform owns commercial eligibility, listing/auction/buy-now workflow, wallet/settlement policy and the decision to request ownership transfer only after the commercial saga reaches its permitted handoff point.
+Platform owns commercial eligibility, listing/auction/buy-now workflow, wallet reservation/settlement policy and the decision to request ownership transfer only after the commercial saga reaches its permitted handoff point.
 
 Oteryn-v2 owns the authoritative CharacterId ownership mutation.
 
@@ -359,14 +387,30 @@ The command must bind:
 - stable Platform operation identity;
 - canonical `CharacterId`;
 - expected current source `AccountId`;
-- canonical destination `AccountId` authorized by the completed/eligible Platform commercial flow;
+- canonical destination `AccountId` authorized by the eligible Platform commercial flow;
 - accepted correlation to the Platform commercial operation without exposing secrets/payment payloads.
 
 Oteryn-v2 revalidates current ownership and game-state transfer eligibility.
 
-`COMPLETED` returns authoritative new ownership facts/receipt. Platform then advances the commercial saga from authoritative game result; it must not treat wallet settlement alone as proof that game ownership moved.
+The required saga ordering is:
 
-A timeout between commercial settlement and game result is a recovery state, not permission for a second blind transfer or compensating direct SQL write.
+```text
+Platform settlement-pending / funds remain reserved
+  -> submit authoritative CharacterId ownership transfer
+  -> COMPLETED ownership result from Oteryn-v2
+  -> Platform wallet settlement using its existing idempotency keys
+  -> commercial saga completed
+```
+
+Rules:
+
+- wallet debit/credit settlement must not occur merely because the game transfer command was submitted or became ambiguous;
+- timeout/response loss after transfer submission keeps funds reserved and the Platform saga pending/recovery-required until the same game operation identity is reconciled;
+- a terminal game `REJECTED` means wallet settlement for that transfer must not execute and the owning Bazaar contract decides reservation release/cancellation behavior;
+- after game `COMPLETED`, a later wallet-settlement timeout is reconciled through the wallet's own append-only/idempotency evidence and must not re-run the game ownership transfer;
+- wallet settlement or a Platform sale row is never proof that game ownership moved.
+
+This preserves the existing invariant: **authoritative ownership transfer precedes wallet settlement**.
 
 ## Platform saga state
 
@@ -466,7 +510,7 @@ Before one family cuts over:
 1. accepted Oteryn-v2 producer/consumer semantic mapping exists;
 2. canonical identity mapping is proven;
 3. stable operation identity and duplicate/conflicting-reuse tests pass;
-4. typed terminal/ambiguous/reconciliation behavior passes;
+4. typed terminal/non-terminal/ambiguous/reconciliation behavior passes;
 5. cross-command concurrency cases pass;
 6. Platform saga and downstream projection reconciliation pass;
 7. legacy consumer inventory/removal gate is known;
@@ -483,13 +527,15 @@ At minimum every implemented command family must prove on exact producer/consume
 3. duplicate same-operation replay produces one mutation/result;
 4. same operation identity with changed intent fails closed;
 5. timeout before receive, during execution and after commit all reconcile deterministically;
-6. stale ownership/lifecycle precondition is rejected or reconciled safely;
-7. relevant concurrent command races produce one coherent authoritative state;
-8. gameplay/session conflicts behave according to the command profile;
-9. Platform saga never advances from ambiguous transport state as if completed;
-10. downstream projection/search/cache reconciliation follows the accepted projection/privacy contracts;
-11. rollback/cutover cannot double-apply one semantic operation;
-12. logs/audit omit secrets and unnecessary private state.
+6. terminal rejection versus retryable/non-terminal failure uses deterministic operation-identity semantics;
+7. stale ownership/lifecycle precondition is rejected or reconciled safely;
+8. relevant concurrent command races produce one coherent authoritative state;
+9. gameplay/session conflicts behave according to the command profile;
+10. Platform saga never advances from ambiguous transport state as if completed;
+11. Bazaar transfer proves game ownership transfer before wallet settlement, and wallet reconciliation cannot replay the game transfer;
+12. downstream projection/search/cache reconciliation follows the accepted projection/privacy contracts;
+13. rollback/cutover cannot double-apply one semantic operation;
+14. logs/audit omit secrets and unnecessary private state.
 
 User-facing implementations additionally require the product-specific EN/PL and zero-retry browser/E2E evidence owned by Issues #317/#319/#320 or their successors.
 
@@ -529,5 +575,6 @@ This contract authorizes no:
 - ADR 0031 — Native Oteryn-v2 Integration vs Legacy Canary Compatibility
 - `docs/architecture/character-lifecycle/NATIVE_CHARACTER_LIFECYCLE_AUTHORITY.md`
 - `docs/contracts/OTERYN_V2_PUBLIC_GAME_DATA_PROJECTION_CONTRACT.md`
+- `docs/contracts/CHARACTER_TRANSFER_CONTRACT.md` — accepted transfer-before-wallet-settlement saga ordering for the current Bazaar boundary
 - Issue #919 — focused shared command/result architecture owner
 - Issues #317, #319, #320 — product-specific lifecycle consumers
