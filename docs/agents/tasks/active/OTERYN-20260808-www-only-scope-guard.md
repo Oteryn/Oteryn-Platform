@@ -3,12 +3,13 @@
 ```yaml
 task_id: OTERYN-20260808-www-only-scope-guard
 mode: GOVERNANCE
-status: ready
+status: validating
 repository: blakinio/Oteryn-Platform
 base_branch: main
 branch: docs/OTERYN-20260808-www-only-scope-guard
 owner: GPT-5.6 Sol
 created_at: 2026-08-08T21:48:00+02:00
+updated_at: 2026-08-08T21:49:00+02:00
 owned_paths:
   - AGENTS.override.md
   - docs/agents/tasks/active/OTERYN-20260808-www-only-scope-guard.md
@@ -22,13 +23,18 @@ Server/game repositories, including `blakinio/Oteryn-v2` and any other server/ru
 
 Generic commands such as `dzialaj dalej`, `kontynuuj`, autonomous continuation, architecture continuation, audit, repair or implementation while operating in the Platform project do **not** authorize server-repository writes.
 
-Cross-repository evidence may be read when needed to keep Platform contracts compatible, but no server branch, file, PR, issue, merge, runtime or configuration may be mutated without explicit owner authorization naming server work.
+Cross-repository evidence may be read when needed to keep Platform contracts compatible, but no server branch, file, task, PR, issue, merge, runtime, protocol, persistence, configuration or deployment may be mutated without explicit owner authorization naming server work.
 
 This guard exists because an FND-04 server architecture task was accidentally started during a Platform-only session. That server task was checkpointed separately and must not be resumed implicitly.
 
 ## Acceptance
 
-- [x] Persist owner WWW-only default scope.
+- [x] Persist owner WWW-only default scope in root agent bootstrap.
 - [x] Require explicit separate authorization before any server-repository write.
 - [x] Preserve read-only cross-repository architecture evidence for Platform compatibility.
 - [x] Do not expand authority beyond `blakinio/Oteryn-Platform`.
+- [ ] Merge this governance change to protected `main` so future Platform invocations inherit it from the trusted base.
+
+## Next action
+
+Create the docs/governance PR, validate required checks, merge when green, then archive this task. No server repository work is authorized by this task.
