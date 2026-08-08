@@ -81,7 +81,7 @@ modules:
 dependencies:
   - Issue #902
   - ADR 0031
-  - OTERY​N_V2_RUNTIME_STATUS_PROJECTION_CONTRACT
+  - OTERYN_V2_RUNTIME_STATUS_PROJECTION_CONTRACT
 blockers: []
 cross_repository_tasks: []
 forbidden_paths:
@@ -114,22 +114,22 @@ self_review:
     - no runtime/schema/worker/workflow/deployment/external-repository path changed
 ```
 
-The later task-checkpoint commit is governance-only and does not alter the reviewed architecture contract/report semantics.
+The later task-checkpoint commits are governance-only and do not alter the reviewed architecture contract/report semantics.
 
 ## Context checkpoint
 
 ```yaml
 checkpoint_version: 1
 policy_version: 2
-updated_at: 2026-08-08T11:24:00+02:00
-head: d7553a92fa8537c8f11c4995d95e3eb258a0e4ef
+updated_at: 2026-08-08T11:27:00+02:00
+head: 5e42493d0a560c4783d7e7900b32d7d8c28a6434
 branch: docs/OTERYN-20260808-native-public-game-data-projections
 pr: 903
 status: validating
 phase: validate
 execution_mode: github_only
 invocation_started_at: 2026-08-08T10:39:00+02:00
-last_progress_at: 2026-08-08T11:24:00+02:00
+last_progress_at: 2026-08-08T11:27:00+02:00
 lease_expires_at: 2026-08-08T12:03:00+02:00
 context_pressure: medium
 context_growth: stable
@@ -142,8 +142,8 @@ session_rotation_count: 0
 stale_takeover_count: 0
 human_interruptions: 0
 ci_checks_for_current_head: 0
-ci_check_generation: ready
-terminal_ci_wait_started_at: null
+ci_check_generation: ready-checkpoint-1
+terminal_ci_wait_started_at: 2026-08-08T11:27:00+02:00
 terminal_ci_checks_for_current_generation: 0
 unchanged_state_checks: 0
 identical_failure_retries: 0
@@ -161,11 +161,12 @@ owned_paths:
   - docs/agents/tasks/active/OTERYN-20260808-native-public-game-data-projections.md
 proven:
   - ADR 0031 requires native Oteryn-v2 game facts to cross through explicit contracts rather than shared tables or cross-system SQL.
-  - OTERY​N_V2_RUNTIME_STATUS_PROJECTION_CONTRACT already owns WorldId/ChannelId runtime observations, readiness, freshness, capacity/player-count aggregate truthfulness and public status semantics.
+  - OTERYN_V2_RUNTIME_STATUS_PROJECTION_CONTRACT already owns WorldId/ChannelId runtime observations, readiness, freshness, capacity/player-count aggregate truthfulness and public status semantics.
   - delivered PublicGameData currently reads Canary players, deaths, guild, house, channel and cluster-session tables directly through compatibility repositories/queries.
   - delivered PublicCharacterProfileService overlays Platform-owned CharacterProfiles privacy/presentation preferences over Canary game facts.
   - no open Issue or PR owned this exact native generic PublicGameData projection/reconciliation contract before Issue 902; Issue 487 is current-surface evidence, character lifecycle Issues own mutations, and programme 330 owns Game Catalog.
   - the focused contract defines character facts/search, rankings, activity, guild membership and individual presence with explicit rebuild/freshness/migration semantics.
+  - PR 903 is ready, mergeable, zero commits behind main, changes exactly three owned documentation paths, and has zero unresolved review threads.
 derived:
   - native public game facts need a rebuildable Platform read-model contract that preserves game authority while allowing the website to serve last-known-good state independently of synchronous game-runtime availability.
   - privacy/presentation policy remains a Platform overlay instead of becoming game-owned public exposure authority.
@@ -196,9 +197,45 @@ validation:
   - command: exact content-head full-diff architecture self-review
     result: PASS
     evidence: d7553a92fa8537c8f11c4995d95e3eb258a0e4ef has exactly three intended paths and zero unresolved material findings
+  - command: first ready-state CI observation on 5e42493d0a560c4783d7e7900b32d7d8c28a6434
+    result: PASS_PARTIAL
+    evidence: Agent Governance and both Native protocol contract workflows passed; remaining repository-selected checks were running/queued with no failure observed before the recovery checkpoint update
   - command: runtime/browser E2E
     result: NOT_RUN
     evidence: architecture/documentation-only task; no executable producer, worker, schema, route or cutover exists
 blockers: []
-next_action: Mark PR 903 ready and observe the repository-selected exact-head CI; merge only if required checks pass and review hygiene remains clean.
+next_action: Observe the new exact-head PR 903 required-check generation after this recovery checkpoint commit; merge only if all required checks pass and review hygiene remains clean.
+```
+
+## Recovery checkpoint
+
+```yaml
+recovery:
+  policy_version: 1
+  generation: 1
+  session_id: github-20260808-1039-public-game-data
+  session_started_at: 2026-08-08T10:39:00+02:00
+  checkpointed_at: 2026-08-08T11:27:00+02:00
+  last_progress_at: 2026-08-08T11:27:00+02:00
+  phase: validate
+  exact_head: 5e42493d0a560c4783d7e7900b32d7d8c28a6434
+  pull_request: 903
+  active_operation: final required exact-head CI and merge gate
+  external_run_ids:
+    - 31250430136
+    - 31250430135
+    - 31250430153
+    - 31250430137
+    - 31250430141
+    - 31250430142
+    - 31250430177
+    - 31250430138
+  operation_started_at: 2026-08-08T11:25:00+02:00
+  wait_deadline_at: 2026-08-08T11:38:00+02:00
+  check_generation: ready-checkpoint-1
+  checks_used: 0
+  status: active
+  safe_to_resume: true
+  resume_condition: PR 903 remains mergeable, exact head is unchanged after the recovery checkpoint commit, no review thread appears, and repository-required checks finish without failure
+  next_action: Inspect one aggregate required-check snapshot for the new exact head, repair any first material failure if present, otherwise merge after complete green checks.
 ```
