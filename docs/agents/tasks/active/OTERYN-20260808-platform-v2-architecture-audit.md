@@ -82,8 +82,8 @@ Detailed evidence and the architecture/integration map are in `docs/agents/repor
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-08T20:58:10+02:00
-head: 41e24f3f9239959d3cbd0fa743c5d062aacef3b2
+updated_at: 2026-08-08T21:00:16+02:00
+head: 85b34d02561c9798ff6c8696a438c5a3f7b2eb2e
 branch: audit/OTERYN-20260808-platform-v2-architecture
 pr: 927
 status: ready
@@ -98,7 +98,7 @@ owned_paths:
   - docs/agents/reports/OTERYN-20260808-platform-v2-architecture-audit.md
 proven:
   - Platform main at audit start was 3417086d02d275c2cf3154c5a0c9a65462202eb3.
-  - Oteryn-v2 live main observed during the audit was 3c32f07f3059524fc866bb3c1f76e02df0250174.
+  - Oteryn-v2 live main observed during the audit was 3c32fb08ddf52939159c0ace5fe607ca4fb18332.
   - The prior same-day Platform-v2 architecture reconciliation is already merged and remains the baseline; this task records only the delta.
   - Platform ADR 0031 remains the durable native-v2 versus Legacy Canary Compatibility boundary.
   - Platform native pre-admission, runtime-status consumer, Character Authority command/result, entitlement/game-delivery and public-game-data projection/privacy semantics now exist as focused Platform-side contracts/reconciliations.
