@@ -63,14 +63,14 @@ cross_repository_tasks: []
 ```yaml
 policy_version: 2
 checkpoint_version: 1
-updated_at: 2026-08-08T20:18:00+02:00
-status: implementing
+updated_at: 2026-08-08T20:22:00+02:00
+status: validating
 phase: validate
 session_id: chatgpt-20260808T2007+0200-mail-readiness
 session_role: implementation_owner
 execution_mode: github_connector
 execution_reason: User authorized autonomous Platform repair; Issue #921 was claimed after duplicate search and existing production readiness architecture was reconciled.
-lease_expires_at: 2026-08-08T21:03:00+02:00
+lease_expires_at: 2026-08-08T21:07:00+02:00
 task_kind: implementation
 implementation_authorized: true
 validation_level: focused
@@ -82,17 +82,28 @@ self_review_exact_head: none
 issue: 921
 branch: repair/issue-921
 base_sha: f5e56a78e65dfae90b5b8e1694b10e70545de262
-head: 4d05940f026a2dcbe83fffde59215f3dcade3b54
-pr: none
+head: 5931f93df93bebfa88d7ce6cae7197e732533a25
+pr: 923
 context_routes:
   - auth-identity
   - deployment-operations
   - ci-build-test
+owned_paths:
+  - app/Operations/MailDeliveryConfigurationVerifier.php
+  - app/Operations/ProductionConfigurationVerifier.php
+  - app/Console/Commands/VerifyMailDeliveryReadiness.php
+  - tests/Feature/Operations/MailDeliveryConfigurationVerifierTest.php
+  - tests/Feature/Operations/ProductionConfigurationVerifierTest.php
+  - docs/operations/MAIL_DELIVERY_READINESS.md
+  - .env.example
+  - docs/agents/tasks/active/OTERYN-20260808-mail-delivery-readiness.md
+  - docs/agents/tasks/archive/OTERYN-20260808-mail-delivery-readiness.md
 proven:
   - config/mail.php supports SMTP but repository defaults to the inert array mailer.
   - ProductionConfigurationVerifier already rejected non-delivery transports and reserved test sender domains for production.
   - No existing staging-capable mail delivery readiness command was present.
   - Draft PR #541 owns separate public-domain task reconciliation and remains blocked on actual owner-observed mailbox evidence.
+  - PR #923 opened for this repair and the first exact-head CI generation reached the checkpoint validator before product tests.
 derived:
   - The safe repair is to extract the mail boundary into a reusable verifier and keep the existing production gate authoritative while exposing the same boundary to staging.
 unknown:
@@ -101,6 +112,14 @@ unknown:
   - external provider/network availability
   - mailbox delivery result
 conflicts: []
+first_failure:
+  marker: active-task-checkpoint-schema
+  evidence: CI run 31271581749 classify-changes rejected the active task because first_failure, owned_paths and rejected_hypotheses were missing from the context checkpoint; product tests were not reached.
+rejected_hypotheses:
+  - Create a second independent production mail readiness mechanism instead of reusing ProductionConfigurationVerifier.
+  - Configure a real mail provider or credentials in Git.
+  - Treat structural mail readiness as proof of provider connectivity or mailbox receipt.
+  - Modify or duplicate draft PR #541 as part of this repair.
 changed_paths:
   - app/Operations/MailDeliveryConfigurationVerifier.php
   - app/Operations/ProductionConfigurationVerifier.php
@@ -108,7 +127,11 @@ changed_paths:
   - tests/Feature/Operations/MailDeliveryConfigurationVerifierTest.php
   - docs/operations/MAIL_DELIVERY_READINESS.md
   - .env.example
-validation: []
+  - docs/agents/tasks/active/OTERYN-20260808-mail-delivery-readiness.md
+validation:
+  - command: CI run 31271581749 active task checkpoint contract
+    result: FAIL
+    evidence: checkpoint schema rejected missing first_failure, owned_paths and rejected_hypotheses; this commit supplies those required fields.
 blockers: []
-next_action: Open the implementation PR, run exact-head focused/application governance checks, fix only relevant failures, then self-review and merge if all gates pass.
+next_action: Observe the fresh exact-head CI generation after checkpoint correction, inspect only the first relevant failure if any, then complete full-diff self-review and merge when all required gates pass.
 ```
