@@ -2,7 +2,7 @@
 
 ## Status
 
-`ACCEPTED PLATFORM CONSUMER / ORCHESTRATION ARCHITECTURE CONTRACT — OTeryn-v2 TRANSPORT AND RUNTIME IMPLEMENTATION DEFERRED`
+`ACCEPTED PLATFORM CONSUMER / ORCHESTRATION ARCHITECTURE CONTRACT — OTERYN-V2 TRANSPORT AND RUNTIME IMPLEMENTATION DEFERRED`
 
 This contract defines the semantic boundary that Oteryn Platform must use when orchestrating native character mutations owned by Oteryn-v2 Character Authority.
 
