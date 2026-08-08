@@ -29,13 +29,13 @@ Remove the stale pre-cutover Platform/Otheryn native-protocol authority claim fr
 
 ## Acceptance criteria
 
-- [ ] The historical Platform native protocol contract no longer identifies itself as current normative authority for Oteryn-v2 gameplay protocol or admitted-session semantics.
-- [ ] The historical schema and PR #542 producer evidence remain discoverable and explicitly classified as transitional/reconciliation-only.
-- [ ] The producer operations document no longer directs target rollout toward Otheryn and cannot be read as Oteryn-v2 activation guidance.
-- [ ] The architecture review programme records this domain and its terminal disposition.
+- [x] The historical Platform native protocol contract no longer identifies itself as current normative authority for Oteryn-v2 gameplay protocol or admitted-session semantics.
+- [x] The historical schema and PR #542 producer evidence remain discoverable and explicitly classified as transitional/reconciliation-only.
+- [x] The producer operations document no longer directs target rollout toward Otheryn and cannot be read as Oteryn-v2 activation guidance.
+- [ ] The architecture review programme records this domain and its terminal disposition after the delivery PR merges.
 - [ ] Exact-head Agent Governance and repository-selected CI pass.
 - [ ] Full changed-file review has zero unresolved material findings.
-- [ ] Runtime E2E is recorded `NOT_APPLICABLE` because the task changes architecture/governance documentation only.
+- [x] Runtime E2E is `NOT_APPLICABLE` because the task changes architecture/governance documentation only.
 
 ## Ownership
 
@@ -63,16 +63,11 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-policy_version: 2
-task_kind: architecture
-implementation_authorized: false
-phase: investigate
-execution_mode: github-only
-updated_at: 2026-08-08T06:13:00Z
-head: 0582b0e853d1b5e983f664452268e7777c886904
+updated_at: 2026-08-08T06:20:00Z
+head: b39a3acde290ea99f9437df3fc443e514c200934
 branch: docs/OTERYN-20260808-native-protocol-authority-reconcile
-pr: none
-status: investigating
+pr: 875
+status: validating
 context_routes:
   - architecture
   - auth-identity
@@ -83,43 +78,42 @@ owned_paths:
   - docs/agents/programs/OTERYN_PLATFORM_ARCHITECTURE_REVIEW.md
   - docs/agents/reports/OTERYN-20260808-native-protocol-authority-reconcile.md
   - docs/agents/tasks/active/OTERYN-20260808-native-protocol-authority-reconcile.md
-context_pressure: medium
-context_growth: stable
-context_score: 7
-estimate_confidence: high
-decomposition_decision: single
-decomposition_reason: one documentation-only authority reconciliation with one accepted ADR and no runtime implementation
-validation_level: focused
-heavy_validation_runs: 0
-session_rotation_count: 0
-stale_takeover_count: 0
-human_interruptions: 0
 proven:
   - ADR 0031 is accepted and assigns final native gameplay admission, admitted-session lease/fencing and protocol-oteryn semantics to the Oteryn-v2 game/native authority.
-  - OTERY_NATIVE_GAMEPLAY_PROTOCOL_CONTRACT.md still labels itself NORMATIVE and claims canonical authority across Platform, Otheryn and the Rust client.
-  - OTERY_NATIVE_PROTOCOL_PRODUCER.md still describes Otheryn Game Session v2/native consumers as the target remaining package.
-  - The native-auth production verification task already classifies Platform PR #542 and historical Otheryn/OTClient correspondence as compatibility/reconciliation evidence rather than final Oteryn-v2 conformance.
+  - The pre-repair Platform contract declared itself NORMATIVE and canonical across Platform, Game Gateway, Otheryn and the Rust client.
+  - Candidate PR 875 reclassifies that contract as historical transitional reconciliation input and preserves the historical schema digest plus validator markers.
+  - Candidate PR 875 reclassifies the producer operations guide and removes Otheryn rollout as current target guidance.
+  - The native-auth production verification task already classifies Platform PR 542 and historical Otheryn/OTClient correspondence as compatibility/reconciliation evidence rather than final Oteryn-v2 conformance.
 derived:
-  - Current documentation contains a lower-level authority drift that can misroute future native admission/protocol work despite ADR 0031.
+  - The accepted ADR already resolves the durable ownership question; this task requires no new owner decision or ADR.
 unknown:
-  - exact future Oteryn-v2 FND admission/session/lease contract bytes and transport details; this task must not invent them.
-conflicts:
-  - The historical Platform protocol contract's self-declared current normative authority conflicts with accepted ADR 0031 target ownership.
+  - Exact future Oteryn-v2 FND admission/session/lease contract bytes and transport details remain outside Platform authority and must not be invented here.
+conflicts: []
 first_failure:
   marker: stale-platform-native-protocol-normative-authority
-  evidence: docs/contracts/OTERYN_NATIVE_GAMEPLAY_PROTOCOL_CONTRACT.md starts with Status NORMATIVE and states that it governs Platform, Game Gateway, Otheryn and the Rust client.
+  evidence: Resolved in PR 875 candidate by removing the current normative claim and routing exact future semantics to Oteryn-v2 authority.
 rejected_hypotheses:
-  - Treat PR #542 producer semantics as final Oteryn-v2 protocol/admission authority.
+  - Treat PR 542 producer semantics as final Oteryn-v2 protocol/admission authority.
   - Rewrite Oteryn-v2 runtime contracts from Platform without accepted external authority.
+  - Delete historical schema/fixture evidence instead of preserving it for reconciliation.
 changed_paths:
   - docs/agents/tasks/active/OTERYN-20260808-native-protocol-authority-reconcile.md
+  - docs/agents/reports/OTERYN-20260808-native-protocol-authority-reconcile.md
+  - docs/contracts/OTERYN_NATIVE_GAMEPLAY_PROTOCOL_CONTRACT.md
+  - docs/operations/OTERYN_NATIVE_PROTOCOL_PRODUCER.md
 validation:
   - command: overlap and authority preflight
     result: PASS
-    evidence: no open Oteryn-Platform Issue or PR owns this exact authority-drift repair; Issue #874 created for this bounded scope.
+    evidence: no open Oteryn-Platform Issue or PR owned this exact authority-drift repair; Issue 874 and PR 875 now own the bounded scope.
+  - command: runtime/browser E2E
+    result: NOT_APPLICABLE
+    evidence: architecture/governance documentation only; no executable behavior, deployment or environment changed.
+  - command: exact-head GitHub Actions and native-protocol artifact validators
+    result: NOT_RUN
+    evidence: final candidate checkpoint commit must be pushed before exact-head workflow evidence is evaluated.
 blockers:
   - none
-next_action: Reclassify the stale native protocol contract and producer operations guide as historical transitional evidence, then update the architecture programme and validate the exact branch head.
+next_action: Verify the exact PR 875 head checks, inspect the full diff and review threads, then mark the PR ready and squash-merge only if every required gate passes.
 ```
 
 ## Notes
