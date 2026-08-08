@@ -44,6 +44,7 @@ final class AdminHomepageTemplateController
 
     public function activate(Request $request): RedirectResponse
     {
+        /** @var array{template: string, version: int} $validated */
         $validated = $request->validate([
             'template' => ['required', 'string', 'max:64', Rule::in($this->registry->keys())],
             'version' => ['required', 'integer', 'min:0'],
@@ -52,8 +53,8 @@ final class AdminHomepageTemplateController
         try {
             $this->store->activate(
                 $this->actor($request),
-                (string) $validated['template'],
-                (int) $validated['version'],
+                $validated['template'],
+                $validated['version'],
             );
         } catch (HomepageTemplateConflict) {
             return redirect()
@@ -68,12 +69,13 @@ final class AdminHomepageTemplateController
 
     public function rollback(Request $request): RedirectResponse
     {
+        /** @var array{version: int} $validated */
         $validated = $request->validate([
             'version' => ['required', 'integer', 'min:0'],
         ]);
 
         try {
-            $this->store->rollback($this->actor($request), (int) $validated['version']);
+            $this->store->rollback($this->actor($request), $validated['version']);
         } catch (HomepageTemplateConflict) {
             return redirect()
                 ->route('admin.homepage-templates.index')

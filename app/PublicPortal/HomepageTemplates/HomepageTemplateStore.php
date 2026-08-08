@@ -35,7 +35,7 @@ final readonly class HomepageTemplateStore
 
         return DB::transaction(function () use ($actor, $templateKey, $expectedVersion): HomepageTemplateSnapshot {
             $record = $this->lockedRecord();
-            $version = (int) $record->version;
+            $version = $this->versionFromRecord($record);
 
             if ($version !== $expectedVersion) {
                 throw new HomepageTemplateConflict('Homepage template version is stale.');
@@ -100,7 +100,7 @@ final readonly class HomepageTemplateStore
     {
         return DB::transaction(function () use ($actor, $expectedVersion): HomepageTemplateSnapshot {
             $record = $this->lockedRecord();
-            $version = (int) $record->version;
+            $version = $this->versionFromRecord($record);
 
             if ($version !== $expectedVersion) {
                 throw new HomepageTemplateConflict('Homepage template version is stale.');
@@ -207,8 +207,23 @@ final readonly class HomepageTemplateStore
             storedActiveKey: $storedActiveKey,
             activeKey: $activeKey,
             previousKey: $previousKey,
-            version: (int) $record->version,
+            version: $this->versionFromRecord($record),
             drifted: $storedActiveKey !== null && $storedActiveKey !== $activeKey,
         );
+    }
+
+    private function versionFromRecord(stdClass $record): int
+    {
+        $version = $record->version ?? null;
+
+        if (is_int($version)) {
+            return $version;
+        }
+
+        if (is_string($version) && ctype_digit($version)) {
+            return (int) $version;
+        }
+
+        throw new RuntimeException('Homepage template setting version is invalid.');
     }
 }

@@ -7,7 +7,7 @@ final class HomepageTemplateRegistry
     public const DEFAULT_KEY = 'production';
 
     /**
-     * @var array<string, array{view: string, label: string, description: string}>
+     * @var array<string, array{view: view-string, label: string, description: string}>
      */
     private const TEMPLATES = [
         'production' => [
@@ -23,7 +23,7 @@ final class HomepageTemplateRegistry
     ];
 
     /**
-     * @return array<string, array{view: string, label: string, description: string}>
+     * @return array<string, array{view: view-string, label: string, description: string}>
      */
     public function all(): array
     {
@@ -48,6 +48,7 @@ final class HomepageTemplateRegistry
             : self::DEFAULT_KEY;
     }
 
+    /** @return view-string */
     public function view(string $key): string
     {
         return self::TEMPLATES[$this->resolve($key)]['view'];
