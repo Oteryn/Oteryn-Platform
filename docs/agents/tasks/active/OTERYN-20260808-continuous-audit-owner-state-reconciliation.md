@@ -55,7 +55,7 @@ checkpoint_version: 1
 updated_at: 2026-08-08T17:02:00+02:00
 status: validating
 phase: closeout
-t erminal_pr_policy: archive_pending
+terminal_pr_policy: archive_pending
 session_id: a9007ee416864ae1b753d4018c164f69
 session_role: implementation_owner
 execution_mode: github_connector
