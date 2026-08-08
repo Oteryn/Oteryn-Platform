@@ -90,10 +90,10 @@ cross_repository_tasks: []
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-08T13:38:00+02:00
-head: pending
+updated_at: 2026-08-08T13:40:00+02:00
+head: 47da24a6ad26832a8c67aba99fd7e1199a0c3fe4
 branch: audit/OTERYN-20260808-continuous-audit-owner-state
-pr: none
+pr: 906
 status: validating
 context_routes:
   - agent-governance
@@ -118,6 +118,7 @@ proven:
   - The live open `programme:platform + programme:audit-repair + agent:ready` query returned no Issues before this audit finding was created.
   - Duplicate search found no open finding owning programme-level post-remediation owner-state drift.
   - Issue #905 now durably owns OPA-GOV-0031 and is agent:ready P1/high.
+  - PR #906 is the bounded audit delivery owner for this finding package.
 derived:
   - A future audit can incorrectly skip legitimate work if it trusts the stale explicit preservation list instead of current live ownership.
   - Historical finding IDs must remain in the identity ledger but must not be phrased as current open conflicts after repair completion.
@@ -152,11 +153,11 @@ validation:
     evidence: Audit/governance documentation only.
   - command: exact-head Agent Governance and repository-selected CI
     result: NOT_RUN
-    evidence: Run after the bounded audit PR is opened and its PR identity is recorded in this checkpoint.
+    evidence: Run on the current PR #906 candidate after this checkpoint update.
 blockers: []
-next_action: Open the bounded audit PR, record its exact PR identity in this checkpoint, run exact-head governance/CI, inspect the complete diff and review threads, merge only if every gate passes, then archive the audit task and release programme execution ownership without implementing Issue #905 in the audit role.
+next_action: Run exact-head governance/CI for PR #906, inspect the complete diff and review threads, merge only if every gate passes, then archive the audit task and release audit ownership without implementing Issue #905 in the audit role.
 invocation_started_at: 2026-08-08T13:32:00+02:00
-last_progress_at: 2026-08-08T13:38:00+02:00
+last_progress_at: 2026-08-08T13:40:00+02:00
 ci_checks_for_current_head: 0
 ci_check_generation: continuous-audit-owner-state-audit
 terminal_ci_wait_started_at: none
