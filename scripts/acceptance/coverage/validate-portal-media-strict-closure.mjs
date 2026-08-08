@@ -29,7 +29,7 @@ function loadMediaFragments(repoRoot) {
     });
 }
 
-function loadStrictInputs(repoRoot = defaultRepoRoot) {
+export function loadStrictInputs(repoRoot = defaultRepoRoot) {
   const inputs = loadRepositoryInputs(repoRoot);
   inputs.contract.surfaces = [
     ...(Array.isArray(inputs.contract.surfaces) ? inputs.contract.surfaces : []),

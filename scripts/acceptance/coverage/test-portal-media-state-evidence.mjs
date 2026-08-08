@@ -1,16 +1,16 @@
 import assert from 'node:assert/strict';
+import { validatePortalMediaStateEvidence } from './validate-portal-media-state-evidence.mjs';
 import {
-  loadRepositoryInputs,
-  validatePortalMediaStateEvidence,
-} from './validate-portal-media-state-evidence.mjs';
-import { validatePortalMediaStrictClosure } from './validate-portal-media-strict-closure.mjs';
+  loadStrictInputs,
+  validatePortalMediaStrictClosure,
+} from './validate-portal-media-strict-closure.mjs';
 
 function clone(value) {
   return structuredClone(value);
 }
 
 function mutatedInputs(mutate) {
-  const baseline = loadRepositoryInputs();
+  const baseline = loadStrictInputs();
   const inputs = {
     contract: clone(baseline.contract),
     manifestSurfaces: clone(baseline.manifestSurfaces),
@@ -40,7 +40,7 @@ function expectStrictFailure(name, mutate, expectedMarker) {
   );
 }
 
-const baseline = loadRepositoryInputs();
+const baseline = loadStrictInputs();
 const baselineReport = validatePortalMediaStrictClosure(baseline);
 assert.deepEqual(baselineReport.errors, [], JSON.stringify(baselineReport, null, 2));
 assert.equal(baselineReport.strict_closure, true, JSON.stringify(baselineReport, null, 2));
