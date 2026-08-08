@@ -81,12 +81,23 @@ Detailed evidence and the architecture/integration map are in `docs/agents/repor
 ## Context checkpoint
 
 ```yaml
+policy_version: 2
 checkpoint_version: 1
-updated_at: 2026-08-08T21:00:16+02:00
-head: 85b34d02561c9798ff6c8696a438c5a3f7b2eb2e
+updated_at: 2026-08-08T21:18:00+02:00
+status: validating
+phase: close
+session_id: chatgpt-20260808T2053+0200-platform-v2-architecture-audit
+session_role: architecture_auditor
+execution_mode: github_connector
+execution_reason: Repository and cross-repository architecture evidence, PR state, reviews and exact-head CI are all available through the GitHub connector; no local runtime execution is required for this documentation-only audit.
+task_kind: audit
+implementation_authorized: false
+context_pressure: medium
+context_growth: stable
+decomposition_decision: single
 branch: audit/OTERYN-20260808-platform-v2-architecture
+head: UNKNOWN
 pr: 927
-status: ready
 context_routes:
   - architecture
   - cross-repository-contract
@@ -106,7 +117,8 @@ proven:
   - FND-04 is the next native foundation architecture gate for Identity/Game Session/admission/character lease mechanics.
   - Baseline Platform PR classifications are #923 KEEP, #541 REBASE and #338 NEEDS_DECISION.
   - No baseline PR was closed, merged, rebased, force-pushed or otherwise destructively mutated by this audit.
-  - Oteryn-v2 remained read-only for this Platform-scoped task.
+  - Oteryn-v2 remained read-only for this Platform-scoped audit.
+  - Review identified that this audit must close terminally and be archived/released rather than remain ready as a continuation owner.
 derived:
   - The highest-leverage next architecture slice is FND-04 because exact final admission/GameSession/lease/reconnect semantics are the remaining foundation dependency between already-defined Platform pre-admission semantics and future native gameplay admission.
   - PR #338 must not progress as an implicit native content contract; it requires an explicit Legacy Canary Compatibility continuation decision or a pause in favor of native content/catalog projection design.
@@ -119,13 +131,14 @@ unknown:
 conflicts:
   - progress-only documentation still contains pre-FND-03-completion wording; live Git/accepted merge evidence takes precedence for execution status
 first_failure:
-  marker: none
-  evidence: none
+  marker: review-closeout-and-policy-v2-metadata
+  evidence: PR #927 review found the task incorrectly remained ready for downstream work and omitted mandatory execution_mode/policy-v2 session metadata.
 rejected_hypotheses:
   - Platform requires a microservice rewrite to integrate with Oteryn-v2
   - current Canary shared-data/session/protocol patterns may become the native target by default
   - Platform pre-admission material may be treated as canonical GameSessionId
   - baseline open PRs can be safely closed merely because branches are old/diverged
+  - a completed audit should remain active/ready merely to launch its downstream architecture task
 changed_paths:
   - docs/agents/tasks/active/OTERYN-20260808-platform-v2-architecture-audit.md
   - docs/agents/reports/OTERYN-20260808-platform-v2-architecture-audit.md
@@ -139,11 +152,14 @@ validation:
   - command: browser/gameplay E2E
     result: NOT_APPLICABLE
     evidence: no runtime/browser/gameplay capability changed
+  - command: PR #927 exact-head Agent Governance and CI prior to review repair
+    result: PASS
+    evidence: both required workflows passed on c8880e305e57141772347058195ce9530a3ea47b; review repair moves the head and requires a fresh generation
 blockers:
   - none
-next_action: Start one bounded FND-04 cross-repository architecture analysis from current Oteryn-v2 main and Platform ADR 0031/pre-admission/runtime-status contracts; freeze admission, canonical GameSession, lease/fencing and reconnect semantics without implementing runtime code.
+next_action: Re-run full review and required exact-head checks on the review-repaired PR #927 head, squash-merge only if clean, then immediately archive the task and release ownership in the bounded post-merge closeout.
 ```
 
 ## Notes
 
-This task remains `ready` rather than archived because it is the durable continuation checkpoint for the next architecture discussion. It creates no new accepted ADR and grants no implementation authority.
+The audit no longer acts as a downstream continuation owner. Its remaining lifecycle is validation, merge, archive and ownership release only. The FND-04 programme is separately owned in `blakinio/Oteryn-v2` and is not authorized by this Platform task.
