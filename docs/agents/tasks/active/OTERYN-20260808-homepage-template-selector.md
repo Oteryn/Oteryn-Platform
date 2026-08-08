@@ -7,8 +7,10 @@ required_reads:
   - docs/agents/REMEDIATION_WORK_CLAIM_PROTOCOL.md
   - docs/agents/REMEDIATION_AUDIT_RISK_GATE.md
   - docs/agents/REPAIR_PR_ECONOMY.md
+  - docs/agents/SESSION_RECOVERY_AND_ORPHANED_EXECUTION.md
 search_first:
   - issue #244
+  - pull request #882
   - historical reviewed portal commit 9a0d7e295b9a43c7b9861bfdcc423b6429766350
 optional_reads:
   - issue #240
@@ -32,7 +34,7 @@ Implement Issue #244 as one safe Platform-owned vertical slice: a code-owned hom
 - [x] Unknown stored keys fall back publicly and surface an admin warning.
 - [x] EN/PL copy and responsive/keyboard-compatible semantic markup are implemented with an exact zero-retry Playwright journey.
 - [x] Focused tests cover authorization, default, activation, stale conflict, invalid key, fallback and rollback.
-- [ ] Exact-head self-review, required CI and applicable E2E pass before merge.
+- [ ] Exact-head self-review, required CI and applicable E2E pass after synchronization with current protected `main`.
 - [ ] Issue #244 closes, task archives and ownership releases after resulting-main verification.
 
 ## Ownership
@@ -79,14 +81,14 @@ cross_repository_tasks: []
 ```yaml
 policy_version: 2
 checkpoint_version: 1
-updated_at: 2026-08-08T09:18:00+02:00
+updated_at: 2026-08-08T18:09:51+02:00
 status: validating
 phase: validate
-session_id: chatgpt-20260808T0850+0200-homepage-template-validator
-session_role: validator
+session_id: chatgpt-20260808T1809+0200-homepage-template-recovery
+session_role: implementation_owner
 execution_mode: github_connector
-execution_reason: exact-head GitHub CI and full-diff review are the authoritative final validation path after implementation completion
-lease_expires_at: 2026-08-08T10:03:00+02:00
+execution_reason: Resume the expired validation lease from durable PR/task state, synchronize the non-conflicting current main delta, then require a fresh exact-head validation generation and final full-diff review.
+lease_expires_at: 2026-08-08T18:54:51+02:00
 task_kind: implementation
 implementation_authorized: true
 context_pressure: medium
@@ -103,18 +105,18 @@ validation_rationale: public render selection is controlled by an administrator-
 self_review_result: PENDING
 self_review_exact_head: none
 self_review_evidence: docs/agents/evidence/OTERYN-20260808-homepage-template-selector/index.md
-last_completed_step: reduced Portal Exhaustive Audit infrastructure errors from 13 to zero and proved the remaining failure is the workflow exact-count invariant still pinned to the pre-feature 240/228 route inventory
+last_completed_step: Recovered expired PR #882 validation ownership, proved prior head 81690cf passed Agent Governance, Portal Exhaustive Audit, CI, Acceptance E2E/Visual UX, Content Scale, Portal Acceptance, Phase 7, DB outage, auth concurrency, edge security and staging-image workflows, then merged current main 0c6c630 into the repair branch without overlapping feature paths.
 heavy_validation_runs: 1
 previous_session_heavy_validation_runs: 2
-session_rotation_count: 1
-stale_takeover_count: 0
+session_rotation_count: 2
+stale_takeover_count: 1
 human_interruptions: 0
 issue: 244
 branch: repair/issue-244
-head: a3db80c1e78c6365213fe1e7cd97ec7d6c949764
-base_sha: 5d8a9bcd46ca45984bb45e467d4837ad8f541b59
+head: f814f223556f3478ec57808259c40f8e34cbb341
+base_sha: 0c6c630ecc7cb55c3a7ee8eac4d2627a91b751ca
 implementation_head: 5e186ca5b84c43f5bcc1b35a6a2d520bf86a3a14
-previous_ci_head: a3db80c1e78c6365213fe1e7cd97ec7d6c949764
+previous_ci_head: 81690cf811b8d9b5590b5a8e9a5c616a436a6b3c
 pr: 882
 context_routes:
   - public-web-cms
@@ -146,33 +148,33 @@ owned_paths:
   - docs/testing/portal-content-scale-surfaces/homepage-template-selector.json
   - docs/testing/portal-media-state-surfaces/homepage-template-selector.json
   - .github/workflows/portal-exhaustive-audit.yml
+  - docs/agents/evidence/OTERYN-20260808-homepage-template-selector/index.md
   - docs/agents/tasks/active/OTERYN-20260808-homepage-template-selector.md
-  - docs/agents/tasks/archive/OTERYN-20260808-homepage-template-selector.md
-  - docs/agents/evidence/OTERYN-20260808-homepage-template-selector/**
 proven:
-  - Current main lacked a homepage-template selector and hard-coded the home view.
+  - Current main before the feature lacked a homepage-template selector and hard-coded the home view.
   - Existing exact permission portal.settings.manage is reused without changing production role bundles.
   - Production remains the seeded/default key and maps to the unchanged current home view.
-  - The alternative classic view is derived from the previously reviewed production portal presentation present at commit 9a0d7e295b9a43c7b9861bfdcc423b6429766350.
+  - The alternative classic view is derived from the previously reviewed production portal presentation at 9a0d7e295b9a43c7b9861bfdcc423b6429766350.
   - Public design-preview routes remain absent.
-  - Agent Governance passed after the checkpoint contract was corrected.
-  - Composer package discovery passes after removing the nonexistent controller base class and following repository controller conventions.
-  - Portal Exhaustive Audit run 31245111891 reduced the original 13 infrastructure errors to four classification gaps.
-  - Portal Exhaustive Audit run 31245683153 on a3db80c1e78c6365213fe1e7cd97ec7d6c949764 produced infrastructure_error_count 0 with 244 discovered named routes, 232 classified route records and 12 justified exclusions.
-  - The remaining run 31245683153 failure is the workflow assertion still requiring the pre-feature exact counts 240/228.
+  - Portal Exhaustive Audit run 31245683153 proved the feature inventory is exactly 244 discovered routes, 232 classified route records and 12 justified exclusions with zero infrastructure errors; the only failure was the then-stale 240/228 workflow assertion.
+  - Current head 81690cf incorporated the 244/232 invariant correction and passed Portal Exhaustive Audit run 31265639398.
+  - On 81690cf Agent Governance 31265639405, CI 31265639412, Acceptance E2E and Visual UX 31265639393, Content Scale Acceptance 31265639395, Portal Acceptance Contract 31265639404, Phase 7 31265639400, Platform DB Outage 31265639408, Game Auth Ticket Concurrency 31265639414, Edge Security Emulation 31265639396 and Build Synology Staging Images 31265639399 all passed.
+  - Protected main advanced after that validation only through Issue #908 contract delivery/closeout; compare a4f3d03..main changed only the PublicGameData projection contract and the archived #908 task, neither overlapping homepage-selector feature paths.
+  - Merge commit f814f223556f3478ec57808259c40f8e34cbb341 incorporates protected main 0c6c630ecc7cb55c3a7ee8eac4d2627a91b751ca into the repair branch without altering homepage-selector feature bytes.
 derived:
   - Keeping Blade view names exclusively in the registry prevents database or browser values from becoming executable view selectors.
-  - The audit workflow count assertion must advance atomically with the four newly classified named routes; weakening or deleting the count invariant is unnecessary.
+  - The correct audit repair is the exact 244/232 route inventory update rather than weakening or deleting the route-count invariant.
+  - Previous PASS evidence is useful regression evidence but cannot replace the new exact-head checks after current-main synchronization and this recovery checkpoint.
 unknown: []
 conflicts: []
 first_failure:
-  marker: portal-exhaustive-route-count-contract-drift
-  evidence: Portal Exhaustive Audit run 31245683153 generated zero infrastructure errors at 244/232/12, then Verify generated identity and audit validity failed on the stale 240/228 exact-count assertions.
+  marker: none-current
+  evidence: The prior portal-exhaustive route-count drift was corrected; no current feature failure is proven pending the fresh exact-head workflow generation.
 rejected_hypotheses:
-  - Reintroduce public /design routes; Issue #244 explicitly forbids a public design gallery.
-  - Store arbitrary view names in the database; Issue #244 requires a code-owned allowlist.
-  - Add or auto-grant a production administrator permission; portal.settings.manage already exists and the browser fixture grants it only in isolated acceptance data.
-  - Weaken the exhaustive audit or remove exact route-count assertions; the correct repair is to advance the exact expected counts to the proven new inventory.
+  - Reintroduce public /design routes.
+  - Store arbitrary view names in the database.
+  - Add or auto-grant a production administrator permission.
+  - Weaken or remove exhaustive audit exact route-count assertions.
 changed_paths:
   - app/Http/Controllers/Admin/AdminHomepageTemplateController.php
   - app/Http/Controllers/PublicPortal/PublicHomeController.php
@@ -188,8 +190,6 @@ changed_paths:
   - scripts/acceptance/tests/homepage-template-selector.spec.mjs
   - scripts/acceptance/prepare-homepage-template-selector.php
   - scripts/acceptance/coverage/**homepage-template-selector*
-  - scripts/acceptance/coverage/validate-portal-content-scale-evidence.mjs
-  - scripts/acceptance/coverage/validate-portal-media-strict-closure.mjs
   - scripts/acceptance/coverage/portal-evidence-dimensions.json
   - docs/testing/ROUTE_VIEW_NAVIGATION_DELEGATED_BINDINGS.json
   - docs/testing/portal-content-scale-surfaces/homepage-template-selector.json
@@ -198,15 +198,37 @@ changed_paths:
   - docs/agents/evidence/OTERYN-20260808-homepage-template-selector/index.md
   - docs/agents/tasks/active/OTERYN-20260808-homepage-template-selector.md
 validation:
-  - command: Agent Governance after checkpoint repair
+  - command: prior release-candidate aggregate workflow generation on 81690cf811b8d9b5590b5a8e9a5c616a436a6b3c
+    result: PASS_WITH_ONE_SUPERSEDED_PENDING
+    evidence: All required feature/portal workflows listed in proven passed; Deep System Validation 31265639420 was still in progress when current-main synchronization superseded that head.
+  - command: current-main overlap compare a4f3d03..0c6c630
     result: PASS
-    evidence: run 31244685510 on head 38adf0c82d7de487cafe012cfe7653d32be36d91
-  - command: Portal Exhaustive Audit run 31245111891
-    result: FAIL
-    evidence: four remaining classification infrastructure errors after the first route/view coverage repair
-  - command: Portal Exhaustive Audit run 31245683153
-    result: FAIL
-    evidence: audit itself completed with infrastructure_error_count 0; terminal workflow assertion remained pinned to pre-feature route counts 240/228 instead of proven 244/232
+    evidence: Only PublicGameData privacy contract and archived #908 task changed; no feature path overlap.
 blockers: []
-next_action: Update only the proven Portal Exhaustive Audit exact route counts and source identities, then rerun exact-head CI/E2E and inspect the next first relevant failure.
+next_action: Observe the fresh exact-head workflow generation triggered by this recovery checkpoint, inspect only the first relevant failure if any, then perform final full-diff self-review and merge when every required gate passes.
+```
+
+## Recovery checkpoint
+
+```yaml
+recovery:
+  policy_version: 1
+  generation: 2
+  session_id: chatgpt-20260808T1809+0200-homepage-template-recovery
+  session_started_at: 2026-08-08T18:09:51+02:00
+  checkpointed_at: 2026-08-08T18:09:51+02:00
+  last_progress_at: 2026-08-08T18:09:51+02:00
+  phase: validate
+  exact_head: f814f223556f3478ec57808259c40f8e34cbb341
+  pull_request: 882
+  active_operation: fresh exact-head GitHub workflow generation
+  external_run_ids: []
+  operation_started_at: 2026-08-08T18:09:51+02:00
+  wait_deadline_at: 2026-08-08T18:54:51+02:00
+  check_generation: post-main-sync-recovery
+  checks_used: 0
+  status: waiting
+  safe_to_resume: true
+  resume_condition: GitHub workflows for the new repair head become observable and reach terminal required-gate results.
+  next_action: Query one aggregate workflow snapshot for the current PR head and continue from the first relevant terminal failure or final self-review when all required gates pass.
 ```
