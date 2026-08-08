@@ -23,7 +23,7 @@ No current runtime payload, database schema or Canary path is changed by this au
 
 This contract defines the authoritative world-routing and ordered gameplay-candidate policy consumed by the Oteryn Game Gateway.
 
-The Platform-owned world route is consumed by the existing Gateway. The native producer extension stores ordered per-world/channel candidates and policy revision, while creating no candidate rows and keeping every candidate disabled by default. It does not prove an Otheryn native consumer, a Rust native consumer, production activation or a production world route.
+The Platform-owned world route is consumed by the existing Gateway. The historical disabled native producer extension stores ordered per-world/channel candidates and policy revision, while creating no candidate rows and keeping every candidate disabled by default. It does not prove an Oteryn-v2 native consumer, a Rust native consumer, production activation or a production world route.
 
 The first deployment may contain exactly one world, but no API/domain contract may permanently assume a singleton.
 
@@ -40,9 +40,9 @@ Implemented in Oteryn Platform:
 - no seeded world and no invented production hostname or port;
 - `game_world_protocol_candidates` storage with disabled-by-default rows, deterministic order and exact endpoint/native protocol version/schema/capability projection;
 - monotonic `gameplay_policy_revision` on each world;
-- Gateway API v1 optional gameplay offer, deterministic selection and Game Session v2 producer binding.
+- Gateway API v1 historical/disabled native gameplay offer, deterministic selection and Game Session v2 producer binding.
 
-Sections below that retain the label “Phase 1” describe the original foundation. Where they conflict with this status section, the merged native gameplay contract and this implemented-state section are authoritative for the declared compatibility implementation only. Accepted native-v2 identity/status contracts remain narrower authorities for native semantics.
+Sections below that retain the label “Phase 1” describe the original foundation. Where they conflict with this status section, this status/implemented-state section governs the declared compatibility implementation only. Accepted native-v2 identity/status/protocol authorities remain narrower authorities for native semantics.
 
 Current world authorization policy:
 
@@ -59,8 +59,7 @@ Still not implemented:
 
 - character-to-world persistence for true multiworld;
 - account/world entitlement policy beyond the single-world-ready MVP;
-- Otheryn Game Session v2 storage/readiness/admission and native listener;
-- Rust native gameplay consumer;
+- accepted Oteryn-v2 native World Registry/Gateway consumer reconciliation for the historical Game Session v2 producer path;
 - accepted Oteryn-v2 runtime-status/readiness producer integration and native World Registry/LiveOps projection;
 - world administration UI;
 - production route configuration or activation.
