@@ -14,7 +14,10 @@ final class VerifyMailDeliveryReadiness extends Command
 
     public function handle(MailDeliveryConfigurationVerifier $verifier): int
     {
-        $environment = strtolower(trim((string) config('app.env')));
+        $configuredEnvironment = config('app.env');
+        $environment = is_string($configuredEnvironment)
+            ? strtolower(trim($configuredEnvironment))
+            : '';
         $violations = $verifier->inspect($environment);
 
         if ($violations !== []) {
