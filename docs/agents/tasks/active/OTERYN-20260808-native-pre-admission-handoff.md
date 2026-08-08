@@ -69,22 +69,22 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-08T10:54:00+02:00
-head: restack-pending
+updated_at: 2026-08-08T10:58:00+02:00
+head: e85b9b542b82ac07909f5886f86c85071f96d075
 branch: docs/OTERYN-20260808-native-pre-admission-handoff
 pr: 900
-status: active
-phase: restack-validation
+status: validating
+phase: exact-head-validation
 execution_mode: github_only
 invocation_started_at: 2026-08-08T10:39:00+02:00
-last_progress_at: 2026-08-08T10:54:00+02:00
-ci_checks_for_current_head: 0
-ci_check_generation: none
-terminal_ci_wait_started_at: none
+last_progress_at: 2026-08-08T10:58:00+02:00
+ci_checks_for_current_head: 1
+ci_check_generation: repair-1
+terminal_ci_wait_started_at: 2026-08-08T10:58:00+02:00
 terminal_ci_checks_for_current_generation: 0
 unchanged_state_checks: 0
 identical_failure_retries: 0
-repair_cycles_for_current_gate: 1
+repair_cycles_for_current_gate: 2
 context_reconstruction_attempts: 1
 stall_warnings: 0
 context_routes:
@@ -105,6 +105,7 @@ proven:
   - Delivered GAME_GATEWAY_IDENTITY_CONTRACT redeem v1 still binds/returns canary_account_id and therefore remains a compatibility implementation, not proof of a native AccountId-bearing redeem context.
   - Historical Platform native gameplay/Game Session v2 artifacts are reconciliation evidence only and cannot define current Oteryn-v2 admission/session authority.
   - The orphaned predecessor branch already contained the focused semantic contract, Gateway routing clarification, integration-architecture update and review report.
+  - The recovered branch was restacked to current main as one commit with behind_by=0 and five intended changed paths.
 derived:
   - A focused Platform semantic contract closes the Platform-side handoff ambiguity without selecting unfinished Oteryn-v2 wire or lease implementation.
   - Native implementation will require a separately authorized versioned Identity/Gateway redeem/login context that yields canonical AccountId before pre-admission issuance can be implemented safely.
@@ -117,13 +118,14 @@ unknown:
   - canonical GameSessionId wire form
 conflicts: []
 first_failure:
-  marker: accountid-vs-legacy-redeem-v1-authority-ambiguity
-  evidence: orphan-takeover review found branch wording depended on authoritative ticket redemption while delivered v1 exposes canary_account_id; ADR 0028 makes native AccountId authority narrower and canonical
+  marker: checkpoint-status-vocabulary
+  evidence: first exact-head Agent Governance and CI classify-changes failed only because checkpoint status used unsupported value active; architecture/native protocol checks otherwise started normally and both native-protocol contract workflows passed
 rejected_hypotheses:
   - Platform-issued pre-admission material is a canonical gameplay session
   - historical Platform native Game Session v2 bytes define the Oteryn-v2 target
   - successful legacy Canary redeem v1 is sufficient proof of a native AccountId-bearing login context
   - native AccountId may be reconstructed from canary_account_id as canonical authority
+  - first CI failure proves an architecture or runtime defect
 changed_paths:
   - docs/contracts/OTERYN_V2_PRE_ADMISSION_HANDOFF_CONTRACT.md
   - docs/contracts/GAME_GATEWAY_IDENTITY_CONTRACT.md
@@ -139,12 +141,18 @@ validation:
     evidence: native AccountId authority and game-domain final admission authority are explicitly separated from legacy Canary redeem/session semantics
   - command: full changed-file semantic review
     result: PASS
-    evidence: one material AccountId/redeem-v1 ambiguity was found and reconciled; zero unresolved material findings remain before final CI
+    evidence: one material AccountId/redeem-v1 ambiguity was found and reconciled; zero unresolved material findings remain
+  - command: restack against main@3dc9b9a7f21c04aca16d3729dbf951621c800f07
+    result: PASS
+    evidence: PR 900 head e85b9b542b82ac07909f5886f86c85071f96d075 was one commit ahead, zero behind, mergeable, with exactly five intended paths
+  - command: first exact-head CI generation
+    result: FAIL
+    evidence: checkpoint validator rejected unsupported status active; native protocol contract and native protocol contract audits both passed
   - command: runtime/browser E2E
     result: NOT_RUN
     evidence: architecture/documentation only; no executable runtime or deployment behavior is authorized
 blockers: []
-next_action: Restack the reviewed five-file semantic delta on current main, update PR #900 head, then run exact-head required CI and final review before merge.
+next_action: Re-run exact-head required workflows after checkpoint status repair; merge only if required CI is green and final review remains clean.
 ```
 
 ## Recovery checkpoint
@@ -155,19 +163,21 @@ recovery:
   generation: 2
   session_id: github-20260808-1039-issue888-takeover
   session_started_at: 2026-08-08T10:39:00+02:00
-  checkpointed_at: 2026-08-08T10:54:00+02:00
-  last_progress_at: 2026-08-08T10:54:00+02:00
-  phase: restack-validation
-  exact_head: restack-pending
+  checkpointed_at: 2026-08-08T10:58:00+02:00
+  last_progress_at: 2026-08-08T10:58:00+02:00
+  phase: exact-head-validation
+  exact_head: e85b9b542b82ac07909f5886f86c85071f96d075
   pull_request: 900
-  active_operation: restack onto current main
-  external_run_ids: []
-  operation_started_at: 2026-08-08T10:54:00+02:00
+  active_operation: required CI after checkpoint-status repair
+  external_run_ids:
+    - 31249435310
+    - 31249435288
+  operation_started_at: 2026-08-08T10:58:00+02:00
   wait_deadline_at: null
-  check_generation: none
-  checks_used: 0
-  status: active
+  check_generation: repair-1
+  checks_used: 1
+  status: validating
   safe_to_resume: true
-  resume_condition: backup branch remains available and current main is unchanged during restack commit creation
-  next_action: Build one reviewed restack snapshot from current main and the five exact branch blobs, then move PR #900 head to that commit.
+  resume_condition: PR remains mergeable and current head workflows complete without new material failures
+  next_action: Inspect the next exact-head workflow generation; do not retry unchanged failures.
 ```
