@@ -53,19 +53,17 @@ execution_reason: narrow architecture/documentation edits and GitHub Actions val
 
 ## Acceptance criteria
 
-- [x] Projection families and explicit exclusions are catalogued without duplicating runtime-status or Game Catalog authority.
-- [x] Authoritative source owner, canonical identities and Platform projection/presentation ownership are explicit per family.
-- [x] Event/snapshot/query evidence semantics define identity, source revision/version, applicability, ordering and provenance without inventing one global stream.
-- [x] At-least-once/repeated delivery is safe through idempotent application and duplicate/replay handling.
-- [x] Fresh/stale/unavailable/invalid/empty/not-found semantics are distinguishable and ordinary public reads do not synchronously depend on the game runtime.
-- [x] Tombstone, rename, transfer, hide/privacy and lifecycle reconciliation semantics prevent stale public authority.
-- [x] Platform CharacterProfiles/privacy policy remains an independent upper-bound presentation overlay.
-- [x] Rebuild, backfill, projection generations, replay/tail, bounded reconciliation, gap detection and poison-event behavior are explicit.
-- [x] Legacy Canary reads are compatibility-only and cut over per projection family with provenance and rollback.
-- [x] `OTERYN_V2_RUNTIME_STATUS_PROJECTION_CONTRACT.md` remains authoritative for world/channel runtime observations/capacity aggregates.
-- [x] Game Catalog/content facts remain routed to their existing content/catalogue authority.
-- [ ] Exact-head self-review, required CI and review-thread hygiene pass.
-- [x] Runtime/browser E2E is `NOT_APPLICABLE`: this task changes architecture/documentation only and implements no executable producer, worker, schema, public route or cutover.
+- [x] Character facts/search, rankings, activity, guild membership and individual presence projection families are catalogued.
+- [x] Runtime-status and Game Catalog/content authority are referenced rather than duplicated.
+- [x] Source owner, canonical identity and Platform projection/presentation ownership are explicit.
+- [x] Version/revision/applicability/ordering/provenance and at-least-once-safe idempotency semantics are explicit.
+- [x] Fresh/stale/unavailable/invalid versus empty/not-found semantics and last-known-good website behavior are explicit.
+- [x] Rename/delete/restore/transfer/tombstone/privacy reconciliation is explicit.
+- [x] CharacterProfiles/Identity privacy remains an independent Platform upper-bound overlay.
+- [x] Generation rebuild, replay/tail, high-watermark, gap, poison/quarantine, reconciliation and rollback semantics are explicit.
+- [x] Canary SQL/Redis reads remain Legacy Canary Compatibility and cut over per family without silent mixed authority.
+- [ ] Exact-head required CI and final review-thread hygiene pass.
+- [x] Runtime/browser E2E is `NOT_APPLICABLE`: no executable producer, worker, schema, route or cutover changes.
 
 ## Ownership
 
@@ -92,7 +90,7 @@ forbidden_paths:
   - external repositories
 ```
 
-## Exact-head self-review
+## Self-review
 
 ```yaml
 self_review:
@@ -106,30 +104,29 @@ self_review:
   related_prs_checked: true
   findings: []
   evidence:
-    - exactly three owned documentation/task/report paths changed
-    - five projection families and explicit runtime-status/Game Catalog exclusions are defined
-    - current Canary direct reads are compatibility-only and no native shared-SQL authority is introduced
-    - canonical identity, idempotency, ordering, freshness, lifecycle, privacy, rebuild, reconciliation and per-family rollback semantics are explicit
-    - native guild identity uncertainty remains explicit and implementation-gating rather than being filled with a mutable name or Canary numeric ID
+    - three intended owned documentation/task/report paths only
+    - no native shared-SQL or synchronous runtime fallback authority introduced
+    - runtime-status and Game Catalog ownership remain disjoint
+    - native guild identity uncertainty is explicit and implementation-gating rather than invented from name or Canary ID
     - no runtime/schema/worker/workflow/deployment/external-repository path changed
 ```
 
-The later task-checkpoint commits are governance-only and do not alter the reviewed architecture contract/report semantics.
+Later task-checkpoint commits are governance-only and do not change the reviewed architecture contract/report semantics.
 
 ## Context checkpoint
 
 ```yaml
 checkpoint_version: 1
 policy_version: 2
-updated_at: 2026-08-08T11:27:00+02:00
-head: 5e42493d0a560c4783d7e7900b32d7d8c28a6434
+updated_at: 2026-08-08T11:26:00+02:00
+head: d73f3ef1adf01a58676c044ecb287e7388aa2e9b
 branch: docs/OTERYN-20260808-native-public-game-data-projections
 pr: 903
 status: validating
 phase: validate
 execution_mode: github_only
 invocation_started_at: 2026-08-08T10:39:00+02:00
-last_progress_at: 2026-08-08T11:27:00+02:00
+last_progress_at: 2026-08-08T11:26:00+02:00
 lease_expires_at: 2026-08-08T12:03:00+02:00
 context_pressure: medium
 context_growth: stable
@@ -142,12 +139,12 @@ session_rotation_count: 0
 stale_takeover_count: 0
 human_interruptions: 0
 ci_checks_for_current_head: 0
-ci_check_generation: ready-checkpoint-1
+ci_check_generation: repair-1
 terminal_ci_wait_started_at: 2026-08-08T11:27:00+02:00
-terminal_ci_checks_for_current_generation: 0
+terminal_ci_checks_for_current_generation: 1
 unchanged_state_checks: 0
 identical_failure_retries: 0
-repair_cycles_for_current_gate: 0
+repair_cycles_for_current_gate: 1
 context_reconstruction_attempts: 0
 stall_warnings: 0
 context_routes:
@@ -160,31 +157,28 @@ owned_paths:
   - docs/agents/reports/OTERYN-20260808-native-public-game-data-projections.md
   - docs/agents/tasks/active/OTERYN-20260808-native-public-game-data-projections.md
 proven:
-  - ADR 0031 requires native Oteryn-v2 game facts to cross through explicit contracts rather than shared tables or cross-system SQL.
-  - OTERYN_V2_RUNTIME_STATUS_PROJECTION_CONTRACT already owns WorldId/ChannelId runtime observations, readiness, freshness, capacity/player-count aggregate truthfulness and public status semantics.
-  - delivered PublicGameData currently reads Canary players, deaths, guild, house, channel and cluster-session tables directly through compatibility repositories/queries.
-  - delivered PublicCharacterProfileService overlays Platform-owned CharacterProfiles privacy/presentation preferences over Canary game facts.
-  - no open Issue or PR owned this exact native generic PublicGameData projection/reconciliation contract before Issue 902; Issue 487 is current-surface evidence, character lifecycle Issues own mutations, and programme 330 owns Game Catalog.
-  - the focused contract defines character facts/search, rankings, activity, guild membership and individual presence with explicit rebuild/freshness/migration semantics.
-  - PR 903 is ready, mergeable, zero commits behind main, changes exactly three owned documentation paths, and has zero unresolved review threads.
+  - ADR 0031 requires explicit native contracts rather than shared tables/cross-system SQL.
+  - runtime-status projection already owns WorldId/ChannelId health/readiness/freshness and aggregate capacity/player-count truthfulness.
+  - delivered PublicGameData uses Canary compatibility reads; PublicCharacterProfileService overlays Platform privacy/presentation state.
+  - Issue #902 is non-overlapping with #487 current-surface evidence, character lifecycle mutation Issues and Game Catalog #330.
+  - focused contract defines five projection families, source evidence, idempotency, freshness, lifecycle, privacy, rebuild/reconciliation and per-family migration/rollback.
 derived:
-  - native public game facts need a rebuildable Platform read-model contract that preserves game authority while allowing the website to serve last-known-good state independently of synchronous game-runtime availability.
-  - privacy/presentation policy remains a Platform overlay instead of becoming game-owned public exposure authority.
+  - ordinary website reads can remain independent of synchronous game-runtime availability through truthful last-known-good Platform projections.
 unknown:
   - exact Oteryn-v2 producer API/event/snapshot schema and transport
-  - exact broker or delivery infrastructure
+  - exact broker/delivery infrastructure
   - exact native canonical guild identifier representation
   - exact per-family numeric freshness budgets
-  - exact Platform projection storage schema and worker framework
+  - exact Platform storage/worker implementation
 conflicts: []
 first_failure:
-  marker: none-observed
-  evidence: overlap/source-of-truth audit and exact architecture diff review found no unresolved material contradiction
+  marker: checkpoint-validation-result-vocabulary
+  evidence: exact-head generation on d73f3ef1adf01a58676c044ecb287e7388aa2e9b rejected unsupported validation result PASS_PARTIAL; architecture/native protocol checks were otherwise not implicated
 rejected_hypotheses:
-  - runtime-status contract should be duplicated inside generic PublicGameData projections
-  - Game Catalog content facts should be absorbed into gameplay-state projections
-  - current Canary numeric IDs or direct SQL are the native source-of-truth design
-  - public projection records may bypass Platform CharacterProfiles privacy policy
+  - runtime-status should be duplicated inside generic PublicGameData
+  - Game Catalog facts should be absorbed into gameplay-state projections
+  - Canary IDs/direct SQL are the native source-of-truth design
+  - privacy policy may be bypassed by game-originated public facts
   - exactly-once transport or one global ordering stream is required
 changed_paths:
   - docs/contracts/OTERYN_V2_PUBLIC_GAME_DATA_PROJECTION_CONTRACT.md
@@ -193,18 +187,18 @@ changed_paths:
 validation:
   - command: overlap and source-of-truth audit
     result: PASS
-    evidence: Issue 902 owns the new focused boundary; current runtime-status, lifecycle, browser-evidence and Game Catalog owners remain disjoint
-  - command: exact content-head full-diff architecture self-review
+    evidence: focused boundary is disjoint from current runtime-status, lifecycle, browser-evidence and Game Catalog owners
+  - command: exact architecture content-head self-review
     result: PASS
-    evidence: d7553a92fa8537c8f11c4995d95e3eb258a0e4ef has exactly three intended paths and zero unresolved material findings
-  - command: first ready-state CI observation on 5e42493d0a560c4783d7e7900b32d7d8c28a6434
-    result: PASS_PARTIAL
-    evidence: Agent Governance and both Native protocol contract workflows passed; remaining repository-selected checks were running/queued with no failure observed before the recovery checkpoint update
+    evidence: d7553a92fa8537c8f11c4995d95e3eb258a0e4ef had exactly three intended paths and zero unresolved material findings
+  - command: exact-head generation d73f3ef1adf01a58676c044ecb287e7388aa2e9b
+    result: FAIL
+    evidence: Agent Governance/CI checkpoint validator rejected the unsupported result label PASS_PARTIAL; first failure is repaired by this commit
   - command: runtime/browser E2E
     result: NOT_RUN
     evidence: architecture/documentation-only task; no executable producer, worker, schema, route or cutover exists
 blockers: []
-next_action: Observe the new exact-head PR 903 required-check generation after this recovery checkpoint commit; merge only if all required checks pass and review hygiene remains clean.
+next_action: Observe one aggregate required-check snapshot for the repaired exact head; merge only if all required checks pass and review hygiene remains clean.
 ```
 
 ## Recovery checkpoint
@@ -212,30 +206,30 @@ next_action: Observe the new exact-head PR 903 required-check generation after t
 ```yaml
 recovery:
   policy_version: 1
-  generation: 1
+  generation: 2
   session_id: github-20260808-1039-public-game-data
   session_started_at: 2026-08-08T10:39:00+02:00
-  checkpointed_at: 2026-08-08T11:27:00+02:00
-  last_progress_at: 2026-08-08T11:27:00+02:00
+  checkpointed_at: 2026-08-08T11:26:00+02:00
+  last_progress_at: 2026-08-08T11:26:00+02:00
   phase: validate
-  exact_head: 5e42493d0a560c4783d7e7900b32d7d8c28a6434
+  exact_head: d73f3ef1adf01a58676c044ecb287e7388aa2e9b
   pull_request: 903
-  active_operation: final required exact-head CI and merge gate
+  active_operation: repaired exact-head required CI and merge gate
   external_run_ids:
-    - 31250430136
-    - 31250430135
-    - 31250430153
-    - 31250430137
-    - 31250430141
-    - 31250430142
-    - 31250430177
-    - 31250430138
-  operation_started_at: 2026-08-08T11:25:00+02:00
+    - 31250495901
+    - 31250495921
+    - 31250495881
+    - 31250495891
+    - 31250495880
+    - 31250495899
+    - 31250495904
+    - 31250495909
+  operation_started_at: 2026-08-08T11:26:00+02:00
   wait_deadline_at: 2026-08-08T11:38:00+02:00
-  check_generation: ready-checkpoint-1
-  checks_used: 0
+  check_generation: repair-1
+  checks_used: 1
   status: active
   safe_to_resume: true
-  resume_condition: PR 903 remains mergeable, exact head is unchanged after the recovery checkpoint commit, no review thread appears, and repository-required checks finish without failure
-  next_action: Inspect one aggregate required-check snapshot for the new exact head, repair any first material failure if present, otherwise merge after complete green checks.
+  resume_condition: PR 903 remains mergeable on the repaired head with no new review finding and all required checks complete successfully
+  next_action: Inspect one aggregate required-check snapshot for the repaired head; repair a new first material failure if present, otherwise merge and perform closeout.
 ```
