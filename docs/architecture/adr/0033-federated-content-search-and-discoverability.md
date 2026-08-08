@@ -20,7 +20,9 @@ A global search feature creates architecture risk if it becomes:
 
 The current repository also contains a pre-existing compatibility reverse edge: Announcements and Events homepage provider/view-model paths import `App\PublicPortal\PublicContentState`. This predates ADR 0033. Adding PublicPortal -> Announcements/Events federated-search calls without first removing that reverse edge would create a bidirectional module dependency.
 
-The decision must therefore preserve the repository's minimum-module rule while allowing later implementation and API reuse **without hiding current dependency debt**.
+Search caching also has a privacy/correctness constraint: distinct normalized queries must never collide into one cached result merely because locale/filter/provider generations match, but the raw query must not be persisted as cache-key material. A plain unkeyed hash is also insufficient privacy protection for common dictionary-recoverable search terms.
+
+The decision must therefore preserve the repository's minimum-module rule while allowing later implementation and API reuse **without hiding current dependency debt or leaking query text through cache identity**.
 
 ## Decision
 
@@ -137,13 +139,17 @@ If an index/search engine is later adopted:
 
 No specific Elasticsearch/OpenSearch/Meilisearch dependency is accepted by this ADR.
 
-### 9. Query privacy, security and abuse are first-class
+### 9. Query privacy, cache identity, security and abuse are first-class
 
 Search queries may contain personal or sensitive text.
 
 Therefore:
 
 - raw queries are not metric labels and are not written to ordinary structured logs by default;
+- any result cache includes a privacy-safe, collision-resistant identity for the canonical normalized query in addition to locale, filters, provider selection and provider/index generation;
+- that query identity is a **versioned server-keyed digest**, such as `HMAC-SHA-256(cache-key-secret, normalized-query)`, not the raw term and not an unkeyed/plain hash vulnerable to practical dictionary recovery;
+- the cache-key secret is managed as application secret material; the key identifier/version participates in the cache namespace so rotation produces a distinct cache generation;
+- query digests are not emitted as ordinary logs or metric labels and are not reused as analytics/user-tracking identifiers;
 - query length, page size and filters are bounded;
 - provider/type filters are server-side allowlists;
 - arbitrary SQL/search-engine query languages and client-selected fields/sorts are rejected;
@@ -169,7 +175,8 @@ A future materially different non-portal discovery product may justify extractio
 - PlatformAPI can reuse one orchestration path;
 - exact-name character search is protected from accidental fuzzy enumeration;
 - a later search engine remains replaceable derived infrastructure;
-- existing dependency debt is explicit and cannot be accidentally deepened by provider onboarding.
+- existing dependency debt is explicit and cannot be accidentally deepened by provider onboarding;
+- cache correctness distinguishes queries without storing or exposing raw query text as cache identity.
 
 ### Costs
 
@@ -177,6 +184,7 @@ A future materially different non-portal discovery product may justify extractio
 - grouped search may initially feel less “globally ranked” than one blended score;
 - partial dependency failure must be designed and tested explicitly;
 - Announcements/Events require a bounded compatibility cleanup before federated-search onboarding;
+- cache implementations require managed keyed-digest secret/version rotation semantics;
 - future dedicated indexing requires revision/tombstone/generation contracts rather than a simple bulk copy.
 
 ## Rejected alternatives
@@ -213,6 +221,14 @@ Rejected. Adding the opposite federated-search dependency while that compatibili
 
 Rejected. A neutral boundary needs genuine ownership and semantics; generic shared-code extraction is not a substitute for source-owned application responses.
 
+### Use raw query text in result-cache keys
+
+Rejected. Search terms can contain personal or sensitive text and should not be persisted as direct cache-key material.
+
+### Use a plain/unkeyed hash of the query as privacy protection
+
+Rejected. Common search terms are dictionary-recoverable; a server-keyed versioned digest provides a stronger privacy boundary while retaining deterministic cache isolation.
+
 ## Implementation and activation limits
 
 This ADR defines architecture only. It does not authorize:
@@ -224,7 +240,7 @@ This ADR defines architecture only. It does not authorize:
 - private-content indexing;
 - server/client repository access or mutation.
 
-Implementation requires a separate bounded task with exact source contracts, dependency-cycle cleanup for every selected provider that currently imports PublicPortal, state/error coverage, security/rate-limit validation, localization, accessibility/responsive behavior and real exact-head E2E.
+Implementation requires a separate bounded task with exact source contracts, dependency-cycle cleanup for every selected provider that currently imports PublicPortal, cache isolation/privacy and key-rotation tests, state/error coverage, security/rate-limit validation, localization, accessibility/responsive behavior and real exact-head E2E.
 
 ## Focused architecture
 
