@@ -94,24 +94,24 @@ ADR 0032 records these durable sub-boundary decisions and explicitly extends rat
 
 Codex review on exact head `508139a83bef1d00700636d490233ddeccc2ba2c` produced three material findings:
 
-1. **P1 — durable ADR missing:** the package allocated responsibilities intended to outlive one task but incorrectly claimed no new ADR was required.
-2. **P1 — self-review gate stale:** the task record pointed to an older self-review while allowing merge after independent review/CI.
-3. **P2 — module catalog drift:** `MODULE_CATALOG.md` did not expose the new PlayerCompanion/GameCatalog/Notifications ownership to future tasks.
+1. **P1 — durable ADR missing:** responsibility allocations intended to outlive one task were not in an ADR.
+2. **P1 — self-review gate stale:** the task record allowed merge while its recorded self-review covered an older head.
+3. **P2 — module catalog drift:** canonical `MODULE_CATALOG.md` did not expose the new responsibilities.
 
-Repair cycle 1 addresses all three:
+Repair cycle 1 is complete in content generation `6464cc299a00c13b4a55bee6a37c093caa42d9a3` plus this final checkpoint commit:
 
-- add ADR 0032 and register it in the ADR inventory;
-- reconcile the canonical module table and detailed responsibility/invariant sections;
-- replace the stale task-level merge claim with an explicit requirement for a PR review anchored to the actual final head after the repair commit;
-- update the benchmark report so it references ADR 0032 rather than claiming that no ADR is required.
+- ADR 0032 added and registered;
+- `MODULE_CATALOG.md` synchronized across PublicPortal, GameCatalog, PlayerCompanion, Notifications, Wiki and LiveOps responsibilities/invariants;
+- benchmark report now references ADR 0032;
+- stale task-level self-review/merge assumption removed; final self-review must be a PR review anchored to the live final head.
 
-The earlier self-reviews and green CI are historical supporting evidence only after this repair commit and cannot satisfy the final merge gate.
+Historical self-reviews and CI on earlier heads are supporting evidence only and cannot satisfy the final merge gate.
 
 ## Final exact-head self-review gate
 
-A task file cannot embed the SHA of the commit that contains its own changed bytes without changing that SHA again. Therefore the final exact-head self-review is recorded as a PR review anchored to the live final PR head **after** all content/checkpoint commits are complete. The live PR head plus that anchored review are authoritative for the exact-head self-review gate.
+A task file cannot embed the SHA of the commit that contains its own changed bytes without changing that SHA again. Therefore the final exact-head self-review is recorded as a PR review anchored to the live final PR head after this checkpoint commit. The live PR head plus that anchored PR review are authoritative for this gate.
 
-Before merge the final PR review must record:
+Before merge the PR review must record:
 
 ```yaml
 self_review:
@@ -126,21 +126,21 @@ self_review:
   findings: []
 ```
 
-No prior review on `c13d490...` or `508139a...` may be reused as the final PASS after the repair commit.
+No prior review on `c13d490...`, `508139a...` or the pre-checkpoint content generation may be reused as the final PASS.
 
 ## Context checkpoint
 
 ```yaml
 checkpoint_version: 1
 policy_version: 2
-updated_at: 2026-08-09T00:12:00+02:00
+updated_at: 2026-08-09T00:16:00+02:00
 invocation_started_at: 2026-08-09T00:06:00+02:00
-last_progress_at: 2026-08-09T00:12:00+02:00
+last_progress_at: 2026-08-09T00:16:00+02:00
 head: UNKNOWN
 branch: docs/OTERYN-20260808-portal-architecture-delta
 pr: 933
 status: validating
-phase: review-repair
+phase: exact-head-validation
 session_id: agent-20260809-0006-portal-architecture-delta
 session_role: architecture
 project_lane: oteryn-platform-content
@@ -167,16 +167,16 @@ proven:
   - WWW-only repository scope is mandatory by trusted main governance
   - current architecture retains Laravel modular monolith and Blade baseline
   - ADR 0025 remains the broad PlayerCompanion/LiveOps decision
-  - ADR registry main inventory ends at 0031 and no open PR allocates 0032
+  - ADR 0032 is the next available ADR after scanning the main inventory and open PRs
   - Codex exact-head review on 508139a identified the three recorded findings
-  - the repair remains inside existing Platform architecture ownership and introduces no deployable service
+  - repair content generation 6464cc299a00c13b4a55bee6a37c093caa42d9a3 contains ADR/module/report repairs
   - open PR #338 and #541 do not overlap the repaired architecture paths
 derived:
-  - ADR 0032 is required because the sub-boundary allocations govern later tasks and outlive this task
+  - final self-review must be anchored out-of-band to the live PR head after this checkpoint commit
 unknown:
-  - final repair commit SHA until the coherent tree commit is created
-  - final independent Codex verdict after repair
-  - final required CI verdict after repair
+  - live final PR head produced by this checkpoint commit until re-read
+  - final independent Codex verdict on that head
+  - final required CI verdict on that head
 conflicts: []
 first_failure:
   marker: codex-review-508139a
@@ -198,12 +198,12 @@ changed_paths:
 validation:
   - command: focused architecture ownership reconciliation
     result: PASS
-    evidence: repair converts the three Codex findings into canonical ADR/module/task authority without changing runtime scope
+    evidence: repair converts all three Codex findings into ADR/module/task authority without changing runtime scope
   - command: runtime E2E
     result: NOT_APPLICABLE
     evidence: documentation-only architecture package changes no executable route, schema, runtime, configuration or deployment
 ci_checks_for_current_head: 0
-ci_check_generation: review_repair
+ci_check_generation: final_checkpoint
 terminal_ci_wait_started_at: null
 terminal_ci_checks_for_current_generation: 0
 unchanged_state_checks: 0
@@ -213,7 +213,7 @@ context_reconstruction_attempts: 0
 stall_warnings: 0
 blockers:
   - none
-next_action: create the coherent review-repair commit, then perform an exact-head self-review, request fresh independent Codex review, resolve addressed threads and require exact-head CI before squash merge
+next_action: re-read live PR #933 head, perform and record exact-head full-diff self-review, resolve the three addressed review threads, request fresh Codex review, and require exact-head CI before squash merge
 ```
 
 ## Recovery checkpoint
@@ -221,24 +221,24 @@ next_action: create the coherent review-repair commit, then perform an exact-hea
 ```yaml
 recovery:
   policy_version: 1
-  generation: 2
+  generation: 3
   session_id: agent-20260809-0006-portal-architecture-delta
   session_started_at: 2026-08-09T00:06:00+02:00
-  checkpointed_at: 2026-08-09T00:12:00+02:00
-  last_progress_at: 2026-08-09T00:12:00+02:00
-  phase: review-repair
+  checkpointed_at: 2026-08-09T00:16:00+02:00
+  last_progress_at: 2026-08-09T00:16:00+02:00
+  phase: exact-head-validation
   exact_head: UNKNOWN
   pull_request: 933
-  active_operation: create coherent review-repair commit
+  active_operation: final exact-head self-review, fresh Codex review and required CI
   external_run_ids: []
-  operation_started_at: 2026-08-09T00:12:00+02:00
+  operation_started_at: 2026-08-09T00:16:00+02:00
   wait_deadline_at: null
-  check_generation: review_repair
+  check_generation: final_checkpoint
   checks_used: 0
   status: active
   safe_to_resume: true
-  resume_condition: live PR #933 head differs from 508139a after the coherent review-repair commit
-  next_action: verify the live PR head and perform final exact-head self-review before requesting the fresh independent review
+  resume_condition: live PR #933 head is readable and unchanged during exact-head validation
+  next_action: re-read PR #933 head and execute the exact-head validation gates without changing repository files
 ```
 
 ## Notes
