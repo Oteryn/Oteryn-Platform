@@ -21,24 +21,24 @@ Continuously audit every delivered or declared Platform module and surface for t
 
 ```yaml
 programme_state_version: 3
-updated_at: 2026-08-08T06:31:00Z
+updated_at: 2026-08-08T06:34:00Z
 status: ready
 current_cycle: 1
 programme_execution_snapshot:
   mode: live_query_required
   exhaustive: false
-  current_domain: active-task-truth-and-authority
-  active_task: docs/agents/tasks/active/OTERYN-20260808-active-task-truth-audit.md
-  branch: audit/OTERYN-20260808-active-task-truth
-  pull_request: 878
-  reason: The active-task truth package audited all four invocation-start active task records, reused existing public-domain/native-authority repair ownership, created two deduplicated task-evidence findings, and was reconstructed on current main after PR #875 and PR #879 completed.
-last_merged_audit_head: 8bb6fe043dd3b321d3bf2e4a762f4b07f8f16a87
-last_completed_domain: main-push-ci-routing-revalidation
+  current_domain: unknown
+  active_task: unknown
+  branch: unknown
+  pull_request: unknown
+  reason: Active-task truth audit delivery PR #878 merged as 4e10b998d773e92ac1b729a43c5bd6f287ef1092 and its lifecycle record is archived; mutable execution ownership must be refreshed live before selecting the next non-overlapping audit domain.
+last_merged_audit_head: 4e10b998d773e92ac1b729a43c5bd6f287ef1092
+last_completed_domain: active-task-truth-and-authority
 coverage_inventory:
   baseline: docs/agents/evidence/OTERYN-20260803-portal-exhaustive-current-main-audit/
   baseline_merge: cbbd7613cee13cf01931a0ba0f7ac089122132e0
-  latest_audited_main: 0582b0e853d1b5e983f664452268e7777c886904
-  current_main_incorporated: 9b84279dbd8a35a6f75ccd524daaf4a29e89b27a
+  latest_audited_main: 9b84279dbd8a35a6f75ccd524daaf4a29e89b27a
+  current_main_incorporated: 4e10b998d773e92ac1b729a43c5bd6f287ef1092
   selected_delta_domain: active-task-truth-and-authority
 finding_ledger_semantics: historical_identity_map_not_live_queue
 finding_ledger:
@@ -99,31 +99,31 @@ proven:
   - OPA-GOV-0023 / Issue #811 is historical and repaired through PR #819; independent post-repair review 4885624015 verified terminal numeric-PR repository/branch identity behavior.
   - OPA-GOV-0024 / Issue #815 is historical and repaired through PR #822; independent Audit PR #846 verified repository-root and remote-identity binding.
   - OPA-GOV-0025 / Issue #848 is historical and repaired through merged PR #854, which isolates main-push CI generations while preserving same-PR cancellation; Issue #848 is closed completed.
-  - OPA-GOV-0026 / Issue #876 is proven on main@0582b0e853d1b5e983f664452268e7777c886904: the active Synology activation task says first activation gates are unproven despite terminal PR #137/#141 staging deployment evidence.
-  - OPA-GOV-0027 / Issue #877 is proven on main@0582b0e853d1b5e983f664452268e7777c886904: the active Cloudflare verification task treats HSTS and WAF/Bot as UNKNOWN despite later trusted-main edge/HSTS evidence summarized by PR #516.
-  - Public-domain checkpoint drift is already owned by PR #541; duplicate audit remediation was not created.
-  - Native protocol authority drift was already owned by Issue #874 and was repaired through merged PR #875, with lifecycle closeout through PR #879; duplicate audit remediation was not created.
-  - The audit delivery is reconstructed directly on current main 9b84279dbd8a35a6f75ccd524daaf4a29e89b27a before final validation.
+  - OPA-GOV-0026 / Issue #876 remains the durable owner for the proven Synology activation-task evidence contradiction.
+  - OPA-GOV-0027 / Issue #877 remains the durable owner for the proven Cloudflare verification-task evidence contradiction.
+  - Public-domain checkpoint drift remains separately owned by PR #541; no duplicate audit remediation was created.
+  - Native protocol authority drift was repaired through Issue #874 / PR #875 and lifecycle closeout PR #879.
+  - Active-task truth audit delivery PR #878 exact head 9112531f660ebf9ad135de798e1827cb344fa78c passed Agent Governance and repository CI, had zero review threads and merged as 4e10b998d773e92ac1b729a43c5bd6f287ef1092.
   - Independent PASS-only validation and lifecycle reconciliation are governed by docs/agents/LIFECYCLE_CLOSEOUT_BATCHING.md.
 derived:
   - Issue #848 is no longer a live remediation handoff; future live queue selection must not route work to it.
-  - Synology historical activation evidence proves that first activation occurred, but does not prove current runner availability or current secret values.
+  - Synology historical activation evidence proves activation occurred but does not prove current runner availability or current secret values.
   - Cloudflare later trusted-main evidence narrows the old 403-based UNKNOWN set; residual controls must be evaluated individually rather than resetting all edge facts to UNKNOWN.
   - Native protocol authority no longer remains an open conflict after PR #875 and PR #879.
   - Mutable queue state and current ownership must always be refreshed live before dispatch.
 unknown:
-  - Current ready/blocked/claimed disposition of all finding Issues beyond the exact live refresh performed for this bounded package.
+  - Current ready, blocked and claimed disposition of all finding Issues until the next live queue refresh.
   - Global native-auth production cutover and alternate legacy-login-path retirement/isolation, as preserved by docs/contracts/AUTH_GAME_LOGIN_CONTRACT.md.
   - Current protected Environment secret values and current Synology runner availability.
   - Residual Cloudflare certificate-product, Access and Page Rule facts not proven by later edge evidence.
 conflicts:
-  - OPA-GOV-0026 / Issue #876: active Synology activation lifecycle record conflicts with historical terminal deployment evidence.
-  - OPA-GOV-0027 / Issue #877: active Cloudflare verification record conflicts with later successful HSTS and WAF/Bot evidence.
-  - Public-domain audited-main checkpoint remains stale but has an existing bounded reconciliation owner in PR #541.
+  - OPA-GOV-0026 / Issue #876 remains open for the Synology activation lifecycle contradiction.
+  - OPA-GOV-0027 / Issue #877 remains open for the Cloudflare verification evidence contradiction.
+  - Public-domain audited checkpoint drift remains owned by PR #541.
 blockers:
   mode: live_query_required
   items: unknown
-next_action: After this audit package reaches terminal state, refresh live ownership and prioritize the highest-risk non-overlapping ready finding; keep OPA-GOV-0026/#876 and OPA-GOV-0027/#877 as independent remediation owners unless live state changes, and do not duplicate PR #541.
+next_action: Refresh live ownership, open and blocked findings, active tasks, PRs and recent main deltas; then select the highest-risk non-overlapping audit domain while preserving Issues #876 and #877 as independent remediation owners and avoiding duplicate work on PR #541.
 ```
 
 ## Programme rules
