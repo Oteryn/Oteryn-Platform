@@ -65,8 +65,8 @@ shared_paths:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-08T18:02:00+02:00
-head: 5b2e44490254fbef9f4554e03b1a0c5195f038f6
+updated_at: 2026-08-08T18:04:00+02:00
+head: d1f69234daaff58683282c3d5a87df01acb2b8c7
 branch: repair/issue-908
 pr: 916
 status: validating
@@ -79,6 +79,9 @@ context_pressure: medium
 context_growth: stable
 decomposition_decision: single
 validation_level: full
+context_routes:
+  - docs/contracts/OTERYN_V2_PUBLIC_GAME_DATA_PROJECTION_CONTRACT.md
+  - docs/architecture/OTERYN_V2_INTEGRATION_ARCHITECTURE.md
 owned_paths:
   - docs/contracts/OTERYN_V2_PUBLIC_GAME_DATA_PROJECTION_CONTRACT.md
   - docs/agents/tasks/active/OTERYN-20260808-public-game-data-privacy-revocation-contract.md
@@ -97,7 +100,7 @@ unknown: []
 conflicts: []
 first_failure:
   marker: checkpoint-validation-format
-  evidence: Agent Governance run 31265778753 rejected nested validation_gate metadata in the task checkpoint; contract semantics were not the failing path.
+  evidence: Agent Governance runs 31265778753 and 31265858593 identified task-record shape defects; the second run specifically required context_routes. Contract semantics were not the failing path.
 rejected_hypotheses:
   - Game-source freshness alone can safely authorize stale public variants after a newer Platform privacy deny.
   - A cache purge request can postpone the authority of an already accepted restrictive privacy decision.
@@ -110,13 +113,16 @@ validation:
     evidence: All eight semantic acceptance requirements are represented directly in the contract; no runtime/schema/cache/CDN/deployment/external-repository path changed.
   - command: Agent Governance run 31265778753
     result: FAIL
-    evidence: Task checkpoint formatting only; nested validation_gate was unsupported and is removed by this checkpoint update.
+    evidence: Task checkpoint formatting only; nested validation_gate metadata was unsupported and removed.
+  - command: Agent Governance run 31265858593
+    result: FAIL
+    evidence: Task checkpoint formatting only; required context_routes was missing and is added by this checkpoint update.
   - command: runtime/browser E2E
     result: NOT_APPLICABLE
     evidence: Issue #908 authorizes architecture/contract reconciliation only and forbids executable runtime/cache/CDN/schema/deployment changes.
 blockers:
   - none
-next_action: Validate the updated task checkpoint, record exact-final-head self-review, and require Agent Governance plus repository-selected CI to pass before merge.
+next_action: Require the corrected exact-head Agent Governance and repository-selected CI to pass, then record exact-final-head self-review and merge.
 ```
 
 ## Remediation risk gate
