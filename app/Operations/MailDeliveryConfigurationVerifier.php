@@ -18,7 +18,12 @@ final class MailDeliveryConfigurationVerifier
      */
     public function inspect(?string $environment = null): array
     {
-        $environment = strtolower(trim($environment ?? (string) config('app.env')));
+        if ($environment === null) {
+            $configuredEnvironment = config('app.env');
+            $environment = is_string($configuredEnvironment) ? $configuredEnvironment : '';
+        }
+
+        $environment = strtolower(trim($environment));
 
         if (in_array($environment, self::INERT_ENVIRONMENTS, true)) {
             return [];
