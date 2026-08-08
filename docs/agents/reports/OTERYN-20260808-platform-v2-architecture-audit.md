@@ -9,7 +9,7 @@ This is a delta audit over `docs/agents/reports/OTERYN-20260808-platform-v2-arch
 Repository under change: `blakinio/Oteryn-Platform`  
 External repository: `blakinio/Oteryn-v2` — read-only evidence only  
 Platform main at audit start: `3417086d02d275c2cf3154c5a0c9a65462202eb3`  
-Oteryn-v2 live main observed during audit: `3c32f07f3059524fc866bb3c1f76e02df0250174`
+Oteryn-v2 live main observed during audit: `3c32fb08ddf52939159c0ace5fe607ca4fb18332`
 
 No runtime implementation, production mutation, protected configuration change or external-repository write is authorized by this audit.
 
