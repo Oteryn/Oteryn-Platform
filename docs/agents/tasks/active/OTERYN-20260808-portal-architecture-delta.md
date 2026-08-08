@@ -95,17 +95,13 @@ ADR 0032 records these durable sub-boundary decisions and explicitly extends rat
 
 ## Review findings and repair history
 
-Codex review on exact head `508139a83bef1d00700636d490233ddeccc2ba2c` produced three material findings:
+Codex review on exact head `508139a83bef1d00700636d490233ddeccc2ba2c` produced three material findings: missing durable ADR authority, stale self-review gating and canonical module-catalog drift. Repair cycle 1 addressed all three with ADR 0032, ADR registry synchronization, module-catalog reconciliation and exact-head PR-review evidence.
 
-1. **P1 — durable ADR missing:** responsibility allocations intended to outlive one task were not in an ADR.
-2. **P1 — self-review gate stale:** the task record allowed merge while its recorded self-review covered an older head.
-3. **P2 — module catalog drift:** canonical `MODULE_CATALOG.md` did not expose the new responsibilities.
+Fresh Codex review on exact head `1b606eaea0cdb102639d87c80c23e6007a6790e3` produced one additional **P1 governance finding**: this review-driven durable-architecture repair requires a version-2 remediation validation gate with `HEIGHTENED` intensity and complete evidence. Repair cycle 2 added that gate.
 
-Repair cycle 1 addressed all three by adding ADR 0032, registering it, reconciling `MODULE_CATALOG.md`, updating the benchmark report and requiring exact-head PR-review self-review evidence.
+Exact-head CI on `892893de2303eabd6fc6376a3c5d161e5841fb1f` then found a checkpoint-schema defect introduced while compacting this task record: `Context checkpoint` lacked `owned_paths` and `rejected_hypotheses`. This repair cycle 3 restores those mandatory fields. The downstream Control Room/liveness failures were consequences of the same checkpoint validation failure, not independent product defects.
 
-Fresh Codex review on exact head `1b606eaea0cdb102639d87c80c23e6007a6790e3` then produced one additional **P1 governance finding**: because this is a review-driven repair of durable architecture, the task must record the mandatory version-2 remediation validation gate with `HEIGHTENED` intensity and complete self-review evidence.
-
-Repair cycle 2 is this bounded task-record correction. It changes no architecture decision and no runtime, route, schema, configuration, deployment or external system.
+No repair cycle changes runtime, route, schema, configuration, deployment, payment state or any external repository.
 
 ## Remediation validation gate
 
@@ -131,31 +127,26 @@ validation_gate:
     result: PASS
     exact_head: none
     evidence:
-      - exact final PR head is reviewed out-of-band in an anchored PR review after this task-record commit
+      - exact final PR head is reviewed out-of-band in an anchored PR review after the final task-record commit
       - all seven changed paths must be included in that exact-head full-diff review
-      - acceptance criteria, current Codex findings, negative paths, rollback, compatibility and related PR ownership are required review dimensions
+      - acceptance criteria, all current review/CI findings, negative paths, rollback, compatibility and related PR ownership are required review dimensions
       - task-file exact_head is intentionally none because embedding the SHA of the commit containing this field would move the SHA again; the anchored PR review is the authoritative exact-head evidence
 ```
 
 ### Heightened evidence requirements
 
-- **Focused regression / architecture evidence:** ADR 0032 and `MODULE_CATALOG.md` must express the same ownership split; focused portal architecture documents must remain compatible with them.
-- **Negative paths:** `PublicPortal` must not become runtime/game-data/routing authority; `Notifications` must not own tracking rules; `Wiki` must not become deterministic/live truth; `GameCatalog` must not fabricate unsupported systems; stale/unavailable source state must not become fabricated normal state.
+- **Focused regression / architecture evidence:** ADR 0032 and `MODULE_CATALOG.md` express the same ownership split; focused portal architecture documents remain compatible with them.
+- **Negative paths:** `PublicPortal` does not become runtime/game-data/routing authority; `Notifications` does not own tracking rules; `Wiki` does not become deterministic/live truth; `GameCatalog` does not fabricate unsupported systems; stale/unavailable source state does not become fabricated normal state.
 - **Rollback:** documentation-only squash revert is bounded; no data/schema/runtime rollback is required.
 - **Compatibility:** ADR 0032 extends ADR 0025 without superseding it; no Oteryn-v2/Canary contract or runtime behavior changes.
 - **Related PRs:** #338 and #541 have no overlapping owned paths for this package.
 - **E2E:** `NOT_APPLICABLE` because there is no executable route, schema, configuration, runtime or deployment change.
-- **Final CI:** every required GitHub check must pass on the exact final head after this gate commit.
+- **Final CI:** every required GitHub check must pass on the exact final head after this checkpoint repair.
 - **Review hygiene:** zero unresolved material review threads and zero requested changes before merge.
 
 ## Exact-head self-review mechanism
 
-The repository requires self-review on the exact final head. A task file cannot embed the SHA of the commit containing that SHA without producing a new head. Therefore:
-
-1. this task record contains the full version-2 risk classification and the evidence contract;
-2. after this final repository-file commit, the implementation owner reviews the complete live PR diff;
-3. the PASS is recorded as a PR review explicitly anchored to that exact live head and includes the full required self-review fields plus evidence;
-4. no repository file changes are permitted after that review unless the gate is recomputed and exact-head validation is repeated.
+The repository requires self-review on the exact final head. A task file cannot embed the SHA of the commit containing that SHA without producing a new head. Therefore the task record contains the full risk/evidence contract, while the implementation owner records PASS as a PR review anchored to the exact live head after the last repository-file commit. No repository file changes are permitted after that review unless the gate is recomputed and exact-head validation is repeated.
 
 Required anchored review shape:
 
@@ -174,8 +165,8 @@ self_review:
     - seven-path full PR diff
     - ADR 0032 plus ADR inventory
     - canonical MODULE_CATALOG reconciliation
-    - current Codex findings and their repairs
-    - required exact-head CI and review-thread state checked separately before merge
+    - all current Codex and CI findings and their repairs
+    - checkpoint validator schema and required exact-head CI
 ```
 
 Historical self-reviews and CI on earlier heads are supporting evidence only and cannot satisfy the final merge gate.
@@ -185,9 +176,9 @@ Historical self-reviews and CI on earlier heads are supporting evidence only and
 ```yaml
 checkpoint_version: 1
 policy_version: 2
-updated_at: 2026-08-09T00:26:00+02:00
+updated_at: 2026-08-09T00:31:00+02:00
 invocation_started_at: 2026-08-09T00:26:00+02:00
-last_progress_at: 2026-08-09T00:26:00+02:00
+last_progress_at: 2026-08-09T00:31:00+02:00
 head: OUT_OF_BAND_FINAL_HEAD_AFTER_THIS_COMMIT
 branch: docs/OTERYN-20260808-portal-architecture-delta
 pr: 933
@@ -200,6 +191,14 @@ execution_mode: github
 context_routes:
   - architecture
   - web-cms
+owned_paths:
+  - docs/agents/tasks/active/OTERYN-20260808-portal-architecture-delta.md
+  - docs/agents/reports/OTERYN-20260808-portal-product-delta.md
+  - docs/architecture/PORTAL_COMPLETENESS_ARCHITECTURE.md
+  - docs/architecture/PLAYER_COMPANION_ARCHITECTURE.md
+  - docs/architecture/MODULE_CATALOG.md
+  - docs/architecture/adr/README.md
+  - docs/architecture/adr/0032-portal-composition-tracking-and-server-system-ownership.md
 context_pressure: low
 context_growth: stable
 estimate_confidence: high
@@ -208,15 +207,23 @@ proven:
   - repository scope remains WWW Platform documentation/architecture only
   - ADR 0032 is registered and reconciled with MODULE_CATALOG
   - Codex findings from 508139a were repaired
-  - Codex finding from 1b606ea requires this HEIGHTENED v2 gate
+  - Codex finding from 1b606ea was repaired by HEIGHTENED v2 gate
+  - CI failure on 892893de was caused by missing required checkpoint fields owned_paths and rejected_hypotheses
   - runtime E2E is NOT_APPLICABLE for this documentation-only package
 derived:
   - final exact-head SHA and PASS evidence must be recorded in the PR review after this commit
 unknown: []
 conflicts: []
 first_failure:
-  marker: codex-review-1b606ea
-  evidence: P1 missing mandatory HEIGHTENED version-2 remediation validation gate and evidence
+  marker: checkpoint-validator-892893de
+  evidence: missing checkpoint fields owned_paths and rejected_hypotheses; downstream Control Room/liveness failures are consequent
+rejected_hypotheses:
+  - portal requires architectural rewrite
+  - player tracking requires a new standalone microservice
+  - Notifications should own tracking/subscription rules
+  - server-specific systems require a generic plugin module
+  - focused canonical docs alone are sufficient durable authority for the new allocations
+  - CI failure on 892893de represents a runtime or product defect
 changed_paths:
   - docs/agents/tasks/active/OTERYN-20260808-portal-architecture-delta.md
   - docs/agents/reports/OTERYN-20260808-portal-product-delta.md
@@ -232,13 +239,16 @@ validation:
   - command: heightened remediation risk classification
     result: PASS
     evidence: version 2 HEIGHTENED gate recorded with bounded risk/triggers/unknown/conflict/rationale/self-review evidence
+  - command: checkpoint validator on 892893de
+    result: FAIL_REPAIRED
+    evidence: exact missing fields identified in workflow 31281742855 and restored in this task record
   - command: runtime E2E
     result: NOT_APPLICABLE
     evidence: documentation-only package changes no executable route, schema, runtime, configuration or deployment
-repair_cycles_for_current_gate: 2
+repair_cycles_for_current_gate: 3
 blockers:
   - none
-next_action: perform exact-head full-diff self-review on the live PR head, record the anchored review with evidence, resolve the addressed P1 thread, request fresh Codex review, verify required exact-head CI and merge only with zero material findings and zero unresolved threads
+next_action: perform exact-head full-diff self-review on the live PR head, request fresh Codex review, verify required exact-head CI and merge only with zero material findings and zero unresolved threads
 ```
 
 ## Notes
