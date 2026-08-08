@@ -21,24 +21,25 @@ Continuously audit every delivered or declared Platform module and surface for t
 
 ```yaml
 programme_state_version: 3
-updated_at: 2026-08-07T18:46:00Z
+updated_at: 2026-08-08T06:31:00Z
 status: ready
 current_cycle: 1
 programme_execution_snapshot:
   mode: live_query_required
   exhaustive: false
-  current_domain: unknown
-  active_task: unknown
-  branch: unknown
-  pull_request: unknown
-  reason: The bounded explicit-terminal-PR and main-push-routing revalidation packages are complete; mutable execution ownership must be refreshed live before the next non-overlapping audit domain is selected.
+  current_domain: active-task-truth-and-authority
+  active_task: docs/agents/tasks/active/OTERYN-20260808-active-task-truth-audit.md
+  branch: audit/OTERYN-20260808-active-task-truth
+  pull_request: 878
+  reason: The active-task truth package audited all four invocation-start active task records, reused existing public-domain/native-authority repair ownership, created two deduplicated task-evidence findings, and was reconstructed on current main after PR #875 and PR #879 completed.
 last_merged_audit_head: 8bb6fe043dd3b321d3bf2e4a762f4b07f8f16a87
 last_completed_domain: main-push-ci-routing-revalidation
 coverage_inventory:
   baseline: docs/agents/evidence/OTERYN-20260803-portal-exhaustive-current-main-audit/
   baseline_merge: cbbd7613cee13cf01931a0ba0f7ac089122132e0
-  latest_audited_main: f8a727f3aa33cb123cbab5ff0d04a9d3cefcd69c
-  selected_delta_domain: explicit-terminal-pr-identity-and-main-push-routing-revalidation
+  latest_audited_main: 0582b0e853d1b5e983f664452268e7777c886904
+  current_main_incorporated: 9b84279dbd8a35a6f75ccd524daaf4a29e89b27a
+  selected_delta_domain: active-task-truth-and-authority
 finding_ledger_semantics: historical_identity_map_not_live_queue
 finding_ledger:
   baseline_owners: [486, 487, 488, 489, 490, 491]
@@ -72,6 +73,8 @@ finding_ledger:
     - OPA-GOV-0023: 811
     - OPA-GOV-0024: 815
     - OPA-GOV-0025: 848
+    - OPA-GOV-0026: 876
+    - OPA-GOV-0027: 877
 live_queue:
   mode: live_query_required
   exhaustive: false
@@ -90,33 +93,37 @@ proven:
   - OPA-REC-0001 / Issue #804 is historical and repaired through PR #812; independent Audit PR #842 verified terminal Character Bazaar recovery integrity without a new material finding.
   - OPA-GOV-0001 through OPA-GOV-0018 retain stable historical finding identities; detailed evidence belongs to their Issues and archived task records.
   - OPA-GOV-0019 / Issue #780 is historical and repaired through PR #789.
-  - OPA-GOV-0020 / Issue #783 is historical and repaired through PR #786 for path-aware main-push CI classification, docs-only runtime-test suppression and docs-only Acceptance filtering/preemption. Independent post-repair revalidation review 4885661122 on PR #786 confirmed those repaired behaviors on current main.
+  - OPA-GOV-0020 / Issue #783 is historical and repaired through PR #786; independent post-repair review 4885661122 confirmed repaired docs-only CI/Acceptance routing behavior.
   - OPA-GOV-0021 / Issue #788 is historical and repaired through PR #808.
   - OPA-GOV-0022 / Issue #793 is historical and repaired through PR #796 with exact expected-SHA force-with-lease deletion semantics.
-  - OPA-GOV-0023 / Issue #811 is historical and repaired through PR #819. Independent post-repair review 4885624015 on exact implementation head 8fef68cdff54ed61792ed139813913e04c497bd3 verified terminal numeric-PR repository/branch identity, negative paths and preserved open/draft/branch-only behavior without a new material finding.
-  - OPA-GOV-0024 / Issue #815 is historical and repaired through PR #822; independent Audit PR #846 verified repository-root and remote-identity binding while preserving force-with-lease atomicity.
-  - OPA-GOV-0025 / Issue #848 is proven: core CI still groups all main pushes under one cancel-in-progress concurrency key, allowing a later docs-only generation to cancel a prior runtime-required product main CI generation and replace it with a generation whose runtime-tests are skipped.
-  - Live OPA-GOV-0025 evidence includes product/security CI 31197719726 being cancelled as docs-only main CI 31197906544 started; that replacement succeeded with runtime-tests SKIPPED. A second occurrence is CI 31200041790 on 97c3b24f3d642ac0589efc61e48b66472538aeb9 followed by lifecycle-only main 3109d5e15e98c9c463130dc736db90667ab83c9a.
-  - Current docs-only main f8a727f3aa33cb123cbab5ff0d04a9d3cefcd69c emitted CI 31206676504 with runtime-tests SKIPPED and emitted zero Acceptance push runs, proving the intended OPA-GOV-0020 economy behavior remains active.
-  - Product main fe5a177af64d28ab4a2780d7ceb629502a257a80 emitted runtime CI 31190892147 PASS and Acceptance 31190893005 PASS, proving affected product validation remains routed.
+  - OPA-GOV-0023 / Issue #811 is historical and repaired through PR #819; independent post-repair review 4885624015 verified terminal numeric-PR repository/branch identity behavior.
+  - OPA-GOV-0024 / Issue #815 is historical and repaired through PR #822; independent Audit PR #846 verified repository-root and remote-identity binding.
+  - OPA-GOV-0025 / Issue #848 is historical and repaired through merged PR #854, which isolates main-push CI generations while preserving same-PR cancellation; Issue #848 is closed completed.
+  - OPA-GOV-0026 / Issue #876 is proven on main@0582b0e853d1b5e983f664452268e7777c886904: the active Synology activation task says first activation gates are unproven despite terminal PR #137/#141 staging deployment evidence.
+  - OPA-GOV-0027 / Issue #877 is proven on main@0582b0e853d1b5e983f664452268e7777c886904: the active Cloudflare verification task treats HSTS and WAF/Bot as UNKNOWN despite later trusted-main edge/HSTS evidence summarized by PR #516.
+  - Public-domain checkpoint drift is already owned by PR #541; duplicate audit remediation was not created.
+  - Native protocol authority drift was already owned by Issue #874 and was repaired through merged PR #875, with lifecycle closeout through PR #879; duplicate audit remediation was not created.
+  - The audit delivery is reconstructed directly on current main 9b84279dbd8a35a6f75ccd524daaf4a29e89b27a before final validation.
   - Independent PASS-only validation and lifecycle reconciliation are governed by docs/agents/LIFECYCLE_CLOSEOUT_BATCHING.md.
 derived:
-  - OPA-GOV-0023 is no longer a current ownership-collision blocker after PR #819 and independent post-repair review 4885624015.
-  - OPA-GOV-0020 does not need reopening: its docs-only heavy-CI and Acceptance objectives remain satisfied; OPA-GOV-0025 / Issue #848 is the distinct residual core-CI concurrency root cause.
-  - Issue #848 is the remediation handoff for protecting runtime-required main CI generations from replacement by later docs/governance-only main pushes while preserving same-PR superseded-run cancellation.
-  - Core payment integrity, bounded native OAuth generation revocation, Character Bazaar terminal recovery and Branch Lifecycle remote identity remain independently verified repaired in their audited scopes.
+  - Issue #848 is no longer a live remediation handoff; future live queue selection must not route work to it.
+  - Synology historical activation evidence proves that first activation occurred, but does not prove current runner availability or current secret values.
+  - Cloudflare later trusted-main evidence narrows the old 403-based UNKNOWN set; residual controls must be evaluated individually rather than resetting all edge facts to UNKNOWN.
+  - Native protocol authority no longer remains an open conflict after PR #875 and PR #879.
   - Mutable queue state and current ownership must always be refreshed live before dispatch.
 unknown:
-  - The owner-approved emergency bypass and complete stable required-check set beyond currently observable protected contexts.
-  - Current ready/blocked/claimed disposition of Issue #848 and any other live finding until the next live query.
+  - Current ready/blocked/claimed disposition of all finding Issues beyond the exact live refresh performed for this bounded package.
   - Global native-auth production cutover and alternate legacy-login-path retirement/isolation, as preserved by docs/contracts/AUTH_GAME_LOGIN_CONTRACT.md.
-  - Exact client-visible OAuth error shape for an exceptionally narrow generation-mismatched issuance race; no security bypass or material defect was proven by Audit PR #844.
+  - Current protected Environment secret values and current Synology runner availability.
+  - Residual Cloudflare certificate-product, Access and Page Rule facts not proven by later edge evidence.
 conflicts:
-  - Current core CI main-push concurrency uses one cancel-in-progress group for all main generations, so a docs-only generation can terminate a prior product/runtime-required main CI generation while its own exact docs-only classification skips runtime-tests; OPA-GOV-0025 / Issue #848 owns remediation.
+  - OPA-GOV-0026 / Issue #876: active Synology activation lifecycle record conflicts with historical terminal deployment evidence.
+  - OPA-GOV-0027 / Issue #877: active Cloudflare verification record conflicts with later successful HSTS and WAF/Bot evidence.
+  - Public-domain audited-main checkpoint remains stale but has an existing bounded reconciliation owner in PR #541.
 blockers:
   mode: live_query_required
   items: unknown
-next_action: Refresh live ownership, open and blocked Issues, active tasks, PRs and recent main deltas; keep Issue #848 with its independent remediation owner/claim and select the next highest-risk non-overlapping audit domain in a future bounded invocation.
+next_action: After this audit package reaches terminal state, refresh live ownership and prioritize the highest-risk non-overlapping ready finding; keep OPA-GOV-0026/#876 and OPA-GOV-0027/#877 as independent remediation owners unless live state changes, and do not duplicate PR #541.
 ```
 
 ## Programme rules
