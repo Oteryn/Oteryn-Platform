@@ -1,5 +1,7 @@
 @extends('admin.layout')
 
+@inject('adminAuthorization', 'App\Admin\AdminAuthorization')
+
 @section('title', 'Oteryn Admin')
 
 @section('content')
@@ -28,5 +30,12 @@
             <p class="muted">Inspect bounded privileged administration audit events.</p>
             <a class="button button-secondary" href="{{ route('admin.audit.index') }}">View audit</a>
         </article>
+        @if (auth()->user() instanceof \App\Identity\Models\Identity && $adminAuthorization->allows(auth()->user(), \App\Admin\AdminPermission::MANAGE_PORTAL_SETTINGS))
+            <article class="card">
+                <h2>{{ __('homepage_templates.admin.dashboard_title') }}</h2>
+                <p class="muted">{{ __('homepage_templates.admin.dashboard_help') }}</p>
+                <a class="button button-secondary" href="{{ route('admin.homepage-templates.index') }}">{{ __('homepage_templates.admin.dashboard_title') }}</a>
+            </article>
+        @endif
     </div>
 @endsection
