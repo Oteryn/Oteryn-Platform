@@ -327,11 +327,16 @@ No Elasticsearch/OpenSearch/Meilisearch-specific business contract is accepted b
 Search terms are high-cardinality and may contain personal or sensitive text, so caching is conservative.
 
 - do not create unbounded permanent cache keys from arbitrary queries;
-- any result cache uses bounded TTL/size and includes locale, filters and provider/index generation identity;
-- a source's shorter freshness/publication rule wins over a longer PublicPortal cache;
+- every cached result identity includes a **privacy-safe, collision-resistant query identity** derived from the canonical normalized query plus locale, filters, provider selection and provider/index generation identity;
+- the query identity is a versioned server-keyed digest (for example `HMAC-SHA-256(cache-key-secret, normalized-query)`), never the raw query and never an unkeyed/plain hash that is practical to dictionary-recover for common search terms;
+- the HMAC key is managed as application secret material, is not emitted to logs/artifacts, and its identifier/version participates in the cache namespace so rotation creates a clean cache generation rather than cross-key ambiguity;
+- cache lookup equality uses the full digest; implementations must not truncate it below their collision-resistance requirement merely to shorten cache keys;
+- any result cache uses bounded TTL/size; a source's shorter freshness/publication rule wins over a longer PublicPortal cache;
 - `PARTIAL`/`UNAVAILABLE` responses use shorter or no caching as appropriate;
 - authenticated/private-search responses, if ever added, require owner/authorization-safe cache partitioning and are outside this public contract;
 - cache clearing is not a substitute for deterministic source revision/index invalidation.
+
+This keyed query identity is a cache/internal identifier only. It is not a user identifier, analytics identifier or permission token and must not be promoted into logs, metrics labels or public URLs.
 
 ## Security and abuse controls
 
@@ -357,7 +362,8 @@ Therefore:
 
 - raw queries are not metric labels;
 - raw queries are not written to ordinary structured application logs by default;
-- traces record bounded metadata such as normalized length bucket, provider set, result count and status rather than full query text;
+- keyed cache query digests are not emitted as ordinary logs/metric labels or reused as cross-context tracking identifiers;
+- traces record bounded metadata such as normalized length bucket, provider set, result count and status rather than full query text or cache-key digest;
 - any future product analytics over search terms requires a separate privacy/retention decision and aggregation policy;
 - error reports must not echo raw query text into public diagnostics or audit metadata.
 
@@ -374,7 +380,7 @@ Safe bounded metrics include:
 - cache hit/miss where adopted;
 - derived-index generation/lag/rebuild health if an index exists.
 
-Do not use query strings, public IDs, slugs, titles or user identifiers as unbounded metric labels.
+Do not use query strings, query digests, public IDs, slugs, titles or user identifiers as unbounded metric labels.
 
 ## SEO and discoverability
 
@@ -451,6 +457,8 @@ A delivered search surface must prove at least:
 - EN/PL behavior;
 - rate-limit response;
 - dependency recovery;
+- cache isolation for distinct normalized queries with identical locale/filter/provider generations;
+- cache key does not expose raw query text and keyed-digest rotation creates a separate cache namespace;
 - exact-head browser E2E with retries zero.
 
 If a derived index exists, also prove rebuild, stale generation, deletion/tombstone and rollback/cutover behavior.
@@ -478,4 +486,5 @@ The architecture is satisfied when:
 - `PublicPortal` ownership in `MODULE_CATALOG.md` reflects federated-search orchestration without claiming implementation;
 - `PORTAL_COMPLETENESS_ARCHITECTURE.md` moves federated content search from unresolved discovery to architecture-accepted/planned implementation;
 - the known Announcements/Events reverse edge is recorded as an implementation prerequisite rather than hidden by the target dependency diagram;
+- cache correctness/privacy requires a keyed canonical-query identity so different terms cannot share a result cache entry and raw search terms do not become cache-key material;
 - Issue #935 is terminal after exact-head self-review, CI, review hygiene, merge and task archival.
