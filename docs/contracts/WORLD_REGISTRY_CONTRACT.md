@@ -13,13 +13,17 @@ For **native Oteryn-v2 world/channel identity and topology semantics**, the narr
 - ADR 0029 — Platform-owned UUIDv7 WorldId, ChannelId and first-class topology identity;
 - `OTERYN_V2_WORLD_TOPOLOGY_CONTRACT.md`.
 
-Accordingly, statements below that equate `world_id` with the `game_worlds` database primary key, use `WorldRegistry::forAccount(canary_account_id)`, hard-code integer `channel_id = 1`, or couple a channel to protocol-candidate/endpoint storage describe **LEGACY / CURRENT IMPLEMENTATION COMPATIBILITY STATE**. They do not define the native target identity model.
+For **native Oteryn-v2 runtime status/readiness semantics**, the narrower accepted Platform consumer authority is:
+
+- `OTERYN_V2_RUNTIME_STATUS_PROJECTION_CONTRACT.md`.
+
+Accordingly, statements below that equate `world_id` with the `game_worlds` database primary key, use `WorldRegistry::forAccount(canary_account_id)`, hard-code integer `channel_id = 1`, couple a channel to protocol-candidate/endpoint storage, or treat persisted `status` as sufficient live readiness describe **LEGACY / CURRENT IMPLEMENTATION COMPATIBILITY STATE**. They do not define the native target identity or runtime-status model.
 
 No current runtime payload, database schema or Canary path is changed by this authority clarification.
 
 This contract defines the authoritative world-routing and ordered gameplay-candidate policy consumed by the Oteryn Game Gateway.
 
-The Platform-owned world route is consumed by the existing Gateway. The native producer extension stores ordered per-world/channel candidates and policy revision, while creating no candidate rows and keeping every candidate disabled by default. It does not prove an Otheryn native consumer, a Rust native consumer, production activation or a production world route.
+The Platform-owned world route is consumed by the existing Gateway. The historical disabled native producer extension stores ordered per-world/channel candidates and policy revision, while creating no candidate rows and keeping every candidate disabled by default. It does not prove an Oteryn-v2 native consumer, a Rust native consumer, production activation or a production world route.
 
 The first deployment may contain exactly one world, but no API/domain contract may permanently assume a singleton.
 
@@ -33,12 +37,12 @@ Implemented in Oteryn Platform:
 - account-aware `WorldRegistry` interface;
 - fail-closed `DatabaseWorldRegistry` implementation;
 - sanitized `GameWorldRoute` projection;
-- no seeded world and no invented production hostname or port.
+- no seeded world and no invented production hostname or port;
 - `game_world_protocol_candidates` storage with disabled-by-default rows, deterministic order and exact endpoint/native protocol version/schema/capability projection;
 - monotonic `gameplay_policy_revision` on each world;
-- Gateway API v1 optional gameplay offer, deterministic selection and Game Session v2 producer binding.
+- Gateway API v1 historical/disabled native gameplay offer, deterministic selection and Game Session v2 producer binding.
 
-Sections below that retain the label “Phase 1” describe the original foundation. Where they conflict with this status section, the merged native gameplay contract and this implemented-state section are authoritative.
+Sections below that retain the label “Phase 1” describe the original foundation. Where they conflict with this status section, this status/implemented-state section governs the declared compatibility implementation only. Accepted native-v2 identity/status/protocol authorities remain narrower authorities for native semantics.
 
 Current world authorization policy:
 
@@ -55,9 +59,8 @@ Still not implemented:
 
 - character-to-world persistence for true multiworld;
 - account/world entitlement policy beyond the single-world-ready MVP;
-- Otheryn Game Session v2 storage/readiness/admission and native listener;
-- Rust native gameplay consumer;
-- runtime health integration beyond the explicit v2 readiness identity check;
+- accepted Oteryn-v2 native World Registry/Gateway consumer reconciliation for the historical Game Session v2 producer path;
+- accepted Oteryn-v2 runtime-status/readiness producer integration and native World Registry/LiveOps projection;
 - world administration UI;
 - production route configuration or activation.
 
@@ -67,7 +70,9 @@ Oteryn Platform owns World Registry configuration and policy.
 
 Game Gateway consumes World Registry through a narrow interface.
 
-Canary remains the runtime owner of each game world/process.
+Canary remains the runtime owner of each current compatibility game world/process.
+
+For the native target, Oteryn-v2 owns authoritative game-runtime status/readiness source facts while Platform consumes validated projections under `OTERYN_V2_RUNTIME_STATUS_PROJECTION_CONTRACT.md`.
 
 OTClient consumes only sanitized routing data returned by Gateway.
 
@@ -107,18 +112,20 @@ game_host
 game_port
 ```
 
-Semantics:
+Compatibility semantics:
 
 ```text
 world_id       stable database primary identity
 slug           unique stable machine identifier
 name           player-facing display name
 region         normalized region metadata
-status         operational presentation state
-login_enabled  authoritative gate for new login/session routing
+status         operational/configured presentation state for this compatibility model
+login_enabled  authoritative Platform gate for new login/session routing in this compatibility model
 game_host      authoritative client routing hostname or IP
 game_port      authoritative client routing TCP port
 ```
+
+For native Oteryn-v2, ADR 0029 and `OTERYN_V2_WORLD_TOPOLOGY_CONTRACT.md` replace the local-ID interpretation, and `OTERYN_V2_RUNTIME_STATUS_PROJECTION_CONTRACT.md` prevents persisted configuration from being treated as sufficient runtime readiness.
 
 Phase 1 persistence is the Platform database table:
 
@@ -147,7 +154,7 @@ No production endpoint should be inferred from this document.
 
 ## Status vocabulary
 
-Implemented values:
+Implemented compatibility values:
 
 ```text
 online
@@ -156,24 +163,26 @@ offline
 unknown
 ```
 
-Semantics:
+Compatibility semantics:
 
 - `online`: registry expects the world to be operational, subject to real runtime reachability;
 - `maintenance`: intentionally unavailable/degraded for new player entry;
 - `offline`: intentionally unavailable;
-- `unknown`: authoritative runtime status cannot be determined.
+- `unknown`: authoritative runtime status cannot be determined inside the current compatibility model.
 
-`status` is operational/presentation state.
+`status` is persisted operational/configuration/presentation state for the current compatibility implementation.
 
-`login_enabled` is the explicit authorization/routing gate for new Game Session creation.
+`login_enabled` is the explicit Platform authorization/routing gate for new Game Session creation in that implementation.
 
 A world with `login_enabled=false` must not receive a new Game Session even if `status=online`.
 
 Phase 1 `DatabaseWorldRegistry` returns only `online` + `login_enabled` worlds with syntactically routable host/port data.
 
+For native Oteryn-v2, configured Platform policy and observed Oteryn-v2 runtime state are separate authorities. `status=online` plus `login_enabled=true` may be necessary Platform policy but are never sufficient proof that a native channel is currently ready for new admission. Fresh accepted runtime evidence is additionally required by `OTERYN_V2_RUNTIME_STATUS_PROJECTION_CONTRACT.md`.
+
 ## Fail-closed rules
 
-For new login routing:
+For current compatibility login routing:
 
 ```text
 invalid account identifier -> no worlds
@@ -184,7 +193,9 @@ login_enabled = false     -> deny
 invalid/missing route     -> deny
 ```
 
-The exact future relationship between runtime health and persisted `status` remains an implementation decision. Phase 1 prefers fail closed.
+For native Oteryn-v2, the fail-closed gate is stricter: missing/stale/unavailable/invalid required runtime evidence, superseded runtime ownership, incompatible revisions or explicit non-readiness deny new routing/admission even when Platform configuration is enabled.
+
+The exact compatibility implementation relationship between Canary runtime health and persisted `status` remains unchanged. The native semantic relationship is now defined by `OTERYN_V2_RUNTIME_STATUS_PROJECTION_CONTRACT.md`; exact Oteryn-v2 producer transport/cadence/health algorithms remain deferred to their owner.
 
 ## World authorization
 
@@ -237,7 +248,7 @@ Exact enforcement depends on the selected Game Session↔Canary adapter and rema
 
 ## Sanitized Gateway projection
 
-Target public projection:
+Target compatibility projection:
 
 ```json
 {
@@ -251,7 +262,7 @@ Target public projection:
 }
 ```
 
-The example values are illustrative.
+The example values are illustrative and do not define the native Oteryn-v2 status projection envelope.
 
 Do not expose:
 
@@ -260,7 +271,8 @@ Do not expose:
 - management ports;
 - health-check secrets;
 - Canary service credentials;
-- private channel/process identifiers not required by the client.
+- private channel/process identifiers not required by the client;
+- native GameNode identity, ownership/fencing details or private runtime diagnostics not explicitly public-safe.
 
 ## Registry storage decision
 
@@ -283,6 +295,8 @@ Requirements:
 
 Trusted static configuration is no longer the selected Phase 1 persistence mechanism.
 
+A future native runtime-status store/cache is a projection/read model and does not transfer authoritative runtime ownership from Oteryn-v2 to Platform.
+
 ## Route validation
 
 Persisted schema enforces:
@@ -301,6 +315,8 @@ Registry projection additionally fails closed unless:
 - `status=online`;
 - `login_enabled=true`.
 
+These are current compatibility checks. Native-v2 route/admission evaluation additionally requires the accepted canonical identity/topology and runtime-status evidence.
+
 Do not allow arbitrary URL schemes/paths where only host+port are expected.
 
 ## Trust boundary
@@ -316,6 +332,8 @@ OTClient is not authoritative for:
 
 Game Gateway must use Registry values, not client-provided routing.
 
+For native Oteryn-v2, Gateway must also not manufacture runtime readiness from endpoint reachability or persisted Platform configuration when accepted runtime evidence is required.
+
 A future admin UI editing worlds is a privileged operation requiring:
 
 - explicit RBAC permission;
@@ -328,7 +346,9 @@ Admin editing is not required for the MVP.
 
 ## Availability semantics
 
-Registry availability and Canary reachability are distinct.
+Registry configuration eligibility and runtime reachability/readiness are distinct.
+
+For the current compatibility model:
 
 ```text
 status=online AND login_enabled=true
@@ -338,9 +358,16 @@ means the registry considers the world eligible for new routing under current po
 
 It does not guarantee the Canary endpoint will still be reachable milliseconds later.
 
-A future health/availability subsystem may update `status` or add a separate readiness source.
+For native Oteryn-v2, the accepted model is explicitly two-source:
 
-Do not infer an authoritative world outage solely from one failed client connection.
+```text
+Platform configured policy allows
+AND fresh accepted Oteryn-v2 runtime readiness/compatibility evidence
+```
+
+before a route may be considered for new native admission. Stale, unavailable or invalid runtime evidence fails closed for new admission but is not automatically rendered as authoritative `offline` to public consumers.
+
+Do not infer an authoritative world outage solely from one failed client/Gateway connection. World-level native status must aggregate current canonical channel evidence explicitly rather than infer the whole world from one channel.
 
 ## Multiworld evolution
 
@@ -366,6 +393,8 @@ Required before enabling multiple worlds:
 - exact Canary database/runtime topology;
 - E2E per world.
 
+Native multiworld runtime-status projections additionally require canonical WorldId/ChannelId scope, current topology revision and explicit per-channel freshness/aggregation semantics.
+
 ## Multiregion evolution
 
 `region` is metadata/policy, not automatic network routing.
@@ -383,7 +412,7 @@ The first release must not make client geolocation or latency measurements autho
 
 ## Future channel extension
 
-Future routing may add:
+Future compatibility routing may add:
 
 ```text
 world_id
@@ -397,6 +426,8 @@ World remains the persistent player-facing logical world.
 Channel is an allocated runtime subdivision/instance.
 
 Channel allocation must not be implemented by overloading `world_id`.
+
+For native Oteryn-v2, first-class WorldId/ChannelId topology is already accepted by ADR 0029 while runtime ownership/readiness remains a separate game-runtime authority consumed through `OTERYN_V2_RUNTIME_STATUS_PROJECTION_CONTRACT.md`.
 
 Authentication remains:
 
@@ -413,7 +444,7 @@ Gameplay-state synchronization between channels is outside this contract.
 
 ## Maintenance behavior
 
-Recommended transition:
+Recommended current compatibility transition:
 
 ```text
 login_enabled=false
@@ -427,11 +458,13 @@ Effects:
 - existing player connections are governed by separate operational/Canary policy;
 - Registry alone does not imply forced disconnect.
 
+For native Oteryn-v2, configured maintenance remains a Platform control-plane admission denial independent of current runtime health. Runtime health/readiness does not override Platform maintenance, and an editorial maintenance message does not itself establish runtime truth.
+
 ## Endpoint changes
 
 Changing `game_host`/`game_port` affects new routing responses.
 
-Recommended safe operational sequence:
+Recommended safe operational sequence for the current compatibility model:
 
 1. disable new login for the world;
 2. wait/revoke outstanding short-lived entry sessions as policy requires;
@@ -440,6 +473,8 @@ Recommended safe operational sequence:
 5. re-enable login.
 
 Exact deployment automation remains outside Phase 1.
+
+Native endpoint/route replacement must preserve canonical WorldId/ChannelId and obtain fresh accepted runtime readiness/revision evidence before new routing resumes.
 
 ## Phase 1 tests
 
@@ -468,6 +503,8 @@ Before public Gateway use, prove:
 - single-world character adapter does not claim intrinsic `players.world_id`;
 - public projection does not expose private configuration fields.
 
+Native-v2 implementation additionally requires the exact runtime-status validation suite listed by `OTERYN_V2_RUNTIME_STATUS_PROJECTION_CONTRACT.md`.
+
 ## Required multiworld tests before Phase 9 completion
 
 - account sees only authorized worlds;
@@ -479,9 +516,11 @@ Before public Gateway use, prove:
 - duplicate/ambiguous character/world mapping fails closed;
 - dynamic endpoint routing uses the exact selected world.
 
+For native multiworld, a failed/unavailable channel must not fabricate whole-world offline when other current authoritative channel observations remain healthy.
+
 ## Versioning
 
-Initial registry/API projection belongs to:
+Initial compatibility registry/API projection belongs to:
 
 ```text
 protocol_version = 1
@@ -489,14 +528,16 @@ protocol_version = 1
 
 Additive optional fields may be backward compatible.
 
-Changing the meaning of `world_id`, session world binding, or routing authority is a breaking contract change.
+Changing the meaning of compatibility `world_id`, session world binding, or routing authority is a breaking contract change.
+
+Native WorldId/ChannelId identity and runtime-status projection versioning are governed by their narrower accepted contracts.
 
 ## Remaining unknowns
 
 1. Exact production Oteryn world public hostname/port.
 2. Character-to-world persistence model for true multiworld.
 3. Exact Game Session world-scope enforcement in Canary.
-4. Future runtime health source and how it affects persisted `status` versus live readiness.
+4. Exact Oteryn-v2 runtime-status producer schema/transport, reporting cadence/TTL, health/readiness algorithm and ownership-generation encoding; the Platform consumer semantics are defined by `OTERYN_V2_RUNTIME_STATUS_PROJECTION_CONTRACT.md`.
 5. Future admin/world-management surface and its privileged write workflow.
 6. Future per-account world entitlement persistence/policy beyond the current single-world-ready MVP.
 

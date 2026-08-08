@@ -2,11 +2,13 @@
 
 ## Status
 
-`DISCOVERY COMPLETE — DIRECT PLATFORM IMPLEMENTATION NOT APPROVED`
+`LEGACY CANARY COMPATIBILITY DISCOVERY — NOT NATIVE OTERYN-V2 LIFECYCLE AUTHORITY`
 
-This contract records the current Canary behavior and the minimum operation boundary required before Oteryn Platform may implement character deletion scheduling, grace-period cancellation or restoration, and finalization.
+This contract preserves evidence about the current Canary deletion mechanism and the minimum operation boundary that would be required **only if Oteryn deliberately retains a separately authorized Legacy Canary Compatibility implementation** for deletion scheduling, grace-period cancellation/restoration or finalization.
 
-The current decision is **NO-GO** for a Platform runtime endpoint, database principal or Canary mutation. The existing Canary mechanism is a legacy timestamp-plus-startup-cleanup lifecycle, not an operation-safe service that can satisfy Issue #317 recovery, concurrency, audit and side-effect requirements.
+It is not the target native character-lifecycle contract. Native lifecycle authority is governed by ADR 0030, ADR 0031 and `docs/architecture/character-lifecycle/NATIVE_CHARACTER_LIFECYCLE_AUTHORITY.md`: Oteryn Platform owns authenticated UX/orchestration/business state while Oteryn-v2 Character Authority owns canonical `CharacterId`, current ownership, lifecycle eligibility, mutation execution and authoritative results/receipts.
+
+The current Canary decision remains **NO-GO** for a direct Platform runtime endpoint, database principal or Canary mutation. The existing Canary mechanism is a legacy timestamp-plus-startup-cleanup lifecycle, not an operation-safe service.
 
 ## Evidence pin
 
@@ -69,46 +71,48 @@ Additional material effects include:
 - historical name-bearing rows such as guild-war kills and death participant text are not normalized into an immutable deletion history by this lifecycle;
 - physical deletion removes the source row required for later ownership, state and idempotency checks.
 
-These effects are Canary-owned gameplay semantics. A Platform operation must not accept them accidentally as a consequence of a generic `DELETE` privilege.
+These effects are Canary-owned compatibility semantics. They must not be copied into native Oteryn-v2 lifecycle rules by analogy.
 
-## Ownership decision
+## Native target authority
+
+For the native target:
 
 ### Platform-owned
 
-A future implementation may own only the web-facing workflow and durable orchestration metadata:
+Platform may own the web-facing workflow and durable orchestration metadata, including:
 
-- immutable public operation ID;
-- authenticated Identity reference;
-- server-resolved Canary account/player references;
-- requested and effective timestamps;
-- lifecycle state and monotonic version;
-- idempotency key;
-- bounded recovery/error classification;
+- immutable Platform operation/public ID;
+- authenticated Identity and canonical `AccountId` reference;
+- canonical game-owned `CharacterId` reference;
+- requested business intent and Platform policy revision;
+- idempotency/correlation identity;
+- bounded saga/recovery/error classification;
 - user notification state;
 - privacy-safe audit metadata.
 
-A Platform operation row is never character ownership proof.
+A Platform operation row is never ownership proof or proof of game-domain mutation success.
 
-### Canary-owned
+### Oteryn-v2 Character Authority-owned
 
-Canary remains the semantic owner of:
+Oteryn-v2 remains authoritative for:
 
-- `players.deletion` meaning;
-- login/list/load exclusion;
-- online/session exclusion;
-- physical finalization;
-- guild, house, market, inventory, session and other gameplay side effects;
-- retention or tombstone policy after finalization.
+- current `AccountId <-> CharacterId` ownership;
+- character lifecycle state and eligibility;
+- schedule-delete, cancel/restore and finalization mutations;
+- gameplay-owned conflict/side-effect policy;
+- authoritative mutation result/receipt and reconciliation state.
 
-Because current finalization is an uncorrelated startup cleanup, Canary does not yet expose the operation boundary required by the Platform workflow.
+Native work uses versioned game-owned commands/results or equivalent explicit service contracts. Exact wire shape, transport, storage and game-internal locking remain external Oteryn-v2 authority and are not invented here.
 
-## Required future operation semantics
+## Legacy Canary Compatibility-only operation semantics
 
-No implementation is approved until an operation-specific Canary contract and executable implementation provide all semantics below.
+The remainder of this section applies **only** if a future owner decision explicitly retains a Canary compatibility implementation. It is not a prerequisite for native Issue #317.
+
+No compatibility implementation is approved until an operation-specific Canary contract and executable implementation provide all required semantics below.
 
 ### Schedule
 
-A schedule request must atomically:
+A Canary compatibility schedule request would need to atomically:
 
 1. resolve the authenticated Identity's ready immutable Canary account binding server-side;
 2. lock the exact account and player rows in deterministic order;
@@ -125,9 +129,9 @@ The browser may provide a public character/operation reference and confirmation 
 
 ### Grace period and visibility
 
-Scheduling makes the character unavailable to native login immediately under current Canary semantics. The product must state this consequence explicitly; “grace period” means a restoration window, not continued gameplay.
+Scheduling makes the character unavailable to Canary login immediately under current Canary semantics. The product must state this consequence explicitly; “grace period” means a restoration window, not continued gameplay.
 
-Required account states:
+Compatibility account states would need to include:
 
 - `active`;
 - `pending_deletion` with an effective date;
@@ -136,18 +140,11 @@ Required account states:
 - `finalized`;
 - `recovery_required`.
 
-Required public behavior:
-
-- `active`: normal privacy-aware profile/search behavior;
-- `pending_deletion`: not public and not present in public search, sitemap, highscores, guild directory projections or new Bazaar listings;
-- `restored`: normal visibility only after authoritative Canary state is active and Platform preferences are re-resolved;
-- `finalization_pending`: not public;
-- `finalized`: no live profile; historical public records follow a separate explicit retention policy rather than fabricated live data;
-- `recovery_required`: fail closed and not public.
+Compatibility public behavior would need to distinguish these states explicitly and must not fabricate live data after deletion/finalization.
 
 ### Cancel or restore
 
-Cancellation must atomically:
+A Canary compatibility cancellation would need to atomically:
 
 1. lock the same operation and Canary player row;
 2. re-resolve current ownership and session/Bazaar conflicts;
@@ -160,9 +157,9 @@ A timeout or ambiguous database outcome becomes `recovery_required`; it never be
 
 ### Finalize
 
-Finalization must be an explicit, idempotent Canary-owned operation, not an uncorrelated raw startup `DELETE`.
+A Canary compatibility finalization would need to be an explicit, idempotent Canary-owned operation, not an uncorrelated raw startup `DELETE`.
 
-It must:
+It would need to:
 
 - claim one exact operation ID;
 - lock and revalidate the player and conflict set;
@@ -172,26 +169,15 @@ It must:
 - be retry-safe after failure before or after commit;
 - leave sufficient tombstone/audit evidence to distinguish finalized, missing-before-finalization and ambiguous outcomes without retaining credentials or gameplay blobs.
 
-## Conflict policy
+## Compatibility conflict policy
 
-Every schedule, restore and finalize attempt fails closed when any of these are true:
-
-- ready immutable Identity-to-Canary binding is missing or not ready;
-- player ownership changed or cannot be proven;
-- any `cluster_sessions` row exists;
-- Character Bazaar state is listing-pending, escrow-pending, active, cancellation-pending, settlement-pending or recovery-required;
-- a rename or world/channel transfer operation owns the player;
-- the player owns a guild and no approved leadership-transfer/disband policy has completed;
-- the player owns a house and no approved release/transfer policy has completed;
-- active market offers, house bids, mail delivery or other reviewed gameplay obligations require settlement;
-- Canary revision/schema/effective grants differ from the approved evidence profile;
-- dependency state is unavailable or contradictory.
+Any future Canary compatibility schedule, restore or finalize attempt must fail closed when ownership, session, Bazaar, concurrent lifecycle operation, destructive gameplay obligation, schema/revision, grant or dependency state is unavailable or contradictory.
 
 `players_online` alone is not authoritative for cluster-wide online state.
 
-## Concurrency and idempotency requirements
+## Compatibility concurrency and idempotency requirements
 
-A future implementation must use:
+A retained Canary compatibility implementation would require:
 
 - a unique client idempotency key scoped to Identity and intent;
 - one immutable operation/public ID;
@@ -202,9 +188,9 @@ A future implementation must use:
 - reconciliation based on authoritative current rows and operation receipts, never timeout inference;
 - mutual exclusion with Character Bazaar, rename and transfer operations.
 
-Cross-database Platform/Canary work is a durable saga, not distributed ACID.
+Cross-database Platform/Canary work is a durable compatibility saga, not distributed ACID.
 
-## Least-privilege decision
+## Compatibility least-privilege decision
 
 No deletion credential or grant template is approved or to be provisioned under this contract.
 
@@ -215,37 +201,30 @@ The existing principals are explicitly insufficient:
 - `canary_character_transfer` authorizes only `UPDATE(players.account_id)`;
 - Character Bazaar escrow authority does not authorize deletion, restore or finalization.
 
-A future approved design should prefer a Canary-owned command/service or narrowly defined stored operation returning an operation receipt. If direct column privileges are still proposed, the contract must prove that they cannot bypass side-effect policy, startup cleanup, idempotency or recovery; current evidence does not prove this.
+If direct column privileges are ever proposed for a retained compatibility path, that compatibility contract must prove they cannot bypass side-effect policy, startup cleanup, idempotency or recovery. Current evidence does not prove this.
 
-## Required Canary prerequisite
+## Optional Legacy Canary Compatibility prerequisite
 
-Before Platform implementation, a separately authorized Canary task must:
+Issue #344 is no longer a prerequisite for the **native** deletion/restore target.
 
-1. replace or fence the raw startup deletion path so it cannot race or bypass the contracted lifecycle;
-2. define an explicit schedule/cancel/finalize interface with operation IDs and bounded outcomes;
-3. define guild-leader, house-owner, market, session and history retention behavior;
-4. make finalization deterministic and independently invokable rather than dependent on restart timing;
-5. add exact schema/runtime/integration tests for authorization boundary, locking, retries, side effects and recovery;
-6. document producer/consumer rollout and rollback compatibility;
-7. expose only the minimum effective grants or authenticated internal interface required by Platform.
+If the repository owner later explicitly decides to retain deletion/restore on the Canary compatibility stack, a separately authorized Canary task would still need to replace/fence the raw startup deletion path and expose a bounded operation-safe interface. Such work would be compatibility-only, would require its own external-repository authorization, and would need rollout/rollback/removal criteria.
 
 No Canary write is authorized by this Oteryn Platform task.
 
-## Validation required before approval
+## Validation required for any future compatibility implementation
 
-A later implementation contract must require, on exact final revisions:
+A retained Canary compatibility implementation would require exact-revision Canary behavior/concurrency/side-effect evidence, effective-grant tests, Platform authorization/security tests, mutual-exclusion tests, ambiguous-outcome recovery tests, user-facing acceptance and environment-gated rollout/rollback verification.
 
-- Canary unit/integration tests for each lifecycle result and destructive side effect;
-- real MariaDB concurrency tests for schedule/cancel/finalize races and finalizer recovery;
-- effective-grant tests proving required and forbidden privileges;
-- Platform authorization, object-injection, CSRF, rate-limit and stale-version tests;
-- Character Bazaar/rename/transfer mutual-exclusion tests;
-- failure injection before and after Canary commit with deterministic reconciliation;
-- EN/PL desktop/tablet/mobile zero-retry browser acceptance;
-- environment-gated deployment verification and rollback rehearsal.
+Those requirements do not define or block the native Oteryn-v2 implementation path.
 
 ## Decision
 
-`CURRENT CHARACTER DELETION/RESTORE: NO-GO FOR DIRECT PLATFORM IMPLEMENTATION`
+`NATIVE CHARACTER DELETION/RESTORE: ROUTE TO OTERYN-V2 CHARACTER AUTHORITY`
 
-Issue #317 remains open. The next safe step is a separately authorized Canary lifecycle prerequisite. After that prerequisite is merged and pinned, Oteryn Platform must revalidate this contract and create a new implementation task. No runtime, credential, production or `PRODUCTION_PROVEN` claim follows from this discovery.
+`LEGACY CANARY CHARACTER DELETION/RESTORE: NO-GO FOR DIRECT PLATFORM IMPLEMENTATION`
+
+Issue #317 remains the product gap, but its native target is no longer blocked by Issue #344 or by a new Canary lifecycle producer. Native implementation must follow ADR 0030/0031 and the focused lifecycle routing guide using canonical `AccountId`/`CharacterId` and versioned game-owned command/result semantics.
+
+Issue #344 and this document remain historical/current Canary compatibility evidence only. They may be used again only if a separate owner decision explicitly retains the compatibility feature.
+
+No runtime, database migration, credential, production, Canary/Oteryn-v2 repository write or `PRODUCTION_PROVEN` claim follows from this reconciliation.

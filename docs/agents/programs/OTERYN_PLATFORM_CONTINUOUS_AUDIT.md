@@ -21,7 +21,7 @@ Continuously audit every delivered or declared Platform module and surface for t
 
 ```yaml
 programme_state_version: 3
-updated_at: 2026-08-08T06:34:00Z
+updated_at: 2026-08-08T14:59:00Z
 status: ready
 current_cycle: 1
 programme_execution_snapshot:
@@ -31,15 +31,15 @@ programme_execution_snapshot:
   active_task: unknown
   branch: unknown
   pull_request: unknown
-  reason: Active-task truth audit delivery PR #878 merged as 4e10b998d773e92ac1b729a43c5bd6f287ef1092 and its lifecycle record is archived; mutable execution ownership must be refreshed live before selecting the next non-overlapping audit domain.
-last_merged_audit_head: 4e10b998d773e92ac1b729a43c5bd6f287ef1092
-last_completed_domain: active-task-truth-and-authority
+  reason: Native PublicGameData privacy audit PR #909 merged as 3dc7b708cd1da990cf5be4fcbe1e79775305b6d1 and its lifecycle record is terminal. This reconciliation refreshes durable dispatch/owner state through protected main df222c703fcf9ece7dc045a6c78d6bed0b1146f8; mutable ownership must still be refreshed live before every next domain selection.
+last_merged_audit_head: 3dc7b708cd1da990cf5be4fcbe1e79775305b6d1
+last_completed_domain: public-game-data-privacy-revocation
 coverage_inventory:
   baseline: docs/agents/evidence/OTERYN-20260803-portal-exhaustive-current-main-audit/
   baseline_merge: cbbd7613cee13cf01931a0ba0f7ac089122132e0
-  latest_audited_main: 9b84279dbd8a35a6f75ccd524daaf4a29e89b27a
-  current_main_incorporated: 4e10b998d773e92ac1b729a43c5bd6f287ef1092
-  selected_delta_domain: active-task-truth-and-authority
+  latest_audited_main: bb51c0329b8907502ea1162ff632df7ba968855d
+  current_main_incorporated: df222c703fcf9ece7dc045a6c78d6bed0b1146f8
+  selected_delta_domain: public-game-data-privacy-revocation
 finding_ledger_semantics: historical_identity_map_not_live_queue
 finding_ledger:
   baseline_owners: [486, 487, 488, 489, 490, 491]
@@ -47,6 +47,7 @@ finding_ledger:
     - OPA-SEC-0001: 547
     - OPA-SEC-0002: 797
     - OPA-SEC-0003: 801
+    - OPA-SEC-0004: 908
     - OPA-REC-0001: 804
     - OPA-GOV-0001: 552
     - OPA-GOV-0002: 555
@@ -75,6 +76,10 @@ finding_ledger:
     - OPA-GOV-0025: 848
     - OPA-GOV-0026: 876
     - OPA-GOV-0027: 877
+    - OPA-GOV-0028: 885
+    - OPA-GOV-0029: 886
+    - OPA-GOV-0030: 890
+    - OPA-GOV-0031: 905
 live_queue:
   mode: live_query_required
   exhaustive: false
@@ -87,43 +92,40 @@ live_queue:
   reason: The finding ledger preserves stable identities only. Current open, ready, blocked and owned disposition must always be recomputed from live repository state.
 proven:
   - PR #483 and its merged evidence remain the authoritative baseline module and observable-surface inventory.
-  - OPA-SEC-0001 / Issue #547 is historical and repaired through PR #595.
-  - OPA-SEC-0002 / Issue #797 is historical and repaired through PR #826; independent Audit PR #838 verified cumulative partial-refund integrity without a new material finding.
-  - OPA-SEC-0003 / Issue #801 is historical and repaired through PR #825; independent Audit PR #844 verified native OAuth generation revocation without a new material finding.
-  - OPA-REC-0001 / Issue #804 is historical and repaired through PR #812; independent Audit PR #842 verified terminal Character Bazaar recovery integrity without a new material finding.
-  - OPA-GOV-0001 through OPA-GOV-0018 retain stable historical finding identities; detailed evidence belongs to their Issues and archived task records.
-  - OPA-GOV-0019 / Issue #780 is historical and repaired through PR #789.
-  - OPA-GOV-0020 / Issue #783 is historical and repaired through PR #786; independent post-repair review 4885661122 confirmed repaired docs-only CI/Acceptance routing behavior.
-  - OPA-GOV-0021 / Issue #788 is historical and repaired through PR #808.
-  - OPA-GOV-0022 / Issue #793 is historical and repaired through PR #796 with exact expected-SHA force-with-lease deletion semantics.
-  - OPA-GOV-0023 / Issue #811 is historical and repaired through PR #819; independent post-repair review 4885624015 verified terminal numeric-PR repository/branch identity behavior.
-  - OPA-GOV-0024 / Issue #815 is historical and repaired through PR #822; independent Audit PR #846 verified repository-root and remote-identity binding.
-  - OPA-GOV-0025 / Issue #848 is historical and repaired through merged PR #854, which isolates main-push CI generations while preserving same-PR cancellation; Issue #848 is closed completed.
-  - OPA-GOV-0026 / Issue #876 remains the durable owner for the proven Synology activation-task evidence contradiction.
-  - OPA-GOV-0027 / Issue #877 remains the durable owner for the proven Cloudflare verification-task evidence contradiction.
-  - Public-domain checkpoint drift remains separately owned by PR #541; no duplicate audit remediation was created.
-  - Native protocol authority drift was repaired through Issue #874 / PR #875 and lifecycle closeout PR #879.
-  - Active-task truth audit delivery PR #878 exact head 9112531f660ebf9ad135de798e1827cb344fa78c passed Agent Governance and repository CI, had zero review threads and merged as 4e10b998d773e92ac1b729a43c5bd6f287ef1092.
+  - OPA-SEC-0001 through OPA-SEC-0003 and OPA-REC-0001 retain historical identities with terminal remediation/audit evidence in their Issues and archived tasks.
+  - OPA-GOV-0001 through OPA-GOV-0025 retain stable historical finding identities; detailed remediation evidence belongs to their Issues and archived task records.
+  - OPA-GOV-0026 / Issue #876 is historical and closed completed; its stale Synology activation task was reconciled and archived. It is not a current owner or conflict.
+  - OPA-GOV-0027 / Issue #877 is historical and closed completed; its stale Cloudflare verification task was reconciled and archived. It is not a current owner or conflict.
+  - OPA-GOV-0028 / Issue #885 is historical and closed completed after PR #405 lifecycle/evidence reconciliation. It is not a current owner or conflict.
+  - OPA-GOV-0029 / Issue #886 is historical and closed completed after the stale OTClient authority/handoff reconciliation. It is not a current owner or conflict.
+  - OPA-GOV-0030 / Issue #890 is historical and closed completed after character-lifecycle authority repair PR #893 and lifecycle closeout #895. It is not a current owner or conflict.
+  - Architecture Issue #888 is closed completed after native pre-admission contract PR #900 and lifecycle closeout #901. It is not a current independent owner.
+  - Continuous-audit owner-state audit PR #906 merged as 3b9d5c5d797172a0e99b1181ba97178667a90dd8 after proving the stale live-owner contradiction and routing OPA-GOV-0031 / Issue #905.
+  - Native PublicGameData privacy audit PR #909 audited protected main bb51c0329b8907502ea1162ff632df7ba968855d, routed OPA-SEC-0004 / Issue #908, and merged as 3dc7b708cd1da990cf5be4fcbe1e79775305b6d1.
+  - OPA-SEC-0004 / Issue #908 is a stable finding identity for the native PublicGameData privacy-revocation contract gap; its current open/ready/claimed disposition must be refreshed live before overlapping work.
+  - At this reconciliation generation PR #541 is still open as an intentional external wait on owner-observed staging password-recovery evidence; its state must be revalidated live before future dispatch.
+  - At this reconciliation generation PR #338 is still open as an intentional cross-repository dependency hold under programme #330; its state must be revalidated live before future dispatch.
+  - Protected main at this reconciliation generation is df222c703fcf9ece7dc045a6c78d6bed0b1146f8. Current active tasks before this repair claim were only the externally blocked public-domain repair and native-auth production-verification records.
   - Independent PASS-only validation and lifecycle reconciliation are governed by docs/agents/LIFECYCLE_CLOSEOUT_BATCHING.md.
 derived:
-  - Issue #848 is no longer a live remediation handoff; future live queue selection must not route work to it.
-  - Synology historical activation evidence proves activation occurred but does not prove current runner availability or current secret values.
-  - Cloudflare later trusted-main evidence narrows the old 403-based UNKNOWN set; residual controls must be evaluated individually rather than resetting all edge facts to UNKNOWN.
-  - Native protocol authority no longer remains an open conflict after PR #875 and PR #879.
+  - Historical finding identities remain valid deduplication history after their Issues close; they must not become durable live ownership exclusions.
+  - Historical open-PR and backlog disposition evidence is generation-scoped and must be revalidated when later architecture, environment or lifecycle evidence changes retained dependencies.
   - Mutable queue state and current ownership must always be refreshed live before dispatch.
+  - A current open Issue or PR may bound overlapping work at one generation without becoming permanent programme-level ownership truth.
 unknown:
-  - Current ready, blocked and claimed disposition of all finding Issues until the next live queue refresh.
-  - Global native-auth production cutover and alternate legacy-login-path retirement/isolation, as preserved by docs/contracts/AUTH_GAME_LOGIN_CONTRACT.md.
+  - Current ready, blocked and claimed disposition of all findings until the next live queue refresh.
+  - Exact Oteryn-v2 character command transport/receipt implementation details remain external focused authority.
+  - Global production cutover readiness under Issue #91.
   - Current protected Environment secret values and current Synology runner availability.
   - Residual Cloudflare certificate-product, Access and Page Rule facts not proven by later edge evidence.
 conflicts:
-  - OPA-GOV-0026 / Issue #876 remains open for the Synology activation lifecycle contradiction.
-  - OPA-GOV-0027 / Issue #877 remains open for the Cloudflare verification evidence contradiction.
-  - Public-domain audited checkpoint drift remains owned by PR #541.
+  - OPA-SEC-0004 / Issue #908 is an open material finding at this reconciliation generation; refresh its live claim/task/PR state before any overlapping PublicGameData privacy audit or repair.
+  - PR #541 is open at this reconciliation generation and remains the independent public-domain external-wait owner; do not infer that state after this generation without a live refresh.
+  - PR #338 is open at this reconciliation generation and remains the independent Game Catalog cross-repository hold; do not infer that state after this generation without a live refresh.
 blockers:
   mode: live_query_required
   items: unknown
-next_action: Refresh live ownership, open and blocked findings, active tasks, PRs and recent main deltas; then select the highest-risk non-overlapping audit domain while preserving Issues #876 and #877 as independent remediation owners and avoiding duplicate work on PR #541.
+next_action: Refresh live ready/blocked findings, active tasks, deterministic repair branches and open PRs at invocation time; select the highest-risk non-overlapping audit domain using the finding ledger only as deduplication history and preserving only ownership proven live by that refresh.
 ```
 
 ## Programme rules
@@ -131,7 +133,7 @@ next_action: Refresh live ownership, open and blocked findings, active tasks, PR
 - Keep this file compact; detailed evidence belongs in bounded task records, Issues and exact target PR audit artifacts.
 - Treat `finding_ledger` as a historical identity map only; never use it as proof that an Issue is currently open, ready, blocked or unclaimed.
 - Resolve mutable queue and ownership state from live Issues, tasks, branches and PRs before dispatch or collision decisions.
-- A PASS-only independent audit normally records its verdict on the exact target delivery artifact under `docs/agents/LIFECYCLE_CLOSEOUT_BATCHING.md`; a separate audit PR is reserved for durable evidence that cannot be represented accurately on the target artifact.
+- A PASS-only independent audit normally records its verdict on the exact target delivery artifact under `docs/agents/LIFECYCLE_CLOSEOUT_BATCHING.md`; a separate audit PR is reserved for durable evidence that cannot be represented accurately in the target artifact.
 - Material findings must be deduplicated and routed to independently actionable Issues; do not fold implementation into the audit task.
 - Several compatible lifecycle-only findings may use one bounded reconciliation wave under `docs/agents/LIFECYCLE_CLOSEOUT_BATCHING.md`.
 - Update this file after a durable programme-policy or finding-identity change; do not persist a mutable queue snapshot as authoritative live truth.
