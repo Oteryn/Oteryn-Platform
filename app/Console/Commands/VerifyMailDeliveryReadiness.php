@@ -8,18 +8,13 @@ use Symfony\Component\Console\Command\Command as SymfonyCommand;
 
 final class VerifyMailDeliveryReadiness extends Command
 {
-    protected $signature = 'mail:verify-delivery-readiness
-        {--environment= : Environment to validate; defaults to APP_ENV}';
+    protected $signature = 'mail:verify-delivery-readiness';
 
     protected $description = 'Verify provider-neutral mail delivery readiness without sending mail';
 
     public function handle(MailDeliveryConfigurationVerifier $verifier): int
     {
-        $option = $this->option('environment');
-        $environment = is_string($option) && trim($option) !== ''
-            ? strtolower(trim($option))
-            : strtolower(trim((string) config('app.env')));
-
+        $environment = strtolower(trim((string) config('app.env')));
         $violations = $verifier->inspect($environment);
 
         if ($violations !== []) {
