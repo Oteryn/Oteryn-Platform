@@ -4,9 +4,6 @@ required_reads:
   - AGENTS.md
   - docs/agents/EXECUTION_PROTOCOL.md
   - docs/agents/GITHUB_ONLY_EXECUTION.md
-  - docs/architecture/ARCHITECTURE_AUTHORITY.md
-  - docs/architecture/adr/0031-native-oteryn-v2-integration-boundary.md
-  - docs/architecture/OTERYN_V2_INTEGRATION_ARCHITECTURE.md
   - docs/agents/reports/OTERYN-20260801-official-linux-client-live-reference-plan.md
 search_first:
   - OTERYN-20260801-official-linux-client-live-reference
@@ -24,14 +21,14 @@ optional_reads:
 
 This task began before the accepted native Oteryn-v2 repository/authority transition. Its safe synthetic Linux harness remains useful research tooling, but its old `blakinio/otclient` / Canary implementation handoff is no longer current architecture.
 
-For any future native follow-up:
+Current authority from protected `main` is recorded by ADR 0031 and Issue #886:
 
-- `blakinio/Oteryn-Platform` owns Identity, OAuth/PKCE, Game Login Ticket, Gateway pre-admission/routing and Platform-side interoperability evidence/workflow;
-- `blakinio/Oteryn-v2` is the canonical native client/game/protocol implementation authority and is read-only from this task;
+- `blakinio/Oteryn-Platform` owns Identity, OAuth/PKCE, Game Login Ticket, Gateway pre-admission/routing and Platform-side interoperability workflow;
+- `blakinio/Oteryn-v2` is the canonical native client/game/protocol implementation authority and remains read-only from this task;
 - historical `blakinio/otclient`, Canary and official Tibia behavior are compatibility/reference evidence only;
 - live official-client observation can inform requirements but never proves native Oteryn-v2 conformance by itself.
 
-ADR 0031 and current `OTERYN_V2_INTEGRATION_ARCHITECTURE.md` override older target-routing language in this unmerged historical branch.
+Because this is an intentionally historical unmerged branch, current-main ADR files are referenced through Issue #886 rather than made local required reads. A future continuation must start from current `main` and load the then-current architecture authority before reuse.
 
 ## Goal
 
@@ -40,10 +37,10 @@ Preserve a safe, reproducible research capability for launching the unmodified o
 Any final gap matrix must route findings by current authority:
 
 - Platform Identity/Gateway/control-plane findings -> `blakinio/Oteryn-Platform`;
-- native Rust client, native game server and `protocol-oteryn` findings -> canonical `blakinio/Oteryn-v2` follow-up owned outside this task;
+- native Rust client, native game server and `protocol-oteryn` findings -> separately authorized `blakinio/Oteryn-v2` follow-up;
 - OTClient/Canary/Tibia findings -> historical/compatibility/reference evidence unless a later explicit compatibility task adopts them.
 
-This task performs no cross-repository source mutation.
+No cross-repository source mutation belongs to this task.
 
 ## Safety invariants
 
@@ -81,10 +78,10 @@ Proven on the historical branch:
 - exact synthetic-secret scanning and deterministic cleanup;
 - redacted session-manifest schema/example;
 - official-mode preflight that fails closed when encrypted storage or exact package identity is unavailable;
-- 11+ focused tests, Python compilation and manifest/workflow/checkpoint validation;
+- focused tests, Python compilation and manifest/workflow/checkpoint validation;
 - no official client, official service, credential or proprietary asset was used during the proven synthetic run.
 
-Historical exact code evidence includes `cabad487a139aaf0983dfc55cfb18d9f43720633`; PR #391 later advanced to head `630ed73c09242cf3d37f3652b06fa252c6b0f10d`. These hashes preserve evidence only; they are not current-main conformance claims.
+Historical exact local/code evidence includes `cabad487a139aaf0983dfc55cfb18d9f43720633`; PR #391 later advanced to `630ed73c09242cf3d37f3652b06fa252c6b0f10d`. These hashes preserve evidence only; they are not current-main conformance claims.
 
 ## External-service readiness
 
@@ -127,7 +124,7 @@ Classify every observation as `PROVEN`, `DERIVED`, `UNKNOWN` or `CONFLICT` and r
 | Native game/world state semantics | Oteryn-v2 | Canary runtime observations |
 | Legacy compatibility behavior | explicit future compatibility task | OTClient/Canary/Tibia evidence |
 
-No external repository task is created or mutated by this Platform task. A later follow-up must be separately authorized in its owning repository.
+No external repository task is created or mutated by this Platform task. A later follow-up requires separate authorization in its owning repository.
 
 ## Owned paths
 
@@ -146,7 +143,7 @@ read_only_cross_repository:
   - project-owned Canary repository # compatibility/reference only
 ```
 
-The Issue #886 reconciliation may edit only the three documentation paths above. It must not change the validated harness or workflow.
+Issue #886 may edit only the three documentation paths. It must not change the validated harness or workflow.
 
 ## Acceptance criteria for any future live-reference continuation
 
@@ -176,10 +173,10 @@ phase: authority-reconciliation
 session_id: github-20260808-issue886
 session_role: architecture-repair
 execution_mode: github_only
-updated_at: 2026-08-08T10:09:00+02:00
-head: pending-reconciliation-commit
+updated_at: 2026-08-08T10:15:00+02:00
+head: pending-validation-commit
 branch: repair/issue-886
-pr: none
+pr: 896
 status: blocked
 context_routes:
   - agent-governance
@@ -195,8 +192,10 @@ proven:
   - Oteryn-v2 is now the canonical native client/game/protocol implementation authority; historical blakinio/otclient and Canary are reference/compatibility evidence only.
   - No official service authentication or official client execution occurred in the proven harness phase.
   - Encrypted evidence storage and exact approved official package identity remain unproven/unavailable for a live phase.
+  - The historical PR 391 base head 630ed73c09242cf3d37f3652b06fa252c6b0f10d already has a failing Tibia Linux Reference Harness workflow; Issue 886 does not mutate that harness or workflow.
 derived:
   - PR 391 should be superseded after documentation reconciliation rather than merged from its historical base.
+  - The Tibia Linux Reference Harness failure on the stacked documentation PR is inherited from the historical base and is additional evidence against merging PR 391, not a reason to weaken the scanner in Issue 886.
 unknown:
   - Whether a future approved Linux host will run the unmodified official client/BattlEye.
   - Whether the owner will choose to resume the live-reference programme after the native-v2 architecture transition.
@@ -208,21 +207,30 @@ rejected_hypotheses:
   - blakinio/otclient is the current native Rust-client implementation authority
   - historical Canary/OTClient correspondence proves native Oteryn-v2 conformance
   - preserving the harness requires blindly merging PR 391
+  - Issue 886 should weaken or modify the credential-sensitive harness to make a historical workflow green
 changed_paths:
   - docs/agents/tasks/active/OTERYN-20260801-official-linux-client-live-reference.md
+  - docs/agents/reports/OTERYN-20260801-official-linux-client-live-reference-plan.md
+  - docs/agents/reports/OTERYN-20260801-official-linux-client-live-observation.md
 validation:
-  - command: authority reconciliation against ADR 0031 and Issue 864 evidence
+  - command: authority reconciliation against protected-main ADR 0031 / Issue 886 evidence
     result: PASS
     evidence: native follow-up ownership now routes to Oteryn-v2; Platform responsibilities remain separate
   - command: harness/workflow mutation check
     result: PASS
     evidence: Issue 886 changes no tools/tibia-linux-reference or workflow file
-  - command: external official-service validation
-    result: NOT_APPLICABLE
-    evidence: this repair neither authorizes nor performs live official-service work
+  - command: official-client or official-service validation
+    result: BLOCKED
+    evidence: encrypted storage and exact approved package identity are not proven; no official service is contacted by this repair
+  - command: historical Tibia Linux Reference Harness workflow
+    result: BLOCKED
+    evidence: the base head 630ed73c09242cf3d37f3652b06fa252c6b0f10d already fails this workflow; Issue 886 preserves the harness unchanged and will supersede PR 391 instead of weakening it
+  - command: exact-head Agent Governance
+    result: NOT_RUN
+    evidence: rerun is required on the checkpoint repair head
 blockers:
   - encrypted private evidence storage not proven
   - exact approved official client package identity unavailable
   - no current owner-gated live-session request for a specific native-v2 evidence gap
-next_action: Reconcile the plan and observation authority wording, validate the documentation-only stacked repair, then close PR 391 as superseded while preserving its branch/harness evidence.
+next_action: Revalidate the three-file documentation repair; if Agent Governance passes and the only remaining workflow failure is the proven historical harness baseline, merge the stacked reconciliation into the historical branch, update PR 391 metadata, and close PR 391 as superseded without merging it to main.
 ```
