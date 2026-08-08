@@ -18,22 +18,17 @@ This readiness check validates configuration shape only. It does **not** send a 
 
 ## Verification
 
-Run against the environment actually being prepared:
+Run on the environment actually being prepared:
 
 ```bash
 php artisan mail:verify-delivery-readiness
 ```
 
-An operator may validate a target environment explicitly without sending mail:
-
-```bash
-php artisan mail:verify-delivery-readiness --environment=staging
-php artisan mail:verify-delivery-readiness --environment=production
-```
+The command always validates the application's configured `APP_ENV`; it has no environment override. This prevents a staging or production check from being accidentally downgraded to the inert local/testing policy.
 
 The command is provider-neutral. For SMTP it validates only structural host/port readiness; authentication and connectivity remain deployment evidence. Future configured delivery transports are accepted when their configured `transport` is not an inert transport.
 
-`production:verify-configuration` remains the broader production-security gate. Mail delivery readiness is a narrower reusable boundary that can also be exercised before staging password-recovery acceptance.
+`production:verify-configuration` remains the broader production-security gate and reuses the same mail delivery verifier. Mail delivery readiness is a narrower boundary that can also be exercised before staging password-recovery acceptance.
 
 ## SMTP deployment shape
 
