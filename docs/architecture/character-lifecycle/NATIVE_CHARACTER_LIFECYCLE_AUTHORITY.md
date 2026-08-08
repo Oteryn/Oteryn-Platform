@@ -31,7 +31,7 @@ For the native Oteryn-v2 target:
 | Cancel / restore deletion | Oteryn-v2 Character Authority | authenticated orchestration and projection reconciliation | direct Canary restore is not the native target |
 | Finalize deletion | Oteryn-v2 Character Authority | request/reconcile approved lifecycle command only when native lifecycle exposes one; preserve Platform audit/business state | raw Canary startup deletion must not define native semantics |
 | World transfer | Oteryn-v2 Character Authority | destination/product policy orchestration using canonical Platform `WorldId` / `ChannelId` references where applicable | capability remains separately gated; Canary world/schema assumptions do not define it |
-| Account / Bazaar ownership transfer | Oteryn-v2 Character Authority for ownership mutation | Platform owns Bazaar/commercial saga, wallet and customer workflow | existing `players.account_id` transfer is Legacy Canary Compatibility only |
+| Account / Bazaar ownership transfer | Oteryn-v2 Character Authority for ownership mutation | Platform owns Bazaar/commercial saga, wallet reservation/settlement and customer workflow; ownership transfer completes before wallet settlement | existing `players.account_id` transfer is Legacy Canary Compatibility only |
 
 ## Native command and result baseline
 
@@ -48,12 +48,13 @@ Every future native lifecycle implementation must preserve at least:
 7. materially conflicting reuse of one operation identity fails closed;
 8. duplicate/at-least-once delivery cannot duplicate the authoritative mutation;
 9. outcomes are typed and durably rereadable/reconcilable;
-10. timeout/connection loss/response loss becomes Platform-local ambiguous/recovery-required state rather than fabricated success or rejection;
-11. current game authority wins over stale Platform projections/preconditions;
-12. ordering/concurrency conflicts fail closed or return a typed conflict rather than creating two authorities;
-13. Platform saga state updates only from authoritative result/receipt or later reconciliation;
-14. public game projections converge through `OTERYN_V2_PUBLIC_GAME_DATA_PROJECTION_CONTRACT.md` rather than through a second ad-hoc command-response projection authority;
-15. no distributed ACID transaction between Platform and game persistence is assumed.
+10. terminal rejection is explicitly distinct from non-terminal retryable/pending state;
+11. timeout/connection loss/response loss becomes Platform-local ambiguous/recovery-required state rather than fabricated success or rejection;
+12. current game authority wins over stale Platform projections/preconditions;
+13. ordering/concurrency conflicts fail closed or return a typed conflict rather than creating two authorities;
+14. Platform saga state updates only from authoritative result/receipt or later reconciliation;
+15. public game projections converge through `OTERYN_V2_PUBLIC_GAME_DATA_PROJECTION_CONTRACT.md` rather than through a second ad-hoc command-response projection authority;
+16. no distributed ACID transaction between Platform and game persistence is assumed.
 
 Exact transport, IDL, result store, reconciliation API/event, command field names and game-internal transaction/locking implementation remain Oteryn-v2/external contract authority.
 
@@ -64,14 +65,17 @@ One Platform `operation_id` represents one semantic mutation attempt.
 ```text
 request operation X
   -> COMPLETED          => consume authoritative game result
-  -> REJECTED           => consume typed authoritative rejection
+  -> REJECTED           => consume terminal typed authoritative rejection
   -> ACCEPTED_PENDING   => remain pending and reconcile X
+  -> RETRYABLE_PENDING  => retry/reconcile X using the same operation identity
   -> timeout/lost reply => Platform marks X ambiguous/recovery-required
                            reconcile X using the same operation identity
                            never blindly mint X2 or execute direct SQL fallback
 ```
 
 An ambiguous native result must not be retried through Canary/direct SQL because the native command may already have committed.
+
+A terminal `REJECTED` operation identity stays terminal. A later deliberate user/business attempt may use a new operation identity only after current Platform gates are re-evaluated.
 
 A producer-side "not found" result is not automatically proof that a new operation identity is safe unless the accepted producer contract guarantees the old operation cannot later materialize.
 
@@ -140,8 +144,11 @@ The focused command contract does not require one global command queue or global
 
 - Platform owns the commercial saga and may request the game mutation only at the accepted commercial handoff point;
 - Oteryn-v2 owns the authoritative CharacterId ownership rebind;
-- wallet settlement or a Platform sale row is not proof that game ownership transferred;
-- ambiguous post-settlement game outcome enters reconciliation and never direct SQL compensation.
+- funds remain reserved while the game ownership-transfer operation is pending or ambiguous;
+- authoritative game `COMPLETED` ownership transfer occurs before Platform wallet debit/credit settlement;
+- timeout after transfer submission enters reconciliation with funds still reserved; it does not authorize wallet settlement or direct SQL compensation;
+- after game completion, wallet-settlement ambiguity is reconciled through wallet idempotency evidence and must not replay the game transfer;
+- wallet settlement or a Platform sale row is not proof that game ownership transferred.
 
 ## Downstream projection and privacy routing
 
@@ -188,7 +195,7 @@ Required principles:
 
 - introduce and preserve canonical AccountId/CharacterId mapping before removing legacy numeric identifiers;
 - fail closed on missing/conflicting identity mapping;
-- prove native producer/consumer command version, idempotency, conflicting-reuse, typed-result and reconciliation behavior before disabling a legacy operation;
+- prove native producer/consumer command version, idempotency, conflicting-reuse, typed terminal/non-terminal result and reconciliation behavior before disabling a legacy operation;
 - cut over per command family rather than treating all lifecycle commands as one global activation;
 - retain rollback for **new** operations while any active consumer depends on Canary compatibility;
 - reconcile/fence every already submitted native operation before routing future business intent through a compatibility path;
@@ -215,6 +222,7 @@ This document authorizes no:
 - ADR 0029 — Platform-owned WorldId / ChannelId topology identity
 - `docs/contracts/OTERYN_V2_CHARACTER_AUTHORITY_COMMAND_CONTRACT.md` — shared native command/result semantic contract
 - `docs/contracts/OTERYN_V2_PUBLIC_GAME_DATA_PROJECTION_CONTRACT.md` — downstream public projection/privacy authority
+- `docs/contracts/CHARACTER_TRANSFER_CONTRACT.md` — accepted transfer-before-wallet-settlement saga ordering
 - `docs/contracts/CHARACTER_DELETION_CONTRACT.md` — Canary deletion discovery retained only for Legacy Canary Compatibility evidence
 - Issue #890 — authority reconciliation finding
 - Issue #919 — shared native Character Authority command/result boundary
