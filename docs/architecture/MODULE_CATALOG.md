@@ -26,7 +26,7 @@ The frozen PR #453 production-completion baseline and later exact merged PRs pro
 | Accounts | AVAILABLE | Greenfield account provisioning/binding and future explicitly contracted account-level operations | Canary password verification logic, undocumented shared writes, game runtime |
 | Characters | AVAILABLE | Contract-approved web-triggered character operations; currently create plus Character Bazaar ownership transfer | Direct undocumented Canary writes; uncontracted rename/delete |
 | CharacterProfiles | AVAILABLE | Platform-stored character presentation/privacy preferences: public comment, per-character field visibility and optional main-character selection, with server-side owner verification and projection into PublicGameData | Authoritative character identity/current ownership, gameplay state, Canary/Oteryn-v2 mutation authority, or claiming canonical CharacterId migration completion |
-| PublicPortal | AVAILABLE | Homepage/shared-shell composition, SEO/discoverability and authorized view models, including future Today/command-centre and World Hub composition over bounded source modules | Authentication policy, raw Canary queries, arbitrary CMS persistence, module business rules, runtime/game-data truth, or routing/admission authority |
+| PublicPortal | AVAILABLE | Homepage/shared-shell composition, SEO/discoverability, federated public content-search orchestration and authorized view models, including future Today/command-centre and World Hub composition over bounded source modules | Authentication policy, raw Canary queries, arbitrary CMS persistence, source-module publication/search rules, module business rules, runtime/game-data truth, or routing/admission authority |
 | Announcements | AVAILABLE | Typed scheduled public announcements and permission-scoped publication lifecycle | Authoritative runtime world/service state or unrestricted site settings |
 | Events | AVAILABLE | Localized editorial event schedule/detail and audited administration lifecycle | Runtime raid/service truth unless consumed from an explicit LiveOps contract |
 | Downloads | AVAILABLE | Approved client release/artifact metadata, platform variants, checksums and publication lifecycle | Arbitrary executable upload/proxy, release signing authority or client updater runtime without a contract |
@@ -178,23 +178,33 @@ Character deletion/soft deletion and rename are not implemented or authorized. T
 - production homepage composition;
 - shared public header, navigation, footer and route discoverability;
 - public view models that combine already-authorized data from bounded modules;
+- federated public content-search orchestration, normalized result envelope and deterministic cross-source grouping/interleaving over bounded source-module public queries;
 - future `Today` / command-centre composition over editorial, LiveOps, PublicGameData and authenticated PlayerCompanion signals;
 - future World Hub composition over public world identity/presentation, PublicGameData, LiveOps and optional approved analytics;
 - sitemap/robots and public SEO orchestration;
-- explicit empty, stale, unavailable and not-found presentation.
+- explicit empty, stale, unavailable, partial and not-found presentation.
 
 ### Current available boundary
 
 The merged public shell provides the production homepage, public navigation and SEO endpoints. The homepage composes published editorial content and bounded public game/runtime projections without making Blade templates a raw data-access layer.
 
-`Today`/command-centre and World Hub are accepted future composition directions under ADR 0032; they are not claimed implemented by this `AVAILABLE` module status.
+`Today`/command-centre and World Hub are accepted future composition directions under ADR 0032; federated public content search is an accepted future application capability under ADR 0033. None is claimed implemented merely because `PublicPortal` is `AVAILABLE`.
+
+Current compatibility debt is explicit: `Announcements` and `Events` homepage provider/view-model paths still import `App\PublicPortal\PublicContentState`. That existing reverse edge predates ADR 0033 and is not the accepted dependency direction for federated-search provider onboarding.
 
 ### Invariants
 
-- PublicPortal is presentation/orchestration, not a generic domain module;
-- controllers and templates do not create raw Canary or cross-module persistence paths;
-- a failed dependency does not fabricate `0 online`, `offline`, no news, no event, no change or completed state;
-- composed values preserve source applicability, freshness, confidence and privacy semantics;
+- PublicPortal is presentation/orchestration, not a generic source-of-truth domain module;
+- controllers and templates do not create raw Canary or cross-module persistence/model access paths;
+- source modules retain public/search eligibility, publication, localization, source-local relevance and canonical source identity/URL semantics;
+- the target federated-search provider edge is `PublicPortal -> source-module application query`; before Announcements or Events are onboarded as federated-search providers, their existing `PublicContentState` reverse imports must be removed or replaced by source-owned response/availability types that PublicPortal maps into its composition state;
+- source modules must not depend on PublicPortal search contracts, search result types or presentation/view types;
+- raw relevance scores from heterogeneous providers are not assumed globally comparable; cross-source grouping/interleaving policy is deterministic and versionable;
+- PublicGameData exact-name character search remains a distinct privacy/enumeration product and is not silently broadened into fuzzy federated people search;
+- a dedicated search index, if later adopted, is rebuildable derived state and never source truth;
+- private PlayerCompanion, Support, Admin, Audit, Identity or Accounts records do not enter public federation without a separate explicit public contract;
+- a failed dependency does not fabricate `0 online`, `offline`, no news, no event, no search results, no change or completed state;
+- composed values preserve source applicability, freshness, confidence, publication and privacy semantics;
 - authenticated PlayerCompanion signals remain owner-private and are omitted for unauthorized/guest contexts;
 - Today/World Hub never become world-routing, runtime-readiness, admission or gameplay authority;
 - links and sitemap entries activate only for real published/enabled routes;
@@ -290,7 +300,8 @@ Character Bazaar listing creation uses its own operation-specific transfer conne
 - private account/session/security fields are never public output;
 - dependency failure is explicit, not fabricated empty/offline state;
 - freshness boundaries are not extended by unbounded caching;
-- Character Bazaar snapshots exclude Canary account IDs, IPs, sessions, credentials and arbitrary blobs.
+- Character Bazaar snapshots exclude Canary account IDs, IPs, sessions, credentials and arbitrary blobs;
+- exact-name character lookup retains its existing privacy/enumeration semantics and is not implicitly widened by PublicPortal federated content search.
 
 ## LiveOps — planned
 
@@ -792,6 +803,8 @@ Expose API endpoints only for a concrete client/use case. API endpoints must reu
 Bounded internal endpoints, game-auth tickets or operational probes are not a general public/first-party Platform API. Issue #490 retains the decision and evidence gap.
 
 PlayerCompanion is a concrete future consumer candidate: the API may expose calculator metadata/execution, owner workspaces, compatible recommendations, owner tracking/routine preferences and share resolution only through the same application services, version/freshness semantics, authentication and rate limits as the web UI.
+
+Federated public content search is another concrete future candidate under ADR 0033. If exposed, PlatformAPI adapts the same `PublicPortal` FederatedSearch application service and normalized result/failure semantics; it must not independently fan out to CMS/Announcements/Events/Wiki/GameCatalog or recreate cross-source grouping/ranking policy.
 
 ## Products and Entitlements — planned
 

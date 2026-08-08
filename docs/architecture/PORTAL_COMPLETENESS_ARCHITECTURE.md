@@ -4,7 +4,7 @@
 
 **CURRENT — focused portal-completeness architecture.**
 
-This document owns the current architectural assessment and completion boundary for the Oteryn web portal. It complements the older phased proposal in `PUBLIC_WEBSITE_EXPANSION_PLAN.md`, current module ownership in `MODULE_CATALOG.md`, the native Account Center boundary in ADR 0030, and the player-tools boundary in `PLAYER_COMPANION_ARCHITECTURE.md`.
+This document owns the current architectural assessment and completion boundary for the Oteryn web portal. It complements the older phased proposal in `PUBLIC_WEBSITE_EXPANSION_PLAN.md`, current module ownership in `MODULE_CATALOG.md`, the native Account Center boundary in ADR 0030, the player-tools boundary in `PLAYER_COMPANION_ARCHITECTURE.md`, and the public federated-search boundary in ADR 0033 / `FEDERATED_SEARCH_ARCHITECTURE.md`.
 
 Implementation availability, capability completeness, environment evidence and production activation remain separate facts.
 
@@ -23,6 +23,8 @@ The current foundation is sound:
 The portal architecture is **not globally exhausted or product-complete**. It is complete only at the level of foundational direction and already delivered bounded modules. Remaining completion work must be intentionally implemented, deferred or rejected.
 
 The 2026-08-08 benchmark delta does not change this foundation. It sharpens four composition/ownership directions without adding a new top-level service: a first-party `Today`/command-centre experience, owner-private tracking/routines inside `PlayerCompanion`, typed server-specific system definitions under `GameCatalog`, and a future public World Hub composed from existing world/status owners.
+
+The 2026-08-09 federated-search decision resolves another previous discovery gap without adding a module: public cross-content search is a `PublicPortal` application capability over source-owned public search/query interfaces, while exact-name character lookup remains a separate `PublicGameData` search product and any later dedicated search index remains rebuildable derived infrastructure.
 
 ## Current module reconciliation
 
@@ -55,7 +57,9 @@ ADR 0030 accepts the native Account Center responsibility split:
 - `PublicGameData` remains public/general projection rather than authenticated ownership authority;
 - `CharacterProfiles` remains presentation/privacy state and targets canonical `CharacterId` after a separately authorized additive migration.
 
-`PlatformAPI` remains planned as an adapter over module services, not a second business-logic implementation.
+ADR 0033 keeps federated public content search inside `PublicPortal` rather than creating a new Search/Discovery module. Source modules retain search eligibility, publication, localization, source-local ranking and canonical route ownership. `PlatformAPI` remains planned as an adapter over module application services, not a second business-logic implementation.
+
+The accepted federated-search dependency direction is a target, not a claim that all existing homepage composition code is already acyclic. `Announcements` and `Events` currently import `App\PublicPortal\PublicContentState`; that reverse compatibility edge must be removed before those modules are onboarded behind a new PublicPortal federated-search provider dependency.
 
 ## Architectural gaps that remain material
 
@@ -214,17 +218,43 @@ The API must reuse module application services, authorization, validation and ve
 
 For owned-character consumers the API must reuse the ADR 0030 Accounts Character Portfolio service rather than exposing `canary_account_id`, `canary_player_id` or raw game-owned tables as a permanent contract.
 
+For federated public content search, PlatformAPI reuses the ADR 0033 `PublicPortal` federated-search application service instead of independently fan-out querying CMS/Wiki/GameCatalog/etc. or recreating cross-source grouping/ranking policy.
+
 ### Search and discoverability
 
-Character search remains a separate exact-name game-data function. A later federated content search may cover:
+ADR 0033 resolves the ownership architecture for first-party federated public content search.
 
-- news and managed pages;
-- announcements/events;
-- Wiki;
-- Game Catalog;
-- approved player-tool references.
+The accepted capability is:
 
-The search adapter does not take ownership of source content and must preserve localization, publication, permissions and dependency-failure behavior.
+```text
+PublicPortal FederatedSearch
+  -> CMS public news/pages
+  -> Announcements public eligible records after reverse-edge cleanup
+  -> Events public eligible records after reverse-edge cleanup
+  -> Wiki published localized search
+  -> GameCatalog active/verified/public-safe entities
+  -> later explicitly public PlayerCompanion artefacts only after a separate indexability contract
+```
+
+Rules:
+
+- `PublicPortal` owns the public query contract, provider orchestration, deterministic grouping/interleaving, normalized result envelope, partial-failure semantics and public search UX;
+- each source module owns public eligibility/publication, localization, source-local relevance and canonical source URL semantics;
+- target provider adapters call bounded source-module application queries and source modules must not depend on PublicPortal search/presentation types;
+- current Announcements/Events imports of `PublicPortal\PublicContentState` are explicit compatibility debt; their removal is a provider-onboarding prerequisite, and a new opposite PublicPortal search dependency must not be added until the reverse edge is gone;
+- raw cross-module model/table access is forbidden;
+- PublicGameData exact-name character search remains a separate search product/vertical and is not silently converted into fuzzy people discovery;
+- Marketplace search/filtering remains Marketplace-owned;
+- private PlayerCompanion, Support, Admin, Audit, Identity and Accounts data is excluded from public federation;
+- raw provider relevance scores are not treated as globally comparable; initial delivery should prefer grouped verticals or deterministic rank-position/source-quota interleaving;
+- provider outage differs from zero healthy results, and `COMPLETE`, `PARTIAL`, `UNAVAILABLE` and invalid-query states remain distinct;
+- raw search text is not an ordinary log field or metric label;
+- arbitrary search-result pages are normally `noindex`; canonical source pages remain the indexable content;
+- no external search engine is an architecture prerequisite.
+
+A later dedicated search engine/index is allowed only as a rebuildable derived projection carrying source identity/revision/locale and explicit index generation/tombstone/stale-lag semantics. It never becomes source truth.
+
+Focused details are in `FEDERATED_SEARCH_ARCHITECTURE.md`.
 
 ### Typed server-specific systems
 
@@ -314,7 +344,7 @@ The following statuses are planning decisions, not implementation authority.
 | Public World Hub | PLANNED P1 when authoritative world/status/history inputs exist |
 | Platform API for concrete first-party consumers | PLANNED |
 | Houses, guild wars and expanded leaderboards | DISCOVERY |
-| Federated content search | DISCOVERY |
+| Federated content search | ARCHITECTURE ACCEPTED / PLANNED under PublicPortal; Announcements/Events onboarding gated on reverse-edge cleanup; no new module or mandatory external search engine |
 | Interactive map and route planning | DEFER to separate programme |
 | Community-contributed hunt evidence | DEFER to bounded P2/discovery with provenance/privacy/moderation contract |
 | Market-price/economy analytics | DEFER until authoritative data and privacy policy exist |
@@ -344,7 +374,7 @@ Cross-module access should use application interfaces/query objects rather than 
 
 ADR 0030 specifically keeps Character Portfolio as an `Accounts` application/read boundary rather than creating a new `CharacterPortfolio` deployable module. `CharacterProfiles` remains a small Platform-owned presentation/privacy subdomain; its top-level module-catalog classification is reconciled without forcing a repository-wide namespace rename. Canonical `CharacterId` preference migration remains separately authorized and pending under ADR 0030.
 
-The same minimum-module rule applies to the 2026-08-08 refinements: `Today` remains PublicPortal composition, personal tracking remains PlayerCompanion, server-system definitions remain GameCatalog, and the World Hub remains a composition of world/status projections. None justifies a new deployable service by itself.
+The same minimum-module rule applies to the 2026-08-08/09 refinements: `Today` remains PublicPortal composition, personal tracking remains PlayerCompanion, server-system definitions remain GameCatalog, World Hub remains a composition of world/status projections, and federated public content search remains a PublicPortal application capability. None justifies a new deployable service by itself.
 
 ## Portal completion gate
 
@@ -362,8 +392,9 @@ The architecture subject may be considered closed for a named release scope only
 10. native Character Portfolio consumers use the accepted AccountId/CharacterId boundary or are explicitly compatibility-scoped; no new permanent Canary-numeric ownership contract is introduced;
 11. personalized tracking/subscription behavior, when implemented, has explicit source, privacy, retention, refresh, abuse and notification-delivery semantics;
 12. typed server-specific systems do not blur GameCatalog deterministic definition, Wiki editorial explanation and LiveOps current-state ownership;
-13. exact production edge, observability, backup/restore/rollback and smoke evidence passes when claiming production readiness;
-14. required exact-head CI passes and all related PR/task ownership is terminal.
+13. federated search, when implemented, preserves source publication/localization/privacy/canonical identity, distinguishes partial failure from zero results, keeps character enumeration separate, has bounded query privacy/rate/cache/index semantics, and does not introduce a PublicPortal/provider module cycle;
+14. exact production edge, observability, backup/restore/rollback and smoke evidence passes when claiming production readiness;
+15. required exact-head CI passes and all related PR/task ownership is terminal.
 
 ## Current verdict
 
@@ -374,6 +405,7 @@ The architecture subject may be considered closed for a named release scope only
 - **Today/command-centre ownership:** PublicPortal composition over existing bounded sources; no new truth module.
 - **Owner-private tracking ownership:** PlayerCompanion.ProgressTracker; Notifications remains delivery-only.
 - **Server-specific system definition ownership:** GameCatalog for structured deterministic definition, Wiki for editorial explanation, LiveOps for current state.
+- **Federated content search ownership:** PublicPortal application capability over source-owned public queries; architecture accepted through ADR 0033, with Announcements/Events provider onboarding gated on existing reverse-edge cleanup; runtime not yet implemented.
 - **Portal topic globally complete:** no.
 - **Player-tools architecture defined:** yes, through ADR 0025 and `PLAYER_COMPANION_ARCHITECTURE.md`.
 - **Player tools implemented:** no claim; module status remains `PLANNED`.
@@ -385,8 +417,11 @@ The architecture subject may be considered closed for a named release scope only
 - `docs/architecture/DATA_OWNERSHIP.md`
 - `docs/architecture/PUBLIC_WEBSITE_EXPANSION_PLAN.md`
 - `docs/architecture/PLAYER_COMPANION_ARCHITECTURE.md`
+- `docs/architecture/FEDERATED_SEARCH_ARCHITECTURE.md`
 - ADR 0025
 - ADR 0030
+- ADR 0032
+- ADR 0033
 - `docs/agents/reports/OTERYN-20260806-portal-player-tools-benchmark.md`
 - `docs/agents/reports/OTERYN-20260808-portal-product-delta.md`
-- Issues #302, #365, #488, #489 and #490
+- Issues #365, #488, #489, #490 and #935
