@@ -195,6 +195,8 @@ FederatedSearchQuery
   limit
 ```
 
+Before cache identity is derived, all cache-relevant request fields use one versioned canonical serialization: normalized query, explicit locale, sorted/deduplicated allowlisted filters, effective provider set, exactly one pagination mode/value (`page` or validated opaque `cursor`), limit and ranking/grouping policy version. Provider/index/source-generation identity is then appended to the same canonical cache-input structure.
+
 Authentication is not required for the initial public-content product. Adding authenticated/private search would be a separate capability because permission and cache semantics change materially.
 
 ## Normalized result envelope
@@ -324,19 +326,22 @@ No Elasticsearch/OpenSearch/Meilisearch-specific business contract is accepted b
 
 ## Cache policy
 
-Search terms are high-cardinality and may contain personal or sensitive text, so caching is conservative.
+Search terms and opaque cursor material can contain sensitive or high-cardinality data, so caching is conservative.
 
-- do not create unbounded permanent cache keys from arbitrary queries;
-- every cached result identity includes a **privacy-safe, collision-resistant query identity** derived from the canonical normalized query plus locale, filters, provider selection and provider/index generation identity;
-- the query identity is a versioned server-keyed digest (for example `HMAC-SHA-256(cache-key-secret, normalized-query)`), never the raw query and never an unkeyed/plain hash that is practical to dictionary-recover for common search terms;
+- do not create unbounded permanent cache keys from arbitrary requests;
+- cache correctness is defined over the **entire semantic response-shaping request**, not only the query term;
+- a versioned canonical cache-input structure includes: normalized query, locale, sorted/deduplicated provider filter, sorted/deduplicated result-type filter, effective provider set, pagination mode plus validated `page` or opaque `cursor` value, `limit`, ranking/grouping policy version, and the provider/source/index generation vector needed to prevent stale cross-generation reuse;
+- the externally stored cache query/request identity is a versioned server-keyed digest of that canonical structure (for example `HMAC-SHA-256(cache-key-secret, canonical-cache-input)`), never raw query/cursor text and never an unkeyed/plain hash that is practical to dictionary-recover for common terms;
+- semantically different page/cursor/limit/filter/provider/ranking-policy/generation inputs therefore cannot intentionally share a paginated `SearchResponse` cache entry;
 - the HMAC key is managed as application secret material, is not emitted to logs/artifacts, and its identifier/version participates in the cache namespace so rotation creates a clean cache generation rather than cross-key ambiguity;
 - cache lookup equality uses the full digest; implementations must not truncate it below their collision-resistance requirement merely to shorten cache keys;
+- if a future implementation deliberately caches a complete pre-pagination result set instead of a paginated response, that must be a separately named cache layer whose identity excludes pagination only because page/cursor/limit slicing occurs strictly after the cached object and is proven not to mutate source/ranking semantics; the paginated response cache defined here always includes pagination inputs;
 - any result cache uses bounded TTL/size; a source's shorter freshness/publication rule wins over a longer PublicPortal cache;
 - `PARTIAL`/`UNAVAILABLE` responses use shorter or no caching as appropriate;
 - authenticated/private-search responses, if ever added, require owner/authorization-safe cache partitioning and are outside this public contract;
 - cache clearing is not a substitute for deterministic source revision/index invalidation.
 
-This keyed query identity is a cache/internal identifier only. It is not a user identifier, analytics identifier or permission token and must not be promoted into logs, metrics labels or public URLs.
+This keyed request identity is a cache/internal identifier only. It is not a user identifier, analytics identifier or permission token and must not be promoted into logs, metrics labels or public URLs.
 
 ## Security and abuse controls
 
@@ -356,16 +361,16 @@ Search is read-only. It authorizes no mutation.
 
 ## Query privacy
 
-Search text can contain names, emails, support-like text or other personal data even on a public form.
+Search text and opaque pagination material can contain names, identifiers or other sensitive data even on a public form.
 
 Therefore:
 
-- raw queries are not metric labels;
-- raw queries are not written to ordinary structured application logs by default;
-- keyed cache query digests are not emitted as ordinary logs/metric labels or reused as cross-context tracking identifiers;
-- traces record bounded metadata such as normalized length bucket, provider set, result count and status rather than full query text or cache-key digest;
+- raw queries and raw opaque cursors are not metric labels;
+- raw queries/cursors are not written to ordinary structured application logs by default;
+- keyed cache request digests are not emitted as ordinary logs/metric labels or reused as cross-context tracking identifiers;
+- traces record bounded metadata such as normalized length bucket, pagination mode, provider set, result-count bucket and status rather than full query/cursor text or cache-key digest;
 - any future product analytics over search terms requires a separate privacy/retention decision and aggregation policy;
-- error reports must not echo raw query text into public diagnostics or audit metadata.
+- error reports must not echo raw query/cursor text into public diagnostics or audit metadata.
 
 ## Observability
 
@@ -380,7 +385,7 @@ Safe bounded metrics include:
 - cache hit/miss where adopted;
 - derived-index generation/lag/rebuild health if an index exists.
 
-Do not use query strings, query digests, public IDs, slugs, titles or user identifiers as unbounded metric labels.
+Do not use query strings, opaque cursors, cache request digests, public IDs, slugs, titles or user identifiers as unbounded metric labels.
 
 ## SEO and discoverability
 
@@ -458,7 +463,8 @@ A delivered search surface must prove at least:
 - rate-limit response;
 - dependency recovery;
 - cache isolation for distinct normalized queries with identical locale/filter/provider generations;
-- cache key does not expose raw query text and keyed-digest rotation creates a separate cache namespace;
+- cache isolation for different `page`, opaque `cursor`, `limit`, filters, provider sets and ranking-policy versions;
+- cache identity does not expose raw query/cursor text and keyed-digest rotation creates a separate cache namespace;
 - exact-head browser E2E with retries zero.
 
 If a derived index exists, also prove rebuild, stale generation, deletion/tombstone and rollback/cutover behavior.
@@ -486,5 +492,5 @@ The architecture is satisfied when:
 - `PublicPortal` ownership in `MODULE_CATALOG.md` reflects federated-search orchestration without claiming implementation;
 - `PORTAL_COMPLETENESS_ARCHITECTURE.md` moves federated content search from unresolved discovery to architecture-accepted/planned implementation;
 - the known Announcements/Events reverse edge is recorded as an implementation prerequisite rather than hidden by the target dependency diagram;
-- cache correctness/privacy requires a keyed canonical-query identity so different terms cannot share a result cache entry and raw search terms do not become cache-key material;
+- cache correctness/privacy binds the full response-shaping request — including query, locale, filters, providers, pagination, limit, ranking-policy version and generations — to a keyed canonical-request identity so distinct responses cannot share a cache entry and raw request material does not become cache-key/log/metric data;
 - Issue #935 is terminal after exact-head self-review, CI, review hygiene, merge and task archival.
