@@ -190,12 +190,15 @@ The merged public shell provides the production homepage, public navigation and 
 
 `Today`/command-centre and World Hub are accepted future composition directions under ADR 0032; federated public content search is an accepted future application capability under ADR 0033. None is claimed implemented merely because `PublicPortal` is `AVAILABLE`.
 
+Current compatibility debt is explicit: `Announcements` and `Events` homepage provider/view-model paths still import `App\PublicPortal\PublicContentState`. That existing reverse edge predates ADR 0033 and is not the accepted dependency direction for federated-search provider onboarding.
+
 ### Invariants
 
 - PublicPortal is presentation/orchestration, not a generic source-of-truth domain module;
 - controllers and templates do not create raw Canary or cross-module persistence/model access paths;
 - source modules retain public/search eligibility, publication, localization, source-local relevance and canonical source identity/URL semantics;
-- PublicPortal provider adapters call bounded source-module application queries and source modules do not depend back on PublicPortal;
+- the target federated-search provider edge is `PublicPortal -> source-module application query`; before Announcements or Events are onboarded as federated-search providers, their existing `PublicContentState` reverse imports must be removed or replaced by source-owned response/availability types that PublicPortal maps into its composition state;
+- source modules must not depend on PublicPortal search contracts, search result types or presentation/view types;
 - raw relevance scores from heterogeneous providers are not assumed globally comparable; cross-source grouping/interleaving policy is deterministic and versionable;
 - PublicGameData exact-name character search remains a distinct privacy/enumeration product and is not silently broadened into fuzzy federated people search;
 - a dedicated search index, if later adopted, is rebuildable derived state and never source truth;
