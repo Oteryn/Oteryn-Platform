@@ -2,7 +2,7 @@
 
 ## Result
 
-`PASS — SHARED NATIVE CHARACTER MUTATION SEMANTICS DEFINED WITHOUT RUNTIME AUTHORITY EXPANSION`
+`PASS AFTER REVIEW REPAIR — SHARED NATIVE CHARACTER MUTATION SEMANTICS DEFINED WITHOUT RUNTIME AUTHORITY EXPANSION`
 
 Issue #919 closes one architecture gap left after ADR 0030/0031 and the character-lifecycle authority reconciliation: product issues #317, #319 and conditional #320 no longer need to invent independent cross-system operation, idempotency, typed-result and reconciliation semantics.
 
@@ -11,11 +11,12 @@ Issue #919 closes one architecture gap left after ADR 0030/0031 and the characte
 - accepted ADR 0030 and ADR 0031 authority split;
 - `docs/architecture/character-lifecycle/NATIVE_CHARACTER_LIFECYCLE_AUTHORITY.md`;
 - open product issues #277, #317, #319 and #320;
+- `docs/contracts/CHARACTER_TRANSFER_CONTRACT.md` accepted Bazaar ordering (`winner transfer -> wallet settlement -> completed`);
 - accepted native PublicGameData projection contract and its later privacy-revocation strengthening;
-- current main state after the completed native PublicGameData architecture and subsequent platform repairs;
-- open PR/branch search for overlapping native Character Authority command/result ownership.
+- current main state and open PR/branch ownership for native Character Authority command/result work;
+- PR #920 inline review findings.
 
-No open PR or active task was found owning this exact focused shared contract.
+No other open PR or active task was found owning this exact focused shared contract.
 
 ## Accepted design
 
@@ -36,12 +37,15 @@ All native character mutations share these invariants:
 
 ### Outcome semantics
 
-The contract distinguishes:
+The repaired contract distinguishes:
 
 - `COMPLETED` — terminal authoritative mutation result;
-- `REJECTED` — terminal authoritative rejection with typed reason;
+- `REJECTED` — terminal authoritative rejection; the producer guarantees that operation identity cannot later commit;
 - `ACCEPTED_PENDING` — optional non-terminal ownership of an asynchronous operation;
+- `RETRYABLE_PENDING` — explicit non-terminal transient producer state that keeps the same operation identity;
 - Platform-local `AMBIGUOUS` — response/commit state is unknown and must be reconciled by the same operation identity.
+
+A terminal `REJECTED` ID remains terminal. A later deliberate user/business attempt may use a new `operation_id` only after current Platform gates are re-evaluated.
 
 A producer-side `not found` reconciliation response does not automatically permit a fresh mutation identity unless the producer contract proves the original operation cannot later materialize.
 
@@ -55,38 +59,56 @@ The contract defines shared profiles for:
 4. cancel/restore deletion — current authoritative state wins over earlier UI/projection state;
 5. finalize deletion — profile applies only if native lifecycle exposes explicit external finalization;
 6. world/channel transfer — explicitly capability-gated; generic support does not approve the product;
-7. account/Bazaar ownership transfer — subordinate to the commercial saga; wallet settlement is never ownership proof.
+7. account/Bazaar ownership transfer — subordinate to the commercial saga and preserves transfer-before-wallet-settlement ordering.
+
+## Review findings and repairs
+
+### P1 — Bazaar transfer/wallet ordering
+
+Review found that the initial wording allowed an interpretation where wallet settlement might occur before authoritative game ownership was proven.
+
+Repair:
+
+```text
+settlement-pending / funds reserved
+  -> authoritative CharacterId ownership transfer
+  -> game COMPLETED
+  -> Platform wallet settlement
+  -> commercial saga completed
+```
+
+Timeout after transfer submission keeps funds reserved and the saga pending/recovery-required. It does **not** execute wallet settlement. A later wallet timeout after game completion reconciles through wallet idempotency evidence and must not replay the game transfer.
+
+This preserves the accepted `CHARACTER_TRANSFER_CONTRACT.md` invariant.
+
+### P2 — retryable internal failure terminality
+
+Review found that `retryable_internal_failure` appeared inside a terminal rejection taxonomy while idempotency required retries to reuse the same operation identity.
+
+Repair:
+
+- terminal `REJECTED` now means the producer guarantees the operation cannot later commit;
+- transient retryable failures are explicitly non-terminal `RETRYABLE_PENDING`/pending/ambiguous semantics;
+- retry/reconciliation reuses the same operation identity;
+- a new operation identity is allowed only for a later new semantic attempt after a terminal rejection and fresh Platform gates.
+
+This removes both infinite terminal-ID retry ambiguity and unsafe duplicate-operation minting.
 
 ## Important authority decisions
 
 ### Platform does not become Character Authority
 
-Platform remains responsible for:
+Platform remains responsible for authentication/object authorization, security/business/product/entitlement gates, operation identity, saga/history, notification/audit and Platform-owned projections/preferences.
 
-- authentication and object-level authorization;
-- security/business/product/entitlement gates;
-- operation identity and saga state;
-- user-visible workflow/history;
-- notification/audit;
-- Platform-owned projections/preferences.
-
-Oteryn-v2 remains responsible for:
-
-- current AccountId↔CharacterId ownership;
-- CharacterId minting;
-- lifecycle/game-state eligibility;
-- mutation transaction/concurrency safety;
-- authoritative result/receipt.
+Oteryn-v2 remains responsible for current AccountId↔CharacterId ownership, CharacterId minting, lifecycle/game-state eligibility, mutation transaction/concurrency safety and authoritative result/receipt.
 
 ### No shared mutation SQL in the native target
 
 Canary numeric identities and direct SQL remain explicit compatibility/migration details. They are not a shortcut implementation of the native command contract.
 
-### Public projection remains a separate contract
+### Public projection remains separate
 
 A successful mutation may update the Platform saga immediately from the authoritative result, but public search/profile/ranking/activity/guild/presence state still converges through `OTERYN_V2_PUBLIC_GAME_DATA_PROJECTION_CONTRACT.md` and its privacy-revocation fence.
-
-This prevents a command response from silently becoming a second public-data authority.
 
 ## Concurrency model
 
@@ -106,19 +128,19 @@ The semantic contract requires the future transport to prove service authenticat
 
 ### #317 deletion/restore
 
-The generic cross-system command/result dependency is now defined at Platform architecture level. #317 still owns the actual deletion product lifecycle, exact native lifecycle profile and eventual runtime/browser implementation.
+The generic cross-system command/result dependency is defined at Platform architecture level. #317 still owns the actual deletion product lifecycle, exact native lifecycle profile and eventual runtime/browser implementation.
 
 ### #319 rename
 
-The generic operation/idempotency/reconciliation dependency is now defined. #319 still owns exact rename product behavior such as old-name policy, cooldown/fee behavior and user-facing implementation.
+The generic operation/idempotency/reconciliation dependency is defined. #319 still owns exact rename product behavior such as old-name policy, cooldown/fee behavior and user-facing implementation.
 
 ### #320 world transfer
 
-Only the reusable command machinery is defined. World transfer remains conditional on an explicit product/capability decision and accepted game-owned placement semantics.
+Only reusable command machinery is defined. World transfer remains conditional on an explicit product/capability decision and accepted game-owned placement semantics.
 
 ### Bazaar/account ownership transfer
 
-The common envelope may be reused, but the operation remains higher-risk and subordinate to existing Bazaar/commercial settlement invariants. No payment or ownership-transfer cutover is authorized.
+The common envelope may be reused, but ownership transfer remains higher-risk and subordinate to Bazaar/commercial invariants. Authoritative game transfer occurs before wallet settlement. No payment or ownership-transfer cutover is authorized.
 
 ## Deferred implementation decisions
 
@@ -138,7 +160,7 @@ Not selected by this task:
 
 ## Rollout principle
 
-Cut over per command family. A native operation that is already submitted or ambiguous must be reconciled/fenced before any compatibility fallback for new operations. Rolling back by blindly executing the same business intent through Canary/direct SQL is forbidden because it can double-apply the mutation.
+Cut over per command family. A native operation already submitted or ambiguous must be reconciled/fenced before any compatibility fallback for future operations. Rolling back by blindly executing the same business intent through Canary/direct SQL is forbidden because it can double-apply the mutation.
 
 ## Validation classification
 
