@@ -18,7 +18,9 @@ A global search feature creates architecture risk if it becomes:
 - an independent ranking/business-logic implementation duplicated again in PlatformAPI;
 - an infrastructure-first commitment to a search engine before need is measured.
 
-The decision must preserve the repository's minimum-module rule while allowing later implementation and API reuse.
+The current repository also contains a pre-existing compatibility reverse edge: Announcements and Events homepage provider/view-model paths import `App\PublicPortal\PublicContentState`. This predates ADR 0033. Adding PublicPortal -> Announcements/Events federated-search calls without first removing that reverse edge would create a bidirectional module dependency.
+
+The decision must therefore preserve the repository's minimum-module rule while allowing later implementation and API reuse **without hiding current dependency debt**.
 
 ## Decision
 
@@ -47,29 +49,27 @@ Participating source modules remain responsible for their own:
 - canonical source identity/URL semantics;
 - revisions, applicability and freshness where relevant.
 
-PublicPortal uses provider adapters that call bounded source-module application/query interfaces and normalize only public-safe metadata. Source modules do not depend back on PublicPortal.
+PublicPortal uses provider adapters that call bounded source-module application/query interfaces and normalize only public-safe metadata.
 
-The intended dependency direction is:
+The **target federated-search dependency direction** is:
 
 ```text
 PublicPortal -> CMS / Announcements / Events / Wiki / GameCatalog / explicitly adopted public providers
 ```
 
-not:
+Source modules must not depend on PublicPortal search contracts, normalized search-result types or search/presentation view models, and federated search must not use raw cross-module model/table access.
 
-```text
-source modules -> PublicPortal
-```
+This is a target dependency direction, not a false claim about every current composition path. Before `Announcements` or `Events` becomes a federated-search provider, the existing reverse imports of `PublicPortal\PublicContentState` must be removed. The preferred bounded repair is for the source module to return a source-owned application response/availability type which PublicPortal maps into its own composition/search presentation state. ADR 0033 does not authorize a generic shared dumping-ground module merely to relocate the enum.
 
-and not raw cross-module model/table access.
+The implementation must not add a new PublicPortal -> Announcements/Events search edge while the corresponding Announcements/Events -> PublicPortal compatibility edge remains.
 
 ### 3. Initial provider scope is public first-party content
 
-The accepted initial provider families are:
+The accepted provider families are:
 
 - published CMS news/pages;
-- eligible public Announcements;
-- eligible public Events;
+- eligible public Announcements **after its reverse-edge onboarding prerequisite is complete**;
+- eligible public Events **after its reverse-edge onboarding prerequisite is complete**;
 - published localized Wiki content;
 - active/verified/public-safe GameCatalog entities.
 
@@ -168,13 +168,15 @@ A future materially different non-portal discovery product may justify extractio
 - PublicPortal's existing SEO/discoverability/composition responsibility gains a precise search contract;
 - PlatformAPI can reuse one orchestration path;
 - exact-name character search is protected from accidental fuzzy enumeration;
-- a later search engine remains replaceable derived infrastructure.
+- a later search engine remains replaceable derived infrastructure;
+- existing dependency debt is explicit and cannot be accidentally deepened by provider onboarding.
 
 ### Costs
 
 - PublicPortal provider adapters must normalize heterogeneous source result shapes;
 - grouped search may initially feel less “globally ranked” than one blended score;
 - partial dependency failure must be designed and tested explicitly;
+- Announcements/Events require a bounded compatibility cleanup before federated-search onboarding;
 - future dedicated indexing requires revision/tombstone/generation contracts rather than a simple bulk copy.
 
 ## Rejected alternatives
@@ -203,6 +205,14 @@ Rejected. PublicGameData character search has a distinct privacy/enumeration con
 
 Rejected. Architecture should first use existing module application queries and add derived search infrastructure only when evidence requires it.
 
+### Ignore the existing Announcements/Events -> PublicPortal edge
+
+Rejected. Adding the opposite federated-search dependency while that compatibility edge remains would create a cycle and contradict the intended modular direction.
+
+### Move `PublicContentState` into an unowned generic shared module by default
+
+Rejected. A neutral boundary needs genuine ownership and semantics; generic shared-code extraction is not a substitute for source-owned application responses.
+
 ## Implementation and activation limits
 
 This ADR defines architecture only. It does not authorize:
@@ -214,10 +224,10 @@ This ADR defines architecture only. It does not authorize:
 - private-content indexing;
 - server/client repository access or mutation.
 
-Implementation requires a separate bounded task with exact source contracts, state/error coverage, security/rate-limit validation, localization, accessibility/responsive behavior and real exact-head E2E.
+Implementation requires a separate bounded task with exact source contracts, dependency-cycle cleanup for every selected provider that currently imports PublicPortal, state/error coverage, security/rate-limit validation, localization, accessibility/responsive behavior and real exact-head E2E.
 
 ## Focused architecture
 
-Detailed provider, result, ranking, failure, cache/index, privacy, observability, SEO and PlatformAPI rules are in:
+Detailed provider, result, ranking, failure, cache/index, privacy, observability, SEO, dependency-cleanup and PlatformAPI rules are in:
 
 - `docs/architecture/FEDERATED_SEARCH_ARCHITECTURE.md`
