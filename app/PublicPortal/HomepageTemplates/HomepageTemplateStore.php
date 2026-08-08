@@ -5,6 +5,7 @@ namespace App\PublicPortal\HomepageTemplates;
 use App\Audit\AdminAuditRecorder;
 use App\Identity\Models\Identity;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 use InvalidArgumentException;
 use RuntimeException;
 use stdClass;
@@ -20,6 +21,16 @@ final readonly class HomepageTemplateStore
 
     public function snapshot(): HomepageTemplateSnapshot
     {
+        if (! Schema::hasTable('homepage_template_settings')) {
+            return new HomepageTemplateSnapshot(
+                storedActiveKey: null,
+                activeKey: HomepageTemplateRegistry::DEFAULT_KEY,
+                previousKey: null,
+                version: 0,
+                drifted: false,
+            );
+        }
+
         $record = DB::table('homepage_template_settings')
             ->where('id', self::SETTING_ID)
             ->first();
