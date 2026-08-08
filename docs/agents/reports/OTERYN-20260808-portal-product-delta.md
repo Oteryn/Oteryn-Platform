@@ -52,9 +52,9 @@ PublicPortal Today view model
 
 Tibia Tracker, TibiaXplorer, Tibijka and Hunt Analyser all strengthen the product case for persistent player-oriented tracking: weekly tasks, character progression, hunt history, goals, world watchlists and change signals.
 
-Oteryn does not need a standalone `Tracking` microservice. ADR 0025 already gives `PlayerCompanion` progression/goals ownership, and `Notifications` already owns delivery.
+Oteryn does not need a standalone `Tracking` microservice. ADR 0025 gives `PlayerCompanion` the broad progression/goals boundary; ADR 0032 now records the durable sub-boundary that owner-private tracking intent and derived change/progress rules belong to `PlayerCompanion.ProgressTracker`, while `Notifications` owns delivery only.
 
-Recommended ownership refinement:
+Accepted ownership:
 
 ```text
 PlayerCompanion.ProgressTracker
@@ -73,7 +73,7 @@ The first scope should stay owner-private. Public stalking/social graphs are not
 
 RubinOT exposes server-specific systems such as task systems, battle-pass-like progression, hunt discovery, castles and world-transfer information as named product concepts rather than hiding everything inside generic CMS prose.
 
-Oteryn already has the necessary bounded owners, but the split should be explicit:
+The durable split is recorded by ADR 0032:
 
 ```text
 GameCatalog
@@ -104,7 +104,7 @@ A future World Hub should compose:
 - LiveOps current status/freshness/history;
 - optional evidence-backed GameAnalytics trends.
 
-It must not become routing authority and must not infer game availability from stale page/cache data.
+ADR 0032 records that this remains portal composition only. It must not become routing/admission authority and must not infer game availability from stale page/cache data.
 
 ### 5. Community hunt evidence is useful but later
 
@@ -150,4 +150,4 @@ Keep community-contributed hunt evidence and advanced social/public tracking in 
 - World Hub: **ACCEPT as future PublicPortal/PublicGameData/LiveOps composition, not routing authority**;
 - community hunt-data contribution: **DEFER to bounded P2/discovery**.
 
-These refinements fit ADR 0025 and existing module ownership; no new ADR or deployable service is required.
+These refinements extend ADR 0025 and are durably recorded by ADR 0032. They do not introduce a new deployable service or implementation authority.
