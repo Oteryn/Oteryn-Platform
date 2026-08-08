@@ -5,57 +5,109 @@ required_reads:
   - AGENTS.md
   - docs/agents/REPOSITORY_MAP.md
   - docs/agents/CONTEXT_ROUTING.md
-  - docs/agents/CONTEXT_HANDOFF.md
-  - docs/agents/BUILD_TEST_MATRIX.md
+  - docs/agents/GITHUB_ONLY_EXECUTION.md
+  - docs/agents/DELIVERY_COMPLETENESS_AND_CLOSEOUT.md
   - docs/operations/PRODUCTION_READINESS_CHECKLIST.md
-  - docs/testing/PRODUCTION_SMOKE_CHECKLIST.md
-  - docs/contracts/PUBLIC_ENDPOINTS_CONTRACT.md
-  - deploy/synology/PUBLIC_ENDPOINTS.md
-  - docs/agents/ACTIVE_WORK.md
 search_first:
-  - docs/agents/tasks/active/**
-  - open pull requests touching production, Synology, public edge, or Issue #91
+  - Issue #91
+  - production go-live gate
+  - Cloudflare edge repair
 optional_reads: []
 ---
 
-# OTERYN-20260801-production-go-live-gate
+# OTERYN-20260801 production go-live gate
 
-## Goal
+## Lifecycle status
 
-Execute Issue #91's fail-closed Production Go-Live Gate against the exact deployed Oteryn Platform and Game Gateway release, recording only sanitized non-secret direct production evidence and ending as either `PRODUCTION_PROVEN` or `BLOCKED — PENDING PRODUCTION VERIFICATION`.
+`SUPERSEDED HISTORICAL VALIDATION CHECKPOINT — DO NOT RESUME AS CURRENT PRODUCTION INSTRUCTION`
 
-## Acceptance criteria
+This task preserves a valid read-only **2026-08-01 staging/public-edge observation generation**. It is no longer the current execution checkpoint for production verification because later evidence changed material public-edge facts and the original next action was already executed by a separate guarded Cloudflare programme.
 
-- [ ] Exact deployed Platform commit/image identity and Game Gateway image identity are directly proven.
-- [ ] Effective Synology container, port, network, health, restart, origin and cloudflared topology is directly proven read-only.
-- [ ] Both canonical public endpoints receive independent DNS/TLS/HTTP/security/routing verification.
-- [ ] Every launch-applicable item in the production readiness and smoke checklists has direct non-secret production evidence.
-- [ ] Required CI is green on the exact evaluated release.
-- [ ] Final verdict is recorded on Issue #91 without promoting repository or staging evidence to production proof.
-- [ ] No production mutation is performed without the separately required explicit owner authorization and rollback plan.
+The durable production authority remains Issue #91. `PRODUCTION_PROVEN=false` remains correct until a future explicitly authorized verification proves every mandatory production criterion against one exact deployed production release.
 
-## Ownership
+## Historical result
 
-```yaml
-owned_paths:
-  - docs/agents/tasks/active/OTERYN-20260801-production-go-live-gate.md
-  - docs/agents/evidence/OTERYN-20260801-production-go-live-gate/**
-modules:
-  - production-operations
-  - deployment-validation
-  - public-edge-validation
-dependencies:
-  - issue-91
-  - PR-387-public-domain-audit-read-only-reference
-  - PR-335-synology-restart-policy-read-only-reference
-blockers:
-  - canonical WWW returns Cloudflare 403 instead of Platform
-  - canonical Game Gateway fails TLS before HTTP
-  - exact deployed Platform and Gateway identities remain unproven
-  - mandatory production backup restore rollback mail observability and smoke evidence remains absent
-cross_repository_tasks:
-  - Canary and login-server remain read-only unless separately authorized
+At the August 1 observation generation:
+
+- the exact observed Synology Compose target was `oteryn-staging` / `STAGING_TARGET`;
+- Platform/Gateway source SHA observed was `3eb109b505f7d1c8718cffb823de6d9d5166717c`;
+- immutable Canary digest observed was `sha256:784e5dbdcc64e311c48c51cd94aa206e2efa1e5eefb2f4ef40170d5aac55031f`;
+- all six expected staging containers were running, with healthy bounded Platform/Gateway/MariaDB/Redis probes;
+- production configuration verification failed as expected for that staging target;
+- no production restore, mutation or smoke was performed;
+- the public-edge observation at that time returned WWW Cloudflare 403, Gateway TLS failure, no HTTP-to-HTTPS redirect and HSTS `max-age=0`.
+
+Those statements are historical direct observations tied to the exact August 1 evidence generation. They must not be promoted to claims about the current deployment or current edge configuration.
+
+## Later evidence that supersedes the old edge blockers
+
+Protected-main PR #516 is later terminal evidence for the separately authorized Cloudflare edge programme. It records:
+
+- guarded HSTS apply reaching `state=staged`, `max_age=2592000`;
+- complete public E2E PASS with `positive_hsts_www=true`;
+- independent trusted-main audit reproducing the staged HSTS target with `mutation=none`;
+- stable WAF/Bot repair, canonical skip-rule ordering and Bot Fight Mode disabled;
+- Cloudflare task archived and ownership released.
+
+Therefore the August 1 WWW-403/HSTS-zero and “obtain Cloudflare zone-edge audit/apply authorization” statements are **not current blockers or next action**.
+
+Open PR #541 separately reconciles a later public-domain checkpoint and also treats edge/HSTS repair as complete, but because #541 is still unmerged it remains corroborating work-in-progress evidence rather than protected-main authority.
+
+Issue #877 owns a different active Cloudflare verification-evidence reconciliation and must not be duplicated here.
+
+## What remains current
+
+Only the high-level production-gate conclusion survives this historical task:
+
+```text
+PRODUCTION_PROVEN=false
 ```
+
+Issue #91 still requires direct exact-release production evidence. This historical task does **not** prove current state for:
+
+- deployed production Platform/Gateway/game revision;
+- current Synology runtime/topology;
+- production DB/Redis/cache/session/queue configuration;
+- backup policy and dated restore evidence;
+- rollback mechanism;
+- production mail delivery;
+- centralized observability/on-call readiness;
+- launch-scope and controlled production smoke;
+- current cloudflared host/network path;
+- any current public endpoint behavior not backed by a later current evidence package.
+
+A future production verification must discover those facts from current `main` and current environment evidence rather than inheriting August 1 UNKNOWN/blocker lists.
+
+## Current next action
+
+There is **no privileged Cloudflare apply next action in this historical task**.
+
+If the repository owner authorizes a fresh production go-live attempt, start a new current-main bounded Issue #91 verification task that:
+
+1. pins the exact release under evaluation;
+2. reads current canonical production-readiness and public-edge authority;
+3. performs read-only discovery first;
+4. separates repository, staging and production evidence;
+5. requests any mutation only after an exact current failure proves it necessary, with explicit rollback and owner authorization;
+6. never reuses this historical branch as the production source of truth.
+
+## Safety boundary
+
+This reconciliation authorizes no:
+
+- Cloudflare mutation or token creation;
+- Synology deployment/restart/configuration change;
+- Environment/secret/variable modification;
+- database/Redis/game mutation;
+- backup/restore action;
+- production smoke or user-data mutation;
+- external-repository write.
+
+## PR #405 disposition
+
+PR #405 must not be merged into current `main`. Its unique sanitized August 1 evidence remains recoverable from the closed PR/branch and Git history.
+
+After Issue #885 updates this historical checkpoint/evidence, PR #405 should be closed unmerged as superseded. Issue #91 remains open and authoritative for any future production go-live proof.
 
 ## Context checkpoint
 
@@ -65,107 +117,53 @@ policy_version: 2
 task_kind: validation
 implementation_authorized: false
 production_mutation_authorized: false
-phase: validate
-session_id: agent-20260801-production-gate-001
-session_role: investigator
-execution_mode: chat
-execution_reason: connector-backed repository evidence review and bounded read-only production probes
-lease_expires_at: 2026-08-01T13:42:43.544Z
-context_pressure: high
-context_growth: stable
-context_score: 12
-estimate_confidence: high
-decomposition_decision: phased
-decomposition_reason: deployment identity, Synology origin, public edge, readiness, and smoke are sequential gates sharing one release verdict
-validation_level: full
-last_completed_step: exact Synology runtime and public-edge evidence persisted with blocked verdict
-session_rotation_count: 0
-heavy_validation_runs: 2
-stale_takeover_count: 0
-human_interruptions: 0
-updated_at: 2026-08-01T13:42:43.544Z
-head: 90f367963ddaee6fa6884319fc8cc54e23ca8ec4
-branch: agent/production-go-live-gate
-pr: 405
+phase: lifecycle-reconciliation
+session_id: github-20260808-issue885
+session_role: architecture-governance-repair
+execution_mode: github_only
+updated_at: 2026-08-08T10:22:00+02:00
+head: pending-validation-commit
+branch: repair/issue-885
+pr: none
 status: blocked
 context_routes:
   - agent-governance
   - testing
   - security
-  - auth-identity
-  - canary-integration
-  - database
 owned_paths:
   - docs/agents/tasks/active/OTERYN-20260801-production-go-live-gate.md
-  - docs/agents/evidence/OTERYN-20260801-production-go-live-gate/**
+  - docs/agents/evidence/OTERYN-20260801-production-go-live-gate/index.md
 proven:
-  - Issue #91 remains open and requires direct production evidence for every mandatory launch-applicable item.
-  - Cloudflare fixed-scope Tunnel and DNS reconciliation passed in runs 30699270139 and 30700054602.
-  - Independent public observation run 30701140509 artifact 8818850803 directly observed WWW Cloudflare 403 responses, Game Gateway TLS failure, HTTP 403 without HTTPS redirect, and HSTS max-age=0.
-  - Sanitized Synology inventory run 30701775782 job 91373911925 artifact 8819161257 directly observed Platform and Gateway source SHA 3eb109b505f7d1c8718cffb823de6d9d5166717c and immutable Canary digest sha256:784e5dbdcc64e311c48c51cd94aa206e2efa1e5eefb2f4ef40170d5aac55031f.
-  - The Synology Compose project is oteryn-staging and effective APP_ENV is staging; production:verify-configuration exits 1 and production_environment_proven is false.
-  - All six expected containers are running with restart policy always; MariaDB and Redis are healthy and all bounded Platform and Gateway container and host-loopback probes pass.
-  - Platform is loopback-bound on 8000, Gateway on loopback 8080, Canary legacy login on loopback 7171, Canary game on one private-IP 7172 binding, and MariaDB Redis internal-proxy expose no host ports.
-  - No cloudflared container is visible through Docker; host-process and effective network-path state remain unknown.
-  - Runtime uses file sessions file cache synchronous queue and array non-delivery mail.
-  - No Cloudflare DNS Synology runtime database Redis secret deployment rollback restore or application-data mutation was performed.
+  - The August 1 evidence directly observed a healthy staging target and a then-broken public edge; it did not prove production.
+  - Protected-main PR 516 later superseded the old edge/HSTS blocker generation and archived the guarded Cloudflare edge programme.
+  - Issue 91 remains open and PRODUCTION_PROVEN remains false.
+  - PR 405 remains an old unmerged branch and must not direct a fresh production attempt.
 derived:
-  - The exact running target is a staging deployment and cannot be classified as PRODUCTION_PROVEN.
-  - Canonical public endpoint failures independently block launch and prevent application-level production smoke.
-  - Array mail directly blocks real production password-recovery delivery.
-  - Mutation smoke is unsafe while production runtime rollback dated restore controlled identities and public application reachability remain unproven.
-  - The only correct verdict is BLOCKED — PENDING PRODUCTION VERIFICATION.
+  - Closing PR 405 unmerged preserves historical evidence while preventing stale privileged Cloudflare instructions from being resumed.
 unknown:
-  - cloudflared host-process status network mode and effective path to both loopback origins
-  - production DB topology credentials effective grants backup policy and dated restore evidence
-  - production Redis ACL TLS freshness monitoring and selected session cache queue topology
-  - production mail provider sender-domain readiness and bounce monitoring
-  - centralized logs metrics alerts and on-call ownership
-  - actual production deployment migration and emergency rollback mechanism
-  - launch-scope decisions controlled smoke identities and all mutation smoke results
-conflicts:
-  - archived Synology preflight requires unless-stopped while current live runtime proves always for all six services; open PR #335 proposes always but remains unmerged
+  - Current production deployment and every Issue 91 criterion not directly proven by a fresh exact-release production verification remain unknown.
+conflicts: []
 first_failure:
-  marker: effective-runtime-not-production
-  evidence: run 30701775782 artifact 8819161257 classifies the exact running target as STAGING_TARGET with APP_ENV staging and production configuration verifier exit 1
+  marker: stale-lifecycle-evidence
+  evidence: the historical checkpoint still presented superseded public-edge failures and a completed Cloudflare authorization path as current blockers/next action
 rejected_hypotheses:
-  - Cloudflare configuration convergence proves production readiness: run 30700054602 verifies only managed Tunnel and DNS scope
-  - local loopback health proves public delivery: run 30701140509 still observes WWW 403 and Game Gateway TLS failure
-  - open PR #335 proves the running restart policy: only inventory run 30701775782 directly proves always
+  - the August 1 WWW 403 and HSTS max-age=0 observations remain current merely because PR 405 is still open
+  - merging PR 405 is necessary to preserve its sanitized evidence
+  - PR 516 proves the wider Issue 91 production gate
 changed_paths:
   - docs/agents/tasks/active/OTERYN-20260801-production-go-live-gate.md
   - docs/agents/evidence/OTERYN-20260801-production-go-live-gate/index.md
 validation:
-  - command: repository and Issue #91 preflight through GitHub connector
+  - command: historical-vs-later edge evidence reconciliation
     result: PASS
-    evidence: mandatory documents Issue #91 comments active-work index and open PR inventory inspected on 2026-08-01
-  - command: Public Edge Post-Cloudflare run 30701140509
-    result: FAIL
-    evidence: artifact 8818850803 digest sha256:787ea72c616812ade431eb1cc396e921a6c8b04e459c89557221cbf6caebe656
-  - command: trusted-main Synology Production Target Preflight run 30701440189
-    result: FAIL
-    evidence: job 91373030006 stopped on stale unless-stopped restart-policy expectation with restore disabled
-  - command: sanitized Synology inventory run 30701775782
-    result: PASS
-    evidence: artifact 8819161257 digest sha256:67b1d16eb67f90e1534a9071644aeaf42da97adc527643964a14df120c37db9c
-  - command: PR #405 repository workflows on head 0c435dd02d2afcc7f0e8d963a79b5441b29a6cb7
-    result: PASS
-    evidence: runs 30701773251 30701773237 30701773212 30701773227 30701773203 30701773233 30701773198 and 30701773188
-  - command: final production readiness and mutation smoke
+    evidence: PR 516 supersedes the old edge/HSTS blocker generation while explicitly preserving PRODUCTION_PROVEN=false
+  - command: production verification
     result: BLOCKED
-    evidence: exact running target is staging and mandatory public edge backup rollback mail observability and controlled-smoke prerequisites fail or remain unproven
+    evidence: no fresh exact-release production verification is authorized or performed by Issue 885
+  - command: exact-head Agent Governance
+    result: NOT_RUN
+    evidence: required after the coherent reconciliation commit
 blockers:
-  - exact running target is STAGING_TARGET and production configuration verification fails
-  - canonical WWW returns Cloudflare 403 challenge content instead of Oteryn Platform
-  - canonical Game Gateway fails TLS before HTTP
-  - plain HTTP does not redirect to HTTPS and HSTS remains max-age=0
-  - cloudflared host-process and loopback routing topology remain unproven
-  - mandatory production backup restore rollback mail observability launch-scope and controlled-smoke evidence is absent
-next_action: obtain explicit owner authorization for a separate guarded Cloudflare zone-edge audit/apply task covering login certificate WWW challenge policy HTTP redirect and HSTS without changing current Tunnel ingress or DNS
+  - fresh production verification remains separately owner-gated under Issue 91
+next_action: Reconcile the historical evidence index, validate the two-file stacked documentation repair, then close PR 405 as superseded without merging it to current main.
 ```
-
-## Notes
-
-- Cloudflare configuration is not to be changed unless new direct evidence proves a specific drift.
-- Production mutations, deployment, restart, rollback, restore, secret/config changes and mutation smoke remain owner-gated.
-- Evidence committed here must be sanitized and must never include credentials, tokens, private endpoints, cookies, database dumps, TOTP data or recovery codes.
