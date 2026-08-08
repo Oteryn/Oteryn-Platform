@@ -18,18 +18,18 @@ Continuously challenge Platform architecture, repository structure and CI/CD; id
 
 ```yaml
 programme_state_version: 2
-updated_at: 2026-08-08T08:21:00+02:00
+updated_at: 2026-08-08T09:20:00+02:00
 status: ready
 current_review_domain: next-risk-based-rotation
 active_task: null
 issue: null
 branch: null
 pull_request: null
-last_completed_domain: native-protocol-authority-reconciliation
-last_completed_issue: 874
-last_completed_pull_request: 875
-last_completed_merge: 3dbe7f28585be2cb0b42a16491a91af270a661ea
-latest_review_finding_issue: 874
+last_completed_domain: native-runtime-status-projection-boundary
+last_completed_issue: 880
+last_completed_pull_request: 881
+last_completed_merge: 4043edfaf67b9489d050d70e6fb7e32f4bf149c2
+latest_review_finding_issue: 880
 accepted_authority:
   authority_index: docs/architecture/ARCHITECTURE_AUTHORITY.md
   authority_adr: docs/architecture/adr/0022-architecture-authority-index-and-focused-canonical-documents.md
@@ -41,6 +41,7 @@ accepted_authority:
   character_portfolio_adr: docs/architecture/adr/0030-native-character-portfolio-account-center-v2.md
   native_v2_integration_adr: docs/architecture/adr/0031-native-oteryn-v2-integration-boundary.md
   native_v2_integration_architecture: docs/architecture/OTERYN_V2_INTEGRATION_ARCHITECTURE.md
+  native_runtime_status_projection_contract: docs/contracts/OTERYN_V2_RUNTIME_STATUS_PROJECTION_CONTRACT.md
 implementation_handoffs:
   - issue: 658
     scope: deterministic branch inventory, retention metadata, conservative cleanup and recovery proof
@@ -68,17 +69,21 @@ proven:
   - Issue 863 is closed completed; Oteryn-v2 remained read-only throughout the Platform task.
   - PR 875 reconciled the stale Platform native gameplay protocol contract and producer operations guide with accepted ADR 0031, preserving the disabled historical producer/schema as reconciliation evidence rather than current Oteryn-v2 authority.
   - Exact PR 875 head 4522a99c8fe609cb137b4f07c00d9f79ca1b331b passed all eight triggered workflows and full review found zero material findings before squash merge 3dbe7f28585be2cb0b42a16491a91af270a661ea; Issue 874 closed completed.
+  - PR 881 defined the Platform-side native runtime-status/readiness consumer boundary for World Registry, Game Gateway and LiveOps while preserving Oteryn-v2 runtime/orchestration as the authoritative producer of game-runtime facts.
+  - PR 881 final head f792155dddaea7a4237ad341d3254989e2f2f0da incorporated protected main, passed all eight triggered workflows, had zero review threads/comments and squash-merged as 4043edfaf67b9489d050d70e6fb7e32f4bf149c2; Issue 880 closed completed.
 derived:
-  - The Platform core remains a sound Laravel modular monolith; native Oteryn-v2 integration is now explicitly separated from Legacy Canary Compatibility.
+  - The Platform core remains a sound Laravel modular monolith; native Oteryn-v2 integration is explicitly separated from Legacy Canary Compatibility.
   - New native Platform consumers must use canonical AccountId/CharacterId and explicit command/query/event/projection boundaries instead of inheriting Canary numeric IDs, table shapes, session semantics or gameplay protocol ownership.
   - ADR 0031 resolves the former target native-protocol ownership conflict while preserving current Canary/transitional implementation evidence for migration.
   - The retained Platform PR 542 native producer, protobuf schema and fixtures are historical reconciliation inputs only; they cannot define Oteryn-v2 final admission, gameplay session/lease/fencing, reconnect or protocol semantics.
+  - Native runtime admission readiness on the Platform side is an intersection of configured Platform policy and fresh applicable current-owner Oteryn-v2 runtime evidence; stale/unavailable evidence fails closed for new admission but cannot be fabricated as authoritative public offline/zero state.
 unknown:
   - Exact deployed game-auth topology, alternate-path network isolation and production activation evidence.
   - Deferred P1/P2 Platform-v2 contract details recorded in the focused architecture remain intentionally unresolved, including exact Oteryn-v2 game-admission/session/lease handoff semantics.
+  - Exact Oteryn-v2 runtime-status producer schema/transport, reporting cadence, health algorithm, freshness TTL and ownership-generation encoding remain external authority and are not implied by the accepted Platform consumer contract.
 conflicts: []
 blockers: []
-next_action: Select the highest-risk unresolved Platform architecture, repository-structure or CI/CD question from current main after a fresh overlap search; preserve ADR 0031 and the historical-only native producer classification unless higher-ranked accepted authority changes.
+next_action: Select the highest-risk unresolved Platform architecture, repository-structure or CI/CD question from current main after a fresh overlap search; preserve ADR 0031, the accepted runtime-status consumer boundary and historical-only native producer classification unless higher-ranked accepted authority changes.
 ```
 
 ## Programme rules
