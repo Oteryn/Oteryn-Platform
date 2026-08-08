@@ -13,6 +13,7 @@ This readiness check validates configuration shape only. It does **not** send a 
 - `array`, `log` and `null` transports are rejected for staging/production.
 - The selected mailer must exist in `mail.mailers`.
 - SMTP requires a non-empty host and a port in the range `1..65535`.
+- An explicitly configured SMTP scheme must be `smtp` or `smtps`; omit `MAIL_SCHEME` to use the framework default. STARTTLS on port 587 uses `smtp`, not a `tls` scheme.
 - `MAIL_FROM_ADDRESS` must be a valid address and must not use a reserved test domain.
 - Credentials and provider secrets must be injected by the deployment secret-management path and must never be committed, printed by readiness output, or added to fixtures.
 
@@ -26,17 +27,17 @@ php artisan mail:verify-delivery-readiness
 
 The command always validates the application's configured `APP_ENV`; it has no environment override. This prevents a staging or production check from being accidentally downgraded to the inert local/testing policy.
 
-The command is provider-neutral. For SMTP it validates only structural host/port readiness; authentication and connectivity remain deployment evidence. Future configured delivery transports are accepted when their configured `transport` is not an inert transport.
+The command is provider-neutral. For SMTP it validates structural scheme/host/port readiness; authentication and connectivity remain deployment evidence. Future configured delivery transports are accepted when their configured `transport` is not an inert transport.
 
 `production:verify-configuration` remains the broader production-security gate and reuses the same mail delivery verifier. Mail delivery readiness is a narrower boundary that can also be exercised before staging password-recovery acceptance.
 
 ## SMTP deployment shape
 
-The repository does not select a provider. A deployment may supply values equivalent to:
+The repository does not select a provider. A STARTTLS deployment on the common submission port may supply values equivalent to:
 
 ```dotenv
 MAIL_MAILER=smtp
-MAIL_SCHEME=tls
+MAIL_SCHEME=smtp
 MAIL_HOST=<provider-or-relay-host>
 MAIL_PORT=587
 MAIL_USERNAME=<secret-managed-value>
@@ -44,6 +45,8 @@ MAIL_PASSWORD=<secret-managed-value>
 MAIL_FROM_ADDRESS=<approved-sender-address>
 MAIL_FROM_NAME="Oteryn Platform"
 ```
+
+`MAIL_SCHEME` may be omitted to use the framework default. Use `smtps` only when the selected provider explicitly requires implicit TLS for that endpoint. Do not configure `MAIL_SCHEME=tls`.
 
 Do not copy real credentials into repository files, GitHub issues, workflow logs, screenshots, or task records.
 
