@@ -7,6 +7,10 @@ use App\Payments\Contracts\PaymentWebhookVerifier;
 
 final class ProductionConfigurationVerifier
 {
+    public function __construct(
+        private readonly MailDeliveryConfigurationVerifier $mailDeliveryConfigurationVerifier,
+    ) {}
+
     /**
      * @return list<string>
      */
@@ -53,16 +57,10 @@ final class ProductionConfigurationVerifier
             $violations[] = 'HttpOnly session cookies must be enabled.';
         }
 
-        if (! $this->hasDeliveryCapableMailer()) {
-            $violations[] = 'The default mailer must use a delivery-capable transport.';
-        }
-
-        $fromAddress = config('mail.from.address');
-        if (! is_string($fromAddress) || ! filter_var($fromAddress, FILTER_VALIDATE_EMAIL)) {
-            $violations[] = 'MAIL_FROM_ADDRESS must be a valid email address.';
-        } elseif ($this->usesReservedTestDomain($fromAddress)) {
-            $violations[] = 'MAIL_FROM_ADDRESS must not use a reserved test domain.';
-        }
+        array_push(
+            $violations,
+            ...$this->mailDeliveryConfigurationVerifier->inspect('production'),
+        );
 
         if (config('marketplace.enabled')) {
             array_push($violations, ...$this->marketplaceViolations());
@@ -183,21 +181,6 @@ final class ProductionConfigurationVerifier
         return $violations;
     }
 
-    private function hasDeliveryCapableMailer(): bool
-    {
-        $defaultMailer = config('mail.default');
-
-        if (! is_string($defaultMailer) || $defaultMailer === '') {
-            return false;
-        }
-
-        $transport = config("mail.mailers.{$defaultMailer}.transport");
-
-        return is_string($transport)
-            && $transport !== ''
-            && ! in_array(strtolower($transport), ['array', 'log'], true);
-    }
-
     private function isLocalHost(string $host): bool
     {
         $host = strtolower(trim($host, '[]'));
@@ -206,24 +189,5 @@ final class ProductionConfigurationVerifier
             || str_ends_with($host, '.localhost')
             || str_starts_with($host, '127.')
             || $host === '::1';
-    }
-
-    private function usesReservedTestDomain(string $email): bool
-    {
-        $separator = strrpos($email, '@');
-
-        if ($separator === false) {
-            return true;
-        }
-
-        $domain = strtolower(substr($email, $separator + 1));
-
-        foreach (['.test', '.example', '.invalid', '.localhost'] as $suffix) {
-            if ($domain === ltrim($suffix, '.') || str_ends_with($domain, $suffix)) {
-                return true;
-            }
-        }
-
-        return false;
     }
 }
