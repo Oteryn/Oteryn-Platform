@@ -18,6 +18,22 @@ Repository delivery proves the application and service contract, not a productio
 
 The selected native Game Session contract version 2 remains disabled by default and separately governed. The producer package associated with PR #542 is not, by itself, evidence that a native consumer, cross-repository cutover or production activation is complete.
 
+### Native Oteryn-v2 handoff routing
+
+For the target native path, this Identity/Gateway contract stops at authoritative Game Login Ticket redemption and Gateway authorization/orchestration. The focused Platform semantic authority for what may be issued **after** redeem toward Oteryn-v2 is `OTERYN_V2_PRE_ADMISSION_HANDOFF_CONTRACT.md`.
+
+The native handoff must preserve the accepted distinction:
+
+```text
+Game Login Ticket
+  != native pre-admission material
+  != game-domain canonical GameSessionId / lease / fencing state
+```
+
+This document's delivered Canary-compatible `canary_account_id` response and legacy Game Session v1 behavior remain compatibility evidence. They do not authorize Canary numeric IDs, historical Game Session v2 claims or Platform-issued canonical gameplay-session identity in the native Oteryn-v2 path.
+
+The native focused contract does not change this delivered ticket-redeem API and does not prove a native producer/consumer implementation, staging E2E or production activation.
+
 This contract defines the security boundary between the separately deployable Oteryn Game Gateway and Oteryn Platform Identity.
 
 It covers Game Login Ticket issuance semantics insofar as they determine redeem behavior, and the private Gateway-to-Identity redeem API.
