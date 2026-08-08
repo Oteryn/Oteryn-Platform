@@ -2,7 +2,6 @@
 
 namespace App\Http\Controllers\Admin;
 
-use App\Http\Controllers\Controller;
 use App\Identity\Models\Identity;
 use App\PublicPortal\HomePageQuery;
 use App\PublicPortal\HomepageTemplates\HomepageTemplateConflict;
@@ -15,7 +14,7 @@ use Illuminate\Http\Response;
 use Illuminate\Validation\Rule;
 use Illuminate\View\View;
 
-final class AdminHomepageTemplateController extends Controller
+final class AdminHomepageTemplateController
 {
     public function __construct(
         private readonly HomepageTemplateRegistry $registry,
