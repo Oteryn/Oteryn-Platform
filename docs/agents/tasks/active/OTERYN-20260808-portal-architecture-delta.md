@@ -6,7 +6,7 @@ task_kind: architecture
 implementation_authorized: true
 execution_mode: github
 execution_reason: Platform-only architecture/research reconciliation can be completed through repository documentation and GitHub validation
-status: validating
+status: waiting
 required_reads:
   - AGENTS.md
   - AGENTS.override.md
@@ -64,7 +64,7 @@ dependencies:
   - Issue #301
   - Issue #489
 blockers:
-  - none
+  - exact-head independent review and required CI are pending
 cross_repository_tasks:
   - none
 ```
@@ -86,12 +86,13 @@ No new ADR is required: these are refinements inside the already accepted ADR 00
 
 ## Self-review generation
 
-The complete four-path diff through head `a9181c60240aec79125c859a1b276b36e3f05c49` was reviewed against the task acceptance criteria and existing ADR/module authority. No material finding was found. The final exact-head self-review will be recorded as a PR review after this checkpoint commit so the evidence does not move the reviewed head.
+The complete four-path diff through head `c13d490b650d4eb07b62e0940f32be1541a5db9f` was reviewed against the task acceptance criteria and existing ADR/module authority. No material finding was found. Exact-head evidence is PR review `4889890369`.
 
 ```yaml
 self_review:
   result: PASS
-  exact_head: a9181c60240aec79125c859a1b276b36e3f05c49
+  exact_head: c13d490b650d4eb07b62e0940f32be1541a5db9f
+  review_id: 4889890369
   acceptance_checked: true
   full_diff_checked: true
   negative_paths_checked: true
@@ -99,10 +100,6 @@ self_review:
   compatibility_checked: true
   related_prs_checked: true
   findings: []
-  evidence:
-    - PR #933 exact four-path diff
-    - ADR 0025 remains compatible; no new module/service boundary introduced
-    - PR #338 and PR #541 path ownership does not overlap
 ```
 
 ## Context checkpoint
@@ -110,13 +107,13 @@ self_review:
 ```yaml
 checkpoint_version: 1
 policy_version: 2
-updated_at: 2026-08-08T23:59:00+02:00
+updated_at: 2026-08-09T00:02:00+02:00
 invocation_started_at: 2026-08-08T23:48:00+02:00
-last_progress_at: 2026-08-08T23:59:00+02:00
-head: a9181c60240aec79125c859a1b276b36e3f05c49
+last_progress_at: 2026-08-09T00:02:00+02:00
+head: c13d490b650d4eb07b62e0940f32be1541a5db9f
 branch: docs/OTERYN-20260808-portal-architecture-delta
 pr: 933
-status: validating
+status: waiting
 phase: validate
 session_id: agent-20260808-2348-portal-architecture-delta
 session_role: architecture
@@ -144,9 +141,12 @@ proven:
   - architecture decision backlog had zero active records at task start
   - current open PRs do not overlap declared architecture paths
   - benchmark delta fits accepted owners and requires no new top-level module or ADR
+  - exact-head self-review on c13d490b650d4eb07b62e0940f32be1541a5db9f passed with zero findings
 derived:
   - Today composition, owner-private tracking/routines, typed server-system ownership and World Hub composition are the only material architecture refinements from the refreshed benchmark
-unknown: []
+unknown:
+  - final independent Codex review verdict
+  - final required CI verdict
 conflicts: []
 first_failure:
   marker: none
@@ -165,21 +165,58 @@ validation:
   - command: focused canonical-document reconciliation
     result: PASS
     evidence: refinements remain inside accepted module/ADR boundaries and do not conflict with open PR ownership
+  - command: exact-head full-diff self-review c13d490b650d4eb07b62e0940f32be1541a5db9f
+    result: PASS
+    evidence: PR review 4889890369; zero findings
   - command: runtime E2E
     result: NOT_APPLICABLE
     evidence: documentation-only architecture package changes no executable route, schema, runtime, configuration or deployment
-ci_checks_for_current_head: 1
+ci_checks_for_current_head: 2
 ci_check_generation: pull_request
 terminal_ci_wait_started_at: null
 terminal_ci_checks_for_current_generation: 0
-unchanged_state_checks: 0
+unchanged_state_checks: 2
 identical_failure_retries: 0
 repair_cycles_for_current_gate: 0
 context_reconstruction_attempts: 0
 stall_warnings: 0
 blockers:
-  - none
-next_action: record the final exact-head self-review without moving the branch, then require repository CI and clean review hygiene before squash merge
+  - independent exact-head Codex review requested and pending
+  - required exact-head CI still pending
+next_action: verify live PR #933 head after the independent review returns; if the head is unchanged and audit/required CI are green with zero unresolved threads, squash merge and perform separate lifecycle archive closeout
+```
+
+## Recovery checkpoint
+
+```yaml
+recovery:
+  policy_version: 1
+  generation: 1
+  session_id: agent-20260808-2348-portal-architecture-delta
+  session_started_at: 2026-08-08T23:48:00+02:00
+  checkpointed_at: 2026-08-09T00:02:00+02:00
+  last_progress_at: 2026-08-09T00:02:00+02:00
+  phase: exact-head review and CI
+  exact_head: c13d490b650d4eb07b62e0940f32be1541a5db9f
+  pull_request: 933
+  active_operation: independent Codex review plus required GitHub Actions
+  external_run_ids:
+    - 31280610501
+    - 31280610482
+    - 31280610507
+    - 31280610487
+    - 31280610490
+    - 31280610496
+    - 31280610484
+    - 31280610483
+  operation_started_at: 2026-08-08T23:59:00+02:00
+  wait_deadline_at: null
+  check_generation: pull_request
+  checks_used: 2
+  status: waiting
+  safe_to_resume: true
+  resume_condition: independent review or required CI materially changes
+  next_action: verify PR #933 exact head and reconcile independent review/CI; merge only if every exact-head gate is green
 ```
 
 ## Notes
