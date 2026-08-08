@@ -175,8 +175,7 @@ final class HomepageTemplateSelectorTest extends TestCase
         $identity = $this->authorizedIdentity();
         $this->actingAsCurrent($identity);
 
-        $this->withHeader('Accept-Language', 'pl')
-            ->get('/admin/portal/homepage')
+        $this->get('/admin/portal/homepage?locale=pl')
             ->assertOk()
             ->assertSeeText('Szablon strony głównej');
     }
