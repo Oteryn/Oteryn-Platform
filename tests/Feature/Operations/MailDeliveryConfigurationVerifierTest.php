@@ -3,6 +3,7 @@
 namespace Tests\Feature\Operations;
 
 use App\Operations\MailDeliveryConfigurationVerifier;
+use App\Operations\ProductionConfigurationVerifier;
 use Illuminate\Support\Facades\Artisan;
 use Symfony\Component\Console\Command\Command;
 use Tests\TestCase;
@@ -42,10 +43,10 @@ final class MailDeliveryConfigurationVerifierTest extends TestCase
         ]);
 
         foreach (['local', 'testing'] as $environment) {
-            self::assertSame([], app(MailDeliveryConfigurationVerifier::class)->inspect($environment));
-            self::assertSame(Command::SUCCESS, Artisan::call('mail:verify-delivery-readiness', [
-                '--environment' => $environment,
-            ]));
+            config(['app.env' => $environment]);
+
+            self::assertSame([], app(MailDeliveryConfigurationVerifier::class)->inspect());
+            self::assertSame(Command::SUCCESS, Artisan::call('mail:verify-delivery-readiness'));
         }
     }
 
@@ -100,6 +101,20 @@ final class MailDeliveryConfigurationVerifierTest extends TestCase
         }
     }
 
+    public function test_production_configuration_gate_reuses_smtp_structural_checks(): void
+    {
+        config([
+            'app.env' => 'production',
+            'mail.mailers.smtp.host' => '',
+            'mail.mailers.smtp.port' => 0,
+        ]);
+
+        $violations = app(ProductionConfigurationVerifier::class)->inspect();
+
+        self::assertContains('SMTP mail delivery requires a non-empty host.', $violations);
+        self::assertContains('SMTP mail delivery requires a port between 1 and 65535.', $violations);
+    }
+
     public function test_sender_must_be_valid_and_not_use_a_reserved_test_domain(): void
     {
         config(['mail.from.address' => 'not-an-email']);
@@ -123,18 +138,17 @@ final class MailDeliveryConfigurationVerifierTest extends TestCase
         );
     }
 
-    public function test_command_failure_does_not_print_mail_credentials(): void
+    public function test_command_uses_actual_application_environment_and_does_not_print_credentials(): void
     {
         config([
+            'app.env' => 'production',
             'mail.default' => 'smtp',
             'mail.mailers.smtp.host' => '',
             'mail.mailers.smtp.username' => 'secret-user',
             'mail.mailers.smtp.password' => 'secret-password',
         ]);
 
-        self::assertSame(Command::FAILURE, Artisan::call('mail:verify-delivery-readiness', [
-            '--environment' => 'production',
-        ]));
+        self::assertSame(Command::FAILURE, Artisan::call('mail:verify-delivery-readiness'));
 
         self::assertStringContainsString('Mail delivery readiness verification failed.', Artisan::output());
         self::assertStringNotContainsString('secret-user', Artisan::output());
