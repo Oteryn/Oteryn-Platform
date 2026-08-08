@@ -13,6 +13,9 @@ final class MailDeliveryConfigurationVerifier
     /** @var list<string> */
     private const NON_DELIVERY_TRANSPORTS = ['array', 'log', 'null'];
 
+    /** @var list<string> */
+    private const SMTP_SCHEMES = ['smtp', 'smtps'];
+
     /**
      * @return list<string>
      */
@@ -74,8 +77,15 @@ final class MailDeliveryConfigurationVerifier
     private function smtpViolations(array $mailer): array
     {
         $violations = [];
-        $host = $mailer['host'] ?? null;
+        $scheme = $mailer['scheme'] ?? null;
 
+        if ($scheme !== null
+            && (! is_string($scheme)
+                || ! in_array(strtolower(trim($scheme)), self::SMTP_SCHEMES, true))) {
+            $violations[] = 'SMTP mail delivery scheme must be smtp, smtps, or unset.';
+        }
+
+        $host = $mailer['host'] ?? null;
         if (! is_string($host) || trim($host) === '') {
             $violations[] = 'SMTP mail delivery requires a non-empty host.';
         }
