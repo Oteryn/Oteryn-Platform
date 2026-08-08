@@ -22,6 +22,8 @@ The current foundation is sound:
 
 The portal architecture is **not globally exhausted or product-complete**. It is complete only at the level of foundational direction and already delivered bounded modules. Remaining completion work must be intentionally implemented, deferred or rejected.
 
+The 2026-08-08 benchmark delta does not change this foundation. It sharpens four composition/ownership directions without adding a new top-level service: a first-party `Today`/command-centre experience, owner-private tracking/routines inside `PlayerCompanion`, typed server-specific system definitions under `GameCatalog`, and a future public World Hub composed from existing world/status owners.
+
 ## Current module reconciliation
 
 The codebase contains and the canonical module catalog recognizes:
@@ -117,6 +119,28 @@ Typed editorial events and announcements must not impersonate runtime state. `Li
 - rotating boosted creature/boss or similar systems;
 - explicit zero/offline/maintenance/stale/unavailable distinctions.
 
+### `Today` / command-centre composition
+
+A mature portal benefits from one compact first-party surface that answers “what matters now?” without forcing the player to visit unrelated pages. This is a **PublicPortal composition**, not a new source-of-truth module.
+
+Conceptual composition:
+
+```text
+PublicPortal Today view model
+  <- Announcements / Events / CMS editorial presentation
+  <- LiveOps current schedules, rotations, maintenance and runtime freshness
+  <- PublicGameData public world/player/community projections
+  <- PlayerCompanion owner-private routines, goals and tracked signals when authenticated
+```
+
+Rules:
+
+- every card/signal retains the source owner's freshness, applicability and confidence semantics;
+- an unavailable dependency is rendered as unavailable/stale, never fabricated `0`, `offline`, `none` or “completed”;
+- personalized cards remain owner-private and are omitted rather than inferred for guests;
+- PublicPortal may prioritize and arrange data, but cannot reinterpret an editorial item as runtime truth or a recommendation as deterministic fact;
+- the homepage/template system may progressively expose this composition without creating a second dashboard domain.
+
 ### Native Character Portfolio / Account Center v2
 
 The architectural owner is resolved by ADR 0030; runtime implementation remains intentionally separate.
@@ -163,6 +187,19 @@ These dimensions apply to portal URLs, cache keys, events, LiveOps, Game Catalog
 
 `ChannelId` is not a durable Character Portfolio identity dimension under ADR 0030. Channel is topology/runtime placement and belongs only in a separately justified runtime/session projection.
 
+### World Hub
+
+A future public World Hub is justified when multiple world/profile choices or meaningful historical population/activity signals exist. It is a view/composition, not a routing authority.
+
+It may combine:
+
+- public world identity and configured public policy/presentation;
+- `PublicGameData` population/community projections;
+- `LiveOps` current status, maintenance and service-history projections;
+- optional evidence-backed `GameAnalytics` trends such as population/activity distributions.
+
+A World Hub must preserve region/PvP/ruleset/profile/season applicability where relevant, show observation age, and never derive current admission/routing authority from cached portal data.
+
 ### Platform API
 
 A versioned first-party API becomes justified by concrete consumers such as:
@@ -188,6 +225,30 @@ Character search remains a separate exact-name game-data function. A later feder
 - approved player-tool references.
 
 The search adapter does not take ownership of source content and must preserve localization, publication, permissions and dependency-failure behavior.
+
+### Typed server-specific systems
+
+Server-specific systems should be discoverable as typed product concepts rather than buried inside arbitrary CMS prose when they carry deterministic rules, version applicability or live state.
+
+The ownership split is:
+
+```text
+GameCatalog
+  -> stable system definition, version/applicability and authoritative deterministic relations/parameters
+
+Wiki
+  -> explanatory/editorial guide and strategy content
+
+LiveOps
+  -> current schedule, active rotation, season/runtime state and freshness
+
+PlayerCompanion
+  -> planner/calculator/tracker consuming the owned facts above
+```
+
+Examples may include task/progression systems, seasonal systems, server-specific progression mechanics, rotating bonuses or event-like systems. This does not create a generic plugin framework or a new `GameSystems` deployable module.
+
+If no authoritative structured source exists, a topic may remain Wiki/editorial only. The portal must not promote prose or manually copied values to deterministic/live truth.
 
 ### Community scope
 
@@ -232,7 +293,9 @@ P0 candidate slices are:
 7. EXP and Training calculators.
 8. Validated shareable builds.
 
-P1 and P2 scope is defined in `PLAYER_COMPANION_ARCHITECTURE.md` and the dated benchmark report.
+The 2026-08-08 benchmark delta adds an explicit P1 direction for owner-private tracked entities/routines/change signals under `PlayerCompanion.ProgressTracker`. `Notifications` remains a delivery boundary rather than subscription/rule authority. Community-contributed hunt evidence remains P2/discovery because provenance, sampling bias, moderation and privacy need a separate contract.
+
+P1 and P2 scope is defined in `PLAYER_COMPANION_ARCHITECTURE.md` and the dated benchmark reports.
 
 ## Product disposition baseline
 
@@ -241,14 +304,19 @@ The following statuses are planning decisions, not implementation authority.
 | Capability family | Disposition |
 |---|---|
 | Existing public/account/admin foundations | KEEP/EVOLVE |
+| PublicPortal Today / command-centre composition | PLANNED P1 composition over existing owners; no new truth module |
 | Native Character Portfolio / Account Center v2 | ARCHITECTURE ACCEPTED; implementation/migration gated |
 | Wiki and structured Game Catalog | KEEP/EVOLVE; close expected-content inventories |
+| Typed server-specific system definitions | DISCOVERY/EVOLVE under GameCatalog with Wiki/LiveOps ownership split |
 | PlayerCompanion P0 tools | PLANNED; deliver as separate vertical slices after the required ownership/context boundary is available |
+| PlayerCompanion owner-private tracking/routines | PLANNED P1 inside ProgressTracker; Notifications delivery-only |
 | LiveOps and service history | PLANNED |
+| Public World Hub | PLANNED P1 when authoritative world/status/history inputs exist |
 | Platform API for concrete first-party consumers | PLANNED |
 | Houses, guild wars and expanded leaderboards | DISCOVERY |
 | Federated content search | DISCOVERY |
 | Interactive map and route planning | DEFER to separate programme |
+| Community-contributed hunt evidence | DEFER to bounded P2/discovery with provenance/privacy/moderation contract |
 | Market-price/economy analytics | DEFER until authoritative data and privacy policy exist |
 | Public build profiles/social comparison | DEFER |
 | Native forum | DEFER; Discord + Support is the initial recommendation |
@@ -276,6 +344,8 @@ Cross-module access should use application interfaces/query objects rather than 
 
 ADR 0030 specifically keeps Character Portfolio as an `Accounts` application/read boundary rather than creating a new `CharacterPortfolio` deployable module. `CharacterProfiles` remains a small Platform-owned presentation/privacy subdomain; its top-level module-catalog classification is reconciled without forcing a repository-wide namespace rename. Canonical `CharacterId` preference migration remains separately authorized and pending under ADR 0030.
 
+The same minimum-module rule applies to the 2026-08-08 refinements: `Today` remains PublicPortal composition, personal tracking remains PlayerCompanion, server-system definitions remain GameCatalog, and the World Hub remains a composition of world/status projections. None justifies a new deployable service by itself.
+
 ## Portal completion gate
 
 The architecture subject may be considered closed for a named release scope only when all of the following are true:
@@ -287,18 +357,23 @@ The architecture subject may be considered closed for a named release scope only
 5. no critical/high/material-medium portal audit finding remains open for the release scope;
 6. each implemented user-facing capability has backend, frontend, real integration, states, localization, accessibility/responsive evidence and real E2E;
 7. client distribution has an accepted provenance/update policy for the release;
-8. LiveOps sources and stale/unavailable semantics are explicit for every displayed runtime claim;
+8. LiveOps sources and stale/unavailable semantics are explicit for every displayed runtime claim, including composed Today/World Hub cards;
 9. multi-world/profile/season applicability is explicit or validly not applicable;
 10. native Character Portfolio consumers use the accepted AccountId/CharacterId boundary or are explicitly compatibility-scoped; no new permanent Canary-numeric ownership contract is introduced;
-11. exact production edge, observability, backup/restore/rollback and smoke evidence passes when claiming production readiness;
-12. required exact-head CI passes and all related PR/task ownership is terminal.
+11. personalized tracking/subscription behavior, when implemented, has explicit source, privacy, retention, refresh, abuse and notification-delivery semantics;
+12. typed server-specific systems do not blur GameCatalog deterministic definition, Wiki editorial explanation and LiveOps current-state ownership;
+13. exact production edge, observability, backup/restore/rollback and smoke evidence passes when claiming production readiness;
+14. required exact-head CI passes and all related PR/task ownership is terminal.
 
 ## Current verdict
 
 - **Foundation quality:** sound and scalable.
 - **Need for architectural rewrite:** no.
-- **Need for architectural improvement:** yes, through the accepted bounded additions and completion gates above.
+- **Need for architectural improvement:** yes, through bounded composition/ownership refinements and completion gates rather than new services.
 - **Native Character Portfolio ownership:** accepted through ADR 0030; runtime implementation not yet authorized by this architecture package.
+- **Today/command-centre ownership:** PublicPortal composition over existing bounded sources; no new truth module.
+- **Owner-private tracking ownership:** PlayerCompanion.ProgressTracker; Notifications remains delivery-only.
+- **Server-specific system definition ownership:** GameCatalog for structured deterministic definition, Wiki for editorial explanation, LiveOps for current state.
 - **Portal topic globally complete:** no.
 - **Player-tools architecture defined:** yes, through ADR 0025 and `PLAYER_COMPANION_ARCHITECTURE.md`.
 - **Player tools implemented:** no claim; module status remains `PLANNED`.
@@ -313,4 +388,5 @@ The architecture subject may be considered closed for a named release scope only
 - ADR 0025
 - ADR 0030
 - `docs/agents/reports/OTERYN-20260806-portal-player-tools-benchmark.md`
-- Issues #365, #488, #489 and #490
+- `docs/agents/reports/OTERYN-20260808-portal-product-delta.md`
+- Issues #302, #365, #488, #489 and #490

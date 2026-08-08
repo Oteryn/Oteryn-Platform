@@ -17,6 +17,7 @@ It defines ownership and future delivery constraints. It does not claim that any
 - discover appropriate hunts;
 - analyse sessions and party economics;
 - track quests, accesses and progression;
+- track owner-selected routines, entities and change/progress signals;
 - save goals and plans;
 - provide clearly labelled recommendations.
 
@@ -28,7 +29,7 @@ It is a bounded application/domain module inside the existing Laravel modular mo
 2. **Versioned truth** — every formula and recommendation is bound to explicit ruleset/catalog evidence.
 3. **No hidden assumptions** — unknown or stale data is visible and may disable a calculation.
 4. **Facts differ from advice** — deterministic results, simulations and recommendations are labelled separately.
-5. **Private by default** — character plans and session logs are not public unless the owner deliberately shares a bounded representation.
+5. **Private by default** — character plans, tracking preferences and session logs are not public unless the owner deliberately shares a bounded representation.
 6. **One domain implementation** — formulas are reusable by web UI, future Platform API and approved client integrations.
 7. **Server-side ownership** — account and character association is resolved from trusted bindings, never browser claims.
 8. **Progressive delivery** — small vertical slices with complete backend, frontend, states, tests and real E2E.
@@ -65,9 +66,10 @@ GameAnalytics --------------------+   +------------------------- LiveOps
 - hunt search criteria and ranked result presentation;
 - session-log parsing, normalized private session records and derived party/economy metrics;
 - progression goals, checklists and completion projections;
+- owner-private tracked-entity/routine/subscription preferences and derived change/progress signals;
 - recommendation orchestration and explanation metadata;
 - user preferences specific to companion workflows;
-- calculator/recommendation freshness and compatibility presentation.
+- calculator/recommendation/tracking freshness and compatibility presentation.
 
 ### Must not own
 
@@ -79,7 +81,9 @@ GameAnalytics --------------------+   +------------------------- LiveOps
 - payment-provider state or product fulfilment;
 - game-balance decisions;
 - private Game Analytics source events beyond explicitly approved projections;
-- generic account authentication or authorization policy.
+- generic account authentication or authorization policy;
+- notification transport/delivery state that belongs to `Notifications`;
+- public game-data source facts merely because a user tracks them.
 
 ## Internal capability families
 
@@ -168,6 +172,7 @@ Candidate tools:
 - character development objectives;
 - equipment acquisition goals;
 - prerequisite graphs;
+- owner-selected public/authorized entities or world signals to follow;
 - reminders exposed through the separate Notifications boundary when approved.
 
 Completion state may be:
@@ -177,6 +182,33 @@ Completion state may be:
 - inferred with a visible confidence label.
 
 Inferred state must never silently become authoritative game state.
+
+#### Tracking, routines and change signals
+
+The 2026-08-08 benchmark delta clarifies that tracking belongs inside the accepted `ProgressTracker` capability family rather than a new `Tracking` service.
+
+Candidate tracked subjects include only explicitly supported identifiers/facts, for example:
+
+- the owner's own character progression and goals;
+- weekly or recurring task cycles;
+- selected public characters where the source fact is already public and product policy permits following;
+- selected worlds and public population/activity/status signals;
+- selected public guild/house/event/system references where an accepted projection exists.
+
+Rules:
+
+- follow/subscription preference is Platform-owned owner-private state by default;
+- the source fact remains owned by `PublicGameData`, `LiveOps`, `GameAnalytics`, `GameCatalog` or another accepted producer;
+- `Notifications` owns delivery attempts/channels only; it does not decide what is tracked, whether a source changed or whether a threshold was crossed;
+- a signal records source identity/revision, observation/freshness and the comparison/threshold rule that produced it;
+- missing/stale source evidence never becomes a false “no change”, “offline”, “completed” or reset signal;
+- refresh/poll cadence is bounded and source-aware rather than one unbounded per-user loop;
+- tracking cannot bypass privacy or expose fields that the underlying public/authorized projection would hide;
+- public stalking graphs, “who follows whom” and social comparison are not implied;
+- retention and deletion follow the user's private companion-history policy;
+- high-cardinality tracked IDs and notification targets do not become unbounded metric labels.
+
+A later `PublicPortal` Today/command-centre view may consume these owner-private signals, but presentation does not move tracking authority into `PublicPortal`.
 
 ### `Recommendations`
 
@@ -243,6 +275,8 @@ Examples:
 
 The UI must not visually collapse these classifications into one certainty level.
 
+A tracked-source `SIGNAL` is not a fourth certainty class for calculations. It is a state-change/threshold observation over an already classified source. The UI must show its source and freshness and must not present an inferred signal as authoritative game state.
+
 ## Version and applicability contract
 
 Every persisted plan, calculation or recommendation carries applicable dimensions:
@@ -258,6 +292,8 @@ effective_until
 formula_version
 source_status
 ```
+
+Tracked routines/signals additionally retain the relevant source revision/observation identity and the rule revision used to derive a change/threshold result.
 
 Supported source statuses:
 
@@ -279,6 +315,7 @@ Potential Platform tables include:
 - build-plan headers and versioned selections;
 - calculation records only where history is product-relevant;
 - progression goals and manual completion state;
+- owner-private tracking/subscription preferences and bounded derived signal history;
 - normalized private session analyses;
 - share grants or opaque share tokens;
 - user companion preferences;
@@ -294,7 +331,7 @@ These records reference trusted Platform Identity and immutable ready account/ch
 - `GameAnalytics` owns measured aggregate evidence and confidence;
 - `LiveOps` owns current operational schedules/runtime-state projections.
 
-PlayerCompanion consumes bounded application interfaces or versioned projections. It must not bypass them with ad hoc raw table queries.
+PlayerCompanion consumes bounded application interfaces or versioned projections. It must not bypass them with ad hoc raw table queries. Persisting a track/subscription does not copy source ownership into PlayerCompanion.
 
 ## Privacy and security
 
@@ -304,6 +341,7 @@ Private data includes:
 
 - saved builds associated with an Identity;
 - account-linked character goals;
+- owner tracking/subscription preferences and private derived signal history;
 - raw and normalized session logs;
 - party membership, contribution and payment calculations;
 - private notes and user-entered market prices;
@@ -323,6 +361,8 @@ A shared build or summary must:
 - declare its ruleset/catalog version;
 - fail safely when referenced entities no longer exist or are incompatible.
 
+Tracking lists and alert destinations are not shareable merely because their underlying source data is public.
+
 ### Session-log handling
 
 - accept only documented text formats and bounded payload sizes;
@@ -336,11 +376,11 @@ A shared build or summary must:
 
 ### Authorization
 
-- authenticated owner access for private workspaces and histories;
+- authenticated owner access for private workspaces, tracking preferences and histories;
 - server-side character ownership resolution;
 - exact admin permission plus confirmed MFA for any privileged catalog/formula/recommendation management surface;
 - no wildcard permission;
-- rate limits for expensive simulations, parsers and public share resolution;
+- rate limits for expensive simulations, parsers, tracking refresh/subscription changes and public share resolution;
 - CSRF protection for browser state changes.
 
 ## Formula and rules engine direction
@@ -365,6 +405,7 @@ Do not duplicate business formulas independently in Blade templates, browser Jav
 - active ruleset aliases require deterministic invalidation;
 - LiveOps/runtime state keeps its own short freshness boundary and must not inherit long page-cache TTLs;
 - Game Analytics aggregates declare observation window and sample size;
+- tracked-source evaluation must respect the producer's freshness/observation semantics and coalesce fan-out rather than multiplying raw polling per user;
 - user-entered price overrides are scoped to the user/workspace and never promoted to global truth;
 - stale recommendations remain visible only when useful and clearly labelled.
 
@@ -382,6 +423,8 @@ A tool declares whether it is:
 
 The initial product may expose only one world, but schemas, cache keys, URLs and saved plans must not rely on an irreversible single-world assumption.
 
+A tracked world/system routine must likewise carry its world/season/profile applicability; a reset in one season or world cannot silently mutate another track.
+
 ## Platform API and client integration
 
 Future API/client exposure must use the same application services as the web UI.
@@ -391,6 +434,7 @@ Candidate API capabilities:
 - list calculator metadata;
 - execute selected deterministic calculators;
 - read/save owner workspaces;
+- read/update owner tracking/routine preferences and current bounded signal summaries where adopted;
 - resolve shareable builds;
 - fetch compatible recommendation summaries;
 - receive version/freshness metadata.
@@ -413,11 +457,12 @@ Record bounded metrics for:
 - stale/incompatible source rejection;
 - parser failure class without raw input;
 - recommendation source availability;
+- tracked-signal evaluation/delivery handoff outcomes without tracked IDs as unbounded labels;
 - share resolution and revocation outcomes;
 - expensive simulation limits;
 - dependency failure and recovery.
 
-Never log credentials, session identifiers, raw session logs, complete private build contents or unredacted party data.
+Never log credentials, session identifiers, raw session logs, complete private build contents, private tracking lists/notification destinations or unredacted party data.
 
 ## Delivery priorities
 
@@ -439,9 +484,10 @@ Never log credentials, session identifiers, raw session logs, complete private b
 3. Imbuement and sustain calculators.
 4. Team Hunt Composer.
 5. Weekly-task and personal-goal planner.
-6. Equipment-set comparison.
-7. Damage, sustain and resistance simulation after formula proof.
-8. Explainable next-action recommendations after Game Analytics contracts exist.
+6. Owner-private tracked entities/routines/change signals with Notifications delivery integration.
+7. Equipment-set comparison.
+8. Damage, sustain and resistance simulation after formula proof.
+9. Explainable next-action recommendations after Game Analytics contracts exist.
 
 ### P2 — separate later programmes
 
@@ -450,9 +496,10 @@ Never log credentials, session identifiers, raw session logs, complete private b
 3. Market-price trends and economy analytics.
 4. Public build profiles and comparisons.
 5. Advanced full-build simulation.
-6. Community contribution workflows.
+6. Community contribution workflows, including community-submitted hunt evidence.
+7. Public/social tracking graphs or comparisons.
 
-P2 capabilities require separate architecture, content provenance, moderation, privacy and operational decisions where applicable.
+P2 capabilities require separate architecture, content provenance, moderation, privacy and operational decisions where applicable. Community-submitted hunt evidence must never silently mix with authoritative or private-session facts; any aggregate requires explicit provenance, observation window, sample size/confidence and anti-manipulation policy.
 
 ## Vertical-slice implementation rule
 
@@ -480,6 +527,7 @@ A formula library, endpoint or dormant view alone is not a delivered player tool
 - automatic game actions or botting;
 - client memory inspection or unauthorized telemetry;
 - hidden scoring based on private players' data;
+- public stalking/social graphs as an implication of private tracking;
 - financial settlement or bank transfer execution;
 - unversioned formulas;
 - claiming an editorial recommendation is objectively optimal;
@@ -493,7 +541,7 @@ A later architecture review may consider the boundary mature when:
 
 - P0 scope is explicitly selected;
 - required Game Catalog entities/formulas and source inventories exist;
-- privacy/retention policy is accepted;
+- privacy/retention policy is accepted, including tracking/subscription semantics when adopted;
 - first vertical slices prove the boundary works without domain duplication;
 - API/client reuse is tested where adopted;
 - version transition behavior is exercised across at least one ruleset change;
