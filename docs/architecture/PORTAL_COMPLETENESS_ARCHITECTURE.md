@@ -59,6 +59,8 @@ ADR 0030 accepts the native Account Center responsibility split:
 
 ADR 0033 keeps federated public content search inside `PublicPortal` rather than creating a new Search/Discovery module. Source modules retain search eligibility, publication, localization, source-local ranking and canonical route ownership. `PlatformAPI` remains planned as an adapter over module application services, not a second business-logic implementation.
 
+The accepted federated-search dependency direction is a target, not a claim that all existing homepage composition code is already acyclic. `Announcements` and `Events` currently import `App\PublicPortal\PublicContentState`; that reverse compatibility edge must be removed before those modules are onboarded behind a new PublicPortal federated-search provider dependency.
+
 ## Architectural gaps that remain material
 
 ### Complete expected-content inventories
@@ -227,8 +229,8 @@ The accepted capability is:
 ```text
 PublicPortal FederatedSearch
   -> CMS public news/pages
-  -> Announcements public eligible records
-  -> Events public eligible records
+  -> Announcements public eligible records after reverse-edge cleanup
+  -> Events public eligible records after reverse-edge cleanup
   -> Wiki published localized search
   -> GameCatalog active/verified/public-safe entities
   -> later explicitly public PlayerCompanion artefacts only after a separate indexability contract
@@ -238,7 +240,9 @@ Rules:
 
 - `PublicPortal` owns the public query contract, provider orchestration, deterministic grouping/interleaving, normalized result envelope, partial-failure semantics and public search UX;
 - each source module owns public eligibility/publication, localization, source-local relevance and canonical source URL semantics;
-- provider adapters call bounded source-module application queries; source modules do not depend back on PublicPortal and raw cross-module model/table access is forbidden;
+- target provider adapters call bounded source-module application queries and source modules must not depend on PublicPortal search/presentation types;
+- current Announcements/Events imports of `PublicPortal\PublicContentState` are explicit compatibility debt; their removal is a provider-onboarding prerequisite, and a new opposite PublicPortal search dependency must not be added until the reverse edge is gone;
+- raw cross-module model/table access is forbidden;
 - PublicGameData exact-name character search remains a separate search product/vertical and is not silently converted into fuzzy people discovery;
 - Marketplace search/filtering remains Marketplace-owned;
 - private PlayerCompanion, Support, Admin, Audit, Identity and Accounts data is excluded from public federation;
@@ -340,7 +344,7 @@ The following statuses are planning decisions, not implementation authority.
 | Public World Hub | PLANNED P1 when authoritative world/status/history inputs exist |
 | Platform API for concrete first-party consumers | PLANNED |
 | Houses, guild wars and expanded leaderboards | DISCOVERY |
-| Federated content search | ARCHITECTURE ACCEPTED / PLANNED under PublicPortal; no new module or mandatory external search engine |
+| Federated content search | ARCHITECTURE ACCEPTED / PLANNED under PublicPortal; Announcements/Events onboarding gated on reverse-edge cleanup; no new module or mandatory external search engine |
 | Interactive map and route planning | DEFER to separate programme |
 | Community-contributed hunt evidence | DEFER to bounded P2/discovery with provenance/privacy/moderation contract |
 | Market-price/economy analytics | DEFER until authoritative data and privacy policy exist |
@@ -388,7 +392,7 @@ The architecture subject may be considered closed for a named release scope only
 10. native Character Portfolio consumers use the accepted AccountId/CharacterId boundary or are explicitly compatibility-scoped; no new permanent Canary-numeric ownership contract is introduced;
 11. personalized tracking/subscription behavior, when implemented, has explicit source, privacy, retention, refresh, abuse and notification-delivery semantics;
 12. typed server-specific systems do not blur GameCatalog deterministic definition, Wiki editorial explanation and LiveOps current-state ownership;
-13. federated search, when implemented, preserves source publication/localization/privacy/canonical identity, distinguishes partial failure from zero results, keeps character enumeration separate, and has bounded query privacy/rate/cache/index semantics;
+13. federated search, when implemented, preserves source publication/localization/privacy/canonical identity, distinguishes partial failure from zero results, keeps character enumeration separate, has bounded query privacy/rate/cache/index semantics, and does not introduce a PublicPortal/provider module cycle;
 14. exact production edge, observability, backup/restore/rollback and smoke evidence passes when claiming production readiness;
 15. required exact-head CI passes and all related PR/task ownership is terminal.
 
@@ -401,7 +405,7 @@ The architecture subject may be considered closed for a named release scope only
 - **Today/command-centre ownership:** PublicPortal composition over existing bounded sources; no new truth module.
 - **Owner-private tracking ownership:** PlayerCompanion.ProgressTracker; Notifications remains delivery-only.
 - **Server-specific system definition ownership:** GameCatalog for structured deterministic definition, Wiki for editorial explanation, LiveOps for current state.
-- **Federated content search ownership:** PublicPortal application capability over source-owned public queries; architecture accepted through ADR 0033, runtime not yet implemented.
+- **Federated content search ownership:** PublicPortal application capability over source-owned public queries; architecture accepted through ADR 0033, with Announcements/Events provider onboarding gated on existing reverse-edge cleanup; runtime not yet implemented.
 - **Portal topic globally complete:** no.
 - **Player-tools architecture defined:** yes, through ADR 0025 and `PLAYER_COMPANION_ARCHITECTURE.md`.
 - **Player tools implemented:** no claim; module status remains `PLANNED`.
