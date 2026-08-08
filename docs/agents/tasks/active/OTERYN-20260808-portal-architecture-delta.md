@@ -99,7 +99,9 @@ Codex review on exact head `508139a83bef1d00700636d490233ddeccc2ba2c` produced t
 
 Fresh Codex review on exact head `1b606eaea0cdb102639d87c80c23e6007a6790e3` produced one additional **P1 governance finding**: this review-driven durable-architecture repair requires a version-2 remediation validation gate with `HEIGHTENED` intensity and complete evidence. Repair cycle 2 added that gate.
 
-Exact-head CI on `892893de2303eabd6fc6376a3c5d161e5841fb1f` then found a checkpoint-schema defect introduced while compacting this task record: `Context checkpoint` lacked `owned_paths` and `rejected_hypotheses`. This repair cycle 3 restores those mandatory fields. The downstream Control Room/liveness failures were consequences of the same checkpoint validation failure, not independent product defects.
+Exact-head CI on `892893de2303eabd6fc6376a3c5d161e5841fb1f` found a checkpoint-schema defect introduced while compacting this task record: `Context checkpoint` lacked `owned_paths` and `rejected_hypotheses`. Repair cycle 3 restored those mandatory fields.
+
+Exact-head governance on `5763022a52ebdaa78465e115a9862e544ffe100f` then rejected the historical validation result token `FAIL_REPAIRED`, because the validator accepts only `BLOCKED`, `FAIL`, `NOT_APPLICABLE`, `NOT_RUN` or `PASS`. Repair cycle 4 records the historical failed check as `FAIL` with evidence that the defect is repaired by later task-record commits. The downstream Control Room/liveness failures in both governance runs were consequences of the checkpoint validation failure, not independent product defects.
 
 No repair cycle changes runtime, route, schema, configuration, deployment, payment state or any external repository.
 
@@ -176,9 +178,9 @@ Historical self-reviews and CI on earlier heads are supporting evidence only and
 ```yaml
 checkpoint_version: 1
 policy_version: 2
-updated_at: 2026-08-09T00:31:00+02:00
+updated_at: 2026-08-09T00:33:00+02:00
 invocation_started_at: 2026-08-09T00:26:00+02:00
-last_progress_at: 2026-08-09T00:31:00+02:00
+last_progress_at: 2026-08-09T00:33:00+02:00
 head: OUT_OF_BAND_FINAL_HEAD_AFTER_THIS_COMMIT
 branch: docs/OTERYN-20260808-portal-architecture-delta
 pr: 933
@@ -209,21 +211,22 @@ proven:
   - Codex findings from 508139a were repaired
   - Codex finding from 1b606ea was repaired by HEIGHTENED v2 gate
   - CI failure on 892893de was caused by missing required checkpoint fields owned_paths and rejected_hypotheses
+  - governance failure on 5763022a was caused by unsupported historical validation token FAIL_REPAIRED
   - runtime E2E is NOT_APPLICABLE for this documentation-only package
 derived:
   - final exact-head SHA and PASS evidence must be recorded in the PR review after this commit
 unknown: []
 conflicts: []
 first_failure:
-  marker: checkpoint-validator-892893de
-  evidence: missing checkpoint fields owned_paths and rejected_hypotheses; downstream Control Room/liveness failures are consequent
+  marker: checkpoint-validator-5763022a
+  evidence: historical validation item used unsupported result FAIL_REPAIRED; current repair uses supported FAIL while preserving repair evidence
 rejected_hypotheses:
   - portal requires architectural rewrite
   - player tracking requires a new standalone microservice
   - Notifications should own tracking/subscription rules
   - server-specific systems require a generic plugin module
   - focused canonical docs alone are sufficient durable authority for the new allocations
-  - CI failure on 892893de represents a runtime or product defect
+  - governance failures represent runtime or product defects
 changed_paths:
   - docs/agents/tasks/active/OTERYN-20260808-portal-architecture-delta.md
   - docs/agents/reports/OTERYN-20260808-portal-product-delta.md
@@ -240,12 +243,15 @@ validation:
     result: PASS
     evidence: version 2 HEIGHTENED gate recorded with bounded risk/triggers/unknown/conflict/rationale/self-review evidence
   - command: checkpoint validator on 892893de
-    result: FAIL_REPAIRED
-    evidence: exact missing fields identified in workflow 31281742855 and restored in this task record
+    result: FAIL
+    evidence: missing required owned_paths and rejected_hypotheses were identified and restored by later task-record commits
+  - command: checkpoint validator on 5763022a
+    result: FAIL
+    evidence: unsupported FAIL_REPAIRED token identified; this commit replaces it with supported FAIL while preserving historical repair evidence
   - command: runtime E2E
     result: NOT_APPLICABLE
     evidence: documentation-only package changes no executable route, schema, runtime, configuration or deployment
-repair_cycles_for_current_gate: 3
+repair_cycles_for_current_gate: 4
 blockers:
   - none
 next_action: perform exact-head full-diff self-review on the live PR head, request fresh Codex review, verify required exact-head CI and merge only with zero material findings and zero unresolved threads
