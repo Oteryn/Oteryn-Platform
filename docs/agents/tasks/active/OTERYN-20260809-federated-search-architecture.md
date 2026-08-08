@@ -38,8 +38,9 @@ Resolve Issue #935 by defining the durable WWW Platform ownership and contracts 
 - [x] Define bounded query/rate/abuse, cache/index and observability rules.
 - [x] Define future PlatformAPI reuse without duplicating orchestration or ranking logic.
 - [x] Record durable ownership in ADR 0033 and reconcile `MODULE_CATALOG.md`, `PORTAL_COMPLETENESS_ARCHITECTURE.md` and a focused search architecture.
+- [x] Account explicitly for existing Announcements/Events -> PublicPortal compatibility dependencies before accepting the target PublicPortal -> provider direction.
 - [x] Do not access server/client repositories or implement runtime/schema/routes/indexing/production changes.
-- [ ] Complete exact-head self-review, required CI, review hygiene, squash merge, Issue #935 closure and lifecycle archive closeout.
+- [ ] Complete repaired exact-head self-review, fresh Codex review, required CI, zero unresolved threads, squash merge, Issue #935 closure and lifecycle archive closeout.
 
 ## Ownership
 
@@ -77,7 +78,7 @@ Open PR #338 owns GameCatalog consumer implementation paths and does not overlap
 
 ## Delivered architecture decision
 
-The minimum-module design is now recorded by ADR 0033 and synchronized with the canonical architecture:
+The minimum-module design is recorded by ADR 0033 and synchronized with the canonical architecture:
 
 - federated public content search stays inside `PublicPortal` as an application-level `FederatedSearch` / discoverability capability;
 - source modules continue to own content, public/search eligibility, publication/visibility rules, localized search semantics, source-local relevance and canonical detail URLs;
@@ -89,7 +90,20 @@ The minimum-module design is now recorded by ADR 0033 and synchronized with the 
 - private PlayerCompanion, Support, Admin, Audit, Identity and Accounts data remains excluded from public federation by default;
 - no dedicated search engine/index is required by architecture; any later index is a rebuildable derived projection, never source truth.
 
-The focused provider/result/ranking/failure/cache/privacy/SEO/observability/API contract is `docs/architecture/FEDERATED_SEARCH_ARCHITECTURE.md`. `PORTAL_COMPLETENESS_ARCHITECTURE.md` now moves federated content search from `DISCOVERY` to `ARCHITECTURE ACCEPTED / PLANNED`, and `MODULE_CATALOG.md` records the same PublicPortal responsibility without claiming runtime implementation.
+### Existing dependency compatibility prerequisite
+
+Codex review of exact head `d4e5162f7948bf216217c9a224c699ed33799e38` correctly identified that existing Announcements and Events homepage provider/view-model code imports `App\PublicPortal\PublicContentState`. Therefore a literal claim that all source modules already have no reverse PublicPortal dependency was false.
+
+Repair cycle 1 updates ADR 0033, the focused search architecture, `MODULE_CATALOG.md` and portal completeness to make the distinction explicit:
+
+- `PublicPortal -> source-module application query` is the **target federated-search provider direction**;
+- the current Announcements/Events -> PublicPortal `PublicContentState` edge is compatibility debt, not accepted search direction;
+- Announcements or Events cannot be onboarded as a federated-search provider until that reverse edge is removed;
+- preferred cleanup uses source-owned application response/availability types which PublicPortal maps into its own composition/search state;
+- a new opposite search edge must not be added while the reverse dependency still exists;
+- ADR 0033 does not authorize a generic shared dumping-ground module to hide the cycle.
+
+The focused provider/result/ranking/failure/cache/privacy/SEO/observability/API/dependency-cleanup contract is `docs/architecture/FEDERATED_SEARCH_ARCHITECTURE.md`. `PORTAL_COMPLETENESS_ARCHITECTURE.md` moves federated content search from `DISCOVERY` to `ARCHITECTURE ACCEPTED / PLANNED`, with Announcements/Events onboarding explicitly gated by the compatibility cleanup. `MODULE_CATALOG.md` records the same PublicPortal responsibility and current reverse-edge debt without claiming runtime implementation.
 
 ## Validation gate
 
@@ -105,33 +119,36 @@ validation_gate:
     - cross-module dependency direction
     - public discoverability and privacy boundary
     - future API reuse contract
+    - material review-driven architecture repair
   unknown_or_conflict: []
   rationale: >-
     The task is documentation-only and reversible, but it establishes durable search
-    ownership and dependency direction across multiple public modules. HEIGHTENED
-    architecture validation is therefore appropriate even though no runtime, schema,
-    deployment or external environment is mutated.
+    ownership and dependency direction across multiple public modules and now includes
+    a review-driven compatibility prerequisite for an existing reverse dependency.
+    HEIGHTENED architecture validation remains appropriate even though no runtime,
+    schema, deployment or external environment is mutated.
   self_review:
     result: PASS
     exact_head: none
     evidence:
-      - final exact-head full-diff review is anchored as a PR review after this final repository-file checkpoint
-      - all six owned paths must be reviewed together against ADR 0033 and source-module authority
-      - negative paths include private-data exclusion, exact-name character-search separation, explicit partial failure and derived-index non-authority
-      - rollback is documentation-only and compatibility preserves existing module search/publication ownership
+      - final repaired exact-head full-diff review will be anchored as a PR review after this final repository-file checkpoint
+      - all six owned paths must be reviewed together against ADR 0033, current repository dependency evidence and source-module authority
+      - negative paths include dependency-cycle creation, private-data exposure, fuzzy character enumeration, fabricated zero-result state and derived-index authority
+      - rollback is documentation-only and compatibility preserves existing source behavior while making cleanup a future implementation prerequisite
       - open PR #338 and #541 ownership is non-overlapping
 ```
 
 ## Heightened validation requirements
 
-- **Architecture consistency:** ADR 0033, `FEDERATED_SEARCH_ARCHITECTURE.md`, `MODULE_CATALOG.md` and `PORTAL_COMPLETENESS_ARCHITECTURE.md` express the same ownership and dependency direction.
-- **Negative paths:** no raw cross-module model/table access; no private-data federation; no fuzzy character enumeration by implication; no fabricated zero-result state for failed providers; no global comparability assumption for unrelated provider scores; no external search engine as hidden authority.
+- **Architecture consistency:** ADR 0033, `FEDERATED_SEARCH_ARCHITECTURE.md`, `MODULE_CATALOG.md` and `PORTAL_COMPLETENESS_ARCHITECTURE.md` express the same ownership, target dependency direction and compatibility-cleanup prerequisite.
+- **Current dependency truth:** existing Announcements/Events imports of `PublicPortal\PublicContentState` are recorded explicitly rather than hidden by the target diagram.
+- **Negative paths:** no new PublicPortal/provider dependency cycle; no raw cross-module model/table access; no private-data federation; no fuzzy character enumeration by implication; no fabricated zero-result state for failed providers; no global comparability assumption for unrelated provider scores; no external search engine as hidden authority.
 - **Rollback:** revert the bounded documentation package; no schema/data/runtime rollback is required.
-- **Compatibility:** existing Wiki/PublicGameData/Marketplace/source-module search semantics remain authoritative and unchanged; ADR 0033 does not supersede ADR 0025 or ADR 0032.
+- **Compatibility:** existing homepage composition, Wiki/PublicGameData/Marketplace/source-module semantics remain unchanged; ADR 0033 does not supersede ADR 0025 or ADR 0032.
 - **Query privacy/security:** raw search terms are not ordinary log fields or metric labels; query/filter/rate/payload boundaries are explicit.
 - **PlatformAPI:** future API reuse points to one PublicPortal application service rather than a parallel orchestration path.
 - **E2E:** `NOT_APPLICABLE` because this task creates no executable route, schema, index, runtime, configuration or deployment path.
-- **Final CI:** repository-required checks must pass on the unchanged exact final PR head.
+- **Final CI:** repository-required checks must pass on the unchanged repaired final PR head.
 - **Review hygiene:** zero unresolved material review threads and zero requested changes before merge.
 
 ## Exact-head self-review mechanism
@@ -143,7 +160,7 @@ Required shape:
 ```yaml
 self_review:
   result: PASS
-  exact_head: <live final PR head>
+  exact_head: <live repaired final PR head>
   acceptance_checked: true
   full_diff_checked: true
   related_prs_checked: true
@@ -156,7 +173,8 @@ self_review:
     - ADR 0033 plus ADR inventory
     - canonical MODULE_CATALOG reconciliation
     - focused FEDERATED_SEARCH_ARCHITECTURE contract
-    - PORTAL_COMPLETENESS_ARCHITECTURE disposition change
+    - PORTAL_COMPLETENESS_ARCHITECTURE disposition and dependency-prerequisite change
+    - Codex P2 reverse-dependency finding and repair evidence
 ```
 
 ## Context checkpoint
@@ -164,14 +182,14 @@ self_review:
 ```yaml
 checkpoint_version: 1
 policy_version: 2
-updated_at: 2026-08-09T00:54:00+02:00
+updated_at: 2026-08-09T01:06:00+02:00
 invocation_started_at: 2026-08-09T00:43:00+02:00
-last_progress_at: 2026-08-09T00:54:00+02:00
+last_progress_at: 2026-08-09T01:06:00+02:00
 head: OUT_OF_BAND_FINAL_HEAD_AFTER_THIS_COMMIT
 branch: docs/OTERYN-20260809-federated-search-architecture
 pr: 936
 status: validating
-phase: heightened-exact-head-validation
+phase: heightened-repair-exact-head-validation
 session_id: agent-20260809-0043-federated-search
 session_role: architecture
 project_lane: oteryn-platform-content
@@ -194,20 +212,20 @@ proven:
   - main was 08b83c42e12d4f26904c5c0e480a503687091521 at task start
   - Issue #302 is terminal after PR #933 architecture dispositions
   - ADR 0033 is created and registered in the ADR inventory
-  - FEDERATED_SEARCH_ARCHITECTURE defines provider/result/ranking/failure/cache/privacy/security/SEO/observability/API boundaries
-  - MODULE_CATALOG records federated-search orchestration under PublicPortal without claiming implementation
-  - PORTAL_COMPLETENESS_ARCHITECTURE moves federated search from DISCOVERY to ARCHITECTURE ACCEPTED / PLANNED
+  - PublicPortal remains the minimum-module owner for public federated-search orchestration
   - PublicGameData exact-name character lookup remains explicitly separate
   - a later dedicated search index is derived/rebuildable rather than source truth
+  - current Announcements and Events provider/view-model paths import App\\PublicPortal\\PublicContentState
+  - repaired architecture gates Announcements/Events search onboarding on removal of that reverse compatibility edge
   - open PRs #338 and #541 do not overlap owned paths
   - runtime E2E is NOT_APPLICABLE for this documentation-only package
 derived:
-  - PublicPortal is the minimum-module owner because its existing responsibility already includes public SEO/discoverability/composition
+  - source-owned availability/response types mapped by PublicPortal are the preferred cleanup because they restore direction without inventing a new generic shared module
 unknown: []
 conflicts: []
 first_failure:
-  marker: none
-  evidence: no validation failure observed yet
+  marker: codex-review-d4e5162f-p2-reverse-dependency
+  evidence: Codex found existing Announcements/Events imports of PublicPortal\\PublicContentState, contradicting the earlier absolute one-way-dependency claim
 rejected_hypotheses:
   - federated search requires a standalone microservice
   - federated search requires a new top-level Discovery module now
@@ -216,6 +234,8 @@ rejected_hypotheses:
   - exact-name character search should be silently mixed into fuzzy public content relevance
   - public search may index private PlayerCompanion workspaces or share-token artefacts by default
   - an external search engine must be selected before the architecture can be implemented
+  - existing Announcements/Events reverse dependencies can be ignored when adding opposite search-provider dependencies
+  - PublicContentState should automatically be moved into a new generic shared module
 changed_paths:
   - docs/agents/tasks/active/OTERYN-20260809-federated-search-architecture.md
   - docs/architecture/FEDERATED_SEARCH_ARCHITECTURE.md
@@ -227,22 +247,28 @@ validation:
   - command: live ownership and open-PR inspection
     result: PASS
     evidence: open PR #338 and #541 do not own any of the six architecture paths
-  - command: canonical architecture reconciliation
+  - command: canonical architecture reconciliation before review repair
     result: PASS
-    evidence: ADR 0033, focused search architecture, MODULE_CATALOG and portal completeness carry the same PublicPortal/source-module ownership direction
-  - command: Issue #302 architecture-discovery closure
+    evidence: ADR 0033, focused search architecture, MODULE_CATALOG and portal completeness carried the same intended PublicPortal/source-module ownership direction
+  - command: exact-head repository CI on d4e5162f7948bf216217c9a224c699ed33799e38
     result: PASS
-    evidence: Issue #302 closed completed after merged PR #933 supplied durable dispositions for its original optional-tool questions
+    evidence: eight pull-request workflow generations completed successfully, including CI and Agent Governance; this evidence is historical after the review repair changed head
+  - command: Codex exact-head review on d4e5162f7948bf216217c9a224c699ed33799e38
+    result: FAIL
+    evidence: P2 finding identified current Announcements/Events -> PublicPortal PublicContentState imports and required the architecture to account for the reverse edge
+  - command: reverse-dependency architecture repair
+    result: PASS
+    evidence: ADR 0033, focused search architecture, MODULE_CATALOG and portal completeness now record the current compatibility edge and gate provider onboarding on its removal
   - command: runtime E2E
     result: NOT_APPLICABLE
     evidence: documentation-only package changes no executable route, schema, index, runtime, configuration or deployment
-  - command: exact-head repository CI
+  - command: repaired exact-head repository CI
     result: NOT_RUN
-    evidence: must run after this final repository-file checkpoint on the exact PR head
-repair_cycles_for_current_gate: 0
+    evidence: must run after this final repair checkpoint on the new exact PR head
+repair_cycles_for_current_gate: 1
 blockers:
   - none
-next_action: perform exact-head full-diff self-review on PR #936, request fresh Codex review, verify required exact-head CI and merge only with zero material findings and zero unresolved threads; then close Issue #935 and archive this task
+next_action: perform repaired exact-head full-diff self-review on PR #936, request fresh Codex review, verify required exact-head CI, resolve the repaired P2 thread and merge only with zero material findings and zero unresolved threads; then close Issue #935 and archive this task
 ```
 
 ## Notes
