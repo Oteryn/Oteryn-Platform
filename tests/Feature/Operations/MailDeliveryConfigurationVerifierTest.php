@@ -18,6 +18,7 @@ final class MailDeliveryConfigurationVerifierTest extends TestCase
             'app.env' => 'staging',
             'mail.default' => 'smtp',
             'mail.mailers.smtp.transport' => 'smtp',
+            'mail.mailers.smtp.scheme' => null,
             'mail.mailers.smtp.host' => 'smtp.internal.oteryn.testnet',
             'mail.mailers.smtp.port' => 587,
             'mail.from.address' => 'noreply@oteryn.com',
@@ -82,8 +83,22 @@ final class MailDeliveryConfigurationVerifierTest extends TestCase
         );
     }
 
-    public function test_smtp_requires_non_empty_host_and_valid_port(): void
+    public function test_smtp_requires_supported_scheme_non_empty_host_and_valid_port(): void
     {
+        config(['mail.mailers.smtp.scheme' => 'tls']);
+        self::assertContains(
+            'SMTP mail delivery scheme must be smtp, smtps, or unset.',
+            app(MailDeliveryConfigurationVerifier::class)->inspect('staging'),
+        );
+
+        foreach ([null, 'smtp', 'smtps'] as $scheme) {
+            config(['mail.mailers.smtp.scheme' => $scheme]);
+            self::assertNotContains(
+                'SMTP mail delivery scheme must be smtp, smtps, or unset.',
+                app(MailDeliveryConfigurationVerifier::class)->inspect('production'),
+            );
+        }
+
         config(['mail.mailers.smtp.host' => '']);
         self::assertContains(
             'SMTP mail delivery requires a non-empty host.',
@@ -105,12 +120,14 @@ final class MailDeliveryConfigurationVerifierTest extends TestCase
     {
         config([
             'app.env' => 'production',
+            'mail.mailers.smtp.scheme' => 'tls',
             'mail.mailers.smtp.host' => '',
             'mail.mailers.smtp.port' => 0,
         ]);
 
         $violations = app(ProductionConfigurationVerifier::class)->inspect();
 
+        self::assertContains('SMTP mail delivery scheme must be smtp, smtps, or unset.', $violations);
         self::assertContains('SMTP mail delivery requires a non-empty host.', $violations);
         self::assertContains('SMTP mail delivery requires a port between 1 and 65535.', $violations);
     }
