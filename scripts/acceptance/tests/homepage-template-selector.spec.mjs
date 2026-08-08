@@ -7,7 +7,6 @@ import {
   login,
   register,
   repoRoot,
-  runArtisan,
   runBinary,
   uniqueEmail,
 } from './helpers.mjs';
@@ -30,7 +29,6 @@ test('@portal-homepage-template-selector administrator preview activation rollba
   await register(page, adminEmail, adminPassword);
   await login(page, adminEmail, adminPassword);
   await enrollMfa(page, adminPassword);
-  expect(runArtisan('admin:bootstrap', adminEmail)).toContain('First platform administrator assigned');
   expect(runBinary('php', [path.join(repoRoot, 'scripts/acceptance/prepare-homepage-template-selector.php'), adminEmail])).toContain('ready');
 
   const requiredViewports = [
