@@ -18,18 +18,18 @@ Continuously challenge Platform architecture, repository structure and CI/CD; id
 
 ```yaml
 programme_state_version: 2
-updated_at: 2026-08-08T01:07:40+02:00
+updated_at: 2026-08-08T08:21:00+02:00
 status: ready
 current_review_domain: next-risk-based-rotation
 active_task: null
 issue: null
 branch: null
 pull_request: null
-last_completed_domain: native-oteryn-v2-integration-baseline
-last_completed_issue: 863
-last_completed_pull_request: 866
-last_completed_merge: 4bbed105a66b55476698c8f6ce4075671b3a10fe
-latest_review_finding_issue: 863
+last_completed_domain: native-protocol-authority-reconciliation
+last_completed_issue: 874
+last_completed_pull_request: 875
+last_completed_merge: 3dbe7f28585be2cb0b42a16491a91af270a661ea
+latest_review_finding_issue: 874
 accepted_authority:
   authority_index: docs/architecture/ARCHITECTURE_AUTHORITY.md
   authority_adr: docs/architecture/adr/0022-architecture-authority-index-and-focused-canonical-documents.md
@@ -66,16 +66,19 @@ proven:
   - Repository owner explicitly accepted Option A for the Native Character Portfolio / Account Center v2 boundary; PR 859 merged accepted ADR 0030 as 73c2426b37cfd5028fe9fbcec8254cc8aab3bc80 and Issue 857 is closed completed.
   - PR 866 merged ADR 0031 and the focused native Oteryn-v2 integration architecture as 4bbed105a66b55476698c8f6ce4075671b3a10fe after all eight exact-head workflows passed and full 9-file self-review found zero material findings.
   - Issue 863 is closed completed; Oteryn-v2 remained read-only throughout the Platform task.
+  - PR 875 reconciled the stale Platform native gameplay protocol contract and producer operations guide with accepted ADR 0031, preserving the disabled historical producer/schema as reconciliation evidence rather than current Oteryn-v2 authority.
+  - Exact PR 875 head 4522a99c8fe609cb137b4f07c00d9f79ca1b331b passed all eight triggered workflows and full review found zero material findings before squash merge 3dbe7f28585be2cb0b42a16491a91af270a661ea; Issue 874 closed completed.
 derived:
   - The Platform core remains a sound Laravel modular monolith; native Oteryn-v2 integration is now explicitly separated from Legacy Canary Compatibility.
   - New native Platform consumers must use canonical AccountId/CharacterId and explicit command/query/event/projection boundaries instead of inheriting Canary numeric IDs, table shapes, session semantics or gameplay protocol ownership.
   - ADR 0031 resolves the former target native-protocol ownership conflict while preserving current Canary/transitional implementation evidence for migration.
+  - The retained Platform PR 542 native producer, protobuf schema and fixtures are historical reconciliation inputs only; they cannot define Oteryn-v2 final admission, gameplay session/lease/fencing, reconnect or protocol semantics.
 unknown:
   - Exact deployed game-auth topology, alternate-path network isolation and production activation evidence.
-  - Deferred P1/P2 Platform-v2 contract details recorded in the focused architecture remain intentionally unresolved.
+  - Deferred P1/P2 Platform-v2 contract details recorded in the focused architecture remain intentionally unresolved, including exact Oteryn-v2 game-admission/session/lease handoff semantics.
 conflicts: []
 blockers: []
-next_action: Select the highest-risk unresolved Platform architecture, repository-structure or CI/CD question from current main after a fresh overlap search; preserve ADR 0031 as the canonical native-v2/compatibility boundary unless higher-ranked authority changes.
+next_action: Select the highest-risk unresolved Platform architecture, repository-structure or CI/CD question from current main after a fresh overlap search; preserve ADR 0031 and the historical-only native producer classification unless higher-ranked accepted authority changes.
 ```
 
 ## Programme rules
