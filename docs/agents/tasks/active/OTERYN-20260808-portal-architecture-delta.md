@@ -84,17 +84,38 @@ Community-submitted hunt evidence remains P2/discovery because provenance, sampl
 
 No new ADR is required: these are refinements inside the already accepted ADR 0025/PublicPortal/GameCatalog/LiveOps ownership model rather than a new durable deployable boundary.
 
+## Self-review generation
+
+The complete four-path diff through head `a9181c60240aec79125c859a1b276b36e3f05c49` was reviewed against the task acceptance criteria and existing ADR/module authority. No material finding was found. The final exact-head self-review will be recorded as a PR review after this checkpoint commit so the evidence does not move the reviewed head.
+
+```yaml
+self_review:
+  result: PASS
+  exact_head: a9181c60240aec79125c859a1b276b36e3f05c49
+  acceptance_checked: true
+  full_diff_checked: true
+  negative_paths_checked: true
+  rollback_checked: true
+  compatibility_checked: true
+  related_prs_checked: true
+  findings: []
+  evidence:
+    - PR #933 exact four-path diff
+    - ADR 0025 remains compatible; no new module/service boundary introduced
+    - PR #338 and PR #541 path ownership does not overlap
+```
+
 ## Context checkpoint
 
 ```yaml
 checkpoint_version: 1
 policy_version: 2
-updated_at: 2026-08-08T23:58:00+02:00
+updated_at: 2026-08-08T23:59:00+02:00
 invocation_started_at: 2026-08-08T23:48:00+02:00
-last_progress_at: 2026-08-08T23:58:00+02:00
-head: f1dbe51c7502636f3a930f50d481af8dcfa627ea
+last_progress_at: 2026-08-08T23:59:00+02:00
+head: a9181c60240aec79125c859a1b276b36e3f05c49
 branch: docs/OTERYN-20260808-portal-architecture-delta
-pr: none
+pr: 933
 status: validating
 phase: validate
 session_id: agent-20260808-2348-portal-architecture-delta
@@ -147,8 +168,8 @@ validation:
   - command: runtime E2E
     result: NOT_APPLICABLE
     evidence: documentation-only architecture package changes no executable route, schema, runtime, configuration or deployment
-ci_checks_for_current_head: 0
-ci_check_generation: draft
+ci_checks_for_current_head: 1
+ci_check_generation: pull_request
 terminal_ci_wait_started_at: null
 terminal_ci_checks_for_current_generation: 0
 unchanged_state_checks: 0
@@ -158,7 +179,7 @@ context_reconstruction_attempts: 0
 stall_warnings: 0
 blockers:
   - none
-next_action: open the architecture PR, review the exact four-path diff, run required exact-head documentation/governance checks and merge only if review remains clean
+next_action: record the final exact-head self-review without moving the branch, then require repository CI and clean review hygiene before squash merge
 ```
 
 ## Notes
