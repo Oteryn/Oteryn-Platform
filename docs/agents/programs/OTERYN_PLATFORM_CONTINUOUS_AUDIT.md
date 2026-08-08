@@ -21,25 +21,25 @@ Continuously audit every delivered or declared Platform module and surface for t
 
 ```yaml
 programme_state_version: 3
-updated_at: 2026-08-08T07:28:00Z
+updated_at: 2026-08-08T07:48:00Z
 status: ready
 current_cycle: 1
 programme_execution_snapshot:
   mode: live_query_required
   exhaustive: false
-  current_domain: unknown
-  active_task: unknown
-  branch: unknown
-  pull_request: unknown
-  reason: Open-PR liveness audit PR #884 merged as e67afebfb8e984a3beda081ba93524f84f305100 and its lifecycle record is archived; mutable ownership must be refreshed live before selecting the next non-overlapping audit domain.
+  current_domain: character-lifecycle-authority-drift
+  active_task: docs/agents/tasks/active/OTERYN-20260808-character-lifecycle-authority-audit.md
+  branch: audit/OTERYN-20260808-character-lifecycle-authority
+  pull_request: 892
+  reason: The bounded package audits retained character-management backlog authority against accepted ADR 0030/0031. One coherent P1 finding is proven and owned by Issue #890; remediation remains independent from this auditor. Initial governance validation exposed and corrected only a stale pending PR identity in the audit checkpoint.
 last_merged_audit_head: e67afebfb8e984a3beda081ba93524f84f305100
 last_completed_domain: open-pr-liveness-and-authority
 coverage_inventory:
   baseline: docs/agents/evidence/OTERYN-20260803-portal-exhaustive-current-main-audit/
   baseline_merge: cbbd7613cee13cf01931a0ba0f7ac089122132e0
-  latest_audited_main: a96e8c948290e9db97903be88eab92dae7168371
-  current_main_incorporated: e67afebfb8e984a3beda081ba93524f84f305100
-  selected_delta_domain: open-pr-liveness-and-authority
+  latest_audited_main: 6fb22e7518651b2c340442a3857eef9b6aefa856
+  current_main_incorporated: 6fb22e7518651b2c340442a3857eef9b6aefa856
+  selected_delta_domain: character-lifecycle-authority-drift
 finding_ledger_semantics: historical_identity_map_not_live_queue
 finding_ledger:
   baseline_owners: [486, 487, 488, 489, 490, 491]
@@ -77,6 +77,7 @@ finding_ledger:
     - OPA-GOV-0027: 877
     - OPA-GOV-0028: 885
     - OPA-GOV-0029: 886
+    - OPA-GOV-0030: 890
 live_queue:
   mode: live_query_required
   exhaustive: false
@@ -105,8 +106,9 @@ proven:
   - OPA-GOV-0027 / Issue #877 remains the durable owner for the proven Cloudflare verification-task evidence contradiction.
   - OPA-GOV-0028 / Issue #885 is proven: PR #405 retains superseded August 1 public-edge blockers and an obsolete Cloudflare next action while Issue #91 remains the production gate.
   - OPA-GOV-0029 / Issue #886 is proven: PR #391 still routes native compatibility handoff to historical blakinio/otclient authority after accepted ADR 0031 and the Oteryn-v2 client cutover evidence.
-  - PR #882 was current active work at observation time with Issue #244 and deterministic branch repair/issue-244 ownership.
-  - PR #881 was current active architecture work at observation time with Issue #880, merged normally as 4043edfaf67b9489d050d70e6fb7e32f4bf149c2 and was lifecycle-closed by PR #887 as a96e8c948290e9db97903be88eab92dae7168371; no liveness finding applies.
+  - OPA-GOV-0030 / Issue #890 is proven on main 6fb22e7518651b2c340442a3857eef9b6aefa856: retained #277/#317/#319/#320/#324/#344 character-lifecycle backlog still presents future Canary mutation contracts as unqualified delivery authority after ADR 0030/0031 assigned target-native lifecycle mutations to Oteryn-v2 Character Authority.
+  - Empty Issue #891 was an accidental audit-bookkeeping duplicate of #890 and was immediately closed as duplicate; it is not a finding identity or live owner.
+  - Initial PR #892 head 2e895e0a31df22f3ea9f5a4c66c016339913b284 passed repository CI run 31246885615; Agent Governance run 31246885567 failed only because the task still recorded `pr: pending` after PR #892 existed, and that checkpoint identity is corrected in the current generation.
   - PR #541 remains an intentional external wait on owner-observed staging password-recovery evidence; its public-edge reconciliation is already the existing owner.
   - PR #338 remains an intentional cross-repository dependency hold under programme #330 pending Canary schema 1.3 producer compatibility.
   - Open-PR liveness audit PR #884 final head 8937a051121c3f00831106224dbc06eb20e0455b passed Agent Governance run 31246077129 and CI run 31246077118, had zero review threads and squash-merged as e67afebfb8e984a3beda081ba93524f84f305100.
@@ -115,9 +117,12 @@ derived:
   - Historical open-PR disposition evidence is generation-scoped and must be revalidated when later architecture or environment evidence changes retained dependencies.
   - PR #405 must preserve historical staging evidence but cannot remain an authoritative source of current public-edge blockers or Cloudflare actions.
   - PR #391 can preserve its safe synthetic harness while its target handoff authority is reconciled to Oteryn-v2 and legacy OTClient/Canary evidence is labelled compatibility/reference-only.
+  - Character lifecycle Canary discovery/contracts can remain compatibility/migration evidence, but new target-native rename/delete/restore/world-transfer work must not silently create new direct Canary steady-state coupling.
   - Mutable queue state and current ownership must always be refreshed live before dispatch.
 unknown:
-  - Current ready, blocked and claimed disposition of all findings until the next live queue refresh.
+  - Current ready, blocked and claimed disposition of all findings beyond this bounded live refresh.
+  - Whether any character-lifecycle capability is intentionally required first as an explicitly temporary Canary-compatibility implementation before native cutover.
+  - Exact Oteryn-v2 character command transport/receipt implementation details remain external focused authority.
   - Global production cutover readiness under Issue #91.
   - Current protected Environment secret values and current Synology runner availability.
   - Residual Cloudflare certificate-product, Access and Page Rule facts not proven by later edge evidence.
@@ -126,11 +131,12 @@ conflicts:
   - OPA-GOV-0027 / Issue #877 remains open for the Cloudflare verification evidence contradiction.
   - OPA-GOV-0028 / Issue #885 owns stale PR #405 production-gate lifecycle/evidence instructions.
   - OPA-GOV-0029 / Issue #886 owns stale PR #391 target-authority/handoff instructions.
+  - OPA-GOV-0030 / Issue #890 owns character-lifecycle backlog authority reconciliation.
   - Public-domain audited checkpoint drift remains owned by PR #541.
 blockers:
   mode: live_query_required
   items: unknown
-next_action: Refresh live ownership, open and blocked findings, active tasks, PRs and recent main deltas; then select the highest-risk non-overlapping audit domain while preserving Issues #876 #877 #885 #886 and PR #541 as independent owners.
+next_action: Complete corrected exact-head validation and terminal delivery of PR #892; after closeout, refresh live ownership and select the next highest-risk non-overlapping domain without absorbing Issues #876 #877 #885 #886 #890, Issue #888 or PR #541.
 ```
 
 ## Programme rules
