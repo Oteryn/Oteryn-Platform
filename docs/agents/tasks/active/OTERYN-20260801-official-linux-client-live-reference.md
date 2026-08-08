@@ -2,144 +2,132 @@
 task_id: OTERYN-20260801-official-linux-client-live-reference
 required_reads:
   - AGENTS.md
-  - docs/agents/PROMPTING_STANDARD.md
-  - docs/agents/PROMPTING_HANDOVER.md
   - docs/agents/EXECUTION_PROTOCOL.md
-  - docs/agents/CONTEXT_HANDOFF.md
-  - docs/agents/tasks/archive/OTERYN-20260727-tibia-linux-runner-analysis.md
-  - docs/agents/reports/OTERYN-20260727-research-purpose-and-safety-scope.md
-  - docs/agents/reports/OTERYN-20260727-tibia-linux-protected-route-analysis.md
-  - docs/agents/reports/OTERYN-20260727-tibia-linux-battleye-callback-addendum.md
+  - docs/agents/GITHUB_ONLY_EXECUTION.md
+  - docs/architecture/ARCHITECTURE_AUTHORITY.md
+  - docs/architecture/adr/0031-native-oteryn-v2-integration-boundary.md
+  - docs/architecture/OTERYN_V2_INTEGRATION_ARCHITECTURE.md
   - docs/agents/reports/OTERYN-20260801-official-linux-client-live-reference-plan.md
 search_first:
   - OTERYN-20260801-official-linux-client-live-reference
-  - OTERYN-20260727-tibia-linux-runner-analysis
-  - PR 218
-optional_reads: []
+  - official Linux client
+  - Oteryn-v2
+optional_reads:
+  - docs/agents/tasks/archive/OTERYN-20260727-tibia-linux-runner-analysis.md
 ---
 
-# OTERYN-20260801-official-linux-client-live-reference
+# OTERYN-20260801 official Linux client live reference
+
+## Current authority status
+
+`BLOCKED RESEARCH CAPABILITY / HISTORICAL PR — OTERYN-V2 TARGET AUTHORITY RECONCILED`
+
+This task began before the accepted native Oteryn-v2 repository/authority transition. Its safe synthetic Linux harness remains useful research tooling, but its old `blakinio/otclient` / Canary implementation handoff is no longer current architecture.
+
+For any future native follow-up:
+
+- `blakinio/Oteryn-Platform` owns Identity, OAuth/PKCE, Game Login Ticket, Gateway pre-admission/routing and Platform-side interoperability evidence/workflow;
+- `blakinio/Oteryn-v2` is the canonical native client/game/protocol implementation authority and is read-only from this task;
+- historical `blakinio/otclient`, Canary and official Tibia behavior are compatibility/reference evidence only;
+- live official-client observation can inform requirements but never proves native Oteryn-v2 conformance by itself.
+
+ADR 0031 and current `OTERYN_V2_INTEGRATION_ARCHITECTURE.md` override older target-routing language in this unmerged historical branch.
 
 ## Goal
 
-Build and validate a safe, reproducible capability to launch the unmodified official Tibia Linux client, authenticate with an account owned and explicitly supplied by the repository owner through a non-logged secret channel, enter a bounded official-game session, collect redacted interoperability evidence, and convert that evidence into concrete OTClient/Oteryn/Canary compatibility requirements for the project-owned OTS.
+Preserve a safe, reproducible research capability for launching the unmodified official Tibia Linux client and, only after all owner-gated prerequisites are genuinely satisfied, collecting a bounded redacted interoperability observation that can be compared with the current Oteryn architecture.
 
-The invariant is:
+Any final gap matrix must route findings by current authority:
 
-> A researcher can reproduce one owner-authorized official-client Linux session without modifying or bypassing the client or BattlEye, without exposing credentials or session material, and can produce a durable evidence package that identifies what must be implemented or changed in the project-owned OTS stack.
+- Platform Identity/Gateway/control-plane findings -> `blakinio/Oteryn-Platform`;
+- native Rust client, native game server and `protocol-oteryn` findings -> canonical `blakinio/Oteryn-v2` follow-up owned outside this task;
+- OTClient/Canary/Tibia findings -> historical/compatibility/reference evidence unless a later explicit compatibility task adopts them.
 
-## Why this task exists
+This task performs no cross-repository source mutation.
 
-The archived task `OTERYN-20260727-tibia-linux-runner-analysis` completed a static audit only. It did not build or validate the owner-requested live-login and live-reference capability. This follow-up task restores that missing objective without rewriting merged history.
+## Safety invariants
 
-## Policy
+Live execution is allowed only when all of these are true:
 
-```yaml
-policy_version: 2
-task_kind: e2e
-implementation_authorized: true
-external_service_validation_authorized: true
-external_service_execution_ready: false
-context_pressure: high
-context_growth: expected
-authorization_basis: repository owner explicitly authorized use of an account they own and will supply for this bounded research purpose on 2026-08-01
-decomposition_decision: phased
-decomposition_reason: one coherent capability must progress through environment discovery, safe harness implementation, owner-gated live validation, evidence analysis, and cross-repository handoff
-execution_mode: codex
-execution_reason: requires a repository checkout, Linux runtime inspection, scripts, GUI/process/network tooling, focused test loops, and bounded live-session reproduction
-```
-
-## Authorization conditions
-
-Live execution is authorized only when all of the following are true:
-
-- the account is owned by the repository owner and explicitly designated for this research session;
-- credentials are supplied through an ephemeral local secret mechanism or manual entry on the research host, never in chat, Git, GitHub issue/PR text, workflow logs, command history, screenshots, artifacts or reports;
-- the official client and BattlEye components remain unmodified;
-- no patching, hooking, DLL/SO injection, process-memory modification, anti-cheat bypass, impersonation, protocol abuse or concealment is attempted;
-- no third-party account, character, service or infrastructure is accessed;
-- the live session follows a predeclared minimal observation script and stops after the required evidence is collected;
-- raw sensitive evidence remains on a private encrypted research volume with bounded retention;
-- only redacted text evidence and non-sensitive hashes/manifests may be committed or attached to GitHub.
-
-General authorization is recorded, but live execution is not ready until the exact account/character, secret-delivery mechanism, research host and observation script are persisted without credentials.
+- the account is owned and explicitly designated by the repository owner;
+- credentials are supplied only through a local manual/ephemeral mechanism and never through ChatGPT, GitHub, shell arguments, ordinary environment variables, logs or artifacts;
+- the official client and BattlEye remain unmodified;
+- there is no patching, hooking, injection, process-memory modification, anti-cheat bypass, traffic alteration, replay, cheating or autonomous gameplay;
+- raw sensitive evidence remains only on a private encrypted research volume outside Git;
+- GitHub receives only redacted text evidence, hashes and non-sensitive manifests;
+- the bounded observation stops on anti-cheat/account-security warnings, credential exposure risk or scope expansion.
 
 ## Non-goals
 
 This task does not authorize:
 
-- cheating, botting or autonomous gameplay on the official service;
-- bypassing or weakening BattlEye or other service controls;
-- decrypting or intercepting credentials or session secrets;
-- redistributing the official client, game assets or proprietary binaries;
-- mirroring proprietary assets into the OTS;
-- interacting with other players beyond unavoidable passive presence;
-- implementing broad OTClient, Canary or server changes before live evidence identifies a bounded requirement;
-- claiming full official compatibility from one session.
+- implementation changes in Oteryn-v2, historical otclient or Canary;
+- gameplay automation, farming, combat, trade or interaction with other players;
+- interception/decryption/modification of official traffic;
+- redistribution of official binaries/assets;
+- production changes;
+- treating a reachable endpoint, successful login or one observed session as proof of complete protocol compatibility;
+- using historical OTClient/Canary correspondence as final native Oteryn-v2 conformance.
+
+## Preserved harness evidence
+
+The unique synthetic/no-network work in PR #391 remains valuable and must not be discarded merely because the target architecture changed.
+
+Proven on the historical branch:
+
+- compact Python harness under `tools/tibia-linux-reference/`;
+- deterministic fake graphical client;
+- separate loopback-only network namespace with denied reserved-address connection;
+- exact synthetic-secret scanning and deterministic cleanup;
+- redacted session-manifest schema/example;
+- official-mode preflight that fails closed when encrypted storage or exact package identity is unavailable;
+- 11+ focused tests, Python compilation and manifest/workflow/checkpoint validation;
+- no official client, official service, credential or proprietary asset was used during the proven synthetic run.
+
+Historical exact code evidence includes `cabad487a139aaf0983dfc55cfb18d9f43720633`; PR #391 later advanced to head `630ed73c09242cf3d37f3652b06fa252c6b0f10d`. These hashes preserve evidence only; they are not current-main conformance claims.
+
+## External-service readiness
+
+`external_service_execution_ready: false`
+
+The live phase remains blocked because the task has not proven all required prerequisites together:
+
+1. a dedicated interactive Linux research host or other environment accepted by the unmodified official client/BattlEye;
+2. a provably encrypted private evidence volume outside Git;
+3. the exact owner-approved official package path and expected package/binary identity;
+4. successful no-authentication official component launch without bypass/modification;
+5. owner-gated exact account/character and secure manual/ephemeral credential mechanism;
+6. the exact minimal observation script for the requested evidence gap.
+
+No worker may weaken these gates merely to make progress.
 
 ## Phases
 
-### Phase 1 — discover
+### 1. Local synthetic harness — PROVEN
 
-Prove the smallest viable isolated Linux research environment.
+Keep the fake-client, no-network, redaction and cleanup capability as reusable reference tooling.
 
-Required output:
+### 2. Official component gate — BLOCKED
 
-- exact host/VM/container boundary and CPU/GPU/display capabilities;
-- whether the official client and BattlEye can launch in that environment without modification;
-- required outbound endpoints and filesystem/runtime dependencies;
-- evidence-retention and redaction design;
-- exact secret-delivery method that does not expose credentials;
-- a decision between a dedicated interactive Linux host and a self-hosted research runner.
+Only verify the exact unmodified official package identity and launch it without authentication on an approved encrypted research host. A BattlEye/environment refusal is terminal evidence for that environment and must not be worked around.
 
-Do not attempt an official login in this phase.
+### 3. Owner-gated live observation — BLOCKED
 
-### Phase 2 — implement
+Only after Phase 2 and explicit owner-supplied local prerequisites are satisfied may one bounded official login/world-entry observation be performed. Credentials never enter repository/chat state.
 
-Build the local research harness under owned paths.
+### 4. Analyze and hand off — CURRENT AUTHORITY
 
-The harness must:
+Classify every observation as `PROVEN`, `DERIVED`, `UNKNOWN` or `CONFLICT` and route it by current authority:
 
-- verify the exact client package/binary identity before launch;
-- launch the unmodified official client in an isolated graphical Linux session;
-- avoid shell tracing and redact environment/process arguments;
-- accept credentials only through the approved ephemeral mechanism or pause for manual entry;
-- capture bounded process, window, network-tuple, timing and local-state evidence without memory injection or traffic modification;
-- write raw evidence only to the private research volume;
-- generate a redacted session manifest and evidence index suitable for GitHub;
-- provide deterministic cleanup and prove no credentials/session tokens remain in temporary files, logs or process arguments;
-- support a dry-run mode that exercises all local controls without contacting the official service.
+| Observation domain | Current follow-up authority | Reference-only sources |
+|---|---|---|
+| Identity/login/ticket/Gateway routing | Oteryn Platform | historical login/Canary paths |
+| Native Rust client behavior | Oteryn-v2 | historical `blakinio/otclient`, official client behavior |
+| Native gameplay protocol semantics | Oteryn-v2 | Canary/Tibia protocol observations |
+| Native game/world state semantics | Oteryn-v2 | Canary runtime observations |
+| Legacy compatibility behavior | explicit future compatibility task | OTClient/Canary/Tibia evidence |
 
-### Phase 3 — owner-gated live validation
-
-After the owner supplies the exact account/character and secure secret mechanism, run one bounded session using the official client.
-
-Minimum observation script:
-
-1. launch the verified official client;
-2. authenticate with the owner-owned account;
-3. reach the character list;
-4. select the designated research character and enter the official game world;
-5. observe initial login/world state while stationary;
-6. perform only the explicitly approved minimal normal-client actions needed for evidence, preferably user-driven rather than automated;
-7. log out cleanly;
-8. stop capture, redact, verify cleanup and revoke/delete temporary secrets.
-
-Stop immediately on unexpected anti-cheat warnings, account-security prompts, unexplained client modification warnings, scope expansion or any evidence of credential exposure.
-
-### Phase 4 — analyze and hand off
-
-Correlate the live session with the static reports and current project-owned implementations.
-
-Produce:
-
-- a state-transition timeline from launcher start through logout;
-- a redacted endpoint/connection and message-boundary ledger to the extent observable without bypassing protections;
-- official-client behavior observations for login, character selection, initial world entry, map/world state, creature/player state, statistics, inventory and UI events exercised by the script;
-- `PROVEN`, `DERIVED`, `UNKNOWN` and `CONFLICT` classifications;
-- a compatibility-gap matrix for `blakinio/otclient`, Oteryn Platform and Canary;
-- separate bounded follow-up task proposals per repository/ownership domain;
-- no speculative implementation presented as proven protocol behavior.
+No external repository task is created or mutated by this Platform task. A later follow-up must be separately authorized in its owning repository.
 
 ## Owned paths
 
@@ -153,179 +141,88 @@ owned_paths:
 private_runtime_paths:
   - encrypted research volume outside Git checkout
 read_only_cross_repository:
-  - blakinio/otclient
-  - project-owned Canary repository resolved from live state
+  - blakinio/Oteryn-v2
+  - blakinio/otclient # historical/reference only
+  - project-owned Canary repository # compatibility/reference only
 ```
 
-The worker must verify no overlapping active task owns these paths before editing. Cross-repository source changes are forbidden in this task; create separate follow-up tasks after evidence is complete.
+The Issue #886 reconciliation may edit only the three documentation paths above. It must not change the validated harness or workflow.
 
-## Acceptance criteria
+## Acceptance criteria for any future live-reference continuation
 
-- [ ] A dedicated isolated Linux research environment is documented and proven capable of launching the exact unmodified official client.
-- [ ] The exact client package/binary identity is verified before every launch.
-- [ ] A dry-run harness completes without contacting the official service and without leaking synthetic secrets.
-- [ ] Credential handling uses an approved ephemeral/manual mechanism and leaves no credential or session material in GitHub, logs, process arguments, command history or retained temporary files.
-- [ ] Raw evidence is stored only on a private encrypted research volume with explicit retention and deletion controls.
-- [ ] The owner-gated official-client session reaches the character list and designated game world, or the first decisive failure is captured and classified.
-- [ ] No client/BattlEye modification, bypass, hooking, injection or traffic alteration occurs.
-- [ ] A redacted live-observation report and session manifest are committed.
-- [ ] Static and live evidence are reconciled using `PROVEN`, `DERIVED`, `UNKNOWN` and `CONFLICT`.
-- [ ] A compatibility-gap matrix identifies concrete OTClient/Oteryn/Canary requirements.
-- [ ] Separate follow-up tasks are proposed for independently owned implementation domains; this task does not silently implement them.
-- [ ] Focused, component and final validation pass on the exact final head.
-- [ ] The task is merged and archived with one concrete terminal result.
+- [x] Synthetic no-network harness and redaction/cleanup controls are preserved.
+- [x] Current native implementation authority is Oteryn-v2 rather than historical `blakinio/otclient`.
+- [x] Historical OTClient/Canary/Tibia evidence is explicitly reference/compatibility-only.
+- [x] `external_service_execution_ready` remains false while required prerequisites are missing.
+- [ ] Dedicated encrypted research environment and exact official package identity are proven.
+- [ ] Unmodified official client/BattlEye component launch succeeds without authentication, or the first decisive refusal is recorded without bypass.
+- [ ] Owner separately provides the final local account/character/secret-entry prerequisites and approves the exact minimal live observation.
+- [ ] Any live run, if ever performed, produces only redacted GitHub-safe evidence and proves cleanup.
+- [ ] Final gap matrix routes native implementation findings to Oteryn-v2 authority and Platform findings to Oteryn-Platform.
+- [ ] Any implementation follow-up is separately authorized in its owning repository.
 
-## Validation ladder
+## Lifecycle disposition of PR #391
 
-```text
-Focused:
-- shell/Python lint and unit tests for launcher, redaction and cleanup logic
-- synthetic-secret leak scan across logs, manifests, process arguments and temporary paths
-- deterministic dry-run using a fake client process and local mock endpoints
+PR #391 must not be merged from its historical base merely to preserve the harness. The safe harness remains recoverable from the PR/branch and Git history.
 
-Component:
-- isolated Linux graphical-session launch test with the exact official client but no authentication
-- private-volume evidence write/read/delete test
-- redacted-manifest schema validation
-
-Heavy final gate:
-- one owner-authorized official-client login/world-entry observation session
-- exact-head repository checks
-- post-session secret revocation/deletion and retained-evidence audit
-```
-
-A failed heavy run must be reduced to the first relevant failure before any retry. Do not exceed two official-service attempts in one worker session.
-
-## Durable evidence rules
-
-Persist only compact references in the checkpoint:
-
-- client version, hashes and Build ID;
-- research-host identity without secrets;
-- session ID and timestamps;
-- redacted endpoint/state timeline;
-- evidence-file hashes and private storage locations;
-- first relevant failure;
-- proven/derived/unknown/conflict findings;
-- cleanup verification;
-- exactly one `next_action`.
-
-Never persist credentials, authentication codes, cookies, session keys, account identifiers, character names unless the owner explicitly approves a redacted alias, raw packet payloads containing secrets, full proprietary binaries or asset dumps.
+After Issue #886 reconciles this task/plan/observation and PR metadata, PR #391 should be closed as a superseded historical research branch. If the owner later chooses to resume live-reference research, create a fresh current-main bounded task/PR and deliberately carry forward only the still-useful harness pieces after revalidation.
 
 ## Context checkpoint
 
 ```yaml
 checkpoint_version: 1
 policy_version: 2
-phase: local-harness-readiness
-session_id: codex-20260801-linux-harness-001
-session_role: implementer
-execution_mode: codex
-execution_reason: bounded Linux environment discovery, multi-file harness implementation, and focused dry-run validation require a checkout and terminal
-updated_at: 2026-08-01T12:27:00Z
-lease_expires_at: null
-head: cabad487a139aaf0983dfc55cfb18d9f43720633
-branch: feat/OTERYN-20260801-official-linux-client-live-reference
-pr: 391
+phase: authority-reconciliation
+session_id: github-20260808-issue886
+session_role: architecture-repair
+execution_mode: github_only
+updated_at: 2026-08-08T10:09:00+02:00
+head: pending-reconciliation-commit
+branch: repair/issue-886
+pr: none
 status: blocked
 context_routes:
   - agent-governance
+  - architecture
   - security
   - testing
-  - ci-repair
-context_pressure: high
-context_growth: expected
-context_score: 11
-estimate_confidence: medium
-decomposition_decision: phased
-decomposition_reason: environment feasibility, harness implementation, live validation and analysis are sequential gates of one capability
-validation_level: component
-heavy_validation_runs: 0
-session_rotation_count: 0
-stale_takeover_count: 1
-human_interruptions: 1
-last_completed_step: restacked onto current main and passed focused plus graphical synthetic no-network component validation at cabad487a139aaf0983dfc55cfb18d9f43720633
 owned_paths:
   - docs/agents/tasks/active/OTERYN-20260801-official-linux-client-live-reference.md
   - docs/agents/reports/OTERYN-20260801-official-linux-client-live-reference-plan.md
   - docs/agents/reports/OTERYN-20260801-official-linux-client-live-observation.md
-  - tools/tibia-linux-reference/**
-  - .github/workflows/tibia-linux-live-reference.yml
 proven:
-  - PR 391 is an open draft from the approved repository to main at head 03ee1a231d60e7b847980df15b81f0a9bee0ade0 and changes only the two authorized planning paths.
-  - No other active task or open PR owns the declared harness, report, workflow, or checkpoint paths.
-  - The first relevant CI failure is Agent Governance checkpoint-validation because first_failure was null instead of the required mapping.
-  - The available Linux boundary is Ubuntu 26.04 x86-64 under WSL2 on Windows 11 Pro with WSLg DISPLAY and Wayland sockets and a visible GPU device.
-  - Unprivileged user and network namespaces work through unshare -Urn in the available Ubuntu environment.
-  - The WSL2 graphical fake-client component passed in a distinct loopback-only network namespace and retained only mode 0600 redacted JSON outside Git.
-  - Eleven focused unit tests, Python compilation, manifest validation, workflow YAML parsing, checkpoint validation, tracked-file token scanning, and git diff checks pass.
-  - origin/main advanced to ede1dfc44ae50da3e8d0b0b44d0fbe14f6c847dc only in non-overlapping Cloudflare, deployment, public-domain, and feature-test paths.
-  - The repaired branch was restacked onto origin/main and the exact code head cabad487a139aaf0983dfc55cfb18d9f43720633 passed the graphical synthetic no-network component gate.
+  - The synthetic no-network harness and cleanup/redaction evidence exist on historical PR 391 and remain recoverable without merging the stale branch.
+  - Oteryn-v2 is now the canonical native client/game/protocol implementation authority; historical blakinio/otclient and Canary are reference/compatibility evidence only.
+  - No official service authentication or official client execution occurred in the proven harness phase.
+  - Encrypted evidence storage and exact approved official package identity remain unproven/unavailable for a live phase.
 derived:
-  - WSL2 is sufficient for deterministic synthetic harness validation but is not evidence that BattlEye supports virtualization.
-  - A normal dedicated interactive Linux host remains the required fallback if the official client or BattlEye refuses WSL2 or virtualization.
-  - external_service_execution_ready must remain false until encrypted storage, the exact approved package identity, and the no-authentication official component launch are proven.
+  - PR 391 should be superseded after documentation reconciliation rather than merged from its historical base.
 unknown:
-  - Whether the host C volume is encrypted; the current process cannot query BitLocker state and WSL2 cannot prove host-volume encryption.
-  - The private official client package path and approved package SHA-256 are unavailable in this checkout.
-  - Whether the exact official client and BattlEye start unmodified in WSL2.
+  - Whether a future approved Linux host will run the unmodified official client/BattlEye.
+  - Whether the owner will choose to resume the live-reference programme after the native-v2 architecture transition.
 conflicts: []
 first_failure:
-  marker: official component preflight cannot prove encrypted storage and the approved private package identity is unavailable
-  evidence: official-mode preflight returned the expected HarnessError; no official executable or service was contacted
+  marker: external-service-readiness
+  evidence: encrypted evidence storage and exact approved package identity are not proven together; external_service_execution_ready remains false
 rejected_hypotheses:
-  - The current checkout was already the task repository: the initial workspace is blakinio/otclient, so a separate Oteryn-Platform checkout was created without modifying otclient.
-  - The original checkpoint was valid: local and CI validation proved first_failure must be a mapping, and the checkpoint now passes contract v1.
-  - A synthetic credential leaked during the post-commit component attempt: the minimized diagnostic proved only unchanged baseline token-shaped fixtures triggered generic scanning.
+  - blakinio/otclient is the current native Rust-client implementation authority
+  - historical Canary/OTClient correspondence proves native Oteryn-v2 conformance
+  - preserving the harness requires blindly merging PR 391
 changed_paths:
-  - .github/workflows/tibia-linux-live-reference.yml
-  - docs/agents/reports/OTERYN-20260801-official-linux-client-live-observation.md
   - docs/agents/tasks/active/OTERYN-20260801-official-linux-client-live-reference.md
-  - docs/agents/reports/OTERYN-20260801-official-linux-client-live-reference-plan.md
-  - tools/tibia-linux-reference/**
 validation:
-  - command: python tools/agents/checkpoint.py docs/agents/tasks/active/OTERYN-20260801-official-linux-client-live-reference.md --require-checkpoint
+  - command: authority reconciliation against ADR 0031 and Issue 864 evidence
     result: PASS
-    evidence: one task checkpoint validated against contract v1
-  - command: python3 -m compileall -q tools/tibia-linux-reference
+    evidence: native follow-up ownership now routes to Oteryn-v2; Platform responsibilities remain separate
+  - command: harness/workflow mutation check
     result: PASS
-    evidence: all harness Python sources compiled under Ubuntu 26.04 Python 3.14.4
-  - command: PYTHONPATH=tools/tibia-linux-reference python3 -m unittest discover -s tools/tibia-linux-reference/tests -v
-    result: PASS
-    evidence: 11 focused preflight, identity, redaction, manifest, event, leak-scan, and cleanup tests passed
-  - command: python3 tools/tibia-linux-reference/run.py validate-manifest tools/tibia-linux-reference/examples/session-manifest.synthetic.json
-    result: PASS
-    evidence: redacted synthetic example passed schema v1 validation
-  - command: WSL2/WSLg synthetic dry-run
-    result: PASS
-    evidence: fake X11 client mapped and destroyed, TEST-NET connection was denied in a distinct loopback-only namespace, 1308 files were scanned, and cleanup passed
-  - command: official-mode preflight and exact identity component launch
-    result: BLOCKED
-    evidence: encryption cannot be proven and approved private package identity is unavailable; no official client or service was contacted
-  - command: post-commit WSL2/WSLg synthetic dry-run at 448bdf20d52a271524fd4be5ffe8af785b79db7c
-    result: FAIL
-    evidence: first failure was tracked-files generic detection against three unchanged synthetic fixtures
-  - command: focused branch-diff and retained-output secret-scan regression
-    result: PASS
-    evidence: exact values remain scanned across all tracked files while generic patterns fail only for the branch diff and new retained outputs
-  - command: exact-code-head focused suite at cabad487a139aaf0983dfc55cfb18d9f43720633
-    result: PASS
-    evidence: checkpoint contract v1, Python compilation, 12 unit tests, manifest schema, workflow YAML, and git diff checks passed
-  - command: exact-code-head WSL2/WSLg synthetic dry-run at cabad487a139aaf0983dfc55cfb18d9f43720633
-    result: PASS
-    evidence: distinct loopback-only namespace, denied TEST-NET connection, X11 mapped/destroyed lifecycle, exact-value and branch-diff scan, mode 0600 retained JSON, and cleanup all passed
+    evidence: Issue 886 changes no tools/tibia-linux-reference or workflow file
+  - command: external official-service validation
+    result: NOT_APPLICABLE
+    evidence: this repair neither authorizes nor performs live official-service work
 blockers:
-  - A dedicated interactive Linux host with a provably encrypted private evidence volume and the owner-approved exact package identity is required for the official no-authentication component gate.
-next_action: On a dedicated interactive Linux host with a provably encrypted private evidence volume, populate the private approved identity and run the no-authentication official-component command.
-```
-
-## Final response contract
-
-```text
-STATUS: DONE | BLOCKED | WAITING | ROTATE
-RESULT: <compact result>
-VALIDATION: <exact checks and outcomes>
-DURABLE_STATE: <task path, branch, head, PR>
-BLOCKER: <none or exact blocker>
-NEXT_ACTION: <one action or none>
+  - encrypted private evidence storage not proven
+  - exact approved official client package identity unavailable
+  - no current owner-gated live-session request for a specific native-v2 evidence gap
+next_action: Reconcile the plan and observation authority wording, validate the documentation-only stacked repair, then close PR 391 as superseded while preserving its branch/harness evidence.
 ```
