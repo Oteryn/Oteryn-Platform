@@ -22,6 +22,72 @@
           "function render"
         ]
       }
+    },
+    {
+      "route_name": "home",
+      "view": "home",
+      "source": {
+        "file": "app/PublicPortal/HomepageTemplates/HomepageTemplateRegistry.php",
+        "markers": [
+          "'production' => [",
+          "'view' => 'home'"
+        ]
+      }
+    },
+    {
+      "route_name": "home",
+      "view": "home-classic",
+      "source": {
+        "file": "app/PublicPortal/HomepageTemplates/HomepageTemplateRegistry.php",
+        "markers": [
+          "'classic' => [",
+          "'view' => 'home-classic'"
+        ]
+      }
+    },
+    {
+      "route_name": "localized.home",
+      "view": "home",
+      "source": {
+        "file": "app/PublicPortal/HomepageTemplates/HomepageTemplateRegistry.php",
+        "markers": [
+          "'production' => [",
+          "'view' => 'home'"
+        ]
+      }
+    },
+    {
+      "route_name": "localized.home",
+      "view": "home-classic",
+      "source": {
+        "file": "app/PublicPortal/HomepageTemplates/HomepageTemplateRegistry.php",
+        "markers": [
+          "'classic' => [",
+          "'view' => 'home-classic'"
+        ]
+      }
+    },
+    {
+      "route_name": "admin.homepage-templates.preview",
+      "view": "home",
+      "source": {
+        "file": "app/PublicPortal/HomepageTemplates/HomepageTemplateRegistry.php",
+        "markers": [
+          "'production' => [",
+          "'view' => 'home'"
+        ]
+      }
+    },
+    {
+      "route_name": "admin.homepage-templates.preview",
+      "view": "home-classic",
+      "source": {
+        "file": "app/PublicPortal/HomepageTemplates/HomepageTemplateRegistry.php",
+        "markers": [
+          "'classic' => [",
+          "'view' => 'home-classic'"
+        ]
+      }
     }
   ]
 }
