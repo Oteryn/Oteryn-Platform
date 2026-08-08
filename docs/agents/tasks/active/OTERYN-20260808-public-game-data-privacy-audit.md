@@ -95,10 +95,10 @@ cross_repository_tasks: []
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-08T13:46:00+02:00
-head: pending
+updated_at: 2026-08-08T13:47:00+02:00
+head: 46be68ace0bb5c492c96f8ff7fd8e2eef1c973b6
 branch: audit/OTERYN-20260808-public-game-data-privacy
-pr: none
+pr: 909
 status: validating
 context_routes:
   - agent-governance
@@ -123,6 +123,7 @@ proven:
   - Current CharacterProfilePreferenceService writes preferences transactionally and records preference-updated security events; no native PublicGameData cache implementation exists in this audit scope.
   - Baseline Issues #486/#487 own broad capability/evidence gaps, not this native privacy-revocation security contract.
   - Issue #908 now durably owns OPA-SEC-0004 as P1/high agent-ready remediation.
+  - PR #909 is the bounded audit delivery owner for this finding package.
 derived:
   - An implementation could satisfy game-source stale-while-servable rules while continuing to expose an older allowed public variant after a newer privacy deny if purge/rebuild is delayed or fails.
   - Game projection freshness and privacy decision freshness require separate security semantics.
@@ -160,11 +161,11 @@ validation:
     evidence: Audit/architecture documentation only.
   - command: exact-head Agent Governance and repository-selected CI
     result: NOT_RUN
-    evidence: Run after bounded audit PR creation and PR identity binding.
+    evidence: Run on the current PR #909 candidate after this checkpoint update.
 blockers: []
-next_action: Open the bounded audit PR, record its PR identity, run exact-head governance/CI, inspect the full diff and review threads, merge only if every gate passes, then archive the audit task without implementing Issue #908.
+next_action: Run exact-head governance/CI for PR #909, inspect the full diff and review threads, merge only if every gate passes, then archive the audit task without implementing Issue #908.
 invocation_started_at: 2026-08-08T13:43:00+02:00
-last_progress_at: 2026-08-08T13:46:00+02:00
+last_progress_at: 2026-08-08T13:47:00+02:00
 ci_checks_for_current_head: 0
 ci_check_generation: public-game-data-privacy-audit
 terminal_ci_wait_started_at: none
