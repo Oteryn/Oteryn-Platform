@@ -23,6 +23,7 @@ This document owns the Platform-side model for:
 - native persistence separation;
 - character command/query/projection integration;
 - PublicGameData native projections;
+- native runtime-status/readiness projection routing;
 - Game Analytics consumption;
 - compatibility anti-corruption and migration principles;
 - cross-repository contract quality requirements;
@@ -61,6 +62,7 @@ Oteryn Platform
 │   ├── one-time Game Login Ticket
 │   ├── World Registry / routing policy
 │   ├── Game Gateway pre-admission control plane
+│   ├── runtime-status/readiness consumer projection
 │   ├── command orchestration
 │   ├── queries / projections / read models
 │   ├── integration events
@@ -86,7 +88,8 @@ The compatibility side is an anti-corruption layer. New native application modul
 | OAuth/PKCE, MFA, recovery, web sessions | Oteryn Platform | Full authority |
 | Game Login Ticket | Oteryn Platform | Issue, revoke/consume under accepted Gateway contract |
 | World/Channel registry identity and routing policy | Oteryn Platform | Control-plane authority under ADR 0029 |
-| Gateway ticket redemption and pre-admission | Oteryn Platform | Authenticate attempt, route, bind bounded pre-admission metadata |
+| Native runtime health/readiness/capacity source facts | Oteryn-v2 runtime/orchestration authority | Validate/cache/project accepted observations; never manufacture runtime truth from Platform configuration |
+| Gateway ticket redemption and pre-admission | Oteryn Platform | Authenticate attempt, intersect routing policy with fresh required runtime evidence, bind bounded pre-admission metadata |
 | Canonical character identity | Oteryn-v2 game domain | Consume `CharacterId`; never issue a competing native ID |
 | Current AccountId ↔ CharacterId ownership | Oteryn-v2 game domain | Consume authorized projection; never treat cache as proof |
 | Character lifecycle/mutation | Oteryn-v2 game domain | Orchestrate approved commands/sagas only |
@@ -96,6 +99,7 @@ The compatibility side is an anti-corruption layer. New native application modul
 | Native gameplay protocol semantics | Oteryn-v2 game domain + native client contract owner | Platform may carry selection metadata; does not own gameplay packet semantics |
 | Native game persistence | Oteryn-v2 game domain | No steady-state direct table dependency |
 | Public game-data website models | Platform projection/read-model layer | Consume game-owned source facts with freshness/revision metadata |
+| LiveOps world/service presentation | Platform LiveOps projection layer | Combine configured Platform policy with authoritative runtime observations without fabricating unavailable facts |
 | Game Analytics source facts | Oteryn-v2 runtime | Consume approved aggregates/projections/alerts/read APIs |
 | CMS/public portal | Oteryn Platform | Full Platform ownership |
 | Support/moderation workflow | Oteryn Platform | Workflow/communication authority; game enforcement requires explicit command contract |
@@ -119,6 +123,7 @@ one-time Game Login Ticket
 Oteryn Game Gateway
 - service-authenticated ticket redemption
 - World Registry routing/policy
+- fresh required Oteryn-v2 runtime readiness/revision evidence
 - bounded pre-admission metadata
     |
     v
@@ -138,11 +143,41 @@ authoritative gameplay
 ### Admission invariants
 
 - A Platform ticket authorizes an attempt, not an unconditional gameplay session.
+- Platform `login_enabled`/configured `online` state is not sufficient native runtime readiness evidence.
+- Missing, stale, unavailable, invalid or superseded required runtime evidence fails closed for new native routing/admission.
+- Runtime health does not override Platform maintenance, entitlement, rollout or login policy.
 - A stale portfolio or pre-transfer/pre-sale projection cannot authorize a former owner after ownership changes.
 - Game admission revalidates authoritative current ownership and lifecycle state.
 - No reusable user password is sent from Platform to the game server in the native path.
 - OAuth access/refresh tokens are not native gameplay credentials.
 - Failure after protocol/admission binding does not silently downgrade into another gameplay family.
+
+## Native runtime-status/readiness boundary
+
+The accepted Platform consumer semantics are defined by `docs/contracts/OTERYN_V2_RUNTIME_STATUS_PROJECTION_CONTRACT.md`.
+
+The boundary deliberately separates:
+
+```text
+Platform configured policy/lifecycle
+        +
+fresh accepted Oteryn-v2 runtime observations
+        =
+consumer evaluation for Gateway / LiveOps
+```
+
+Key invariants:
+
+- runtime observations are scoped to canonical `WorldId + ChannelId`;
+- runtime/GameNode ownership generation, readiness, recovery and capacity remain game-runtime source facts;
+- Platform may persist/cache a projection, but the projection does not become the runtime source of truth;
+- freshness, applicability/revision and stale-owner rejection are mandatory before an observation may influence new admission;
+- `stale`, `unavailable` and `invalid` evidence are not authoritative `offline` facts;
+- public surfaces never fabricate zero players/offline from missing or stale evidence;
+- one failed channel/client connection does not establish whole-world outage;
+- exact Oteryn-v2 producer schema, cadence, TTL values, health algorithm and ownership-generation encoding remain deferred to Oteryn-v2 `OPS-CHANNEL-01`/FND authority.
+
+This resolves the Platform-side P1 semantic boundary. It does **not** claim producer implementation, LiveOps implementation, Gateway integration, staging proof or production activation.
 
 ## Native protocol boundary
 
@@ -188,6 +223,8 @@ Oteryn-v2 persistence
 ```
 
 Platform native integrations do not depend on the physical game database schema.
+
+Runtime-status storage inside Platform is a consumer projection/read model. It must preserve source revision/freshness/applicability and cannot turn cached observations into game-runtime authority.
 
 ### Compatibility state
 
@@ -279,6 +316,8 @@ Each projection must define:
 
 A dependency outage must not be rendered as fabricated empty/offline state.
 
+For native world/channel/service status specifically, `OTERYN_V2_RUNTIME_STATUS_PROJECTION_CONTRACT.md` is the focused semantic baseline. PublicGameData/LiveOps may expose a narrower public view, but it cannot be more certain than the authoritative observation evidence.
+
 ## Game Analytics integration
 
 The runtime/game domain is the source of authoritative analytics events because it observes the complete gameplay transition context.
@@ -348,6 +387,8 @@ A material Platform ↔ Oteryn-v2 contract defines:
 
 Cross-repository documentation is referenced, not duplicated into competing authorities.
 
+The runtime-status contract intentionally freezes the Platform consumer semantics above while leaving exact Oteryn-v2 producer transport/encoding to the accepted external producer contract.
+
 ## Migration principles
 
 Migration from Canary compatibility to native v2 is additive and reversible until final cutover.
@@ -373,6 +414,7 @@ Migration from Canary compatibility to native v2 is additive and reversible unti
 | Character portfolio | direct Canary-backed reads | authorized semantic game-owned projection |
 | Character mutation | operation-specific Canary SQL contracts | game-owned versioned commands + receipts |
 | Public game data | direct read-only Canary SQL/Redis where contracted | events/snapshots/query contracts → Platform projections |
+| World/runtime status | persisted compatibility status + bounded Canary runtime readers where implemented | configured Platform policy intersected with fresh canonical Oteryn-v2 runtime observations → Gateway/LiveOps projections |
 | Game session | Canary-compatible Game Session path / transitional v2 producer | Platform pre-admission + game-owned authoritative admitted session semantics |
 | Gameplay protocol | Canary adapter + transitional Platform native contract | game/native-owner `protocol-oteryn`; Canary only compatibility/reference |
 | Game persistence | shared/Canary-compatible DB access | separate v2 persistence behind contracts |
@@ -385,6 +427,7 @@ Migration from Canary compatibility to native v2 is additive and reversible unti
 - **Dual integration model ambiguity** — control with explicit native/compatibility naming and authority routing.
 - **Dual native protocol authority** — control by ADR 0031 and one canonical game/native protocol owner.
 - **Dual character authority** — control by ADR 0030; Platform projections never prove ownership.
+- **Runtime configuration/observation collapse** — control by `OTERYN_V2_RUNTIME_STATUS_PROJECTION_CONTRACT.md`; configured online/login policy never substitutes for fresh runtime readiness, and stale/unavailable evidence is never fabricated as offline.
 - **Canary ID leakage** — new native modules use canonical IDs; compatibility mappings stay in adapters.
 - **Shared-database shortcut** — new native mutations/reads require explicit contracts.
 - **Synchronous web dependency on game runtime** — public surfaces prefer resilient projections/read models.
@@ -398,6 +441,12 @@ Migration from Canary compatibility to native v2 is additive and reversible unti
 - mixed-version deployment ambiguity;
 - operational failure modes not yet exercised in staging.
 
+## Resolved focused integration boundaries
+
+The following focused architecture questions are now semantically resolved but still require separately authorized implementation/reconciliation:
+
+- **World/channel runtime status → World Registry / Game Gateway / LiveOps** — resolved by `docs/contracts/OTERYN_V2_RUNTIME_STATUS_PROJECTION_CONTRACT.md`: Platform configured policy remains separate from authoritative Oteryn-v2 runtime observations; canonical scope is WorldId/ChannelId; freshness/revision/current-owner evidence is mandatory; stale/unavailable evidence fails closed for new admission and cannot be fabricated as public offline/zero state. Exact Oteryn-v2 producer transport/cadence/health algorithm remains external/deferred.
+
 ## Deferred architecture backlog
 
 The following are intentionally not solved in this baseline and should be addressed in focused decisions rather than assumptions.
@@ -405,12 +454,11 @@ The following are intentionally not solved in this baseline and should be addres
 ### P1
 
 1. Character command/result schema and transport family beyond ADR 0030 semantics.
-2. Public Game Data projection/event catalogue, freshness SLAs and rebuild/reconciliation rules.
-3. World/channel runtime-status → Platform World Registry/LiveOps contract.
-4. Products/entitlements → game-authority grant/delivery saga.
-5. Support/moderation → game enforcement command contract.
-6. Native Game Catalog/content ownership versus legacy Canary importers.
-7. Exact game-admission credential/session/lease handoff semantics consistent with Platform pre-admission and game-owned admitted-session authority.
+2. Public Game Data projection/event catalogue, freshness SLAs and rebuild/reconciliation rules beyond the focused runtime-status contract.
+3. Products/entitlements → game-authority grant/delivery saga.
+4. Support/moderation → game enforcement command contract.
+5. Native Game Catalog/content ownership versus legacy Canary importers.
+6. Exact game-admission credential/session/lease handoff semantics consistent with Platform pre-admission and game-owned admitted-session authority.
 
 ### P2
 
@@ -430,6 +478,7 @@ A dated review snapshot is preserved in `docs/agents/reports/OTERYN-20260808-pla
 - no deletion of compatibility adapters;
 - no production activation;
 - no protocol IDL/schema implementation;
+- no runtime-status producer endpoint/event schema implementation;
 - no microservice decomposition solely for architectural neatness;
 - no assumption that an unresolved deferred contract already exists.
 
@@ -442,5 +491,7 @@ A dated review snapshot is preserved in `docs/agents/reports/OTERYN-20260808-pla
 - `docs/architecture/DATA_OWNERSHIP.md`
 - `docs/architecture/MODULE_CATALOG.md`
 - `docs/contracts/GAME_GATEWAY_IDENTITY_CONTRACT.md`
+- `docs/contracts/OTERYN_V2_WORLD_TOPOLOGY_CONTRACT.md`
+- `docs/contracts/OTERYN_V2_RUNTIME_STATUS_PROJECTION_CONTRACT.md`
 - current Canary compatibility contracts under `docs/contracts/**`
-- read-only accepted Oteryn-v2 Character Authority / cross-repository contract evidence
+- read-only accepted Oteryn-v2 Character Authority / GameNode execution-capacity-recovery / cross-repository contract evidence
