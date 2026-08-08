@@ -150,8 +150,8 @@ jobs:
           assert strictness['exact_sha'] == os.environ['AUDIT_SHA']
           assert matrix['global_verdict'] == 'AUDIT_COMPLETE_WITH_FINDINGS'
           assert matrix['infrastructure_errors'] == []
-          assert matrix['counts']['discovered_named_routes'] == 240
-          assert matrix['counts']['classified_route_records'] == 228
+          assert matrix['counts']['discovered_named_routes'] == 244
+          assert matrix['counts']['classified_route_records'] == 232
           assert matrix['counts']['excluded_route_records'] == 12
           assert matrix['counts']['module_records'] == 18
           assert matrix['counts']['findings'] > 75
@@ -177,12 +177,19 @@ jobs:
               tools/audit/test_validate_portal_exhaustive_retained_evidence.py \
               docs/agents/evidence/OTERYN-20260803-portal-exhaustive-current-main-audit/manifest.json \
               docs/testing/ROUTE_VIEW_NAVIGATION_INVENTORY.json \
+              docs/testing/ROUTE_VIEW_NAVIGATION_DELEGATED_BINDINGS.json \
               docs/testing/product-completeness-benchmark.json \
               docs/testing/product-backend-frontend-completeness.json \
               docs/testing/PORTAL_CONTENT_SCALE_EVIDENCE.json \
+              docs/testing/portal-content-scale-surfaces/homepage-template-selector.json \
               docs/testing/PORTAL_MEDIA_STATE_EVIDENCE.json \
+              docs/testing/portal-media-state-surfaces/homepage-template-selector.json \
               scripts/acceptance/coverage/portal-coverage-manifest.json \
-              scripts/acceptance/coverage/portal-evidence-dimensions.json
+              scripts/acceptance/coverage/surfaces/homepage-template-selector.json \
+              scripts/acceptance/coverage/portal-evidence-dimensions.json \
+              scripts/acceptance/coverage/portal-evidence-dimensions/homepage-template-selector.json \
+              scripts/acceptance/coverage/validate-portal-content-scale-evidence.mjs \
+              scripts/acceptance/coverage/validate-portal-media-strict-closure.mjs
           } > artifacts/portal-exhaustive-audit/source-identities.txt
 
       - name: Upload exhaustive audit evidence
