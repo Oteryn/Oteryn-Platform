@@ -282,6 +282,8 @@ Numeric durations are intentionally deferred until producer cadence and product 
 
 A cache/CDN TTL cannot extend source authority beyond the projection's accepted freshness policy.
 
+Game-source freshness and Platform privacy-decision freshness are independent authority dimensions. A game projection that is `fresh`, or `stale` but still inside its accepted stale-while-servable window, is publicly serveable only when the applicable privacy decision is independently proven current for that public representation.
+
 ## Last-known-good and website availability
 
 Normal public HTTP/API/SSR requests read Platform projection state.
@@ -289,12 +291,13 @@ Normal public HTTP/API/SSR requests read Platform projection state.
 Required behavior:
 
 - do not synchronously query the game runtime as an ordinary request-path fallback;
-- when the latest projection becomes stale but remains within accepted stale-while-servable policy, serve last-known-good content with truthful stale/degraded semantics where material;
+- when the latest projection becomes stale but remains within accepted stale-while-servable policy, serve last-known-good content with truthful stale/degraded semantics where material **only for fields whose applicable privacy decision is still proven current**;
+- a last-known-good game projection never grants permission to reuse an older or unproven privacy `allow` decision;
 - after hard expiry or without a safe last-known-good state, return an explicit unavailable/degraded state rather than fabricating empty/not-found/zero;
-- recovery accepts a fresh authoritative projection generation before clearing degraded state;
-- CDN/browser cache behavior must not hide hard-expired or invalid source evidence as current.
+- recovery accepts a fresh authoritative projection generation before clearing game-source degraded state and separately satisfies the current privacy decision floor before restoring privacy-controlled fields;
+- CDN/browser cache behavior must not hide hard-expired or invalid source evidence, or privacy-controlled output below the current privacy decision floor, as current.
 
-This decouples website availability from temporary game-runtime unavailability without pretending stale game data is live.
+This decouples website availability from temporary game-runtime unavailability without pretending stale game data is live and without weakening a newer Platform privacy restriction.
 
 ## Lifecycle, tombstones and cross-surface reconciliation
 
@@ -354,6 +357,62 @@ Rules:
 - current CharacterProfiles controls must eventually bind to canonical CharacterId rather than Canary numeric player IDs before native cutover;
 - privacy changes must invalidate/rebuild affected public presentation/cache/search state without mutating authoritative game facts.
 
+### Privacy decision authority and monotonic ordering
+
+Privacy authority is Platform-owned and ordered independently from Oteryn-v2 source revisions.
+
+Before native projection/cache cutover, every privacy-controlled public representation must be bound to privacy evidence strong enough to establish, for the affected privacy decision scope:
+
+```text
+canonical privacy subject/scope
+Platform privacy policy/decision revision or generation
+resulting allow/deny/restriction decision
+applicability needed to compare it with later decisions
+```
+
+The exact persistence field names and encoding are deferred, but the ordering guarantee is not: a later accepted privacy decision must be distinguishable from and dominate an earlier decision for the same scope. Wall-clock response time, cache creation time, game-source revision and projection generation are not substitutes for that monotonic Platform privacy ordering.
+
+A delayed or replayed older `allow` decision cannot overwrite, validate or resurrect output after a newer restrictive decision has been accepted.
+
+### Restrictive change and public-visibility cutoff
+
+A privacy decision that removes or narrows public visibility becomes authoritative at its accepted Platform privacy revision/cutoff. Cache purge, search reindex, projection rebuild and CDN invalidation are propagation mechanisms; they do not postpone the authority of the restrictive decision.
+
+From that cutoff:
+
+- HTTP, API, SSR, search, response caches and CDN/public variants must not serve affected content whose bound privacy evidence is older than the restrictive privacy revision;
+- affected privacy-controlled fields are hidden, redacted or explicitly unavailable according to the owning product contract until the serving path proves it enforces the current restrictive revision;
+- game-source freshness or stale-while-servable eligibility cannot extend the life of an older public `allow` variant;
+- a restrictive decision is considered publicly converged only when every required serving/indexing layer is fenced at the new privacy revision or has equivalent proof that the old variant cannot be served;
+- an ambiguous, delayed or failed invalidation/rebuild cannot be recorded as successful convergence.
+
+An expansive privacy change may become publicly visible only after the selected serving path proves the newer permissive decision is applicable. Delaying re-publication is safe; prematurely publishing from an older or unproven `allow` decision is not.
+
+### Invalidation acknowledgement and fail-closed serving
+
+The eventual implementation must define deterministic acknowledgement or an equivalently strong revision fence for every materialized consumer of privacy-controlled output, including the applicable HTTP/API/SSR response cache, search index and CDN layer.
+
+A safe design may use revision-aware cache keys/tags, serve-time privacy fences, versioned presentation generations, explicit purge acknowledgements or another mechanism, but it must preserve these semantics:
+
+- the current restrictive privacy revision is the minimum privacy floor for affected output;
+- an old object below that floor is ineligible to serve even if it still physically exists;
+- a failed or unknown purge/invalidation state keeps the affected output fail closed and remains observable;
+- retry/reconciliation may repeat propagation idempotently without re-authorizing the old object;
+- successful convergence is based on enforcement proof, not merely on dispatching an invalidation request.
+
+### Privacy dependency unavailability
+
+Privacy-policy evidence failure is distinct from game-source failure.
+
+When the serving path cannot prove that its privacy decision is current for a privacy-controlled field:
+
+- it must not silently reuse an unproven cached `allow` decision;
+- the affected field fails closed to hidden/redacted/unavailable presentation according to its product contract;
+- independently public fields whose privacy applicability is already proven may continue under their game-source freshness policy;
+- dependency recovery must reconcile to the latest accepted privacy revision before re-enabling affected output.
+
+A cache can therefore preserve game-source availability without becoming a second privacy authority.
+
 ## Rebuild and projection generations
 
 A projection must be rebuildable from authoritative evidence rather than requiring manual row repair.
@@ -366,11 +425,14 @@ Preferred semantic rebuild model:
 4. apply the authoritative tail/replay after the baseline watermark when the producer supports replay;
 5. validate identity, revision, count/digest/invariant and gap checks available under the source contract;
 6. reconcile unresolved gaps before activation;
-7. atomically switch the Platform read pointer/generation;
-8. retain the prior known-good generation for bounded rollback;
-9. retire old generations under retention policy after cutover evidence is complete.
+7. bind/recompose privacy-controlled presentation against the current Platform privacy decision floor and reject activation of a public generation that is below that floor;
+8. atomically switch the Platform read pointer/generation only after source and privacy applicability gates pass;
+9. retain the prior known-good game projection for bounded rollback, while treating any public presentation derived under an older privacy revision as rollback-ineligible until recomposed or fenced to the current privacy floor;
+10. retire old generations under retention policy after cutover evidence is complete.
 
 If replay is not available, the producer contract must provide another bounded authoritative reconciliation/query/snapshot mechanism. Platform must not declare a rebuild complete merely because no more messages arrived.
+
+Game-projection rollback never rolls back the Platform privacy authority. A rollback target that predates a newer restrictive privacy decision may supply known-good game facts, but its privacy-controlled public representation must be recomposed or fenced using the current privacy decision before it can serve.
 
 ## High-watermarks, gaps and reconciliation
 
@@ -380,7 +442,8 @@ Platform maintains enough internal provenance per projection family/scope to ans
 - which baseline/snapshot revision was applied;
 - the last accepted ordered revision/sequence where one exists;
 - whether a gap, invalid record or quarantine blocks full freshness;
-- which Platform projection generation currently serves reads.
+- which Platform projection generation currently serves reads;
+- which Platform privacy decision revision/floor governs the privacy-controlled representation and whether required invalidation/fencing has converged.
 
 Gap handling:
 
@@ -391,6 +454,8 @@ Gap handling:
 - reconciliation success must be observable and auditable.
 
 Periodic reconciliation may compare source-defined counts/digests/revisions or bounded authoritative queries. It must not infer equality from matching row counts alone unless the producer contract defines that proof.
+
+Privacy reconciliation is independently monotonic: delayed/out-of-order privacy events below the current privacy floor are rejected as authority, and a failed privacy invalidation remains a privacy convergence failure even when game-source reconciliation is healthy.
 
 ## Invalid and poison source records
 
@@ -415,6 +480,9 @@ Recommended observable signals include:
 - current projection generation and contract/schema version;
 - source revision/high-watermark by family/scope;
 - age of last accepted authoritative evidence;
+- current privacy decision revision/floor for privacy-controlled scopes;
+- privacy invalidation/fence convergence state and oldest unresolved restrictive-change age;
+- rejected superseded privacy decision count;
 - duplicate/replay count;
 - out-of-order/superseded rejection count;
 - gap/reconciliation count and oldest unresolved gap age;
@@ -423,7 +491,7 @@ Recommended observable signals include:
 - projection switch/rollback events;
 - current source authority mode (`native_oteryn_v2` vs explicit legacy compatibility) without exposing private infrastructure to the public API.
 
-Public output should expose only the minimum age/degraded context needed for truthful presentation.
+Public output should expose only the minimum age/degraded context needed for truthful presentation and must not expose internal privacy/security generations unless a separate public contract requires a safe representation.
 
 ## Legacy Canary Compatibility and migration
 
@@ -438,9 +506,9 @@ Before switching one family to native authority, prove:
 3. projection schema/generation and idempotent consumer behavior;
 4. baseline/rebuild and replay/reconciliation path;
 5. freshness, stale, unavailable, invalid, empty/not-found and tombstone negative paths;
-6. Platform privacy/presentation overlay correctness;
+6. Platform privacy/presentation overlay correctness, monotonic privacy decision evidence, restrictive visibility cutoff and fail-closed invalidation/fencing behavior;
 7. shadow/diff evidence where practical without making the shadow source authoritative;
-8. reversible Platform read-source/generation switch;
+8. reversible Platform read-source/generation switch that cannot cross a newer privacy deny;
 9. exact-revision producer/consumer compatibility evidence.
 
 During migration:
@@ -449,8 +517,8 @@ During migration:
 - do not merge incompatible records from two authorities into one apparently authoritative row set;
 - shadow comparison may report differences but must not silently choose values field by field;
 - cutover is per family/scope only after its gate passes;
-- rollback returns Platform reads to the previous known-good source/generation; it does not write derived Platform state into Oteryn-v2;
-- a post-cutover legacy fallback, if temporarily retained, must be explicit policy and must not reinterpret Canary IDs as canonical native IDs.
+- rollback returns Platform game-fact reads to the previous known-good source/generation, but privacy-controlled output remains fenced by the newest accepted Platform privacy decision and may not reuse an older `allow` variant;
+- a post-cutover legacy fallback, if temporarily retained, must be explicit policy and must not reinterpret Canary IDs as canonical native IDs or bypass the current Platform privacy floor.
 
 Legacy compatibility retirement requires a separately evidenced remaining-consumer review and removal criteria.
 
@@ -476,6 +544,8 @@ The current `PublicCharacterProfileService` pattern contains one architectural p
 
 The legacy implementation currently keys parts of that composition through `canary_account_id` / `canary_player_id`. Native cutover must replace those compatibility identifiers with accepted canonical identities before treating the path as native.
 
+The current Canary-compatible direct-read path is not classified as defective by this contract repair merely because it does not already persist the future native privacy-revision fence. Its existing composition reads Platform-owned privacy state at the Platform boundary; the monotonic privacy floor defined here is a prerequisite for future native projection/cache/CDN cutover where privacy-controlled variants may be materialized or served asynchronously.
+
 The target is **not** to copy the current SQL schema into a new projection database. The target is to preserve product semantics while changing authority and integration boundaries.
 
 ## Versioning and change control
@@ -484,11 +554,11 @@ Breaking semantic changes require explicit contract revision when changing any o
 
 - source-of-truth owner for a projection family;
 - stable identity rules;
-- privacy/presentation ownership;
+- privacy/presentation ownership, privacy decision ordering or revocation cutoff semantics;
 - stale/unavailable/empty/not-found truthfulness;
 - tombstone/lifecycle behavior;
 - idempotency/ordering guarantees;
-- rebuild/reconciliation requirement;
+- rebuild/reconciliation requirement, including the rule that game-projection rollback cannot cross a newer privacy deny;
 - rule that ordinary public reads do not synchronously depend on game runtime;
 - migration rule prohibiting silent mixed authority.
 
@@ -507,10 +577,11 @@ The following remain `UNKNOWN` until accepted by owning contracts/evidence:
 - exact replay retention/window;
 - exact Platform projection tables/indexes/storage engine;
 - exact Laravel worker/job topology;
-- exact cache/CDN invalidation implementation;
+- exact persistence/encoding of the monotonic Platform privacy revision/floor;
+- exact cache/search/CDN invalidation or serve-time fence implementation that satisfies the frozen privacy semantics above;
 - exact staging/production rollout and cutover order.
 
-These unknowns do not authorize shared native SQL or synchronous runtime fallback.
+These unknowns do not authorize shared native SQL, synchronous runtime fallback or weakening the privacy revocation floor.
 
 ## Validation requirements before implementation/cutover claims
 
@@ -519,19 +590,25 @@ A future implementation must prove, as applicable:
 1. accepted producer/source identity and exact contract version;
 2. canonical CharacterId/WorldId/ChannelId validation and accepted stable guild identity where needed;
 3. duplicate/replayed input is idempotent;
-4. out-of-order/superseded input cannot overwrite newer state;
+4. out-of-order/superseded game input cannot overwrite newer game state;
 5. baseline + tail/replay or equivalent bounded reconciliation rebuilds one full generation;
-6. a detected gap/poison record causes explicit stale/reconciliation state and deterministic recovery;
-7. stale/unavailable/invalid evidence never renders as authoritative empty/zero/not-found;
-8. last-known-good behavior obeys hard freshness limits;
+6. a detected game-source gap/poison record causes explicit stale/reconciliation state and deterministic recovery;
+7. stale/unavailable/invalid game evidence never renders as authoritative empty/zero/not-found;
+8. last-known-good game behavior obeys hard freshness limits and never bypasses the current privacy decision floor;
 9. rename/delete/restore/transfer/account-transfer scenarios reconcile every affected projection/index;
-10. CharacterProfiles/Identity privacy denies remain effective over fresh game facts and after cache/search refresh;
-11. normal website reads remain available from Platform projection when the game producer is temporarily unavailable;
-12. runtime-status aggregate semantics remain consistent with their dedicated contract without duplicate authority;
-13. Game Catalog/content authority remains separate;
-14. legacy-vs-native shadow evidence is attributable and cutover/rollback never silently mixes authority;
-15. public output contains no private account/session/topology material;
-16. exact-revision producer/consumer E2E passes before any production activation.
+10. CharacterProfiles/Identity privacy decisions have monotonic/versioned ordering and a delayed, replayed or out-of-order older `allow` cannot override a newer deny;
+11. a restrictive privacy change immediately makes every older affected public variant ineligible, including HTTP/API/SSR caches, search and CDN copies, before propagation is declared converged;
+12. invalidation/fencing failure or ambiguous acknowledgement keeps affected privacy-controlled output fail closed and produces observable recovery state;
+13. cache/search/CDN lag after a deny cannot serve the older `allow` variant, and successful recovery proves the current privacy floor before re-publication;
+14. concurrent game-projection refresh and privacy restriction preserves the restrictive decision regardless of arrival/commit order;
+15. privacy-policy dependency outage is distinct from game-source outage and cannot silently reuse an unproven cached `allow` decision;
+16. projection generation switch or rollback after a deny cannot resurrect presentation below the current privacy floor;
+17. normal website reads remain available from Platform projection when the game producer is temporarily unavailable for fields whose game and privacy evidence remain valid;
+18. runtime-status aggregate semantics remain consistent with their dedicated contract without duplicate authority;
+19. Game Catalog/content authority remains separate;
+20. legacy-vs-native shadow evidence is attributable and cutover/rollback never silently mixes authority or bypasses current privacy restrictions;
+21. public output contains no private account/session/topology material or internal privacy/security generation unless explicitly authorized;
+22. exact-revision producer/consumer E2E passes before any production activation.
 
 ## Non-authorization
 
@@ -543,6 +620,7 @@ This contract authorizes no:
 - replacement or removal of current Canary readers;
 - schema/data migration;
 - public route/API behavior change;
+- cache/search/CDN implementation or configuration change;
 - staging deployment;
 - production cutover or mutation;
 - Game Catalog or runtime-status authority change.
