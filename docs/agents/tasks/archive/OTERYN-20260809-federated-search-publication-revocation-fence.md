@@ -64,7 +64,7 @@ No federated-search runtime, route, schema, cache/index implementation, deployme
 ```yaml
 checkpoint_version: 1
 updated_at: 2026-08-09T09:52:00Z
-status: complete
+status: completed
 phase: archived
 branch: closeout/issue-938
 repair_pr: 947
