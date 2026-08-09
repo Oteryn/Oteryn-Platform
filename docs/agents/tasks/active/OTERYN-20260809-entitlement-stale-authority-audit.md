@@ -89,9 +89,9 @@ No current Premium/VIP runtime defect is claimed. The contract explicitly defers
 ```yaml
 checkpoint_version: 1
 policy_version: 2
-updated_at: 2026-08-09T09:17:00Z
+updated_at: 2026-08-09T09:18:00Z
 invocation_started_at: 2026-08-09T09:08:00Z
-last_progress_at: 2026-08-09T09:17:00Z
+last_progress_at: 2026-08-09T09:18:00Z
 head: OUT_OF_BAND_FINAL_HEAD_AFTER_THIS_CHECKPOINT
 branch: audit/OTERYN-20260809-entitlement-stale-authority
 pr: 945
@@ -123,7 +123,7 @@ terminal_ci_wait_started_at: null
 terminal_ci_checks_for_current_generation: 0
 unchanged_state_checks: 0
 identical_failure_retries: 0
-repair_cycles_for_current_gate: 1
+repair_cycles_for_current_gate: 2
 context_reconstruction_attempts: 0
 stall_warnings: 0
 proven:
@@ -139,21 +139,22 @@ proven:
   - Issue #944 independently owns the contract repair and is agent:ready on deterministic branch repair/issue-944.
   - Audit PR #945 is open from branch audit/OTERYN-20260809-entitlement-stale-authority.
   - Initial PR head 377a252bca0891ebcb2257e4a6a34d612fe7ab9e changed exactly the two declared audit documentation paths and repository CI passed.
-  - Initial Agent Governance run 31305441643 failed only because the task omitted the already-open PR #945 identity; schema validation passed and no semantic audit finding was reported by that gate.
+  - Agent Governance run 31305441643 failed only because the task omitted the already-open PR #945 identity; the PR identity was added without changing finding evidence.
+  - Agent Governance run 31305530508 then failed checkpoint schema only because validation result `FAIL_REPAIRED` is not an allowed result token; this generation normalizes that historical result to `FAIL`.
 derived:
   - A requirement that stale authority must not last forever is not implementable or testable unless the consumer can determine a finite cutoff from authoritative evidence or product policy.
   - Delayed revocation during a partition can remain ineffective arbitrarily long if the older active evidence has no finite authority lease.
 unknown: []
 conflicts: []
 first_failure:
-  marker: branch_pr_identity_omitted
-  evidence: Agent Governance run 31305441643 proved the task branch already had open PR #945 while the checkpoint still recorded pr none
+  marker: exact-head-checkpoint-validation
+  evidence: first governance generation omitted PR #945 identity; second governance generation used unsupported validation result FAIL_REPAIRED; both failures are checkpoint-only and finding evidence remains unchanged
 rejected_hypotheses:
   - Revision ordering alone bounds an outage; it does not when the newer revision cannot be observed.
   - Deferring forced-disconnect semantics justifies unbounded entitlement authority; session termination policy and authorization validity are separate concerns.
   - Issue #322 duplicates this finding; #322 owns future runtime implementation, not the canonical native game-consumption stale-authority contract correction.
   - A production Premium/VIP defect exists now; runtime/product activation remains deferred.
-  - Agent Governance failure invalidates OPA-SEC-0007; the failing invariant was checkpoint PR identity and is repaired without changing finding evidence or remediation scope.
+  - Agent Governance failures invalidate OPA-SEC-0007; both failing invariants were audit-task checkpoint metadata/schema and are repaired without changing the finding or remediation scope.
 changed_paths:
   - docs/agents/tasks/active/OTERYN-20260809-entitlement-stale-authority-audit.md
   - docs/agents/reports/OTERYN-20260809-entitlement-stale-authority-audit.md
@@ -174,14 +175,17 @@ validation:
     result: PASS
     evidence: repository-selected CI completed successfully
   - command: Agent Governance run 31305441643 on initial head 377a252bca0891ebcb2257e4a6a34d612fe7ab9e
-    result: FAIL_REPAIRED
-    evidence: branch_pr_identity_omitted because open PR #945 was not recorded; checkpoint now records pr 945 and requires a fresh exact-head generation
+    result: FAIL
+    evidence: branch_pr_identity_omitted because open PR #945 was not recorded; checkpoint was updated to pr 945
+  - command: Agent Governance run 31305530508 on head 7cf550694f996b77d7f0ee508e6d1103cf236103
+    result: FAIL
+    evidence: validation token FAIL_REPAIRED was unsupported; normalized to allowed FAIL in this generation
   - command: runtime/browser E2E for audit deliverable
     result: NOT_APPLICABLE
     evidence: audit documentation only; Premium/VIP runtime is not delivered by the contract
   - command: exact-final-head self-review / fresh review / repository CI
     result: NOT_RUN
-    evidence: this checkpoint repair creates the next exact-head validation generation
+    evidence: this schema normalization creates the next exact-head validation generation
 blockers:
   - none
 next_action: Validate the new exact PR #945 head with self-review, fresh Codex review, Agent Governance/CI, exact changed paths and zero unresolved threads; merge only if all gates pass, then perform lifecycle archive/programme reconciliation.
