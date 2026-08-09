@@ -30,19 +30,20 @@ optional_reads: []
 
 ## Goal
 
-Independently audit the newly accepted WWW Platform federated-search architecture for publication/visibility revocation correctness, especially the interaction between source authority, stale derived indexes, result caches, tombstone propagation and generation rollback. Record confirmed findings without implementing remediation.
+Independently audit the newly accepted WWW Platform federated-search architecture for publication/visibility revocation correctness, especially source authority versus stale derived indexes, result caches, tombstone propagation and generation rollback. Record confirmed findings without implementing remediation.
 
 ## Acceptance criteria
 
-- [x] Refresh protected `main`, active tasks, open PRs and live remediation queue before selecting the domain.
-- [x] Confirm previous findings #905 and #908 are terminal and do not remain live owners.
-- [x] Audit current ADR 0033 and `FEDERATED_SEARCH_ARCHITECTURE.md` from primary evidence rather than relying on PR summary.
-- [x] Inspect PR #936 review history for already-discovered/repaired security or cache findings.
-- [x] Test the negative path: newer unpublish/revoke/delete/incompatible decision while an older indexed/cached public result still exists or an older index generation is restored.
-- [x] Search open and closed Issues for duplicate ownership before creating a finding.
-- [x] Route the confirmed material root cause as OPA-SEC-0005 / Issue #938 with complete taxonomy metadata.
-- [x] Keep the audit diff limited to audit evidence/task records; do not edit Issue #938 remediation paths.
-- [ ] Complete exact-head self-review, repository-required CI, review hygiene, squash merge and lifecycle archive closeout.
+- [x] Refresh protected `main`, active tasks, open PRs and live remediation queue before domain selection.
+- [x] Confirm historical findings #905 and #908 are terminal and not live owners.
+- [x] Audit current ADR 0033 and `FEDERATED_SEARCH_ARCHITECTURE.md` from primary evidence.
+- [x] Inspect PR #936 review history for already-discovered/repaired findings.
+- [x] Falsify the revoke/unpublish path against stale index/cache and rollback semantics.
+- [x] Deduplicate against open/closed Issues before creating a finding.
+- [x] Route OPA-SEC-0005 as independent Issue #938 with current taxonomy metadata.
+- [x] Keep Issue #938 remediation paths out of the audit diff.
+- [x] Open bounded audit PR #939.
+- [ ] Complete exact-final-head self-review, fresh review, required CI, zero unresolved material threads, merge and lifecycle closeout.
 
 ## Ownership
 
@@ -74,29 +75,29 @@ forbidden_paths:
   - external repositories
 ```
 
-Issue #938 owns the architecture remediation paths. This audit must not repair that contract in the same role.
+Issue #938 exclusively owns the architecture repair. This audit does not remediate that finding.
 
 ## Audit result
 
 One material finding is proven:
 
-- **OPA-SEC-0005 / Issue #938 — HIGH / P1**: the accepted architecture requires deterministic unpublish/revoke/delete propagation and permits bounded stale-index/cache behavior, but does not define a monotonic restrictive publication-decision fence, visibility cutoff, fail-closed propagation failure semantics or rollback rule preventing an older index generation from resurrecting a result after a newer revoke.
+- **OPA-SEC-0005 / Issue #938 — HIGH / P1**: ADR 0033/focused search architecture require deterministic unpublish/revoke/delete propagation and permit bounded stale-index/cache behavior, but do not define a monotonic restrictive publication-decision fence, authoritative visibility cutoff, fail-closed propagation-failure semantics, or rollback rule preventing an older index generation from resurrecting a result after a newer restrictive decision.
 
-The audit does **not** prove a current runtime disclosure. ADR 0033 explicitly remains architecture/planned and no federated-search route/index/cache implementation is delivered by this change.
+This is a future architecture-contract risk. No current federated-search runtime/index/cache disclosure is claimed.
 
 ## Context checkpoint
 
 ```yaml
 checkpoint_version: 1
 policy_version: 2
-updated_at: 2026-08-09T08:19:00Z
+updated_at: 2026-08-09T08:24:00Z
 invocation_started_at: 2026-08-09T08:12:00Z
-last_progress_at: 2026-08-09T08:19:00Z
-head: OUT_OF_BAND_AUDIT_PR_HEAD_AFTER_THIS_COMMIT
+last_progress_at: 2026-08-09T08:24:00Z
+head: OUT_OF_BAND_FINAL_HEAD_AFTER_THIS_CHECKPOINT
 branch: audit/OTERYN-20260809-federated-search-revocation
-pr: none
+pr: 939
 status: validating
-phase: audit-package-validation
+phase: exact-head-validation
 session_id: agent-20260809-0812-federated-search-revocation
 session_role: auditor
 project_lane: oteryn-platform-content
@@ -118,7 +119,7 @@ decomposition_decision: single
 validation_level: documentation_exact_head
 invocation_budget_minutes: 60
 ci_checks_for_current_head: 0
-ci_check_generation: draft
+ci_check_generation: ready
 terminal_ci_wait_started_at: null
 terminal_ci_checks_for_current_generation: 0
 unchanged_state_checks: 0
@@ -127,56 +128,59 @@ repair_cycles_for_current_gate: 0
 context_reconstruction_attempts: 0
 stall_warnings: 0
 proven:
-  - Protected main at audit selection is af3c23943106cd10c7eea42f6644ae12e1e69990.
-  - Live active tasks are only the blocked public-domain repair and blocked native-auth production-verification records; neither owns federated-search architecture.
-  - Live open programme:audit-repair query was empty before this audit finding was created.
-  - Issues #905 and #908 are closed completed after their independent repairs and lifecycle closeouts.
-  - Open PRs #541 and #338 are independent holds and do not own this audit or Issue #938 remediation paths.
-  - Issue #935 is closed after PR #936 accepted ADR 0033 and the focused federated-search architecture.
-  - PR #936 had three material review repair cycles covering reverse dependencies and complete privacy-safe semantic response cache identity; its review history contains no publication-revocation/tombstone-ordering finding.
-  - The focused architecture says a source becoming unpublished, revoked or incompatible must stop appearing according to canonical source truth.
-  - The same architecture permits future bounded stale-index lag, deterministic tombstones, generation-based rebuild/cutover and result caching.
-  - Neither ADR 0033 nor the focused architecture defines a monotonic restrictive publication-decision revision/watermark, propagation acknowledgement/fail-closed rule or rollback fence across a newer revoke.
-  - Duplicate searches found no open or closed Issue owning this exact federated-search publication/index revocation root cause; OPA-SEC-0005 was unused.
-  - Issue #938 now owns the independent architecture repair and is agent:ready with deterministic lock branch repair/issue-938.
+  - Protected main at audit selection was af3c23943106cd10c7eea42f6644ae12e1e69990.
+  - Active tasks at selection were only the unrelated blocked public-domain repair and native-auth production-verification records.
+  - Open PRs #541 and #338 are unrelated independent holds.
+  - Live programme:audit-repair queue was empty before this finding was created.
+  - Issues #905 and #908 are closed completed after independent repairs and closeouts.
+  - Issue #935 is terminal after PR #936 accepted ADR 0033 and the focused federated-search architecture.
+  - PR #936 review history shows three material repairs for reverse dependency and cache request identity; no publication-revocation ordering/tombstone rollback finding was recorded.
+  - The focused architecture requires revoked/unpublished/incompatible content to stop appearing according to canonical source truth while also permitting bounded stale-index lag, tombstones, index generations and result caching.
+  - Neither ADR 0033 nor the focused architecture defines a restrictive publication-decision revision/watermark, affected-result fail-closed propagation rule, or rollback fence across a newer revoke.
+  - Duplicate searches found no existing Issue owning the same root cause and no prior OPA-SEC-0005 identity.
+  - Issue #938 is the independent remediation owner and was published `agent:ready` after confirming deterministic branch `repair/issue-938` did not exist.
+  - PR #939 changes exactly the two declared audit documentation paths.
 derived:
-  - A future implementation can satisfy ordinary bounded stale-index/cache freshness while still serving a representation based on an older public decision unless a separate restrictive-decision fence is defined.
-  - This is analogous in failure shape to historical PublicGameData Issue #908 but is a distinct federated content-search source-publication boundary.
+  - Ordinary bounded stale-index/cache freshness can coexist with a newer restrictive source decision unless a separate ordered publication-authority fence is defined.
+  - Historical Issue #908 has a structurally similar hazard but a distinct PublicGameData privacy contract and is not a duplicate.
 unknown: []
 conflicts: []
 first_failure:
   marker: federated-search-revocation-ordering-gap
-  evidence: current architecture defines deterministic propagation and bounded stale lag without defining which publication decision wins while propagation is pending, failed or rolled back
+  evidence: accepted contract defines desired revocation propagation and stale tolerance without defining which publication decision wins while propagation is delayed, failed or rolled back
 rejected_hypotheses:
-  - Existing cache generation identity alone proves revocation safety; it does not prove a restrictive source decision advances or fences every still-servable representation.
-  - PR #936 already reviewed this root cause; its material reviews addressed reverse dependencies and request-cache identity, not restrictive publication ordering.
-  - Issue #908 is a duplicate; it governs native PublicGameData privacy revocation and is terminal, while #938 governs federated content-search publication/index revocation.
-  - Current production runtime is leaking revoked federated results; no federated-search runtime/index is delivered yet.
+  - Provider/source/index generation in cache identity alone proves revocation safety; it does not prove that a restrictive source decision fences every still-servable older representation.
+  - PR #936 already repaired this root cause; its three material review cycles did not address restrictive publication ordering or rollback after revoke.
+  - Issue #908 is duplicate ownership; it is terminal and governs native PublicGameData privacy revocation, not federated content publication/index revocation.
+  - Current production federated search is leaking revoked data; no such runtime/index is delivered by ADR 0033.
 changed_paths:
   - docs/agents/tasks/active/OTERYN-20260809-federated-search-revocation-audit.md
   - docs/agents/reports/OTERYN-20260809-federated-search-revocation-audit.md
 validation:
   - command: live main / active task / open PR / remediation queue reconciliation
     result: PASS
-    evidence: main af3c23943106cd10c7eea42f6644ae12e1e69990; two unrelated blocked active tasks; PRs #541/#338; no pre-existing open remediation finding
-  - command: primary ADR 0033 and focused architecture negative-path review
+    evidence: non-overlapping domain selected from main af3c23943106cd10c7eea42f6644ae12e1e69990
+  - command: ADR 0033 and focused architecture negative-path review
     result: PASS
-    evidence: restrictive publication ordering/fencing gap reproduced from the accepted contract itself
-  - command: PR #936 review-history duplicate/finding inspection
+    evidence: restrictive publication ordering/fencing gap is reproducible from the accepted contract
+  - command: PR #936 review-history inspection
     result: PASS
-    evidence: three P2 repair cycles did not address unpublish/revoke tombstone ordering or rollback fencing
-  - command: open/closed Issue and finding-ID duplicate search
+    evidence: three material review repairs do not cover this root cause
+  - command: open/closed Issue plus OPA-SEC-0005 duplicate search
     result: PASS
-    evidence: no duplicate for federated-search revocation fencing; OPA-SEC-0005 unused
+    evidence: no duplicate; Issue #938 created as independent owner
+  - command: PR #939 changed-path inspection
+    result: PASS
+    evidence: exactly two audit documentation paths; no remediation/product path
   - command: runtime/browser E2E for audit deliverable
     result: NOT_APPLICABLE
-    evidence: audit package changes only non-executable task/report documentation; audited architecture has no delivered federated-search runtime
-  - command: exact-head repository CI
+    evidence: non-executable audit documentation only; audited federated-search runtime is not implemented
+  - command: exact-final-head self-review / fresh review / repository CI
     result: NOT_RUN
-    evidence: audit PR has not yet been opened
+    evidence: checkpoint commit creates the final validation generation
 blockers:
   - none
-next_action: Open the bounded audit PR, perform exact-head self-review and required CI/review hygiene, then squash-merge and archive the task while registering OPA-SEC-0005 in the continuous-audit historical identity ledger.
+next_action: Validate the unchanged final PR #939 head with exact-head self-review, fresh review, required Agent Governance/CI and zero unresolved threads; merge only if all gates pass, then perform required lifecycle archive/programme reconciliation.
 ```
 
 ## Notes
