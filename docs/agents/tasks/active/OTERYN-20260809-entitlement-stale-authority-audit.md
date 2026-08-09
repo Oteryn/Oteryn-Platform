@@ -39,6 +39,7 @@ Audit the accepted Profile-B game-consumed entitlement boundary for a finite sta
 - [x] Search for duplicate findings and reserve OPA-SEC-0007.
 - [x] Route OPA-SEC-0007 / Issue #944 with independent remediation metadata.
 - [x] Keep Issue #944 contract path forbidden to the auditor.
+- [x] Open bounded audit PR #945 and record its live identity in this checkpoint.
 - [ ] Complete exact-final-head self-review, fresh review, required CI, zero unresolved material threads, merge and lifecycle closeout.
 
 ## Ownership
@@ -88,14 +89,14 @@ No current Premium/VIP runtime defect is claimed. The contract explicitly defers
 ```yaml
 checkpoint_version: 1
 policy_version: 2
-updated_at: 2026-08-09T09:14:00Z
+updated_at: 2026-08-09T09:17:00Z
 invocation_started_at: 2026-08-09T09:08:00Z
-last_progress_at: 2026-08-09T09:14:00Z
+last_progress_at: 2026-08-09T09:17:00Z
 head: OUT_OF_BAND_FINAL_HEAD_AFTER_THIS_CHECKPOINT
 branch: audit/OTERYN-20260809-entitlement-stale-authority
-pr: none
+pr: 945
 status: validating
-phase: audit-package-creation
+phase: exact-head-validation
 session_id: agent-20260809-0908-entitlement-stale-authority
 session_role: auditor
 project_lane: oteryn-platform-content
@@ -122,13 +123,13 @@ terminal_ci_wait_started_at: null
 terminal_ci_checks_for_current_generation: 0
 unchanged_state_checks: 0
 identical_failure_retries: 0
-repair_cycles_for_current_gate: 0
+repair_cycles_for_current_gate: 1
 context_reconstruction_attempts: 0
 stall_warnings: 0
 proven:
   - Protected main at selection is 88a4c6c844c45f641375fab3b2319496dbef44b1.
-  - Active tasks are only public-domain repair and native-auth production-verification plus `.gitkeep`.
-  - Open PRs are #541 and #338; neither owns the audited contract path.
+  - Active tasks at selection were only public-domain repair and native-auth production-verification plus `.gitkeep`.
+  - Open PRs at selection were #541 and #338; neither owns the audited contract path.
   - Issues #938 and #941 remain independent open audit-repair owners.
   - Issue #924 explicitly required bounded stale/unavailable Premium/VIP behavior.
   - PR #925 merged the current entitlement/game-delivery contract.
@@ -136,19 +137,23 @@ proven:
   - The same contract defers exact offline grace/cache TTL/current-session behavior and does not require a finite authority lease or cutoff datum.
   - Duplicate searches found no existing owner for this exact Profile-B stale-authority root cause.
   - Issue #944 independently owns the contract repair and is agent:ready on deterministic branch repair/issue-944.
+  - Audit PR #945 is open from branch audit/OTERYN-20260809-entitlement-stale-authority.
+  - Initial PR head 377a252bca0891ebcb2257e4a6a34d612fe7ab9e changed exactly the two declared audit documentation paths and repository CI passed.
+  - Initial Agent Governance run 31305441643 failed only because the task omitted the already-open PR #945 identity; schema validation passed and no semantic audit finding was reported by that gate.
 derived:
   - A requirement that stale authority must not last forever is not implementable or testable unless the consumer can determine a finite cutoff from authoritative evidence or product policy.
   - Delayed revocation during a partition can remain ineffective arbitrarily long if the older active evidence has no finite authority lease.
 unknown: []
 conflicts: []
 first_failure:
-  marker: profile-b-bounded-stale-authority-gap
-  evidence: bounded stale/unavailable behavior was an acceptance criterion of #924 but no finite cutoff is required by the accepted contract
+  marker: branch_pr_identity_omitted
+  evidence: Agent Governance run 31305441643 proved the task branch already had open PR #945 while the checkpoint still recorded pr none
 rejected_hypotheses:
   - Revision ordering alone bounds an outage; it does not when the newer revision cannot be observed.
   - Deferring forced-disconnect semantics justifies unbounded entitlement authority; session termination policy and authorization validity are separate concerns.
   - Issue #322 duplicates this finding; #322 owns future runtime implementation, not the canonical native game-consumption stale-authority contract correction.
   - A production Premium/VIP defect exists now; runtime/product activation remains deferred.
+  - Agent Governance failure invalidates OPA-SEC-0007; the failing invariant was checkpoint PR identity and is repaired without changing finding evidence or remediation scope.
 changed_paths:
   - docs/agents/tasks/active/OTERYN-20260809-entitlement-stale-authority-audit.md
   - docs/agents/reports/OTERYN-20260809-entitlement-stale-authority-audit.md
@@ -162,13 +167,22 @@ validation:
   - command: duplicate search
     result: PASS
     evidence: no exact duplicate; Issue #944 created as independent owner
+  - command: PR #945 changed-path inspection on initial head 377a252bca0891ebcb2257e4a6a34d612fe7ab9e
+    result: PASS
+    evidence: exactly the two declared audit documentation paths
+  - command: repository CI run 31305441630 on initial head 377a252bca0891ebcb2257e4a6a34d612fe7ab9e
+    result: PASS
+    evidence: repository-selected CI completed successfully
+  - command: Agent Governance run 31305441643 on initial head 377a252bca0891ebcb2257e4a6a34d612fe7ab9e
+    result: FAIL_REPAIRED
+    evidence: branch_pr_identity_omitted because open PR #945 was not recorded; checkpoint now records pr 945 and requires a fresh exact-head generation
   - command: runtime/browser E2E for audit deliverable
     result: NOT_APPLICABLE
     evidence: audit documentation only; Premium/VIP runtime is not delivered by the contract
   - command: exact-final-head self-review / fresh review / repository CI
     result: NOT_RUN
-    evidence: audit package commit will create the validation generation
+    evidence: this checkpoint repair creates the next exact-head validation generation
 blockers:
   - none
-next_action: Open the bounded audit PR, validate its unchanged exact head with self-review, fresh review, Agent Governance/CI and zero unresolved threads, merge only if all gates pass, then perform lifecycle archive/programme reconciliation.
+next_action: Validate the new exact PR #945 head with self-review, fresh Codex review, Agent Governance/CI, exact changed paths and zero unresolved threads; merge only if all gates pass, then perform lifecycle archive/programme reconciliation.
 ```
