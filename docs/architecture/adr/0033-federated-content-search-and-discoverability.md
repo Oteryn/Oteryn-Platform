@@ -154,13 +154,16 @@ newer restrictive source decision
 > older public/allow representation
 ```
 
-Once a source records a newer unpublish, revoke, delete, moderation/legal removal, incompatibility or equivalent restrictive decision:
+The source-authoritative restrictive transition must advance the ordered publication/revocation fence before or atomically with making the deny effective for public search. Asynchronous index/cache tombstone cleanup may follow; the fence itself may not lag behind the effective restrictive decision.
+
+Once that newer unpublish, revoke, delete, moderation/legal removal, incompatibility or equivalent restrictive decision is accepted/effective:
 
 - older direct-provider materializations, derived-index documents, result-cache entries, web responses and future PlatformAPI responses become unservable for the affected object/fields even when ordinary cache TTL or tolerated index lag remains;
 - every derived representation is bound to the publication-decision evidence under which it was allowed, and out-of-order older allow/update events cannot regress an accepted newer restrictive decision;
 - failed, delayed or ambiguous tombstone/index/cache propagation cannot be treated as successful revocation; the affected representation fails closed until the newer decision is proven effective for that delivery path;
 - physical deletion/eviction may occur later, but the visibility fence must already prevent delivery;
-- publication-authority unavailability is distinguished from ordinary stale-content/provider failure. A stale allow may be reused only while a source-owned bounded publication proof/lease remains valid under an accepted contract; if continuing authority cannot be proven, the affected result is unavailable rather than public-by-default;
+- a time-expiring cached allow/proof is not sufficient revocation safety by itself. Any mechanism that avoids a synchronous source lookup must still prove the current restrictive fence before serving, and an accepted newer restrictive decision must invalidate/fence the older allow for all delivery paths;
+- when current restrictive-fence state cannot be proven during publication-authority outage, the affected result is unavailable rather than public-by-default;
 - a rebuild, cutover or rollback cannot activate an index generation whose publication-decision watermark would move behind a newer accepted restrictive decision. Affected content remains fenced until a compatible generation is rebuilt/reconciled;
 - ordinary source revision, index generation, cache generation and TTL may satisfy this fence only if the source contract proves the same ordered value advances for every restrictive decision and every delivery path checks it.
 
@@ -276,6 +279,10 @@ Rejected. Ordinary freshness tolerance cannot authorize an older allow after the
 
 Rejected. Physical invalidation can fail or be delayed. The visibility fence must make affected older representations unservable before cleanup is considered complete.
 
+### Treat a time-expiring allow lease as sufficient revocation fencing
+
+Rejected. A lease that remains usable after a newer restrictive decision merely converts an unbounded stale-authorization bug into a bounded one. It may supplement availability only when the current restrictive fence is still proven and every newer deny can invalidate/fence the older allow immediately for search delivery.
+
 ## Implementation and activation limits
 
 This ADR defines architecture only. It does not authorize:
@@ -289,7 +296,7 @@ This ADR defines architecture only. It does not authorize:
 
 Implementation requires a separate bounded task with exact source contracts, dependency-cycle cleanup for every selected provider that currently imports PublicPortal, full semantic cache-identity/privacy and key-rotation tests, restrictive publication-decision ordering/failure/rollback tests, state/error coverage, security/rate-limit validation, localization, accessibility/responsive behavior and real exact-head E2E.
 
-At minimum, restrictive-publication validation must cover out-of-order allow/revoke events, tombstone propagation failure, result-cache/index lag, concurrent refresh versus revoke, publication-authority outage/expired visibility proof and rollback to an older index generation after a newer revoke. The repair does not claim a current runtime disclosure because no federated-search index/cache runtime is delivered by this ADR.
+At minimum, restrictive-publication validation must cover out-of-order allow/revoke events, tombstone propagation failure, result-cache/index lag, concurrent refresh versus revoke, publication-authority outage/inability to validate the current restrictive fence and rollback to an older index generation after a newer revoke. The repair does not claim a current runtime disclosure because no federated-search index/cache runtime is delivered by this ADR.
 
 ## Focused architecture
 
