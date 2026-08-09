@@ -9,6 +9,7 @@ Primary evidence:
 - `docs/architecture/adr/0032-portal-composition-tracking-and-server-system-ownership.md`;
 - `docs/architecture/PORTAL_COMPLETENESS_ARCHITECTURE.md`;
 - `docs/architecture/PLAYER_COMPANION_ARCHITECTURE.md`;
+- `docs/architecture/SECURITY_ARCHITECTURE.md` as the global security-baseline falsification check;
 - PR #933 review history;
 - live active-task, open-PR and audit-repair ownership state.
 
@@ -24,6 +25,7 @@ The auditor does not implement the finding. Issue #941 owns architecture remedia
 | Guest behavior | present | Personalized cards are omitted rather than inferred for guests. |
 | Source privacy | present | Tracking cannot bypass underlying public/authorized projection privacy. |
 | Source freshness/unavailable semantics | present | Composition preserves owner semantics; missing/stale evidence cannot become fabricated state. |
+| Global deny/session baseline | present but insufficient for representation caching | `SECURITY_ARCHITECTURE.md` requires fail-closed authorization, session invalidation before protected controllers and server-side privacy, but does not classify mixed personalized responses as private/non-share-cacheable or constrain replay from shared response/CDN/proxy caches. |
 | Mixed response privacy classification | absent | No rule states that a response containing any owner-private card is itself private/personalized for caching purposes. |
 | Shared page/fragment cache boundary | absent | No rule forbids owner-private mixed output from shared/public response/fragment caches. |
 | CDN/proxy behavior | absent | No bypass/private/no-store or equivalent requirement is defined for personalized variants. |
@@ -46,6 +48,8 @@ The auditor does not implement the finding. Issue #941 owns architecture remedia
 
 The accepted contract proves that the composition service should omit A's private cards for B, but it does not prove that a cache hit must execute that composition service or that A's representation was ineligible for shared caching.
 
+The global security baseline does not close this path. Its fail-closed session/authorization rules apply before protected controller execution, while a reverse proxy, CDN or application response cache may replay an already materialized representation without reaching that controller unless cacheability/isolation is separately constrained.
+
 ### Authenticated-to-guest replay
 
 1. User A receives a personalized Today response.
@@ -53,7 +57,7 @@ The accepted contract proves that the composition service should omit A's privat
 3. A logs out, the session expires, or an anonymous browser later uses the same route/cache identity.
 4. The cached representation is replayed.
 
-“Guests omit personalized cards” does not by itself fence a representation that was materialized while authenticated.
+“Guests omit personalized cards” does not by itself fence a representation that was materialized while authenticated. Likewise, the global rule that a revoked/expired session is invalidated before a protected controller executes does not constrain a shared cache hit that bypasses protected-controller composition.
 
 ### Privacy/authorization tightening
 
@@ -83,7 +87,7 @@ Public sub-fragments may still be cached independently only when the cacheable f
 
 #### Actual architecture
 
-The contracts define source ownership, source privacy, guest omission and authenticated owner access but do not define representation caching behavior after public and private content are composed together.
+The Today/PlayerCompanion contracts define source ownership, source privacy, guest omission and authenticated owner access but do not define representation caching behavior after public and private content are composed together. The global `SECURITY_ARCHITECTURE.md` adds deny-by-default authorization and session-transition requirements, but it likewise does not define personalized response cacheability, shared-cache/CDN isolation, owner-scoped private cache identity or stale representation fencing.
 
 #### Impact
 
@@ -105,6 +109,7 @@ Related but distinct:
 
 - **OPA-SEC-0005 / Issue #938:** federated public-search publication/revocation ordering across derived search index/result caches. It owns ADR 0033/federated-search paths and remains independent.
 - **PR #933 / ADR 0032:** accepted the Today/tracking ownership architecture. Its material review repaired durable ADR authority and inspected ownership/privacy/freshness, but did not define mixed personalized response-cache isolation.
+- **`SECURITY_ARCHITECTURE.md`:** global deny/session/privacy controls are relevant defense in depth but do not own or specify the missing mixed personalized response-cache invariant.
 - **blocked public-domain and native-auth tasks:** no overlap with the three #941 architecture paths.
 
 ## Remediation boundary
@@ -130,14 +135,15 @@ The audit does not authorize Today runtime, cache middleware, routes, schemas, t
 ## Validation
 
 - protected-main / ownership preflight: PASS;
-- primary architecture negative-path review: PASS;
+- primary Today architecture negative-path review: PASS;
+- global `SECURITY_ARCHITECTURE.md` falsification cross-check: PASS — general fail-closed/session rules exist, but no personalized response cache-isolation rule closes the reproduced path;
 - PR #933 review-history inspection: PASS;
 - open/closed duplicate search: PASS;
 - deterministic `repair/issue-941` branch availability checked before `agent:ready`: PASS;
 - current runtime leak claim: REJECTED;
 - runtime/browser E2E for audit-document deliverable: **NOT_APPLICABLE**;
-- exact-head audit PR CI/review hygiene: pending PR creation.
+- exact-head audit PR CI/review hygiene: pending final validation generation.
 
 ## Conclusion
 
-ADR 0032 correctly prevents PublicPortal from becoming a new data authority and correctly labels PlayerCompanion tracking as owner-private, but the privacy boundary currently stops at composition. Before a personalized Today route or public-portal page/fragment caching is implemented, the architecture must explicitly fence the materialized private representation itself. OPA-SEC-0006 / Issue #941 is the single material finding for this audit package.
+ADR 0032 correctly prevents PublicPortal from becoming a new data authority and correctly labels PlayerCompanion tracking as owner-private, while the global security architecture correctly establishes fail-closed authorization/session principles. Those controls still stop short of defining how an already-materialized mixed private/public representation may be cached and replayed. Before a personalized Today route or public-portal page/fragment caching is implemented, the architecture must explicitly fence the materialized private representation itself. OPA-SEC-0006 / Issue #941 is the single material finding for this audit package.
