@@ -277,6 +277,39 @@ PublicPortal must not:
 
 A source becoming unpublished, revoked or incompatible must stop appearing in search according to the same source truth used by its canonical public page.
 
+### Restrictive publication-decision fence
+
+Publication/visibility authority and ordinary content freshness are separate concerns. A source must expose, directly or through an equivalently strong source-owned projection, enough ordered decision evidence to distinguish an older public/allow decision from a newer restrictive decision such as unpublish, revoke, delete, moderation/legal removal or incompatibility.
+
+The exact source-local field name is not prescribed, but the semantics are equivalent to a monotonic `publication_decision_revision` plus the decision it represents. The ordering proof belongs to the source authority; PublicPortal and any derived index/cache consume it and must not invent or decrement it.
+
+Rules:
+
+- every materialized searchable representation that can outlive the source query binds to the publication/visibility decision revision or equivalent proof under which it was allowed;
+- the source-authoritative restrictive decision transition must advance the ordered publication/revocation fence before or atomically with making the restrictive decision effective for public search; asynchronous index/cache tombstone cleanup may follow, but the fence may not lag behind the effective deny;
+- once the source authority accepts/effectuates that newer restrictive decision for an object, that decision is the visibility cutoff: an older public representation is no longer serveable even if its ordinary source freshness, index-lag budget or cache TTL has not expired;
+- direct provider composition, a derived index, paginated/pre-pagination result caches, web presentation and any future PlatformAPI adapter over this service obey the same cutoff;
+- out-of-order delivery cannot regress the accepted publication-decision revision; a delayed older allow cannot supersede a newer deny;
+- physical deletion is not required before the cutoff is effective: it is sufficient that every delivery path either proves the newer decision is reflected or rejects the affected representation;
+- stale serving may be allowed only for ordinary non-restrictive content/index freshness. It never grants permission to serve through a newer restrictive decision;
+- ordinary `source_revision`, index generation, cache generation and TTL are not substitutes for the publication-decision fence unless the source contract proves that the same ordered value advances for every restrictive decision and is checked by every delivery path.
+
+A provider may avoid a synchronous source lookup only through an equivalently strong source-owned decision mechanism whose serving path can still prove the current restrictive fence. A time-expiring allow proof/lease by itself is insufficient: a newer restrictive decision must immediately invalidate or fence that proof for search delivery, for example through a separately current revocation watermark/generation that is checked before serving. If current restrictive-fence state cannot be proven, derived/cached allow material fails closed.
+
+### Propagation, acknowledgement and authority outage
+
+A restrictive decision propagating into an index/cache has an explicit safe state. An affected representation may be served only while its publication decision remains proven current under the restrictive fence. If tombstone/update/cache invalidation is delayed, fails or has ambiguous acknowledgement, the affected representation fails closed until the newer restrictive decision is proven effective for that delivery path.
+
+Publication-authority unavailability is not ordinary stale-content availability:
+
+- a cached/indexed allow decision whose continuing authority cannot be proven against the current restrictive fence must not be silently reused merely because its data TTL or time-based allow lease remains valid;
+- a source-owned proof may avoid synchronous lookup only if every accepted newer restrictive decision can invalidate/fence it for all search delivery paths; time expiry alone is not a revocation mechanism after a deny has been accepted;
+- if the current restrictive watermark/fence cannot be validated, the affected result is unavailable rather than public-by-default;
+- failure may degrade one provider/result group to `PARTIAL` or make the product `UNAVAILABLE` according to the existing failure contract; it must not be represented as a healthy zero-result state or as continued stale authorization;
+- recovery from the outage revalidates publication-decision evidence before old cached/indexed material can be served again.
+
+This fence changes visibility authority only. It does not transfer publication ownership from the source module into PublicPortal.
+
 ## Failure and partial availability
 
 Federation must fail honestly without turning one dependency failure into fabricated emptiness.
@@ -297,7 +330,8 @@ Rules:
 - zero results from a healthy provider differ from an unavailable provider;
 - if every required provider is unavailable, the search product returns an explicit unavailable state rather than “0 results”;
 - provider timeouts are bounded and do not allow one dependency to consume the entire request budget;
-- retries, if any, are bounded and must not multiply load during an outage.
+- retries, if any, are bounded and must not multiply load during an outage;
+- inability to prove current publication authority for an affected derived representation follows the restrictive-fence failure semantics above rather than ordinary stale-content serving.
 
 ## Dedicated index / search-engine direction
 
@@ -313,12 +347,14 @@ The preferred sequence is:
 If a dedicated index is introduced later:
 
 - it is a **rebuildable projection**, never source truth;
-- every indexed document records source module/type/public ID/locale/source revision/index generation;
+- every indexed document records source module/type/public ID/locale/source revision/index generation and the publication-decision revision/equivalent proof under which it is searchable;
 - only source-authorized public fields are indexed;
 - publication/removal/revocation creates deterministic update/tombstone behavior;
 - rebuild and cutover are generation-based so a partial rebuild cannot become silently authoritative;
-- stale-index behavior and maximum tolerated lag are explicit per source;
-- indexing failures do not mutate source publication state;
+- stale-index behavior and maximum tolerated lag are explicit per source, but never override a newer restrictive publication decision;
+- an index generation cannot be activated or rolled back if its publication-decision watermark would move any source/object behind a newer accepted restrictive decision; affected entries remain fenced until rebuilt/reconciled;
+- out-of-order update/tombstone delivery cannot lower the accepted publication-decision watermark;
+- indexing failures do not mutate source publication state and do not make a failed restrictive propagation look successful;
 - secrets/private records are never ingested “for filtering later”;
 - engine replacement is possible without changing canonical source identities/URLs.
 
@@ -337,9 +373,11 @@ Search terms and opaque cursor material can contain sensitive or high-cardinalit
 - cache lookup equality uses the full digest; implementations must not truncate it below their collision-resistance requirement merely to shorten cache keys;
 - if a future implementation deliberately caches a complete pre-pagination result set instead of a paginated response, that must be a separately named cache layer whose identity excludes pagination only because page/cursor/limit slicing occurs strictly after the cached object and is proven not to mutate source/ranking semantics; the paginated response cache defined here always includes pagination inputs;
 - any result cache uses bounded TTL/size; a source's shorter freshness/publication rule wins over a longer PublicPortal cache;
+- cache hit/TTL validity never bypasses the restrictive publication-decision fence; an entry materialized under an older allow is rejected once a newer restrictive decision is authoritative or its required current restrictive-fence proof is unavailable;
+- restrictive invalidation is considered safely effective only when the delivery path reflects the newer decision or is fenced from serving the affected older representation; physical cache eviction may occur later;
 - `PARTIAL`/`UNAVAILABLE` responses use shorter or no caching as appropriate;
 - authenticated/private-search responses, if ever added, require owner/authorization-safe cache partitioning and are outside this public contract;
-- cache clearing is not a substitute for deterministic source revision/index invalidation.
+- cache clearing is not a substitute for deterministic source revision/index invalidation or publication-decision fencing.
 
 This keyed request identity is a cache/internal identifier only. It is not a user identifier, analytics identifier or permission token and must not be promoted into logs, metrics labels or public URLs.
 
@@ -383,7 +421,8 @@ Safe bounded metrics include:
 - zero-result rate;
 - `COMPLETE` versus `PARTIAL` versus `UNAVAILABLE` ratio;
 - cache hit/miss where adopted;
-- derived-index generation/lag/rebuild health if an index exists.
+- derived-index generation/lag/rebuild health if an index exists;
+- restrictive publication-fence rejection/lag/propagation-health counts using bounded source/status dimensions, never public IDs as labels.
 
 Do not use query strings, opaque cursors, cache request digests, public IDs, slugs, titles or user identifiers as unbounded metric labels.
 
@@ -406,7 +445,8 @@ It must not:
 - independently fan out to providers;
 - recreate cross-source ranking/grouping policy;
 - expose raw provider database records;
-- broaden provider visibility because the consumer is a client instead of a browser.
+- broaden provider visibility because the consumer is a client instead of a browser;
+- bypass or independently reinterpret the restrictive publication-decision fence.
 
 The API may version transport details, pagination encoding and scopes while preserving the same underlying provider/publication/partial-failure semantics.
 
@@ -457,17 +497,23 @@ A delivered search surface must prove at least:
 - all-provider unavailable state;
 - unsupported locale/filter;
 - source item unpublished between query/index refresh and canonical navigation;
+- newer revoke/unpublish/delete/incompatibility while an older indexed/cached allow representation still exists;
+- out-of-order older allow/update arriving after a newer restrictive decision;
+- tombstone/index/cache invalidation failure or ambiguous acknowledgement after a restrictive decision;
+- concurrent refresh versus revoke with the restrictive decision winning deterministically;
+- publication-authority outage while an older cached/indexed allow exists, including inability to validate the current restrictive watermark/fence;
+- rebuild/cutover and rollback to an older index generation after a newer restrictive decision without resurrection of the result;
 - responsive/mobile layout;
 - keyboard and screen-reader result navigation;
 - EN/PL behavior;
 - rate-limit response;
-- dependency recovery;
+- dependency recovery with publication-decision evidence revalidated before stale derived material becomes serveable again;
 - cache isolation for distinct normalized queries with identical locale/filter/provider generations;
 - cache isolation for different `page`, opaque `cursor`, `limit`, filters, provider sets and ranking-policy versions;
 - cache identity does not expose raw query/cursor text and keyed-digest rotation creates a separate cache namespace;
 - exact-head browser E2E with retries zero.
 
-If a derived index exists, also prove rebuild, stale generation, deletion/tombstone and rollback/cutover behavior.
+If a derived index exists, also prove rebuild, stale generation, restrictive-decision watermark, deletion/tombstone and rollback/cutover behavior.
 
 Provider onboarding must additionally prove that the resulting module dependency graph has no new `PublicPortal <-> provider` cycle.
 
@@ -493,4 +539,5 @@ The architecture is satisfied when:
 - `PORTAL_COMPLETENESS_ARCHITECTURE.md` moves federated content search from unresolved discovery to architecture-accepted/planned implementation;
 - the known Announcements/Events reverse edge is recorded as an implementation prerequisite rather than hidden by the target dependency diagram;
 - cache correctness/privacy binds the full response-shaping request — including query, locale, filters, providers, pagination, limit, ranking-policy version and generations — to a keyed canonical-request identity so distinct responses cannot share a cache entry and raw request material does not become cache-key/log/metric data;
-- Issue #935 is terminal after exact-head self-review, CI, review hygiene, merge and task archival.
+- source-owned publication/visibility decision evidence is ordered separately from ordinary freshness, every stale derived representation is fenced by newer restrictive decisions, propagation failure/outage fails closed, and rebuild/rollback cannot cross a newer restrictive watermark;
+- Issue #935 remains terminal and Issue #938 is terminal after exact-head self-review, CI, review hygiene, merge and any required lifecycle closeout.
