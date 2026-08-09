@@ -41,7 +41,8 @@ Audit the accepted `Today` / command-centre composition boundary for confidentia
 - [x] Search open/closed Issues and finding identities before routing a finding.
 - [x] Route OPA-SEC-0006 / Issue #941 with complete independent remediation metadata.
 - [x] Keep Issue #941 remediation paths forbidden to the auditor.
-- [ ] Open and validate the exact-head audit PR, merge it if all gates pass, then archive this task in a separate lifecycle closeout.
+- [x] Open bounded audit PR #942.
+- [ ] Complete exact-final-head self-review, fresh review, required CI, zero unresolved material threads, merge and lifecycle closeout.
 
 ## Ownership
 
@@ -90,14 +91,14 @@ No current runtime disclosure is proven. ADR 0032 explicitly remains architectur
 ```yaml
 checkpoint_version: 1
 policy_version: 2
-updated_at: 2026-08-09T08:39:00Z
+updated_at: 2026-08-09T08:40:00Z
 invocation_started_at: 2026-08-09T08:34:40Z
-last_progress_at: 2026-08-09T08:39:00Z
-head: OUT_OF_BAND_AUDIT_PR_HEAD_AFTER_THIS_COMMIT
+last_progress_at: 2026-08-09T08:40:00Z
+head: OUT_OF_BAND_FINAL_HEAD_AFTER_THIS_CHECKPOINT
 branch: audit/OTERYN-20260809-today-private-cache
-pr: none
+pr: 942
 status: validating
-phase: audit-package-validation
+phase: exact-head-validation
 session_id: agent-20260809-0834-today-private-cache
 session_role: auditor
 project_lane: oteryn-platform-content
@@ -119,7 +120,7 @@ decomposition_decision: single
 validation_level: documentation_exact_head
 invocation_budget_minutes: 60
 ci_checks_for_current_head: 0
-ci_check_generation: draft
+ci_check_generation: ready
 terminal_ci_wait_started_at: null
 terminal_ci_checks_for_current_generation: 0
 unchanged_state_checks: 0
@@ -129,7 +130,7 @@ context_reconstruction_attempts: 0
 stall_warnings: 0
 proven:
   - Protected main at selection is 1e00d6de235588f8314ec8dae8c4bdb63e5068f9 after lifecycle closeout #940.
-  - Active tasks are only the unrelated blocked public-domain repair and native-auth production-verification records plus `.gitkeep`.
+  - Active tasks at selection were only the unrelated blocked public-domain repair and native-auth production-verification records plus `.gitkeep`.
   - OPA-SEC-0005 / Issue #938 is open, agent:ready and unclaimed and owns only federated-search ADR 0033/focused architecture paths.
   - ADR 0032 permits PublicPortal Today to compose public CMS/LiveOps/PublicGameData material with authenticated PlayerCompanion owner-private routines, goals and tracked signals.
   - Portal Completeness says personalized cards remain owner-private and are omitted for guests.
@@ -138,7 +139,8 @@ proven:
   - None of the three accepted architecture documents states that a mixed personalized Today representation is private/non-share-cacheable or defines owner/guest cache partitioning, CDN/proxy behavior, private cache identity, or session/privacy transition fencing.
   - PR #933 review history contains a material ADR-authority repair and privacy/freshness boundary review, but no Today response-cache isolation finding.
   - Open/closed duplicate searches found no existing owner for authenticated/guest Today private-cache isolation and OPA-SEC-0006 was unused.
-  - Issue #941 now independently owns the architecture repair and is agent:ready with deterministic lock branch repair/issue-941.
+  - Issue #941 independently owns the architecture repair and is agent:ready with deterministic lock branch repair/issue-941.
+  - PR #942 changes only the two declared audit documentation paths before exact-head validation.
 derived:
   - Correct owner authorization at view-model construction does not protect a later materialized response if a shared cache can replay that representation without re-running authorization.
   - Mixed public/private composition requires an explicit private response/cache boundary before implementation even if public sub-fragments may later be cached independently.
@@ -168,13 +170,16 @@ validation:
   - command: open/closed Issue plus OPA-SEC-0006 duplicate search
     result: PASS
     evidence: no duplicate; Issue #941 created as independent owner
+  - command: PR #942 changed-path inspection
+    result: PASS
+    evidence: two audit documentation paths only
   - command: runtime/browser E2E for audit deliverable
     result: NOT_APPLICABLE
     evidence: audit documentation only; Today runtime is not implemented
-  - command: exact-head repository CI
+  - command: exact-final-head self-review / fresh review / repository CI
     result: NOT_RUN
-    evidence: audit PR not yet opened
+    evidence: checkpoint commit creates the final validation generation
 blockers:
   - none
-next_action: Open the bounded audit PR, perform exact-head self-review and required CI/review hygiene, merge only on green exact head, then archive the audit while registering OPA-SEC-0006 in the historical finding ledger.
+next_action: Validate the unchanged final PR #942 head with exact-head self-review, fresh review, required Agent Governance/CI and zero unresolved threads; merge only if all gates pass, then perform required lifecycle archive/programme reconciliation.
 ```
