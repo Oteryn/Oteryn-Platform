@@ -81,14 +81,15 @@ validation_gate:
   self_review:
     result: PENDING
     exact_head: none
-    evidence: []
+    evidence:
+      - First full-diff review found and repaired a material ambiguity where a time-expiring allow lease could otherwise remain usable after a newer restrictive decision.
 ```
 
 ## Context checkpoint
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-09T09:32:04Z
+updated_at: 2026-08-09T09:34:56Z
 head: OUT_OF_BAND_FINAL_HEAD_AFTER_THIS_CHECKPOINT
 branch: repair/issue-938
 pr: 947
@@ -108,20 +109,22 @@ proven:
   - Continuous-audit PR #945 and closeout #946 touched only entitlement-audit governance paths; current PR #947 is based on main@c1b1d26b355db26a89d983cc4abc6477bf843a26.
   - The accepted architecture previously allowed bounded stale index/cache behavior without a restrictive publication-decision ordering fence.
   - The branch defines a source-owned ordered restrictive-decision fence, fail-closed propagation/outage semantics and rollback/rebuild watermark requirements in both canonical documents.
+  - A first full-diff self-review found that a bounded time lease alone could preserve stale allow authority after a newer revoke; the architecture was tightened so the restrictive fence advances before/with the effective deny and every non-synchronous serving mechanism must still validate that current fence.
   - PR #947 is the single Issue-owned repair PR and contains no runtime/schema/routes/tests/workflow/deployment/production/external-repository mutation.
 derived:
   - Physical tombstone/cache eviction can complete after the public cutoff provided every delivery path already rejects the older representation.
-  - A source-owned bounded publication proof/lease can avoid synchronous authority lookup only while its continuing authority is valid and testable.
+  - Time expiry may bound availability behavior but cannot itself be the mechanism that delays a newer restrictive decision; current restrictive-fence proof remains mandatory for derived serving.
 unknown:
-  - exact-head repository CI and self-review result on the final checkpoint head
+  - exact-head repository CI and final self-review result on the post-repair checkpoint head
 conflicts: []
 first_failure:
-  marker: none
-  evidence: none
+  marker: stale-allow-time-lease-could-outlive-newer-restrictive-decision
+  evidence: First full-diff review of PR #947 found that the initial bounded publication-proof wording did not guarantee immediate invalidation when a newer restrictive decision was accepted. Repaired in both canonical architecture documents before final validation.
 rejected_hypotheses:
   - ordinary cache TTL is sufficient authorization after a newer revoke
   - physical cache eviction alone is a reliable revocation cutoff
   - index generation alone proves current publication authority without a restrictive-decision ordering contract
+  - a time-expiring allow lease alone is sufficient restrictive-decision fencing
 changed_paths:
   - docs/agents/tasks/active/OTERYN-20260809-federated-search-publication-revocation-fence.md
   - docs/architecture/FEDERATED_SEARCH_ARCHITECTURE.md
@@ -130,12 +133,15 @@ validation:
   - command: runtime/browser E2E
     result: NOT_APPLICABLE
     evidence: architecture/documentation-only repair changes no executable route, cache/index implementation, schema, deployment or runtime behavior
-  - command: exact-head self-review and repository CI
+  - command: first full-diff self-review
+    result: FAIL
+    evidence: Found the time-lease restrictive-revocation ambiguity; repaired before final exact-head validation.
+  - command: exact-head final self-review and repository CI
     result: NOT_RUN
-    evidence: run against the final unchanged PR head after this checkpoint commit
+    evidence: run against the unchanged final head after this checkpoint commit
 blockers:
   - none
-next_action: Perform exact-head full-diff HEIGHTENED self-review and repository CI/review-hygiene checks for PR #947; repair any material finding before merge.
+next_action: Re-run exact-head full-diff HEIGHTENED self-review and repository CI/review-hygiene checks for PR #947; merge only with zero material findings.
 ```
 
 ## Notes
