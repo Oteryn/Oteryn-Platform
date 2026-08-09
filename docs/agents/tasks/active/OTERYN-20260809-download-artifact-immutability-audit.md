@@ -39,6 +39,7 @@ Audit the delivered Download Center artifact-reference boundary against the acce
 - [x] Deduplicate and route OPA-SEC-0008 / Issue #948.
 - [x] Keep Issue #948 remediation paths forbidden to the auditor.
 - [x] Open audit PR #949 and preserve unrelated #947/#950 lifecycle work.
+- [x] Repair Codex P2 checkpoint finding by rebuilding the branch directly on current `main@b87deb370c4a0a629a8aaf05d0447134f2ee823e`.
 - [ ] Complete exact-final-head self-review, fresh review, required CI, zero unresolved material threads, merge and lifecycle closeout.
 
 ## Ownership
@@ -94,9 +95,9 @@ The public checksum notice remains truthful: SHA-256 is administrator-supplied a
 ```yaml
 checkpoint_version: 1
 policy_version: 2
-updated_at: 2026-08-09T10:02:00Z
+updated_at: 2026-08-09T10:10:00Z
 invocation_started_at: 2026-08-09T09:36:00Z
-last_progress_at: 2026-08-09T10:02:00Z
+last_progress_at: 2026-08-09T10:10:00Z
 head: OUT_OF_BAND_FINAL_HEAD_AFTER_THIS_CHECKPOINT
 branch: audit/OTERYN-20260809-download-artifact-immutability
 pr: 949
@@ -128,16 +129,17 @@ terminal_ci_wait_started_at: null
 terminal_ci_checks_for_current_generation: 0
 unchanged_state_checks: 0
 identical_failure_retries: 0
-repair_cycles_for_current_gate: 1
+repair_cycles_for_current_gate: 2
 context_reconstruction_attempts: 0
 stall_warnings: 0
 proven:
   - Protected main at audit selection was c1b1d26b355db26a89d983cc4abc6477bf843a26.
   - Unrelated federated-search repair PR #947 advanced main to a82ec651f9155fc5acbfe78d6c3b792fa9b9c0b8 and was incorporated without semantic audit changes.
-  - The first final-head Agent Governance attempt failed only because #947 had merged while its separate active repair task still awaited lifecycle closeout; this was external to #949 and did not invalidate the audit checkpoint schema or finding.
-  - Independent lifecycle PR #950 subsequently archived the #938 repair task and merged as b87deb370c4a0a629a8aaf05d0447134f2ee823e, resolving that repository-wide liveness condition without this auditor touching the other owner's paths.
-  - Current protected main incorporated for the next validation generation is b87deb370c4a0a629a8aaf05d0447134f2ee823e through the PR merge base; #949 still changes only its two audit docs.
-  - Active durable tasks at selection were public-domain repair and native-auth production-verification plus `.gitkeep`.
+  - The first final-head Agent Governance attempt failed only because #947 had merged while its separate active repair task still awaited lifecycle closeout; this was external to #949 and did not invalidate the finding.
+  - Independent lifecycle PR #950 archived the #938 repair task and merged as b87deb370c4a0a629a8aaf05d0447134f2ee823e.
+  - Codex exact-head review on a10c92a495eb879e78fca2d2e2c20843ffeb84dd correctly found that the checkpoint falsely described b87deb370c4a0a629a8aaf05d0447134f2ee823e as incorporated through the PR merge base while the branch still descended from a82ec651f9155fc5acbfe78d6c3b792fa9b9c0b8.
+  - The branch was then rebuilt directly with parent b87deb370c4a0a629a8aaf05d0447134f2ee823e while preserving exactly the task and audit-report blobs; intermediate synchronized head before this checkpoint update was 1a971a13682a094208c9a795fc299882f85fc924.
+  - Active durable tasks on current main after #950 are public-domain repair and native-auth production-verification plus `.gitkeep`.
   - Issues #941 and #944 remain independent non-overlapping finding owners at selection; Issue #938 was repaired/closed separately.
   - PR #338 is an intentional Game Catalog compatibility hold and PR #541 is public-domain external evidence work.
   - PUBLIC_WEBSITE_EXPANSION_PLAN requires immutable artifact URL or approved storage reference and immutable operator-approved artifacts.
@@ -163,13 +165,14 @@ rejected_hypotheses:
   - Lack of independent checksum verification is the defect; that limitation is explicitly disclosed and outside this root cause.
   - Historical Download Center lifecycle Issues already own the defect; they repaired ownership lifecycle and preserved supplied-checksum/no-fetch semantics.
   - The Agent Governance failure was caused by #949; logs identify the stale terminal #947 active task instead.
+  - The a10c92 checkpoint correctly represented current main ancestry; Codex disproved this and the branch was rebuilt directly on b87deb370c4a0a629a8aaf05d0447134f2ee823e.
 changed_paths:
   - docs/agents/tasks/active/OTERYN-20260809-download-artifact-immutability-audit.md
   - docs/agents/reports/OTERYN-20260809-download-artifact-immutability-audit.md
 validation:
   - command: live main / ownership reconciliation
     result: PASS
-    evidence: non-overlapping audit selected from c1b1d26b355db26a89d983cc4abc6477bf843a26; #947 and its lifecycle closeout #950 remain separately owned and incorporated through current main
+    evidence: non-overlapping audit selected from c1b1d26b355db26a89d983cc4abc6477bf843a26 and final branch rebuilt directly over current main b87deb370c4a0a629a8aaf05d0447134f2ee823e
   - command: architecture / PR #161 negative-path review
     result: PASS
     evidence: approved-host mutable reference satisfies current policy despite immutable-reference architecture requirement
@@ -185,12 +188,21 @@ validation:
   - command: Agent Governance run 31307054812 on prior head 4ca8acbcfff3d892649b182098635301ccf42c7b
     result: FAIL
     evidence: repository-wide #947 terminal-task lifecycle remained active until independently resolved by merged closeout #950
+  - command: Agent Governance and CI on a10c92a495eb879e78fca2d2e2c20843ffeb84dd
+    result: PASS
+    evidence: Agent Governance 31307385704 PASS; CI 31307385706 PASS with classify-changes/test PASS and runtime-tests SKIPPED
+  - command: Codex exact-head review on a10c92a495eb879e78fca2d2e2c20843ffeb84dd
+    result: FAIL
+    evidence: P2 checkpoint evidence incorrectly claimed b87deb370c4a0a629a8aaf05d0447134f2ee823e was incorporated through the PR merge base
+  - command: branch ancestry repair
+    result: PASS
+    evidence: branch rebuilt directly on parent b87deb370c4a0a629a8aaf05d0447134f2ee823e with only the two declared audit documents restored
   - command: runtime/browser E2E for audit deliverable
     result: NOT_APPLICABLE
     evidence: audit documentation only; no product behavior changes
-  - command: exact-final-head self-review / fresh review / repository CI after this reconciliation
+  - command: exact-final-head self-review / fresh review / repository CI after this repair
     result: NOT_RUN
-    evidence: this checkpoint reconciliation creates the final validation generation after #950 resolved the external liveness gate
+    evidence: this checkpoint correction is the final content mutation before validation
 blockers: []
-next_action: Validate the new exact PR #949 head against current main with self-review, fresh Codex review, Agent Governance/CI, exact changed paths and zero unresolved threads; merge only if all gates pass, then perform separate lifecycle archive/programme reconciliation.
+next_action: Validate the exact current PR #949 head with self-review, fresh Codex review, Agent Governance/CI, exact changed paths and zero unresolved threads; merge only if all gates pass, then perform separate lifecycle archive/programme reconciliation.
 ```
