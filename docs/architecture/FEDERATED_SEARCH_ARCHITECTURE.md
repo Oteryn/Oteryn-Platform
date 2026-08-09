@@ -286,23 +286,25 @@ The exact source-local field name is not prescribed, but the semantics are equiv
 Rules:
 
 - every materialized searchable representation that can outlive the source query binds to the publication/visibility decision revision or equivalent proof under which it was allowed;
-- once the source authority accepts a newer restrictive decision for an object, that decision is the visibility cutoff: an older public representation is no longer serveable even if its ordinary source freshness, index-lag budget or cache TTL has not expired;
+- the source-authoritative restrictive decision transition must advance the ordered publication/revocation fence before or atomically with making the restrictive decision effective for public search; asynchronous index/cache tombstone cleanup may follow, but the fence may not lag behind the effective deny;
+- once the source authority accepts/effectuates that newer restrictive decision for an object, that decision is the visibility cutoff: an older public representation is no longer serveable even if its ordinary source freshness, index-lag budget or cache TTL has not expired;
 - direct provider composition, a derived index, paginated/pre-pagination result caches, web presentation and any future PlatformAPI adapter over this service obey the same cutoff;
 - out-of-order delivery cannot regress the accepted publication-decision revision; a delayed older allow cannot supersede a newer deny;
 - physical deletion is not required before the cutoff is effective: it is sufficient that every delivery path either proves the newer decision is reflected or rejects the affected representation;
 - stale serving may be allowed only for ordinary non-restrictive content/index freshness. It never grants permission to serve through a newer restrictive decision;
 - ordinary `source_revision`, index generation, cache generation and TTL are not substitutes for the publication-decision fence unless the source contract proves that the same ordered value advances for every restrictive decision and is checked by every delivery path.
 
-A provider may satisfy this contract with a current source query, a bounded source-owned decision projection, a signed/leased publication proof or another reviewed mechanism. Whatever mechanism is chosen must make the latest accepted restrictive decision authoritative over older derived copies.
+A provider may avoid a synchronous source lookup only through an equivalently strong source-owned decision mechanism whose serving path can still prove the current restrictive fence. A time-expiring allow proof/lease by itself is insufficient: a newer restrictive decision must immediately invalidate or fence that proof for search delivery, for example through a separately current revocation watermark/generation that is checked before serving. If current restrictive-fence state cannot be proven, derived/cached allow material fails closed.
 
 ### Propagation, acknowledgement and authority outage
 
-A restrictive decision propagating into an index/cache has an explicit safe state. An affected representation may be served only while its publication decision remains proven current enough for the source contract. If tombstone/update/cache invalidation is delayed, fails or has ambiguous acknowledgement, the affected representation fails closed until the newer restrictive decision is proven effective for that delivery path.
+A restrictive decision propagating into an index/cache has an explicit safe state. An affected representation may be served only while its publication decision remains proven current under the restrictive fence. If tombstone/update/cache invalidation is delayed, fails or has ambiguous acknowledgement, the affected representation fails closed until the newer restrictive decision is proven effective for that delivery path.
 
 Publication-authority unavailability is not ordinary stale-content availability:
 
-- a cached/indexed allow decision whose continuing authority cannot be proven must not be silently reused merely because its data TTL remains valid;
-- a source may define a bounded source-owned publication proof/lease, but expiry or inability to validate that proof makes the affected result unavailable rather than public-by-default;
+- a cached/indexed allow decision whose continuing authority cannot be proven against the current restrictive fence must not be silently reused merely because its data TTL or time-based allow lease remains valid;
+- a source-owned proof may avoid synchronous lookup only if every accepted newer restrictive decision can invalidate/fence it for all search delivery paths; time expiry alone is not a revocation mechanism after a deny has been accepted;
+- if the current restrictive watermark/fence cannot be validated, the affected result is unavailable rather than public-by-default;
 - failure may degrade one provider/result group to `PARTIAL` or make the product `UNAVAILABLE` according to the existing failure contract; it must not be represented as a healthy zero-result state or as continued stale authorization;
 - recovery from the outage revalidates publication-decision evidence before old cached/indexed material can be served again.
 
@@ -371,7 +373,7 @@ Search terms and opaque cursor material can contain sensitive or high-cardinalit
 - cache lookup equality uses the full digest; implementations must not truncate it below their collision-resistance requirement merely to shorten cache keys;
 - if a future implementation deliberately caches a complete pre-pagination result set instead of a paginated response, that must be a separately named cache layer whose identity excludes pagination only because page/cursor/limit slicing occurs strictly after the cached object and is proven not to mutate source/ranking semantics; the paginated response cache defined here always includes pagination inputs;
 - any result cache uses bounded TTL/size; a source's shorter freshness/publication rule wins over a longer PublicPortal cache;
-- cache hit/TTL validity never bypasses the restrictive publication-decision fence; an entry materialized under an older allow is rejected once a newer restrictive decision is authoritative or its required publication proof is no longer valid;
+- cache hit/TTL validity never bypasses the restrictive publication-decision fence; an entry materialized under an older allow is rejected once a newer restrictive decision is authoritative or its required current restrictive-fence proof is unavailable;
 - restrictive invalidation is considered safely effective only when the delivery path reflects the newer decision or is fenced from serving the affected older representation; physical cache eviction may occur later;
 - `PARTIAL`/`UNAVAILABLE` responses use shorter or no caching as appropriate;
 - authenticated/private-search responses, if ever added, require owner/authorization-safe cache partitioning and are outside this public contract;
@@ -499,7 +501,7 @@ A delivered search surface must prove at least:
 - out-of-order older allow/update arriving after a newer restrictive decision;
 - tombstone/index/cache invalidation failure or ambiguous acknowledgement after a restrictive decision;
 - concurrent refresh versus revoke with the restrictive decision winning deterministically;
-- publication-authority outage while an older cached/indexed allow exists, including expiry of any accepted source-owned publication proof/lease;
+- publication-authority outage while an older cached/indexed allow exists, including inability to validate the current restrictive watermark/fence;
 - rebuild/cutover and rollback to an older index generation after a newer restrictive decision without resurrection of the result;
 - responsive/mobile layout;
 - keyboard and screen-reader result navigation;
