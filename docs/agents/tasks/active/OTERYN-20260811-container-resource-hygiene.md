@@ -120,20 +120,6 @@ validation:
   - command: Game Auth Ticket Concurrency run 31440712568 on ba1719bf6ffa22b78c8aa6d44fc939e3e9ee6093
     result: PASS
     evidence: Exact-head game-auth concurrency validation completed successfully.
-self_review:
-  result: PASS
-  exact_head: ba1719bf6ffa22b78c8aa6d44fc939e3e9ee6093
-  acceptance_checked: true
-  full_diff_checked: true
-  negative_paths_checked: true
-  rollback_checked: true
-  compatibility_checked: NOT_APPLICABLE
-  related_prs_checked: true
-  findings: []
-  evidence:
-    - Exact changed-file set contains only the five task-owned paths.
-    - No open review threads or requested changes exist on PR #973.
-    - No cleanup primitive can delete volumes, networks, images, unrelated projects, running/ambiguous portal candidates, or canonical active runtime services.
 blockers: []
 next_action: After the final checkpoint-only head passes its selected checks, merge PR #973 with the exact one-time bootstrap title, inspect the live Synology cleanup evidence, then archive this task and remove the one-time push bootstrap.
 policy_version: 2
@@ -155,6 +141,24 @@ session_rotation_count: 0
 heavy_validation_runs: 1
 stale_takeover_count: 0
 human_interruptions: 0
+```
+
+## Self-review
+
+```yaml
+result: PASS
+exact_head: ba1719bf6ffa22b78c8aa6d44fc939e3e9ee6093
+acceptance_checked: true
+full_diff_checked: true
+negative_paths_checked: true
+rollback_checked: true
+compatibility_checked: NOT_APPLICABLE
+related_prs_checked: true
+findings: []
+evidence:
+  - Exact changed-file set contains only the five task-owned paths.
+  - No open review threads or requested changes exist on PR #973.
+  - No cleanup primitive can delete volumes, networks, images, unrelated projects, running or ambiguous portal candidates, or canonical active runtime services.
 ```
 
 ## Notes
