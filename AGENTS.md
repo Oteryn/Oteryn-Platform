@@ -80,6 +80,17 @@ Before creating a service, repository abstraction, API client, auth provider, po
 - Do not edit another active task record except to resolve an explicitly coordinated ownership conflict.
 - Shared indexes and architecture documents must be edited narrowly.
 
+## Execution resource hygiene — mandatory
+
+- Read and follow `docs/agents/EXECUTION_RESOURCE_HYGIENE.md` whenever a task creates, starts, reuses, or controls temporary containers, Compose projects, networks, disposable volumes, images, helper services, runners, test deployments, or equivalent execution scaffolding.
+- A task-owned temporary resource must have a deterministic identity and lifecycle owner before creation. Record enough non-secret identity to find and remove it safely later.
+- Remove task-owned ephemeral resources as soon as they are no longer needed; do not leave cleanup until a later agent or an unspecified future closeout.
+- At terminal closeout, verify that no unintended task-owned temporary resource remains. A task is not `DONE` while such a resource remains unintentionally and cleanup is still executable.
+- Cleanup must be exact and ownership-scoped. Blanket Docker cleanup such as system/container/volume/network/image prune is forbidden on shared hosts unless the repository owner explicitly authorizes that exact destructive scope.
+- Never remove unrelated workloads, canonical shared services, runner infrastructure, persistent/named volumes, durable data, shared networks, or production resources merely because they are stopped, old, unused by the current command, or not recognized by the agent.
+- Persistent or shared resource deletion requires explicit scope plus proven ownership/disposability; named volumes are persistent by default.
+- If cleanup cannot be completed because access, permissions, connectivity, environment protection, or resource ownership is unresolved, record the exact remaining resources and blocker/next action instead of silently declaring cleanup complete.
+
 ## Delivery workflow
 
 Default workflow:

@@ -1,10 +1,11 @@
 # Delivery Completeness and Closeout
 
 ```yaml
-delivery_closeout_policy_version: 4
+delivery_closeout_policy_version: 5
 repair_owner_model: one_issue_one_owner
 repair_external_audit_required: false
 remediation_validation_specialization: docs/agents/REMEDIATION_AUDIT_RISK_GATE.md
+execution_resource_hygiene: docs/agents/EXECUTION_RESOURCE_HYGIENE.md
 ```
 
 ## Purpose
@@ -98,6 +99,22 @@ Before closeout:
 - ensure the final implementation is present in exactly the intended delivery path;
 - preserve rollback and provenance.
 
+## Execution resource hygiene
+
+Tasks that create or control temporary containers, Compose projects, helper services, runners, test deployments, disposable volumes, networks, images, or equivalent execution scaffolding must follow `EXECUTION_RESOURCE_HYGIENE.md`.
+
+Before readiness and again at terminal closeout:
+
+- identify task-owned temporary resources from deterministic names, labels, project identity, run/task identity, or another non-secret ownership marker;
+- remove ephemeral resources as soon as they are no longer needed rather than delegating cleanup to a future worker;
+- use exact ownership-scoped cleanup and verify the target immediately before destructive action;
+- protect unrelated workloads, canonical shared services, runner infrastructure, shared networks, images, durable data, and persistent/named volumes by default;
+- never substitute blanket prune operations for resource ownership proof on a shared host;
+- verify post-cleanup state and record any intentionally retained resource with its owner and reason;
+- when cleanup is required but blocked, persist the exact remaining resources, evidence, blocker, and one concrete next action instead of returning `DONE`.
+
+Workflow cleanup should use guaranteed/finally semantics where practical, but cleanup failure must not erase the primary task failure. Both outcomes remain observable.
+
 ## Merge gate
 
 Merge only when:
@@ -121,6 +138,6 @@ After merge:
 3. archive the task record;
 4. release branch/path ownership and leases;
 5. record the final merge commit and validation evidence;
-6. remove temporary execution scaffolding.
+6. verify and remove task-owned temporary execution resources under `EXECUTION_RESOURCE_HYGIENE.md`, recording any explicitly retained resource or exact cleanup blocker.
 
 Do not call the task complete before terminal closeout.
