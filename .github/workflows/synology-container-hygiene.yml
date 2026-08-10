@@ -8,13 +8,7 @@ on:
       - AGENTS.md
       - docs/agents/DELIVERY_COMPLETENESS_AND_CLOSEOUT.md
       - docs/agents/EXECUTION_RESOURCE_HYGIENE.md
-      - deploy/synology/compose.yml
-      - deploy/synology/compose.marketplace.yml
-      - .github/workflows/synology-container-hygiene.yml
-  push:
-    branches:
-      - main
-    paths:
+      - deploy/synology/compose*.yml
       - .github/workflows/synology-container-hygiene.yml
   workflow_dispatch:
     inputs:
@@ -51,7 +45,7 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha }}
           persist-credentials: false
 
-      - name: Validate fail-closed hygiene contract
+      - name: Validate retained fail-closed hygiene contract
         run: |
           set -euo pipefail
           python3 - <<'PY'
@@ -66,72 +60,39 @@ jobs:
               'docker network ' + 'prune',
               'docker image ' + 'prune',
               'docker rm ' + '-f',
+              'docker ' + 'stop',
               'docker volume ' + 'rm',
               'docker network ' + 'rm',
               'docker ' + 'rmi',
+              'portal-' + 'authentik-local-test',
+              'cleanup-proven-' + 'authentik-local-test',
+              'github.event_name == ' + "'push'",
           ]
           present = [pattern for pattern in forbidden if pattern in workflow]
           if present:
-              raise SystemExit('unsafe cleanup primitive(s): ' + ', '.join(present))
+              raise SystemExit('retired/destructive primitive remains: ' + ', '.join(present))
 
           required = [
+              'workflow_dispatch',
               'project=oteryn-staging',
               'cleanup-stopped-portal-orphans',
               'REMOVE_STOPPED_OTERYN_STAGING_ORPHANS',
               'com.docker.compose.project',
               'com.docker.compose.service',
-              'docker stop --timeout 30 "$id"',
               'docker rm "$id"',
               'validate_canonical_runtime',
               'OUTSIDE_SCOPE',
-              'mapfile -t expected_services',
-              'mapfile -t target_project_ids',
-              'remaining_test_ids',
+              "-name 'compose*.yml'",
+              'marketplace-scheduler',
           ]
           missing = [marker for marker in required if marker not in workflow]
           if missing:
               raise SystemExit('missing fail-closed marker(s): ' + ', '.join(missing))
 
-          bootstrap_marker = (
-              "startsWith(github.event.head_commit.message, "
-              + "'fix(ops): complete Synology portal container cleanup (#974)')"
-          )
-          if bootstrap_marker not in workflow:
-              raise SystemExit('one-time PR #974 live bootstrap guard is missing')
-
-          stale_project_marker = 'stale_test_project=' + 'portal-authentik-local-test'
-          if stale_project_marker not in workflow:
-              raise SystemExit('exact stale test project marker is missing')
-
-          cleanup_action_marker = 'cleanup-proven-' + 'authentik-local-test'
-          if cleanup_action_marker not in workflow:
-              raise SystemExit('one-time exact test cleanup action is missing')
-
-          compose_sources_match = re.search(
-              r'^\s*compose_sources=\(([^)]*)\)\s*$', workflow, re.MULTILINE
-          )
-          if not compose_sources_match:
-              raise SystemExit('compose_sources declaration is missing')
-          live_compose_sources = set(compose_sources_match.group(1).split())
-          expected_compose_sources = {
-              'deploy/synology/compose.yml',
-              'deploy/synology/compose.marketplace.yml',
-          }
-          if live_compose_sources != expected_compose_sources:
-              raise SystemExit(
-                  'live compose source drift: '
-                  f'workflow={sorted(live_compose_sources)} expected={sorted(expected_compose_sources)}'
-              )
-
-          if re.search(r'^\s*expected_services=\(', workflow, re.MULTILINE):
-              raise SystemExit('live expected_services must be derived from trusted compose sources')
-
           runtime_match = re.search(r'^\s*runtime_services=\(([^)]*)\)\s*$', workflow, re.MULTILINE)
           if not runtime_match:
               raise SystemExit('runtime_services declaration is missing')
           runtime_services = set(runtime_match.group(1).split())
-          if 'marketplace-scheduler' not in runtime_services:
-              raise SystemExit('marketplace-scheduler must be protected as canonical runtime')
 
           def services_from_compose(path: Path) -> set[str]:
               lines = path.read_text().splitlines()
@@ -150,9 +111,12 @@ jobs:
                       services.add(match.group(1))
               return services
 
+          compose_sources = sorted(Path('deploy/synology').glob('compose*.yml'))
+          if not compose_sources:
+              raise SystemExit('no canonical Compose sources found')
           canonical_services = set()
-          for source in sorted(expected_compose_sources):
-              canonical_services |= services_from_compose(Path(source))
+          for source in compose_sources:
+              canonical_services |= services_from_compose(source)
           if not canonical_services:
               raise SystemExit('no canonical Compose services were parsed')
           missing_runtime = runtime_services - canonical_services
@@ -164,10 +128,7 @@ jobs:
           PY
 
   live-hygiene:
-    if: >-
-      (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') ||
-      (github.event_name == 'push' && github.ref == 'refs/heads/main' &&
-       startsWith(github.event.head_commit.message, 'fix(ops): complete Synology portal container cleanup (#974)'))
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
     runs-on: oteryn-staging
     environment: synology-staging
     timeout-minutes: 10
@@ -183,20 +144,19 @@ jobs:
           set -euo pipefail
           docker version >/dev/null
 
-      - name: Inventory and perform exact bounded cleanup
+      - name: Inventory and optionally remove verified stopped portal orphans
         id: hygiene
         env:
-          HYGIENE_ACTION: ${{ github.event_name == 'push' && 'cleanup-proven-authentik-local-test' || inputs.action }}
-          PORTAL_CLEANUP_CONFIRMATION: ${{ inputs.confirm_cleanup }}
-          TEST_CLEANUP_CONFIRMATION: ${{ github.event_name == 'push' && 'REMOVE_PORTAL_AUTHENTIK_LOCAL_TEST_CONTAINERS' || '' }}
+          HYGIENE_ACTION: ${{ inputs.action }}
+          CLEANUP_CONFIRMATION: ${{ inputs.confirm_cleanup }}
         run: |
           set -euo pipefail
 
           project=oteryn-staging
-          stale_test_project=portal-authentik-local-test
-          compose_sources=(deploy/synology/compose.yml deploy/synology/compose.marketplace.yml)
           runtime_services=(mariadb redis platform canary internal-proxy gateway marketplace-scheduler)
-          expected_test_services=(postgresql server worker)
+          mapfile -t compose_sources < <(
+            find deploy/synology -maxdepth 1 -type f -name 'compose*.yml' -print | sort
+          )
           mapfile -t expected_services < <(
             for compose_source in "${compose_sources[@]}"; do
               sed -n '/^services:$/,/^[^ ]/p' "$compose_source" \
@@ -226,11 +186,7 @@ jobs:
             is_in_list "$1" "${runtime_services[@]}"
           }
 
-          is_expected_test_service() {
-            is_in_list "$1" "${expected_test_services[@]}"
-          }
-
-          if (( ${#expected_services[@]} == 0 )); then
+          if (( ${#compose_sources[@]} == 0 || ${#expected_services[@]} == 0 )); then
             echo 'No canonical services parsed from trusted main Compose sources; refusing operation.' >&2
             exit 1
           fi
@@ -320,8 +276,6 @@ jobs:
                 classification=CANDIDATE_STOPPED_OBSOLETE_PORTAL_SERVICE
                 candidates+=("$id")
               fi
-            elif [[ "$actual_project" == "$stale_test_project" ]]; then
-              classification=EXACT_AUTHENTIK_LOCAL_TEST_CANDIDATE
             fi
 
             printf 'name=%s | state=%s | image=%s | compose_project=%s | compose_service=%s | class=%s\n' \
@@ -332,19 +286,14 @@ jobs:
           sort -o "$inventory_file" "$inventory_file"
           cat "$inventory_file"
 
-          mapfile -t target_project_ids < <(
-            docker ps -aq --filter "label=com.docker.compose.project=$stale_test_project"
-          )
-
           {
             echo '### Synology container hygiene inventory'
             echo
             echo "- action: \`$HYGIENE_ACTION\`"
             echo "- canonical Compose sources: \`${compose_sources[*]}\`"
             echo "- target Compose project: \`$project\`"
-            echo "- verified stopped Oteryn cleanup candidates: \`${#candidates[@]}\`"
-            echo "- unsafe/ambiguous Oteryn candidates: \`${#unsafe_portal[@]}\`"
-            echo "- exact Authentik local-test project containers: \`${#target_project_ids[@]}\`"
+            echo "- verified stopped cleanup candidates: \`${#candidates[@]}\`"
+            echo "- unsafe/ambiguous portal candidates: \`${#unsafe_portal[@]}\`"
             echo '- volumes/networks/images cleanup: `NOT PERMITTED`'
             echo
             echo '```text'
@@ -356,8 +305,8 @@ jobs:
             inventory)
               ;;
             cleanup-stopped-portal-orphans)
-              if [[ "$PORTAL_CLEANUP_CONFIRMATION" != 'REMOVE_STOPPED_OTERYN_STAGING_ORPHANS' ]]; then
-                echo 'Portal cleanup confirmation token is missing or incorrect.' >&2
+              if [[ "$CLEANUP_CONFIRMATION" != 'REMOVE_STOPPED_OTERYN_STAGING_ORPHANS' ]]; then
+                echo 'Cleanup confirmation token is missing or incorrect.' >&2
                 exit 1
               fi
               validate_canonical_runtime
@@ -391,105 +340,6 @@ jobs:
               validate_canonical_runtime
               echo "removed_count=$removed" >> "$GITHUB_OUTPUT"
               echo "Removed verified stopped Oteryn portal orphan containers: $removed" >> "$GITHUB_STEP_SUMMARY"
-              ;;
-            cleanup-proven-authentik-local-test)
-              if [[ "$TEST_CLEANUP_CONFIRMATION" != 'REMOVE_PORTAL_AUTHENTIK_LOCAL_TEST_CONTAINERS' ]]; then
-                echo 'Exact test-project cleanup confirmation token is missing or incorrect.' >&2
-                exit 1
-              fi
-              validate_canonical_runtime
-              if (( ${#unsafe_portal[@]} > 0 )); then
-                echo 'Unsafe or ambiguous Oteryn-owned containers exist; refusing test-project cleanup.' >&2
-                exit 1
-              fi
-              if (( ${#target_project_ids[@]} != 3 )); then
-                echo "Expected exactly 3 $stale_test_project containers, found ${#target_project_ids[@]}; refusing cleanup." >&2
-                exit 1
-              fi
-
-              target_services=()
-              for id in "${target_project_ids[@]}"; do
-                actual_project="$(label_value "$id" 'com.docker.compose.project')"
-                actual_service="$(label_value "$id" 'com.docker.compose.service')"
-                name="$(docker inspect --format '{{.Name}}' "$id")"
-                name="${name#/}"
-                state="$(docker inspect --format '{{.State.Status}}' "$id")"
-                created="$(docker inspect --format '{{.Created}}' "$id")"
-                expected_name="${stale_test_project}-${actual_service}-1"
-                if [[ "$actual_project" != "$stale_test_project" || -z "$actual_service" ]]; then
-                  echo "Target ownership changed before cleanup for $id; refusing cleanup." >&2
-                  exit 1
-                fi
-                if ! is_expected_test_service "$actual_service"; then
-                  echo "Unexpected service $actual_service in $stale_test_project; refusing cleanup." >&2
-                  exit 1
-                fi
-                if [[ "$name" != "$expected_name" ]]; then
-                  echo "Unexpected container name $name for service $actual_service; refusing cleanup." >&2
-                  exit 1
-                fi
-                target_services+=("$actual_service")
-                echo "Verified exact test target: name=$name | service=$actual_service | state=$state | created=$created"
-              done
-
-              actual_service_set="$(printf '%s\n' "${target_services[@]}" | sort -u | paste -sd, -)"
-              expected_service_set="$(printf '%s\n' "${expected_test_services[@]}" | sort -u | paste -sd, -)"
-              if [[ "$actual_service_set" != "$expected_service_set" ]]; then
-                echo "Exact test service set mismatch: actual=$actual_service_set expected=$expected_service_set; refusing cleanup." >&2
-                exit 1
-              fi
-
-              for id in "${target_project_ids[@]}"; do
-                actual_project="$(label_value "$id" 'com.docker.compose.project')"
-                actual_service="$(label_value "$id" 'com.docker.compose.service')"
-                state="$(docker inspect --format '{{.State.Status}}' "$id")"
-                if [[ "$actual_project" != "$stale_test_project" ]] || ! is_expected_test_service "$actual_service"; then
-                  echo "Target identity changed immediately before stop for $id; refusing cleanup." >&2
-                  exit 1
-                fi
-                if [[ "$state" == 'running' ]]; then
-                  echo "Stopping verified obsolete test container: ${stale_test_project}-${actual_service}-1"
-                  docker stop --timeout 30 "$id" >/dev/null
-                fi
-              done
-
-              validate_canonical_runtime
-
-              for id in "${target_project_ids[@]}"; do
-                actual_project="$(label_value "$id" 'com.docker.compose.project')"
-                actual_service="$(label_value "$id" 'com.docker.compose.service')"
-                running="$(docker inspect --format '{{.State.Running}}' "$id")"
-                if [[ "$actual_project" != "$stale_test_project" || "$running" != 'false' ]] || ! is_expected_test_service "$actual_service"; then
-                  echo "Target identity/state changed before removal for $id; refusing cleanup." >&2
-                  exit 1
-                fi
-              done
-
-              removed=0
-              for id in "${target_project_ids[@]}"; do
-                name="$(docker inspect --format '{{.Name}}' "$id")"
-                name="${name#/}"
-                echo "Removing verified obsolete test container: $name"
-                docker rm "$id" >/dev/null
-                if docker inspect "$id" >/dev/null 2>&1; then
-                  echo "Container still exists after removal: $name" >&2
-                  exit 1
-                fi
-                removed=$((removed + 1))
-              done
-
-              mapfile -t remaining_test_ids < <(
-                docker ps -aq --filter "label=com.docker.compose.project=$stale_test_project"
-              )
-              if (( ${#remaining_test_ids[@]} != 0 )); then
-                echo "$stale_test_project containers remain after cleanup; refusing successful closeout." >&2
-                exit 1
-              fi
-
-              validate_canonical_runtime
-              echo "removed_count=$removed" >> "$GITHUB_OUTPUT"
-              echo "Removed exact obsolete $stale_test_project containers: $removed" >> "$GITHUB_STEP_SUMMARY"
-              echo 'Named volumes, networks and images were preserved.' >> "$GITHUB_STEP_SUMMARY"
               ;;
             *)
               echo "Unsupported hygiene action: $HYGIENE_ACTION" >&2
