@@ -226,7 +226,7 @@
           "file": "scripts/acceptance/tests/editorial-media-acceptance.spec.mjs",
           "markers": [
             "@portal-editorial-media manager validates, uploads, privately previews, protects references, deletes and audits",
-            "expectNoHorizontalOverflow(page);"
+            "assertNoPageOverflow(page);"
           ]
         }
       }
