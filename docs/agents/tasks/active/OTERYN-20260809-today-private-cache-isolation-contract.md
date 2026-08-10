@@ -105,10 +105,10 @@ validation_gate:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-10T23:36:00+02:00
-head: 0488a4e03da0cae9b75821df04768ac7e5542d43
+updated_at: 2026-08-10T23:39:00+02:00
+head: d6f006d00df8984a699fac07eb0de68b0cf1b873
 branch: repair/issue-941
-pr: none
+pr: 970
 status: validating
 context_routes:
   - agent-governance
@@ -126,12 +126,13 @@ owned_paths:
 proven:
   - Issue #941 is open, P1/high risk, implementation-authorized, unblocked and explicitly architecture/documentation-only.
   - The deterministic branch was claimed from protected main 93f462101f73737ca8587fd7c6b053f5eb134372 with no competing #941 branch/PR at claim time.
-  - Before repair, ADR 0032/Portal/PlayerCompanion preserved private-source semantics but did not classify the materialized mixed response, prohibit shared cache reuse, define guest/auth identity separation, define owner-scoped private cache fencing or list transition invalidation requirements.
+  - PR #970 is the single authoritative delivery PR for the claimed branch repair/issue-941.
+  - Before repair, ADR 0032/Portal/PlayerCompanion preserved private-source semantics but did not classify the materialized mixed response, prohibit shared cache reuse, define guest/auth cache identity separation, define owner-scoped private cache fencing or list transition invalidation requirements.
   - Semantic head 0488a4e03da0cae9b75821df04768ac7e5542d43 reconciles all three required architecture documents around one privacy propagation/cache-isolation contract.
   - ADR 0032 now classifies a mixed owner-private Today representation as PRIVATE_PERSONALIZED and defines shared-cache prohibition, owner/security revision private cache identity, transition fencing, public-subfragment isolation and an explicit negative-path matrix.
   - PlayerCompanion now makes the representation handoff private even when underlying tracked facts are public and requires enough owner/security/private-state revision semantics for safe future cache fencing.
   - PORTAL_COMPLETENESS_ARCHITECTURE now makes the same isolation rules and negative-path proof part of the Today delivery/completion gate.
-  - The branch diff contains only the three Issue-authorized architecture paths plus this task packet; no forbidden path changed.
+  - The PR changes only the three Issue-authorized architecture paths plus this task packet; no forbidden path changed.
   - No current production/runtime leak is claimed; the finding remains a future implementation confidentiality boundary correction.
 derived:
   - Privacy is taint-like for materialized composition: owner-private input or influence makes the complete mixed representation private unless fragments are proven isolated.
@@ -165,5 +166,5 @@ validation:
     result: NOT_APPLICABLE
     evidence: Architecture/documentation-only repair; no executable route, cache middleware, response, schema, test harness or deployment behavior changes.
 blockers: []
-next_action: Open the single authoritative #941 delivery PR, persist its PR identity in this task checkpoint, then run exact-final whole-diff review, Agent Governance and repository-selected CI; repair any material review finding on the same PR before merge.
+next_action: Validate the resulting task-only final package head on PR #970, record exact-final whole-diff self-review without mutating the tree, run Agent Governance and repository-selected CI, and repair any material review finding on the same PR before merge.
 ```
