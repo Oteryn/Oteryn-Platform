@@ -224,7 +224,13 @@ final class WikiExpectedContentValidator
                 $seenSlugs[$slugIdentity] = true;
                 $articleTranslations++;
                 $internalLinks += $this->validateMarkdownLinks($translation);
-                $editorialMediaTokens += preg_match_all('/wiki-media:\d+/u', $translation->sourceMarkdown);
+                $mediaMatches = preg_match_all('/wiki-media:\d+/u', $translation->sourceMarkdown);
+
+                if ($mediaMatches === false) {
+                    throw new LogicException("Wiki launch article {$translation->slug} contains invalid editorial media syntax.");
+                }
+
+                $editorialMediaTokens += $mediaMatches;
             }
 
             $sourceReferences += $this->validateSourceReferences($articleKey, $article->sourceReferences);
@@ -294,10 +300,10 @@ final class WikiExpectedContentValidator
     private function validateMarkdownLinks(WikiLaunchTranslation $translation): int
     {
         preg_match_all('/(?<!!)\[[^\]]+\]\(([^)]+)\)/u', $translation->sourceMarkdown, $matches);
-        $targets = $matches[1] ?? [];
+        $targets = $matches[1];
 
         foreach ($targets as $target) {
-            if (! is_string($target) || ! str_starts_with($target, '/')) {
+            if (! str_starts_with($target, '/')) {
                 throw new LogicException("Wiki launch article {$translation->slug} contains a non-first-party Markdown link.");
             }
 
