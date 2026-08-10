@@ -56,8 +56,8 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-10T23:21:05Z
-head: 9d6d6906fc35c0ff00092c68564182da6cb8b0b4
+updated_at: 2026-08-10T23:30:00Z
+head: 69cf8243ae0e53e7853b822dd31ab4d8b9975db4
 branch: fix/synology-container-hygiene-overlays
 pr: 974
 status: implementing
@@ -79,8 +79,9 @@ proven:
   - Directory inspection of deploy/synology on main shows exactly two Compose files: compose.yml and compose.marketplace.yml.
   - Live inventory shows exactly three running containers in compose project portal-authentik-local-test with services postgresql, server and worker.
   - Current repository code search has no portal-authentik-local-test or Authentik configuration, current PR search has no Authentik PR, and active task inspection found no owner for that test project.
-  - Correction workflow on implementation head 9d6d6906fc35c0ff00092c68564182da6cb8b0b4 derives canonical services from both trusted Compose sources and protects marketplace-scheduler as running canonical runtime.
-  - Correction workflow prevalidates the exact three-container Authentik test service set before the first stop, uses non-forced docker stop/docker rm, preserves volumes/networks/images, and validates canonical Oteryn runtime before and after.
+  - Correction workflow on implementation head 69cf8243ae0e53e7853b822dd31ab4d8b9975db4 derives canonical services from both trusted Compose sources and protects marketplace-scheduler as running canonical runtime.
+  - Correction workflow prevalidates the exact three-container Authentik test service set before the first stop, uses supported non-forced docker stop --timeout plus docker rm, preserves volumes/networks/images, and validates canonical Oteryn runtime before and after.
+  - Docker official CLI documentation confirms docker stop uses -t/--timeout; the unsupported --time spelling was caught during self-review and corrected before live execution.
   - PR #974 is the single follow-up delivery PR for this correction/live closeout stage.
 derived:
   - marketplace-scheduler is canonical portal runtime and must be preserved; the first workflow classified it obsolete only because the marketplace Compose overlay was omitted from its source of truth.
@@ -100,17 +101,17 @@ changed_paths:
   - docs/agents/tasks/active/OTERYN-20260811-container-resource-hygiene.md
 validation:
   - command: Synology Container Hygiene run 31441629366 on bef929a505580d778a93dccc304e3b822e735125
-    result: FAIL_CLOSED
-    evidence: Docker access and inventory succeeded; one ambiguous portal-owned container caused refusal before any removal.
+    result: FAIL
+    evidence: Expected fail-closed safety outcome for the first live attempt: Docker access/inventory succeeded, one ambiguous portal-owned container caused refusal, and zero containers were removed.
   - command: repository ownership search for marketplace-scheduler
     result: PASS
     evidence: compose.marketplace.yml and marketplace-staging.sh prove canonical deployment ownership.
   - command: repository/PR/active-task ownership search for portal-authentik-local-test and Authentik
-    result: NO_OWNER_FOUND
-    evidence: No current code/configuration, PR or active task owns the exact test project.
+    result: PASS
+    evidence: Search completed successfully and found no current code/configuration, PR or active task that owns the exact test project.
   - command: exact-head PR #974 CI/governance
     result: NOT_RUN
-    evidence: Correction implementation has just been pushed; current workflow runs must complete before merge.
+    evidence: The corrected implementation head is awaiting its current workflow runs; merge is blocked until required exact-head checks pass.
 blockers: []
 next_action: Validate the exact PR #974 head, inspect full diff/reviews, and merge only if all required checks pass so the exact guarded live cleanup can execute from trusted main.
 policy_version: 2
@@ -119,7 +120,7 @@ session_id: agent-20260811-container-resource-hygiene-followup
 session_role: implementer
 execution_mode: github
 execution_reason: Correct the retained Synology hygiene source of truth and complete the explicitly authorized bounded container cleanup through the self-hosted runner.
-lease_expires_at: 2026-08-10T23:51:05Z
+lease_expires_at: 2026-08-11T00:00:00Z
 context_pressure: medium
 context_growth: stable
 context_score: 6
@@ -127,7 +128,7 @@ estimate_confidence: high
 decomposition_decision: single
 decomposition_reason: One bounded correction and live closeout of the same container-resource hygiene task.
 validation_level: focused
-last_completed_step: Implemented the fail-closed overlay-aware correction and exact stale test-project cleanup path in PR #974.
+last_completed_step: Corrected Docker stop syntax before live execution and normalized task validation result values for repository governance.
 session_rotation_count: 0
 heavy_validation_runs: 1
 stale_takeover_count: 0
@@ -138,7 +139,7 @@ human_interruptions: 0
 
 ```yaml
 result: PENDING
-exact_head: 9d6d6906fc35c0ff00092c68564182da6cb8b0b4
+exact_head: 69cf8243ae0e53e7853b822dd31ab4d8b9975db4
 acceptance_checked: true
 full_diff_checked: false
 negative_paths_checked: true
@@ -149,6 +150,7 @@ findings: []
 evidence:
   - First live run failed closed with zero removals.
   - Correction adds no prune, forced rm, volume, network or image removal primitive.
+  - Docker stop option syntax was verified against current official Docker CLI documentation before merge.
 ```
 
 ## Notes
