@@ -145,6 +145,58 @@ Rules:
 - PublicPortal may prioritize and arrange data, but cannot reinterpret an editorial item as runtime truth or a recommendation as deterministic fact;
 - the homepage/template system may progressively expose this composition without creating a second dashboard domain.
 
+#### Today representation privacy and cache isolation
+
+A correct owner check at composition time is necessary but not sufficient. Privacy must also survive materialization and cache reuse.
+
+- a guest-only representation containing only public inputs is `PUBLIC_GUEST`;
+- if any owner-private PlayerCompanion routine, goal, tracking preference, private derived signal or other owner-private input is included **or influences bytes, inclusion, ordering, counts, badges, recommendations, suppression or eligibility**, the complete materialized Today representation is `PRIVATE_PERSONALIZED`;
+- if the required owner/privacy/authorization context cannot be proven, personalized composition fails closed instead of falling back to a possibly stale private representation;
+- `PRIVATE_PERSONALIZED` Today output is not eligible for shared/public response caches, CDN/proxy shared caches or anonymous fragment caches; later implementation must use shared-cache bypass plus private/non-shareable semantics, with `no-store` or an equivalently strong policy when no deliberately owner-scoped representation cache exists;
+- guest and authenticated/private variants do not share a cache identity merely because route, query, world, profile or public cards match;
+- anonymous requests never inherit private fragments or private-influenced presentation from a prior authenticated request;
+- cache metadata such as a generic authenticated flag, role name or `Vary` dimension is not by itself sufficient proof of owner isolation.
+
+If a future private server-side Today representation cache is adopted, its key/fence must bind the authenticated owner and every revision required to prove that cached authorization/privacy remains equivalent. The semantic identity must cover, where applicable:
+
+```text
+owner_identity
+session/authentication_generation or equivalent session fence
+authorization_revision
+privacy_revision
+account/character ownership revision
+private PlayerCompanion/tracking/routine revision
+world/profile/season/applicability dimensions
+representation/schema version
+```
+
+Route/query/world/profile-only cache identity, a generic `authenticated=true` bit, or public-source revisions alone are forbidden for private output.
+
+Prior personalized representations must be fenced/invalidate-before-reuse on at least:
+
+- logout or authentication/session invalidation;
+- session replacement/authentication-generation change;
+- account/character ownership change affecting private context;
+- authorization or privacy tightening;
+- deletion/change of owner-private routines, goals, tracking preferences or signals represented in the output;
+- representation/schema incompatibility or applicability change.
+
+Public sub-fragments may be cached independently only when their composition boundary proves that owner-private inputs cannot alter the public fragment's bytes, inclusion, ordering, counts, semantic meaning, cache key or cache eligibility. Combining such a public fragment with any owner-private fragment still yields a `PRIVATE_PERSONALIZED` combined response; shared-cache eligibility never propagates upward from the public fragment.
+
+Before any personalized Today implementation may be called complete, exact negative-path evidence must prove at least:
+
+- User A → User B equivalent-cache request isolation;
+- authenticated → guest transition isolation;
+- guest → authenticated transition isolation;
+- logout and session replacement fencing;
+- account/character ownership-change fencing;
+- stale private fragment after tracking/goal/signal deletion or revision;
+- privacy/authorization tightening while an older personalized representation exists;
+- CDN/reverse-proxy/shared-cache simulation showing no private bytes cross principals;
+- public-subfragment + private-fragment composition preserving private classification of the final response.
+
+ADR 0032 is the controlling focused decision. This architecture does not claim a current Today route/cache leak and does not authorize cache middleware, CDN/proxy configuration, response headers, cache storage or production activation.
+
 ### Native Character Portfolio / Account Center v2
 
 The architectural owner is resolved by ADR 0030; runtime implementation remains intentionally separate.
@@ -334,7 +386,7 @@ The following statuses are planning decisions, not implementation authority.
 | Capability family | Disposition |
 |---|---|
 | Existing public/account/admin foundations | KEEP/EVOLVE |
-| PublicPortal Today / command-centre composition | PLANNED P1 composition over existing owners; no new truth module |
+| PublicPortal Today / command-centre composition | PLANNED P1 composition over existing owners; private/mixed output requires ADR 0032 cache isolation before implementation |
 | Native Character Portfolio / Account Center v2 | ARCHITECTURE ACCEPTED; implementation/migration gated |
 | Wiki and structured Game Catalog | KEEP/EVOLVE; close expected-content inventories |
 | Typed server-specific system definitions | DISCOVERY/EVOLVE under GameCatalog with Wiki/LiveOps ownership split |
@@ -391,10 +443,11 @@ The architecture subject may be considered closed for a named release scope only
 9. multi-world/profile/season applicability is explicit or validly not applicable;
 10. native Character Portfolio consumers use the accepted AccountId/CharacterId boundary or are explicitly compatibility-scoped; no new permanent Canary-numeric ownership contract is introduced;
 11. personalized tracking/subscription behavior, when implemented, has explicit source, privacy, retention, refresh, abuse and notification-delivery semantics;
-12. typed server-specific systems do not blur GameCatalog deterministic definition, Wiki editorial explanation and LiveOps current-state ownership;
-13. federated search, when implemented, preserves source publication/localization/privacy/canonical identity, distinguishes partial failure from zero results, keeps character enumeration separate, has bounded query privacy/rate/cache/index semantics, and does not introduce a PublicPortal/provider module cycle;
-14. exact production edge, observability, backup/restore/rollback and smoke evidence passes when claiming production readiness;
-15. required exact-head CI passes and all related PR/task ownership is terminal.
+12. personalized Today, when implemented, classifies any private-influenced mixed response as owner-private, bypasses shared/CDN/anonymous caches, uses owner/security-revision fencing for any private representation cache, fences logout/session/ownership/privacy/tracking transitions and passes two-user/auth-transition/CDN/private-fragment negative-path evidence;
+13. typed server-specific systems do not blur GameCatalog deterministic definition, Wiki editorial explanation and LiveOps current-state ownership;
+14. federated search, when implemented, preserves source publication/localization/privacy/canonical identity, distinguishes partial failure from zero results, keeps character enumeration separate, has bounded query privacy/rate/cache/index semantics, and does not introduce a PublicPortal/provider module cycle;
+15. exact production edge, observability, backup/restore/rollback and smoke evidence passes when claiming production readiness;
+16. required exact-head CI passes and all related PR/task ownership is terminal.
 
 ## Current verdict
 
@@ -402,7 +455,7 @@ The architecture subject may be considered closed for a named release scope only
 - **Need for architectural rewrite:** no.
 - **Need for architectural improvement:** yes, through bounded composition/ownership refinements and completion gates rather than new services.
 - **Native Character Portfolio ownership:** accepted through ADR 0030; runtime implementation not yet authorized by this architecture package.
-- **Today/command-centre ownership:** PublicPortal composition over existing bounded sources; no new truth module.
+- **Today/command-centre ownership:** PublicPortal composition over existing bounded sources; mixed owner-private output is `PRIVATE_PERSONALIZED` and requires ADR 0032 cache isolation; no new truth module.
 - **Owner-private tracking ownership:** PlayerCompanion.ProgressTracker; Notifications remains delivery-only.
 - **Server-specific system definition ownership:** GameCatalog for structured deterministic definition, Wiki for editorial explanation, LiveOps for current state.
 - **Federated content search ownership:** PublicPortal application capability over source-owned public queries; architecture accepted through ADR 0033, with Announcements/Events provider onboarding gated on existing reverse-edge cleanup; runtime not yet implemented.
@@ -424,4 +477,4 @@ The architecture subject may be considered closed for a named release scope only
 - ADR 0033
 - `docs/agents/reports/OTERYN-20260806-portal-player-tools-benchmark.md`
 - `docs/agents/reports/OTERYN-20260808-portal-product-delta.md`
-- Issues #365, #488, #489, #490 and #935
+- Issues #365, #488, #489, #490, #935 and #941
