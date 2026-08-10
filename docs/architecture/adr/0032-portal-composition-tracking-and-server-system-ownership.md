@@ -36,6 +36,73 @@ PublicPortal Today view model
 
 Every composed value preserves its source owner's applicability, freshness, confidence, privacy and unavailable semantics. Missing or stale evidence must never be converted into fabricated `0`, `offline`, `none`, completed or unchanged state.
 
+#### 1a. `Today` private-representation and cache isolation
+
+Privacy classification propagates through composition. If any `Today` / command-centre representation contains owner-private `PlayerCompanion` routines, goals, tracking preferences, private derived signals or another owner-private input, the **complete materialized representation is `PRIVATE_PERSONALIZED`** even when every other card in that response is public.
+
+Required representation classes are at least:
+
+- `PUBLIC_GUEST` — contains only explicitly public inputs and no value, omission, ordering, badge, count, recommendation or eligibility decision influenced by owner-private state;
+- `PRIVATE_PERSONALIZED` — contains or is influenced by any authenticated owner-private input;
+- `UNAVAILABLE` / fail-closed — required privacy/authorization context is ambiguous or cannot be proven safe.
+
+Cache rules:
+
+- `PRIVATE_PERSONALIZED` output must never enter a shared/public page cache, anonymous fragment cache, CDN cache, reverse-proxy shared cache or another cache identity reusable across principals;
+- the default delivery posture for a mixed public/private Today response is shared-cache bypass plus explicit private/non-shareable response semantics; `no-store` is valid where no owner-scoped representation cache is intentionally implemented;
+- `PUBLIC_GUEST` and authenticated/private variants never share cache identity merely because route, query, world, profile or the visible public cards happen to match;
+- `Vary`-style metadata alone is not sufficient if an intermediary could still collapse identities or retain owner-private bytes; the implementation must prove the actual cache path is principal-safe or bypass it;
+- an anonymous request must never inherit an authenticated user's private fragment, ordering, count, recommendation, suppression decision or other personalized derivative.
+
+A future **private server-side representation cache** is permitted only when its identity binds, at minimum, the authenticated owner/principal plus every security-context dimension whose change can invalidate reuse. Depending on the adopted identity model this includes equivalent semantics for:
+
+```text
+owner_identity
+session/authentication_generation or equivalent session fence
+authorization_revision
+privacy_revision
+account/character ownership revision when owner-private character context participates
+tracking/routine preference revision or private-companion revision
+world/profile/season/applicability dimensions used by the representation
+representation/schema version
+```
+
+The exact encoding and cache technology are deferred. A key based only on route/query/world/profile, a generic `authenticated=true` bit, role name, or another non-owner-specific discriminator is forbidden for private representations.
+
+Private-cache reuse must re-establish all required security-context equivalence. The following transitions fence or invalidate prior personalized representations before they may be reused:
+
+- logout or authentication/session invalidation;
+- session replacement or authentication-generation change;
+- account/character ownership change affecting the represented private context;
+- authorization removal/tightening;
+- privacy setting tightening or visibility revision;
+- deletion/change of tracked routines, goals, subscriptions or private signals where the older representation is no longer valid;
+- representation/schema incompatibility or applicability change.
+
+Public sub-fragments may still be cached independently, but only behind a proof of **composition isolation**:
+
+- the fragment input set is public-only;
+- its cache key/eligibility does not depend on owner-private state;
+- private data cannot alter fragment bytes, inclusion, ordering, counts or semantic meaning;
+- the fragment remains safe when rendered for guest, User A and User B;
+- combining it with a private fragment never causes the combined/private response to inherit the public fragment's shared-cache eligibility.
+
+This decision defines the security contract only. It does not select Laravel cache middleware, response headers, CDN vendor, reverse proxy, cache store, TTL or invalidation implementation.
+
+Minimum later validation must include:
+
+| Scenario | Required result |
+| --- | --- |
+| User A materializes personalized Today; User B requests equivalent route/world/profile | B never receives A private bytes or private-influenced presentation |
+| Authenticated User A then anonymous/guest request hits same public dimensions | Guest response contains no A private fragment or derivative |
+| Guest response exists, then User A authenticates | Authenticated composition cannot reuse guest identity as proof that private state is absent/current |
+| User A logs out or session is replaced | prior personalized representation is fenced from the new/anonymous session |
+| account/character ownership changes | older owner-context representation cannot be reused under the new ownership revision |
+| tracking preference/goal/private signal is deleted or revised | stale private representation cannot resurrect removed private content/state |
+| privacy/authorization tightens while an older private representation exists | older representation fails closed instead of bypassing the new restriction |
+| CDN/proxy/shared-cache simulation | no `PRIVATE_PERSONALIZED` bytes are stored or served through a cross-principal cache identity |
+| independently cacheable public fragment is combined with private cards | public fragment remains public-only, while the combined representation remains private/non-shareable |
+
 ### 2. Owner-private tracking belongs to `PlayerCompanion.ProgressTracker`
 
 `PlayerCompanion.ProgressTracker` owns the Platform-side user intent and derived workflow state for adopted tracking features:
@@ -96,12 +163,16 @@ These decisions refine existing boundaries. They do not justify a new tracking s
 - `Notifications` remains transport-focused instead of becoming a second domain-rules engine;
 - deterministic definitions, editorial content and live state cannot silently overwrite each other's authority;
 - the homepage/Today experience can become useful without creating another data authority;
+- mixed public/private Today composition has an explicit confidentiality boundary independent from composition-time authorization;
+- shared-cache eligibility cannot propagate from public cards to an owner-private combined representation;
 - future multi-world presentation cannot accidentally become admission or routing authority;
 - the existing modular-monolith deployment remains simple.
 
 ### Costs and constraints
 
 - tracking requires bounded source-aware evaluation and privacy/retention policy before implementation;
+- personalized Today requires deliberate shared-cache bypass or owner-scoped private-cache identity/invalidation rather than a generic portal page-cache key;
+- public/private fragment decomposition requires proof that private inputs cannot influence the public fragment;
 - server-specific systems require authoritative structured provenance before deterministic catalogue representation;
 - Today and World Hub must expose stale/unavailable states rather than hide dependency failures;
 - future community evidence requires separate moderation and anti-manipulation work.
@@ -111,6 +182,7 @@ These decisions refine existing boundaries. They do not justify a new tracking s
 This ADR is architecture authority only. It does not prove or authorize implementation of:
 
 - `Today` / command-centre routes or UI;
+- response/fragment cache middleware, CDN/reverse-proxy configuration or cache-store selection;
 - tracking persistence, pollers, queues or notification fan-out;
 - typed server-specific system schemas/importers;
 - World Hub routes or analytics;
@@ -120,7 +192,7 @@ This ADR is architecture authority only. It does not prove or authorize implemen
 - Oteryn-v2/Canary/runtime changes;
 - payment or protected-environment operations.
 
-Each adopted user-facing slice still requires a bounded task, complete backend/frontend/integration states, privacy/abuse controls, applicable real E2E and exact-head validation.
+Each adopted user-facing slice still requires a bounded task, complete backend/frontend/integration states, privacy/abuse controls, the two-user/auth-transition/cache-boundary negative paths above, applicable real E2E and exact-head validation.
 
 ## References
 
@@ -132,4 +204,5 @@ Each adopted user-facing slice still requires a bounded task, complete backend/f
 - Issue #302
 - Issue #301
 - Issue #489
+- Issue #941 — owner-private Today cache isolation contract
 - PR #933
