@@ -2,7 +2,7 @@
 
 ## Evidence status
 
-Live-state refresh on 2026-08-10 verified protected `main` at `dc9adc7d9246e83c7299d8cf9c161524fb85b2c9`. This document is a dated evidence snapshot; Issues, Pull Requests, task ownership and CI must still be revalidated before future mutation.
+Initial live-state refresh on 2026-08-10 verified protected `main` at `dc9adc7d9246e83c7299d8cf9c161524fb85b2c9`. A post-merge reconciliation refresh verified protected `main` at `3d38a4a0f8c807215e4ba1ea7fa26bed4da10739` and corrected the open-PR inventory to include PR #961, which had already been open before the portal-completion PR was created. This document is a dated evidence snapshot; Issues, Pull Requests, task ownership and CI must still be revalidated before future mutation.
 
 Scope: `blakinio/Oteryn-Platform` only. It does not authorize or claim inspection/mutation of Oteryn-v2, Canary or another server/game repository.
 
@@ -71,8 +71,9 @@ Live refresh proves:
 - `ACTIVE_WORK.md` says no active work, but two task records exist under `docs/agents/tasks/active/**`;
 - the active public-domain repair is blocked on external Cloudflare/token/evidence work;
 - the active native-auth production-verification record is blocked on later native/runtime/environment gates;
-- open PRs are currently only #541 and #338;
-- no existing `PORTAL-CLOSEOUT`/portal-completion PR existed before this package.
+- the corrected closeout open-PR inventory is #961, #541 and #338;
+- PR #961 is separate synthetic/no-network research work and does not overlap the portal-completion documentation paths;
+- no existing `PORTAL-CLOSEOUT`/portal-completion PR existed before the completion package was created.
 
 This drift can misroute agents, obscure ownership and create duplicate work. The portal programme must always prefer live task/PR/Issue state over historical summary prose.
 
@@ -108,16 +109,19 @@ The next major value is integrated utility, not more static pages:
 
 For Player Companion, useful first-party candidates include loot/session analysis, hunt guidance, equipment/build planning, quest/access tracking and training/EXP calculators. Implement only against authoritative/versioned facts with private-by-default personal data.
 
-## Open PR disposition at live refresh
+## Open PR disposition at corrected closeout refresh
 
-Only these PRs are open at the persisted refresh; classifications remain provisional until a future executor rechecks full diff, reviews and CI:
+These PRs were open at the corrected 2026-08-10 closeout refresh; classifications remain provisional until a future executor rechecks full diff, reviews and CI:
 
 | PR | Provisional disposition | Basis |
 |---|---|---|
+| #961 Tibia Linux synthetic reference harness | `FIX` | Separate bounded synthetic/no-network research scope with no portal-completion path overlap. Head `3c59fec368c68196851ebc9a205f91c38c1b6947` has failing Agent Governance, CI and Tibia Linux Reference Harness runs. Governance logs show the branch task checkpoint is missing required fields and uses unsupported status `active`; the synthetic graphical no-network component also fails. Repair in its own PR; do not merge or close merely because validation is red. |
 | #541 public-domain checkpoint | `SUPERSEDED` candidate / `NEEDS_DECISION` until revalidated | Draft documentation reconciliation is based on old state. Close only after proving later merged state contains everything needed and preserving unique sanitized environment evidence. |
 | #338 NPC shop schema 1.3 consumer | `REBASE/SPLIT` | Valuable direction but old mixed branch/base and producer dependency require a clean current-main reconciliation. Server-side producer inspection is outside Platform-only authority. |
 
-Historical note: dependency-update PRs #952–#958 were part of an earlier 2026-08-10 observation but were no longer open at this live refresh; they must not be routed as current work.
+Correction note: the first persisted open-PR inventory omitted #961 even though GitHub records it as created at `2026-08-10T18:45:31Z`, before PR #962 was created at `2026-08-10T18:50:31Z`. The omission was discovered during post-merge revalidation and is corrected here rather than silently preserving an inaccurate snapshot.
+
+Historical note: dependency-update PRs #952–#958 were part of an earlier 2026-08-10 observation but were no longer open at this closeout refresh; they must not be routed as current work.
 
 ## Benchmark/product comparison
 
@@ -169,4 +173,4 @@ Canonical sources include:
 - `docs/agents/ACTIVE_WORK.md`;
 - `docs/agents/tasks/active/**`;
 - Issues #941, #944, #948 and #490;
-- open PRs #338 and #541 at the 2026-08-10 live refresh.
+- open PRs #961, #541 and #338 at the corrected 2026-08-10 closeout refresh.
