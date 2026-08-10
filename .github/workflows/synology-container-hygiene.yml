@@ -82,16 +82,21 @@ jobs:
               'docker rm "$id"',
               'validate_canonical_runtime',
               'OUTSIDE_SCOPE',
-              "startsWith(github.event.head_commit.message, 'chore(agents): enforce container resource hygiene')",
+              'mapfile -t expected_services',
+              'deploy/synology/compose.yml',
+              "startsWith(github.event.head_commit.message, 'chore(agents): enforce container resource hygiene (#973)')",
           ]
           missing = [marker for marker in required if marker not in workflow]
           if missing:
               raise SystemExit('missing fail-closed marker(s): ' + ', '.join(missing))
 
-          expected_match = re.search(r'^\s*expected_services=\(([^)]*)\)\s*$', workflow, re.MULTILINE)
-          if not expected_match:
-              raise SystemExit('expected_services declaration is missing')
-          workflow_services = set(expected_match.group(1).split())
+          if re.search(r'^\s*expected_services=\(', workflow, re.MULTILINE):
+              raise SystemExit('live expected_services must be derived from trusted main compose, not hard-coded')
+
+          runtime_match = re.search(r'^\s*runtime_services=\(([^)]*)\)\s*$', workflow, re.MULTILINE)
+          if not runtime_match:
+              raise SystemExit('runtime_services declaration is missing')
+          runtime_services = set(runtime_match.group(1).split())
 
           compose_lines = Path('deploy/synology/compose.yml').read_text().splitlines()
           compose_services = []
@@ -110,10 +115,11 @@ jobs:
 
           if not compose_services:
               raise SystemExit('no canonical Compose services were parsed')
-          if workflow_services != set(compose_services):
+          missing_runtime = runtime_services - set(compose_services)
+          if missing_runtime:
               raise SystemExit(
-                  'hygiene expected_services drift from deploy/synology/compose.yml: '
-                  f'workflow={sorted(workflow_services)} compose={sorted(compose_services)}'
+                  'runtime_services drift from deploy/synology/compose.yml: '
+                  f'missing={sorted(missing_runtime)}'
               )
           PY
 
@@ -121,7 +127,7 @@ jobs:
     if: >-
       (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') ||
       (github.event_name == 'push' && github.ref == 'refs/heads/main' &&
-       startsWith(github.event.head_commit.message, 'chore(agents): enforce container resource hygiene'))
+       startsWith(github.event.head_commit.message, 'chore(agents): enforce container resource hygiene (#973)'))
     runs-on: oteryn-staging
     environment: synology-staging
     timeout-minutes: 10
@@ -147,7 +153,10 @@ jobs:
 
           project=oteryn-staging
           runtime_services=(mariadb redis platform canary internal-proxy gateway)
-          expected_services=(mariadb redis platform canary tls-init internal-proxy gateway)
+          mapfile -t expected_services < <(
+            sed -n '/^services:$/,/^[^ ]/p' deploy/synology/compose.yml \
+              | sed -n 's/^  \([A-Za-z0-9][A-Za-z0-9_-]*\):$/\1/p'
+          )
           candidates=()
           unsafe_portal=()
           inventory_file="$RUNNER_TEMP/synology-container-inventory.txt"
@@ -170,6 +179,17 @@ jobs:
             done
             return 1
           }
+
+          if (( ${#expected_services[@]} == 0 )); then
+            echo 'No canonical services parsed from trusted main compose; refusing operation.' >&2
+            exit 1
+          fi
+          for service in "${runtime_services[@]}"; do
+            if ! is_expected_service "$service"; then
+              echo "Runtime service $service is absent from trusted main compose; refusing operation." >&2
+              exit 1
+            fi
+          done
 
           label_value() {
             local id="$1"
