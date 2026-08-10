@@ -12,16 +12,17 @@ portal_programme: OTERYN_PORTAL_COMPLETION
 
 ## Goal
 
-Repair the remaining high-severity Wiki completeness gap in Issue #488 by turning the reviewed `WikiLaunchContentCatalog` launch scope into an explicit versioned, machine-verifiable expected-content contract consumed by the canonical Portal Exhaustive Audit, then revalidate the Issue's current failure/recovery, accessibility/responsive and browser-portability acceptance on the exact repair head.
+Close Issue #488 by making the reviewed Wiki launch corpus independently machine-verifiable, binding that inventory to the canonical Portal Exhaustive Audit, and reconciling every remaining Wiki/EditorialMedia failure, portability, accessibility, locale and overflow finding with exact executable evidence or machine-proven non-applicability.
 
 ## Feature scope
 
 ```yaml
 feature_scope:
-  type: internal_content_integrity
+  type: content_integrity_and_acceptance_evidence
   complete_user_facing_feature: false
   backend_required: true
   frontend_required: false
+  runtime_required: true
   integration_required: true
   e2e_required: true
 ```
@@ -36,8 +37,17 @@ owned_paths:
   - app/Console/Commands/ValidateWikiExpectedContent.php
   - app/Console/Commands/InstallWikiLaunchContent.php
   - docs/testing/WIKI_EXPECTED_CONTENT_INVENTORY.json
+  - docs/testing/PORTAL_STRICTNESS_EVIDENCE.json
   - tests/Unit/Wiki/WikiExpectedContentInventoryTest.php
   - tests/Feature/Wiki/WikiLaunchContentCommandTest.php
+  - tools/audit/portal_exhaustive_strictness.py
+  - tools/audit/test_portal_exhaustive_strictness.py
+  - scripts/acceptance/playwright.config.mjs
+  - scripts/acceptance/playwright.wiki-reconciliation.config.mjs
+  - scripts/acceptance/playwright.editorial-media.config.mjs
+  - scripts/acceptance/tests/wiki-strictness-acceptance.spec.mjs
+  - scripts/acceptance/tests/editorial-media-strictness-acceptance.spec.mjs
+  - scripts/acceptance/coverage/portal-evidence-dimensions/content.json
   - docs/agents/tasks/active/OTERYN-20260810-wiki-expected-content-inventory.md
 restricted_paths:
   - app/Wiki/Models/**
@@ -46,8 +56,6 @@ restricted_paths:
   - database/**
   - routes/**
   - resources/views/**
-  - scripts/acceptance/**
-  - .github/workflows/**
   - deploy/**
   - repository environments
   - secrets and variables
@@ -58,19 +66,17 @@ coordination_key: wiki:expected-content-inventory
 
 ## Acceptance inventory
 
-- [x] A versioned authoritative expected launch inventory independently pins exactly 4 category keys and 13 EN/PL article slug pairs from the already-reviewed launch corpus; no new editorial/game facts are invented.
-- [x] Inventory declares expected locale set, independently pinned catalog version and exact reviewed catalog Git-blob identity, category/article metadata, exact per-article provenance, approved internal-link surface and launch media/fallback policy.
-- [x] Canonical `docs/testing/WIKI_EXPECTED_CONTENT_INVENTORY.json` exists with `status: complete`, expected records and the same versioned contract consumed by `Portal Exhaustive Audit`.
-- [x] Runtime validation fails closed if the machine-readable JSON drifts from the PHP inventory or if the exact reviewed catalog source blob changes.
-- [x] Validation fails closed for missing/extra/duplicate categories, missing/extra/duplicate article identities/slugs, locale asymmetry, category-reference drift, metadata drift and invalid sort/order expectations.
-- [x] Every article has independently pinned non-empty normalized repository source references; unrelated existing files cannot replace reviewed provenance and every referenced path must exist on the checked-out head.
-- [x] Internal Markdown links are parsed through CommonMark AST and bounded to approved first-party routes or expected localized Wiki article slugs; inline and reference-style external/unexpected links fail validation.
-- [x] Launch content install command executes expected-content validation before publisher lookup/persistence mutation and fails closed on inventory/catalog drift.
-- [x] Machine validation can run without a publisher/database mutation through `wiki:launch-content:validate --json` and has focused unit/feature coverage.
-- [ ] Existing public Wiki indexing, EN/PL rendering, administration lifecycle, publication feedback, responsive/accessibility behavior and corrupt/missing EditorialMedia fallback remain green on exact-head acceptance.
-- [ ] Wiki paths run with zero retry in applicable current acceptance profiles and Firefox/WebKit portability evidence is captured on the exact head.
-- [ ] Required exact-head CI, Agent Governance and Portal Exhaustive Audit pass with the HIGH Wiki expected-inventory finding absent.
-- [x] No deployment, production, credential, external-repository or new editorial-content mutation occurs.
+- [x] Independent inventory pins catalog version, exact reviewed catalog Git blob, four categories, thirteen EN/PL article identities, metadata and exact per-article provenance.
+- [x] Canonical `docs/testing/WIKI_EXPECTED_CONTENT_INVENTORY.json` is strictly bound to the PHP inventory before runtime validation or installation.
+- [x] CommonMark AST link validation catches inline and reference-style external/unexpected links.
+- [x] Install validation occurs before publisher lookup or writes; read-only `wiki:launch-content:validate --json` exposes machine PASS/FAIL.
+- [x] Exact-head Portal Exhaustive Audit run `31439187717` proves Wiki `content_complete: PASS`; the former HIGH expected-inventory finding is absent.
+- [x] Remaining strictness gaps are represented explicitly: real 404/419/500→recovery probes for admin Wiki and EditorialMedia, existing public Wiki 404/429/503→recovery evidence, explicit accessibility/overflow markers, and machine-verified N/A only for read-only CSRF, no-throttle rate-limit, and unlocalized trusted operator UI rules.
+- [x] Standard portability profile now executes the real EditorialMedia lifecycle in bounded Firefox and WebKit as well as Chromium.
+- [ ] Final exact-head Portal Exhaustive Audit contains no material Wiki/EditorialMedia findings owned by #488.
+- [ ] Final exact-head CI, Agent Governance, Wiki Reconciliation, Editorial Media Acceptance and full Acceptance E2E all pass.
+- [ ] Final whole-diff self-review has no open material finding and all PR review threads are terminal.
+- [x] No application route/view/schema/deployment/production/credential/external-repository behavior is changed.
 
 ## Validation gate
 
@@ -82,14 +88,14 @@ validation_gate:
   classified_at: 2026-08-10T23:52:00+02:00
   risk: high
   triggers:
-    - Issue 488 has a proven HIGH completeness finding
-    - published bilingual Wiki launch content
-    - machine-readable Portal Exhaustive Audit content-completeness contract
-    - internal route/reference and provenance integrity
-    - cross-browser public/admin editorial lifecycle acceptance
-    - historical intermittent publication-feedback and media-isolation defects
+    - Issue 488 proven HIGH Wiki completeness gap
+    - bilingual published Wiki launch content
+    - machine-readable audit completion contract
+    - privileged Wiki and EditorialMedia failure/CSRF/recovery acceptance
+    - cross-browser EditorialMedia mutation lifecycle
+    - historical intermittent Wiki publication/media defects
   unknown_or_conflict: []
-  rationale: The change promotes the reviewed launch corpus into a release-completeness contract consumed by the repository audit and prevents either runtime or audit evidence from self-approving independent drift.
+  rationale: Completion requires both independent content truth and exact executable evidence; neither a standalone JSON status nor a generic browser marker may self-approve a missing surface-specific contract.
   self_review:
     result: PENDING
     exact_head: none
@@ -101,7 +107,7 @@ validation_gate:
 ```yaml
 checkpoint_version: 1
 updated_at: 2026-08-11T00:19:00+02:00
-head: 99903a49af320562b4d9d265fe33e700f7c2fa1a
+head: 3decc2338f4848e765092bd9adbee0ad6aebfee2
 branch: repair/issue-488
 pr: 972
 status: validating
@@ -112,62 +118,88 @@ context_routes:
   - public-web
   - testing
   - content
+  - acceptance
+  - audit
 owned_paths:
   - app/Wiki/Content/WikiExpectedContentInventory.php
   - app/Wiki/Content/WikiExpectedContentValidator.php
   - app/Console/Commands/ValidateWikiExpectedContent.php
   - app/Console/Commands/InstallWikiLaunchContent.php
   - docs/testing/WIKI_EXPECTED_CONTENT_INVENTORY.json
+  - docs/testing/PORTAL_STRICTNESS_EVIDENCE.json
   - tests/Unit/Wiki/WikiExpectedContentInventoryTest.php
   - tests/Feature/Wiki/WikiLaunchContentCommandTest.php
+  - tools/audit/portal_exhaustive_strictness.py
+  - tools/audit/test_portal_exhaustive_strictness.py
+  - scripts/acceptance/playwright.config.mjs
+  - scripts/acceptance/playwright.wiki-reconciliation.config.mjs
+  - scripts/acceptance/playwright.editorial-media.config.mjs
+  - scripts/acceptance/tests/wiki-strictness-acceptance.spec.mjs
+  - scripts/acceptance/tests/editorial-media-strictness-acceptance.spec.mjs
+  - scripts/acceptance/coverage/portal-evidence-dimensions/content.json
   - docs/agents/tasks/active/OTERYN-20260810-wiki-expected-content-inventory.md
 proven:
-  - Issue #488 is the canonical owner for the Wiki completeness audit and explicitly says no duplicate Issue should be created for the expected-inventory gap.
-  - The user explicitly authorized autonomous PORTAL-CLOSEOUT execution; Issue comment 5246540485 records bounded current-main implementation authorization for #488.
-  - The repair branch was created from protected main d1e2f27d5dee7e3bb650bad38b4d03eaff6d4249 with no competing #488 branch/PR at claim time; PR #972 is the single authoritative delivery PR.
-  - Claim extension comment 5246809100 adds the canonical machine-readable inventory path after exact review proved Portal Exhaustive Audit requires it.
-  - WikiExpectedContentInventory version 2026-08-10.2 independently pins reviewed catalog version 2026-07-26.1, exact reviewed catalog Git blob 07ff3324a4530958f9f4e164c5f7a2a399a1bb8b, four category identities, thirteen EN/PL article identities and exact per-article provenance.
-  - docs/testing/WIKI_EXPECTED_CONTENT_INVENTORY.json carries the same explicit expected-record contract and is the canonical file consumed by Portal Exhaustive Audit for Wiki CONTENT_COMPLETE.
-  - WikiExpectedContentValidator requires machine-readable JSON equality with the runtime inventory, exact reviewed catalog source identity, exact category/article metadata and locales, exact provenance, first-party CommonMark AST links and the declared media policy.
-  - A read-only wiki:launch-content:validate command exposes machine PASS/FAIL without publisher or persistence mutation; InstallWikiLaunchContent runs the validator before publisher lookup or installer writes.
-  - Focused tests cover exact-match PASS, missing article, metadata/category drift, locale asymmetry, unrelated-existing-file provenance substitution, inline external link, CommonMark reference-style external link and duplicate category identity.
-  - Historical exact-head PR validation already proved Wiki reconciliation and cross-browser flows on earlier heads; the expanded audit-linked final package still requires fresh exact-head gates.
+  - Issue #488 is the canonical remediation/evidence owner and explicitly forbids creating a duplicate inventory Issue.
+  - User authorization for autonomous PORTAL-CLOSEOUT and bounded #488 implementation is recorded in Issue comment 5246540485; deterministic claim is comment 5246544759.
+  - Scope extensions are durable in Issue comments 5246809100, 5246907704 and 5246976857.
+  - PR #972 is the single authoritative delivery PR from repair/issue-488.
+  - Exact inventory chain is JSON -> PHP inventory -> exact reviewed catalog Git blob -> actual catalog categories/articles/locales/provenance/CommonMark links.
+  - Codex findings for unpinned bilingual copy, unpinned provenance, regex-only links and missing canonical audit inventory have all been addressed in code with focused regression coverage.
+  - Run 31439187717 proved the HIGH Wiki content-completeness finding is gone but retained five Wiki and five EditorialMedia MEDIUM strictness findings; those exact findings drive the current bounded acceptance/evidence work.
+  - Public Wiki already has exact 404, feature 429, browser 503/recovery, EN/PL, accessibility and overflow evidence.
+  - New strictness specs add zero-retry admin Wiki and EditorialMedia 404, CSRF 419, forced 500 and restoration probes without modifying production behavior.
+  - PORTAL_STRICTNESS_EVIDENCE requires exact source markers for covered dimensions and validates non-applicability from route method/middleware/operator-route properties rather than accepting prose alone.
+  - EditorialMedia is added to standard portabilityMatches; dimension contract now classifies portability covered by standard-portability Firefox/WebKit projects.
 derived:
-  - The explicit JSON-to-PHP-to-catalog chain prevents a standalone status=complete JSON file from serving as sufficient evidence while actual launch content or runtime expectations drift.
-  - Existing browser/failure acceptance should be reused unchanged and revalidated on the final code head rather than rewritten.
+  - A fresh exact-head audit should remove the ten Issue #488 MEDIUM findings only if the new evidence contract and route-topology rules validate; any unsupported N/A fails the audit itself.
+  - Existing long lifecycle tests remain unchanged, reducing regression risk while dedicated strictness probes remain independently maintainable.
 unknown:
-  - exact-head CI/Playwright/audit results for the expanded audit-linked PR #972 package
-  - future post-launch Wiki expansion beyond this versioned launch inventory
-  - future editorial media assignments for launch articles
+  - final exact-head outcomes after strictness contract and dedicated acceptance probes
+  - future post-launch Wiki expansion beyond the versioned launch inventory
 conflicts: []
 first_failure:
-  marker: wiki-content-completeness-audit-contract-missing
-  evidence: Codex exact-head review on 0b9658a5 proved Portal Exhaustive Audit only recognizes docs/testing/WIKI_EXPECTED_CONTENT_INVENTORY.json; the missing contract is now implemented and runtime-bound, pending exact-head validation.
+  marker: issue-488-strictness-evidence-not-explicit
+  evidence: Audit artifact 9082179805 from run 31439187717 had zero HIGH Wiki inventory findings but retained exactly 10 MEDIUM Wiki/EditorialMedia strictness findings.
 rejected_hypotheses:
-  - The presence of WikiLaunchContentCatalog alone proves CONTENT_COMPLETE; Issue #488 explicitly rejects sample/fixture presence as sufficient completion evidence.
-  - New speculative articles are required to fix this gap; the audit asks for an authoritative expected inventory, and the reviewed launch corpus already provides the bounded release content to inventory.
-  - A PHP-only inventory closes #488; canonical Portal Exhaustive Audit requires the machine-readable docs/testing inventory contract.
-  - Any existing repository file is sufficient provenance; exact per-article provenance sets are independently pinned.
-  - Inline Markdown-link regex is sufficient; CommonMark reference links require parser/AST validation.
+  - A standalone status=complete JSON proves Wiki completion; runtime validator now binds it to exact PHP inventory and catalog source.
+  - Any existing repository file is acceptable provenance; exact per-article sets are pinned.
+  - Inline Markdown regex is sufficient; CommonMark AST is required.
+  - Existing consumer portability substitutes for `/admin/media`; the real EditorialMedia lifecycle is now included in Firefox/WebKit portability.
+  - Missing strictness categories can be silenced by prose; N/A must pass machine topology/middleware rules.
 changed_paths:
   - app/Wiki/Content/WikiExpectedContentInventory.php
   - app/Wiki/Content/WikiExpectedContentValidator.php
   - app/Console/Commands/ValidateWikiExpectedContent.php
   - app/Console/Commands/InstallWikiLaunchContent.php
   - docs/testing/WIKI_EXPECTED_CONTENT_INVENTORY.json
+  - docs/testing/PORTAL_STRICTNESS_EVIDENCE.json
   - tests/Unit/Wiki/WikiExpectedContentInventoryTest.php
   - tests/Feature/Wiki/WikiLaunchContentCommandTest.php
+  - tools/audit/portal_exhaustive_strictness.py
+  - tools/audit/test_portal_exhaustive_strictness.py
+  - scripts/acceptance/playwright.config.mjs
+  - scripts/acceptance/playwright.wiki-reconciliation.config.mjs
+  - scripts/acceptance/playwright.editorial-media.config.mjs
+  - scripts/acceptance/tests/wiki-strictness-acceptance.spec.mjs
+  - scripts/acceptance/tests/editorial-media-strictness-acceptance.spec.mjs
+  - scripts/acceptance/coverage/portal-evidence-dimensions/content.json
   - docs/agents/tasks/active/OTERYN-20260810-wiki-expected-content-inventory.md
 validation:
-  - command: prior H1 Wiki Reconciliation Acceptance
+  - command: CI on 48bbd6a495acec1989074c78c58f2efdafaae427
     result: PASS
-    evidence: Run 31438283245 passed the full production-like zero-retry Wiki reconciliation matrix before the audit-contract extension; final expanded head must revalidate.
-  - command: prior H1 browser portability/responsive evidence
+    evidence: run 31439187744
+  - command: Agent Governance on 48bbd6a495acec1989074c78c58f2efdafaae427
     result: PASS
-    evidence: Run 31438283218 reached green Chromium, Firefox, WebKit and responsive Wiki coverage before the final audit-contract extension; exact expanded head must revalidate.
-  - command: final expanded exact-head validation
+    evidence: run 31439187710
+  - command: Wiki Reconciliation on 48bbd6a495acec1989074c78c58f2efdafaae427
+    result: PASS
+    evidence: run 31439187663
+  - command: Portal Exhaustive Audit on 48bbd6a495acec1989074c78c58f2efdafaae427
+    result: PASS
+    evidence: run 31439187717 / artifact 9082179805; HIGH inventory finding removed, ten MEDIUM strictness findings remain the current target
+  - command: final strictness-expanded exact-head gates
     result: NOT_RUN
-    evidence: Required CI, Agent Governance, Portal Exhaustive Audit, Wiki reconciliation and full Acceptance E2E will run after this scope-coordination checkpoint.
+    evidence: pending after this ownership checkpoint
 blockers: []
-next_action: Run exact-head CI/Governance/Portal Exhaustive Audit/Wiki reconciliation/full Acceptance on the expanded audit-linked package, repair any material finding on PR #972, then freeze the final runtime head for whole-diff self-review and closeout.
+next_action: Run exact-head governance, CI and Portal Exhaustive Audit first; fix any contract/schema/source-marker failure, then require Wiki Reconciliation, Editorial Media Acceptance and full Acceptance E2E including Firefox/WebKit before final self-review and merge.
 ```
