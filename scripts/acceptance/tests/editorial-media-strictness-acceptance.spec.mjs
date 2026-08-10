@@ -77,7 +77,7 @@ test(`${evidenceMarker}`, async ({ page }) => {
 
   response = await page.goto('/admin/media');
   expect(response?.status()).toBe(200);
-  await expect(page.getByRole('heading', { name: 'Editorial Media' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Editorial image library' })).toBeVisible();
 
   try {
     fs.renameSync(adminIndexView, unavailableAdminIndexView);
@@ -93,5 +93,5 @@ test(`${evidenceMarker}`, async ({ page }) => {
   page.__acceptanceDiagnostics.serverErrors = [];
   response = await page.goto('/admin/media');
   expect(response?.status()).toBe(200);
-  await expect(page.getByRole('heading', { name: 'Editorial Media' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Editorial image library' })).toBeVisible();
 });
