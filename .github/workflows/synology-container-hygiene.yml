@@ -80,7 +80,7 @@ jobs:
               'REMOVE_STOPPED_OTERYN_STAGING_ORPHANS',
               'com.docker.compose.project',
               'com.docker.compose.service',
-              'docker stop --time 30 "$id"',
+              'docker stop --timeout 30 "$id"',
               'docker rm "$id"',
               'validate_canonical_runtime',
               'OUTSIDE_SCOPE',
@@ -449,7 +449,7 @@ jobs:
                 fi
                 if [[ "$state" == 'running' ]]; then
                   echo "Stopping verified obsolete test container: ${stale_test_project}-${actual_service}-1"
-                  docker stop --time 30 "$id" >/dev/null
+                  docker stop --timeout 30 "$id" >/dev/null
                 fi
               done
 
