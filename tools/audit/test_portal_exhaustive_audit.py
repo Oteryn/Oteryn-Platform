@@ -76,6 +76,19 @@ class PortalExhaustiveAuditTests(unittest.TestCase):
         self.assertNotEqual(first, other)
         self.assertTrue(first.startswith("OTERYN-AUDIT-CURRENT-CONTENT-"))
 
+    def test_canonical_workflow_gates_wiki_inventory_before_audit_generation(self) -> None:
+        repo_root = MODULE_PATH.parents[2]
+        workflow = (repo_root / ".github/workflows/portal-exhaustive-audit.yml").read_text(encoding="utf-8")
+
+        gate = workflow.index("- name: Validate Wiki expected-content inventory")
+        command = workflow.index("php artisan wiki:launch-content:validate --json")
+        generation = workflow.index("- name: Generate exhaustive current-main audit")
+
+        self.assertLess(gate, command)
+        self.assertLess(command, generation)
+        self.assertIn("assert report['status'] == 'PASS'", workflow)
+        self.assertIn("wiki-expected-content-validation.json", workflow)
+
 
 if __name__ == "__main__":
     unittest.main()
