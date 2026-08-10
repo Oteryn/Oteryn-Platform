@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "compose_project": "oteryn-staging",
+  "compose_sources": [
+    "deploy/synology/compose.yml",
+    "deploy/synology/compose.marketplace.yml"
+  ],
+  "runtime_services": [
+    "mariadb",
+    "redis",
+    "platform",
+    "canary",
+    "internal-proxy",
+    "gateway",
+    "marketplace-scheduler"
+  ],
+  "one_shot_services": [
+    "tls-init"
+  ],
+  "stale_test_project": "portal-authentik-local-test",
+  "stale_test_services": [
+    "authentik-db",
+    "authentik-server",
+    "authentik-worker"
+  ]
+}
