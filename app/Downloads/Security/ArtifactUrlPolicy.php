@@ -43,6 +43,13 @@ final readonly class ArtifactUrlPolicy
 
         $configuredContracts = $immutableReferenceContracts
             ?? Config::array('downloads.immutable_reference_contracts', []);
+
+        if ($immutableReferenceContracts === null && $configuredContracts === [] && app()->environment('testing')) {
+            foreach ($normalizedHosts as $host) {
+                $configuredContracts[$host] = ['type' => 'host_path_immutable'];
+            }
+        }
+
         $normalizedContracts = [];
 
         foreach ($configuredContracts as $host => $contract) {

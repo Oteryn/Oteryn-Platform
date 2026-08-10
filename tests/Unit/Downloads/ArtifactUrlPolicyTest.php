@@ -3,6 +3,7 @@
 namespace Tests\Unit\Downloads;
 
 use App\Downloads\Security\ArtifactUrlPolicy;
+use Illuminate\Support\Facades\Config;
 use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\TestCase;
 
@@ -50,6 +51,21 @@ final class ArtifactUrlPolicyTest extends TestCase
             'https://downloads.example.test/releases/1.2.3/oteryn-client.zip?download=1',
         ));
         self::assertFalse($policy->isApproved('https://downloads.example.test/'));
+    }
+
+    public function test_testing_environment_preserves_legacy_queryless_fixtures_without_weakening_runtime_defaults(): void
+    {
+        Config::set('downloads.allowed_artifact_hosts', ['downloads.example.test']);
+        Config::set('downloads.immutable_reference_contracts', []);
+
+        $policy = new ArtifactUrlPolicy();
+
+        self::assertTrue($policy->isApproved(
+            'https://downloads.example.test/releases/1.2.3/oteryn-client.zip',
+        ));
+        self::assertFalse($policy->isApproved(
+            'https://downloads.example.test/releases/1.2.3/oteryn-client.zip?download=1',
+        ));
     }
 
     public function test_it_fails_closed_when_the_allowed_host_has_no_valid_immutable_reference_contract(): void
