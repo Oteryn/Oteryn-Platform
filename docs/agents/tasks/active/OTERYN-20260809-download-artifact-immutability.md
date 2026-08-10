@@ -54,15 +54,15 @@ coordination_key: module:downloads-artifact-immutability
 
 ## Acceptance inventory
 
-- [ ] Approved artifact references satisfy HTTPS, exact-host, no-userinfo, no-fragment, standard-port and concrete-reference protections.
-- [ ] An approved host alone plus a non-root pathname is insufficient for publication.
-- [ ] The configured host contract requires a machine-testable immutable reference identity.
-- [ ] Mutable aliases such as `latest`/`current` and ambiguous overwriteable references fail closed.
-- [ ] Publication revalidates the immutable-reference invariant while release/artifact rows are locked.
-- [ ] Administrator-supplied SHA-256 remains metadata and is not described as independently verified.
-- [ ] Focused unit tests cover accepted immutable references and rejected mutable/ambiguous references.
-- [ ] Feature tests cover draft validation and publication-time revalidation.
-- [ ] No migration, route, view, workflow, deployment, credential, production or external-repository mutation occurs.
+- [x] Approved artifact references satisfy HTTPS, exact-host, no-userinfo, no-fragment, standard-port and concrete-reference protections.
+- [x] An approved host alone plus a non-root pathname is insufficient for publication.
+- [x] The configured host contract requires a machine-testable immutable reference identity.
+- [x] Mutable aliases such as `latest`/`current` and ambiguous overwriteable references fail closed.
+- [x] Publication revalidates the immutable-reference invariant while release/artifact rows are locked.
+- [x] Administrator-supplied SHA-256 remains metadata and is not described as independently verified.
+- [x] Focused unit tests cover accepted immutable references and rejected mutable/ambiguous references.
+- [x] Feature tests cover draft validation and publication-time revalidation.
+- [x] No migration, route, view, workflow, deployment, credential, production or external-repository mutation occurs.
 - [ ] Exact-head self-review, applicable repository CI and closeout pass with no unresolved material finding.
 
 ## Validation gate
@@ -91,25 +91,38 @@ validation_gate:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-10T21:25:00+02:00
+updated_at: 2026-08-10T21:43:00+02:00
 base_sha: 2e82d81bbace65a85b69fbbdadf85cdc44034b61
-head: 2e82d81bbace65a85b69fbbdadf85cdc44034b61
+implementation_head: a1b9352703f4eac5b75b7a776135ebaab5f429a4
 branch: repair/issue-948
-pr: none
+pr: 966
 status: active
-phase: claimed
+phase: validation
 owner: chatgpt-portal-closeout-20260810-2125
 proven:
   - Issue #948 is open, implementation-authorized, priority P1 and risk high.
-  - The deterministic branch repair/issue-948 was absent immediately before claim and was created from protected main 2e82d81bbace65a85b69fbbdadf85cdc44034b61.
+  - The deterministic branch repair/issue-948 was created from protected main 2e82d81bbace65a85b69fbbdadf85cdc44034b61 after absence of a competing branch/PR was verified.
   - Existing active tasks own public-edge verification and native-auth verification paths and do not overlap this Issue's exclusive repair paths.
-  - ArtifactUrlPolicy currently accepts any approved HTTPS host with any non-root path and therefore does not prove reference immutability.
-  - PublishClientRelease revalidates the same insufficient URL invariant while holding release/artifact locks.
+  - ArtifactUrlPolicy now requires the approved host to have an explicit object_version_query contract and requires exactly one configured version query parameter with a bounded opaque identifier.
+  - A version-looking path, latest/current path, missing contract, missing version reference, wrong query parameter, duplicate query parameter or extra query parameter fails closed.
+  - SaveClientReleaseRequest already applies ApprovedArtifactUrl and PublishClientRelease already revalidates ArtifactUrlPolicy while holding locked release/artifact rows; the stronger invariant therefore applies at draft validation and publication without widening scope.
+  - Config invalid/missing immutable-reference metadata resolves to no contract and therefore fails closed.
+  - PR #966 is the single authoritative delivery PR for this Issue.
 unknown: []
 conflicts: []
 changed_paths:
+  - app/Downloads/Security/ArtifactUrlPolicy.php
+  - config/downloads.php
+  - tests/Unit/Downloads/ArtifactUrlPolicyTest.php
+  - tests/Feature/Downloads/DownloadCenterTest.php
   - docs/agents/tasks/active/OTERYN-20260809-download-artifact-immutability.md
-validation: []
+validation:
+  - command: exact branch/source inspection against Issue #948 acceptance
+    result: PASS
+    evidence: implementation head a1b9352703f4eac5b75b7a776135ebaab5f429a4 changes only the bounded policy/config/tests plus this task packet.
+  - command: runtime/browser E2E
+    result: NOT_APPLICABLE
+    evidence: backend-only invariant repair with no route/view/browser change; real save/publish/public-read integration paths are covered by DownloadCenter feature tests.
 blockers: []
-next_action: Implement the smallest immutable-reference configuration/policy contract and focused unit/feature tests on this branch, then run exact-head validation and self-review.
+next_action: Run repository-required validation on the exact PR head, inspect the whole diff and any CI/review findings, repair on PR #966 if needed, then merge and complete Issue/task ownership release.
 ```
