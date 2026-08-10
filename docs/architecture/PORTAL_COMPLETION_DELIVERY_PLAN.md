@@ -43,7 +43,7 @@ Required outcomes:
 5. GitHub connector capability is checked before any local-CLI access conclusion;
 6. prompt/governance changes follow the prompt-evaluation standard.
 
-Current known drift includes `ACTIVE_WORK.md` reporting no active work while two blocked active task files exist, plus long-lived PRs #541/#338 whose current disposition needs evidence-based reconciliation.
+Current known drift includes `ACTIVE_WORK.md` reporting no active work while two blocked active task files exist. At the corrected 2026-08-10 closeout refresh PRs #961, #541 and #338 were open: #961 is separate synthetic/no-network research work currently requiring `FIX`, while #541/#338 retain their evidence-dependent portal-review dispositions.
 
 Exit gate: an agent can determine current owner, exact next action and blockers from live durable state without relying on chat history.
 
@@ -260,7 +260,7 @@ Before beginning a slice, inspect overlapping open/recent PRs and classify them 
 
 Never close because a PR is merely old or red. Close automatically only with concrete duplicate/obsolete/superseded evidence and after preserving unique work/evidence.
 
-At the 2026-08-10 live refresh only #541 and #338 were open; future invocations must revalidate this fact.
+At the corrected 2026-08-10 closeout refresh #961, #541 and #338 were open. #961 is a separate synthetic/no-network research `FIX` candidate with red exact-head governance/CI/harness validation; #541 and #338 retain the evidence-dependent dispositions documented in the dated review. Future invocations must always revalidate this inventory from live GitHub state.
 
 ## Completion definition
 
