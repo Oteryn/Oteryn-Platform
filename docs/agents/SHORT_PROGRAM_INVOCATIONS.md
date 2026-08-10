@@ -1,7 +1,7 @@
 # Oteryn Platform Short Programme Invocation Registry
 
 ```yaml
-registry_version: 1.6
+registry_version: 1.7
 repository: blakinio/Oteryn-Platform
 trusted_base: main
 scope_contract: docs/agents/OTERYN_PLATFORM_PROGRAM_SCOPE.md
@@ -70,6 +70,23 @@ claim
 It does not stop merely because implementation, PR creation, CI, review or merge completed. It finishes every safe remaining phase in the same Issue-owned workflow.
 
 A different-agent PASS is not required before repair merge.
+
+## Portal completion
+
+```text
+PORTAL-CLOSEOUT
+Uruchom PORTAL-CLOSEOUT autonomicznie.
+Kontynuuj PORTAL-CLOSEOUT autonomicznie.
+```
+
+```yaml
+programme_id: OTERYN_PORTAL_COMPLETION
+canonical_prompt: docs/agents/prompts/OTERYN-PORTAL-COMPLETION-EXECUTION-PROMPT.md
+programme_state: docs/agents/programs/OTERYN_PORTAL_COMPLETION.md
+delivery_plan: docs/architecture/PORTAL_COMPLETION_DELIVERY_PLAN.md
+```
+
+The programme selects or resumes one bounded highest-priority portal-completion slice and owns it through validation and terminal closeout. Existing implementation-authorized audit findings continue through `OTERYN_PLATFORM_REMEDIATION`; the portal-completion programme must reuse that Issue-owned workflow rather than create duplicate repair ownership. The alias grants no production, protected-environment, payment, live-data or external-repository authority.
 
 ## Parallel remediation
 

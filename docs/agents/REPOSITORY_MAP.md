@@ -30,11 +30,13 @@ Navigation map for autonomous agents. This is not an exhaustive inventory. Confi
 | System architecture | `docs/architecture/SYSTEM_ARCHITECTURE.md` | Current system context, trust boundaries and high-level dependency rules; explicitly labelled historical sections are context only. |
 | Module catalog | `docs/architecture/MODULE_CATALOG.md` | Module responsibility and ownership. |
 | Portal completeness | `docs/architecture/PORTAL_COMPLETENESS_ARCHITECTURE.md` | Current portal assessment, benchmark dispositions, remaining architectural gaps and release-scope completion gate. |
+| Portal completion delivery plan | `docs/architecture/PORTAL_COMPLETION_DELIVERY_PLAN.md` | Risk-first implementation sequence, vertical-slice gates and release closeout; subordinate to accepted ADRs/contracts and focused architecture. |
+| Portal completion programme | `docs/agents/programs/OTERYN_PORTAL_COMPLETION.md`, `docs/agents/prompts/OTERYN-PORTAL-COMPLETION-EXECUTION-PROMPT.md` | Durable live-selection routing and execution contract for the `PORTAL-CLOSEOUT` alias. |
 | Player Companion | `docs/architecture/PLAYER_COMPANION_ARCHITECTURE.md` | Player calculators/planners/session-analysis boundary, versioning, privacy, API/client reuse and P0–P2 delivery priorities. |
 | Security architecture | `docs/architecture/SECURITY_ARCHITECTURE.md` | Mandatory security invariants. |
 | Data ownership | `docs/architecture/DATA_OWNERSHIP.md` | Platform/Canary/shared persistent data rules. |
 | Test strategy | `docs/architecture/TEST_STRATEGY.md` | Unit/feature/integration/contract/E2E strategy. |
-| Roadmap | `docs/architecture/ROADMAP.md` | Phased delivery order and exit gates; roadmap intent is not implementation proof. |
+| Roadmap | `docs/architecture/ROADMAP.md` | Phased delivery order and gates; roadmap intent is not implementation proof. |
 | ADRs | `docs/architecture/adr/**` | Durable decisions and supersession history. Use the directory inventory, not numeric assumptions. |
 | Integration contracts | `docs/contracts/**` | Canary/login-server/shared schema/auth compatibility. |
 | Public endpoint roles | `docs/contracts/PUBLIC_ENDPOINTS_CONTRACT.md`, `deploy/synology/PUBLIC_ENDPOINTS.md` | Canonical mapping of `oteryn.molehill.cloud` to Platform WWW and `gateway.molehill.cloud` to Game Gateway/login; ADR 0020 records the hostname decision. |
