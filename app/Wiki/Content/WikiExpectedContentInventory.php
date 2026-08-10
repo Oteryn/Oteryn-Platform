@@ -6,7 +6,7 @@ final class WikiExpectedContentInventory
 {
     public const VERSION = '2026-08-10.1';
 
-    public const CATALOG_VERSION = WikiLaunchContentCatalog::VERSION;
+    public const CATALOG_VERSION = '2026-07-26.1';
 
     public const EFFECTIVE_FROM = '2026-08-10';
 
