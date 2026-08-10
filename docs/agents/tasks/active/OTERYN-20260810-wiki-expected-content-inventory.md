@@ -212,8 +212,8 @@ validation:
     result: PASS
     evidence: run 31440984594 / artifact 9082825304; zero Wiki/EditorialMedia findings
   - command: Full Acceptance on 4a2a7ec6b4f9037080023accd608c30a80217578
-    result: PARTIAL_EVIDENCE
-    evidence: run 31440984704 passed primary Chromium, bounded Firefox/WebKit portability and responsive profiles before final workflow-only head moved; terminal run conclusion will not be reused as exact-final proof if superseded.
+    result: NOT_RUN
+    evidence: run 31440984704 produced useful H1 portability/responsive evidence but was superseded by the workflow-only head move; exact-final acceptance remains pending.
   - command: final workflow-coupled exact-head gates
     result: NOT_RUN
     evidence: pending after this ownership checkpoint
