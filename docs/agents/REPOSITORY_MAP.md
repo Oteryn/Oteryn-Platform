@@ -30,6 +30,8 @@ Navigation map for autonomous agents. This is not an exhaustive inventory. Confi
 | System architecture | `docs/architecture/SYSTEM_ARCHITECTURE.md` | Current system context, trust boundaries and high-level dependency rules; explicitly labelled historical sections are context only. |
 | Module catalog | `docs/architecture/MODULE_CATALOG.md` | Module responsibility and ownership. |
 | Portal completeness | `docs/architecture/PORTAL_COMPLETENESS_ARCHITECTURE.md` | Current portal assessment, benchmark dispositions, remaining architectural gaps and release-scope completion gate. |
+| Portal completion delivery plan | `docs/architecture/PORTAL_COMPLETION_DELIVERY_PLAN.md` | Risk-first implementation sequence, vertical-slice gates and release closeout; subordinate to accepted ADRs/contracts and focused architecture. |
+| Portal completion programme | `docs/agents/programs/OTERYN_PORTAL_COMPLETION.md`, `docs/agents/prompts/OTERYN-PORTAL-COMPLETION-EXECUTION-PROMPT.md` | Durable live-selection routing and execution contract for the `PORTAL-CLOSEOUT` alias. |
 | Player Companion | `docs/architecture/PLAYER_COMPANION_ARCHITECTURE.md` | Player calculators/planners/session-analysis boundary, versioning, privacy, API/client reuse and P0–P2 delivery priorities. |
 | Security architecture | `docs/architecture/SECURITY_ARCHITECTURE.md` | Mandatory security invariants. |
 | Data ownership | `docs/architecture/DATA_OWNERSHIP.md` | Platform/Canary/shared persistent data rules. |
