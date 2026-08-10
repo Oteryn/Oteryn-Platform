@@ -19,6 +19,8 @@ on:
       - 'docs/agents/reports/OTERYN-20260803-portal-exhaustive-current-main-audit.md'
       - 'docs/testing/**'
       - 'scripts/acceptance/coverage/**'
+      - 'scripts/acceptance/tests/**'
+      - 'scripts/acceptance/playwright*.config.mjs'
       - 'scripts/acceptance/package.json'
       - 'routes/**'
       - 'app/**'
@@ -43,6 +45,8 @@ on:
       - 'docs/agents/reports/OTERYN-20260803-portal-exhaustive-current-main-audit.md'
       - 'docs/testing/**'
       - 'scripts/acceptance/coverage/**'
+      - 'scripts/acceptance/tests/**'
+      - 'scripts/acceptance/playwright*.config.mjs'
       - 'scripts/acceptance/package.json'
       - 'routes/**'
       - 'app/**'
@@ -54,6 +58,7 @@ on:
 
 permissions:
   contents: read
+  actions: read
 
 concurrency:
   group: portal-exhaustive-audit-${{ github.workflow }}-${{ github.ref }}
@@ -63,7 +68,7 @@ jobs:
   generate:
     name: Generate fail-closed audit matrix
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     env:
       APP_ENV: acceptance
       APP_DEBUG: 'false'
@@ -122,6 +127,96 @@ jobs:
           assert report['catalog_source_git_blob_sha']
           PY
 
+      - name: Await exact-head strictness execution evidence
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          import os
+          import time
+          import urllib.parse
+          import urllib.request
+          from pathlib import Path
+
+          required = (
+              'Wiki Reconciliation Acceptance',
+              'Editorial Media Acceptance',
+              'Acceptance E2E and Visual UX',
+          )
+          repository = os.environ['GITHUB_REPOSITORY']
+          sha = os.environ['AUDIT_SHA']
+          token = os.environ['GITHUB_TOKEN']
+          deadline = time.monotonic() + (25 * 60)
+          api = (
+              f"https://api.github.com/repos/{repository}/actions/runs"
+              f"?head_sha={urllib.parse.quote(sha)}&per_page=100"
+          )
+
+          def read_runs():
+              request = urllib.request.Request(
+                  api,
+                  headers={
+                      'Accept': 'application/vnd.github+json',
+                      'Authorization': f'Bearer {token}',
+                      'X-GitHub-Api-Version': '2022-11-28',
+                  },
+              )
+              with urllib.request.urlopen(request, timeout=30) as response:
+                  return json.load(response).get('workflow_runs', [])
+
+          while True:
+              latest = {}
+              for run in read_runs():
+                  name = run.get('name')
+                  if name in required and name not in latest:
+                      latest[name] = {
+                          'id': run.get('id'),
+                          'html_url': run.get('html_url'),
+                          'head_sha': run.get('head_sha'),
+                          'status': run.get('status'),
+                          'conclusion': run.get('conclusion'),
+                      }
+
+              failed = {
+                  name: value
+                  for name, value in latest.items()
+                  if value.get('status') == 'completed' and value.get('conclusion') != 'success'
+              }
+              if failed:
+                  raise SystemExit(
+                      'Exact-head strictness workflow failed: '
+                      + json.dumps(failed, sort_keys=True)
+                  )
+
+              if all(
+                  name in latest
+                  and latest[name].get('head_sha') == sha
+                  and latest[name].get('status') == 'completed'
+                  and latest[name].get('conclusion') == 'success'
+                  for name in required
+              ):
+                  evidence = {
+                      'exact_sha': sha,
+                      'required_workflows': {name: latest[name] for name in required},
+                  }
+                  Path('portal-strictness-execution-evidence.json').write_text(
+                      json.dumps(evidence, indent=2, sort_keys=True) + '\n',
+                      encoding='utf-8',
+                  )
+                  print(json.dumps(evidence, indent=2, sort_keys=True))
+                  break
+
+              if time.monotonic() >= deadline:
+                  raise SystemExit(
+                      'Timed out waiting for exact-head strictness workflows: '
+                      + json.dumps(latest, sort_keys=True)
+                  )
+
+              time.sleep(15)
+          PY
+
       - name: Run audit unit tests
         run: |
           python -m unittest \
@@ -139,6 +234,7 @@ jobs:
           rm -rf artifacts/portal-exhaustive-audit
           mkdir -p artifacts/portal-exhaustive-audit
           cp wiki-expected-content-validation.json artifacts/portal-exhaustive-audit/wiki-expected-content-validation.json
+          cp portal-strictness-execution-evidence.json artifacts/portal-exhaustive-audit/portal-strictness-execution-evidence.json
           python tools/audit/portal_exhaustive_audit.py \
             --repo-root . \
             --output artifacts/portal-exhaustive-audit \
@@ -163,9 +259,17 @@ jobs:
           matrix = json.loads((root / 'portal-exhaustive-audit-matrix.json').read_text())
           strictness = json.loads((root / 'portal-exhaustive-strictness.json').read_text())
           wiki_inventory = json.loads((root / 'wiki-expected-content-validation.json').read_text())
+          execution = json.loads((root / 'portal-strictness-execution-evidence.json').read_text())
           assert matrix['exact_sha'] == os.environ['AUDIT_SHA']
           assert strictness['exact_sha'] == os.environ['AUDIT_SHA']
           assert wiki_inventory['status'] == 'PASS'
+          assert execution['exact_sha'] == os.environ['AUDIT_SHA']
+          assert all(
+              value['head_sha'] == os.environ['AUDIT_SHA']
+              and value['status'] == 'completed'
+              and value['conclusion'] == 'success'
+              for value in execution['required_workflows'].values()
+          )
           assert matrix['global_verdict'] == 'AUDIT_COMPLETE_WITH_FINDINGS'
           assert matrix['infrastructure_errors'] == []
           assert matrix['counts']['discovered_named_routes'] == 244
