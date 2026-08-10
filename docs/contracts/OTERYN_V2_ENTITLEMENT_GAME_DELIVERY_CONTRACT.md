@@ -329,7 +329,7 @@ max_authority_lease     finite > 0
 refresh_before          finite, earlier than authority_valid_until
 max_clock_skew          finite
 stale_within_bound      explicit allow-or-deny behavior before cutoff
-authority_expired       deny entitlement benefit until acceptable fresh evidence
+authority_expired       deny entitlement benefit until acceptable fresh evidence and safe authority-time evaluation
 ```
 
 Rules:
@@ -373,7 +373,8 @@ Authority time is server-side security input. **All known time uncertainty short
 - Oteryn-v2 evaluates the absolute cutoff using a trusted server time source and the product/runtime-declared finite `max_clock_skew` (or an equivalently strong monotonic authority-time mechanism);
 - when trusted current time is known only within an uncertainty interval, the consumer evaluates authorization against the **latest plausible current time / conservative upper bound**, equivalently shortening the locally usable deadline by the known uncertainty; it must never subtract uncertainty from current time or add uncertainty to `authority_valid_until`;
 - even uncertainty within `max_clock_skew` therefore reduces the remaining usable lease and cannot authorize past the Platform-issued absolute cutoff;
-- if trusted-time uncertainty exceeds `max_clock_skew`, the consumer fails closed for new/continued Profile-B benefit until safe time or fresh authority is re-established;
+- if trusted-time uncertainty exceeds `max_clock_skew`, the consumer fails closed for new/continued Profile-B benefit. **Receiving a fresh entitlement representation alone does not restore authority while time remains unsafe.** Benefit may resume only after trusted-time uncertainty is again within the declared bound, or when the fresh authority exchange itself establishes an equivalently strong bounded authority-time/monotonic anchor that permits conservative evaluation of that representation's absolute cutoff;
+- any authority-time/monotonic anchor used to recover from unsafe clock state must be bound to the accepted authority exchange/revision, must itself have finite uncertainty/validity, and must not turn message receipt time into a new lease origin;
 - a delayed message does not receive a fresh full lease from receipt time; only the conservatively evaluated remainder of the authority-issued interval is usable;
 - process restart, VM snapshot restore or wall-clock rollback must not extend an already accepted cutoff; implementations must combine persisted absolute authority time with monotonic/fencing behavior sufficient to prevent rollback-based extension.
 
@@ -381,20 +382,20 @@ Authority time is server-side security input. **All known time uncertainty short
 
 The entitlement authority boundary is distinct from session termination policy:
 
-- new admission, reconnect or re-enablement of a Profile-B gameplay benefit requires `CURRENT_AUTHORITY` or explicitly permitted `STALE_WITHIN_BOUND` evidence that has not reached its conservatively evaluated `authority_valid_until` cutoff or commercial expiry;
+- new admission, reconnect or re-enablement of a Profile-B gameplay benefit requires `CURRENT_AUTHORITY` or explicitly permitted `STALE_WITHIN_BOUND` evidence that has not reached its conservatively evaluated `authority_valid_until` cutoff or commercial expiry **and whose authority-time basis is safely evaluable**;
 - after the conservatively evaluated cutoff, stale `active` evidence is `EXPIRED` and cannot authorize a new admission/reconnect or continued Profile-B benefit;
 - an already-running gameplay session does not have to be forcibly disconnected merely because entitlement authority expires; forced-disconnect policy remains owned by the runtime/session contract;
-- however, session continuity cannot be used as an implicit entitlement grace: ongoing Premium/VIP/Profile-B benefits must transition to the product-defined non-entitled/degraded behavior at or before the conservative finite cutoff unless fresh acceptable evidence is obtained;
+- however, session continuity cannot be used as an implicit entitlement grace: ongoing Premium/VIP/Profile-B benefits must transition to the product-defined non-entitled/degraded behavior at or before the conservative finite cutoff unless fresh acceptable evidence **and safe authority-time evaluation** are obtained;
 - durable gameplay value already authoritatively granted under another delivery profile is not retroactively reclassified as Profile-B session benefit.
 
 ### Outage behavior
 
 During Platform authority outage:
 
-1. before the conservative finite cutoff, a product may allow only its explicitly declared `STALE_WITHIN_BOUND` behavior;
-2. at/after that cutoff, accepted stale evidence is `EXPIRED` and game-consumed entitlement benefit fails closed until acceptable fresh authority evidence arrives;
+1. before the conservative finite cutoff, a product may allow only its explicitly declared `STALE_WITHIN_BOUND` behavior while the authority-time basis remains safely evaluable;
+2. at/after that cutoff, accepted stale evidence is `EXPIRED` and game-consumed entitlement benefit fails closed until acceptable fresh authority evidence arrives **and its cutoff can be conservatively evaluated**;
 3. if no accepted evidence or known expiry/revocation fact exists and current authority cannot be obtained, classify `AUTHORITY_UNAVAILABLE` and fail closed for the entitlement benefit;
-4. a later refresh that proves the entitlement still active may restore benefit using ordered fresh evidence;
+4. a later refresh that proves the entitlement still active may restore benefit only if trusted time is safe again or that refresh establishes an equivalently bounded authority-time/monotonic anchor; fresh entitlement state alone is insufficient when time uncertainty remains unsafe;
 5. a later refresh that proves expiry/revocation fences every older active representation immediately according to revision ordering;
 6. outage duration, clock uncertainty, reconnect and restart never increase or reset the authority cutoff.
 
@@ -482,7 +483,7 @@ Future implementation should expose bounded metrics for:
 - duplicate/replayed/conflicting delivery operations;
 - entitlement reservations stuck awaiting character-operation reconciliation;
 - Profile-B authority refresh age, conservative remaining lease, `STALE_WITHIN_BOUND` duration and cutoff expirations;
-- rejected stale/out-of-order authority revisions and clock/skew fail-closed events;
+- rejected stale/out-of-order authority revisions and clock/skew fail-closed/recovery events;
 - premium/VIP propagation lag;
 - compensation/manual-reconciliation backlog;
 - Wallet delivery mismatch for coin packages;
@@ -517,7 +518,7 @@ Before native activation prove:
 9. customer presentation of pending/reconciling states;
 10. legacy consumer inventory and rollback/removal gate;
 11. exact producer/consumer revision compatibility;
-12. for every Profile-B product/version, finite authority-lease, refresh, stale-use, conservative clock-skew/cutoff behavior plus durable revision-fencing compatibility.
+12. for every Profile-B product/version, finite authority-lease, refresh, stale-use, conservative clock-skew/cutoff behavior plus durable revision-fencing compatibility and a safe authority-time recovery mechanism.
 
 Rollback may redirect **new** deliveries to a proven compatibility path only when safe. An already submitted native delivery must first reach a terminal/reconciled or explicitly fenced state.
 
@@ -547,6 +548,7 @@ At minimum prove:
 - out-of-order authority refreshes and rollback to an older entitlement snapshot cannot resurrect or extend stale active authority;
 - a slow trusted clock even **within** declared skew cannot authorize past the Platform-issued cutoff because all known uncertainty shortens the locally usable lease;
 - clock rollback, VM snapshot restore or trusted-time uncertainty beyond the declared skew bound cannot extend Profile-B authority;
+- after trusted-time uncertainty exceeds `max_clock_skew`, a fresh entitlement representation without a newly established bounded trusted-time/monotonic anchor still fails closed;
 - already-running session handling may avoid forced disconnect but cannot continue Profile-B benefit past the conservative finite authority cutoff by implication;
 - refund/chargeback never silently performs uncontracted irreversible game mutation;
 - logs/audit redact secrets/voucher/provider/private target data;
@@ -557,15 +559,16 @@ At minimum prove:
 | Scenario | Required classification | Required result |
 | --- | --- | --- |
 | Platform unavailable; accepted active evidence remains before conservative cutoff | `STALE_WITHIN_BOUND` only if product policy permits | Bounded benefit only; cutoff never extended |
-| Platform unavailable; accepted active evidence reaches/passes conservative cutoff | `EXPIRED` | Deny new and continued Profile-B benefit until acceptable fresh authority |
+| Platform unavailable; accepted active evidence reaches/passes conservative cutoff | `EXPIRED` | Deny new and continued Profile-B benefit until acceptable fresh authority with safe cutoff evaluation |
 | Platform unavailable; no accepted evidence and no known expiry/revocation fact | `AUTHORITY_UNAVAILABLE` | Deny Profile-B benefit; do not invent commercial revocation |
 | Newer revoke observed; older active later arrives | `REVOKED` plus older evidence rejected by revision fence | Never resurrect older benefit |
 | Commercial effective interval ends before authority lease | `EXPIRED` | Commercial expiry wins immediately |
-| Reconnect with stale evidence inside conservative bound | `STALE_WITHIN_BOUND` only if explicitly allowed | Permit only bounded declared behavior |
-| Reconnect after conservative bound | `EXPIRED` | Deny entitlement benefit until fresh acceptable authority |
+| Reconnect with stale evidence inside conservative bound | `STALE_WITHIN_BOUND` only if explicitly allowed | Permit only bounded declared behavior while time basis is safe |
+| Reconnect after conservative bound | `EXPIRED` | Deny entitlement benefit until fresh acceptable authority with safe cutoff evaluation |
 | Restart/rollback with cached older active evidence | Preserve durable revision/authority high-water fence and original cutoff | No lease reset or authority resurrection |
 | Trusted time may be slow within `max_clock_skew` | Evaluate latest plausible current time | Shorten usable lease; never authorize beyond absolute cutoff |
-| Trusted-time uncertainty exceeds `max_clock_skew` | authority not safely evaluable | Fail closed until safe time/fresh authority is re-established |
+| Trusted-time uncertainty exceeds `max_clock_skew` and only fresh entitlement state arrives | authority time remains unsafe | Continue failing closed; fresh state alone is insufficient |
+| Trusted-time uncertainty exceeds `max_clock_skew`, then trusted time is restored or fresh exchange establishes bounded authority-time/monotonic anchor | Re-evaluate ordered fresh evidence conservatively | Benefit may resume only within the provable remaining finite cutoff |
 
 ## Deferred details
 
@@ -577,6 +580,7 @@ Still intentionally `UNKNOWN` / owned elsewhere:
 - exact Oteryn-v2 entitlement/grant service, storage and enforcement architecture;
 - event/query/command transport and serialization;
 - exact premium/VIP benefits and numeric per-product Profile-B lease/refresh/skew values; those values are mandatory before activation even though this generic contract does not select them;
+- exact trusted-time/authority-time/monotonic recovery mechanism; whichever mechanism is selected must preserve the finite cutoff and cannot use fresh message receipt as a new lease origin;
 - exact forced-disconnect and UI transition behavior for an already-running session after authority expiry; this deferral does not permit entitlement benefit beyond the finite cutoff;
 - exact durable gameplay-grant catalogue;
 - exact refund/chargeback policy per product;
