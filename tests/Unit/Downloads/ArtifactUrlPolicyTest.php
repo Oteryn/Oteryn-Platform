@@ -58,7 +58,7 @@ final class ArtifactUrlPolicyTest extends TestCase
         Config::set('downloads.allowed_artifact_hosts', ['downloads.example.test']);
         Config::set('downloads.immutable_reference_contracts', []);
 
-        $policy = new ArtifactUrlPolicy();
+        $policy = new ArtifactUrlPolicy;
 
         self::assertTrue($policy->isApproved(
             'https://downloads.example.test/releases/1.2.3/oteryn-client.zip',
