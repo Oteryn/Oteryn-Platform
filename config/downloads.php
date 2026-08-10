@@ -9,7 +9,7 @@ $allowedHosts = array_values(array_filter(array_map(
 )));
 
 $defaultImmutableReferenceContracts = env('APP_ENV') === 'acceptance'
-    ? '{"downloads.example.test":{"type":"object_version_query","parameter":"versionId"}}'
+    ? '{"downloads.example.test":{"type":"host_path_immutable"}}'
     : '{}';
 $decodedImmutableReferenceContracts = json_decode(
     (string) env('DOWNLOADS_IMMUTABLE_REFERENCE_CONTRACTS', $defaultImmutableReferenceContracts),

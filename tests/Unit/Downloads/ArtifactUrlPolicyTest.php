@@ -21,23 +21,48 @@ final class ArtifactUrlPolicyTest extends TestCase
         self::assertTrue($policy->isApproved(
             'https://downloads.example.test/releases/1.2.3/oteryn-client.zip?versionId=01J5Y3K8Q8G4T2M7N6P5R4S3',
         ));
+        self::assertTrue($policy->isApproved(
+            'https://downloads.example.test/releases/1.2.3/oteryn-client.zip?versionId=1',
+        ));
         self::assertFalse($policy->isApproved(
             'https://sub.downloads.example.test/releases/1.2.3/oteryn-client.zip?versionId=01J5Y3K8Q8G4T2M7N6P5R4S3',
         ));
     }
 
-    public function test_it_fails_closed_when_the_allowed_host_has_no_immutable_reference_contract(): void
+    public function test_it_accepts_concrete_paths_only_when_the_host_contract_declares_paths_immutable(): void
     {
-        $policy = new ArtifactUrlPolicy(['downloads.example.test'], []);
+        $policy = new ArtifactUrlPolicy(
+            ['downloads.example.test'],
+            [
+                'downloads.example.test' => [
+                    'type' => 'host_path_immutable',
+                ],
+            ],
+        );
 
-        self::assertFalse($policy->isApproved(
-            'https://downloads.example.test/releases/1.2.3/oteryn-client.zip?versionId=01J5Y3K8Q8G4T2M7N6P5R4S3',
+        self::assertTrue($policy->isApproved(
+            'https://downloads.example.test/releases/1.2.3/oteryn-client.zip',
         ));
+        self::assertTrue($policy->isApproved(
+            'https://downloads.example.test/latest/oteryn-client.zip',
+        ));
+        self::assertFalse($policy->isApproved('https://downloads.example.test/'));
+    }
+
+    public function test_it_fails_closed_when_the_allowed_host_has_no_valid_immutable_reference_contract(): void
+    {
+        $withoutContract = new ArtifactUrlPolicy(['downloads.example.test'], []);
+        $unsupportedContract = new ArtifactUrlPolicy(
+            ['downloads.example.test'],
+            ['downloads.example.test' => ['type' => 'path_looks_versioned']],
+        );
+        $url = 'https://downloads.example.test/releases/1.2.3/oteryn-client.zip?versionId=01J5Y3K8Q8G4T2M7N6P5R4S3';
+
+        self::assertFalse($withoutContract->isApproved($url));
+        self::assertFalse($unsupportedContract->isApproved($url));
         self::assertSame(
             'does not have an approved immutable-reference contract.',
-            $policy->rejectionReason(
-                'https://downloads.example.test/releases/1.2.3/oteryn-client.zip?versionId=01J5Y3K8Q8G4T2M7N6P5R4S3',
-            ),
+            $withoutContract->rejectionReason($url),
         );
     }
 
@@ -61,6 +86,7 @@ final class ArtifactUrlPolicyTest extends TestCase
             'latest alias without immutable reference' => ['https://downloads.example.test/latest/client.zip'],
             'current alias without immutable reference' => ['https://downloads.example.test/current/client.zip'],
             'mutable alias as object version' => ['https://downloads.example.test/releases/client.zip?versionId=latest'],
+            'current alias as object version' => ['https://downloads.example.test/releases/client.zip?versionId=current'],
             'wrong object version parameter' => ['https://downloads.example.test/releases/client.zip?objectVersion=01J5Y3K8Q8G4T2M7N6P5R4S3'],
             'duplicate object version parameter' => ['https://downloads.example.test/releases/client.zip?versionId=01J5Y3K8Q8G4T2M7N6P5R4S3&versionId=01J5Y3K8Q8G4T2M7N6P5R4S4'],
             'extra query parameter' => ['https://downloads.example.test/releases/client.zip?versionId=01J5Y3K8Q8G4T2M7N6P5R4S3&download=1'],

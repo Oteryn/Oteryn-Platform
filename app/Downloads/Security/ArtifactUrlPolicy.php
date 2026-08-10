@@ -12,7 +12,7 @@ final readonly class ArtifactUrlPolicy
     private array $allowedArtifactHosts;
 
     /**
-     * @var array<string, array{type: 'object_version_query', parameter: string}>
+     * @var array<string, array{type: 'object_version_query'|'host_path_immutable', parameter: string|null}>
      */
     private array $immutableReferenceContracts;
 
@@ -52,11 +52,24 @@ final readonly class ArtifactUrlPolicy
 
             $normalizedHost = strtolower(rtrim(trim($host), '.'));
             $type = $contract['type'] ?? null;
+
+            if ($normalizedHost === '') {
+                continue;
+            }
+
+            if ($type === 'host_path_immutable') {
+                $normalizedContracts[$normalizedHost] = [
+                    'type' => 'host_path_immutable',
+                    'parameter' => null,
+                ];
+
+                continue;
+            }
+
             $parameter = $contract['parameter'] ?? null;
 
             if (
-                $normalizedHost === ''
-                || $type !== 'object_version_query'
+                $type !== 'object_version_query'
                 || ! is_string($parameter)
                 || preg_match('/^[A-Za-z][A-Za-z0-9_-]{0,63}$/', $parameter) !== 1
             ) {
@@ -132,18 +145,32 @@ final readonly class ArtifactUrlPolicy
             return 'does not have an approved immutable-reference contract.';
         }
 
+        if ($contract['type'] === 'host_path_immutable') {
+            return null;
+        }
+
         if (! is_string($query) || $query === '') {
             return 'must include the configured immutable object-version reference.';
         }
 
-        $versionId = $this->objectVersionFromQuery($query, $contract['parameter']);
+        $parameter = $contract['parameter'];
+
+        if (! is_string($parameter)) {
+            return 'does not have a valid immutable-reference contract.';
+        }
+
+        $versionId = $this->objectVersionFromQuery($query, $parameter);
 
         if ($versionId === null) {
             return 'must contain exactly one configured immutable object-version query parameter.';
         }
 
-        if (preg_match('/^[A-Za-z0-9._~+\/=:-]{8,256}$/', $versionId) !== 1) {
+        if (preg_match('/^[A-Za-z0-9._~+\/=:-]{1,256}$/', $versionId) !== 1) {
             return 'contains an invalid immutable object-version identifier.';
+        }
+
+        if (in_array(strtolower($versionId), ['latest', 'current'], true)) {
+            return 'uses a mutable object-version alias.';
         }
 
         return null;
