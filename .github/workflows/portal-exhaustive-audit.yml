@@ -107,6 +107,21 @@ jobs:
       - name: Generate ephemeral application key
         run: echo "APP_KEY=$(php -r 'echo "base64:".base64_encode(random_bytes(32));')" >> "$GITHUB_ENV"
 
+      - name: Validate Wiki expected-content inventory
+        run: |
+          set -euo pipefail
+          php artisan wiki:launch-content:validate --json | tee wiki-expected-content-validation.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          report = json.loads(Path('wiki-expected-content-validation.json').read_text())
+          assert report['status'] == 'PASS'
+          assert report['inventory_version']
+          assert report['catalog_version']
+          assert report['catalog_source_git_blob_sha']
+          PY
+
       - name: Run audit unit tests
         run: |
           python -m unittest \
@@ -123,6 +138,7 @@ jobs:
           set -euo pipefail
           rm -rf artifacts/portal-exhaustive-audit
           mkdir -p artifacts/portal-exhaustive-audit
+          cp wiki-expected-content-validation.json artifacts/portal-exhaustive-audit/wiki-expected-content-validation.json
           python tools/audit/portal_exhaustive_audit.py \
             --repo-root . \
             --output artifacts/portal-exhaustive-audit \
@@ -146,8 +162,10 @@ jobs:
           root = Path('artifacts/portal-exhaustive-audit')
           matrix = json.loads((root / 'portal-exhaustive-audit-matrix.json').read_text())
           strictness = json.loads((root / 'portal-exhaustive-strictness.json').read_text())
+          wiki_inventory = json.loads((root / 'wiki-expected-content-validation.json').read_text())
           assert matrix['exact_sha'] == os.environ['AUDIT_SHA']
           assert strictness['exact_sha'] == os.environ['AUDIT_SHA']
+          assert wiki_inventory['status'] == 'PASS'
           assert matrix['global_verdict'] == 'AUDIT_COMPLETE_WITH_FINDINGS'
           assert matrix['infrastructure_errors'] == []
           assert matrix['counts']['discovered_named_routes'] == 244
@@ -176,6 +194,8 @@ jobs:
               tools/audit/test_portal_exhaustive_strictness.py \
               tools/audit/test_validate_portal_exhaustive_retained_evidence.py \
               docs/agents/evidence/OTERYN-20260803-portal-exhaustive-current-main-audit/manifest.json \
+              docs/testing/WIKI_EXPECTED_CONTENT_INVENTORY.json \
+              docs/testing/PORTAL_STRICTNESS_EVIDENCE.json \
               docs/testing/ROUTE_VIEW_NAVIGATION_INVENTORY.json \
               docs/testing/ROUTE_VIEW_NAVIGATION_DELEGATED_BINDINGS.json \
               docs/testing/product-completeness-benchmark.json \
