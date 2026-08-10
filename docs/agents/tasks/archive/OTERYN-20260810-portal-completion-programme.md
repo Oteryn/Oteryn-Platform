@@ -95,7 +95,7 @@ proven:
   - Protected main now contains squash commit d1d7159f43c815f39db55cb86f518fc85df8d454 with the seven declared documentation/governance paths and no application, schema, workflow, deployment or external-repository mutation.
   - All eight pull-request workflow runs on final PR head bbe12f107051e2aa89dcee11fc74d585bbb6e749 completed successfully, including Agent Governance and CI.
   - PR #962 had no unresolved review threads or submitted review conflicts before merge.
-  - Open PRs #541 and #338 had no changed-path overlap with this task at closeout.
+  - Corrected post-merge evidence shows open PRs #961, #541 and #338 had no changed-path overlap with this task at closeout; #961 was separate synthetic/no-network research work with red exact-head validation.
   - Issues #941, #944, #948 and #490 remain separate live work owners and were not duplicated by this registration task.
   - Runtime/browser E2E is not applicable because the merged task diff changes only documentation, governance and prompt routing.
 derived:
@@ -103,12 +103,14 @@ derived:
 unknown: []
 conflicts:
   - ACTIVE_WORK.md still says no active tasks while two pre-existing blocked active task records remain; the persisted portal review records this source-of-truth drift for later bounded reconciliation.
+  - The first persisted open-PR inventory omitted PR #961 even though GitHub records #961 as created before PR #962; post-merge reconciliation corrected the report and delivery plan rather than preserving the inaccurate inventory.
 first_failure:
   marker: none
   evidence: none
 rejected_hypotheses:
   - GitHub write access is unavailable; disproven by successful connected repository writes, PR creation, exact-head validation and merge.
   - Dependency-update PRs #952-#958 remain current open work; disproven by the live open-PR refresh used for the persisted report.
+  - PR #961 opened only after the portal-completion review; disproven by GitHub creation timestamps during post-merge reconciliation.
 changed_paths:
   - docs/agents/REPOSITORY_MAP.md
   - docs/agents/SHORT_PROGRAM_INVOCATIONS.md
@@ -133,6 +135,9 @@ validation:
   - command: PR #962 terminal merge verification
     result: PASS
     evidence: GitHub merge returned merged=true with squash commit d1d7159f43c815f39db55cb86f518fc85df8d454 and protected main resolved to that commit immediately after merge.
+  - command: post-merge open-PR reconciliation
+    result: PASS
+    evidence: GitHub proved #961 was created at 2026-08-10T18:45:31Z before #962 at 2026-08-10T18:50:31Z; the persisted review/plan were corrected in the dedicated reconciliation task.
 blockers: []
 next_action: Invoke PORTAL-CLOSEOUT from live repository state to select or resume the next eligible portal-completion slice.
 ```
