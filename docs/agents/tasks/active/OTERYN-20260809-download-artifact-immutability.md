@@ -3,7 +3,7 @@ task_id: OTERYN-20260809-download-artifact-immutability
 mode: implementation
 issue: 948
 branch: repair/issue-948
-status: active
+status: validating
 programme: OTERYN_PLATFORM_REMEDIATION
 portal_programme: OTERYN_PORTAL_COMPLETION
 ---
@@ -91,25 +91,43 @@ validation_gate:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-10T21:43:00+02:00
-base_sha: 2e82d81bbace65a85b69fbbdadf85cdc44034b61
-implementation_head: a1b9352703f4eac5b75b7a776135ebaab5f429a4
+updated_at: 2026-08-10T21:46:10+02:00
+head: 9fb3df66933b379bf8262ed055532fbd0ed8915d
 branch: repair/issue-948
 pr: 966
-status: active
-phase: validation
-owner: chatgpt-portal-closeout-20260810-2125
+status: validating
+context_routes:
+  - agent-governance
+  - security
+  - public-web
+  - testing
+owned_paths:
+  - app/Downloads/Security/ArtifactUrlPolicy.php
+  - app/Downloads/Rules/ApprovedArtifactUrl.php
+  - app/Downloads/Actions/PublishClientRelease.php
+  - app/Http/Requests/Downloads/SaveClientReleaseRequest.php
+  - config/downloads.php
+  - tests/Unit/Downloads/ArtifactUrlPolicyTest.php
+  - tests/Feature/Downloads/DownloadCenterTest.php
+  - docs/agents/tasks/active/OTERYN-20260809-download-artifact-immutability.md
 proven:
   - Issue #948 is open, implementation-authorized, priority P1 and risk high.
-  - The deterministic branch repair/issue-948 was created from protected main 2e82d81bbace65a85b69fbbdadf85cdc44034b61 after absence of a competing branch/PR was verified.
+  - The deterministic branch repair/issue-948 was created from protected main 2e82d81bbace65a85b69fbbdadf85cdc44034b61 after absence of a competing branch or PR was verified.
   - Existing active tasks own public-edge verification and native-auth verification paths and do not overlap this Issue's exclusive repair paths.
   - ArtifactUrlPolicy now requires the approved host to have an explicit object_version_query contract and requires exactly one configured version query parameter with a bounded opaque identifier.
-  - A version-looking path, latest/current path, missing contract, missing version reference, wrong query parameter, duplicate query parameter or extra query parameter fails closed.
-  - SaveClientReleaseRequest already applies ApprovedArtifactUrl and PublishClientRelease already revalidates ArtifactUrlPolicy while holding locked release/artifact rows; the stronger invariant therefore applies at draft validation and publication without widening scope.
-  - Config invalid/missing immutable-reference metadata resolves to no contract and therefore fails closed.
+  - A version-looking path, latest or current path, missing contract, missing version reference, wrong query parameter, duplicate query parameter or extra query parameter fails closed.
+  - Config invalid or missing immutable-reference metadata resolves to no contract and therefore fails closed.
   - PR #966 is the single authoritative delivery PR for this Issue.
+derived:
+  - Because SaveClientReleaseRequest already delegates artifact_url validation to ApprovedArtifactUrl and PublishClientRelease already revalidates ArtifactUrlPolicy while holding release and artifact locks, strengthening ArtifactUrlPolicy applies the immutable-reference invariant at both draft validation and publication without widening the repair scope.
 unknown: []
 conflicts: []
+first_failure:
+  marker: mutable-approved-host-artifact-reference
+  evidence: Issue #948 proves the prior policy accepted an approved HTTPS host with any non-root pathname even when the external object reference remained overwriteable.
+rejected_hypotheses:
+  - A pathname that merely looks versioned is sufficient evidence of immutability; Issue #948 and the canonical public-site architecture explicitly reject that assumption.
+  - Administrator-supplied SHA-256 can substitute for immutable-reference enforcement without fetching the bytes; the existing no-fetch boundary means Platform cannot independently bind that metadata to external object contents.
 changed_paths:
   - app/Downloads/Security/ArtifactUrlPolicy.php
   - config/downloads.php
@@ -117,12 +135,15 @@ changed_paths:
   - tests/Feature/Downloads/DownloadCenterTest.php
   - docs/agents/tasks/active/OTERYN-20260809-download-artifact-immutability.md
 validation:
-  - command: exact branch/source inspection against Issue #948 acceptance
+  - command: exact branch source and PR diff inspection against Issue #948 acceptance
     result: PASS
-    evidence: implementation head a1b9352703f4eac5b75b7a776135ebaab5f429a4 changes only the bounded policy/config/tests plus this task packet.
+    evidence: PR #966 changes only the bounded policy, configuration, focused tests and this task packet; no forbidden runtime or deployment path is modified.
   - command: runtime/browser E2E
     result: NOT_APPLICABLE
-    evidence: backend-only invariant repair with no route/view/browser change; real save/publish/public-read integration paths are covered by DownloadCenter feature tests.
+    evidence: This is a backend-only invariant repair with no route or view change; the real save, publish and public-read integration path is exercised by the DownloadCenter feature tests.
+  - command: CI and Agent Governance on 9fb3df66933b379bf8262ed055532fbd0ed8915d
+    result: FAIL
+    evidence: Both runs stopped on this task checkpoint schema because context_routes, derived, first_failure, head, owned_paths and rejected_hypotheses were absent and checkpoint status active was unsupported; this commit corrects exactly those reported fields.
 blockers: []
-next_action: Run repository-required validation on the exact PR head, inspect the whole diff and any CI/review findings, repair on PR #966 if needed, then merge and complete Issue/task ownership release.
+next_action: Validate the corrected exact PR head, inspect any remaining CI, Downloads Acceptance, review or mergeability failures, repair them on PR #966 if needed, then merge and release Issue and task ownership.
 ```
