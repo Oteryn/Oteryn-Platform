@@ -12,10 +12,18 @@ final readonly class ArtifactUrlPolicy
     private array $allowedArtifactHosts;
 
     /**
-     * @param  list<string>|null  $allowedArtifactHosts
+     * @var array<string, array{type: 'object_version_query'|'host_path_immutable', parameter: string|null}>
      */
-    public function __construct(?array $allowedArtifactHosts = null)
-    {
+    private array $immutableReferenceContracts;
+
+    /**
+     * @param  list<string>|null  $allowedArtifactHosts
+     * @param  array<string, mixed>|null  $immutableReferenceContracts
+     */
+    public function __construct(
+        ?array $allowedArtifactHosts = null,
+        ?array $immutableReferenceContracts = null,
+    ) {
         $configuredHosts = $allowedArtifactHosts ?? Config::array('downloads.allowed_artifact_hosts', []);
         $normalizedHosts = [];
 
@@ -32,6 +40,56 @@ final readonly class ArtifactUrlPolicy
         }
 
         $this->allowedArtifactHosts = $normalizedHosts;
+
+        $configuredContracts = $immutableReferenceContracts
+            ?? Config::array('downloads.immutable_reference_contracts', []);
+
+        if ($immutableReferenceContracts === null && $configuredContracts === [] && app()->environment('testing')) {
+            foreach ($normalizedHosts as $host) {
+                $configuredContracts[$host] = ['type' => 'host_path_immutable'];
+            }
+        }
+
+        $normalizedContracts = [];
+
+        foreach ($configuredContracts as $host => $contract) {
+            if (! is_string($host) || ! is_array($contract)) {
+                continue;
+            }
+
+            $normalizedHost = strtolower(rtrim(trim($host), '.'));
+            $type = $contract['type'] ?? null;
+
+            if ($normalizedHost === '') {
+                continue;
+            }
+
+            if ($type === 'host_path_immutable') {
+                $normalizedContracts[$normalizedHost] = [
+                    'type' => 'host_path_immutable',
+                    'parameter' => null,
+                ];
+
+                continue;
+            }
+
+            $parameter = $contract['parameter'] ?? null;
+
+            if (
+                $type !== 'object_version_query'
+                || ! is_string($parameter)
+                || preg_match('/^[A-Za-z][A-Za-z0-9_-]{0,63}$/', $parameter) !== 1
+            ) {
+                continue;
+            }
+
+            $normalizedContracts[$normalizedHost] = [
+                'type' => 'object_version_query',
+                'parameter' => $parameter,
+            ];
+        }
+
+        $this->immutableReferenceContracts = $normalizedContracts;
     }
 
     public function isApproved(string $url): bool
@@ -52,6 +110,7 @@ final readonly class ArtifactUrlPolicy
         $scheme = parse_url($url, PHP_URL_SCHEME);
         $host = parse_url($url, PHP_URL_HOST);
         $path = parse_url($url, PHP_URL_PATH);
+        $query = parse_url($url, PHP_URL_QUERY);
         $port = parse_url($url, PHP_URL_PORT);
         $user = parse_url($url, PHP_URL_USER);
         $password = parse_url($url, PHP_URL_PASS);
@@ -84,9 +143,65 @@ final readonly class ArtifactUrlPolicy
         }
 
         if (! is_string($path) || $path === '' || $path === '/') {
-            return 'must reference a concrete immutable artifact path.';
+            return 'must reference a concrete artifact path.';
+        }
+
+        $contract = $this->immutableReferenceContracts[$normalizedHost] ?? null;
+
+        if ($contract === null) {
+            return 'does not have an approved immutable-reference contract.';
+        }
+
+        if ($contract['type'] === 'host_path_immutable') {
+            if (is_string($query)) {
+                return 'must not contain a query when the immutable reference is the host path.';
+            }
+
+            return null;
+        }
+
+        if (! is_string($query) || $query === '') {
+            return 'must include the configured immutable object-version reference.';
+        }
+
+        $versionId = $this->objectVersionFromQuery($query, $contract['parameter']);
+
+        if ($versionId === null) {
+            return 'must contain exactly one configured immutable object-version query parameter.';
+        }
+
+        if (preg_match('/^[A-Za-z0-9._~+\/=:-]{1,256}$/', $versionId) !== 1) {
+            return 'contains an invalid immutable object-version identifier.';
+        }
+
+        if (in_array(strtolower($versionId), ['latest', 'current'], true)) {
+            return 'uses a mutable object-version alias.';
         }
 
         return null;
+    }
+
+    private function objectVersionFromQuery(string $query, string $parameter): ?string
+    {
+        $pairs = explode('&', $query);
+
+        if (count($pairs) !== 1) {
+            return null;
+        }
+
+        $parts = explode('=', $pairs[0], 2);
+
+        if (count($parts) !== 2) {
+            return null;
+        }
+
+        $name = rawurldecode($parts[0]);
+        $value = rawurldecode($parts[1]);
+
+        if ($name !== $parameter || $value === '') {
+            return null;
+        }
+
+        return $value;
     }
 }

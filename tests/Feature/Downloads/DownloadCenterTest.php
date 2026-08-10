@@ -24,13 +24,19 @@ final class DownloadCenterTest extends TestCase
         parent::setUp();
 
         Config::set('downloads.allowed_artifact_hosts', ['downloads.example.test']);
+        Config::set('downloads.immutable_reference_contracts', [
+            'downloads.example.test' => [
+                'type' => 'object_version_query',
+                'parameter' => 'versionId',
+            ],
+        ]);
     }
 
     public function test_public_download_center_shows_only_current_published_releases_and_filters_platforms(): void
     {
         $draft = $this->createRelease('9.9.9-draft', DownloadCatalog::CHANNEL_STABLE, null, true);
         $draft->artifacts()->create($this->artifact(
-            'https://downloads.example.test/releases/draft-client.zip',
+            'https://downloads.example.test/releases/draft-client.zip?versionId=object-version-draft',
             DownloadCatalog::PLATFORM_WINDOWS,
             DownloadCatalog::ARCHITECTURE_X86_64,
             'draft-client.zip',
@@ -40,14 +46,14 @@ final class DownloadCenterTest extends TestCase
         $stable = $this->createRelease('1.2.3', DownloadCatalog::CHANNEL_STABLE, now()->subMinute(), true);
         $stable->artifacts()->createMany([
             $this->artifact(
-                'https://downloads.example.test/releases/1.2.3/oteryn-windows.zip',
+                'https://downloads.example.test/releases/1.2.3/oteryn-windows.zip?versionId=object-version-windows-123',
                 DownloadCatalog::PLATFORM_WINDOWS,
                 DownloadCatalog::ARCHITECTURE_X86_64,
                 'oteryn-windows.zip',
                 str_repeat('a', 64),
             ),
             $this->artifact(
-                'https://downloads.example.test/releases/1.2.3/oteryn-linux.tar.gz',
+                'https://downloads.example.test/releases/1.2.3/oteryn-linux.tar.gz?versionId=object-version-linux-123',
                 DownloadCatalog::PLATFORM_LINUX,
                 DownloadCatalog::ARCHITECTURE_X86_64,
                 'oteryn-linux.tar.gz',
@@ -57,7 +63,7 @@ final class DownloadCenterTest extends TestCase
 
         $beta = $this->createRelease('1.3.0-beta.1', DownloadCatalog::CHANNEL_BETA, now()->subMinute(), true);
         $beta->artifacts()->create($this->artifact(
-            'https://downloads.example.test/releases/1.3.0-beta.1/oteryn-beta-windows.zip',
+            'https://downloads.example.test/releases/1.3.0-beta.1/oteryn-beta-windows.zip?versionId=object-version-beta-windows-130',
             DownloadCatalog::PLATFORM_WINDOWS,
             DownloadCatalog::ARCHITECTURE_ARM64,
             'oteryn-beta-windows.zip',
@@ -75,7 +81,7 @@ final class DownloadCenterTest extends TestCase
             ->assertSeeText('oteryn-windows.zip')
             ->assertSeeText('100 MB')
             ->assertSeeText(str_repeat('a', 64))
-            ->assertSee('https://downloads.example.test/releases/1.2.3/oteryn-windows.zip', false)
+            ->assertSee('https://downloads.example.test/releases/1.2.3/oteryn-windows.zip?versionId=object-version-windows-123', false)
             ->assertSeeText('does not claim that it independently verified the checksum')
             ->assertDontSeeText('9.9.9-draft')
             ->assertDontSeeText('draft-client.zip');
@@ -97,7 +103,7 @@ final class DownloadCenterTest extends TestCase
     {
         $release = $this->createRelease('2.0.0', DownloadCatalog::CHANNEL_STABLE, now()->subMinute(), true);
         $release->artifacts()->create($this->artifact(
-            'https://downloads.example.test/releases/2.0.0/oteryn-client.zip',
+            'https://downloads.example.test/releases/2.0.0/oteryn-client.zip?versionId=object-version-client-200',
             DownloadCatalog::PLATFORM_WINDOWS,
             DownloadCatalog::ARCHITECTURE_X86_64,
             'oteryn-client.zip',
@@ -191,7 +197,7 @@ final class DownloadCenterTest extends TestCase
         self::assertSame('3.1.0', $second->version);
     }
 
-    public function test_administrator_validation_rejects_javascript_data_and_unapproved_hosts(): void
+    public function test_administrator_validation_rejects_unsafe_hosts_and_mutable_references(): void
     {
         $actor = $this->createIdentity('downloads-validator@example.com');
         $this->grantDownloadsPermission($actor);
@@ -200,7 +206,10 @@ final class DownloadCenterTest extends TestCase
         $invalidUrls = [
             'javascript:alert(1)',
             'data:application/octet-stream;base64,AA==',
-            'https://evil.example.test/releases/client.zip',
+            'https://evil.example.test/releases/client.zip?versionId=object-version-evil',
+            'https://downloads.example.test/latest/client.zip',
+            'https://downloads.example.test/releases/3.0.0/client.zip',
+            'https://downloads.example.test/releases/3.0.0/client.zip?versionId=latest',
         ];
 
         foreach ($invalidUrls as $index => $url) {
@@ -214,11 +223,35 @@ final class DownloadCenterTest extends TestCase
         self::assertSame(0, ClientRelease::query()->where('version', 'like', 'invalid-%')->count());
     }
 
+    public function test_publication_revalidates_the_current_immutable_reference_contract(): void
+    {
+        $actor = $this->createIdentity('downloads-publisher-revalidation@example.com');
+        $this->grantDownloadsPermission($actor);
+        $this->actingAsCurrent($actor);
+
+        $this->post(route('admin.downloads.store'), $this->releasePayload('3.2.0'))
+            ->assertRedirect();
+
+        $release = ClientRelease::query()->where('version', '3.2.0')->firstOrFail();
+        self::assertNull($release->published_at);
+
+        Config::set('downloads.immutable_reference_contracts', []);
+
+        $this->post(route('admin.downloads.publish', $release), ['make_current' => true])
+            ->assertSessionHasErrors('artifacts');
+
+        $release->refresh();
+        self::assertNull($release->published_at);
+        self::assertFalse($release->is_current);
+    }
+
     /**
      * @return array{version: string, channel: string, release_notes: string, artifacts: list<array{platform: string, architecture: string, artifact_url: string, filename: string, size_bytes: int, sha256: string, is_enabled: bool}>}
      */
     private function releasePayload(string $version): array
     {
+        $versionId = rawurlencode("object-version-{$version}");
+
         return [
             'version' => $version,
             'channel' => DownloadCatalog::CHANNEL_STABLE,
@@ -226,7 +259,7 @@ final class DownloadCenterTest extends TestCase
             'artifacts' => [[
                 'platform' => DownloadCatalog::PLATFORM_WINDOWS,
                 'architecture' => DownloadCatalog::ARCHITECTURE_X86_64,
-                'artifact_url' => "https://downloads.example.test/releases/{$version}/oteryn-client.zip",
+                'artifact_url' => "https://downloads.example.test/releases/{$version}/oteryn-client.zip?versionId={$versionId}",
                 'filename' => "oteryn-client-{$version}.zip",
                 'size_bytes' => 104857600,
                 'sha256' => str_repeat('f', 64),
