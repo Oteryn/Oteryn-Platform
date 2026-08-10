@@ -20,6 +20,10 @@ final class WikiExpectedContentInventoryTest extends TestCase
 
         self::assertSame(WikiExpectedContentInventory::VERSION, $summary['inventory_version']);
         self::assertSame(WikiLaunchContentCatalog::VERSION, $summary['catalog_version']);
+        self::assertSame(
+            WikiExpectedContentInventory::CATALOG_SOURCE_GIT_BLOB_SHA,
+            $summary['catalog_source_git_blob_sha'],
+        );
         self::assertSame(4, $summary['categories']);
         self::assertSame(13, $summary['articles']);
         self::assertSame(8, $summary['category_translations']);
@@ -96,8 +100,10 @@ final class WikiExpectedContentInventoryTest extends TestCase
         );
     }
 
-    public function test_missing_repository_source_reference_fails_closed(): void
+    public function test_provenance_paths_cannot_be_replaced_by_an_unrelated_existing_file(): void
     {
+        self::assertFileExists(base_path('composer.json'));
+
         $catalog = new WikiLaunchContentCatalog;
         $articles = $catalog->articles();
         $original = $articles[0];
@@ -107,11 +113,11 @@ final class WikiExpectedContentInventoryTest extends TestCase
             $original->sortOrder,
             $original->categoryKeys,
             $original->translations,
-            ['docs/does-not-exist/wiki-source.md'],
+            ['composer.json'],
         );
 
         $this->expectException(LogicException::class);
-        $this->expectExceptionMessage('references missing repository source');
+        $this->expectExceptionMessage('provenance paths drifted');
 
         (new WikiExpectedContentValidator)->validate(
             WikiLaunchContentCatalog::VERSION,
