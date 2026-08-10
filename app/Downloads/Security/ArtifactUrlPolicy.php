@@ -164,13 +164,7 @@ final readonly class ArtifactUrlPolicy
             return 'must include the configured immutable object-version reference.';
         }
 
-        $parameter = $contract['parameter'];
-
-        if (! is_string($parameter)) {
-            return 'does not have a valid immutable-reference contract.';
-        }
-
-        $versionId = $this->objectVersionFromQuery($query, $parameter);
+        $versionId = $this->objectVersionFromQuery($query, $contract['parameter']);
 
         if ($versionId === null) {
             return 'must contain exactly one configured immutable object-version query parameter.';
