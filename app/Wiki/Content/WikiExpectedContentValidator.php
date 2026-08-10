@@ -11,6 +11,7 @@ final class WikiExpectedContentValidator
      * @return array{
      *     inventory_version: string,
      *     catalog_version: string,
+     *     catalog_source_git_blob_sha: string,
      *     categories: int,
      *     articles: int,
      *     category_translations: int,
@@ -22,11 +23,17 @@ final class WikiExpectedContentValidator
      */
     public function validateCatalog(WikiLaunchContentCatalog $catalog): array
     {
-        return $this->validate(
+        $catalogSourceGitBlobSha = $this->validateReviewedCatalogSource();
+        $summary = $this->validate(
             WikiLaunchContentCatalog::VERSION,
             $catalog->categories(),
             $catalog->articles(),
         );
+
+        return [
+            ...$summary,
+            'catalog_source_git_blob_sha' => $catalogSourceGitBlobSha,
+        ];
     }
 
     /**
@@ -79,6 +86,28 @@ final class WikiExpectedContentValidator
             'internal_links' => $internalLinks,
             'editorial_media_tokens' => $editorialMediaTokens,
         ];
+    }
+
+    private function validateReviewedCatalogSource(): string
+    {
+        $catalogPath = base_path('app/Wiki/Content/WikiLaunchContentCatalog.php');
+        $source = file_get_contents($catalogPath);
+
+        if (! is_string($source)) {
+            throw new LogicException('The reviewed Wiki launch catalog source file is unavailable.');
+        }
+
+        $gitBlobSha = sha1('blob '.strlen($source)."\0".$source);
+
+        if (! hash_equals(WikiExpectedContentInventory::CATALOG_SOURCE_GIT_BLOB_SHA, $gitBlobSha)) {
+            throw new LogicException(sprintf(
+                'Wiki launch catalog source digest drifted: got %s, expected reviewed blob %s.',
+                $gitBlobSha,
+                WikiExpectedContentInventory::CATALOG_SOURCE_GIT_BLOB_SHA,
+            ));
+        }
+
+        return $gitBlobSha;
     }
 
     /**
@@ -233,7 +262,11 @@ final class WikiExpectedContentValidator
                 $editorialMediaTokens += $mediaMatches;
             }
 
-            $sourceReferences += $this->validateSourceReferences($articleKey, $article->sourceReferences);
+            $sourceReferences += $this->validateSourceReferences(
+                $articleKey,
+                $article->sourceReferences,
+                $expected['source_references'],
+            );
         }
 
         $missingKeys = array_diff(array_keys(WikiExpectedContentInventory::ARTICLES), array_keys($seenArticleKeys));
@@ -341,9 +374,17 @@ final class WikiExpectedContentValidator
 
     /**
      * @param  list<string>  $references
+     * @param  list<string>  $expectedReferences
      */
-    private function validateSourceReferences(string $articleKey, array $references): int
-    {
+    private function validateSourceReferences(
+        string $articleKey,
+        array $references,
+        array $expectedReferences,
+    ): int {
+        if ($references !== $expectedReferences) {
+            throw new LogicException("Wiki launch article {$articleKey} provenance paths drifted from the expected inventory.");
+        }
+
         if ($references === []) {
             throw new LogicException("Wiki launch article {$articleKey} has no repository source references.");
         }
