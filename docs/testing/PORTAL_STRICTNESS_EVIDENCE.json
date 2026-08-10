@@ -124,7 +124,7 @@
             "file": "scripts/acceptance/tests/wiki-strictness-acceptance.spec.mjs",
             "markers": [
               "@portal-wiki-admin-strictness not-found csrf-419 server-failure recovery",
-              "restoreAdminIndexView();",
+              "restoreWikiAdminAvailability();",
               "expect(response?.status()).toBe(200);"
             ]
           }
@@ -199,7 +199,7 @@
             "file": "scripts/acceptance/tests/editorial-media-strictness-acceptance.spec.mjs",
             "markers": [
               "@portal-editorial-media-strictness not-found csrf-419 server-failure recovery",
-              "restoreAdminIndexView();",
+              "restoreEditorialMediaAvailability();",
               "expect(response?.status()).toBe(200);"
             ]
           }
