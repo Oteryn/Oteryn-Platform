@@ -19,15 +19,21 @@ on:
   workflow_dispatch:
     inputs:
       action:
-        description: Read-only inventory or remove only verified stopped Oteryn staging orphan containers
+        description: Read-only inventory or remove only one explicitly verified container set
         required: true
         type: choice
         options:
           - inventory
           - cleanup-stopped-portal-orphans
+          - cleanup-proven-authentik-local-test
         default: inventory
-      confirm_cleanup:
-        description: For cleanup enter exactly REMOVE_STOPPED_OTERYN_STAGING_ORPHANS
+      confirm_portal_cleanup:
+        description: For portal orphan cleanup enter exactly REMOVE_STOPPED_OTERYN_STAGING_ORPHANS
+        required: false
+        type: string
+        default: ""
+      confirm_test_cleanup:
+        description: For Authentik local-test cleanup enter exactly REMOVE_PORTAL_AUTHENTIK_LOCAL_TEST_CONTAINERS
         required: false
         type: string
         default: ""
@@ -76,66 +82,44 @@ jobs:
 
           required = [
               'project=oteryn-staging',
+              'stale_test_project=portal-authentik-local-test',
               'cleanup-stopped-portal-orphans',
+              'cleanup-proven-authentik-local-test',
               'REMOVE_STOPPED_OTERYN_STAGING_ORPHANS',
+              'REMOVE_PORTAL_AUTHENTIK_LOCAL_TEST_CONTAINERS',
               'com.docker.compose.project',
               'com.docker.compose.service',
-              'docker stop --timeout 30 "$id"',
               'docker rm "$id"',
+              'docker stop --timeout 30 "$id"',
               'validate_canonical_runtime',
+              'runtime_service_ready',
+              'one_shot_services=(tls-init)',
+              'runtime_services=(mariadb redis platform canary internal-proxy gateway marketplace-scheduler)',
               'OUTSIDE_SCOPE',
               'mapfile -t expected_services',
-              'mapfile -t target_project_ids',
-              'remaining_test_ids',
+              'deploy/synology/compose.yml',
+              'deploy/synology/compose.marketplace.yml',
+              "startsWith(github.event.head_commit.message, 'fix(ops): execute proven Authentik container cleanup (#974)')",
           ]
           missing = [marker for marker in required if marker not in workflow]
           if missing:
               raise SystemExit('missing fail-closed marker(s): ' + ', '.join(missing))
 
-          bootstrap_marker = (
-              "startsWith(github.event.head_commit.message, "
-              + "'fix(ops): complete Synology portal container cleanup (#974)')"
-          )
-          if bootstrap_marker not in workflow:
-              raise SystemExit('one-time PR #974 live bootstrap guard is missing')
-
-          stale_project_marker = 'stale_test_project=' + 'portal-authentik-local-test'
-          if stale_project_marker not in workflow:
-              raise SystemExit('exact stale test project marker is missing')
-
-          cleanup_action_marker = 'cleanup-proven-' + 'authentik-local-test'
-          if cleanup_action_marker not in workflow:
-              raise SystemExit('one-time exact test cleanup action is missing')
-
-          compose_sources_match = re.search(
-              r'^\s*compose_sources=\(([^)]*)\)\s*$', workflow, re.MULTILINE
-          )
-          if not compose_sources_match:
-              raise SystemExit('compose_sources declaration is missing')
-          live_compose_sources = set(compose_sources_match.group(1).split())
-          expected_compose_sources = {
-              'deploy/synology/compose.yml',
-              'deploy/synology/compose.marketplace.yml',
-          }
-          if live_compose_sources != expected_compose_sources:
-              raise SystemExit(
-                  'live compose source drift: '
-                  f'workflow={sorted(live_compose_sources)} expected={sorted(expected_compose_sources)}'
-              )
-
           if re.search(r'^\s*expected_services=\(', workflow, re.MULTILINE):
-              raise SystemExit('live expected_services must be derived from trusted compose sources')
+              raise SystemExit('live expected_services must be derived from trusted main compose, not hard-coded')
 
           runtime_match = re.search(r'^\s*runtime_services=\(([^)]*)\)\s*$', workflow, re.MULTILINE)
-          if not runtime_match:
-              raise SystemExit('runtime_services declaration is missing')
+          one_shot_match = re.search(r'^\s*one_shot_services=\(([^)]*)\)\s*$', workflow, re.MULTILINE)
+          if not runtime_match or not one_shot_match:
+              raise SystemExit('runtime_services/one_shot_services declarations are required')
           runtime_services = set(runtime_match.group(1).split())
-          if 'marketplace-scheduler' not in runtime_services:
-              raise SystemExit('marketplace-scheduler must be protected as canonical runtime')
+          one_shot_services = set(one_shot_match.group(1).split())
+          if runtime_services & one_shot_services:
+              raise SystemExit('runtime and one-shot classifications overlap')
 
-          def services_from_compose(path: Path) -> set[str]:
-              lines = path.read_text().splitlines()
-              services = set()
+          compose_services = set()
+          for relative in ('deploy/synology/compose.yml', 'deploy/synology/compose.marketplace.yml'):
+              lines = Path(relative).read_text().splitlines()
               in_services = False
               for line in lines:
                   if line == 'services:':
@@ -147,19 +131,16 @@ jobs:
                       break
                   match = re.fullmatch(r'  ([A-Za-z0-9][A-Za-z0-9_-]*):', line)
                   if match:
-                      services.add(match.group(1))
-              return services
+                      compose_services.add(match.group(1))
 
-          canonical_services = set()
-          for source in sorted(expected_compose_sources):
-              canonical_services |= services_from_compose(Path(source))
-          if not canonical_services:
-              raise SystemExit('no canonical Compose services were parsed')
-          missing_runtime = runtime_services - canonical_services
-          if missing_runtime:
+          if not compose_services:
+              raise SystemExit('no canonical Compose services parsed')
+          classified = runtime_services | one_shot_services
+          if classified != compose_services:
               raise SystemExit(
-                  'runtime_services drift from canonical Compose sources: '
-                  f'missing={sorted(missing_runtime)}'
+                  'every trusted Compose service must be classified exactly once: '
+                  f'unclassified={sorted(compose_services - classified)} '
+                  f'unknown={sorted(classified - compose_services)}'
               )
           PY
 
@@ -167,10 +148,10 @@ jobs:
     if: >-
       (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') ||
       (github.event_name == 'push' && github.ref == 'refs/heads/main' &&
-       startsWith(github.event.head_commit.message, 'fix(ops): complete Synology portal container cleanup (#974)'))
+       startsWith(github.event.head_commit.message, 'fix(ops): execute proven Authentik container cleanup (#974)'))
     runs-on: oteryn-staging
     environment: synology-staging
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
       - name: Checkout trusted main
         uses: actions/checkout@v7
@@ -183,23 +164,24 @@ jobs:
           set -euo pipefail
           docker version >/dev/null
 
-      - name: Inventory and perform exact bounded cleanup
+      - name: Inventory and optionally remove one verified container set
         id: hygiene
         env:
           HYGIENE_ACTION: ${{ github.event_name == 'push' && 'cleanup-proven-authentik-local-test' || inputs.action }}
-          PORTAL_CLEANUP_CONFIRMATION: ${{ inputs.confirm_cleanup }}
-          TEST_CLEANUP_CONFIRMATION: ${{ github.event_name == 'push' && 'REMOVE_PORTAL_AUTHENTIK_LOCAL_TEST_CONTAINERS' || '' }}
+          PORTAL_CLEANUP_CONFIRMATION: ${{ inputs.confirm_portal_cleanup }}
+          TEST_CLEANUP_CONFIRMATION: ${{ github.event_name == 'push' && 'REMOVE_PORTAL_AUTHENTIK_LOCAL_TEST_CONTAINERS' || inputs.confirm_test_cleanup }}
         run: |
           set -euo pipefail
 
           project=oteryn-staging
-          stale_test_project=portal-authentik-local-test
-          compose_sources=(deploy/synology/compose.yml deploy/synology/compose.marketplace.yml)
           runtime_services=(mariadb redis platform canary internal-proxy gateway marketplace-scheduler)
-          expected_test_services=(postgresql server worker)
+          one_shot_services=(tls-init)
+          compose_sources=(deploy/synology/compose.yml deploy/synology/compose.marketplace.yml)
+          stale_test_project=portal-authentik-local-test
+          expected_test_services=(authentik-db authentik-server authentik-worker)
           mapfile -t expected_services < <(
-            for compose_source in "${compose_sources[@]}"; do
-              sed -n '/^services:$/,/^[^ ]/p' "$compose_source" \
+            for compose_file in "${compose_sources[@]}"; do
+              sed -n '/^services:$/,/^[^ ]/p' "$compose_file" \
                 | sed -n 's/^  \([A-Za-z0-9][A-Za-z0-9_-]*\):$/\1/p'
             done | sort -u
           )
@@ -208,35 +190,36 @@ jobs:
           inventory_file="$RUNNER_TEMP/synology-container-inventory.txt"
           : > "$inventory_file"
 
-          is_in_list() {
+          contains_service() {
             local candidate="$1"
             shift
-            local item
-            for item in "$@"; do
-              [[ "$candidate" == "$item" ]] && return 0
+            local service
+            for service in "$@"; do
+              [[ "$candidate" == "$service" ]] && return 0
             done
             return 1
           }
 
-          is_expected_service() {
-            is_in_list "$1" "${expected_services[@]}"
-          }
-
-          is_runtime_service() {
-            is_in_list "$1" "${runtime_services[@]}"
-          }
-
-          is_expected_test_service() {
-            is_in_list "$1" "${expected_test_services[@]}"
-          }
+          is_expected_service() { contains_service "$1" "${expected_services[@]}"; }
+          is_runtime_service() { contains_service "$1" "${runtime_services[@]}"; }
+          is_one_shot_service() { contains_service "$1" "${one_shot_services[@]}"; }
+          is_expected_test_service() { contains_service "$1" "${expected_test_services[@]}"; }
 
           if (( ${#expected_services[@]} == 0 )); then
-            echo 'No canonical services parsed from trusted main Compose sources; refusing operation.' >&2
+            echo 'No canonical services parsed from trusted main compose; refusing operation.' >&2
             exit 1
           fi
-          for service in "${runtime_services[@]}"; do
+
+          classified_services=("${runtime_services[@]}" "${one_shot_services[@]}")
+          for service in "${expected_services[@]}"; do
+            if ! contains_service "$service" "${classified_services[@]}"; then
+              echo "Trusted Compose service $service is unclassified; refusing operation." >&2
+              exit 1
+            fi
+          done
+          for service in "${classified_services[@]}"; do
             if ! is_expected_service "$service"; then
-              echo "Runtime service $service is absent from trusted main Compose sources; refusing operation." >&2
+              echo "Classified service $service is absent from trusted Compose; refusing operation." >&2
               exit 1
             fi
           done
@@ -250,8 +233,84 @@ jobs:
             printf '%s' "$value"
           }
 
+          probe_http_in_namespace() {
+            local id="$1" port="$2" path="$3"
+            docker run --rm --network "container:$id" alpine:3.22 \
+              /bin/sh -ec "wget -qO- -T 5 'http://127.0.0.1:${port}${path}' >/dev/null"
+          }
+
+          probe_tcp_in_namespace() {
+            local id="$1" port="$2"
+            docker run --rm --network "container:$id" alpine:3.22 \
+              /bin/sh -ec "nc -z -w 5 127.0.0.1 '$port'"
+          }
+
+          runtime_service_ready() {
+            local service="$1" id="$2" running health_status
+            running="$(docker inspect --format '{{.State.Running}}' "$id")"
+            [[ "$running" == 'true' ]] || return 1
+            health_status="$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "$id")"
+            if [[ "$health_status" != 'none' && "$health_status" != 'healthy' ]]; then
+              return 1
+            fi
+
+            case "$service" in
+              mariadb|redis)
+                [[ "$health_status" == 'healthy' ]]
+                ;;
+              platform)
+                probe_http_in_namespace "$id" 8000 /health
+                ;;
+              gateway)
+                probe_http_in_namespace "$id" 8080 /health \
+                  && probe_http_in_namespace "$id" 8080 /ready
+                ;;
+              canary)
+                mapfile -t published_ports < <(
+                  docker inspect --format '{{range $port, $bindings := .NetworkSettings.Ports}}{{if $bindings}}{{$port}}{{"\n"}}{{end}}{{end}}' "$id" \
+                    | sed -n 's#/tcp$##p'
+                )
+                (( ${#published_ports[@]} >= 2 )) || return 1
+                local port
+                for port in "${published_ports[@]}"; do
+                  probe_tcp_in_namespace "$id" "$port" || return 1
+                done
+                ;;
+              internal-proxy)
+                docker exec "$id" nginx -t >/dev/null 2>&1 \
+                  && probe_tcp_in_namespace "$id" 8443 \
+                  && probe_tcp_in_namespace "$id" 8444
+                ;;
+              marketplace-scheduler)
+                docker exec "$id" php artisan schedule:list --no-interaction >/dev/null
+                ;;
+              *)
+                return 1
+                ;;
+            esac
+          }
+
+          one_shot_service_valid() {
+            local service="$1" id="$2" status exit_code
+            [[ "$service" == 'tls-init' ]] || return 1
+            status="$(docker inspect --format '{{.State.Status}}' "$id")"
+            exit_code="$(docker inspect --format '{{.State.ExitCode}}' "$id")"
+            [[ "$status" == 'exited' && "$exit_code" == '0' ]]
+          }
+
+          canonical_service_valid() {
+            local service="$1" id="$2"
+            if is_runtime_service "$service"; then
+              runtime_service_ready "$service" "$id"
+            elif is_one_shot_service "$service"; then
+              one_shot_service_valid "$service" "$id"
+            else
+              return 1
+            fi
+          }
+
           validate_canonical_runtime() {
-            local service canonical id actual_project actual_service running
+            local service canonical id actual_project actual_service
             for service in "${runtime_services[@]}"; do
               canonical="${project}-${service}-1"
               if ! id="$(docker inspect --format '{{.Id}}' "$canonical" 2>/dev/null)"; then
@@ -260,9 +319,12 @@ jobs:
               fi
               actual_project="$(label_value "$id" 'com.docker.compose.project')"
               actual_service="$(label_value "$id" 'com.docker.compose.service')"
-              running="$(docker inspect --format '{{.State.Running}}' "$id")"
-              if [[ "$actual_project" != "$project" || "$actual_service" != "$service" || "$running" != 'true' ]]; then
-                echo "Canonical runtime identity/health is ambiguous for $canonical; refusing cleanup." >&2
+              if [[ "$actual_project" != "$project" || "$actual_service" != "$service" ]]; then
+                echo "Canonical runtime identity is ambiguous for $canonical; refusing cleanup." >&2
+                return 1
+              fi
+              if ! runtime_service_ready "$service" "$id"; then
+                echo "Canonical runtime readiness probe failed for $canonical; refusing cleanup." >&2
                 return 1
               fi
             done
@@ -286,7 +348,12 @@ jobs:
               elif is_expected_service "$actual_service"; then
                 canonical="${project}-${actual_service}-1"
                 if [[ "$name" == "$canonical" ]]; then
-                  classification=CANONICAL_PORTAL_SERVICE
+                  if canonical_service_valid "$actual_service" "$id"; then
+                    classification=CANONICAL_PORTAL_SERVICE
+                  else
+                    classification=UNSAFE_CANONICAL_SERVICE_NOT_READY
+                    unsafe_portal+=("$id")
+                  fi
                 elif [[ "$state" == 'running' ]]; then
                   classification=UNSAFE_RUNNING_NONCANONICAL_PORTAL_SERVICE
                   unsafe_portal+=("$id")
@@ -295,16 +362,11 @@ jobs:
                   if canonical_id="$(docker inspect --format '{{.Id}}' "$canonical" 2>/dev/null)"; then
                     canonical_project="$(label_value "$canonical_id" 'com.docker.compose.project')"
                     canonical_service="$(label_value "$canonical_id" 'com.docker.compose.service')"
-                    if [[ "$canonical_project" == "$project" && "$canonical_service" == "$actual_service" ]]; then
-                      if is_runtime_service "$actual_service"; then
-                        canonical_running="$(docker inspect --format '{{.State.Running}}' "$canonical_id")"
-                        [[ "$canonical_running" == 'true' ]] && canonical_ok=true
-                      else
-                        canonical_ok=true
-                      fi
+                    if [[ "$canonical_project" == "$project" && "$canonical_service" == "$actual_service" ]] \
+                      && canonical_service_valid "$actual_service" "$canonical_id"; then
+                      canonical_ok=true
                     fi
                   fi
-
                   if [[ "$canonical_ok" == 'true' ]]; then
                     classification=CANDIDATE_STOPPED_DUPLICATE_PORTAL_SERVICE
                     candidates+=("$id")
@@ -331,10 +393,7 @@ jobs:
 
           sort -o "$inventory_file" "$inventory_file"
           cat "$inventory_file"
-
-          mapfile -t target_project_ids < <(
-            docker ps -aq --filter "label=com.docker.compose.project=$stale_test_project"
-          )
+          mapfile -t target_project_ids < <(docker ps -aq --filter "label=com.docker.compose.project=$stale_test_project")
 
           {
             echo '### Synology container hygiene inventory'
@@ -356,136 +415,72 @@ jobs:
             inventory)
               ;;
             cleanup-stopped-portal-orphans)
-              if [[ "$PORTAL_CLEANUP_CONFIRMATION" != 'REMOVE_STOPPED_OTERYN_STAGING_ORPHANS' ]]; then
-                echo 'Portal cleanup confirmation token is missing or incorrect.' >&2
-                exit 1
-              fi
+              [[ "$PORTAL_CLEANUP_CONFIRMATION" == 'REMOVE_STOPPED_OTERYN_STAGING_ORPHANS' ]] || { echo 'Portal cleanup confirmation token is missing or incorrect.' >&2; exit 1; }
               validate_canonical_runtime
-              if (( ${#unsafe_portal[@]} > 0 )); then
-                echo 'Unsafe or ambiguous Oteryn-owned containers exist; refusing all cleanup.' >&2
-                exit 1
-              fi
-
+              (( ${#unsafe_portal[@]} == 0 )) || { echo 'Unsafe or ambiguous Oteryn-owned containers exist; refusing all cleanup.' >&2; exit 1; }
               for id in "${candidates[@]}"; do
                 state="$(docker inspect --format '{{.State.Status}}' "$id")"
                 actual_project="$(label_value "$id" 'com.docker.compose.project')"
-                if [[ "$state" == 'running' || "$actual_project" != "$project" ]]; then
-                  echo "Candidate changed state/ownership before removal; refusing cleanup for $id." >&2
-                  exit 1
-                fi
+                [[ "$state" != 'running' && "$actual_project" == "$project" ]] || { echo "Candidate changed state/ownership before removal: $id" >&2; exit 1; }
               done
-
               removed=0
               for id in "${candidates[@]}"; do
-                name="$(docker inspect --format '{{.Name}}' "$id")"
-                name="${name#/}"
+                name="$(docker inspect --format '{{.Name}}' "$id")"; name="${name#/}"
                 echo "Removing verified stopped Oteryn portal orphan: $name"
                 docker rm "$id" >/dev/null
-                if docker inspect "$id" >/dev/null 2>&1; then
-                  echo "Container still exists after removal: $name" >&2
-                  exit 1
-                fi
+                docker inspect "$id" >/dev/null 2>&1 && { echo "Container still exists after removal: $name" >&2; exit 1; }
                 removed=$((removed + 1))
               done
-
               validate_canonical_runtime
               echo "removed_count=$removed" >> "$GITHUB_OUTPUT"
               echo "Removed verified stopped Oteryn portal orphan containers: $removed" >> "$GITHUB_STEP_SUMMARY"
               ;;
             cleanup-proven-authentik-local-test)
-              if [[ "$TEST_CLEANUP_CONFIRMATION" != 'REMOVE_PORTAL_AUTHENTIK_LOCAL_TEST_CONTAINERS' ]]; then
-                echo 'Exact test-project cleanup confirmation token is missing or incorrect.' >&2
-                exit 1
-              fi
+              [[ "$TEST_CLEANUP_CONFIRMATION" == 'REMOVE_PORTAL_AUTHENTIK_LOCAL_TEST_CONTAINERS' ]] || { echo 'Exact test-project cleanup confirmation token is missing or incorrect.' >&2; exit 1; }
               validate_canonical_runtime
-              if (( ${#unsafe_portal[@]} > 0 )); then
-                echo 'Unsafe or ambiguous Oteryn-owned containers exist; refusing test-project cleanup.' >&2
-                exit 1
-              fi
-              if (( ${#target_project_ids[@]} != 3 )); then
-                echo "Expected exactly 3 $stale_test_project containers, found ${#target_project_ids[@]}; refusing cleanup." >&2
-                exit 1
-              fi
+              (( ${#unsafe_portal[@]} == 0 )) || { echo 'Unsafe or ambiguous Oteryn-owned containers exist; refusing test-project cleanup.' >&2; exit 1; }
+              (( ${#target_project_ids[@]} == 3 )) || { echo "Expected exactly 3 $stale_test_project containers, found ${#target_project_ids[@]}; refusing cleanup." >&2; exit 1; }
 
               target_services=()
               for id in "${target_project_ids[@]}"; do
                 actual_project="$(label_value "$id" 'com.docker.compose.project')"
                 actual_service="$(label_value "$id" 'com.docker.compose.service')"
-                name="$(docker inspect --format '{{.Name}}' "$id")"
-                name="${name#/}"
+                name="$(docker inspect --format '{{.Name}}' "$id")"; name="${name#/}"
                 state="$(docker inspect --format '{{.State.Status}}' "$id")"
-                created="$(docker inspect --format '{{.Created}}' "$id")"
                 expected_name="${stale_test_project}-${actual_service}-1"
-                if [[ "$actual_project" != "$stale_test_project" || -z "$actual_service" ]]; then
-                  echo "Target ownership changed before cleanup for $id; refusing cleanup." >&2
-                  exit 1
-                fi
-                if ! is_expected_test_service "$actual_service"; then
-                  echo "Unexpected service $actual_service in $stale_test_project; refusing cleanup." >&2
-                  exit 1
-                fi
-                if [[ "$name" != "$expected_name" ]]; then
-                  echo "Unexpected container name $name for service $actual_service; refusing cleanup." >&2
-                  exit 1
-                fi
+                [[ "$actual_project" == "$stale_test_project" && -n "$actual_service" ]] || { echo "Target ownership changed for $id" >&2; exit 1; }
+                is_expected_test_service "$actual_service" || { echo "Unexpected service $actual_service in $stale_test_project" >&2; exit 1; }
+                [[ "$name" == "$expected_name" ]] || { echo "Unexpected container name $name" >&2; exit 1; }
                 target_services+=("$actual_service")
-                echo "Verified exact test target: name=$name | service=$actual_service | state=$state | created=$created"
               done
-
               actual_service_set="$(printf '%s\n' "${target_services[@]}" | sort -u | paste -sd, -)"
               expected_service_set="$(printf '%s\n' "${expected_test_services[@]}" | sort -u | paste -sd, -)"
-              if [[ "$actual_service_set" != "$expected_service_set" ]]; then
-                echo "Exact test service set mismatch: actual=$actual_service_set expected=$expected_service_set; refusing cleanup." >&2
-                exit 1
-              fi
+              [[ "$actual_service_set" == "$expected_service_set" ]] || { echo "Exact test service set mismatch: actual=$actual_service_set expected=$expected_service_set" >&2; exit 1; }
 
               for id in "${target_project_ids[@]}"; do
                 actual_project="$(label_value "$id" 'com.docker.compose.project')"
                 actual_service="$(label_value "$id" 'com.docker.compose.service')"
                 state="$(docker inspect --format '{{.State.Status}}' "$id")"
-                if [[ "$actual_project" != "$stale_test_project" ]] || ! is_expected_test_service "$actual_service"; then
-                  echo "Target identity changed immediately before stop for $id; refusing cleanup." >&2
-                  exit 1
-                fi
-                if [[ "$state" == 'running' ]]; then
-                  echo "Stopping verified obsolete test container: ${stale_test_project}-${actual_service}-1"
-                  docker stop --timeout 30 "$id" >/dev/null
-                fi
+                [[ "$actual_project" == "$stale_test_project" ]] && is_expected_test_service "$actual_service" || { echo "Target identity changed before stop for $id" >&2; exit 1; }
+                if [[ "$state" == 'running' ]]; then docker stop --timeout 30 "$id" >/dev/null; fi
               done
-
               validate_canonical_runtime
-
               for id in "${target_project_ids[@]}"; do
                 actual_project="$(label_value "$id" 'com.docker.compose.project')"
                 actual_service="$(label_value "$id" 'com.docker.compose.service')"
                 running="$(docker inspect --format '{{.State.Running}}' "$id")"
-                if [[ "$actual_project" != "$stale_test_project" || "$running" != 'false' ]] || ! is_expected_test_service "$actual_service"; then
-                  echo "Target identity/state changed before removal for $id; refusing cleanup." >&2
-                  exit 1
-                fi
+                [[ "$actual_project" == "$stale_test_project" && "$running" == 'false' ]] && is_expected_test_service "$actual_service" || { echo "Target identity/state changed before removal for $id" >&2; exit 1; }
               done
-
               removed=0
               for id in "${target_project_ids[@]}"; do
-                name="$(docker inspect --format '{{.Name}}' "$id")"
-                name="${name#/}"
+                name="$(docker inspect --format '{{.Name}}' "$id")"; name="${name#/}"
                 echo "Removing verified obsolete test container: $name"
                 docker rm "$id" >/dev/null
-                if docker inspect "$id" >/dev/null 2>&1; then
-                  echo "Container still exists after removal: $name" >&2
-                  exit 1
-                fi
+                docker inspect "$id" >/dev/null 2>&1 && { echo "Container still exists after removal: $name" >&2; exit 1; }
                 removed=$((removed + 1))
               done
-
-              mapfile -t remaining_test_ids < <(
-                docker ps -aq --filter "label=com.docker.compose.project=$stale_test_project"
-              )
-              if (( ${#remaining_test_ids[@]} != 0 )); then
-                echo "$stale_test_project containers remain after cleanup; refusing successful closeout." >&2
-                exit 1
-              fi
-
+              mapfile -t remaining_test_ids < <(docker ps -aq --filter "label=com.docker.compose.project=$stale_test_project")
+              (( ${#remaining_test_ids[@]} == 0 )) || { echo "$stale_test_project containers remain after cleanup" >&2; exit 1; }
               validate_canonical_runtime
               echo "removed_count=$removed" >> "$GITHUB_OUTPUT"
               echo "Removed exact obsolete $stale_test_project containers: $removed" >> "$GITHUB_STEP_SUMMARY"
