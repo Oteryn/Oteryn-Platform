@@ -4,6 +4,7 @@ namespace Tests\Feature\Wiki;
 
 use App\Admin\AdminPermission;
 use App\Identity\Models\Identity;
+use App\Wiki\Content\WikiExpectedContentInventory;
 use App\Wiki\Content\WikiLaunchContentCatalog;
 use App\Wiki\Domain\WikiArticleStatus;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -15,6 +16,24 @@ use Tests\TestCase;
 final class WikiLaunchContentCommandTest extends TestCase
 {
     use RefreshDatabase;
+
+    public function test_expected_inventory_validates_without_database_mutation(): void
+    {
+        $command = $this->artisan('wiki:launch-content:validate', [
+            '--json' => true,
+        ]);
+        self::assertInstanceOf(PendingCommand::class, $command);
+        $command
+            ->expectsOutputToContain('"status":"PASS"')
+            ->expectsOutputToContain('"inventory_version":"'.WikiExpectedContentInventory::VERSION.'"')
+            ->expectsOutputToContain('"categories":4')
+            ->expectsOutputToContain('"articles":13')
+            ->assertSuccessful();
+
+        self::assertSame(0, DB::table('wiki_categories')->count());
+        self::assertSame(0, DB::table('wiki_articles')->count());
+        self::assertSame(0, DB::table('admin_audit_events')->count());
+    }
 
     public function test_exact_mfa_confirmed_publisher_installs_public_content_once(): void
     {
