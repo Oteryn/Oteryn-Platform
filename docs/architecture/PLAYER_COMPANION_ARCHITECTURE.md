@@ -210,6 +210,22 @@ Rules:
 
 A later `PublicPortal` Today/command-centre view may consume these owner-private signals, but presentation does not move tracking authority into `PublicPortal`.
 
+#### Private representation handoff to `PublicPortal.Today`
+
+When `PlayerCompanion` contributes owner-private routines, goals, tracking preferences, private completion state or derived signals to a `PublicPortal` composition, that contribution carries **owner-private representation semantics**, not merely the visibility of its underlying source fact.
+
+Rules:
+
+- tracking a public character/world/event does not make the owner's tracking choice, threshold, routine, goal or derived history public;
+- any view model/card/summary carrying or influenced by owner-private PlayerCompanion state is private to the authenticated owner unless a separate explicit share contract says otherwise;
+- the consuming `PublicPortal.Today` composition must propagate that privacy classification to the complete mixed response unless private/public fragments are proven isolated under ADR 0032;
+- PlayerCompanion must expose enough security-context revision semantics for a future owner-scoped representation cache to fence stale reuse after relevant private-state changes; exact field/schema names remain deferred;
+- those semantics include equivalent revision/fence information for owner identity, current authorization/privacy context, character/account ownership where applicable, and the private companion/tracking state that influenced the representation;
+- deletion/tightening of a routine, goal, tracking preference, private signal, authorization or privacy rule must prevent an older materialized private representation from becoming valid again through cache replay;
+- no PlayerCompanion output grants a public/shared-cache classification merely because all referenced source facts are public.
+
+The cache store, TTL, middleware and response-header implementation remain `UNKNOWN` / owned by later Today delivery work. The security invariant does not: owner-private PlayerCompanion representation cannot be made cross-principal reusable by caching.
+
 ### `Recommendations`
 
 Candidate outputs:
@@ -349,6 +365,8 @@ Private data includes:
 
 Default visibility is owner-only.
 
+Materialized representations derived from any of these owner-private inputs remain private even when embedded in a page that also contains public data. Composition does not declassify private PlayerCompanion state.
+
 ### Shareable representations
 
 A shared build or summary must:
@@ -409,6 +427,16 @@ Do not duplicate business formulas independently in Blade templates, browser Jav
 - user-entered price overrides are scoped to the user/workspace and never promoted to global truth;
 - stale recommendations remain visible only when useful and clearly labelled.
 
+For owner-private PlayerCompanion representations, caching has an additional confidentiality invariant:
+
+- private/mixed representations are not eligible for shared/public/CDN/anonymous-fragment caches;
+- if a private server-side representation cache is adopted, its key/fence must bind the authenticated owner plus every authorization/privacy/ownership/private-state revision required to prove reuse remains valid;
+- route/query/world/profile, a generic authenticated flag or public source revision alone is never sufficient cache identity for private output;
+- logout, session/authentication generation change, ownership change, privacy/authorization tightening, and deletion/change of the private PlayerCompanion state represented in the output fence older cached representations;
+- a stale private representation must fail closed rather than resurrect a removed goal/routine/track/signal;
+- public sub-fragments can be cached independently only when private PlayerCompanion inputs cannot affect their bytes, inclusion, ordering, counts, cache identity or eligibility;
+- combining a public cached fragment with owner-private content makes the combined materialized response private; public-fragment cacheability does not transfer upward to the mixed response.
+
 ## Multi-world and seasons
 
 World and season are explicit dimensions, not globally assumed constants.
@@ -458,11 +486,12 @@ Record bounded metrics for:
 - parser failure class without raw input;
 - recommendation source availability;
 - tracked-signal evaluation/delivery handoff outcomes without tracked IDs as unbounded labels;
+- private representation cache bypass/hit/invalidation outcomes by bounded class/reason, never by owner or tracked ID label;
 - share resolution and revocation outcomes;
 - expensive simulation limits;
 - dependency failure and recovery.
 
-Never log credentials, session identifiers, raw session logs, complete private build contents, private tracking lists/notification destinations or unredacted party data.
+Never log credentials, session identifiers, raw session logs, complete private build contents, private tracking lists/notification destinations, private cache keys containing raw principal identifiers, or unredacted party data.
 
 ## Delivery priorities
 
@@ -541,7 +570,7 @@ A later architecture review may consider the boundary mature when:
 
 - P0 scope is explicitly selected;
 - required Game Catalog entities/formulas and source inventories exist;
-- privacy/retention policy is accepted, including tracking/subscription semantics when adopted;
+- privacy/retention policy is accepted, including tracking/subscription and private representation/cache semantics when adopted;
 - first vertical slices prove the boundary works without domain duplication;
 - API/client reuse is tested where adopted;
 - version transition behavior is exercised across at least one ruleset change;
