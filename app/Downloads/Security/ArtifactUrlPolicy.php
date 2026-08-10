@@ -146,6 +146,10 @@ final readonly class ArtifactUrlPolicy
         }
 
         if ($contract['type'] === 'host_path_immutable') {
+            if (is_string($query)) {
+                return 'must not contain a query when the immutable reference is the host path.';
+            }
+
             return null;
         }
 

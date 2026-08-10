@@ -46,6 +46,9 @@ final class ArtifactUrlPolicyTest extends TestCase
         self::assertTrue($policy->isApproved(
             'https://downloads.example.test/latest/oteryn-client.zip',
         ));
+        self::assertFalse($policy->isApproved(
+            'https://downloads.example.test/releases/1.2.3/oteryn-client.zip?download=1',
+        ));
         self::assertFalse($policy->isApproved('https://downloads.example.test/'));
     }
 
