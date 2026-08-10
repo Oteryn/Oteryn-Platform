@@ -8,6 +8,12 @@ on:
       - AGENTS.md
       - docs/agents/DELIVERY_COMPLETENESS_AND_CLOSEOUT.md
       - docs/agents/EXECUTION_RESOURCE_HYGIENE.md
+      - deploy/synology/compose.yml
+      - .github/workflows/synology-container-hygiene.yml
+  push:
+    branches:
+      - main
+    paths:
       - .github/workflows/synology-container-hygiene.yml
   workflow_dispatch:
     inputs:
@@ -49,6 +55,7 @@ jobs:
           set -euo pipefail
           python3 - <<'PY'
           from pathlib import Path
+          import re
 
           workflow = Path('.github/workflows/synology-container-hygiene.yml').read_text()
           forbidden = [
@@ -75,14 +82,46 @@ jobs:
               'docker rm "$id"',
               'validate_canonical_runtime',
               'OUTSIDE_SCOPE',
+              "startsWith(github.event.head_commit.message, 'chore(agents): enforce container resource hygiene')",
           ]
           missing = [marker for marker in required if marker not in workflow]
           if missing:
               raise SystemExit('missing fail-closed marker(s): ' + ', '.join(missing))
+
+          expected_match = re.search(r'^\s*expected_services=\(([^)]*)\)\s*$', workflow, re.MULTILINE)
+          if not expected_match:
+              raise SystemExit('expected_services declaration is missing')
+          workflow_services = set(expected_match.group(1).split())
+
+          compose_lines = Path('deploy/synology/compose.yml').read_text().splitlines()
+          compose_services = []
+          in_services = False
+          for line in compose_lines:
+              if line == 'services:':
+                  in_services = True
+                  continue
+              if not in_services:
+                  continue
+              if line and not line.startswith(' '):
+                  break
+              match = re.fullmatch(r'  ([A-Za-z0-9][A-Za-z0-9_-]*):', line)
+              if match:
+                  compose_services.append(match.group(1))
+
+          if not compose_services:
+              raise SystemExit('no canonical Compose services were parsed')
+          if workflow_services != set(compose_services):
+              raise SystemExit(
+                  'hygiene expected_services drift from deploy/synology/compose.yml: '
+                  f'workflow={sorted(workflow_services)} compose={sorted(compose_services)}'
+              )
           PY
 
   live-hygiene:
-    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
+    if: >-
+      (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') ||
+      (github.event_name == 'push' && github.ref == 'refs/heads/main' &&
+       startsWith(github.event.head_commit.message, 'chore(agents): enforce container resource hygiene'))
     runs-on: oteryn-staging
     environment: synology-staging
     timeout-minutes: 10
@@ -101,8 +140,8 @@ jobs:
       - name: Inventory and optionally remove verified stopped portal orphans
         id: hygiene
         env:
-          HYGIENE_ACTION: ${{ inputs.action }}
-          CLEANUP_CONFIRMATION: ${{ inputs.confirm_cleanup }}
+          HYGIENE_ACTION: ${{ github.event_name == 'push' && 'cleanup-stopped-portal-orphans' || inputs.action }}
+          CLEANUP_CONFIRMATION: ${{ github.event_name == 'push' && 'REMOVE_STOPPED_OTERYN_STAGING_ORPHANS' || inputs.confirm_cleanup }}
         run: |
           set -euo pipefail
 
