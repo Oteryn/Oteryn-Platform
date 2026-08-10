@@ -17,8 +17,8 @@ Make temporary container and execution-resource cleanup an explicit mandatory ag
 - [x] Closeout policy requires deterministic resource identity, exact targeted cleanup, post-cleanup verification, and explicit blocker recording when cleanup cannot be completed.
 - [x] Shared/persistent services, named volumes, unrelated projects, and blanket Docker prune operations are protected by default.
 - [x] Initial guarded live inventory was collected from the Synology runner and made zero removals after detecting an ambiguous portal-owned service.
-- [ ] Canonical portal identity includes every trusted Compose overlay currently used by deployment, including `deploy/synology/compose.marketplace.yml`.
-- [ ] `oteryn-staging-marketplace-scheduler-1` is preserved and verified running as a canonical portal runtime service.
+- [x] Canonical portal identity in the correction workflow includes both trusted Compose files currently present under `deploy/synology`: `compose.yml` and `compose.marketplace.yml`.
+- [ ] `oteryn-staging-marketplace-scheduler-1` is preserved and verified running as a canonical portal runtime service by live correction evidence.
 - [ ] The exact `portal-authentik-local-test` project is revalidated from live Docker labels and removed container-only; named volumes, networks and images remain untouched.
 - [ ] Post-cleanup inventory proves the three verified test containers are absent and all canonical Oteryn staging runtime services remain running.
 - [ ] One-time live cleanup bootstrap is removed after evidence is collected; retained workflow remains fail-closed and manual.
@@ -57,9 +57,9 @@ cross_repository_tasks:
 ```yaml
 checkpoint_version: 1
 updated_at: 2026-08-10T23:21:05Z
-head: bef929a505580d778a93dccc304e3b822e735125
+head: 9d6d6906fc35c0ff00092c68564182da6cb8b0b4
 branch: fix/synology-container-hygiene-overlays
-pr: none
+pr: 974
 status: implementing
 context_routes:
   - agent-governance
@@ -75,14 +75,16 @@ proven:
   - Live Synology hygiene run 31441629366 reached the Docker host, inventoried containers, found zero stopped cleanup candidates and one ambiguous oteryn-staging candidate, then failed closed before any removal.
   - Run 31441629366 contains no Removing verified stopped portal orphan line; zero containers were removed by the first live attempt.
   - The candidate oteryn-staging-marketplace-scheduler-1 is running and labeled compose project oteryn-staging/service marketplace-scheduler.
-  - deploy/synology/compose.marketplace.yml on main defines marketplace-scheduler as a current service.
-  - deploy/synology/scripts/marketplace-staging.sh deploys and health-checks marketplace-scheduler using the base compose plus compose.marketplace.yml.
+  - deploy/synology/compose.marketplace.yml on main defines marketplace-scheduler and extends platform; deploy/synology/scripts/marketplace-staging.sh deploys and health-checks the scheduler using base plus marketplace Compose.
+  - Directory inspection of deploy/synology on main shows exactly two Compose files: compose.yml and compose.marketplace.yml.
   - Live inventory shows exactly three running containers in compose project portal-authentik-local-test with services postgresql, server and worker.
   - Current repository code search has no portal-authentik-local-test or Authentik configuration, current PR search has no Authentik PR, and active task inspection found no owner for that test project.
-  - Main is still bef929a505580d778a93dccc304e3b822e735125 at continuation start.
+  - Correction workflow on implementation head 9d6d6906fc35c0ff00092c68564182da6cb8b0b4 derives canonical services from both trusted Compose sources and protects marketplace-scheduler as running canonical runtime.
+  - Correction workflow prevalidates the exact three-container Authentik test service set before the first stop, uses non-forced docker stop/docker rm, preserves volumes/networks/images, and validates canonical Oteryn runtime before and after.
+  - PR #974 is the single follow-up delivery PR for this correction/live closeout stage.
 derived:
   - marketplace-scheduler is canonical portal runtime and must be preserved; the first workflow classified it obsolete only because the marketplace Compose overlay was omitted from its source of truth.
-  - portal-authentik-local-test is an abandoned local portal test project with high confidence, but live labels must be revalidated immediately before any stop/removal.
+  - portal-authentik-local-test is an abandoned local portal test project with high confidence, but live labels will be revalidated immediately before any stop/removal.
 unknown:
   - Original creator and creation task of portal-authentik-local-test are not recoverable from current repository code, PR search or active task state.
 conflicts: []
@@ -94,6 +96,7 @@ rejected_hypotheses:
   - The first live cleanup partially removed containers; logs show zero candidate removals before fail-closed exit.
   - portal-authentik-local-test has an active repository owner; repository code, PR and active-task searches found none.
 changed_paths:
+  - .github/workflows/synology-container-hygiene.yml
   - docs/agents/tasks/active/OTERYN-20260811-container-resource-hygiene.md
 validation:
   - command: Synology Container Hygiene run 31441629366 on bef929a505580d778a93dccc304e3b822e735125
@@ -105,10 +108,13 @@ validation:
   - command: repository/PR/active-task ownership search for portal-authentik-local-test and Authentik
     result: NO_OWNER_FOUND
     evidence: No current code/configuration, PR or active task owns the exact test project.
+  - command: exact-head PR #974 CI/governance
+    result: NOT_RUN
+    evidence: Correction implementation has just been pushed; current workflow runs must complete before merge.
 blockers: []
-next_action: Correct the hygiene workflow to use all trusted portal Compose sources and add one exact fail-closed container-only cleanup path for portal-authentik-local-test, then validate the PR head before live execution.
+next_action: Validate the exact PR #974 head, inspect full diff/reviews, and merge only if all required checks pass so the exact guarded live cleanup can execute from trusted main.
 policy_version: 2
-phase: implement
+phase: validate
 session_id: agent-20260811-container-resource-hygiene-followup
 session_role: implementer
 execution_mode: github
@@ -121,7 +127,7 @@ estimate_confidence: high
 decomposition_decision: single
 decomposition_reason: One bounded correction and live closeout of the same container-resource hygiene task.
 validation_level: focused
-last_completed_step: Verified the first live fail-closed result, proved marketplace-scheduler canonical, and found no active repository owner for portal-authentik-local-test.
+last_completed_step: Implemented the fail-closed overlay-aware correction and exact stale test-project cleanup path in PR #974.
 session_rotation_count: 0
 heavy_validation_runs: 1
 stale_takeover_count: 0
@@ -132,17 +138,17 @@ human_interruptions: 0
 
 ```yaml
 result: PENDING
-exact_head: bef929a505580d778a93dccc304e3b822e735125
+exact_head: 9d6d6906fc35c0ff00092c68564182da6cb8b0b4
 acceptance_checked: true
 full_diff_checked: false
-negative_paths_checked: false
+negative_paths_checked: true
 rollback_checked: true
 compatibility_checked: NOT_APPLICABLE
 related_prs_checked: true
-findings:
-  - The retained workflow omitted a deployed Compose overlay and must be corrected before another live cleanup.
+findings: []
 evidence:
-  - Live run 31441629366 failed closed with zero removals.
+  - First live run failed closed with zero removals.
+  - Correction adds no prune, forced rm, volume, network or image removal primitive.
 ```
 
 ## Notes
