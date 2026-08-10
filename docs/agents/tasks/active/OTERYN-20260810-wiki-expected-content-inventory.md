@@ -47,6 +47,8 @@ owned_paths:
   - scripts/acceptance/playwright.config.mjs
   - scripts/acceptance/playwright.wiki-reconciliation.config.mjs
   - scripts/acceptance/playwright.editorial-media.config.mjs
+  - scripts/acceptance/seed-browser-wiki-reconciliation.php
+  - scripts/acceptance/seed-browser-editorial-media.php
   - scripts/acceptance/tests/wiki-strictness-acceptance.spec.mjs
   - scripts/acceptance/tests/editorial-media-strictness-acceptance.spec.mjs
   - scripts/acceptance/coverage/portal-evidence-dimensions/content.json
@@ -72,10 +74,11 @@ coordination_key: wiki:expected-content-inventory
 - [x] Canonical `docs/testing/WIKI_EXPECTED_CONTENT_INVENTORY.json` is strictly bound to the PHP inventory before runtime validation or installation.
 - [x] CommonMark AST link validation catches inline and reference-style external/unexpected links.
 - [x] Install validation occurs before publisher lookup or writes; read-only `wiki:launch-content:validate --json` exposes machine PASS/FAIL.
-- [x] Canonical Portal Exhaustive Audit workflow executes `wiki:launch-content:validate --json` before audit generation and preserves the PASS report inside the audit artifact; a validator failure cannot produce a green canonical audit artifact.
-- [x] Remaining strictness gaps are represented explicitly: real 404/419/500→recovery probes for admin Wiki and EditorialMedia, existing public Wiki 404/429/503→recovery evidence, explicit accessibility/overflow markers, and machine-verified N/A only for read-only CSRF, no-throttle rate-limit, and unlocalized trusted operator UI rules.
+- [x] Canonical Portal Exhaustive Audit validates the Wiki runtime inventory before generation and waits fail-closed for exact-head Wiki Reconciliation, Editorial Media Acceptance and full Acceptance E2E success; run IDs/conclusions are retained in the audit artifact.
+- [x] Strictness gaps are represented explicitly: real 404/419/500→recovery probes for admin Wiki and EditorialMedia, existing public Wiki 404/429/503→recovery evidence, explicit accessibility/overflow markers, and machine-verified N/A only for read-only CSRF, no-throttle rate-limit, and unlocalized trusted operator UI rules.
+- [x] Failure injection uses only disposable acceptance MariaDB table renames through existing Laravel fixture commands; no tracked application/view file is renamed or modified.
 - [x] Standard portability profile executes the real EditorialMedia lifecycle in bounded Firefox and WebKit as well as Chromium.
-- [ ] Final exact-head Portal Exhaustive Audit contains no material Wiki/EditorialMedia findings owned by #488 and records `wiki-expected-content-validation.json` with status PASS.
+- [ ] Final exact-head Portal Exhaustive Audit contains no material Wiki/EditorialMedia findings and records runtime-inventory PASS plus exact-head executed workflow evidence.
 - [ ] Final exact-head CI, Agent Governance, Wiki Reconciliation, Editorial Media Acceptance and full Acceptance E2E all pass.
 - [ ] Final whole-diff self-review has no open material finding and all PR review threads are terminal.
 - [x] No application route/view/schema/deployment/production/credential/external-repository behavior is changed.
@@ -93,12 +96,12 @@ validation_gate:
     - Issue 488 proven HIGH Wiki completeness gap
     - bilingual published Wiki launch content
     - machine-readable audit completion contract
-    - canonical audit workflow/runtime-validator coupling
+    - canonical audit runtime-validator and executed-workflow coupling
     - privileged Wiki and EditorialMedia failure/CSRF/recovery acceptance
     - cross-browser EditorialMedia mutation lifecycle
     - historical intermittent Wiki publication/media defects
   unknown_or_conflict: []
-  rationale: Completion requires independent content truth and exact executable evidence; neither a standalone JSON status nor a generic browser marker may self-approve a missing surface-specific contract.
+  rationale: Completion requires independent content truth plus actually executed exact-head acceptance; static markers or standalone JSON cannot self-approve closure.
   self_review:
     result: PENDING
     exact_head: none
@@ -109,8 +112,8 @@ validation_gate:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-11T01:17:00+02:00
-head: 75d620ab4309341d8470d2fd820c6379618c0bd2
+updated_at: 2026-08-11T01:31:00+02:00
+head: 1ad5c373d6c0fa8d481f3ded90f05c0ba85f8247
 branch: repair/issue-488
 pr: 972
 status: validating
@@ -140,41 +143,40 @@ owned_paths:
   - scripts/acceptance/playwright.config.mjs
   - scripts/acceptance/playwright.wiki-reconciliation.config.mjs
   - scripts/acceptance/playwright.editorial-media.config.mjs
+  - scripts/acceptance/seed-browser-wiki-reconciliation.php
+  - scripts/acceptance/seed-browser-editorial-media.php
   - scripts/acceptance/tests/wiki-strictness-acceptance.spec.mjs
   - scripts/acceptance/tests/editorial-media-strictness-acceptance.spec.mjs
   - scripts/acceptance/coverage/portal-evidence-dimensions/content.json
   - docs/agents/tasks/active/OTERYN-20260810-wiki-expected-content-inventory.md
 proven:
-  - Issue #488 is the canonical remediation/evidence owner and explicitly forbids creating a duplicate inventory Issue.
-  - User authorization for autonomous PORTAL-CLOSEOUT and bounded #488 implementation is recorded in Issue comment 5246540485; deterministic claim is comment 5246544759.
-  - Scope extensions are durable in Issue comments 5246809100, 5246907704, 5246976857, 5247075545 and 5247090714.
-  - PR #972 is the single authoritative delivery PR from repair/issue-488.
-  - Exact inventory chain is JSON -> PHP inventory -> exact reviewed catalog Git blob -> actual catalog categories/articles/locales/provenance/CommonMark links.
-  - Codex findings for unpinned bilingual copy, unpinned provenance, regex-only links, missing canonical audit inventory and disconnected canonical audit gate have all been addressed with focused regression/contracts.
-  - Portal Exhaustive Audit artifact 9082825304 on 4a2a7ec6 already proved zero Wiki/EditorialMedia findings after strictness closure; final workflow-coupled head must reproduce this while retaining runtime validator PASS evidence.
-  - Public Wiki has exact 404, feature 429, browser 503/recovery, EN/PL, accessibility and overflow evidence.
-  - New strictness specs add zero-retry admin Wiki and EditorialMedia 404, CSRF 419, forced 500 and restoration probes without modifying production behavior.
-  - PORTAL_STRICTNESS_EVIDENCE requires exact source markers for covered dimensions and validates non-applicability from route method/middleware/operator-route properties rather than accepting prose alone.
-  - EditorialMedia is included in standard portabilityMatches; 4a2a7ec6 full Acceptance already passed bounded browser portability and responsive profiles before the final audit-workflow-only correction.
-  - Canonical Portal Exhaustive Audit workflow now runs the Wiki runtime validator after exact dependency installation and before audit generation, asserts PASS metadata, copies the report into the audit artifact, and its unit test pins this ordering.
+  - Issue #488 is the canonical remediation/evidence owner and PR #972 is the single authoritative delivery PR.
+  - User authorization and deterministic claim plus all bounded scope extensions are durable in Issue #488 comments.
+  - Exact inventory chain is machine JSON -> PHP inventory -> exact reviewed catalog Git blob -> actual categories/articles/locales/provenance/CommonMark links.
+  - Prior Codex findings for unpinned bilingual copy, provenance, reference-style links, missing canonical inventory and disconnected runtime validator have focused fixes/tests.
+  - Exact-head artifact 9082825304 on 4a2a7ec6 proved zero Wiki/EditorialMedia findings after inventory/strictness closure, before the final executed-workflow gate.
+  - Codex review 4901648665 then identified two remaining evidence-safety gaps: static source markers did not prove tests executed, and tracked Blade renames were unsafe fault injection.
+  - Canonical Portal Exhaustive Audit now queries GitHub Actions with `actions: read`, waits for exact-head success of Wiki Reconciliation Acceptance, Editorial Media Acceptance and Acceptance E2E and Visual UX, rejects any failed/cancelled conclusion, and persists exact run evidence before audit generation.
+  - Workflow contract unit coverage pins runtime-inventory validation and executed-workflow gate ordering before audit generation.
+  - Wiki/EditorialMedia strictness failure injection now renames only disposable acceptance database tables through fixture commands and restores them in before/after/finally paths; checkout files are never mutated.
+  - PORTAL_STRICTNESS_EVIDENCE recovery markers are bound to the new database-fixture restore helpers.
+  - Existing public Wiki and EditorialMedia lifecycle/browser evidence remains unchanged and must be re-executed on final head.
 derived:
-  - The final workflow-only correction cannot change application runtime behavior; previous runtime/browser evidence remains useful H1 evidence, while final exact-head repository checks will verify the audit gate itself and any automatically triggered acceptance workflows.
-  - A stale/self-declared Wiki JSON can no longer yield a green canonical audit workflow when PHP inventory/catalog/blob validation fails.
+  - A canonical audit cannot produce terminal #488 zero-findings evidence unless the same exact head has both runtime inventory PASS and actual required browser workflow PASS results.
+  - A killed strictness test can at worst leave a renamed table inside the disposable job database, which is destroyed with the job; it cannot corrupt the source checkout.
 unknown:
-  - final exact-head CI/Governance/Audit conclusions after workflow gate addition
-  - final exact-head automatically triggered browser conclusions after workflow gate addition
-  - future post-launch Wiki expansion beyond the versioned launch inventory
+  - final exact-head gate results after executed-evidence and safe-fault-injection changes
+  - future post-launch Wiki expansion beyond this versioned launch inventory
 conflicts: []
 first_failure:
-  marker: canonical-wiki-validator-not-wired-into-audit-gate
-  evidence: Codex review 4901648665 / discussion_r3754111622 on 4a2a7ec6 proved the audit artifact could previously be generated from self-declared JSON without executing the runtime Wiki validator.
+  marker: strictness-execution-evidence-and-fault-injection-safety
+  evidence: Codex review 4901648665 findings 3754111625 and 3754111628 on 4a2a7ec6.
 rejected_hypotheses:
-  - A standalone status=complete JSON proves Wiki completion; runtime validator binds it to exact PHP inventory and catalog source, and canonical audit workflow now requires validator PASS.
-  - Any existing repository file is acceptable provenance; exact per-article sets are pinned.
+  - Static source markers prove browser execution; canonical audit now requires exact-head workflow success.
+  - Tracked Blade renames are acceptable fault injection; they are replaced by disposable DB fixture operations.
+  - A standalone status=complete JSON proves Wiki completion; runtime validator and canonical audit gate both fail closed.
+  - Any existing file is acceptable provenance; exact per-article sets are pinned.
   - Inline Markdown regex is sufficient; CommonMark AST is required.
-  - Existing consumer portability substitutes for `/admin/media`; the real EditorialMedia lifecycle is included in Firefox/WebKit portability.
-  - Missing strictness categories can be silenced by prose; N/A must pass machine topology/middleware rules.
-  - Re-running the runtime validator once per Wiki route inside the audit is necessary; one fail-closed canonical workflow preflight before artifact generation proves the same gate without redundant repeated execution.
 changed_paths:
   - app/Wiki/Content/WikiExpectedContentInventory.php
   - app/Wiki/Content/WikiExpectedContentValidator.php
@@ -191,6 +193,8 @@ changed_paths:
   - scripts/acceptance/playwright.config.mjs
   - scripts/acceptance/playwright.wiki-reconciliation.config.mjs
   - scripts/acceptance/playwright.editorial-media.config.mjs
+  - scripts/acceptance/seed-browser-wiki-reconciliation.php
+  - scripts/acceptance/seed-browser-editorial-media.php
   - scripts/acceptance/tests/wiki-strictness-acceptance.spec.mjs
   - scripts/acceptance/tests/editorial-media-strictness-acceptance.spec.mjs
   - scripts/acceptance/coverage/portal-evidence-dimensions/content.json
@@ -210,13 +214,10 @@ validation:
     evidence: run 31440984578
   - command: Portal Exhaustive Audit on 4a2a7ec6b4f9037080023accd608c30a80217578
     result: PASS
-    evidence: run 31440984594 / artifact 9082825304; zero Wiki/EditorialMedia findings
-  - command: Full Acceptance on 4a2a7ec6b4f9037080023accd608c30a80217578
+    evidence: run 31440984594 / artifact 9082825304; zero Wiki/EditorialMedia findings before final execution-gate correction
+  - command: final exact-head gates
     result: NOT_RUN
-    evidence: run 31440984704 produced useful H1 portability/responsive evidence but was superseded by the workflow-only head move; exact-final acceptance remains pending.
-  - command: final workflow-coupled exact-head gates
-    result: NOT_RUN
-    evidence: pending after this ownership checkpoint
+    evidence: pending after this task checkpoint
 blockers: []
-next_action: Validate the workflow-coupled exact head through Governance, required CI and canonical Portal Exhaustive Audit; verify the audit artifact contains validator PASS plus zero Wiki/EditorialMedia findings, then finish exact-final self-review/review-thread resolution and merge/closeout.
+next_action: Freeze the new head; run exact-head Governance, required CI, Wiki Reconciliation, Editorial Media Acceptance and full Acceptance; require canonical Audit to consume those exact successes and produce validator/execution evidence plus zero #488 findings; then complete self-review/review-thread resolution and merge/closeout.
 ```
