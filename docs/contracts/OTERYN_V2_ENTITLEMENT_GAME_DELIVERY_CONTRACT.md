@@ -108,7 +108,8 @@ Use for an account-level entitlement whose commercial lifecycle is Platform-owne
 - Oteryn-v2 owns gameplay enforcement/application of accepted entitlement state;
 - Platform must expose an explicit versioned entitlement-state input/projection/command contract rather than direct game DB mutation;
 - Oteryn-v2 must know canonical AccountId and entitlement revision/version strongly enough to reject stale/contradictory state;
-- every activated Profile-B product/version must define a finite game-consumption authority policy and every consumed `active` representation must carry an authority-issued finite cutoff as defined below.
+- every product/version selecting Profile B must declare a finite authority-lease policy before activation; no implicit, infinite or implementation-defined stale/offline grace is permitted;
+- accepted Profile-B evidence must carry an authority-issued finite cutoff that Oteryn-v2 can evaluate without interpreting transport availability as commercial truth.
 
 This profile does not choose push event, pull query, snapshot or command transport.
 
@@ -204,11 +205,11 @@ Entitlement
   delivery_profile
   lifecycle_revision
   grant / activation / expiry / revocation semantics
+  effective_from / effective_until
+  Profile-B authority lease metadata when game-consumed
 ```
 
 The exact schema is deferred.
-
-For Profile B, a game-consumed representation additionally binds the finite authority evidence defined in **Profile-B finite authority lease**. The commercial entitlement interval and the game-consumption authority lease are related but distinct: the lease may never authorize beyond commercial expiry/revocation, and a finite lease is required even when commercial expiry is farther in the future.
 
 A product version change does not silently reinterpret already issued entitlements. Migration/upgrade requires explicit compatibility or replacement rules.
 
@@ -284,92 +285,115 @@ submit delivery operation X
 
 A `not found` result is not automatically proof that a new operation is safe unless the target contract guarantees the original cannot later materialize.
 
-## Profile-B finite authority lease
+## Profile B finite authority lease, expiry and revocation
 
-Profile B uses Platform-owned commercial truth while preventing a previously accepted `active` representation from becoming indefinite authority during an outage. This is a **finite authorization lease**, not a statement that transport health is commercial truth.
+Profile B separates **commercial entitlement truth** from the **finite lifetime of game-consumable evidence**. A transport outage does not itself revoke an entitlement, but an old `active` decision cannot authorize gameplay benefit forever while Platform authority is unreachable.
 
-Every game-consumed Profile-B representation must bind at least these semantic fields or an equivalently strong versioned structure:
+### Required authority evidence
+
+Every accepted Profile-B authority representation must bind at least:
 
 ```text
 ProfileBEntitlementAuthority
+  AccountId
   EntitlementId
   product_id + product_version
-  canonical AccountId
+  entitlement_state
   lifecycle_revision
-  commercial_effective_from
-  commercial_effective_until | no_scheduled_commercial_expiry
-  commercial_state              # active / expired / revoked / other explicit state
+  authority_revision
+  effective_from
+  effective_until
   authority_issued_at
   authority_valid_until
-  authority_policy_version
 ```
 
-Required invariants:
+Semantics:
 
-- `authority_valid_until` is issued by the Platform entitlement authority and is finite for every representation that can authorize gameplay benefit;
-- `authority_valid_until` may not exceed a known commercial expiry and can be shortened by product policy; it never extends an expired/revoked commercial state;
-- an `active` entitlement with no scheduled commercial expiry still receives a finite authority lease and therefore requires periodic fresh authorization;
-- exact encoding, transport and storage are deferred, but an implementation-defined or infinite lease is forbidden;
-- each Profile-B product/version declares, before activation, a finite authority policy including the maximum stale/lease duration, refresh-before-expiry behavior and bounded clock/skew allowance (or an equivalently strong authority-issued/monotonic mechanism);
-- numeric values are product/runtime rollout decisions and remain unknown until that product/version is approved, but **absence of finite values blocks activation**;
-- a consumer must not infer additional grace after `authority_valid_until`; any allowed stale operation is already represented inside the finite issued bound.
+- `lifecycle_revision` monotonically orders commercial grant/activation/expiry/revocation changes for one entitlement;
+- `authority_revision` monotonically orders refreshed authority representations within the same lifecycle revision so an older lease cannot replace a newer lease after replay, cache rollback or restart;
+- `effective_from` / `effective_until` describe the commercial interval; an open-ended commercial interval does **not** make game-consumable authority open-ended;
+- `authority_issued_at` and `authority_valid_until` are Platform-authority-issued values, not browser/client timestamps;
+- `authority_valid_until` is mandatory and finite for an `active` Profile-B representation;
+- `authority_valid_until` must never exceed a known commercial `effective_until` and must obey the finite maximum lease declared by that exact product/version;
+- a refresh may issue a later `authority_revision` and later cutoff without changing commercial `lifecycle_revision`, but replay of an older authority revision cannot move the cutoff forward;
+- revoked/expired evidence is terminal for that revision ordering and is never converted back to `active` by transport retry semantics.
 
-### Profile-B authority states
+The exact wire encoding remains deferred. The semantic fields and ordering guarantees do not.
 
-Game-side enforcement must distinguish at least:
+### Product/version authority policy
 
-- `CURRENT_AUTHORITY` — accepted evidence is within its authority interval and the authority source is currently reachable/fresh according to the selected transport contract;
-- `STALE_WITHIN_BOUND` — authority cannot currently be refreshed or evidence is not fresh, but the accepted representation has not passed `authority_valid_until`;
-- `AUTHORITY_UNAVAILABLE` — authority cannot be obtained and there is no still-valid accepted representation for the requested decision;
-- `EXPIRED` — commercial expiry or authority lease expiry forbids the benefit;
-- `REVOKED` — a known authoritative lifecycle revision revokes the benefit;
-- `SUPERSEDED` — evidence is older than the durable lifecycle high-water mark and is not eligible to authorize even if its local time bound has not elapsed.
+Before a product/version may activate Profile B it must declare finite values/behavior equivalent to:
 
-Transport success/failure alone does not produce `active`, `expired` or `revoked` commercial truth. It only affects whether current authority can be obtained. When current authority is unavailable, the finite accepted evidence and product policy determine whether gameplay benefit remains temporarily usable.
+```text
+max_authority_lease     finite > 0
+refresh_before          finite, earlier than authority_valid_until
+max_clock_skew          finite
+stale_within_bound      explicit allow-or-deny behavior before cutoff
+authority_expired       deny entitlement benefit until acceptable fresh evidence
+```
 
-### Revision and rollback fencing
+Rules:
 
-Oteryn-v2 must retain a durable high-water fence for the highest accepted lifecycle revision for each entitlement identity (or an equivalently strong monotonic authority token).
+- no global implicit default may silently grant an infinite or implementation-defined grace period;
+- a product may choose zero stale grace by requiring fresh authority continuously, but it may not omit the decision;
+- numeric values remain product/runtime configuration and may differ by product version, but they are mandatory before activation and must be testable;
+- increasing a lease/grace value is an authorization-policy change and requires the owning product/version rollout and compatibility review rather than an unnoticed cache configuration change.
 
-- a representation below the high-water revision cannot authorize benefit after reconnect, process restart, cache replay, delayed delivery, projection rollback or storage restoration;
-- a newer known `expired`/`revoked` revision immediately supersedes every older `active` representation regardless of the older representation's `authority_valid_until`;
-- equal revision with conflicting immutable lifecycle/effective/authority fields fails closed and requires reconciliation rather than choosing the more permissive value;
-- authority refresh must not move the high-water revision backwards;
-- rollback of the Platform projection or game-side cache to an older snapshot does not reset the high-water fence by implication;
-- if durable revision-fence integrity cannot be proven after restart/recovery, Profile-B authorization fails closed until current authority is re-established.
+### Game-side authority states
 
-This fence prevents resurrection of a **known** newer lifecycle decision. The finite lease separately bounds the case where a newer revocation/expiry exists at Platform but is temporarily unobservable because of a partition.
+Oteryn-v2 must distinguish enough state to enforce the bound without collapsing network health into commercial truth:
 
-### Clock and skew semantics
+- `CURRENT_AUTHORITY` — latest accepted ordered representation is usable and refresh is not known to be overdue;
+- `STALE_WITHIN_BOUND` — refresh is due/failed or Platform authority is temporarily unreachable, but the accepted active representation remains inside its finite authority cutoff and the product policy permits bounded stale use;
+- `AUTHORITY_UNAVAILABLE` — Platform authority cannot provide acceptable evidence and no still-usable bounded active representation exists; this is not the same fact as commercial revocation;
+- `EXPIRED` — the commercial effective interval or accepted expiry state has ended;
+- `REVOKED` — a newer accepted lifecycle state explicitly revoked the entitlement.
 
-Authority validity is evaluated from Platform-issued timestamps/validity evidence, not from a client clock.
+A transport timeout/error may lead to `STALE_WITHIN_BOUND` or `AUTHORITY_UNAVAILABLE` depending on existing evidence and time. It must never manufacture `ACTIVE`, `EXPIRED` or `REVOKED` commercial truth.
 
-- browser/client time never extends entitlement authority;
-- a game node may use local wall clock only under the product/version's declared bounded skew policy, or use an equivalently strong monotonic/authority-issued expiry mechanism;
-- uncertainty beyond the declared skew bound reduces usable authority rather than extending it;
-- a backward local-clock jump, VM snapshot restore or process restart must not make previously expired authority valid again;
-- if the implementation cannot prove safe time evaluation, it fails closed and refreshes/re-establishes current authority.
+### Revision, replay and rollback fencing
 
-### Admission, reconnect and running-session boundary
+The game-side consumer must preserve a durable high-water fence sufficient to enforce the accepted ordering:
 
-The contract distinguishes **authorization of benefit** from **forced session termination**.
+- a higher `lifecycle_revision` always supersedes every lower lifecycle revision;
+- within one lifecycle revision, a higher `authority_revision` supersedes every lower authority revision;
+- the same ordered revision with contradictory state, interval, target, product version or cutoff fails closed as conflicting authority evidence;
+- once a newer revoke/expiry/lifecycle revision has been observed, delayed active evidence from an older revision is rejected after reconnect, process restart, cache replay, projection rollback or transport reordering;
+- restart cannot reset the lease duration; cached evidence retains its original absolute `authority_valid_until` and ordering fence;
+- restoring an older Platform/game projection cannot lower the accepted high-water fence by implication; explicit disaster-recovery semantics must preserve or safely re-establish monotonic authority before Profile-B enforcement resumes.
 
-- new login/admission, reconnect and re-enabling a Profile-B gameplay benefit require evidence that is not `EXPIRED`, `REVOKED`, `SUPERSEDED` or beyond `authority_valid_until`;
-- `STALE_WITHIN_BOUND` may authorize only what the exact product/version policy explicitly permits and only until the existing `authority_valid_until` cutoff;
-- after that cutoff, no new or continued Profile-B gameplay benefit is authorized by the stale representation;
-- whether the owning runtime disconnects a player, keeps the connection while disabling the entitlement benefit, or performs another safe transition remains product/session policy and is not selected here;
-- deferring forced-disconnect semantics must never be interpreted as permission to continue the commercially controlled benefit beyond the finite authority bound.
+Storage and transport implementation are deferred, but this durable anti-resurrection property is mandatory.
 
-## Premium / VIP expiry and revocation
+### Clock and skew boundary
 
-A future premium/VIP capability using Profile B inherits the finite authority lease above.
+Authority time is server-side security input:
 
-- Platform owns commercial entitlement lifecycle revision and effective interval/revocation decision;
-- Oteryn-v2 owns gameplay enforcement based on accepted bounded entitlement evidence;
-- exact premium/VIP benefits, numeric lease/max-stale duration, refresh lead, clock-skew value and forced-disconnect implementation remain product/runtime decisions;
-- those numeric policy values must nevertheless be finite and explicitly declared before the product/version can be activated;
-- a known revocation/expiry supersedes stale allow state by durable revision fence;
-- an unseen revocation during partition is bounded by the last accepted `authority_valid_until` rather than by an implicit/infinite grace period.
+- browser/client/device clocks are never used to extend entitlement authority;
+- `authority_issued_at`, `authority_valid_until` and commercial interval timestamps come from Platform entitlement authority;
+- Oteryn-v2 evaluates the absolute cutoff using a trusted server time source with a product/runtime-declared finite `max_clock_skew` (or an equivalently strong monotonic authority-time mechanism);
+- a delayed message does not receive a fresh full lease from receipt time; only the remaining authority-issued interval is usable;
+- if game-side trusted-time uncertainty exceeds the declared skew bound, the consumer fails closed for new entitlement authorization and does not extend the old lease by guessing;
+- process restart or wall-clock rollback must not extend an already accepted cutoff; implementations must combine persisted absolute authority time with monotonic/fencing behavior sufficient to prevent rollback-based extension.
+
+### Admission, reconnect and running sessions
+
+The entitlement authority boundary is distinct from session termination policy:
+
+- new admission, reconnect or re-enablement of a Profile-B gameplay benefit requires `CURRENT_AUTHORITY` or explicitly permitted `STALE_WITHIN_BOUND` evidence that has not passed `authority_valid_until` or commercial expiry;
+- after `authority_valid_until`, stale `active` evidence cannot authorize a new admission/reconnect or continued Profile-B benefit;
+- an already-running gameplay session does not have to be forcibly disconnected merely because entitlement authority expires; forced-disconnect policy remains owned by the runtime/session contract;
+- however, session continuity cannot be used as an implicit entitlement grace: ongoing Premium/VIP/Profile-B benefits must transition to the product-defined non-entitled/degraded behavior at or before the finite authority cutoff unless fresh acceptable evidence is obtained;
+- durable gameplay value already authoritatively granted under another delivery profile is not retroactively reclassified as Profile-B session benefit.
+
+### Outage behavior
+
+During Platform authority outage:
+
+1. before the finite cutoff, a product may allow only its explicitly declared `STALE_WITHIN_BOUND` behavior;
+2. at/after the cutoff, game-consumed entitlement benefit fails closed until acceptable fresh authority evidence arrives;
+3. a later refresh that proves the entitlement still active may restore benefit using ordered fresh evidence;
+4. a later refresh that proves expiry/revocation fences every older active representation immediately according to revision ordering;
+5. outage duration never increases the authority cutoff and never resets on reconnect/restart.
 
 ## Refund, chargeback, expiry and revocation after delivery
 
@@ -454,8 +478,9 @@ Future implementation should expose bounded metrics for:
 - delivery pending/applied/rejected/ambiguous age;
 - duplicate/replayed/conflicting delivery operations;
 - entitlement reservations stuck awaiting character-operation reconciliation;
-- Profile-B authority refresh lag, `STALE_WITHIN_BOUND` age and lease-expiry denial;
-- revision-fence conflicts/rollback attempts and authority-unavailable decisions;
+- Profile-B authority refresh age, remaining lease, `STALE_WITHIN_BOUND` duration and cutoff expirations;
+- rejected stale/out-of-order authority revisions and clock/skew fail-closed events;
+- premium/VIP propagation lag;
 - compensation/manual-reconciliation backlog;
 - Wallet delivery mismatch for coin packages;
 - provider-payment vs entitlement vs game-delivery drift.
@@ -489,13 +514,11 @@ Before native activation prove:
 9. customer presentation of pending/reconciling states;
 10. legacy consumer inventory and rollback/removal gate;
 11. exact producer/consumer revision compatibility;
-12. for every Profile-B product/version, finite `authority_valid_until` semantics and explicit finite max-stale/refresh/skew policy;
-13. durable lifecycle-revision high-water fencing across restart/cache replay/rollback;
-14. admission/reconnect and running-session benefit behavior at `STALE_WITHIN_BOUND` and lease expiry.
+12. for every Profile-B product/version, finite authority-lease, refresh, stale-use, clock-skew and cutoff behavior plus durable revision-fencing compatibility.
 
-Profile B is **not activation-ready** while any finite authority-policy value or required high-water/time-evaluation guarantee is undefined. This contract intentionally does not choose those numeric values.
+Rollback may redirect **new** deliveries to a proven compatibility path only when safe. An already submitted native delivery must first reach a terminal/reconciled or explicitly fenced state.
 
-Rollback may redirect **new** deliveries to a proven compatibility path only when safe. An already submitted native delivery must first reach a terminal/reconciled or explicitly fenced state. Profile-B rollback must not restore an older entitlement snapshot below the durable lifecycle high-water mark or re-authorize evidence whose finite lease has expired.
+Profile-B rollback must not restore an older accepted entitlement snapshot, lower the durable revision high-water mark or restart an expired authority lease. If a rollback target cannot consume the current authority evidence/fence safely, Profile-B activation stays disabled until a compatible state is re-established.
 
 ## Validation requirements for later implementation
 
@@ -511,34 +534,18 @@ At minimum prove:
 - single-use character-service concurrent requests consume/mutate at most once;
 - game mutation completion precedes entitlement consumption for service saga;
 - coin packages use Wallet mutator/idempotency only;
-- Profile-B outage **before** lease expiry yields only the product-declared `STALE_WITHIN_BOUND` behavior and never extends the existing cutoff;
-- Profile-B outage **after** lease expiry denies new/continued entitlement benefit unless fresh current authority is obtained;
-- an active older revision delivered after a newer revoke/expiry is rejected as `SUPERSEDED`;
-- commercial expiry during an authority outage cannot be extended by a later authority lease or local-clock behavior;
-- reconnect/new admission with stale evidence is accepted only when explicitly allowed within the finite bound and denied after it;
-- process restart with cached active evidence preserves the lifecycle high-water fence and finite lease cutoff;
-- out-of-order revisions and projection/cache rollback cannot reduce the lifecycle high-water mark or resurrect benefit;
-- equal revision with conflicting lifecycle/authority facts fails closed and reconciles;
-- local-clock backward jump, excessive skew or VM snapshot restoration cannot make expired Profile-B authority valid again;
-- known revocation supersedes stale allow state immediately without inventing forced-disconnect policy;
+- Platform outage before Profile-B lease expiry yields only the declared `STALE_WITHIN_BOUND` behavior and never extends the cutoff;
+- Platform outage at/after Profile-B lease expiry denies entitlement benefit while remaining distinguishable from explicit revocation;
+- delayed stale `active` after a newer revoke/expiry is rejected by lifecycle/authority revision fencing;
+- commercial expiry during outage cannot be masked by a longer authority lease;
+- reconnect/new admission with expired or unavailable Profile-B authority fails closed for the entitlement benefit;
+- process restart with cached active evidence preserves the original absolute cutoff and revision high-water fence;
+- out-of-order authority refreshes and rollback to an older entitlement snapshot cannot resurrect or extend stale active authority;
+- clock rollback or trusted-time uncertainty beyond the declared skew bound cannot extend Profile-B authority;
+- already-running session handling may avoid forced disconnect but cannot continue Profile-B benefit past the finite authority cutoff by implication;
 - refund/chargeback never silently performs uncontracted irreversible game mutation;
 - logs/audit redact secrets/voucher/provider/private target data;
 - exact-head cross-domain E2E exists before product activation.
-
-### Profile-B contract validation matrix
-
-| Scenario | Required authority classification | Required enforcement result |
-| --- | --- | --- |
-| Platform unavailable, accepted active evidence still before `authority_valid_until` | `STALE_WITHIN_BOUND` | Only explicitly declared bounded product behavior; no lease extension |
-| Platform unavailable, `authority_valid_until` passed | `EXPIRED` or `AUTHORITY_UNAVAILABLE` | No new or continued entitlement benefit from stale evidence |
-| Newer revoke/expiry revision already known, delayed older active arrives | `SUPERSEDED` | Reject older active; durable high-water mark unchanged |
-| Commercial expiry occurs before authority lease cutoff | `EXPIRED` | Commercial expiry wins; authority lease cannot extend it |
-| Reconnect with stale active evidence inside finite bound | `STALE_WITHIN_BOUND` | Permit only if product policy explicitly permits reconnect inside bound |
-| Reconnect after finite bound | `EXPIRED` or `AUTHORITY_UNAVAILABLE` | Deny entitlement benefit until fresh current authority |
-| Process restart with cached active evidence | prior bounded state plus preserved revision fence | Never reset lease/revision history; fail closed if fence/time integrity is unproven |
-| Out-of-order lifecycle revisions | `CURRENT_AUTHORITY`/`SUPERSEDED` by monotonic order | Highest accepted revision wins; no rollback |
-| Projection/cache rollback to older snapshot | `SUPERSEDED` | Older snapshot cannot lower high-water revision or restore authority |
-| Local-clock uncertainty exceeds declared skew | authority not safely evaluable | Fail closed / refresh authority; uncertainty never adds grace |
 
 ## Deferred details
 
@@ -549,13 +556,14 @@ Still intentionally `UNKNOWN` / owned elsewhere:
 - Platform ProductsEntitlements schema and worker/job design;
 - exact Oteryn-v2 entitlement/grant service, storage and enforcement architecture;
 - event/query/command transport and serialization;
-- exact premium/VIP benefits and exact finite numeric lease/max-stale/refresh/skew/current-session transition values for each future product version;
+- exact premium/VIP benefits and numeric per-product Profile-B lease/refresh/skew values; those values are mandatory before activation even though this generic contract does not select them;
+- exact forced-disconnect and UI transition behavior for an already-running session after authority expiry; this deferral does not permit entitlement benefit beyond the finite cutoff;
 - exact durable gameplay-grant catalogue;
 - exact refund/chargeback policy per product;
 - exact legal/tax/currency policy;
 - staging/production rollout values.
 
-These unknowns do not permit infinite/implementation-defined Profile-B grace, direct game-table writes or collapsing payment, entitlement and game-delivery truth. A Profile-B product/version remains blocked from activation until its finite numeric authority policy is explicitly approved.
+These unknowns do not permit direct game-table writes, unbounded stale entitlement authority or collapsing payment, entitlement and game-delivery truth.
 
 ## Non-authorization
 
@@ -579,6 +587,5 @@ This contract authorizes no:
 - Issue #321 — Payments foundation owner
 - Issue #322 — Products/Entitlements/Vouchers implementation owner
 - Issue #924 — focused native game-delivery architecture owner
-- Issue #944 — Profile-B bounded stale-authority lease repair
 - `docs/contracts/OTERYN_V2_CHARACTER_AUTHORITY_COMMAND_CONTRACT.md`
 - `docs/architecture/MODULE_CATALOG.md` — ProductsEntitlements / Wallet ownership boundaries
