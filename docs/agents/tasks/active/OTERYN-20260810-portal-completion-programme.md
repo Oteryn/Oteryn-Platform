@@ -37,7 +37,7 @@ Persist the 2026-08-10 portal architecture/product review, risk-first delivery p
 - [x] The repository map links the delivery plan and programme.
 - [x] Exact-head self-review confirms only the declared documentation/governance paths changed and no live/runtime authority was expanded.
 - [x] Runtime/browser E2E is recorded `NOT_APPLICABLE` because this task changes documentation/governance/prompt routing only.
-- [ ] Repository-required exact-head CI passes, related PR state is intentional, the PR is merged when gates permit, and this task record is archived with ownership released.
+- [ ] PR #962 reaches terminal merge state and this task record is archived with ownership released.
 
 ## Ownership
 
@@ -81,13 +81,13 @@ feature_scope:
 ```yaml
 checkpoint_version: 1
 policy_version: 2
-updated_at: 2026-08-10T18:54:00Z
-head: 76403f983d5d957758332853adac76a30414b9c7
+updated_at: 2026-08-10T18:59:00Z
+head: d4f2a0931ee06f8331db48dbed27e1891863b7c0
 branch: docs/OTERYN-20260810-portal-completion-programme
 pr: 962
-status: validating
+status: ready
 terminal_pr_policy: archive_pending
-phase: exact_head_validation
+phase: merge_gate
 session_id: chat-20260810-portal-completion
 session_role: implementer
 execution_mode: chat
@@ -107,15 +107,16 @@ proven:
   - Protected main was re-read immediately before first mutation at dc9adc7d9246e83c7299d8cf9c161524fb85b2c9.
   - PR #962 is the authoritative draft PR for branch docs/OTERYN-20260810-portal-completion-programme.
   - The branch diff contains exactly the seven declared documentation/governance paths and no application, schema, workflow, deployment or external-repository change.
-  - Current unrelated open PRs at the live refresh are #541 and #338; neither owns this task's paths.
+  - Current unrelated open PRs at the live refresh are #541 and #338; their changed paths do not overlap this task.
   - Issues #941, #944, #948 and #490 remain open in the live refresh and are recorded as live priority/evidence owners rather than duplicated repair tasks.
   - GitHub connector exposes and successfully executed branch, blob/tree/commit, file, PR and comparison operations for this task.
   - The candidate prompt uses current Prompting Standard enum values and states connector-first GitHub routing without expanding repository authority.
+  - All eight GitHub Actions workflow runs on implementation head d4f2a0931ee06f8331db48dbed27e1891863b7c0 completed successfully, including Agent Governance, CI, production-like classification, database-outage, edge-security and native-contract checks.
 derived:
   - The persisted 2026-08-10 report must treat dependency PRs #952-#958 as historical rather than current open work.
   - Runtime/browser E2E is not applicable because the complete branch diff changes only documentation, governance and prompt routing.
 unknown:
-  - Exact final repository-required CI outcome for the final prompt/checkpoint head until GitHub Actions completes.
+  - Exact final repository-required CI outcome for this terminal-transition checkpoint head until GitHub Actions completes.
 conflicts:
   - ACTIVE_WORK.md says no active tasks while live docs/agents/tasks/active contains two pre-existing blocked records; the review records this source-of-truth drift but this registration task does not repair their separate lifecycle.
 first_failure:
@@ -133,7 +134,7 @@ changed_paths:
   - docs/architecture/PORTAL_COMPLETION_DELIVERY_PLAN.md
   - docs/agents/tasks/active/OTERYN-20260810-portal-completion-programme.md
 validation:
-  - command: exact-head changed-path and full-diff self-review for PR #962
+  - command: exact-head changed-path and full-diff self-review for PR #962 implementation head d4f2a0931ee06f8331db48dbed27e1891863b7c0
     result: PASS
     evidence: GitHub compare and PR file inspection show exactly seven declared documentation/governance paths with no runtime, schema, workflow, deployment or external-repository mutation.
   - command: manual baseline/candidate prompt scenario matrix review against PROMPT_EVAL_STANDARD.md
@@ -142,11 +143,14 @@ validation:
   - command: runtime/browser E2E
     result: NOT_APPLICABLE
     evidence: The complete task diff is documentation/governance/prompt-routing only and changes no executable application or integration path.
-  - command: repository-required exact-head GitHub Actions for PR #962
+  - command: repository-required GitHub Actions on implementation head d4f2a0931ee06f8331db48dbed27e1891863b7c0
+    result: PASS
+    evidence: Eight pull-request workflow runs completed successfully, including Agent Governance run 31421586629 and CI run 31421586483.
+  - command: repository-required exact-head GitHub Actions on terminal-transition checkpoint head
     result: NOT_RUN
-    evidence: Final prompt/checkpoint commit is being assembled before exact-head workflow evaluation.
+    evidence: This checkpoint transition itself must complete exact-head workflow validation before PR #962 is made terminal.
 blockers: []
-next_action: Run and review exact-head PR #962 Agent Governance and all repository-required checks on the final head, remediate any failure, then make the PR terminal when all gates pass.
+next_action: Archive this task record under docs/agents/tasks/archive and release ownership once PR #962 is terminal.
 ```
 
 ## Notes
