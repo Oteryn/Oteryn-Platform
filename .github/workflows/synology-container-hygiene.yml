@@ -81,10 +81,12 @@ jobs:
               'com.docker.compose.service',
               'docker rm "$id"',
               'validate_canonical_runtime',
+              'runtime_service_ready',
+              'one_shot_services=(tls-init)',
               'OUTSIDE_SCOPE',
               'mapfile -t expected_services',
               'deploy/synology/compose.yml',
-              "startsWith(github.event.head_commit.message, 'chore(agents): enforce container resource hygiene (#973)')",
+              "startsWith(github.event.head_commit.message, 'fix(ops): harden Synology container hygiene')",
           ]
           missing = [marker for marker in required if marker not in workflow]
           if missing:
@@ -94,9 +96,13 @@ jobs:
               raise SystemExit('live expected_services must be derived from trusted main compose, not hard-coded')
 
           runtime_match = re.search(r'^\s*runtime_services=\(([^)]*)\)\s*$', workflow, re.MULTILINE)
-          if not runtime_match:
-              raise SystemExit('runtime_services declaration is missing')
+          one_shot_match = re.search(r'^\s*one_shot_services=\(([^)]*)\)\s*$', workflow, re.MULTILINE)
+          if not runtime_match or not one_shot_match:
+              raise SystemExit('runtime_services/one_shot_services declarations are required')
           runtime_services = set(runtime_match.group(1).split())
+          one_shot_services = set(one_shot_match.group(1).split())
+          if runtime_services & one_shot_services:
+              raise SystemExit('runtime and one-shot service classifications overlap')
 
           compose_lines = Path('deploy/synology/compose.yml').read_text().splitlines()
           compose_services = []
@@ -115,11 +121,13 @@ jobs:
 
           if not compose_services:
               raise SystemExit('no canonical Compose services were parsed')
-          missing_runtime = runtime_services - set(compose_services)
-          if missing_runtime:
+          classified = runtime_services | one_shot_services
+          compose_set = set(compose_services)
+          if classified != compose_set:
               raise SystemExit(
-                  'runtime_services drift from deploy/synology/compose.yml: '
-                  f'missing={sorted(missing_runtime)}'
+                  'every trusted Compose service must be classified exactly once: '
+                  f'unclassified={sorted(compose_set - classified)} '
+                  f'unknown={sorted(classified - compose_set)}'
               )
           PY
 
@@ -127,10 +135,10 @@ jobs:
     if: >-
       (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') ||
       (github.event_name == 'push' && github.ref == 'refs/heads/main' &&
-       startsWith(github.event.head_commit.message, 'chore(agents): enforce container resource hygiene (#973)'))
+       startsWith(github.event.head_commit.message, 'fix(ops): harden Synology container hygiene'))
     runs-on: oteryn-staging
     environment: synology-staging
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
       - name: Checkout trusted main
         uses: actions/checkout@v7
@@ -153,6 +161,7 @@ jobs:
 
           project=oteryn-staging
           runtime_services=(mariadb redis platform canary internal-proxy gateway)
+          one_shot_services=(tls-init)
           mapfile -t expected_services < <(
             sed -n '/^services:$/,/^[^ ]/p' deploy/synology/compose.yml \
               | sed -n 's/^  \([A-Za-z0-9][A-Za-z0-9_-]*\):$/\1/p'
@@ -162,31 +171,43 @@ jobs:
           inventory_file="$RUNNER_TEMP/synology-container-inventory.txt"
           : > "$inventory_file"
 
-          is_expected_service() {
+          contains_service() {
             local candidate="$1"
+            shift
             local service
-            for service in "${expected_services[@]}"; do
+            for service in "$@"; do
               [[ "$candidate" == "$service" ]] && return 0
             done
             return 1
           }
 
+          is_expected_service() {
+            contains_service "$1" "${expected_services[@]}"
+          }
+
           is_runtime_service() {
-            local candidate="$1"
-            local service
-            for service in "${runtime_services[@]}"; do
-              [[ "$candidate" == "$service" ]] && return 0
-            done
-            return 1
+            contains_service "$1" "${runtime_services[@]}"
+          }
+
+          is_one_shot_service() {
+            contains_service "$1" "${one_shot_services[@]}"
           }
 
           if (( ${#expected_services[@]} == 0 )); then
             echo 'No canonical services parsed from trusted main compose; refusing operation.' >&2
             exit 1
           fi
-          for service in "${runtime_services[@]}"; do
+
+          classified_services=("${runtime_services[@]}" "${one_shot_services[@]}")
+          for service in "${expected_services[@]}"; do
+            if ! contains_service "$service" "${classified_services[@]}"; then
+              echo "Compose service $service is unclassified; refusing operation." >&2
+              exit 1
+            fi
+          done
+          for service in "${classified_services[@]}"; do
             if ! is_expected_service "$service"; then
-              echo "Runtime service $service is absent from trusted main compose; refusing operation." >&2
+              echo "Classified service $service is absent from trusted main compose; refusing operation." >&2
               exit 1
             fi
           done
@@ -200,8 +221,90 @@ jobs:
             printf '%s' "$value"
           }
 
+          probe_http_in_namespace() {
+            local id="$1"
+            local port="$2"
+            local path="$3"
+            docker run --rm --network "container:$id" alpine:3.22 \
+              /bin/sh -ec "wget -qO- -T 5 'http://127.0.0.1:${port}${path}' >/dev/null"
+          }
+
+          probe_tcp_in_namespace() {
+            local id="$1"
+            local port="$2"
+            docker run --rm --network "container:$id" alpine:3.22 \
+              /bin/sh -ec "nc -z -w 5 127.0.0.1 '$port'"
+          }
+
+          runtime_service_ready() {
+            local service="$1"
+            local id="$2"
+            local running health_status
+            running="$(docker inspect --format '{{.State.Running}}' "$id")"
+            [[ "$running" == 'true' ]] || return 1
+
+            health_status="$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "$id")"
+            if [[ "$health_status" != 'none' && "$health_status" != 'healthy' ]]; then
+              return 1
+            fi
+
+            case "$service" in
+              mariadb|redis)
+                [[ "$health_status" == 'healthy' ]]
+                ;;
+              platform)
+                probe_http_in_namespace "$id" 8000 /health
+                ;;
+              gateway)
+                probe_http_in_namespace "$id" 8080 /health \
+                  && probe_http_in_namespace "$id" 8080 /ready
+                ;;
+              canary)
+                mapfile -t published_ports < <(
+                  docker inspect --format '{{range $port, $bindings := .NetworkSettings.Ports}}{{if $bindings}}{{$port}}{{"\n"}}{{end}}{{end}}' "$id" \
+                    | sed -n 's#/tcp$##p'
+                )
+                (( ${#published_ports[@]} >= 2 )) || return 1
+                local port
+                for port in "${published_ports[@]}"; do
+                  probe_tcp_in_namespace "$id" "$port" || return 1
+                done
+                ;;
+              internal-proxy)
+                docker exec "$id" nginx -t >/dev/null 2>&1 \
+                  && probe_tcp_in_namespace "$id" 8443 \
+                  && probe_tcp_in_namespace "$id" 8444
+                ;;
+              *)
+                return 1
+                ;;
+            esac
+          }
+
+          one_shot_service_valid() {
+            local service="$1"
+            local id="$2"
+            local status exit_code
+            [[ "$service" == 'tls-init' ]] || return 1
+            status="$(docker inspect --format '{{.State.Status}}' "$id")"
+            exit_code="$(docker inspect --format '{{.State.ExitCode}}' "$id")"
+            [[ "$status" == 'exited' && "$exit_code" == '0' ]]
+          }
+
+          canonical_service_valid() {
+            local service="$1"
+            local id="$2"
+            if is_runtime_service "$service"; then
+              runtime_service_ready "$service" "$id"
+            elif is_one_shot_service "$service"; then
+              one_shot_service_valid "$service" "$id"
+            else
+              return 1
+            fi
+          }
+
           validate_canonical_runtime() {
-            local service canonical id actual_project actual_service running
+            local service canonical id actual_project actual_service
             for service in "${runtime_services[@]}"; do
               canonical="${project}-${service}-1"
               if ! id="$(docker inspect --format '{{.Id}}' "$canonical" 2>/dev/null)"; then
@@ -210,9 +313,12 @@ jobs:
               fi
               actual_project="$(label_value "$id" 'com.docker.compose.project')"
               actual_service="$(label_value "$id" 'com.docker.compose.service')"
-              running="$(docker inspect --format '{{.State.Running}}' "$id")"
-              if [[ "$actual_project" != "$project" || "$actual_service" != "$service" || "$running" != 'true' ]]; then
-                echo "Canonical runtime identity/health is ambiguous for $canonical; refusing cleanup." >&2
+              if [[ "$actual_project" != "$project" || "$actual_service" != "$service" ]]; then
+                echo "Canonical runtime identity is ambiguous for $canonical; refusing cleanup." >&2
+                return 1
+              fi
+              if ! runtime_service_ready "$service" "$id"; then
+                echo "Canonical runtime readiness probe failed for $canonical; refusing cleanup." >&2
                 return 1
               fi
             done
@@ -236,7 +342,12 @@ jobs:
               elif is_expected_service "$actual_service"; then
                 canonical="${project}-${actual_service}-1"
                 if [[ "$name" == "$canonical" ]]; then
-                  classification=CANONICAL_PORTAL_SERVICE
+                  if canonical_service_valid "$actual_service" "$id"; then
+                    classification=CANONICAL_PORTAL_SERVICE
+                  else
+                    classification=UNSAFE_CANONICAL_SERVICE_NOT_READY
+                    unsafe_portal+=("$id")
+                  fi
                 elif [[ "$state" == 'running' ]]; then
                   classification=UNSAFE_RUNNING_NONCANONICAL_PORTAL_SERVICE
                   unsafe_portal+=("$id")
@@ -245,13 +356,9 @@ jobs:
                   if canonical_id="$(docker inspect --format '{{.Id}}' "$canonical" 2>/dev/null)"; then
                     canonical_project="$(label_value "$canonical_id" 'com.docker.compose.project')"
                     canonical_service="$(label_value "$canonical_id" 'com.docker.compose.service')"
-                    if [[ "$canonical_project" == "$project" && "$canonical_service" == "$actual_service" ]]; then
-                      if is_runtime_service "$actual_service"; then
-                        canonical_running="$(docker inspect --format '{{.State.Running}}' "$canonical_id")"
-                        [[ "$canonical_running" == 'true' ]] && canonical_ok=true
-                      else
-                        canonical_ok=true
-                      fi
+                    if [[ "$canonical_project" == "$project" && "$canonical_service" == "$actual_service" ]] \
+                      && canonical_service_valid "$actual_service" "$canonical_id"; then
+                      canonical_ok=true
                     fi
                   fi
 
