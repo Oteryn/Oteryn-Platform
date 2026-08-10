@@ -3,6 +3,7 @@
 namespace App\Wiki\Content;
 
 use App\Wiki\Domain\WikiCategoryTranslationInput;
+use JsonException;
 use League\CommonMark\Environment\Environment;
 use League\CommonMark\Extension\CommonMark\CommonMarkCoreExtension;
 use League\CommonMark\Extension\CommonMark\Node\Inline\Link;
@@ -29,6 +30,7 @@ final class WikiExpectedContentValidator
      */
     public function validateCatalog(WikiLaunchContentCatalog $catalog): array
     {
+        $this->validateMachineReadableInventory();
         $catalogSourceGitBlobSha = $this->validateReviewedCatalogSource();
         $summary = $this->validate(
             WikiLaunchContentCatalog::VERSION,
@@ -92,6 +94,43 @@ final class WikiExpectedContentValidator
             'internal_links' => $internalLinks,
             'editorial_media_tokens' => $editorialMediaTokens,
         ];
+    }
+
+    private function validateMachineReadableInventory(): void
+    {
+        $inventoryPath = base_path('docs/testing/WIKI_EXPECTED_CONTENT_INVENTORY.json');
+        $source = file_get_contents($inventoryPath);
+
+        if (! is_string($source)) {
+            throw new LogicException('The machine-readable Wiki expected-content inventory is unavailable.');
+        }
+
+        try {
+            $document = json_decode($source, true, 512, JSON_THROW_ON_ERROR);
+        } catch (JsonException $exception) {
+            throw new LogicException('The machine-readable Wiki expected-content inventory is invalid JSON.', 0, $exception);
+        }
+
+        $expectedDocument = [
+            'schema_version' => 1,
+            'status' => 'complete',
+            'inventory_version' => WikiExpectedContentInventory::VERSION,
+            'catalog_version' => WikiExpectedContentInventory::CATALOG_VERSION,
+            'catalog_source_git_blob_sha' => WikiExpectedContentInventory::CATALOG_SOURCE_GIT_BLOB_SHA,
+            'effective_from' => WikiExpectedContentInventory::EFFECTIVE_FROM,
+            'locales' => WikiExpectedContentInventory::LOCALES,
+            'expected_records' => [
+                'categories' => WikiExpectedContentInventory::CATEGORIES,
+                'articles' => WikiExpectedContentInventory::ARTICLES,
+            ],
+            'internal_paths' => WikiExpectedContentInventory::INTERNAL_PATHS,
+            'expected_editorial_media_tokens' => WikiExpectedContentInventory::EXPECTED_EDITORIAL_MEDIA_TOKENS,
+            'media_fallback_policy' => WikiExpectedContentInventory::MEDIA_FALLBACK_POLICY,
+        ];
+
+        if ($document !== $expectedDocument) {
+            throw new LogicException('The machine-readable Wiki expected-content inventory drifted from the reviewed runtime inventory.');
+        }
     }
 
     private function validateReviewedCatalogSource(): string
