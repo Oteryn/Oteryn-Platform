@@ -8,6 +8,7 @@ use App\Wiki\Content\WikiExpectedContentInventory;
 use App\Wiki\Content\WikiLaunchContentCatalog;
 use App\Wiki\Domain\WikiArticleStatus;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Testing\PendingCommand;
@@ -19,16 +20,18 @@ final class WikiLaunchContentCommandTest extends TestCase
 
     public function test_expected_inventory_validates_without_database_mutation(): void
     {
-        $command = $this->artisan('wiki:launch-content:validate', [
+        $exitCode = Artisan::call('wiki:launch-content:validate', [
             '--json' => true,
         ]);
-        self::assertInstanceOf(PendingCommand::class, $command);
-        $command
-            ->expectsOutputToContain('"status":"PASS"')
-            ->expectsOutputToContain('"inventory_version":"'.WikiExpectedContentInventory::VERSION.'"')
-            ->expectsOutputToContain('"categories":4')
-            ->expectsOutputToContain('"articles":13')
-            ->assertSuccessful();
+        $summary = json_decode(trim(Artisan::output()), true, 512, JSON_THROW_ON_ERROR);
+
+        self::assertSame(0, $exitCode);
+        self::assertIsArray($summary);
+        self::assertSame('PASS', $summary['status'] ?? null);
+        self::assertSame(WikiExpectedContentInventory::VERSION, $summary['inventory_version'] ?? null);
+        self::assertSame(WikiExpectedContentInventory::CATALOG_SOURCE_GIT_BLOB_SHA, $summary['catalog_source_git_blob_sha'] ?? null);
+        self::assertSame(4, $summary['categories'] ?? null);
+        self::assertSame(13, $summary['articles'] ?? null);
 
         self::assertSame(0, DB::table('wiki_categories')->count());
         self::assertSame(0, DB::table('wiki_articles')->count());
