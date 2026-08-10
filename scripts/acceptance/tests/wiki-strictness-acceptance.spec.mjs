@@ -1,12 +1,9 @@
-import fs from 'node:fs';
-import path from 'node:path';
 import { test, expect } from '@playwright/test';
 import {
   attachDiagnostics,
   completeMfaChallenge,
   installDiagnostics,
   login,
-  repoRoot,
   runArtisan,
   runBinary,
   uniqueEmail,
@@ -14,11 +11,13 @@ import {
 
 const password = 'AcceptanceWikiStrictness!234';
 const evidenceMarker = '@portal-wiki-admin-strictness not-found csrf-419 server-failure recovery';
-const adminIndexView = path.join(repoRoot, 'resources/views/admin/wiki/index.blade.php');
-const unavailableAdminIndexView = `${adminIndexView}.strictness-unavailable`;
 
 function wikiFixture(...args) {
   return JSON.parse(runBinary('php', ['scripts/acceptance/seed-browser-wiki-reconciliation.php', ...args]));
+}
+
+function restoreWikiAdminAvailability() {
+  wikiFixture('restore-admin');
 }
 
 function seedPublisher() {
@@ -40,20 +39,11 @@ async function signIn(page, identity) {
   await completeMfaChallenge(page, identity.recoveryCode);
 }
 
-function restoreAdminIndexView() {
-  if (fs.existsSync(unavailableAdminIndexView) && !fs.existsSync(adminIndexView)) {
-    fs.renameSync(unavailableAdminIndexView, adminIndexView);
-  } else if (fs.existsSync(unavailableAdminIndexView) && fs.existsSync(adminIndexView)) {
-    fs.rmSync(unavailableAdminIndexView, { force: true });
-  }
-  runArtisan('view:clear');
-}
-
 test.setTimeout(180_000);
 test.describe.configure({ retries: 0, mode: 'serial' });
 
 test.beforeEach(async ({ page }) => {
-  restoreAdminIndexView();
+  restoreWikiAdminAvailability();
   wikiFixture('reset');
   runArtisan('cache:clear');
   page.__acceptanceDiagnostics = installDiagnostics(page);
@@ -61,7 +51,7 @@ test.beforeEach(async ({ page }) => {
 
 test.afterEach(async ({ page }, testInfo) => {
   try {
-    restoreAdminIndexView();
+    restoreWikiAdminAvailability();
     await attachDiagnostics(testInfo, page.__acceptanceDiagnostics);
   } finally {
     wikiFixture('reset');
@@ -84,14 +74,12 @@ test(`${evidenceMarker}`, async ({ page }) => {
   await expect(page.getByRole('heading', { name: 'Wiki administration' })).toBeVisible();
 
   try {
-    fs.renameSync(adminIndexView, unavailableAdminIndexView);
-    runArtisan('view:clear');
-
+    wikiFixture('set-admin-unavailable');
     response = await page.goto('/admin/wiki', { waitUntil: 'domcontentloaded' });
     expect(response?.status()).toBe(500);
     await expect(page.locator('.error-code')).toHaveText('500');
   } finally {
-    restoreAdminIndexView();
+    restoreWikiAdminAvailability();
   }
 
   page.__acceptanceDiagnostics.serverErrors = [];
