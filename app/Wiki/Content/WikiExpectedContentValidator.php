@@ -3,6 +3,12 @@
 namespace App\Wiki\Content;
 
 use App\Wiki\Domain\WikiCategoryTranslationInput;
+use League\CommonMark\Environment\Environment;
+use League\CommonMark\Extension\CommonMark\CommonMarkCoreExtension;
+use League\CommonMark\Extension\CommonMark\Node\Inline\Link;
+use League\CommonMark\Extension\Strikethrough\StrikethroughExtension;
+use League\CommonMark\Extension\Table\TableExtension;
+use League\CommonMark\Parser\MarkdownParser;
 use LogicException;
 
 final class WikiExpectedContentValidator
@@ -332,8 +338,24 @@ final class WikiExpectedContentValidator
 
     private function validateMarkdownLinks(WikiLaunchTranslation $translation): int
     {
-        preg_match_all('/(?<!!)\[[^\]]+\]\(([^)]+)\)/u', $translation->sourceMarkdown, $matches);
-        $targets = $matches[1];
+        $environment = new Environment([
+            'html_input' => 'strip',
+            'allow_unsafe_links' => false,
+            'max_nesting_level' => 20,
+            'max_delimiters_per_line' => 200,
+        ]);
+        $environment->addExtension(new CommonMarkCoreExtension);
+        $environment->addExtension(new StrikethroughExtension);
+        $environment->addExtension(new TableExtension);
+
+        $document = (new MarkdownParser($environment))->parse($translation->sourceMarkdown);
+        $targets = [];
+
+        foreach ($document->iterator() as $node) {
+            if ($node instanceof Link) {
+                $targets[] = $node->getUrl();
+            }
+        }
 
         foreach ($targets as $target) {
             if (! str_starts_with($target, '/')) {
