@@ -161,6 +161,41 @@ final class WikiExpectedContentInventoryTest extends TestCase
         );
     }
 
+    public function test_commonmark_reference_link_cannot_bypass_first_party_validation(): void
+    {
+        $catalog = new WikiLaunchContentCatalog;
+        $articles = $catalog->articles();
+        $original = $articles[0];
+        $english = $original->translation('en');
+        $polish = $original->translation('pl');
+        $articles[0] = new WikiLaunchArticle(
+            $original->contentType,
+            $original->featured,
+            $original->sortOrder,
+            $original->categoryKeys,
+            [
+                new WikiLaunchTranslation(
+                    $english->locale,
+                    $english->title,
+                    $english->slug,
+                    $english->summary,
+                    $english->sourceMarkdown."\n\n[Unexpected][outside]\n\n[outside]: https://example.com/wiki",
+                ),
+                $polish,
+            ],
+            $original->sourceReferences,
+        );
+
+        $this->expectException(LogicException::class);
+        $this->expectExceptionMessage('non-first-party Markdown link');
+
+        (new WikiExpectedContentValidator)->validate(
+            WikiLaunchContentCatalog::VERSION,
+            $catalog->categories(),
+            $articles,
+        );
+    }
+
     public function test_duplicate_category_identity_fails_closed_without_changing_count(): void
     {
         $catalog = new WikiLaunchContentCatalog;
