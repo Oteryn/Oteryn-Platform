@@ -1,12 +1,9 @@
-import fs from 'node:fs';
-import path from 'node:path';
 import { test, expect } from '@playwright/test';
 import {
   attachDiagnostics,
   completeMfaChallenge,
   installDiagnostics,
   login,
-  repoRoot,
   runArtisan,
   runBinary,
   uniqueEmail,
@@ -15,11 +12,13 @@ import {
 const password = 'AcceptanceEditorialStrictness!234';
 const recoveryCode = 'EDITORIAL-STRICTNESS-01';
 const evidenceMarker = '@portal-editorial-media-strictness not-found csrf-419 server-failure recovery';
-const adminIndexView = path.join(repoRoot, 'resources/views/admin/media/index.blade.php');
-const unavailableAdminIndexView = `${adminIndexView}.strictness-unavailable`;
 
 function editorialMediaFixture(...args) {
   return JSON.parse(runBinary('php', ['scripts/acceptance/seed-browser-editorial-media.php', ...args]));
+}
+
+function restoreEditorialMediaAvailability() {
+  editorialMediaFixture('restore-admin');
 }
 
 function seedManager() {
@@ -35,20 +34,11 @@ function seedManager() {
   return { email, password, recoveryCode };
 }
 
-function restoreAdminIndexView() {
-  if (fs.existsSync(unavailableAdminIndexView) && !fs.existsSync(adminIndexView)) {
-    fs.renameSync(unavailableAdminIndexView, adminIndexView);
-  } else if (fs.existsSync(unavailableAdminIndexView) && fs.existsSync(adminIndexView)) {
-    fs.rmSync(unavailableAdminIndexView, { force: true });
-  }
-  runArtisan('view:clear');
-}
-
 test.setTimeout(180_000);
 test.describe.configure({ retries: 0, mode: 'serial' });
 
 test.beforeEach(async ({ page }) => {
-  restoreAdminIndexView();
+  restoreEditorialMediaAvailability();
   editorialMediaFixture('reset');
   runArtisan('cache:clear');
   page.__acceptanceDiagnostics = installDiagnostics(page);
@@ -56,7 +46,7 @@ test.beforeEach(async ({ page }) => {
 
 test.afterEach(async ({ page }, testInfo) => {
   try {
-    restoreAdminIndexView();
+    restoreEditorialMediaAvailability();
     await attachDiagnostics(testInfo, page.__acceptanceDiagnostics);
   } finally {
     editorialMediaFixture('reset');
@@ -80,14 +70,12 @@ test(`${evidenceMarker}`, async ({ page }) => {
   await expect(page.getByRole('heading', { name: 'Editorial image library' })).toBeVisible();
 
   try {
-    fs.renameSync(adminIndexView, unavailableAdminIndexView);
-    runArtisan('view:clear');
-
+    editorialMediaFixture('set-admin-unavailable');
     response = await page.goto('/admin/media', { waitUntil: 'domcontentloaded' });
     expect(response?.status()).toBe(500);
     await expect(page.locator('.error-code')).toHaveText('500');
   } finally {
-    restoreAdminIndexView();
+    restoreEditorialMediaAvailability();
   }
 
   page.__acceptanceDiagnostics.serverErrors = [];
