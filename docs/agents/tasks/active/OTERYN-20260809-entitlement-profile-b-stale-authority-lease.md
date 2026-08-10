@@ -3,7 +3,7 @@ task_id: OTERYN-20260809-entitlement-profile-b-stale-authority-lease
 mode: implementation
 issue: 944
 branch: repair/issue-944
-status: implementing
+status: validating
 programme: OTERYN_PLATFORM_REMEDIATION
 portal_programme: OTERYN_PORTAL_COMPLETION
 ---
@@ -58,16 +58,16 @@ coordination_key: entitlement:profile-b-stale-authority-lease
 
 ## Acceptance inventory
 
-- [ ] Profile-B entitlement evidence carries an implementable finite authority bound rather than an indefinite stale `active` state.
-- [ ] Every product/version selecting Profile B must declare finite stale/offline policy before activation; no implicit infinite or implementation-defined grace is allowed.
-- [ ] Oteryn-v2 can distinguish current authority, `STALE_WITHIN_BOUND`, `AUTHORITY_UNAVAILABLE`, expired and revoked evidence without treating transport status as commercial truth.
-- [ ] Lifecycle revision/effective interval ordering prevents delayed, replayed, restarted or rolled-back stale `active` evidence from resurrecting a newer expiry/revocation.
-- [ ] New admission/reconnect is distinguished from already-running-session behavior; session-disconnect policy may remain deferred but entitlement benefit may not continue beyond the finite authority bound by implication.
-- [ ] Clock/skew semantics or an equivalently strong authority-issued validity mechanism prevent local-clock ambiguity from extending authority.
-- [ ] Validation requirements cover outage before/after lease expiry, delayed stale active after revoke, expiry during outage, reconnect with stale evidence, restart with cached active evidence, out-of-order revisions and rollback.
-- [ ] Premium/VIP runtime, actual numeric product values and production activation remain explicitly deferred/not claimed.
-- [ ] No runtime/schema/routes/tests/workflow/deployment/credential/production/external-repository mutation occurs.
-- [ ] Exact-head self-review, Agent Governance and repository-selected CI pass; runtime/browser E2E is `NOT_APPLICABLE` for this contract-only repair.
+- [x] Profile-B entitlement evidence carries an implementable finite authority bound rather than an indefinite stale `active` state.
+- [x] Every product/version selecting Profile B must declare finite stale/offline policy before activation; no implicit infinite or implementation-defined grace is allowed.
+- [x] Oteryn-v2 can distinguish current authority, `STALE_WITHIN_BOUND`, `AUTHORITY_UNAVAILABLE`, expired, revoked and superseded evidence without treating transport status as commercial truth.
+- [x] Lifecycle revision/effective interval ordering plus durable high-water fencing prevents delayed, replayed, restarted or rolled-back stale `active` evidence from resurrecting a newer expiry/revocation.
+- [x] New admission/reconnect is distinguished from already-running-session behavior; session-disconnect policy may remain deferred but entitlement benefit cannot continue beyond the finite authority bound by implication.
+- [x] Clock/skew semantics prevent client/local-clock ambiguity from extending authority and require fail-closed refresh when safe time evaluation cannot be proven.
+- [x] Validation requirements cover outage before/after lease expiry, delayed stale active after revoke, expiry during outage, reconnect with stale evidence, restart with cached active evidence, out-of-order revisions, rollback and local-clock uncertainty.
+- [x] Premium/VIP runtime, actual numeric product values and production activation remain explicitly deferred/not claimed.
+- [x] No runtime/schema/routes/tests/workflow/deployment/credential/production/external-repository mutation occurs.
+- [ ] Exact-head Agent Governance and repository-selected CI pass; runtime/browser E2E remains `NOT_APPLICABLE` for this contract-only repair.
 
 ## Validation gate
 
@@ -88,20 +88,29 @@ validation_gate:
   unknown_or_conflict: []
   rationale: A future Profile-B paid entitlement must not survive an unbounded Platform authority outage merely because the last accepted state was active.
   self_review:
-    result: PENDING
-    exact_head: none
-    evidence: []
+    result: PASS
+    exact_head: 082c9f8a19306a79a45dcc3a878589e0d9c0f35a
+    evidence:
+      - Whole-diff review against main@7d4f5c88e6f0e67fd8f74bf82b45d7deec0ff654 shows exactly the task packet plus the single Issue-authorized entitlement/game-delivery contract path.
+      - The contract now requires authority-issued finite authority_valid_until evidence for every Profile-B representation capable of authorizing gameplay benefit.
+      - Commercial expiry/revocation always bounds or supersedes the lease; active-without-commercial-expiry still requires a finite periodic authorization lease.
+      - Every activated product/version must declare finite max-stale/lease, refresh and bounded skew policy; missing numeric policy blocks activation instead of falling back to implementation-defined grace.
+      - Current, STALE_WITHIN_BOUND, AUTHORITY_UNAVAILABLE, EXPIRED, REVOKED and SUPERSEDED states are explicitly distinguished without treating transport reachability as commercial truth.
+      - Durable lifecycle high-water fencing covers delayed delivery, cache replay, reconnect, process restart and projection/storage rollback.
+      - Admission/reconnect and continued-benefit behavior are bounded by the existing finite cutoff while forced-disconnect mechanics remain deliberately deferred.
+      - The contract supplies an explicit negative-path validation matrix for outage, revocation, expiry, reconnect, restart, out-of-order revisions, rollback and clock uncertainty.
+      - No Premium/VIP activation, runtime/schema/test/workflow/deployment/production or external-repository mutation is authorized or claimed.
 ```
 
 ## Context checkpoint
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-10T22:39:00+02:00
-head: 7d4f5c88e6f0e67fd8f74bf82b45d7deec0ff654
+updated_at: 2026-08-10T22:47:00+02:00
+head: 082c9f8a19306a79a45dcc3a878589e0d9c0f35a
 branch: repair/issue-944
 pr: none
-status: implementing
+status: validating
 context_routes:
   - agent-governance
   - architecture
@@ -112,16 +121,16 @@ owned_paths:
   - docs/contracts/OTERYN_V2_ENTITLEMENT_GAME_DELIVERY_CONTRACT.md
   - docs/agents/tasks/active/OTERYN-20260809-entitlement-profile-b-stale-authority-lease.md
 proven:
-  - Issue #944 is open, P1/high risk, implementation-authorized, `agent:ready`, rollout-order independent before Profile-B runtime activation, and bounded to the entitlement/game-delivery architecture contract.
-  - No deterministic repair/issue-944 branch or open #944 PR existed immediately before the atomic branch claim.
-  - The current contract says stale/unavailable entitlement evidence must not silently extend commercial authority forever but explicitly defers exact offline grace/cache TTL/current-session behavior and contains no mandatory finite authority-expiry datum.
-  - Current entitlement identity includes lifecycle revision and grant/activation/expiry/revocation semantics but no mandatory `valid_until`, lease expiry, refresh deadline or equivalent finite game-consumption authority bound.
-  - Existing revision language only guarantees that delayed stale active cannot override a newer revocation once revision order is known; it does not bound how long an unseen newer revocation can be masked by outage.
-  - No current production Premium/VIP runtime defect is claimed; this is a pre-runtime architecture-contract repair.
+  - Issue #944 is open, P1/high risk, implementation-authorized and bounded to the entitlement/game-delivery architecture contract with runtime/deployment/production/external writes forbidden.
+  - The repair branch was atomically claimed from protected main 7d4f5c88e6f0e67fd8f74bf82b45d7deec0ff654 and no competing #944 PR existed at claim time.
+  - The pre-repair contract expressed that stale authority must not last forever but omitted any mandatory finite authority cutoff and deferred all exact stale/offline behavior.
+  - Implementation head 082c9f8a19306a79a45dcc3a878589e0d9c0f35a adds finite authority evidence, product activation policy, authority states, revision fencing, clock/skew, admission/session boundaries and a validation matrix.
+  - The diff from protected main contains only docs/contracts/OTERYN_V2_ENTITLEMENT_GAME_DELIVERY_CONTRACT.md and this task packet; no forbidden path changed.
+  - Numeric product lease/max-stale/refresh/skew values remain intentionally unknown and must be explicitly selected before any future Profile-B product/version activation.
 derived:
-  - A finite authority lease can close the gap without selecting transport, storage or runtime implementation by requiring each Profile-B product/version to declare a bounded authority-validity policy and by carrying an authority-issued cutoff in consumed evidence.
-  - The contract must treat transport availability and entitlement commercial truth as separate axes while still refusing new/continued gameplay benefit after the finite evidence bound expires.
-  - Durable revision high-water fencing is required so process restart, stale cache replay, delayed delivery or projection rollback cannot resurrect an older active representation after a newer lifecycle revision is known.
+  - The finite lease bounds unseen revocation/expiry during partition, while the durable revision high-water mark separately prevents resurrection after a newer lifecycle decision has ever become known.
+  - Separating transport reachability from commercial truth permits bounded degraded operation without turning network failure into entitlement revocation or infinite grace.
+  - Forced disconnect can remain an owning runtime/session-policy decision because entitlement benefit itself is now independently forbidden beyond the finite authority cutoff.
 unknown:
   - exact future Premium/VIP benefits
   - exact per-product numeric lease duration, refresh lead and permitted clock-skew values
@@ -129,14 +138,22 @@ unknown:
 conflicts: []
 first_failure:
   marker: profile-b-active-authority-has-no-finite-cutoff
-  evidence: The accepted contract requires stale authority not to last forever while simultaneously deferring all finite stale/offline values and omitting a mandatory authority-valid-until mechanism.
+  evidence: Resolved at implementation head 082c9f8a19306a79a45dcc3a878589e0d9c0f35a by mandatory finite authority_valid_until semantics and activation-blocking finite product policy.
 rejected_hypotheses:
   - Lifecycle revision alone bounds an unseen future revocation during an authority outage; it only orders revisions after the newer revision becomes observable.
-  - Commercial `effective_until` alone is sufficient for all outage cases; revocation can occur before commercial expiry, so a separately bounded refresh/authority lease is required.
+  - Commercial effective_until alone is sufficient for all outage cases; revocation can occur before commercial expiry, so a separately bounded refresh/authority lease is required.
   - Transport failure itself means entitlement revoked; commercial truth remains Platform-owned and unavailable authority is distinct from revocation.
+  - Deferring forced-disconnect mechanics permits continued commercial benefit after lease expiry; the repaired contract explicitly forbids that interpretation.
 changed_paths:
+  - docs/contracts/OTERYN_V2_ENTITLEMENT_GAME_DELIVERY_CONTRACT.md
   - docs/agents/tasks/active/OTERYN-20260809-entitlement-profile-b-stale-authority-lease.md
-validation: []
+validation:
+  - command: whole-diff architectural/security self-review against Issue #944 acceptance
+    result: PASS
+    evidence: Exact implementation head 082c9f8a19306a79a45dcc3a878589e0d9c0f35a satisfies every contract acceptance item without widening into forbidden runtime or rollout scope.
+  - command: runtime/browser E2E
+    result: NOT_APPLICABLE
+    evidence: Contract-only documentation repair with no executable behavior, route, schema, test harness or deployment mutation.
 blockers: []
-next_action: Update the entitlement/game-delivery contract with finite Profile-B authority evidence, product policy, state, revision-fencing, clock/skew, admission/session, rollout and validation requirements; then run exact-head documentation/governance validation and whole-diff self-review.
+next_action: Open the authoritative #944 delivery PR, run exact-head Agent Governance and repository-selected CI plus Codex review, repair any material finding on the same PR, then merge and archive/release ownership.
 ```
