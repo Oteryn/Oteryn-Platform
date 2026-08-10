@@ -60,7 +60,7 @@ jobs:
               'docker rm ' + '-f',
               'docker volume ' + 'rm',
               'docker network ' + 'rm',
-              'docker rmi',
+              'docker ' + 'rmi',
           ]
           present = [pattern for pattern in forbidden if pattern in workflow]
           if present:
