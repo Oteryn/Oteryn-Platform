@@ -3,11 +3,15 @@
 
 from __future__ import annotations
 
+import re
 from collections import Counter
 from pathlib import Path
 
 
 WORKFLOW_ROOT = Path(".github/workflows")
+TOP_LEVEL_NAME = re.compile(r"(?m)^name:\s+\S")
+TOP_LEVEL_ON = re.compile(r"(?m)^on:\s*$")
+TOP_LEVEL_PERMISSIONS = re.compile(r"(?m)^permissions:\s*$")
 
 
 class WorkflowInventoryError(RuntimeError):
@@ -15,8 +19,7 @@ class WorkflowInventoryError(RuntimeError):
 
 
 def _contains_event(text: str, event: str) -> bool:
-    marker = f"  {event}:"
-    return marker in text
+    return re.search(rf"(?m)^  {re.escape(event)}:\s*", text) is not None
 
 
 def classify_workflow(path: Path, text: str) -> str:
@@ -62,9 +65,14 @@ def validate_inventory(root: Path) -> dict[str, str]:
     for path in workflow_paths:
         relative = path.relative_to(root).as_posix()
         text = path.read_text(encoding="utf-8")
-        for marker in ("name:", "on:", "permissions:"):
-            if marker not in text:
-                findings.append(f"{relative}: missing required workflow marker {marker}")
+        required_markers = {
+            "name:": TOP_LEVEL_NAME,
+            "on:": TOP_LEVEL_ON,
+            "permissions:": TOP_LEVEL_PERMISSIONS,
+        }
+        for marker, pattern in required_markers.items():
+            if pattern.search(text) is None:
+                findings.append(f"{relative}: missing required top-level workflow marker {marker}")
         try:
             classifications[relative] = classify_workflow(path, text)
         except WorkflowInventoryError as exc:

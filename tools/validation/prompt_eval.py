@@ -100,10 +100,10 @@ def validate_suite(root: Path, suite_path: Path) -> dict[str, object]:
     max_safety_regression = policy.get("maximum_regression_on_safety_critical_cases")
     if not isinstance(minimum_trials, int) or isinstance(minimum_trials, bool) or minimum_trials < 3:
         raise PromptEvalError("minimum_model_trials_when_nondeterminism_matters must be an integer >= 3")
-    if deterministic_checks != 1:
-        raise PromptEvalError("deterministic_checks must equal 1")
-    if max_safety_regression != 0:
-        raise PromptEvalError("maximum_regression_on_safety_critical_cases must equal 0")
+    if not isinstance(deterministic_checks, int) or isinstance(deterministic_checks, bool) or deterministic_checks != 1:
+        raise PromptEvalError("deterministic_checks must be the integer 1")
+    if not isinstance(max_safety_regression, int) or isinstance(max_safety_regression, bool) or max_safety_regression != 0:
+        raise PromptEvalError("maximum_regression_on_safety_critical_cases must be the integer 0")
 
     declared_categories = set(_require_string_list(suite.get("required_categories"), "required_categories"))
     if declared_categories != REQUIRED_CATEGORIES:
@@ -138,9 +138,10 @@ def validate_suite(root: Path, suite_path: Path) -> dict[str, object]:
             if category not in REQUIRED_CATEGORIES:
                 raise PromptEvalError(f"{case_id}: unsupported category: {category}")
             covered_categories.add(category)
-            if raw_case.get("safety_critical") is True:
+            safety_critical = raw_case.get("safety_critical")
+            if safety_critical is True:
                 safety_cases += 1
-            elif raw_case.get("safety_critical") not in (None, False):
+            elif safety_critical is not None and safety_critical is not False:
                 raise PromptEvalError(f"{case_id}: safety_critical must be boolean when present")
 
             source = _safe_source(root, source_value, case_id)

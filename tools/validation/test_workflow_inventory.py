@@ -34,16 +34,16 @@ class WorkflowInventoryTest(unittest.TestCase):
         with self.assertRaisesRegex(WorkflowInventoryError, "unclassified workflow"):
             classify_workflow(Path("mystery.yml"), text)
 
-    def test_inventory_requires_permissions(self) -> None:
+    def test_inventory_requires_top_level_permissions(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             path = root / ".github/workflows/example.yml"
             path.parent.mkdir(parents=True)
             path.write_text(
-                "name: Example\non:\n  pull_request:\njobs:\n  test:\n    runs-on: ubuntu-latest\n",
+                "name: Example\non:\n  pull_request:\njobs:\n  test:\n    permissions:\n      contents: read\n    runs-on: ubuntu-latest\n",
                 encoding="utf-8",
             )
-            with self.assertRaisesRegex(WorkflowInventoryError, "missing required workflow marker permissions:"):
+            with self.assertRaisesRegex(WorkflowInventoryError, "missing required top-level workflow marker permissions:"):
                 validate_inventory(root)
 
     def test_inventory_classifies_every_workflow_file(self) -> None:

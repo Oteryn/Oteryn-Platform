@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 from typing import Any
 
@@ -38,10 +39,15 @@ def _relative_file(root: Path, value: str, field: str, test_path: str) -> Path:
     relative = Path(value)
     if relative.is_absolute() or ".." in relative.parts:
         raise RegistrationError(f"{test_path}: {field} must be a repository-relative path")
-    path = root / relative
-    if not path.is_file():
+    resolved_root = root.resolve()
+    resolved = (resolved_root / relative).resolve()
+    try:
+        resolved.relative_to(resolved_root)
+    except ValueError as exc:
+        raise RegistrationError(f"{test_path}: {field} escapes repository root: {value}") from exc
+    if not resolved.is_file():
         raise RegistrationError(f"{test_path}: {field} does not exist: {value}")
-    return path
+    return resolved
 
 
 def discover_integration_tests(root: Path) -> list[str]:
@@ -53,6 +59,16 @@ def discover_integration_tests(root: Path) -> list[str]:
         for path in integration_root.rglob("*Test.php")
         if path.is_file()
     )
+
+
+def _workflow_executes_phpunit_test(workflow_text: str, test_path: str) -> bool:
+    executable_text = "\n".join(
+        line for line in workflow_text.splitlines() if not line.lstrip().startswith("#")
+    )
+    pattern = re.compile(
+        r"vendor/bin/phpunit[\s\\]+" + re.escape(test_path) + r"(?:[\s\\]|$)"
+    )
+    return pattern.search(executable_text) is not None
 
 
 def validate_repository(root: Path) -> list[str]:
@@ -102,14 +118,14 @@ def validate_repository(root: Path) -> list[str]:
                 raise RegistrationError(
                     f"{test_path}: invocation_marker must be the exact test path so directory-only execution cannot satisfy registration"
                 )
-            workflow_path = _relative_file(root, workflow, "workflow", test_path)
             workflow_relative = Path(workflow)
-            if WORKFLOW_ROOT not in [workflow_relative, *workflow_relative.parents]:
-                raise RegistrationError(f"{test_path}: workflow must live under {WORKFLOW_ROOT.as_posix()}/")
+            if workflow_relative.parent != WORKFLOW_ROOT or workflow_relative.suffix not in {".yml", ".yaml"}:
+                raise RegistrationError(f"{test_path}: workflow must be a direct YAML file under {WORKFLOW_ROOT.as_posix()}/")
+            workflow_path = _relative_file(root, workflow, "workflow", test_path)
             workflow_text = workflow_path.read_text(encoding="utf-8")
-            if invocation not in workflow_text:
+            if not _workflow_executes_phpunit_test(workflow_text, invocation):
                 raise RegistrationError(
-                    f"{test_path}: workflow {workflow} does not explicitly invoke {invocation}"
+                    f"{test_path}: workflow {workflow} does not executably invoke {invocation} through vendor/bin/phpunit"
                 )
             if trigger not in workflow_text:
                 raise RegistrationError(

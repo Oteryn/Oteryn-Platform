@@ -26,6 +26,7 @@ class IntegrationTestRegistrationTest(unittest.TestCase):
         trigger_marker: str = TRIGGER,
         workflow_invocation: str = TEST_PATH,
         workflow_trigger: str = TRIGGER,
+        invocation_as_comment: bool = False,
         duplicate: bool = False,
         include_environment: bool = True,
     ) -> Path:
@@ -42,6 +43,8 @@ class IntegrationTestRegistrationTest(unittest.TestCase):
             "  pull_request:",
             "    paths:",
             f"      - '{workflow_trigger}'",
+            "permissions:",
+            "  contents: read",
             "jobs:",
             "  integration:",
             "    runs-on: ubuntu-latest",
@@ -49,12 +52,12 @@ class IntegrationTestRegistrationTest(unittest.TestCase):
         ]
         if include_environment:
             workflow_lines.extend(f"      {name}: fixture" for name in ENVIRONMENT)
-        workflow_lines.extend(
-            [
-                "    steps:",
-                f"      - run: vendor/bin/phpunit {workflow_invocation}",
-            ]
-        )
+        workflow_lines.extend(["    steps:"])
+        if invocation_as_comment:
+            workflow_lines.append(f"      # vendor/bin/phpunit {TEST_PATH}")
+            workflow_lines.append("      - run: vendor/bin/phpunit tests/Integration/Example")
+        else:
+            workflow_lines.append(f"      - run: vendor/bin/phpunit {workflow_invocation}")
         self.write(root / WORKFLOW_PATH, "\n".join(workflow_lines) + "\n")
 
         record = {
@@ -99,9 +102,13 @@ class IntegrationTestRegistrationTest(unittest.TestCase):
         root = self.make_repository(invocation_marker="tests/Integration/Example")
         self.assert_registration_error(root, "invocation_marker must be the exact test path")
 
-    def test_workflow_must_contain_exact_test_invocation(self) -> None:
+    def test_workflow_must_executably_invoke_exact_test(self) -> None:
         root = self.make_repository(workflow_invocation="tests/Integration/Example")
-        self.assert_registration_error(root, "does not explicitly invoke")
+        self.assert_registration_error(root, "does not executably invoke")
+
+    def test_comment_does_not_count_as_executable_invocation(self) -> None:
+        root = self.make_repository(invocation_as_comment=True)
+        self.assert_registration_error(root, "does not executably invoke")
 
     def test_workflow_must_contain_trigger_marker(self) -> None:
         root = self.make_repository(workflow_trigger="tests/Integration/Other/**")
