@@ -10,17 +10,64 @@ on:
 permissions:
   contents: read
 
-concurrency:
-  group: oteryn-tibia-client-analysis-continue
-  cancel-in-progress: false
+env:
+  CONTAINER_NAME: oteryn-tibia-client-analysis
 
 jobs:
+  build-decoder:
+    name: Build launcher-compatible LZMA decoder
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Build static decoder with ulikunitz xz/lzma
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          mkdir -p "$RUNNER_TEMP/tibia-decoder"
+          cd "$RUNNER_TEMP/tibia-decoder"
+          cat > main.go <<'EOF'
+          package main
+
+          import (
+            "fmt"
+            "io"
+            "os"
+            "github.com/ulikunitz/xz/lzma"
+          )
+
+          func main() {
+            if len(os.Args) != 3 {
+              fmt.Fprintln(os.Stderr, "usage: tibia-lzma-decode INPUT OUTPUT")
+              os.Exit(2)
+            }
+            in, err := os.Open(os.Args[1])
+            if err != nil { panic(err) }
+            defer in.Close()
+            r, err := lzma.NewReader(in)
+            if err != nil { panic(err) }
+            out, err := os.Create(os.Args[2])
+            if err != nil { panic(err) }
+            if _, err = io.Copy(out, r); err != nil { panic(err) }
+            if err = out.Close(); err != nil { panic(err) }
+          }
+          EOF
+          go mod init tibia-lzma-decode
+          go get github.com/ulikunitz/xz@v0.5.15
+          CGO_ENABLED=0 go build -trimpath -ldflags='-s -w' -o tibia-lzma-decode ./main.go
+          file tibia-lzma-decode
+          sha256sum tibia-lzma-decode
+      - name: Upload decoder
+        uses: actions/upload-artifact@v4
+        with:
+          name: tibia-lzma-decode-linux-amd64
+          path: ${{ runner.temp }}/tibia-decoder/tibia-lzma-decode
+          retention-days: 1
+
   continue:
-    name: Materialize and inspect current Tibia executable
+    name: Decode and inspect current Tibia executable
+    needs: build-decoder
     runs-on: oteryn-staging
-    timeout-minutes: 25
-    env:
-      CONTAINER_NAME: oteryn-tibia-client-analysis
+    timeout-minutes: 20
     steps:
       - name: Verify exact owned runtime and staging snapshot
         shell: bash
@@ -33,51 +80,41 @@ jobs:
           [[ "$owner" == "oteryn" && "$purpose" == "tibia-client-analysis" && "$state" == "running" ]]
           docker ps -a --filter 'label=com.docker.compose.project=oteryn-staging' --format '{{.ID}}\t{{.Names}}' | sort > /tmp/oteryn-before.tsv
           test -s /tmp/oteryn-before.tsv
-
-      - name: Download and verify packed game executable
+      - name: Download decoder artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: tibia-lzma-decode-linux-amd64
+          path: ${{ runner.temp }}/tibia-decoder
+      - name: Copy decoder into isolated container
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          chmod 0755 "$RUNNER_TEMP/tibia-decoder/tibia-lzma-decode"
+          docker cp "$RUNNER_TEMP/tibia-decoder/tibia-lzma-decode" "$CONTAINER_NAME:/usr/local/bin/tibia-lzma-decode"
+          docker exec "$CONTAINER_NAME" chmod 0755 /usr/local/bin/tibia-lzma-decode
+      - name: Verify packed client and decode with launcher-compatible library
         shell: bash
         run: |
           set -Eeuo pipefail
           docker exec "$CONTAINER_NAME" bash -lc '
             set -Eeuo pipefail
-            mkdir -p /data/client-15.32.df7b29/bin
             cd /data/client-15.32.df7b29/bin
-            url="https://static.tibia.com/launcher/tibiaclient-linux-current/bin/client.lzma"
-            rm -f client.lzma.part client.lzma
-            curl --compressed -fL --connect-timeout 15 --max-time 600 -e "$url" "$url" -o client.lzma.part
-            mv client.lzma.part client.lzma
-            actual="$(sha256sum client.lzma | awk "{print \$1}")"
-            echo "packed_sha256=$actual"
-            [[ "$actual" == "496c5b3517c0996a1bbd0e76a7738d450f79d0bf4fef140a807044776042dc9b" ]]
-            size="$(stat -c %s client.lzma)"
-            echo "packed_size=$size"
-            [[ "$size" -eq 10150849 ]]
-          '
-
-      - name: Decompress and verify actual game executable
-        shell: bash
-        run: |
-          set -Eeuo pipefail
-          docker exec "$CONTAINER_NAME" bash -lc '
-            set -Eeuo pipefail
-            export DEBIAN_FRONTEND=noninteractive
-            command -v xz >/dev/null || { apt-get update; apt-get install -y --no-install-recommends xz-utils; }
-            cd /data/client-15.32.df7b29/bin
+            test -s client.lzma
+            packed="$(sha256sum client.lzma | awk "{print \$1}")"
+            echo "packed_sha256=$packed"
+            [[ "$packed" == "496c5b3517c0996a1bbd0e76a7738d450f79d0bf4fef140a807044776042dc9b" ]]
             rm -f client
-            xz --format=lzma -dc client.lzma > client
+            /usr/local/bin/tibia-lzma-decode client.lzma client
             chmod 0755 client
-            actual="$(sha256sum client | awk "{print \$1}")"
-            echo "unpacked_sha256=$actual"
-            [[ "$actual" == "e6c244bd39fe2e0632f6f000efd3147164696efa8e901718668e0442325ff7fe" ]]
+            unpacked="$(sha256sum client | awk "{print \$1}")"
             size="$(stat -c %s client)"
+            echo "unpacked_sha256=$unpacked"
             echo "unpacked_size=$size"
+            [[ "$unpacked" == "e6c244bd39fe2e0632f6f000efd3147164696efa8e901718668e0442325ff7fe" ]]
             [[ "$size" -eq 51965216 ]]
             file client
             readelf -h client | head -n 40
-            echo "=== ldd ==="
-            ldd client | tee /data/client-15.32.df7b29/ldd.txt || true
           '
-
       - name: Reconnaissance for map and protocol interception points
         shell: bash
         run: |
@@ -89,12 +126,13 @@ jobs:
             sha256sum client
             stat -c "path=%n size=%s mode=%a" client
             file client
+            echo "=== imported libraries ==="
+            readelf -d client | grep NEEDED | tee /data/client-15.32.df7b29/needed.txt || true
             echo "=== relevant strings ==="
-            strings -a -n 6 client | grep -Ei "mapdescription|map description|tile|creature|appearances|protocol|network|socket|ssl|websocket|packet|message|position|floor|minimap|gameworld|worldmap|deserialize|serialize" | head -n 1000 | tee /data/client-15.32.df7b29/map-protocol-strings.txt || true
+            strings -a -n 6 client | grep -Ei "mapdescription|map description|tile|creature|appearances|protocol|network|socket|ssl|websocket|packet|message|position|floor|minimap|gameworld|worldmap|deserialize|serialize" | head -n 1500 | tee /data/client-15.32.df7b29/map-protocol-strings.txt || true
             echo "=== imported networking/runtime symbols ==="
-            readelf -Ws client | grep -Ei "recv|send|socket|connect|ssl|EVP|AES|zstd|lzma|protobuf|memcpy|QNetwork|QDataStream" | head -n 500 | tee /data/client-15.32.df7b29/network-symbols.txt || true
+            readelf -Ws client | grep -Ei "recv|send|socket|connect|ssl|EVP|AES|zstd|lzma|protobuf|memcpy|QNetwork|QDataStream" | head -n 700 | tee /data/client-15.32.df7b29/network-symbols.txt || true
           '
-
       - name: Verify canonical staging unchanged
         if: always()
         shell: bash
