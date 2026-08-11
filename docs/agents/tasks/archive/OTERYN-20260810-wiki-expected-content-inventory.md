@@ -199,4 +199,4 @@ evidence:
 
 ## Notes
 
-Terminal state: `DONE`. Issue #326 remains the already-completed parent audit; this archive releases Issue #488 remediation ownership after exact-head evidence became terminal.
+Terminal state: `DONE`. Issue #326 remains open for the remaining exhaustive delivered-screen/browser/visual/state matrix; this archive releases only the focused Issue #488 remediation ownership after exact-head evidence became terminal.
