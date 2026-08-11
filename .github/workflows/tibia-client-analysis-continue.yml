@@ -31,7 +31,7 @@ jobs:
           docker ps -a --filter 'label=com.docker.compose.project=oteryn-staging' --format '{{.ID}}\t{{.Names}}' | sort > /tmp/oteryn-before.tsv
           test -s /tmp/oteryn-before.tsv
 
-      - name: Repair only LZMA size field in a working copy and decode
+      - name: Restore canonical LZMA header in a working copy and decode
         shell: bash
         run: |
           set -Eeuo pipefail
@@ -43,11 +43,13 @@ jobs:
             echo "packed_sha256=$packed"
             [[ "$packed" == "496c5b3517c0996a1bbd0e76a7738d450f79d0bf4fef140a807044776042dc9b" ]]
             echo "original_header=$(od -An -tx1 -N13 client.lzma | tr -d " \n")"
-            cp client.lzma client.manifest-size.lzma
-            printf "\x20\xed\x18\x03\x00\x00\x00\x00" | dd of=client.manifest-size.lzma bs=1 seek=5 conv=notrunc status=none
-            echo "repaired_header=$(od -An -tx1 -N13 client.manifest-size.lzma | tr -d " \n")"
+            cp client.lzma client.restored-header.lzma
+            printf "\x5d\x00\x00\x80\x00\xff\xff\xff\xff\xff\xff\xff\xff" | dd of=client.restored-header.lzma bs=1 seek=0 conv=notrunc status=none
+            restored="$(od -An -tx1 -N13 client.restored-header.lzma | tr -d " \n")"
+            echo "restored_header=$restored"
+            [[ "$restored" == "5d00008000ffffffffffffffff" ]]
             rm -f client
-            xz --format=lzma -dc client.manifest-size.lzma > client
+            xz --format=lzma -dc client.restored-header.lzma > client
             chmod 0755 client
             unpacked="$(sha256sum client | awk "{print \$1}")"
             size="$(stat -c %s client)"
