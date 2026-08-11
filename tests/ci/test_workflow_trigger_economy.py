@@ -112,6 +112,8 @@ assert "  push:\n" not in storage_trigger
 assert "'docs/agents/tasks/**'" not in storage_trigger
 assert "'build-synology-staging-images.yml'" not in storage_trigger
 assert "startsWith(github.event.head_commit.message, 'chore(ci): clean GitHub Actions storage safely (#980)')" not in storage
+assert "group: actions-storage-hygiene-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}" in storage
+assert "cancel-in-progress: ${{ github.event_name == 'pull_request' }}" in storage
 assert "if: ${{ github.event_name == 'pull_request_target' && github.event.action == 'closed' }}" in storage
 assert "if: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}" in storage
 assert "ref: refs/heads/main" in storage
