@@ -36,6 +36,7 @@ owned_paths:
   - .github/workflows/github-actions-storage-hygiene.yml
   - scripts/ci/github_actions_storage_hygiene.py
   - tests/ci/test_github_actions_storage_hygiene.py
+  - tests/ci/test_workflow_trigger_economy.py
   - docs/agents/tasks/active/OTERYN-20260811-github-actions-storage-hygiene.md
   - docs/agents/tasks/archive/OTERYN-20260811-github-actions-storage-hygiene.md
 modules:
@@ -52,8 +53,8 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-11T07:23:00Z
-head: 4f101cfec6c1e7f4b123bc4cbb24c6b312419757
+updated_at: 2026-08-11T07:27:00Z
+head: ce7c0fe438c2115ab35c4b2e3803e7206e7bbda1
 branch: chore/github-actions-storage-hygiene
 pr: 980
 status: validating
@@ -64,6 +65,7 @@ owned_paths:
   - .github/workflows/github-actions-storage-hygiene.yml
   - scripts/ci/github_actions_storage_hygiene.py
   - tests/ci/test_github_actions_storage_hygiene.py
+  - tests/ci/test_workflow_trigger_economy.py
   - docs/agents/tasks/active/OTERYN-20260811-github-actions-storage-hygiene.md
   - docs/agents/tasks/archive/OTERYN-20260811-github-actions-storage-hygiene.md
 proven:
@@ -73,6 +75,7 @@ proven:
   - Pull-request caches are scoped to refs/pull/<number>/merge and GitHub documents that they can only be restored by reruns of that pull request.
   - Draft PR 980 owns the storage-hygiene implementation.
   - An attempted build-workflow retention edit caused 57 PR workflows to be created, so that edit was reverted exactly to main before merge.
+  - Existing CI now executes the storage-hygiene pure contract test through test_workflow_trigger_economy.py before merge.
 derived:
   - Closed-PR merge-ref caches are safely disposable because they cannot benefit main or sibling pull requests and can be regenerated if a historical run is intentionally repeated.
   - Keeping the existing build workflow unchanged avoids making storage hygiene itself a trigger for the repository's heavyweight product validation suite.
@@ -90,6 +93,7 @@ changed_paths:
   - .github/workflows/github-actions-storage-hygiene.yml
   - scripts/ci/github_actions_storage_hygiene.py
   - tests/ci/test_github_actions_storage_hygiene.py
+  - tests/ci/test_workflow_trigger_economy.py
   - docs/agents/tasks/active/OTERYN-20260811-github-actions-storage-hygiene.md
 validation:
   - command: GitHub REST preflight inventory
@@ -100,7 +104,7 @@ validation:
     evidence: .github/workflows/build-synology-staging-images.yml content SHA restored to main blob e67f8ba64883bcfe009df5e87a4fcc6ca43b5746
   - command: current-head pull-request CI
     result: NOT_RUN
-    evidence: awaiting checks after scope narrowing
+    evidence: awaiting checks after CI-contract wiring
 blockers:
   - none
 next_action: inspect PR 980 current-head checks and fix any failing validation before merge
