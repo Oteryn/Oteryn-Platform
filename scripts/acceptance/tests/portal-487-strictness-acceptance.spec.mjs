@@ -291,7 +291,6 @@ test(publicMarker, async ({ page }) => {
     '/',
     '/en',
     '/news',
-    '/support',
   ];
 
   for (const path of layoutPaths) {
@@ -299,6 +298,11 @@ test(publicMarker, async ({ page }) => {
     expect(response?.status(), `Expected renderable strictness surface at ${path}`).toBe(200);
     await assertNoOverflow(page);
   }
+
+  const missingSupportResponse = await page.goto('/support');
+  expect(missingSupportResponse?.status(), 'Expected unconfigured support editorial state').toBe(404);
+  await expect(page.locator('main')).toContainText('has not been configured');
+  await assertNoOverflow(page);
 
   const accessibilityPaths = ['/download', '/events', '/highscores', '/en', '/news', '/support'];
   for (const path of accessibilityPaths) {
