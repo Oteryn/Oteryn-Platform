@@ -15,47 +15,47 @@ env:
 
 jobs:
   continue:
-    name: Decode and inspect verified Tibia executable
+    name: Inspect verified Tibia executable
     runs-on: oteryn-staging
-    timeout-minutes: 20
+    timeout-minutes: 25
     steps:
-      - name: Verify runtime and snapshot
+      - name: Verify runtime and executable identity
         shell: bash
         run: |
           set -Eeuo pipefail
           [[ "$RUNNER_NAME" == "oteryn-synology-staging" ]]
           [[ "$(docker inspect --format '{{ index .Config.Labels "com.blakinio.owner" }}' "$CONTAINER_NAME")" == "oteryn" ]]
           docker ps -a --filter 'label=com.docker.compose.project=oteryn-staging' --format '{{.ID}}\t{{.Names}}' | sort > /tmp/oteryn-before.tsv
-          test -s /tmp/oteryn-before.tsv
-      - name: Decode custom CipSoft envelope and verify executable
-        shell: bash
-        run: |
-          set -Eeuo pipefail
           docker exec "$CONTAINER_NAME" bash -lc '
             set -Eeuo pipefail
             cd /data/client-15.32.df7b29/bin
-            [[ "$(sha256sum client.lzma | awk "{print \$1}")" == "496c5b3517c0996a1bbd0e76a7738d450f79d0bf4fef140a807044776042dc9b" ]]
-            python3 -c "import lzma,pathlib,hashlib; s=pathlib.Path(\"client.lzma\").read_bytes(); assert s[32]==0x5d; assert int.from_bytes(s[33:37],\"little\")==33554432; f={\"id\":lzma.FILTER_LZMA1,\"dict_size\":33554432,\"lc\":3,\"lp\":0,\"pb\":2}; out=lzma.decompress(s[45:],format=lzma.FORMAT_RAW,filters=[f]); print(\"decoded_size\",len(out)); print(\"decoded_sha256\",hashlib.sha256(out).hexdigest()); assert len(out)==51965216; assert hashlib.sha256(out).hexdigest()==\"e6c244bd39fe2e0632f6f000efd3147164696efa8e901718668e0442325ff7fe\"; pathlib.Path(\"client\").write_bytes(out)"
-            chmod 0755 client
-            file client
-            readelf -h client | head -n 40
+            test -x client
+            [[ "$(stat -c %s client)" == "51965216" ]]
+            [[ "$(sha256sum client | awk "{print \$1}")" == "e6c244bd39fe2e0632f6f000efd3147164696efa8e901718668e0442325ff7fe" ]]
           '
-      - name: Reconnaissance for map and protocol interception points
+      - name: Install binary inspection tools
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          docker exec "$CONTAINER_NAME" bash -lc '
+            set -Eeuo pipefail
+            export DEBIAN_FRONTEND=noninteractive
+            command -v readelf >/dev/null && command -v objdump >/dev/null && command -v strings >/dev/null || { apt-get update; apt-get install -y --no-install-recommends binutils; }
+          '
+      - name: Inspect imports strings and protocol clues
         shell: bash
         run: |
           set -Eeuo pipefail
           docker exec "$CONTAINER_NAME" bash -lc '
             set -Eeuo pipefail
             cd /data/client-15.32.df7b29/bin
-            sha256sum client
-            stat -c "path=%n size=%s mode=%a" client
             file client
-            echo "=== needed libraries ==="
+            readelf -h client | tee /data/client-15.32.df7b29/elf-header.txt
             readelf -d client | grep NEEDED | tee /data/client-15.32.df7b29/needed.txt || true
-            echo "=== relevant strings ==="
-            strings -a -n 6 client | grep -Ei "mapdescription|map description|tile|creature|appearances|protocol|network|socket|ssl|websocket|packet|message|position|floor|minimap|gameworld|worldmap|deserialize|serialize" | head -n 2000 | tee /data/client-15.32.df7b29/map-protocol-strings.txt || true
-            echo "=== imported networking/runtime symbols ==="
-            readelf -Ws client | grep -Ei "recv|send|socket|connect|ssl|EVP|AES|zstd|lzma|protobuf|memcpy|QNetwork|QDataStream" | head -n 1000 | tee /data/client-15.32.df7b29/network-symbols.txt || true
+            readelf -Ws client | grep -Ei "recv|send|socket|connect|ssl|EVP|AES|chacha|zstd|lzma|protobuf|memcpy|poll|epoll|select" | tee /data/client-15.32.df7b29/network-symbols.txt || true
+            strings -a -t x -n 6 client | grep -Ei "mapdescription|map description|tile|creature|appearances|protocol|network|socket|ssl|websocket|packet|message|position|floor|minimap|worldmap|deserialize|serialize|game map|map data" | head -n 3000 | tee /data/client-15.32.df7b29/map-protocol-strings.txt || true
+            echo "=== interesting string count ==="
+            wc -l /data/client-15.32.df7b29/map-protocol-strings.txt /data/client-15.32.df7b29/network-symbols.txt
           '
       - name: Verify staging unchanged
         if: always()
