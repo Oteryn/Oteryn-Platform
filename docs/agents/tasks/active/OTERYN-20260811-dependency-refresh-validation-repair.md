@@ -3,7 +3,7 @@ task_id: OTERYN-20260811-dependency-refresh-validation-repair
 mode: implementation
 issue: 691
 branch: fix/issue-691-portal-exhaustive-trigger-coupling
-status: implementing
+status: validating
 project_lane: oteryn-platform-core
 ---
 
@@ -18,9 +18,9 @@ Repair the deterministic Portal Exhaustive exact-head trigger-coupling defect ex
 ```yaml
 owned_paths:
   - .github/workflows/portal-exhaustive-audit.yml
+  - .github/workflows/portal-exhaustive-acceptance.yml
   - .github/workflows/wiki-reconciliation-acceptance.yml
   - .github/workflows/editorial-media-acceptance.yml
-  - .github/workflows/acceptance-validation.yml
   - docs/agents/tasks/active/OTERYN-20260811-dependency-refresh-validation-repair.md
   - docs/agents/tasks/archive/OTERYN-20260811-dependency-refresh-validation-repair.md
 risk: HEIGHTENED
@@ -33,29 +33,48 @@ external_repository_writes: forbidden
 - PR #997 final head `3a66ffb583b93570249cbe0295ad44295fecf625` passed Composer install and all observed dependency/application gates except Portal Exhaustive Audit.
 - Portal Exhaustive run `31490875188`, job `93776909451`, failed only in `Await exact-head strictness execution evidence` after 25 minutes.
 - The step unconditionally required exact-head success for `Wiki Reconciliation Acceptance`, `Editorial Media Acceptance`, and `Acceptance E2E and Visual UX`.
-- `Acceptance E2E and Visual UX` ran and passed; Wiki and Editorial Media were never emitted because their path filters do not cover the dependency-only `composer.lock` change that triggers Portal Exhaustive.
+- `Acceptance E2E and Visual UX` ran and passed; Wiki and Editorial Media were never emitted because their path filters did not cover the dependency-only `composer.lock` change that triggered Portal Exhaustive.
 - Therefore this is a trigger-coupling defect in the audit workflow contract, not a Composer/package regression.
 - Issue #691 was reopened after PR #998 prematurely archived/closed it before this supplemental failure became terminal.
 
 ## Repair contract
 
-1. Every PR/push path that can emit Portal Exhaustive must also be able to emit all three workflows that Portal Exhaustive waits for.
+1. Every PR/push path that can emit Portal Exhaustive must also emit the exact-head strictness companions that Portal Exhaustive waits for.
 2. Preserve fail-closed exact-head execution evidence; do not weaken the audit by treating absent workflows as success.
 3. Add a deterministic validator so future trigger drift fails immediately instead of waiting 25 minutes.
 4. Do not touch Issue #487-owned product/evidence paths in PR #986.
+
+## Implementation
+
+- Wiki Reconciliation and Editorial Media now include the complete Portal Exhaustive PR/push path surface in addition to their own narrower triggers.
+- New `Portal Exhaustive Acceptance E2E` is a same-trigger companion that calls the existing reusable `acceptance-validation.yml` critical profile with zero retries; the primary Acceptance workflow itself is unchanged.
+- Portal Exhaustive now validates trigger-set inclusion before polling and requires the three guaranteed companions: Wiki Reconciliation, Editorial Media, and Portal Exhaustive Acceptance E2E.
 
 ## Checkpoint
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-11T14:58:00+02:00
+updated_at: 2026-08-11T15:04:00+02:00
 base_main: 681455739a054f344dc0e9478ff79821ac4a401d
 branch: fix/issue-691-portal-exhaustive-trigger-coupling
-status: implementing
+status: validating
+changed_paths:
+  - .github/workflows/editorial-media-acceptance.yml
+  - .github/workflows/portal-exhaustive-acceptance.yml
+  - .github/workflows/portal-exhaustive-audit.yml
+  - .github/workflows/wiki-reconciliation-acceptance.yml
+  - docs/agents/tasks/active/OTERYN-20260811-dependency-refresh-validation-repair.md
 first_failure:
   marker: portal-exhaustive-missing-dependent-workflow-runs
   evidence: run 31490875188 job 93776909451 timed out with only Acceptance E2E present; Wiki Reconciliation and Editorial Media had no exact-head runs.
+proven:
+  - main 681455739a054f344dc0e9478ff79821ac4a401d contains the Composer resolution from merged PR #997 and the premature archive PR #998.
+  - Issue #691 is reopened and this branch is zero commits behind that main at implementation start.
+  - Current branch diff excludes every path owned by open PR #986.
+  - Trigger coupling is encoded fail-closed as exact Portal path-set inclusion for both pull_request and push events.
+unknown:
+  - terminal exact-head results of the corrective PR generation
 conflicts:
   - PR #986 owns PORTAL_STRICTNESS_EVIDENCE.json and related Issue #487 acceptance files; this repair intentionally excludes those paths.
-next_action: Align dependent workflow PR/push triggers with the Portal Exhaustive trigger surface, add a static coupling validator, then open one corrective PR and require exact-head Portal Exhaustive plus dependent workflows and repository-selected CI to pass.
+next_action: Open the corrective PR, require exact-head Agent Governance/CI plus Portal Exhaustive and all three strictness companions to reach terminal success, perform whole-diff review, then merge and correct the Issue #691 archive lifecycle.
 ```
