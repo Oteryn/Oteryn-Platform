@@ -10,6 +10,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: oteryn-tibia-client-analysis-continue
+  cancel-in-progress: true
+
 env:
   CONTAINER_NAME: oteryn-tibia-client-analysis
 
@@ -17,7 +21,7 @@ jobs:
   continue:
     name: Derive and decode current Tibia executable
     runs-on: oteryn-staging
-    timeout-minutes: 25
+    timeout-minutes: 20
     steps:
       - name: Verify exact owned runtime and staging snapshot
         shell: bash
@@ -31,7 +35,7 @@ jobs:
           docker ps -a --filter 'label=com.docker.compose.project=oteryn-staging' --format '{{.ID}}\t{{.Names}}' | sort > /tmp/oteryn-before.tsv
           test -s /tmp/oteryn-before.tsv
 
-      - name: Derive raw LZMA parameters from ELF magic
+      - name: Derive only LZMA coding parameters from ELF magic
         shell: bash
         run: |
           set -Eeuo pipefail
@@ -42,19 +46,19 @@ jobs:
             cd /data/client-15.32.df7b29/bin
             packed="$(sha256sum client.lzma | awk "{print \$1}")"
             [[ "$packed" == "496c5b3517c0996a1bbd0e76a7738d450f79d0bf4fef140a807044776042dc9b" ]]
-            printf "%s" "aW1wb3J0IGx6bWEsIHBhdGhsaWIsIGpzb24Kc3JjID0gcGF0aGxpYi5QYXRoKCJjbGllbnQubHptYSIpLnJlYWRfYnl0ZXMoKQpwcmludCgicGFja2VkX2J5dGVzIiwgbGVuKHNyYykpCnByaW50KCJwcmVmaXgxMyIsIHNyY1s6MTNdLmhleCgpKQppZiBzcmNbOjEzXSAhPSBiIlx4MDAiKjEzOgogICAgcmFpc2UgU3lzdGVtRXhpdCgidW5leHBlY3RlZCBub256ZXJvIDEzLWJ5dGUgcHJlZml4IikKcGF5bG9hZCA9IHNyY1sxMzpdCm1hZ2ljID0gYiJceDdmRUxGIgpmb3VuZD1bXQpkaWN0cz1bXQpmb3IgbiBpbiByYW5nZSgxMiwgMjkpOgogICAgZGljdHMuZXh0ZW5kKFsxPDxuLCAoMTw8bikrKDE8PChuLTEpKV0pCmRpY3RzPXNvcnRlZChzZXQoZGljdHMpKQpmb3IgZGljdF9zaXplIGluIGRpY3RzOgogICAgZm9yIHBiIGluIHJhbmdlKDUpOgogICAgICAgIGZvciBscCBpbiByYW5nZSg1KToKICAgICAgICAgICAgZm9yIGxjIGluIHJhbmdlKDkpOgogICAgICAgICAgICAgICAgaWYgbGMgKyBscCA+IDQ6CiAgICAgICAgICAgICAgICAgICAgY29udGludWUKICAgICAgICAgICAgICAgIGZpbHQ9eyJpZCI6bHptYS5GSUxURVJfTFpNQTEsImRpY3Rfc2l6ZSI6ZGljdF9zaXplLCJsYyI6bGMsImxwIjpscCwicGIiOnBifQogICAgICAgICAgICAgICAgdHJ5OgogICAgICAgICAgICAgICAgICAgIGQ9bHptYS5MWk1BRGVjb21wcmVzc29yKGZvcm1hdD1sem1hLkZPUk1BVF9SQVcsIGZpbHRlcnM9W2ZpbHRdKQogICAgICAgICAgICAgICAgICAgIGhlYWQ9ZC5kZWNvbXByZXNzKHBheWxvYWQsIG1heF9sZW5ndGg9NjQpCiAgICAgICAgICAgICAgICBleGNlcHQgbHptYS5MWk1BRXJyb3I6CiAgICAgICAgICAgICAgICAgICAgY29udGludWUKICAgICAgICAgICAgICAgIGlmIGhlYWQuc3RhcnRzd2l0aChtYWdpYyk6CiAgICAgICAgICAgICAgICAgICAgcmVjPXsiZGljdF9zaXplIjpkaWN0X3NpemUsImxjIjpsYywibHAiOmxwLCJwYiI6cGIsImhlYWQiOmhlYWRbOjE2XS5oZXgoKX0KICAgICAgICAgICAgICAgICAgICBwcmludCgiRk9VTkQiLHJlYykKICAgICAgICAgICAgICAgICAgICBmb3VuZC5hcHBlbmQocmVjKQppZiBub3QgZm91bmQ6CiAgICByYWlzZSBTeXN0ZW1FeGl0KCJubyByYXcgTFpNQSBwYXJhbWV0ZXIgc2V0IHByb2R1Y2VkIEVMRiBtYWdpYyIpCnBhdGhsaWIuUGF0aCgibHptYS1wYXJhbXMuanNvbiIpLndyaXRlX3RleHQoanNvbi5kdW1wcyhmb3VuZCwgaW5kZW50PTIpKQpwcmludCgiY2FuZGlkYXRlX2NvdW50IixsZW4oZm91bmQpKQo=" | base64 -d > /tmp/derive_lzma.py
+            printf "%s" "aW1wb3J0IGx6bWEsIHBhdGhsaWIsIGpzb24Kc3JjPXBhdGhsaWIuUGF0aCgiY2xpZW50Lmx6bWEiKS5yZWFkX2J5dGVzKCkKcHJpbnQoInBhY2tlZF9ieXRlcyIsbGVuKHNyYykpCnByaW50KCJwcmVmaXgxMyIsc3JjWzoxM10uaGV4KCkpCmlmIHNyY1s6MTNdICE9IGIiXHgwMCIqMTM6CiAgICByYWlzZSBTeXN0ZW1FeGl0KCJ1bmV4cGVjdGVkIG5vbnplcm8gcHJlZml4IikKcGF5bG9hZD1zcmNbMTM6XQpmb3VuZD1bXQpmb3IgcGIgaW4gcmFuZ2UoNSk6CiAgICBmb3IgbHAgaW4gcmFuZ2UoNSk6CiAgICAgICAgZm9yIGxjIGluIHJhbmdlKDkpOgogICAgICAgICAgICBpZiBsYytscD40OgogICAgICAgICAgICAgICAgY29udGludWUKICAgICAgICAgICAgZj17ImlkIjpsem1hLkZJTFRFUl9MWk1BMSwiZGljdF9zaXplIjo0MDk2LCJsYyI6bGMsImxwIjpscCwicGIiOnBifQogICAgICAgICAgICB0cnk6CiAgICAgICAgICAgICAgICBkPWx6bWEuTFpNQURlY29tcHJlc3Nvcihmb3JtYXQ9bHptYS5GT1JNQVRfUkFXLGZpbHRlcnM9W2ZdKQogICAgICAgICAgICAgICAgaGVhZD1kLmRlY29tcHJlc3MocGF5bG9hZCxtYXhfbGVuZ3RoPTY0KQogICAgICAgICAgICBleGNlcHQgbHptYS5MWk1BRXJyb3I6CiAgICAgICAgICAgICAgICBjb250aW51ZQogICAgICAgICAgICBpZiBoZWFkLnN0YXJ0c3dpdGgoYiJceDdmRUxGIik6CiAgICAgICAgICAgICAgICByZWM9eyJsYyI6bGMsImxwIjpscCwicGIiOnBiLCJoZWFkIjpoZWFkWzoxNl0uaGV4KCl9CiAgICAgICAgICAgICAgICBwcmludCgiRk9VTkQiLHJlYykKICAgICAgICAgICAgICAgIGZvdW5kLmFwcGVuZChyZWMpCmlmIG5vdCBmb3VuZDoKICAgIHJhaXNlIFN5c3RlbUV4aXQoIm5vIGxjL2xwL3BiIHByb2R1Y2VkIEVMRiBtYWdpYyIpCnBhdGhsaWIuUGF0aCgibHptYS1jb2RpbmctcGFyYW1zLmpzb24iKS53cml0ZV90ZXh0KGpzb24uZHVtcHMoZm91bmQsaW5kZW50PTIpKQpwcmludCgiY2FuZGlkYXRlX2NvdW50IixsZW4oZm91bmQpKQo=" | base64 -d > /tmp/derive_lzma.py
             python3 /tmp/derive_lzma.py
-            cat lzma-params.json
+            cat lzma-coding-params.json
           '
 
-      - name: Decode full client with derived parameters and verify manifest identity
+      - name: Decode with safe full dictionary and verify manifest identity
         shell: bash
         run: |
           set -Eeuo pipefail
           docker exec "$CONTAINER_NAME" bash -lc '
             set -Eeuo pipefail
             cd /data/client-15.32.df7b29/bin
-            printf "%s" "aW1wb3J0IGhhc2hsaWIsIGpzb24sIGx6bWEsIHBhdGhsaWIKc3JjPXBhdGhsaWIuUGF0aCgiY2xpZW50Lmx6bWEiKS5yZWFkX2J5dGVzKCkKcGF5bG9hZD1zcmNbMTM6XQpwYXJhbXM9anNvbi5sb2FkcyhwYXRobGliLlBhdGgoImx6bWEtcGFyYW1zLmpzb24iKS5yZWFkX3RleHQoKSkKZXhwZWN0ZWRfaGFzaD0iZTZjMjQ0YmQzOWZlMmUwNjMyZjZmMDAwZWZkMzE0NzE2NDY5NmVmYThlOTAxNzE4NjY4ZTA0NDIzMjVmZjdmZSIKZXhwZWN0ZWRfc2l6ZT01MTk2NTIxNgp2YWxpZD1bXQpmb3IgcCBpbiBwYXJhbXM6CiAgICBmaWx0PXsiaWQiOmx6bWEuRklMVEVSX0xaTUExLCJkaWN0X3NpemUiOnBbImRpY3Rfc2l6ZSJdLCJsYyI6cFsibGMiXSwibHAiOnBbImxwIl0sInBiIjpwWyJwYiJdfQogICAgdHJ5OgogICAgICAgIG91dD1sem1hLmRlY29tcHJlc3MocGF5bG9hZCwgZm9ybWF0PWx6bWEuRk9STUFUX1JBVywgZmlsdGVycz1bZmlsdF0pCiAgICBleGNlcHQgbHptYS5MWk1BRXJyb3IgYXMgZToKICAgICAgICBwcmludCgiRlVMTF9GQUlMIixwLHJlcHIoZSkpCiAgICAgICAgY29udGludWUKICAgIGg9aGFzaGxpYi5zaGEyNTYob3V0KS5oZXhkaWdlc3QoKQogICAgcHJpbnQoIkZVTExfUkVTVUxUIixwLCJzaXplIixsZW4ob3V0KSwic2hhMjU2IixoKQogICAgaWYgbGVuKG91dCk9PWV4cGVjdGVkX3NpemUgYW5kIGg9PWV4cGVjdGVkX2hhc2g6CiAgICAgICAgcGF0aGxpYi5QYXRoKCJjbGllbnQiKS53cml0ZV9ieXRlcyhvdXQpCiAgICAgICAgdmFsaWQuYXBwZW5kKHApCmlmIGxlbih2YWxpZCkhPTE6CiAgICByYWlzZSBTeXN0ZW1FeGl0KGYiZXhwZWN0ZWQgZXhhY3RseSBvbmUgZnVsbHkgdmVyaWZpZWQgcGFyYW1ldGVyIHNldCwgZ290IHtsZW4odmFsaWQpfSIpCnBhdGhsaWIuUGF0aCgidmVyaWZpZWQtbHptYS1wYXJhbXMuanNvbiIpLndyaXRlX3RleHQoanNvbi5kdW1wcyh2YWxpZFswXSxpbmRlbnQ9MikpCg==" | base64 -d > /tmp/decode_lzma.py
+            printf "%s" "aW1wb3J0IGhhc2hsaWIsanNvbixsem1hLHBhdGhsaWIKc3JjPXBhdGhsaWIuUGF0aCgiY2xpZW50Lmx6bWEiKS5yZWFkX2J5dGVzKCkKcGF5bG9hZD1zcmNbMTM6XQpwYXJhbXM9anNvbi5sb2FkcyhwYXRobGliLlBhdGgoImx6bWEtY29kaW5nLXBhcmFtcy5qc29uIikucmVhZF90ZXh0KCkpCmV4cGVjdGVkX2hhc2g9ImU2YzI0NGJkMzlmZTJlMDYzMmY2ZjAwMGVmZDMxNDcxNjQ2OTZlZmE4ZTkwMTcxODY2OGUwNDQyMzI1ZmY3ZmUiCmV4cGVjdGVkX3NpemU9NTE5NjUyMTYKdmFsaWQ9W10KZm9yIHAgaW4gcGFyYW1zOgogICAgZj17ImlkIjpsem1hLkZJTFRFUl9MWk1BMSwiZGljdF9zaXplIjo2NzEwODg2NCwibGMiOnBbImxjIl0sImxwIjpwWyJscCJdLCJwYiI6cFsicGIiXX0KICAgIHRyeToKICAgICAgICBvdXQ9bHptYS5kZWNvbXByZXNzKHBheWxvYWQsZm9ybWF0PWx6bWEuRk9STUFUX1JBVyxmaWx0ZXJzPVtmXSkKICAgIGV4Y2VwdCBsem1hLkxaTUFFcnJvciBhcyBlOgogICAgICAgIHByaW50KCJGVUxMX0ZBSUwiLHAscmVwcihlKSkKICAgICAgICBjb250aW51ZQogICAgaD1oYXNobGliLnNoYTI1NihvdXQpLmhleGRpZ2VzdCgpCiAgICBwcmludCgiRlVMTF9SRVNVTFQiLHAsInNpemUiLGxlbihvdXQpLCJzaGEyNTYiLGgpCiAgICBpZiBsZW4ob3V0KT09ZXhwZWN0ZWRfc2l6ZSBhbmQgaD09ZXhwZWN0ZWRfaGFzaDoKICAgICAgICBwYXRobGliLlBhdGgoImNsaWVudCIpLndyaXRlX2J5dGVzKG91dCkKICAgICAgICB2YWxpZC5hcHBlbmQocCkKaWYgbGVuKHZhbGlkKSE9MToKICAgIHJhaXNlIFN5c3RlbUV4aXQoZiJleHBlY3RlZCBleGFjdGx5IG9uZSBmdWxseSB2ZXJpZmllZCBjb2RpbmcgcGFyYW1ldGVyIHNldCwgZ290IHtsZW4odmFsaWQpfSIpCnBhdGhsaWIuUGF0aCgidmVyaWZpZWQtbHptYS1wYXJhbXMuanNvbiIpLndyaXRlX3RleHQoanNvbi5kdW1wcyh7ImRpY3Rfc2l6ZV91c2VkIjo2NzEwODg2NCwqKnZhbGlkWzBdfSxpbmRlbnQ9MikpCg==" | base64 -d > /tmp/decode_lzma.py
             python3 /tmp/decode_lzma.py
             chmod 0755 client
             echo "verified_params=$(tr -d "\n " < verified-lzma-params.json)"
