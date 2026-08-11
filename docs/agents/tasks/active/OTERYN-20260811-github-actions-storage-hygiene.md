@@ -54,8 +54,8 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-11T10:07:00Z
-head: aa76773873f063aeefc84626d5d073705cbc7296
+updated_at: 2026-08-11T10:12:00Z
+head: 1fb43d31ce05a8c200ccb2e64f590277236a2c7c
 branch: chore/github-actions-storage-hygiene-closeout
 pr: 993
 status: validating
@@ -83,6 +83,7 @@ proven:
   - Attempt 1 inventory observed 15525 artifacts total and 4819 older than 14 days, leaving 10706 then-recent artifacts inside the 14-day retention window; that observed volume is about 765 retained artifacts per day across the window.
   - Normal CI continued creating recent artifacts/caches between snapshots; recent evidence and open/default-branch cache scopes were not cleanup candidates.
   - Closeout audit corrected supersedable PR validation concurrency while preserving non-cancelled cleanup executions.
+  - Functional closeout head 1fb43d31ce05a8c200ccb2e64f590277236a2c7c pins twice-daily bounded maintenance and the matching schedule/concurrency regression contract.
   - Permanent pull_request_target closed-event cleanup and bounded twice-daily/manual maintenance are retained to prevent recurrence and drain historical residual without broad deletion.
 derived:
   - The dominant storage pressure was stale artifacts plus large closed-PR caches; two bounded passes reclaimed most byte-heavy candidates while preserving the API safety reserve.
@@ -118,7 +119,7 @@ validation:
     evidence: superseded PR validation cancellation is scoped to pull_request only; two daily schedule slots provide bounded headroom while closed-PR and maintenance executions remain non-cancelled.
   - command: closeout PR #993 exact-head validation
     result: NOT_RUN
-    evidence: exact-head checks pending after final closeout audit corrections.
+    evidence: exact-head checks pending after final checkpoint-only refresh; functional closeout revision is 1fb43d31ce05a8c200ccb2e64f590277236a2c7c.
 blockers:
   - none
 next_action: After PR #993 reaches terminal state, verify resulting main has no push cleanup authority, then move this task to archive.
