@@ -12,6 +12,7 @@ use Illuminate\Contracts\Console\Kernel;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Storage;
 use PragmaRX\Google2FA\Google2FA;
 
@@ -21,6 +22,7 @@ $app = require dirname(__DIR__, 2).'/bootstrap/app.php';
 $app->make(Kernel::class)->bootstrap();
 
 $command = $argv[1] ?? '';
+$unavailableTable = 'editorial_media_acceptance_unavailable';
 
 $fail = static function (string $message, int $code = 1): never {
     fwrite(STDERR, $message.PHP_EOL);
@@ -42,6 +44,12 @@ $integerId = static function (mixed $value, string $label) use ($fail): int {
     }
 
     $fail("{$label} is unavailable after migrations.");
+};
+
+$restoreAvailability = static function () use ($unavailableTable): void {
+    if (Schema::hasTable($unavailableTable) && ! Schema::hasTable('editorial_media')) {
+        Schema::rename($unavailableTable, 'editorial_media');
+    }
 };
 
 $mediaByArgument = static function (mixed $value) use ($integerId, $fail): EditorialMedia {
@@ -93,7 +101,8 @@ $removeUploadFixtures = static function (): void {
     }
 };
 
-$reset = static function () use ($removeUploadFixtures, $mediaPaths): void {
+$reset = static function () use ($removeUploadFixtures, $mediaPaths, $restoreAvailability): void {
+    $restoreAvailability();
     $mediaItems = EditorialMedia::query()->get();
 
     DB::table('editorial_media_references')->delete();
@@ -114,6 +123,22 @@ $reset = static function () use ($removeUploadFixtures, $mediaPaths): void {
 if ($command === 'reset') {
     $reset();
     $json(['reset' => true]);
+}
+
+if ($command === 'set-admin-unavailable') {
+    $restoreAvailability();
+
+    if (! Schema::hasTable('editorial_media')) {
+        $fail('Editorial Media table is unavailable before administrator failure injection.');
+    }
+
+    Schema::rename('editorial_media', $unavailableTable);
+    $json(['admin_unavailable' => true]);
+}
+
+if ($command === 'restore-admin') {
+    $restoreAvailability();
+    $json(['admin_restored' => Schema::hasTable('editorial_media')]);
 }
 
 if ($command === 'create-upload-fixture') {

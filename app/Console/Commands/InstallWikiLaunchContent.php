@@ -4,6 +4,7 @@ namespace App\Console\Commands;
 
 use App\Identity\Models\Identity;
 use App\Identity\Support\CanonicalEmail;
+use App\Wiki\Content\WikiExpectedContentValidator;
 use App\Wiki\Content\WikiLaunchContentCatalog;
 use App\Wiki\Content\WikiLaunchContentInstaller;
 use Illuminate\Auth\Access\AuthorizationException;
@@ -19,8 +20,11 @@ final class InstallWikiLaunchContent extends Command
 
     protected $description = 'Install the reviewed bilingual Wiki launch-content package without overwriting editorial changes.';
 
-    public function handle(WikiLaunchContentInstaller $installer): int
-    {
+    public function handle(
+        WikiExpectedContentValidator $validator,
+        WikiLaunchContentCatalog $catalog,
+        WikiLaunchContentInstaller $installer,
+    ): int {
         $requestedVersion = $this->option('content-version');
 
         if (! is_string($requestedVersion) || $requestedVersion !== WikiLaunchContentCatalog::VERSION) {
@@ -28,6 +32,14 @@ final class InstallWikiLaunchContent extends Command
                 'Pass --content-version='.WikiLaunchContentCatalog::VERSION
                 .' to confirm the exact reviewed content package.',
             );
+
+            return self::FAILURE;
+        }
+
+        try {
+            $validator->validateCatalog($catalog);
+        } catch (LogicException $exception) {
+            $this->components->error('Wiki expected-content preflight failed: '.$exception->getMessage());
 
             return self::FAILURE;
         }

@@ -76,6 +76,26 @@ class PortalExhaustiveAuditTests(unittest.TestCase):
         self.assertNotEqual(first, other)
         self.assertTrue(first.startswith("OTERYN-AUDIT-CURRENT-CONTENT-"))
 
+    def test_canonical_workflow_gates_wiki_and_executed_evidence_before_generation(self) -> None:
+        repo_root = MODULE_PATH.parents[2]
+        workflow = (repo_root / ".github/workflows/portal-exhaustive-audit.yml").read_text(encoding="utf-8")
+
+        inventory_gate = workflow.index("- name: Validate Wiki expected-content inventory")
+        inventory_command = workflow.index("php artisan wiki:launch-content:validate --json")
+        execution_gate = workflow.index("- name: Await exact-head strictness execution evidence")
+        generation = workflow.index("- name: Generate exhaustive current-main audit")
+
+        self.assertLess(inventory_gate, inventory_command)
+        self.assertLess(inventory_command, execution_gate)
+        self.assertLess(execution_gate, generation)
+        self.assertIn("Wiki Reconciliation Acceptance", workflow)
+        self.assertIn("Editorial Media Acceptance", workflow)
+        self.assertIn("Acceptance E2E and Visual UX", workflow)
+        self.assertIn("value['head_sha'] == os.environ['AUDIT_SHA']", workflow)
+        self.assertIn("value['conclusion'] == 'success'", workflow)
+        self.assertIn("wiki-expected-content-validation.json", workflow)
+        self.assertIn("portal-strictness-execution-evidence.json", workflow)
+
 
 if __name__ == "__main__":
     unittest.main()

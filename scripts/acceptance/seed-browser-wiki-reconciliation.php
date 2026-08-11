@@ -17,6 +17,7 @@ $app->make(Kernel::class)->bootstrap();
 
 $command = $argv[1] ?? '';
 $unavailableTable = 'wiki_article_translations_acceptance_unavailable';
+$adminUnavailableTable = 'wiki_categories_acceptance_unavailable';
 
 $fail = static function (string $message, int $code = 1): never {
     fwrite(STDERR, $message.PHP_EOL);
@@ -42,12 +43,19 @@ $integerId = static function (mixed $value, string $label) use ($fail): int {
 
 $restoreAvailability = static function () use ($unavailableTable): void {
     if (Schema::hasTable($unavailableTable) && ! Schema::hasTable('wiki_article_translations')) {
-        DB::statement("RENAME TABLE {$unavailableTable} TO wiki_article_translations");
+        Schema::rename($unavailableTable, 'wiki_article_translations');
     }
 };
 
-$reset = static function () use ($restoreAvailability): void {
+$restoreAdminAvailability = static function () use ($adminUnavailableTable): void {
+    if (Schema::hasTable($adminUnavailableTable) && ! Schema::hasTable('wiki_categories')) {
+        Schema::rename($adminUnavailableTable, 'wiki_categories');
+    }
+};
+
+$reset = static function () use ($restoreAvailability, $restoreAdminAvailability): void {
     $restoreAvailability();
+    $restoreAdminAvailability();
 
     DB::transaction(static function (): void {
         DB::table('wiki_revisions')->update(['source_revision_id' => null]);
@@ -75,13 +83,29 @@ if ($command === 'set-public-unavailable') {
         $fail('Wiki translation table is unavailable before failure injection.');
     }
 
-    DB::statement("RENAME TABLE wiki_article_translations TO {$unavailableTable}");
+    Schema::rename('wiki_article_translations', $unavailableTable);
     $json(['unavailable' => true]);
 }
 
 if ($command === 'restore-public') {
     $restoreAvailability();
     $json(['restored' => Schema::hasTable('wiki_article_translations')]);
+}
+
+if ($command === 'set-admin-unavailable') {
+    $restoreAdminAvailability();
+
+    if (! Schema::hasTable('wiki_categories')) {
+        $fail('Wiki category table is unavailable before administrator failure injection.');
+    }
+
+    Schema::rename('wiki_categories', $adminUnavailableTable);
+    $json(['admin_unavailable' => true]);
+}
+
+if ($command === 'restore-admin') {
+    $restoreAdminAvailability();
+    $json(['admin_restored' => Schema::hasTable('wiki_categories')]);
 }
 
 if ($command === 'seed-identity') {
