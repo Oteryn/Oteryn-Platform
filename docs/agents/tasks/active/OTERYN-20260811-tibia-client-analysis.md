@@ -53,11 +53,11 @@ It contains the complete current-client identity, package-envelope reverse resul
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-11T22:55:00Z
-head: 4376b5c16af5fc824bd2b1ce8a3caecd40da1a7c
+updated_at: 2026-08-11T21:59:00Z
+head: e7e7cb76180b42db124a8c57a3149390f49ab518
 branch: ops/oteryn-tibia-client-analysis-20260811
 pr: 1006
-status: ready
+status: in_progress
 context_routes:
   - docs/agents/PROMPTING_STANDARD.md
   - docs/agents/PROMPTING_HANDOVER.md
@@ -78,26 +78,34 @@ proven:
   - "Official packed bin/client.lzma has size 10150849 bytes and SHA-256 496c5b3517c0996a1bbd0e76a7738d450f79d0bf4fef140a807044776042dc9b."
   - "The CipSoft package uses an outer envelope; the working inner LZMA stream begins at offset 45 with lc=3, lp=0, pb=2 and 32 MiB dictionary."
   - "GitHub Actions run 31534432923 job 93922033384 completed SUCCESS on oteryn-synology-staging and re-verified executable identity."
-  - "The same successful job inspected the binary and verified canonical oteryn-staging container inventory unchanged."
   - "Binary strings/types expose tibia::worldmap::TWorldmapProtocolMessageHandler and handlers handleFullMapMessage, handleLeftColumnMessage, handleRightColumnMessage, handleTopRowMessage, handleBottomRowMessage, handleTopFloorMessage, handleBottomFloorMessage, handleFieldDataMessage, handleCreateOnMapMessage, handleChangeOnMapMessage and handleDeleteOnMapMessage."
   - "Binary strings/types expose decoded protobuf server messages GameserverMessageFullMap, LeftColumn, RightColumn, TopRow, BottomRow, TopFloor, BottomFloor, FieldData, CreateOnMap, ChangeOnMap and DeleteOnMap plus MapFieldData, MapArea, Coordinate and AppearanceInstance."
   - "Binary strings/types expose TGameserverNetworkPacketConnection, TGameserverNetworkPacketRawDataProcessor, TProtocolReader, TProtobufServerMessageTranslator, TProtocolServerMessageProcessor and TProtocolMessageQueue."
   - "Binary strings/types expose TWorldMapStorage, TWorldMapCoordinate, TAppearancesManager, TMinimapProtocolMessageHandler, TMinimapTileStorage and TMinimapDiskIO."
+  - "Run 31540087420 diagnosed the owned analysis container as exited with ExitCode=137, OOMKilled=false, empty Docker State.Error, correct ownership labels and exact /volume1/docker/oteryn/tibia-analysis -> /data bind mount."
+  - "The owned analysis container was safely restarted after ownership/mount verification and the verified client size/SHA-256 check passed again."
+  - "Run 31540254197 / job 93940802740 completed SUCCESS: target VA mapping, streaming native objdump xrefs, bounded xref disassembly, protobuf clue inspection and canonical staging unchanged all passed."
+  - "Recovered representative VAs: handleFullMapMessage string 0x1cd8c2f; GameserverMessageFullMap adjacent string 0x1cd8c5f; handleFieldDataMessage string 0x1cd8ebe; GameserverMessageFieldData adjacent string 0x1cd8ef0; MapFieldData string 0x1c9f51b; TWorldmapProtocolMessageHandler class string 0x1cd8bb4."
+  - "Streaming native objdump found exactly 4 direct code RIP references to the selected string/type target set. One direct reference at 0xdffb2d targets TWorldmapProtocolMessageHandler class metadata, consistent with a Qt qt_metacast-style function."
+  - "The ELF contains a section named protodesc_cold; target scanning found protobuf-related strings such as Coordinate inside it around VA 0x2959c29 and later addresses."
 derived:
   - "A preferred map collector can operate after protobuf translation and before or at TWorldmapProtocolMessageHandler, avoiding raw encrypted TCP reconstruction for the first implementation path."
   - "The target normalized record should map world coordinates to ordered field/tile contents and appearance/type identifiers, with optional appearance metadata resolution."
+  - "Direct references to handler-name strings are mostly Qt metadata rather than handler-body references; Qt metaobject dispatch and embedded protobuf descriptor sections are now higher-value static routes."
 unknown:
-  - "Exact code addresses/xrefs and protobuf field layouts for handleFullMapMessage, handleFieldDataMessage, MapFieldData, MapArea, Coordinate and AppearanceInstance are not yet recovered."
+  - "Exact code addresses for handleFullMapMessage and handleFieldDataMessage bodies are not yet proven."
+  - "Exact protobuf field layouts for GameserverMessageFullMap, GameserverMessageFieldData, MapFieldData, MapArea, Coordinate and AppearanceInstance are not yet recovered."
   - "Exact lowest-risk runtime hook/interception mechanism has not yet been proven with a live captured map message."
 conflicts: []
 first_failure:
   marker: none
-  evidence: "Latest relevant final inspection run 31534432923 / job 93922033384 is SUCCESS."
+  evidence: "Latest bounded reverse run 31540254197 / job 93940802740 is SUCCESS; prior failures were superseded by corrected bounded workflows."
 rejected_hypotheses:
   - "Uploaded 1.4 MB Tibia/Tibia is the game client: disproved; it is the launcher/updater."
   - "client.lzma is standard LZMA from byte zero: disproved by decoder failures and outer-envelope reverse."
   - "Removing/restoring only a classic 13-byte LZMA header is sufficient: disproved by legal raw-LZMA parameter tests and failed decompression."
   - "Encrypted TCP sniffing is required before semantic map extraction: not supported by current evidence because decoded protobuf map messages and worldmap handlers are directly present in the client."
+  - "Full Python/Capstone traversal of the whole .text section is an appropriate bounded method on this runner: rejected after run 31536027372 failed during the long full scan; native streaming objdump succeeded instead."
 changed_paths:
   - .github/workflows/tibia-client-analysis-one-shot.yml
   - .github/workflows/tibia-client-analysis-continue.yml
@@ -107,11 +115,14 @@ changed_paths:
 validation:
   - command: "GitHub Actions run 31534432923 / job 93922033384"
     result: PASS
-    evidence: "Verify runtime and executable identity, install binutils, inspect binary strings/imports/protocol clues, and verify staging unchanged all completed successfully."
+    evidence: "Verified runtime/executable identity, inspected binary protocol clues and confirmed canonical staging unchanged."
+  - command: "GitHub Actions run 31540254197 / job 93940802740"
+    result: PASS
+    evidence: "Verified running owned runtime and executable identity; mapped target VAs; found 4 direct native objdump xrefs; bounded disassembly and protobuf clue inspection completed; canonical staging unchanged."
   - command: "Executable manifest identity check"
     result: PASS
     evidence: "/data/client-15.32.df7b29/bin/client size 51965216 and SHA-256 e6c244bd39fe2e0632f6f000efd3147164696efa8e901718668e0442325ff7fe."
 blockers:
   - none
-next_action: "Reverse xrefs/code for tibia::worldmap::TWorldmapProtocolMessageHandler::handleFullMapMessage and handleFieldDataMessage, recover MapFieldData/MapArea/Coordinate/AppearanceInstance layouts, then prove one bounded decoded-map capture to deterministic (x,y,z, contents/appearance IDs) output without touching canonical oteryn-staging services."
+next_action: "Dump and analyze the ELF protobuf descriptor sections, starting with protodesc_cold, to recover exact schemas/field numbers for GameserverMessageFullMap, GameserverMessageFieldData, MapFieldData, MapArea, Coordinate and AppearanceInstance; then use the TWorldmapProtocolMessageHandler Qt metaobject neighborhood to resolve handler body addresses and proceed to one bounded decoded-map runtime capture."
 ```
