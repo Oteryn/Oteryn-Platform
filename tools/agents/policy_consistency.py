@@ -106,6 +106,40 @@ def _markdown_outside_fences(markdown: str) -> str:
     return "\n".join(lines)
 
 
+def _top_level_fenced_blocks(markdown: str, info: str) -> list[str]:
+    """Collect top-level fenced blocks for one info string, excluding nested examples."""
+    blocks: list[str] = []
+    active_fence: tuple[str, int] | None = None
+    capture = False
+    body: list[str] = []
+
+    for raw in markdown.splitlines():
+        delimiter = _fence_delimiter(raw.strip())
+        if active_fence is None:
+            if not delimiter:
+                continue
+            char, length, remainder = delimiter
+            active_fence = (char, length)
+            capture = remainder.strip().casefold() == info.casefold()
+            body = []
+            continue
+
+        if delimiter:
+            char, length, remainder = delimiter
+            if char == active_fence[0] and length >= active_fence[1] and not remainder.strip():
+                if capture:
+                    blocks.append("\n".join(body))
+                active_fence = None
+                capture = False
+                body = []
+                continue
+
+        if capture:
+            body.append(raw)
+
+    return blocks
+
+
 def _normalize_marker_line(raw: str) -> str:
     """Strip line-wide Markdown emphasis from a prospective policy marker."""
     match = re.match(r"^(?P<indent>\s*)[*_]{1,6}(?P<body>.+?)[*_]{1,6}\s*$", raw)
@@ -136,9 +170,10 @@ def _normalize_emphasized_marker_lines(markdown: str) -> str:
 
 
 def _yaml_lists(markdown: str, key: str) -> list[list[str]]:
+    authoritative = "\n".join(_top_level_fenced_blocks(markdown, "yaml"))
     pattern = re.compile(rf"(?m)^\s*{re.escape(key)}:\s*\n(?P<body>(?:\s+-\s+[^\n]+\n?)+)")
     declarations: list[list[str]] = []
-    for match in pattern.finditer(markdown):
+    for match in pattern.finditer(authoritative):
         values = [item.strip().strip("'\"") for item in re.findall(r"(?m)^\s*-\s+([^#\n]+?)\s*$", match.group("body"))]
         if values:
             declarations.append(values)
@@ -148,7 +183,8 @@ def _yaml_lists(markdown: str, key: str) -> list[list[str]]:
 
 
 def _yaml_int(markdown: str, key: str) -> int:
-    matches = re.findall(rf"(?m)^\s*{re.escape(key)}:\s*(\d+)\s*$", markdown)
+    authoritative = "\n".join(_top_level_fenced_blocks(markdown, "yaml"))
+    matches = re.findall(rf"(?m)^\s*{re.escape(key)}:\s*(\d+)\s*$", authoritative)
     if not matches:
         raise PolicyConsistencyError(f"cannot parse integer policy value {key}")
     values = {int(value) for value in matches}
@@ -338,25 +374,44 @@ def _repo_specific_window(clause: str, repository: str, radius: int = 140) -> st
     return lowered[max(0, index - radius): index + len(repository) + radius]
 
 
+def _authorization_scope_matches_repository(condition: str, repository: str) -> bool:
+    normalized = _normalize_inline_markdown(condition).casefold()
+    repository_key = repository.casefold()
+    referenced_repositories = {match.group(1).casefold() for match in REPO_TOKEN.finditer(normalized)}
+    if referenced_repositories - {repository_key}:
+        return False
+
+    read_only_scope = re.search(
+        r"\b(?:read(?:-only)?\s+(?:access|permission)|inspect(?:ion)?\s*(?:access|permission)?|view(?:ing)?\s*(?:access|permission)?)\b",
+        normalized,
+    )
+    if read_only_scope and not MUTATION_WORD.search(normalized):
+        return False
+    return True
+
+
 def _repo_has_conditional_user_authorization(clause: str, repository: str) -> bool:
     window = _repo_specific_window(clause, repository, 220)
     if "only when" not in window:
         return False
-    if not any(value in window for value in ("current task", "write task", "separate permission")):
+    condition = window.split("only when", 1)[1]
+    if not any(value in condition for value in ("current task", "write task", "separate permission")):
         return False
 
     active_authorization = re.search(
         r"\b(?:the\s+)?(?:user|project\s+owner|owner)\b.{0,100}?"
         r"\bexplicitly\s+(?:authoriz(?:e|es|ed)|grant(?:s|ed)?|permit(?:s|ted)?|approve(?:s|d)?)\b",
-        window,
+        condition,
     )
     passive_authorization = re.search(
         r"\bexplicit\s+(?:permission|authorization)\b.{0,80}?"
         r"\b(?:is|was|has\s+been)\s+(?:granted|given|provided|approved)\b.{0,100}?"
         r"\bby\s+(?:the\s+)?(?:user|project\s+owner|owner)\b",
-        window,
+        condition,
     )
-    return bool(active_authorization or passive_authorization)
+    if not (active_authorization or passive_authorization):
+        return False
+    return _authorization_scope_matches_repository(condition, repository)
 
 
 def _repo_has_positive_read_only_assertion(clause: str, repository: str) -> bool:
