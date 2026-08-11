@@ -1,0 +1,161 @@
+name: Tibia Client Analysis One Shot
+
+on:
+  push:
+    branches:
+      - ops/oteryn-tibia-client-analysis-20260811
+    paths:
+      - .github/workflows/tibia-client-analysis-one-shot.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: oteryn-tibia-client-analysis-one-shot
+  cancel-in-progress: false
+
+jobs:
+  bootstrap:
+    name: Bootstrap Tibia analysis on Oteryn deploy runner
+    runs-on: oteryn-staging
+    environment: synology-staging
+    timeout-minutes: 15
+    env:
+      CONTAINER_NAME: oteryn-tibia-client-analysis
+      HOST_DATA_DIR: /volume1/docker/oteryn/tibia-analysis
+    steps:
+      - name: Verify exact runner and shared-host boundary
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          printf 'runner_name=%s\nrunner_os=%s\nrunner_arch=%s\n' "$RUNNER_NAME" "$RUNNER_OS" "$RUNNER_ARCH"
+          docker version >/dev/null
+          docker info --format 'docker_root={{.DockerRootDir}} server={{.ServerVersion}}'
+          test -d /volume1/docker/oteryn
+          docker ps -a --filter 'label=com.docker.compose.project=oteryn-staging' \
+            --format '{{.ID}}\t{{.Names}}' | sort > /tmp/oteryn-canonical-before.tsv
+          cat /tmp/oteryn-canonical-before.tsv
+          test -s /tmp/oteryn-canonical-before.tsv
+          if docker inspect "$CONTAINER_NAME" >/dev/null 2>&1; then
+            owner="$(docker inspect --format '{{ index .Config.Labels "com.blakinio.owner" }}' "$CONTAINER_NAME")"
+            purpose="$(docker inspect --format '{{ index .Config.Labels "com.blakinio.purpose" }}' "$CONTAINER_NAME")"
+            [[ "$owner" == "oteryn" && "$purpose" == "tibia-client-analysis" ]]
+          fi
+
+      - name: Create isolated persistent analysis container
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          mkdir -p "$HOST_DATA_DIR"
+          if ! docker inspect "$CONTAINER_NAME" >/dev/null 2>&1; then
+            docker run -d \
+              --name "$CONTAINER_NAME" \
+              --restart unless-stopped \
+              --label com.blakinio.owner=oteryn \
+              --label com.blakinio.purpose=tibia-client-analysis \
+              --label com.blakinio.task=OTERYN-20260811-tibia-client-analysis \
+              -v "$HOST_DATA_DIR:/data" \
+              ubuntu:24.04 sleep infinity
+          else
+            docker start "$CONTAINER_NAME" >/dev/null || true
+          fi
+          docker inspect --format 'name={{.Name}} status={{.State.Status}} image={{.Config.Image}}' "$CONTAINER_NAME"
+
+      - name: Install launcher prerequisites
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          docker exec "$CONTAINER_NAME" bash -lc '
+            set -Eeuo pipefail
+            export DEBIAN_FRONTEND=noninteractive
+            apt-get update
+            apt-get install -y --no-install-recommends \
+              ca-certificates curl file procps tar xvfb xauth \
+              libxcb-cursor0 libxkbcommon-x11-0 libgl1 libnss3 \
+              libdbus-1-3 libasound2t64 libx11-xcb1 libxcb1
+            rm -rf /var/lib/apt/lists/*
+          '
+
+      - name: Download official CipSoft Linux launcher
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          docker exec "$CONTAINER_NAME" bash -lc '
+            set -Eeuo pipefail
+            mkdir -p /data/bootstrap /data/home
+            cd /data/bootstrap
+            page="$(curl -fsSL --retry 3 --retry-delay 2 https://www.tibia.com/account/?subtopic=downloadclient || true)"
+            url="$(printf "%s" "$page" | grep -Eo "https?://[^\"[:space:]]*tibia\.x64\.tar\.gz" | head -n1 || true)"
+            if [[ -z "$url" ]]; then
+              url="https://static.tibia.com/download/tibia.x64.tar.gz"
+            fi
+            case "$url" in
+              https://*.tibia.com/*) ;;
+              *) echo "Refusing non-Tibia download URL: $url" >&2; exit 1 ;;
+            esac
+            echo "download_url=$url"
+            curl -fL --retry 3 --retry-delay 2 "$url" -o tibia.x64.tar.gz
+            test -s tibia.x64.tar.gz
+            sha256sum tibia.x64.tar.gz | tee tibia.x64.tar.gz.sha256
+            rm -rf Tibia
+            tar xfz tibia.x64.tar.gz
+            test -x Tibia/Tibia
+            file Tibia/Tibia
+            stat -c "launcher_size=%s" Tibia/Tibia
+          '
+
+      - name: Run launcher headlessly to materialize current package
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          set +e
+          docker exec "$CONTAINER_NAME" bash -lc '
+            export HOME=/data/home
+            export XDG_CONFIG_HOME=/data/home/.config
+            export XDG_DATA_HOME=/data/home/.local/share
+            export XDG_CACHE_HOME=/data/home/.cache
+            mkdir -p "$XDG_CONFIG_HOME" "$XDG_DATA_HOME" "$XDG_CACHE_HOME"
+            cd /data/bootstrap/Tibia
+            timeout --signal=TERM --kill-after=15s 300s xvfb-run -a ./Tibia
+          '
+          rc=$?
+          set -e
+          echo "launcher_exit=$rc"
+          [[ "$rc" -eq 0 || "$rc" -eq 124 || "$rc" -eq 137 || "$rc" -eq 143 ]]
+
+      - name: Verify package and identify client candidates
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          docker exec "$CONTAINER_NAME" bash -lc '
+            set -Eeuo pipefail
+            echo "=== package directories ==="
+            find /data/home /data/bootstrap -maxdepth 8 -type d \( -iname packages -o -iname Tibia \) -print 2>/dev/null | sort -u
+            echo "=== files larger than 20 MiB ==="
+            : > /data/tibia-large-files.txt
+            while IFS= read -r -d "" f; do
+              printf "%s\t" "$f" | tee -a /data/tibia-large-files.txt
+              stat -c "%s bytes" "$f" | tee -a /data/tibia-large-files.txt
+              file "$f" | tee -a /data/tibia-large-files.txt
+            done < <(find /data/home /data/bootstrap -type f -size +20M -print0 2>/dev/null)
+            candidates="$(find /data/home -type f -size +20M 2>/dev/null | wc -l)"
+            echo "materialized_large_file_count=$candidates"
+            echo "=== package metadata paths ==="
+            find /data/home -type f \( -name package.json -o -name launchermetadata.json -o -name tibiametadata.json \) -print 2>/dev/null \
+              | tee /data/tibia-package-metadata-paths.txt || true
+            if [[ "$candidates" -lt 1 ]]; then
+              echo "No full game package was materialized by the launcher." >&2
+              find /data/home -maxdepth 9 -type f -printf "%s %p\n" 2>/dev/null | sort -nr | head -n 80 >&2 || true
+              exit 1
+            fi
+          '
+
+      - name: Verify canonical Oteryn staging identity unchanged
+        if: always()
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          docker ps -a --filter 'label=com.docker.compose.project=oteryn-staging' \
+            --format '{{.ID}}\t{{.Names}}' | sort > /tmp/oteryn-canonical-after.tsv
+          diff -u /tmp/oteryn-canonical-before.tsv /tmp/oteryn-canonical-after.tsv
+          docker inspect --format 'analysis_name={{.Name}} status={{.State.Status}} restart={{.HostConfig.RestartPolicy.Name}} owner={{ index .Config.Labels "com.blakinio.owner" }} purpose={{ index .Config.Labels "com.blakinio.purpose" }}' "$CONTAINER_NAME" || true
