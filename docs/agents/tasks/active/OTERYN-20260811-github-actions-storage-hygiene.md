@@ -20,14 +20,15 @@ Audit and safely reduce GitHub Actions storage for `blakinio/Oteryn-Platform`, t
 
 ## Acceptance criteria
 
-- [ ] Record a sanitized pre-cleanup inventory for Actions artifacts, caches and workflow runs.
+- [x] Record a sanitized pre-cleanup inventory for Actions artifacts, caches and workflow runs.
 - [ ] Delete caches scoped to closed pull-request merge refs while preserving open-PR and branch/default-branch caches.
 - [ ] Delete workflow artifacts older than 14 days while preserving recent evidence.
-- [ ] Delete only completed workflow runs older than 30 days; preserve all newer or non-completed runs.
-- [ ] Do not delete releases, packages, GHCR images, repository files, environments, secrets or unrelated GitHub resources.
-- [ ] Add permanent exact-scope cleanup for closed-PR caches and scheduled/manual storage hygiene.
-- [ ] Produce sanitized post-cleanup counts/bytes and verify the cleanup predicates after live execution.
-- [ ] Merge only after current-head CI/governance checks pass and archive this task after verified completion.
+- [x] Delete only completed workflow runs older than 30 days; preserve all newer or non-completed runs. No eligible run exists because the repository is younger than 30 days.
+- [x] Do not delete releases, packages, GHCR images, repository files, environments, secrets or unrelated GitHub resources.
+- [x] Add permanent exact-scope cleanup for closed-PR caches and scheduled/manual storage hygiene.
+- [ ] Produce terminal sanitized post-cleanup counts/bytes and verify the cleanup predicates after all bounded live cleanup passes.
+- [x] Implementation PR #980 merged after exact-head CI/governance/heightened validation.
+- [ ] Remove the one-time #980 push bootstrap after terminal live cleanup evidence and archive this task.
 
 ## Ownership
 
@@ -53,11 +54,12 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-11T08:10:00Z
-head: 64adcd8bc957e345a962d91f479df1c3ee3dc0c3
+updated_at: 2026-08-11T11:30:00+02:00
+head: 11e223f5f0883f0f3096769fbc2291de7edae62e
 branch: chore/github-actions-storage-hygiene
 pr: 980
 status: validating
+terminal_pr_policy: archive_pending
 context_routes:
   - ci-operations
   - execution-resource-hygiene
@@ -69,33 +71,33 @@ owned_paths:
   - docs/agents/tasks/active/OTERYN-20260811-github-actions-storage-hygiene.md
   - docs/agents/tasks/archive/OTERYN-20260811-github-actions-storage-hygiene.md
 proven:
-  - Repository main was b54de1859cfdb3ca12ff8904e0b0ead82449f613 at task start.
-  - GitHub API reported 15327 Actions artifacts before cleanup.
-  - GitHub API reported 1056 active caches using 3281257982 bytes before cleanup.
-  - Pull-request caches are scoped to refs/pull/<number>/merge and GitHub documents that they can only be restored by reruns of that pull request.
-  - An attempted build-workflow retention edit caused 57 PR workflows to be created, so that edit was reverted exactly to main.
-  - Head a6fd050eecf93ba6b6d7a924365572c5c170af9d passed all eight relevant PR workflows including Deep System Validation and the new storage-hygiene validation.
-  - Two subsequent review findings identified a 1000-result filtered-run ceiling failure and redundant artifact/run candidate accounting; both root causes are patched and covered by focused tests.
-  - GitHub documents a 1000-result ceiling for filtered workflow-run searches and supports a created date-time range, which the revised inventory now partitions recursively.
-  - Review-fix generation on 64adcd8bc957e345a962d91f479df1c3ee3dc0c3 reached Agent Governance run 31471191644; its failure was unrelated task-registry drift for already-merged Wiki PR #972, while checkpoint schema/tests themselves passed.
-  - Protected main 3290bedb4c9c264286ccafb32d7f0bc490198a9d now contains the terminal archive for Wiki task OTERYN-20260810-wiki-expected-content-inventory and the former active path is absent.
-  - Duplicate Wiki archive PR #984 was closed without merge after verifying main already carried the correct terminal transition.
+  - Repository pre-cleanup inventory reported 15327 Actions artifacts and 1056 active caches using 3281257982 bytes at task discovery.
+  - Pull-request caches are scoped to refs/pull/<number>/merge and can only be restored by reruns of that pull request.
+  - Implementation PR #980 merged to protected main as 11e223f5f0883f0f3096769fbc2291de7edae62e from exact head 8f6efc6b08f9c7b31160db5ec1ffdb032c83e9c2.
+  - Exact #980 implementation head passed Agent Governance 31474126909, CI 31474126854, GitHub Actions Storage Hygiene 31474126884, Phase 7 31474126847, Platform DB Outage 31474126899, Game Auth Ticket Concurrency 31474126846, Edge Security 31474126877 and Deep System Validation 31474126860 before merge.
+  - Post-merge push workflow run 31476011425 is the intended one-time cleanup bootstrap on exact merge 11e223f5f0883f0f3096769fbc2291de7edae62e.
+  - Post-merge cleanup attempt 1 maintenance job 93729781096 completed successfully with exact bounded cleanup mode and delete budget 700.
+  - Attempt 1 started with 15525 artifacts / 12224098506 bytes and 1127 caches / 5498901543 bytes, selected 700 exact candidates, deleted 494 artifacts / 4244404516 bytes and 206 caches / 2273009806 bytes, leaving 15042 artifacts and 929 caches / 3248921261 bytes.
+  - Attempt 1 reported 5009 eligible candidates remaining only because of the explicit bounded deletion budget; therefore the live task is not yet terminal and must not be archived yet.
+  - Attempt 2 of run 31476011425 is currently executing the same trusted-main bounded cleanup after attempt 1 reached a successful reporting boundary.
+  - The one-time push bootstrap is fail-closed to a main push whose head commit message begins with chore(ci): clean GitHub Actions storage safely (#980); ordinary later pushes do not execute destructive maintenance.
 derived:
-  - Closed-PR merge-ref caches are safely disposable because they cannot benefit main or sibling pull requests and can be regenerated if a historical run is intentionally repeated.
-  - Recursive time-window partitioning prevents high-volume old-run inventory from permanently blocking cache/artifact cleanup at the provider search ceiling.
-  - Assigning aggregate artifact bytes to an old run lets one run deletion cover child artifacts without wasting separate deletion budget slots.
-  - A fresh PR generation is required after the unrelated Wiki task-liveness repair so Agent Governance validates against current protected main rather than the stale merge generation.
+  - The stale pre-merge next_action was incorrect after PR #980 merged and caused unrelated Agent Governance failures through terminal_pr_stale_next_action and terminal_pr_active_task.
+  - While bounded cleanup passes are still needed, the correct durable liveness state is terminal_pr_policy archive_pending rather than pretending PR #980 remains merge-pending or archiving incomplete live cleanup.
+  - Terminal closeout requires a final live pass with no cleanup-eligible candidates remaining due to budget, then removal of the one-time #980 push bootstrap and task archival.
 unknown:
-  - Exact artifact bytes and exact number of cleanup-eligible resources until the live bounded cleanup executes after merge.
+  - Exact terminal artifact/cache counts and bytes until bounded live cleanup reaches zero remaining eligible candidates.
+  - Number of additional bounded cleanup attempts required after the currently running attempt 2.
 conflicts: []
 first_failure:
-  marker: CI_TRIGGER_AMPLIFICATION
-  evidence: modifying build-synology-staging-images.yml caused 57 PR workflow runs on intermediate head 6f31832e046ad974f26721f69aa397bf6162f487; change reverted to main content
+  marker: LIVE_CLEANUP_REMAINS_AFTER_BOUNDED_PASS
+  evidence: post-merge run 31476011425 attempt 1 succeeded but reported remaining_eligible_candidates_due_to_budget=5009 after 700 exact deletions.
 rejected_hypotheses:
+  - PR #980 is still merge-pending; GitHub proves it merged as 11e223f5f0883f0f3096769fbc2291de7edae62e.
+  - The active task may be archived immediately after implementation merge; live cleanup acceptance is still incomplete because exact eligible candidates remain.
   - Blanket cache or artifact deletion without retention/ownership predicates.
   - Repository cache-retention setting mutation because the live API returned HTTP 402 for that settings endpoint.
-  - Editing the heavyweight build workflow solely to shorten build-record retention because the PR-trigger fan-out outweighed the benefit in this bounded task.
-  - Agent Governance failure 31471191644 was caused by this storage-hygiene implementation; its log identifies only stale terminal Wiki task metadata and main now contains that task archival.
+  - Editing unrelated heavyweight workflows merely to shorten storage retention.
 changed_paths:
   - .github/workflows/github-actions-storage-hygiene.yml
   - scripts/ci/github_actions_storage_hygiene.py
@@ -103,21 +105,17 @@ changed_paths:
   - tests/ci/test_workflow_trigger_economy.py
   - docs/agents/tasks/active/OTERYN-20260811-github-actions-storage-hygiene.md
 validation:
-  - command: GitHub REST preflight inventory
+  - command: implementation PR #980 exact-head validation and merge verification
     result: PASS
-    evidence: artifacts total_count=15327; active_caches_count=1056; active_caches_size_in_bytes=3281257982
-  - command: build workflow scope rollback
+    evidence: PR #980 merged as 11e223f5f0883f0f3096769fbc2291de7edae62e after all declared exact-head validation gates passed.
+  - command: post-merge push cleanup attempt 1
     result: PASS
-    evidence: .github/workflows/build-synology-staging-images.yml content SHA restored to main blob e67f8ba64883bcfe009df5e87a4fcc6ca43b5746
-  - command: PR current-head validation before review fixes
-    result: PASS
-    evidence: head a6fd050eecf93ba6b6d7a924365572c5c170af9d passed Agent Governance, CI, GitHub Actions Storage Hygiene, Deep System Validation, Phase 7, DB Outage, Game Auth Concurrency and Edge Security Emulation
-  - command: review-fix generation Agent Governance
-    result: FAIL
-    evidence: run 31471191644 failed only terminal_pr_stale_next_action and terminal_pr_active_task for merged Wiki PR #972; protected main 3290bedb4c9c264286ccafb32d7f0bc490198a9d subsequently archived that task
-blockers:
-  - none
-next_action: require the fresh current-main PR generation to pass, resolve the two repaired review threads, then merge PR 980 with exact head and execute live cleanup
+    evidence: run 31476011425 attempt 1 maintenance job 93729781096 completed bounded exact-ID cleanup and terminal reporting; remaining_eligible_candidates_due_to_budget=5009 proves more bounded passes are still required.
+  - command: post-merge push cleanup attempt 2
+    result: NOT_RUN
+    evidence: run 31476011425 attempt 2 is currently in progress and has no terminal result yet.
+blockers: []
+next_action: complete bounded live cleanup passes, remove the one-time #980 push bootstrap, then archive task
 ```
 
 ## Notes
