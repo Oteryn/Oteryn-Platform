@@ -27,8 +27,9 @@ NUMBER_WORDS = {
 
 REPO_TOKEN = re.compile(r"(?<![A-Za-z0-9_.-])([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)(?![A-Za-z0-9_.-])")
 QUOTED_REPO_TOKEN = re.compile(r"`([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)`")
-MUTATION_WORD = re.compile(r"\b(?:write|writes|writable|edit|edits|edited|push|pushes|pushed|commit|commits|committed|merge|merges|merged|mutate|mutates|mutation)\b", re.I)
-POSITIVE_AUTH = re.compile(r"\b(?:allow|allows|allowed|authorize|authorizes|authorized|permit|permits|permitted|may|can)\b", re.I)
+MUTATION_TERM = r"(?:writ(?:e|es|ing|ten)|writable|edit(?:s|ed|ing)?|push(?:es|ed|ing)?|commit(?:s|ted|ting)?|merge(?:s|d|ing)?|mutat(?:e|es|ed|ing|ion|ions))"
+MUTATION_WORD = re.compile(rf"\b{MUTATION_TERM}\b", re.I)
+POSITIVE_AUTH = re.compile(r"\b(?:allow|allows|allowed|authorize|authorizes|authorized|permit|permits|permitted|may|can|grant|grants|granted)\b", re.I)
 NEGATIVE_AUTH = re.compile(r"\b(?:not\s+allowed|not\s+authorized|not\s+permitted|may\s+not|cannot|can't|can’t|never\s+allowed|unauthorized)\b", re.I)
 
 
@@ -60,14 +61,17 @@ def _normalize_inline_markdown(text: str) -> str:
 def _normalize_emphasized_marker_lines(markdown: str) -> str:
     """Strip line-wide Markdown emphasis, including nested bold/italic combinations."""
     lines: list[str] = []
+    in_fence = False
     for raw in markdown.splitlines():
         stripped = raw.strip()
-        if stripped.startswith("```"):
+        if stripped.startswith("```") or stripped.startswith("~~~"):
+            in_fence = not in_fence
             lines.append(raw)
             continue
-        match = re.match(r"^(?P<indent>\s*)[*_]{1,6}(?P<body>.+?)[*_]{1,6}\s*$", raw)
-        if match:
-            raw = match.group("indent") + match.group("body")
+        if not in_fence:
+            match = re.match(r"^(?P<indent>\s*)[*_]{1,6}(?P<body>.+?)[*_]{1,6}\s*$", raw)
+            if match:
+                raw = match.group("indent") + match.group("body")
         lines.append(raw)
     return "\n".join(lines)
 
@@ -143,6 +147,7 @@ def _require_all_declarations(errors: list[str], source: str, declarations: list
 def _logical_markdown_statements(markdown: str) -> list[str]:
     statements: list[str] = []
     current: list[str] = []
+    in_fence = False
 
     def flush() -> None:
         if current:
@@ -151,7 +156,13 @@ def _logical_markdown_statements(markdown: str) -> list[str]:
 
     for raw in markdown.splitlines():
         stripped = raw.strip()
-        if not stripped or stripped.startswith("#") or stripped.startswith("```"):
+        if stripped.startswith("```") or stripped.startswith("~~~"):
+            flush()
+            in_fence = not in_fence
+            continue
+        if in_fence:
+            continue
+        if not stripped or stripped.startswith("#"):
             flush()
             continue
         bullet = re.match(r"^\s*[-*+]\s+(.*)$", raw)
@@ -167,10 +178,10 @@ def _logical_markdown_statements(markdown: str) -> list[str]:
 
 
 def _policy_clauses(statement: str) -> list[str]:
-    """Split independent grant clauses without breaking conjunctions inside one condition."""
+    """Split independent grant clauses while preserving conjunctions with no new mutation verb."""
     pattern = (
-        r"\s*;\s*|(?<=\.)\s+|\s*,?\s+(?:but|however|while)\s+|"
-        r"\s+and\s+(?=(?:(?:additionally|also)\s+)?(?:the\s+)?(?:autonomous\b|agents?\b|writes?\b|edits?\b|push(?:es)?\b|commits?\b|merges?\b|mutat\w*\b))"
+        rf"\s*;\s*|(?<=\.)\s+|\s*,?\s+(?:but|however|while)\s+|"
+        rf"\s+and\s+(?=(?:(?![.;]).){{0,96}}\b{MUTATION_TERM}\b)"
     )
     return [value.strip() for value in re.split(pattern, statement, flags=re.I) if value.strip()]
 
@@ -184,7 +195,7 @@ def _has_positive_mutation_grant(clause: str) -> bool:
         if not positives:
             return False
         for match in positives:
-            window = normalized[max(0, match.start() - 16): match.end() + 16]
+            window = normalized[max(0, match.start() - 20): match.end() + 20]
             if not NEGATIVE_AUTH.search(window):
                 return True
         return False
@@ -200,11 +211,13 @@ def _repo_specific_window(clause: str, repository: str, radius: int = 140) -> st
 
 
 def _repo_has_conditional_user_authorization(clause: str, repository: str) -> bool:
-    window = _repo_specific_window(clause, repository, 180)
+    window = _repo_specific_window(clause, repository, 220)
     conditional = "only when" in window or "unless" in window
-    explicitly_authorized = bool(re.search(r"\b(?:user|project\s+owner)\b.*\bexplicit(?:ly)?\b.*\b(?:authoriz\w*|grant\w*|permission)\b", window))
+    owner_present = bool(re.search(r"\b(?:user|project\s+owner|owner)\b", window))
+    explicit_present = bool(re.search(r"\bexplicit(?:ly)?\b", window))
+    authorization_present = bool(re.search(r"\b(?:authoriz\w*|grant\w*|permission)\b", window))
     task_scoped = any(value in window for value in ("current task", "write task", "separate permission"))
-    return conditional and explicitly_authorized and task_scoped
+    return conditional and owner_present and explicit_present and authorization_present and task_scoped
 
 
 def _repo_has_positive_read_only_assertion(clause: str, repository: str) -> bool:
@@ -230,15 +243,15 @@ def _repository_identifiers_in_grant_clause(clause: str) -> list[str]:
     repositories: set[str] = set()
     for match in REPO_TOKEN.finditer(normalized):
         repository = match.group(1)
-        before = normalized[max(0, match.start() - 90):match.start()]
-        after = normalized[match.end():match.end() + 56]
-        mutation_before = bool(re.search(r"\b(?:write|writes|edit|edits|push|pushes|commit|commits|merge|merges|mutate|mutates|mutation)\b(?:\s+(?:operations?|access|to|of))*\s*$", before, flags=re.I))
+        before = normalized[max(0, match.start() - 100):match.start()]
+        after = normalized[match.end():match.end() + 64]
+        mutation_before = bool(re.search(rf"\b{MUTATION_TERM}\b(?:\s+(?:operations?|access|to|of))*\s*$", before, flags=re.I))
         writable_after = bool(re.match(r"\s+(?:is\s+|are\s+)?writable\b", after, flags=re.I))
         if not (mutation_before or writable_after):
             continue
         if repository.casefold() not in quoted_repositories and _slash_token_is_prose(normalized, match):
             continue
-        local = normalized[max(0, match.start() - 100):match.end() + 120]
+        local = normalized[max(0, match.start() - 120):match.end() + 140]
         if POSITIVE_AUTH.search(local):
             repositories.add(repository)
     return sorted(repositories)
