@@ -10,7 +10,8 @@ final_pr_head: 490ab09599dbdb639da496a51f6a3d7b89b3a23a
 implementation_merge_commit: 5a687af557da7368ae7f1872d698a6246fce8853
 archive_pr: 981
 archive_merge_commit: 3290bedb4c9c264286ccafb32d7f0bc490198a9d
-initial_issue_close_at: 2026-08-11T07:44:11Z
+initial_issue_close_at: 2026-08-11T07:44:12Z
+issue_reopened_at: 2026-08-11T07:48:49Z
 terminal_issue_close_at: 2026-08-11T07:59:56Z
 ---
 
@@ -20,7 +21,7 @@ terminal_issue_close_at: 2026-08-11T07:59:56Z
 
 Issue #488 was delivered by PR #972, whose exact implementation head was `490ab09599dbdb639da496a51f6a3d7b89b3a23a` and whose squash merge is `5a687af557da7368ae7f1872d698a6246fce8853`.
 
-GitHub recorded the first Issue closure at `2026-08-11T07:44:11Z` with that implementation merge. The Issue was then reopened solely for terminal reconciliation because Deep System Validation on the same exact implementation head was still running and the active task record had not yet been archived. Deep System Validation run `31468634455` subsequently completed successfully. Issue #488 reached its final `closed/completed` state at `2026-08-11T07:59:56Z`, with repair/coordination ownership released in Issue comment `5250533679`.
+GitHub event `29266301474` records the first Issue closure at `2026-08-11T07:44:12Z` with the implementation merge. GitHub event `29266488097` records the Issue reopening at `2026-08-11T07:48:49Z` during terminal reconciliation; at that point Deep System Validation on the same exact implementation head was still running and the active task record had not yet been archived. Deep System Validation run `31468634455` subsequently completed successfully. GitHub event `29266970116` records the terminal Issue close at `2026-08-11T07:59:56Z`; current Issue state is `closed/completed`, with repair/coordination ownership released in Issue comment `5250533679`.
 
 PR #981 then performed the mandatory active-to-archive lifecycle move and was squash-merged as `3290bedb4c9c264286ccafb32d7f0bc490198a9d`. Parent Issue #326 remains `closed/completed` and was updated with the #488 delivery evidence in comment `5250443276`.
 
@@ -67,6 +68,9 @@ Portal Exhaustive Audit run `31468634411` produced artifact `9092851040` with di
 issue: 488
 issue_state: closed
 issue_state_reason: completed
+initial_close_event: 29266301474
+reopen_event: 29266488097
+terminal_close_event: 29266970116
 claim_release_comment: 5250533679
 implementation_branch: repair/issue-488
 implementation_branch_present_after_merge: false
@@ -100,6 +104,6 @@ evidence:
 
 ## Provenance
 
-The pre-closeout active task record is preserved in Git history at blob `b1a54fc71eb279958abd0bc00df508dae6d4d7f1`. The implementation is on `main` via `5a687af557da7368ae7f1872d698a6246fce8853`; the lifecycle archive move is on `main` via `3290bedb4c9c264286ccafb32d7f0bc490198a9d`.
+The pre-closeout active task record is preserved in Git history at blob `b1a54fc71eb279958abd0bc00df508dae6d4d7f1`. The implementation is on `main` via `5a687af557da7368ae7f1872d698a6246fce8853`; the lifecycle archive move is on `main` via `3290bedb4c9c264286ccafb32d7f0bc490198a9d`. Exact Issue lifecycle timestamps are bound to GitHub events `29266301474`, `29266488097`, and `29266970116`.
 
 Terminal state: `DONE`. No further Issue #488 work or ownership remains; future Wiki corpus expansion requires a new versioned task/inventory revision.
