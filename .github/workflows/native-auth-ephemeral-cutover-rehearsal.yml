@@ -368,7 +368,7 @@ jobs:
               "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/artifacts/${id}")"
             test "$(jq -r '.id' <<<"${metadata}")" = "${id}"
             test "$(jq -r '.name' <<<"${metadata}")" = "${expected_name}"
-            test "$(jq -r '.digest' <<<"${metadata}")" = "${digest}"
+            test "$(jq -r '.digest' <<<"${metadata}")" = "sha256:${digest}"
             test "$(jq -r '.workflow_run.id' <<<"${metadata}")" = "${GITHUB_RUN_ID}"
             test "$(jq -r '.expired' <<<"${metadata}")" = "false"
           }
