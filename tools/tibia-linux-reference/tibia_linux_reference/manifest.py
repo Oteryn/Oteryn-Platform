@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from typing import Mapping, Sequence
+import json
+from collections.abc import Mapping, Sequence
+from pathlib import Path
 
 from . import HarnessError
 
@@ -31,9 +33,128 @@ SAFETY_FALSE_FIELDS = {
     "ptrace_debugger_hook_injection_used",
     "traffic_decrypted_replayed_altered_injected",
 }
+_SCHEMA_PATH = Path(__file__).resolve().parents[1] / "schema" / "session-manifest.schema.json"
+_SCHEMA_METADATA_KEYS = {"$schema", "$id", "title", "description"}
+_SCHEMA_VALIDATION_KEYS = {
+    "type",
+    "additionalProperties",
+    "required",
+    "properties",
+    "const",
+    "enum",
+    "minLength",
+    "minimum",
+    "items",
+}
+
+
+def _json_equal(left: object, right: object) -> bool:
+    try:
+        return json.dumps(left, sort_keys=True, separators=(",", ":")) == json.dumps(
+            right, sort_keys=True, separators=(",", ":")
+        )
+    except (TypeError, ValueError):
+        return False
+
+
+def _schema_type_matches(value: object, expected: str) -> bool:
+    if expected == "object":
+        return isinstance(value, Mapping)
+    if expected == "array":
+        return isinstance(value, list)
+    if expected == "string":
+        return isinstance(value, str)
+    if expected == "integer":
+        return isinstance(value, int) and not isinstance(value, bool)
+    raise HarnessError(f"manifest schema uses unsupported type {expected!r}")
+
+
+def _validate_schema_node(value: object, schema: Mapping[str, object], path: str) -> None:
+    unsupported = set(schema) - _SCHEMA_METADATA_KEYS - _SCHEMA_VALIDATION_KEYS
+    if unsupported:
+        raise HarnessError(
+            "manifest schema uses unsupported validation keyword(s): "
+            + ", ".join(sorted(unsupported))
+        )
+
+    expected_type = schema.get("type")
+    if expected_type is not None:
+        if not isinstance(expected_type, str):
+            raise HarnessError("manifest schema type declaration is invalid")
+        if not _schema_type_matches(value, expected_type):
+            raise HarnessError(f"manifest value at {path} does not match schema type {expected_type}")
+
+    if "const" in schema and not _json_equal(value, schema["const"]):
+        raise HarnessError(f"manifest value at {path} does not match schema const")
+
+    if "enum" in schema:
+        choices = schema["enum"]
+        if not isinstance(choices, list):
+            raise HarnessError("manifest schema enum declaration is invalid")
+        if not any(_json_equal(value, choice) for choice in choices):
+            raise HarnessError(f"manifest value at {path} is outside schema enum")
+
+    if "minLength" in schema:
+        minimum_length = schema["minLength"]
+        if not isinstance(minimum_length, int) or isinstance(minimum_length, bool):
+            raise HarnessError("manifest schema minLength declaration is invalid")
+        if not isinstance(value, str) or len(value) < minimum_length:
+            raise HarnessError(f"manifest value at {path} is shorter than schema minLength")
+
+    if "minimum" in schema:
+        minimum = schema["minimum"]
+        if not isinstance(minimum, (int, float)) or isinstance(minimum, bool):
+            raise HarnessError("manifest schema minimum declaration is invalid")
+        if not isinstance(value, (int, float)) or isinstance(value, bool) or value < minimum:
+            raise HarnessError(f"manifest value at {path} is below schema minimum")
+
+    if isinstance(value, Mapping):
+        properties = schema.get("properties", {})
+        if not isinstance(properties, Mapping):
+            raise HarnessError("manifest schema properties declaration is invalid")
+        required = schema.get("required", [])
+        if not isinstance(required, list) or not all(isinstance(item, str) for item in required):
+            raise HarnessError("manifest schema required declaration is invalid")
+        missing = [item for item in required if item not in value]
+        if missing:
+            raise HarnessError(f"manifest value at {path} misses required schema keys: {sorted(missing)}")
+        if schema.get("additionalProperties") is False:
+            extra = set(value) - set(properties)
+            if extra:
+                raise HarnessError(f"manifest value at {path} contains extra schema keys: {sorted(extra)}")
+        additional = schema.get("additionalProperties")
+        if additional not in (None, True, False):
+            raise HarnessError("manifest schema additionalProperties declaration is unsupported")
+        for key, child_schema in properties.items():
+            if key not in value:
+                continue
+            if not isinstance(key, str) or not isinstance(child_schema, Mapping):
+                raise HarnessError("manifest schema property declaration is invalid")
+            _validate_schema_node(value[key], child_schema, f"{path}.{key}")
+
+    if isinstance(value, list) and "items" in schema:
+        item_schema = schema["items"]
+        if not isinstance(item_schema, Mapping):
+            raise HarnessError("manifest schema items declaration is invalid")
+        for index, item in enumerate(value):
+            _validate_schema_node(item, item_schema, f"{path}[{index}]")
+
+
+def _validate_committed_schema(document: Mapping[str, object]) -> None:
+    try:
+        schema_document = json.loads(_SCHEMA_PATH.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as error:
+        raise HarnessError("committed manifest schema could not be loaded") from error
+    if not isinstance(schema_document, Mapping):
+        raise HarnessError("committed manifest schema must be a JSON object")
+    if schema_document.get("$schema") != "https://json-schema.org/draft/2020-12/schema":
+        raise HarnessError("committed manifest schema draft is not the approved 2020-12 contract")
+    _validate_schema_node(document, schema_document, "$")
 
 
 def validate_manifest(document: Mapping[str, object]) -> None:
+    _validate_committed_schema(document)
+
     missing = REQUIRED_TOP_LEVEL - set(document)
     extra = set(document) - REQUIRED_TOP_LEVEL
     if missing or extra:
