@@ -1,4 +1,4 @@
-# bounded native xref trigger: 2026-08-11T23:58+02:00
+# protobuf descriptor recovery trigger: 2026-08-12T00:01+02:00
 name: Tibia Client Analysis Continue
 
 on:
@@ -17,7 +17,7 @@ env:
 
 jobs:
   continue:
-    name: Bound decoded Tibia map xrefs and descriptors
+    name: Recover Tibia protobuf descriptor structures
     runs-on: oteryn-staging
     timeout-minutes: 20
     steps:
@@ -37,121 +37,126 @@ jobs:
             test -x /data/client-15.32.df7b29/bin/client
             [[ "$(stat -c %s /data/client-15.32.df7b29/bin/client)" == "51965216" ]]
             [[ "$(sha256sum /data/client-15.32.df7b29/bin/client | awk "{print \$1}")" == "e6c244bd39fe2e0632f6f000efd3147164696efa8e901718668e0442325ff7fe" ]]
-            command -v objdump
             test -x /data/reverse-venv/bin/python
           '
 
-      - name: Map target strings to ELF virtual addresses
+      - name: Inventory and dump protobuf-named ELF sections
         shell: bash
         run: |
           set -Eeuo pipefail
           docker exec "$CONTAINER_NAME" bash -lc '
             set -Eeuo pipefail
-            cat > /data/map_target_vas.py <<"PY"
+            cat > /data/dump_proto_sections.py <<"PY"
+          import hashlib, re
           from pathlib import Path
           from elftools.elf.elffile import ELFFile
-          path = Path("/data/client-15.32.df7b29/bin/client")
-          needles = [
-              b"tibia::worldmap::TWorldmapProtocolMessageHandler",
-              b"handleFullMapMessage", b"handleFieldDataMessage",
-              b"handleLeftColumnMessage", b"handleRightColumnMessage",
-              b"handleTopRowMessage", b"handleBottomRowMessage",
-              b"handleTopFloorMessage", b"handleBottomFloorMessage",
-              b"receivedFullMapMessage", b"receivedFieldDataMessage",
-              b"GameserverMessageFullMap", b"GameserverMessageFieldData",
-              b"MapFieldData", b"MapArea", b"Coordinate", b"AppearanceInstance",
-              b"TProtobufServerMessageTranslator", b"TProtocolMessageQueue",
-              b"gameserverMessageAvailable", b"onGameserverMessageAvailable",
-              b"TWorldMapStorage",
-          ]
-          with path.open("rb") as fh:
+          src = Path("/data/client-15.32.df7b29/bin/client")
+          outdir = Path("/data/client-15.32.df7b29/proto-sections")
+          outdir.mkdir(exist_ok=True)
+          with src.open("rb") as fh:
               elf = ELFFile(fh)
+              found = 0
               for sec in elf.iter_sections():
-                  if not sec["sh_size"] or sec["sh_type"] == "SHT_NOBITS":
+                  if "proto" not in sec.name.lower():
                       continue
-                  data = sec.data(); sec_addr = sec["sh_addr"]; sec_offset = sec["sh_offset"]
-                  for needle in needles:
-                      start = 0
-                      while True:
-                          off = data.find(needle, start)
-                          if off < 0: break
-                          print(f"{sec_addr+off:016x}\t{sec.name}\t{sec_offset+off:08x}\t{needle.decode()}")
-                          start = off + 1
+                  data = sec.data(); found += 1
+                  safe = re.sub(r"[^A-Za-z0-9_.-]+", "_", sec.name)
+                  out = outdir / (safe + ".bin")
+                  out.write_bytes(data)
+                  print(f"SECTION name={sec.name} addr=0x{sec['sh_addr']:x} offset=0x{sec['sh_offset']:x} size={len(data)} sha256={hashlib.sha256(data).hexdigest()} file={out}")
+              print(f"proto_section_count={found}")
           PY
-            timeout 90s /data/reverse-venv/bin/python /data/map_target_vas.py | sort -u > /data/client-15.32.df7b29/map-target-vas.txt
-            test -s /data/client-15.32.df7b29/map-target-vas.txt
-            grep -E "TWorldmapProtocolMessageHandler|handleFullMapMessage|handleFieldDataMessage|GameserverMessageFullMap|GameserverMessageFieldData|MapFieldData|MapArea|TProtobufServerMessageTranslator|TWorldMapStorage" /data/client-15.32.df7b29/map-target-vas.txt | head -n 400
+            /data/reverse-venv/bin/python /data/dump_proto_sections.py | tee /data/client-15.32.df7b29/proto-section-inventory.txt
           '
 
-      - name: Recover direct RIP xrefs with streaming objdump parser
+      - name: Locate map-message names inside protobuf sections
         shell: bash
         run: |
           set -Eeuo pipefail
           docker exec "$CONTAINER_NAME" bash -lc '
             set -Eeuo pipefail
-            cat > /data/map_objdump_xrefs.py <<"PY"
-          import re, subprocess
+            cat > /data/proto_section_needles.py <<"PY"
           from pathlib import Path
-          target_file = Path("/data/client-15.32.df7b29/map-target-vas.txt")
-          targets = {}
-          for line in target_file.read_text(errors="replace").splitlines():
-              parts = line.split("\t", 3)
-              if len(parts) == 4:
-                  targets.setdefault(int(parts[0], 16), []).append(parts[3])
-          out = Path("/data/client-15.32.df7b29/map-direct-xrefs.txt")
-          comment_re = re.compile(r"#\s*([0-9a-fA-F]+)(?:\s|$)")
-          count = 0
-          with out.open("w") as dst:
-              p = subprocess.Popen(["objdump", "-d", "-C", "/data/client-15.32.df7b29/bin/client"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, bufsize=1)
-              assert p.stdout is not None
-              for line in p.stdout:
-                  m = comment_re.search(line)
-                  if not m:
-                      continue
-                  dest = int(m.group(1), 16)
-                  labels = targets.get(dest)
-                  if labels:
-                      dst.write(line.rstrip() + "\tTARGET=" + ",".join(sorted(set(labels))) + "\n")
-                      count += 1
-              rc = p.wait()
-              if rc != 0:
-                  err = p.stderr.read() if p.stderr else ""
-                  raise SystemExit(f"objdump rc={rc}: {err[:1000]}")
-          print(f"direct_xref_count={count}")
+          needles = [b"GameserverMessageFullMap", b"GameserverMessageFieldData", b"MapFieldData", b"MapArea", b"Coordinate", b"AppearanceInstance", b".proto"]
+          for path in sorted(Path("/data/client-15.32.df7b29/proto-sections").glob("*.bin")):
+              data = path.read_bytes()
+              print(f"FILE {path.name} size={len(data)}")
+              for needle in needles:
+                  start = 0; hits = []
+                  while True:
+                      i = data.find(needle, start)
+                      if i < 0: break
+                      hits.append(i); start = i + 1
+                  if hits:
+                      print(f"  {needle.decode(errors='replace')} hits=" + ",".join(f"0x{x:x}" for x in hits[:64]))
+                      for i in hits[:8]:
+                          lo=max(0,i-96); hi=min(len(data),i+len(needle)+160)
+                          chunk=data[lo:hi]
+                          text="".join(chr(b) if 32 <= b < 127 else "." for b in chunk)
+                          print(f"    context@0x{i:x} {text}")
           PY
-            timeout 180s /data/reverse-venv/bin/python /data/map_objdump_xrefs.py
-            echo '=== direct xrefs ==='
-            sed -n '1,400p' /data/client-15.32.df7b29/map-direct-xrefs.txt
+            /data/reverse-venv/bin/python /data/proto_section_needles.py | tee /data/client-15.32.df7b29/proto-section-needles.txt
           '
 
-      - name: Disassemble bounded neighborhoods around direct xrefs
+      - name: Search whole binary for serialized protobuf descriptor neighborhoods
         shell: bash
         run: |
           set -Eeuo pipefail
           docker exec "$CONTAINER_NAME" bash -lc '
             set -Eeuo pipefail
-            sed -n "s/^ *\([0-9a-f][0-9a-f]*\):.*/\1/p" /data/client-15.32.df7b29/map-direct-xrefs.txt | sort -u | head -n 120 > /data/client-15.32.df7b29/map-xref-addresses.txt
-            : > /data/client-15.32.df7b29/map-xref-disassembly.txt
-            while read -r a; do
-              [[ -n "$a" ]] || continue
-              start=$((16#$a - 128)); stop=$((16#$a + 256))
-              printf "\n=== around 0x%s ===\n" "$a" >> /data/client-15.32.df7b29/map-xref-disassembly.txt
-              timeout 10s objdump -d -C --start-address="$start" --stop-address="$stop" /data/client-15.32.df7b29/bin/client >> /data/client-15.32.df7b29/map-xref-disassembly.txt
-            done < /data/client-15.32.df7b29/map-xref-addresses.txt
-            sed -n '1,7000p' /data/client-15.32.df7b29/map-xref-disassembly.txt
+            cat > /data/proto_binary_context.py <<"PY"
+          from pathlib import Path
+          data=Path("/data/client-15.32.df7b29/bin/client").read_bytes()
+          needles=[b"GameserverMessageFullMap",b"GameserverMessageFieldData",b"MapFieldData",b"MapArea",b"Coordinate",b"AppearanceInstance",b".proto"]
+          out=Path("/data/client-15.32.df7b29/proto-binary-context.txt")
+          with out.open("w") as f:
+              for n in needles:
+                  pos=[]; s=0
+                  while True:
+                      i=data.find(n,s)
+                      if i<0: break
+                      pos.append(i); s=i+1
+                  f.write(f"NEEDLE {n.decode(errors='replace')} count={len(pos)}\n")
+                  for i in pos[:32]:
+                      lo=max(0,i-160); hi=min(len(data),i+len(n)+320)
+                      c=data[lo:hi]
+                      txt="".join(chr(b) if 32<=b<127 else "." for b in c)
+                      f.write(f"  fileoff=0x{i:x} context={txt}\n")
+          print(out.read_text(errors="replace")[:80000])
+          PY
+            /data/reverse-venv/bin/python /data/proto_binary_context.py
           '
 
-      - name: Inspect protobuf descriptor clues
+      - name: Attempt raw protobuf decoding of descriptor sections
         shell: bash
         run: |
           set -Eeuo pipefail
           docker exec "$CONTAINER_NAME" bash -lc '
             set -Eeuo pipefail
-            timeout 90s strings -a -t x -n 3 /data/client-15.32.df7b29/bin/client > /data/client-15.32.df7b29/strings-all.txt
-            echo '=== schema/type clue lines ==='
-            grep -Ei "GameserverMessage(FullMap|FieldData|LeftColumn|RightColumn|TopRow|BottomRow|TopFloor|BottomFloor)|MapFieldData|MapArea|AppearanceInstance|\.proto|field_data|map_area|appearance_instance|appearance_id|object_id|coordinate|contents|stack_position" /data/client-15.32.df7b29/strings-all.txt | head -n 2200 || true
-            echo '=== protodesc sections ==='
-            readelf -S /data/client-15.32.df7b29/bin/client | grep -i proto || true
+            : > /data/client-15.32.df7b29/proto-decode-raw.txt
+            for f in /data/client-15.32.df7b29/proto-sections/*.bin; do
+              echo "=== $f ===" >> /data/client-15.32.df7b29/proto-decode-raw.txt
+              set +e
+              timeout 20s protoc --decode_raw < "$f" >> /data/client-15.32.df7b29/proto-decode-raw.txt 2>&1
+              rc=$?
+              set -e
+              echo "decode_exit=$rc" >> /data/client-15.32.df7b29/proto-decode-raw.txt
+            done
+            sed -n '1,5000p' /data/client-15.32.df7b29/proto-decode-raw.txt
+          '
+
+      - name: Inspect TWorldmap Qt metaobject neighborhood
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          docker exec "$CONTAINER_NAME" bash -lc '
+            set -Eeuo pipefail
+            objdump -s --start-address=$((0x1cd8b40)) --stop-address=$((0x1cd9000)) /data/client-15.32.df7b29/bin/client > /data/client-15.32.df7b29/worldmap-meta-rodata.txt
+            objdump -d -C --start-address=$((0xdff800)) --stop-address=$((0xe00200)) /data/client-15.32.df7b29/bin/client > /data/client-15.32.df7b29/worldmap-meta-code.txt
+            echo '=== worldmap rodata ==='
+            sed -n '1,1200p' /data/client-15.32.df7b29/worldmap-meta-rodata.txt
+            echo '=== worldmap meta code ==='
+            sed -n '1,4000p' /data/client-15.32.df7b29/worldmap-meta-code.txt
           '
 
       - name: Verify canonical staging unchanged
