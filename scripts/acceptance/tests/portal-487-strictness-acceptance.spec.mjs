@@ -126,9 +126,7 @@ async function expectServerFailureRecovery(page, surface, path) {
   await assertNoOverflow(page);
 }
 
-async function expectGracefulHomeNewsFailureRecovery(page) {
-  const surface = 'public.home-and-seo';
-  const path = '/';
+async function expectGracefulHomeNewsFailureRecovery(page, surface, path) {
   let response = await page.goto(path);
   expect(response?.status(), `Expected healthy precondition for ${surface}`).toBe(200);
   await assertNoOverflow(page);
@@ -267,10 +265,10 @@ test(adminMarker, async ({ page }) => {
 
 // Evidence marker: @portal-487-strictness public not-found accessibility overflow server-failure recovery
 test(publicMarker, async ({ page }) => {
-  await expectGracefulHomeNewsFailureRecovery(page);
+  await expectGracefulHomeNewsFailureRecovery(page, 'public.home-and-seo', '/');
+  await expectGracefulHomeNewsFailureRecovery(page, 'public.localization-core', '/en');
 
   const failureSurfaces = [
-    ['public.localization-core', '/en'],
     ['public.news-and-managed-pages', '/news'],
   ];
 

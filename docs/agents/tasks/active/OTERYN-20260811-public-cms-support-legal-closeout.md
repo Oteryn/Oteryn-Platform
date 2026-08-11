@@ -107,7 +107,7 @@ derived:
   - The WebKit failure was a shared acceptance login-fixture stabilization defect, not evidence that the support/moderation product lifecycle is unavailable.
   - Fresh exact-head CI, Acceptance E2E and Portal Exhaustive Audit on the current-main-synchronized head are authoritative for final closure.
 unknown:
-  - Result of the current-main-synchronized exact-head validation generation.
+  - Result of the next exact-head validation generation after the localized-home graceful-degradation assertion repair.
   - Whether Issue #489 lands before the final #487 audit reconciliation; it is currently still open and remains the declared Character Bazaar dependency.
 conflicts: []
 first_failure:
@@ -132,6 +132,12 @@ changed_paths:
   - scripts/acceptance/tests/helpers.mjs
   - scripts/acceptance/tests/portal-487-strictness-acceptance.spec.mjs
 validation:
+  - command: Exact-head GitHub Actions generation on 56c79dab38e6bcd9b773f1b56f713a189dda03ee
+    result: FAIL
+    evidence: Acceptance E2E 31534516329, Deep System Validation 31534516349 and Portal Exhaustive Acceptance 31534516662 all reproduced one root failure: the localized homepage /en intentionally returned graceful HTTP 200 after news_posts removal while the strictness test incorrectly expected 500.
+  - command: node --check scripts/acceptance/tests/portal-487-strictness-acceptance.spec.mjs and git diff --check
+    result: PASS
+    evidence: The focused repair routes public.localization-core through the existing graceful-home recovery assertion, retains the UNAVAILABLE content-state check and leaves public.news-and-managed-pages as the fail-closed 500 probe.
   - command: current Issue #487 and canonical pre-repair audit reconciliation
     result: PASS
     evidence: 44 current findings and exact owning surfaces were enumerated before implementation.
@@ -157,7 +163,7 @@ validation:
     result: PASS
     evidence: Exact 11-path scope verified; manifest, surface declarations, strictness fixtures/tests, Playwright profile routing and WebKit helper were inspected with no open material self-review finding.
 blockers: []
-next_action: Inspect the first aggregate exact-head workflow generation for the current-main-synchronized checkpoint; repair only a concrete new failure, otherwise complete fresh audit/E2E and merge gates.
+next_action: Commit and push the focused localized-home assertion repair, then inspect the resulting exact-head required validation once and complete merge closeout only on PASS.
 ```
 
 ## Recovery checkpoint
