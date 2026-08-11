@@ -110,9 +110,9 @@ validation:
   - command: Agent Governance run 31538306125 on implementation head 430f3386e0ddde43f0210971502ad65046988f03
     result: PASS
     evidence: focused policy-consistency regressions, live validator, checkpoint validation, liveness and Control Room completed successfully.
-  - command: repository workflows on implementation head 430f3386e0ddde43f0210971502ad65046988f03
-    result: PARTIAL_PASS
-    evidence: CI, Phase 7, Edge Security, Platform DB Outage and Game Auth Ticket Concurrency passed; Deep System Validation remained in progress at checkpoint time.
+  - command: completed repository workflows on implementation head 430f3386e0ddde43f0210971502ad65046988f03
+    result: PASS
+    evidence: CI, Phase 7, Edge Security, Platform DB Outage and Game Auth Ticket Concurrency each completed successfully; Deep System Validation status is tracked separately in checkpoint evidence because no terminal result had been observed at checkpoint time.
   - command: final checkpoint-head required checks and fresh Codex review
     result: NOT_RUN
     evidence: this task-record-only update creates the final validation generation.
