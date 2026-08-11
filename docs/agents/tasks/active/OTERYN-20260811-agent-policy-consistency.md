@@ -61,8 +61,8 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-11T18:59:00+02:00
-head: 767b220335d7b7f07c670521dce2777c7d6e3d38
+updated_at: 2026-08-11T19:20:00+02:00
+head: 6e9bf6a67f0907f45f127f3063bdb0dc63b2d37d
 branch: test/agent-policy-consistency
 pr: 992
 status: validating
@@ -80,25 +80,26 @@ owned_paths:
   - docs/agents/tasks/archive/OTERYN-20260811-agent-policy-consistency.md
 proven:
   - Protected main ab43c4b47173e7208d34851c4091f79051379f7a includes terminal Actions-major archive PR #1005 and releases its workflow ownership.
-  - Implementation commit 767b220335d7b7f07c670521dce2777c7d6e3d38 has exactly one parent, protected main ab43c4b47173e7208d34851c4091f79051379f7a.
-  - Compare main...767b2203 is behind_by=0 and changes exactly the six declared task-owned paths.
-  - Repository-scope validation rejects unconditional foreign write grants whether repository identifiers are backticked or plain text, does not treat negated read-only wording as an exemption, and only accepts explicit user authorization scoped to the current task/write task.
-  - Budget validation checks all matching declarations and rejects contradictory duplicate values.
+  - Clean restack onto protected main remains bounded to exactly the six declared task-owned paths and carries no stale lifecycle history.
+  - Prior final-generation Agent Governance 31516504584, CI 31516504583, Phase 7 31516504600, Platform DB Outage 31516504602, Edge Security 31516504585 and Game Auth Ticket Concurrency 31516504607 passed before the fresh review repair.
+  - Fresh Codex review on f3e9cc27252719244a67e03ed894ce9f40edcc82 exposed four additional fail-closed variants: asserted rather than conditional authorization, contracted read-only negation, grants outside the allowlist section, and Markdown-formatted conflicting budget values.
+  - tools/agents/policy_consistency.py now requires only-when/unless conditional authorization, recognizes contracted read-only negation, scans the whole authoritative root policy for foreign write grants, and normalizes inline Markdown before numeric budget comparison.
+  - tools/agents/test_policy_consistency.py adds focused regressions for all four fresh variants while retaining the prior positive current-task authorization case.
   - Pull-request-template directory routing remains governance-only and regression-covered.
-  - Focused regressions cover the fresh unquoted-repository, negated-read-only, duplicate-budget, explicit-current-task authorization and prior scope/status/closeout findings.
 derived:
-  - All currently known material review findings have implementation repairs; final merge readiness depends on unchanged-head CI and fresh review.
+  - All currently known material review findings now have direct implementation repairs and focused regression coverage; merge readiness requires a fresh unchanged-head generation.
 unknown:
-  - Terminal result of the exact-head required checks generated from this metadata-only checkpoint revision.
+  - Terminal result of required checks generated from this final review-repair checkpoint revision.
   - Fresh Codex review result for the final branch head.
 conflicts: []
 first_failure:
-  marker: historical-codex-policy-consistency-review-findings
-  evidence: prior Codex reviews exposed repository-scope, template-routing and duplicate-budget fail-closed gaps; all are repaired in the current implementation and covered by regressions.
+  marker: codex-final-fail-closed-variants
+  evidence: Codex review on f3e9cc27252719244a67e03ed894ce9f40edcc82 reported four material variants that remained accepted; implementation commit 6e9bf6a67f0907f45f127f3063bdb0dc63b2d37d repairs each and adds regressions.
 rejected_hypotheses:
-  - A foreign grant is safe merely because it contains explicit or read-only wording; effective authorization must remain conditional on explicit user authorization for the current task.
-  - Checking only the first matching budget declaration is fail closed; conflicting duplicate declarations must also be rejected.
-  - Prior exact-head evidence remains sufficient after implementation changes; a fresh exact-head generation is required.
+  - Merely stating that the user explicitly authorizes a foreign repository is a valid exception; the policy must make the grant conditional on user authorization with only-when/unless semantics.
+  - Checking only not/never/no-longer covers read-only negation; common contractions such as isn't must also fail closed.
+  - Conflicting grants matter only inside the allowlist section; the entire authoritative root policy can affect later agents and must be scanned.
+  - Raw-digit-only budget patterns are sufficient; Markdown emphasis can otherwise hide contradictory duplicate values.
 changed_paths:
   - .github/workflows/agent-governance.yml
   - docs/agents/tasks/active/OTERYN-20260811-agent-policy-consistency.md
@@ -107,15 +108,15 @@ changed_paths:
   - tools/agents/policy_consistency.py
   - tools/agents/test_policy_consistency.py
 validation:
-  - command: current-main clean restack comparison
+  - command: prior final-generation exact-head checks on f3e9cc27252719244a67e03ed894ce9f40edcc82
     result: PASS
-    evidence: ab43c4b47173e7208d34851c4091f79051379f7a...767b220335d7b7f07c670521dce2777c7d6e3d38 is behind_by=0, ahead_by=1 and exactly six task-owned files.
-  - command: final exact-head required checks and fresh review
+    evidence: Agent Governance, CI, Phase 7, Platform DB Outage, Edge Security and Game Auth Ticket Concurrency passed; Deep System was still running when fresh review required implementation changes.
+  - command: final exact-head required checks and fresh review after four-variant repair
     result: NOT_RUN
-    evidence: this metadata-only checkpoint revision creates the final validation generation; no implementation write should follow unless a gate or fresh review proves a defect.
+    evidence: this metadata-only checkpoint revision creates the final validation generation; no implementation write should follow unless a gate or fresh review proves another defect.
 blockers:
   - none
-next_action: Validate the unchanged final branch head with repository-required CI and fresh Codex review; resolve all repaired review threads, squash-merge PR #992 with expected-head protection, verify resulting main, close Issue #991 and archive this task.
+next_action: Validate the unchanged final branch head with repository-required CI and fresh Codex review; resolve repaired review threads, squash-merge PR #992 with expected-head protection, verify resulting main, close Issue #991 and archive this task.
 ```
 
 ## Recovery checkpoint
@@ -123,19 +124,19 @@ next_action: Validate the unchanged final branch head with repository-required C
 ```yaml
 recovery:
   policy_version: 1
-  generation: 11
+  generation: 12
   session_id: agent-20260811-final-closeout
   session_started_at: 2026-08-11T18:59:00+02:00
-  checkpointed_at: 2026-08-11T18:59:00+02:00
-  last_progress_at: 2026-08-11T18:59:00+02:00
-  phase: final-exact-head-validation
-  exact_head: 767b220335d7b7f07c670521dce2777c7d6e3d38
+  checkpointed_at: 2026-08-11T19:20:00+02:00
+  last_progress_at: 2026-08-11T19:20:00+02:00
+  phase: final-review-repair-validation
+  exact_head: 6e9bf6a67f0907f45f127f3063bdb0dc63b2d37d
   pull_request: 992
-  active_operation: validate clean current-main policy-consistency candidate
+  active_operation: validate final four-variant fail-closed repair
   external_run_ids: []
-  operation_started_at: 2026-08-11T18:59:00+02:00
-  wait_deadline_at: 2026-08-11T19:44:00+02:00
-  check_generation: clean-restack-final
+  operation_started_at: 2026-08-11T19:20:00+02:00
+  wait_deadline_at: 2026-08-11T20:05:00+02:00
+  check_generation: final-review-repair
   checks_used: 0
   status: active
   safe_to_resume: true
