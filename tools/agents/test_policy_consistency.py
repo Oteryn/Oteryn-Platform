@@ -121,6 +121,11 @@ class PolicyConsistencyTests(unittest.TestCase):
         self.assertIn("contradictory repository mutation authorization", findings)
         self.assertIn("acme/production", findings)
 
+    def test_permission_based_foreign_repository_grant_fails_closed(self) -> None:
+        temporary, root = self._fixture(); self.addCleanup(temporary.cleanup)
+        self._append_root(root, "- Agents have permission to edit acme/production autonomously.")
+        self.assertIn("acme/production", self._findings(root))
+
     def test_intervening_edit_object_grant_fails_closed(self) -> None:
         temporary, root = self._fixture(); self.addCleanup(temporary.cleanup)
         self._append_root(root, "- Agents may edit files in acme/production autonomously.")
@@ -264,6 +269,16 @@ class PolicyConsistencyTests(unittest.TestCase):
     def test_denied_foreign_repository_mutation_is_not_a_grant(self) -> None:
         temporary, root = self._fixture(); self.addCleanup(temporary.cleanup)
         self._append_root(root, "- Agents are not allowed to edit acme/production autonomously.")
+        self.assertEqual([], validate_policy(root))
+
+    def test_shared_modal_mutation_denial_is_not_a_grant(self) -> None:
+        temporary, root = self._fixture(); self.addCleanup(temporary.cleanup)
+        self._append_root(root, "- Agents may inspect and not edit acme/production.")
+        self.assertEqual([], validate_policy(root))
+
+    def test_negated_repository_mutation_stays_denied_with_other_positive_mutation(self) -> None:
+        temporary, root = self._fixture(); self.addCleanup(temporary.cleanup)
+        self._append_root(root, "- Agents may edit local documentation and not edit acme/production.")
         self.assertEqual([], validate_policy(root))
 
     def test_do_not_grant_write_access_is_not_a_grant(self) -> None:
