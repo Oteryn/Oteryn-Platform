@@ -71,28 +71,54 @@ jobs:
             [[ -z "$qxcb_missing" ]]
           '
 
-      - name: Stop only stale launcher process and clear launcher locks
+      - name: Stop only exact stale launcher process and clear isolated locks
         shell: bash
         run: |
           set -Eeuo pipefail
           docker exec "$CONTAINER_NAME" bash -lc '
             set -Eeuo pipefail
-            echo "=== before cleanup ==="
-            ps -eo pid,etime,stat,args | grep -E "/data/bootstrap/Tibia/Tibia|(^| )Tibia($| )" | grep -v grep || true
-            pids="$(pgrep -f "/data/bootstrap/Tibia/Tibia|(^|/)Tibia$" || true)"
-            if [[ -n "$pids" ]]; then
-              kill -TERM $pids || true
-              for _ in $(seq 1 20); do
-                pgrep -f "/data/bootstrap/Tibia/Tibia|(^|/)Tibia$" >/dev/null || break
-                sleep 1
+            target="/data/bootstrap/Tibia/Tibia"
+            echo "=== exact launcher processes before cleanup ==="
+            : > /tmp/tibia-exact-pids
+            for exe in /proc/[0-9]*/exe; do
+              [[ -e "$exe" ]] || continue
+              resolved="$(readlink -f "$exe" 2>/dev/null || true)"
+              if [[ "$resolved" == "$target" ]]; then
+                pid="${exe#/proc/}"
+                pid="${pid%/exe}"
+                echo "$pid" | tee -a /tmp/tibia-exact-pids
+                ps -p "$pid" -o pid,etime,stat,args || true
+              fi
+            done
+            if [[ -s /tmp/tibia-exact-pids ]]; then
+              xargs -r kill -TERM < /tmp/tibia-exact-pids || true
+              sleep 2
+              : > /tmp/tibia-exact-pids-still
+              for exe in /proc/[0-9]*/exe; do
+                [[ -e "$exe" ]] || continue
+                resolved="$(readlink -f "$exe" 2>/dev/null || true)"
+                if [[ "$resolved" == "$target" ]]; then
+                  pid="${exe#/proc/}"
+                  pid="${pid%/exe}"
+                  echo "$pid" >> /tmp/tibia-exact-pids-still
+                fi
               done
-              pids2="$(pgrep -f "/data/bootstrap/Tibia/Tibia|(^|/)Tibia$" || true)"
-              [[ -z "$pids2" ]] || kill -KILL $pids2 || true
+              xargs -r kill -KILL < /tmp/tibia-exact-pids-still || true
             fi
-            find /data/home -maxdepth 6 -type f \( -iname "*lock*" -o -iname "*.pid" \) -print -delete 2>/dev/null || true
-            find /data/home -maxdepth 6 -type s -print -delete 2>/dev/null || true
-            echo "=== after cleanup ==="
-            ps -eo pid,etime,stat,args | grep -E "/data/bootstrap/Tibia/Tibia|(^| )Tibia($| )" | grep -v grep || true
+            find /data/home -maxdepth 8 -type f \( -iname "*lock*" -o -iname "*.pid" \) -print -delete 2>/dev/null || true
+            find /data/home -maxdepth 8 -type s -print -delete 2>/dev/null || true
+            find /tmp -maxdepth 1 \( -name "qipc_sharedmemory_*" -o -name "qipc_systemsem_*" \) -print -delete 2>/dev/null || true
+            echo "=== exact launcher processes after cleanup ==="
+            found=0
+            for exe in /proc/[0-9]*/exe; do
+              [[ -e "$exe" ]] || continue
+              resolved="$(readlink -f "$exe" 2>/dev/null || true)"
+              if [[ "$resolved" == "$target" ]]; then
+                found=1
+                echo "stale process remains: $exe -> $resolved" >&2
+              fi
+            done
+            [[ "$found" -eq 0 ]]
           '
 
       - name: Run launcher headlessly and materialize package
