@@ -1,3 +1,4 @@
+# bounded reverse trigger: 2026-08-11T23:18+02:00
 name: Tibia Client Analysis Continue
 
 on:
@@ -50,7 +51,6 @@ jobs:
             cat > /data/map_target_vas.py <<"PY"
           from pathlib import Path
           from elftools.elf.elffile import ELFFile
-
           path = Path("/data/client-15.32.df7b29/bin/client")
           needles = [
               b"tibia::worldmap::TWorldmapProtocolMessageHandler",
