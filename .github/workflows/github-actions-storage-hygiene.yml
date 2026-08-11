@@ -14,7 +14,7 @@ on:
     types:
       - closed
   schedule:
-    - cron: '23 3 * * 1'
+    - cron: '23 3,15 * * *'
   workflow_dispatch:
     inputs:
       mode:
@@ -29,25 +29,18 @@ on:
         description: Type CLEAN_ACTIONS_STORAGE for manual cleanup
         required: false
         type: string
-  push:
-    branches:
-      - main
-    paths:
-      - '.github/workflows/github-actions-storage-hygiene.yml'
-      - 'scripts/ci/github_actions_storage_hygiene.py'
-      - 'tests/ci/test_github_actions_storage_hygiene.py'
 
 permissions:
   contents: read
 
 concurrency:
   group: actions-storage-hygiene-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: false
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   static-validation:
     name: static-validation
-    if: ${{ github.event_name == 'pull_request' || github.event_name == 'push' }}
+    if: ${{ github.event_name == 'pull_request' }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout exact validation source
@@ -107,16 +100,7 @@ jobs:
 
   maintenance:
     name: maintenance
-    if: >-
-      ${{
-        github.event_name == 'schedule' ||
-        github.event_name == 'workflow_dispatch' ||
-        (
-          github.event_name == 'push' &&
-          github.ref == 'refs/heads/main' &&
-          startsWith(github.event.head_commit.message, 'chore(ci): clean GitHub Actions storage safely (#980)')
-        )
-      }}
+    if: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
     runs-on: ubuntu-latest
     permissions:
       actions: write
