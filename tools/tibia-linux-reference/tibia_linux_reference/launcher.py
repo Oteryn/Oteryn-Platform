@@ -302,6 +302,8 @@ def run_synthetic_dry_run(*, repo_root: Path, evidence_root: Path) -> dict[str, 
             "locations": [
                 "git-diff",
                 "tracked-files",
+                "untracked-files",
+                "ignored-files",
                 "process-arguments",
                 "retained-environment-report",
                 "stdout",
@@ -442,10 +444,32 @@ def run_official_component(
     if not new_windows:
         _remove_profile(profile)
         raise HarnessError("official client did not create an observable X11 window")
+
+    environment_report = {
+        "reported_keys": sorted(environment),
+        "values_retained": False,
+        "secret_scan": "PASS",
+    }
+    environment_bytes = json.dumps(environment_report, sort_keys=True).encode()
+    profile_files = _safe_inventory(profile)
+    profile_scan = scan_prohibited_locations(
+        repo_root=repo_root,
+        evidence_root=publishable,
+        temporary_root=profile,
+        secrets=[],
+        process_arguments=arguments,
+        retained_environment_report=environment_bytes,
+        stdout=stdout,
+        stderr=stderr,
+    )
+    if not profile_scan.passed:
+        _remove_profile(profile)
+        raise HarnessError("official component leak scan failed in: " + ", ".join(profile_scan.categories))
+
     _remove_profile(profile)
     cleanup = verify_cleanup(process_stopped=process.poll() is not None, profile=profile, raw_root=raw)
     cleanup["temporary_profile_retention"] = "deleted-after-component-test"
-    cleanup["files_before_cleanup"] = []
+    cleanup["files_before_cleanup"] = profile_files
     manifest = {
         "schema_version": 1,
         "session_id": session_id,
@@ -468,7 +492,7 @@ def run_official_component(
             "exit_status": process.returncode,
             "arguments_retained": False,
             "arguments_sha256": sha256_bytes(arguments),
-            "environment_report": {"reported_keys": sorted(environment), "values_retained": False, "secret_scan": "PASS"},
+            "environment_report": environment_report,
         },
         "window_lifecycle": [{"backend": "x11", "state": "observed"}, {"backend": "x11", "state": "closed-with-process-group"}],
         "network_denial": {
@@ -479,11 +503,26 @@ def run_official_component(
             "raw_capture_created": False,
             "official_endpoint_contacted": False,
         },
-        "filesystem_inventory": {"scope": "temporary-official-component-profile", "files_before_cleanup": [], "files_after_cleanup": []},
+        "filesystem_inventory": {
+            "scope": "temporary-official-component-profile",
+            "files_before_cleanup": profile_files,
+            "files_after_cleanup": [],
+        },
         "leak_scan": {
             "result": "PASS",
-            "locations": ["process-arguments", "retained-environment-report", "stdout", "stderr", "temporary-files"],
-            "files_scanned": 0,
+            "locations": [
+                "git-diff",
+                "tracked-files",
+                "untracked-files",
+                "ignored-files",
+                "process-arguments",
+                "retained-environment-report",
+                "stdout",
+                "stderr",
+                "temporary-files",
+                "shell-history",
+            ],
+            "files_scanned": profile_scan.files_scanned,
         },
         "cleanup": cleanup,
         "safety": {
