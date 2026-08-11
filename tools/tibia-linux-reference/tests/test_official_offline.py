@@ -113,5 +113,27 @@ class OfficialHostPreflightTests(unittest.TestCase):
         self.assertIn("AMD Radeon", result["renderer"])
 
 
+class HostSetupScriptSafetyTests(unittest.TestCase):
+    def test_luks_setup_is_interactive_blank_disk_only_and_fail_closed(self) -> None:
+        script = (ROOT / "official_evidence_luks_setup.sh").read_text(encoding="utf-8")
+        self.assertIn('"DESTROY:$device"', script)
+        self.assertIn("[[ -t 0 && -t 1 ]]", script)
+        self.assertIn('wipefs -n "$device"', script)
+        self.assertIn('findmnt -n -o SOURCE /', script)
+        self.assertIn('umount "$mountpoint"', script)
+        self.assertIn('cryptsetup close "$mapper"', script)
+        self.assertNotIn("--key-file", script)
+        self.assertNotIn("echo -n", script)
+
+    def test_host_prepare_creates_no_secret_and_no_admin_membership(self) -> None:
+        script = (ROOT / "official_host_prepare.sh").read_text(encoding="utf-8")
+        self.assertIn("useradd --create-home --user-group", script)
+        self.assertIn("sudo adm docker lxd", script)
+        self.assertNotIn("usermod -aG sudo", script)
+        self.assertNotIn("chpasswd", script)
+        self.assertNotIn("passwd ", script)
+        self.assertIn('"access_credential_generated":false', script)
+
+
 if __name__ == "__main__":
     unittest.main()
