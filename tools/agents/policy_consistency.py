@@ -30,6 +30,12 @@ QUOTED_REPO_TOKEN = re.compile(r"`([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)`")
 MUTATION_TERM = r"(?:writ(?:e|es|ing|ten)|writable|edit(?:s|ed|ing)?|modif(?:y|ies|ied|ying)|push(?:es|ed|ing)?|commit(?:s|ted|ting)?|merge(?:s|d|ing)?|mutat(?:e|es|ed|ing|ion|ions))"
 MUTATION_WORD = re.compile(rf"\b{MUTATION_TERM}\b", re.I)
 NEGATED_MUTATION = re.compile(rf"\b(?:not|never)\s+{MUTATION_TERM}\b", re.I)
+MODAL_ADVERB_TERM = r"(?:also|additionally|still|now|explicitly|autonomously)"
+MANDATORY_MUTATION = re.compile(
+    rf"\b(?:(?:must|shall)\s+(?:{MODAL_ADVERB_TERM}\s+)*(?:be\s+)?{MUTATION_TERM}|"
+    rf"(?:is|are)\s+(?:explicitly\s+)?required\s+to\s+(?:{MODAL_ADVERB_TERM}\s+)*(?:be\s+)?{MUTATION_TERM})\b",
+    re.I,
+)
 POSITIVE_AUTH = re.compile(
     r"\b(?:(?:have|has)\s+(?:explicit\s+)?permission|allow|allows|allowed|authorize|authorizes|authorized|permit|permits|permitted|may|can|grant|grants|granted)\b",
     re.I,
@@ -336,11 +342,13 @@ def _logical_markdown_statements(markdown: str) -> list[str]:
 
 def _policy_clauses(statement: str) -> list[str]:
     """Split independent grant clauses while preserving dependent condition language."""
-    modal_adverb = r"(?:also|additionally|still|now|explicitly|autonomously)"
+    modal_adverb = MODAL_ADVERB_TERM
     new_grant = (
         rf"(?:additionally\s+)?(?:(?:the|a|an|any)\s+)?(?:agents?\s+)?"
         rf"(?:autonomous(?:ly)?\s+)?(?:{MUTATION_TERM}\b|"
-        rf"(?:may|can)\s+(?:{modal_adverb}\s+)*{MUTATION_TERM}\b)"
+        rf"(?:may|can|must|shall)\s+(?:{modal_adverb}\s+)*(?:be\s+)?{MUTATION_TERM}\b|"
+        rf"(?:is|are)\s+(?:explicitly\s+)?(?:allowed|authorized|permitted|required)\s+to\s+(?:{modal_adverb}\s+)*(?:be\s+)?{MUTATION_TERM}\b|"
+        rf"(?:has|have)\s+(?:explicit\s+)?permission\s+to\s+(?:{modal_adverb}\s+)*(?:be\s+)?{MUTATION_TERM}\b)"
     )
     pattern = (
         rf"\s*;\s*|(?<=\.)\s+|\s*,?\s+(?:but|however|while)\s+|"
@@ -354,8 +362,8 @@ def _has_positive_mutation_grant(clause: str) -> bool:
     grant_text = NEGATED_MUTATION.sub("", normalized)
     if not MUTATION_WORD.search(grant_text):
         return False
+    positives = list(POSITIVE_AUTH.finditer(grant_text)) + list(MANDATORY_MUTATION.finditer(grant_text))
     if NEGATIVE_AUTH.search(grant_text):
-        positives = list(POSITIVE_AUTH.finditer(grant_text))
         if not positives:
             return False
         for match in positives:
@@ -363,7 +371,7 @@ def _has_positive_mutation_grant(clause: str) -> bool:
             if not NEGATIVE_AUTH.search(window):
                 return True
         return False
-    return bool(POSITIVE_AUTH.search(grant_text))
+    return bool(positives)
 
 
 def _repo_specific_window(clause: str, repository: str, radius: int = 140) -> str:
@@ -453,8 +461,8 @@ def _repository_identifiers_in_grant_clause(clause: str) -> list[str]:
                 mutation_before = False
         writable_after = bool(re.match(r"\s+(?:is\s+|are\s+)?writable\b", after, flags=re.I))
         passive_mutation_after = bool(re.match(
-            rf"\s+(?:(?:may|can)\s+be\s+{MUTATION_TERM}\b|"
-            rf"(?:is|are)\s+(?:explicitly\s+)?allowed\s+to\s+be\s+{MUTATION_TERM}\b)",
+            rf"\s+(?:(?:may|can|must|shall)\s+be\s+{MUTATION_TERM}\b|"
+            rf"(?:is|are)\s+(?:explicitly\s+)?(?:allowed|authorized|permitted|required)\s+to\s+be\s+{MUTATION_TERM}\b)",
             after,
             flags=re.I,
         ))
@@ -463,7 +471,7 @@ def _repository_identifiers_in_grant_clause(clause: str) -> list[str]:
         if repository.casefold() not in quoted_repositories and _slash_token_is_prose(normalized, match):
             continue
         local = normalized[max(0, match.start() - 160):match.end() + 180]
-        if POSITIVE_AUTH.search(local):
+        if POSITIVE_AUTH.search(local) or MANDATORY_MUTATION.search(local):
             repositories.add(repository)
     return sorted(repositories)
 
