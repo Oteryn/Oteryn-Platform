@@ -28,7 +28,7 @@ jobs:
       VCPKG_NUGET_API_KEY: ${{ github.token }}
     steps:
       - name: Checkout exact Canary source
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           repository: blakinio/canary
           ref: ${{ env.CANARY_REF }}
