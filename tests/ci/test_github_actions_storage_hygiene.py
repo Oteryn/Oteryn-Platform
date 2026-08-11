@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import datetime as dt
 import importlib.util
+import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -8,6 +9,7 @@ MODULE_PATH = ROOT / "scripts" / "ci" / "github_actions_storage_hygiene.py"
 SPEC = importlib.util.spec_from_file_location("github_actions_storage_hygiene", MODULE_PATH)
 assert SPEC and SPEC.loader
 MODULE = importlib.util.module_from_spec(SPEC)
+sys.modules[SPEC.name] = MODULE
 SPEC.loader.exec_module(MODULE)
 
 Candidate = MODULE.Candidate
