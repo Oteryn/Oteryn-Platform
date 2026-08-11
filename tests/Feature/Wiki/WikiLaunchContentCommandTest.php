@@ -4,9 +4,11 @@ namespace Tests\Feature\Wiki;
 
 use App\Admin\AdminPermission;
 use App\Identity\Models\Identity;
+use App\Wiki\Content\WikiExpectedContentInventory;
 use App\Wiki\Content\WikiLaunchContentCatalog;
 use App\Wiki\Domain\WikiArticleStatus;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Testing\PendingCommand;
@@ -15,6 +17,26 @@ use Tests\TestCase;
 final class WikiLaunchContentCommandTest extends TestCase
 {
     use RefreshDatabase;
+
+    public function test_expected_inventory_validates_without_database_mutation(): void
+    {
+        $exitCode = Artisan::call('wiki:launch-content:validate', [
+            '--json' => true,
+        ]);
+        $summary = json_decode(trim(Artisan::output()), true, 512, JSON_THROW_ON_ERROR);
+
+        self::assertSame(0, $exitCode);
+        self::assertIsArray($summary);
+        self::assertSame('PASS', $summary['status'] ?? null);
+        self::assertSame(WikiExpectedContentInventory::VERSION, $summary['inventory_version'] ?? null);
+        self::assertSame(WikiExpectedContentInventory::CATALOG_SOURCE_GIT_BLOB_SHA, $summary['catalog_source_git_blob_sha'] ?? null);
+        self::assertSame(4, $summary['categories'] ?? null);
+        self::assertSame(13, $summary['articles'] ?? null);
+
+        self::assertSame(0, DB::table('wiki_categories')->count());
+        self::assertSame(0, DB::table('wiki_articles')->count());
+        self::assertSame(0, DB::table('admin_audit_events')->count());
+    }
 
     public function test_exact_mfa_confirmed_publisher_installs_public_content_once(): void
     {

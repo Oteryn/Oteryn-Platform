@@ -131,7 +131,7 @@
         "mobile-390x844": {"profile": "editorial-media-responsive", "project": "editorial-media-chromium-mobile", "mode": "project", "evidence": "e1"}
       },
       "browsers": {"chromium-primary": {"profile": "editorial-media-responsive", "projects": ["editorial-media-chromium-desktop"], "evidence": "e1"}},
-      "portability": {"status": "excluded", "rationale": "Editorial Media includes privileged uploads, private previews and reference-protected deletion. Cross-engine coverage is represented by Wiki public/editor portability while the complete mutation lifecycle remains zero-retry Chromium."}
+      "portability": {"status": "covered", "profile": "standard-portability", "projects": ["portability-firefox", "portability-webkit"], "evidence": "e1"}
     },
     {
       "id": "browser-supporting-media-preview-endpoints",

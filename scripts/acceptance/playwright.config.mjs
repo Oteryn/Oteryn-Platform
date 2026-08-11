@@ -39,6 +39,7 @@ const portabilityMatches = [
   '**/public-localization.spec.mjs',
   '**/public-wiki*.spec.mjs',
   '**/admin-wiki*.spec.mjs',
+  '**/editorial-media-acceptance.spec.mjs',
   '**/public-game-catalog-acceptance.spec.mjs',
   '**/homepage-navigation-seo.spec.mjs',
 ];
