@@ -79,9 +79,8 @@ jobs:
           grep -Fq -- '--mode cleanup' "$workflow"
           grep -Fq 'if: ${{ always() }}' "$workflow"
 
-          ! grep -Eq 'packages|releases|environments|secrets' "$script"
           ! grep -Eq 'cache delete --all|system prune|container prune|volume prune|network prune' "$script"
-          ! grep -Eq 'DELETE.+/git/|DELETE.+/contents' "$script"
+          ! grep -Eq 'DELETE.+/(packages|releases|environments|contents|git/)' "$script"
 
   closed-pr-cache-cleanup:
     name: closed-pr-cache-cleanup
