@@ -1,7 +1,7 @@
 # Execution Resource Hygiene
 
 ```yaml
-execution_resource_hygiene_policy_version: 1
+execution_resource_hygiene_policy_version: 2
 cleanup_default: required_when_no_longer_needed
 shared_host_cleanup_default: exact_ownership_only
 persistent_volume_default: preserve
@@ -84,6 +84,52 @@ A cleanup step must not hide the original failure. Preserve both the primary ope
 
 Temporary resources should carry a task/run identity so a replacement agent can safely determine whether they are stale. A worker that cannot prove ownership must preserve the resource and record it as unresolved rather than guessing.
 
+## GitHub Actions CI specialization
+
+GitHub Actions cleanup depends on the runner boundary. Agents must inspect the workflow's actual `runs-on`, container/service configuration, and any custom Docker commands before deciding whether cleanup is required.
+
+### GitHub-hosted runners
+
+For jobs running on GitHub-hosted ephemeral runners such as `ubuntu-latest`, `windows-latest`, or `macos-*`:
+
+- the runner machine is ephemeral and is discarded after the job;
+- containers declared through the workflow `services:` or job `container:` mechanism are runner-managed job resources and are torn down with the job;
+- do not add `docker system prune`, `docker container prune`, or similar blanket cleanup merely to clean GitHub-hosted CI;
+- do not treat GitHub-hosted service containers as Synology/self-hosted leftovers;
+- explicit cleanup is still required for resources the workflow creates outside the runner lifecycle, such as external cloud resources, remote test deployments, or persistent services on another host;
+- custom processes or files that can affect later steps in the same job should still use normal shell `trap`/finally cleanup when their lifetime is shorter than the job.
+
+The presence of an automatically generated `Stop containers` phase in a GitHub Actions job is acceptable evidence that runner-managed service containers were torn down. Do not duplicate that cleanup with broad Docker commands.
+
+### Self-hosted runners
+
+A self-hosted runner is persistent infrastructure. Never assume the host filesystem, Docker daemon, networks, images, or custom containers are discarded after a job.
+
+For workflows that execute on a self-hosted runner:
+
+- built-in GitHub Actions `services:`/job containers may rely on runner-managed teardown, but agents must not assume that this covers custom `docker run`, `docker compose`, helper containers, networks, temporary directories, databases, or remote resources created by workflow steps;
+- any custom task/run-owned Docker or Compose resources must use deterministic run-scoped identity and an explicit cleanup step guarded with `if: ${{ always() }}` or equivalent finally/trap semantics;
+- cleanup must verify that the exact task/run-owned resources are absent afterward;
+- cancellation and primary-step failure must not skip cleanup of custom resources;
+- shared runner containers, runner registration/configuration, caches, canonical staging services, named volumes, and unrelated workloads must be preserved;
+- blanket Docker prune is forbidden on the persistent host unless the repository owner explicitly authorizes that exact scope;
+- if a self-hosted workflow intentionally leaves a resource running, the workflow/task must record the durable owner, purpose, retention reason, and later cleanup authority.
+
+A pull request that introduces custom Docker/Compose execution on a self-hosted runner is not ready to merge while cleanup semantics or intentional retention remain undefined.
+
+### GitHub artifacts and caches
+
+CI storage is also lifecycle state:
+
+- diagnostic artifacts should set an explicit `retention-days` appropriate to their purpose when the action supports it;
+- do not upload secrets, environment dumps, credentials, raw production data, or unrestricted Docker inspect output as artifacts;
+- caches are reusable acceleration state, not disposable containers; use deliberate cache keys and do not delete shared caches as part of container cleanup unless separately authorized;
+- an agent should not create long-lived artifacts merely as a substitute for durable repository documentation or task checkpoints.
+
+### External hosts reached from GitHub Actions
+
+A GitHub workflow that connects to Synology or another persistent host is an external/shared-host operation, even though the workflow itself runs in GitHub Actions. Resources created there follow the shared-host and self-hosted safety rules in this document; GitHub job completion does not prove that remote resources were cleaned.
+
 ## Verification and evidence
 
 Record only sanitized operational evidence. Useful evidence includes:
@@ -112,12 +158,12 @@ Do not return `DONE` while an unintended task-owned ephemeral resource remains a
 
 ## Synology / Oteryn staging specialization
 
-The canonical Oteryn staging Compose project is `oteryn-staging`. Its current canonical service set is defined by `deploy/synology/compose.yml`; agents must read the current file rather than rely on this document as the service source of truth.
+The canonical Oteryn staging Compose project is `oteryn-staging`. Its current canonical service set is defined by the trusted `deploy/synology/compose*.yml` files; agents must inspect current `main` rather than rely on this document as the service source of truth.
 
 For portal staging cleanup:
 
 - use the exact `com.docker.compose.project=oteryn-staging` label to establish project ownership;
-- preserve the current canonical service containers defined by the trusted `main` compose file;
+- preserve the current canonical service containers defined by the trusted `main` Compose sources;
 - refuse deletion when a non-canonical candidate is still running or canonical runtime identity/health is ambiguous;
 - remove only verified stopped orphan containers;
 - never remove volumes, networks, images, runner infrastructure, or containers from other projects as part of the portal-container cleanup action.
