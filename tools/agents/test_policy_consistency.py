@@ -48,26 +48,14 @@ class PolicyConsistencyTests(unittest.TestCase):
     def test_checkpoint_status_drift_fails_closed(self) -> None:
         temporary, root = self._fixture()
         self.addCleanup(temporary.cleanup)
-        self._replace(
-            root,
-            "docs/agents/AGENTS.md",
-            "investigating | implementing | validating | ready | waiting | blocked | completed",
-            "investigating | implementing | validating | ready | waiting | blocked",
-        )
-        findings = "\n".join(validate_policy(root))
-        self.assertIn("checkpoint task statuses drift", findings)
+        self._replace(root, "docs/agents/AGENTS.md", "investigating | implementing | validating | ready | waiting | blocked | completed", "investigating | implementing | validating | ready | waiting | blocked")
+        self.assertIn("checkpoint task statuses drift", "\n".join(validate_policy(root)))
 
     def test_budget_drift_fails_closed(self) -> None:
         temporary, root = self._fixture()
         self.addCleanup(temporary.cleanup)
-        self._replace(
-            root,
-            "AGENTS.override.md",
-            "Default to 60 minutes per foreground invocation",
-            "Default to 61 minutes per foreground invocation",
-        )
-        findings = "\n".join(validate_policy(root))
-        self.assertIn("normal_foreground_runtime_minutes drift", findings)
+        self._replace(root, "AGENTS.override.md", "Default to 60 minutes per foreground invocation", "Default to 61 minutes per foreground invocation")
+        self.assertIn("normal_foreground_runtime_minutes drift", "\n".join(validate_policy(root)))
 
     def test_duplicate_conflicting_budget_declaration_fails_closed(self) -> None:
         temporary, root = self._fixture()
@@ -75,7 +63,6 @@ class PolicyConsistencyTests(unittest.TestCase):
         path = root / "AGENTS.override.md"
         text = path.read_text(encoding="utf-8")
         marker = "Default to 60 minutes per foreground invocation"
-        self.assertIn(marker, text)
         path.write_text(text.replace(marker, marker + "\nDefault to 999 minutes per foreground invocation", 1), encoding="utf-8")
         findings = "\n".join(validate_policy(root))
         self.assertIn("normal_foreground_runtime_minutes drift", findings)
@@ -87,7 +74,6 @@ class PolicyConsistencyTests(unittest.TestCase):
         path = root / "AGENTS.override.md"
         text = path.read_text(encoding="utf-8")
         marker = "Default to 60 minutes per foreground invocation"
-        self.assertIn(marker, text)
         path.write_text(text.replace(marker, marker + "\nDefault to **999** minutes per foreground invocation", 1), encoding="utf-8")
         findings = "\n".join(validate_policy(root))
         self.assertIn("normal_foreground_runtime_minutes drift", findings)
@@ -96,150 +82,110 @@ class PolicyConsistencyTests(unittest.TestCase):
     def test_repository_scope_drift_fails_closed(self) -> None:
         temporary, root = self._fixture()
         self.addCleanup(temporary.cleanup)
-        self._replace(
-            root,
-            "AGENTS.md",
-            "The only repository where autonomous write operations are allowed by this file is `blakinio/Oteryn-Platform`.",
-            "The only repository where autonomous write operations are allowed by this file is `blakinio/other`.",
-        )
-        findings = "\n".join(validate_policy(root))
-        self.assertIn("missing required governance marker", findings)
+        self._replace(root, "AGENTS.md", "The only repository where autonomous write operations are allowed by this file is `blakinio/Oteryn-Platform`.", "The only repository where autonomous write operations are allowed by this file is `blakinio/other`.")
+        self.assertIn("missing required governance marker", "\n".join(validate_policy(root)))
 
     def test_contradictory_repository_write_grant_fails_closed(self) -> None:
-        temporary, root = self._fixture()
-        self.addCleanup(temporary.cleanup)
-        foreign_repo = "blakinio" + "/other"
+        temporary, root = self._fixture(); self.addCleanup(temporary.cleanup)
+        foreign_repo = "blakinio/other"
         self._append_after_allowlist_marker(root, f"- Autonomous write operations are also allowed for `{foreign_repo}`.")
         findings = "\n".join(validate_policy(root))
-        self.assertIn("contradictory repository mutation authorization", findings)
-        self.assertIn(foreign_repo, findings)
+        self.assertIn("contradictory repository mutation authorization", findings); self.assertIn(foreign_repo, findings)
 
     def test_unscoped_explicit_repository_write_grant_fails_closed(self) -> None:
-        temporary, root = self._fixture()
-        self.addCleanup(temporary.cleanup)
-        foreign_repo = "blakinio" + "/other"
+        temporary, root = self._fixture(); self.addCleanup(temporary.cleanup)
+        foreign_repo = "blakinio/other"
         self._append_after_allowlist_marker(root, f"- Autonomous writes to `{foreign_repo}` are explicitly allowed.")
         findings = "\n".join(validate_policy(root))
-        self.assertIn("contradictory repository mutation authorization", findings)
-        self.assertIn(foreign_repo, findings)
+        self.assertIn("contradictory repository mutation authorization", findings); self.assertIn(foreign_repo, findings)
 
     def test_asserted_current_task_authorization_is_not_an_exception(self) -> None:
-        temporary, root = self._fixture()
-        self.addCleanup(temporary.cleanup)
-        foreign_repo = "blakinio" + "/other"
+        temporary, root = self._fixture(); self.addCleanup(temporary.cleanup)
+        foreign_repo = "blakinio/other"
         self._append_after_allowlist_marker(root, f"- The user explicitly authorizes writes to {foreign_repo} in the current task.")
         findings = "\n".join(validate_policy(root))
-        self.assertIn("contradictory repository mutation authorization", findings)
-        self.assertIn(foreign_repo, findings)
+        self.assertIn("contradictory repository mutation authorization", findings); self.assertIn(foreign_repo, findings)
 
     def test_unquoted_foreign_repository_write_grant_fails_closed(self) -> None:
-        temporary, root = self._fixture()
-        self.addCleanup(temporary.cleanup)
-        foreign_repo = "blakinio" + "/other"
+        temporary, root = self._fixture(); self.addCleanup(temporary.cleanup)
+        foreign_repo = "blakinio/other"
         self._append_after_allowlist_marker(root, f"- Autonomous writes to {foreign_repo} are explicitly allowed.")
         findings = "\n".join(validate_policy(root))
-        self.assertIn("contradictory repository mutation authorization", findings)
-        self.assertIn(foreign_repo, findings)
+        self.assertIn("contradictory repository mutation authorization", findings); self.assertIn(foreign_repo, findings)
 
     def test_negated_read_only_foreign_write_grant_fails_closed(self) -> None:
-        temporary, root = self._fixture()
-        self.addCleanup(temporary.cleanup)
-        foreign_repo = "blakinio" + "/other"
+        temporary, root = self._fixture(); self.addCleanup(temporary.cleanup)
+        foreign_repo = "blakinio/other"
         self._append_after_allowlist_marker(root, f"- `{foreign_repo}` is no longer read-only; autonomous write operations are allowed.")
         findings = "\n".join(validate_policy(root))
-        self.assertIn("contradictory repository mutation authorization", findings)
-        self.assertIn(foreign_repo, findings)
+        self.assertIn("contradictory repository mutation authorization", findings); self.assertIn(foreign_repo, findings)
 
     def test_contracted_negated_read_only_foreign_write_grant_fails_closed(self) -> None:
-        temporary, root = self._fixture()
-        self.addCleanup(temporary.cleanup)
-        foreign_repo = "blakinio" + "/other"
+        temporary, root = self._fixture(); self.addCleanup(temporary.cleanup)
+        foreign_repo = "blakinio/other"
         self._append_after_allowlist_marker(root, f"- `{foreign_repo}` isn't read-only; autonomous write operations are allowed.")
         findings = "\n".join(validate_policy(root))
-        self.assertIn("contradictory repository mutation authorization", findings)
-        self.assertIn(foreign_repo, findings)
+        self.assertIn("contradictory repository mutation authorization", findings); self.assertIn(foreign_repo, findings)
 
     def test_foreign_write_grant_outside_allowlist_section_fails_closed(self) -> None:
-        temporary, root = self._fixture()
-        self.addCleanup(temporary.cleanup)
-        foreign_repo = "blakinio" + "/other"
+        temporary, root = self._fixture(); self.addCleanup(temporary.cleanup)
+        foreign_repo = "blakinio/other"
         self._append_after_allowlist_section(root, f"Autonomous writes to {foreign_repo} are explicitly allowed.")
         findings = "\n".join(validate_policy(root))
-        self.assertIn("contradictory repository mutation authorization", findings)
-        self.assertIn(foreign_repo, findings)
+        self.assertIn("contradictory repository mutation authorization", findings); self.assertIn(foreign_repo, findings)
 
     def test_explicit_user_authorization_exception_is_not_a_contradiction(self) -> None:
-        temporary, root = self._fixture()
-        self.addCleanup(temporary.cleanup)
-        foreign_repo = "blakinio" + "/other"
-        self._append_after_allowlist_marker(
-            root,
-            f"- Writes to `{foreign_repo}` are allowed only when the user explicitly authorizes that repository in the current task.",
-        )
+        temporary, root = self._fixture(); self.addCleanup(temporary.cleanup)
+        foreign_repo = "blakinio/other"
+        self._append_after_allowlist_marker(root, f"- Writes to `{foreign_repo}` are allowed only when the user explicitly authorizes that repository in the current task.")
         self.assertEqual([], validate_policy(root))
 
     def test_wrapped_markdown_foreign_write_grant_fails_closed(self) -> None:
-        temporary, root = self._fixture()
-        self.addCleanup(temporary.cleanup)
-        foreign_repo = "blakinio" + "/other"
+        temporary, root = self._fixture(); self.addCleanup(temporary.cleanup)
+        foreign_repo = "blakinio/other"
         self._append_after_allowlist_marker(root, f"- Autonomous writes to {foreign_repo}\n  are explicitly allowed.")
         findings = "\n".join(validate_policy(root))
-        self.assertIn("contradictory repository mutation authorization", findings)
-        self.assertIn(foreign_repo, findings)
+        self.assertIn("contradictory repository mutation authorization", findings); self.assertIn(foreign_repo, findings)
 
     def test_read_only_exemption_is_scoped_to_repository(self) -> None:
-        temporary, root = self._fixture()
-        self.addCleanup(temporary.cleanup)
-        read_only_repo = "blakinio" + "/canary"
-        foreign_repo = "blakinio" + "/other"
-        self._append_after_allowlist_marker(
-            root,
-            f"- `{read_only_repo}` is read-only, but autonomous writes to `{foreign_repo}` are allowed.",
-        )
+        temporary, root = self._fixture(); self.addCleanup(temporary.cleanup)
+        read_only_repo = "blakinio/canary"; foreign_repo = "blakinio/other"
+        self._append_after_allowlist_marker(root, f"- `{read_only_repo}` is read-only, but autonomous writes to `{foreign_repo}` are allowed.")
         findings = "\n".join(validate_policy(root))
-        self.assertIn("contradictory repository mutation authorization", findings)
-        self.assertIn(foreign_repo, findings)
+        self.assertIn("contradictory repository mutation authorization", findings); self.assertIn(foreign_repo, findings)
 
     def test_override_foreign_repository_grant_fails_closed(self) -> None:
-        temporary, root = self._fixture()
-        self.addCleanup(temporary.cleanup)
-        foreign_repo = "blakinio" + "/other"
-        path = root / "AGENTS.override.md"
-        text = path.read_text(encoding="utf-8")
+        temporary, root = self._fixture(); self.addCleanup(temporary.cleanup)
+        foreign_repo = "blakinio/other"
+        path = root / "AGENTS.override.md"; text = path.read_text(encoding="utf-8")
         path.write_text(text + f"\nAutonomous writes to {foreign_repo} are explicitly allowed.\n", encoding="utf-8")
         findings = "\n".join(validate_policy(root))
-        self.assertIn("AGENTS.override.md: contradictory repository mutation authorization", findings)
-        self.assertIn(foreign_repo, findings)
+        self.assertIn("AGENTS.override.md: contradictory repository mutation authorization", findings); self.assertIn(foreign_repo, findings)
 
     def test_edit_grant_without_write_word_fails_closed(self) -> None:
-        temporary, root = self._fixture()
-        self.addCleanup(temporary.cleanup)
-        foreign_repo = "blakinio" + "/other"
+        temporary, root = self._fixture(); self.addCleanup(temporary.cleanup)
+        foreign_repo = "blakinio/other"
         self._append_after_allowlist_marker(root, f"- Agents may edit {foreign_repo} autonomously.")
         findings = "\n".join(validate_policy(root))
-        self.assertIn("contradictory repository mutation authorization", findings)
-        self.assertIn(foreign_repo, findings)
+        self.assertIn("contradictory repository mutation authorization", findings); self.assertIn(foreign_repo, findings)
 
     def test_push_grant_without_write_word_fails_closed(self) -> None:
-        temporary, root = self._fixture()
-        self.addCleanup(temporary.cleanup)
-        foreign_repo = "blakinio" + "/other"
+        temporary, root = self._fixture(); self.addCleanup(temporary.cleanup)
+        foreign_repo = "blakinio/other"
         self._append_after_allowlist_marker(root, f"- Autonomous pushes to {foreign_repo} are allowed.")
         findings = "\n".join(validate_policy(root))
-        self.assertIn("contradictory repository mutation authorization", findings)
-        self.assertIn(foreign_repo, findings)
+        self.assertIn("contradictory repository mutation authorization", findings); self.assertIn(foreign_repo, findings)
+
+    def test_denied_foreign_repository_mutation_is_not_a_grant(self) -> None:
+        temporary, root = self._fixture(); self.addCleanup(temporary.cleanup)
+        foreign_repo = "blakinio/other"
+        self._append_after_allowlist_marker(root, f"- Agents are not allowed to edit {foreign_repo} autonomously.")
+        self.assertEqual([], validate_policy(root))
 
     def test_closeout_marker_drift_fails_closed(self) -> None:
-        temporary, root = self._fixture()
-        self.addCleanup(temporary.cleanup)
-        self._replace(
-            root,
-            "docs/agents/DELIVERY_COMPLETENESS_AND_CLOSEOUT.md",
-            "## Related PR hygiene",
-            "## Related change hygiene",
-        )
-        findings = "\n".join(validate_policy(root))
-        self.assertIn("## Related PR hygiene", findings)
+        temporary, root = self._fixture(); self.addCleanup(temporary.cleanup)
+        self._replace(root, "docs/agents/DELIVERY_COMPLETENESS_AND_CLOSEOUT.md", "## Related PR hygiene", "## Related change hygiene")
+        self.assertIn("## Related PR hygiene", "\n".join(validate_policy(root)))
 
 
 if __name__ == "__main__":
