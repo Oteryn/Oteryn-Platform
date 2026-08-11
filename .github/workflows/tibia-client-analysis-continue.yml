@@ -65,12 +65,35 @@ jobs:
             set -Eeuo pipefail
             mkdir -p /data/bootstrap /data/home
             cd /data/bootstrap
-            page="$(curl -fsSL --retry 3 --retry-delay 2 https://www.tibia.com/account/?subtopic=downloadclient || true)"
-            url="$(printf "%s" "$page" | grep -Eo "https?://[^\"[:space:]]*tibia\.x64\.tar\.gz" | head -n1 || true)"
-            if [[ -z "$url" ]]; then url="https://static.tibia.com/download/tibia.x64.tar.gz"; fi
-            case "$url" in https://*.tibia.com/*) ;; *) echo "Refusing non-Tibia URL: $url" >&2; exit 1;; esac
-            echo "download_url=$url"
-            curl -fL --retry 3 --retry-delay 2 "$url" -o tibia.x64.tar.gz
+            rm -f tibia.x64.tar.gz tibia.x64.tar.gz.part
+            ua="Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36"
+            urls=(
+              "https://static.tibia.com/download/tibia.x64.tar.gz"
+              "https://download.tibia.com/tibia.x64.tar.gz"
+              "http://download.tibia.com/tibia.x64.tar.gz"
+            )
+            ok=0
+            for url in "${urls[@]}"; do
+              case "$url" in
+                https://*.tibia.com/*|http://*.tibia.com/*) ;;
+                *) echo "Refusing non-Tibia URL: $url" >&2; exit 1 ;;
+              esac
+              echo "trying_download_url=$url"
+              if curl -fL --connect-timeout 15 --max-time 180 --retry 2 --retry-delay 2 \
+                -A "$ua" \
+                -H "Accept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8" \
+                -H "Accept-Language: en-US,en;q=0.9" \
+                -e "https://www.tibia.com/account/?subtopic=downloadclient" \
+                "$url" -o tibia.x64.tar.gz.part; then
+                mv tibia.x64.tar.gz.part tibia.x64.tar.gz
+                ok=1
+                echo "download_succeeded_url=$url"
+                break
+              fi
+              rm -f tibia.x64.tar.gz.part
+            done
+            [[ "$ok" -eq 1 ]]
+            test -s tibia.x64.tar.gz
             sha256sum tibia.x64.tar.gz | tee tibia.x64.tar.gz.sha256
             rm -rf Tibia
             tar xfz tibia.x64.tar.gz
