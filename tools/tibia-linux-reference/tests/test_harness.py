@@ -124,6 +124,66 @@ class SecurityTests(unittest.TestCase):
         self.assertFalse(rejected.passed)
         self.assertIn("evidence-or-artifacts", rejected.categories)
 
+    def test_untracked_checkout_file_is_included_in_leak_scan(self) -> None:
+        token = "gho_" + ("u" * 26)
+        candidate = ROOT / f"untracked-leak-{uuid.uuid4().hex}.tmp"
+        try:
+            candidate.write_text(token, encoding="utf-8")
+            with tempfile.TemporaryDirectory() as directory:
+                result = scan_prohibited_locations(
+                    repo_root=REPO,
+                    evidence_root=Path(directory),
+                    temporary_root=None,
+                    secrets=[],
+                    process_arguments=b"safe",
+                    retained_environment_report=b"safe",
+                    stdout=b"safe",
+                    stderr=b"safe",
+                )
+        finally:
+            candidate.unlink(missing_ok=True)
+        self.assertFalse(result.passed)
+        self.assertIn("untracked-files", result.categories)
+
+    def test_ignored_checkout_file_is_included_in_leak_scan(self) -> None:
+        token = "gho_" + ("i" * 26)
+        candidate = ROOT / f"ignored-leak-{uuid.uuid4().hex}.pyc"
+        try:
+            candidate.write_text(token, encoding="utf-8")
+            with tempfile.TemporaryDirectory() as directory:
+                result = scan_prohibited_locations(
+                    repo_root=REPO,
+                    evidence_root=Path(directory),
+                    temporary_root=None,
+                    secrets=[],
+                    process_arguments=b"safe",
+                    retained_environment_report=b"safe",
+                    stdout=b"safe",
+                    stderr=b"safe",
+                )
+        finally:
+            candidate.unlink(missing_ok=True)
+        self.assertFalse(result.passed)
+        self.assertIn("ignored-files", result.categories)
+
+    def test_temporary_profile_is_scanned_for_high_confidence_material(self) -> None:
+        token = "Bearer " + ("t" * 24)
+        with tempfile.TemporaryDirectory() as directory, tempfile.TemporaryDirectory() as evidence_directory:
+            profile = Path(directory)
+            (profile / "client.cfg").write_text(token, encoding="utf-8")
+            result = scan_prohibited_locations(
+                repo_root=REPO,
+                evidence_root=Path(evidence_directory),
+                temporary_root=profile,
+                secrets=[],
+                process_arguments=b"safe",
+                retained_environment_report=b"safe",
+                stdout=b"safe",
+                stderr=b"safe",
+            )
+        self.assertFalse(result.passed)
+        self.assertIn("temporary-files", result.categories)
+
     def test_fake_client_consumes_synthetic_corpus_from_stdin_stream(self) -> None:
         payload = b"\n".join(
             [
@@ -220,6 +280,12 @@ class LifecycleTests(unittest.TestCase):
         self.assertNotIn("pass_fds=", launcher)
         self.assertNotIn("--secret-fd", launcher)
 
+    def test_official_profile_scan_precedes_profile_removal(self) -> None:
+        launcher = (ROOT / "tibia_linux_reference" / "launcher.py").read_text(encoding="utf-8")
+        tail = launcher.split('raise HarnessError("official client did not create an observable X11 window")', 1)[1]
+        self.assertLess(tail.index("profile_scan = scan_prohibited_locations("), tail.index("_remove_profile(profile)"))
+        self.assertIn('"files_scanned": profile_scan.files_scanned', tail)
+
 
 class ManifestTests(unittest.TestCase):
     def _synthetic_document(self) -> dict[str, object]:
@@ -237,6 +303,24 @@ class ManifestTests(unittest.TestCase):
     def test_unproven_network_denial_is_rejected(self) -> None:
         document = self._synthetic_document()
         document["network_denial"]["proven"] = False
+        with self.assertRaises(HarnessError):
+            validate_manifest(document)
+
+    def test_committed_schema_rejects_short_session_id(self) -> None:
+        document = self._synthetic_document()
+        document["session_id"] = "x"
+        with self.assertRaises(HarnessError):
+            validate_manifest(document)
+
+    def test_committed_schema_rejects_negative_duration(self) -> None:
+        document = self._synthetic_document()
+        document["duration_monotonic_ms"] = -1
+        with self.assertRaises(HarnessError):
+            validate_manifest(document)
+
+    def test_committed_schema_rejects_non_array_window_lifecycle(self) -> None:
+        document = self._synthetic_document()
+        document["window_lifecycle"] = "mapped"
         with self.assertRaises(HarnessError):
             validate_manifest(document)
 
@@ -271,6 +355,12 @@ class WorkflowTests(unittest.TestCase):
         workflow = (REPO / ".github" / "workflows" / "tibia-linux-live-reference.yml").read_text(encoding="utf-8")
         self.assertNotIn("docs/agents/tasks/", workflow)
         self.assertNotIn("docs/agents/reports/", workflow)
+
+    def test_ci_cancels_superseded_pull_request_runs(self) -> None:
+        workflow = (REPO / ".github" / "workflows" / "tibia-linux-live-reference.yml").read_text(encoding="utf-8")
+        self.assertIn("concurrency:", workflow)
+        self.assertIn("github.event.pull_request.number || github.ref", workflow)
+        self.assertIn("cancel-in-progress: true", workflow)
 
 
 if __name__ == "__main__":
