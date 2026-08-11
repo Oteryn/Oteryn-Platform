@@ -10,84 +10,76 @@ on:
 permissions:
   contents: read
 
-concurrency:
-  group: oteryn-tibia-client-analysis-continue
-  cancel-in-progress: true
-
 env:
   CONTAINER_NAME: oteryn-tibia-client-analysis
 
 jobs:
   continue:
-    name: Derive and decode current Tibia executable
+    name: Inspect current Tibia package envelope
     runs-on: oteryn-staging
-    timeout-minutes: 20
+    timeout-minutes: 15
     steps:
-      - name: Verify exact owned runtime and staging snapshot
+      - name: Verify owned runtime and staging snapshot
         shell: bash
         run: |
           set -Eeuo pipefail
           [[ "$RUNNER_NAME" == "oteryn-synology-staging" ]]
-          owner="$(docker inspect --format '{{ index .Config.Labels "com.blakinio.owner" }}' "$CONTAINER_NAME")"
-          purpose="$(docker inspect --format '{{ index .Config.Labels "com.blakinio.purpose" }}' "$CONTAINER_NAME")"
-          state="$(docker inspect --format '{{.State.Status}}' "$CONTAINER_NAME")"
-          [[ "$owner" == "oteryn" && "$purpose" == "tibia-client-analysis" && "$state" == "running" ]]
+          [[ "$(docker inspect --format '{{ index .Config.Labels "com.blakinio.owner" }}' "$CONTAINER_NAME")" == "oteryn" ]]
+          [[ "$(docker inspect --format '{{ index .Config.Labels "com.blakinio.purpose" }}' "$CONTAINER_NAME")" == "tibia-client-analysis" ]]
           docker ps -a --filter 'label=com.docker.compose.project=oteryn-staging' --format '{{.ID}}\t{{.Names}}' | sort > /tmp/oteryn-before.tsv
           test -s /tmp/oteryn-before.tsv
-
-      - name: Derive only LZMA coding parameters from ELF magic
-        shell: bash
-        run: |
-          set -Eeuo pipefail
-          docker exec "$CONTAINER_NAME" bash -lc '
-            set -Eeuo pipefail
-            export DEBIAN_FRONTEND=noninteractive
-            command -v python3 >/dev/null || { apt-get update; apt-get install -y --no-install-recommends python3; }
-            cd /data/client-15.32.df7b29/bin
-            packed="$(sha256sum client.lzma | awk "{print \$1}")"
-            [[ "$packed" == "496c5b3517c0996a1bbd0e76a7738d450f79d0bf4fef140a807044776042dc9b" ]]
-            printf "%s" "aW1wb3J0IGx6bWEsIHBhdGhsaWIsIGpzb24Kc3JjPXBhdGhsaWIuUGF0aCgiY2xpZW50Lmx6bWEiKS5yZWFkX2J5dGVzKCkKcHJpbnQoInBhY2tlZF9ieXRlcyIsbGVuKHNyYykpCnByaW50KCJwcmVmaXgxMyIsc3JjWzoxM10uaGV4KCkpCmlmIHNyY1s6MTNdICE9IGIiXHgwMCIqMTM6CiAgICByYWlzZSBTeXN0ZW1FeGl0KCJ1bmV4cGVjdGVkIG5vbnplcm8gcHJlZml4IikKcGF5bG9hZD1zcmNbMTM6XQpmb3VuZD1bXQpmb3IgcGIgaW4gcmFuZ2UoNSk6CiAgICBmb3IgbHAgaW4gcmFuZ2UoNSk6CiAgICAgICAgZm9yIGxjIGluIHJhbmdlKDkpOgogICAgICAgICAgICBpZiBsYytscD40OgogICAgICAgICAgICAgICAgY29udGludWUKICAgICAgICAgICAgZj17ImlkIjpsem1hLkZJTFRFUl9MWk1BMSwiZGljdF9zaXplIjo0MDk2LCJsYyI6bGMsImxwIjpscCwicGIiOnBifQogICAgICAgICAgICB0cnk6CiAgICAgICAgICAgICAgICBkPWx6bWEuTFpNQURlY29tcHJlc3Nvcihmb3JtYXQ9bHptYS5GT1JNQVRfUkFXLGZpbHRlcnM9W2ZdKQogICAgICAgICAgICAgICAgaGVhZD1kLmRlY29tcHJlc3MocGF5bG9hZCxtYXhfbGVuZ3RoPTY0KQogICAgICAgICAgICBleGNlcHQgbHptYS5MWk1BRXJyb3I6CiAgICAgICAgICAgICAgICBjb250aW51ZQogICAgICAgICAgICBpZiBoZWFkLnN0YXJ0c3dpdGgoYiJceDdmRUxGIik6CiAgICAgICAgICAgICAgICByZWM9eyJsYyI6bGMsImxwIjpscCwicGIiOnBiLCJoZWFkIjpoZWFkWzoxNl0uaGV4KCl9CiAgICAgICAgICAgICAgICBwcmludCgiRk9VTkQiLHJlYykKICAgICAgICAgICAgICAgIGZvdW5kLmFwcGVuZChyZWMpCmlmIG5vdCBmb3VuZDoKICAgIHJhaXNlIFN5c3RlbUV4aXQoIm5vIGxjL2xwL3BiIHByb2R1Y2VkIEVMRiBtYWdpYyIpCnBhdGhsaWIuUGF0aCgibHptYS1jb2RpbmctcGFyYW1zLmpzb24iKS53cml0ZV90ZXh0KGpzb24uZHVtcHMoZm91bmQsaW5kZW50PTIpKQpwcmludCgiY2FuZGlkYXRlX2NvdW50IixsZW4oZm91bmQpKQo=" | base64 -d > /tmp/derive_lzma.py
-            python3 /tmp/derive_lzma.py
-            cat lzma-coding-params.json
-          '
-
-      - name: Decode with safe full dictionary and verify manifest identity
+      - name: Inspect bytes and search candidate compressed-stream offsets
         shell: bash
         run: |
           set -Eeuo pipefail
           docker exec "$CONTAINER_NAME" bash -lc '
             set -Eeuo pipefail
             cd /data/client-15.32.df7b29/bin
-            printf "%s" "aW1wb3J0IGhhc2hsaWIsanNvbixsem1hLHBhdGhsaWIKc3JjPXBhdGhsaWIuUGF0aCgiY2xpZW50Lmx6bWEiKS5yZWFkX2J5dGVzKCkKcGF5bG9hZD1zcmNbMTM6XQpwYXJhbXM9anNvbi5sb2FkcyhwYXRobGliLlBhdGgoImx6bWEtY29kaW5nLXBhcmFtcy5qc29uIikucmVhZF90ZXh0KCkpCmV4cGVjdGVkX2hhc2g9ImU2YzI0NGJkMzlmZTJlMDYzMmY2ZjAwMGVmZDMxNDcxNjQ2OTZlZmE4ZTkwMTcxODY2OGUwNDQyMzI1ZmY3ZmUiCmV4cGVjdGVkX3NpemU9NTE5NjUyMTYKdmFsaWQ9W10KZm9yIHAgaW4gcGFyYW1zOgogICAgZj17ImlkIjpsem1hLkZJTFRFUl9MWk1BMSwiZGljdF9zaXplIjo2NzEwODg2NCwibGMiOnBbImxjIl0sImxwIjpwWyJscCJdLCJwYiI6cFsicGIiXX0KICAgIHRyeToKICAgICAgICBvdXQ9bHptYS5kZWNvbXByZXNzKHBheWxvYWQsZm9ybWF0PWx6bWEuRk9STUFUX1JBVyxmaWx0ZXJzPVtmXSkKICAgIGV4Y2VwdCBsem1hLkxaTUFFcnJvciBhcyBlOgogICAgICAgIHByaW50KCJGVUxMX0ZBSUwiLHAscmVwcihlKSkKICAgICAgICBjb250aW51ZQogICAgaD1oYXNobGliLnNoYTI1NihvdXQpLmhleGRpZ2VzdCgpCiAgICBwcmludCgiRlVMTF9SRVNVTFQiLHAsInNpemUiLGxlbihvdXQpLCJzaGEyNTYiLGgpCiAgICBpZiBsZW4ob3V0KT09ZXhwZWN0ZWRfc2l6ZSBhbmQgaD09ZXhwZWN0ZWRfaGFzaDoKICAgICAgICBwYXRobGliLlBhdGgoImNsaWVudCIpLndyaXRlX2J5dGVzKG91dCkKICAgICAgICB2YWxpZC5hcHBlbmQocCkKaWYgbGVuKHZhbGlkKSE9MToKICAgIHJhaXNlIFN5c3RlbUV4aXQoZiJleHBlY3RlZCBleGFjdGx5IG9uZSBmdWxseSB2ZXJpZmllZCBjb2RpbmcgcGFyYW1ldGVyIHNldCwgZ290IHtsZW4odmFsaWQpfSIpCnBhdGhsaWIuUGF0aCgidmVyaWZpZWQtbHptYS1wYXJhbXMuanNvbiIpLndyaXRlX3RleHQoanNvbi5kdW1wcyh7ImRpY3Rfc2l6ZV91c2VkIjo2NzEwODg2NCwqKnZhbGlkWzBdfSxpbmRlbnQ9MikpCg==" | base64 -d > /tmp/decode_lzma.py
-            python3 /tmp/decode_lzma.py
-            chmod 0755 client
-            echo "verified_params=$(tr -d "\n " < verified-lzma-params.json)"
-            echo "unpacked_sha256=$(sha256sum client | awk "{print \$1}")"
-            echo "unpacked_size=$(stat -c %s client)"
-            file client
-            readelf -h client | head -n 40
+            [[ "$(sha256sum client.lzma | awk "{print \$1}")" == "496c5b3517c0996a1bbd0e76a7738d450f79d0bf4fef140a807044776042dc9b" ]]
+            echo "=== first 256 bytes ==="
+            od -Ax -tx1 -N256 client.lzma
+            python3 - <<"PY"
+import lzma, pathlib, json
+src=pathlib.Path("client.lzma").read_bytes()
+print("size",len(src),"prefix64",src[:64].hex())
+# Search the first 256 offsets for a raw LZMA1 stream that starts with ELF.
+found=[]
+for off in range(0,257):
+    payload=src[off:]
+    for pb in range(5):
+      for lp in range(5):
+        for lc in range(9):
+          if lc+lp>4: continue
+          f={"id":lzma.FILTER_LZMA1,"dict_size":1<<20,"lc":lc,"lp":lp,"pb":pb}
+          try:
+            d=lzma.LZMADecompressor(format=lzma.FORMAT_RAW,filters=[f])
+            head=d.decompress(payload,max_length=32)
+          except lzma.LZMAError:
+            continue
+          if head.startswith(b"\x7fELF"):
+            rec={"offset":off,"lc":lc,"lp":lp,"pb":pb,"head":head[:16].hex()}
+            print("RAW_ELF",rec); found.append(rec)
+print("raw_candidate_count",len(found))
+# Scan for plausible LZMA-alone headers (property + dictionary + size) in first 4096 bytes.
+valid_dict=set()
+for n in range(12,32):
+    valid_dict.add(1<<n); valid_dict.add((1<<n)+(1<<(n-1)))
+headers=[]
+for off in range(0,min(4096,len(src)-13)):
+    prop=src[off]
+    if prop>224: continue
+    ds=int.from_bytes(src[off+1:off+5],"little")
+    sz=int.from_bytes(src[off+5:off+13],"little")
+    if ds in valid_dict and (sz==0xffffffffffffffff or sz==51965216):
+        headers.append((off,prop,ds,sz,src[off:off+13].hex()))
+print("plausible_headers",headers[:100])
+PY
           '
-
-      - name: Reconnaissance for map and protocol interception points
-        shell: bash
-        run: |
-          set -Eeuo pipefail
-          docker exec "$CONTAINER_NAME" bash -lc '
-            set -Eeuo pipefail
-            cd /data/client-15.32.df7b29/bin
-            sha256sum client
-            stat -c "path=%n size=%s mode=%a" client
-            file client
-            readelf -d client | grep NEEDED | tee /data/client-15.32.df7b29/needed.txt || true
-            strings -a -n 6 client | grep -Ei "mapdescription|map description|tile|creature|appearances|protocol|network|socket|ssl|websocket|packet|message|position|floor|minimap|gameworld|worldmap|deserialize|serialize" | head -n 1500 | tee /data/client-15.32.df7b29/map-protocol-strings.txt || true
-            readelf -Ws client | grep -Ei "recv|send|socket|connect|ssl|EVP|AES|zstd|lzma|protobuf|memcpy|QNetwork|QDataStream" | head -n 700 | tee /data/client-15.32.df7b29/network-symbols.txt || true
-          '
-
       - name: Verify canonical staging unchanged
         if: always()
         shell: bash
         run: |
           set -Eeuo pipefail
           docker ps -a --filter 'label=com.docker.compose.project=oteryn-staging' --format '{{.ID}}\t{{.Names}}' | sort > /tmp/oteryn-after.tsv
-          if [[ -f /tmp/oteryn-before.tsv ]]; then diff -u /tmp/oteryn-before.tsv /tmp/oteryn-after.tsv; fi
+          diff -u /tmp/oteryn-before.tsv /tmp/oteryn-after.tsv
           docker inspect --format 'analysis_name={{.Name}} status={{.State.Status}} owner={{ index .Config.Labels "com.blakinio.owner" }} purpose={{ index .Config.Labels "com.blakinio.purpose" }}' "$CONTAINER_NAME"
