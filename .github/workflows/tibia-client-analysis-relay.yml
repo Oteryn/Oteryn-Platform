@@ -1,0 +1,132 @@
+name: Tibia Client Analysis Relay
+
+on:
+  push:
+    branches:
+      - ops/oteryn-tibia-client-analysis-20260811
+    paths:
+      - .github/workflows/tibia-client-analysis-relay.yml
+
+permissions:
+  contents: read
+
+env:
+  ARTIFACT_NAME: tibia-linux-launcher-relay
+  CONTAINER_NAME: oteryn-tibia-client-analysis
+
+jobs:
+  fetch-official:
+    name: Fetch official Tibia launcher on GitHub-hosted runner
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Download official CipSoft Linux launcher
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          curl -fL --retry 3 --retry-delay 2 \
+            -A 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/151.0.0.0 Safari/537.36' \
+            -e 'https://www.tibia.com/account/?subtopic=downloadclient' \
+            https://static.tibia.com/download/tibia.x64.tar.gz \
+            -o tibia.x64.tar.gz
+          test -s tibia.x64.tar.gz
+          sha256sum tibia.x64.tar.gz | tee tibia.x64.tar.gz.sha256
+          tar tzf tibia.x64.tar.gz | head -n 30
+      - name: Upload relay artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.ARTIFACT_NAME }}
+          path: |
+            tibia.x64.tar.gz
+            tibia.x64.tar.gz.sha256
+          if-no-files-found: error
+          retention-days: 1
+
+  materialize-on-oteryn:
+    name: Materialize Tibia package on Oteryn deploy runner
+    needs: fetch-official
+    runs-on: oteryn-staging
+    timeout-minutes: 25
+    steps:
+      - name: Verify exact owned runtime and staging snapshot
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          [[ "$RUNNER_NAME" == "oteryn-synology-staging" ]]
+          owner="$(docker inspect --format '{{ index .Config.Labels "com.blakinio.owner" }}' "$CONTAINER_NAME")"
+          purpose="$(docker inspect --format '{{ index .Config.Labels "com.blakinio.purpose" }}' "$CONTAINER_NAME")"
+          state="$(docker inspect --format '{{.State.Status}}' "$CONTAINER_NAME")"
+          [[ "$owner" == "oteryn" && "$purpose" == "tibia-client-analysis" && "$state" == "running" ]]
+          docker ps -a --filter 'label=com.docker.compose.project=oteryn-staging' --format '{{.ID}}\t{{.Names}}' | sort > /tmp/oteryn-before.tsv
+          test -s /tmp/oteryn-before.tsv
+      - name: Download relay artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ env.ARTIFACT_NAME }}
+          path: /tmp/tibia-relay
+      - name: Verify and inject official launcher archive
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          cd /tmp/tibia-relay
+          sha256sum -c tibia.x64.tar.gz.sha256
+          test -s tibia.x64.tar.gz
+          docker exec "$CONTAINER_NAME" mkdir -p /data/bootstrap /data/home
+          docker cp tibia.x64.tar.gz "$CONTAINER_NAME":/data/bootstrap/tibia.x64.tar.gz
+          docker cp tibia.x64.tar.gz.sha256 "$CONTAINER_NAME":/data/bootstrap/tibia.x64.tar.gz.sha256
+          docker exec "$CONTAINER_NAME" bash -lc '
+            set -Eeuo pipefail
+            cd /data/bootstrap
+            sha256sum -c tibia.x64.tar.gz.sha256
+            rm -rf Tibia
+            tar xfz tibia.x64.tar.gz
+            test -x Tibia/Tibia
+            file Tibia/Tibia
+            stat -c "launcher_size=%s" Tibia/Tibia
+          '
+      - name: Run launcher headlessly and materialize current package
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          set +e
+          docker exec "$CONTAINER_NAME" bash -lc '
+            export HOME=/data/home
+            export XDG_CONFIG_HOME=/data/home/.config
+            export XDG_DATA_HOME=/data/home/.local/share
+            export XDG_CACHE_HOME=/data/home/.cache
+            mkdir -p "$XDG_CONFIG_HOME" "$XDG_DATA_HOME" "$XDG_CACHE_HOME"
+            cd /data/bootstrap/Tibia
+            timeout --signal=TERM --kill-after=15s 480s xvfb-run -a ./Tibia
+          '
+          rc=$?
+          set -e
+          echo "launcher_exit=$rc"
+          [[ "$rc" -eq 0 || "$rc" -eq 124 || "$rc" -eq 137 || "$rc" -eq 143 ]]
+      - name: Identify materialized package and executable candidates
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          docker exec "$CONTAINER_NAME" bash -lc '
+            set -Eeuo pipefail
+            echo "=== package directories ==="
+            find /data/home /data/bootstrap -maxdepth 10 -type d \( -iname packages -o -iname Tibia \) -print 2>/dev/null | sort -u
+            echo "=== ELF and large files ==="
+            : > /data/tibia-client-candidates.txt
+            while IFS= read -r -d "" f; do
+              size="$(stat -c %s "$f")"
+              kind="$(file -b "$f")"
+              printf "%s\t%s\t%s\n" "$size" "$f" "$kind" | tee -a /data/tibia-client-candidates.txt
+            done < <(find /data/home /data/bootstrap -type f -size +20M -print0 2>/dev/null)
+            count="$(find /data/home -type f -size +20M 2>/dev/null | wc -l)"
+            echo "materialized_large_file_count=$count"
+            find /data/home -type f \( -name package.json -o -name launchermetadata.json -o -name tibiametadata.json \) -print 2>/dev/null | tee /data/tibia-package-metadata-paths.txt || true
+            [[ "$count" -ge 1 ]]
+          '
+      - name: Verify canonical staging unchanged
+        if: always()
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          docker ps -a --filter 'label=com.docker.compose.project=oteryn-staging' --format '{{.ID}}\t{{.Names}}' | sort > /tmp/oteryn-after.tsv
+          if [[ -f /tmp/oteryn-before.tsv ]]; then diff -u /tmp/oteryn-before.tsv /tmp/oteryn-after.tsv; fi
+          docker inspect --format 'analysis_name={{.Name}} status={{.State.Status}} owner={{ index .Config.Labels "com.blakinio.owner" }} purpose={{ index .Config.Labels "com.blakinio.purpose" }}' "$CONTAINER_NAME"
