@@ -82,6 +82,26 @@ def _fence_delimiter(stripped: str) -> tuple[str, int, str] | None:
     return token[0], len(token), match.group(2)
 
 
+def _markdown_outside_fences(markdown: str) -> str:
+    """Return only authoritative Markdown content outside fenced examples."""
+    lines: list[str] = []
+    active_fence: tuple[str, int] | None = None
+    for raw in markdown.splitlines():
+        delimiter = _fence_delimiter(raw.strip())
+        if active_fence is not None:
+            if delimiter:
+                char, length, remainder = delimiter
+                if char == active_fence[0] and length >= active_fence[1] and not remainder.strip():
+                    active_fence = None
+            continue
+        if delimiter:
+            char, length, _remainder = delimiter
+            active_fence = (char, length)
+            continue
+        lines.append(raw)
+    return "\n".join(lines)
+
+
 def _normalize_marker_line(raw: str) -> str:
     """Strip line-wide Markdown emphasis from a prospective policy marker."""
     match = re.match(r"^(?P<indent>\s*)[*_]{1,6}(?P<body>.+?)[*_]{1,6}\s*$", raw)
@@ -139,7 +159,8 @@ def _require_marker(errors: list[str], source: str, text: str, marker: str) -> N
 
 
 def _require_regex_value(errors: list[str], source: str, text: str, pattern: str, expected: int, label: str) -> None:
-    matches = list(re.finditer(pattern, _normalize_inline_markdown(text), flags=re.IGNORECASE))
+    authoritative = _markdown_outside_fences(text)
+    matches = list(re.finditer(pattern, _normalize_inline_markdown(authoritative), flags=re.IGNORECASE))
     if not matches:
         errors.append(f"{source}: cannot locate duplicated budget marker for {label}")
         return
@@ -275,9 +296,11 @@ def _logical_markdown_statements(markdown: str) -> list[str]:
 
 def _policy_clauses(statement: str) -> list[str]:
     """Split independent grant clauses while preserving dependent condition language."""
+    modal_adverb = r"(?:also|additionally|still|now|explicitly|autonomously)"
     new_grant = (
         rf"(?:additionally\s+)?(?:(?:the|a|an|any)\s+)?(?:agents?\s+)?"
-        rf"(?:autonomous(?:ly)?\s+)?(?:{MUTATION_TERM}\b|(?:may|can)\s+{MUTATION_TERM}\b)"
+        rf"(?:autonomous(?:ly)?\s+)?(?:{MUTATION_TERM}\b|"
+        rf"(?:may|can)\s+(?:{modal_adverb}\s+)*{MUTATION_TERM}\b)"
     )
     pattern = (
         rf"\s*;\s*|(?<=\.)\s+|\s*,?\s+(?:but|however|while)\s+|"
