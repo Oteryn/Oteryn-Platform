@@ -1,0 +1,72 @@
+name: Portal Exhaustive Acceptance E2E
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/portal-exhaustive-audit.yml'
+      - 'tools/audit/portal_exhaustive_audit.py'
+      - 'tools/audit/portal_exhaustive_reconcile.py'
+      - 'tools/audit/portal_exhaustive_strictness.py'
+      - 'tools/audit/validate_portal_exhaustive_retained_evidence.py'
+      - 'tools/audit/test_portal_exhaustive_audit.py'
+      - 'tools/audit/test_portal_exhaustive_reconcile.py'
+      - 'tools/audit/test_portal_exhaustive_strictness.py'
+      - 'tools/audit/test_validate_portal_exhaustive_retained_evidence.py'
+      - 'docs/agents/tasks/active/OTERYN-20260803-portal-exhaustive-current-main-audit.md'
+      - 'docs/agents/evidence/OTERYN-20260803-portal-exhaustive-current-main-audit/**'
+      - 'docs/agents/reports/OTERYN-20260803-portal-exhaustive-current-main-audit.md'
+      - 'docs/testing/**'
+      - 'scripts/acceptance/coverage/**'
+      - 'scripts/acceptance/tests/**'
+      - 'scripts/acceptance/playwright*.config.mjs'
+      - 'scripts/acceptance/package.json'
+      - 'routes/**'
+      - 'app/**'
+      - 'resources/views/**'
+      - 'resources/navigation/**'
+      - 'composer.json'
+      - 'composer.lock'
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/portal-exhaustive-audit.yml'
+      - 'tools/audit/portal_exhaustive_audit.py'
+      - 'tools/audit/portal_exhaustive_reconcile.py'
+      - 'tools/audit/portal_exhaustive_strictness.py'
+      - 'tools/audit/validate_portal_exhaustive_retained_evidence.py'
+      - 'tools/audit/test_portal_exhaustive_audit.py'
+      - 'tools/audit/test_portal_exhaustive_reconcile.py'
+      - 'tools/audit/test_portal_exhaustive_strictness.py'
+      - 'tools/audit/test_validate_portal_exhaustive_retained_evidence.py'
+      - 'docs/agents/evidence/OTERYN-20260803-portal-exhaustive-current-main-audit/**'
+      - 'docs/agents/reports/OTERYN-20260803-portal-exhaustive-current-main-audit.md'
+      - 'docs/testing/**'
+      - 'scripts/acceptance/coverage/**'
+      - 'scripts/acceptance/tests/**'
+      - 'scripts/acceptance/playwright*.config.mjs'
+      - 'scripts/acceptance/package.json'
+      - 'routes/**'
+      - 'app/**'
+      - 'resources/views/**'
+      - 'resources/navigation/**'
+      - 'composer.json'
+      - 'composer.lock'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: portal-exhaustive-acceptance-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  acceptance:
+    uses: ./.github/workflows/acceptance-validation.yml
+    with:
+      profile: critical
+      run_suffix: portal-exhaustive
+      zero_retries: true
