@@ -1,0 +1,133 @@
+name: Tibia Client Analysis Continue
+
+on:
+  push:
+    branches:
+      - ops/oteryn-tibia-client-analysis-20260811
+    paths:
+      - .github/workflows/tibia-client-analysis-continue.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: oteryn-tibia-client-analysis-continue
+  cancel-in-progress: false
+
+jobs:
+  continue:
+    name: Continue Tibia analysis package materialization
+    runs-on: oteryn-staging
+    timeout-minutes: 35
+    env:
+      CONTAINER_NAME: oteryn-tibia-client-analysis
+    steps:
+      - name: Verify exact owned runtime and staging snapshot
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          [[ "$RUNNER_NAME" == "oteryn-synology-staging" ]]
+          owner="$(docker inspect --format '{{ index .Config.Labels "com.blakinio.owner" }}' "$CONTAINER_NAME")"
+          purpose="$(docker inspect --format '{{ index .Config.Labels "com.blakinio.purpose" }}' "$CONTAINER_NAME")"
+          state="$(docker inspect --format '{{.State.Status}}' "$CONTAINER_NAME")"
+          [[ "$owner" == "oteryn" && "$purpose" == "tibia-client-analysis" && "$state" == "running" ]]
+          docker ps -a --filter 'label=com.docker.compose.project=oteryn-staging' --format '{{.ID}}\t{{.Names}}' | sort > /tmp/oteryn-before.tsv
+          test -s /tmp/oteryn-before.tsv
+
+      - name: Allow interrupted package transaction to finish and repair package state
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          deadline=$((SECONDS + 1200))
+          while docker exec "$CONTAINER_NAME" bash -lc 'pgrep -x apt-get >/dev/null || pgrep -x dpkg >/dev/null'; do
+            if (( SECONDS >= deadline )); then
+              echo "Package transaction did not finish within bounded wait" >&2
+              docker exec "$CONTAINER_NAME" bash -lc 'ps -eo pid,etime,stat,cmd | grep -E "apt-get|dpkg" | grep -v grep' >&2 || true
+              exit 1
+            fi
+            sleep 10
+          done
+          docker exec "$CONTAINER_NAME" bash -lc '
+            set -Eeuo pipefail
+            export DEBIAN_FRONTEND=noninteractive
+            dpkg --configure -a
+            apt-get -f install -y --no-install-recommends
+            command -v curl
+            command -v file
+            command -v xvfb-run
+          '
+
+      - name: Download and identify official CipSoft Linux launcher
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          docker exec "$CONTAINER_NAME" bash -lc '
+            set -Eeuo pipefail
+            mkdir -p /data/bootstrap /data/home
+            cd /data/bootstrap
+            page="$(curl -fsSL --retry 3 --retry-delay 2 https://www.tibia.com/account/?subtopic=downloadclient || true)"
+            url="$(printf "%s" "$page" | grep -Eo "https?://[^\"[:space:]]*tibia\.x64\.tar\.gz" | head -n1 || true)"
+            if [[ -z "$url" ]]; then url="https://static.tibia.com/download/tibia.x64.tar.gz"; fi
+            case "$url" in https://*.tibia.com/*) ;; *) echo "Refusing non-Tibia URL: $url" >&2; exit 1;; esac
+            echo "download_url=$url"
+            curl -fL --retry 3 --retry-delay 2 "$url" -o tibia.x64.tar.gz
+            sha256sum tibia.x64.tar.gz | tee tibia.x64.tar.gz.sha256
+            rm -rf Tibia
+            tar xfz tibia.x64.tar.gz
+            test -x Tibia/Tibia
+            file Tibia/Tibia
+            stat -c "launcher_size=%s" Tibia/Tibia
+          '
+
+      - name: Run launcher headlessly and materialize package
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          set +e
+          docker exec "$CONTAINER_NAME" bash -lc '
+            export HOME=/data/home
+            export XDG_CONFIG_HOME=/data/home/.config
+            export XDG_DATA_HOME=/data/home/.local/share
+            export XDG_CACHE_HOME=/data/home/.cache
+            mkdir -p "$XDG_CONFIG_HOME" "$XDG_DATA_HOME" "$XDG_CACHE_HOME"
+            cd /data/bootstrap/Tibia
+            timeout --signal=TERM --kill-after=15s 480s xvfb-run -a ./Tibia
+          '
+          rc=$?
+          set -e
+          echo "launcher_exit=$rc"
+          [[ "$rc" -eq 0 || "$rc" -eq 124 || "$rc" -eq 137 || "$rc" -eq 143 ]]
+
+      - name: Identify materialized package and binary candidates
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          docker exec "$CONTAINER_NAME" bash -lc '
+            set -Eeuo pipefail
+            echo "=== package directories ==="
+            find /data/home /data/bootstrap -maxdepth 9 -type d \( -iname packages -o -iname Tibia \) -print 2>/dev/null | sort -u
+            echo "=== large files ==="
+            : > /data/tibia-large-files.txt
+            while IFS= read -r -d "" f; do
+              size="$(stat -c %s "$f")"
+              kind="$(file -b "$f")"
+              printf "%s\t%s\t%s\n" "$size" "$f" "$kind" | tee -a /data/tibia-large-files.txt
+            done < <(find /data/home /data/bootstrap -type f -size +20M -print0 2>/dev/null)
+            count="$(find /data/home -type f -size +20M 2>/dev/null | wc -l)"
+            echo "materialized_large_file_count=$count"
+            find /data/home -type f \( -name package.json -o -name launchermetadata.json -o -name tibiametadata.json \) -print 2>/dev/null | tee /data/tibia-package-metadata-paths.txt || true
+            if [[ "$count" -lt 1 ]]; then
+              echo "No full game package was materialized" >&2
+              find /data/home -maxdepth 10 -type f -printf "%s %p\n" 2>/dev/null | sort -nr | head -n 100 >&2 || true
+              exit 1
+            fi
+          '
+
+      - name: Verify canonical staging unchanged
+        if: always()
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          docker ps -a --filter 'label=com.docker.compose.project=oteryn-staging' --format '{{.ID}}\t{{.Names}}' | sort > /tmp/oteryn-after.tsv
+          if [[ -f /tmp/oteryn-before.tsv ]]; then diff -u /tmp/oteryn-before.tsv /tmp/oteryn-after.tsv; fi
+          docker inspect --format 'analysis_name={{.Name}} status={{.State.Status}} owner={{ index .Config.Labels "com.blakinio.owner" }} purpose={{ index .Config.Labels "com.blakinio.purpose" }}' "$CONTAINER_NAME"
