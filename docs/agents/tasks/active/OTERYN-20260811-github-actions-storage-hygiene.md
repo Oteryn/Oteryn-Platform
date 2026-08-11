@@ -54,10 +54,10 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-11T09:31:00Z
-head: 6f2fca63c04fd1aeccdcdbdd568ddac8afecb597
+updated_at: 2026-08-11T09:34:00Z
+head: 89753389843eec3f468dbdbd5b1c8a2473a7729b
 branch: chore/github-actions-storage-hygiene-closeout
-pr: none
+pr: 993
 status: validating
 terminal_pr_policy: archive_pending
 context_routes:
@@ -110,12 +110,12 @@ validation:
   - command: live Actions storage hygiene run 31476011425 attempt 2 job 93733099349
     result: PASS
     evidence: another 700 exact resources deleted; 344776670 bytes reclaimed; bounded residual reported.
-  - command: closeout PR exact-head validation
+  - command: closeout PR #993 exact-head validation
     result: NOT_RUN
-    evidence: closeout branch prepared; PR and exact-head checks pending.
+    evidence: PR opened; exact-head checks pending.
 blockers:
   - none
-next_action: Open and validate the closeout PR, merge it with exact head after checks pass, verify main has no push cleanup authority, then move this task to archive.
+next_action: Validate PR #993, merge it with exact head after checks pass, verify main has no push cleanup authority, then move this task to archive.
 ```
 
 ## Notes
