@@ -7,7 +7,6 @@ import json
 import re
 import sys
 from pathlib import Path
-from typing import Iterable
 
 REPOSITORY_FULL_NAME = "blakinio/Oteryn-Platform"
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -30,10 +29,6 @@ REPO_TOKEN = re.compile(r"(?<![A-Za-z0-9_.-])([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)(?
 MUTATION_WORD = re.compile(r"\b(?:write|writes|writable|edit|edits|edited|push|pushes|pushed|commit|commits|committed|merge|merges|merged|mutate|mutates|mutation)\b", re.I)
 POSITIVE_AUTH = re.compile(r"\b(?:allow|allows|allowed|authorize|authorizes|authorized|permit|permits|permitted|may|can)\b", re.I)
 NEGATIVE_AUTH = re.compile(r"\b(?:not\s+allowed|not\s+authorized|not\s+permitted|may\s+not|cannot|can't|can’t|never\s+allowed|unauthorized)\b", re.I)
-POLICY_SLASH_TERMS = {
-    "authentication", "session", "commit", "pr", "issue", "task", "status", "result",
-    "ci", "e2e", "branch", "head", "review", "merge", "client", "server", "read", "write",
-}
 
 
 class PolicyConsistencyError(RuntimeError):
@@ -62,22 +57,21 @@ def _normalize_inline_markdown(text: str) -> str:
 
 
 def _normalize_emphasized_marker_lines(markdown: str) -> str:
-    """Strip line-wide Markdown emphasis without touching fenced-code delimiters."""
-    return re.sub(
-        r"(?m)^(?P<indent>\s*)(?:\*\*|__)(?P<body>[^\n]+?)(?:\*\*|__)\s*$",
-        lambda match: match.group("indent") + match.group("body"),
-        markdown,
-    )
+    """Strip valid line-wide Markdown emphasis around declaration markers."""
+    lines: list[str] = []
+    for raw in markdown.splitlines():
+        match = re.match(r"^(?P<indent>\s*)(?P<marks>\*{1,3}|_{1,3})(?P<body>.+?)(?P=marks)\s*$", raw)
+        if match and not raw.strip().startswith("```"):
+            raw = match.group("indent") + match.group("body")
+        lines.append(raw)
+    return "\n".join(lines)
 
 
 def _yaml_lists(markdown: str, key: str) -> list[list[str]]:
     pattern = re.compile(rf"(?m)^\s*{re.escape(key)}:\s*\n(?P<body>(?:\s+-\s+[^\n]+\n?)+)")
     declarations: list[list[str]] = []
     for match in pattern.finditer(markdown):
-        values = [
-            item.strip().strip("'\"")
-            for item in re.findall(r"(?m)^\s*-\s+([^#\n]+?)\s*$", match.group("body"))
-        ]
+        values = [item.strip().strip("'\"") for item in re.findall(r"(?m)^\s*-\s+([^#\n]+?)\s*$", match.group("body"))]
         if values:
             declarations.append(values)
     if not declarations:
@@ -168,12 +162,12 @@ def _logical_markdown_statements(markdown: str) -> list[str]:
 
 
 def _policy_clauses(statement: str) -> list[str]:
-    """Split boundaries that can introduce a separate repository authorization."""
-    pattern = (
-        r"\s*;\s*|(?<=\.)\s+|\s*,\s*(?:and|but)\s+|\s+(?:but|however|while)\s+|"
-        r"\s+and\s+(?=(?:autonomous\b|agents?\b|writes?\b|edits?\b|push(?:es)?\b|commits?\b|merges?\b|mutat\w*\b))"
-    )
-    return [value.strip() for value in re.split(pattern, statement, flags=re.I) if value.strip()]
+    """Split every common conjunction that can introduce an independent grant."""
+    return [
+        value.strip()
+        for value in re.split(r"\s*;\s*|(?<=\.)\s+|\s*,?\s+(?:and|but|however|while)\s+", statement, flags=re.I)
+        if value.strip()
+    ]
 
 
 def _has_positive_mutation_grant(clause: str) -> bool:
@@ -203,9 +197,7 @@ def _repo_specific_window(clause: str, repository: str, radius: int = 140) -> st
 def _repo_has_conditional_user_authorization(clause: str, repository: str) -> bool:
     window = _repo_specific_window(clause, repository, 180)
     conditional = "only when" in window or "unless" in window
-    explicitly_authorized = bool(
-        re.search(r"\b(?:user|project\s+owner)\b.*\bexplicit(?:ly)?\b.*\b(?:authoriz\w*|grant\w*|permission)\b", window)
-    )
+    explicitly_authorized = bool(re.search(r"\b(?:user|project\s+owner)\b.*\bexplicit(?:ly)?\b.*\b(?:authoriz\w*|grant\w*|permission)\b", window))
     task_scoped = any(value in window for value in ("current task", "write task", "separate permission"))
     return conditional and explicitly_authorized and task_scoped
 
@@ -214,18 +206,21 @@ def _repo_has_positive_read_only_assertion(clause: str, repository: str) -> bool
     window = _repo_specific_window(clause, repository, 120)
     if "read-only" not in window:
         return False
-    if re.search(
-        r"(?:\b(?:not|never|no\s+longer|is\s+not|was\s+not)\s+read-only\b|"
-        r"\b(?:isn't|isn’t|wasn't|wasn’t)\s+read-only\b)",
-        window,
-    ):
+    if re.search(r"(?:\b(?:not|never|no\s+longer|is\s+not|was\s+not)\s+read-only\b|\b(?:isn't|isn’t|wasn't|wasn’t)\s+read-only\b)", window):
         return False
     return bool(re.search(r"\b(?:is|are|as|remain|remains|must\s+remain|treat)\b.*\bread-only\b", window))
 
 
-def _looks_like_policy_slash_prose(repository: str) -> bool:
-    owner, name = repository.casefold().split("/", 1)
-    return owner in POLICY_SLASH_TERMS and name in POLICY_SLASH_TERMS
+def _slash_token_is_prose(normalized: str, match: re.Match[str]) -> bool:
+    """Reject slash compounds only when their surrounding syntax proves prose usage."""
+    before = normalized[max(0, match.start() - 40):match.start()]
+    after = normalized[match.end():match.end() + 40]
+    # Policy compounds are commonly followed by a noun describing the compound itself.
+    if re.match(r"\s+(?:metadata|creation|mutation|state|status|result|boundary|restriction|rules?|policy|operations?)\b", after, flags=re.I):
+        return True
+    # A repository object is expected after a repository mutation preposition/verb or before 'writable'.
+    repository_object = bool(re.search(r"\b(?:to|of)\s*$", before, flags=re.I)) or bool(re.match(r"\s+(?:is\s+|are\s+)?writable\b", after, flags=re.I))
+    return not repository_object
 
 
 def _repository_identifiers_in_grant_clause(clause: str) -> list[str]:
@@ -235,19 +230,13 @@ def _repository_identifiers_in_grant_clause(clause: str) -> list[str]:
     repositories: set[str] = set()
     for match in REPO_TOKEN.finditer(normalized):
         repository = match.group(1)
-        if _looks_like_policy_slash_prose(repository):
-            continue
-        before = normalized[max(0, match.start() - 80):match.start()]
+        before = normalized[max(0, match.start() - 90):match.start()]
         after = normalized[match.end():match.end() + 56]
-        mutation_before = bool(
-            re.search(
-                r"\b(?:write|writes|edit|edits|push|pushes|commit|commits|merge|merges|mutate|mutates|mutation)\b(?:\s+(?:operations?|access|to|of))*\s*$",
-                before,
-                flags=re.I,
-            )
-        )
+        mutation_before = bool(re.search(r"\b(?:write|writes|edit|edits|push|pushes|commit|commits|merge|merges|mutate|mutates|mutation)\b(?:\s+(?:operations?|access|to|of))*\s*$", before, flags=re.I))
         writable_after = bool(re.match(r"\s+(?:is\s+|are\s+)?writable\b", after, flags=re.I))
         if not (mutation_before or writable_after):
+            continue
+        if _slash_token_is_prose(normalized, match):
             continue
         local = normalized[max(0, match.start() - 100):match.end() + 120]
         if POSITIVE_AUTH.search(local):
@@ -269,7 +258,6 @@ def _reject_contradictory_repository_mutation_grants(errors: list[str], source: 
 
 
 def validate_policy(root: Path = REPO_ROOT) -> list[str]:
-    """Return all material cross-document policy consistency findings."""
     errors: list[str] = []
     try:
         root_agents = _read_text(root, "AGENTS.md")
@@ -293,31 +281,22 @@ def validate_policy(root: Path = REPO_ROOT) -> list[str]:
 
         for duplicate in _yaml_lists(anti_stall, "checkpoint_task_statuses"):
             if duplicate != canonical_statuses:
-                errors.append(
-                    "docs/agents/ANTI_STALL_AND_EXECUTION_BUDGET.md: checkpoint task statuses drift; "
-                    f"canonical={canonical_statuses}, duplicate={duplicate}"
-                )
+                errors.append(f"docs/agents/ANTI_STALL_AND_EXECUTION_BUDGET.md: checkpoint task statuses drift; canonical={canonical_statuses}, duplicate={duplicate}")
         for duplicate in _yaml_lists(anti_stall, "terminal_invocation_results"):
             if duplicate != canonical_terminal:
-                errors.append(
-                    "docs/agents/ANTI_STALL_AND_EXECUTION_BUDGET.md: terminal invocation results drift; "
-                    f"canonical={canonical_terminal}, duplicate={duplicate}"
-                )
+                errors.append(f"docs/agents/ANTI_STALL_AND_EXECUTION_BUDGET.md: terminal invocation results drift; canonical={canonical_terminal}, duplicate={duplicate}")
 
         _require_all_declarations(errors, "docs/agents/AGENTS.md", _text_contract_declarations(docs_agents, "Use these checkpoint task statuses only:"), canonical_statuses, "checkpoint task statuses")
         _require_all_declarations(errors, "docs/agents/AGENTS.md", _text_contract_declarations(docs_agents, "Use these terminal invocation results only:"), canonical_terminal, "terminal invocation results")
         _require_all_declarations(errors, "AGENTS.override.md", _inline_backtick_declarations(override, "checkpoint task status:"), canonical_statuses, "checkpoint task statuses")
         _require_all_declarations(errors, "AGENTS.override.md", _inline_backtick_declarations(override, "terminal invocation result:"), canonical_terminal, "terminal invocation results")
 
-        budget_keys = {
-            key: _yaml_int(anti_stall, key)
-            for key in (
-                "normal_foreground_runtime_minutes", "large_foreground_runtime_minutes", "no_progress_minutes",
-                "max_ci_state_checks_per_exact_head", "max_unchanged_external_state_checks", "terminal_ci_wait_budget_minutes",
-                "terminal_ci_minimum_poll_interval_minutes", "max_terminal_ci_state_checks_per_check_generation",
-                "max_additional_tasks_after_terminal_entry_task", "minimum_remaining_minutes_to_start_additional_task",
-            )
-        }
+        budget_keys = {key: _yaml_int(anti_stall, key) for key in (
+            "normal_foreground_runtime_minutes", "large_foreground_runtime_minutes", "no_progress_minutes",
+            "max_ci_state_checks_per_exact_head", "max_unchanged_external_state_checks", "terminal_ci_wait_budget_minutes",
+            "terminal_ci_minimum_poll_interval_minutes", "max_terminal_ci_state_checks_per_check_generation",
+            "max_additional_tasks_after_terminal_entry_task", "minimum_remaining_minutes_to_start_additional_task",
+        )}
         for pattern, key in (
             (r"Default to (?P<value>\d+) minutes per foreground invocation", "normal_foreground_runtime_minutes"),
             (r"allow (?P<value>\d+) minutes only when", "large_foreground_runtime_minutes"),
