@@ -33,7 +33,7 @@ jobs:
           python - <<'PY'
           from pathlib import Path
 
-          allowed = {
+          allowed = (
               '.github/workflows/acceptance-validation.yml',
               '.github/workflows/announcements-acceptance.yml',
               '.github/workflows/build-synology-staging-images.yml',
@@ -53,7 +53,7 @@ jobs:
               '.github/workflows/support-legal-acceptance.yml',
               '.github/workflows/support-moderation-acceptance.yml',
               '.github/workflows/wiki-reconciliation-acceptance.yml',
-          }
+          )
           replacements = {
               'actions/checkout@v5': 'actions/checkout@v7',
               'actions/checkout@v6': 'actions/checkout@v7',
@@ -63,36 +63,29 @@ jobs:
           }
 
           changed = []
-          unexpected = []
           counts = {old: 0 for old in replacements}
-          for path in sorted(Path('.github/workflows').glob('*.yml')):
+          for rel in allowed:
+              path = Path(rel)
+              if not path.is_file():
+                  raise SystemExit(f'declared owned workflow missing: {rel}')
               text = path.read_text(encoding='utf-8')
-              hits = {old: text.count(old) for old in replacements}
-              if not any(hits.values()):
-                  continue
-              rel = path.as_posix()
-              if rel not in allowed:
-                  unexpected.append((rel, {k: v for k, v in hits.items() if v}))
-                  continue
               new = text
               for old, replacement in replacements.items():
-                  counts[old] += hits[old]
+                  hits = new.count(old)
+                  counts[old] += hits
                   new = new.replace(old, replacement)
               if new != text:
                   path.write_text(new, encoding='utf-8')
                   changed.append(rel)
 
-          if unexpected:
-              raise SystemExit(f'old action majors found outside declared ownership: {unexpected}')
-
           leftovers = []
-          for path in sorted(Path('.github/workflows').glob('*.yml')):
-              text = path.read_text(encoding='utf-8')
+          for rel in allowed:
+              text = Path(rel).read_text(encoding='utf-8')
               for old in replacements:
                   if old in text:
-                      leftovers.append((path.as_posix(), old))
+                      leftovers.append((rel, old))
           if leftovers:
-              raise SystemExit(f'old action majors remain after reconciliation: {leftovers}')
+              raise SystemExit(f'old action majors remain inside declared ownership: {leftovers}')
 
           print('changed paths:')
           for path in changed:
