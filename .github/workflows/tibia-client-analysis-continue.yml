@@ -16,7 +16,7 @@ concurrency:
 
 jobs:
   continue:
-    name: Continue Tibia analysis package materialization
+    name: Directly materialize Tibia client package
     runs-on: oteryn-staging
     timeout-minutes: 35
     env:
@@ -34,136 +34,125 @@ jobs:
           docker ps -a --filter 'label=com.docker.compose.project=oteryn-staging' --format '{{.ID}}\t{{.Names}}' | sort > /tmp/oteryn-before.tsv
           test -s /tmp/oteryn-before.tsv
 
-      - name: Ensure launcher runtime is complete
+      - name: Fetch current Tibia client manifests
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          docker exec "$CONTAINER_NAME" bash -lc '
+            set -Eeuo pipefail
+            mkdir -p /data/direct
+            cd /data/direct
+            base="https://static.tibia.com/launcher/tibiaclient-linux-current"
+            ref="$base/package.json.version"
+            curl --compressed -fLC - -e "$ref" "$ref" -o package.json.version
+            echo "=== package.json.version ==="
+            cat package.json.version
+            echo
+            for u in \
+              "$base/package.json" \
+              "$base/package.json.gz" \
+              "$base/$(cat package.json.version)/package.json" \
+              "$base/package.json?version=$(cat package.json.version)"; do
+              echo "TRY=$u"
+              rm -f candidate.tmp
+              if curl --compressed -fLC - -e "$u" "$u" -o candidate.tmp; then
+                echo "OK=$u"
+                file candidate.tmp
+                wc -c candidate.tmp
+                cp candidate.tmp package.json
+                break
+              fi
+            done
+            test -s package.json
+            echo "=== package.json head ==="
+            head -c 12000 package.json
+            echo
+          '
+
+      - name: Parse manifest and download all declared client files
         shell: bash
         run: |
           set -Eeuo pipefail
           docker exec "$CONTAINER_NAME" bash -lc '
             set -Eeuo pipefail
             export DEBIAN_FRONTEND=noninteractive
-            dpkg --configure -a
-            apt-get update
-            apt-get -f install -y --no-install-recommends
-            apt-get install -y --no-install-recommends \
-              libegl1 libfontconfig1 libopengl0 \
-              libxcb-cursor0 libxcb-icccm4 libxcb-keysyms1 libxcb-shape0 \
-              libxcb-xinerama0 libxcb-xinput0 libxcb-render-util0 \
-              libxcb-image0 libxcb-randr0 libxkbcommon-x11-0 libxi6
+            if ! command -v python3 >/dev/null; then apt-get update && apt-get install -y --no-install-recommends python3; fi
+            cd /data/direct
+            python3 - <<"PY"
+import json, os, pathlib, subprocess, sys
+p=pathlib.Path("package.json")
+try:
+    data=json.loads(p.read_text())
+except Exception as e:
+    print("MANIFEST_JSON_ERROR",repr(e))
+    sys.exit(2)
+print("TOP_KEYS", sorted(data.keys()) if isinstance(data,dict) else type(data).__name__)
+# recursively collect dicts that look like file entries
+entries=[]
+def walk(x):
+    if isinstance(x,dict):
+        low={str(k).lower():v for k,v in x.items()}
+        path=low.get("path") or low.get("filename") or low.get("file") or low.get("name")
+        url=low.get("url") or low.get("downloadurl") or low.get("download_url")
+        sha=low.get("sha256") or low.get("checksum") or low.get("hash")
+        size=low.get("size") or low.get("filesize")
+        if isinstance(path,str) and (url is not None or sha is not None or size is not None):
+            entries.append((path,url,sha,size,x))
+        for v in x.values(): walk(v)
+    elif isinstance(x,list):
+        for v in x: walk(v)
+walk(data)
+print("FILE_ENTRY_COUNT",len(entries))
+for row in entries[:50]:
+    print("ENTRY",row[0],row[1],row[2],row[3])
+pathlib.Path("manifest-entries.txt").write_text("\n".join(str(r[:4]) for r in entries))
+if not entries:
+    sys.exit(3)
+base="https://static.tibia.com/launcher/tibiaclient-linux-current/"
+outroot=pathlib.Path("client")
+outroot.mkdir(exist_ok=True)
+for path,url,sha,size,_ in entries:
+    # refuse traversal and only allow official Tibia CDN when manifest has absolute URL
+    rel=path.lstrip("/")
+    dest=(outroot/rel).resolve()
+    if not str(dest).startswith(str(outroot.resolve())+os.sep):
+        raise SystemExit(f"unsafe path {path}")
+    dest.parent.mkdir(parents=True,exist_ok=True)
+    if isinstance(url,str) and url.startswith("https://static.tibia.com/"):
+        src=url
+    elif isinstance(url,str) and url.startswith("/"):
+        src="https://static.tibia.com"+url
+    elif isinstance(url,str) and url:
+        src=base+url.lstrip("/")
+    else:
+        src=base+rel
+    print("DOWNLOAD",src,"->",dest)
+    subprocess.run(["curl","--compressed","-fLC","-","-e",src,src,"-o",str(dest)],check=True)
+print("DOWNLOAD_COMPLETE")
+PY
           '
 
-      - name: Reuse verified official launcher archive
+      - name: Identify actual Tibia game executable
         shell: bash
         run: |
           set -Eeuo pipefail
           docker exec "$CONTAINER_NAME" bash -lc '
             set -Eeuo pipefail
-            cd /data/bootstrap
-            test -s tibia.x64.tar.gz
-            printf "%s  %s\n" "04a87c801d3855f4da1b07e201dff1f79acc8528c57c984131c3a2a88cb60ea7" tibia.x64.tar.gz | sha256sum -c -
-            rm -rf Tibia
-            tar xfz tibia.x64.tar.gz
-            test -x Tibia/Tibia
-            missing="$(ldd Tibia/Tibia | grep "not found" || true)"
-            [[ -z "$missing" ]]
-            qxcb="$(find Tibia -type f -name libqxcb.so -print -quit)"
-            test -n "$qxcb"
-            qxcb_missing="$(ldd "$qxcb" | grep "not found" || true)"
-            [[ -z "$qxcb_missing" ]]
-          '
-
-      - name: Stop only exact stale launcher process and clear isolated locks
-        shell: bash
-        run: |
-          set -Eeuo pipefail
-          docker exec "$CONTAINER_NAME" bash -lc '
-            set -Eeuo pipefail
-            target="/data/bootstrap/Tibia/Tibia"
-            echo "=== exact launcher processes before cleanup ==="
-            : > /tmp/tibia-exact-pids
-            for exe in /proc/[0-9]*/exe; do
-              [[ -e "$exe" ]] || continue
-              resolved="$(readlink -f "$exe" 2>/dev/null || true)"
-              if [[ "$resolved" == "$target" ]]; then
-                pid="${exe#/proc/}"
-                pid="${pid%/exe}"
-                echo "$pid" | tee -a /tmp/tibia-exact-pids
-                ps -p "$pid" -o pid,etime,stat,args || true
-              fi
-            done
-            if [[ -s /tmp/tibia-exact-pids ]]; then
-              xargs -r kill -TERM < /tmp/tibia-exact-pids || true
-              sleep 2
-              : > /tmp/tibia-exact-pids-still
-              for exe in /proc/[0-9]*/exe; do
-                [[ -e "$exe" ]] || continue
-                resolved="$(readlink -f "$exe" 2>/dev/null || true)"
-                if [[ "$resolved" == "$target" ]]; then
-                  pid="${exe#/proc/}"
-                  pid="${pid%/exe}"
-                  echo "$pid" >> /tmp/tibia-exact-pids-still
-                fi
-              done
-              xargs -r kill -KILL < /tmp/tibia-exact-pids-still || true
-            fi
-            find /data/home -maxdepth 8 -type f \( -iname "*lock*" -o -iname "*.pid" \) -print -delete 2>/dev/null || true
-            find /data/home -maxdepth 8 -type s -print -delete 2>/dev/null || true
-            find /tmp -maxdepth 1 \( -name "qipc_sharedmemory_*" -o -name "qipc_systemsem_*" \) -print -delete 2>/dev/null || true
-            echo "=== exact launcher processes after cleanup ==="
-            found=0
-            for exe in /proc/[0-9]*/exe; do
-              [[ -e "$exe" ]] || continue
-              resolved="$(readlink -f "$exe" 2>/dev/null || true)"
-              if [[ "$resolved" == "$target" ]]; then
-                found=1
-                echo "stale process remains: $exe -> $resolved" >&2
-              fi
-            done
-            [[ "$found" -eq 0 ]]
-          '
-
-      - name: Run launcher headlessly and materialize package
-        shell: bash
-        run: |
-          set -Eeuo pipefail
-          set +e
-          docker exec "$CONTAINER_NAME" bash -lc '
-            export LANG=C.UTF-8
-            export LC_ALL=C.UTF-8
-            export HOME=/data/home
-            export XDG_CONFIG_HOME=/data/home/.config
-            export XDG_DATA_HOME=/data/home/.local/share
-            export XDG_CACHE_HOME=/data/home/.cache
-            mkdir -p "$XDG_CONFIG_HOME" "$XDG_DATA_HOME" "$XDG_CACHE_HOME"
-            cd /data/bootstrap/Tibia
-            timeout --signal=TERM --kill-after=15s 600s xvfb-run -a ./Tibia
-          '
-          rc=$?
-          set -e
-          echo "launcher_exit=$rc"
-          [[ "$rc" -eq 0 || "$rc" -eq 124 || "$rc" -eq 137 || "$rc" -eq 143 ]]
-
-      - name: Identify materialized package and binary candidates
-        shell: bash
-        run: |
-          set -Eeuo pipefail
-          docker exec "$CONTAINER_NAME" bash -lc '
-            set -Eeuo pipefail
-            echo "=== package metadata ==="
-            find /data/home -type f \( -name package.json -o -name launchermetadata.json -o -name tibiametadata.json \) -print 2>/dev/null | tee /data/tibia-package-metadata-paths.txt || true
-            echo "=== executable candidates ==="
+            echo "=== ELF candidates ==="
             : > /data/tibia-client-candidates.txt
             while IFS= read -r -d "" f; do
-              size="$(stat -c %s "$f")"
               kind="$(file -b "$f")"
               if [[ "$kind" == *"ELF 64-bit"* ]]; then
-                printf "%s\t%s\t%s\n" "$size" "$f" "$kind" | tee -a /data/tibia-client-candidates.txt
+                size="$(stat -c %s "$f")"
+                sha="$(sha256sum "$f" | awk "{print \$1}")"
+                printf "%s\t%s\t%s\t%s\n" "$size" "$sha" "$f" "$kind" | tee -a /data/tibia-client-candidates.txt
               fi
-            done < <(find /data/home -type f -size +5M -print0 2>/dev/null)
-            echo "=== large files ==="
-            find /data/home -type f -size +20M -printf "%s %p\n" 2>/dev/null | sort -nr | head -n 100
-            candidate_count="$(wc -l < /data/tibia-client-candidates.txt)"
-            echo "client_candidate_count=$candidate_count"
-            [[ "$candidate_count" -ge 1 ]]
+            done < <(find /data/direct/client -type f -size +1M -print0 2>/dev/null)
+            count="$(wc -l < /data/tibia-client-candidates.txt)"
+            echo "client_candidate_count=$count"
+            test "$count" -ge 1
+            echo "=== largest files ==="
+            find /data/direct/client -type f -printf "%s %p\n" | sort -nr | head -n 50
           '
 
       - name: Verify canonical staging unchanged
