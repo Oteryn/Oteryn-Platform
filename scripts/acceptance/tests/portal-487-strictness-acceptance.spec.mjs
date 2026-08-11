@@ -67,15 +67,18 @@ async function assertNoOverflow(page) {
 }
 
 async function csrfStatus(page, path, method = 'POST') {
+  const target = new URL(path, page.url()).toString();
+  await page.goto('data:text/html,<title>Cross-site CSRF acceptance probe</title>');
+
   const responsePromise = page.waitForResponse((response) => {
     const url = new URL(response.url());
     return response.request().method() === 'POST' && url.pathname === path;
   });
 
-  await page.evaluate(({ target, verb }) => {
+  await page.evaluate(({ target: formTarget, verb }) => {
     const form = document.createElement('form');
     form.method = 'POST';
-    form.action = target;
+    form.action = formTarget;
 
     const token = document.createElement('input');
     token.type = 'hidden';
@@ -93,7 +96,7 @@ async function csrfStatus(page, path, method = 'POST') {
 
     document.body.append(form);
     form.submit();
-  }, { target: path, verb: method });
+  }, { target, verb: method });
 
   const response = await responsePromise;
   await page.waitForLoadState('domcontentloaded');
@@ -159,20 +162,6 @@ test(adminMarker, async ({ page }) => {
     expect(response?.status(), `Expected exact-surface 404 at ${path}`).toBe(404);
   }
 
-  const csrfProbes = [
-    ['/admin/news', 'POST'],
-    ['/admin/portal/homepage/active', 'PUT'],
-    ['/admin/announcements', 'POST'],
-    ['/admin/downloads', 'POST'],
-    ['/admin/events', 'POST'],
-    ['/admin/support-content/support', 'PUT'],
-    ['/admin/support/tickets/999999999/reply', 'POST'],
-  ];
-
-  for (const [path, method] of csrfProbes) {
-    expect(await csrfStatus(page, path, method), `Expected CSRF expiry response for ${method} ${path}`).toBe(419);
-  }
-
   const failureSurfaces = [
     ['admin.core-rbac-cms-audit', '/admin/news'],
     ['admin.homepage-template-selector', '/admin/portal/homepage'],
@@ -185,6 +174,20 @@ test(adminMarker, async ({ page }) => {
 
   for (const [surface, path] of failureSurfaces) {
     await expectServerFailureRecovery(page, surface, path);
+  }
+
+  const csrfProbes = [
+    ['/admin/news', 'POST'],
+    ['/admin/portal/homepage/active', 'PUT'],
+    ['/admin/announcements', 'POST'],
+    ['/admin/downloads', 'POST'],
+    ['/admin/events', 'POST'],
+    ['/admin/support-content/support', 'PUT'],
+    ['/admin/support/tickets/999999999/reply', 'POST'],
+  ];
+
+  for (const [path, method] of csrfProbes) {
+    expect(await csrfStatus(page, path, method), `Expected CSRF expiry response for ${method} ${path}`).toBe(419);
   }
 });
 
@@ -241,7 +244,6 @@ test(supportMarker, async ({ page }) => {
 
   let response = await page.goto('/support/tickets/999999999', { waitUntil: 'domcontentloaded' });
   expect(response?.status()).toBe(404);
-  expect(await csrfStatus(page, '/support/tickets', 'POST')).toBe(419);
 
   await page.goto('/support/tickets/create');
   const csrfToken = await page.locator('input[name="_token"]').inputValue();
@@ -285,4 +287,6 @@ test(supportMarker, async ({ page }) => {
   response = await page.goto('/support/tickets');
   expect(response?.status()).toBe(200);
   await assertNoOverflow(page);
+
+  expect(await csrfStatus(page, '/support/tickets', 'POST')).toBe(419);
 });
