@@ -109,7 +109,7 @@ class SecurityTests(unittest.TestCase):
                 stdout=b"safe",
                 stderr=b"safe",
             )
-            self.assertTrue(clean.passed)
+            self.assertTrue(clean.passed, clean.categories)
             (evidence / "new.log").write_text(token, encoding="utf-8")
             rejected = scan_prohibited_locations(
                 repo_root=REPO,
@@ -145,17 +145,17 @@ class SecurityTests(unittest.TestCase):
         self.assertFalse(result.passed)
         self.assertIn("untracked-files", result.categories)
 
-    def test_ignored_checkout_file_is_included_in_leak_scan(self) -> None:
-        token = "gho_" + ("i" * 26)
+    def test_ignored_checkout_file_is_included_in_exact_leak_scan(self) -> None:
+        secret = "synthetic-ignored-run-secret-" + uuid.uuid4().hex
         candidate = ROOT / f"ignored-leak-{uuid.uuid4().hex}.pyc"
         try:
-            candidate.write_text(token, encoding="utf-8")
+            candidate.write_text(secret, encoding="utf-8")
             with tempfile.TemporaryDirectory() as directory:
                 result = scan_prohibited_locations(
                     repo_root=REPO,
                     evidence_root=Path(directory),
                     temporary_root=None,
-                    secrets=[],
+                    secrets=[secret],
                     process_arguments=b"safe",
                     retained_environment_report=b"safe",
                     stdout=b"safe",
