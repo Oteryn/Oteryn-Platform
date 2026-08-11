@@ -69,7 +69,7 @@ Closeout final head `44f24e05617e9e1e480fef130f370e3a0b2a5466` passed every repo
 - Game Auth Ticket Concurrency `31481150068` — PASS;
 - CI `31481150045` — PASS.
 
-Deep System Validation `31481150090` was not a repository-required merge gate for #993. At the terminal merge boundary it remained in progress after all setup, Composer, PHP/static, complete PHP regression/concurrency, browser advisory, strict portal-evidence and exact-SHA runtime-start stages had passed; the zero-retry browser matrix was the active stage. No Deep failure was present at merge.
+Deep System Validation `31481150090`, which was not a repository-required merge gate for #993, also completed successfully afterward. Its zero-retry browser matrix, fail-closed evidence compilation, durable evidence upload and runner-managed container teardown all passed; job `93746145120` completed successfully at `2026-08-11T10:36:17Z`.
 
 ## Review closeout
 
