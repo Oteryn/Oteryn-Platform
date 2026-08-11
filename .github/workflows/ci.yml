@@ -48,6 +48,11 @@ jobs:
           python tools/validation/test_verify_integration_test_registration.py
           python tools/validation/verify_integration_test_registration.py
 
+      - name: Validate deterministic prompt contracts
+        run: |
+          python tools/validation/test_prompt_eval.py
+          python tools/validation/prompt_eval.py
+
       - name: Validate active task checkpoint contract
         shell: bash
         run: |

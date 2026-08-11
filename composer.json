@@ -43,13 +43,28 @@
             "python3 tools/validation/test_verify_integration_test_registration.py",
             "python3 tools/validation/verify_integration_test_registration.py"
         ],
+        "test:prompt-contract": [
+            "python3 tools/validation/test_prompt_eval.py",
+            "python3 tools/validation/prompt_eval.py"
+        ],
+        "test:repository-contracts": [
+            "python3 tests/ci/test_classify_changes.py",
+            "python3 tests/ci/test_push_change_routing.py",
+            "python3 tests/ci/test_required_test_gate.py",
+            "python3 tests/ci/test_workflow_trigger_economy.py",
+            "python3 tests/ci/test_acceptance_lockfile_contract.py",
+            "python3 tests/ci/test_game_catalog_cross_repo_trigger.py",
+            "python3 tests/ci/test_synology_deploy_release_identity.py",
+            "@test:integration-registration",
+            "@test:prompt-contract"
+        ],
         "verify": [
             "@composer validate --strict",
             "@composer audit --locked --no-interaction",
             "@format:check",
             "@analyse",
             "@test",
-            "@test:integration-registration",
+            "@test:repository-contracts",
             "npm --prefix scripts/acceptance ci --ignore-scripts --no-audit --no-fund",
             "npm --prefix scripts/acceptance run test:coverage-contract:strict"
         ],
