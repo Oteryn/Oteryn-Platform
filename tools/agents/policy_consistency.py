@@ -118,10 +118,17 @@ def _require_marker(errors: list[str], source: str, text: str, marker: str) -> N
         errors.append(f"{source}: missing required governance marker: {marker}")
 
 
+def _normalize_inline_markdown(text: str) -> str:
+    """Remove harmless inline emphasis/code delimiters before numeric policy matching."""
+
+    return re.sub(r"[*_`]", "", text)
+
+
 def _require_regex_value(
     errors: list[str], source: str, text: str, pattern: str, expected: int, label: str
 ) -> None:
-    matches = list(re.finditer(pattern, text, flags=re.IGNORECASE))
+    normalized = _normalize_inline_markdown(text)
+    matches = list(re.finditer(pattern, normalized, flags=re.IGNORECASE))
     if not matches:
         errors.append(f"{source}: cannot locate duplicated budget marker for {label}")
         return
@@ -135,13 +142,14 @@ def _require_regex_value(
 
 
 def _is_current_task_user_authorization_exception(lowered: str) -> bool:
-    """Return true only for a real explicit user authorization scoped to this task."""
+    """Accept only a conditional exception tied to explicit user authorization for this task."""
 
+    conditional = "only when" in lowered or "unless" in lowered
     explicitly_authorized = bool(
         re.search(r"\buser\b.*\bexplicit(?:ly)?\b.*\bauthoriz(?:e|es|ed|ation)\b", lowered)
     )
     task_scoped = "current task" in lowered or "write task" in lowered
-    return explicitly_authorized and task_scoped
+    return conditional and explicitly_authorized and task_scoped
 
 
 def _repository_identifiers(line: str) -> list[str]:
@@ -154,18 +162,23 @@ def _repository_identifiers(line: str) -> list[str]:
 
 
 def _is_positive_read_only_statement(lowered: str) -> bool:
-    """Recognize read-only assertions without exempting explicitly negated ones."""
+    """Recognize read-only assertions without exempting any common negated form."""
 
     if "read-only" not in lowered:
         return False
-    if re.search(r"\b(?:not|never|no\s+longer)\s+read-only\b", lowered):
+    if re.search(
+        r"(?:\b(?:not|never|no\s+longer|is\s+not|was\s+not)\s+read-only\b|"
+        r"\b(?:isn't|isn’t|wasn't|wasn’t)\s+read-only\b)",
+        lowered,
+    ):
         return False
     return True
 
 
 def _reject_contradictory_repository_write_grants(errors: list[str], root_agents: str) -> None:
-    section = _markdown_section(root_agents, "Repository allowlist — highest priority")
-    for line in section.splitlines():
+    # Scan the whole authoritative root policy. A conflicting grant outside the
+    # allowlist section is still capable of changing effective agent behavior.
+    for line in root_agents.splitlines():
         lowered = line.casefold()
         repositories = _repository_identifiers(line)
         foreign = [value for value in repositories if value != REPOSITORY_FULL_NAME]
@@ -182,8 +195,8 @@ def _reject_contradictory_repository_write_grants(errors: list[str], root_agents
         if _is_current_task_user_authorization_exception(lowered):
             continue
         errors.append(
-            "AGENTS.md: contradictory repository write authorization in highest-priority "
-            f"allowlist: {', '.join(sorted(set(foreign)))}"
+            "AGENTS.md: contradictory repository write authorization in authoritative policy: "
+            f"{', '.join(sorted(set(foreign)))}"
         )
 
 
