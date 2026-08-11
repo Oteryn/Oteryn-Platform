@@ -108,11 +108,12 @@ assert "  pull_request_target:\n" in storage_trigger
 assert "      - closed\n" in storage_trigger
 assert "  schedule:\n" in storage_trigger
 assert "  workflow_dispatch:\n" in storage_trigger
-assert "  push:\n" in storage_trigger
+assert "  push:\n" not in storage_trigger
 assert "'docs/agents/tasks/**'" not in storage_trigger
 assert "'build-synology-staging-images.yml'" not in storage_trigger
-assert "startsWith(github.event.head_commit.message, 'chore(ci): clean GitHub Actions storage safely (#980)')" in storage
+assert "startsWith(github.event.head_commit.message, 'chore(ci): clean GitHub Actions storage safely (#980)')" not in storage
 assert "if: ${{ github.event_name == 'pull_request_target' && github.event.action == 'closed' }}" in storage
+assert "if: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}" in storage
 assert "ref: refs/heads/main" in storage
 assert "persist-credentials: false" in storage
 assert "actions: write" in storage
