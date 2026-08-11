@@ -30,7 +30,12 @@ QUOTED_REPO_TOKEN = re.compile(r"`([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)`")
 MUTATION_TERM = r"(?:writ(?:e|es|ing|ten)|writable|edit(?:s|ed|ing)?|push(?:es|ed|ing)?|commit(?:s|ted|ting)?|merge(?:s|d|ing)?|mutat(?:e|es|ed|ing|ion|ions))"
 MUTATION_WORD = re.compile(rf"\b{MUTATION_TERM}\b", re.I)
 POSITIVE_AUTH = re.compile(r"\b(?:allow|allows|allowed|authorize|authorizes|authorized|permit|permits|permitted|may|can|grant|grants|granted)\b", re.I)
-NEGATIVE_AUTH = re.compile(r"\b(?:not\s+allowed|not\s+authorized|not\s+permitted|may\s+not|cannot|can't|can’t|never\s+allowed|unauthorized)\b", re.I)
+NEGATIVE_AUTH = re.compile(
+    r"\b(?:not\s+allowed|not\s+authorized|not\s+permitted|may\s+not|must\s+not\s+grant|"
+    r"(?:do|does|did)\s+not\s+grant|never\s+grant(?:s|ed)?|not\s+grant(?:s|ed)?|"
+    r"cannot|can't|can’t|never\s+allowed|unauthorized)\b",
+    re.I,
+)
 
 
 class PolicyConsistencyError(RuntimeError):
@@ -55,20 +60,43 @@ def _read_json(root: Path, relative_path: str) -> dict[str, object]:
 
 
 def _normalize_inline_markdown(text: str) -> str:
-    return re.sub(r"[*_`]", "", text)
+    """Strip inline emphasis while preserving repository-token identity exactly."""
+    protected: list[str] = []
+
+    def protect(match: re.Match[str]) -> str:
+        protected.append(match.group(1))
+        return f"\x00REPO{len(protected) - 1}\x00"
+
+    normalized = REPO_TOKEN.sub(protect, text)
+    normalized = re.sub(r"[*_`]", "", normalized)
+    for index, repository in enumerate(protected):
+        normalized = normalized.replace(f"\x00REPO{index}\x00", repository)
+    return normalized
+
+
+def _fence_delimiter(stripped: str) -> tuple[str, int] | None:
+    match = re.match(r"^(`{3,}|~{3,})", stripped)
+    if not match:
+        return None
+    token = match.group(1)
+    return token[0], len(token)
 
 
 def _normalize_emphasized_marker_lines(markdown: str) -> str:
     """Strip line-wide Markdown emphasis, including nested bold/italic combinations."""
     lines: list[str] = []
-    in_fence = False
+    active_fence: tuple[str, int] | None = None
     for raw in markdown.splitlines():
         stripped = raw.strip()
-        if stripped.startswith("```") or stripped.startswith("~~~"):
-            in_fence = not in_fence
+        delimiter = _fence_delimiter(stripped)
+        if delimiter:
+            if active_fence is None:
+                active_fence = delimiter
+            elif delimiter[0] == active_fence[0] and delimiter[1] >= active_fence[1]:
+                active_fence = None
             lines.append(raw)
             continue
-        if not in_fence:
+        if active_fence is None:
             match = re.match(r"^(?P<indent>\s*)[*_]{1,6}(?P<body>.+?)[*_]{1,6}\s*$", raw)
             if match:
                 raw = match.group("indent") + match.group("body")
@@ -127,9 +155,9 @@ def _text_contract_declarations(markdown: str, marker: str) -> list[list[str]]:
 
 def _inline_backtick_declarations(markdown: str, marker: str) -> list[list[str]]:
     declarations: list[list[str]] = []
-    for line in markdown.splitlines():
-        if marker.casefold() in line.casefold():
-            values = re.findall(r"`([^`]+)`", line)
+    for statement in _logical_markdown_statements(markdown):
+        if marker.casefold() in statement.casefold():
+            values = re.findall(r"`([^`]+)`", statement)
             if values:
                 declarations.append(values)
     return declarations
@@ -147,7 +175,7 @@ def _require_all_declarations(errors: list[str], source: str, declarations: list
 def _logical_markdown_statements(markdown: str) -> list[str]:
     statements: list[str] = []
     current: list[str] = []
-    in_fence = False
+    active_fence: tuple[str, int] | None = None
 
     def flush() -> None:
         if current:
@@ -156,11 +184,15 @@ def _logical_markdown_statements(markdown: str) -> list[str]:
 
     for raw in markdown.splitlines():
         stripped = raw.strip()
-        if stripped.startswith("```") or stripped.startswith("~~~"):
-            flush()
-            in_fence = not in_fence
+        delimiter = _fence_delimiter(stripped)
+        if delimiter:
+            if active_fence is None:
+                flush()
+                active_fence = delimiter
+            elif delimiter[0] == active_fence[0] and delimiter[1] >= active_fence[1]:
+                active_fence = None
             continue
-        if in_fence:
+        if active_fence is not None:
             continue
         if not stripped or stripped.startswith("#"):
             flush()
@@ -178,10 +210,14 @@ def _logical_markdown_statements(markdown: str) -> list[str]:
 
 
 def _policy_clauses(statement: str) -> list[str]:
-    """Split independent grant clauses while preserving conjunctions with no new mutation verb."""
+    """Split independent grant clauses while preserving dependent condition language."""
+    new_grant = (
+        rf"(?:additionally\s+)?(?:(?:the|a|an|any)\s+)?(?:agents?\s+)?"
+        rf"(?:autonomous(?:ly)?\s+)?(?:{MUTATION_TERM}\b|(?:may|can)\s+{MUTATION_TERM}\b)"
+    )
     pattern = (
         rf"\s*;\s*|(?<=\.)\s+|\s*,?\s+(?:but|however|while)\s+|"
-        rf"\s+and\s+(?=(?:(?![.;]).){{0,96}}\b{MUTATION_TERM}\b)"
+        rf"\s+and\s+(?={new_grant})"
     )
     return [value.strip() for value in re.split(pattern, statement, flags=re.I) if value.strip()]
 
@@ -195,7 +231,7 @@ def _has_positive_mutation_grant(clause: str) -> bool:
         if not positives:
             return False
         for match in positives:
-            window = normalized[max(0, match.start() - 20): match.end() + 20]
+            window = normalized[max(0, match.start() - 28): match.end() + 28]
             if not NEGATIVE_AUTH.search(window):
                 return True
         return False
@@ -216,8 +252,15 @@ def _repo_has_conditional_user_authorization(clause: str, repository: str) -> bo
     owner_present = bool(re.search(r"\b(?:user|project\s+owner|owner)\b", window))
     explicit_present = bool(re.search(r"\bexplicit(?:ly)?\b", window))
     authorization_present = bool(re.search(r"\b(?:authoriz\w*|grant\w*|permission)\b", window))
+    authorization_negated = bool(re.search(
+        r"\b(?:permission|authorization)\s+(?:is|was)\s+(?:not|never)\s+granted\b|"
+        r"\b(?:do|does|did)\s+not\s+explicitly\s+authoriz\w*\b|"
+        r"\b(?:not|never)\s+(?:explicitly\s+)?(?:authoriz\w*|grant\w*|permit\w*)\b|"
+        r"\bwithout\s+explicit\s+(?:permission|authorization)\b",
+        window,
+    ))
     task_scoped = any(value in window for value in ("current task", "write task", "separate permission"))
-    return conditional and owner_present and explicit_present and authorization_present and task_scoped
+    return conditional and owner_present and explicit_present and authorization_present and not authorization_negated and task_scoped
 
 
 def _repo_has_positive_read_only_assertion(clause: str, repository: str) -> bool:
