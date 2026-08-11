@@ -1,4 +1,4 @@
-# protobuf descriptor recovery trigger: 2026-08-12T00:01+02:00
+# protobuf descriptor recovery trigger: 2026-08-12T00:03+02:00
 name: Tibia Client Analysis Continue
 
 on:
@@ -63,7 +63,9 @@ jobs:
                   safe = re.sub(r"[^A-Za-z0-9_.-]+", "_", sec.name)
                   out = outdir / (safe + ".bin")
                   out.write_bytes(data)
-                  print(f"SECTION name={sec.name} addr=0x{sec['sh_addr']:x} offset=0x{sec['sh_offset']:x} size={len(data)} sha256={hashlib.sha256(data).hexdigest()} file={out}")
+                  sec_addr = sec["sh_addr"]
+                  sec_offset = sec["sh_offset"]
+                  print(f"SECTION name={sec.name} addr=0x{sec_addr:x} offset=0x{sec_offset:x} size={len(data)} sha256={hashlib.sha256(data).hexdigest()} file={out}")
               print(f"proto_section_count={found}")
           PY
             /data/reverse-venv/bin/python /data/dump_proto_sections.py | tee /data/client-15.32.df7b29/proto-section-inventory.txt
@@ -134,7 +136,9 @@ jobs:
           docker exec "$CONTAINER_NAME" bash -lc '
             set -Eeuo pipefail
             : > /data/client-15.32.df7b29/proto-decode-raw.txt
-            for f in /data/client-15.32.df7b29/proto-sections/*.bin; do
+            shopt -s nullglob
+            files=(/data/client-15.32.df7b29/proto-sections/*.bin)
+            for f in "${files[@]}"; do
               echo "=== $f ===" >> /data/client-15.32.df7b29/proto-decode-raw.txt
               set +e
               timeout 20s protoc --decode_raw < "$f" >> /data/client-15.32.df7b29/proto-decode-raw.txt 2>&1
