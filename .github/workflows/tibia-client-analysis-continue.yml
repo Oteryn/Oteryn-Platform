@@ -16,7 +16,7 @@ concurrency:
 
 jobs:
   continue:
-    name: Inspect exact Tibia launcher metadata
+    name: Probe exact Tibia manifest request semantics
     runs-on: oteryn-staging
     timeout-minutes: 15
     env:
@@ -34,36 +34,51 @@ jobs:
           docker ps -a --filter 'label=com.docker.compose.project=oteryn-staging' --format '{{.ID}}\t{{.Names}}' | sort > /tmp/oteryn-before.tsv
           test -s /tmp/oteryn-before.tsv
 
-      - name: Inspect local and official launcher metadata
+      - name: Probe official package and asset manifests
         shell: bash
         run: |
           set -Eeuo pipefail
           docker exec "$CONTAINER_NAME" bash -lc '
             set -Eeuo pipefail
-            mkdir -p /data/direct
-            cd /data/direct
-            localmeta="/data/home/.local/share/CipSoft GmbH/Tibia/launchermetadata.json"
-            echo "=== LOCAL LAUNCHER METADATA ==="
-            test -s "$localmeta"
-            cat "$localmeta"
-            echo
-            echo "=== OFFICIAL TIBIA METADATA ==="
-            u="https://static.tibia.com/launcher/tibiametadata.json"
-            curl --compressed -fLC - -e "$u" "$u" -o tibiametadata.json
-            cat tibiametadata.json
-            echo
-            echo "=== CURRENT CLIENT VERSION ==="
-            vurl="https://static.tibia.com/launcher/tibiaclient-linux-current/package.json.version"
-            curl --compressed -fLC - -e "$vurl" "$vurl" -o package.json.version
-            cat package.json.version
-            echo
-            echo "=== ASSET HASH ==="
-            aurl="https://static.tibia.com/launcher/assets-current/assets.json.sha256"
-            curl --compressed -fLC - -e "$aurl" "$aurl" -o assets.json.sha256
-            cat assets.json.sha256
-            echo
-            echo "=== LOCAL PACKAGE TREE ==="
-            find "/data/home/.local/share/CipSoft GmbH/Tibia" -maxdepth 8 -type f -printf "%s %p\n" 2>/dev/null | sort -nr | head -n 200
+            mkdir -p /data/direct/probes
+            cd /data/direct/probes
+            pkg="https://static.tibia.com/launcher/tibiaclient-linux-current/package.json"
+            ver="https://static.tibia.com/launcher/tibiaclient-linux-current/package.json.version"
+            meta="https://static.tibia.com/launcher/tibiametadata.json"
+            assets="https://static.tibia.com/launcher/assets-current/assets.json"
+            qtua="Mozilla/5.0"
+            rm -f success-package.json success-assets.json
+            probe() {
+              name="$1"; shift
+              url="$1"; shift
+              out="$name.body"
+              hdr="$name.headers"
+              rm -f "$out" "$hdr"
+              set +e
+              code="$(curl --compressed -sS -L --connect-timeout 15 --max-time 60 -D "$hdr" -o "$out" -w "%{http_code}" "$@" "$url")"
+              rc=$?
+              set -e
+              echo "PROBE name=$name rc=$rc http=$code bytes=$(wc -c < "$out" 2>/dev/null || echo 0)"
+              head -n 30 "$hdr" || true
+              if [[ "$rc" -eq 0 && "$code" == "200" ]]; then
+                if [[ "$url" == "$pkg" ]]; then cp "$out" success-package.json; fi
+                if [[ "$url" == "$assets" ]]; then cp "$out" success-assets.json; fi
+              fi
+            }
+            probe pkg-self "$pkg" -e "$pkg"
+            probe pkg-version-ref "$pkg" -e "$ver"
+            probe pkg-meta-ref "$pkg" -e "$meta"
+            probe pkg-self-ua "$pkg" -e "$pkg" -A "$qtua"
+            probe pkg-version-ref-ua "$pkg" -e "$ver" -A "$qtua"
+            probe pkg-meta-ref-ua "$pkg" -e "$meta" -A "$qtua"
+            probe assets-self "$assets" -e "$assets"
+            probe assets-meta-ref "$assets" -e "$meta"
+            probe assets-self-ua "$assets" -e "$assets" -A "$qtua"
+            echo "=== SUCCESS PACKAGE ==="
+            if [[ -s success-package.json ]]; then file success-package.json; wc -c success-package.json; head -c 16000 success-package.json; echo; fi
+            echo "=== SUCCESS ASSETS ==="
+            if [[ -s success-assets.json ]]; then file success-assets.json; wc -c success-assets.json; head -c 16000 success-assets.json; echo; fi
+            test -s success-package.json
           '
 
       - name: Verify canonical staging unchanged
