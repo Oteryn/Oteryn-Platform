@@ -16,9 +16,9 @@ env:
 
 jobs:
   continue:
-    name: Reverse decoded Tibia map handlers
+    name: Bound decoded Tibia map xrefs
     runs-on: oteryn-staging
-    timeout-minutes: 35
+    timeout-minutes: 20
     steps:
       - name: Verify exact owned runtime and executable identity
         shell: bash
@@ -36,135 +36,97 @@ jobs:
             test -x /data/client-15.32.df7b29/bin/client
             [[ "$(stat -c %s /data/client-15.32.df7b29/bin/client)" == "51965216" ]]
             [[ "$(sha256sum /data/client-15.32.df7b29/bin/client | awk "{print \$1}")" == "e6c244bd39fe2e0632f6f000efd3147164696efa8e901718668e0442325ff7fe" ]]
+            command -v objdump
+            command -v readelf
+            test -x /data/reverse-venv/bin/python
           '
 
-      - name: Install bounded reverse-engineering dependencies
+      - name: Map target strings to ELF virtual addresses
         shell: bash
         run: |
           set -Eeuo pipefail
           docker exec "$CONTAINER_NAME" bash -lc '
             set -Eeuo pipefail
-            export DEBIAN_FRONTEND=noninteractive
-            apt-get update
-            apt-get install -y --no-install-recommends binutils python3 python3-pip python3-venv gdb protobuf-compiler
-            python3 -m venv /data/reverse-venv
-            /data/reverse-venv/bin/pip install --disable-pip-version-check --no-cache-dir capstone pyelftools protobuf
-          '
-
-      - name: Recover string addresses and code xrefs for decoded map boundary
-        shell: bash
-        run: |
-          set -Eeuo pipefail
-          docker exec "$CONTAINER_NAME" bash -lc '
-            set -Eeuo pipefail
-            cat > /data/reverse_map_xrefs.py <<"PY"
+            cat > /data/map_target_vas.py <<"PY"
           from pathlib import Path
           from elftools.elf.elffile import ELFFile
-          from capstone import Cs, CS_ARCH_X86, CS_MODE_64
-          from capstone.x86 import X86_OP_MEM, X86_REG_RIP
 
           path = Path("/data/client-15.32.df7b29/bin/client")
           needles = [
-              b"TWorldmapProtocolMessageHandler",
-              b"handleFullMapMessage",
-              b"handleFieldDataMessage",
-              b"handleLeftColumnMessage",
-              b"handleRightColumnMessage",
-              b"handleTopRowMessage",
-              b"handleBottomRowMessage",
-              b"handleTopFloorMessage",
-              b"handleBottomFloorMessage",
-              b"GameserverMessageFullMap",
-              b"GameserverMessageFieldData",
-              b"MapFieldData",
-              b"MapArea",
-              b"Coordinate",
-              b"AppearanceInstance",
-              b"TProtobufServerMessageTranslator",
+              b"tibia::worldmap::TWorldmapProtocolMessageHandler",
+              b"handleFullMapMessage", b"handleFieldDataMessage",
+              b"handleLeftColumnMessage", b"handleRightColumnMessage",
+              b"handleTopRowMessage", b"handleBottomRowMessage",
+              b"handleTopFloorMessage", b"handleBottomFloorMessage",
+              b"receivedFullMapMessage", b"receivedFieldDataMessage",
+              b"GameserverMessageFullMap", b"GameserverMessageFieldData",
+              b"MapFieldData", b"MapArea", b"Coordinate", b"AppearanceInstance",
+              b"TProtobufServerMessageTranslator", b"TProtocolMessageQueue",
+              b"gameserverMessageAvailable", b"onGameserverMessageAvailable",
               b"TWorldMapStorage",
           ]
-
-          with path.open("rb") as f:
-              elf = ELFFile(f)
-              sections = []
+          with path.open("rb") as fh:
+              elf = ELFFile(fh)
               for sec in elf.iter_sections():
-                  if sec["sh_size"] and sec["sh_type"] != "SHT_NOBITS":
-                      sections.append((sec.name, sec["sh_offset"], sec["sh_addr"], sec.data()))
-              text = elf.get_section_by_name(".text")
-              text_addr = text["sh_addr"]
-              text_data = text.data()
-
-          targets = {}
-          for needle in needles:
-              for sname, soff, saddr, data in sections:
-                  start = 0
-                  while True:
-                      i = data.find(needle, start)
-                      if i < 0:
-                          break
-                      va = saddr + i
-                      targets.setdefault(va, []).append((needle.decode(), sname, soff + i))
-                      start = i + 1
-
-          md = Cs(CS_ARCH_X86, CS_MODE_64)
-          md.detail = True
-          refs = {va: [] for va in targets}
-          for insn in md.disasm(text_data, text_addr):
-              for op in insn.operands:
-                  if op.type == X86_OP_MEM and op.mem.base == X86_REG_RIP:
-                      dest = insn.address + insn.size + op.mem.disp
-                      if dest in refs:
-                          refs[dest].append((insn.address, insn.mnemonic, insn.op_str))
-
-          print("=== TARGETS AND DIRECT RIP XREFS ===")
-          for va in sorted(targets):
-              labels = ", ".join(f"{n}@{s}+0x{o:x}" for n, s, o in targets[va])
-              print(f"TARGET va=0x{va:x} {labels}")
-              for addr, mnem, ops in refs[va][:64]:
-                  print(f"  XREF 0x{addr:x}: {mnem} {ops}")
-              if not refs[va]:
-                  print("  XREF none-direct")
+                  if not sec["sh_size"] or sec["sh_type"] == "SHT_NOBITS":
+                      continue
+                  data = sec.data()
+                  for needle in needles:
+                      start = 0
+                      while True:
+                          off = data.find(needle, start)
+                          if off < 0: break
+                          print(f"{sec['sh_addr']+off:016x}\t{sec.name}\t{sec['sh_offset']+off:08x}\t{needle.decode()}")
+                          start = off + 1
           PY
-            /data/reverse-venv/bin/python /data/reverse_map_xrefs.py | tee /data/client-15.32.df7b29/map-xrefs.txt
+            /data/reverse-venv/bin/python /data/map_target_vas.py | sort -u | tee /data/client-15.32.df7b29/map-target-vas.txt
           '
 
-      - name: Inspect protobuf descriptor neighborhoods and candidate schemas
+      - name: Recover direct RIP xrefs with native objdump
         shell: bash
         run: |
           set -Eeuo pipefail
           docker exec "$CONTAINER_NAME" bash -lc '
             set -Eeuo pipefail
-            echo "=== protobuf/schema string neighborhoods ===" | tee /data/client-15.32.df7b29/map-protobuf-neighborhoods.txt
-            strings -a -t x -n 3 /data/client-15.32.df7b29/bin/client > /data/client-15.32.df7b29/strings-all.txt
-            for pat in GameserverMessageFullMap GameserverMessageFieldData MapFieldData MapArea Coordinate AppearanceInstance; do
-              echo "--- $pat ---" | tee -a /data/client-15.32.df7b29/map-protobuf-neighborhoods.txt
-              grep -n -m 20 "$pat" /data/client-15.32.df7b29/strings-all.txt | tee -a /data/client-15.32.df7b29/map-protobuf-neighborhoods.txt || true
-            done
-            echo "=== likely field/accessor names ===" | tee -a /data/client-15.32.df7b29/map-protobuf-neighborhoods.txt
-            grep -Ei "field_data|map_area|coordinate|appearance_instance|appearance_id|object_id|thing|stack|position|coordinate|floor|north|south|east|west" /data/client-15.32.df7b29/strings-all.txt | head -n 2500 | tee -a /data/client-15.32.df7b29/map-protobuf-neighborhoods.txt || true
+            cut -f1 /data/client-15.32.df7b29/map-target-vas.txt | sed "s/^0*//" | grep . | sort -u > /data/client-15.32.df7b29/map-target-va-regex.txt
+            regex="$(paste -sd"|" /data/client-15.32.df7b29/map-target-va-regex.txt)"
+            objdump -d -C /data/client-15.32.df7b29/bin/client | grep -Ei "# [[:space:]]*(${regex})([[:space:]]|$)" | tee /data/client-15.32.df7b29/map-direct-xrefs.txt || true
+            echo "=== direct xref count ==="
+            wc -l /data/client-15.32.df7b29/map-direct-xrefs.txt
           '
 
-      - name: Disassemble bounded neighborhoods around direct xrefs
+      - name: Inspect bounded code neighborhoods for discovered xrefs
         shell: bash
         run: |
           set -Eeuo pipefail
           docker exec "$CONTAINER_NAME" bash -lc '
             set -Eeuo pipefail
-            python3 - <<"PY" > /data/client-15.32.df7b29/map-xref-addresses.txt
-          import re
-          for line in open("/data/client-15.32.df7b29/map-xrefs.txt", errors="replace"):
-              m = re.search(r"XREF 0x([0-9a-f]+):", line)
-              if m:
-                  print(m.group(1))
-          PY
+            sed -n "s/^ *\([0-9a-f][0-9a-f]*\):.*/\1/p" /data/client-15.32.df7b29/map-direct-xrefs.txt | sort -u | head -n 160 > /data/client-15.32.df7b29/map-xref-addresses.txt
             : > /data/client-15.32.df7b29/map-xref-disassembly.txt
-            sort -u /data/client-15.32.df7b29/map-xref-addresses.txt | head -n 120 | while read -r a; do
-              start=$((16#$a - 192))
-              stop=$((16#$a + 384))
+            while read -r a; do
+              [[ -n "$a" ]] || continue
+              start=$((16#$a - 160)); stop=$((16#$a + 320))
               printf "\n=== around 0x%s ===\n" "$a" >> /data/client-15.32.df7b29/map-xref-disassembly.txt
               objdump -d -C --start-address="$start" --stop-address="$stop" /data/client-15.32.df7b29/bin/client >> /data/client-15.32.df7b29/map-xref-disassembly.txt
-            done
-            sed -n "1,5000p" /data/client-15.32.df7b29/map-xref-disassembly.txt
+            done < /data/client-15.32.df7b29/map-xref-addresses.txt
+            sed -n "1,6000p" /data/client-15.32.df7b29/map-xref-disassembly.txt
+          '
+
+      - name: Inspect protobuf schema clues and analysis runtime state
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          docker exec "$CONTAINER_NAME" bash -lc '
+            set -Eeuo pipefail
+            strings -a -t x -n 3 /data/client-15.32.df7b29/bin/client > /data/client-15.32.df7b29/strings-all.txt
+            echo "=== map protobuf/type neighborhoods ==="
+            grep -n -E "GameserverMessage(FullMap|FieldData|LeftColumn|RightColumn|TopRow|BottomRow|TopFloor|BottomFloor)|MapFieldData|MapArea|AppearanceInstance|TWorldmapProtocolMessageHandler|TProtobufServerMessageTranslator|TProtocolMessageQueue" /data/client-15.32.df7b29/strings-all.txt | head -n 700
+            echo "=== likely protobuf descriptor/source strings ==="
+            grep -Ei "\.proto|field_data|map_area|appearance_instance|appearance_id|object_id|coordinate|contents|objects|things|stack_position" /data/client-15.32.df7b29/strings-all.txt | head -n 1800 || true
+            echo "=== owned analysis processes ==="
+            ps -eo pid,ppid,stat,etime,args | grep -E "(/data/client-15\.32\.df7b29/bin/client|Tibia|client)" | grep -v grep || true
+            echo "=== bounded persistent evidence inventory ==="
+            find /data/client-15.32.df7b29 -maxdepth 2 -type f -printf "%p\t%s\n" | sort | head -n 400
           '
 
       - name: Verify canonical staging unchanged
