@@ -53,8 +53,8 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-11T07:55:00Z
-head: 6521d43b9c648f4f794ef15bf85cbd96f0538b91
+updated_at: 2026-08-11T08:10:00Z
+head: 64adcd8bc957e345a962d91f479df1c3ee3dc0c3
 branch: chore/github-actions-storage-hygiene
 pr: 980
 status: validating
@@ -77,11 +77,14 @@ proven:
   - Head a6fd050eecf93ba6b6d7a924365572c5c170af9d passed all eight relevant PR workflows including Deep System Validation and the new storage-hygiene validation.
   - Two subsequent review findings identified a 1000-result filtered-run ceiling failure and redundant artifact/run candidate accounting; both root causes are patched and covered by focused tests.
   - GitHub documents a 1000-result ceiling for filtered workflow-run searches and supports a created date-time range, which the revised inventory now partitions recursively.
-  - Main advanced by one unrelated wiki/portal-exhaustive commit with no changed-path overlap with this task.
+  - Review-fix generation on 64adcd8bc957e345a962d91f479df1c3ee3dc0c3 reached Agent Governance run 31471191644; its failure was unrelated task-registry drift for already-merged Wiki PR #972, while checkpoint schema/tests themselves passed.
+  - Protected main 3290bedb4c9c264286ccafb32d7f0bc490198a9d now contains the terminal archive for Wiki task OTERYN-20260810-wiki-expected-content-inventory and the former active path is absent.
+  - Duplicate Wiki archive PR #984 was closed without merge after verifying main already carried the correct terminal transition.
 derived:
   - Closed-PR merge-ref caches are safely disposable because they cannot benefit main or sibling pull requests and can be regenerated if a historical run is intentionally repeated.
   - Recursive time-window partitioning prevents high-volume old-run inventory from permanently blocking cache/artifact cleanup at the provider search ceiling.
   - Assigning aggregate artifact bytes to an old run lets one run deletion cover child artifacts without wasting separate deletion budget slots.
+  - A fresh PR generation is required after the unrelated Wiki task-liveness repair so Agent Governance validates against current protected main rather than the stale merge generation.
 unknown:
   - Exact artifact bytes and exact number of cleanup-eligible resources until the live bounded cleanup executes after merge.
 conflicts: []
@@ -92,6 +95,7 @@ rejected_hypotheses:
   - Blanket cache or artifact deletion without retention/ownership predicates.
   - Repository cache-retention setting mutation because the live API returned HTTP 402 for that settings endpoint.
   - Editing the heavyweight build workflow solely to shorten build-record retention because the PR-trigger fan-out outweighed the benefit in this bounded task.
+  - Agent Governance failure 31471191644 was caused by this storage-hygiene implementation; its log identifies only stale terminal Wiki task metadata and main now contains that task archival.
 changed_paths:
   - .github/workflows/github-actions-storage-hygiene.yml
   - scripts/ci/github_actions_storage_hygiene.py
@@ -108,12 +112,12 @@ validation:
   - command: PR current-head validation before review fixes
     result: PASS
     evidence: head a6fd050eecf93ba6b6d7a924365572c5c170af9d passed Agent Governance, CI, GitHub Actions Storage Hygiene, Deep System Validation, Phase 7, DB Outage, Game Auth Concurrency and Edge Security Emulation
-  - command: focused review-fix tests
-    result: NOT_RUN
-    evidence: awaiting current-head GitHub checks after commits 09b684944e55a236433b8c63303b07ab660e7bb6 and 6521d43b9c648f4f794ef15bf85cbd96f0538b91
+  - command: review-fix generation Agent Governance
+    result: FAIL
+    evidence: run 31471191644 failed only terminal_pr_stale_next_action and terminal_pr_active_task for merged Wiki PR #972; protected main 3290bedb4c9c264286ccafb32d7f0bc490198a9d subsequently archived that task
 blockers:
   - none
-next_action: require all current-head checks to pass, resolve the two review threads, then merge PR 980 with exact head and execute live cleanup
+next_action: require the fresh current-main PR generation to pass, resolve the two repaired review threads, then merge PR 980 with exact head and execute live cleanup
 ```
 
 ## Notes
