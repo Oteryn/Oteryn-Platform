@@ -1,0 +1,96 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://oteryn.invalid/schemas/tibia-linux-reference-session-v1.json",
+  "title": "Redacted Tibia Linux reference session manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "session_id",
+    "mode",
+    "started_at",
+    "finished_at",
+    "duration_monotonic_ms",
+    "environment",
+    "client_identity",
+    "credential_handling",
+    "process_lifecycle",
+    "window_lifecycle",
+    "network_denial",
+    "filesystem_inventory",
+    "leak_scan",
+    "cleanup",
+    "safety",
+    "findings"
+  ],
+  "properties": {
+    "schema_version": {"const": 1},
+    "session_id": {"type": "string", "minLength": 8},
+    "mode": {"enum": ["synthetic-dry-run", "official-component"]},
+    "started_at": {"type": "string"},
+    "finished_at": {"type": "string"},
+    "duration_monotonic_ms": {"type": "integer", "minimum": 0},
+    "environment": {"type": "object"},
+    "client_identity": {"type": "object"},
+    "credential_handling": {
+      "type": "object",
+      "required": ["arguments_contained_values", "environment_contained_values", "retained"],
+      "properties": {
+        "arguments_contained_values": {"const": false},
+        "environment_contained_values": {"const": false},
+        "retained": {"const": false}
+      }
+    },
+    "process_lifecycle": {"type": "object"},
+    "window_lifecycle": {"type": "array"},
+    "network_denial": {
+      "type": "object",
+      "required": ["proven", "raw_capture_created", "official_endpoint_contacted"],
+      "properties": {
+        "proven": {"const": true},
+        "raw_capture_created": {"const": false},
+        "official_endpoint_contacted": {"const": false}
+      }
+    },
+    "filesystem_inventory": {"type": "object"},
+    "leak_scan": {
+      "type": "object",
+      "required": ["result"],
+      "properties": {"result": {"const": "PASS"}}
+    },
+    "cleanup": {
+      "type": "object",
+      "required": ["result"],
+      "properties": {"result": {"const": "PASS"}}
+    },
+    "safety": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "official_login_attempted",
+        "official_service_contacted",
+        "client_or_battleye_modified",
+        "ptrace_debugger_hook_injection_used",
+        "traffic_decrypted_replayed_altered_injected"
+      ],
+      "properties": {
+        "official_login_attempted": {"const": false},
+        "official_service_contacted": {"const": false},
+        "client_or_battleye_modified": {"const": false},
+        "ptrace_debugger_hook_injection_used": {"const": false},
+        "traffic_decrypted_replayed_altered_injected": {"const": false}
+      }
+    },
+    "findings": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["PROVEN", "DERIVED", "UNKNOWN", "CONFLICT"],
+      "properties": {
+        "PROVEN": {"type": "array", "items": {"type": "string"}},
+        "DERIVED": {"type": "array", "items": {"type": "string"}},
+        "UNKNOWN": {"type": "array", "items": {"type": "string"}},
+        "CONFLICT": {"type": "array", "items": {"type": "string"}}
+      }
+    }
+  }
+}

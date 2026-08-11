@@ -1,0 +1,7 @@
+{
+  "client_version": "REPLACE_WITH_APPROVED_VERSION",
+  "package_sha256": "REPLACE_WITH_64_LOWERCASE_HEX",
+  "executable_sha256": "REPLACE_WITH_64_LOWERCASE_HEX",
+  "elf_build_id": "REPLACE_WITH_APPROVED_ELF_BUILD_ID",
+  "package_source": "REPLACE_WITH_LAWFUL_SOURCE_CLASSIFICATION"
+}
