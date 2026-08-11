@@ -52,7 +52,7 @@ jobs:
             dpkg --configure -a
             apt-get update
             apt-get -f install -y --no-install-recommends
-            apt-get install -y --no-install-recommends libegl1 libfontconfig1
+            apt-get install -y --no-install-recommends libegl1 libfontconfig1 libopengl0
             command -v curl
             command -v file
             command -v xvfb-run
@@ -78,7 +78,9 @@ jobs:
             file Tibia/Tibia
             stat -c "launcher_size=%s" Tibia/Tibia
             echo "=== launcher missing shared libraries ==="
-            ldd Tibia/Tibia | grep "not found" && exit 1 || true
+            missing="$(ldd Tibia/Tibia | grep "not found" || true)"
+            printf "%s\n" "$missing"
+            [[ -z "$missing" ]]
           '
 
       - name: Run launcher headlessly and materialize package
