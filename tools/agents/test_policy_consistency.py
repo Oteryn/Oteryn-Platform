@@ -62,6 +62,12 @@ class PolicyConsistencyTests(unittest.TestCase):
         path.write_text(path.read_text(encoding="utf-8") + "\n***Use these checkpoint task statuses only:***\n\n```text\ninvestigating | implementing | validating | ready | waiting | blocked\n```\n", encoding="utf-8")
         self.assertIn("checkpoint task statuses drift", self._findings(root))
 
+    def test_nested_emphasis_conflicting_status_declaration_fails_closed(self) -> None:
+        temporary, root = self._fixture(); self.addCleanup(temporary.cleanup)
+        path = root / "docs/agents/AGENTS.md"
+        path.write_text(path.read_text(encoding="utf-8") + "\n**_Use these checkpoint task statuses only:_**\n\n```text\ninvestigating | implementing | validating | ready | waiting | blocked\n```\n", encoding="utf-8")
+        self.assertIn("checkpoint task statuses drift", self._findings(root))
+
     def test_duplicate_conflicting_terminal_declaration_fails_closed(self) -> None:
         temporary, root = self._fixture(); self.addCleanup(temporary.cleanup)
         path = root / "docs/agents/AGENTS.md"
@@ -129,6 +135,11 @@ class PolicyConsistencyTests(unittest.TestCase):
     def test_explicit_user_authorization_exception_is_not_a_contradiction(self) -> None:
         temporary, root = self._fixture(); self.addCleanup(temporary.cleanup)
         self._append_root(root, "- Writes to `acme/production` are allowed only when the user explicitly authorizes that repository in the current task.")
+        self.assertEqual([], validate_policy(root))
+
+    def test_condition_conjunction_stays_in_same_authorization_clause(self) -> None:
+        temporary, root = self._fixture(); self.addCleanup(temporary.cleanup)
+        self._append_root(root, "- Writes to acme/production are allowed only when the user explicitly authorizes it and the authorization applies to the current task.")
         self.assertEqual([], validate_policy(root))
 
     def test_authorization_exception_is_scoped_to_repository(self) -> None:

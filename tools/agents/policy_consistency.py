@@ -57,11 +57,15 @@ def _normalize_inline_markdown(text: str) -> str:
 
 
 def _normalize_emphasized_marker_lines(markdown: str) -> str:
-    """Strip valid line-wide Markdown emphasis around declaration markers."""
+    """Strip line-wide Markdown emphasis, including nested bold/italic combinations."""
     lines: list[str] = []
     for raw in markdown.splitlines():
-        match = re.match(r"^(?P<indent>\s*)(?P<marks>\*{1,3}|_{1,3})(?P<body>.+?)(?P=marks)\s*$", raw)
-        if match and not raw.strip().startswith("```"):
+        stripped = raw.strip()
+        if stripped.startswith("```"):
+            lines.append(raw)
+            continue
+        match = re.match(r"^(?P<indent>\s*)[*_]{1,6}(?P<body>.+?)[*_]{1,6}\s*$", raw)
+        if match:
             raw = match.group("indent") + match.group("body")
         lines.append(raw)
     return "\n".join(lines)
@@ -162,12 +166,12 @@ def _logical_markdown_statements(markdown: str) -> list[str]:
 
 
 def _policy_clauses(statement: str) -> list[str]:
-    """Split every common conjunction that can introduce an independent grant."""
-    return [
-        value.strip()
-        for value in re.split(r"\s*;\s*|(?<=\.)\s+|\s*,?\s+(?:and|but|however|while)\s+", statement, flags=re.I)
-        if value.strip()
-    ]
+    """Split independent grant clauses without breaking conjunctions inside one condition."""
+    pattern = (
+        r"\s*;\s*|(?<=\.)\s+|\s*,?\s+(?:but|however|while)\s+|"
+        r"\s+and\s+(?=(?:(?:additionally|also)\s+)?(?:the\s+)?(?:autonomous\b|agents?\b|writes?\b|edits?\b|push(?:es)?\b|commits?\b|merges?\b|mutat\w*\b))"
+    )
+    return [value.strip() for value in re.split(pattern, statement, flags=re.I) if value.strip()]
 
 
 def _has_positive_mutation_grant(clause: str) -> bool:
@@ -214,13 +218,7 @@ def _repo_has_positive_read_only_assertion(clause: str, repository: str) -> bool
 def _slash_token_is_prose(normalized: str, match: re.Match[str]) -> bool:
     """Reject slash compounds only when following syntax proves compound-prose usage."""
     after = normalized[match.end():match.end() + 40]
-    return bool(
-        re.match(
-            r"\s+(?:metadata|creation|mutation|state|status|result|boundary|restriction|rules?|policy|operations?)\b",
-            after,
-            flags=re.I,
-        )
-    )
+    return bool(re.match(r"\s+(?:metadata|creation|mutation|state|status|result|boundary|restriction|rules?|policy|operations?)\b", after, flags=re.I))
 
 
 def _repository_identifiers_in_grant_clause(clause: str) -> list[str]:
