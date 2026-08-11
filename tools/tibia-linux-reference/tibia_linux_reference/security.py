@@ -147,6 +147,20 @@ def scan_prohibited_locations(
         if exact_secret_hits(data, secrets) or (generic and high_confidence_secret_present(data)):
             categories.add(category)
 
+    def inspect_repo_files(entries: Iterable[bytes], category: str, *, generic: bool) -> None:
+        nonlocal files_scanned
+        for relative in sorted(set(entry for entry in entries if entry)):
+            candidate = repo_root / os.fsdecode(relative)
+            try:
+                if candidate.is_symlink():
+                    inspect(category, os.fsencode(os.readlink(candidate)), generic=generic)
+                    files_scanned += 1
+                elif candidate.is_file():
+                    inspect(category, candidate.read_bytes(), generic=generic)
+                    files_scanned += 1
+            except OSError:
+                categories.add(category)
+
     inspect("git-diff", git_bytes(repo_root, "diff", "--binary"))
     inspect("git-diff", git_bytes(repo_root, "diff", "--cached", "--binary"))
     base_check = subprocess.run(
@@ -159,24 +173,36 @@ def scan_prohibited_locations(
         inspect("git-diff", git_bytes(repo_root, "diff", "--binary", "origin/main...HEAD"))
     else:
         categories.add("git-base-unavailable")
+
     tracked = git_bytes(repo_root, "ls-files", "-z").split(b"\0")
-    for relative in tracked:
-        if not relative:
-            continue
-        candidate = repo_root / os.fsdecode(relative)
-        if candidate.is_file():
-            # The repository contains pre-existing synthetic credential fixtures. Exact run values
-            # must be absent everywhere; generic token patterns are fail-closed for the current
-            # branch diff and retained outputs without reclassifying unchanged baseline fixtures.
-            inspect("tracked-files", candidate.read_bytes(), generic=False)
-            files_scanned += 1
+    untracked = git_bytes(repo_root, "ls-files", "--others", "--exclude-standard", "-z").split(b"\0")
+    ignored = git_bytes(
+        repo_root,
+        "ls-files",
+        "--others",
+        "--ignored",
+        "--exclude-standard",
+        "-z",
+    ).split(b"\0")
+    # Tracked baseline fixtures may deliberately contain synthetic examples, so only
+    # exact per-run values are forbidden there. Untracked and ignored checkout files
+    # are runtime-created surfaces and therefore receive the generic fail-closed scan.
+    inspect_repo_files(tracked, "tracked-files", generic=False)
+    inspect_repo_files(untracked, "untracked-files", generic=True)
+    inspect_repo_files(ignored, "ignored-files", generic=True)
 
     for root, category in ((evidence_root, "evidence-or-artifacts"), (temporary_root, "temporary-files")):
         if root and root.exists():
             for candidate in root.rglob("*"):
-                if candidate.is_file():
-                    inspect(category, candidate.read_bytes())
+                if candidate.is_symlink():
+                    inspect(category, os.fsencode(os.readlink(candidate)))
                     files_scanned += 1
+                elif candidate.is_file():
+                    try:
+                        inspect(category, candidate.read_bytes())
+                        files_scanned += 1
+                    except OSError:
+                        categories.add(category)
 
     inspect("process-arguments", process_arguments)
     inspect("retained-environment-report", retained_environment_report)
@@ -189,8 +215,11 @@ def scan_prohibited_locations(
         history_candidates.append(Path(histfile))
     for candidate in history_candidates:
         if candidate.is_file():
-            inspect("shell-history", candidate.read_bytes())
-            files_scanned += 1
+            try:
+                inspect("shell-history", candidate.read_bytes())
+                files_scanned += 1
+            except OSError:
+                categories.add("shell-history")
 
     return LeakScanResult(not categories, tuple(sorted(categories)), files_scanned)
 
