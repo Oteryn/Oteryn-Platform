@@ -15,9 +15,9 @@ env:
 
 jobs:
   continue:
-    name: Decode and inspect current Tibia executable
+    name: Derive and decode current Tibia executable
     runs-on: oteryn-staging
-    timeout-minutes: 20
+    timeout-minutes: 25
     steps:
       - name: Verify exact owned runtime and staging snapshot
         shell: bash
@@ -31,32 +31,92 @@ jobs:
           docker ps -a --filter 'label=com.docker.compose.project=oteryn-staging' --format '{{.ID}}\t{{.Names}}' | sort > /tmp/oteryn-before.tsv
           test -s /tmp/oteryn-before.tsv
 
-      - name: Restore canonical LZMA header in a working copy and decode
+      - name: Derive raw LZMA parameters from ELF magic
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          docker exec "$CONTAINER_NAME" bash -lc '
+            set -Eeuo pipefail
+            export DEBIAN_FRONTEND=noninteractive
+            command -v python3 >/dev/null || { apt-get update; apt-get install -y --no-install-recommends python3; }
+            cd /data/client-15.32.df7b29/bin
+            packed="$(sha256sum client.lzma | awk "{print \$1}")"
+            [[ "$packed" == "496c5b3517c0996a1bbd0e76a7738d450f79d0bf4fef140a807044776042dc9b" ]]
+            python3 - <<"PY"
+import lzma, pathlib, json, sys
+src = pathlib.Path("client.lzma").read_bytes()
+print("packed_bytes", len(src))
+print("prefix13", src[:13].hex())
+if src[:13] != b"\x00"*13:
+    raise SystemExit("unexpected nonzero 13-byte prefix")
+payload = src[13:]
+magic = b"\x7fELF"
+found=[]
+# LZMA1 legal ranges; prioritize common configurations but cover all valid lc/lp/pb.
+dicts=[]
+for n in range(12, 29):
+    dicts.extend([1<<n, (1<<n)+(1<<(n-1))])
+dicts=sorted(set(dicts))
+for dict_size in dicts:
+    for pb in range(5):
+        for lp in range(5):
+            for lc in range(9):
+                if lc + lp > 4:
+                    continue
+                filt={"id":lzma.FILTER_LZMA1,"dict_size":dict_size,"lc":lc,"lp":lp,"pb":pb}
+                try:
+                    d=lzma.LZMADecompressor(format=lzma.FORMAT_RAW, filters=[filt])
+                    head=d.decompress(payload, max_length=64)
+                except lzma.LZMAError:
+                    continue
+                if head.startswith(magic):
+                    rec={"dict_size":dict_size,"lc":lc,"lp":lp,"pb":pb,"head":head[:16].hex()}
+                    print("FOUND",rec)
+                    found.append(rec)
+if not found:
+    raise SystemExit("no raw LZMA parameter set produced ELF magic")
+pathlib.Path("lzma-params.json").write_text(json.dumps(found, indent=2))
+if len(found) != 1:
+    print("candidate_count",len(found))
+PY
+            cat lzma-params.json
+          '
+
+      - name: Decode full client with derived parameters and verify manifest identity
         shell: bash
         run: |
           set -Eeuo pipefail
           docker exec "$CONTAINER_NAME" bash -lc '
             set -Eeuo pipefail
             cd /data/client-15.32.df7b29/bin
-            test -s client.lzma
-            packed="$(sha256sum client.lzma | awk "{print \$1}")"
-            echo "packed_sha256=$packed"
-            [[ "$packed" == "496c5b3517c0996a1bbd0e76a7738d450f79d0bf4fef140a807044776042dc9b" ]]
-            echo "original_header=$(od -An -tx1 -N13 client.lzma | tr -d " \n")"
-            cp client.lzma client.restored-header.lzma
-            printf "\x5d\x00\x00\x80\x00\xff\xff\xff\xff\xff\xff\xff\xff" | dd of=client.restored-header.lzma bs=1 seek=0 conv=notrunc status=none
-            restored="$(od -An -tx1 -N13 client.restored-header.lzma | tr -d " \n")"
-            echo "restored_header=$restored"
-            [[ "$restored" == "5d00008000ffffffffffffffff" ]]
-            rm -f client
-            xz --format=lzma -dc client.restored-header.lzma > client
+            python3 - <<"PY"
+import hashlib, json, lzma, pathlib
+src=pathlib.Path("client.lzma").read_bytes()
+payload=src[13:]
+params=json.loads(pathlib.Path("lzma-params.json").read_text())
+expected_hash="e6c244bd39fe2e0632f6f000efd3147164696efa8e901718668e0442325ff7fe"
+expected_size=51965216
+valid=[]
+for p in params:
+    filt={"id":lzma.FILTER_LZMA1,"dict_size":p["dict_size"],"lc":p["lc"],"lp":p["lp"],"pb":p["pb"]}
+    try:
+        out=lzma.decompress(payload, format=lzma.FORMAT_RAW, filters=[filt])
+    except lzma.LZMAError as e:
+        print("FULL_FAIL",p,repr(e))
+        continue
+    h=hashlib.sha256(out).hexdigest()
+    print("FULL_RESULT",p,"size",len(out),"sha256",h)
+    if len(out)==expected_size and h==expected_hash:
+        pathlib.Path("client").write_bytes(out)
+        valid.append(p)
+if len(valid)!=1:
+    raise SystemExit(f"expected exactly one fully verified parameter set, got {len(valid)}")
+pathlib.Path("verified-lzma-params.json").write_text(json.dumps(valid[0],indent=2))
+PY
             chmod 0755 client
-            unpacked="$(sha256sum client | awk "{print \$1}")"
-            size="$(stat -c %s client)"
-            echo "unpacked_sha256=$unpacked"
-            echo "unpacked_size=$size"
-            [[ "$unpacked" == "e6c244bd39fe2e0632f6f000efd3147164696efa8e901718668e0442325ff7fe" ]]
-            [[ "$size" -eq 51965216 ]]
+            echo "verified_params=$(tr -d "\n " < verified-lzma-params.json)"
+            echo "unpacked_sha256=$(sha256sum client | awk "{print \$1}")"
+            echo "unpacked_size=$(stat -c %s client)"
             file client
             readelf -h client | head -n 40
           '
