@@ -9,6 +9,15 @@ updates:
       timezone: Europe/Warsaw
     open-pull-requests-limit: 5
 
+  - package-ecosystem: npm
+    directory: "/scripts/acceptance"
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:10"
+      timezone: Europe/Warsaw
+    open-pull-requests-limit: 5
+
   - package-ecosystem: github-actions
     directory: "/"
     schedule:
