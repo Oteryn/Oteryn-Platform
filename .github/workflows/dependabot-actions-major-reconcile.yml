@@ -1,0 +1,118 @@
+name: Dependabot Actions Major Reconcile
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/**'
+      - 'docs/agents/tasks/active/OTERYN-20260811-dependabot-actions-major-cleanup.md'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: dependabot-actions-major-reconcile-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  reconcile:
+    if: ${{ github.event.pull_request.head.repo.full_name == github.repository }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout current PR branch
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.head_ref }}
+          fetch-depth: 0
+
+      - name: Reconcile only declared old action majors
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          allowed = {
+              '.github/workflows/acceptance-validation.yml',
+              '.github/workflows/announcements-acceptance.yml',
+              '.github/workflows/build-synology-staging-images.yml',
+              '.github/workflows/community-data-acceptance.yml',
+              '.github/workflows/content-scale-acceptance.yml',
+              '.github/workflows/deep-system-validation.yml',
+              '.github/workflows/downloads-acceptance.yml',
+              '.github/workflows/editorial-media-acceptance.yml',
+              '.github/workflows/error-state-acceptance.yml',
+              '.github/workflows/events-acceptance.yml',
+              '.github/workflows/native-auth-canary-cache-build.yml',
+              '.github/workflows/native-auth-ephemeral-cutover-rehearsal.yml',
+              '.github/workflows/native-protocol-contract-audits.yml',
+              '.github/workflows/native-protocol-contract.yml',
+              '.github/workflows/portal-acceptance-contract.yml',
+              '.github/workflows/portal-exhaustive-audit.yml',
+              '.github/workflows/support-legal-acceptance.yml',
+              '.github/workflows/support-moderation-acceptance.yml',
+              '.github/workflows/wiki-reconciliation-acceptance.yml',
+          }
+          replacements = {
+              'actions/checkout@v5': 'actions/checkout@v7',
+              'actions/checkout@v6': 'actions/checkout@v7',
+              'actions/setup-node@v4': 'actions/setup-node@v7',
+              'docker/build-push-action@v6': 'docker/build-push-action@v7',
+              'docker/metadata-action@v5': 'docker/metadata-action@v6',
+          }
+
+          changed = []
+          unexpected = []
+          counts = {old: 0 for old in replacements}
+          for path in sorted(Path('.github/workflows').glob('*.yml')):
+              text = path.read_text(encoding='utf-8')
+              hits = {old: text.count(old) for old in replacements}
+              if not any(hits.values()):
+                  continue
+              rel = path.as_posix()
+              if rel not in allowed:
+                  unexpected.append((rel, {k: v for k, v in hits.items() if v}))
+                  continue
+              new = text
+              for old, replacement in replacements.items():
+                  counts[old] += hits[old]
+                  new = new.replace(old, replacement)
+              if new != text:
+                  path.write_text(new, encoding='utf-8')
+                  changed.append(rel)
+
+          if unexpected:
+              raise SystemExit(f'old action majors found outside declared ownership: {unexpected}')
+
+          leftovers = []
+          for path in sorted(Path('.github/workflows').glob('*.yml')):
+              text = path.read_text(encoding='utf-8')
+              for old in replacements:
+                  if old in text:
+                      leftovers.append((path.as_posix(), old))
+          if leftovers:
+              raise SystemExit(f'old action majors remain after reconciliation: {leftovers}')
+
+          print('changed paths:')
+          for path in changed:
+              print(path)
+          print('reconciled marker counts:')
+          for marker, count in counts.items():
+              print(f'{marker}: {count}')
+          PY
+
+      - name: Commit reconciled workflow versions when needed
+        env:
+          HEAD_REF: ${{ github.head_ref }}
+        run: |
+          set -euo pipefail
+          if git diff --quiet -- .github/workflows; then
+            echo 'No additional current-main reconciliation was required.'
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add .github/workflows
+          git commit -m 'chore(deps): reconcile remaining Actions majors on current main'
+          git push origin "HEAD:${HEAD_REF}"
