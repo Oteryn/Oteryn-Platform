@@ -67,17 +67,37 @@ async function assertNoOverflow(page) {
 }
 
 async function csrfStatus(page, path, method = 'POST') {
-  return page.evaluate(async ({ target, verb }) => {
-    const response = await fetch(target, {
-      method: verb,
-      credentials: 'same-origin',
-      headers: {
-        Accept: 'text/html,application/xhtml+xml',
-        'X-Requested-With': 'XMLHttpRequest',
-      },
-    });
-    return response.status;
+  const responsePromise = page.waitForResponse((response) => {
+    const url = new URL(response.url());
+    return response.request().method() === 'POST' && url.pathname === path;
+  });
+
+  await page.evaluate(({ target, verb }) => {
+    const form = document.createElement('form');
+    form.method = 'POST';
+    form.action = target;
+
+    const token = document.createElement('input');
+    token.type = 'hidden';
+    token.name = '_token';
+    token.value = 'acceptance-explicitly-invalid-csrf-token';
+    form.append(token);
+
+    if (verb !== 'POST') {
+      const override = document.createElement('input');
+      override.type = 'hidden';
+      override.name = '_method';
+      override.value = verb;
+      form.append(override);
+    }
+
+    document.body.append(form);
+    form.submit();
   }, { target: path, verb: method });
+
+  const response = await responsePromise;
+  await page.waitForLoadState('domcontentloaded');
+  return response.status();
 }
 
 async function expectServerFailureRecovery(page, surface, path) {
