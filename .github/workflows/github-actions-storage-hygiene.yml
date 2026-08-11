@@ -14,7 +14,7 @@ on:
     types:
       - closed
   schedule:
-    - cron: '23 3 * * 1'
+    - cron: '23 3,15 * * *'
   workflow_dispatch:
     inputs:
       mode:

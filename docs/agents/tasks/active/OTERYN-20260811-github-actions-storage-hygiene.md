@@ -54,8 +54,8 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-11T09:34:00Z
-head: 89753389843eec3f468dbdbd5b1c8a2473a7729b
+updated_at: 2026-08-11T10:07:00Z
+head: aa76773873f063aeefc84626d5d073705cbc7296
 branch: chore/github-actions-storage-hygiene-closeout
 pr: 993
 status: validating
@@ -80,11 +80,14 @@ proven:
   - Attempt 2 maintenance job 93733099349 deleted 531 old artifacts (322357146 bytes) and 169 closed-PR caches (22419524 bytes), with zero workflow-run deletions.
   - Across the two successful bounded live attempts, 1400 exact resources were deleted: 1025 artifacts plus 375 closed-PR caches, reclaiming 6862190992 bytes (~6.39 GiB) from explicit deletions.
   - Attempt 2 post-state reported 14523 artifacts and 906 active caches using 3224537526 bytes; 4344 qualifying historical candidates remained only because of the 700-delete per-run safety budget.
+  - Attempt 1 inventory observed 15525 artifacts total and 4819 older than 14 days, leaving 10706 then-recent artifacts inside the 14-day retention window; that observed volume is about 765 retained artifacts per day across the window.
   - Normal CI continued creating recent artifacts/caches between snapshots; recent evidence and open/default-branch cache scopes were not cleanup candidates.
-  - Permanent pull_request_target closed-event cleanup and bounded weekly/manual maintenance are retained to prevent recurrence and drain historical residual without broad deletion.
+  - Closeout audit corrected supersedable PR validation concurrency while preserving non-cancelled cleanup executions.
+  - Permanent pull_request_target closed-event cleanup and bounded twice-daily/manual maintenance are retained to prevent recurrence and drain historical residual without broad deletion.
 derived:
   - The dominant storage pressure was stale artifacts plus large closed-PR caches; two bounded passes reclaimed most byte-heavy candidates while preserving the API safety reserve.
-  - Remaining eligible count is dominated by small historical resources and can converge under the retained bounded maintenance without increasing destructive authority.
+  - A weekly 700-delete schedule did not have demonstrated count headroom over the observed recent artifact volume; twice-daily bounded execution provides up to 1400 delete slots per day without increasing the 700-delete authority of any single run.
+  - Remaining eligible count is dominated by small historical resources and can converge under the retained bounded maintenance without increasing per-run destructive authority.
 unknown:
   - Exact future residual count after subsequent scheduled/manual bounded maintenance, because normal CI concurrently creates and expires resources.
 conflicts: []
@@ -110,9 +113,12 @@ validation:
   - command: live Actions storage hygiene run 31476011425 attempt 2 job 93733099349
     result: PASS
     evidence: another 700 exact resources deleted; 344776670 bytes reclaimed; bounded residual reported.
+  - command: closeout capacity and concurrency audit
+    result: PASS
+    evidence: superseded PR validation cancellation is scoped to pull_request only; two daily schedule slots provide bounded headroom while closed-PR and maintenance executions remain non-cancelled.
   - command: closeout PR #993 exact-head validation
     result: NOT_RUN
-    evidence: PR opened; exact-head checks pending.
+    evidence: exact-head checks pending after final closeout audit corrections.
 blockers:
   - none
 next_action: After PR #993 reaches terminal state, verify resulting main has no push cleanup authority, then move this task to archive.

@@ -107,6 +107,7 @@ assert "  pull_request:\n" in storage_trigger
 assert "  pull_request_target:\n" in storage_trigger
 assert "      - closed\n" in storage_trigger
 assert "  schedule:\n" in storage_trigger
+assert "    - cron: '23 3,15 * * *'\n" in storage_trigger
 assert "  workflow_dispatch:\n" in storage_trigger
 assert "  push:\n" not in storage_trigger
 assert "'docs/agents/tasks/**'" not in storage_trigger
