@@ -17,8 +17,8 @@ Repair the Portal Exhaustive exact-head trigger-coupling defect exposed by Compo
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-11T15:23:00+02:00
-head: af79c52d912380dccf1d54652f5a31ac64086759
+updated_at: 2026-08-11T15:36:00+02:00
+head: 3c888604812bf5c28b80fd55b1ccc6b15b78f613
 branch: fix/issue-691-portal-exhaustive-trigger-coupling
 pr: 1000
 status: validating
@@ -42,13 +42,12 @@ proven:
   - Wiki Reconciliation and Editorial Media cover the complete Portal Exhaustive pull_request/push trigger surface, including coupled workflow-definition paths.
   - Portal Exhaustive Acceptance E2E calls the existing reusable critical Acceptance workflow with zero retries on the same Portal trigger surface.
   - Portal Exhaustive validates trigger-set inclusion before polling and requires Wiki Reconciliation, Editorial Media and Portal Exhaustive Acceptance E2E on the exact head.
-  - Portal Exhaustive Trigger Coupling independently checks the inclusion contract when coupled workflow definitions change.
-  - Codex P1 was addressed by updating test_portal_exhaustive_audit.py to require Portal Exhaustive Acceptance E2E instead of the replaced Acceptance workflow name.
-  - Codex P2 was addressed by including companion workflow definitions in the Portal trigger surface and mirroring those paths into all three dependents; the independent coupling gate remains additional protection.
+  - Portal Exhaustive Trigger Coupling independently checks the inclusion contract and uses PR/ref-scoped concurrency with cancel-in-progress true.
+  - Codex review findings are implemented in the branch tree: stale acceptance-name test assertion fixed; companion workflow definitions included and mirrored; superseded trigger-coupling runs cancelled.
 derived:
   - The original #997 failure was a deterministic CI trigger-contract defect, not a Laravel/PHPUnit/Pint/PHPStan regression.
 unknown:
-  - terminal exact-head results of the checkpoint-updated PR #1000 generation
+  - terminal exact-head results and fresh review of the checkpoint-updated final PR #1000 head
 conflicts:
   - PR #986 owns PORTAL_STRICTNESS_EVIDENCE.json and its Issue #487 acceptance files; PR #1000 does not modify them.
 first_failure:
@@ -66,15 +65,15 @@ changed_paths:
   - tools/audit/test_portal_exhaustive_audit.py
   - docs/agents/tasks/active/OTERYN-20260811-dependency-refresh-validation-repair.md
 validation:
-  - command: prior #1000 trigger emission inspection
+  - command: prior #1000 trigger emission and exact-head gate observations
     result: PASS
-    evidence: exact-head generations emitted Portal Exhaustive, Wiki Reconciliation, Editorial Media and Portal Exhaustive Acceptance E2E together.
+    evidence: exact-head generations emitted all three companions; Agent Governance, CI, coupling, Wiki and Editorial reached PASS before the final Codex concurrency repair.
   - command: Codex review remediation
     result: PASS
-    evidence: P1 stale unit-test assertion and P2 companion-workflow trigger drift were both repaired in the branch tree.
+    evidence: all three concrete review findings through reviewed head c411f868ceadd87129b4833598d454d5cc9f57ac are repaired in the branch tree.
   - command: final checkpoint-updated exact-head generation
     result: NOT_RUN
-    evidence: required after this final ownership/checkpoint update.
+    evidence: required after this final concurrency/checkpoint update.
 blockers: []
-next_action: Freeze this head; require exact-head Agent Governance, CI, Portal Exhaustive, Portal Exhaustive Trigger Coupling and all strictness companions to reach terminal success, resolve review findings, perform whole-diff self-review, merge #1000 with expected-head protection, verify resulting main, then correct/archive the Issue #691 lifecycle and close the issue.
+next_action: Freeze the checkpoint-updated head; require all emitted exact-head workflows and fresh review to reach terminal success, perform whole-diff self-review, merge #1000 with expected-head protection, verify resulting main, then correct/archive the Issue #691 lifecycle and close the issue.
 ```
