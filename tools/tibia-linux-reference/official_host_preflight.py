@@ -5,6 +5,7 @@ import argparse
 import getpass
 import json
 import os
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -23,6 +24,7 @@ CI_KEYS = (
     "TF_BUILD",
 )
 CONTAINER_MARKERS = (Path("/.dockerenv"), Path("/run/.containerenv"))
+SOFTWARE_RENDERER_RE = re.compile(r"(?:llvmpipe|softpipe|software rasterizer|swrast)", re.IGNORECASE)
 
 
 def virtualization() -> tuple[str, str]:
@@ -81,6 +83,40 @@ def require_normal_host(expected_user: str) -> dict[str, object]:
     }
 
 
+def require_accelerated_graphics() -> dict[str, object]:
+    if not os.environ.get("DISPLAY"):
+        raise HarnessError("official execution requires an X11 or XWayland display for graphics proof")
+    glxinfo = shutil.which("glxinfo")
+    if not glxinfo:
+        raise HarnessError("glxinfo is required to prove accelerated graphics")
+    completed = subprocess.run(
+        [glxinfo, "-B"],
+        check=False,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        timeout=10,
+    )
+    if completed.returncode != 0:
+        raise HarnessError("glxinfo could not prove the graphical session")
+
+    direct_match = re.search(r"^direct rendering:\s*(\S+)", completed.stdout, re.MULTILINE | re.IGNORECASE)
+    renderer_match = re.search(r"^OpenGL renderer string:\s*(.+)$", completed.stdout, re.MULTILINE)
+    if not direct_match or direct_match.group(1).lower() != "yes":
+        raise HarnessError("direct rendering is not enabled")
+    if not renderer_match:
+        raise HarnessError("OpenGL renderer identity is unavailable")
+    renderer = renderer_match.group(1).strip()
+    if SOFTWARE_RENDERER_RE.search(renderer):
+        raise HarnessError("software-only OpenGL rendering is not accepted for official execution")
+
+    return {
+        "direct_rendering": True,
+        "renderer": renderer[:160],
+        "software_renderer": False,
+    }
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--repo-root", type=Path, required=True)
@@ -101,12 +137,14 @@ def main() -> int:
     display = preflight.get("display")
     if not isinstance(display, dict) or not (display.get("x11_present") or display.get("wayland_present")):
         raise HarnessError("official execution requires an interactive graphical session")
+    graphics = require_accelerated_graphics()
 
     print(
         json.dumps(
             {
                 "result": "PASS",
                 "host": host,
+                "graphics": graphics,
                 "preflight": preflight,
                 "official_service_contacted": False,
                 "binary_execution_performed": False,
