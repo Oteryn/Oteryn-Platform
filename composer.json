@@ -47,6 +47,10 @@
             "python3 tools/validation/test_prompt_eval.py",
             "python3 tools/validation/prompt_eval.py"
         ],
+        "test:workflow-inventory": [
+            "python3 tools/validation/test_workflow_inventory.py",
+            "python3 tools/validation/workflow_inventory.py"
+        ],
         "test:repository-contracts": [
             "python3 tests/ci/test_classify_changes.py",
             "python3 tests/ci/test_push_change_routing.py",
@@ -56,7 +60,8 @@
             "python3 tests/ci/test_game_catalog_cross_repo_trigger.py",
             "python3 tests/ci/test_synology_deploy_release_identity.py",
             "@test:integration-registration",
-            "@test:prompt-contract"
+            "@test:prompt-contract",
+            "@test:workflow-inventory"
         ],
         "verify": [
             "@composer validate --strict",

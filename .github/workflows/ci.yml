@@ -53,6 +53,11 @@ jobs:
           python tools/validation/test_prompt_eval.py
           python tools/validation/prompt_eval.py
 
+      - name: Validate workflow inventory
+        run: |
+          python tools/validation/test_workflow_inventory.py
+          python tools/validation/workflow_inventory.py
+
       - name: Validate active task checkpoint contract
         shell: bash
         run: |
