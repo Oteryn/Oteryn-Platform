@@ -34,7 +34,7 @@ jobs:
           docker ps -a --filter 'label=com.docker.compose.project=oteryn-staging' --format '{{.ID}}\t{{.Names}}' | sort > /tmp/oteryn-before.tsv
           test -s /tmp/oteryn-before.tsv
 
-      - name: Repair package state and install launcher runtime dependency
+      - name: Repair package state and install Qt xcb runtime dependencies
         shell: bash
         run: |
           set -Eeuo pipefail
@@ -52,7 +52,11 @@ jobs:
             dpkg --configure -a
             apt-get update
             apt-get -f install -y --no-install-recommends
-            apt-get install -y --no-install-recommends libegl1 libfontconfig1 libopengl0
+            apt-get install -y --no-install-recommends \
+              libegl1 libfontconfig1 libopengl0 \
+              libxcb-cursor0 libxcb-icccm4 libxcb-keysyms1 libxcb-shape0 \
+              libxcb-xinerama0 libxcb-xinput0 libxcb-render-util0 \
+              libxcb-image0 libxcb-randr0 libxkbcommon-x11-0 libxi6
             command -v curl
             command -v file
             command -v xvfb-run
@@ -81,6 +85,13 @@ jobs:
             missing="$(ldd Tibia/Tibia | grep "not found" || true)"
             printf "%s\n" "$missing"
             [[ -z "$missing" ]]
+            echo "=== qxcb plugin dependencies ==="
+            qxcb="$(find Tibia -type f -name libqxcb.so -print -quit)"
+            test -n "$qxcb"
+            echo "qxcb_path=$qxcb"
+            qxcb_missing="$(ldd "$qxcb" | grep "not found" || true)"
+            printf "%s\n" "$qxcb_missing"
+            [[ -z "$qxcb_missing" ]]
           '
 
       - name: Run launcher headlessly and materialize package
@@ -89,6 +100,8 @@ jobs:
           set -Eeuo pipefail
           set +e
           docker exec "$CONTAINER_NAME" bash -lc '
+            export LANG=C.UTF-8
+            export LC_ALL=C.UTF-8
             export HOME=/data/home
             export XDG_CONFIG_HOME=/data/home/.config
             export XDG_DATA_HOME=/data/home/.local/share
