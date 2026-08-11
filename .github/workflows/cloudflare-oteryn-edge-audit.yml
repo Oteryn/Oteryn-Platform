@@ -89,7 +89,7 @@ jobs:
         run: python3 scripts/operations/cloudflare-token-capability-audit.py
 
       - name: Upload sanitized edge audit
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: cloudflare-oteryn-edge-audit-${{ github.event.pull_request.base.sha }}
           path: cloudflare-edge-audit/

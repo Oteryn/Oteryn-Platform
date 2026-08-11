@@ -250,7 +250,7 @@ jobs:
 
       - name: Upload secret-safe account evidence
         if: always()
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: portal-account-acceptance-${{ github.run_id }}-${{ github.run_attempt }}
           path: artifacts/acceptance

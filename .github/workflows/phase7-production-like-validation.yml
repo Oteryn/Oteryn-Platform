@@ -630,7 +630,7 @@ jobs:
           JSON
 
       - name: Upload non-secret staging evidence artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: phase7-production-like-evidence-${{ github.run_id }}
           path: |
