@@ -16,7 +16,7 @@ search_first:
 
 ## Goal
 
-Validate the exact unmodified official Tibia Linux client on a dedicated normal Linux host under fail-closed outbound network denial, with no account data, no login and no official-service gameplay contact. Issue: #987.
+Validate the exact unmodified official Tibia Linux client on a dedicated normal Linux host under fail-closed outbound network denial, with no account data, no login and no official-service gameplay contact. Issue: #987. Draft PR: #988.
 
 ## Authorization boundary
 
@@ -53,6 +53,9 @@ owned_paths:
   - .github/workflows/tibia-linux-official-identity.yml
   - tools/tibia-linux-reference/official_identity_probe.py
   - tools/tibia-linux-reference/official_host_preflight.py
+  - tools/tibia-linux-reference/official_host_prepare.sh
+  - tools/tibia-linux-reference/official_evidence_luks_setup.sh
+  - tools/tibia-linux-reference/tests/test_official_offline.py
 modules:
   - research-tooling
   - ci
@@ -60,7 +63,8 @@ dependencies:
   - OTERYN-20260810-tibia-linux-reference-harness
   - issue-987
 blockers:
-  - dedicated normal Linux host access is not yet proven
+  - no VMM/SSH/cloud-host control is exposed to this execution session for provisioning/accessing a dedicated normal Linux graphical host
+  - official static download endpoint returns HTTP 403 from GitHub-hosted Azure runner; bypass/evasion is forbidden
 cross_repository_tasks:
   - none
 ```
@@ -69,11 +73,11 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-11T09:05:00Z
-head: fb473b5030e20886692e0833ab944f0717ab3ab7
+updated_at: 2026-08-11T09:28:00Z
+head: 71aec69d7bbce965345e414c781aeaf34e2af7b5
 branch: research/OTERYN-20260811-official-linux-offline-launch
-pr: none
-status: implementing
+pr: 988
+status: blocked
 context_routes:
   - agent-governance
   - security
@@ -85,30 +89,60 @@ owned_paths:
   - .github/workflows/tibia-linux-official-identity.yml
   - tools/tibia-linux-reference/official_identity_probe.py
   - tools/tibia-linux-reference/official_host_preflight.py
+  - tools/tibia-linux-reference/official_host_prepare.sh
+  - tools/tibia-linux-reference/official_evidence_luks_setup.sh
+  - tools/tibia-linux-reference/tests/test_official_offline.py
 proven:
   - Owner explicitly authorized the bounded official-offline-launch sequence in chat on 2026-08-11.
-  - Issue 987 records the authorization and safety boundary.
+  - Issue 987 records the authorization and safety boundary; draft PR 988 carries the implementation.
   - Previous synthetic harness task is completed and archived on main.
-  - CipSoft documents the Linux x64 tarball name tibia.x64.tar.gz; current public acquisition target is the official static.tibia.com download surface.
+  - CipSoft documents the Linux x64 tarball name tibia.x64.tar.gz, extraction into a Tibia folder and direct execution of the Tibia binary; Ubuntu-based distributions require libxcb-cursor0.
+  - CipSoft documents Linux graphics-driver expectations and the Service Agreement incorporates the BattlEye EULA.
+  - Identity tooling hashes the archive and ELF members, extracts ELF Build IDs and bounded version tokens, rejects archive traversal/non-approved source and never executes an ELF.
+  - Host preflight rejects CI runners, containers and WSL before official execution and reuses official-mode encryption/network/display checks.
+  - Dedicated-host preparation script is Ubuntu/systemd-only, creates a non-admin task user and installs bounded runtime/identity dependencies.
+  - LUKS evidence setup accepts only an explicitly confirmed blank block device, rejects mounted/root/signature-bearing storage and proves TYPE=crypt after setup.
+  - Tibia Linux Official Identity run 31476777859 job 93732191657 passed all 5 focused tests and proved the official host gate rejects CI before any binary execution.
+  - The same run received HTTP 403 from https://static.tibia.com/download/tibia.x64.tar.gz on all three GitHub-hosted Azure attempts; cleanup and clean-worktree verification passed.
+  - No proprietary archive or official binary was committed, uploaded as an artifact or executed by the failed acquisition run.
 derived:
-  - Package acquisition/identity can be proven on an ephemeral networked runner without authorizing official client execution there.
-  - Official execution must reject CI/container/WSL and wait for a dedicated normal desktop/VM Linux host with encrypted private storage.
+  - Exact package acquisition must move to the dedicated normal Linux host using CipSoft's normal official download flow rather than attempting to evade the GitHub-runner 403.
+  - A host/VM is not acceptable merely because it is Linux; it must pass graphical, dedicated-user, encryption and isolation preflight before official execution.
 unknown:
   - Exact current package SHA-256 and executable identities.
-  - Whether the downloaded archive contains the final game binary or only launcher/bootstrap components.
-  - Availability and identity of a suitable dedicated normal Linux execution host accessible to this task.
+  - Whether the current downloaded archive contains the final game binary or launcher/bootstrap components requiring a separately bounded acquisition/update step.
+  - Exact current launcher/client version identity.
+  - Availability and identity of a suitable dedicated normal Linux graphical host accessible to this task.
+  - BattlEye behavior under the final dedicated-host no-network launch.
 conflicts: []
 first_failure:
-  marker: none
-  evidence: none
-rejected_hypotheses: []
+  marker: official-source-http-403-on-github-runner
+  evidence: Tibia Linux Official Identity run 31476777859 job 93732191657; focused tests and CI rejection gate PASS, official static acquisition step HTTP 403, cleanup PASS
+rejected_hypotheses:
+  - GitHub-hosted runner can serve as the official execution host; the dedicated-host preflight intentionally rejects CI.
+  - GitHub-hosted runner can reliably acquire the official package from static.tibia.com; run 31476777859 proves HTTP 403 from that environment.
+  - A mirror or header/cookie spoof should be used to bypass CipSoft download policy; source integrity and non-evasion require the normal official download flow instead.
 changed_paths:
   - docs/agents/tasks/active/OTERYN-20260811-official-linux-offline-launch.md
+  - docs/agents/reports/OTERYN-20260811-official-linux-offline-launch.md
+  - .github/workflows/tibia-linux-official-identity.yml
+  - tools/tibia-linux-reference/official_identity_probe.py
+  - tools/tibia-linux-reference/official_host_preflight.py
+  - tools/tibia-linux-reference/official_host_prepare.sh
+  - tools/tibia-linux-reference/official_evidence_luks_setup.sh
+  - tools/tibia-linux-reference/tests/test_official_offline.py
 validation:
-  - command: not-run
-    result: NOT_RUN
-    evidence: task initialized; acquisition and host preflight tooling not yet committed
+  - command: Tibia Linux Official Identity run 31476777859 job 93732191657 focused tooling + CI host rejection
+    result: PASS
+    evidence: 5/5 tests PASS; py_compile PASS; CI execution gate PASS; official_binary_executed=false
+  - command: official package acquisition from static.tibia.com on GitHub-hosted Azure runner
+    result: BLOCKED
+    evidence: HTTP 403 on three bounded attempts; no bypass attempted; cleanup PASS
+  - command: dedicated normal Linux host + encrypted evidence preflight
+    result: BLOCKED
+    evidence: current session exposes no VMM/SSH/cloud host control; no host state is fabricated
 blockers:
-  - Dedicated normal Linux host access is not yet proven; GitHub-hosted runners are acquisition-only and cannot satisfy official execution acceptance.
-next_action: Implement bounded official artifact identity acquisition/probe and dedicated-host fail-closed preflight, then run acquisition CI.
+  - Dedicated normal Linux graphical host cannot be provisioned or accessed from the currently available tools.
+  - Exact official package identity cannot be established until the official archive is acquired through the normal CipSoft download flow on that host.
+next_action: Provision or expose access to a dedicated normal Ubuntu graphical host, run official_host_prepare.sh, create a blank second disk and run official_evidence_luks_setup.sh, then acquire tibia.x64.tar.gz through the official download flow and run official_identity_probe.py before any official binary execution.
 ```
