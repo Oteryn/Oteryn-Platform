@@ -10,6 +10,7 @@ const primaryIgnore = [
   '**/portability-critical.spec.mjs',
   '**/responsive-critical.spec.mjs',
   '**/resilience-critical.spec.mjs',
+  '**/portal-487-strictness-acceptance.spec.mjs',
   '**/accessibility-critical.spec.mjs',
   '**/soak-public.spec.mjs',
   '**/downloads-public-portability.spec.mjs',
@@ -42,7 +43,10 @@ const portabilityMatches = [
   '**/editorial-media-acceptance.spec.mjs',
   '**/public-game-catalog-acceptance.spec.mjs',
   '**/homepage-navigation-seo.spec.mjs',
+  '**/community-data-acceptance.spec.mjs',
+  '**/support-moderation-acceptance.spec.mjs',
 ];
+const portabilityGrepInvert = /@portal-community-stress/u;
 
 const responsiveMatches = [
   '**/responsive-critical.spec.mjs',
@@ -118,6 +122,7 @@ export default defineConfig({
     {
       name: 'portability-chromium',
       testMatch: portabilityMatches,
+      grepInvert: portabilityGrepInvert,
       use: {
         browserName: 'chromium',
         viewport: desktopViewport,
@@ -126,6 +131,7 @@ export default defineConfig({
     {
       name: 'portability-firefox',
       testMatch: portabilityMatches,
+      grepInvert: portabilityGrepInvert,
       use: {
         browserName: 'firefox',
         viewport: desktopViewport,
@@ -134,6 +140,7 @@ export default defineConfig({
     {
       name: 'portability-webkit',
       testMatch: portabilityMatches,
+      grepInvert: portabilityGrepInvert,
       use: {
         browserName: 'webkit',
         viewport: desktopViewport,
@@ -184,7 +191,10 @@ export default defineConfig({
     },
     {
       name: 'resilience-chromium',
-      testMatch: '**/resilience-critical.spec.mjs',
+      testMatch: [
+        '**/resilience-critical.spec.mjs',
+        '**/portal-487-strictness-acceptance.spec.mjs',
+      ],
       use: {
         browserName: 'chromium',
         viewport: desktopViewport,
