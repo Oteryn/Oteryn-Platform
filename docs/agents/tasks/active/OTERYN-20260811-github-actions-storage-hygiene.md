@@ -53,8 +53,8 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-11T07:27:00Z
-head: ce7c0fe438c2115ab35c4b2e3803e7206e7bbda1
+updated_at: 2026-08-11T07:55:00Z
+head: 6521d43b9c648f4f794ef15bf85cbd96f0538b91
 branch: chore/github-actions-storage-hygiene
 pr: 980
 status: validating
@@ -73,18 +73,21 @@ proven:
   - GitHub API reported 15327 Actions artifacts before cleanup.
   - GitHub API reported 1056 active caches using 3281257982 bytes before cleanup.
   - Pull-request caches are scoped to refs/pull/<number>/merge and GitHub documents that they can only be restored by reruns of that pull request.
-  - Draft PR 980 owns the storage-hygiene implementation.
-  - An attempted build-workflow retention edit caused 57 PR workflows to be created, so that edit was reverted exactly to main before merge.
-  - Existing CI now executes the storage-hygiene pure contract test through test_workflow_trigger_economy.py before merge.
+  - An attempted build-workflow retention edit caused 57 PR workflows to be created, so that edit was reverted exactly to main.
+  - Head a6fd050eecf93ba6b6d7a924365572c5c170af9d passed all eight relevant PR workflows including Deep System Validation and the new storage-hygiene validation.
+  - Two subsequent review findings identified a 1000-result filtered-run ceiling failure and redundant artifact/run candidate accounting; both root causes are patched and covered by focused tests.
+  - GitHub documents a 1000-result ceiling for filtered workflow-run searches and supports a created date-time range, which the revised inventory now partitions recursively.
+  - Main advanced by one unrelated wiki/portal-exhaustive commit with no changed-path overlap with this task.
 derived:
   - Closed-PR merge-ref caches are safely disposable because they cannot benefit main or sibling pull requests and can be regenerated if a historical run is intentionally repeated.
-  - Keeping the existing build workflow unchanged avoids making storage hygiene itself a trigger for the repository's heavyweight product validation suite.
+  - Recursive time-window partitioning prevents high-volume old-run inventory from permanently blocking cache/artifact cleanup at the provider search ceiling.
+  - Assigning aggregate artifact bytes to an old run lets one run deletion cover child artifacts without wasting separate deletion budget slots.
 unknown:
-  - Exact artifact bytes and exact number of cleanup-eligible runs until the paginated live audit executes after merge.
+  - Exact artifact bytes and exact number of cleanup-eligible resources until the live bounded cleanup executes after merge.
 conflicts: []
 first_failure:
   marker: CI_TRIGGER_AMPLIFICATION
-  evidence: modifying build-synology-staging-images.yml caused 57 PR workflow runs on head 6f31832e046ad974f26721f69aa397bf6162f487; change reverted to main content
+  evidence: modifying build-synology-staging-images.yml caused 57 PR workflow runs on intermediate head 6f31832e046ad974f26721f69aa397bf6162f487; change reverted to main content
 rejected_hypotheses:
   - Blanket cache or artifact deletion without retention/ownership predicates.
   - Repository cache-retention setting mutation because the live API returned HTTP 402 for that settings endpoint.
@@ -102,14 +105,17 @@ validation:
   - command: build workflow scope rollback
     result: PASS
     evidence: .github/workflows/build-synology-staging-images.yml content SHA restored to main blob e67f8ba64883bcfe009df5e87a4fcc6ca43b5746
-  - command: current-head pull-request CI
+  - command: PR current-head validation before review fixes
+    result: PASS
+    evidence: head a6fd050eecf93ba6b6d7a924365572c5c170af9d passed Agent Governance, CI, GitHub Actions Storage Hygiene, Deep System Validation, Phase 7, DB Outage, Game Auth Concurrency and Edge Security Emulation
+  - command: focused review-fix tests
     result: NOT_RUN
-    evidence: awaiting checks after CI-contract wiring
+    evidence: awaiting current-head GitHub checks after commits 09b684944e55a236433b8c63303b07ab660e7bb6 and 6521d43b9c648f4f794ef15bf85cbd96f0538b91
 blockers:
   - none
-next_action: inspect PR 980 current-head checks and fix any failing validation before merge
+next_action: require all current-head checks to pass, resolve the two review threads, then merge PR 980 with exact head and execute live cleanup
 ```
 
 ## Notes
 
-Retention policy for this task is intentionally conservative: artifacts 14 days, completed runs 30 days, closed-PR merge-ref caches immediately after PR closure. Default/main branch caches are not age-pruned by this task. Cleanup is batched to preserve a GitHub API request reserve; any provider-limited residual must be reported exactly and left under the permanent scheduled cleanup rather than bypassing API safety.
+Retention policy is conservative: artifacts 14 days, completed runs 30 days, closed-PR merge-ref caches immediately after PR closure. Default/main branch caches are not age-pruned. Cleanup is API-budgeted with a safety reserve; high-volume run searches are partitioned recursively instead of truncating or blocking the other cleanup lanes.
