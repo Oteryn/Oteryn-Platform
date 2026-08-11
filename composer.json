@@ -39,6 +39,20 @@
             "@php artisan config:clear --ansi @no_additional_args",
             "@php artisan test"
         ],
+        "test:integration-registration": [
+            "python3 tools/validation/test_verify_integration_test_registration.py",
+            "python3 tools/validation/verify_integration_test_registration.py"
+        ],
+        "verify": [
+            "@composer validate --strict",
+            "@composer audit --locked --no-interaction",
+            "@format:check",
+            "@analyse",
+            "@test",
+            "@test:integration-registration",
+            "npm --prefix scripts/acceptance ci --ignore-scripts --no-audit --no-fund",
+            "npm --prefix scripts/acceptance run test:coverage-contract:strict"
+        ],
         "post-autoload-dump": [
             "Illuminate\\Foundation\\ComposerScripts::postAutoloadDump",
             "@php artisan package:discover --ansi"

@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "tests": [
+    {
+      "path": "tests/Integration/GameCatalog/CrossRepositoryGameCatalogTest.php",
+      "workflow": ".github/workflows/game-catalog-contract.yml",
+      "invocation_marker": "tests/Integration/GameCatalog/CrossRepositoryGameCatalogTest.php",
+      "trigger_marker": "tests/Integration/GameCatalog/**",
+      "required_environment": [
+        "GAME_CATALOG_BASELINE_PATH",
+        "GAME_CATALOG_CANDIDATE_PATH",
+        "GAME_CATALOG_CANARY_SHA"
+      ]
+    }
+  ]
+}

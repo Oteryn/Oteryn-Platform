@@ -40,6 +40,11 @@ jobs:
           python tests/ci/test_required_test_gate.py
           python tests/ci/test_workflow_trigger_economy.py
 
+      - name: Validate Integration execution registry
+        run: |
+          python tools/validation/test_verify_integration_test_registration.py
+          python tools/validation/verify_integration_test_registration.py
+
       - name: Validate active task checkpoint contract
         shell: bash
         run: |
