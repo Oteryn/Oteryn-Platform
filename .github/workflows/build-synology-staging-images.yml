@@ -41,9 +41,6 @@ permissions:
   contents: read
   packages: write
 
-env:
-  DOCKER_BUILD_RECORD_RETENTION_DAYS: '7'
-
 concurrency:
   group: synology-staging-images-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
