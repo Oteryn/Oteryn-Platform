@@ -124,7 +124,7 @@
     "public.localization-core": {
       "state_categories": {
         "not_found": {"status": "covered", "evidence": {"file": "scripts/acceptance/tests/public-localization.spec.mjs", "markers": ["@localization canonical English and Polish public shells remain truthful and navigable", "page.goto('/pl/brakujaca-strona')", "expect(missingResponse?.status()).toBe(404);"]}},
-        "csrf_expiry": {"status": "not_applicable", "rule": "read_only_surface", "reason": "Canonical EN/PL public localization shell routes are read-only GET/HEAD requests, so CSRF expiry does not apply to this exact player-facing surface."},
+        "csrf_expiry": {"status": "covered", "evidence": {"file": "scripts/acceptance/tests/portal-487-strictness-acceptance.spec.mjs", "markers": ["@portal-487-strictness admin-cms not-found csrf-419 server-failure recovery", "['/admin/news/999999999/translations/pl', 'PUT']"]}},
         "rate_limit": {"status": "not_applicable", "rule": "no_throttle_middleware", "reason": "The exact localized public shell routes have no throttle middleware; the strictness validator resolves runtime route middleware before accepting this exception."},
         "server_failure": {"status": "covered", "evidence": {"file": "scripts/acceptance/tests/portal-487-strictness-acceptance.spec.mjs", "markers": ["@portal-487-strictness public not-found accessibility overflow server-failure recovery", "['public.localization-core', '/en']"]}},
         "recovery": {"status": "covered", "evidence": {"file": "scripts/acceptance/tests/portal-487-strictness-acceptance.spec.mjs", "markers": ["@portal-487-strictness public not-found accessibility overflow server-failure recovery", "portalFixture('restore', surface);"]}}
