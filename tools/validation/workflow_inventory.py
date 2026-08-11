@@ -11,7 +11,12 @@ from pathlib import Path
 WORKFLOW_ROOT = Path(".github/workflows")
 TOP_LEVEL_NAME = re.compile(r"(?m)^name:\s+\S")
 TOP_LEVEL_ON = re.compile(r"(?m)^on:\s*$")
-TOP_LEVEL_PERMISSIONS = re.compile(r"(?m)^permissions:\s*$")
+# GitHub Actions accepts a permissions mapping, an explicit empty mapping, or
+# the read-all/write-all shorthands at workflow scope. Keep the anchor at
+# column zero so a job-level permissions block cannot satisfy this contract.
+TOP_LEVEL_PERMISSIONS = re.compile(
+    r"(?m)^permissions:\s*(?:\{\s*\}|read-all|write-all)?\s*$"
+)
 
 
 class WorkflowInventoryError(RuntimeError):
