@@ -48,6 +48,12 @@ jobs:
       - name: Run Control Room tests
         run: python tools/agents/test_control_room.py
 
+      - name: Run policy consistency tests
+        run: python tools/agents/test_policy_consistency.py
+
+      - name: Validate cross-document policy consistency
+        run: python tools/agents/policy_consistency.py
+
       - name: Validate active task checkpoints
         shell: bash
         run: |
@@ -58,6 +64,7 @@ jobs:
           fi
 
       - name: Validate live active-task ownership
+        if: always()
         id: task_liveness
         continue-on-error: true
         env:
