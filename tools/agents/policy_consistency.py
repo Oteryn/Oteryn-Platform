@@ -106,9 +106,7 @@ def _require_regex_value(errors: list[str], source: str, text: str, pattern: str
     actual_values = [int(match.group("value")) for match in matches]
     conflicting = sorted({value for value in actual_values if value != expected})
     if conflicting:
-        errors.append(
-            f"{source}: {label} drift; canonical={expected}, conflicting declarations={conflicting}"
-        )
+        errors.append(f"{source}: {label} drift; canonical={expected}, conflicting declarations={conflicting}")
 
 
 def _logical_markdown_statements(markdown: str) -> list[str]:
@@ -149,9 +147,9 @@ def _repository_identifiers(statement: str) -> list[str]:
 def _is_current_task_user_authorization_exception(lowered: str) -> bool:
     conditional = "only when" in lowered or "unless" in lowered
     explicitly_authorized = bool(
-        re.search(r"\buser\b.*\bexplicit(?:ly)?\b.*\bauthoriz(?:e|es|ed|ation)\b", lowered)
+        re.search(r"\b(?:user|project\s+owner)\b.*\bexplicit(?:ly)?\b.*\b(?:authoriz\w*|grant\w*|permission)\b", lowered)
     )
-    task_scoped = "current task" in lowered or "write task" in lowered
+    task_scoped = "current task" in lowered or "write task" in lowered or "separate permission" in lowered
     return conditional and explicitly_authorized and task_scoped
 
 
@@ -178,22 +176,29 @@ def _repo_has_positive_read_only_assertion(statement: str, repository: str) -> b
     return False
 
 
-def _reject_contradictory_repository_write_grants(errors: list[str], root_agents: str) -> None:
-    for statement in _logical_markdown_statements(root_agents):
+def _statement_grants_repository_mutation(lowered: str) -> bool:
+    mutation = bool(
+        re.search(r"\b(?:write|writes|edit|edits|push|pushes|merge|merges|mutat(?:e|es|ion))\b", lowered)
+    )
+    authorization = any(marker in lowered for marker in ("allow", "authoriz", "permit", "may ", "can "))
+    return mutation and authorization
+
+
+def _reject_contradictory_repository_mutation_grants(
+    errors: list[str], source: str, policy_text: str
+) -> None:
+    for statement in _logical_markdown_statements(policy_text):
         lowered = statement.casefold()
         repositories = _repository_identifiers(statement)
         foreign = sorted({value for value in repositories if value != REPOSITORY_FULL_NAME})
-        if not foreign:
+        if not foreign or not _statement_grants_repository_mutation(lowered):
             continue
-        grants_write = "write" in lowered and any(
-            marker in lowered for marker in ("allow", "authoriz", "permit", "may ", "can ")
-        )
-        if not grants_write or _is_current_task_user_authorization_exception(lowered):
+        if _is_current_task_user_authorization_exception(lowered):
             continue
         contradictory = [repo for repo in foreign if not _repo_has_positive_read_only_assertion(statement, repo)]
         if contradictory:
             errors.append(
-                "AGENTS.md: contradictory repository write authorization in authoritative policy: "
+                f"{source}: contradictory repository mutation authorization in authoritative policy: "
                 f"{', '.join(contradictory)}"
             )
 
@@ -313,7 +318,8 @@ def validate_policy(root: Path = REPO_ROOT) -> list[str]:
         for source, markers in scope_markers.items():
             for marker in markers:
                 _require_marker(errors, source, source_text[source], marker)
-        _reject_contradictory_repository_write_grants(errors, root_agents)
+        _reject_contradictory_repository_mutation_grants(errors, "AGENTS.md", root_agents)
+        _reject_contradictory_repository_mutation_grants(errors, "AGENTS.override.md", override)
 
         completion_markers = {
             "AGENTS.override.md": (
