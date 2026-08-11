@@ -12,55 +12,166 @@ permissions:
 
 env:
   CONTAINER_NAME: oteryn-tibia-client-analysis
+  CLIENT_PATH: /data/client-15.32.df7b29/bin/client
 
 jobs:
   continue:
-    name: Inspect verified Tibia executable
+    name: Reverse decoded Tibia map handlers
     runs-on: oteryn-staging
-    timeout-minutes: 25
+    timeout-minutes: 35
     steps:
-      - name: Verify runtime and executable identity
+      - name: Verify exact owned runtime and executable identity
         shell: bash
         run: |
           set -Eeuo pipefail
           [[ "$RUNNER_NAME" == "oteryn-synology-staging" ]]
-          [[ "$(docker inspect --format '{{ index .Config.Labels "com.blakinio.owner" }}' "$CONTAINER_NAME")" == "oteryn" ]]
+          owner="$(docker inspect --format '{{ index .Config.Labels "com.blakinio.owner" }}' "$CONTAINER_NAME")"
+          purpose="$(docker inspect --format '{{ index .Config.Labels "com.blakinio.purpose" }}' "$CONTAINER_NAME")"
+          state="$(docker inspect --format '{{.State.Status}}' "$CONTAINER_NAME")"
+          [[ "$owner" == "oteryn" && "$purpose" == "tibia-client-analysis" && "$state" == "running" ]]
           docker ps -a --filter 'label=com.docker.compose.project=oteryn-staging' --format '{{.ID}}\t{{.Names}}' | sort > /tmp/oteryn-before.tsv
+          test -s /tmp/oteryn-before.tsv
           docker exec "$CONTAINER_NAME" bash -lc '
             set -Eeuo pipefail
-            cd /data/client-15.32.df7b29/bin
-            test -x client
-            [[ "$(stat -c %s client)" == "51965216" ]]
-            [[ "$(sha256sum client | awk "{print \$1}")" == "e6c244bd39fe2e0632f6f000efd3147164696efa8e901718668e0442325ff7fe" ]]
+            test -x /data/client-15.32.df7b29/bin/client
+            [[ "$(stat -c %s /data/client-15.32.df7b29/bin/client)" == "51965216" ]]
+            [[ "$(sha256sum /data/client-15.32.df7b29/bin/client | awk "{print \$1}")" == "e6c244bd39fe2e0632f6f000efd3147164696efa8e901718668e0442325ff7fe" ]]
           '
-      - name: Install binary inspection tools
+
+      - name: Install bounded reverse-engineering dependencies
         shell: bash
         run: |
           set -Eeuo pipefail
           docker exec "$CONTAINER_NAME" bash -lc '
             set -Eeuo pipefail
             export DEBIAN_FRONTEND=noninteractive
-            command -v readelf >/dev/null && command -v objdump >/dev/null && command -v strings >/dev/null || { apt-get update; apt-get install -y --no-install-recommends binutils; }
+            apt-get update
+            apt-get install -y --no-install-recommends binutils python3 python3-pip python3-venv gdb protobuf-compiler
+            python3 -m venv /data/reverse-venv
+            /data/reverse-venv/bin/pip install --disable-pip-version-check --no-cache-dir capstone pyelftools protobuf
           '
-      - name: Inspect imports strings and protocol clues
+
+      - name: Recover string addresses and code xrefs for decoded map boundary
         shell: bash
         run: |
           set -Eeuo pipefail
           docker exec "$CONTAINER_NAME" bash -lc '
             set -Eeuo pipefail
-            cd /data/client-15.32.df7b29/bin
-            file client
-            readelf -h client | tee /data/client-15.32.df7b29/elf-header.txt
-            readelf -d client | grep NEEDED | tee /data/client-15.32.df7b29/needed.txt || true
-            readelf -Ws client | grep -Ei "recv|send|socket|connect|ssl|EVP|AES|chacha|zstd|lzma|protobuf|memcpy|poll|epoll|select" | tee /data/client-15.32.df7b29/network-symbols.txt || true
-            strings -a -t x -n 6 client | grep -Ei "mapdescription|map description|tile|creature|appearances|protocol|network|socket|ssl|websocket|packet|message|position|floor|minimap|worldmap|deserialize|serialize|game map|map data" | head -n 3000 | tee /data/client-15.32.df7b29/map-protocol-strings.txt || true
-            echo "=== interesting string count ==="
-            wc -l /data/client-15.32.df7b29/map-protocol-strings.txt /data/client-15.32.df7b29/network-symbols.txt
+            cat > /data/reverse_map_xrefs.py <<"PY"
+          from pathlib import Path
+          from elftools.elf.elffile import ELFFile
+          from capstone import Cs, CS_ARCH_X86, CS_MODE_64
+          from capstone.x86 import X86_OP_MEM, X86_REG_RIP
+
+          path = Path("/data/client-15.32.df7b29/bin/client")
+          needles = [
+              b"TWorldmapProtocolMessageHandler",
+              b"handleFullMapMessage",
+              b"handleFieldDataMessage",
+              b"handleLeftColumnMessage",
+              b"handleRightColumnMessage",
+              b"handleTopRowMessage",
+              b"handleBottomRowMessage",
+              b"handleTopFloorMessage",
+              b"handleBottomFloorMessage",
+              b"GameserverMessageFullMap",
+              b"GameserverMessageFieldData",
+              b"MapFieldData",
+              b"MapArea",
+              b"Coordinate",
+              b"AppearanceInstance",
+              b"TProtobufServerMessageTranslator",
+              b"TWorldMapStorage",
+          ]
+
+          with path.open("rb") as f:
+              elf = ELFFile(f)
+              sections = []
+              for sec in elf.iter_sections():
+                  if sec["sh_size"] and sec["sh_type"] != "SHT_NOBITS":
+                      sections.append((sec.name, sec["sh_offset"], sec["sh_addr"], sec.data()))
+              text = elf.get_section_by_name(".text")
+              text_addr = text["sh_addr"]
+              text_data = text.data()
+
+          targets = {}
+          for needle in needles:
+              for sname, soff, saddr, data in sections:
+                  start = 0
+                  while True:
+                      i = data.find(needle, start)
+                      if i < 0:
+                          break
+                      va = saddr + i
+                      targets.setdefault(va, []).append((needle.decode(), sname, soff + i))
+                      start = i + 1
+
+          md = Cs(CS_ARCH_X86, CS_MODE_64)
+          md.detail = True
+          refs = {va: [] for va in targets}
+          for insn in md.disasm(text_data, text_addr):
+              for op in insn.operands:
+                  if op.type == X86_OP_MEM and op.mem.base == X86_REG_RIP:
+                      dest = insn.address + insn.size + op.mem.disp
+                      if dest in refs:
+                          refs[dest].append((insn.address, insn.mnemonic, insn.op_str))
+
+          print("=== TARGETS AND DIRECT RIP XREFS ===")
+          for va in sorted(targets):
+              labels = ", ".join(f"{n}@{s}+0x{o:x}" for n, s, o in targets[va])
+              print(f"TARGET va=0x{va:x} {labels}")
+              for addr, mnem, ops in refs[va][:64]:
+                  print(f"  XREF 0x{addr:x}: {mnem} {ops}")
+              if not refs[va]:
+                  print("  XREF none-direct")
+          PY
+            /data/reverse-venv/bin/python /data/reverse_map_xrefs.py | tee /data/client-15.32.df7b29/map-xrefs.txt
           '
-      - name: Verify staging unchanged
+
+      - name: Inspect protobuf descriptor neighborhoods and candidate schemas
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          docker exec "$CONTAINER_NAME" bash -lc '
+            set -Eeuo pipefail
+            echo "=== protobuf/schema string neighborhoods ===" | tee /data/client-15.32.df7b29/map-protobuf-neighborhoods.txt
+            strings -a -t x -n 3 /data/client-15.32.df7b29/bin/client > /data/client-15.32.df7b29/strings-all.txt
+            for pat in GameserverMessageFullMap GameserverMessageFieldData MapFieldData MapArea Coordinate AppearanceInstance; do
+              echo "--- $pat ---" | tee -a /data/client-15.32.df7b29/map-protobuf-neighborhoods.txt
+              grep -n -m 20 "$pat" /data/client-15.32.df7b29/strings-all.txt | tee -a /data/client-15.32.df7b29/map-protobuf-neighborhoods.txt || true
+            done
+            echo "=== likely field/accessor names ===" | tee -a /data/client-15.32.df7b29/map-protobuf-neighborhoods.txt
+            grep -Ei "field_data|map_area|coordinate|appearance_instance|appearance_id|object_id|thing|stack|position|coordinate|floor|north|south|east|west" /data/client-15.32.df7b29/strings-all.txt | head -n 2500 | tee -a /data/client-15.32.df7b29/map-protobuf-neighborhoods.txt || true
+          '
+
+      - name: Disassemble bounded neighborhoods around direct xrefs
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          docker exec "$CONTAINER_NAME" bash -lc '
+            set -Eeuo pipefail
+            python3 - <<"PY" > /data/client-15.32.df7b29/map-xref-addresses.txt
+          import re
+          for line in open("/data/client-15.32.df7b29/map-xrefs.txt", errors="replace"):
+              m = re.search(r"XREF 0x([0-9a-f]+):", line)
+              if m:
+                  print(m.group(1))
+          PY
+            : > /data/client-15.32.df7b29/map-xref-disassembly.txt
+            sort -u /data/client-15.32.df7b29/map-xref-addresses.txt | head -n 120 | while read -r a; do
+              start=$((16#$a - 192))
+              stop=$((16#$a + 384))
+              printf "\n=== around 0x%s ===\n" "$a" >> /data/client-15.32.df7b29/map-xref-disassembly.txt
+              objdump -d -C --start-address="$start" --stop-address="$stop" /data/client-15.32.df7b29/bin/client >> /data/client-15.32.df7b29/map-xref-disassembly.txt
+            done
+            sed -n "1,5000p" /data/client-15.32.df7b29/map-xref-disassembly.txt
+          '
+
+      - name: Verify canonical staging unchanged
         if: always()
         shell: bash
         run: |
           set -Eeuo pipefail
           docker ps -a --filter 'label=com.docker.compose.project=oteryn-staging' --format '{{.ID}}\t{{.Names}}' | sort > /tmp/oteryn-after.tsv
-          diff -u /tmp/oteryn-before.tsv /tmp/oteryn-after.tsv
+          if [[ -f /tmp/oteryn-before.tsv ]]; then diff -u /tmp/oteryn-before.tsv /tmp/oteryn-after.tsv; fi
+          docker inspect --format 'analysis_name={{.Name}} status={{.State.Status}} owner={{ index .Config.Labels "com.blakinio.owner" }} purpose={{ index .Config.Labels "com.blakinio.purpose" }}' "$CONTAINER_NAME"
