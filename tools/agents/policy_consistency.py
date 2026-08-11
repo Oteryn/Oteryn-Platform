@@ -26,6 +26,7 @@ NUMBER_WORDS = {
 }
 
 REPO_TOKEN = re.compile(r"(?<![A-Za-z0-9_.-])([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)(?![A-Za-z0-9_.-])")
+QUOTED_REPO_TOKEN = re.compile(r"`([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)`")
 MUTATION_WORD = re.compile(r"\b(?:write|writes|writable|edit|edits|edited|push|pushes|pushed|commit|commits|committed|merge|merges|merged|mutate|mutates|mutation)\b", re.I)
 POSITIVE_AUTH = re.compile(r"\b(?:allow|allows|allowed|authorize|authorizes|authorized|permit|permits|permitted|may|can)\b", re.I)
 NEGATIVE_AUTH = re.compile(r"\b(?:not\s+allowed|not\s+authorized|not\s+permitted|may\s+not|cannot|can't|can’t|never\s+allowed|unauthorized)\b", re.I)
@@ -224,6 +225,7 @@ def _slash_token_is_prose(normalized: str, match: re.Match[str]) -> bool:
 def _repository_identifiers_in_grant_clause(clause: str) -> list[str]:
     if not _has_positive_mutation_grant(clause):
         return []
+    quoted_repositories = {value.casefold() for value in QUOTED_REPO_TOKEN.findall(clause)}
     normalized = _normalize_inline_markdown(clause)
     repositories: set[str] = set()
     for match in REPO_TOKEN.finditer(normalized):
@@ -234,7 +236,7 @@ def _repository_identifiers_in_grant_clause(clause: str) -> list[str]:
         writable_after = bool(re.match(r"\s+(?:is\s+|are\s+)?writable\b", after, flags=re.I))
         if not (mutation_before or writable_after):
             continue
-        if _slash_token_is_prose(normalized, match):
+        if repository.casefold() not in quoted_repositories and _slash_token_is_prose(normalized, match):
             continue
         local = normalized[max(0, match.start() - 100):match.end() + 120]
         if POSITIVE_AUTH.search(local):

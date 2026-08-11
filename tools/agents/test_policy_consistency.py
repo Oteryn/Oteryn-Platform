@@ -196,6 +196,11 @@ class PolicyConsistencyTests(unittest.TestCase):
         self._append_root(root, "- Agents may edit commit/PR metadata autonomously.")
         self.assertEqual([], validate_policy(root))
 
+    def test_quoted_repository_with_metadata_suffix_fails_closed(self) -> None:
+        temporary, root = self._fixture(); self.addCleanup(temporary.cleanup)
+        self._append_root(root, "- Agents may edit `acme/production` metadata autonomously.")
+        self.assertIn("acme/production", self._findings(root))
+
     def test_closeout_marker_drift_fails_closed(self) -> None:
         temporary, root = self._fixture(); self.addCleanup(temporary.cleanup)
         self._replace(root, "docs/agents/DELIVERY_COMPLETENESS_AND_CLOSEOUT.md", "## Related PR hygiene", "## Related change hygiene")
