@@ -406,6 +406,7 @@
       ],
       "viewports": [
         "desktop-1440x1000",
+        "tablet-820x1180",
         "mobile-390x844"
       ],
       "browsers": [
@@ -612,6 +613,7 @@
       ],
       "viewports": [
         "desktop-1440x1000",
+        "tablet-820x1180",
         "mobile-390x844"
       ],
       "browsers": [
