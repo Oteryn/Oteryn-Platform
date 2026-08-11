@@ -21,7 +21,7 @@ The delivered PR head was `490ab09599dbdb639da496a51f6a3d7b89b3a23a`. The final 
 
 ## Final exact-head evidence
 
-The following checks completed successfully on `490ab09599dbdb639da496a51f6a3d7b89b3a23a` and were used as terminal evidence:
+The following checks completed successfully on `490ab09599dbdb639da496a51f6a3d7b89b3a23a` and are retained as terminal evidence:
 
 - CI: run `31468634516` — PASS.
 - Agent Governance: run `31468634452` — PASS.
@@ -35,8 +35,9 @@ The following checks completed successfully on `490ab09599dbdb639da496a51f6a3d7b
 - Game Auth Ticket Concurrency: run `31468634399` — PASS.
 - Build Synology Staging Images: run `31468634483` — PASS.
 - Edge Security Emulation: run `31468634395` — PASS.
+- Deep System Validation: run `31468634455` — PASS.
 
-`Deep System Validation` run `31468634455` was still in progress at the moment of the protected squash merge and was not used as terminal completion evidence.
+Deep System Validation became terminal-success after the protected squash merge. Terminal archival was intentionally held until that same exact implementation head had the complete terminal evidence set.
 
 ## Delivered acceptance
 
@@ -48,6 +49,29 @@ The following checks completed successfully on `490ab09599dbdb639da496a51f6a3d7b
 - EditorialMedia portability executes in Chromium, Firefox and WebKit under the bounded acceptance profile.
 - No application route/view/schema, deployment, production, credential or external-repository mutation was part of the delivery.
 
+## Final self-review
+
+```yaml
+result: PASS
+exact_head: 490ab09599dbdb639da496a51f6a3d7b89b3a23a
+full_diff_checked: true
+acceptance_checked: true
+negative_paths_checked: true
+rollback_checked: true
+compatibility_checked: true
+related_prs_checked: true
+review_threads_terminal: true
+requested_changes: false
+findings: []
+evidence:
+  - exact 21-path implementation diff rechecked against protected main before merge
+  - exact-head CI, governance, Wiki/EditorialMedia acceptance, full E2E, Portal Exhaustive Audit and Deep System Validation all terminal-success
+  - Portal Exhaustive Audit recorded runtime expected-content PASS and zero Wiki/EditorialMedia material findings
+  - all seven PR #972 inline review threads resolved with no requested-changes review
+  - negative-path failure/recovery and disposable fault-injection behavior covered by the accepted exact-head test suite
+  - no route/schema/deployment/production/credential/external-repository mutation in the delivered scope
+```
+
 ## Provenance
 
-The pre-closeout active task record is preserved in Git history at blob `b1a54fc71eb279958abd0bc00df508dae6d4d7f1`. This archived record is the terminal state after merge and Issue closure.
+The pre-closeout active task record is preserved in Git history at blob `b1a54fc71eb279958abd0bc00df508dae6d4d7f1`. This archived record is the terminal state after merge, complete exact-head validation and Issue closure.
