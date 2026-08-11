@@ -18,7 +18,6 @@ jobs:
   bootstrap:
     name: Bootstrap Tibia analysis on Oteryn deploy runner
     runs-on: oteryn-staging
-    environment: synology-staging
     timeout-minutes: 15
     env:
       CONTAINER_NAME: oteryn-tibia-client-analysis
