@@ -11,6 +11,7 @@ from typing import Iterable
 
 REPOSITORY_FULL_NAME = "blakinio/Oteryn-Platform"
 REPO_ROOT = Path(__file__).resolve().parents[2]
+KNOWN_PLAIN_REPOSITORY_OWNERS = {"blakinio", "opentibiabr"}
 
 CHECKED_PATHS = (
     "AGENTS.md",
@@ -138,10 +139,16 @@ def _logical_markdown_statements(markdown: str) -> list[str]:
 
 
 def _repository_identifiers(statement: str) -> list[str]:
-    return re.findall(
-        r"(?<![A-Za-z0-9_.-])([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)(?![A-Za-z0-9_.-])",
-        statement,
-    )
+    """Extract repository-shaped identifiers without mistaking prose like commit/PR for repos."""
+    repository_pattern = r"([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)"
+    identifiers = set(re.findall(rf"`{repository_pattern}`", statement))
+    for candidate in re.findall(
+        rf"(?<![A-Za-z0-9_.-]){repository_pattern}(?![A-Za-z0-9_.-])", statement
+    ):
+        owner = candidate.split("/", 1)[0].casefold()
+        if owner in KNOWN_PLAIN_REPOSITORY_OWNERS:
+            identifiers.add(candidate)
+    return sorted(identifiers)
 
 
 def _is_current_task_user_authorization_exception(lowered: str) -> bool:
