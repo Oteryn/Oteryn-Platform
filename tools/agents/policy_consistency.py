@@ -82,8 +82,16 @@ def _fence_delimiter(stripped: str) -> tuple[str, int, str] | None:
     return token[0], len(token), match.group(2)
 
 
+def _normalize_marker_line(raw: str) -> str:
+    """Strip line-wide Markdown emphasis from a prospective policy marker."""
+    match = re.match(r"^(?P<indent>\s*)[*_]{1,6}(?P<body>.+?)[*_]{1,6}\s*$", raw)
+    if match:
+        return match.group("indent") + match.group("body")
+    return raw
+
+
 def _normalize_emphasized_marker_lines(markdown: str) -> str:
-    """Strip line-wide Markdown emphasis, including nested bold/italic combinations."""
+    """Strip line-wide Markdown emphasis outside fenced examples."""
     lines: list[str] = []
     active_fence: tuple[str, int] | None = None
     for raw in markdown.splitlines():
@@ -98,9 +106,7 @@ def _normalize_emphasized_marker_lines(markdown: str) -> str:
             lines.append(raw)
             continue
         if active_fence is None:
-            match = re.match(r"^(?P<indent>\s*)[*_]{1,6}(?P<body>.+?)[*_]{1,6}\s*$", raw)
-            if match:
-                raw = match.group("indent") + match.group("body")
+            raw = _normalize_marker_line(raw)
         lines.append(raw)
     return "\n".join(lines)
 
@@ -144,13 +150,69 @@ def _require_regex_value(errors: list[str], source: str, text: str, pattern: str
 
 
 def _text_contract_declarations(markdown: str, marker: str) -> list[list[str]]:
-    prepared = _normalize_emphasized_marker_lines(markdown)
-    pattern = re.compile(rf"{re.escape(marker)}\s*```text\s*(?P<body>.*?)```", re.I | re.S)
+    """Collect marker-owned text fences while ignoring declarations inside outer examples."""
+    lines = markdown.splitlines()
     declarations: list[list[str]] = []
-    for match in pattern.finditer(prepared):
-        values = [part.strip() for part in match.group("body").strip().split("|") if part.strip()]
-        if values:
-            declarations.append(values)
+    active_fence: tuple[str, int] | None = None
+    pending_marker = False
+    index = 0
+
+    while index < len(lines):
+        raw = lines[index]
+        stripped = raw.strip()
+        delimiter = _fence_delimiter(stripped)
+
+        if active_fence is not None:
+            if delimiter:
+                char, length, remainder = delimiter
+                if char == active_fence[0] and length >= active_fence[1] and not remainder.strip():
+                    active_fence = None
+            index += 1
+            continue
+
+        normalized_line = _normalize_marker_line(raw).strip()
+        if marker.casefold() in normalized_line.casefold():
+            pending_marker = True
+            index += 1
+            continue
+
+        if pending_marker and not stripped:
+            index += 1
+            continue
+
+        if pending_marker and delimiter:
+            char, length, remainder = delimiter
+            if char == "`" and remainder.strip().casefold() == "text":
+                body: list[str] = []
+                opening = (char, length)
+                index += 1
+                while index < len(lines):
+                    body_raw = lines[index]
+                    body_delimiter = _fence_delimiter(body_raw.strip())
+                    if body_delimiter:
+                        close_char, close_length, close_remainder = body_delimiter
+                        if close_char == opening[0] and close_length >= opening[1] and not close_remainder.strip():
+                            break
+                    body.append(body_raw)
+                    index += 1
+                values = [part.strip() for part in "\n".join(body).strip().split("|") if part.strip()]
+                if values:
+                    declarations.append(values)
+                pending_marker = False
+                index += 1
+                continue
+            pending_marker = False
+
+        if delimiter:
+            char, length, _remainder = delimiter
+            active_fence = (char, length)
+            index += 1
+            continue
+
+        if pending_marker:
+            pending_marker = False
+        index += 1
+
     return declarations
 
 
@@ -250,19 +312,23 @@ def _repo_specific_window(clause: str, repository: str, radius: int = 140) -> st
 
 def _repo_has_conditional_user_authorization(clause: str, repository: str) -> bool:
     window = _repo_specific_window(clause, repository, 220)
-    conditional = "only when" in window
-    owner_present = bool(re.search(r"\b(?:user|project\s+owner|owner)\b", window))
-    explicit_present = bool(re.search(r"\bexplicit(?:ly)?\b", window))
-    authorization_present = bool(re.search(r"\b(?:authoriz\w*|grant\w*|permission)\b", window))
-    authorization_negated = bool(re.search(
-        r"\b(?:permission|authorization)\s+(?:is|was)\s+(?:not|never)\s+granted\b|"
-        r"\b(?:do|does|did)\s+not\s+explicitly\s+authoriz\w*\b|"
-        r"\b(?:not|never)\s+(?:explicitly\s+)?(?:authoriz\w*|grant\w*|permit\w*)\b|"
-        r"\bwithout\s+explicit\s+(?:permission|authorization)\b",
+    if "only when" not in window:
+        return False
+    if not any(value in window for value in ("current task", "write task", "separate permission")):
+        return False
+
+    active_authorization = re.search(
+        r"\b(?:the\s+)?(?:user|project\s+owner|owner)\b.{0,100}?"
+        r"\bexplicitly\s+(?:authoriz(?:e|es|ed)|grant(?:s|ed)?|permit(?:s|ted)?|approve(?:s|d)?)\b",
         window,
-    ))
-    task_scoped = any(value in window for value in ("current task", "write task", "separate permission"))
-    return conditional and owner_present and explicit_present and authorization_present and not authorization_negated and task_scoped
+    )
+    passive_authorization = re.search(
+        r"\bexplicit\s+(?:permission|authorization)\b.{0,80}?"
+        r"\b(?:is|was|has\s+been)\s+(?:granted|given|provided|approved)\b.{0,100}?"
+        r"\bby\s+(?:the\s+)?(?:user|project\s+owner|owner)\b",
+        window,
+    )
+    return bool(active_authorization or passive_authorization)
 
 
 def _repo_has_positive_read_only_assertion(clause: str, repository: str) -> bool:
@@ -288,9 +354,15 @@ def _repository_identifiers_in_grant_clause(clause: str) -> list[str]:
     repositories: set[str] = set()
     for match in REPO_TOKEN.finditer(normalized):
         repository = match.group(1)
-        before = normalized[max(0, match.start() - 100):match.start()]
+        before = normalized[max(0, match.start() - 150):match.start()]
         after = normalized[match.end():match.end() + 100]
-        mutation_before = bool(re.search(rf"\b{MUTATION_TERM}\b(?:\s+(?:operations?|access|to|of))*\s*$", before, flags=re.I))
+        mutation_before = bool(re.search(
+            rf"\b{MUTATION_TERM}\b"
+            r"(?:\s+(?:the|a|an|any|repository|repo|files?|content|code|changes?|branches?|commits?|metadata|access|operations?)){0,6}"
+            r"(?:\s+(?:in|to|into|of|on|within|for))?\s*$",
+            before,
+            flags=re.I,
+        ))
         writable_after = bool(re.match(r"\s+(?:is\s+|are\s+)?writable\b", after, flags=re.I))
         passive_mutation_after = bool(re.match(
             rf"\s+(?:(?:may|can)\s+be\s+{MUTATION_TERM}\b|"
@@ -302,7 +374,7 @@ def _repository_identifiers_in_grant_clause(clause: str) -> list[str]:
             continue
         if repository.casefold() not in quoted_repositories and _slash_token_is_prose(normalized, match):
             continue
-        local = normalized[max(0, match.start() - 120):match.end() + 180]
+        local = normalized[max(0, match.start() - 160):match.end() + 180]
         if POSITIVE_AUTH.search(local):
             repositories.add(repository)
     return sorted(repositories)
