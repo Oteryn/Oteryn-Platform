@@ -8,8 +8,6 @@ on:
       - '.github/workflows/github-actions-storage-hygiene.yml'
       - 'scripts/ci/github_actions_storage_hygiene.py'
       - 'tests/ci/test_github_actions_storage_hygiene.py'
-      - '.github/workflows/build-synology-staging-images.yml'
-      - 'docs/agents/tasks/**'
   pull_request_target:
     branches:
       - main
@@ -77,7 +75,7 @@ jobs:
           grep -Fq 'refs/heads/main' "$workflow"
           grep -Fq -- '--mode closed-pr' "$workflow"
           grep -Fq -- '--mode cleanup' "$workflow"
-          grep -Fq 'if: ${{ always() }}' "$workflow"
+          grep -Fq 'Record cleanup completion boundary' "$workflow"
 
           ! grep -Eq 'cache delete --all|system prune|container prune|volume prune|network prune' "$script"
           ! grep -Eq 'DELETE.+/(packages|releases|environments|contents|git/)' "$script"
