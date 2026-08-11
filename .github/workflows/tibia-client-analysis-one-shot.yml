@@ -45,6 +45,13 @@ jobs:
         shell: bash
         run: |
           set -Eeuo pipefail
+          docker run --rm \
+            --name oteryn-tibia-client-analysis-path-init \
+            --label com.blakinio.owner=oteryn \
+            --label com.blakinio.purpose=tibia-client-analysis-path-init \
+            --label com.blakinio.task=OTERYN-20260811-tibia-client-analysis \
+            -v /volume1/docker/oteryn:/host \
+            ubuntu:24.04 mkdir -p /host/tibia-analysis
           if ! docker inspect "$CONTAINER_NAME" >/dev/null 2>&1; then
             docker run -d \
               --name "$CONTAINER_NAME" \
@@ -55,7 +62,7 @@ jobs:
               -v "$HOST_DATA_DIR:/data" \
               ubuntu:24.04 sleep infinity
           else
-            docker start "$CONTAINER_NAME" >/dev/null || true
+            docker start "$CONTAINER_NAME" >/dev/null
           fi
           docker inspect --format 'name={{.Name}} status={{.State.Status}} image={{.Config.Image}}' "$CONTAINER_NAME"
 
