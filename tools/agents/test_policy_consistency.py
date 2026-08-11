@@ -74,6 +74,11 @@ class PolicyConsistencyTests(unittest.TestCase):
         path.write_text(path.read_text(encoding="utf-8") + "\nUse these terminal invocation results only:\n\n```text\nDONE | WAITING | BLOCKED\n```\n", encoding="utf-8")
         self.assertIn("terminal invocation results drift", self._findings(root))
 
+    def test_wrapped_override_status_declaration_fails_closed(self) -> None:
+        temporary, root = self._fixture(); self.addCleanup(temporary.cleanup)
+        self._append_override(root, "- checkpoint task status:\n  `investigating` `implementing` `validating` `ready` `waiting` `blocked`")
+        self.assertIn("checkpoint task statuses drift", self._findings(root))
+
     def test_budget_drift_fails_closed(self) -> None:
         temporary, root = self._fixture(); self.addCleanup(temporary.cleanup)
         self._replace(root, "AGENTS.override.md", "Default to 60 minutes per foreground invocation", "Default to 61 minutes per foreground invocation")
@@ -147,9 +152,19 @@ class PolicyConsistencyTests(unittest.TestCase):
         self._append_root(root, "- Writes to acme/production are allowed only when explicit permission is granted by the project owner for the current task.")
         self.assertEqual([], validate_policy(root))
 
+    def test_negated_passive_authorization_is_not_an_exception(self) -> None:
+        temporary, root = self._fixture(); self.addCleanup(temporary.cleanup)
+        self._append_root(root, "- Writes to acme/production are allowed only when explicit permission is not granted by the project owner for the current task.")
+        self.assertIn("acme/production", self._findings(root))
+
     def test_condition_conjunction_stays_in_same_authorization_clause(self) -> None:
         temporary, root = self._fixture(); self.addCleanup(temporary.cleanup)
         self._append_root(root, "- Writes to acme/production are allowed only when the user explicitly authorizes it and the authorization applies to the current task.")
+        self.assertEqual([], validate_policy(root))
+
+    def test_condition_gerund_stays_in_same_authorization_clause(self) -> None:
+        temporary, root = self._fixture(); self.addCleanup(temporary.cleanup)
+        self._append_root(root, "- Writes to acme/production are allowed only when the user explicitly authorizes it and authorization applies to the current task before editing begins.")
         self.assertEqual([], validate_policy(root))
 
     def test_authorization_exception_is_scoped_to_repository(self) -> None:
@@ -198,6 +213,11 @@ class PolicyConsistencyTests(unittest.TestCase):
         self._append_root(root, "- Agents are not allowed to edit acme/production autonomously.")
         self.assertEqual([], validate_policy(root))
 
+    def test_do_not_grant_write_access_is_not_a_grant(self) -> None:
+        temporary, root = self._fixture(); self.addCleanup(temporary.cleanup)
+        self._append_root(root, "- Do not grant write access to acme/production.")
+        self.assertEqual([], validate_policy(root))
+
     def test_unauthorized_foreign_repository_mutation_is_not_a_grant(self) -> None:
         temporary, root = self._fixture(); self.addCleanup(temporary.cleanup)
         self._append_root(root, "- Unauthorized mutation of acme/production is forbidden.")
@@ -218,9 +238,19 @@ class PolicyConsistencyTests(unittest.TestCase):
         self._append_root(root, "- Agents may edit `acme/production` metadata autonomously.")
         self.assertIn("acme/production", self._findings(root))
 
+    def test_quoted_repository_with_underscore_and_metadata_suffix_fails_closed(self) -> None:
+        temporary, root = self._fixture(); self.addCleanup(temporary.cleanup)
+        self._append_root(root, "- Agents may edit `acme/prod_repo` metadata autonomously.")
+        self.assertIn("acme/prod_repo", self._findings(root))
+
     def test_fenced_example_is_not_authoritative_policy(self) -> None:
         temporary, root = self._fixture(); self.addCleanup(temporary.cleanup)
         self._append_override(root, "```text\nAgents may edit acme/production autonomously.\n```")
+        self.assertEqual([], validate_policy(root))
+
+    def test_long_fence_does_not_close_on_short_inner_fence(self) -> None:
+        temporary, root = self._fixture(); self.addCleanup(temporary.cleanup)
+        self._append_override(root, "````text\nouter example\n```\nAgents may edit acme/production autonomously.\n```\n````")
         self.assertEqual([], validate_policy(root))
 
     def test_closeout_marker_drift_fails_closed(self) -> None:
