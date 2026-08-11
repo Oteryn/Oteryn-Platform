@@ -39,6 +39,9 @@ jobs:
           python tests/ci/test_push_change_routing.py
           python tests/ci/test_required_test_gate.py
           python tests/ci/test_workflow_trigger_economy.py
+          python tests/ci/test_acceptance_lockfile_contract.py
+          python tests/ci/test_game_catalog_cross_repo_trigger.py
+          python tests/ci/test_synology_deploy_release_identity.py
 
       - name: Validate Integration execution registry
         run: |
