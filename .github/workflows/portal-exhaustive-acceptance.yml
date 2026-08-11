@@ -9,6 +9,7 @@ on:
       - '.github/workflows/wiki-reconciliation-acceptance.yml'
       - '.github/workflows/editorial-media-acceptance.yml'
       - '.github/workflows/portal-exhaustive-acceptance.yml'
+      - '.github/workflows/acceptance-validation.yml'
       - 'tools/audit/portal_exhaustive_audit.py'
       - 'tools/audit/portal_exhaustive_reconcile.py'
       - 'tools/audit/portal_exhaustive_strictness.py'
@@ -21,7 +22,16 @@ on:
       - 'docs/agents/evidence/OTERYN-20260803-portal-exhaustive-current-main-audit/**'
       - 'docs/agents/reports/OTERYN-20260803-portal-exhaustive-current-main-audit.md'
       - 'docs/testing/**'
+      - 'scripts/acceptance/coverage/**'
+      - 'scripts/acceptance/tests/**'
+      - 'scripts/acceptance/playwright*.config.mjs'
+      - 'scripts/acceptance/package.json'
+      - 'routes/**'
+      - 'app/**'
+      - 'resources/views/**'
       - 'resources/navigation/**'
+      - 'composer.json'
+      - 'composer.lock'
   push:
     branches:
       - main
@@ -30,6 +40,7 @@ on:
       - '.github/workflows/wiki-reconciliation-acceptance.yml'
       - '.github/workflows/editorial-media-acceptance.yml'
       - '.github/workflows/portal-exhaustive-acceptance.yml'
+      - '.github/workflows/acceptance-validation.yml'
       - 'tools/audit/portal_exhaustive_audit.py'
       - 'tools/audit/portal_exhaustive_reconcile.py'
       - 'tools/audit/portal_exhaustive_strictness.py'
@@ -38,10 +49,20 @@ on:
       - 'tools/audit/test_portal_exhaustive_reconcile.py'
       - 'tools/audit/test_portal_exhaustive_strictness.py'
       - 'tools/audit/test_validate_portal_exhaustive_retained_evidence.py'
+      - 'docs/agents/tasks/active/OTERYN-20260803-portal-exhaustive-current-main-audit.md'
       - 'docs/agents/evidence/OTERYN-20260803-portal-exhaustive-current-main-audit/**'
       - 'docs/agents/reports/OTERYN-20260803-portal-exhaustive-current-main-audit.md'
       - 'docs/testing/**'
+      - 'scripts/acceptance/coverage/**'
+      - 'scripts/acceptance/tests/**'
+      - 'scripts/acceptance/playwright*.config.mjs'
+      - 'scripts/acceptance/package.json'
+      - 'routes/**'
+      - 'app/**'
+      - 'resources/views/**'
       - 'resources/navigation/**'
+      - 'composer.json'
+      - 'composer.lock'
   workflow_dispatch:
 
 permissions:
