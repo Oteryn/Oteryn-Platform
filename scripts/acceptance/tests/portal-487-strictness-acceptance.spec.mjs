@@ -15,6 +15,7 @@ const supportPassword = 'AcceptancePortal487Support!234';
 const adminMarker = '@portal-487-strictness admin-cms not-found csrf-419 server-failure recovery';
 const publicMarker = '@portal-487-strictness public not-found accessibility overflow server-failure recovery';
 const supportMarker = '@portal-487-strictness support-moderation not-found csrf-419 rate-429 server-failure recovery';
+const homepageFailureSurface = ['admin.homepage-template-selector', '/admin/portal/homepage'];
 
 function portalFixture(...args) {
   return JSON.parse(runBinary('php', ['scripts/acceptance/seed-browser-portal-487-strictness.php', ...args]));
@@ -122,6 +123,51 @@ async function expectServerFailureRecovery(page, surface, path) {
   await assertNoOverflow(page);
 }
 
+async function expectHomepageTemplateFailureRecovery(page) {
+  const [surface, path] = homepageFailureSurface;
+  let response = await page.goto(path);
+  expect(response?.status(), `Expected healthy precondition for ${surface}`).toBe(200);
+  await assertNoOverflow(page);
+
+  const activationForm = page.locator('form[action$="/admin/portal/homepage/active"]').first();
+  const token = await activationForm.locator('input[name="_token"]').inputValue();
+  const template = await activationForm.locator('input[name="template"]').inputValue();
+  const version = await activationForm.locator('input[name="version"]').inputValue();
+  expect(token).toBeTruthy();
+  expect(template).toBeTruthy();
+  expect(version).toMatch(/^\d+$/u);
+
+  try {
+    portalFixture('make-unavailable', surface);
+    const status = await page.evaluate(async ({ csrfToken, templateKey, expectedVersion }) => {
+      const body = new URLSearchParams({
+        _token: csrfToken,
+        _method: 'PUT',
+        template: templateKey,
+        version: expectedVersion,
+      });
+      const result = await fetch('/admin/portal/homepage/active', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: {
+          Accept: 'text/html,application/xhtml+xml',
+          'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8',
+        },
+        body: body.toString(),
+      });
+      return result.status;
+    }, { csrfToken: token, templateKey: template, expectedVersion: version });
+    expect(status, `Expected injected server failure for ${surface}`).toBe(500);
+  } finally {
+    portalFixture('restore', surface);
+  }
+
+  page.__acceptanceDiagnostics.serverErrors = [];
+  response = await page.goto(path);
+  expect(response?.status(), `Expected recovered surface for ${surface}`).toBe(200);
+  await assertNoOverflow(page);
+}
+
 test.setTimeout(420_000);
 test.describe.configure({ retries: 0, mode: 'serial' });
 
@@ -164,7 +210,6 @@ test(adminMarker, async ({ page }) => {
 
   const failureSurfaces = [
     ['admin.core-rbac-cms-audit', '/admin/news'],
-    ['admin.homepage-template-selector', '/admin/portal/homepage'],
     ['announcements.admin-localization-home-composition', '/admin/announcements'],
     ['downloads.public-admin-localization', '/admin/downloads'],
     ['events.public-admin', '/admin/events'],
@@ -175,6 +220,7 @@ test(adminMarker, async ({ page }) => {
   for (const [surface, path] of failureSurfaces) {
     await expectServerFailureRecovery(page, surface, path);
   }
+  await expectHomepageTemplateFailureRecovery(page);
 
   const csrfProbes = [
     ['/admin/news', 'POST'],
