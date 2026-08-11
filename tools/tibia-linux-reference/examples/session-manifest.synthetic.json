@@ -1,0 +1,107 @@
+{
+  "cleanup": {
+    "files_before_cleanup": [],
+    "processes_stopped": true,
+    "protected_temporary_files_removed": true,
+    "raw_files_retained": [],
+    "result": "PASS",
+    "temporary_profile_retention": "deleted-after-run"
+  },
+  "client_identity": {
+    "classification": "deterministic-fake-client",
+    "official_binary_used": false,
+    "source_sha256": "d86cc46e1c5de8f270e5f72a41f37c8d65c8b11aba489a9d53a60666ddbaa1ce"
+  },
+  "credential_handling": {
+    "arguments_contained_values": false,
+    "count": 4,
+    "environment_contained_values": false,
+    "mechanism": "anonymous-pipe",
+    "retained": false,
+    "values": "synthetic-only"
+  },
+  "duration_monotonic_ms": 250,
+  "environment": {
+    "architecture": "x86_64",
+    "boundary": "dedicated-disposable-linux-host-or-vm",
+    "evidence_path_classification": "private-outside-git",
+    "mode": "synthetic",
+    "network_isolator": "unprivileged-user-network-namespace",
+    "ordinary_environment_secret_scan": "PASS",
+    "shell_trace_disabled": true,
+    "storage": {
+      "encryption_proven": true,
+      "filesystem_type": "encrypted-private-volume",
+      "source_class": "device-mapper"
+    }
+  },
+  "filesystem_inventory": {
+    "files_after_cleanup": [],
+    "files_before_cleanup": [],
+    "scope": "temporary-synthetic-profile"
+  },
+  "findings": {
+    "CONFLICT": [],
+    "DERIVED": [
+      "The local controls can proceed to exact-client component validation on a suitable host."
+    ],
+    "PROVEN": [
+      "Synthetic values did not appear in any prohibited location.",
+      "The fake graphical process ran with outbound networking denied and cleanup passed."
+    ],
+    "UNKNOWN": [
+      "Official-client and BattlEye compatibility requires the approved private package and a suitable host."
+    ]
+  },
+  "finished_at": "2026-08-01T00:00:01Z",
+  "leak_scan": {
+    "files_scanned": 1,
+    "locations": [
+      "git-diff",
+      "tracked-files",
+      "process-arguments",
+      "retained-environment-report",
+      "stdout",
+      "stderr",
+      "evidence-or-artifacts",
+      "temporary-files",
+      "shell-history",
+      "cleanup-report"
+    ],
+    "result": "PASS"
+  },
+  "mode": "synthetic-dry-run",
+  "network_denial": {
+    "blocked_endpoint_classification": "TEST-NET-2:443",
+    "interfaces": ["lo"],
+    "namespace": "redacted-network-namespace",
+    "official_endpoint_contacted": false,
+    "proven": true,
+    "raw_capture_created": false
+  },
+  "process_lifecycle": {
+    "arguments_retained": false,
+    "arguments_sha256": "76d2b5b853a3b5f5e12ad86f58d8249f0180f01d4b8b9d56f2ae0ef53e2dc7cb",
+    "environment_report": {
+      "reported_keys": ["DISPLAY", "HISTFILE", "HOME", "PATH", "TMPDIR"],
+      "secret_scan": "PASS",
+      "values_retained": false
+    },
+    "exit_status": 0,
+    "states": ["started", "exiting"]
+  },
+  "safety": {
+    "client_or_battleye_modified": false,
+    "official_login_attempted": false,
+    "official_service_contacted": false,
+    "ptrace_debugger_hook_injection_used": false,
+    "traffic_decrypted_replayed_altered_injected": false
+  },
+  "schema_version": 1,
+  "session_id": "synthetic-example-redacted",
+  "started_at": "2026-08-01T00:00:00Z",
+  "window_lifecycle": [
+    {"backend": "x11", "state": "mapped"},
+    {"backend": "x11", "state": "destroyed"}
+  ]
+}
