@@ -21,7 +21,7 @@ Audit and safely reduce GitHub Actions storage for `blakinio/Oteryn-Platform`, t
 ## Acceptance criteria
 
 - [x] Record a sanitized pre-cleanup inventory for Actions artifacts, caches and workflow runs.
-- [x] Execute exact-ID bounded deletion of closed-PR merge-ref caches while preserving open-PR and branch/default-branch caches; install immediate per-PR cleanup so new closed-PR cache backlog does not accumulate.
+- [x] Execute exact-ID bounded deletion of closed-pull-request merge-ref caches while preserving open-PR and branch/default-branch caches; install immediate per-PR cleanup so new closed-PR cache backlog does not accumulate.
 - [x] Execute exact-ID bounded deletion of workflow artifacts older than 14 days while preserving recent evidence; retain scheduled/manual bounded convergence for the historical backlog.
 - [x] Delete only completed workflow runs older than 30 days; no run was eligible because the repository was younger than the 30-day threshold at live execution.
 - [x] Do not delete releases, packages, GHCR images, repository files, environments, secrets or unrelated GitHub resources.
@@ -115,7 +115,7 @@ validation:
     evidence: PR opened; exact-head checks pending.
 blockers:
   - none
-next_action: Validate PR #993, merge it with exact head after checks pass, verify main has no push cleanup authority, then move this task to archive.
+next_action: After PR #993 reaches terminal state, verify resulting main has no push cleanup authority, then move this task to archive.
 ```
 
 ## Notes
