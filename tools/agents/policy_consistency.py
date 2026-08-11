@@ -212,15 +212,15 @@ def _repo_has_positive_read_only_assertion(clause: str, repository: str) -> bool
 
 
 def _slash_token_is_prose(normalized: str, match: re.Match[str]) -> bool:
-    """Reject slash compounds only when their surrounding syntax proves prose usage."""
-    before = normalized[max(0, match.start() - 40):match.start()]
+    """Reject slash compounds only when following syntax proves compound-prose usage."""
     after = normalized[match.end():match.end() + 40]
-    # Policy compounds are commonly followed by a noun describing the compound itself.
-    if re.match(r"\s+(?:metadata|creation|mutation|state|status|result|boundary|restriction|rules?|policy|operations?)\b", after, flags=re.I):
-        return True
-    # A repository object is expected after a repository mutation preposition/verb or before 'writable'.
-    repository_object = bool(re.search(r"\b(?:to|of)\s*$", before, flags=re.I)) or bool(re.match(r"\s+(?:is\s+|are\s+)?writable\b", after, flags=re.I))
-    return not repository_object
+    return bool(
+        re.match(
+            r"\s+(?:metadata|creation|mutation|state|status|result|boundary|restriction|rules?|policy|operations?)\b",
+            after,
+            flags=re.I,
+        )
+    )
 
 
 def _repository_identifiers_in_grant_clause(clause: str) -> list[str]:
