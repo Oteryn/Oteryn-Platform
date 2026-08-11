@@ -112,10 +112,12 @@ async function expectServerFailureRecovery(page, surface, path) {
 
   try {
     portalFixture('make-unavailable', surface);
+    runArtisan('cache:clear');
     response = await page.goto(path, { waitUntil: 'domcontentloaded' });
     expect(response?.status(), `Expected injected server failure for ${surface}`).toBe(500);
   } finally {
     portalFixture('restore', surface);
+    runArtisan('cache:clear');
   }
 
   page.__acceptanceDiagnostics.serverErrors = [];
