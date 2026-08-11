@@ -250,6 +250,7 @@ test(adminMarker, async ({ page }) => {
 
   const csrfProbes = [
     ['/admin/news', 'POST'],
+    ['/admin/news/999999999/translations/pl', 'PUT'],
     ['/admin/portal/homepage/active', 'PUT'],
     ['/admin/announcements', 'POST'],
     ['/admin/downloads', 'POST'],
