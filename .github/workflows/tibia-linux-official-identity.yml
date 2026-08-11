@@ -5,6 +5,8 @@ on:
     paths:
       - tools/tibia-linux-reference/official_identity_probe.py
       - tools/tibia-linux-reference/official_host_preflight.py
+      - tools/tibia-linux-reference/official_host_prepare.sh
+      - tools/tibia-linux-reference/official_evidence_luks_setup.sh
       - tools/tibia-linux-reference/tests/test_official_offline.py
       - .github/workflows/tibia-linux-official-identity.yml
   workflow_dispatch:
@@ -43,6 +45,8 @@ jobs:
           python -m py_compile \
             tools/tibia-linux-reference/official_identity_probe.py \
             tools/tibia-linux-reference/official_host_preflight.py
+          bash -n tools/tibia-linux-reference/official_host_prepare.sh
+          bash -n tools/tibia-linux-reference/official_evidence_luks_setup.sh
 
       - name: Prove official host preflight rejects CI
         shell: bash
