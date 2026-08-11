@@ -1,0 +1,235 @@
+{
+  "schema_version": 1,
+  "surfaces": {
+    "wiki.public": {
+      "state_categories": {
+        "not_found": {
+          "status": "covered",
+          "evidence": {
+            "file": "scripts/acceptance/tests/wiki-reconciliation-acceptance.spec.mjs",
+            "markers": [
+              "@portal-wiki-public route-complete empty, read, search, invalid, not-found, unavailable, recovery and EN/PL states",
+              "expect(response?.status()).toBe(404);"
+            ]
+          }
+        },
+        "csrf_expiry": {
+          "status": "not_applicable",
+          "rule": "read_only_surface",
+          "reason": "Every route owned by wiki.public is GET/HEAD, so browser CSRF expiry cannot apply to this read-only surface."
+        },
+        "rate_limit": {
+          "status": "covered",
+          "evidence": {
+            "file": "tests/Feature/Wiki/PublicWikiSearchTest.php",
+            "markers": [
+              "test_search_is_rate_limited_by_locale_and_source",
+              "->assertStatus(429);"
+            ]
+          }
+        },
+        "server_failure": {
+          "status": "covered",
+          "evidence": {
+            "file": "scripts/acceptance/tests/wiki-reconciliation-acceptance.spec.mjs",
+            "markers": [
+              "@portal-wiki-public route-complete empty, read, search, invalid, not-found, unavailable, recovery and EN/PL states",
+              "expect(response?.status()).toBe(503);"
+            ]
+          }
+        },
+        "recovery": {
+          "status": "covered",
+          "evidence": {
+            "file": "scripts/acceptance/tests/wiki-reconciliation-acceptance.spec.mjs",
+            "markers": [
+              "@portal-wiki-public route-complete empty, read, search, invalid, not-found, unavailable, recovery and EN/PL states",
+              "wikiFixture('restore-public');"
+            ]
+          }
+        }
+      },
+      "locale": {
+        "status": "covered",
+        "evidence": {
+          "file": "scripts/acceptance/tests/wiki-reconciliation-acceptance.spec.mjs",
+          "markers": [
+            "@portal-wiki-public route-complete empty, read, search, invalid, not-found, unavailable, recovery and EN/PL states",
+            "page.goto('/pl/wiki')",
+            "page.goto('/en/wiki')"
+          ]
+        }
+      },
+      "accessibility": {
+        "status": "covered",
+        "evidence": {
+          "file": "scripts/acceptance/tests/wiki-reconciliation-acceptance.spec.mjs",
+          "markers": [
+            "@portal-wiki-public route-complete empty, read, search, invalid, not-found, unavailable, recovery and EN/PL states",
+            "assertAccessibilitySmoke(page);"
+          ]
+        }
+      },
+      "overflow": {
+        "status": "covered",
+        "evidence": {
+          "file": "scripts/acceptance/tests/wiki-reconciliation-acceptance.spec.mjs",
+          "markers": [
+            "@portal-wiki-public route-complete empty, read, search, invalid, not-found, unavailable, recovery and EN/PL states",
+            "assertNoPageOverflow(page);"
+          ]
+        }
+      }
+    },
+    "wiki.admin-editorial-lifecycle": {
+      "state_categories": {
+        "not_found": {
+          "status": "covered",
+          "evidence": {
+            "file": "scripts/acceptance/tests/wiki-strictness-acceptance.spec.mjs",
+            "markers": [
+              "@portal-wiki-admin-strictness not-found csrf-419 server-failure recovery",
+              "expect(response?.status()).toBe(404);"
+            ]
+          }
+        },
+        "csrf_expiry": {
+          "status": "covered",
+          "evidence": {
+            "file": "scripts/acceptance/tests/wiki-strictness-acceptance.spec.mjs",
+            "markers": [
+              "@portal-wiki-admin-strictness not-found csrf-419 server-failure recovery",
+              "expect(csrfResponse.status()).toBe(419);"
+            ]
+          }
+        },
+        "rate_limit": {
+          "status": "not_applicable",
+          "rule": "no_throttle_middleware",
+          "reason": "No route owned by the administrator Wiki surface has a throttle middleware; rate limiting is not part of this privileged lifecycle contract."
+        },
+        "server_failure": {
+          "status": "covered",
+          "evidence": {
+            "file": "scripts/acceptance/tests/wiki-strictness-acceptance.spec.mjs",
+            "markers": [
+              "@portal-wiki-admin-strictness not-found csrf-419 server-failure recovery",
+              "expect(response?.status()).toBe(500);"
+            ]
+          }
+        },
+        "recovery": {
+          "status": "covered",
+          "evidence": {
+            "file": "scripts/acceptance/tests/wiki-strictness-acceptance.spec.mjs",
+            "markers": [
+              "@portal-wiki-admin-strictness not-found csrf-419 server-failure recovery",
+              "restoreWikiAdminAvailability();",
+              "expect(response?.status()).toBe(200);"
+            ]
+          }
+        }
+      },
+      "locale": {
+        "status": "not_applicable",
+        "rule": "operator_surface_without_locale_route",
+        "reason": "The trusted administrator Wiki UI is intentionally unlocalized and has no locale route segment; EN/PL editorial content parity is separately exercised through the Wiki lifecycle and public reads."
+      },
+      "accessibility": {
+        "status": "covered",
+        "evidence": {
+          "file": "scripts/acceptance/tests/wiki-reconciliation-acceptance.spec.mjs",
+          "markers": [
+            "@portal-wiki-admin complete validation, draft, signed-preview, conflict, review, publish, unpublish, revision-restore, archive and audit lifecycle",
+            "assertAccessibilitySmoke(page);"
+          ]
+        }
+      },
+      "overflow": {
+        "status": "covered",
+        "evidence": {
+          "file": "scripts/acceptance/tests/wiki-reconciliation-acceptance.spec.mjs",
+          "markers": [
+            "@portal-wiki-admin complete validation, draft, signed-preview, conflict, review, publish, unpublish, revision-restore, archive and audit lifecycle",
+            "assertNoPageOverflow(page);"
+          ]
+        }
+      }
+    },
+    "editorial-media.admin": {
+      "state_categories": {
+        "not_found": {
+          "status": "covered",
+          "evidence": {
+            "file": "scripts/acceptance/tests/editorial-media-strictness-acceptance.spec.mjs",
+            "markers": [
+              "@portal-editorial-media-strictness not-found csrf-419 server-failure recovery",
+              "expect(response?.status()).toBe(404);"
+            ]
+          }
+        },
+        "csrf_expiry": {
+          "status": "covered",
+          "evidence": {
+            "file": "scripts/acceptance/tests/editorial-media-strictness-acceptance.spec.mjs",
+            "markers": [
+              "@portal-editorial-media-strictness not-found csrf-419 server-failure recovery",
+              "expect(csrfResponse.status()).toBe(419);"
+            ]
+          }
+        },
+        "rate_limit": {
+          "status": "not_applicable",
+          "rule": "no_throttle_middleware",
+          "reason": "No route owned by Editorial Media administration has throttle middleware; this trusted upload/library lifecycle has no rate-limit contract."
+        },
+        "server_failure": {
+          "status": "covered",
+          "evidence": {
+            "file": "scripts/acceptance/tests/editorial-media-strictness-acceptance.spec.mjs",
+            "markers": [
+              "@portal-editorial-media-strictness not-found csrf-419 server-failure recovery",
+              "expect(response?.status()).toBe(500);"
+            ]
+          }
+        },
+        "recovery": {
+          "status": "covered",
+          "evidence": {
+            "file": "scripts/acceptance/tests/editorial-media-strictness-acceptance.spec.mjs",
+            "markers": [
+              "@portal-editorial-media-strictness not-found csrf-419 server-failure recovery",
+              "restoreEditorialMediaAvailability();",
+              "expect(response?.status()).toBe(200);"
+            ]
+          }
+        }
+      },
+      "locale": {
+        "status": "not_applicable",
+        "rule": "operator_surface_without_locale_route",
+        "reason": "Editorial Media is a trusted administrator asset-management surface with no locale route segment and does not publish localized player content itself."
+      },
+      "accessibility": {
+        "status": "covered",
+        "evidence": {
+          "file": "scripts/acceptance/tests/editorial-media-acceptance.spec.mjs",
+          "markers": [
+            "@portal-editorial-media manager validates, uploads, privately previews, protects references, deletes and audits",
+            "assertAccessibilitySmoke(page);"
+          ]
+        }
+      },
+      "overflow": {
+        "status": "covered",
+        "evidence": {
+          "file": "scripts/acceptance/tests/editorial-media-acceptance.spec.mjs",
+          "markers": [
+            "@portal-editorial-media manager validates, uploads, privately previews, protects references, deletes and audits",
+            "assertNoPageOverflow(page);"
+          ]
+        }
+      }
+    }
+  }
+}
