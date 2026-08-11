@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use Illuminate\Contracts\Console\Kernel;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 
 require dirname(__DIR__, 2).'/vendor/autoload.php';
@@ -26,6 +27,16 @@ $surfaces = [
     'public.news-and-managed-pages' => 'news_posts',
     'support-legal.public-admin-localization' => 'managed_pages',
     'support.moderation-lifecycle' => 'support_tickets',
+];
+
+$adminPermissions = [
+    'cms.news.manage',
+    'portal.settings.manage',
+    'portal.announcements.manage',
+    'downloads.manage',
+    'events.manage',
+    'support.content.manage',
+    'support.tickets.manage',
 ];
 
 $unavailableName = static fn (string $table): string => $table.'_acceptance_unavailable';
@@ -61,6 +72,27 @@ if ($command === 'restore-all') {
     $json(['restored' => true]);
 }
 
+if ($command === 'grant-admin-permissions') {
+    $roleId = DB::table('admin_roles')->where('key', 'platform_admin')->value('id');
+    if (! is_numeric($roleId)) {
+        $fail('Required platform_admin role is missing.');
+    }
+
+    foreach ($adminPermissions as $permission) {
+        $permissionId = DB::table('admin_permissions')->where('key', $permission)->value('id');
+        if (! is_numeric($permissionId)) {
+            $fail("Required administrator permission {$permission} is missing.");
+        }
+
+        DB::table('admin_role_permissions')->insertOrIgnore([
+            'role_id' => (int) $roleId,
+            'permission_id' => (int) $permissionId,
+        ]);
+    }
+
+    $json(['role' => 'platform_admin', 'permissions' => $adminPermissions]);
+}
+
 $surface = $argv[2] ?? '';
 $table = $surfaces[$surface] ?? null;
 if (! is_string($table)) {
@@ -88,4 +120,4 @@ if ($command === 'restore') {
     $json(['surface' => $surface, 'table' => $table, 'restored' => Schema::hasTable($table)]);
 }
 
-$fail('Usage: php scripts/acceptance/seed-browser-portal-487-strictness.php <make-unavailable|restore> <surface> | restore-all', 2);
+$fail('Usage: php scripts/acceptance/seed-browser-portal-487-strictness.php <grant-admin-permissions|make-unavailable|restore> [surface] | restore-all', 2);

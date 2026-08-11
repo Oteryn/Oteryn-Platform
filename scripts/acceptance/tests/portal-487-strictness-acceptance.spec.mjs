@@ -32,6 +32,7 @@ function seedAdmin() {
   const email = uniqueEmail('portal-487-admin');
   const recoveryCode = 'P487-ADMIN-RECOVERY-01';
   JSON.parse(runBinary('php', ['scripts/acceptance/seed-browser-admin.php', email, adminPassword, recoveryCode]));
+  portalFixture('grant-admin-permissions');
 
   return { email, password: adminPassword, recoveryCode };
 }
