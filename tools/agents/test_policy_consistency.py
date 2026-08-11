@@ -104,6 +104,11 @@ class PolicyConsistencyTests(unittest.TestCase):
         self.assertIn("normal_foreground_runtime_minutes drift", findings)
         self.assertIn("999", findings)
 
+    def test_fenced_budget_example_is_not_authoritative(self) -> None:
+        temporary, root = self._fixture(); self.addCleanup(temporary.cleanup)
+        self._append_override(root, "````markdown\nDefault to 999 minutes per foreground invocation\n```text\nDefault to 998 minutes per foreground invocation\n```\n````")
+        self.assertEqual([], validate_policy(root))
+
     def test_repository_scope_marker_drift_fails_closed(self) -> None:
         temporary, root = self._fixture(); self.addCleanup(temporary.cleanup)
         self._replace(root, "AGENTS.md", "The only repository where autonomous write operations are allowed by this file is `blakinio/Oteryn-Platform`.", "The only repository where autonomous write operations are allowed by this file is `blakinio/other`.")
@@ -228,6 +233,13 @@ class PolicyConsistencyTests(unittest.TestCase):
     def test_authorization_exception_split_after_indefinite_agent(self) -> None:
         temporary, root = self._fixture(); self.addCleanup(temporary.cleanup)
         self._append_root(root, "- Writes to `blakinio/canary` are allowed only when the user explicitly authorizes it in the current task and an agent may edit `acme/production` autonomously.")
+        findings = self._findings(root)
+        self.assertIn("acme/production", findings)
+        self.assertNotIn("authoritative policy: blakinio/canary", findings)
+
+    def test_authorization_exception_split_after_modal_adverb(self) -> None:
+        temporary, root = self._fixture(); self.addCleanup(temporary.cleanup)
+        self._append_root(root, "- Writes to `blakinio/canary` are allowed only when the user explicitly authorizes it in the current task and agents may also edit acme/production autonomously.")
         findings = self._findings(root)
         self.assertIn("acme/production", findings)
         self.assertNotIn("authoritative policy: blakinio/canary", findings)
