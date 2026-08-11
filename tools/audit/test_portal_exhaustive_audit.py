@@ -90,7 +90,7 @@ class PortalExhaustiveAuditTests(unittest.TestCase):
         self.assertLess(execution_gate, generation)
         self.assertIn("Wiki Reconciliation Acceptance", workflow)
         self.assertIn("Editorial Media Acceptance", workflow)
-        self.assertIn("Acceptance E2E and Visual UX", workflow)
+        self.assertIn("Portal Exhaustive Acceptance E2E", workflow)
         self.assertIn("value['head_sha'] == os.environ['AUDIT_SHA']", workflow)
         self.assertIn("value['conclusion'] == 'success'", workflow)
         self.assertIn("wiki-expected-content-validation.json", workflow)
