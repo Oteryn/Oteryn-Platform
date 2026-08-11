@@ -82,6 +82,36 @@ class OfficialHostPreflightTests(unittest.TestCase):
                 with self.assertRaisesRegex(HarnessError, "containers"):
                     host_preflight.require_normal_host("oteryn-tibia-ref")
 
+    def test_software_only_gl_renderer_is_rejected(self) -> None:
+        completed = mock.Mock(
+            returncode=0,
+            stdout="direct rendering: Yes\nOpenGL renderer string: llvmpipe (LLVM 19.1.1, 256 bits)\n",
+            stderr="",
+        )
+        with (
+            mock.patch.dict(os.environ, {"DISPLAY": ":0"}, clear=True),
+            mock.patch.object(host_preflight.shutil, "which", return_value="/usr/bin/glxinfo"),
+            mock.patch.object(host_preflight.subprocess, "run", return_value=completed),
+        ):
+            with self.assertRaisesRegex(HarnessError, "software-only"):
+                host_preflight.require_accelerated_graphics()
+
+    def test_direct_hardware_gl_renderer_is_accepted(self) -> None:
+        completed = mock.Mock(
+            returncode=0,
+            stdout="direct rendering: Yes\nOpenGL renderer string: AMD Radeon RX test (radeonsi)\n",
+            stderr="",
+        )
+        with (
+            mock.patch.dict(os.environ, {"DISPLAY": ":0"}, clear=True),
+            mock.patch.object(host_preflight.shutil, "which", return_value="/usr/bin/glxinfo"),
+            mock.patch.object(host_preflight.subprocess, "run", return_value=completed),
+        ):
+            result = host_preflight.require_accelerated_graphics()
+        self.assertTrue(result["direct_rendering"])
+        self.assertFalse(result["software_renderer"])
+        self.assertIn("AMD Radeon", result["renderer"])
+
 
 if __name__ == "__main__":
     unittest.main()
