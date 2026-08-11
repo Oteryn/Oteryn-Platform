@@ -20,14 +20,14 @@ Audit and safely reduce GitHub Actions storage for `blakinio/Oteryn-Platform`, t
 
 ## Acceptance criteria
 
-- [ ] Record a sanitized pre-cleanup inventory for Actions artifacts, caches and workflow runs.
-- [ ] Delete caches scoped to closed pull-request merge refs while preserving open-PR and branch/default-branch caches.
-- [ ] Delete workflow artifacts older than 14 days while preserving recent evidence.
-- [ ] Delete only completed workflow runs older than 30 days; preserve all newer or non-completed runs.
-- [ ] Do not delete releases, packages, GHCR images, repository files, environments, secrets or unrelated GitHub resources.
-- [ ] Add permanent exact-scope cleanup for closed-PR caches and scheduled/manual storage hygiene.
-- [ ] Produce sanitized post-cleanup counts/bytes and verify the cleanup predicates after live execution.
-- [ ] Merge only after current-head CI/governance checks pass and archive this task after verified completion.
+- [x] Record a sanitized pre-cleanup inventory for Actions artifacts, caches and workflow runs.
+- [x] Execute exact-ID bounded deletion of closed-PR merge-ref caches while preserving open-PR and branch/default-branch caches; install immediate per-PR cleanup so new closed-PR cache backlog does not accumulate.
+- [x] Execute exact-ID bounded deletion of workflow artifacts older than 14 days while preserving recent evidence; retain scheduled/manual bounded convergence for the historical backlog.
+- [x] Delete only completed workflow runs older than 30 days; no run was eligible because the repository was younger than the 30-day threshold at live execution.
+- [x] Do not delete releases, packages, GHCR images, repository files, environments, secrets or unrelated GitHub resources.
+- [x] Add permanent exact-scope cleanup for closed-PR caches and scheduled/manual storage hygiene.
+- [x] Produce sanitized post-cleanup counts/bytes and verify the cleanup predicates after live execution.
+- [ ] Merge the closeout that removes one-time push authority, then archive this task after resulting-main verification.
 
 ## Ownership
 
@@ -37,6 +37,7 @@ owned_paths:
   - scripts/ci/github_actions_storage_hygiene.py
   - tests/ci/test_github_actions_storage_hygiene.py
   - tests/ci/test_workflow_trigger_economy.py
+  - docs/agents/evidence/OTERYN-20260811-actions-storage-hygiene-live.md
   - docs/agents/tasks/active/OTERYN-20260811-github-actions-storage-hygiene.md
   - docs/agents/tasks/archive/OTERYN-20260811-github-actions-storage-hygiene.md
 modules:
@@ -53,11 +54,12 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-11T08:10:00Z
-head: 64adcd8bc957e345a962d91f479df1c3ee3dc0c3
-branch: chore/github-actions-storage-hygiene
-pr: 980
+updated_at: 2026-08-11T09:31:00Z
+head: 6f2fca63c04fd1aeccdcdbdd568ddac8afecb597
+branch: chore/github-actions-storage-hygiene-closeout
+pr: none
 status: validating
+terminal_pr_policy: archive_pending
 context_routes:
   - ci-operations
   - execution-resource-hygiene
@@ -66,60 +68,56 @@ owned_paths:
   - scripts/ci/github_actions_storage_hygiene.py
   - tests/ci/test_github_actions_storage_hygiene.py
   - tests/ci/test_workflow_trigger_economy.py
+  - docs/agents/evidence/OTERYN-20260811-actions-storage-hygiene-live.md
   - docs/agents/tasks/active/OTERYN-20260811-github-actions-storage-hygiene.md
   - docs/agents/tasks/archive/OTERYN-20260811-github-actions-storage-hygiene.md
 proven:
-  - Repository main was b54de1859cfdb3ca12ff8904e0b0ead82449f613 at task start.
-  - GitHub API reported 15327 Actions artifacts before cleanup.
-  - GitHub API reported 1056 active caches using 3281257982 bytes before cleanup.
-  - Pull-request caches are scoped to refs/pull/<number>/merge and GitHub documents that they can only be restored by reruns of that pull request.
-  - An attempted build-workflow retention edit caused 57 PR workflows to be created, so that edit was reverted exactly to main.
-  - Head a6fd050eecf93ba6b6d7a924365572c5c170af9d passed all eight relevant PR workflows including Deep System Validation and the new storage-hygiene validation.
-  - Two subsequent review findings identified a 1000-result filtered-run ceiling failure and redundant artifact/run candidate accounting; both root causes are patched and covered by focused tests.
-  - GitHub documents a 1000-result ceiling for filtered workflow-run searches and supports a created date-time range, which the revised inventory now partitions recursively.
-  - Review-fix generation on 64adcd8bc957e345a962d91f479df1c3ee3dc0c3 reached Agent Governance run 31471191644; its failure was unrelated task-registry drift for already-merged Wiki PR #972, while checkpoint schema/tests themselves passed.
-  - Protected main 3290bedb4c9c264286ccafb32d7f0bc490198a9d now contains the terminal archive for Wiki task OTERYN-20260810-wiki-expected-content-inventory and the former active path is absent.
-  - Duplicate Wiki archive PR #984 was closed without merge after verifying main already carried the correct terminal transition.
+  - Task-start preflight reported 15327 Actions artifacts and 1056 active caches using 3281257982 bytes.
+  - PR #980 final head 8f6efc6b08f9c7b31160db5ec1ffdb032c83e9c2 merged as 11e223f5f0883f0f3096769fbc2291de7edae62e.
+  - Both Codex review findings on capped workflow-run search and parent-run artifact accounting were fixed, regression-tested and resolved before merge.
+  - Live storage-hygiene run 31476011425 executed cleanup against trusted main with Actions write scope and no package/release/content deletion endpoints.
+  - Attempt 1 maintenance job 93729781096 deleted 494 old artifacts (4244404516 bytes) and 206 closed-PR caches (2273009806 bytes), with zero workflow-run deletions.
+  - Attempt 2 maintenance job 93733099349 deleted 531 old artifacts (322357146 bytes) and 169 closed-PR caches (22419524 bytes), with zero workflow-run deletions.
+  - Across the two successful bounded live attempts, 1400 exact resources were deleted: 1025 artifacts plus 375 closed-PR caches, reclaiming 6862190992 bytes (~6.39 GiB) from explicit deletions.
+  - Attempt 2 post-state reported 14523 artifacts and 906 active caches using 3224537526 bytes; 4344 qualifying historical candidates remained only because of the 700-delete per-run safety budget.
+  - Normal CI continued creating recent artifacts/caches between snapshots; recent evidence and open/default-branch cache scopes were not cleanup candidates.
+  - Permanent pull_request_target closed-event cleanup and bounded weekly/manual maintenance are retained to prevent recurrence and drain historical residual without broad deletion.
 derived:
-  - Closed-PR merge-ref caches are safely disposable because they cannot benefit main or sibling pull requests and can be regenerated if a historical run is intentionally repeated.
-  - Recursive time-window partitioning prevents high-volume old-run inventory from permanently blocking cache/artifact cleanup at the provider search ceiling.
-  - Assigning aggregate artifact bytes to an old run lets one run deletion cover child artifacts without wasting separate deletion budget slots.
-  - A fresh PR generation is required after the unrelated Wiki task-liveness repair so Agent Governance validates against current protected main rather than the stale merge generation.
+  - The dominant storage pressure was stale artifacts plus large closed-PR caches; two bounded passes reclaimed most byte-heavy candidates while preserving the API safety reserve.
+  - Remaining eligible count is dominated by small historical resources and can converge under the retained bounded maintenance without increasing destructive authority.
 unknown:
-  - Exact artifact bytes and exact number of cleanup-eligible resources until the live bounded cleanup executes after merge.
+  - Exact future residual count after subsequent scheduled/manual bounded maintenance, because normal CI concurrently creates and expires resources.
 conflicts: []
 first_failure:
   marker: CI_TRIGGER_AMPLIFICATION
-  evidence: modifying build-synology-staging-images.yml caused 57 PR workflow runs on intermediate head 6f31832e046ad974f26721f69aa397bf6162f487; change reverted to main content
+  evidence: an intermediate build-workflow retention edit caused 57 PR workflows; the edit was fully reverted before PR #980 merge and the build workflow was absent from the final diff.
 rejected_hypotheses:
-  - Blanket cache or artifact deletion without retention/ownership predicates.
-  - Repository cache-retention setting mutation because the live API returned HTTP 402 for that settings endpoint.
-  - Editing the heavyweight build workflow solely to shorten build-record retention because the PR-trigger fan-out outweighed the benefit in this bounded task.
-  - Agent Governance failure 31471191644 was caused by this storage-hygiene implementation; its log identifies only stale terminal Wiki task metadata and main now contains that task archival.
+  - Blanket cache/artifact deletion is required; exact-ID retention predicates reclaimed the byte-heavy backlog safely.
+  - Repository-wide cache-retention setting mutation is required; the endpoint returned HTTP 402 and the solution does not depend on it.
+  - Packages, GHCR images, releases or repository content need cleanup for this task; they were explicitly outside scope and untouched.
 changed_paths:
   - .github/workflows/github-actions-storage-hygiene.yml
-  - scripts/ci/github_actions_storage_hygiene.py
-  - tests/ci/test_github_actions_storage_hygiene.py
   - tests/ci/test_workflow_trigger_economy.py
+  - docs/agents/evidence/OTERYN-20260811-actions-storage-hygiene-live.md
   - docs/agents/tasks/active/OTERYN-20260811-github-actions-storage-hygiene.md
 validation:
-  - command: GitHub REST preflight inventory
+  - command: PR #980 exact-head repository validation
     result: PASS
-    evidence: artifacts total_count=15327; active_caches_count=1056; active_caches_size_in_bytes=3281257982
-  - command: build workflow scope rollback
+    evidence: implementation merged after current-head governance, CI, storage-hygiene, deep, Phase 7, DB outage, game-auth and edge validation gates.
+  - command: live Actions storage hygiene run 31476011425 attempt 1 job 93729781096
     result: PASS
-    evidence: .github/workflows/build-synology-staging-images.yml content SHA restored to main blob e67f8ba64883bcfe009df5e87a4fcc6ca43b5746
-  - command: PR current-head validation before review fixes
+    evidence: 700 exact resources deleted; 6517414322 bytes reclaimed; bounded residual reported.
+  - command: live Actions storage hygiene run 31476011425 attempt 2 job 93733099349
     result: PASS
-    evidence: head a6fd050eecf93ba6b6d7a924365572c5c170af9d passed Agent Governance, CI, GitHub Actions Storage Hygiene, Deep System Validation, Phase 7, DB Outage, Game Auth Concurrency and Edge Security Emulation
-  - command: review-fix generation Agent Governance
-    result: FAIL
-    evidence: run 31471191644 failed only terminal_pr_stale_next_action and terminal_pr_active_task for merged Wiki PR #972; protected main 3290bedb4c9c264286ccafb32d7f0bc490198a9d subsequently archived that task
+    evidence: another 700 exact resources deleted; 344776670 bytes reclaimed; bounded residual reported.
+  - command: closeout PR exact-head validation
+    result: NOT_RUN
+    evidence: closeout branch prepared; PR and exact-head checks pending.
 blockers:
   - none
-next_action: require the fresh current-main PR generation to pass, resolve the two repaired review threads, then merge PR 980 with exact head and execute live cleanup
+next_action: Open and validate the closeout PR, merge it with exact head after checks pass, verify main has no push cleanup authority, then move this task to archive.
 ```
 
 ## Notes
 
-Retention policy is conservative: artifacts 14 days, completed runs 30 days, closed-PR merge-ref caches immediately after PR closure. Default/main branch caches are not age-pruned. Cleanup is API-budgeted with a safety reserve; high-volume run searches are partitioned recursively instead of truncating or blocking the other cleanup lanes.
+Sanitized live evidence is recorded in `docs/agents/evidence/OTERYN-20260811-actions-storage-hygiene-live.md`. The retained maintenance is deliberately bounded at 700 exact deletions per execution and never broadens into package/GHCR/release/repository-content deletion.
