@@ -35,7 +35,7 @@ jobs:
       artifact-digest: ${{ steps.upload.outputs.artifact-digest }}
     steps:
       - name: Checkout exact Platform/Gateway source
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           ref: ${{ env.GATEWAY_REF }}
           persist-credentials: false
@@ -90,7 +90,7 @@ jobs:
       VCPKG_NUGET_API_KEY: ${{ github.token }}
     steps:
       - name: Checkout exact Canary source
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           repository: blakinio/canary
           ref: ${{ env.CANARY_REF }}
@@ -182,7 +182,7 @@ jobs:
       VCPKG_NUGET_API_KEY: ${{ github.token }}
     steps:
       - name: Checkout exact OTClient source
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           repository: blakinio/otclient
           ref: ${{ env.OTCLIENT_REF }}
