@@ -126,6 +126,31 @@ async function expectServerFailureRecovery(page, surface, path) {
   await assertNoOverflow(page);
 }
 
+async function expectGracefulHomeNewsFailureRecovery(page) {
+  const surface = 'public.home-and-seo';
+  const path = '/';
+  let response = await page.goto(path);
+  expect(response?.status(), `Expected healthy precondition for ${surface}`).toBe(200);
+  await assertNoOverflow(page);
+
+  try {
+    portalFixture('make-unavailable', surface);
+    runArtisan('cache:clear');
+    response = await page.goto(path, { waitUntil: 'domcontentloaded' });
+    expect(response?.status(), `Expected graceful degraded response for ${surface}`).toBe(200);
+    await expect(page.locator('.production-news-panel')).toHaveAttribute('data-content-state', 'UNAVAILABLE');
+    await assertNoOverflow(page);
+  } finally {
+    portalFixture('restore', surface);
+    runArtisan('cache:clear');
+  }
+
+  response = await page.goto(path);
+  expect(response?.status(), `Expected recovered surface for ${surface}`).toBe(200);
+  await expect(page.locator('.production-news-panel')).not.toHaveAttribute('data-content-state', 'UNAVAILABLE');
+  await assertNoOverflow(page);
+}
+
 async function expectHomepageTemplateFailureRecovery(page) {
   const [surface, path] = homepageFailureSurface;
   let response = await page.goto(path);
@@ -242,8 +267,9 @@ test(adminMarker, async ({ page }) => {
 
 // Evidence marker: @portal-487-strictness public not-found accessibility overflow server-failure recovery
 test(publicMarker, async ({ page }) => {
+  await expectGracefulHomeNewsFailureRecovery(page);
+
   const failureSurfaces = [
-    ['public.home-and-seo', '/'],
     ['public.localization-core', '/en'],
     ['public.news-and-managed-pages', '/news'],
   ];
