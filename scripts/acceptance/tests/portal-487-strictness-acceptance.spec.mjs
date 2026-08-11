@@ -101,7 +101,7 @@ async function csrfStatus(page, path, method = 'POST') {
   }, { target, verb: method });
 
   const response = await responsePromise;
-  await page.waitForLoadState('domcontentloaded');
+  await page.waitForURL((url) => url.pathname === path, { waitUntil: 'domcontentloaded' });
   return response.status();
 }
 
