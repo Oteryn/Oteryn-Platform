@@ -46,6 +46,20 @@ class WorkflowInventoryTest(unittest.TestCase):
             with self.assertRaisesRegex(WorkflowInventoryError, "missing required top-level workflow marker permissions:"):
                 validate_inventory(root)
 
+    def test_inventory_accepts_supported_top_level_permissions_forms(self) -> None:
+        forms = ("permissions: {}", "permissions: read-all", "permissions: write-all")
+        for permissions in forms:
+            with self.subTest(permissions=permissions), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                path = root / ".github/workflows/example.yml"
+                path.parent.mkdir(parents=True)
+                path.write_text(
+                    f"name: Example\non:\n  pull_request:\n{permissions}\njobs:\n  test:\n    runs-on: ubuntu-latest\n    steps:\n      - run: true\n",
+                    encoding="utf-8",
+                )
+                result = validate_inventory(root)
+                self.assertEqual("domain_validation", result[".github/workflows/example.yml"])
+
     def test_inventory_classifies_every_workflow_file(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
