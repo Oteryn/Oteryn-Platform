@@ -29,7 +29,11 @@ REPO_TOKEN = re.compile(r"(?<![A-Za-z0-9_.-])([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)(?
 QUOTED_REPO_TOKEN = re.compile(r"`([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)`")
 MUTATION_TERM = r"(?:writ(?:e|es|ing|ten)|writable|edit(?:s|ed|ing)?|modif(?:y|ies|ied|ying)|push(?:es|ed|ing)?|commit(?:s|ted|ting)?|merge(?:s|d|ing)?|mutat(?:e|es|ed|ing|ion|ions))"
 MUTATION_WORD = re.compile(rf"\b{MUTATION_TERM}\b", re.I)
-POSITIVE_AUTH = re.compile(r"\b(?:allow|allows|allowed|authorize|authorizes|authorized|permit|permits|permitted|may|can|grant|grants|granted)\b", re.I)
+NEGATED_MUTATION = re.compile(rf"\b(?:not|never)\s+{MUTATION_TERM}\b", re.I)
+POSITIVE_AUTH = re.compile(
+    r"\b(?:(?:have|has)\s+(?:explicit\s+)?permission|allow|allows|allowed|authorize|authorizes|authorized|permit|permits|permitted|may|can|grant|grants|granted)\b",
+    re.I,
+)
 NEGATIVE_AUTH = re.compile(
     r"\b(?:not\s+allowed|not\s+authorized|not\s+permitted|may\s+not|must\s+not\s+grant|"
     r"(?:do|does|did)\s+not\s+grant|never\s+grant(?:s|ed)?|not\s+grant(?:s|ed)?|"
@@ -311,18 +315,19 @@ def _policy_clauses(statement: str) -> list[str]:
 
 def _has_positive_mutation_grant(clause: str) -> bool:
     normalized = _normalize_inline_markdown(clause)
-    if not MUTATION_WORD.search(normalized):
+    grant_text = NEGATED_MUTATION.sub("", normalized)
+    if not MUTATION_WORD.search(grant_text):
         return False
-    if NEGATIVE_AUTH.search(normalized):
-        positives = list(POSITIVE_AUTH.finditer(normalized))
+    if NEGATIVE_AUTH.search(grant_text):
+        positives = list(POSITIVE_AUTH.finditer(grant_text))
         if not positives:
             return False
         for match in positives:
-            window = normalized[max(0, match.start() - 28): match.end() + 28]
+            window = grant_text[max(0, match.start() - 28): match.end() + 28]
             if not NEGATIVE_AUTH.search(window):
                 return True
         return False
-    return bool(POSITIVE_AUTH.search(normalized))
+    return bool(POSITIVE_AUTH.search(grant_text))
 
 
 def _repo_specific_window(clause: str, repository: str, radius: int = 140) -> str:
@@ -379,13 +384,18 @@ def _repository_identifiers_in_grant_clause(clause: str) -> list[str]:
         repository = match.group(1)
         before = normalized[max(0, match.start() - 150):match.start()]
         after = normalized[match.end():match.end() + 100]
-        mutation_before = bool(re.search(
+        mutation_match = re.search(
             rf"\b{MUTATION_TERM}\b"
             r"(?:\s+(?:the|a|an|any|repository|repo|files?|content|code|changes?|branches?|commits?|metadata|access|operations?)){0,6}"
             r"(?:\s+(?:in|to|into|of|on|within|for))?\s*$",
             before,
             flags=re.I,
-        ))
+        )
+        mutation_before = bool(mutation_match)
+        if mutation_match:
+            prefix = before[max(0, mutation_match.start() - 12):mutation_match.start()]
+            if re.search(r"\b(?:not|never)\s+$", prefix, flags=re.I):
+                mutation_before = False
         writable_after = bool(re.match(r"\s+(?:is\s+|are\s+)?writable\b", after, flags=re.I))
         passive_mutation_after = bool(re.match(
             rf"\s+(?:(?:may|can)\s+be\s+{MUTATION_TERM}\b|"
