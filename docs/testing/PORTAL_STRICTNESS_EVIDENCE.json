@@ -116,10 +116,10 @@
         "not_found": {"status": "covered", "evidence": {"file": "scripts/acceptance/tests/portal-487-strictness-acceptance.spec.mjs", "markers": ["@portal-487-strictness public not-found accessibility overflow server-failure recovery", "'/not-a-real-portal-487-route'"]}},
         "csrf_expiry": {"status": "not_applicable", "rule": "read_only_surface", "reason": "Home, sitemap and robots routes are read-only GET/HEAD requests and have no mutation contract, so CSRF expiry cannot be produced by this exact public surface."},
         "rate_limit": {"status": "not_applicable", "rule": "no_throttle_middleware", "reason": "Home, sitemap and robots routes do not declare throttle middleware; runtime route metadata is checked before the rate-limit category is accepted as not applicable."},
-        "server_failure": {"status": "covered", "evidence": {"file": "scripts/acceptance/tests/portal-487-strictness-acceptance.spec.mjs", "markers": ["@portal-487-strictness public not-found accessibility overflow server-failure recovery", "['public.home-and-seo', '/']"]}},
-        "recovery": {"status": "covered", "evidence": {"file": "scripts/acceptance/tests/portal-487-strictness-acceptance.spec.mjs", "markers": ["@portal-487-strictness public not-found accessibility overflow server-failure recovery", "portalFixture('restore', surface);"]}}
+        "server_failure": {"status": "covered", "evidence": {"file": "scripts/acceptance/tests/portal-487-strictness-acceptance.spec.mjs", "markers": ["@portal-487-strictness public not-found accessibility overflow server-failure recovery", "expectGracefulHomeNewsFailureRecovery(page);", "toHaveAttribute('data-content-state', 'UNAVAILABLE')"]}},
+        "recovery": {"status": "covered", "evidence": {"file": "scripts/acceptance/tests/portal-487-strictness-acceptance.spec.mjs", "markers": ["@portal-487-strictness public not-found accessibility overflow server-failure recovery", "expectGracefulHomeNewsFailureRecovery(page);", "not.toHaveAttribute('data-content-state', 'UNAVAILABLE')"]}}
       },
-      "overflow": {"status": "covered", "evidence": {"file": "scripts/acceptance/tests/portal-487-strictness-acceptance.spec.mjs", "markers": ["@portal-487-strictness public not-found accessibility overflow server-failure recovery", "['public.home-and-seo', '/']", "assertNoOverflow(page);"]}}
+      "overflow": {"status": "covered", "evidence": {"file": "scripts/acceptance/tests/portal-487-strictness-acceptance.spec.mjs", "markers": ["@portal-487-strictness public not-found accessibility overflow server-failure recovery", "expectGracefulHomeNewsFailureRecovery(page);", "assertNoOverflow(page);"]}}
     },
     "public.localization-core": {
       "state_categories": {
