@@ -183,12 +183,25 @@ def _repo_has_positive_read_only_assertion(statement: str, repository: str) -> b
     return False
 
 
+def _has_positive_mutation_authorization(lowered: str) -> bool:
+    """Recognize actual grants while ignoring nearby denial/negation language."""
+    positive = re.compile(r"\b(?:allowed|allow|allows|authorize|authorizes|authorized|authorization|permit|permits|permitted|may|can)\b")
+    for match in positive.finditer(lowered):
+        before = lowered[max(0, match.start() - 24):match.start()]
+        after = lowered[match.end():match.end() + 12]
+        if re.search(r"\b(?:not|never|no|isn't|isn’t|cannot|can't|can’t)\s*$", before):
+            continue
+        if match.group(0) in {"may", "can"} and re.match(r"\s+(?:not|never)\b", after):
+            continue
+        return True
+    return False
+
+
 def _statement_grants_repository_mutation(lowered: str) -> bool:
     mutation = bool(
         re.search(r"\b(?:write|writes|edit|edits|push|pushes|merge|merges|mutat(?:e|es|ion))\b", lowered)
     )
-    authorization = any(marker in lowered for marker in ("allow", "authoriz", "permit", "may ", "can "))
-    return mutation and authorization
+    return mutation and _has_positive_mutation_authorization(lowered)
 
 
 def _reject_contradictory_repository_mutation_grants(
