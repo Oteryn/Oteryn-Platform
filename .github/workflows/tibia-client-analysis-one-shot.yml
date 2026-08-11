@@ -28,9 +28,9 @@ jobs:
         run: |
           set -Eeuo pipefail
           printf 'runner_name=%s\nrunner_os=%s\nrunner_arch=%s\n' "$RUNNER_NAME" "$RUNNER_OS" "$RUNNER_ARCH"
+          [[ "$RUNNER_NAME" == "oteryn-synology-staging" ]]
           docker version >/dev/null
           docker info --format 'docker_root={{.DockerRootDir}} server={{.ServerVersion}}'
-          test -d /volume1/docker/oteryn
           docker ps -a --filter 'label=com.docker.compose.project=oteryn-staging' \
             --format '{{.ID}}\t{{.Names}}' | sort > /tmp/oteryn-canonical-before.tsv
           cat /tmp/oteryn-canonical-before.tsv
@@ -45,7 +45,6 @@ jobs:
         shell: bash
         run: |
           set -Eeuo pipefail
-          mkdir -p "$HOST_DATA_DIR"
           if ! docker inspect "$CONTAINER_NAME" >/dev/null 2>&1; then
             docker run -d \
               --name "$CONTAINER_NAME" \
@@ -154,7 +153,9 @@ jobs:
         shell: bash
         run: |
           set -Eeuo pipefail
-          docker ps -a --filter 'label=com.docker.compose.project=oteryn-staging' \
-            --format '{{.ID}}\t{{.Names}}' | sort > /tmp/oteryn-canonical-after.tsv
-          diff -u /tmp/oteryn-canonical-before.tsv /tmp/oteryn-canonical-after.tsv
+          if [[ -f /tmp/oteryn-canonical-before.tsv ]]; then
+            docker ps -a --filter 'label=com.docker.compose.project=oteryn-staging' \
+              --format '{{.ID}}\t{{.Names}}' | sort > /tmp/oteryn-canonical-after.tsv
+            diff -u /tmp/oteryn-canonical-before.tsv /tmp/oteryn-canonical-after.tsv
+          fi
           docker inspect --format 'analysis_name={{.Name}} status={{.State.Status}} restart={{.HostConfig.RestartPolicy.Name}} owner={{ index .Config.Labels "com.blakinio.owner" }} purpose={{ index .Config.Labels "com.blakinio.purpose" }}' "$CONTAINER_NAME" || true
