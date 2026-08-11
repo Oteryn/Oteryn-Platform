@@ -56,6 +56,12 @@ class PolicyConsistencyTests(unittest.TestCase):
         path.write_text(path.read_text(encoding="utf-8") + "\nUse these checkpoint task statuses only:\n\n```text\ninvestigating | implementing | validating | ready | waiting | blocked\n```\n", encoding="utf-8")
         self.assertIn("checkpoint task statuses drift", self._findings(root))
 
+    def test_outer_fenced_status_example_is_not_authoritative(self) -> None:
+        temporary, root = self._fixture(); self.addCleanup(temporary.cleanup)
+        path = root / "docs/agents/AGENTS.md"
+        path.write_text(path.read_text(encoding="utf-8") + "\n````markdown\nUse these checkpoint task statuses only:\n\n```text\ninvestigating | implementing | validating | ready | waiting | blocked\n```\n````\n", encoding="utf-8")
+        self.assertEqual([], validate_policy(root))
+
     def test_combined_emphasis_conflicting_status_declaration_fails_closed(self) -> None:
         temporary, root = self._fixture(); self.addCleanup(temporary.cleanup)
         path = root / "docs/agents/AGENTS.md"
@@ -109,6 +115,16 @@ class PolicyConsistencyTests(unittest.TestCase):
         findings = self._findings(root)
         self.assertIn("contradictory repository mutation authorization", findings)
         self.assertIn("acme/production", findings)
+
+    def test_intervening_edit_object_grant_fails_closed(self) -> None:
+        temporary, root = self._fixture(); self.addCleanup(temporary.cleanup)
+        self._append_root(root, "- Agents may edit files in acme/production autonomously.")
+        self.assertIn("acme/production", self._findings(root))
+
+    def test_intervening_push_object_grant_fails_closed(self) -> None:
+        temporary, root = self._fixture(); self.addCleanup(temporary.cleanup)
+        self._append_root(root, "- Agents may push changes to acme/production autonomously.")
+        self.assertIn("acme/production", self._findings(root))
 
     def test_gerund_repository_edit_grant_fails_closed(self) -> None:
         temporary, root = self._fixture(); self.addCleanup(temporary.cleanup)
@@ -166,6 +182,16 @@ class PolicyConsistencyTests(unittest.TestCase):
         temporary, root = self._fixture(); self.addCleanup(temporary.cleanup)
         self._append_root(root, "- Writes to acme/production are allowed only when explicit permission is granted by the project owner for the current task.")
         self.assertEqual([], validate_policy(root))
+
+    def test_denied_passive_authorization_is_not_an_exception(self) -> None:
+        temporary, root = self._fixture(); self.addCleanup(temporary.cleanup)
+        self._append_root(root, "- Writes to acme/production are allowed only when explicit permission is denied by the project owner for the current task.")
+        self.assertIn("acme/production", self._findings(root))
+
+    def test_withheld_passive_authorization_is_not_an_exception(self) -> None:
+        temporary, root = self._fixture(); self.addCleanup(temporary.cleanup)
+        self._append_root(root, "- Writes to acme/production are allowed only when explicit permission is withheld by the project owner for the current task.")
+        self.assertIn("acme/production", self._findings(root))
 
     def test_negated_passive_authorization_is_not_an_exception(self) -> None:
         temporary, root = self._fixture(); self.addCleanup(temporary.cleanup)
