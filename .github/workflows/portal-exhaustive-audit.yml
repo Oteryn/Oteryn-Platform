@@ -6,6 +6,10 @@ on:
       - main
     paths:
       - '.github/workflows/portal-exhaustive-audit.yml'
+      - '.github/workflows/wiki-reconciliation-acceptance.yml'
+      - '.github/workflows/editorial-media-acceptance.yml'
+      - '.github/workflows/portal-exhaustive-acceptance.yml'
+      - '.github/workflows/acceptance-validation.yml'
       - 'tools/audit/portal_exhaustive_audit.py'
       - 'tools/audit/portal_exhaustive_reconcile.py'
       - 'tools/audit/portal_exhaustive_strictness.py'
@@ -33,6 +37,10 @@ on:
       - main
     paths:
       - '.github/workflows/portal-exhaustive-audit.yml'
+      - '.github/workflows/wiki-reconciliation-acceptance.yml'
+      - '.github/workflows/editorial-media-acceptance.yml'
+      - '.github/workflows/portal-exhaustive-acceptance.yml'
+      - '.github/workflows/acceptance-validation.yml'
       - 'tools/audit/portal_exhaustive_audit.py'
       - 'tools/audit/portal_exhaustive_reconcile.py'
       - 'tools/audit/portal_exhaustive_strictness.py'
