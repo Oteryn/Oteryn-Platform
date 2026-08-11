@@ -62,6 +62,12 @@ class PolicyConsistencyTests(unittest.TestCase):
         path.write_text(path.read_text(encoding="utf-8") + "\n````markdown\nUse these checkpoint task statuses only:\n\n```text\ninvestigating | implementing | validating | ready | waiting | blocked\n```\n````\n", encoding="utf-8")
         self.assertEqual([], validate_policy(root))
 
+    def test_nested_yaml_status_example_is_not_authoritative(self) -> None:
+        temporary, root = self._fixture(); self.addCleanup(temporary.cleanup)
+        path = root / "docs/agents/ANTI_STALL_AND_EXECUTION_BUDGET.md"
+        path.write_text(path.read_text(encoding="utf-8") + "\n````markdown\n```yaml\ncheckpoint_task_statuses:\n  - investigating\n  - implementing\n  - validating\n  - ready\n  - waiting\n  - blocked\n```\n````\n", encoding="utf-8")
+        self.assertEqual([], validate_policy(root))
+
     def test_combined_emphasis_conflicting_status_declaration_fails_closed(self) -> None:
         temporary, root = self._fixture(); self.addCleanup(temporary.cleanup)
         path = root / "docs/agents/AGENTS.md"
@@ -107,6 +113,12 @@ class PolicyConsistencyTests(unittest.TestCase):
     def test_fenced_budget_example_is_not_authoritative(self) -> None:
         temporary, root = self._fixture(); self.addCleanup(temporary.cleanup)
         self._append_override(root, "````markdown\nDefault to 999 minutes per foreground invocation\n```text\nDefault to 998 minutes per foreground invocation\n```\n````")
+        self.assertEqual([], validate_policy(root))
+
+    def test_nested_yaml_budget_example_is_not_authoritative(self) -> None:
+        temporary, root = self._fixture(); self.addCleanup(temporary.cleanup)
+        path = root / "docs/agents/ANTI_STALL_AND_EXECUTION_BUDGET.md"
+        path.write_text(path.read_text(encoding="utf-8") + "\n````markdown\n```yaml\nnormal_foreground_runtime_minutes: 999\n```\n````\n", encoding="utf-8")
         self.assertEqual([], validate_policy(root))
 
     def test_repository_scope_marker_drift_fails_closed(self) -> None:
@@ -181,6 +193,21 @@ class PolicyConsistencyTests(unittest.TestCase):
     def test_explicit_user_authorization_exception_is_not_a_contradiction(self) -> None:
         temporary, root = self._fixture(); self.addCleanup(temporary.cleanup)
         self._append_root(root, "- Writes to `acme/production` are allowed only when the user explicitly authorizes that repository in the current task.")
+        self.assertEqual([], validate_policy(root))
+
+    def test_read_authorization_does_not_unlock_foreign_repository_writes(self) -> None:
+        temporary, root = self._fixture(); self.addCleanup(temporary.cleanup)
+        self._append_root(root, "- Writes to acme/production are allowed only when the project owner explicitly authorizes read access in the current task.")
+        self.assertIn("acme/production", self._findings(root))
+
+    def test_other_repository_authorization_does_not_unlock_target_writes(self) -> None:
+        temporary, root = self._fixture(); self.addCleanup(temporary.cleanup)
+        self._append_root(root, "- Writes to acme/production are allowed only when the user explicitly authorizes acme/other in the current task.")
+        self.assertIn("acme/production", self._findings(root))
+
+    def test_matching_write_authorization_is_not_a_contradiction(self) -> None:
+        temporary, root = self._fixture(); self.addCleanup(temporary.cleanup)
+        self._append_root(root, "- Writes to acme/production are allowed only when the project owner explicitly authorizes write access to acme/production in the current task.")
         self.assertEqual([], validate_policy(root))
 
     def test_unless_authorized_is_not_an_exception(self) -> None:
