@@ -6,6 +6,10 @@ on:
       - main
     paths:
       - '.github/workflows/portal-exhaustive-audit.yml'
+      - '.github/workflows/wiki-reconciliation-acceptance.yml'
+      - '.github/workflows/editorial-media-acceptance.yml'
+      - '.github/workflows/portal-exhaustive-acceptance.yml'
+      - '.github/workflows/acceptance-validation.yml'
       - 'tools/audit/portal_exhaustive_audit.py'
       - 'tools/audit/portal_exhaustive_reconcile.py'
       - 'tools/audit/portal_exhaustive_strictness.py'
@@ -39,12 +43,15 @@ on:
       - 'scripts/acceptance/seed-browser-editorial-media.php'
       - 'scripts/acceptance/tests/editorial-media-acceptance.spec.mjs'
       - 'scripts/acceptance/coverage/portal-coverage-manifest.json'
-      - '.github/workflows/editorial-media-acceptance.yml'
   push:
     branches:
       - main
     paths:
       - '.github/workflows/portal-exhaustive-audit.yml'
+      - '.github/workflows/wiki-reconciliation-acceptance.yml'
+      - '.github/workflows/editorial-media-acceptance.yml'
+      - '.github/workflows/portal-exhaustive-acceptance.yml'
+      - '.github/workflows/acceptance-validation.yml'
       - 'tools/audit/portal_exhaustive_audit.py'
       - 'tools/audit/portal_exhaustive_reconcile.py'
       - 'tools/audit/portal_exhaustive_strictness.py'
@@ -78,7 +85,6 @@ on:
       - 'scripts/acceptance/seed-browser-editorial-media.php'
       - 'scripts/acceptance/tests/editorial-media-acceptance.spec.mjs'
       - 'scripts/acceptance/coverage/portal-coverage-manifest.json'
-      - '.github/workflows/editorial-media-acceptance.yml'
   workflow_dispatch:
 
 permissions:
