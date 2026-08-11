@@ -15,11 +15,11 @@ env:
 
 jobs:
   build-decoder:
-    name: Build launcher-compatible LZMA decoder
+    name: Build manifest-aware Tibia LZMA decoder
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - name: Build static decoder with ulikunitz xz/lzma
+      - name: Build static decoder with manifest size repair
         shell: bash
         run: |
           set -Eeuo pipefail
@@ -29,26 +29,39 @@ jobs:
           package main
 
           import (
+            "bytes"
+            "encoding/binary"
+            "encoding/hex"
             "fmt"
             "io"
             "os"
+            "strconv"
             "github.com/ulikunitz/xz/lzma"
           )
 
           func main() {
-            if len(os.Args) != 3 {
-              fmt.Fprintln(os.Stderr, "usage: tibia-lzma-decode INPUT OUTPUT")
+            if len(os.Args) != 4 {
+              fmt.Fprintln(os.Stderr, "usage: tibia-lzma-decode INPUT OUTPUT EXPECTED_SIZE")
               os.Exit(2)
             }
-            in, err := os.Open(os.Args[1])
+            expected, err := strconv.ParseUint(os.Args[3], 10, 64)
             if err != nil { panic(err) }
-            defer in.Close()
-            r, err := lzma.NewReader(in)
+            data, err := os.ReadFile(os.Args[1])
+            if err != nil { panic(err) }
+            if len(data) < 13 { panic("input shorter than LZMA header") }
+            original := append([]byte(nil), data[:13]...)
+            originalSize := binary.LittleEndian.Uint64(original[5:13])
+            fmt.Printf("original_header=%s original_size_field=%d expected_size=%d\n", hex.EncodeToString(original), originalSize, expected)
+            binary.LittleEndian.PutUint64(data[5:13], expected)
+            fmt.Printf("repaired_header=%s\n", hex.EncodeToString(data[:13]))
+            r, err := lzma.NewReader(bytes.NewReader(data))
             if err != nil { panic(err) }
             out, err := os.Create(os.Args[2])
             if err != nil { panic(err) }
-            if _, err = io.Copy(out, r); err != nil { panic(err) }
+            n, err := io.Copy(out, r)
+            if err != nil { panic(err) }
             if err = out.Close(); err != nil { panic(err) }
+            fmt.Printf("decoded_bytes=%d\n", n)
           }
           EOF
           go mod init tibia-lzma-decode
@@ -92,7 +105,7 @@ jobs:
           chmod 0755 "$RUNNER_TEMP/tibia-decoder/tibia-lzma-decode"
           docker cp "$RUNNER_TEMP/tibia-decoder/tibia-lzma-decode" "$CONTAINER_NAME:/usr/local/bin/tibia-lzma-decode"
           docker exec "$CONTAINER_NAME" chmod 0755 /usr/local/bin/tibia-lzma-decode
-      - name: Verify packed client and decode with launcher-compatible library
+      - name: Decode using manifest size and verify cryptographic identity
         shell: bash
         run: |
           set -Eeuo pipefail
@@ -104,7 +117,7 @@ jobs:
             echo "packed_sha256=$packed"
             [[ "$packed" == "496c5b3517c0996a1bbd0e76a7738d450f79d0bf4fef140a807044776042dc9b" ]]
             rm -f client
-            /usr/local/bin/tibia-lzma-decode client.lzma client
+            /usr/local/bin/tibia-lzma-decode client.lzma client 51965216
             chmod 0755 client
             unpacked="$(sha256sum client | awk "{print \$1}")"
             size="$(stat -c %s client)"
