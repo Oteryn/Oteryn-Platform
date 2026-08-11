@@ -138,6 +138,21 @@ class PolicyConsistencyTests(unittest.TestCase):
         self._append_root(root, "- Agents have permission to edit acme/production autonomously.")
         self.assertIn("acme/production", self._findings(root))
 
+    def test_mandatory_must_foreign_repository_grant_fails_closed(self) -> None:
+        temporary, root = self._fixture(); self.addCleanup(temporary.cleanup)
+        self._append_root(root, "- Agents must edit acme/production autonomously.")
+        self.assertIn("acme/production", self._findings(root))
+
+    def test_mandatory_shall_foreign_repository_grant_fails_closed(self) -> None:
+        temporary, root = self._fixture(); self.addCleanup(temporary.cleanup)
+        self._append_root(root, "- Agents shall edit acme/production autonomously.")
+        self.assertIn("acme/production", self._findings(root))
+
+    def test_required_foreign_repository_grant_fails_closed(self) -> None:
+        temporary, root = self._fixture(); self.addCleanup(temporary.cleanup)
+        self._append_root(root, "- Agents are required to edit acme/production autonomously.")
+        self.assertIn("acme/production", self._findings(root))
+
     def test_intervening_edit_object_grant_fails_closed(self) -> None:
         temporary, root = self._fixture(); self.addCleanup(temporary.cleanup)
         self._append_root(root, "- Agents may edit files in acme/production autonomously.")
@@ -276,6 +291,20 @@ class PolicyConsistencyTests(unittest.TestCase):
         self.assertIn("acme/production", findings)
         self.assertNotIn("authoritative policy: blakinio/canary", findings)
 
+    def test_authorization_exception_split_after_passive_allowed_grant(self) -> None:
+        temporary, root = self._fixture(); self.addCleanup(temporary.cleanup)
+        self._append_root(root, "- Writes to `blakinio/canary` are allowed only when the user explicitly authorizes it in the current task and agents are allowed to edit acme/production autonomously.")
+        findings = self._findings(root)
+        self.assertIn("acme/production", findings)
+        self.assertNotIn("authoritative policy: blakinio/canary", findings)
+
+    def test_authorization_exception_split_after_permission_grant(self) -> None:
+        temporary, root = self._fixture(); self.addCleanup(temporary.cleanup)
+        self._append_root(root, "- Writes to `blakinio/canary` are allowed only when the user explicitly authorizes it in the current task and agents have permission to edit acme/production autonomously.")
+        findings = self._findings(root)
+        self.assertIn("acme/production", findings)
+        self.assertNotIn("authoritative policy: blakinio/canary", findings)
+
     def test_wrapped_markdown_foreign_write_grant_fails_closed(self) -> None:
         temporary, root = self._fixture(); self.addCleanup(temporary.cleanup)
         self._append_root(root, "- Autonomous writes to acme/production\n  are explicitly allowed.")
@@ -296,6 +325,11 @@ class PolicyConsistencyTests(unittest.TestCase):
     def test_denied_foreign_repository_mutation_is_not_a_grant(self) -> None:
         temporary, root = self._fixture(); self.addCleanup(temporary.cleanup)
         self._append_root(root, "- Agents are not allowed to edit acme/production autonomously.")
+        self.assertEqual([], validate_policy(root))
+
+    def test_mandatory_mutation_denial_is_not_a_grant(self) -> None:
+        temporary, root = self._fixture(); self.addCleanup(temporary.cleanup)
+        self._append_root(root, "- Agents must not edit acme/production autonomously.")
         self.assertEqual([], validate_policy(root))
 
     def test_shared_modal_mutation_denial_is_not_a_grant(self) -> None:
