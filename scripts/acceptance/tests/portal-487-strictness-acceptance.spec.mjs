@@ -10,6 +10,7 @@ import {
   uniqueEmail,
 } from './helpers.mjs';
 
+const acceptanceBaseURL = process.env.ACCEPTANCE_BASE_URL ?? 'http://127.0.0.1:8080';
 const adminPassword = 'AcceptancePortal487Admin!234';
 const supportPassword = 'AcceptancePortal487Support!234';
 const adminMarker = '@portal-487-strictness admin-cms not-found csrf-419 server-failure recovery';
@@ -68,7 +69,7 @@ async function assertNoOverflow(page) {
 }
 
 async function csrfStatus(page, path, method = 'POST') {
-  const target = new URL(path, page.url()).toString();
+  const target = new URL(path, acceptanceBaseURL).toString();
   await page.goto('data:text/html,<title>Cross-site CSRF acceptance probe</title>');
 
   const responsePromise = page.waitForResponse((response) => {
