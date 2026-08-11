@@ -85,7 +85,7 @@ jobs:
           persist-credentials: false
 
       - name: Reuse exact Gateway build artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: native-auth-rehearsal-gateway
           path: gateway-artifact
@@ -94,7 +94,7 @@ jobs:
           run-id: ${{ env.GATEWAY_BUILD_RUN }}
 
       - name: Reuse exact Canary build artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: native-auth-rehearsal-canary-cache-headers
           path: canary-artifact
@@ -103,7 +103,7 @@ jobs:
           run-id: ${{ env.CANARY_BUILD_RUN }}
 
       - name: Reuse exact fixed OTClient release artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: linux-linux-release
           path: otclient-artifact
@@ -300,7 +300,7 @@ jobs:
 
       - name: Upload sanitized rehearsal evidence
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: native-auth-ephemeral-cutover-evidence
           path: artifacts/native-auth-ephemeral-cutover/
