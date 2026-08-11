@@ -330,7 +330,7 @@ test(supportMarker, async ({ page }) => {
   expect(response?.status()).toBe(404);
 
   await page.goto('/support/tickets/create');
-  const csrfToken = await page.locator('input[name="_token"]').inputValue();
+  const csrfToken = await page.locator('#main-content input[name="_token"]').inputValue();
   expect(csrfToken).toBeTruthy();
 
   const statuses = [];
