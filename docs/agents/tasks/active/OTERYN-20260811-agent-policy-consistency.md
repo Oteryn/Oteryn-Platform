@@ -61,8 +61,8 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-11T16:44:04Z
-head: 58084c96884b775ec60fc1482aa0836638b09bb7
+updated_at: 2026-08-11T18:59:00+02:00
+head: 767b220335d7b7f07c670521dce2777c7d6e3d38
 branch: test/agent-policy-consistency
 pr: 992
 status: validating
@@ -79,25 +79,26 @@ owned_paths:
   - docs/agents/tasks/active/OTERYN-20260811-agent-policy-consistency.md
   - docs/agents/tasks/archive/OTERYN-20260811-agent-policy-consistency.md
 proven:
-  - Protected main advanced to a6943dca8622e43e0781786f49c93085cc1104df after PR #1001 squash-merged with exact-head CI and fresh Codex review clean.
-  - Merge commit 58084c96884b775ec60fc1482aa0836638b09bb7 incorporates protected main a6943dca8622e43e0781786f49c93085cc1104df and implementation head 4b06796fe08caf1da45228da349b7ce6795a2aff without conflict.
-  - Earlier exact head 27ffd7d6a9d95a1ca753899920207d4ad3074bdf passed all generated repository gates before fresh review raised one additional P1 about unscoped use of the word explicit.
-  - tools/agents/policy_consistency.py now preserves the prior current-governance parser and accepts a foreign-repository write exception only when the line explicitly identifies the user, authorization, and current-task/write-task scope.
-  - tools/agents/test_policy_consistency.py includes a negative regression for an unscoped explicitly-allowed foreign write grant and retains the positive current-task user-authorization case.
-  - The directory-based .github/PULL_REQUEST_TEMPLATE/** governance-only classifier repair and regression remain present.
+  - Protected main ab43c4b47173e7208d34851c4091f79051379f7a includes terminal Actions-major archive PR #1005 and releases its workflow ownership.
+  - Implementation commit 767b220335d7b7f07c670521dce2777c7d6e3d38 has exactly one parent, protected main ab43c4b47173e7208d34851c4091f79051379f7a.
+  - Compare main...767b2203 is behind_by=0 and changes exactly the six declared task-owned paths.
+  - Repository-scope validation rejects unconditional foreign write grants whether repository identifiers are backticked or plain text, does not treat negated read-only wording as an exemption, and only accepts explicit user authorization scoped to the current task/write task.
+  - Budget validation checks all matching declarations and rejects contradictory duplicate values.
+  - Pull-request-template directory routing remains governance-only and regression-covered.
+  - Focused regressions cover the fresh unquoted-repository, negated-read-only, duplicate-budget, explicit-current-task authorization and prior scope/status/closeout findings.
 derived:
-  - All currently known review findings have an implementation repair; merge readiness still requires a fresh unchanged-head generation.
+  - All currently known material review findings have implementation repairs; final merge readiness depends on unchanged-head CI and fresh review.
 unknown:
-  - Terminal result of the final exact-head required checks after this checkpoint commit.
-  - Fresh Codex review result for the final head.
+  - Terminal result of the exact-head required checks generated from this metadata-only checkpoint revision.
+  - Fresh Codex review result for the final branch head.
 conflicts: []
 first_failure:
-  marker: codex-review-current-task-authorization
-  evidence: fresh review on 27ffd7d6a9d95a1ca753899920207d4ad3074bdf showed that a foreign write grant containing only the word explicit could bypass the contradiction detector.
+  marker: historical-codex-policy-consistency-review-findings
+  evidence: prior Codex reviews exposed repository-scope, template-routing and duplicate-budget fail-closed gaps; all are repaired in the current implementation and covered by regressions.
 rejected_hypotheses:
-  - Any line containing explicit proves user authorization; the final parser requires explicit user authorization and current-task/write-task scope together.
-  - The accidental reconstructed validator on 6409dd20 was compatible with current governance; Agent Governance 31512968713 disproved that, so the known-good parser baseline was restored before the focused P1 repair.
-  - Prior green checks remain sufficient after the focused repair and restack; a new exact-head generation is required.
+  - A foreign grant is safe merely because it contains explicit or read-only wording; effective authorization must remain conditional on explicit user authorization for the current task.
+  - Checking only the first matching budget declaration is fail closed; conflicting duplicate declarations must also be rejected.
+  - Prior exact-head evidence remains sufficient after implementation changes; a fresh exact-head generation is required.
 changed_paths:
   - .github/workflows/agent-governance.yml
   - docs/agents/tasks/active/OTERYN-20260811-agent-policy-consistency.md
@@ -106,15 +107,15 @@ changed_paths:
   - tools/agents/policy_consistency.py
   - tools/agents/test_policy_consistency.py
 validation:
-  - command: prior repository-required exact-head generation on 27ffd7d6a9d95a1ca753899920207d4ad3074bdf
+  - command: current-main clean restack comparison
     result: PASS
-    evidence: Agent Governance, CI, Deep System, Phase 7, Platform DB Outage, Edge Security and Game Auth Ticket Concurrency all completed successfully.
-  - command: final exact-head required checks after current-task authorization repair and main restack
+    evidence: ab43c4b47173e7208d34851c4091f79051379f7a...767b220335d7b7f07c670521dce2777c7d6e3d38 is behind_by=0, ahead_by=1 and exactly six task-owned files.
+  - command: final exact-head required checks and fresh review
     result: NOT_RUN
-    evidence: this checkpoint creates the final validation generation and no implementation write should follow unless a gate or fresh review finds a defect.
+    evidence: this metadata-only checkpoint revision creates the final validation generation; no implementation write should follow unless a gate or fresh review proves a defect.
 blockers:
   - none
-next_action: Require exact-head generated checks and fresh Codex review to pass on the unchanged final head; resolve repaired review threads, squash-merge PR #992, verify main, and perform terminal Issue #991/task archival closeout.
+next_action: Validate the unchanged final branch head with repository-required CI and fresh Codex review; resolve all repaired review threads, squash-merge PR #992 with expected-head protection, verify resulting main, close Issue #991 and archive this task.
 ```
 
 ## Recovery checkpoint
@@ -122,23 +123,23 @@ next_action: Require exact-head generated checks and fresh Codex review to pass 
 ```yaml
 recovery:
   policy_version: 1
-  generation: 10
+  generation: 11
   session_id: agent-20260811-final-closeout
-  session_started_at: 2026-08-11T16:44:04Z
-  checkpointed_at: 2026-08-11T16:44:04Z
-  last_progress_at: 2026-08-11T16:44:04Z
+  session_started_at: 2026-08-11T18:59:00+02:00
+  checkpointed_at: 2026-08-11T18:59:00+02:00
+  last_progress_at: 2026-08-11T18:59:00+02:00
   phase: final-exact-head-validation
-  exact_head: 58084c96884b775ec60fc1482aa0836638b09bb7
+  exact_head: 767b220335d7b7f07c670521dce2777c7d6e3d38
   pull_request: 992
-  active_operation: validate current-task authorization repair on refreshed main
+  active_operation: validate clean current-main policy-consistency candidate
   external_run_ids: []
-  operation_started_at: 2026-08-11T16:44:04Z
-  wait_deadline_at: 2026-08-11T17:29:04Z
-  check_generation: current-task-authorization-final
+  operation_started_at: 2026-08-11T18:59:00+02:00
+  wait_deadline_at: 2026-08-11T19:44:00+02:00
+  check_generation: clean-restack-final
   checks_used: 0
   status: active
   safe_to_resume: true
-  resume_condition: exact-head checks and fresh review are terminal and head remains unchanged
+  resume_condition: exact-head checks and fresh review are terminal and branch head remains unchanged
   next_action: inspect final validation and review, then merge only if every gate is green
 ```
 
