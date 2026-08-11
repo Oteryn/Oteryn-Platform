@@ -1,4 +1,4 @@
-# recovery + bounded reverse trigger: 2026-08-11T23:56+02:00
+# bounded native xref trigger: 2026-08-11T23:58+02:00
 name: Tibia Client Analysis Continue
 
 on:
@@ -17,42 +17,27 @@ env:
 
 jobs:
   continue:
-    name: Recover owned analysis runtime and bound decoded map xrefs
+    name: Bound decoded Tibia map xrefs and descriptors
     runs-on: oteryn-staging
     timeout-minutes: 20
     steps:
-      - name: Diagnose exact owned analysis runtime
+      - name: Verify exact owned runtime and executable identity
         shell: bash
         run: |
           set -Eeuo pipefail
           [[ "$RUNNER_NAME" == "oteryn-synology-staging" ]]
           owner="$(docker inspect --format '{{ index .Config.Labels "com.blakinio.owner" }}' "$CONTAINER_NAME")"
           purpose="$(docker inspect --format '{{ index .Config.Labels "com.blakinio.purpose" }}' "$CONTAINER_NAME")"
-          [[ "$owner" == "oteryn" && "$purpose" == "tibia-client-analysis" ]]
+          state="$(docker inspect --format '{{.State.Status}}' "$CONTAINER_NAME")"
+          [[ "$owner" == "oteryn" && "$purpose" == "tibia-client-analysis" && "$state" == "running" ]]
           docker ps -a --filter 'label=com.docker.compose.project=oteryn-staging' --format '{{.ID}}\t{{.Names}}' | sort > /tmp/oteryn-before.tsv
           test -s /tmp/oteryn-before.tsv
-          docker inspect --format 'analysis_name={{.Name}} status={{.State.Status}} exit={{.State.ExitCode}} oom={{.State.OOMKilled}} error={{printf "%q" .State.Error}} started={{.State.StartedAt}} finished={{.State.FinishedAt}} restart_count={{.RestartCount}} owner={{ index .Config.Labels "com.blakinio.owner" }} purpose={{ index .Config.Labels "com.blakinio.purpose" }} restart_policy={{.HostConfig.RestartPolicy.Name}}' "$CONTAINER_NAME"
-          echo '=== owned mounts ==='
-          docker inspect --format '{{range .Mounts}}{{printf "%s\t%s\t%s\n" .Type .Source .Destination}}{{end}}' "$CONTAINER_NAME"
-          docker inspect --format '{{range .Mounts}}{{if eq .Destination "/data"}}{{.Source}}{{end}}{{end}}' "$CONTAINER_NAME" | grep -Fx '/volume1/docker/oteryn/tibia-analysis'
-
-      - name: Recover only the owned analysis container when stopped
-        shell: bash
-        run: |
-          set -Eeuo pipefail
-          owner="$(docker inspect --format '{{ index .Config.Labels "com.blakinio.owner" }}' "$CONTAINER_NAME")"
-          purpose="$(docker inspect --format '{{ index .Config.Labels "com.blakinio.purpose" }}' "$CONTAINER_NAME")"
-          state="$(docker inspect --format '{{.State.Status}}' "$CONTAINER_NAME")"
-          [[ "$owner" == "oteryn" && "$purpose" == "tibia-client-analysis" ]]
-          if [[ "$state" != "running" ]]; then docker start "$CONTAINER_NAME" >/dev/null; fi
-          [[ "$(docker inspect --format '{{.State.Status}}' "$CONTAINER_NAME")" == "running" ]]
           docker exec "$CONTAINER_NAME" bash -lc '
             set -Eeuo pipefail
             test -x /data/client-15.32.df7b29/bin/client
             [[ "$(stat -c %s /data/client-15.32.df7b29/bin/client)" == "51965216" ]]
             [[ "$(sha256sum /data/client-15.32.df7b29/bin/client | awk "{print \$1}")" == "e6c244bd39fe2e0632f6f000efd3147164696efa8e901718668e0442325ff7fe" ]]
             command -v objdump
-            command -v readelf
             test -x /data/reverse-venv/bin/python
           '
 
@@ -84,9 +69,7 @@ jobs:
               for sec in elf.iter_sections():
                   if not sec["sh_size"] or sec["sh_type"] == "SHT_NOBITS":
                       continue
-                  data = sec.data()
-                  sec_addr = sec["sh_addr"]
-                  sec_offset = sec["sh_offset"]
+                  data = sec.data(); sec_addr = sec["sh_addr"]; sec_offset = sec["sh_offset"]
                   for needle in needles:
                       start = 0
                       while True:
@@ -95,44 +78,83 @@ jobs:
                           print(f"{sec_addr+off:016x}\t{sec.name}\t{sec_offset+off:08x}\t{needle.decode()}")
                           start = off + 1
           PY
-            timeout 90s /data/reverse-venv/bin/python /data/map_target_vas.py | sort -u | tee /data/client-15.32.df7b29/map-target-vas.txt
+            timeout 90s /data/reverse-venv/bin/python /data/map_target_vas.py | sort -u > /data/client-15.32.df7b29/map-target-vas.txt
             test -s /data/client-15.32.df7b29/map-target-vas.txt
+            grep -E "TWorldmapProtocolMessageHandler|handleFullMapMessage|handleFieldDataMessage|GameserverMessageFullMap|GameserverMessageFieldData|MapFieldData|MapArea|TProtobufServerMessageTranslator|TWorldMapStorage" /data/client-15.32.df7b29/map-target-vas.txt | head -n 400
           '
 
-      - name: Recover direct RIP xrefs with bounded native objdump
+      - name: Recover direct RIP xrefs with streaming objdump parser
         shell: bash
         run: |
           set -Eeuo pipefail
           docker exec "$CONTAINER_NAME" bash -lc '
             set -Eeuo pipefail
-            cut -f1 /data/client-15.32.df7b29/map-target-vas.txt | sed "s/^0*//" | grep . | sort -u > /data/client-15.32.df7b29/map-target-va-regex.txt
-            regex="$(paste -sd"|" /data/client-15.32.df7b29/map-target-va-regex.txt)"
-            set +e
-            timeout 180s bash -c "objdump -d -C /data/client-15.32.df7b29/bin/client | grep -Ei '# [[:space:]]*(${regex})([[:space:]]|$)'" > /data/client-15.32.df7b29/map-direct-xrefs.txt
-            rc=$?
-            set -e
-            [[ "$rc" -eq 0 || "$rc" -eq 1 || "$rc" -eq 124 ]]
-            echo "objdump_pipeline_exit=$rc"
+            cat > /data/map_objdump_xrefs.py <<"PY"
+          import re, subprocess
+          from pathlib import Path
+          target_file = Path("/data/client-15.32.df7b29/map-target-vas.txt")
+          targets = {}
+          for line in target_file.read_text(errors="replace").splitlines():
+              parts = line.split("\t", 3)
+              if len(parts) == 4:
+                  targets.setdefault(int(parts[0], 16), []).append(parts[3])
+          out = Path("/data/client-15.32.df7b29/map-direct-xrefs.txt")
+          comment_re = re.compile(r"#\s*([0-9a-fA-F]+)(?:\s|$)")
+          count = 0
+          with out.open("w") as dst:
+              p = subprocess.Popen(["objdump", "-d", "-C", "/data/client-15.32.df7b29/bin/client"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, bufsize=1)
+              assert p.stdout is not None
+              for line in p.stdout:
+                  m = comment_re.search(line)
+                  if not m:
+                      continue
+                  dest = int(m.group(1), 16)
+                  labels = targets.get(dest)
+                  if labels:
+                      dst.write(line.rstrip() + "\tTARGET=" + ",".join(sorted(set(labels))) + "\n")
+                      count += 1
+              rc = p.wait()
+              if rc != 0:
+                  err = p.stderr.read() if p.stderr else ""
+                  raise SystemExit(f"objdump rc={rc}: {err[:1000]}")
+          print(f"direct_xref_count={count}")
+          PY
+            timeout 180s /data/reverse-venv/bin/python /data/map_objdump_xrefs.py
             echo '=== direct xrefs ==='
-            sed -n '1,240p' /data/client-15.32.df7b29/map-direct-xrefs.txt
-            echo '=== direct xref count ==='
-            wc -l /data/client-15.32.df7b29/map-direct-xrefs.txt
+            sed -n '1,400p' /data/client-15.32.df7b29/map-direct-xrefs.txt
           '
 
-      - name: Inspect protobuf and descriptor clues without full disassembly
+      - name: Disassemble bounded neighborhoods around direct xrefs
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          docker exec "$CONTAINER_NAME" bash -lc '
+            set -Eeuo pipefail
+            sed -n "s/^ *\([0-9a-f][0-9a-f]*\):.*/\1/p" /data/client-15.32.df7b29/map-direct-xrefs.txt | sort -u | head -n 120 > /data/client-15.32.df7b29/map-xref-addresses.txt
+            : > /data/client-15.32.df7b29/map-xref-disassembly.txt
+            while read -r a; do
+              [[ -n "$a" ]] || continue
+              start=$((16#$a - 128)); stop=$((16#$a + 256))
+              printf "\n=== around 0x%s ===\n" "$a" >> /data/client-15.32.df7b29/map-xref-disassembly.txt
+              timeout 10s objdump -d -C --start-address="$start" --stop-address="$stop" /data/client-15.32.df7b29/bin/client >> /data/client-15.32.df7b29/map-xref-disassembly.txt
+            done < /data/client-15.32.df7b29/map-xref-addresses.txt
+            sed -n '1,7000p' /data/client-15.32.df7b29/map-xref-disassembly.txt
+          '
+
+      - name: Inspect protobuf descriptor clues
         shell: bash
         run: |
           set -Eeuo pipefail
           docker exec "$CONTAINER_NAME" bash -lc '
             set -Eeuo pipefail
             timeout 90s strings -a -t x -n 3 /data/client-15.32.df7b29/bin/client > /data/client-15.32.df7b29/strings-all.txt
-            echo '=== selected target virtual addresses ==='
-            grep -E "TWorldmapProtocolMessageHandler|handleFullMapMessage|handleFieldDataMessage|GameserverMessageFullMap|GameserverMessageFieldData|MapFieldData|MapArea|AppearanceInstance|TProtobufServerMessageTranslator|TWorldMapStorage" /data/client-15.32.df7b29/map-target-vas.txt | head -n 500
-            echo '=== protobuf/schema clues ==='
-            grep -Ei "GameserverMessage(FullMap|FieldData|LeftColumn|RightColumn|TopRow|BottomRow|TopFloor|BottomFloor)|MapFieldData|MapArea|AppearanceInstance|\.proto|field_data|map_area|appearance_instance|appearance_id|object_id|coordinate|contents|stack_position" /data/client-15.32.df7b29/strings-all.txt | head -n 1800 || true
+            echo '=== schema/type clue lines ==='
+            grep -Ei "GameserverMessage(FullMap|FieldData|LeftColumn|RightColumn|TopRow|BottomRow|TopFloor|BottomFloor)|MapFieldData|MapArea|AppearanceInstance|\.proto|field_data|map_area|appearance_instance|appearance_id|object_id|coordinate|contents|stack_position" /data/client-15.32.df7b29/strings-all.txt | head -n 2200 || true
+            echo '=== protodesc sections ==='
+            readelf -S /data/client-15.32.df7b29/bin/client | grep -i proto || true
           '
 
-      - name: Verify canonical staging unchanged and owned runtime healthy
+      - name: Verify canonical staging unchanged
         if: always()
         shell: bash
         run: |
