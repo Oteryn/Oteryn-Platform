@@ -61,8 +61,8 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-11T23:42:00+02:00
-head: 430f3386e0ddde43f0210971502ad65046988f03
+updated_at: 2026-08-12T00:28:00+02:00
+head: e0deeb72e5450179c57b065b13d905b76af83506
 branch: test/agent-policy-consistency
 pr: 992
 status: validating
@@ -80,25 +80,26 @@ owned_paths:
   - docs/agents/tasks/archive/OTERYN-20260811-agent-policy-consistency.md
 proven:
   - Protected main ab43c4b47173e7208d34851c4091f79051379f7a is incorporated and the PR remains limited to the six declared task-owned paths.
-  - Fresh Codex review on checkpoint head 5225ee858d26ea5ad1a930081fbdde013af41f81 exposed three additional fail-closed variants: denied/withheld authorization predicates, mutation objects between operation and repository, and status declarations nested inside an outer fenced example.
-  - Implementation head 430f3386e0ddde43f0210971502ad65046988f03 requires an affirmative active/passive authorization predicate, associates common repository mutation object/preposition phrases, and extracts status/terminal declarations only outside outer fenced examples.
-  - Focused regressions cover denied, withheld and not-granted authorization; edit-files-in and push-changes-to repository grants; and nested outer-fence declaration suppression.
-  - Agent Governance run 31538306125 passed on implementation head 430f3386e0ddde43f0210971502ad65046988f03.
-  - CI 31538306185, Phase 7 31538306132, Edge Security 31538306181, Platform DB Outage 31538306238 and Game Auth Ticket Concurrency 31538306158 passed on implementation head 430f3386e0ddde43f0210971502ad65046988f03; Deep System Validation 31538306217 was still running at checkpoint time.
-  - The three fresh review threads from 5225ee858d26ea5ad1a930081fbdde013af41f81 are resolved after implementation and passing focused governance validation.
+  - Fresh Codex review on 530b4c6b8f3d4870e135e21a694d9db8a5748394 exposed three material findings: authorization exceptions were not bound to the actual write target, canonical YAML extraction admitted nested fenced examples, and this task checkpoint still described the older 430f338 implementation generation.
+  - Implementation head e0deeb72e5450179c57b065b13d905b76af83506 binds authorization exceptions to the relevant repository and mutation scope, rejects read-only or other-repository authorization as a write exception, and parses canonical anti-stall YAML only from top-level yaml fences.
+  - Focused regressions on e0deeb72e5450179c57b065b13d905b76af83506 cover nested YAML status and budget examples, read authorization not unlocking writes, authorization concerning another repository not unlocking the target, matching write authorization, and all previously repaired governance-policy variants.
+  - Agent Governance run 31542372168 passed on implementation head e0deeb72e5450179c57b065b13d905b76af83506 with 59 of 59 policy-consistency regressions, the live policy validator, checkpoint validation, live task liveness and Control Room validation all successful.
+  - Edge Security Emulation 31542372187 and Game Auth Ticket Concurrency 31542372160 passed on implementation head e0deeb72e5450179c57b065b13d905b76af83506.
+  - The authorization-target and nested-YAML review threads from the 530b4c6 review are resolved after the exact-head Agent Governance proof; the checkpoint-freshness thread remains open until this task-record update is committed.
 derived:
-  - All currently known material review findings have implementation repairs and regression coverage; this task-record-only commit creates the final checkpoint generation.
+  - All currently known parser findings have implementation repairs and focused regression coverage; this task-record-only update creates a fresh final checkpoint generation without changing runtime or parser behavior.
+  - The checkpoint records the latest material implementation head rather than attempting to record the SHA of the commit that contains the checkpoint itself; live GitHub state remains authoritative for the actual branch head.
 unknown:
   - Terminal repository-required check result on the checkpoint-only final head created by this update.
   - Fresh Codex review result for the checkpoint-only final head created by this update.
 conflicts: []
 first_failure:
-  marker: codex-affirmative-auth-object-association-and-outer-fence
-  evidence: Fresh Codex review on 5225ee858d26ea5ad1a930081fbdde013af41f81 identified three material variants; implementation head 430f3386e0ddde43f0210971502ad65046988f03 repairs each and Agent Governance 31538306125 passes.
+  marker: codex-authorization-target-nested-yaml-and-stale-checkpoint
+  evidence: Fresh Codex review on 530b4c6b8f3d4870e135e21a694d9db8a5748394 identified the three material findings; implementation head e0deeb72e5450179c57b065b13d905b76af83506 repairs the two code findings and Agent Governance 31542372168 proves 59 focused regressions plus the live validator pass, while this update repairs the checkpoint finding.
 rejected_hypotheses:
-  - Presence of permission/authorization vocabulary is enough to prove authorization; a valid exception requires an affirmative authorization predicate.
-  - Repository association requires the owner/name token to nearly immediately follow a mutation verb; common mutation objects and prepositions must remain associated.
-  - Status declarations can be regex-scanned after emphasis normalization without outer-fence state; non-normative nested fenced examples must be excluded.
+  - Any nearby affirmative authorization can exempt a foreign-repository write grant; the authorization must apply to the actual write target and cannot be merely read-only or for another repository.
+  - Any YAML-looking block in the anti-stall document is authoritative; only top-level yaml fences are parsed as canonical structured declarations.
+  - A task-record checkpoint can safely remain on the older 430f338 generation after later material parser repairs; continuation evidence must be refreshed after those repairs.
 changed_paths:
   - .github/workflows/agent-governance.yml
   - docs/agents/tasks/active/OTERYN-20260811-agent-policy-consistency.md
@@ -107,18 +108,18 @@ changed_paths:
   - tools/agents/policy_consistency.py
   - tools/agents/test_policy_consistency.py
 validation:
-  - command: Agent Governance run 31538306125 on implementation head 430f3386e0ddde43f0210971502ad65046988f03
+  - command: Agent Governance run 31542372168 on implementation head e0deeb72e5450179c57b065b13d905b76af83506
     result: PASS
-    evidence: focused policy-consistency regressions, live validator, checkpoint validation, liveness and Control Room completed successfully.
-  - command: completed repository workflows on implementation head 430f3386e0ddde43f0210971502ad65046988f03
+    evidence: 59 of 59 policy-consistency regressions, live policy validator, checkpoint validation, live task liveness and Control Room validation completed successfully.
+  - command: completed focused repository workflows on implementation head e0deeb72e5450179c57b065b13d905b76af83506
     result: PASS
-    evidence: CI, Phase 7, Edge Security, Platform DB Outage and Game Auth Ticket Concurrency each completed successfully; Deep System Validation status is tracked separately in checkpoint evidence because no terminal result had been observed at checkpoint time.
-  - command: final checkpoint-head required checks and fresh Codex review
+    evidence: Edge Security Emulation 31542372187 and Game Auth Ticket Concurrency 31542372160 completed successfully; main CI 31542372161 was still in progress at checkpoint time and no terminal result is claimed here.
+  - command: final checkpoint-head required CI, Agent Governance and fresh Codex review
     result: NOT_RUN
-    evidence: this task-record-only update creates the final validation generation.
+    evidence: this task-record-only update creates the final validation generation and therefore requires new exact-head evidence.
 blockers:
   - none
-next_action: Validate the unchanged checkpoint-only final head with repository-required CI and fresh Codex review; if every required check passes with zero unresolved material threads, squash-merge PR #992 with expected-head protection, verify main, close Issue #991 and archive this task through the repository-mandated lifecycle.
+next_action: Validate the checkpoint-only final branch head with repository-required CI, Agent Governance and a fresh Codex review; if every required check passes with zero unresolved material threads, squash-merge PR #992 with expected-head protection, verify main, close Issue #991 and archive this task through the repository-mandated lifecycle.
 ```
 
 ## Recovery checkpoint
@@ -126,30 +127,30 @@ next_action: Validate the unchanged checkpoint-only final head with repository-r
 ```yaml
 recovery:
   policy_version: 1
-  generation: 19
-  session_id: agent-20260811-2342-final-closeout
-  session_started_at: 2026-08-11T23:42:00+02:00
-  checkpointed_at: 2026-08-11T23:42:00+02:00
-  last_progress_at: 2026-08-11T23:42:00+02:00
+  generation: 20
+  session_id: agent-20260812-0028-final-checkpoint-refresh
+  session_started_at: 2026-08-12T00:28:00+02:00
+  checkpointed_at: 2026-08-12T00:28:00+02:00
+  last_progress_at: 2026-08-12T00:28:00+02:00
   phase: final-checkpoint-validation
-  exact_head: 430f3386e0ddde43f0210971502ad65046988f03
+  exact_head: e0deeb72e5450179c57b065b13d905b76af83506
   pull_request: 992
-  active_operation: create final checkpoint generation after latest Codex-review repair
+  active_operation: create refreshed final checkpoint after latest Codex-review repairs
   external_run_ids:
-    - 31538306125
-    - 31538306185
-    - 31538306132
-    - 31538306181
-    - 31538306238
-    - 31538306158
-    - 31538306217
-  operation_started_at: 2026-08-11T23:42:00+02:00
-  wait_deadline_at: 2026-08-12T00:27:00+02:00
-  check_generation: final-checkpoint
+    - 31542372168
+    - 31542372161
+    - 31542372187
+    - 31542372160
+    - 31542372163
+    - 31542372152
+    - 31542372159
+  operation_started_at: 2026-08-12T00:28:00+02:00
+  wait_deadline_at: 2026-08-12T01:13:00+02:00
+  check_generation: final-checkpoint-refresh
   checks_used: 0
   status: active
   safe_to_resume: true
-  resume_condition: exact-head checks and fresh review are terminal and branch head remains unchanged
+  resume_condition: checkpoint-only exact-head required checks and fresh review are terminal and branch head remains unchanged
   next_action: inspect final exact-head CI and fresh review, then squash-merge only if every merge gate remains satisfied
 ```
 
