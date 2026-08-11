@@ -1,4 +1,4 @@
-# protobuf descriptor analysis trigger: 2026-08-12T00:05+02:00
+# bounded protobuf metadata analysis: 2026-08-12T00:09+02:00
 name: Tibia Client Analysis Continue
 
 on:
@@ -16,149 +16,106 @@ env:
 
 jobs:
   continue:
-    name: Analyze Tibia protobuf descriptor payload
+    name: Bound Tibia protobuf metadata and Worldmap dispatch
     runs-on: oteryn-staging
-    timeout-minutes: 20
+    timeout-minutes: 15
     steps:
       - name: Verify owned runtime and staging snapshot
         shell: bash
         run: |
           set -Eeuo pipefail
           [[ "$RUNNER_NAME" == "oteryn-synology-staging" ]]
-          owner="$(docker inspect --format '{{ index .Config.Labels "com.blakinio.owner" }}' "$CONTAINER_NAME")"
-          purpose="$(docker inspect --format '{{ index .Config.Labels "com.blakinio.purpose" }}' "$CONTAINER_NAME")"
-          state="$(docker inspect --format '{{.State.Status}}' "$CONTAINER_NAME")"
-          [[ "$owner" == "oteryn" && "$purpose" == "tibia-client-analysis" && "$state" == "running" ]]
+          [[ "$(docker inspect --format '{{ index .Config.Labels "com.blakinio.owner" }}' "$CONTAINER_NAME")" == "oteryn" ]]
+          [[ "$(docker inspect --format '{{ index .Config.Labels "com.blakinio.purpose" }}' "$CONTAINER_NAME")" == "tibia-client-analysis" ]]
+          [[ "$(docker inspect --format '{{.State.Status}}' "$CONTAINER_NAME")" == "running" ]]
           docker ps -a --filter 'label=com.docker.compose.project=oteryn-staging' --format '{{.ID}}\t{{.Names}}' | sort > /tmp/oteryn-before.tsv
           test -s /tmp/oteryn-before.tsv
           docker exec "$CONTAINER_NAME" bash -lc '
             set -Eeuo pipefail
-            f=/data/client-15.32.df7b29/bin/client
-            test -x "$f"
-            [[ "$(stat -c %s "$f")" == "51965216" ]]
-            [[ "$(sha256sum "$f" | awk "{print \$1}")" == "e6c244bd39fe2e0632f6f000efd3147164696efa8e901718668e0442325ff7fe" ]]
-            test -f /data/client-15.32.df7b29/proto-sections/protodesc_cold.bin
-            [[ "$(stat -c %s /data/client-15.32.df7b29/proto-sections/protodesc_cold.bin)" == "40808" ]]
+            client=/data/client-15.32.df7b29/bin/client
+            proto=/data/client-15.32.df7b29/proto-sections/protodesc_cold.bin
+            [[ "$(stat -c %s "$client")" == "51965216" ]]
+            [[ "$(sha256sum "$client" | awk "{print \$1}")" == "e6c244bd39fe2e0632f6f000efd3147164696efa8e901718668e0442325ff7fe" ]]
+            [[ "$(stat -c %s "$proto")" == "40808" ]]
+            [[ "$(sha256sum "$proto" | awk "{print \$1}")" == "1106af5ecbecd85a701b800ec4f697edab4288a4aa64b3fa5781222e6f65c324" ]]
           '
 
-      - name: Locate target names and printable descriptor neighborhoods
+      - name: Extract exact protodesc strings and target contexts
         shell: bash
         run: |
           set -Eeuo pipefail
           docker exec "$CONTAINER_NAME" bash -lc '
             set -Eeuo pipefail
-            cat > /data/proto_section_needles.py <<"PY"
+            proto=/data/client-15.32.df7b29/proto-sections/protodesc_cold.bin
+            strings -a -t x -n 1 "$proto" > /data/client-15.32.df7b29/protodesc-cold-strings-all.txt
+            echo "=== all protodesc strings ==="
+            sed -n "1,6000p" /data/client-15.32.df7b29/protodesc-cold-strings-all.txt
+            echo "=== map-related protodesc strings ==="
+            grep -Ei "map|field|coordinate|appearance|full|left|right|top|bottom|floor|position|stack|object|thing|id|x|y|z" /data/client-15.32.df7b29/protodesc-cold-strings-all.txt | sed -n "1,4000p" || true
+          '
+
+      - name: Hexdump protodesc neighborhoods around target strings
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          docker exec "$CONTAINER_NAME" bash -lc '
+            set -Eeuo pipefail
+            cat > /data/proto_target_contexts.py <<"PY"
           from pathlib import Path
-          path = Path("/data/client-15.32.df7b29/proto-sections/protodesc_cold.bin")
-          data = path.read_bytes()
-          needles = [b"GameserverMessageFullMap", b"GameserverMessageFieldData", b"MapFieldData", b"MapArea", b"Coordinate", b"AppearanceInstance", b".proto"]
-          print(f"FILE {path.name} size={len(data)}")
+          data = Path("/data/client-15.32.df7b29/proto-sections/protodesc_cold.bin").read_bytes()
+          needles = [b"GameserverMessageFullMap", b"GameserverMessageFieldData", b"MapFieldData", b"MapArea", b"Coordinate", b"AppearanceInstance"]
           for needle in needles:
+              label = needle.decode("ascii")
+              pos = []
               start = 0
-              hits = []
               while True:
                   i = data.find(needle, start)
                   if i < 0:
                       break
-                  hits.append(i)
+                  pos.append(i)
                   start = i + 1
-              label = needle.decode("ascii", "replace")
-              print(f"NEEDLE {label} count={len(hits)} hits=" + ",".join(f"0x{x:x}" for x in hits[:64]))
-              for i in hits[:16]:
+              print(f"TARGET {label} count={len(pos)} offsets=" + ",".join(f"0x{x:x}" for x in pos))
+              for i in pos:
                   lo = max(0, i - 128)
                   hi = min(len(data), i + len(needle) + 256)
                   chunk = data[lo:hi]
-                  text = "".join(chr(b) if 32 <= b < 127 else "." for b in chunk)
-                  print(f"CONTEXT needle={label} off=0x{i:x} {text}")
+                  print(f"BEGIN {label} off=0x{i:x} base=0x{lo:x}")
+                  for j in range(0, len(chunk), 16):
+                      part = chunk[j:j+16]
+                      hx = " ".join(f"{b:02x}" for b in part)
+                      asc = "".join(chr(b) if 32 <= b < 127 else "." for b in part)
+                      print(f"{lo+j:08x}  {hx:<47}  {asc}")
+                  print(f"END {label}")
           PY
-            /data/reverse-venv/bin/python /data/proto_section_needles.py | tee /data/client-15.32.df7b29/proto-section-needles.txt
+            /data/reverse-venv/bin/python /data/proto_target_contexts.py | tee /data/client-15.32.df7b29/protodesc-target-contexts.txt
           '
 
-      - name: Recover candidate serialized FileDescriptorProto records
+      - name: Test whether protodesc is raw wire protobuf
         shell: bash
         run: |
           set -Eeuo pipefail
           docker exec "$CONTAINER_NAME" bash -lc '
             set -Eeuo pipefail
-            cat > /data/scan_file_descriptors.py <<"PY"
-          from pathlib import Path
-          from google.protobuf import descriptor_pb2
-          data = Path("/data/client-15.32.df7b29/bin/client").read_bytes()
-          targets = {"GameserverMessageFullMap", "GameserverMessageFieldData", "MapFieldData", "MapArea", "Coordinate", "AppearanceInstance"}
-          hits = []
-          for marker in (b".proto",):
-              start = 0
-              while True:
-                  i = data.find(marker, start)
-                  if i < 0:
-                      break
-                  for back in range(1, 257):
-                      s = i - back
-                      if s < 0:
-                          break
-                      for length in range(len(marker) + back, min(65536, len(data) - s)):
-                          if length > 8192 and length % 64 != 0:
-                              continue
-                          msg = descriptor_pb2.FileDescriptorProto()
-                          try:
-                              msg.ParseFromString(data[s:s+length])
-                          except Exception:
-                              continue
-                          if not msg.name.endswith(".proto"):
-                              continue
-                          names = {m.name for m in msg.message_type}
-                          if names & targets:
-                              hits.append((s, length, msg))
-                              break
-                      if hits and hits[-1][0] == s:
-                          break
-                  start = i + 1
-          seen = set()
-          for s, length, msg in hits:
-              key = (s, msg.name)
-              if key in seen:
-                  continue
-              seen.add(key)
-              print(f"DESCRIPTOR fileoff=0x{s:x} span={length} name={msg.name} package={msg.package} syntax={msg.syntax}")
-              for m in msg.message_type:
-                  if m.name in targets:
-                      print(f"MESSAGE {m.name}")
-                      for f in m.field:
-                          print(f" FIELD number={f.number} name={f.name} label={f.label} type={f.type} type_name={f.type_name} oneof={f.oneof_index if f.HasField(chr(111)+chr(110)+chr(101)+chr(111)+chr(102)+chr(95)+chr(105)+chr(110)+chr(100)+chr(101)+chr(120)) else -1}")
-          print(f"descriptor_match_count={len(seen)}")
-          PY
-            timeout 150s /data/reverse-venv/bin/python /data/scan_file_descriptors.py | tee /data/client-15.32.df7b29/proto-descriptor-scan.txt
-          '
-
-      - name: Decode raw protodesc section and inspect string table
-        shell: bash
-        run: |
-          set -Eeuo pipefail
-          docker exec "$CONTAINER_NAME" bash -lc '
-            set -Eeuo pipefail
-            f=/data/client-15.32.df7b29/proto-sections/protodesc_cold.bin
+            proto=/data/client-15.32.df7b29/proto-sections/protodesc_cold.bin
             set +e
-            timeout 20s protoc --decode_raw < "$f" > /data/client-15.32.df7b29/protodesc-cold-decode-raw.txt 2>&1
+            timeout 15s protoc --decode_raw < "$proto" > /data/client-15.32.df7b29/protodesc-decode-raw.txt 2>&1
             rc=$?
             set -e
             echo "decode_raw_exit=$rc"
-            sed -n "1,3000p" /data/client-15.32.df7b29/protodesc-cold-decode-raw.txt
-            echo "=== strings ==="
-            strings -a -t x -n 2 "$f" | sed -n "1,5000p" | tee /data/client-15.32.df7b29/protodesc-cold-strings.txt
+            sed -n "1,2500p" /data/client-15.32.df7b29/protodesc-decode-raw.txt
           '
 
-      - name: Inspect Worldmap Qt metaobject for method dispatch
+      - name: Recover Worldmap Qt method metadata and dispatch code
         shell: bash
         run: |
           set -Eeuo pipefail
           docker exec "$CONTAINER_NAME" bash -lc '
             set -Eeuo pipefail
-            objdump -s --start-address=$((0x1cd8b40)) --stop-address=$((0x1cd9000)) /data/client-15.32.df7b29/bin/client > /data/client-15.32.df7b29/worldmap-meta-rodata.txt
-            objdump -d -C --start-address=$((0xdff800)) --stop-address=$((0xe00600)) /data/client-15.32.df7b29/bin/client > /data/client-15.32.df7b29/worldmap-meta-code.txt
-            echo "=== rodata method names ==="
-            grep -n -E "handle(FullMap|FieldData|LeftColumn|RightColumn|TopRow|BottomRow|TopFloor|BottomFloor)Message|GameserverMessage" /data/client-15.32.df7b29/worldmap-meta-rodata.txt || true
-            echo "=== meta code calls/jumps/immediates ==="
-            grep -n -E "call|jmp|cmp|lea|mov.*0x" /data/client-15.32.df7b29/worldmap-meta-code.txt | sed -n "1,2500p"
+            client=/data/client-15.32.df7b29/bin/client
+            echo "=== Worldmap metadata strings ==="
+            strings -a -t x "$client" | awk "\$1 >= \"1cd8b00\" && \$1 <= \"1cd9100\"" | sed -n "1,1000p"
+            echo "=== qt_metacall neighborhood ==="
+            objdump -d -C --start-address=$((0xdff700)) --stop-address=$((0xe01000)) "$client" | tee /data/client-15.32.df7b29/worldmap-meta-code-wide.txt | sed -n "1,9000p"
           '
 
       - name: Verify canonical staging unchanged
