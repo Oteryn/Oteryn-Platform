@@ -24,6 +24,7 @@ SENSITIVE_ENV_KEY = re.compile(
     r"(?:^|_)(?:PASSWORD|PASSWD|TOKEN|SECRET|COOKIE|SESSION_KEY|AUTHENTICATOR|CREDENTIAL)(?:_|$)",
     re.IGNORECASE,
 )
+_DERIVED_BYTECODE_SUFFIXES = {".pyc", ".pyo", ".pyd"}
 
 
 def sha256_file(path: Path) -> str:
@@ -147,16 +148,24 @@ def scan_prohibited_locations(
         if exact_secret_hits(data, secrets) or (generic and high_confidence_secret_present(data)):
             categories.add(category)
 
-    def inspect_repo_files(entries: Iterable[bytes], category: str, *, generic: bool) -> None:
+    def inspect_repo_files(
+        entries: Iterable[bytes],
+        category: str,
+        *,
+        generic: bool,
+        exact_only_suffixes: set[str] | None = None,
+    ) -> None:
         nonlocal files_scanned
+        exact_only_suffixes = exact_only_suffixes or set()
         for relative in sorted(set(entry for entry in entries if entry)):
             candidate = repo_root / os.fsdecode(relative)
+            candidate_generic = generic and candidate.suffix.lower() not in exact_only_suffixes
             try:
                 if candidate.is_symlink():
-                    inspect(category, os.fsencode(os.readlink(candidate)), generic=generic)
+                    inspect(category, os.fsencode(os.readlink(candidate)), generic=candidate_generic)
                     files_scanned += 1
                 elif candidate.is_file():
-                    inspect(category, candidate.read_bytes(), generic=generic)
+                    inspect(category, candidate.read_bytes(), generic=candidate_generic)
                     files_scanned += 1
             except OSError:
                 categories.add(category)
@@ -185,11 +194,18 @@ def scan_prohibited_locations(
         "-z",
     ).split(b"\0")
     # Tracked baseline fixtures may deliberately contain synthetic examples, so only
-    # exact per-run values are forbidden there. Untracked and ignored checkout files
-    # are runtime-created surfaces and therefore receive the generic fail-closed scan.
+    # exact per-run values are forbidden there. Untracked/ignored runtime files receive
+    # the generic fail-closed scan except derived Python bytecode, whose literals are
+    # already represented by tracked source/diff. Bytecode is still scanned for every
+    # exact per-run secret, so generated-value leakage remains fail-closed.
     inspect_repo_files(tracked, "tracked-files", generic=False)
     inspect_repo_files(untracked, "untracked-files", generic=True)
-    inspect_repo_files(ignored, "ignored-files", generic=True)
+    inspect_repo_files(
+        ignored,
+        "ignored-files",
+        generic=True,
+        exact_only_suffixes=_DERIVED_BYTECODE_SUFFIXES,
+    )
 
     for root, category in ((evidence_root, "evidence-or-artifacts"), (temporary_root, "temporary-files")):
         if root and root.exists():
