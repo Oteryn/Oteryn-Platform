@@ -22,19 +22,8 @@ CHECKED_PATHS = (
 )
 
 NUMBER_WORDS = {
-    0: "zero",
-    1: "one",
-    2: "two",
-    3: "three",
-    4: "four",
-    5: "five",
-    6: "six",
-    7: "seven",
-    8: "eight",
-    9: "nine",
-    10: "ten",
-    11: "eleven",
-    12: "twelve",
+    0: "zero", 1: "one", 2: "two", 3: "three", 4: "four", 5: "five", 6: "six",
+    7: "seven", 8: "eight", 9: "nine", 10: "ten", 11: "eleven", 12: "twelve",
 }
 
 
@@ -43,9 +32,8 @@ class PolicyConsistencyError(RuntimeError):
 
 
 def _read_text(root: Path, relative_path: str) -> str:
-    path = root / relative_path
     try:
-        return path.read_text(encoding="utf-8")
+        return (root / relative_path).read_text(encoding="utf-8")
     except OSError as exc:
         raise PolicyConsistencyError(f"cannot read {relative_path}: {exc}") from exc
 
@@ -95,19 +83,7 @@ def _backticked_values_from_line(markdown: str, marker: str) -> list[str]:
     raise PolicyConsistencyError(f"cannot find policy line containing {marker!r}")
 
 
-def _markdown_section(markdown: str, heading: str) -> str:
-    match = re.search(
-        rf"(?ms)^## {re.escape(heading)}\s*\n(?P<body>.*?)(?=^## |\Z)",
-        markdown,
-    )
-    if not match:
-        raise PolicyConsistencyError(f"cannot find markdown section {heading!r}")
-    return match.group("body")
-
-
-def _require_exact_line(
-    errors: list[str], source: str, text: str, values: Iterable[str], label: str
-) -> None:
+def _require_exact_line(errors: list[str], source: str, text: str, values: Iterable[str], label: str) -> None:
     expected = " | ".join(values)
     if not re.search(rf"(?m)^{re.escape(expected)}$", text):
         errors.append(f"{source}: {label} drift; expected exact line: {expected}")
@@ -119,16 +95,11 @@ def _require_marker(errors: list[str], source: str, text: str, marker: str) -> N
 
 
 def _normalize_inline_markdown(text: str) -> str:
-    """Remove harmless inline emphasis/code delimiters before numeric policy matching."""
-
     return re.sub(r"[*_`]", "", text)
 
 
-def _require_regex_value(
-    errors: list[str], source: str, text: str, pattern: str, expected: int, label: str
-) -> None:
-    normalized = _normalize_inline_markdown(text)
-    matches = list(re.finditer(pattern, normalized, flags=re.IGNORECASE))
+def _require_regex_value(errors: list[str], source: str, text: str, pattern: str, expected: int, label: str) -> None:
+    matches = list(re.finditer(pattern, _normalize_inline_markdown(text), flags=re.IGNORECASE))
     if not matches:
         errors.append(f"{source}: cannot locate duplicated budget marker for {label}")
         return
@@ -136,14 +107,46 @@ def _require_regex_value(
     conflicting = sorted({value for value in actual_values if value != expected})
     if conflicting:
         errors.append(
-            f"{source}: {label} drift; canonical={expected}, "
-            f"conflicting declarations={conflicting}"
+            f"{source}: {label} drift; canonical={expected}, conflicting declarations={conflicting}"
         )
 
 
-def _is_current_task_user_authorization_exception(lowered: str) -> bool:
-    """Accept only a conditional exception tied to explicit user authorization for this task."""
+def _logical_markdown_statements(markdown: str) -> list[str]:
+    """Join wrapped Markdown lines while keeping separate bullets/statements separate."""
+    statements: list[str] = []
+    current: list[str] = []
 
+    def flush() -> None:
+        if current:
+            statements.append(" ".join(current))
+            current.clear()
+
+    for raw in markdown.splitlines():
+        stripped = raw.strip()
+        if not stripped or stripped.startswith("#") or stripped.startswith("```"):
+            flush()
+            continue
+        bullet = re.match(r"^\s*[-*+]\s+(.*)$", raw)
+        if bullet:
+            flush()
+            current.append(bullet.group(1).strip())
+            continue
+        if current:
+            current.append(stripped)
+        else:
+            current.append(stripped)
+    flush()
+    return statements
+
+
+def _repository_identifiers(statement: str) -> list[str]:
+    return re.findall(
+        r"(?<![A-Za-z0-9_.-])([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)(?![A-Za-z0-9_.-])",
+        statement,
+    )
+
+
+def _is_current_task_user_authorization_exception(lowered: str) -> bool:
     conditional = "only when" in lowered or "unless" in lowered
     explicitly_authorized = bool(
         re.search(r"\buser\b.*\bexplicit(?:ly)?\b.*\bauthoriz(?:e|es|ed|ation)\b", lowered)
@@ -152,57 +155,51 @@ def _is_current_task_user_authorization_exception(lowered: str) -> bool:
     return conditional and explicitly_authorized and task_scoped
 
 
-def _repository_identifiers(line: str) -> list[str]:
-    """Extract owner/repository identifiers whether or not Markdown-backticked."""
-
-    return re.findall(
-        r"(?<![A-Za-z0-9_.-])([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)(?![A-Za-z0-9_.-])",
-        line,
-    )
-
-
-def _is_positive_read_only_statement(lowered: str) -> bool:
-    """Recognize read-only assertions without exempting any common negated form."""
-
-    if "read-only" not in lowered:
-        return False
-    if re.search(
-        r"(?:\b(?:not|never|no\s+longer|is\s+not|was\s+not)\s+read-only\b|"
-        r"\b(?:isn't|isn’t|wasn't|wasn’t)\s+read-only\b)",
-        lowered,
-    ):
-        return False
-    return True
+def _repo_has_positive_read_only_assertion(statement: str, repository: str) -> bool:
+    """Return true only when read-only wording actually applies to this repository."""
+    lowered = statement.casefold()
+    repo = repository.casefold()
+    for match in re.finditer(re.escape(repo), lowered):
+        tail = lowered[match.start():]
+        ro_index = tail.find("read-only")
+        if ro_index < 0:
+            continue
+        assertion = tail[: ro_index + len("read-only")]
+        if ";" in assertion or re.search(r"\bbut\b", assertion):
+            continue
+        if re.search(
+            r"(?:\b(?:not|never|no\s+longer|is\s+not|was\s+not)\s+read-only\b|"
+            r"\b(?:isn't|isn’t|wasn't|wasn’t)\s+read-only\b)",
+            assertion,
+        ):
+            continue
+        if re.search(r"\b(?:is|are|as|remain|remains|must\s+remain)\b.*\bread-only\b", assertion):
+            return True
+    return False
 
 
 def _reject_contradictory_repository_write_grants(errors: list[str], root_agents: str) -> None:
-    # Scan the whole authoritative root policy. A conflicting grant outside the
-    # allowlist section is still capable of changing effective agent behavior.
-    for line in root_agents.splitlines():
-        lowered = line.casefold()
-        repositories = _repository_identifiers(line)
-        foreign = [value for value in repositories if value != REPOSITORY_FULL_NAME]
+    for statement in _logical_markdown_statements(root_agents):
+        lowered = statement.casefold()
+        repositories = _repository_identifiers(statement)
+        foreign = sorted({value for value in repositories if value != REPOSITORY_FULL_NAME})
         if not foreign:
             continue
-        if _is_positive_read_only_statement(lowered):
-            continue
         grants_write = "write" in lowered and any(
-            marker in lowered
-            for marker in ("allow", "authoriz", "permit", "may ", "can ")
+            marker in lowered for marker in ("allow", "authoriz", "permit", "may ", "can ")
         )
-        if not grants_write:
+        if not grants_write or _is_current_task_user_authorization_exception(lowered):
             continue
-        if _is_current_task_user_authorization_exception(lowered):
-            continue
-        errors.append(
-            "AGENTS.md: contradictory repository write authorization in authoritative policy: "
-            f"{', '.join(sorted(set(foreign)))}"
-        )
+        contradictory = [repo for repo in foreign if not _repo_has_positive_read_only_assertion(statement, repo)]
+        if contradictory:
+            errors.append(
+                "AGENTS.md: contradictory repository write authorization in authoritative policy: "
+                f"{', '.join(contradictory)}"
+            )
 
 
 def validate_policy(root: Path = REPO_ROOT) -> list[str]:
     """Return all material cross-document policy consistency findings."""
-
     errors: list[str] = []
     try:
         root_agents = _read_text(root, "AGENTS.md")
@@ -215,48 +212,30 @@ def validate_policy(root: Path = REPO_ROOT) -> list[str]:
         shared = contract.get("shared_checkpoint_contract")
         if not isinstance(shared, dict):
             raise PolicyConsistencyError("GOVERNANCE_CONTRACT.json lacks shared_checkpoint_contract")
-
         statuses = shared.get("allowed_statuses")
         terminal_results = shared.get("terminal_invocation_results")
         if not isinstance(statuses, list) or not all(isinstance(value, str) for value in statuses):
             raise PolicyConsistencyError("shared_checkpoint_contract.allowed_statuses must be a string list")
-        if not isinstance(terminal_results, list) or not all(
-            isinstance(value, str) for value in terminal_results
-        ):
-            raise PolicyConsistencyError(
-                "shared_checkpoint_contract.terminal_invocation_results must be a string list"
-            )
-
+        if not isinstance(terminal_results, list) or not all(isinstance(value, str) for value in terminal_results):
+            raise PolicyConsistencyError("shared_checkpoint_contract.terminal_invocation_results must be a string list")
         canonical_statuses = list(statuses)
         canonical_terminal = list(terminal_results)
 
         anti_statuses = _yaml_list(anti_stall, "checkpoint_task_statuses")
         if anti_statuses != canonical_statuses:
             errors.append(
-                "docs/agents/ANTI_STALL_AND_EXECUTION_BUDGET.md: checkpoint task statuses "
-                f"drift; canonical={canonical_statuses}, duplicate={anti_statuses}"
+                "docs/agents/ANTI_STALL_AND_EXECUTION_BUDGET.md: checkpoint task statuses drift; "
+                f"canonical={canonical_statuses}, duplicate={anti_statuses}"
             )
         anti_terminal = _yaml_list(anti_stall, "terminal_invocation_results")
         if anti_terminal != canonical_terminal:
             errors.append(
-                "docs/agents/ANTI_STALL_AND_EXECUTION_BUDGET.md: terminal invocation results "
-                f"drift; canonical={canonical_terminal}, duplicate={anti_terminal}"
+                "docs/agents/ANTI_STALL_AND_EXECUTION_BUDGET.md: terminal invocation results drift; "
+                f"canonical={canonical_terminal}, duplicate={anti_terminal}"
             )
 
-        _require_exact_line(
-            errors,
-            "docs/agents/AGENTS.md",
-            docs_agents,
-            canonical_statuses,
-            "checkpoint task statuses",
-        )
-        _require_exact_line(
-            errors,
-            "docs/agents/AGENTS.md",
-            docs_agents,
-            canonical_terminal,
-            "terminal invocation results",
-        )
+        _require_exact_line(errors, "docs/agents/AGENTS.md", docs_agents, canonical_statuses, "checkpoint task statuses")
+        _require_exact_line(errors, "docs/agents/AGENTS.md", docs_agents, canonical_terminal, "terminal invocation results")
 
         override_statuses = _backticked_values_from_line(override, "checkpoint task status:")
         if override_statuses != canonical_statuses:
@@ -272,91 +251,37 @@ def validate_policy(root: Path = REPO_ROOT) -> list[str]:
             )
 
         budget_keys = {
-            "normal_foreground_runtime_minutes": _yaml_int(
-                anti_stall, "normal_foreground_runtime_minutes"
-            ),
-            "large_foreground_runtime_minutes": _yaml_int(
-                anti_stall, "large_foreground_runtime_minutes"
-            ),
-            "no_progress_minutes": _yaml_int(anti_stall, "no_progress_minutes"),
-            "max_ci_state_checks_per_exact_head": _yaml_int(
-                anti_stall, "max_ci_state_checks_per_exact_head"
-            ),
-            "max_unchanged_external_state_checks": _yaml_int(
-                anti_stall, "max_unchanged_external_state_checks"
-            ),
-            "terminal_ci_wait_budget_minutes": _yaml_int(
-                anti_stall, "terminal_ci_wait_budget_minutes"
-            ),
-            "terminal_ci_minimum_poll_interval_minutes": _yaml_int(
-                anti_stall, "terminal_ci_minimum_poll_interval_minutes"
-            ),
-            "max_terminal_ci_state_checks_per_check_generation": _yaml_int(
-                anti_stall, "max_terminal_ci_state_checks_per_check_generation"
-            ),
-            "max_additional_tasks_after_terminal_entry_task": _yaml_int(
-                anti_stall, "max_additional_tasks_after_terminal_entry_task"
-            ),
-            "minimum_remaining_minutes_to_start_additional_task": _yaml_int(
-                anti_stall, "minimum_remaining_minutes_to_start_additional_task"
-            ),
+            key: _yaml_int(anti_stall, key)
+            for key in (
+                "normal_foreground_runtime_minutes",
+                "large_foreground_runtime_minutes",
+                "no_progress_minutes",
+                "max_ci_state_checks_per_exact_head",
+                "max_unchanged_external_state_checks",
+                "terminal_ci_wait_budget_minutes",
+                "terminal_ci_minimum_poll_interval_minutes",
+                "max_terminal_ci_state_checks_per_check_generation",
+                "max_additional_tasks_after_terminal_entry_task",
+                "minimum_remaining_minutes_to_start_additional_task",
+            )
         }
-
-        _require_regex_value(
-            errors,
-            "AGENTS.override.md",
-            override,
-            r"Default to (?P<value>\d+) minutes per foreground invocation",
-            budget_keys["normal_foreground_runtime_minutes"],
-            "normal_foreground_runtime_minutes",
+        patterns = (
+            (r"Default to (?P<value>\d+) minutes per foreground invocation", "normal_foreground_runtime_minutes"),
+            (r"allow (?P<value>\d+) minutes only when", "large_foreground_runtime_minutes"),
+            (r"Stop after (?P<value>\d+) minutes without measurable progress", "no_progress_minutes"),
+            (r"exception is capped at (?P<value>\d+) minutes", "terminal_ci_wait_budget_minutes"),
+            (r"permits at most (?P<value>\d+) checks per materially new required-check generation", "max_terminal_ci_state_checks_per_check_generation"),
+            (r"only when at least (?P<value>\d+) minutes remains", "minimum_remaining_minutes_to_start_additional_task"),
         )
-        _require_regex_value(
-            errors,
-            "AGENTS.override.md",
-            override,
-            r"allow (?P<value>\d+) minutes only when",
-            budget_keys["large_foreground_runtime_minutes"],
-            "large_foreground_runtime_minutes",
-        )
-        _require_regex_value(
-            errors,
-            "AGENTS.override.md",
-            override,
-            r"Stop after (?P<value>\d+) minutes without measurable progress",
-            budget_keys["no_progress_minutes"],
-            "no_progress_minutes",
-        )
-        _require_regex_value(
-            errors,
-            "AGENTS.override.md",
-            override,
-            r"exception is capped at (?P<value>\d+) minutes",
-            budget_keys["terminal_ci_wait_budget_minutes"],
-            "terminal_ci_wait_budget_minutes",
-        )
-        _require_regex_value(
-            errors,
-            "AGENTS.override.md",
-            override,
-            r"permits at most (?P<value>\d+) checks per materially new required-check generation",
-            budget_keys["max_terminal_ci_state_checks_per_check_generation"],
-            "max_terminal_ci_state_checks_per_check_generation",
-        )
-        _require_regex_value(
-            errors,
-            "AGENTS.override.md",
-            override,
-            r"only when at least (?P<value>\d+) minutes remains",
-            budget_keys["minimum_remaining_minutes_to_start_additional_task"],
-            "minimum_remaining_minutes_to_start_additional_task",
-        )
+        for pattern, key in patterns:
+            _require_regex_value(errors, "AGENTS.override.md", override, pattern, budget_keys[key], key)
 
         ordinary_checks = budget_keys["max_ci_state_checks_per_exact_head"]
         external_checks = budget_keys["max_unchanged_external_state_checks"]
         if ordinary_checks != external_checks:
             errors.append(
-                "ANTI_STALL_AND_EXECUTION_BUDGET.md: root bootstrap combines ordinary CI and "
-                "external checks, but their canonical limits differ"
+                "ANTI_STALL_AND_EXECUTION_BUDGET.md: root bootstrap combines ordinary CI and external checks, "
+                "but their canonical limits differ"
             )
         elif ordinary_checks != 2 or "at most twice per exact head" not in override:
             errors.append(
@@ -367,18 +292,12 @@ def validate_policy(root: Path = REPO_ROOT) -> list[str]:
         poll_minutes = budget_keys["terminal_ci_minimum_poll_interval_minutes"]
         poll_word = NUMBER_WORDS.get(poll_minutes)
         if poll_word is None or f"requires at least {poll_word} minutes between unchanged checks" not in override:
-            errors.append(
-                "AGENTS.override.md: terminal CI poll interval drift; "
-                f"canonical={poll_minutes} minutes"
-            )
+            errors.append(f"AGENTS.override.md: terminal CI poll interval drift; canonical={poll_minutes} minutes")
 
         additional_tasks = budget_keys["max_additional_tasks_after_terminal_entry_task"]
         additional_word = NUMBER_WORDS.get(additional_tasks)
         if additional_word is None or f"at most {additional_word} additional task may be started" not in override:
-            errors.append(
-                "AGENTS.override.md: additional-task limit drift; "
-                f"canonical={additional_tasks}"
-            )
+            errors.append(f"AGENTS.override.md: additional-task limit drift; canonical={additional_tasks}")
 
         scope_markers = {
             "AGENTS.md": [
@@ -398,26 +317,16 @@ def validate_policy(root: Path = REPO_ROOT) -> list[str]:
 
         completion_markers = {
             "AGENTS.override.md": (
-                "exact-head self-review",
-                "real E2E",
-                "required CI on the exact final head",
-                "zero unresolved review threads",
-                "terminal task record",
-                "released ownership",
+                "exact-head self-review", "real E2E", "required CI on the exact final head",
+                "zero unresolved review threads", "terminal task record", "released ownership",
             ),
             "docs/agents/AGENTS.md": (
-                "exact-head full-diff self-review",
-                "real E2E",
-                "zero unresolved material findings",
-                "task archival",
-                "ownership release",
+                "exact-head full-diff self-review", "real E2E", "zero unresolved material findings",
+                "task archival", "ownership release",
             ),
             "docs/agents/DELIVERY_COMPLETENESS_AND_CLOSEOUT.md": (
-                "## Mandatory self-review",
-                "## E2E",
-                "## Exact-head CI and Actions economy",
-                "## Related PR hygiene",
-                "## Terminal closeout",
+                "## Mandatory self-review", "## E2E", "## Exact-head CI and Actions economy",
+                "## Related PR hygiene", "## Terminal closeout",
             ),
         }
         completion_source_text = {
@@ -431,7 +340,6 @@ def validate_policy(root: Path = REPO_ROOT) -> list[str]:
 
     except PolicyConsistencyError as exc:
         errors.append(str(exc))
-
     return errors
 
 

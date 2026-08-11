@@ -201,6 +201,31 @@ class PolicyConsistencyTests(unittest.TestCase):
         )
         self.assertEqual([], validate_policy(root))
 
+    def test_wrapped_markdown_foreign_write_grant_fails_closed(self) -> None:
+        temporary, root = self._fixture()
+        self.addCleanup(temporary.cleanup)
+        foreign_repo = "blakinio" + "/other"
+        self._append_after_allowlist_marker(
+            root,
+            f"- Autonomous writes to {foreign_repo}\n  are explicitly allowed.",
+        )
+        findings = "\n".join(validate_policy(root))
+        self.assertIn("contradictory repository write authorization", findings)
+        self.assertIn(foreign_repo, findings)
+
+    def test_read_only_exemption_is_scoped_to_repository(self) -> None:
+        temporary, root = self._fixture()
+        self.addCleanup(temporary.cleanup)
+        read_only_repo = "blakinio" + "/canary"
+        foreign_repo = "blakinio" + "/other"
+        self._append_after_allowlist_marker(
+            root,
+            f"- `{read_only_repo}` is read-only, but autonomous writes to `{foreign_repo}` are allowed.",
+        )
+        findings = "\n".join(validate_policy(root))
+        self.assertIn("contradictory repository write authorization", findings)
+        self.assertIn(foreign_repo, findings)
+
     def test_closeout_marker_drift_fails_closed(self) -> None:
         temporary, root = self._fixture()
         self.addCleanup(temporary.cleanup)
