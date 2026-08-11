@@ -1,0 +1,94 @@
+name: Portal Exhaustive Trigger Coupling
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/portal-exhaustive-audit.yml'
+      - '.github/workflows/wiki-reconciliation-acceptance.yml'
+      - '.github/workflows/editorial-media-acceptance.yml'
+      - '.github/workflows/portal-exhaustive-acceptance.yml'
+      - '.github/workflows/acceptance-validation.yml'
+      - '.github/workflows/portal-exhaustive-trigger-coupling.yml'
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/portal-exhaustive-audit.yml'
+      - '.github/workflows/wiki-reconciliation-acceptance.yml'
+      - '.github/workflows/editorial-media-acceptance.yml'
+      - '.github/workflows/portal-exhaustive-acceptance.yml'
+      - '.github/workflows/acceptance-validation.yml'
+      - '.github/workflows/portal-exhaustive-trigger-coupling.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout exact validation SHA
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+
+      - name: Validate Portal strictness trigger coupling
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          portal = Path('.github/workflows/portal-exhaustive-audit.yml')
+          dependents = (
+              Path('.github/workflows/wiki-reconciliation-acceptance.yml'),
+              Path('.github/workflows/editorial-media-acceptance.yml'),
+              Path('.github/workflows/portal-exhaustive-acceptance.yml'),
+          )
+
+          def event_paths(path: Path, event: str) -> set[str]:
+              lines = path.read_text(encoding='utf-8').splitlines()
+              event_header = f'  {event}:'
+              try:
+                  event_index = lines.index(event_header)
+              except ValueError as exc:
+                  raise SystemExit(f'{path}: missing {event} trigger') from exc
+              paths_index = None
+              for index in range(event_index + 1, len(lines)):
+                  line = lines[index]
+                  if line.startswith('  ') and not line.startswith('    '):
+                      break
+                  if line == '    paths:':
+                      paths_index = index
+                      break
+              if paths_index is None:
+                  raise SystemExit(f'{path}: {event} must define an explicit paths list')
+              values: set[str] = set()
+              for line in lines[paths_index + 1:]:
+                  if not line.startswith('      - '):
+                      break
+                  value = line[len('      - '):].strip()
+                  if len(value) >= 2 and value[0] == value[-1] and value[0] in {'\'', '"'}:
+                      value = value[1:-1]
+                  if not value or value.startswith('!'):
+                      raise SystemExit(f'{path}: unsupported or empty {event} path {value!r}')
+                  values.add(value)
+              if not values:
+                  raise SystemExit(f'{path}: {event} paths list is empty')
+              return values
+
+          for event in ('pull_request', 'push'):
+              portal_paths = event_paths(portal, event)
+              for dependent in dependents:
+                  missing = sorted(portal_paths - event_paths(dependent, event))
+                  if missing:
+                      raise SystemExit(
+                          f'{dependent}: {event} does not cover Portal Exhaustive trigger paths: {missing}'
+                      )
+
+          print('Portal Exhaustive strictness trigger coupling: PASS')
+          PY
