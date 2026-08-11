@@ -1,4 +1,4 @@
-# recovery + bounded reverse trigger: 2026-08-11T23:54+02:00
+# recovery + bounded reverse trigger: 2026-08-11T23:56+02:00
 name: Tibia Client Analysis Continue
 
 on:
@@ -44,9 +44,7 @@ jobs:
           purpose="$(docker inspect --format '{{ index .Config.Labels "com.blakinio.purpose" }}' "$CONTAINER_NAME")"
           state="$(docker inspect --format '{{.State.Status}}' "$CONTAINER_NAME")"
           [[ "$owner" == "oteryn" && "$purpose" == "tibia-client-analysis" ]]
-          if [[ "$state" != "running" ]]; then
-            docker start "$CONTAINER_NAME" >/dev/null
-          fi
+          if [[ "$state" != "running" ]]; then docker start "$CONTAINER_NAME" >/dev/null; fi
           [[ "$(docker inspect --format '{{.State.Status}}' "$CONTAINER_NAME")" == "running" ]]
           docker exec "$CONTAINER_NAME" bash -lc '
             set -Eeuo pipefail
@@ -87,12 +85,14 @@ jobs:
                   if not sec["sh_size"] or sec["sh_type"] == "SHT_NOBITS":
                       continue
                   data = sec.data()
+                  sec_addr = sec["sh_addr"]
+                  sec_offset = sec["sh_offset"]
                   for needle in needles:
                       start = 0
                       while True:
                           off = data.find(needle, start)
                           if off < 0: break
-                          print(f"{sec['sh_addr']+off:016x}\t{sec.name}\t{sec['sh_offset']+off:08x}\t{needle.decode()}")
+                          print(f"{sec_addr+off:016x}\t{sec.name}\t{sec_offset+off:08x}\t{needle.decode()}")
                           start = off + 1
           PY
             timeout 90s /data/reverse-venv/bin/python /data/map_target_vas.py | sort -u | tee /data/client-15.32.df7b29/map-target-vas.txt
