@@ -284,7 +284,7 @@ test(publicMarker, async ({ page }) => {
     '/',
     '/en',
     '/news',
-    '/support',
+    '/en/support',
   ];
 
   for (const path of layoutPaths) {
@@ -293,7 +293,7 @@ test(publicMarker, async ({ page }) => {
     await assertNoOverflow(page);
   }
 
-  const accessibilityPaths = ['/download', '/events', '/highscores', '/en', '/news', '/support'];
+  const accessibilityPaths = ['/download', '/events', '/highscores', '/en', '/news', '/en/support'];
   for (const path of accessibilityPaths) {
     await page.goto(path);
     await assertAccessibilitySmoke(page);

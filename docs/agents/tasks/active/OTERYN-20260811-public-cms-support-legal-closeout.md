@@ -138,6 +138,9 @@ validation:
   - command: node --check scripts/acceptance/tests/portal-487-strictness-acceptance.spec.mjs and git diff --check
     result: PASS
     evidence: The focused repair routes public.localization-core through the existing graceful-home recovery assertion, retains the UNAVAILABLE content-state check and leaves public.news-and-managed-pages as the fail-closed 500 probe.
+  - command: Portal Exhaustive Acceptance E2E 31537424537 on 2da3172cc4fbdf73af3e925e8033395078613110
+    result: FAIL
+    evidence: The repaired graceful homepage and localized homepage probes passed; the next first failure was a later legacy /support layout probe returning 404. The acceptance path now uses the canonical localized /en/support destination already emitted by homepage navigation and owned by support.index.
   - command: current Issue #487 and canonical pre-repair audit reconciliation
     result: PASS
     evidence: 44 current findings and exact owning surfaces were enumerated before implementation.
