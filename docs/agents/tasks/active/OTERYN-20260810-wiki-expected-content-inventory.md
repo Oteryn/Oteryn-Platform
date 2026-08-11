@@ -111,56 +111,89 @@ validation_gate:
 ## Context checkpoint
 
 ```yaml
-checkpoint_version: 2
-updated_at: 2026-08-11T08:37:00+02:00
-invocation_started_at: 2026-08-11T08:37:00+02:00
-last_progress_at: 2026-08-11T08:37:00+02:00
-head_before_checkpoint: 3f5f872d1d747096fbf8c8c3f28aa3061b3a4f2b
-protected_main: 06ec89521e412c2252f1a10224955b90180e8c35
+checkpoint_version: 1
+updated_at: 2026-08-11T08:49:00+02:00
+head: 0c67ca77957877d578df5d33a60dd9b4d78ff153
 branch: repair/issue-488
 pr: 972
 status: validating
-phase: final_exact_head_validation
-session_id: portal-closeout-20260811-0837
-session_role: owner_validator
-execution_mode: github
-execution_reason: GitHub connector and Actions provide the required repository and exact-head validation operations.
-context_pressure: high
-context_growth: stable
-decomposition_decision: phased
-validation_level: full
-ci_checks_for_current_head: 1
-ci_check_generation: stale_base_merge_ref
-terminal_ci_wait_started_at: null
-terminal_ci_checks_for_current_generation: 0
-unchanged_state_checks: 0
-identical_failure_retries: 0
-repair_cycles_for_current_gate: 0
-context_reconstruction_attempts: 1
-stall_warnings: 0
+context_routes:
+  - agent-governance
+  - architecture
+  - security
+  - public-web
+  - testing
+  - content
+  - acceptance
+  - audit
+  - ci-workflow
+owned_paths:
+  - app/Wiki/Content/WikiExpectedContentInventory.php
+  - app/Wiki/Content/WikiExpectedContentValidator.php
+  - app/Console/Commands/ValidateWikiExpectedContent.php
+  - app/Console/Commands/InstallWikiLaunchContent.php
+  - docs/testing/WIKI_EXPECTED_CONTENT_INVENTORY.json
+  - docs/testing/PORTAL_STRICTNESS_EVIDENCE.json
+  - tests/Unit/Wiki/WikiExpectedContentInventoryTest.php
+  - tests/Feature/Wiki/WikiLaunchContentCommandTest.php
+  - tools/audit/portal_exhaustive_strictness.py
+  - tools/audit/test_portal_exhaustive_strictness.py
+  - tools/audit/test_portal_exhaustive_audit.py
+  - .github/workflows/portal-exhaustive-audit.yml
+  - scripts/acceptance/playwright.config.mjs
+  - scripts/acceptance/playwright.wiki-reconciliation.config.mjs
+  - scripts/acceptance/playwright.editorial-media.config.mjs
+  - scripts/acceptance/seed-browser-wiki-reconciliation.php
+  - scripts/acceptance/seed-browser-editorial-media.php
+  - scripts/acceptance/tests/wiki-strictness-acceptance.spec.mjs
+  - scripts/acceptance/tests/editorial-media-strictness-acceptance.spec.mjs
+  - scripts/acceptance/coverage/portal-evidence-dimensions/content.json
+  - docs/agents/tasks/active/OTERYN-20260810-wiki-expected-content-inventory.md
+changed_paths:
+  - .github/workflows/portal-exhaustive-audit.yml
+  - app/Console/Commands/InstallWikiLaunchContent.php
+  - app/Console/Commands/ValidateWikiExpectedContent.php
+  - app/Wiki/Content/WikiExpectedContentInventory.php
+  - app/Wiki/Content/WikiExpectedContentValidator.php
+  - docs/agents/tasks/active/OTERYN-20260810-wiki-expected-content-inventory.md
+  - docs/testing/PORTAL_STRICTNESS_EVIDENCE.json
+  - docs/testing/WIKI_EXPECTED_CONTENT_INVENTORY.json
+  - scripts/acceptance/coverage/portal-evidence-dimensions/content.json
+  - scripts/acceptance/playwright.config.mjs
+  - scripts/acceptance/playwright.editorial-media.config.mjs
+  - scripts/acceptance/playwright.wiki-reconciliation.config.mjs
+  - scripts/acceptance/seed-browser-editorial-media.php
+  - scripts/acceptance/seed-browser-wiki-reconciliation.php
+  - scripts/acceptance/tests/editorial-media-strictness-acceptance.spec.mjs
+  - scripts/acceptance/tests/wiki-strictness-acceptance.spec.mjs
+  - tests/Feature/Wiki/WikiLaunchContentCommandTest.php
+  - tests/Unit/Wiki/WikiExpectedContentInventoryTest.php
+  - tools/audit/portal_exhaustive_strictness.py
+  - tools/audit/test_portal_exhaustive_audit.py
+  - tools/audit/test_portal_exhaustive_strictness.py
 proven:
   - Issue #488 is the canonical remediation/evidence owner and PR #972 is the single authoritative delivery PR.
   - User authorization and deterministic claim plus bounded scope extensions are durable in Issue #488 comments.
   - Exact inventory chain is machine JSON -> PHP inventory -> exact reviewed catalog Git blob -> actual categories/articles/locales/provenance/CommonMark links.
   - Prior review findings for unpinned bilingual copy, provenance, reference-style links and missing canonical inventory were repaired with focused validation.
-  - Canonical Portal Exhaustive Audit now executes `wiki:launch-content:validate --json`, requires exact-head success of Wiki Reconciliation Acceptance, Editorial Media Acceptance and Acceptance E2E and Visual UX, and persists those run identities before audit generation.
-  - Wiki/EditorialMedia strictness failure injection now uses disposable acceptance database-table fixtures and does not rename tracked source files.
-  - On PR head 3f5f872d1d747096fbf8c8c3f28aa3061b3a4f2b, CI, Wiki Reconciliation, Editorial Media Acceptance, Acceptance E2E and Visual UX, Portal Exhaustive Audit, Portal Acceptance Contract, Deep System Validation and the other emitted runtime gates passed.
-  - Agent Governance run 31442749339 failed only because its stale PR merge base still contained terminal Synology hygiene task OTERYN-20260811-container-resource-hygiene with PR #973 represented as active and next_action containing merge.
-  - Protected main is now 06ec89521e412c2252f1a10224955b90180e8c35 after archive PR #978; current main active-task inventory no longer contains OTERYN-20260811-container-resource-hygiene, so the proven liveness failure root cause has been removed from the trusted base.
+  - Canonical Portal Exhaustive Audit executes `wiki:launch-content:validate --json`, requires exact-head success of Wiki Reconciliation Acceptance, Editorial Media Acceptance and Acceptance E2E and Visual UX, and persists those run identities before audit generation.
+  - Wiki/EditorialMedia strictness failure injection uses disposable acceptance database-table fixtures and does not rename tracked source files.
+  - On PR head 3f5f872d1d747096fbf8c8c3f28aa3061b3a4f2b, every emitted runtime/evidence gate passed except Agent Governance.
+  - Agent Governance run 31442749339 failed on a stale PR merge generation because terminal Synology hygiene task OTERYN-20260811-container-resource-hygiene / PR #973 was still represented as active.
+  - Protected main 06ec89521e412c2252f1a10224955b90180e8c35 archived that Synology task through #978.
+  - The first closeout-refresh commit 0c67ca77957877d578df5d33a60dd9b4d78ff153 created a fresh PR generation; its CI run 31466298999 then failed before routing because this checkpoint rewrite violated the repository checkpoint schema, not because of application/runtime behavior.
 derived:
-  - A new PR head is required so GitHub builds a fresh merge ref against current main and re-runs exact-head governance without the stale terminal task.
-  - The prior Agent Governance failure is base-state drift, not evidence of a Wiki runtime or inventory defect.
+  - This schema-repair commit is required before exact-head validation can continue.
 unknown:
-  - final exact-head gate results after this current-base refresh checkpoint creates a new PR head
+  - final exact-head gate results after the checkpoint schema repair
   - future post-launch Wiki expansion beyond this versioned launch inventory
 conflicts: []
 first_failure:
-  marker: stale-base-task-liveness
-  evidence: Agent Governance run 31442749339 job 93630676124; terminal_pr_stale_next_action and terminal_pr_active_task for OTERYN-20260811-container-resource-hygiene / PR #973.
+  marker: checkpoint-schema-contract
+  evidence: CI run 31466298999 / job 93699781976 reported missing changed_paths, context_routes, head, owned_paths; checkpoint_version 2 unsupported; FAIL_BASE_DRIFT unsupported.
 rejected_hypotheses:
-  - Re-running the old Agent Governance event would prove current-base compatibility; the old pull_request event is bound to its stale merge-ref generation.
-  - The Wiki implementation caused the governance failure; the failed liveness entries identify an unrelated terminal operations task.
+  - The fresh CI failure represents a Wiki defect; classify-changes stopped at the task checkpoint schema before application routing/tests.
+  - Re-running the old Agent Governance event proves current-base compatibility; the old pull_request event is bound to its stale generation.
   - Static source markers prove browser execution; canonical audit requires exact-head workflow success.
   - Tracked Blade renames are acceptable fault injection; they were replaced by disposable database fixture operations.
 validation:
@@ -180,10 +213,13 @@ validation:
     result: PASS
     evidence: run 31442749376
   - command: Agent Governance on 3f5f872d1d747096fbf8c8c3f28aa3061b3a4f2b with stale base merge ref
-    result: FAIL_BASE_DRIFT
-    evidence: run 31442749339 / job 93630676124
+    result: FAIL
+    evidence: run 31442749339 / job 93630676124; unrelated terminal task liveness drift
+  - command: CI classify-changes on 0c67ca77957877d578df5d33a60dd9b4d78ff153
+    result: FAIL
+    evidence: run 31466298999 / job 93699781976; checkpoint schema contract only
 blockers: []
-next_action: Use this material checkpoint commit to create a fresh PR synchronize generation against protected main 06ec89521e412c2252f1a10224955b90180e8c35; then verify all required exact-head gates, review threads and self-review before merge and terminal Issue/task closeout.
+next_action: Validate this repaired checkpoint through the new exact-head CI generation; then verify Agent Governance, Wiki Reconciliation, Editorial Media Acceptance, Acceptance E2E, Portal Exhaustive Audit, review threads and whole-diff self-review before merge/closeout.
 ```
 
 ## Recovery checkpoint
@@ -191,23 +227,28 @@ next_action: Use this material checkpoint commit to create a fresh PR synchroniz
 ```yaml
 recovery:
   policy_version: 1
-  generation: 1
+  generation: 2
   session_id: portal-closeout-20260811-0837
   session_started_at: 2026-08-11T08:37:00+02:00
-  checkpointed_at: 2026-08-11T08:37:00+02:00
-  last_progress_at: 2026-08-11T08:37:00+02:00
+  checkpointed_at: 2026-08-11T08:49:00+02:00
+  last_progress_at: 2026-08-11T08:49:00+02:00
   phase: final_exact_head_validation
-  exact_head: 3f5f872d1d747096fbf8c8c3f28aa3061b3a4f2b
+  exact_head: 0c67ca77957877d578df5d33a60dd9b4d78ff153
   pull_request: 972
   active_operation: none
   external_run_ids:
-    - 31442749339
+    - 31466298999
+    - 31466299057
+    - 31466299000
+    - 31466299003
+    - 31466298952
+    - 31466299015
   operation_started_at: null
   wait_deadline_at: null
-  check_generation: current_base_refresh_pending
+  check_generation: checkpoint_schema_repair_pending
   checks_used: 0
   status: ready
   safe_to_resume: true
-  resume_condition: PR #972 has a new head and fresh required-check generation against current protected main.
-  next_action: Inspect one aggregate exact-head workflow snapshot for the new PR head; diagnose only failed gates, otherwise complete review/self-review and merge closeout.
+  resume_condition: PR #972 has the schema-repair head and its fresh required-check generation exists.
+  next_action: Inspect the new CI classify-changes result first; if green, aggregate exact-head gates and diagnose only new failures.
 ```
