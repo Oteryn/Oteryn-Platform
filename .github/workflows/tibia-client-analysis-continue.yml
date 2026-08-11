@@ -16,9 +16,9 @@ concurrency:
 
 jobs:
   continue:
-    name: Probe exact Tibia manifest request semantics
+    name: Materialize current Tibia game executable
     runs-on: oteryn-staging
-    timeout-minutes: 15
+    timeout-minutes: 25
     env:
       CONTAINER_NAME: oteryn-tibia-client-analysis
     steps:
@@ -34,51 +34,81 @@ jobs:
           docker ps -a --filter 'label=com.docker.compose.project=oteryn-staging' --format '{{.ID}}\t{{.Names}}' | sort > /tmp/oteryn-before.tsv
           test -s /tmp/oteryn-before.tsv
 
-      - name: Probe official package and asset manifests
+      - name: Reuse verified current package manifest
         shell: bash
         run: |
           set -Eeuo pipefail
           docker exec "$CONTAINER_NAME" bash -lc '
             set -Eeuo pipefail
-            mkdir -p /data/direct/probes
-            cd /data/direct/probes
-            pkg="https://static.tibia.com/launcher/tibiaclient-linux-current/package.json"
-            ver="https://static.tibia.com/launcher/tibiaclient-linux-current/package.json.version"
-            meta="https://static.tibia.com/launcher/tibiametadata.json"
-            assets="https://static.tibia.com/launcher/assets-current/assets.json"
-            qtua="Mozilla/5.0"
-            rm -f success-package.json success-assets.json
-            probe() {
-              name="$1"; shift
-              url="$1"; shift
-              out="$name.body"
-              hdr="$name.headers"
-              rm -f "$out" "$hdr"
-              set +e
-              code="$(curl --compressed -sS -L --connect-timeout 15 --max-time 60 -D "$hdr" -o "$out" -w "%{http_code}" "$@" "$url")"
-              rc=$?
-              set -e
-              echo "PROBE name=$name rc=$rc http=$code bytes=$(wc -c < "$out" 2>/dev/null || echo 0)"
-              head -n 30 "$hdr" || true
-              if [[ "$rc" -eq 0 && "$code" == "200" ]]; then
-                if [[ "$url" == "$pkg" ]]; then cp "$out" success-package.json; fi
-                if [[ "$url" == "$assets" ]]; then cp "$out" success-assets.json; fi
-              fi
-            }
-            probe pkg-self "$pkg" -e "$pkg"
-            probe pkg-version-ref "$pkg" -e "$ver"
-            probe pkg-meta-ref "$pkg" -e "$meta"
-            probe pkg-self-ua "$pkg" -e "$pkg" -A "$qtua"
-            probe pkg-version-ref-ua "$pkg" -e "$ver" -A "$qtua"
-            probe pkg-meta-ref-ua "$pkg" -e "$meta" -A "$qtua"
-            probe assets-self "$assets" -e "$assets"
-            probe assets-meta-ref "$assets" -e "$meta"
-            probe assets-self-ua "$assets" -e "$assets" -A "$qtua"
-            echo "=== SUCCESS PACKAGE ==="
-            if [[ -s success-package.json ]]; then file success-package.json; wc -c success-package.json; head -c 16000 success-package.json; echo; fi
-            echo "=== SUCCESS ASSETS ==="
-            if [[ -s success-assets.json ]]; then file success-assets.json; wc -c success-assets.json; head -c 16000 success-assets.json; echo; fi
-            test -s success-package.json
+            src=/data/direct/probes/success-package.json
+            test -s "$src"
+            grep -q '"version": "15.32.df7b29"' "$src"
+            grep -q '"url": "bin/client.lzma"' "$src"
+            grep -q '"unpackedhash": "e6c244bd39fe2e0632f6f000efd3147164696efa8e901718668e0442325ff7fe"' "$src"
+            grep -q '"packedhash": "496c5b3517c0996a1bbd0e76a7738d450f79d0bf4fef140a807044776042dc9b"' "$src"
+          '
+
+      - name: Download and verify packed game executable
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          docker exec "$CONTAINER_NAME" bash -lc '
+            set -Eeuo pipefail
+            mkdir -p /data/client-15.32.df7b29/bin
+            cd /data/client-15.32.df7b29/bin
+            url="https://static.tibia.com/launcher/tibiaclient-linux-current/bin/client.lzma"
+            rm -f client.lzma.part client.lzma
+            curl --compressed -fL --connect-timeout 15 --max-time 600 -e "$url" "$url" -o client.lzma.part
+            mv client.lzma.part client.lzma
+            actual="$(sha256sum client.lzma | awk "{print \$1}")"
+            echo "packed_sha256=$actual"
+            [[ "$actual" == "496c5b3517c0996a1bbd0e76a7738d450f79d0bf4fef140a807044776042dc9b" ]]
+            size="$(stat -c %s client.lzma)"
+            echo "packed_size=$size"
+            [[ "$size" -eq 10150849 ]]
+          '
+
+      - name: Decompress and verify actual game executable
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          docker exec "$CONTAINER_NAME" bash -lc '
+            set -Eeuo pipefail
+            export DEBIAN_FRONTEND=noninteractive
+            command -v xz >/dev/null || { apt-get update; apt-get install -y --no-install-recommends xz-utils; }
+            cd /data/client-15.32.df7b29/bin
+            rm -f client
+            xz --format=lzma -dc client.lzma > client
+            chmod 0755 client
+            actual="$(sha256sum client | awk "{print \$1}")"
+            echo "unpacked_sha256=$actual"
+            [[ "$actual" == "e6c244bd39fe2e0632f6f000efd3147164696efa8e901718668e0442325ff7fe" ]]
+            size="$(stat -c %s client)"
+            echo "unpacked_size=$size"
+            [[ "$size" -eq 51965216 ]]
+            file client
+            readelf -h client | head -n 40
+            echo "=== missing shared libraries ==="
+            ldd client | tee /data/client-15.32.df7b29/ldd.txt || true
+          '
+
+      - name: Reconnaissance for map and protocol interception points
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          docker exec "$CONTAINER_NAME" bash -lc '
+            set -Eeuo pipefail
+            cd /data/client-15.32.df7b29/bin
+            echo "=== binary identity ==="
+            sha256sum client
+            stat -c "path=%n size=%s mode=%a" client
+            file client
+            echo "=== sections ==="
+            readelf -S client | head -n 100
+            echo "=== dynamic symbols/strings relevant to networking/map ==="
+            strings -a -n 6 client | grep -Ei "mapdescription|map description|tile|creature|appearances|protocol|network|socket|ssl|websocket|packet|message|position|floor|minimap|gameworld|worldmap|deserialize|serialize" | head -n 1000 | tee /data/client-15.32.df7b29/map-protocol-strings.txt || true
+            echo "=== imported network/runtime APIs ==="
+            readelf -Ws client | grep -Ei "recv|send|socket|connect|ssl|EVP|AES|zstd|lzma|protobuf|memcpy|QNetwork|QDataStream" | head -n 500 | tee /data/client-15.32.df7b29/network-symbols.txt || true
           '
 
       - name: Verify canonical staging unchanged
