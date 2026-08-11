@@ -11,7 +11,6 @@ from typing import Iterable
 
 REPOSITORY_FULL_NAME = "blakinio/Oteryn-Platform"
 REPO_ROOT = Path(__file__).resolve().parents[2]
-KNOWN_PLAIN_REPOSITORY_OWNERS = {"blakinio", "opentibiabr"}
 
 CHECKED_PATHS = (
     "AGENTS.md",
@@ -26,6 +25,11 @@ NUMBER_WORDS = {
     0: "zero", 1: "one", 2: "two", 3: "three", 4: "four", 5: "five", 6: "six",
     7: "seven", 8: "eight", 9: "nine", 10: "ten", 11: "eleven", 12: "twelve",
 }
+
+REPO_TOKEN = re.compile(r"(?<![A-Za-z0-9_.-])([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)(?![A-Za-z0-9_.-])")
+MUTATION_WORD = re.compile(r"\b(?:write|writes|writable|edit|edits|edited|push|pushes|pushed|merge|merges|merged|mutate|mutates|mutation)\b", re.I)
+POSITIVE_AUTH = re.compile(r"\b(?:allow|allows|allowed|authorize|authorizes|authorized|permit|permits|permitted|may|can)\b", re.I)
+NEGATIVE_AUTH = re.compile(r"\b(?:not\s+allowed|not\s+authorized|not\s+permitted|may\s+not|cannot|can't|can’t|never\s+allowed|unauthorized)\b", re.I)
 
 
 class PolicyConsistencyError(RuntimeError):
@@ -49,45 +53,35 @@ def _read_json(root: Path, relative_path: str) -> dict[str, object]:
     return decoded
 
 
-def _yaml_list(markdown: str, key: str) -> list[str]:
-    lines = markdown.splitlines()
-    for index, line in enumerate(lines):
-        if line.strip() != f"{key}:":
-            continue
-        values: list[str] = []
-        for candidate in lines[index + 1 :]:
-            match = re.match(r"^\s*-\s+([^#]+?)\s*$", candidate)
-            if match:
-                values.append(match.group(1).strip().strip("'\""))
-                continue
-            if candidate.strip() == "":
-                if values:
-                    break
-                continue
-            break
+def _normalize_inline_markdown(text: str) -> str:
+    return re.sub(r"[*_`]", "", text)
+
+
+def _yaml_lists(markdown: str, key: str) -> list[list[str]]:
+    pattern = re.compile(
+        rf"(?m)^\s*{re.escape(key)}:\s*\n(?P<body>(?:\s+-\s+[^\n]+\n?)+)"
+    )
+    declarations: list[list[str]] = []
+    for match in pattern.finditer(markdown):
+        values = [
+            item.strip().strip("'\"")
+            for item in re.findall(r"(?m)^\s*-\s+([^#\n]+?)\s*$", match.group("body"))
+        ]
         if values:
-            return values
-    raise PolicyConsistencyError(f"cannot parse YAML list {key}")
+            declarations.append(values)
+    if not declarations:
+        raise PolicyConsistencyError(f"cannot parse YAML list {key}")
+    return declarations
 
 
 def _yaml_int(markdown: str, key: str) -> int:
-    match = re.search(rf"(?m)^\s*{re.escape(key)}:\s*(\d+)\s*$", markdown)
-    if not match:
+    matches = re.findall(rf"(?m)^\s*{re.escape(key)}:\s*(\d+)\s*$", markdown)
+    if not matches:
         raise PolicyConsistencyError(f"cannot parse integer policy value {key}")
-    return int(match.group(1))
-
-
-def _backticked_values_from_line(markdown: str, marker: str) -> list[str]:
-    for line in markdown.splitlines():
-        if marker in line:
-            return re.findall(r"`([^`]+)`", line)
-    raise PolicyConsistencyError(f"cannot find policy line containing {marker!r}")
-
-
-def _require_exact_line(errors: list[str], source: str, text: str, values: Iterable[str], label: str) -> None:
-    expected = " | ".join(values)
-    if not re.search(rf"(?m)^{re.escape(expected)}$", text):
-        errors.append(f"{source}: {label} drift; expected exact line: {expected}")
+    values = {int(value) for value in matches}
+    if len(values) != 1:
+        raise PolicyConsistencyError(f"conflicting integer policy values for {key}: {sorted(values)}")
+    return next(iter(values))
 
 
 def _require_marker(errors: list[str], source: str, text: str, marker: str) -> None:
@@ -95,11 +89,9 @@ def _require_marker(errors: list[str], source: str, text: str, marker: str) -> N
         errors.append(f"{source}: missing required governance marker: {marker}")
 
 
-def _normalize_inline_markdown(text: str) -> str:
-    return re.sub(r"[*_`]", "", text)
-
-
-def _require_regex_value(errors: list[str], source: str, text: str, pattern: str, expected: int, label: str) -> None:
+def _require_regex_value(
+    errors: list[str], source: str, text: str, pattern: str, expected: int, label: str
+) -> None:
     matches = list(re.finditer(pattern, _normalize_inline_markdown(text), flags=re.IGNORECASE))
     if not matches:
         errors.append(f"{source}: cannot locate duplicated budget marker for {label}")
@@ -107,11 +99,49 @@ def _require_regex_value(errors: list[str], source: str, text: str, pattern: str
     actual_values = [int(match.group("value")) for match in matches]
     conflicting = sorted({value for value in actual_values if value != expected})
     if conflicting:
-        errors.append(f"{source}: {label} drift; canonical={expected}, conflicting declarations={conflicting}")
+        errors.append(
+            f"{source}: {label} drift; canonical={expected}, conflicting declarations={conflicting}"
+        )
+
+
+def _text_contract_declarations(markdown: str, marker: str) -> list[list[str]]:
+    pattern = re.compile(
+        rf"{re.escape(marker)}\s*```text\s*(?P<body>.*?)```",
+        re.IGNORECASE | re.DOTALL,
+    )
+    declarations: list[list[str]] = []
+    for match in pattern.finditer(markdown):
+        body = match.group("body").strip()
+        values = [part.strip() for part in body.split("|") if part.strip()]
+        if values:
+            declarations.append(values)
+    return declarations
+
+
+def _inline_backtick_declarations(markdown: str, marker: str) -> list[list[str]]:
+    declarations: list[list[str]] = []
+    for line in markdown.splitlines():
+        if marker.casefold() in line.casefold():
+            values = re.findall(r"`([^`]+)`", line)
+            if values:
+                declarations.append(values)
+    return declarations
+
+
+def _require_all_declarations(
+    errors: list[str], source: str, declarations: list[list[str]], expected: list[str], label: str
+) -> None:
+    if not declarations:
+        errors.append(f"{source}: cannot locate duplicated declaration for {label}")
+        return
+    conflicting = [decl for decl in declarations if decl != expected]
+    if conflicting:
+        errors.append(
+            f"{source}: {label} drift; canonical={expected}, conflicting declarations={conflicting}"
+        )
 
 
 def _logical_markdown_statements(markdown: str) -> list[str]:
-    """Join wrapped Markdown lines while keeping separate bullets/statements separate."""
     statements: list[str] = []
     current: list[str] = []
 
@@ -129,8 +159,7 @@ def _logical_markdown_statements(markdown: str) -> list[str]:
         if bullet:
             flush()
             current.append(bullet.group(1).strip())
-            continue
-        if current:
+        elif current:
             current.append(stripped)
         else:
             current.append(stripped)
@@ -138,89 +167,97 @@ def _logical_markdown_statements(markdown: str) -> list[str]:
     return statements
 
 
-def _repository_identifiers(statement: str) -> list[str]:
-    """Extract repository-shaped identifiers without mistaking prose like commit/PR for repos."""
-    repository_pattern = r"([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)"
-    identifiers = set(re.findall(rf"`{repository_pattern}`", statement))
-    for candidate in re.findall(
-        rf"(?<![A-Za-z0-9_.-]){repository_pattern}(?![A-Za-z0-9_.-])", statement
-    ):
-        owner = candidate.split("/", 1)[0].casefold()
-        if owner in KNOWN_PLAIN_REPOSITORY_OWNERS:
-            identifiers.add(candidate)
-    return sorted(identifiers)
+def _policy_clauses(statement: str) -> list[str]:
+    # Contrastive separators terminate the scope of a repository-specific exception.
+    return [
+        value.strip()
+        for value in re.split(r"\s*;\s*|\s*,\s*but\s+|\s+but\s+|\s+however\s+", statement, flags=re.I)
+        if value.strip()
+    ]
 
 
-def _is_current_task_user_authorization_exception(lowered: str) -> bool:
-    conditional = "only when" in lowered or "unless" in lowered
+def _has_positive_mutation_grant(clause: str) -> bool:
+    normalized = _normalize_inline_markdown(clause)
+    if not MUTATION_WORD.search(normalized):
+        return False
+    # A clause whose relevant authorization is explicitly denied is not a grant.
+    if NEGATIVE_AUTH.search(normalized):
+        positives = list(POSITIVE_AUTH.finditer(normalized))
+        if not positives:
+            return False
+        for match in positives:
+            window = normalized[max(0, match.start() - 16): match.end() + 16]
+            if not NEGATIVE_AUTH.search(window):
+                return True
+        return False
+    return bool(POSITIVE_AUTH.search(normalized))
+
+
+def _repo_specific_window(clause: str, repository: str, radius: int = 140) -> str:
+    lowered = clause.casefold()
+    index = lowered.find(repository.casefold())
+    if index < 0:
+        return lowered
+    return lowered[max(0, index - radius): index + len(repository) + radius]
+
+
+def _repo_has_conditional_user_authorization(clause: str, repository: str) -> bool:
+    window = _repo_specific_window(clause, repository, 220)
+    conditional = "only when" in window or "unless" in window
     explicitly_authorized = bool(
-        re.search(r"\b(?:user|project\s+owner)\b.*\bexplicit(?:ly)?\b.*\b(?:authoriz\w*|grant\w*|permission)\b", lowered)
+        re.search(
+            r"\b(?:user|project\s+owner)\b.*\bexplicit(?:ly)?\b.*\b(?:authoriz\w*|grant\w*|permission)\b",
+            window,
+        )
     )
-    task_scoped = "current task" in lowered or "write task" in lowered or "separate permission" in lowered
+    task_scoped = any(value in window for value in ("current task", "write task", "separate permission"))
     return conditional and explicitly_authorized and task_scoped
 
 
-def _repo_has_positive_read_only_assertion(statement: str, repository: str) -> bool:
-    """Return true only when read-only wording actually applies to this repository."""
-    lowered = statement.casefold()
-    repo = repository.casefold()
-    for match in re.finditer(re.escape(repo), lowered):
-        tail = lowered[match.start():]
-        ro_index = tail.find("read-only")
-        if ro_index < 0:
-            continue
-        assertion = tail[: ro_index + len("read-only")]
-        if ";" in assertion or re.search(r"\bbut\b", assertion):
-            continue
-        if re.search(
-            r"(?:\b(?:not|never|no\s+longer|is\s+not|was\s+not)\s+read-only\b|"
-            r"\b(?:isn't|isn’t|wasn't|wasn’t)\s+read-only\b)",
-            assertion,
+def _repo_has_positive_read_only_assertion(clause: str, repository: str) -> bool:
+    window = _repo_specific_window(clause, repository, 120)
+    if "read-only" not in window:
+        return False
+    if re.search(
+        r"(?:\b(?:not|never|no\s+longer|is\s+not|was\s+not)\s+read-only\b|"
+        r"\b(?:isn't|isn’t|wasn't|wasn’t)\s+read-only\b)",
+        window,
+    ):
+        return False
+    return bool(re.search(r"\b(?:is|are|as|remain|remains|must\s+remain|treat)\b.*\bread-only\b", window))
+
+
+def _repository_identifiers_in_grant_clause(clause: str) -> list[str]:
+    if not _has_positive_mutation_grant(clause):
+        return []
+    repositories: set[str] = set()
+    for match in REPO_TOKEN.finditer(clause):
+        repository = match.group(1)
+        window = clause[max(0, match.start() - 90): match.end() + 90]
+        # Require the repository token itself to be locally associated with mutation/grant language.
+        if MUTATION_WORD.search(_normalize_inline_markdown(window)) and POSITIVE_AUTH.search(
+            _normalize_inline_markdown(window)
         ):
-            continue
-        if re.search(r"\b(?:is|are|as|remain|remains|must\s+remain)\b.*\bread-only\b", assertion):
-            return True
-    return False
-
-
-def _has_positive_mutation_authorization(lowered: str) -> bool:
-    """Recognize actual grants while ignoring nearby denial/negation language."""
-    positive = re.compile(r"\b(?:allowed|allow|allows|authorize|authorizes|authorized|authorization|permit|permits|permitted|may|can)\b")
-    for match in positive.finditer(lowered):
-        before = lowered[max(0, match.start() - 24):match.start()]
-        after = lowered[match.end():match.end() + 12]
-        if re.search(r"\b(?:not|never|no|isn't|isn’t|cannot|can't|can’t)\s*$", before):
-            continue
-        if match.group(0) in {"may", "can"} and re.match(r"\s+(?:not|never)\b", after):
-            continue
-        return True
-    return False
-
-
-def _statement_grants_repository_mutation(lowered: str) -> bool:
-    mutation = bool(
-        re.search(r"\b(?:write|writes|edit|edits|push|pushes|merge|merges|mutat(?:e|es|ion))\b", lowered)
-    )
-    return mutation and _has_positive_mutation_authorization(lowered)
+            repositories.add(repository)
+    return sorted(repositories)
 
 
 def _reject_contradictory_repository_mutation_grants(
     errors: list[str], source: str, policy_text: str
 ) -> None:
     for statement in _logical_markdown_statements(policy_text):
-        lowered = statement.casefold()
-        repositories = _repository_identifiers(statement)
-        foreign = sorted({value for value in repositories if value != REPOSITORY_FULL_NAME})
-        if not foreign or not _statement_grants_repository_mutation(lowered):
-            continue
-        if _is_current_task_user_authorization_exception(lowered):
-            continue
-        contradictory = [repo for repo in foreign if not _repo_has_positive_read_only_assertion(statement, repo)]
-        if contradictory:
-            errors.append(
-                f"{source}: contradictory repository mutation authorization in authoritative policy: "
-                f"{', '.join(contradictory)}"
-            )
+        for clause in _policy_clauses(statement):
+            repositories = _repository_identifiers_in_grant_clause(clause)
+            for repository in repositories:
+                if repository == REPOSITORY_FULL_NAME:
+                    continue
+                if _repo_has_positive_read_only_assertion(clause, repository):
+                    continue
+                if _repo_has_conditional_user_authorization(clause, repository):
+                    continue
+                errors.append(
+                    f"{source}: contradictory repository mutation authorization in authoritative policy: {repository}"
+                )
 
 
 def validate_policy(root: Path = REPO_ROOT) -> list[str]:
@@ -246,34 +283,47 @@ def validate_policy(root: Path = REPO_ROOT) -> list[str]:
         canonical_statuses = list(statuses)
         canonical_terminal = list(terminal_results)
 
-        anti_statuses = _yaml_list(anti_stall, "checkpoint_task_statuses")
-        if anti_statuses != canonical_statuses:
-            errors.append(
-                "docs/agents/ANTI_STALL_AND_EXECUTION_BUDGET.md: checkpoint task statuses drift; "
-                f"canonical={canonical_statuses}, duplicate={anti_statuses}"
-            )
-        anti_terminal = _yaml_list(anti_stall, "terminal_invocation_results")
-        if anti_terminal != canonical_terminal:
-            errors.append(
-                "docs/agents/ANTI_STALL_AND_EXECUTION_BUDGET.md: terminal invocation results drift; "
-                f"canonical={canonical_terminal}, duplicate={anti_terminal}"
-            )
+        for duplicate in _yaml_lists(anti_stall, "checkpoint_task_statuses"):
+            if duplicate != canonical_statuses:
+                errors.append(
+                    "docs/agents/ANTI_STALL_AND_EXECUTION_BUDGET.md: checkpoint task statuses drift; "
+                    f"canonical={canonical_statuses}, duplicate={duplicate}"
+                )
+        for duplicate in _yaml_lists(anti_stall, "terminal_invocation_results"):
+            if duplicate != canonical_terminal:
+                errors.append(
+                    "docs/agents/ANTI_STALL_AND_EXECUTION_BUDGET.md: terminal invocation results drift; "
+                    f"canonical={canonical_terminal}, duplicate={duplicate}"
+                )
 
-        _require_exact_line(errors, "docs/agents/AGENTS.md", docs_agents, canonical_statuses, "checkpoint task statuses")
-        _require_exact_line(errors, "docs/agents/AGENTS.md", docs_agents, canonical_terminal, "terminal invocation results")
-
-        override_statuses = _backticked_values_from_line(override, "checkpoint task status:")
-        if override_statuses != canonical_statuses:
-            errors.append(
-                "AGENTS.override.md: checkpoint task statuses drift; "
-                f"canonical={canonical_statuses}, duplicate={override_statuses}"
-            )
-        override_terminal = _backticked_values_from_line(override, "terminal invocation result:")
-        if override_terminal != canonical_terminal:
-            errors.append(
-                "AGENTS.override.md: terminal invocation results drift; "
-                f"canonical={canonical_terminal}, duplicate={override_terminal}"
-            )
+        _require_all_declarations(
+            errors,
+            "docs/agents/AGENTS.md",
+            _text_contract_declarations(docs_agents, "Use these checkpoint task statuses only:"),
+            canonical_statuses,
+            "checkpoint task statuses",
+        )
+        _require_all_declarations(
+            errors,
+            "docs/agents/AGENTS.md",
+            _text_contract_declarations(docs_agents, "Use these terminal invocation results only:"),
+            canonical_terminal,
+            "terminal invocation results",
+        )
+        _require_all_declarations(
+            errors,
+            "AGENTS.override.md",
+            _inline_backtick_declarations(override, "checkpoint task status:"),
+            canonical_statuses,
+            "checkpoint task statuses",
+        )
+        _require_all_declarations(
+            errors,
+            "AGENTS.override.md",
+            _inline_backtick_declarations(override, "terminal invocation result:"),
+            canonical_terminal,
+            "terminal invocation results",
+        )
 
         budget_keys = {
             key: _yaml_int(anti_stall, key)
@@ -290,28 +340,26 @@ def validate_policy(root: Path = REPO_ROOT) -> list[str]:
                 "minimum_remaining_minutes_to_start_additional_task",
             )
         }
-        patterns = (
+        for pattern, key in (
             (r"Default to (?P<value>\d+) minutes per foreground invocation", "normal_foreground_runtime_minutes"),
             (r"allow (?P<value>\d+) minutes only when", "large_foreground_runtime_minutes"),
             (r"Stop after (?P<value>\d+) minutes without measurable progress", "no_progress_minutes"),
             (r"exception is capped at (?P<value>\d+) minutes", "terminal_ci_wait_budget_minutes"),
             (r"permits at most (?P<value>\d+) checks per materially new required-check generation", "max_terminal_ci_state_checks_per_check_generation"),
             (r"only when at least (?P<value>\d+) minutes remains", "minimum_remaining_minutes_to_start_additional_task"),
-        )
-        for pattern, key in patterns:
+        ):
             _require_regex_value(errors, "AGENTS.override.md", override, pattern, budget_keys[key], key)
 
         ordinary_checks = budget_keys["max_ci_state_checks_per_exact_head"]
         external_checks = budget_keys["max_unchanged_external_state_checks"]
         if ordinary_checks != external_checks:
             errors.append(
-                "ANTI_STALL_AND_EXECUTION_BUDGET.md: root bootstrap combines ordinary CI and external checks, "
-                "but their canonical limits differ"
+                "ANTI_STALL_AND_EXECUTION_BUDGET.md: root bootstrap combines ordinary CI and external checks, but their canonical limits differ"
             )
         elif ordinary_checks != 2 or "at most twice per exact head" not in override:
             errors.append(
-                "AGENTS.override.md: ordinary CI/external-state check limit drift; "
-                f"canonical={ordinary_checks}, duplicate marker='at most twice per exact head'"
+                "AGENTS.override.md: ordinary CI/external-state check limit drift; canonical="
+                f"{ordinary_checks}, duplicate marker='at most twice per exact head'"
             )
 
         poll_minutes = budget_keys["terminal_ci_minimum_poll_interval_minutes"]
