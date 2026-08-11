@@ -168,7 +168,6 @@ def _logical_markdown_statements(markdown: str) -> list[str]:
 
 
 def _policy_clauses(statement: str) -> list[str]:
-    # Contrastive separators terminate the scope of a repository-specific exception.
     return [
         value.strip()
         for value in re.split(r"\s*;\s*|\s*,\s*but\s+|\s+but\s+|\s+however\s+", statement, flags=re.I)
@@ -180,7 +179,6 @@ def _has_positive_mutation_grant(clause: str) -> bool:
     normalized = _normalize_inline_markdown(clause)
     if not MUTATION_WORD.search(normalized):
         return False
-    # A clause whose relevant authorization is explicitly denied is not a grant.
     if NEGATIVE_AUTH.search(normalized):
         positives = list(POSITIVE_AUTH.finditer(normalized))
         if not positives:
@@ -230,14 +228,30 @@ def _repo_has_positive_read_only_assertion(clause: str, repository: str) -> bool
 def _repository_identifiers_in_grant_clause(clause: str) -> list[str]:
     if not _has_positive_mutation_grant(clause):
         return []
+    normalized = _normalize_inline_markdown(clause)
     repositories: set[str] = set()
     for match in REPO_TOKEN.finditer(clause):
         repository = match.group(1)
-        window = clause[max(0, match.start() - 90): match.end() + 90]
-        # Require the repository token itself to be locally associated with mutation/grant language.
-        if MUTATION_WORD.search(_normalize_inline_markdown(window)) and POSITIVE_AUTH.search(
-            _normalize_inline_markdown(window)
-        ):
+        before = normalized[max(0, match.start() - 72):match.start()]
+        after = normalized[match.end():match.end() + 48]
+        # A real grant must bind mutation syntax to this repository token, not merely
+        # contain unrelated slash-delimited prose elsewhere in the same sentence.
+        mutation_before = bool(
+            re.search(
+                r"\b(?:write|writes|edit|edits|push|pushes|merge|merges|mutate|mutates|mutation)\b(?:\s+(?:operations?|access|to|of))*\s*$",
+                before,
+                flags=re.I,
+            )
+        )
+        writable_after = bool(re.match(r"\s+(?:is\s+|are\s+)?writable\b", after, flags=re.I))
+        if not (mutation_before or writable_after):
+            continue
+        local = normalized[max(0, match.start() - 90):match.end() + 100]
+        if POSITIVE_AUTH.search(local) and not NEGATIVE_AUTH.search(local):
+            repositories.add(repository)
+        elif POSITIVE_AUTH.search(local):
+            # Conditional positive authorization may coexist with unrelated negative
+            # wording; let the repository-scoped exception check classify it later.
             repositories.add(repository)
     return sorted(repositories)
 
