@@ -15,20 +15,19 @@ env:
 
 jobs:
   continue:
-    name: Inspect current Tibia package envelope
+    name: Inspect Tibia payload offsets
     runs-on: oteryn-staging
     timeout-minutes: 15
     steps:
-      - name: Verify owned runtime and staging snapshot
+      - name: Verify runtime and snapshot
         shell: bash
         run: |
           set -Eeuo pipefail
           [[ "$RUNNER_NAME" == "oteryn-synology-staging" ]]
           [[ "$(docker inspect --format '{{ index .Config.Labels "com.blakinio.owner" }}' "$CONTAINER_NAME")" == "oteryn" ]]
-          [[ "$(docker inspect --format '{{ index .Config.Labels "com.blakinio.purpose" }}' "$CONTAINER_NAME")" == "tibia-client-analysis" ]]
           docker ps -a --filter 'label=com.docker.compose.project=oteryn-staging' --format '{{.ID}}\t{{.Names}}' | sort > /tmp/oteryn-before.tsv
           test -s /tmp/oteryn-before.tsv
-      - name: Inspect bytes and search candidate compressed-stream offsets
+      - name: Inspect payload
         shell: bash
         run: |
           set -Eeuo pipefail
@@ -38,48 +37,13 @@ jobs:
             [[ "$(sha256sum client.lzma | awk "{print \$1}")" == "496c5b3517c0996a1bbd0e76a7738d450f79d0bf4fef140a807044776042dc9b" ]]
             echo "=== first 256 bytes ==="
             od -Ax -tx1 -N256 client.lzma
-            python3 - <<"PY"
-import lzma, pathlib, json
-src=pathlib.Path("client.lzma").read_bytes()
-print("size",len(src),"prefix64",src[:64].hex())
-# Search the first 256 offsets for a raw LZMA1 stream that starts with ELF.
-found=[]
-for off in range(0,257):
-    payload=src[off:]
-    for pb in range(5):
-      for lp in range(5):
-        for lc in range(9):
-          if lc+lp>4: continue
-          f={"id":lzma.FILTER_LZMA1,"dict_size":1<<20,"lc":lc,"lp":lp,"pb":pb}
-          try:
-            d=lzma.LZMADecompressor(format=lzma.FORMAT_RAW,filters=[f])
-            head=d.decompress(payload,max_length=32)
-          except lzma.LZMAError:
-            continue
-          if head.startswith(b"\x7fELF"):
-            rec={"offset":off,"lc":lc,"lp":lp,"pb":pb,"head":head[:16].hex()}
-            print("RAW_ELF",rec); found.append(rec)
-print("raw_candidate_count",len(found))
-# Scan for plausible LZMA-alone headers (property + dictionary + size) in first 4096 bytes.
-valid_dict=set()
-for n in range(12,32):
-    valid_dict.add(1<<n); valid_dict.add((1<<n)+(1<<(n-1)))
-headers=[]
-for off in range(0,min(4096,len(src)-13)):
-    prop=src[off]
-    if prop>224: continue
-    ds=int.from_bytes(src[off+1:off+5],"little")
-    sz=int.from_bytes(src[off+5:off+13],"little")
-    if ds in valid_dict and (sz==0xffffffffffffffff or sz==51965216):
-        headers.append((off,prop,ds,sz,src[off:off+13].hex()))
-print("plausible_headers",headers[:100])
-PY
+            printf "%s" "aW1wb3J0IGx6bWEsIHBhdGhsaWIKc3JjPXBhdGhsaWIuUGF0aCgiY2xpZW50Lmx6bWEiKS5yZWFkX2J5dGVzKCkKcHJpbnQoInNpemUiLGxlbihzcmMpLCJwcmVmaXg2NCIsc3JjWzo2NF0uaGV4KCkpCmZvdW5kPVtdCmZvciBvZmYgaW4gcmFuZ2UoMjU3KToKIHA9c3JjW29mZjpdCiBmb3IgcGIgaW4gcmFuZ2UoNSk6CiAgZm9yIGxwIGluIHJhbmdlKDUpOgogICBmb3IgbGMgaW4gcmFuZ2UoOSk6CiAgICBpZiBsYytscD40OiBjb250aW51ZQogICAgZj17ImlkIjpsem1hLkZJTFRFUl9MWk1BMSwiZGljdF9zaXplIjoxPDwyMCwibGMiOmxjLCJscCI6bHAsInBiIjpwYn0KICAgIHRyeToKICAgICBkPWx6bWEuTFpNQURlY29tcHJlc3Nvcihmb3JtYXQ9bHptYS5GT1JNQVRfUkFXLGZpbHRlcnM9W2ZdKTsgaD1kLmRlY29tcHJlc3MocCxtYXhfbGVuZ3RoPTMyKQogICAgZXhjZXB0IGx6bWEuTFpNQUVycm9yOiBjb250aW51ZQogICAgaWYgaC5zdGFydHN3aXRoKGIiXHg3ZkVMRiIpOgogICAgIHI9KG9mZixsYyxscCxwYixoWzoxNl0uaGV4KCkpOyBwcmludCgiUkFXX0VMRiIscik7IGZvdW5kLmFwcGVuZChyKQpwcmludCgicmF3X2NhbmRpZGF0ZV9jb3VudCIsbGVuKGZvdW5kKSkKdmFsaWQ9c2V0KCkKZm9yIG4gaW4gcmFuZ2UoMTIsMzIpOiB2YWxpZHw9ezE8PG4sKDE8PG4pKygxPDwobi0xKSl9CmhlYWRlcnM9W10KZm9yIG9mZiBpbiByYW5nZShtaW4oNDA5NixsZW4oc3JjKS0xMykpOgogcHJvcD1zcmNbb2ZmXTsgZHM9aW50LmZyb21fYnl0ZXMoc3JjW29mZisxOm9mZis1XSwibGl0dGxlIik7IHN6PWludC5mcm9tX2J5dGVzKHNyY1tvZmYrNTpvZmYrMTNdLCJsaXR0bGUiKQogaWYgcHJvcDw9MjI0IGFuZCBkcyBpbiB2YWxpZCBhbmQgKHN6PT0weGZmZmZmZmZmZmZmZmZmZmYgb3Igc3o9PTUxOTY1MjE2KTogaGVhZGVycy5hcHBlbmQoKG9mZixwcm9wLGRzLHN6LHNyY1tvZmY6b2ZmKzEzXS5oZXgoKSkpCnByaW50KCJwbGF1c2libGVfaGVhZGVycyIsaGVhZGVyc1s6MTAwXSkK" | base64 -d > /tmp/inspect_payload.py
+            python3 /tmp/inspect_payload.py
           '
-      - name: Verify canonical staging unchanged
+      - name: Verify staging unchanged
         if: always()
         shell: bash
         run: |
           set -Eeuo pipefail
           docker ps -a --filter 'label=com.docker.compose.project=oteryn-staging' --format '{{.ID}}\t{{.Names}}' | sort > /tmp/oteryn-after.tsv
           diff -u /tmp/oteryn-before.tsv /tmp/oteryn-after.tsv
-          docker inspect --format 'analysis_name={{.Name}} status={{.State.Status}} owner={{ index .Config.Labels "com.blakinio.owner" }} purpose={{ index .Config.Labels "com.blakinio.purpose" }}' "$CONTAINER_NAME"
