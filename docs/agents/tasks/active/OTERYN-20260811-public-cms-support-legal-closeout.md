@@ -26,6 +26,8 @@ The package adds the two missing tablet evidence mappings, real Firefox/WebKit e
 
 The first fresh portability run exposed an unrelated Issue #350 assertion inside `community-data-acceptance.spec.mjs`: that stress extension intentionally permits only its declared Chromium projects. The actual #487 community lifecycle and support-moderation tests passed in Chromium, Firefox and WebKit. The portability projects now exclude only the `@portal-community-stress` marker while retaining the #487 lifecycle in all three browser engines.
 
+The next exact-head run exposed four declaration/evidence mismatches and one WebKit login-helper stabilization failure. The canonical surface declarations now match the newly executed tablet and Firefox/WebKit evidence, and the shared acceptance login helper uses bounded identity-first/secret-last field stabilization while Playwright retries remain zero.
+
 ## Validation gate
 
 ```yaml
@@ -44,8 +46,8 @@ validation_gate:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-11T15:44:49+02:00
-head: 5a41ae1d55530c8550c1ba8901d1c54a00678cdf
+updated_at: 2026-08-11T16:00:04+02:00
+head: 2360a05dca84db501a3a4d245191eaa6abcadfbf
 branch: repair/issue-487
 pr: 986
 status: validating
@@ -79,14 +81,18 @@ proven:
   - In run 31477217281 the actual #487 community lifecycle and both support-moderation tests passed under Chromium, Firefox and WebKit.
   - Portability now excludes only the Issue #350 stress marker and preserves the #487 lifecycle under all three engines.
   - The branch was rebuilt on main 859204778f04f3e5993e1534ae7b03b7644849f0 after confirming no intervening main change overlapped the original seven #487-owned paths.
-  - PR #986 remained on exact head 5a41ae1d55530c8550c1ba8901d1c54a00678cdf through 2026-08-11T15:44:49+02:00, more than the 45-minute ownership lease after its last mutation, so the previous execution is recovered as orphaned with no conflicting live branch mutation observed.
+  - PR #986 remained on exact head 5a41ae1d55530c8550c1ba8901d1c54a00678cdf through 2026-08-11T15:44:49+02:00, more than the 45-minute ownership lease after its last mutation, so the previous execution was recovered as orphaned with no conflicting live branch mutation observed.
   - Current main 681455739a054f344dc0e9478ff79821ac4a401d is two commits ahead of the branch base and changes only composer.lock plus the unrelated dependency-refresh task archival; it does not overlap the expanded #487 repair paths.
-  - Exact-head Portal Acceptance Contract run 31491831223 proves four deterministic declaration mismatches: tablet mappings for public.news-and-managed-pages and public.localization-core, plus browser mappings for public.community-deaths-and-policy and support.moderation-lifecycle.
-  - Exact-head Acceptance E2E artifact 9101460137 contains 54 portability tests with exactly one failure: the WebKit support-moderation lifecycle reached the shared login helper after the password field was cleared when the email field was populated.
+  - Exact-head Portal Acceptance Contract run 31491831223 proved four deterministic declaration mismatches: tablet mappings for public.news-and-managed-pages and public.localization-core, plus browser mappings for public.community-deaths-and-policy and support.moderation-lifecycle.
+  - Exact-head Acceptance E2E artifact 9101460137 contained 54 portability tests with exactly one failure: the WebKit support-moderation lifecycle reached the shared login helper after the password field was cleared when the email field was populated.
+  - Commit 2360a05dca84db501a3a4d245191eaa6abcadfbf changes portal-coverage-manifest.json by exactly two added tablet declarations and no other lines.
+  - Commits 7928bcfaa1f9474b228036f4fc202ea07893bf31 and 6bf17e42d40c80edd513060aacece6a7f4c648b4 add only Firefox/WebKit browser declarations for the two #487 portability surfaces.
+  - Commit 02e6e2145bb9c5c53db78b09ffe0b4581b34a98c changes only the shared login helper, adding a three-attempt bounded field-stabilization loop while preserving zero Playwright retries.
+  - Comparison 8f6520c391c1e4a8242f95dfaaf15ad93ccb4d4a..2360a05dca84db501a3a4d245191eaa6abcadfbf contains only the four intended repair files: two declaration files, the canonical portal manifest and the acceptance helper.
   - No application route, view, product schema, deployment, credential, protected environment or external repository was mutated by this package.
 derived:
-  - The dimension records already prove the intended tablet and cross-engine execution, so the four strict-contract mismatches require the corresponding canonical surface declarations to be reconciled rather than deleting the new evidence.
-  - The WebKit failure is a shared acceptance login-fixture stabilization defect, not evidence that the support/moderation product lifecycle is unavailable.
+  - The four strict-contract failures were declaration drift against already executed evidence and are repaired without deleting the evidence that closes the #487 findings.
+  - The WebKit failure was a shared acceptance login-fixture stabilization defect, not evidence that the support/moderation product lifecycle is unavailable.
   - Fresh exact-head CI, Acceptance E2E and Portal Exhaustive Audit are authoritative for final closure.
 unknown:
   - Result of the next exact-head generation after the verified declaration and WebKit login repairs.
@@ -94,10 +100,10 @@ unknown:
 conflicts: []
 first_failure:
   marker: exact-head-strict-dimension-contract-mismatch
-  evidence: Portal Acceptance Contract run 31491831223 reports exactly four mapping/declaration mismatches for the two #487 viewport findings and two #487 portability findings.
+  evidence: Portal Acceptance Contract run 31491831223 reported exactly four mapping/declaration mismatches for the two #487 viewport findings and two #487 portability findings; all four declarations are now reconciled.
 rejected_hypotheses:
   - All #487 capabilities are missing; existing routes and lifecycle evidence disprove blanket absence.
-  - Firefox or WebKit broadly break the #487 community or support lifecycle; the current exact-head portability artifact has 53 passes and one shared login-helper failure.
+  - Firefox or WebKit broadly break the #487 community or support lifecycle; the previous exact-head portability artifact had 53 passes and one shared login-helper failure.
   - Expanding Issue #350 stress evidence to portability is valid; doing so would falsely broaden a separate evidence contract.
   - Removing the newly executed tablet or cross-engine evidence is a valid strict-contract repair; that would re-create the exact #487 findings being closed instead of reconciling canonical declarations.
 changed_paths:
@@ -105,8 +111,12 @@ changed_paths:
   - docs/testing/PORTAL_STRICTNESS_EVIDENCE.json
   - scripts/acceptance/coverage/portal-evidence-dimensions/modules.json
   - scripts/acceptance/coverage/portal-evidence-dimensions/public-core.json
+  - scripts/acceptance/coverage/portal-coverage-manifest.json
+  - scripts/acceptance/coverage/surfaces/community-data-completeness.json
+  - scripts/acceptance/coverage/surfaces/support-moderation-lifecycle.json
   - scripts/acceptance/playwright.config.mjs
   - scripts/acceptance/seed-browser-portal-487-strictness.php
+  - scripts/acceptance/tests/helpers.mjs
   - scripts/acceptance/tests/portal-487-strictness-acceptance.spec.mjs
 validation:
   - command: current Issue #487 and canonical pre-repair audit reconciliation
@@ -120,15 +130,18 @@ validation:
     evidence: The only three portability failures were the unrelated Issue #350 project-contract assertion; the #487 browser lifecycles themselves passed in all three engines and the profile routing was repaired.
   - command: Portal Acceptance Contract run 31491831223 on 5a41ae1d55530c8550c1ba8901d1c54a00678cdf
     result: FAIL
-    evidence: Exactly four deterministic mapping/declaration mismatches remain: two viewport declarations and two browser declarations.
+    evidence: Exactly four deterministic mapping/declaration mismatches remained: two viewport declarations and two browser declarations; each has a targeted repair commit.
   - command: Acceptance E2E run 31491831043 artifact 9101460137 on 5a41ae1d55530c8550c1ba8901d1c54a00678cdf
     result: FAIL
-    evidence: Primary Chromium smoke passed; portability produced 53 passes and one WebKit support-moderation login-helper password-value failure.
+    evidence: Primary Chromium smoke passed; portability produced 53 passes and one WebKit support-moderation login-helper password-value failure; commit 02e6e2145bb9c5c53db78b09ffe0b4581b34a98c targets that failure.
+  - command: repair diff inspection 8f6520c391c1e4a8242f95dfaaf15ad93ccb4d4a..2360a05dca84db501a3a4d245191eaa6abcadfbf
+    result: PASS
+    evidence: Only the four intended repair files changed; the large canonical manifest edit is exactly two insertions.
   - command: main overlap comparison 859204778f04f3e5993e1534ae7b03b7644849f0..681455739a054f344dc0e9478ff79821ac4a401d
     result: PASS
     evidence: Intervening main changes touch composer.lock and the dependency-refresh task archival only, with no #487 repair-path overlap.
 blockers: []
-next_action: Apply the verified canonical surface-declaration reconciliation and WebKit login-fixture stabilization, then inspect the resulting exact-head validation generation.
+next_action: Inspect the first aggregate exact-head workflow generation for the checkpointed repair and repair only a concrete new failure, or proceed to self-review if the required gates are green.
 ```
 
 ## Recovery checkpoint
@@ -139,19 +152,19 @@ recovery:
   generation: 1
   session_id: 20260811T154449+0200-repair-487
   session_started_at: 2026-08-11T15:44:49+02:00
-  checkpointed_at: 2026-08-11T15:44:49+02:00
-  last_progress_at: 2026-08-11T15:44:49+02:00
-  phase: repair-failing-exact-head-gates
-  exact_head: 5a41ae1d55530c8550c1ba8901d1c54a00678cdf
+  checkpointed_at: 2026-08-11T16:00:04+02:00
+  last_progress_at: 2026-08-11T16:00:04+02:00
+  phase: exact-head-validation
+  exact_head: 2360a05dca84db501a3a4d245191eaa6abcadfbf
   pull_request: 986
-  active_operation: none
-  external_run_ids: [31491830977, 31491830999, 31491831043, 31491831052, 31491831223]
-  operation_started_at: null
+  active_operation: observe exact-head required workflows
+  external_run_ids: []
+  operation_started_at: 2026-08-11T16:00:04+02:00
   wait_deadline_at: null
-  check_generation: exact-head-5a41ae1d
-  checks_used: 1
+  check_generation: repair-after-verified-failures
+  checks_used: 0
   status: active
   safe_to_resume: true
-  resume_condition: PR #986 remains the single Issue #487 delivery PR and no conflicting live mutation appears on repair/issue-487.
-  next_action: Apply the verified canonical surface-declaration reconciliation and WebKit login-fixture stabilization, then inspect the resulting exact-head validation generation.
+  resume_condition: PR #986 remains the single Issue #487 delivery PR and the exact-head workflow generation is available for aggregate inspection.
+  next_action: Inspect the first aggregate exact-head workflow generation for the checkpointed repair and repair only a concrete new failure, or proceed to self-review if the required gates are green.
 ```
