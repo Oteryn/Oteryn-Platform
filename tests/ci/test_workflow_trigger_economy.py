@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import runpy
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -97,5 +98,32 @@ for product_path in ACCEPTANCE_PRODUCT_PATHS:
 
 assert "group: acceptance-e2e-${{ github.workflow }}-${{ github.ref }}-${{ inputs.run_suffix || 'direct' }}" in acceptance
 assert "cancel-in-progress: true" in acceptance
+
+storage = (
+    ROOT / ".github" / "workflows" / "github-actions-storage-hygiene.yml"
+).read_text(encoding="utf-8")
+storage_trigger = storage.split("permissions:", 1)[0]
+assert "  pull_request:\n" in storage_trigger
+assert "  pull_request_target:\n" in storage_trigger
+assert "      - closed\n" in storage_trigger
+assert "  schedule:\n" in storage_trigger
+assert "  workflow_dispatch:\n" in storage_trigger
+assert "  push:\n" in storage_trigger
+assert "'docs/agents/tasks/**'" not in storage_trigger
+assert "'build-synology-staging-images.yml'" not in storage_trigger
+assert "startsWith(github.event.head_commit.message, 'chore(ci): clean GitHub Actions storage safely (#980)')" in storage
+assert "if: ${{ github.event_name == 'pull_request_target' && github.event.action == 'closed' }}" in storage
+assert "ref: refs/heads/main" in storage
+assert "persist-credentials: false" in storage
+assert "actions: write" in storage
+assert "--mode closed-pr" in storage
+assert "--mode '${{ steps.mode.outputs.mode }}'" in storage
+assert "CLEAN_ACTIONS_STORAGE" in storage
+assert "if: ${{ always() }}" in storage
+
+runpy.run_path(
+    str(ROOT / "tests" / "ci" / "test_github_actions_storage_hygiene.py"),
+    run_name="__main__",
+)
 
 print("workflow trigger economy contract: PASS")
