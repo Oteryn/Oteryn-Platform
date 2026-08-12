@@ -1,0 +1,113 @@
+name: Tibia World Entry Strace Classifier
+
+on:
+  push:
+    branches: [ops/oteryn-tibia-client-analysis-20260811]
+    paths: [.github/workflows/tibia-client-analysis-world-entry-strace-classify.yml]
+
+permissions:
+  contents: read
+
+env:
+  CONTAINER_NAME: oteryn-tibia-client-analysis
+
+jobs:
+  classify:
+    name: Classify retained world-entry network syscalls
+    runs-on: oteryn-staging
+    timeout-minutes: 4
+    steps:
+      - name: Verify owned runtime and snapshot staging
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          [[ "$RUNNER_NAME" == "oteryn-synology-staging" ]]
+          [[ "$(docker inspect --format '{{ index .Config.Labels "com.blakinio.owner" }}' "$CONTAINER_NAME")" == "oteryn" ]]
+          [[ "$(docker inspect --format '{{ index .Config.Labels "com.blakinio.purpose" }}' "$CONTAINER_NAME")" == "tibia-client-analysis" ]]
+          docker ps -a --filter 'label=com.docker.compose.project=oteryn-staging' --format '{{.ID}}\t{{.Names}}' | sort >/tmp/oteryn-before.tsv
+
+      - name: Classify activation window without addresses or payloads
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          docker exec -i "$CONTAINER_NAME" python3 - <<'PY'
+          from pathlib import Path
+          import glob,re
+
+          START=1786550689.70
+          END=1786550696.00
+          files=glob.glob('/data/runtime/tibia-world-entry-network.strace*')
+          if not files:
+              raise SystemExit('retained strace files missing')
+
+          window=[]
+          for path in files:
+              for line in Path(path).read_text(errors='replace').splitlines():
+                  m=re.match(r'^([0-9]+(?:\.[0-9]+)?)\s+', line)
+                  if not m:
+                      continue
+                  ts=float(m.group(1))
+                  if START <= ts <= END:
+                      window.append(line)
+
+          connects=[l for l in window if 'connect(' in l]
+          sockets=[l for l in window if 'socket(' in l]
+          sends=[l for l in window if any(x in l for x in ('sendto(','sendmsg('))]
+          recvs=[l for l in window if any(x in l for x in ('recvfrom(','recvmsg('))]
+
+          def family(line):
+              for fam in ('AF_INET6','AF_INET','AF_UNIX','AF_NETLINK'):
+                  if fam in line:
+                      return fam
+              return 'OTHER'
+
+          def socktype(line):
+              if 'SOCK_DGRAM' in line: return 'DGRAM'
+              if 'SOCK_STREAM' in line: return 'STREAM'
+              return 'OTHER'
+
+          print(f'TRACE_FILE_COUNT={len(files)}')
+          print(f'WINDOW_LINE_COUNT={len(window)}')
+          print(f'WINDOW_CONNECT_COUNT={len(connects)}')
+          for fam in ('AF_INET6','AF_INET','AF_UNIX','AF_NETLINK','OTHER'):
+              print(f'WINDOW_CONNECT_{fam}={sum(family(l)==fam for l in connects)}')
+          print(f'WINDOW_SOCKET_COUNT={len(sockets)}')
+          for fam in ('AF_INET6','AF_INET','AF_UNIX','AF_NETLINK','OTHER'):
+              for typ in ('STREAM','DGRAM','OTHER'):
+                  print(f'WINDOW_SOCKET_{fam}_{typ}={sum(family(l)==fam and socktype(l)==typ for l in sockets)}')
+          print(f'WINDOW_SEND_COUNT={len(sends)}')
+          print(f'WINDOW_RECV_COUNT={len(recvs)}')
+
+          inet=[l for l in connects if family(l) in ('AF_INET','AF_INET6')]
+          ports=[]
+          for line in inet:
+              m=re.search(r'sin6?_port=htons\(([0-9]+)\)', line)
+              if m:
+                  ports.append(int(m.group(1)))
+          print('WINDOW_INET_CONNECT_PORTS=' + ','.join(map(str,sorted(set(ports)))))
+          print(f'WINDOW_INET_LOCAL_SOCKS={sum("htons(25344)" in l and ("127.0.0.1" in l or "::1" in l) for l in inet)}')
+          print(f'WINDOW_INET_NONLOCAL_SOCKS={sum(not ("htons(25344)" in l and ("127.0.0.1" in l or "::1" in l)) for l in inet)}')
+
+          checks={
+              'SUCCESS': lambda l: re.search(r'\)\s+=\s+0(?:\s|$)',l) is not None,
+              'EINPROGRESS': lambda l: 'EINPROGRESS' in l,
+              'ECONNREFUSED': lambda l: 'ECONNREFUSED' in l,
+              'ETIMEDOUT': lambda l: 'ETIMEDOUT' in l,
+              'ENETUNREACH': lambda l: 'ENETUNREACH' in l,
+              'EHOSTUNREACH': lambda l: 'EHOSTUNREACH' in l,
+              'EACCES': lambda l: 'EACCES' in l,
+              'ECONNRESET': lambda l: 'ECONNRESET' in l,
+          }
+          for name,pred in checks.items():
+              print(f'WINDOW_CONNECT_{name}={sum(pred(l) for l in connects)}')
+              print(f'WINDOW_INET_CONNECT_{name}={sum(pred(l) for l in inet)}')
+          PY
+
+      - name: Verify canonical staging unchanged
+        if: always()
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          docker ps -a --filter 'label=com.docker.compose.project=oteryn-staging' --format '{{.ID}}\t{{.Names}}' | sort >/tmp/oteryn-after.tsv
+          diff -u /tmp/oteryn-before.tsv /tmp/oteryn-after.tsv
+          docker inspect --format 'analysis_name={{.Name}} status={{.State.Status}} owner={{ index .Config.Labels "com.blakinio.owner" }} purpose={{ index .Config.Labels "com.blakinio.purpose" }}' "$CONTAINER_NAME"
