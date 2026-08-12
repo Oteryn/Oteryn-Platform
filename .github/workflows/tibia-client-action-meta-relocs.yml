@@ -1,0 +1,46 @@
+name: Tibia Action Meta Relocs
+
+on:
+  push:
+    branches: [ops/oteryn-tibia-client-analysis-20260811]
+    paths: [.github/workflows/tibia-client-action-meta-relocs.yml]
+
+permissions:
+  contents: read
+
+env:
+  CONTAINER_NAME: oteryn-tibia-client-analysis
+
+jobs:
+  relocs:
+    runs-on: oteryn-staging
+    timeout-minutes: 3
+    steps:
+      - name: Resolve handler QMetaObject relocations
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          docker exec -i "$CONTAINER_NAME" bash <<'INNER'
+          set -Eeuo pipefail
+          bin='/data/home/.local/share/CipSoft GmbH/Tibia/packages/Tibia/bin/client'
+          readelf -rW "$bin" >/tmp/rela.$$
+          for spec in \
+            '1cb4a00 movement_meta' \
+            '1cb0b40 generic_meta' \
+            '1cb1300 creatures_meta' \
+            '1cb26c0 usewith_meta' \
+            '1cb3f40 chat_meta'; do
+            set -- $spec; addr=$1; label=$2
+            echo "=== $label ADDEND=0x$addr ==="
+            grep -Ei "[ +]0*${addr}([[:space:]]|$)" /tmp/rela.$$ | head -n 30 || true
+          done
+          rm -f /tmp/rela.$$
+          pid=$(pgrep -x client | head -n1 || true); [[ -n "$pid" ]]
+          tcp_rows=$(ss -ntp 2>/dev/null | grep "pid=$pid," || true)
+          local_count=$(printf '%s\n' "$tcp_rows" | awk '$5 ~ /127\.0\.0\.1:25344$/ || $5 ~ /\[::1\]:25344$/ {n++} END{print n+0}')
+          total_count=$(printf '%s\n' "$tcp_rows" | grep -c . || true)
+          echo CLIENT_PID=$pid
+          echo ACTIVE_LOCAL_SOCKS_COUNT=$local_count
+          echo ACTIVE_DIRECT_TCP_COUNT=$((total_count-local_count))
+          (( local_count > 0 && total_count-local_count == 0 ))
+          INNER
