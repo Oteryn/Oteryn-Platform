@@ -1,4 +1,4 @@
-name: Tibia Native Rotate Proof
+name: Tibia Native Movement Proof
 
 on:
   push:
@@ -16,7 +16,7 @@ jobs:
     runs-on: oteryn-staging
     timeout-minutes: 4
     steps:
-      - name: Invoke sendRotateEast without GUI
+      - name: Invoke sendGoEast and sendGoWest without GUI
         shell: bash
         run: |
           set -Eeuo pipefail
@@ -30,9 +30,13 @@ jobs:
           [[ -n "$pid" ]]
           echo CLIENT_PID=$pid
 
-          before=$(ss -ntp 2>/dev/null | grep "pid=$pid," || true)
-          local_before=$(printf '%s\n' "$before" | awk '$5 ~ /127\.0\.0\.1:25344$/ || $5 ~ /\[::1\]:25344$/ {n++} END{print n+0}')
-          total_before=$(printf '%s\n' "$before" | grep -c . || true)
+          socket_snapshot() {
+            ss -tinp 2>/dev/null | awk -v p="pid=$pid," 'index($0,p){print; getline; print}'
+          }
+          socket_snapshot >/tmp/native-move-sockets-before.txt
+          cat /tmp/native-move-sockets-before.txt
+          local_before=$(ss -ntp 2>/dev/null | grep "pid=$pid," | awk '$5 ~ /127\.0\.0\.1:25344$/ || $5 ~ /\[::1\]:25344$/ {n++} END{print n+0}')
+          total_before=$(ss -ntp 2>/dev/null | grep "pid=$pid," | grep -c . || true)
           echo ACTIVE_LOCAL_SOCKS_BEFORE=$local_before
           echo ACTIVE_DIRECT_TCP_BEFORE=$((total_before-local_before))
           (( local_before > 0 && total_before-local_before == 0 ))
@@ -66,33 +70,46 @@ jobs:
           print(hex(base),hex(found[0]))
           PY
           )
+          east=$(printf '0x%x' $((base + 0xee2d50)))
+          west=$(printf '0x%x' $((base + 0xee2e50)))
           echo CLIENT_BASE=$base
           echo PLAYER_HANDLER_OBJECT=$obj
-          func=$(printf '0x%x' $((base + 0xee3250)))
-          echo SEND_ROTATE_EAST_RUNTIME=$func
+          echo SEND_GO_EAST_RUNTIME=$east
+          echo SEND_GO_WEST_RUNTIME=$west
 
-          command -v gdb >/dev/null
           set +e
-          gdb_out=$(gdb -q -nx -batch -p "$pid" \
-            -ex 'set pagination off' \
-            -ex 'set confirm off' \
-            -ex 'thread 1' \
-            -ex "call ((void (*)(void *))$func)((void *)$obj)" \
-            -ex 'detach' 2>&1)
-          rc=$?
+          gdb_east=$(gdb -q -nx -batch -p "$pid" \
+            -ex 'set pagination off' -ex 'set confirm off' -ex 'thread 1' \
+            -ex "call ((void (*)(void *))$east)((void *)$obj)" -ex 'detach' 2>&1)
+          rc_east=$?
           set -e
-          printf '%s\n' "$gdb_out" | sed -n '1,120p'
-          echo GDB_CALL_RC=$rc
-          (( rc == 0 ))
-          echo NATIVE_SEND_ROTATE_EAST_CALL_RETURNED=true
+          printf '%s\n' "$gdb_east" | tail -n 25
+          echo GDB_GO_EAST_RC=$rc_east
+          (( rc_east == 0 ))
+          echo NATIVE_SEND_GO_EAST_CALL_RETURNED=true
 
           sleep 2
           [[ -d "/proc/$pid" ]]
-          after=$(ss -ntp 2>/dev/null | grep "pid=$pid," || true)
-          local_after=$(printf '%s\n' "$after" | awk '$5 ~ /127\.0\.0\.1:25344$/ || $5 ~ /\[::1\]:25344$/ {n++} END{print n+0}')
-          total_after=$(printf '%s\n' "$after" | grep -c . || true)
+
+          set +e
+          gdb_west=$(gdb -q -nx -batch -p "$pid" \
+            -ex 'set pagination off' -ex 'set confirm off' -ex 'thread 1' \
+            -ex "call ((void (*)(void *))$west)((void *)$obj)" -ex 'detach' 2>&1)
+          rc_west=$?
+          set -e
+          printf '%s\n' "$gdb_west" | tail -n 25
+          echo GDB_GO_WEST_RC=$rc_west
+          (( rc_west == 0 ))
+          echo NATIVE_SEND_GO_WEST_CALL_RETURNED=true
+
+          sleep 2
+          [[ -d "/proc/$pid" ]]
+          socket_snapshot >/tmp/native-move-sockets-after.txt
+          cat /tmp/native-move-sockets-after.txt
+          local_after=$(ss -ntp 2>/dev/null | grep "pid=$pid," | awk '$5 ~ /127\.0\.0\.1:25344$/ || $5 ~ /\[::1\]:25344$/ {n++} END{print n+0}')
+          total_after=$(ss -ntp 2>/dev/null | grep "pid=$pid," | grep -c . || true)
           echo ACTIVE_LOCAL_SOCKS_AFTER=$local_after
           echo ACTIVE_DIRECT_TCP_AFTER=$((total_after-local_after))
           (( local_after > 0 && total_after-local_after == 0 ))
-          echo CLIENT_SURVIVED_NATIVE_ROTATE=true
+          echo CLIENT_SURVIVED_NATIVE_EAST_WEST=true
           INNER
