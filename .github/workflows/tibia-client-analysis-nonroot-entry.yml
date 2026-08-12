@@ -1,0 +1,232 @@
+name: Tibia Non-Root World Entry
+
+on:
+  push:
+    branches: [ops/oteryn-tibia-client-analysis-20260811]
+    paths: [.github/workflows/tibia-client-analysis-nonroot-entry.yml]
+
+permissions:
+  contents: read
+
+env:
+  CONTAINER_NAME: oteryn-tibia-client-analysis
+
+jobs:
+  enter:
+    name: Enter Tibia world as normal Linux user
+    runs-on: oteryn-staging
+    timeout-minutes: 9
+    steps:
+      - name: Verify owned runtime and snapshot staging
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          [[ "$RUNNER_NAME" == "oteryn-synology-staging" ]]
+          [[ "$(docker inspect --format '{{ index .Config.Labels "com.blakinio.owner" }}' "$CONTAINER_NAME")" == "oteryn" ]]
+          [[ "$(docker inspect --format '{{ index .Config.Labels "com.blakinio.purpose" }}' "$CONTAINER_NAME")" == "tibia-client-analysis" ]]
+          [[ "$(docker inspect --format '{{.State.Status}}' "$CONTAINER_NAME")" == "running" ]]
+          docker ps -a --filter 'label=com.docker.compose.project=oteryn-staging' --format '{{.ID}}\t{{.Names}}' | sort >/tmp/oteryn-before.tsv
+
+      - name: Login as non-root and leave online on success
+        shell: bash
+        env:
+          TIBIA_TEST_EMAIL: ${{ secrets.TIBIA_TEST_EMAIL }}
+          TIBIA_TEST_PASSWORD: ${{ secrets.TIBIA_TEST_PASSWORD }}
+        run: |
+          set -Eeuo pipefail
+          [[ -n "$TIBIA_TEST_EMAIL" && -n "$TIBIA_TEST_PASSWORD" ]]
+          docker exec -e TIBIA_TEST_EMAIL -e TIBIA_TEST_PASSWORD -i "$CONTAINER_NAME" bash <<'INNER'
+          set -Eeuo pipefail
+          root_home=/data/home
+          runtime=/data/runtime
+          user=tibiauser
+          uid=1000
+          gid=1000
+          pkg="$root_home/.local/share/CipSoft GmbH/Tibia/packages/Tibia"
+          client="$pkg/bin/client"
+          keep=false
+          ownership_changed=false
+
+          cleanup() {
+            rc=$?
+            if [[ "$keep" != true ]]; then
+              pkill -x -u "$uid" client 2>/dev/null || true
+              if [[ "$ownership_changed" == true ]]; then
+                chown -R 0:0 "$root_home" 2>/dev/null || true
+              fi
+            fi
+            exit "$rc"
+          }
+          trap cleanup EXIT
+
+          [[ -x "$client" ]]
+          nonroot_count=$(find "$root_home" -xdev \( ! -uid 0 -o ! -gid 0 \) -print -quit 2>/dev/null | wc -l | tr -d ' ')
+          echo HOME_HAS_PREEXISTING_NONROOT_OWNERSHIP=$([[ "$nonroot_count" == 0 ]] && echo false || echo true)
+          [[ "$nonroot_count" == 0 ]]
+
+          if ! getent group "$gid" >/dev/null 2>&1; then groupadd -g "$gid" "$user"; fi
+          if ! getent passwd "$uid" >/dev/null 2>&1; then useradd -m -u "$uid" -g "$gid" -s /bin/bash "$user"; fi
+          actual_user=$(getent passwd "$uid" | cut -d: -f1)
+          [[ -n "$actual_user" ]]
+          echo NONROOT_USER_RESOLVED=true
+
+          pgrep -f '/wireproxy .*wireproxy.conf' >/dev/null
+          curl --socks5-hostname 127.0.0.1:25344 -fsS --max-time 10 https://www.cloudflare.com/cdn-cgi/trace >/tmp/nonroot-warp.trace
+          grep -q '^warp=on$' /tmp/nonroot-warp.trace
+          echo WARP_VERIFIED=true
+          cat >/tmp/proxychains-nonroot.conf <<'EOF'
+          strict_chain
+          proxy_dns
+          quiet_mode
+          tcp_read_time_out 15000
+          tcp_connect_time_out 8000
+          [ProxyList]
+          socks5 127.0.0.1 25344
+          EOF
+          chmod 0644 /tmp/proxychains-nonroot.conf
+
+          pkill -x client 2>/dev/null || true
+          chown -R "$uid:$gid" "$root_home"
+          ownership_changed=true
+          mkdir -p "$runtime/nonroot"
+          chown "$uid:$gid" "$runtime/nonroot"
+          echo HOME_OWNERSHIP_MOVED_TO_NONROOT=true
+
+          pgrep -f '^Xvfb :99' >/dev/null || nohup Xvfb :99 -screen 0 1280x800x24 >/data/runtime/xvfb.log 2>&1 </dev/null &
+          chmod 1777 /tmp/.X11-unix 2>/dev/null || true
+          export DISPLAY=:99
+          if ! runuser -u "$actual_user" -- env DISPLAY=:99 HOME="$root_home" xdpyinfo -display :99 >/dev/null 2>&1; then
+            echo NONROOT_X_DISPLAY_ACCESS=false
+            exit 1
+          fi
+          echo NONROOT_X_DISPLAY_ACCESS=true
+
+          runuser -u "$actual_user" -- env DISPLAY=:99 HOME="$root_home" \
+            TIBIA_TEST_EMAIL="$TIBIA_TEST_EMAIL" TIBIA_TEST_PASSWORD="$TIBIA_TEST_PASSWORD" \
+            bash <<'USER'
+          set -Eeuo pipefail
+          pkg="$HOME/.local/share/CipSoft GmbH/Tibia/packages/Tibia"
+          cd "$pkg"
+          nohup proxychains4 -f /tmp/proxychains-nonroot.conf "$pkg/bin/client" \
+            >/data/runtime/nonroot/client.log 2>&1 </dev/null &
+          USER
+          for n in $(seq 1 40); do pgrep -x -u "$uid" client >/dev/null && break; sleep 0.25; done
+          pid=$(pgrep -x -u "$uid" client | head -n1 || true)
+          [[ -n "$pid" ]]
+          echo NONROOT_CLIENT_PROCESS_STARTED=true
+          proc_uid=$(awk '/^Uid:/{print $2}' "/proc/$pid/status")
+          echo CLIENT_EFFECTIVE_UID=$proc_uid
+          [[ "$proc_uid" == "$uid" ]]
+          sleep 10
+
+          best=''; best_area=0; bw=0; bh=0
+          for w in $(xdotool search --onlyvisible --name '^Tibia$' 2>/dev/null || true); do
+            geom=$(xdotool getwindowgeometry --shell "$w" 2>/dev/null || true)
+            width=$(printf '%s\n' "$geom" | sed -n 's/^WIDTH=//p'); height=$(printf '%s\n' "$geom" | sed -n 's/^HEIGHT=//p')
+            [[ -n "$width" && -n "$height" ]] || continue
+            area=$((width*height)); if (( area > best_area )); then best=$w; best_area=$area; bw=$width; bh=$height; fi
+          done
+          [[ -n "$best" && "$bw" == 1020 && "$bh" == 650 ]]
+
+          xdotool windowactivate --sync "$best" 2>/dev/null || true
+          xdotool mousemove --window "$best" 535 275 click 1
+          xdotool key --window "$best" ctrl+a
+          xdotool type --window "$best" --delay 3 -- "$TIBIA_TEST_EMAIL"
+          xdotool mousemove --window "$best" 535 304 click 1
+          xdotool key --window "$best" ctrl+a
+          xdotool type --window "$best" --delay 3 -- "$TIBIA_TEST_PASSWORD"
+          xdotool mousemove --window "$best" 590 388 click 1
+          unset TIBIA_TEST_EMAIL TIBIA_TEST_PASSWORD
+          sleep 25
+
+          import -display :99 -window "$best" /tmp/nonroot-select.png
+          convert /tmp/nonroot-select.png -resize 200% -colorspace Gray -contrast-stretch 1%x1% /tmp/nonroot-select-ocr.png
+          tesseract /tmp/nonroot-select-ocr.png stdout --psm 11 tsv 2>/dev/null >/tmp/nonroot-select.tsv || true
+          python3 - <<'PY' >/tmp/nonroot-target.env
+          import csv
+          anchors=[]; names=[]
+          with open('/tmp/nonroot-select.tsv',newline='',errors='replace') as f:
+              for r in csv.DictReader(f,delimiter='\t'):
+                  token=(r.get('text') or '').strip().lower().strip(':,.!?()[]')
+                  try:
+                      conf=float(r.get('conf') or -1); left=int(r.get('left') or 0)//2; top=int(r.get('top') or 0)//2
+                      width=max(1,int(r.get('width') or 0)//2); height=max(1,int(r.get('height') or 0)//2)
+                  except ValueError: continue
+                  if conf < 20: continue
+                  x=left+width//2; y=top+height//2
+                  if token in {'select','character','status','ok','cancel'}: anchors.append((token,x,y))
+                  elif 180 <= x <= 390 and 185 <= y <= 202: names.append((left,x,y))
+          if not any(t=='select' and 100<=y<=135 for t,x,y in anchors): raise SystemExit('Select Character not visible')
+          if not any(t=='character' and 160<=y<=185 for t,x,y in anchors): raise SystemExit('Character header absent')
+          if not names: raise SystemExit('Character name row absent')
+          names.sort(); _,x,y=names[0]
+          if not (180<=x<=390 and 188<=y<=200): raise SystemExit('Unsafe target')
+          print(f'NAME_X={x}'); print(f'NAME_Y={y}')
+          PY
+          source /tmp/nonroot-target.env
+          echo NONROOT_CHARACTER_TARGET_VERIFIED=true
+          xdotool windowactivate --sync "$best" 2>/dev/null || true
+          xdotool mousemove --window "$best" "$NAME_X" "$NAME_Y" click --repeat 2 --delay 180 1
+          echo NONROOT_CHARACTER_ACTIVATED=true
+
+          sleep 1; import -display :99 -window "$best" /tmp/nonroot-t1.png
+          sleep 4; import -display :99 -window "$best" /tmp/nonroot-t5.png
+          sleep 10; import -display :99 -window "$best" /tmp/nonroot-t15.png
+          sleep 30; import -display :99 -window "$best" /tmp/nonroot-t45.png
+
+          for n in 1 5 15 45; do
+            convert "/tmp/nonroot-t${n}.png" -crop 900x500+60+80 -resize 150% -colorspace Gray -contrast-stretch 1%x1% "/tmp/nonroot-t${n}-ocr.png"
+            tesseract "/tmp/nonroot-t${n}-ocr.png" stdout --psm 11 2>/dev/null >"/tmp/nonroot-t${n}.txt" || true
+          done
+          python3 - <<'PY'
+          from pathlib import Path
+          final=''
+          for n in (1,5,15,45):
+              t=Path(f'/tmp/nonroot-t{n}.txt').read_text(errors='replace').lower()
+              if n==45: final=t
+              account=('account login' in t or ('email' in t and 'password' in t))
+              select=('select character' in t)
+              game=sum(k in t for k in ('battle','skills','inventory','health','mana','capacity','experience'))>=2
+              print(f'T{n}_ACCOUNT_LOGIN={str(account).lower()}')
+              print(f'T{n}_SELECT_CHARACTER={str(select).lower()}')
+              print(f'T{n}_GAME_MARKERS={str(game).lower()}')
+          account=('account login' in final or ('email' in final and 'password' in final))
+          select=('select character' in final)
+          game=sum(k in final for k in ('battle','skills','inventory','health','mana','capacity','experience'))>=2
+          if account or select or not game: raise SystemExit(2)
+          PY
+
+          kill -0 "$pid"
+          sockets=$(ss -ntp 2>/dev/null | grep "pid=$pid," || true)
+          local_socks=$(printf '%s\n' "$sockets" | awk '{print $5}' | grep -Ec '^(127\.0\.0\.1|\[::1\]):25344$' || true)
+          direct=$(printf '%s\n' "$sockets" | awk '{print $5}' | grep -Ev '^(127\.0\.0\.1|\[::1\]):25344$' | grep -c . || true)
+          echo NONROOT_CLIENT_LOCAL_SOCKS_CONNECTIONS=$local_socks
+          echo NONROOT_CLIENT_DIRECT_REMOTE_TCP=$direct
+          [[ "$direct" == 0 ]]
+
+          cp /tmp/nonroot-t45.png /tmp/tibia-nonroot-online-safe.png
+          convert /tmp/tibia-nonroot-online-safe.png -fill '#202020' -draw 'rectangle 0,0 1020,70 rectangle 0,70 180,650 rectangle 840,70 1020,650 rectangle 0,520 1020,650' /tmp/tibia-nonroot-online-safe.png
+          keep=true
+          echo PHYSICAL_TIBIA_WORLD_LOGIN_PROVEN=true
+          echo TIBIA_CHARACTER_LEFT_ONLINE=true
+          echo NONROOT_RUNTIME_LEFT_ACTIVE=true
+          INNER
+          docker cp "$CONTAINER_NAME:/tmp/tibia-nonroot-online-safe.png" /tmp/tibia-nonroot-online-safe.png
+
+      - name: Upload privacy-safe online proof
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: tibia-nonroot-online-proof
+          path: /tmp/tibia-nonroot-online-safe.png
+          retention-days: 7
+          if-no-files-found: warn
+
+      - name: Verify canonical staging unchanged
+        if: always()
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          docker ps -a --filter 'label=com.docker.compose.project=oteryn-staging' --format '{{.ID}}\t{{.Names}}' | sort >/tmp/oteryn-after.tsv
+          diff -u /tmp/oteryn-before.tsv /tmp/oteryn-after.tsv
+          docker inspect --format 'analysis_name={{.Name}} status={{.State.Status}} owner={{ index .Config.Labels "com.blakinio.owner" }} purpose={{ index .Config.Labels "com.blakinio.purpose" }}' "$CONTAINER_NAME"
