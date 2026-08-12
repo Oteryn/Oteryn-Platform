@@ -13,7 +13,7 @@ env:
 
 jobs:
   diagnose:
-    name: Classify failed Tibia world entry without secrets
+    name: Classify Tibia account warning without private text
     runs-on: oteryn-staging
     timeout-minutes: 3
     steps:
@@ -27,123 +27,74 @@ jobs:
           [[ "$(docker inspect --format '{{.State.Status}}' "$CONTAINER_NAME")" == "running" ]]
           docker ps -a --filter 'label=com.docker.compose.project=oteryn-staging' --format '{{.ID}}\t{{.Names}}' | sort >/tmp/oteryn-before.tsv
 
-      - name: Classify client failures and retained UI state
+      - name: Read only generic warning vocabulary from retained Select Character OCR
         shell: bash
         run: |
           set -Eeuo pipefail
           docker exec -i "$CONTAINER_NAME" python3 - <<'PY'
-          import csv,hashlib,re
+          import csv
           from pathlib import Path
 
-          log=Path('/data/runtime/client-userspace-warp.log')
-          lines=log.read_text(errors='replace').splitlines()[-200:] if log.exists() else []
-          failed=[line for line in lines if 'failed' in line.lower()]
-          categories=[
-              'audio','alsa','pulse','dbus','xcb','x11','opengl','egl','vulkan','shader','renderer','graphics','font',
-              'proxy','socket','network','tcp','tls','ssl','certificate','http','connection','connect','dns','host',
-              'qt','filesystem','file','permission','config','resource','locale','gpu','display'
+          candidates=[
+              Path('/tmp/select.tsv'),
+              Path('/tmp/network-delta-select.tsv'),
+              Path('/tmp/doubleclick-select.tsv'),
           ]
-          print(f'FAILED_LINE_COUNT={len(failed)}')
-          for i,line in enumerate(failed,1):
-              lo=line.lower()
-              found=sorted({c for c in categories if c in lo})
-              digest=hashlib.sha256(line.encode(errors='replace')).hexdigest()[:12]
-              print(f'FAILED_LINE_{i}_CATEGORIES=' + (','.join(found) if found else 'none'))
-              print(f'FAILED_LINE_{i}_SHA256_PREFIX={digest}')
+          source=next((p for p in candidates if p.exists()),None)
+          if source is None:
+              raise SystemExit('No retained Select Character OCR TSV')
 
-          cfg=Path('/tmp/proxychains-tibia.conf')
-          text=cfg.read_text(errors='replace') if cfg.exists() else ''
-          enabled=[]
-          for directive in ['strict_chain','dynamic_chain','random_chain','proxy_dns','proxy_dns_old','proxy_dns_daemon','quiet_mode']:
-              if re.search(rf'(?m)^\s*{re.escape(directive)}\b',text):
-                  enabled.append(directive)
-          print('PROXYCHAINS_DIRECTIVES=' + ','.join(enabled))
-          proxy_lines=[]
-          in_list=False
-          for raw in text.splitlines():
-              s=raw.strip()
-              if s.lower()=='[proxylist]':
-                  in_list=True
-                  continue
-              if not in_list or not s or s.startswith('#'):
-                  continue
-              parts=s.split()
-              if len(parts)>=3:
-                  typ,host,port=parts[:3]
-                  proxy_lines.append((typ,host,port))
-          print(f'PROXY_LIST_ENTRY_COUNT={len(proxy_lines)}')
-          for i,(typ,host,port) in enumerate(proxy_lines,1):
-              print(f'PROXY_LIST_{i}_TYPE={typ}')
-              print(f'PROXY_LIST_{i}_LOCAL={str(host in {"127.0.0.1","::1","localhost"}).lower()}')
-              print(f'PROXY_LIST_{i}_PORT={port if port.isdigit() else "non_numeric"}')
-
-          tsv=Path('/tmp/select.tsv')
-          safe_tokens={'select','character','status','ok','cancel','online','offline','account','login','logout','play','enter','game','manage'}
-          row_points=[]
-          if tsv.exists():
-              with tsv.open(newline='',errors='replace') as f:
-                  for r in csv.DictReader(f,delimiter='\t'):
-                      token=(r.get('text') or '').strip().lower().strip(':,.!?()[]')
-                      try:
-                          conf=float(r.get('conf') or -1)
-                          left=int(r.get('left') or 0)//2
-                          top=int(r.get('top') or 0)//2
-                          width=max(1,int(r.get('width') or 0)//2)
-                          height=max(1,int(r.get('height') or 0)//2)
-                      except ValueError:
-                          continue
-                      if conf < 20:
-                          continue
-                      x=left+width//2
-                      y=top+height//2
-                      if token in safe_tokens:
-                          print(f'SAFE_UI_TOKEN={token};x={x};y={y};conf={int(conf)}')
-                      if 170 <= x <= 650 and 185 <= y <= 325:
-                          row_points.append((x,y))
-          else:
-              print('SAFE_UI_TSV_PRESENT=false')
-
-          clusters=[]
-          for x,y in sorted(row_points,key=lambda p:p[1]):
-              if not clusters or y-clusters[-1]['ys'][-1] > 8:
-                  clusters.append({'ys':[y],'xs':[x]})
-              else:
-                  clusters[-1]['ys'].append(y)
-                  clusters[-1]['xs'].append(x)
-          for i,c in enumerate(clusters,1):
-              y=round(sum(c['ys'])/len(c['ys']))
-              print(f'GEOMETRY_CLUSTER_{i}_Y={y}')
-              print(f'GEOMETRY_CLUSTER_{i}_TOKENS={len(c["ys"])}')
-              print(f'GEOMETRY_CLUSTER_{i}_XMIN={min(c["xs"])}')
-              print(f'GEOMETRY_CLUSTER_{i}_XMAX={max(c["xs"])}')
-
-          def classify(label,path):
-              p=Path(path)
-              if not p.exists():
-                  print(f'{label}_OCR_PRESENT=false')
-                  return
-              raw=p.read_text(errors='replace').lower()
-              norm=' '.join(''.join(ch if ch.isalnum() else ' ' for ch in raw).split())
-              print(f'{label}_OCR_PRESENT=true')
-              checks={
-                  'ACCOUNT_LOGIN': ('account' in norm and 'login' in norm),
-                  'EMAIL_PASSWORD': ('email' in norm and 'password' in norm),
-                  'SELECT_CHARACTER': ('select' in norm and 'character' in norm),
-                  'ONLINE': 'online' in norm,
-                  'ALREADY': 'already' in norm,
-                  'LOGGED': 'logged' in norm,
-                  'CONNECTION_FAILED': ('connection' in norm and 'failed' in norm),
-                  'QUEUE': 'queue' in norm,
-                  'MAINTENANCE': 'maintenance' in norm,
-              }
-              for key,val in checks.items():
-                  print(f'{label}_{key}={str(val).lower()}')
-              print(f'{label}_LIKELY_ALREADY_LOGGED_IN={str(checks["ALREADY"] and (checks["LOGGED"] or checks["ONLINE"])).lower()}')
-          classify('EARLY','/tmp/post-entry-1.txt')
-          classify('FINAL','/tmp/post-entry-15.txt')
+          allowed={
+              'you','your','need','needs','to','have','has','must','confirm','confirmed','confirmation',
+              'verify','verified','verification','account','email','e-mail','play','playing','login','log','in',
+              'this','character','manage','activate','activated','activation','secure','security','authenticator',
+              'premium','free','registered','register','registration','before','can','cannot','could','not','yet',
+              'please','visit','website','create','change','password','new','old','connect','connected','connection',
+              'protect','protected','protection','required','requires','use','using','with','a','an','the','and','or',
+              'only','all','regular','features','feature','status','locked','unlock','unlocked','world','game'
+          }
+          found=[]; unknown_count=0
+          with source.open(newline='',errors='replace') as f:
+              for r in csv.DictReader(f,delimiter='\t'):
+                  raw=(r.get('text') or '').strip()
+                  token=raw.lower().strip(':,.!?()[]')
+                  try:
+                      conf=float(r.get('conf') or -1)
+                      left=int(r.get('left') or 0)//2
+                      top=int(r.get('top') or 0)//2
+                      width=max(1,int(r.get('width') or 0)//2)
+                      height=max(1,int(r.get('height') or 0)//2)
+                  except ValueError:
+                      continue
+                  if conf < 20:
+                      continue
+                  x=left+width//2; y=top+height//2
+                  # The generic orange account warning is the line above the Character column header.
+                  if not (145 <= x <= 870 and 137 <= y <= 158):
+                      continue
+                  if token in allowed:
+                      found.append((left,token))
+                  else:
+                      unknown_count += 1
+          found.sort()
+          print('WARNING_ALLOWED_TOKENS=' + ' '.join(t for _,t in found))
+          print(f'WARNING_UNKNOWN_TOKEN_COUNT={unknown_count}')
+          tokens={t for _,t in found}
+          checks={
+              'CONFIRMATION_RELATED': bool(tokens & {'confirm','confirmed','confirmation','verify','verified','verification','activate','activated','activation'}),
+              'AUTHENTICATOR_RELATED': 'authenticator' in tokens,
+              'ACCOUNT_RELATED': 'account' in tokens,
+              'CHARACTER_RELATED': 'character' in tokens,
+              'MANAGE_ACCOUNT_RELATED': 'manage' in tokens and 'account' in tokens,
+              'PLAY_RELATED': bool(tokens & {'play','playing','game','world'}),
+              'SECURITY_RELATED': bool(tokens & {'secure','security','protect','protected','protection'}),
+              'REQUIRED_RELATED': bool(tokens & {'need','needs','must','required','requires','cannot'}),
+          }
+          for k,v in checks.items():
+              print(f'WARNING_{k}={str(v).lower()}')
           PY
 
-      - name: Verify live WARP and canonical staging unchanged
+      - name: Verify WARP and canonical staging unchanged
         if: always()
         shell: bash
         run: |
