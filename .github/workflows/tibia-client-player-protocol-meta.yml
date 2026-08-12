@@ -16,7 +16,7 @@ jobs:
     runs-on: oteryn-staging
     timeout-minutes: 4
     steps:
-      - name: Locate live player protocol handler instance
+      - name: Map player protocol action names and wrapper ids
         shell: bash
         run: |
           set -Eeuo pipefail
@@ -27,65 +27,18 @@ jobs:
           pid=$(pgrep -x client | tail -n1 || true)
           [[ -n "$pid" ]]
           echo CLIENT_PID=$pid
-
-          python3 - "$pid" "$bin" <<'PY'
-import os,sys,struct
-pid=int(sys.argv[1]); binpath=sys.argv[2]
-maps=[]
-base=None
-with open(f'/proc/{pid}/maps') as f:
-    for line in f:
-        p=line.rstrip('\n').split(maxsplit=5)
-        addr,perms,off=p[0],p[1],int(p[2],16)
-        path=p[5] if len(p)>5 else ''
-        lo,hi=[int(x,16) for x in addr.split('-')]
-        maps.append((lo,hi,perms,off,path))
-        if path==binpath and base is None:
-            base=lo-off
-if base is None:
-    raise SystemExit('NO_CLIENT_BASE')
-print(f'CLIENT_BASE=0x{base:x}')
-# Itanium vtable: relocation at static 0x308a000 is the RTTI entry, so object vptr is the next qword.
-static_vptr=0x308a008
-runtime_vptr=base+static_vptr
-print(f'PLAYER_HANDLER_VPTR_STATIC=0x{static_vptr:x}')
-print(f'PLAYER_HANDLER_VPTR_RUNTIME=0x{runtime_vptr:x}')
-needle=struct.pack('<Q',runtime_vptr)
-found=[]
-with open(f'/proc/{pid}/mem','rb',buffering=0) as mem:
-    for lo,hi,perms,off,path in maps:
-        if 'r' not in perms or 'w' not in perms:
-            continue
-        size=hi-lo
-        if size<=0 or size>512*1024*1024:
-            continue
-        try:
-            mem.seek(lo)
-            data=mem.read(size)
-        except OSError:
-            continue
-        start=0
-        while True:
-            i=data.find(needle,start)
-            if i<0: break
-            addr=lo+i
-            found.append(addr)
-            print(f'PLAYER_HANDLER_OBJECT_CANDIDATE=0x{addr:x} MAP={path or "[anon]"}')
-            q=[]
-            for j in range(0,0x80,8):
-                if i+j+8<=len(data): q.append(struct.unpack_from('<Q',data,i+j)[0])
-            print('QWORDS='+' '.join(f'{x:016x}' for x in q))
-            start=i+8
-print(f'PLAYER_HANDLER_OBJECT_CANDIDATE_COUNT={len(found)}')
-PY
-
-          echo MOVEMENT_DISASM_BEGIN
+          echo SEND_ACTION_NAMES_BEGIN
+          strings -a -t x "$bin" | grep -E 'send(Go|Rotate|Stop|Cancel|Attack|Follow|Use|Move|Talk)' | sed -n '1,240p' || true
+          echo SEND_ACTION_NAMES_END
+          echo PLAYER_META_NEIGHBORHOOD_BEGIN
+          strings -a -t x "$bin" | grep -A180 -B20 'tibia::game::TPlayerProtocolMessageHandler' | sed -n '1,240p' || true
+          echo PLAYER_META_NEIGHBORHOOD_END
+          echo WRAPPER_IDS_BEGIN
           for a in ee2cd0 ee2d50 ee2dd0 ee2e50 ee2ed0 ee2f50 ee2fd0 ee3050 ee30d0 ee3150 ee31d0 ee3250 ee32d0 ee3350; do
-            echo FUNC_0x$a
-            objdump -d --start-address="0x$a" --stop-address="$((0x$a+0x80))" "$bin" 2>/dev/null || true
+            printf 'FUNC_0x%s ' "$a"
+            objdump -d --start-address="0x$a" --stop-address="$((0x$a+8))" "$bin" 2>/dev/null | grep -m1 -E 'mov.*\$0x[0-9a-f]+,%edx' || true
           done
-          echo MOVEMENT_DISASM_END
-
+          echo WRAPPER_IDS_END
           tcp_rows=$(ss -ntp 2>/dev/null | grep "pid=$pid," || true)
           local_count=$(printf '%s\n' "$tcp_rows" | awk '$5 ~ /127\.0\.0\.1:25344$/ || $5 ~ /\[::1\]:25344$/ {n++} END{print n+0}')
           total_count=$(printf '%s\n' "$tcp_rows" | grep -c . || true)
