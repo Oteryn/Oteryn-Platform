@@ -1,4 +1,4 @@
-name: Tibia Player Protocol Vtable Entries
+name: Tibia Player Protocol Method Map
 
 on:
   push:
@@ -13,11 +13,11 @@ env:
 
 jobs:
   attach:
-    name: Dump player protocol handler vtable entries
+    name: Map player protocol meta-methods to code
     runs-on: oteryn-staging
     timeout-minutes: 3
     steps:
-      - name: Dump vtable relocations and bytes
+      - name: Dump method names and metacall disassembly
         shell: bash
         run: |
           set -Eeuo pipefail
@@ -25,17 +25,21 @@ jobs:
           docker exec -i "$CONTAINER_NAME" bash <<'INNER'
           set -Eeuo pipefail
           bin='/data/home/.local/share/CipSoft GmbH/Tibia/packages/Tibia/bin/client'
-          readelf -rW "$bin" >/tmp/player-vtable-entries
-          echo PLAYER_VTABLE_RELOCS_BEGIN
-          grep -Ei '^000000000308a[0-3][0-9a-f]{2}' /tmp/player-vtable-entries | head -n 260 || true
-          echo PLAYER_VTABLE_RELOCS_END
-          echo PLAYER_VTABLE_BYTES_BEGIN
-          objdump -s --start-address=0x3089ff0 --stop-address=0x308a400 "$bin" 2>/dev/null || true
-          echo PLAYER_VTABLE_BYTES_END
-          echo METAOBJECT_REF_NEIGHBOR_BEGIN
-          grep -Ei '^0000000003081[12][0-9a-f]{2}' /tmp/player-vtable-entries | head -n 260 || true
-          echo METAOBJECT_REF_NEIGHBOR_END
-          rm -f /tmp/player-vtable-entries
+          echo SEND_NAMES_BEGIN
+          strings -a -t x "$bin" | awk '$1>="1cd0bfa" && $1<="1cd2200" {print}' | head -n 500
+          echo SEND_NAMES_END
+          echo METACALL_DC23A0_BEGIN
+          objdump -d --start-address=0xdc23a0 --stop-address=0xdc2c80 "$bin" 2>/dev/null || true
+          echo METACALL_DC23A0_END
+          echo METACALL_D13200_BEGIN
+          objdump -d --start-address=0xd13200 --stop-address=0xd13b80 "$bin" 2>/dev/null || true
+          echo METACALL_D13200_END
+          echo MOVEMENT_FUNCS_BEGIN
+          for a in ee2cd0 ee2d50 ee2dd0 ee2e50 ee30d0 ee3150 ee2ed0 ee2f50 ee2fd0 ee3050 ee31d0 ee3250 ee32d0 ee3350; do
+            echo "FUNC_$a"
+            objdump -d --start-address="0x$a" --stop-address="$((0x$a+0x80))" "$bin" 2>/dev/null || true
+          done
+          echo MOVEMENT_FUNCS_END
           pid=$(pgrep -x client | head -n1 || true)
           [[ -n "$pid" ]]
           tcp_rows=$(ss -ntp 2>/dev/null | grep "pid=$pid," || true)
