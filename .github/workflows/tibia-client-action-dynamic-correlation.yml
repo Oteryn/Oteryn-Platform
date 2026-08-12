@@ -1,0 +1,137 @@
+name: Tibia Action Dynamic Correlation
+
+on:
+  push:
+    branches: [ops/oteryn-tibia-client-analysis-20260811]
+    paths: [.github/workflows/tibia-client-action-dynamic-correlation.yml]
+
+permissions:
+  contents: read
+
+env:
+  CONTAINER_NAME: oteryn-tibia-client-analysis
+
+jobs:
+  correlate:
+    runs-on: oteryn-staging
+    timeout-minutes: 5
+    steps:
+      - name: Correlate reversible UI triggers to internal action handlers
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          [[ "$RUNNER_NAME" == "oteryn-synology-staging" ]]
+          [[ "$(docker inspect --format '{{ index .Config.Labels "com.blakinio.owner" }}' "$CONTAINER_NAME")" == "oteryn" ]]
+          [[ "$(docker inspect --format '{{ index .Config.Labels "com.blakinio.purpose" }}' "$CONTAINER_NAME")" == "tibia-client-analysis" ]]
+          [[ "$(docker inspect --format '{{.State.Status}}' "$CONTAINER_NAME")" == "running" ]]
+          docker exec -i "$CONTAINER_NAME" bash <<'INNER'
+          set -Eeuo pipefail
+          export DISPLAY=:99 HOME=/data/home
+          pid=$(pgrep -x client | head -n1); [[ -n "$pid" ]]
+          tcp_rows=$(ss -ntp 2>/dev/null | grep "pid=$pid," || true)
+          local_count=$(printf '%s\n' "$tcp_rows" | awk '$5 ~ /127\.0\.0\.1:25344$/ || $5 ~ /\[::1\]:25344$/ {n++} END{print n+0}')
+          total_count=$(printf '%s\n' "$tcp_rows" | grep -c . || true)
+          (( local_count > 0 && total_count-local_count == 0 ))
+          base=$(awk '$NF ~ /\/packages\/Tibia\/bin\/client$/ && $3=="00000000" {split($1,a,"-"); print "0x" a[1]; exit}' /proc/$pid/maps); [[ -n "$base" ]]
+          calc(){ python3 - "$base" "$1" <<'PY'
+import sys
+print(hex(int(sys.argv[1],16)+int(sys.argv[2],16)))
+PY
+          }
+          mov=$(calc 0xd1a920)
+          gen=$(calc 0xd16340)
+          crea=$(calc 0xd1dac0)
+          usew=$(calc 0xd1a230)
+          chat=$(calc 0xd20a90)
+          echo CLIENT_PID=$pid
+          echo MOVEMENT_METACALL=$mov
+          echo GENERIC_METACALL=$gen
+
+          win=''; best=0
+          for w in $(xdotool search --onlyvisible --pid "$pid" --name '^Tibia$' 2>/dev/null || true); do
+            geom=$(xdotool getwindowgeometry --shell "$w" 2>/dev/null || true)
+            width=$(printf '%s\n' "$geom" | sed -n 's/^WIDTH=//p'); height=$(printf '%s\n' "$geom" | sed -n 's/^HEIGHT=//p')
+            [[ "$width" =~ ^[0-9]+$ && "$height" =~ ^[0-9]+$ ]] || continue
+            area=$((width*height)); if ((area>best)); then win=$w; best=$area; fi
+          done
+          [[ -n "$win" ]]
+
+          cat >/tmp/action-correlation.gdb <<GDB
+set pagination off
+set confirm off
+set print thread-events off
+set logging file /data/runtime/action-correlation-gdb.log
+set logging overwrite on
+set logging enabled on
+set \$hits=0
+break *$mov
+commands
+ silent
+ printf "HIT movement call=%d method=%d this=%p argv=%p\\n", \$esi, \$edx, \$rdi, \$rcx
+ bt 6
+ set \$hits=\$hits+1
+ continue
+end
+break *$gen
+commands
+ silent
+ printf "HIT generic call=%d method=%d this=%p argv=%p\\n", \$esi, \$edx, \$rdi, \$rcx
+ bt 6
+ set \$hits=\$hits+1
+ continue
+end
+break *$crea
+commands
+ silent
+ printf "HIT creatures call=%d method=%d this=%p argv=%p\\n", \$esi, \$edx, \$rdi, \$rcx
+ bt 6
+ set \$hits=\$hits+1
+ continue
+end
+break *$usew
+commands
+ silent
+ printf "HIT usewith call=%d method=%d this=%p argv=%p\\n", \$esi, \$edx, \$rdi, \$rcx
+ bt 6
+ set \$hits=\$hits+1
+ continue
+end
+break *$chat
+commands
+ silent
+ printf "HIT chat call=%d method=%d this=%p argv=%p\\n", \$esi, \$edx, \$rdi, \$rcx
+ bt 6
+ set \$hits=\$hits+1
+ continue
+end
+continue
+GDB
+          rm -f /data/runtime/action-correlation-gdb.log /data/runtime/action-correlation-outer.log
+          gdb -q -nx -p "$pid" -x /tmp/action-correlation.gdb >/data/runtime/action-correlation-outer.log 2>&1 &
+          gp=$!
+          cleanup(){ if kill -0 "$gp" 2>/dev/null; then kill -INT "$gp" 2>/dev/null || true; sleep 1; kill -TERM "$gp" 2>/dev/null || true; fi; }
+          trap cleanup EXIT
+          sleep 3; kill -0 "$gp"
+          echo TRIGGER=TURN_RIGHT
+          xdotool key --window "$win" ctrl+Right; sleep 1
+          echo TRIGGER=TURN_LEFT_RESTORE
+          xdotool key --window "$win" ctrl+Left; sleep 1
+          echo TRIGGER=MOVE_RIGHT
+          xdotool key --window "$win" Right; sleep 2
+          echo TRIGGER=MOVE_LEFT_RESTORE
+          xdotool key --window "$win" Left; sleep 2
+          kill -INT "$gp" 2>/dev/null || true; sleep 2; cleanup; trap - EXIT
+          echo CORRELATION_BEGIN
+          grep -E '^HIT |^#' /data/runtime/action-correlation-gdb.log | head -n 180 || true
+          echo CORRELATION_END
+          grep -E 'ptrace|Operation not permitted|Cannot attach|Breakpoint' /data/runtime/action-correlation-outer.log | tail -n 20 || true
+          kill -0 "$pid"
+          tcp_rows=$(ss -ntp 2>/dev/null | grep "pid=$pid," || true)
+          local_after=$(printf '%s\n' "$tcp_rows" | awk '$5 ~ /127\.0\.0\.1:25344$/ || $5 ~ /\[::1\]:25344$/ {n++} END{print n+0}')
+          total_after=$(printf '%s\n' "$tcp_rows" | grep -c . || true)
+          direct_after=$((total_after-local_after))
+          echo ACTIVE_LOCAL_SOCKS_COUNT_AFTER=$local_after
+          echo ACTIVE_DIRECT_TCP_COUNT_AFTER=$direct_after
+          (( local_after > 0 && direct_after == 0 ))
+          echo LIVE_SESSION_RETAINED=true
+          INNER
