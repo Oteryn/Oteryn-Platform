@@ -15,7 +15,7 @@ env:
 
 jobs:
   capture:
-    name: Capture live decoded Tibia worldmap
+    name: Trace live Tibia worldmap handlers
     runs-on: oteryn-staging
     timeout-minutes: 6
     steps:
@@ -29,7 +29,7 @@ jobs:
           [[ "$(docker inspect --format '{{.State.Status}}' "$CONTAINER_NAME")" == "running" ]]
           docker ps -a --filter 'label=com.docker.compose.project=oteryn-staging' --format '{{.ID}}\t{{.Names}}' | sort >/tmp/oteryn-before.tsv
 
-      - name: Attach to existing authenticated client and capture decoded map
+      - name: Attach to authenticated client and trace worldmap dispatch
         shell: bash
         run: |
           set -Eeuo pipefail
@@ -49,10 +49,8 @@ jobs:
 
           base=$(awk '$NF ~ /\/packages\/Tibia\/bin\/client$/ && $3=="00000000" {split($1,a,"-"); print "0x" a[1]; exit}' /proc/$pid/maps)
           [[ -n "$base" ]]
-          bp=$(printf '0x%x' $((base+0x19a8e26)))
           echo CLIENT_PID=$pid
           echo PIE_BASE=$base
-          echo DECODED_BP=$bp
 
           win=''; best=0
           for w in $(xdotool search --onlyvisible --pid "$pid" --name '^Tibia$' 2>/dev/null || true); do
@@ -65,23 +63,54 @@ jobs:
           done
           [[ -n "$win" ]]
 
-          cat >/tmp/live-map.gdb <<GDB
+          full=$(printf '0x%x' $((base+0xcec8d0)))
+          field=$(printf '0x%x' $((base+0xcd3190)))
+          create=$(printf '0x%x' $((base+0xcecc70)))
+          change=$(printf '0x%x' $((base+0xcecf40)))
+          delete=$(printf '0x%x' $((base+0xcd4e20)))
+          common=$(printf '0x%x' $((base+0x19a8a80)))
+
+          cat >/tmp/live-map-handlers.gdb <<GDB
           set pagination off
           set confirm off
           set print thread-events off
-          set logging file /data/runtime/worldmap-live-dispatch-gdb.log
+          set logging file /data/runtime/worldmap-handler-trace.log
           set logging overwrite on
           set logging enabled on
-          break *$bp
+          break *$full
           commands
           silent
-          set \$x = *(unsigned int*)(\$rsp+0x88)
-          set \$y = *(unsigned int*)(\$rsp+0x8c)
-          set \$z = *(unsigned int*)(\$rsp+0x90)
-          set \$ord = ((unsigned int)\$rbp)
-          set \$r28 = *(unsigned int*)(\$rbx+0x28)
-          set \$r30 = *(unsigned int*)(\$rbx+0x30)
-          printf "REC x=%u y=%u z=%u order=%u raw28=%u raw30=%u\\n", \$x, \$y, \$z, \$ord, \$r28, \$r30
+          printf "HIT FullMap rdi=%p rsi=%p rdx=%p\\n", \$rdi, \$rsi, \$rdx
+          continue
+          end
+          break *$field
+          commands
+          silent
+          printf "HIT FieldData rdi=%p rsi=%p rdx=%p\\n", \$rdi, \$rsi, \$rdx
+          continue
+          end
+          break *$create
+          commands
+          silent
+          printf "HIT CreateOnMap rdi=%p rsi=%p rdx=%p\\n", \$rdi, \$rsi, \$rdx
+          continue
+          end
+          break *$change
+          commands
+          silent
+          printf "HIT ChangeOnMap rdi=%p rsi=%p rdx=%p\\n", \$rdi, \$rsi, \$rdx
+          continue
+          end
+          break *$delete
+          commands
+          silent
+          printf "HIT DeleteOnMap rdi=%p rsi=%p rdx=%p\\n", \$rdi, \$rsi, \$rdx
+          continue
+          end
+          break *$common
+          commands
+          silent
+          printf "HIT CommonMapData rdi=%p rsi=%p rdx=%p rcx=%p\\n", \$rdi, \$rsi, \$rdx, \$rcx
           continue
           end
           continue
@@ -89,15 +118,19 @@ jobs:
           quit
           GDB
 
-          rm -f /data/runtime/worldmap-live-dispatch-gdb.log /data/runtime/worldmap-live-dispatch-outer.log
-          gdb -q -nx -p "$pid" -x /tmp/live-map.gdb >/data/runtime/worldmap-live-dispatch-outer.log 2>&1 &
+          rm -f /data/runtime/worldmap-handler-trace.log /data/runtime/worldmap-handler-outer.log
+          gdb -q -nx -p "$pid" -x /tmp/live-map-handlers.gdb >/data/runtime/worldmap-handler-outer.log 2>&1 &
           gdbpid=$!
           sleep 3
           kill -0 "$gdbpid"
           xdotool key --window "$win" Right
-          sleep 2
+          sleep 1
           xdotool key --window "$win" Left
-          sleep 5
+          sleep 1
+          xdotool key --window "$win" Up
+          sleep 1
+          xdotool key --window "$win" Down
+          sleep 4
           kill -INT "$gdbpid" 2>/dev/null || true
           for n in $(seq 1 10); do
             kill -0 "$gdbpid" 2>/dev/null || break
@@ -117,15 +150,15 @@ jobs:
           echo ACTIVE_LOCAL_SOCKS_COUNT_AFTER_ATTACH=$local_after
           echo ACTIVE_DIRECT_TCP_COUNT_AFTER_ATTACH=$direct_after
           (( local_after > 0 && direct_after == 0 ))
-          records=$(grep -c '^REC ' /data/runtime/worldmap-live-dispatch-gdb.log 2>/dev/null || true)
-          echo DECODED_CAPTURE_RECORD_COUNT=$records
-          echo CAPTURE_BEGIN
-          grep '^REC ' /data/runtime/worldmap-live-dispatch-gdb.log | head -n 80 || true
-          echo CAPTURE_END
-          grep -E 'ptrace|Operation not permitted|Cannot attach|Breakpoint' /data/runtime/worldmap-live-dispatch-outer.log | tail -n 20 || true
-          (( records >= 1 ))
+          hits=$(grep -c '^HIT ' /data/runtime/worldmap-handler-trace.log 2>/dev/null || true)
+          echo WORLDMAP_HANDLER_HIT_COUNT=$hits
+          echo HANDLER_TRACE_BEGIN
+          grep '^HIT ' /data/runtime/worldmap-handler-trace.log | head -n 120 || true
+          echo HANDLER_TRACE_END
+          grep -E 'ptrace|Operation not permitted|Cannot attach|Breakpoint' /data/runtime/worldmap-handler-outer.log | tail -n 30 || true
+          (( hits >= 1 ))
           echo LIVE_SESSION_RETAINED=true
-          echo LIVE_DECODED_WORLDMAP_CAPTURE_PROVEN=true
+          echo LIVE_WORLDMAP_HANDLER_DISPATCH_PROVEN=true
           INNER
 
       - name: Verify canonical staging unchanged
