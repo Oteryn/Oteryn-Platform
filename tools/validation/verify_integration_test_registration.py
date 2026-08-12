@@ -107,6 +107,38 @@ def _mapping_child_block(text: str, root_key: str, child_key: str) -> str | None
     return "\n".join(lines[child_index:child_end])
 
 
+def _mapping_direct_scalar(block_text: str, key: str) -> str | None:
+    """Return one direct scalar child from an already isolated YAML block.
+
+    Comments and nested keys are intentionally ignored. Multiline scalar
+    indicators are rejected because registry condition matching must bind to
+    the executable job-level ``if`` expression itself, not arbitrary text in
+    the job body.
+    """
+
+    lines = block_text.splitlines()
+    if not lines:
+        return None
+    parent_indent = len(lines[0]) - len(lines[0].lstrip(" "))
+    child_indent = parent_indent + 2
+    prefix = " " * child_indent + f"{key}:"
+    multiline_indicators = {"|", "|-", "|+", ">", ">-", ">+"}
+
+    for line in lines[1:]:
+        if not line.strip() or line.lstrip().startswith("#"):
+            continue
+        indent = len(line) - len(line.lstrip(" "))
+        if indent <= parent_indent:
+            break
+        if indent != child_indent or not line.startswith(prefix):
+            continue
+        value = line[len(prefix) :].strip()
+        if not value or value in multiline_indicators:
+            return None
+        return value
+    return None
+
+
 def _job_executes_phpunit_test(job_text: str, test_path: str) -> bool:
     executable_text = "\n".join(
         line for line in job_text.splitlines() if not line.lstrip().startswith("#")
@@ -184,9 +216,10 @@ def validate_repository(root: Path) -> list[str]:
             job_block = _mapping_child_block(workflow_text, "jobs", job)
             if job_block is None:
                 raise RegistrationError(f"{test_path}: workflow {workflow} has no jobs.{job} proving job")
-            if condition not in job_block:
+            actual_condition = _mapping_direct_scalar(job_block, "if")
+            if actual_condition != condition:
                 raise RegistrationError(
-                    f"{test_path}: proving job {job} does not contain required condition marker {condition}"
+                    f"{test_path}: proving job {job} does not contain required condition marker {condition} as its direct if condition"
                 )
             if not _job_executes_phpunit_test(job_block, invocation):
                 raise RegistrationError(
