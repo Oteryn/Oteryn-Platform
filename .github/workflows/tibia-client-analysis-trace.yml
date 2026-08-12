@@ -10,16 +10,14 @@ permissions:
 
 env:
   CONTAINER_NAME: oteryn-tibia-client-analysis
-  SNAPSHOT_IMAGE: oteryn-tibia-analysis:warp-cap-20260812
-  HOST_DATA_DIR: /volume1/docker/oteryn/tibia-analysis
 
 jobs:
   trace:
-    name: Enable isolated WARP and attempt Tibia test login
+    name: Verify isolated Tor egress and attempt Tibia test login
     runs-on: oteryn-staging
     timeout-minutes: 12
     steps:
-      - name: Verify exact owned runtime and snapshot staging
+      - name: Verify owned runtime and snapshot staging
         shell: bash
         run: |
           set -Eeuo pipefail
@@ -27,77 +25,44 @@ jobs:
           [[ "$(docker inspect --format '{{ index .Config.Labels "com.blakinio.owner" }}' "$CONTAINER_NAME")" == "oteryn" ]]
           [[ "$(docker inspect --format '{{ index .Config.Labels "com.blakinio.purpose" }}' "$CONTAINER_NAME")" == "tibia-client-analysis" ]]
           docker ps -a --filter 'label=com.docker.compose.project=oteryn-staging' --format '{{.ID}}\t{{.Names}}' | sort > /tmp/oteryn-before.tsv
-          docker exec "$CONTAINER_NAME" bash -lc 'test -s /var/cache/apt/archives/cloudflare-warp_2026.6.880.0_amd64.deb && cp /var/cache/apt/archives/cloudflare-warp_2026.6.880.0_amd64.deb /data/cloudflare-warp.deb'
 
-      - name: Recreate only task-owned analysis container with NET_ADMIN
-        shell: bash
-        run: |
-          set -Eeuo pipefail
-          docker commit "$CONTAINER_NAME" "$SNAPSHOT_IMAGE" >/dev/null
-          docker stop "$CONTAINER_NAME" >/dev/null
-          docker rm "$CONTAINER_NAME" >/dev/null
-          docker run -d \
-            --name "$CONTAINER_NAME" \
-            --restart unless-stopped \
-            --cap-add NET_ADMIN \
-            --label com.blakinio.owner=oteryn \
-            --label com.blakinio.purpose=tibia-client-analysis \
-            --label com.blakinio.task=OTERYN-20260811-tibia-client-analysis \
-            -v "$HOST_DATA_DIR:/data" \
-            "$SNAPSHOT_IMAGE" sleep infinity >/dev/null
-          [[ "$(docker inspect --format '{{ index .Config.Labels "com.blakinio.owner" }}' "$CONTAINER_NAME")" == "oteryn" ]]
-          docker exec "$CONTAINER_NAME" bash -lc 'mkdir -p /dev/net; test -e /dev/net/tun || mknod /dev/net/tun c 10 200; chmod 666 /dev/net/tun; test -c /dev/net/tun'
-          docker inspect --format 'capadd={{json .HostConfig.CapAdd}}' "$CONTAINER_NAME"
-
-      - name: Extract cached WARP package and verify tunneled egress
+      - name: Install and verify Tor SOCKS egress inside owned container
         shell: bash
         run: |
           set -Eeuo pipefail
           docker exec -i "$CONTAINER_NAME" bash <<'INNER'
           set -Eeuo pipefail
-          rm -rf /opt/cloudflare-warp
-          mkdir -p /opt/cloudflare-warp
-          dpkg-deb -x /data/cloudflare-warp.deb /opt/cloudflare-warp
-          cli=$(find /opt/cloudflare-warp -type f -name warp-cli -perm -111 -print -quit)
-          svc=$(find /opt/cloudflare-warp -type f -name warp-svc -perm -111 -print -quit)
-          [[ -n "$cli" && -n "$svc" ]]
-          echo WARP_BINARIES_READY=true
-          pkill -f 'warp-svc' 2>/dev/null || true
-          nohup "$svc" >/data/runtime/warp-svc.log 2>&1 </dev/null &
+          export DEBIAN_FRONTEND=noninteractive
+          apt-get update -qq
+          apt-get install -y -qq --no-install-recommends tor torsocks proxychains4 curl >/dev/null
+          pkill -f '^/usr/bin/tor' 2>/dev/null || true
+          mkdir -p /data/runtime/tor-data
+          chmod 700 /data/runtime/tor-data
+          nohup tor --SocksPort 127.0.0.1:9050 --DataDirectory /data/runtime/tor-data --Log 'notice file /data/runtime/tor.log' >/dev/null 2>&1 </dev/null &
           ready=0
-          for n in $(seq 1 25); do
-            if timeout 5 "$cli" --accept-tos status >/dev/null 2>&1; then ready=1; break; fi
-            sleep 1
-          done
-          echo WARP_CLI_READY=$ready
-          (( ready == 1 ))
-          timeout 10 "$cli" --accept-tos registration new >/dev/null 2>&1 || true
-          timeout 10 "$cli" --accept-tos mode warp+doh >/dev/null
-          timeout 10 "$cli" --accept-tos tunnel protocol set MASQUE >/dev/null || true
-          timeout 10 "$cli" --accept-tos connect >/dev/null
-          verified=0
-          for n in $(seq 1 25); do
-            trace=$(curl -fsS --max-time 10 https://www.cloudflare.com/cdn-cgi/trace || true)
-            if printf '%s\n' "$trace" | grep -q '^warp=on$'; then
-              verified=1
-              echo WARP_TRACE_BEGIN
-              printf '%s\n' "$trace" | grep -E '^(loc|warp)='
-              echo WARP_TRACE_END
-              break
-            fi
+          for n in $(seq 1 45); do
+            if curl --socks5-hostname 127.0.0.1:9050 -fsS --max-time 10 https://www.cloudflare.com/cdn-cgi/trace >/tmp/tor-trace 2>/dev/null; then ready=1; break; fi
             sleep 2
           done
-          echo WARP_VERIFIED=$verified
-          if (( verified == 0 )); then
-            echo WARP_DIAGNOSTIC_BEGIN
-            timeout 5 "$cli" --accept-tos status 2>&1 | sed -E '/(token|account|device|license)/Id' || true
-            tail -n 80 /data/runtime/warp-svc.log 2>/dev/null | sed -E '/(token|account|device|license)/Id' || true
-            echo WARP_DIAGNOSTIC_END
-          fi
-          (( verified == 1 ))
+          echo TOR_READY=$ready
+          (( ready == 1 ))
+          baseline=$(curl -fsS --max-time 10 https://www.cloudflare.com/cdn-cgi/trace | sed -n 's/^ip=//p')
+          torip=$(curl --socks5-hostname 127.0.0.1:9050 -fsS --max-time 10 https://www.cloudflare.com/cdn-cgi/trace | sed -n 's/^ip=//p')
+          [[ -n "$baseline" && -n "$torip" && "$baseline" != "$torip" ]]
+          echo TOR_EGRESS_VERIFIED=true
+          curl --socks5-hostname 127.0.0.1:9050 -fsS --max-time 10 https://www.cloudflare.com/cdn-cgi/trace | grep -E '^(loc|warp)='
+          cat >/tmp/proxychains-tibia.conf <<'EOF'
+strict_chain
+proxy_dns
+quiet_mode
+tcp_read_time_out 15000
+tcp_connect_time_out 8000
+[ProxyList]
+socks5 127.0.0.1 9050
+EOF
           INNER
 
-      - name: Relaunch Tibia client through verified tunnel and attempt test login
+      - name: Relaunch Tibia through Tor and attempt test login
         shell: bash
         env:
           TIBIA_TEST_EMAIL: ${{ secrets.TIBIA_TEST_EMAIL }}
@@ -108,19 +73,20 @@ jobs:
           docker exec -e TIBIA_TEST_EMAIL -e TIBIA_TEST_PASSWORD -i "$CONTAINER_NAME" bash <<'INNER'
           set -Eeuo pipefail
           export DISPLAY=:99 HOME=/data/home
-          trace=$(curl -fsS --max-time 10 https://www.cloudflare.com/cdn-cgi/trace)
-          printf '%s\n' "$trace" | grep -q '^warp=on$'
           pkg="$HOME/.local/share/CipSoft GmbH/Tibia/packages/Tibia"
           client="$pkg/bin/client"
           [[ -x "$client" ]]
+          torip=$(curl --socks5-hostname 127.0.0.1:9050 -fsS --max-time 10 https://www.cloudflare.com/cdn-cgi/trace | sed -n 's/^ip=//p')
+          baseip=$(curl -fsS --max-time 10 https://www.cloudflare.com/cdn-cgi/trace | sed -n 's/^ip=//p')
+          [[ -n "$torip" && "$torip" != "$baseip" ]]
+          pkill -f "$client" 2>/dev/null || true
           pgrep -f '^Xvfb :99' >/dev/null || nohup Xvfb :99 -screen 0 1280x800x24 >/data/runtime/xvfb.log 2>&1 </dev/null &
           sleep 2
-          if ! pgrep -f "^$client" >/dev/null; then
-            cd "$pkg"
-            nohup "$client" >/data/runtime/installed-client-launch.log 2>&1 </dev/null &
-            for n in $(seq 1 20); do pgrep -f "^$client" >/dev/null && break; sleep 1; done
-          fi
-          pgrep -f "^$client" >/dev/null
+          cd "$pkg"
+          nohup proxychains4 -f /tmp/proxychains-tibia.conf "$client" >/data/runtime/client-tor.log 2>&1 </dev/null &
+          for n in $(seq 1 30); do pgrep -f 'packages/Tibia/bin/client' >/dev/null && break; sleep 1; done
+          pgrep -f 'packages/Tibia/bin/client' >/dev/null
+          sleep 8
           best=''; best_area=0
           for w in $(xdotool search --onlyvisible --name '^Tibia$' 2>/dev/null || true); do
             geom=$(xdotool getwindowgeometry --shell "$w" 2>/dev/null || true)
@@ -129,6 +95,7 @@ jobs:
             area=$((width*height)); if (( area > best_area )); then best=$w; best_area=$area; fi
           done
           [[ -n "$best" && "$best_area" -ge 600000 ]]
+          # Open Login on welcome screen, then use the already-proven 1020x650 form geometry.
           xdotool mousemove --window "$best" 510 302 click 1 || true
           sleep 2
           xdotool mousemove --window "$best" 535 275 click 1
@@ -139,7 +106,7 @@ jobs:
           xdotool type --window "$best" --delay 3 -- "$TIBIA_TEST_PASSWORD"
           xdotool mousemove --window "$best" 590 388 click 1
           unset TIBIA_TEST_EMAIL TIBIA_TEST_PASSWORD
-          sleep 15
+          sleep 20
           import -display :99 -window "$best" /tmp/login-result-raw.png
           test -s /tmp/login-result-raw.png
           convert /tmp/login-result-raw.png -resize 200% -colorspace Gray -contrast-stretch 1%x1% /tmp/login-result-ocr.png
@@ -147,7 +114,7 @@ jobs:
           echo SAFE_LOGIN_RESULT_BEGIN
           python3 - <<'PY'
           import csv,re
-          allowed=re.compile(r'^(login|account|password|email|authenticator|token|character|characters|select|enter|game|error|sorry|incorrect|invalid|connection|connecting|loading|ok|cancel|remember)$',re.I)
+          allowed=re.compile(r'^(login|account|password|email|authenticator|token|character|characters|select|enter|game|error|sorry|incorrect|invalid|connection|connecting|loading|ok|cancel|remember|offline|online)$',re.I)
           with open('/tmp/login-result.tsv',newline='',errors='replace') as f:
               for r in csv.DictReader(f,delimiter='\t'):
                   t=(r.get('text') or '').strip().strip(':,.!?()[]')
@@ -155,7 +122,7 @@ jobs:
           PY
           echo SAFE_LOGIN_RESULT_END
           cp /tmp/login-result-raw.png /tmp/login-result-safe.png
-          convert /tmp/login-result-safe.png -fill '#202020' -draw 'rectangle 350,220 690,455' /tmp/login-result-safe.png
+          convert /tmp/login-result-safe.png -fill '#202020' -draw 'rectangle 330,190 710,480' /tmp/login-result-safe.png
           INNER
           docker cp "$CONTAINER_NAME:/tmp/login-result-safe.png" /tmp/login-result-safe.png
           test -s /tmp/login-result-safe.png
@@ -176,4 +143,4 @@ jobs:
           set -Eeuo pipefail
           docker ps -a --filter 'label=com.docker.compose.project=oteryn-staging' --format '{{.ID}}\t{{.Names}}' | sort > /tmp/oteryn-after.tsv
           diff -u /tmp/oteryn-before.tsv /tmp/oteryn-after.tsv
-          docker inspect --format 'analysis_name={{.Name}} status={{.State.Status}} owner={{ index .Config.Labels "com.blakinio.owner" }} purpose={{ index .Config.Labels "com.blakinio.purpose" }} capadd={{json .HostConfig.CapAdd}}' "$CONTAINER_NAME"
+          docker inspect --format 'analysis_name={{.Name}} status={{.State.Status}} owner={{ index .Config.Labels "com.blakinio.owner" }} purpose={{ index .Config.Labels "com.blakinio.purpose" }}' "$CONTAINER_NAME"
