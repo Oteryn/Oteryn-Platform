@@ -1,0 +1,183 @@
+name: Tibia Character Row State and Transient Entry
+
+on:
+  push:
+    branches: [ops/oteryn-tibia-client-analysis-20260811]
+    paths: [.github/workflows/tibia-client-analysis-row-state-transient.yml]
+
+permissions:
+  contents: read
+
+env:
+  CONTAINER_NAME: oteryn-tibia-client-analysis
+
+jobs:
+  inspect:
+    name: Classify character status and sub-second entry state
+    runs-on: oteryn-staging
+    timeout-minutes: 6
+    steps:
+      - name: Verify owned runtime and snapshot staging
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          [[ "$RUNNER_NAME" == "oteryn-synology-staging" ]]
+          [[ "$(docker inspect --format '{{ index .Config.Labels "com.blakinio.owner" }}' "$CONTAINER_NAME")" == "oteryn" ]]
+          [[ "$(docker inspect --format '{{ index .Config.Labels "com.blakinio.purpose" }}' "$CONTAINER_NAME")" == "tibia-client-analysis" ]]
+          [[ "$(docker inspect --format '{{.State.Status}}' "$CONTAINER_NAME")" == "running" ]]
+          docker ps -a --filter 'label=com.docker.compose.project=oteryn-staging' --format '{{.ID}}\t{{.Names}}' | sort >/tmp/oteryn-before.tsv
+
+      - name: Login, read generic row status, and capture transient UI
+        shell: bash
+        env:
+          TIBIA_TEST_EMAIL: ${{ secrets.TIBIA_TEST_EMAIL }}
+          TIBIA_TEST_PASSWORD: ${{ secrets.TIBIA_TEST_PASSWORD }}
+        run: |
+          set -Eeuo pipefail
+          [[ -n "$TIBIA_TEST_EMAIL" && -n "$TIBIA_TEST_PASSWORD" ]]
+          docker exec -e TIBIA_TEST_EMAIL -e TIBIA_TEST_PASSWORD -i "$CONTAINER_NAME" bash <<'INNER'
+          set -Eeuo pipefail
+          export DISPLAY=:99 HOME=/data/home
+          pkg="$HOME/.local/share/CipSoft GmbH/Tibia/packages/Tibia"
+          client="$pkg/bin/client"
+          pgrep -f '/wireproxy .*wireproxy.conf' >/dev/null
+          curl --socks5-hostname 127.0.0.1:25344 -fsS --max-time 10 https://www.cloudflare.com/cdn-cgi/trace >/tmp/row-state-warp.trace
+          grep -q '^warp=on$' /tmp/row-state-warp.trace
+          echo WARP_VERIFIED=true
+          cat >/tmp/proxychains-row-state.conf <<'EOF'
+          strict_chain
+          proxy_dns
+          quiet_mode
+          tcp_read_time_out 15000
+          tcp_connect_time_out 8000
+          [ProxyList]
+          socks5 127.0.0.1 25344
+          EOF
+          pkill -f 'packages/Tibia/bin/client' 2>/dev/null || true
+          pgrep -f '^Xvfb :99' >/dev/null || nohup Xvfb :99 -screen 0 1280x800x24 >/data/runtime/xvfb.log 2>&1 </dev/null &
+          cd "$pkg"
+          nohup proxychains4 -f /tmp/proxychains-row-state.conf "$client" >/data/runtime/client-row-state.log 2>&1 </dev/null &
+          for n in $(seq 1 30); do pgrep -f 'packages/Tibia/bin/client' >/dev/null && break; sleep 1; done
+          sleep 10
+          best=''; best_area=0; bw=0; bh=0
+          for w in $(xdotool search --onlyvisible --name '^Tibia$' 2>/dev/null || true); do
+            geom=$(xdotool getwindowgeometry --shell "$w" 2>/dev/null || true)
+            width=$(printf '%s\n' "$geom" | sed -n 's/^WIDTH=//p'); height=$(printf '%s\n' "$geom" | sed -n 's/^HEIGHT=//p')
+            [[ -n "$width" && -n "$height" ]] || continue
+            area=$((width*height)); if (( area > best_area )); then best=$w; best_area=$area; bw=$width; bh=$height; fi
+          done
+          [[ -n "$best" && "$bw" == 1020 && "$bh" == 650 ]]
+          xdotool mousemove --window "$best" 535 275 click 1
+          xdotool key --window "$best" ctrl+a
+          xdotool type --window "$best" --delay 3 -- "$TIBIA_TEST_EMAIL"
+          xdotool mousemove --window "$best" 535 304 click 1
+          xdotool key --window "$best" ctrl+a
+          xdotool type --window "$best" --delay 3 -- "$TIBIA_TEST_PASSWORD"
+          xdotool mousemove --window "$best" 590 388 click 1
+          unset TIBIA_TEST_EMAIL TIBIA_TEST_PASSWORD
+          sleep 25
+
+          import -display :99 -window "$best" /tmp/row-state-select.png
+          convert /tmp/row-state-select.png -resize 200% -colorspace Gray -contrast-stretch 1%x1% /tmp/row-state-select-ocr.png
+          tesseract /tmp/row-state-select-ocr.png stdout --psm 11 tsv 2>/dev/null >/tmp/row-state-select.tsv || true
+          python3 - <<'PY' >/tmp/row-state.env
+          import csv
+          anchors=[]; row_words=[]; status_words=[]
+          with open('/tmp/row-state-select.tsv',newline='',errors='replace') as f:
+              for r in csv.DictReader(f,delimiter='\t'):
+                  token=(r.get('text') or '').strip().lower().strip(':,.!?()[]')
+                  try:
+                      conf=float(r.get('conf') or -1)
+                      left=int(r.get('left') or 0)//2; top=int(r.get('top') or 0)//2
+                      width=max(1,int(r.get('width') or 0)//2); height=max(1,int(r.get('height') or 0)//2)
+                  except ValueError:
+                      continue
+                  if conf < 20: continue
+                  x=left+width//2; y=top+height//2
+                  if token in {'select','character','status','ok','cancel'}:
+                      anchors.append((token,x,y))
+                  if 220 <= x <= 555 and 185 <= y <= 202 and token not in {'select','character','status','ok','cancel'}:
+                      row_words.append((x,y))
+                  if 555 <= x <= 875 and 182 <= y <= 212:
+                      if token in {'online','offline','status','preview','protected','unprotected','world','locked','deleted','deletion'}:
+                          status_words.append((x,token))
+          if not any(t=='select' and 100<=y<=135 for t,x,y in anchors): raise SystemExit('Select Character not verified')
+          if not any(t=='character' and 160<=y<=185 for t,x,y in anchors): raise SystemExit('Character header not verified')
+          if not row_words: raise SystemExit('Character row text cluster not found')
+          row_y=round(sum(y for _,y in row_words)/len(row_words))
+          if not 188 <= row_y <= 200: raise SystemExit(f'Unsafe row y={row_y}')
+          status_words.sort()
+          print('ROW_X=300')
+          print(f'ROW_Y={row_y}')
+          print('ROW_SAFE_STATUS=' + ','.join(t for _,t in status_words))
+          print('ROW_STATUS_ONLINE=' + str(any(t=='online' for _,t in status_words)).lower())
+          print('ROW_STATUS_OFFLINE=' + str(any(t=='offline' for _,t in status_words)).lower())
+          PY
+          cat /tmp/row-state.env
+          source /tmp/row-state.env
+
+          # Capture the first second as quickly as ImageMagick/X11 permits. Raw frames never leave the owned container.
+          rm -f /tmp/transient-frame-*.png
+          (
+            for i in $(seq -w 1 12); do
+              import -display :99 -window "$best" "/tmp/transient-frame-$i.png" 2>/dev/null || true
+              sleep 0.04
+            done
+          ) &
+          cap_pid=$!
+          sleep 0.03
+          xdotool mousemove --window "$best" "$ROW_X" "$ROW_Y" click --repeat 2 --delay 160 1
+          wait "$cap_pid" || true
+          echo CHARACTER_ROW_DOUBLECLICKED=true
+
+          python3 - <<'PY'
+          from pathlib import Path
+          import subprocess,re
+          allow={
+              'account','login','email','password','select','character','connecting','connection','failed','error','server','world','game',
+              'already','logged','session','disconnected','unable','cannot','could','not','please','try','again','online','offline','closed',
+              'client','update','version','maintenance','queue','kicked','authentication','authenticator','verification','confirm','confirmed',
+              'setup','complete','required','manage','play','playing','battle','skills','inventory','health','mana','capacity','experience'
+          }
+          frames=sorted(Path('/tmp').glob('transient-frame-*.png'))
+          print(f'TRANSIENT_FRAME_COUNT={len(frames)}')
+          previous=None
+          for idx,p in enumerate(frames,1):
+              crop=Path(f'/tmp/transient-crop-{idx:02}.png')
+              txt=Path(f'/tmp/transient-crop-{idx:02}.txt')
+              subprocess.run(['convert',str(p),'-crop','900x500+60+80','-resize','150%','-colorspace','Gray','-contrast-stretch','1%x1%',str(crop)],check=False,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
+              q=subprocess.run(['tesseract',str(crop),'stdout','--psm','11'],capture_output=True,text=True)
+              raw=q.stdout.lower()
+              norm=' '.join(re.findall(r'[a-z]+',raw))
+              safe=[]
+              for token in norm.split():
+                  if token in allow and token not in safe: safe.append(token)
+              account=('account login' in raw or ('email' in raw and 'password' in raw))
+              select=('select character' in raw)
+              game=sum(k in raw for k in ('battle','skills','inventory','health','mana','capacity','experience'))>=2
+              sig=(account,select,game,tuple(safe))
+              if sig != previous:
+                  print(f'FRAME_{idx:02}_ACCOUNT_LOGIN={str(account).lower()}')
+                  print(f'FRAME_{idx:02}_SELECT_CHARACTER={str(select).lower()}')
+                  print(f'FRAME_{idx:02}_GAME_MARKERS={str(game).lower()}')
+                  print(f'FRAME_{idx:02}_SAFE_TOKENS=' + ','.join(safe))
+                  previous=sig
+          PY
+
+          pid=$(pgrep -f 'packages/Tibia/bin/client' | head -n1 || true)
+          [[ -n "$pid" ]]
+          sockets=$(ss -ntp 2>/dev/null | grep "pid=$pid," || true)
+          direct=$(printf '%s\n' "$sockets" | awk '{print $5}' | grep -Ev '^(127\.0\.0\.1|\[::1\]):25344$' | grep -c . || true)
+          echo CLIENT_DIRECT_REMOTE_TCP_COUNT=$direct
+          [[ "$direct" == 0 ]]
+          INNER
+
+      - name: Verify canonical staging unchanged and client retained
+        if: always()
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          docker ps -a --filter 'label=com.docker.compose.project=oteryn-staging' --format '{{.ID}}\t{{.Names}}' | sort >/tmp/oteryn-after.tsv
+          diff -u /tmp/oteryn-before.tsv /tmp/oteryn-after.tsv
+          docker exec "$CONTAINER_NAME" pgrep -f 'packages/Tibia/bin/client' >/dev/null
+          docker inspect --format 'analysis_name={{.Name}} status={{.State.Status}} owner={{ index .Config.Labels "com.blakinio.owner" }} purpose={{ index .Config.Labels "com.blakinio.purpose" }}' "$CONTAINER_NAME"
