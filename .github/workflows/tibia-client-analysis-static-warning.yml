@@ -1,0 +1,99 @@
+name: Tibia Static Warning Identification
+
+on:
+  push:
+    branches: [ops/oteryn-tibia-client-analysis-20260811]
+    paths: [.github/workflows/tibia-client-analysis-static-warning.yml]
+
+permissions:
+  contents: read
+
+env:
+  CONTAINER_NAME: oteryn-tibia-client-analysis
+
+jobs:
+  identify:
+    name: Identify generic Select Character warning
+    runs-on: oteryn-staging
+    timeout-minutes: 3
+    steps:
+      - name: Verify owned runtime and snapshot staging
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          [[ "$RUNNER_NAME" == "oteryn-synology-staging" ]]
+          [[ "$(docker inspect --format '{{ index .Config.Labels "com.blakinio.owner" }}' "$CONTAINER_NAME")" == "oteryn" ]]
+          [[ "$(docker inspect --format '{{ index .Config.Labels "com.blakinio.purpose" }}' "$CONTAINER_NAME")" == "tibia-client-analysis" ]]
+          [[ "$(docker inspect --format '{{.State.Status}}' "$CONTAINER_NAME")" == "running" ]]
+          docker ps -a --filter 'label=com.docker.compose.project=oteryn-staging' --format '{{.ID}}\t{{.Names}}' | sort >/tmp/oteryn-before.tsv
+
+      - name: Match generic product warning in installed package
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          docker exec -i "$CONTAINER_NAME" python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          pkg=Path('/data/home/.local/share/CipSoft GmbH/Tibia/packages/Tibia')
+          client=pkg/'bin/client'
+          if not client.is_file():
+              raise SystemExit('installed client missing')
+
+          # Search only immutable installed product files, never HOME config/runtime/account state.
+          files=[client]
+          for root in (pkg/'bin', pkg/'assets'):
+              if root.exists():
+                  for p in root.rglob('*'):
+                      if p.is_file() and p.stat().st_size <= 80_000_000 and p not in files:
+                          files.append(p)
+
+          needles=[b'You need to complete the', b'Create Character', b'Manage Account']
+          printable=re.compile(rb'[ -~]{8,240}')
+          found=[]
+          for p in files:
+              try:
+                  raw=p.read_bytes()
+              except OSError:
+                  continue
+              for needle in needles:
+                  pos=raw.find(needle)
+                  if pos < 0:
+                      continue
+                  start=max(0,pos-120); end=min(len(raw),pos+360)
+                  candidates=[]
+                  for m in printable.finditer(raw[start:end]):
+                      s=m.group().decode('ascii','replace').strip()
+                      if any(k.lower() in s.lower() for k in ('you need to complete the','create character','manage account')):
+                          candidates.append(s)
+                  found.append((p.relative_to(pkg).as_posix(),needle.decode(),candidates))
+
+          # Also bounded GNU strings search from the client for nearby generic setup text.
+          import subprocess
+          text=subprocess.check_output(['strings','-a','-n','6',str(client)],text=True,errors='replace')
+          static=[]
+          for line in text.splitlines():
+              lo=line.lower()
+              if ('complete the' in lo or 'create character' in lo or 'manage account' in lo) and len(line) <= 240:
+                  static.append(line.strip())
+
+          print(f'STATIC_WARNING_BINARY_MATCH_COUNT={len(found)}')
+          for i,(path,needle,cands) in enumerate(found,1):
+              print(f'MATCH_{i}_FILE={path}')
+              print(f'MATCH_{i}_NEEDLE={needle}')
+              for j,s in enumerate(cands[:4],1):
+                  # These are immutable generic product UI strings, not runtime/account data.
+                  print(f'MATCH_{i}_TEXT_{j}={s}')
+          print(f'STATIC_STRINGS_MATCH_COUNT={len(static)}')
+          for i,s in enumerate(static[:20],1):
+              print(f'STATIC_STRING_{i}={s}')
+          PY
+
+      - name: Verify canonical staging unchanged
+        if: always()
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          docker ps -a --filter 'label=com.docker.compose.project=oteryn-staging' --format '{{.ID}}\t{{.Names}}' | sort >/tmp/oteryn-after.tsv
+          diff -u /tmp/oteryn-before.tsv /tmp/oteryn-after.tsv
+          docker inspect --format 'analysis_name={{.Name}} status={{.State.Status}} owner={{ index .Config.Labels "com.blakinio.owner" }} purpose={{ index .Config.Labels "com.blakinio.purpose" }}' "$CONTAINER_NAME"
