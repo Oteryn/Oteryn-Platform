@@ -11,13 +11,37 @@ source "$SCRIPT_DIR/lib.sh"
 load_oteryn_env_file "$ENV_FILE"
 
 state_dir="${OTERYN_STATE_DIR:-/var/lib/oteryn-staging-state}"
-state_file="$state_dir/last-good.env"
-if [[ ! -f "$state_file" ]]; then
-    echo "No previous runtime image snapshot exists at $state_file" >&2
+current_file="$state_dir/current-release.env"
+last_good_file="$state_dir/last-good-release.env"
+schema_file="$state_dir/schema-state.env"
+
+for file in "$current_file" "$last_good_file" "$schema_file"; do
+    if [[ ! -f "$file" ]]; then
+        echo "Rollback rejected: required compatibility metadata is missing: $file" >&2
+        exit 1
+    fi
+done
+
+# shellcheck disable=SC1090
+source "$schema_file"
+if [[ "${SCHEMA_STATE:-}" != "known" || -z "${SCHEMA_COMPATIBILITY_ID:-}" ]]; then
+    echo "Rollback rejected: current database schema identity is unknown or incomplete." >&2
+    echo "Use recover-schema.sh only with a verified pre-migration backup if recovery is required." >&2
     exit 1
 fi
+schema_identity="$SCHEMA_COMPATIBILITY_ID"
 
-load_oteryn_env_file "$state_file"
+bash "$SCRIPT_DIR/release-state.sh" compatible "$current_file" "$last_good_file"
+
+# Capture the immutable last-good application identity only after compatibility
+# has been proven against the current schema.
+# shellcheck disable=SC1090
+source "$last_good_file"
+if [[ "$schema_identity" != "${SCHEMA_COMPATIBILITY_ID:-}" ]] && \
+   ! bash "$SCRIPT_DIR/release-state.sh" compatible "$current_file" "$last_good_file" >/dev/null; then
+    echo "Rollback rejected: stale schema identity." >&2
+    exit 1
+fi
 
 for name in \
     PLATFORM_IMAGE GATEWAY_IMAGE CANARY_IMAGE \
@@ -46,4 +70,4 @@ OTERYN_ENV_FILE="$ENV_FILE" bash "$SCRIPT_DIR/health-check.sh"
     --status=online \
     --login-enabled=1
 
-echo "Runtime image rollback completed. Database migrations were not reversed automatically."
+echo "Compatible runtime image rollback completed. Database schema was NOT rolled back or changed by this operation."
