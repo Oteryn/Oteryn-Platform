@@ -1,0 +1,108 @@
+name: Tibia Local World Entry Gate Diagnostic
+
+on:
+  push:
+    branches: [ops/oteryn-tibia-client-analysis-20260811]
+    paths: [.github/workflows/tibia-client-analysis-local-gate-diagnostic.yml]
+
+permissions:
+  contents: read
+
+env:
+  CONTAINER_NAME: oteryn-tibia-client-analysis
+
+jobs:
+  diagnose:
+    name: Classify local anti-cheat and environment gates
+    runs-on: oteryn-staging
+    timeout-minutes: 4
+    steps:
+      - name: Verify owned runtime and snapshot staging
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          [[ "$RUNNER_NAME" == "oteryn-synology-staging" ]]
+          [[ "$(docker inspect --format '{{ index .Config.Labels "com.blakinio.owner" }}' "$CONTAINER_NAME")" == "oteryn" ]]
+          [[ "$(docker inspect --format '{{ index .Config.Labels "com.blakinio.purpose" }}' "$CONTAINER_NAME")" == "tibia-client-analysis" ]]
+          [[ "$(docker inspect --format '{{.State.Status}}' "$CONTAINER_NAME")" == "running" ]]
+          docker ps -a --filter 'label=com.docker.compose.project=oteryn-staging' --format '{{.ID}}\t{{.Names}}' | sort >/tmp/oteryn-before.tsv
+
+      - name: Inspect retained logs and client strings using generic vocabulary only
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          docker exec -i "$CONTAINER_NAME" python3 - <<'PY'
+          from pathlib import Path
+          import re,subprocess
+
+          vocab={
+              'battleye','anti','cheat','anticheat','security','protected','protection','blocked','block','unsupported','support',
+              'linux','root','container','docker','virtual','virtualization','vm','debug','debugger','ptrace','sandbox','environment',
+              'process','driver','kernel','module','failed','failure','error','fatal','warning','denied','permission','invalid','missing',
+              'required','requirement','initialize','initialization','client','game','session','login','account','character','world',
+              'renderer','rendering','vulkan','opengl','gpu','graphics','device','display','x11','xcb','glx','egl','headless','software',
+              'hardware','version','update','outdated','restart','restartable','launch','launcher','service','integrity','verification',
+              'signature','signed','tamper','tampering','secure','connection','network','socket','certificate','tls','ssl'
+          }
+          logs=[
+              Path('/data/runtime/client-name-activate.log'),
+              Path('/data/runtime/client-row-state.log'),
+              Path('/data/runtime/client-transparent-warp-v2.log'),
+              Path('/data/runtime/client-userspace-warp.log'),
+          ]
+          for p in logs:
+              if not p.exists():
+                  continue
+              raw=p.read_text(errors='replace').splitlines()[-2000:]
+              sigs=[]
+              for line in raw:
+                  lo=line.lower()
+                  if not any(k in lo for k in ('battle','cheat','protect','block','unsupported','container','docker','virtual','debug','sandbox','kernel','failed','error','fatal','warning','renderer','vulkan','opengl','gpu','graphics','display','x11','xcb','glx','egl','headless','integrity','verify','signature','tamper')):
+                      continue
+                  kept=[]
+                  for w in re.findall(r'[a-z]+',lo):
+                      if w in vocab and w not in kept: kept.append(w)
+                  if kept:
+                      sig=' '.join(kept)
+                      if sig not in sigs: sigs.append(sig)
+              key=p.name.upper().replace('-','_').replace('.','_')
+              print(f'{key}_LOCAL_GATE_SIGNATURE_COUNT={len(sigs)}')
+              for i,s in enumerate(sigs[:50],1): print(f'{key}_LOCAL_GATE_SIGNATURE_{i}={s}')
+
+          client=Path('/data/home/.local/share/CipSoft GmbH/Tibia/packages/Tibia/bin/client')
+          if client.exists():
+              proc=subprocess.run(['strings',str(client)],capture_output=True,text=True,errors='replace')
+              lines=[]
+              for line in proc.stdout.splitlines():
+                  lo=line.lower()
+                  if not any(k in lo for k in ('battleye','anti-cheat','anticheat','unsupported environment','virtual machine','debugger','ptrace','sandbox','software renderer','hardware acceleration','headless','renderer')):
+                      continue
+                  kept=[]
+                  for w in re.findall(r'[a-z]+',lo):
+                      if w in vocab and w not in kept: kept.append(w)
+                  if kept:
+                      sig=' '.join(kept)
+                      if sig not in lines: lines.append(sig)
+              print(f'CLIENT_LOCAL_GATE_BINARY_SIGNATURE_COUNT={len(lines)}')
+              for i,s in enumerate(lines[:100],1): print(f'CLIENT_LOCAL_GATE_BINARY_SIGNATURE_{i}={s}')
+          PY
+
+          echo CLIENT_PROCESS_PRESENT=$(pgrep -x client >/dev/null && echo true || echo false)
+          echo BATTLEYE_PROCESS_PRESENT=$(pgrep -afi 'battleye|beservice|bedaisy' >/dev/null && echo true || echo false)
+          echo USER_ID=$(id -u)
+          echo USER_IS_ROOT=$(test "$(id -u)" -eq 0 && echo true || echo false)
+          echo CONTAINER_MARKER_DOCKERENV=$(test -f /.dockerenv && echo true || echo false)
+          echo PROC_1_COMM=$(cat /proc/1/comm 2>/dev/null | tr -cd 'A-Za-z0-9_.-')
+          echo SECCOMP_STATUS=$(awk '/^Seccomp:/{print $2}' /proc/self/status 2>/dev/null || echo unknown)
+          echo NO_NEW_PRIVS=$(awk '/^NoNewPrivs:/{print $2}' /proc/self/status 2>/dev/null || echo unknown)
+          if [[ -r /proc/sys/kernel/yama/ptrace_scope ]]; then echo PTRACE_SCOPE=$(cat /proc/sys/kernel/yama/ptrace_scope); else echo PTRACE_SCOPE=unknown; fi
+          INNER
+
+      - name: Verify canonical staging unchanged
+        if: always()
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          docker ps -a --filter 'label=com.docker.compose.project=oteryn-staging' --format '{{.ID}}\t{{.Names}}' | sort >/tmp/oteryn-after.tsv
+          diff -u /tmp/oteryn-before.tsv /tmp/oteryn-after.tsv
+          docker inspect --format 'analysis_name={{.Name}} status={{.State.Status}} owner={{ index .Config.Labels "com.blakinio.owner" }} purpose={{ index .Config.Labels "com.blakinio.purpose" }}' "$CONTAINER_NAME"
