@@ -74,5 +74,6 @@ compose=(docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE")
 chmod 600 "$schema_file.tmp"
 mv "$schema_file.tmp" "$schema_file"
 
-rm -f "$candidate_file"
+# Keep candidate-release.env until rollback.sh succeeds. It is the durable proof
+# of which failed application transition the restored schema just recovered from.
 echo "Staging Platform database restored from verified pre-migration backup. Runtime images were not changed; run rollback.sh separately after compatibility validation."
