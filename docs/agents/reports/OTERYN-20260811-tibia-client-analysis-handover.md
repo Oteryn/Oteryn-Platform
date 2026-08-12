@@ -6722,3 +6722,1645 @@ MATCH index=2 score=180 qmetaobject_va=0x3087780 file_off=0x3087780
 
 <!-- END EXACT WORLDMAP QMETAOBJECT -->
 
+<!-- BEGIN WORLDMAP METHOD DISPATCH -->
+
+## Worldmap Qt method dispatch evidence
+
+Source: GitHub Actions run `31580556720` on `oteryn-synology-staging`. Bounded sanitized metadata/disassembly only.
+
+```text
+WORLDMAP_QT_METHOD_DISPATCH
+qmetaobject_va=0x3087800
+stringdata_va=0x1cd8a54
+metadata_va=0x1cd8820
+static_metacall=0xdf2a60
+jump_table_va=0x1d8bd10
+metadata_header=13 0 0 0 14 14 0 0 0 0 0 0 0 1
+class_name_index=0 class_name='tibia::worldmap::TWorldmapProtocolMessageHandler'
+method_count=14 method_data=14 signal_count=1
+METHOD index=0 name='publishGameAction' argc=1 parameters=98 tag='' flags=0x6 metatype_offset=1 raw=[1, 1, 98, 2, 6, 1]
+METHOD index=1 name='handleFullMapMessage' argc=1 parameters=101 tag='' flags=0xa metatype_offset=3 raw=[5, 1, 101, 2, 10, 3]
+METHOD index=2 name='handleLeftColumnMessage' argc=1 parameters=104 tag='' flags=0xa metatype_offset=5 raw=[8, 1, 104, 2, 10, 5]
+METHOD index=3 name='handleRightColumnMessage' argc=1 parameters=107 tag='' flags=0xa metatype_offset=7 raw=[11, 1, 107, 2, 10, 7]
+METHOD index=4 name='handleTopRowMessage' argc=1 parameters=110 tag='' flags=0xa metatype_offset=9 raw=[14, 1, 110, 2, 10, 9]
+METHOD index=5 name='handleBottomRowMessage' argc=1 parameters=113 tag='' flags=0xa metatype_offset=11 raw=[17, 1, 113, 2, 10, 11]
+METHOD index=6 name='handleTopFloorMessage' argc=1 parameters=116 tag='' flags=0xa metatype_offset=13 raw=[20, 1, 116, 2, 10, 13]
+METHOD index=7 name='handleBottomFloorMessage' argc=1 parameters=119 tag='' flags=0xa metatype_offset=15 raw=[23, 1, 119, 2, 10, 15]
+METHOD index=8 name='handleFieldDataMessage' argc=1 parameters=122 tag='' flags=0xa metatype_offset=17 raw=[26, 1, 122, 2, 10, 17]
+METHOD index=9 name='handleCreateOnMapMessage' argc=1 parameters=125 tag='' flags=0xa metatype_offset=19 raw=[29, 1, 125, 2, 10, 19]
+METHOD index=10 name='handleChangeOnMapMessage' argc=1 parameters=128 tag='' flags=0xa metatype_offset=21 raw=[32, 1, 128, 2, 10, 21]
+METHOD index=11 name='handleDeleteOnMapMessage' argc=1 parameters=131 tag='' flags=0xa metatype_offset=23 raw=[35, 1, 131, 2, 10, 23]
+METHOD index=12 name='handleAmbientLightMessage' argc=1 parameters=134 tag='' flags=0xa metatype_offset=25 raw=[38, 1, 134, 2, 10, 25]
+METHOD index=13 name='handleTibiaTimeMessage' argc=1 parameters=137 tag='' flags=0xa metatype_offset=27 raw=[41, 1, 137, 2, 10, 27]
+PROVEN_METHOD_INDEX handleFullMapMessage=1
+PROVEN_METHOD_INDEX handleFieldDataMessage=8
+JUMP index=0 method='publishGameAction' rel=-0xf991b8 case_target=0xdf2b58
+JUMP index=1 method='handleFullMapMessage' rel=-0xf99188 case_target=0xdf2b88
+JUMP index=2 method='handleLeftColumnMessage' rel=-0xf99170 case_target=0xdf2ba0
+JUMP index=3 method='handleRightColumnMessage' rel=-0xf99110 case_target=0xdf2c00
+JUMP index=4 method='handleTopRowMessage' rel=-0xf990d8 case_target=0xdf2c38
+JUMP index=5 method='handleBottomRowMessage' rel=-0xf990a0 case_target=0xdf2c70
+JUMP index=6 method='handleTopFloorMessage' rel=-0xf99068 case_target=0xdf2ca8
+JUMP index=7 method='handleBottomFloorMessage' rel=-0xf99050 case_target=0xdf2cc0
+JUMP index=8 method='handleFieldDataMessage' rel=-0xf99038 case_target=0xdf2cd8
+JUMP index=9 method='handleCreateOnMapMessage' rel=-0xf99020 case_target=0xdf2cf0
+JUMP index=10 method='handleChangeOnMapMessage' rel=-0xf99008 case_target=0xdf2d08
+JUMP index=11 method='handleDeleteOnMapMessage' rel=-0xf98ff0 case_target=0xdf2d20
+JUMP index=12 method='handleAmbientLightMessage' rel=-0xf98fd8 case_target=0xdf2d38
+JUMP index=13 method='handleTibiaTimeMessage' rel=-0xf99248 case_target=0xdf2ac8
+FULLMAP_CASE_DISASSEMBLY
+  
+  /data/client-15.32.df7b29/bin/client:     file format elf64-x86-64
+  
+  
+  Disassembly of section .text:
+  
+  0000000000df2b88 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x254358>:
+    df2b88:	48 8b 71 08          	mov    0x8(%rcx),%rsi
+    df2b8c:	48 83 c4 58          	add    $0x58,%rsp
+    df2b90:	5b                   	pop    %rbx
+    df2b91:	5d                   	pop    %rbp
+    df2b92:	41 5c                	pop    %r12
+    df2b94:	41 5d                	pop    %r13
+    df2b96:	e9 35 9d ef ff       	jmp    cec8d0 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x14e0a0>
+    df2b9b:	0f 1f 44 00 00       	nopl   0x0(%rax,%rax,1)
+    df2ba0:	4c 8b 69 08          	mov    0x8(%rcx),%r13
+    df2ba4:	83 af 98 00 00 00 01 	subl   $0x1,0x98(%rdi)
+    df2bab:	48 89 e5             	mov    %rsp,%rbp
+    df2bae:	45 31 e4             	xor    %r12d,%r12d
+    df2bb1:	e8 ba 8b ee ff       	call   cdb770 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x13cf40>
+    df2bb6:	83 bb a0 00 00 00 07 	cmpl   $0x7,0xa0(%rbx)
+    df2bbd:	48 8d b3 90 00 00 00 	lea    0x90(%rbx),%rsi
+    df2bc4:	48 89 ef             	mov    %rbp,%rdi
+    df2bc7:	41 0f 9f c4          	setg   %r12b
+    df2bcb:	e8 10 38 dd ff       	call   bc63e0 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x27bb0>
+    df2bd0:	49 8b 45 18          	mov    0x18(%r13),%rax
+    df2bd4:	48 8d 15 85 7c 34 02 	lea    0x2347c85(%rip),%rdx        # 313a860 <typeinfo for QSGRectangleNode@@Base+0x123d8>
+    df2bdb:	44 89 e1             	mov    %r12d,%ecx
+    df2bde:	48 89 df             	mov    %rbx,%rdi
+    df2be1:	48 85 c0             	test   %rax,%rax
+    df2be4:	48 0f 44 c2          	cmove  %rdx,%rax
+    df2be8:	48 89 ea             	mov    %rbp,%rdx
+    df2beb:	48 8b 70 28          	mov    0x28(%rax),%rsi
+    df2bef:	e8 8c 5e bb 00       	call   19a8a80 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::compare(char const*) const@@Base+0x1831f0>
+    df2bf4:	48 83 c4 58          	add    $0x58,%rsp
+    df2bf8:	5b                   	pop    %rbx
+    df2bf9:	5d                   	pop    %rbp
+    df2bfa:	41 5c                	pop    %r12
+    df2bfc:	41 5d                	pop    %r13
+    df2bfe:	c3                   	ret
+    df2bff:	90                   	nop
+    df2c00:	4c 8b 69 08          	mov    0x8(%rcx),%r13
+    df2c04:	83 87 98 00 00 00 01 	addl   $0x1,0x98(%rdi)
+    df2c0b:	48 89 e5             	mov    %rsp,%rbp
+    df2c0e:	45 31 e4             	xor    %r12d,%r12d
+    df2c11:	e8 5a 8b ee ff       	call   cdb770 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x13cf40>
+    df2c16:	83 bb a0 00 00 00 07 	cmpl   $0x7,0xa0(%rbx)
+    df2c1d:	48 8d b3 90 00 00 00 	lea    0x90(%rbx),%rsi
+    df2c24:	48 89 ef             	mov    %rbp,%rdi
+    df2c27:	41 0f 9f c4          	setg   %r12b
+    df2c2b:	e8 40 38 dd ff       	call   bc6470 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x27c40>
+    df2c30:	eb 9e                	jmp    df2bd0 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x2543a0>
+    df2c32:	66 0f 1f 44 00 00    	nopw   0x0(%rax,%rax,1)
+    df2c38:	4c 8b 69 08          	mov    0x8(%rcx),%r13
+    df2c3c:	83 af 9c 00 00 00 01 	subl   $0x1,0x9c(%rdi)
+    df2c43:	48 89 e5             	mov    %rsp,%rbp
+    df2c46:	45 31 e4             	xor    %r12d,%r12d
+    df2c49:	e8 22 8b ee ff       	call   cdb770 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x13cf40>
+    df2c4e:	83 bb a0 00 00 00 07 	cmpl   $0x7,0xa0(%rbx)
+    df2c55:	48 8d b3 90 00 00 00 	lea    0x90(%rbx),%rsi
+    df2c5c:	48 89 ef             	mov    %rbp,%rdi
+    df2c5f:	41 0f 9f c4          	setg   %r12b
+    df2c63:	e8 98 38 dd ff       	call   bc6500 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x27cd0>
+    df2c68:	e9 63 ff ff ff       	jmp    df2bd0 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x2543a0>
+    df2c6d:	0f 1f 00             	nopl   (%rax)
+    df2c70:	4c 8b 69 08          	mov    0x8(%rcx),%r13
+    df2c74:	83 87 9c 00 00 00 01 	addl   $0x1,0x9c(%rdi)
+    df2c7b:	48 89 e5             	mov    %rsp,%rbp
+    df2c7e:	45 31 e4             	xor    %r12d,%r12d
+    df2c81:	e8 ea 8a ee ff       	call   cdb770 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x13cf40>
+    df2c86:	83 bb a0 00 00 00 07 	cmpl   $0x7,0xa0(%rbx)
+    df2c8d:	48 8d b3 90 00 00 00 	lea    0x90(%rbx),%rsi
+    df2c94:	48 89 ef             	mov    %rbp,%rdi
+    df2c97:	41 0f 9f c4          	setg   %r12b
+    df2c9b:	e8 f0 38 dd ff       	call   bc6590 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x27d60>
+    df2ca0:	e9 2b ff ff ff       	jmp    df2bd0 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x2543a0>
+    df2ca5:	0f 1f 00             	nopl   (%rax)
+    df2ca8:	48 8b 71 08          	mov    0x8(%rcx),%rsi
+    df2cac:	48 83 c4 58          	add    $0x58,%rsp
+    df2cb0:	5b                   	pop    %rbx
+    df2cb1:	5d                   	pop    %rbp
+    df2cb2:	41 5c                	pop    %r12
+    df2cb4:	41 5d                	pop    %r13
+    df2cb6:	e9 d5 8f ee ff       	jmp    cdbc90 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x13d460>
+    df2cbb:	0f 1f 44 00 00       	nopl   0x0(%rax,%rax,1)
+    df2cc0:	48 8b 71 08          	mov    0x8(%rcx),%rsi
+    df2cc4:	48 83 c4 58          	add    $0x58,%rsp
+    df2cc8:	5b                   	pop    %rbx
+    df2cc9:	5d                   	pop    %rbp
+    df2cca:	41 5c                	pop    %r12
+    df2ccc:	41 5d                	pop    %r13
+    df2cce:	e9 5d 91 ee ff       	jmp    cdbe30 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x13d600>
+    df2cd3:	0f 1f 44 00 00       	nopl   0x0(%rax,%rax,1)
+    df2cd8:	48 8b 71 08          	mov    0x8(%rcx),%rsi
+    df2cdc:	48 83 c4 58          	add    $0x58,%rsp
+    df2ce0:	5b                   	pop    %rbx
+    df2ce1:	5d                   	pop    %rbp
+    df2ce2:	41 5c                	pop    %r12
+    df2ce4:	41 5d                	pop    %r13
+    df2ce6:	e9 a5 04 ee ff       	jmp    cd3190 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x134960>
+    df2ceb:	0f 1f 44 00 00       	nopl   0x0(%rax,%rax,1)
+    df2cf0:	48 8b 71 08          	mov    0x8(%rcx),%rsi
+    df2cf4:	48 83 c4 58          	add    $0x58,%rsp
+    df2cf8:	5b                   	pop    %rbx
+    df2cf9:	5d                   	pop    %rbp
+    df2cfa:	41 5c                	pop    %r12
+    df2cfc:	41 5d                	pop    %r13
+    df2cfe:	e9 6d 9f ef ff       	jmp    cecc70 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x14e440>
+    df2d03:	0f 1f 44 00 00       	nopl   0x0(%rax,%rax,1)
+FIELDDATA_CASE_DISASSEMBLY
+  
+  /data/client-15.32.df7b29/bin/client:     file format elf64-x86-64
+  
+  
+  Disassembly of section .text:
+  
+  0000000000df2cd8 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x2544a8>:
+    df2cd8:	48 8b 71 08          	mov    0x8(%rcx),%rsi
+    df2cdc:	48 83 c4 58          	add    $0x58,%rsp
+    df2ce0:	5b                   	pop    %rbx
+    df2ce1:	5d                   	pop    %rbp
+    df2ce2:	41 5c                	pop    %r12
+    df2ce4:	41 5d                	pop    %r13
+    df2ce6:	e9 a5 04 ee ff       	jmp    cd3190 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x134960>
+    df2ceb:	0f 1f 44 00 00       	nopl   0x0(%rax,%rax,1)
+    df2cf0:	48 8b 71 08          	mov    0x8(%rcx),%rsi
+    df2cf4:	48 83 c4 58          	add    $0x58,%rsp
+    df2cf8:	5b                   	pop    %rbx
+    df2cf9:	5d                   	pop    %rbp
+    df2cfa:	41 5c                	pop    %r12
+    df2cfc:	41 5d                	pop    %r13
+    df2cfe:	e9 6d 9f ef ff       	jmp    cecc70 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x14e440>
+    df2d03:	0f 1f 44 00 00       	nopl   0x0(%rax,%rax,1)
+    df2d08:	48 8b 71 08          	mov    0x8(%rcx),%rsi
+    df2d0c:	48 83 c4 58          	add    $0x58,%rsp
+    df2d10:	5b                   	pop    %rbx
+    df2d11:	5d                   	pop    %rbp
+    df2d12:	41 5c                	pop    %r12
+    df2d14:	41 5d                	pop    %r13
+    df2d16:	e9 25 a2 ef ff       	jmp    cecf40 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x14e710>
+    df2d1b:	0f 1f 44 00 00       	nopl   0x0(%rax,%rax,1)
+    df2d20:	48 8b 71 08          	mov    0x8(%rcx),%rsi
+    df2d24:	48 83 c4 58          	add    $0x58,%rsp
+    df2d28:	5b                   	pop    %rbx
+    df2d29:	5d                   	pop    %rbp
+    df2d2a:	41 5c                	pop    %r12
+    df2d2c:	41 5d                	pop    %r13
+    df2d2e:	e9 ed 20 ee ff       	jmp    cd4e20 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x1365f0>
+    df2d33:	0f 1f 44 00 00       	nopl   0x0(%rax,%rax,1)
+    df2d38:	48 8b 71 08          	mov    0x8(%rcx),%rsi
+    df2d3c:	48 83 c4 58          	add    $0x58,%rsp
+    df2d40:	5b                   	pop    %rbx
+    df2d41:	5d                   	pop    %rbp
+    df2d42:	41 5c                	pop    %r12
+    df2d44:	41 5d                	pop    %r13
+    df2d46:	e9 75 05 ee ff       	jmp    cd32c0 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x134a90>
+    df2d4b:	0f 1f 44 00 00       	nopl   0x0(%rax,%rax,1)
+    df2d50:	f3 0f 5c 05 c4 6a b6 	subss  0x1b66ac4(%rip),%xmm0        # 295981c <std::__detail::__to_chars_10_impl<unsigned int>(char*, unsigned int, unsigned int)::__digits@@Base+0x8b80bc>
+    df2d57:	01 
+    df2d58:	f3 48 0f 2c d0       	cvttss2si %xmm0,%rdx
+    df2d5d:	48 0f ba fa 3f       	btc    $0x3f,%rdx
+    df2d62:	e9 c9 fd ff ff       	jmp    df2b30 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x254300>
+    df2d67:	48 83 c4 58          	add    $0x58,%rsp
+    df2d6b:	5b                   	pop    %rbx
+    df2d6c:	5d                   	pop    %rbp
+    df2d6d:	41 5c                	pop    %r12
+    df2d6f:	41 5d                	pop    %r13
+    df2d71:	ff e0                	jmp    *%rax
+    df2d73:	90                   	nop
+    df2d74:	66 66 2e 0f 1f 84 00 	data16 cs nopw 0x0(%rax,%rax,1)
+    df2d7b:	00 00 00 00 
+    df2d7f:	90                   	nop
+    df2d80:	85 f6                	test   %esi,%esi
+    df2d82:	75 1c                	jne    df2da0 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x254570>
+    df2d84:	85 d2                	test   %edx,%edx
+    df2d86:	74 28                	je     df2db0 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x254580>
+    df2d88:	83 fa 01             	cmp    $0x1,%edx
+    df2d8b:	75 1b                	jne    df2da8 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x254578>
+    df2d8d:	48 8b 07             	mov    (%rdi),%rax
+    df2d90:	48 8b 71 08          	mov    0x8(%rcx),%rsi
+    df2d94:	ff 60 60             	jmp    *0x60(%rax)
+    df2d97:	66 0f 1f 84 00 00 00 	nopw   0x0(%rax,%rax,1)
+    df2d9e:	00 00 
+    df2da0:	c3                   	ret
+    df2da1:	0f 1f 80 00 00 00 00 	nopl   0x0(%rax)
+    df2da8:	c3                   	ret
+    df2da9:	0f 1f 80 00 00 00 00 	nopl   0x0(%rax)
+    df2db0:	e9 0b 6c ee ff       	jmp    cd99c0 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x13b190>
+    df2db5:	66 66 2e 0f 1f 84 00 	data16 cs nopw 0x0(%rax,%rax,1)
+    df2dbc:	00 00 00 00 
+    df2dc0:	53                   	push   %rbx
+    df2dc1:	48 8b 42 08          	mov    0x8(%rdx),%rax
+    df2dc5:	48 89 f3             	mov    %rsi,%rbx
+    df2dc8:	31 c9                	xor    %ecx,%ecx
+    df2dca:	48 8b 32             	mov    (%rdx),%rsi
+    df2dcd:	48 89 df             	mov    %rbx,%rdi
+    df2dd0:	48 89 c2             	mov    %rax,%rdx
+    df2dd3:	e8 e8 a0 6e ff       	call   4dcec0 <QDebug::putByteArray(char const*, unsigned long, QDebug::Latin1Content)@plt>
+    df2dd8:	48 8b 3b             	mov    (%rbx),%rdi
+    df2ddb:	80 7f 30 00          	cmpb   $0x0,0x30(%rdi)
+    df2ddf:	75 07                	jne    df2de8 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x2545b8>
+    df2de1:	5b                   	pop    %rbx
+    df2de2:	c3                   	ret
+    df2de3:	0f 1f 44 00 00       	nopl   0x0(%rax,%rax,1)
+    df2de8:	be 20 00 00 00       	mov    $0x20,%esi
+    df2ded:	5b                   	pop    %rbx
+    df2dee:	e9 bd 75 6e ff       	jmp    4da3b0 <QTextStream::operator<<(char)@plt>
+    df2df3:	66 66 2e 0f 1f 84 00 	data16 cs nopw 0x0(%rax,%rax,1)
+    df2dfa:	00 00 00 00 
+    df2dfe:	66 90                	xchg   %ax,%ax
+    df2e00:	53                   	push   %rbx
+    df2e01:	66 0f ef c0          	pxor   %xmm0,%xmm0
+    df2e05:	66 0f ef c9          	pxor   %xmm1,%xmm1
+    df2e09:	48 89 d3             	mov    %rdx,%rbx
+    df2e0c:	48 83 ec 10          	sub    $0x10,%rsp
+    df2e10:	8b 06                	mov    (%rsi),%eax
+    df2e12:	f3 48 0f 2a c0       	cvtsi2ss %rax,%xmm0
+    df2e17:	8b 46 04             	mov    0x4(%rsi),%eax
+    df2e1a:	f3 48 0f 2a c8       	cvtsi2ss %rax,%xmm1
+    df2e1f:	f3 0f 5e c1          	divss  %xmm1,%xmm0
+    df2e23:	66 0f ef c9          	pxor   %xmm1,%xmm1
+    df2e27:	f3 0f 5a c0          	cvtss2sd %xmm0,%xmm0
+    df2e2b:	e8 70 bb 6e ff       	call   4de9a0 <fmax@plt>
+    df2e30:	48 8b 05 79 d9 b3 01 	mov    0x1b3d979(%rip),%rax        # 29307b0 <std::__detail::__to_chars_10_impl<unsigned int>(char*, unsigned int, unsigned int)::__digits@@Base+0x88f050>
+    df2e37:	66 48 0f 6e c8       	movq   %rax,%xmm1
+    df2e3c:	e8 6f 81 6e ff       	call   4dafb0 <fmin@plt>
+    df2e41:	8b 03                	mov    (%rbx),%eax
+    df2e43:	66 0f ef c9          	pxor   %xmm1,%xmm1
+    df2e47:	f2 0f 11 44 24 08    	movsd  %xmm0,0x8(%rsp)
+    df2e4d:	66 0f ef c0          	pxor   %xmm0,%xmm0
+    df2e51:	f3 48 0f 2a c0       	cvtsi2ss %rax,%xmm0
+    df2e56:	8b                   	.byte 0x8b
+    df2e57:	43                   	rex.XB
+FULLMAP_DIRECT_BRANCH_TARGETS=0xcec8d0,0xcdb770,0xbc63e0,0x19a8a80,0xbc6470,0xdf2bd0,0xbc6500,0xbc6590,0xcdbc90,0xcdbe30,0xcd3190,0xcecc70
+FULLMAP_BRANCH_TARGET 0xcec8d0
+  
+  /data/client-15.32.df7b29/bin/client:     file format elf64-x86-64
+  
+  
+  Disassembly of section .text:
+  
+  0000000000cec8d0 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x14e0a0>:
+    cec8d0:	41 57                	push   %r15
+    cec8d2:	48 8d 15 47 df 44 02 	lea    0x244df47(%rip),%rdx        # 313a820 <typeinfo for QSGRectangleNode@@Base+0x12398>
+    cec8d9:	4c 8d bf 90 00 00 00 	lea    0x90(%rdi),%r15
+    cec8e0:	41 56                	push   %r14
+    cec8e2:	41 55                	push   %r13
+    cec8e4:	49 89 f5             	mov    %rsi,%r13
+    cec8e7:	41 54                	push   %r12
+    cec8e9:	55                   	push   %rbp
+    cec8ea:	48 89 fd             	mov    %rdi,%rbp
+    cec8ed:	53                   	push   %rbx
+    cec8ee:	48 81 ec 98 00 00 00 	sub    $0x98,%rsp
+    cec8f5:	48 8b 46 20          	mov    0x20(%rsi),%rax
+    cec8f9:	4c 8d 74 24 40       	lea    0x40(%rsp),%r14
+    cec8fe:	48 85 c0             	test   %rax,%rax
+    cec901:	48 0f 44 c2          	cmove  %rdx,%rax
+    cec905:	8b 50 1c             	mov    0x1c(%rax),%edx
+    cec908:	8b 48 18             	mov    0x18(%rax),%ecx
+    cec90b:	8b 70 20             	mov    0x20(%rax),%esi
+    cec90e:	48 8b 40 18          	mov    0x18(%rax),%rax
+    cec912:	89 b7 a0 00 00 00    	mov    %esi,0xa0(%rdi)
+    cec918:	48 89 87 98 00 00 00 	mov    %rax,0x98(%rdi)
+    cec91f:	48 8b 7f 70          	mov    0x70(%rdi),%rdi
+    cec923:	48 8b 07             	mov    (%rdi),%rax
+    cec926:	4c 8b 40 60          	mov    0x60(%rax),%r8
+    cec92a:	89 c8                	mov    %ecx,%eax
+    cec92c:	89 74 24 50          	mov    %esi,0x50(%rsp)
+    cec930:	4c 89 f6             	mov    %r14,%rsi
+    cec933:	c1 e0 05             	shl    $0x5,%eax
+    cec936:	89 44 24 48          	mov    %eax,0x48(%rsp)
+    cec93a:	89 d0                	mov    %edx,%eax
+    cec93c:	c1 e0 05             	shl    $0x5,%eax
+    cec93f:	89 44 24 4c          	mov    %eax,0x4c(%rsp)
+    cec943:	48 8d 05 2e c9 27 02 	lea    0x227c92e(%rip),%rax        # 2f69278 <std::__detail::__to_chars_10_impl<unsigned int>(char*, unsigned int, unsigned int)::__digits@@Base+0xec7b18>
+    cec94a:	48 89 44 24 40       	mov    %rax,0x40(%rsp)
+    cec94f:	41 ff d0             	call   *%r8
+    cec952:	48 89 ef             	mov    %rbp,%rdi
+    cec955:	e8 16 ee fe ff       	call   cdb770 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x13cf40>
+    cec95a:	48 8b 7d 30          	mov    0x30(%rbp),%rdi
+    cec95e:	48 8d 15 1b 53 18 00 	lea    0x18531b(%rip),%rdx        # e71c80 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x2d3450>
+    cec965:	48 8b 07             	mov    (%rdi),%rax
+    cec968:	48 8b 80 e0 00 00 00 	mov    0xe0(%rax),%rax
+    cec96f:	48 39 d0             	cmp    %rdx,%rax
+    cec972:	0f 85 c8 00 00 00    	jne    ceca40 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x14e210>
+    cec978:	48 8b 47 28          	mov    0x28(%rdi),%rax
+    cec97c:	48 8d 5f 18          	lea    0x18(%rdi),%rbx
+    cec980:	4c 8d 25 69 36 18 00 	lea    0x183669(%rip),%r12        # e6fff0 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x2d17c0>
+    cec987:	48 39 d8             	cmp    %rbx,%rax
+    cec98a:	74 2b                	je     cec9b7 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x14e187>
+    cec98c:	0f 1f 40 00          	nopl   0x0(%rax)
+FULLMAP_BRANCH_TARGET 0xcdb770
+  
+  /data/client-15.32.df7b29/bin/client:     file format elf64-x86-64
+  
+  
+  Disassembly of section .text:
+  
+  0000000000cdb770 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x13cf40>:
+    cdb770:	41 57                	push   %r15
+    cdb772:	48 8d b7 90 00 00 00 	lea    0x90(%rdi),%rsi
+    cdb779:	41 56                	push   %r14
+    cdb77b:	41 55                	push   %r13
+    cdb77d:	41 54                	push   %r12
+    cdb77f:	49 89 fc             	mov    %rdi,%r12
+    cdb782:	55                   	push   %rbp
+    cdb783:	53                   	push   %rbx
+    cdb784:	48 81 ec e8 00 00 00 	sub    $0xe8,%rsp
+    cdb78b:	4c 8d b4 24 90 00 00 	lea    0x90(%rsp),%r14
+    cdb792:	00 
+    cdb793:	4c 89 f7             	mov    %r14,%rdi
+    cdb796:	e8 b5 ab ee ff       	call   bc6350 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x27b20>
+    cdb79b:	49 8b 7c 24 10       	mov    0x10(%r12),%rdi
+    cdb7a0:	ba 01 00 00 00       	mov    $0x1,%edx
+    cdb7a5:	4c 89 f6             	mov    %r14,%rsi
+    cdb7a8:	48 8b 07             	mov    (%rdi),%rax
+    cdb7ab:	ff 50 60             	call   *0x60(%rax)
+    cdb7ae:	49 8b 7c 24 40       	mov    0x40(%r12),%rdi
+    cdb7b3:	4c 89 f6             	mov    %r14,%rsi
+    cdb7b6:	48 8b 07             	mov    (%rdi),%rax
+    cdb7b9:	ff 90 e8 00 00 00    	call   *0xe8(%rax)
+    cdb7bf:	49 8b bc 24 d8 00 00 	mov    0xd8(%r12),%rdi
+    cdb7c6:	00 
+    cdb7c7:	48 85 ff             	test   %rdi,%rdi
+    cdb7ca:	74 29                	je     cdb7f5 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x13cfc5>
+    cdb7cc:	48 8b 07             	mov    (%rdi),%rax
+    cdb7cf:	41 8b 94 24 a0 00 00 	mov    0xa0(%r12),%edx
+    cdb7d6:	00 
+    cdb7d7:	4c 89 f6             	mov    %r14,%rsi
+    cdb7da:	48 8b 40 68          	mov    0x68(%rax),%rax
+    cdb7de:	89 94 24 90 00 00 00 	mov    %edx,0x90(%rsp)
+    cdb7e5:	ff d0                	call   *%rax
+    cdb7e7:	49 8b bc 24 d8 00 00 	mov    0xd8(%r12),%rdi
+    cdb7ee:	00 
+    cdb7ef:	48 8b 07             	mov    (%rdi),%rax
+    cdb7f2:	ff 50 70             	call   *0x70(%rax)
+    cdb7f5:	4c 8d 7c 24 30       	lea    0x30(%rsp),%r15
+    cdb7fa:	41 8b ac 24 98 00 00 	mov    0x98(%r12),%ebp
+    cdb801:	00 
+    cdb802:	41 8b 9c 24 9c 00 00 	mov    0x9c(%r12),%ebx
+    cdb809:	00 
+    cdb80a:	45 8b a4 24 a0 00 00 	mov    0xa0(%r12),%r12d
+    cdb811:	00 
+    cdb812:	e8 59 fe ff ff       	call   cdb670 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x13ce40>
+    cdb817:	4c 89 ff             	mov    %r15,%rdi
+    cdb81a:	be 0a 00 00 00       	mov    $0xa,%esi
+    cdb81f:	48 8d 15 54 06 09 01 	lea    0x1090654(%rip),%rdx        # 1d6be7a <typeinfo name for QMetaType::registerConverter<QList<QObject*>, QIterable<QMetaSequence>, QtPrivate::QSequentialIterableConvertFunctor<QList<QObject*> > >(QtPrivate::QSequentialIterableConvertFunctor<QList<QObject*> >)::{lambda(void const*, void*)#1}@@Base+0x828ba>
+    cdb826:	4c 89 7c 24 08       	mov    %r15,0x8(%rsp)
+    cdb82b:	49 89 c5             	mov    %rax,%r13
+    cdb82e:	e8                   	.byte 0xe8
+    cdb82f:	dd                   	.byte 0xdd
+FULLMAP_BRANCH_TARGET 0xbc63e0
+  
+  /data/client-15.32.df7b29/bin/client:     file format elf64-x86-64
+  
+  
+  Disassembly of section .text:
+  
+  0000000000bc63e0 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x27bb0>:
+    bc63e0:	48 83 ec 58          	sub    $0x58,%rsp
+    bc63e4:	49 89 f9             	mov    %rdi,%r9
+    bc63e7:	48 89 e7             	mov    %rsp,%rdi
+    bc63ea:	e8 61 ff ff ff       	call   bc6350 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x27b20>
+    bc63ef:	8b 4c 24 3c          	mov    0x3c(%rsp),%ecx
+    bc63f3:	8b 44 24 10          	mov    0x10(%rsp),%eax
+    bc63f7:	bf 01 00 00 00       	mov    $0x1,%edi
+    bc63fc:	8b 54 24 40          	mov    0x40(%rsp),%edx
+    bc6400:	f3 0f 7e 4c 24 08    	movq   0x8(%rsp),%xmm1
+    bc6406:	66 0f 6e c7          	movd   %edi,%xmm0
+    bc640a:	48 8d 35 8f b1 39 02 	lea    0x239b18f(%rip),%rsi        # 2f615a0 <std::__detail::__to_chars_10_impl<unsigned int>(char*, unsigned int, unsigned int)::__digits@@Base+0xebfe40>
+    bc6411:	66 0f 6e d1          	movd   %ecx,%xmm2
+    bc6415:	41 89 41 10          	mov    %eax,0x10(%r9)
+    bc6419:	66 0f 62 c2          	punpckldq %xmm2,%xmm0
+    bc641d:	01 d0                	add    %edx,%eax
+    bc641f:	49 89 31             	mov    %rsi,(%r9)
+    bc6422:	41 89 41 28          	mov    %eax,0x28(%r9)
+    bc6426:	66 0f fe c1          	paddd  %xmm1,%xmm0
+    bc642a:	48 8d 05 47 b1 39 02 	lea    0x239b147(%rip),%rax        # 2f61578 <std::__detail::__to_chars_10_impl<unsigned int>(char*, unsigned int, unsigned int)::__digits@@Base+0xebfe18>
+    bc6431:	49 89 41 30          	mov    %rax,0x30(%r9)
+    bc6435:	8b 44 24 48          	mov    0x48(%rsp),%eax
+    bc6439:	49 89 71 18          	mov    %rsi,0x18(%r9)
+    bc643d:	41 89 41 48          	mov    %eax,0x48(%r9)
+    bc6441:	4c 89 c8             	mov    %r9,%rax
+    bc6444:	41 c7 41 38 01 00 00 	movl   $0x1,0x38(%r9)
+    bc644b:	00 
+    bc644c:	41 89 49 3c          	mov    %ecx,0x3c(%r9)
+    bc6450:	41 89 51 40          	mov    %edx,0x40(%r9)
+    bc6454:	66 41 0f d6 49 08    	movq   %xmm1,0x8(%r9)
+    bc645a:	66 41 0f d6 41 20    	movq   %xmm0,0x20(%r9)
+    bc6460:	48 83 c4 58          	add    $0x58,%rsp
+    bc6464:	c3                   	ret
+    bc6465:	90                   	nop
+    bc6466:	66 2e 0f 1f 84 00 00 	cs nopw 0x0(%rax,%rax,1)
+    bc646d:	00 00 00 
+    bc6470:	48 83 ec 58          	sub    $0x58,%rsp
+    bc6474:	49 89 f9             	mov    %rdi,%r9
+    bc6477:	48 89 e7             	mov    %rsp,%rdi
+    bc647a:	e8 d1 fe ff ff       	call   bc6350 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x27b20>
+    bc647f:	8b 44 24 10          	mov    0x10(%rsp),%eax
+    bc6483:	8b 4c 24 40          	mov    0x40(%rsp),%ecx
+    bc6487:	41 c7 41 38 01 00 00 	movl   $0x1,0x38(%r9)
+    bc648e:	00 
+    bc648f:	8b 54 24 38          	mov    0x38(%rsp),%edx
+    bc6493:	03 54 24 08          	add    0x8(%rsp),%edx
+    bc6497:	41 89 41 10          	mov    %eax,0x10(%r9)
+    bc649b:	01 c8                	add    %ecx,%eax
+    bc649d:	8b                   	.byte 0x8b
+    bc649e:	74 24                	je     bc64c4 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x27c94>
+FULLMAP_BRANCH_TARGET 0x19a8a80
+  
+  /data/client-15.32.df7b29/bin/client:     file format elf64-x86-64
+  
+  
+  Disassembly of section .text:
+  
+  00000000019a8a80 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::compare(char const*) const@@Base+0x1831f0>:
+   19a8a80:	41 57                	push   %r15
+   19a8a82:	48 8d 05 37 1d 79 01 	lea    0x1791d37(%rip),%rax        # 313a7c0 <typeinfo for QSGRectangleNode@@Base+0x12338>
+   19a8a89:	41 56                	push   %r14
+   19a8a8b:	41 55                	push   %r13
+   19a8a8d:	41 54                	push   %r12
+   19a8a8f:	55                   	push   %rbp
+   19a8a90:	53                   	push   %rbx
+   19a8a91:	48 8d 1d e8 d2 7c 01 	lea    0x17cd2e8(%rip),%rbx        # 3175d80 <typeinfo for QSGRectangleNode@@Base+0x4d8f8>
+   19a8a98:	48 81 ec 88 01 00 00 	sub    $0x188,%rsp
+   19a8a9f:	48 85 f6             	test   %rsi,%rsi
+   19a8aa2:	48 0f 44 f0          	cmove  %rax,%rsi
+   19a8aa6:	48 89 7c 24 08       	mov    %rdi,0x8(%rsp)
+   19a8aab:	48 89 54 24 48       	mov    %rdx,0x48(%rsp)
+   19a8ab0:	83 7e 1c 01          	cmpl   $0x1,0x1c(%rsi)
+   19a8ab4:	88 4c 24 57          	mov    %cl,0x57(%rsp)
+   19a8ab8:	75 04                	jne    19a8abe <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::compare(char const*) const@@Base+0x18322e>
+   19a8aba:	48 8b 5e 10          	mov    0x10(%rsi),%rbx
+   19a8abe:	48 c7 84 24 e8 00 00 	movq   $0x0,0xe8(%rsp)
+   19a8ac5:	00 00 00 00 00 
+   19a8aca:	48 8d 05 f7 34 70 01 	lea    0x17034f7(%rip),%rax        # 30abfc8 <QMetaSequence::MetaSequence<QList<QObject*> >::value@@Base+0x1bfe8>
+   19a8ad1:	48 c7 84 24 d8 00 00 	movq   $0x0,0xd8(%rsp)
+   19a8ad8:	00 00 00 00 00 
+   19a8add:	8b 73 18             	mov    0x18(%rbx),%esi
+   19a8ae0:	48 c7 84 24 c8 00 00 	movq   $0x0,0xc8(%rsp)
+   19a8ae7:	00 00 00 00 00 
+   19a8aec:	48 89 84 24 c0 00 00 	mov    %rax,0xc0(%rsp)
+   19a8af3:	00 
+   19a8af4:	48 c7 84 24 d0 00 00 	movq   $0x0,0xd0(%rsp)
+   19a8afb:	00 00 00 00 00 
+   19a8b00:	48 c7 84 24 e0 00 00 	movq   $0x0,0xe0(%rsp)
+   19a8b07:	00 00 00 00 00 
+   19a8b0c:	85 f6                	test   %esi,%esi
+   19a8b0e:	74 1b                	je     19a8b2b <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::compare(char const*) const@@Base+0x18329b>
+   19a8b10:	48 8b 53 20          	mov    0x20(%rbx),%rdx
+   19a8b14:	48 8d bc 24 d0 00 00 	lea    0xd0(%rsp),%rdi
+   19a8b1b:	00 
+   19a8b1c:	48 8d 0d cd 2d e7 ff 	lea    -0x18d233(%rip),%rcx        # 181b8f0 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0xc7d0c0>
+   19a8b23:	45 31 c0             	xor    %r8d,%r8d
+   19a8b26:	e8 35 ae fd ff       	call   1983960 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::compare(char const*) const@@Base+0x15e0d0>
+   19a8b2b:	48 8b 43 08          	mov    0x8(%rbx),%rax
+   19a8b2f:	a8 01                	test   $0x1,%al
+   19a8b31:	74 1e                	je     19a8b51 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::compare(char const*) const@@Base+0x1832c1>
+   19a8b33:	48 89 c2             	mov    %rax,%rdx
+   19a8b36:	83 e2 01             	and    $0x1,%edx
+   19a8b39:	0f 85 20 0b 00 00    	jne    19a965f <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::compare(char const*) const@@Base+0x183dcf>
+   19a8b3f:	ff                   	.byte 0xff
+FULLMAP_BRANCH_TARGET 0xbc6470
+  
+  /data/client-15.32.df7b29/bin/client:     file format elf64-x86-64
+  
+  
+  Disassembly of section .text:
+  
+  0000000000bc6470 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x27c40>:
+    bc6470:	48 83 ec 58          	sub    $0x58,%rsp
+    bc6474:	49 89 f9             	mov    %rdi,%r9
+    bc6477:	48 89 e7             	mov    %rsp,%rdi
+    bc647a:	e8 d1 fe ff ff       	call   bc6350 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x27b20>
+    bc647f:	8b 44 24 10          	mov    0x10(%rsp),%eax
+    bc6483:	8b 4c 24 40          	mov    0x40(%rsp),%ecx
+    bc6487:	41 c7 41 38 01 00 00 	movl   $0x1,0x38(%r9)
+    bc648e:	00 
+    bc648f:	8b 54 24 38          	mov    0x38(%rsp),%edx
+    bc6493:	03 54 24 08          	add    0x8(%rsp),%edx
+    bc6497:	41 89 41 10          	mov    %eax,0x10(%r9)
+    bc649b:	01 c8                	add    %ecx,%eax
+    bc649d:	8b 74 24 3c          	mov    0x3c(%rsp),%esi
+    bc64a1:	8d 7a ff             	lea    -0x1(%rdx),%edi
+    bc64a4:	41 89 51 20          	mov    %edx,0x20(%r9)
+    bc64a8:	66 0f 6e 4c 24 0c    	movd   0xc(%rsp),%xmm1
+    bc64ae:	66 0f 6e c7          	movd   %edi,%xmm0
+    bc64b2:	48 8d 3d e7 b0 39 02 	lea    0x239b0e7(%rip),%rdi        # 2f615a0 <std::__detail::__to_chars_10_impl<unsigned int>(char*, unsigned int, unsigned int)::__digits@@Base+0xebfe40>
+    bc64b9:	41 89 41 28          	mov    %eax,0x28(%r9)
+    bc64bd:	8b 54 24 0c          	mov    0xc(%rsp),%edx
+    bc64c1:	48 8d 05 b0 b0 39 02 	lea    0x239b0b0(%rip),%rax        # 2f61578 <std::__detail::__to_chars_10_impl<unsigned int>(char*, unsigned int, unsigned int)::__digits@@Base+0xebfe18>
+    bc64c8:	49 89 41 30          	mov    %rax,0x30(%r9)
+    bc64cc:	8b 44 24 48          	mov    0x48(%rsp),%eax
+    bc64d0:	66 0f 62 c1          	punpckldq %xmm1,%xmm0
+    bc64d4:	01 f2                	add    %esi,%edx
+    bc64d6:	49 89 39             	mov    %rdi,(%r9)
+    bc64d9:	41 89 41 48          	mov    %eax,0x48(%r9)
+    bc64dd:	4c 89 c8             	mov    %r9,%rax
+    bc64e0:	41 89 51 24          	mov    %edx,0x24(%r9)
+    bc64e4:	49 89 79 18          	mov    %rdi,0x18(%r9)
+    bc64e8:	41 89 71 3c          	mov    %esi,0x3c(%r9)
+    bc64ec:	41 89 49 40          	mov    %ecx,0x40(%r9)
+    bc64f0:	66 41 0f d6 41 08    	movq   %xmm0,0x8(%r9)
+    bc64f6:	48 83 c4 58          	add    $0x58,%rsp
+    bc64fa:	c3                   	ret
+    bc64fb:	90                   	nop
+    bc64fc:	0f 1f 40 00          	nopl   0x0(%rax)
+    bc6500:	48 83 ec 58          	sub    $0x58,%rsp
+    bc6504:	49 89 f9             	mov    %rdi,%r9
+    bc6507:	48 89 e7             	mov    %rsp,%rdi
+    bc650a:	e8 41 fe ff ff       	call   bc6350 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x27b20>
+    bc650f:	8b 4c 24 38          	mov    0x38(%rsp),%ecx
+    bc6513:	8b 44 24 10          	mov    0x10(%rsp),%eax
+    bc6517:	bf 01 00 00 00       	mov    $0x1,%edi
+    bc651c:	8b 54 24 40          	mov    0x40(%rsp),%edx
+    bc6520:	f3 0f 7e 4c 24 08    	movq   0x8(%rsp),%xmm1
+    bc6526:	66 0f 6e d7          	movd   %edi,%xmm2
+    bc652a:	48                   	rex.W
+    bc652b:	8d                   	.byte 0x8d
+    bc652c:	35                   	.byte 0x35
+    bc652d:	6f                   	outsl  %ds:(%rsi),(%dx)
+    bc652e:	b0 39                	mov    $0x39,%al
+FULLMAP_BRANCH_TARGET 0xdf2bd0
+  
+  /data/client-15.32.df7b29/bin/client:     file format elf64-x86-64
+  
+  
+  Disassembly of section .text:
+  
+  0000000000df2bd0 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x2543a0>:
+    df2bd0:	49 8b 45 18          	mov    0x18(%r13),%rax
+    df2bd4:	48 8d 15 85 7c 34 02 	lea    0x2347c85(%rip),%rdx        # 313a860 <typeinfo for QSGRectangleNode@@Base+0x123d8>
+    df2bdb:	44 89 e1             	mov    %r12d,%ecx
+    df2bde:	48 89 df             	mov    %rbx,%rdi
+    df2be1:	48 85 c0             	test   %rax,%rax
+    df2be4:	48 0f 44 c2          	cmove  %rdx,%rax
+    df2be8:	48 89 ea             	mov    %rbp,%rdx
+    df2beb:	48 8b 70 28          	mov    0x28(%rax),%rsi
+    df2bef:	e8 8c 5e bb 00       	call   19a8a80 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::compare(char const*) const@@Base+0x1831f0>
+    df2bf4:	48 83 c4 58          	add    $0x58,%rsp
+    df2bf8:	5b                   	pop    %rbx
+    df2bf9:	5d                   	pop    %rbp
+    df2bfa:	41 5c                	pop    %r12
+    df2bfc:	41 5d                	pop    %r13
+    df2bfe:	c3                   	ret
+    df2bff:	90                   	nop
+    df2c00:	4c 8b 69 08          	mov    0x8(%rcx),%r13
+    df2c04:	83 87 98 00 00 00 01 	addl   $0x1,0x98(%rdi)
+    df2c0b:	48 89 e5             	mov    %rsp,%rbp
+    df2c0e:	45 31 e4             	xor    %r12d,%r12d
+    df2c11:	e8 5a 8b ee ff       	call   cdb770 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x13cf40>
+    df2c16:	83 bb a0 00 00 00 07 	cmpl   $0x7,0xa0(%rbx)
+    df2c1d:	48 8d b3 90 00 00 00 	lea    0x90(%rbx),%rsi
+    df2c24:	48 89 ef             	mov    %rbp,%rdi
+    df2c27:	41 0f 9f c4          	setg   %r12b
+    df2c2b:	e8 40 38 dd ff       	call   bc6470 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x27c40>
+    df2c30:	eb 9e                	jmp    df2bd0 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x2543a0>
+    df2c32:	66 0f 1f 44 00 00    	nopw   0x0(%rax,%rax,1)
+    df2c38:	4c 8b 69 08          	mov    0x8(%rcx),%r13
+    df2c3c:	83 af 9c 00 00 00 01 	subl   $0x1,0x9c(%rdi)
+    df2c43:	48 89 e5             	mov    %rsp,%rbp
+    df2c46:	45 31 e4             	xor    %r12d,%r12d
+    df2c49:	e8 22 8b ee ff       	call   cdb770 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x13cf40>
+    df2c4e:	83 bb a0 00 00 00 07 	cmpl   $0x7,0xa0(%rbx)
+    df2c55:	48 8d b3 90 00 00 00 	lea    0x90(%rbx),%rsi
+    df2c5c:	48 89 ef             	mov    %rbp,%rdi
+    df2c5f:	41 0f 9f c4          	setg   %r12b
+    df2c63:	e8 98 38 dd ff       	call   bc6500 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x27cd0>
+    df2c68:	e9 63 ff ff ff       	jmp    df2bd0 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x2543a0>
+    df2c6d:	0f 1f 00             	nopl   (%rax)
+    df2c70:	4c 8b 69 08          	mov    0x8(%rcx),%r13
+    df2c74:	83 87 9c 00 00 00 01 	addl   $0x1,0x9c(%rdi)
+    df2c7b:	48 89 e5             	mov    %rsp,%rbp
+    df2c7e:	45 31 e4             	xor    %r12d,%r12d
+    df2c81:	e8 ea 8a ee ff       	call   cdb770 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x13cf40>
+    df2c86:	83 bb a0 00 00 00 07 	cmpl   $0x7,0xa0(%rbx)
+    df2c8d:	48                   	rex.W
+    df2c8e:	8d                   	.byte 0x8d
+    df2c8f:	b3                   	.byte 0xb3
+FULLMAP_BRANCH_TARGET 0xbc6500
+  
+  /data/client-15.32.df7b29/bin/client:     file format elf64-x86-64
+  
+  
+  Disassembly of section .text:
+  
+  0000000000bc6500 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x27cd0>:
+    bc6500:	48 83 ec 58          	sub    $0x58,%rsp
+    bc6504:	49 89 f9             	mov    %rdi,%r9
+    bc6507:	48 89 e7             	mov    %rsp,%rdi
+    bc650a:	e8 41 fe ff ff       	call   bc6350 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x27b20>
+    bc650f:	8b 4c 24 38          	mov    0x38(%rsp),%ecx
+    bc6513:	8b 44 24 10          	mov    0x10(%rsp),%eax
+    bc6517:	bf 01 00 00 00       	mov    $0x1,%edi
+    bc651c:	8b 54 24 40          	mov    0x40(%rsp),%edx
+    bc6520:	f3 0f 7e 4c 24 08    	movq   0x8(%rsp),%xmm1
+    bc6526:	66 0f 6e d7          	movd   %edi,%xmm2
+    bc652a:	48 8d 35 6f b0 39 02 	lea    0x239b06f(%rip),%rsi        # 2f615a0 <std::__detail::__to_chars_10_impl<unsigned int>(char*, unsigned int, unsigned int)::__digits@@Base+0xebfe40>
+    bc6531:	66 0f 6e c1          	movd   %ecx,%xmm0
+    bc6535:	41 89 41 10          	mov    %eax,0x10(%r9)
+    bc6539:	66 0f 62 c2          	punpckldq %xmm2,%xmm0
+    bc653d:	01 d0                	add    %edx,%eax
+    bc653f:	49 89 31             	mov    %rsi,(%r9)
+    bc6542:	41 89 41 28          	mov    %eax,0x28(%r9)
+    bc6546:	66 0f fe c1          	paddd  %xmm1,%xmm0
+    bc654a:	48 8d 05 27 b0 39 02 	lea    0x239b027(%rip),%rax        # 2f61578 <std::__detail::__to_chars_10_impl<unsigned int>(char*, unsigned int, unsigned int)::__digits@@Base+0xebfe18>
+    bc6551:	49 89 41 30          	mov    %rax,0x30(%r9)
+    bc6555:	8b 44 24 48          	mov    0x48(%rsp),%eax
+    bc6559:	49 89 71 18          	mov    %rsi,0x18(%r9)
+    bc655d:	41 89 41 48          	mov    %eax,0x48(%r9)
+    bc6561:	4c 89 c8             	mov    %r9,%rax
+    bc6564:	41 89 49 38          	mov    %ecx,0x38(%r9)
+    bc6568:	41 c7 41 3c 01 00 00 	movl   $0x1,0x3c(%r9)
+    bc656f:	00 
+    bc6570:	41 89 51 40          	mov    %edx,0x40(%r9)
+    bc6574:	66 41 0f d6 49 08    	movq   %xmm1,0x8(%r9)
+    bc657a:	66 41 0f d6 41 20    	movq   %xmm0,0x20(%r9)
+    bc6580:	48 83 c4 58          	add    $0x58,%rsp
+    bc6584:	c3                   	ret
+    bc6585:	90                   	nop
+    bc6586:	66 2e 0f 1f 84 00 00 	cs nopw 0x0(%rax,%rax,1)
+    bc658d:	00 00 00 
+    bc6590:	48 83 ec 58          	sub    $0x58,%rsp
+    bc6594:	49 89 f9             	mov    %rdi,%r9
+    bc6597:	48 89 e7             	mov    %rsp,%rdi
+    bc659a:	e8 b1 fd ff ff       	call   bc6350 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x27b20>
+    bc659f:	8b 44 24 10          	mov    0x10(%rsp),%eax
+    bc65a3:	8b 74 24 40          	mov    0x40(%rsp),%esi
+    bc65a7:	4c 8d 05 f2 af 39 02 	lea    0x239aff2(%rip),%r8        # 2f615a0 <std::__detail::__to_chars_10_impl<unsigned int>(char*, unsigned int, unsigned int)::__digits@@Base+0xebfe40>
+    bc65ae:	8b 54 24 3c          	mov    0x3c(%rsp),%edx
+    bc65b2:	03 54 24 0c          	add    0xc(%rsp),%edx
+    bc65b6:	4d 89 01             	mov    %r8,(%r9)
+    bc65b9:	41 89 41 10          	mov    %eax,0x10(%r9)
+    bc65bd:	8d 4a ff             	lea    -0x1(%rdx),%ecx
+FULLMAP_BRANCH_TARGET 0xbc6590
+  
+  /data/client-15.32.df7b29/bin/client:     file format elf64-x86-64
+  
+  
+  Disassembly of section .text:
+  
+  0000000000bc6590 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x27d60>:
+    bc6590:	48 83 ec 58          	sub    $0x58,%rsp
+    bc6594:	49 89 f9             	mov    %rdi,%r9
+    bc6597:	48 89 e7             	mov    %rsp,%rdi
+    bc659a:	e8 b1 fd ff ff       	call   bc6350 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x27b20>
+    bc659f:	8b 44 24 10          	mov    0x10(%rsp),%eax
+    bc65a3:	8b 74 24 40          	mov    0x40(%rsp),%esi
+    bc65a7:	4c 8d 05 f2 af 39 02 	lea    0x239aff2(%rip),%r8        # 2f615a0 <std::__detail::__to_chars_10_impl<unsigned int>(char*, unsigned int, unsigned int)::__digits@@Base+0xebfe40>
+    bc65ae:	8b 54 24 3c          	mov    0x3c(%rsp),%edx
+    bc65b2:	03 54 24 0c          	add    0xc(%rsp),%edx
+    bc65b6:	4d 89 01             	mov    %r8,(%r9)
+    bc65b9:	41 89 41 10          	mov    %eax,0x10(%r9)
+    bc65bd:	8d 4a ff             	lea    -0x1(%rdx),%ecx
+    bc65c0:	01 f0                	add    %esi,%eax
+    bc65c2:	8b 7c 24 38          	mov    0x38(%rsp),%edi
+    bc65c6:	41 89 41 28          	mov    %eax,0x28(%r9)
+    bc65ca:	66 0f 6e 44 24 08    	movd   0x8(%rsp),%xmm0
+    bc65d0:	66 0f 6e c9          	movd   %ecx,%xmm1
+    bc65d4:	48 8d 05 9d af 39 02 	lea    0x239af9d(%rip),%rax        # 2f61578 <std::__detail::__to_chars_10_impl<unsigned int>(char*, unsigned int, unsigned int)::__digits@@Base+0xebfe18>
+    bc65db:	8b 4c 24 08          	mov    0x8(%rsp),%ecx
+    bc65df:	49 89 41 30          	mov    %rax,0x30(%r9)
+    bc65e3:	8b 44 24 48          	mov    0x48(%rsp),%eax
+    bc65e7:	66 0f 62 c1          	punpckldq %xmm1,%xmm0
+    bc65eb:	41 89 51 24          	mov    %edx,0x24(%r9)
+    bc65ef:	01 f9                	add    %edi,%ecx
+    bc65f1:	4d 89 41 18          	mov    %r8,0x18(%r9)
+    bc65f5:	41 89 41 48          	mov    %eax,0x48(%r9)
+    bc65f9:	4c 89 c8             	mov    %r9,%rax
+    bc65fc:	41 89 49 20          	mov    %ecx,0x20(%r9)
+    bc6600:	41 89 79 38          	mov    %edi,0x38(%r9)
+    bc6604:	41 c7 41 3c 01 00 00 	movl   $0x1,0x3c(%r9)
+    bc660b:	00 
+    bc660c:	41 89 71 40          	mov    %esi,0x40(%r9)
+    bc6610:	66 41 0f d6 41 08    	movq   %xmm0,0x8(%r9)
+    bc6616:	48 83 c4 58          	add    $0x58,%rsp
+    bc661a:	c3                   	ret
+    bc661b:	90                   	nop
+    bc661c:	0f 1f 40 00          	nopl   0x0(%rax)
+    bc6620:	53                   	push   %rbx
+    bc6621:	48 8b 5f 10          	mov    0x10(%rdi),%rbx
+    bc6625:	48 8d 05 44 de 3a 02 	lea    0x23ade44(%rip),%rax        # 2f74470 <std::__detail::__to_chars_10_impl<unsigned int>(char*, unsigned int, unsigned int)::__digits@@Base+0xed2d10>
+    bc662c:	48 89 07             	mov    %rax,(%rdi)
+    bc662f:	48 85 db             	test   %rbx,%rbx
+    bc6632:	74 31                	je     bc6665 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x27e35>
+    bc6634:	48 8b 53 08          	mov    0x8(%rbx),%rdx
+    bc6638:	48 8d 4b 08          	lea    0x8(%rbx),%rcx
+    bc663c:	48 b8 01 00 00 00 01 	movabs $0x100000001,%rax
+    bc6643:	00 00 00 
+    bc6646:	48 39 c2             	cmp    %rax,%rdx
+    bc6649:	74 25                	je     bc6670 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x27e40>
+    bc664b:	48                   	rex.W
+    bc664c:	8b                   	.byte 0x8b
+    bc664d:	05                   	.byte 0x5
+    bc664e:	56                   	push   %rsi
+    bc664f:	94                   	xchg   %eax,%esp
+FULLMAP_BRANCH_TARGET 0xcdbc90
+  
+  /data/client-15.32.df7b29/bin/client:     file format elf64-x86-64
+  
+  
+  Disassembly of section .text:
+  
+  0000000000cdbc90 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x13d460>:
+    cdbc90:	41 56                	push   %r14
+    cdbc92:	45 31 f6             	xor    %r14d,%r14d
+    cdbc95:	41 55                	push   %r13
+    cdbc97:	41 54                	push   %r12
+    cdbc99:	55                   	push   %rbp
+    cdbc9a:	48 89 f5             	mov    %rsi,%rbp
+    cdbc9d:	53                   	push   %rbx
+    cdbc9e:	48 89 fb             	mov    %rdi,%rbx
+    cdbca1:	48 81 ec f0 00 00 00 	sub    $0xf0,%rsp
+    cdbca8:	83 af a0 00 00 00 01 	subl   $0x1,0xa0(%rdi)
+    cdbcaf:	f3 0f 7e 87 98 00 00 	movq   0x98(%rdi),%xmm0
+    cdbcb6:	00 
+    cdbcb7:	f3 0f 7e 0d e9 4a c5 	movq   0x1c54ae9(%rip),%xmm1        # 29307a8 <std::__detail::__to_chars_10_impl<unsigned int>(char*, unsigned int, unsigned int)::__digits@@Base+0x88f048>
+    cdbcbe:	01 
+    cdbcbf:	4c 8d 6c 24 50       	lea    0x50(%rsp),%r13
+    cdbcc4:	66 0f fe c1          	paddd  %xmm1,%xmm0
+    cdbcc8:	66 0f d6 87 98 00 00 	movq   %xmm0,0x98(%rdi)
+    cdbccf:	00 
+    cdbcd0:	e8 9b fa ff ff       	call   cdb770 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x13cf40>
+    cdbcd5:	44 8b a3 a0 00 00 00 	mov    0xa0(%rbx),%r12d
+    cdbcdc:	48 8d b3 90 00 00 00 	lea    0x90(%rbx),%rsi
+    cdbce3:	4c 89 ef             	mov    %r13,%rdi
+    cdbce6:	41 83 fc 07          	cmp    $0x7,%r12d
+    cdbcea:	41 0f 9f c6          	setg   %r14b
+    cdbcee:	e8 5d a6 ee ff       	call   bc6350 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x27b20>
+    cdbcf3:	8b 54 24 60          	mov    0x60(%rsp),%edx
+    cdbcf7:	41 83 fc 07          	cmp    $0x7,%r12d
+    cdbcfb:	0f 8f 1f 01 00 00    	jg     cdbe20 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x13d5f0>
+    cdbd01:	b9 05 00 00 00       	mov    $0x5,%ecx
+    cdbd06:	0f 85 b4 00 00 00    	jne    cdbdc0 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x13d590>
+    cdbd0c:	48 8d bc 24 a0 00 00 	lea    0xa0(%rsp),%rdi
+    cdbd13:	00 
+    cdbd14:	4c 89 ee             	mov    %r13,%rsi
+    cdbd17:	e8 c4 e9 ff ff       	call   cda6e0 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x13beb0>
+    cdbd1c:	48 8b 84 24 a8 00 00 	mov    0xa8(%rsp),%rax
+    cdbd23:	00 
+    cdbd24:	48 8b 94 24 c0 00 00 	mov    0xc0(%rsp),%rdx
+    cdbd2b:	00 
+    cdbd2c:	48 89 44 24 08       	mov    %rax,0x8(%rsp)
+    cdbd31:	8b 84 24 b0 00 00 00 	mov    0xb0(%rsp),%eax
+    cdbd38:	48 89 54 24 20       	mov    %rdx,0x20(%rsp)
+    cdbd3d:	8b 94 24 c8 00 00 00 	mov    0xc8(%rsp),%edx
+    cdbd44:	89 44 24 10          	mov    %eax,0x10(%rsp)
+    cdbd48:	48 8d 05 51 58 28 02 	lea    0x2285851(%rip),%rax        # 2f615a0 <std::__detail::__to_chars_10_impl<unsigned int>(char*, unsigned int, unsigned int)::__digits@@Base+0xebfe40>
+    cdbd4f:	48                   	rex.W
+FULLMAP_BRANCH_TARGET 0xcdbe30
+  
+  /data/client-15.32.df7b29/bin/client:     file format elf64-x86-64
+  
+  
+  Disassembly of section .text:
+  
+  0000000000cdbe30 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x13d600>:
+    cdbe30:	41 56                	push   %r14
+    cdbe32:	41 55                	push   %r13
+    cdbe34:	41 54                	push   %r12
+    cdbe36:	45 31 e4             	xor    %r12d,%r12d
+    cdbe39:	55                   	push   %rbp
+    cdbe3a:	48 89 f5             	mov    %rsi,%rbp
+    cdbe3d:	53                   	push   %rbx
+    cdbe3e:	48 89 fb             	mov    %rdi,%rbx
+    cdbe41:	48 81 ec f0 00 00 00 	sub    $0xf0,%rsp
+    cdbe48:	83 87 a0 00 00 00 01 	addl   $0x1,0xa0(%rdi)
+    cdbe4f:	f3 0f 7e 87 98 00 00 	movq   0x98(%rdi),%xmm0
+    cdbe56:	00 
+    cdbe57:	f3 0f 7e 0d d9 61 c6 	movq   0x1c661d9(%rip),%xmm1        # 2942038 <std::__detail::__to_chars_10_impl<unsigned int>(char*, unsigned int, unsigned int)::__digits@@Base+0x8a08d8>
+    cdbe5e:	01 
+    cdbe5f:	4c 8d 74 24 50       	lea    0x50(%rsp),%r14
+    cdbe64:	66 0f fe c1          	paddd  %xmm1,%xmm0
+    cdbe68:	66 0f d6 87 98 00 00 	movq   %xmm0,0x98(%rdi)
+    cdbe6f:	00 
+    cdbe70:	e8 fb f8 ff ff       	call   cdb770 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x13cf40>
+    cdbe75:	44 8b ab a0 00 00 00 	mov    0xa0(%rbx),%r13d
+    cdbe7c:	48 8d b3 90 00 00 00 	lea    0x90(%rbx),%rsi
+    cdbe83:	4c 89 f7             	mov    %r14,%rdi
+    cdbe86:	41 83 fd 07          	cmp    $0x7,%r13d
+    cdbe8a:	41 0f 9f c4          	setg   %r12b
+    cdbe8e:	e8 bd a4 ee ff       	call   bc6350 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x27b20>
+    cdbe93:	8b 54 24 78          	mov    0x78(%rsp),%edx
+    cdbe97:	8d 4a ff             	lea    -0x1(%rdx),%ecx
+    cdbe9a:	41 83 fd 08          	cmp    $0x8,%r13d
+    cdbe9e:	7e 10                	jle    cdbeb0 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x13d680>
+    cdbea0:	41 83 fd 0d          	cmp    $0xd,%r13d
+    cdbea4:	0f 8f c6 00 00 00    	jg     cdbf70 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x13d740>
+    cdbeaa:	89 ca                	mov    %ecx,%edx
+    cdbeac:	eb 0b                	jmp    cdbeb9 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x13d689>
+    cdbeae:	66 90                	xchg   %ax,%ax
+    cdbeb0:	0f 85 ba 00 00 00    	jne    cdbf70 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x13d740>
+    cdbeb6:	83 ea 03             	sub    $0x3,%edx
+    cdbeb9:	48 8d bc 24 a0 00 00 	lea    0xa0(%rsp),%rdi
+    cdbec0:	00 
+    cdbec1:	4c 89 f6             	mov    %r14,%rsi
+    cdbec4:	e8 17 e8 ff ff       	call   cda6e0 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x13beb0>
+    cdbec9:	48 8b 84 24 a8 00 00 	mov    0xa8(%rsp),%rax
+    cdbed0:	00 
+    cdbed1:	48 8b 94 24 c0 00 00 	mov    0xc0(%rsp),%rdx
+    cdbed8:	00 
+    cdbed9:	48 89 44 24 08       	mov    %rax,0x8(%rsp)
+    cdbede:	8b 84 24 b0 00 00 00 	mov    0xb0(%rsp),%eax
+    cdbee5:	48 89 54 24 20       	mov    %rdx,0x20(%rsp)
+    cdbeea:	8b                   	.byte 0x8b
+    cdbeeb:	94                   	xchg   %eax,%esp
+    cdbeec:	24 c8                	and    $0xc8,%al
+  	...
+FULLMAP_BRANCH_TARGET 0xcd3190
+  
+  /data/client-15.32.df7b29/bin/client:     file format elf64-x86-64
+  
+  
+  Disassembly of section .text:
+  
+  0000000000cd3190 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x134960>:
+    cd3190:	48 83 ec 58          	sub    $0x58,%rsp
+    cd3194:	48 8b 46 20          	mov    0x20(%rsi),%rax
+    cd3198:	48 8d 15 81 76 46 02 	lea    0x2467681(%rip),%rdx        # 313a820 <typeinfo for QSGRectangleNode@@Base+0x12398>
+    cd319f:	f3 0f 7e 0d 01 d6 c5 	movq   0x1c5d601(%rip),%xmm1        # 29307a8 <std::__detail::__to_chars_10_impl<unsigned int>(char*, unsigned int, unsigned int)::__digits@@Base+0x88f048>
+    cd31a6:	01 
+    cd31a7:	48 85 c0             	test   %rax,%rax
+    cd31aa:	48 0f 44 c2          	cmove  %rdx,%rax
+    cd31ae:	8b 50 20             	mov    0x20(%rax),%edx
+    cd31b1:	f3 0f 7e 40 18       	movq   0x18(%rax),%xmm0
+    cd31b6:	48 8d 05 e3 e3 28 02 	lea    0x228e3e3(%rip),%rax        # 2f615a0 <std::__detail::__to_chars_10_impl<unsigned int>(char*, unsigned int, unsigned int)::__digits@@Base+0xebfe40>
+    cd31bd:	66 0f d6 4c 24 38    	movq   %xmm1,0x38(%rsp)
+    cd31c3:	48 89 04 24          	mov    %rax,(%rsp)
+    cd31c7:	48 89 44 24 18       	mov    %rax,0x18(%rsp)
+    cd31cc:	48 8d 05 a5 e3 28 02 	lea    0x228e3a5(%rip),%rax        # 2f61578 <std::__detail::__to_chars_10_impl<unsigned int>(char*, unsigned int, unsigned int)::__digits@@Base+0xebfe18>
+    cd31d3:	8d 4a 01             	lea    0x1(%rdx),%ecx
+    cd31d6:	48 89 44 24 30       	mov    %rax,0x30(%rsp)
+    cd31db:	48 8b 46 18          	mov    0x18(%rsi),%rax
+    cd31df:	89 4c 24 28          	mov    %ecx,0x28(%rsp)
+    cd31e3:	31 c9                	xor    %ecx,%ecx
+    cd31e5:	83 bf a0 00 00 00 07 	cmpl   $0x7,0xa0(%rdi)
+    cd31ec:	89 54 24 10          	mov    %edx,0x10(%rsp)
+    cd31f0:	0f 9f c1             	setg   %cl
+    cd31f3:	48 85 c0             	test   %rax,%rax
+    cd31f6:	89 54 24 48          	mov    %edx,0x48(%rsp)
+    cd31fa:	48 8d 15 5f 76 46 02 	lea    0x246765f(%rip),%rdx        # 313a860 <typeinfo for QSGRectangleNode@@Base+0x123d8>
+    cd3201:	48 0f 44 c2          	cmove  %rdx,%rax
+    cd3205:	66 0f d6 44 24 08    	movq   %xmm0,0x8(%rsp)
+    cd320b:	66 0f fe c1          	paddd  %xmm1,%xmm0
+    cd320f:	48 89 e2             	mov    %rsp,%rdx
+    cd3212:	c7 44 24 40 01 00 00 	movl   $0x1,0x40(%rsp)
+    cd3219:	00 
+    cd321a:	48 8b 70 28          	mov    0x28(%rax),%rsi
+    cd321e:	66 0f d6 44 24 20    	movq   %xmm0,0x20(%rsp)
+    cd3224:	e8 57 58 cd 00       	call   19a8a80 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::compare(char const*) const@@Base+0x1831f0>
+    cd3229:	48 83 c4 58          	add    $0x58,%rsp
+    cd322d:	c3                   	ret
+    cd322e:	66 90                	xchg   %ax,%ax
+    cd3230:	41 55                	push   %r13
+    cd3232:	48 8d 05 ef 8e 3b 02 	lea    0x23b8eef(%rip),%rax        # 308c128 <std::__detail::__to_chars_10_impl<unsigned int>(char*, unsigned int, unsigned int)::__digits@@Base+0xfea9c8>
+    cd3239:	41 54                	push   %r12
+    cd323b:	49 89 fc             	mov    %rdi,%r12
+    cd323e:	55                   	push   %rbp
+    cd323f:	53                   	push   %rbx
+    cd3240:	48 83 ec 08          	sub    $0x8,%rsp
+    cd3244:	48 8b 5f 20          	mov    0x20(%rdi),%rbx
+    cd3248:	48 89 07             	mov    %rax,(%rdi)
+    cd324b:	48 85 db             	test   %rbx,%rbx
+    cd324e:	74 4b                	je     cd329b <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x134a6b>
+FULLMAP_BRANCH_TARGET 0xcecc70
+  
+  /data/client-15.32.df7b29/bin/client:     file format elf64-x86-64
+  
+  
+  Disassembly of section .text:
+  
+  0000000000cecc70 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x14e440>:
+    cecc70:	41 57                	push   %r15
+    cecc72:	48 8d 15 a7 db 44 02 	lea    0x244dba7(%rip),%rdx        # 313a820 <typeinfo for QSGRectangleNode@@Base+0x12398>
+    cecc79:	41 56                	push   %r14
+    cecc7b:	4c 8d 35 26 a8 39 02 	lea    0x239a826(%rip),%r14        # 30874a8 <std::__detail::__to_chars_10_impl<unsigned int>(char*, unsigned int, unsigned int)::__digits@@Base+0xfe5d48>
+    cecc82:	41 55                	push   %r13
+    cecc84:	41 54                	push   %r12
+    cecc86:	55                   	push   %rbp
+    cecc87:	48 89 fd             	mov    %rdi,%rbp
+    cecc8a:	53                   	push   %rbx
+    cecc8b:	48 89 f3             	mov    %rsi,%rbx
+    cecc8e:	48 81 ec a8 00 00 00 	sub    $0xa8,%rsp
+    cecc95:	48 8b 46 18          	mov    0x18(%rsi),%rax
+    cecc99:	48 8b 77 10          	mov    0x10(%rdi),%rsi
+    cecc9d:	4c 8d 64 24 40       	lea    0x40(%rsp),%r12
+    cecca2:	48 8d 7c 24 10       	lea    0x10(%rsp),%rdi
+    cecca7:	48 85 c0             	test   %rax,%rax
+    ceccaa:	48 0f 44 c2          	cmove  %rdx,%rax
+    ceccae:	8b 50 20             	mov    0x20(%rax),%edx
+    ceccb1:	48 8b 40 18          	mov    0x18(%rax),%rax
+    ceccb5:	48 89 44 24 48       	mov    %rax,0x48(%rsp)
+    ceccba:	48 8d 05 df 48 27 02 	lea    0x22748df(%rip),%rax        # 2f615a0 <std::__detail::__to_chars_10_impl<unsigned int>(char*, unsigned int, unsigned int)::__digits@@Base+0xebfe40>
+    ceccc1:	48 89 44 24 40       	mov    %rax,0x40(%rsp)
+    ceccc6:	48 8b 06             	mov    (%rsi),%rax
+    ceccc9:	89 54 24 50          	mov    %edx,0x50(%rsp)
+    cecccd:	4c 89 e2             	mov    %r12,%rdx
+    ceccd0:	ff 90 a0 00 00 00    	call   *0xa0(%rax)
+    ceccd6:	44 8b 6b 28          	mov    0x28(%rbx),%r13d
+    ceccda:	48 8b 5b 20          	mov    0x20(%rbx),%rbx
+    ceccde:	48 8d 05 9b e7 45 02 	lea    0x245e79b(%rip),%rax        # 314b480 <typeinfo for QSGRectangleNode@@Base+0x22ff8>
+    cecce5:	48 c7 44 24 68 00 00 	movq   $0x0,0x68(%rsp)
+    ceccec:	00 00 
+    ceccee:	66 0f ef c0          	pxor   %xmm0,%xmm0
+    ceccf2:	48 85 db             	test   %rbx,%rbx
+    ceccf5:	0f 29 84 24 80 00 00 	movaps %xmm0,0x80(%rsp)
+    ceccfc:	00 
+    ceccfd:	48 0f 44 d8          	cmove  %rax,%rbx
+    cecd01:	4c 89 74 24 60       	mov    %r14,0x60(%rsp)
+    cecd06:	48 c7 84 24 90 00 00 	movq   $0x0,0x90(%rsp)
+    cecd0d:	00 00 00 00 00 
+    cecd12:	8b 43 28             	mov    0x28(%rbx),%eax
+    cecd15:	48 8b 73 08          	mov    0x8(%rbx),%rsi
+    cecd19:	0f 29 44 24 70       	movaps %xmm0,0x70(%rsp)
+    cecd1e:	89 84 24 88 00 00 00 	mov    %eax,0x88(%rsp)
+    cecd25:	40 f6 c6 01          	test   $0x1,%sil
+    cecd29:	74 1b                	je     cecd46 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x14e516>
+    cecd2b:	48 89 f0             	mov    %rsi,%rax
+    cecd2e:	83                   	.byte 0x83
+    cecd2f:	e0                   	.byte 0xe0
+FIELDDATA_DIRECT_BRANCH_TARGETS=0xcd3190,0xcecc70,0xcecf40,0xcd4e20,0xcd32c0,0xdf2b30,0xcd99c0,0x4dcec0,0x4da3b0,0x4de9a0,0x4dafb0
+FIELDDATA_BRANCH_TARGET 0xcd3190
+  
+  /data/client-15.32.df7b29/bin/client:     file format elf64-x86-64
+  
+  
+  Disassembly of section .text:
+  
+  0000000000cd3190 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x134960>:
+    cd3190:	48 83 ec 58          	sub    $0x58,%rsp
+    cd3194:	48 8b 46 20          	mov    0x20(%rsi),%rax
+    cd3198:	48 8d 15 81 76 46 02 	lea    0x2467681(%rip),%rdx        # 313a820 <typeinfo for QSGRectangleNode@@Base+0x12398>
+    cd319f:	f3 0f 7e 0d 01 d6 c5 	movq   0x1c5d601(%rip),%xmm1        # 29307a8 <std::__detail::__to_chars_10_impl<unsigned int>(char*, unsigned int, unsigned int)::__digits@@Base+0x88f048>
+    cd31a6:	01 
+    cd31a7:	48 85 c0             	test   %rax,%rax
+    cd31aa:	48 0f 44 c2          	cmove  %rdx,%rax
+    cd31ae:	8b 50 20             	mov    0x20(%rax),%edx
+    cd31b1:	f3 0f 7e 40 18       	movq   0x18(%rax),%xmm0
+    cd31b6:	48 8d 05 e3 e3 28 02 	lea    0x228e3e3(%rip),%rax        # 2f615a0 <std::__detail::__to_chars_10_impl<unsigned int>(char*, unsigned int, unsigned int)::__digits@@Base+0xebfe40>
+    cd31bd:	66 0f d6 4c 24 38    	movq   %xmm1,0x38(%rsp)
+    cd31c3:	48 89 04 24          	mov    %rax,(%rsp)
+    cd31c7:	48 89 44 24 18       	mov    %rax,0x18(%rsp)
+    cd31cc:	48 8d 05 a5 e3 28 02 	lea    0x228e3a5(%rip),%rax        # 2f61578 <std::__detail::__to_chars_10_impl<unsigned int>(char*, unsigned int, unsigned int)::__digits@@Base+0xebfe18>
+    cd31d3:	8d 4a 01             	lea    0x1(%rdx),%ecx
+    cd31d6:	48 89 44 24 30       	mov    %rax,0x30(%rsp)
+    cd31db:	48 8b 46 18          	mov    0x18(%rsi),%rax
+    cd31df:	89 4c 24 28          	mov    %ecx,0x28(%rsp)
+    cd31e3:	31 c9                	xor    %ecx,%ecx
+    cd31e5:	83 bf a0 00 00 00 07 	cmpl   $0x7,0xa0(%rdi)
+    cd31ec:	89 54 24 10          	mov    %edx,0x10(%rsp)
+    cd31f0:	0f 9f c1             	setg   %cl
+    cd31f3:	48 85 c0             	test   %rax,%rax
+    cd31f6:	89 54 24 48          	mov    %edx,0x48(%rsp)
+    cd31fa:	48 8d 15 5f 76 46 02 	lea    0x246765f(%rip),%rdx        # 313a860 <typeinfo for QSGRectangleNode@@Base+0x123d8>
+    cd3201:	48 0f 44 c2          	cmove  %rdx,%rax
+    cd3205:	66 0f d6 44 24 08    	movq   %xmm0,0x8(%rsp)
+    cd320b:	66 0f fe c1          	paddd  %xmm1,%xmm0
+    cd320f:	48 89 e2             	mov    %rsp,%rdx
+    cd3212:	c7 44 24 40 01 00 00 	movl   $0x1,0x40(%rsp)
+    cd3219:	00 
+    cd321a:	48 8b 70 28          	mov    0x28(%rax),%rsi
+    cd321e:	66 0f d6 44 24 20    	movq   %xmm0,0x20(%rsp)
+    cd3224:	e8 57 58 cd 00       	call   19a8a80 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::compare(char const*) const@@Base+0x1831f0>
+    cd3229:	48 83 c4 58          	add    $0x58,%rsp
+    cd322d:	c3                   	ret
+    cd322e:	66 90                	xchg   %ax,%ax
+    cd3230:	41 55                	push   %r13
+    cd3232:	48 8d 05 ef 8e 3b 02 	lea    0x23b8eef(%rip),%rax        # 308c128 <std::__detail::__to_chars_10_impl<unsigned int>(char*, unsigned int, unsigned int)::__digits@@Base+0xfea9c8>
+    cd3239:	41 54                	push   %r12
+    cd323b:	49 89 fc             	mov    %rdi,%r12
+    cd323e:	55                   	push   %rbp
+    cd323f:	53                   	push   %rbx
+    cd3240:	48 83 ec 08          	sub    $0x8,%rsp
+    cd3244:	48 8b 5f 20          	mov    0x20(%rdi),%rbx
+    cd3248:	48 89 07             	mov    %rax,(%rdi)
+    cd324b:	48 85 db             	test   %rbx,%rbx
+    cd324e:	74 4b                	je     cd329b <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x134a6b>
+FIELDDATA_BRANCH_TARGET 0xcecc70
+  
+  /data/client-15.32.df7b29/bin/client:     file format elf64-x86-64
+  
+  
+  Disassembly of section .text:
+  
+  0000000000cecc70 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x14e440>:
+    cecc70:	41 57                	push   %r15
+    cecc72:	48 8d 15 a7 db 44 02 	lea    0x244dba7(%rip),%rdx        # 313a820 <typeinfo for QSGRectangleNode@@Base+0x12398>
+    cecc79:	41 56                	push   %r14
+    cecc7b:	4c 8d 35 26 a8 39 02 	lea    0x239a826(%rip),%r14        # 30874a8 <std::__detail::__to_chars_10_impl<unsigned int>(char*, unsigned int, unsigned int)::__digits@@Base+0xfe5d48>
+    cecc82:	41 55                	push   %r13
+    cecc84:	41 54                	push   %r12
+    cecc86:	55                   	push   %rbp
+    cecc87:	48 89 fd             	mov    %rdi,%rbp
+    cecc8a:	53                   	push   %rbx
+    cecc8b:	48 89 f3             	mov    %rsi,%rbx
+    cecc8e:	48 81 ec a8 00 00 00 	sub    $0xa8,%rsp
+    cecc95:	48 8b 46 18          	mov    0x18(%rsi),%rax
+    cecc99:	48 8b 77 10          	mov    0x10(%rdi),%rsi
+    cecc9d:	4c 8d 64 24 40       	lea    0x40(%rsp),%r12
+    cecca2:	48 8d 7c 24 10       	lea    0x10(%rsp),%rdi
+    cecca7:	48 85 c0             	test   %rax,%rax
+    ceccaa:	48 0f 44 c2          	cmove  %rdx,%rax
+    ceccae:	8b 50 20             	mov    0x20(%rax),%edx
+    ceccb1:	48 8b 40 18          	mov    0x18(%rax),%rax
+    ceccb5:	48 89 44 24 48       	mov    %rax,0x48(%rsp)
+    ceccba:	48 8d 05 df 48 27 02 	lea    0x22748df(%rip),%rax        # 2f615a0 <std::__detail::__to_chars_10_impl<unsigned int>(char*, unsigned int, unsigned int)::__digits@@Base+0xebfe40>
+    ceccc1:	48 89 44 24 40       	mov    %rax,0x40(%rsp)
+    ceccc6:	48 8b 06             	mov    (%rsi),%rax
+    ceccc9:	89 54 24 50          	mov    %edx,0x50(%rsp)
+    cecccd:	4c 89 e2             	mov    %r12,%rdx
+    ceccd0:	ff 90 a0 00 00 00    	call   *0xa0(%rax)
+    ceccd6:	44 8b 6b 28          	mov    0x28(%rbx),%r13d
+    ceccda:	48 8b 5b 20          	mov    0x20(%rbx),%rbx
+    ceccde:	48 8d 05 9b e7 45 02 	lea    0x245e79b(%rip),%rax        # 314b480 <typeinfo for QSGRectangleNode@@Base+0x22ff8>
+    cecce5:	48 c7 44 24 68 00 00 	movq   $0x0,0x68(%rsp)
+    ceccec:	00 00 
+    ceccee:	66 0f ef c0          	pxor   %xmm0,%xmm0
+    ceccf2:	48 85 db             	test   %rbx,%rbx
+    ceccf5:	0f 29 84 24 80 00 00 	movaps %xmm0,0x80(%rsp)
+    ceccfc:	00 
+    ceccfd:	48 0f 44 d8          	cmove  %rax,%rbx
+    cecd01:	4c 89 74 24 60       	mov    %r14,0x60(%rsp)
+    cecd06:	48 c7 84 24 90 00 00 	movq   $0x0,0x90(%rsp)
+    cecd0d:	00 00 00 00 00 
+    cecd12:	8b 43 28             	mov    0x28(%rbx),%eax
+    cecd15:	48 8b 73 08          	mov    0x8(%rbx),%rsi
+    cecd19:	0f 29 44 24 70       	movaps %xmm0,0x70(%rsp)
+    cecd1e:	89 84 24 88 00 00 00 	mov    %eax,0x88(%rsp)
+    cecd25:	40 f6 c6 01          	test   $0x1,%sil
+    cecd29:	74 1b                	je     cecd46 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x14e516>
+    cecd2b:	48 89 f0             	mov    %rsi,%rax
+    cecd2e:	83                   	.byte 0x83
+    cecd2f:	e0                   	.byte 0xe0
+FIELDDATA_BRANCH_TARGET 0xcecf40
+  
+  /data/client-15.32.df7b29/bin/client:     file format elf64-x86-64
+  
+  
+  Disassembly of section .text:
+  
+  0000000000cecf40 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x14e710>:
+    cecf40:	41 56                	push   %r14
+    cecf42:	41 55                	push   %r13
+    cecf44:	41 54                	push   %r12
+    cecf46:	55                   	push   %rbp
+    cecf47:	48 89 fd             	mov    %rdi,%rbp
+    cecf4a:	53                   	push   %rbx
+    cecf4b:	48 89 f3             	mov    %rsi,%rbx
+    cecf4e:	48 81 ec 00 01 00 00 	sub    $0x100,%rsp
+    cecf55:	f6 46 10 01          	testb  $0x1,0x10(%rsi)
+    cecf59:	0f 84 81 01 00 00    	je     ced0e0 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x14e8b0>
+    cecf5f:	48 8b 46 18          	mov    0x18(%rsi),%rax
+    cecf63:	48 8d 15 b6 d8 44 02 	lea    0x244d8b6(%rip),%rdx        # 313a820 <typeinfo for QSGRectangleNode@@Base+0x12398>
+    cecf6a:	48 8b 77 10          	mov    0x10(%rdi),%rsi
+    cecf6e:	4c 8d 6c 24 40       	lea    0x40(%rsp),%r13
+    cecf73:	48 8d 7c 24 10       	lea    0x10(%rsp),%rdi
+    cecf78:	4c 8d 64 24 60       	lea    0x60(%rsp),%r12
+    cecf7d:	48 85 c0             	test   %rax,%rax
+    cecf80:	48 0f 44 c2          	cmove  %rdx,%rax
+    cecf84:	8b 50 20             	mov    0x20(%rax),%edx
+    cecf87:	48 8b 40 18          	mov    0x18(%rax),%rax
+    cecf8b:	48 89 44 24 48       	mov    %rax,0x48(%rsp)
+    cecf90:	48 8d 05 09 46 27 02 	lea    0x2274609(%rip),%rax        # 2f615a0 <std::__detail::__to_chars_10_impl<unsigned int>(char*, unsigned int, unsigned int)::__digits@@Base+0xebfe40>
+    cecf97:	48 89 44 24 40       	mov    %rax,0x40(%rsp)
+    cecf9c:	48 8b 06             	mov    (%rsi),%rax
+    cecf9f:	89 54 24 50          	mov    %edx,0x50(%rsp)
+    cecfa3:	4c 89 ea             	mov    %r13,%rdx
+    cecfa6:	ff 90 a0 00 00 00    	call   *0xa0(%rax)
+    cecfac:	48 8b 73 20          	mov    0x20(%rbx),%rsi
+    cecfb0:	48 8d 05 c9 e4 45 02 	lea    0x245e4c9(%rip),%rax        # 314b480 <typeinfo for QSGRectangleNode@@Base+0x22ff8>
+    cecfb7:	4c 89 e7             	mov    %r12,%rdi
+    cecfba:	48 85 f6             	test   %rsi,%rsi
+    cecfbd:	48 0f 44 f0          	cmove  %rax,%rsi
+    cecfc1:	e8 fa 5e b3 00       	call   1822ec0 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0xc84690>
+    cecfc6:	48 89 e7             	mov    %rsp,%rdi
+    cecfc9:	4c 89 e9             	mov    %r13,%rcx
+    cecfcc:	4c 89 e2             	mov    %r12,%rdx
+    cecfcf:	48 89 ee             	mov    %rbp,%rsi
+    cecfd2:	44 8b 73 28          	mov    0x28(%rbx),%r14d
+    cecfd6:	e8 75 fa ff ff       	call   ceca50 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x14e220>
+    cecfdb:	66 0f 6f 04 24       	movdqa (%rsp),%xmm0
+    cecfe0:	0f 12 c8             	movhlps %xmm0,%xmm1
+    cecfe3:	66 48 0f 7e c0       	movq   %xmm0,%rax
+    cecfe8:	66 48 0f 7e cb       	movq   %xmm1,%rbx
+    cecfed:	48 85 c0             	test   %rax,%rax
+    cecff0:	0f 84 99 00 00 00    	je     ced08f <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x14e85f>
+    cecff6:	48 8b 74 24 10       	mov    0x10(%rsp),%rsi
+    cecffb:	41 0f b6 ce          	movzbl %r14b,%ecx
+    cecfff:	48                   	rex.W
+FIELDDATA_BRANCH_TARGET 0xcd4e20
+  
+  /data/client-15.32.df7b29/bin/client:     file format elf64-x86-64
+  
+  
+  Disassembly of section .text:
+  
+  0000000000cd4e20 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x1365f0>:
+    cd4e20:	41 54                	push   %r12
+    cd4e22:	55                   	push   %rbp
+    cd4e23:	48 89 fd             	mov    %rdi,%rbp
+    cd4e26:	53                   	push   %rbx
+    cd4e27:	48 89 f3             	mov    %rsi,%rbx
+    cd4e2a:	48 83 ec 40          	sub    $0x40,%rsp
+    cd4e2e:	8b 46 1c             	mov    0x1c(%rsi),%eax
+    cd4e31:	83 f8 01             	cmp    $0x1,%eax
+    cd4e34:	74 2a                	je     cd4e60 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x136630>
+    cd4e36:	31 f6                	xor    %esi,%esi
+    cd4e38:	83 f8 02             	cmp    $0x2,%eax
+    cd4e3b:	0f 84 ff 00 00 00    	je     cd4f40 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x136710>
+    cd4e41:	48 8b 7d 30          	mov    0x30(%rbp),%rdi
+    cd4e45:	48 8b 07             	mov    (%rdi),%rax
+    cd4e48:	48 8b 80 d8 00 00 00 	mov    0xd8(%rax),%rax
+    cd4e4f:	48 83 c4 40          	add    $0x40,%rsp
+    cd4e53:	5b                   	pop    %rbx
+    cd4e54:	5d                   	pop    %rbp
+    cd4e55:	41 5c                	pop    %r12
+    cd4e57:	ff e0                	jmp    *%rax
+    cd4e59:	0f 1f 80 00 00 00 00 	nopl   0x0(%rax)
+    cd4e60:	48 8b 46 10          	mov    0x10(%rsi),%rax
+    cd4e64:	48 8d 15 b5 59 46 02 	lea    0x24659b5(%rip),%rdx        # 313a820 <typeinfo for QSGRectangleNode@@Base+0x12398>
+    cd4e6b:	48 8b 77 10          	mov    0x10(%rdi),%rsi
+    cd4e6f:	4c 8d 64 24 20       	lea    0x20(%rsp),%r12
+    cd4e74:	48 8d 7c 24 10       	lea    0x10(%rsp),%rdi
+    cd4e79:	48 8b 40 18          	mov    0x18(%rax),%rax
+    cd4e7d:	48 85 c0             	test   %rax,%rax
+    cd4e80:	48 0f 44 c2          	cmove  %rdx,%rax
+    cd4e84:	8b 50 20             	mov    0x20(%rax),%edx
+    cd4e87:	48 8b 40 18          	mov    0x18(%rax),%rax
+    cd4e8b:	48 89 44 24 28       	mov    %rax,0x28(%rsp)
+    cd4e90:	48 8d 05 09 c7 28 02 	lea    0x228c709(%rip),%rax        # 2f615a0 <std::__detail::__to_chars_10_impl<unsigned int>(char*, unsigned int, unsigned int)::__digits@@Base+0xebfe40>
+    cd4e97:	48 89 44 24 20       	mov    %rax,0x20(%rsp)
+    cd4e9c:	48 8b 06             	mov    (%rsi),%rax
+    cd4e9f:	89 54 24 30          	mov    %edx,0x30(%rsp)
+    cd4ea3:	4c 89 e2             	mov    %r12,%rdx
+    cd4ea6:	ff 90 a0 00 00 00    	call   *0xa0(%rax)
+    cd4eac:	83 7b 1c 01          	cmpl   $0x1,0x1c(%rbx)
+    cd4eb0:	48 8d 05 29 09 48 02 	lea    0x2480929(%rip),%rax        # 31557e0 <typeinfo for QSGRectangleNode@@Base+0x2d358>
+    cd4eb7:	75 04                	jne    cd4ebd <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x13668d>
+    cd4eb9:	48 8b 43 10          	mov    0x10(%rbx),%rax
+    cd4ebd:	48 8b 74 24 10       	mov    0x10(%rsp),%rsi
+    cd4ec2:	0f b6 50 20          	movzbl 0x20(%rax),%edx
+    cd4ec6:	48 89 e7             	mov    %rsp,%rdi
+    cd4ec9:	48 8b 06             	mov    (%rsi),%rax
+    cd4ecc:	ff 90 a0 00 00 00    	call   *0xa0(%rax)
+    cd4ed2:	48 8b bd d8 00 00 00 	mov    0xd8(%rbp),%rdi
+    cd4ed9:	48 85 ff             	test   %rdi,%rdi
+    cd4edc:	74 32                	je     cd4f10 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x1366e0>
+    cd4ede:	48                   	rex.W
+    cd4edf:	8b                   	.byte 0x8b
+FIELDDATA_BRANCH_TARGET 0xcd32c0
+  
+  /data/client-15.32.df7b29/bin/client:     file format elf64-x86-64
+  
+  
+  Disassembly of section .text:
+  
+  0000000000cd32c0 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x134a90>:
+    cd32c0:	53                   	push   %rbx
+    cd32c1:	48 89 fb             	mov    %rdi,%rbx
+    cd32c4:	48 83 ec 50          	sub    $0x50,%rsp
+    cd32c8:	8b 46 18             	mov    0x18(%rsi),%eax
+    cd32cb:	8b 56 1c             	mov    0x1c(%rsi),%edx
+    cd32ce:	88 44 24 30          	mov    %al,0x30(%rsp)
+    cd32d2:	80 fa d7             	cmp    $0xd7,%dl
+    cd32d5:	0f 86 c5 00 00 00    	jbe    cd33a0 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x134b70>
+    cd32db:	31 d2                	xor    %edx,%edx
+    cd32dd:	b9 ff 00 00 00       	mov    $0xff,%ecx
+    cd32e2:	31 f6                	xor    %esi,%esi
+    cd32e4:	31 ff                	xor    %edi,%edi
+    cd32e6:	e8 95 c2 80 ff       	call   4df580 <QColor::fromRgb(int, int, int, int)@plt>
+    cd32eb:	48 89 44 24 10       	mov    %rax,0x10(%rsp)
+    cd32f0:	48 89 54 24 18       	mov    %rdx,0x18(%rsp)
+    cd32f5:	48 8b 5b 20          	mov    0x20(%rbx),%rbx
+    cd32f9:	66 0f 6f 44 24 10    	movdqa 0x10(%rsp),%xmm0
+    cd32ff:	48 8d 15 fa e3 fd ff 	lea    -0x21c06(%rip),%rdx        # cb1700 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x112ed0>
+    cd3306:	48 8b 03             	mov    (%rbx),%rax
+    cd3309:	0f 29 04 24          	movaps %xmm0,(%rsp)
+    cd330d:	0f 11 44 24 34       	movups %xmm0,0x34(%rsp)
+    cd3312:	48 8b 40 68          	mov    0x68(%rax),%rax
+    cd3316:	48 39 d0             	cmp    %rdx,%rax
+    cd3319:	0f 85 01 01 00 00    	jne    cd3420 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x134bf0>
+    cd331f:	48 8b 43 30          	mov    0x30(%rbx),%rax
+    cd3323:	48 85 c0             	test   %rax,%rax
+    cd3326:	74 07                	je     cd332f <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x134aff>
+    cd3328:	48 83 7b 10 00       	cmpq   $0x0,0x10(%rbx)
+    cd332d:	75 61                	jne    cd3390 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x134b60>
+    cd332f:	bf 14 00 00 00       	mov    $0x14,%edi
+    cd3334:	e8 37 c3 80 ff       	call   4df670 <operator new(unsigned long)@plt>
+    cd3339:	48 8b 15 f0 bf fc 00 	mov    0xfcbff0(%rip),%rdx        # 1c9f330 <std::_Sp_make_shared_tag::_S_ti()::__tag@@Base+0x9640>
+    cd3340:	c6 00 00             	movb   $0x0,(%rax)
+    cd3343:	48 8b 7b 30          	mov    0x30(%rbx),%rdi
+    cd3347:	48 89 50 08          	mov    %rdx,0x8(%rax)
+    cd334b:	31 d2                	xor    %edx,%edx
+    cd334d:	c7 40 04 00 00 00 00 	movl   $0x0,0x4(%rax)
+    cd3354:	66 89 50 10          	mov    %dx,0x10(%rax)
+    cd3358:	48 89 43 30          	mov    %rax,0x30(%rbx)
+    cd335c:	48 85 ff             	test   %rdi,%rdi
+    cd335f:	74 0e                	je     cd336f <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x134b3f>
+    cd3361:	be 14 00 00 00       	mov    $0x14,%esi
+    cd3366:	e8 95 b5 80 ff       	call   4de900 <operator delete(void*, unsigned long)@plt>
+    cd336b:	48 8b 43 30          	mov    0x30(%rbx),%rax
+    cd336f:	8b 54 24 40          	mov    0x40(%rsp),%edx
+    cd3373:	66 0f 6f 44 24 30    	movdqa 0x30(%rsp),%xmm0
+    cd3379:	89 53 28             	mov    %edx,0x28(%rbx)
+    cd337c:	0f 11 43 18          	movups %xmm0,0x18(%rbx)
+FIELDDATA_BRANCH_TARGET 0xdf2b30
+  
+  /data/client-15.32.df7b29/bin/client:     file format elf64-x86-64
+  
+  
+  Disassembly of section .text:
+  
+  0000000000df2b30 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x254300>:
+    df2b30:	48 8b 47 40          	mov    0x40(%rdi),%rax
+    df2b34:	31 c9                	xor    %ecx,%ecx
+    df2b36:	48 8d 35 23 6e 2a 02 	lea    0x22a6e23(%rip),%rsi        # 3099960 <QObject::staticMetaObject@Qt_6>
+    df2b3d:	48 29 d0             	sub    %rdx,%rax
+    df2b40:	31 d2                	xor    %edx,%edx
+    df2b42:	48 89 47 48          	mov    %rax,0x48(%rdi)
+    df2b46:	48 83 c4 58          	add    $0x58,%rsp
+    df2b4a:	5b                   	pop    %rbx
+    df2b4b:	5d                   	pop    %rbp
+    df2b4c:	41 5c                	pop    %r12
+    df2b4e:	41 5d                	pop    %r13
+    df2b50:	e9 6b c2 6e ff       	jmp    4dedc0 <QMetaObject::activate(QObject*, QMetaObject const*, int, void**)@plt>
+    df2b55:	0f 1f 00             	nopl   (%rax)
+    df2b58:	48 8b 41 08          	mov    0x8(%rcx),%rax
+    df2b5c:	31 d2                	xor    %edx,%edx
+    df2b5e:	48 89 e1             	mov    %rsp,%rcx
+    df2b61:	48 8d 35 98 4c 29 02 	lea    0x2294c98(%rip),%rsi        # 3087800 <QObject::staticMetaObject@Qt_6>
+    df2b68:	48 c7 04 24 00 00 00 	movq   $0x0,(%rsp)
+    df2b6f:	00 
+    df2b70:	48 89 44 24 08       	mov    %rax,0x8(%rsp)
+    df2b75:	e8 46 c2 6e ff       	call   4dedc0 <QMetaObject::activate(QObject*, QMetaObject const*, int, void**)@plt>
+    df2b7a:	48 83 c4 58          	add    $0x58,%rsp
+    df2b7e:	5b                   	pop    %rbx
+    df2b7f:	5d                   	pop    %rbp
+    df2b80:	41 5c                	pop    %r12
+    df2b82:	41 5d                	pop    %r13
+    df2b84:	c3                   	ret
+    df2b85:	0f 1f 00             	nopl   (%rax)
+    df2b88:	48 8b 71 08          	mov    0x8(%rcx),%rsi
+    df2b8c:	48 83 c4 58          	add    $0x58,%rsp
+    df2b90:	5b                   	pop    %rbx
+    df2b91:	5d                   	pop    %rbp
+    df2b92:	41 5c                	pop    %r12
+    df2b94:	41 5d                	pop    %r13
+    df2b96:	e9 35 9d ef ff       	jmp    cec8d0 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x14e0a0>
+    df2b9b:	0f 1f 44 00 00       	nopl   0x0(%rax,%rax,1)
+    df2ba0:	4c 8b 69 08          	mov    0x8(%rcx),%r13
+    df2ba4:	83 af 98 00 00 00 01 	subl   $0x1,0x98(%rdi)
+    df2bab:	48 89 e5             	mov    %rsp,%rbp
+    df2bae:	45 31 e4             	xor    %r12d,%r12d
+    df2bb1:	e8 ba 8b ee ff       	call   cdb770 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x13cf40>
+    df2bb6:	83 bb a0 00 00 00 07 	cmpl   $0x7,0xa0(%rbx)
+    df2bbd:	48 8d b3 90 00 00 00 	lea    0x90(%rbx),%rsi
+    df2bc4:	48 89 ef             	mov    %rbp,%rdi
+    df2bc7:	41 0f 9f c4          	setg   %r12b
+    df2bcb:	e8 10 38 dd ff       	call   bc63e0 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x27bb0>
+    df2bd0:	49 8b 45 18          	mov    0x18(%r13),%rax
+    df2bd4:	48 8d 15 85 7c 34 02 	lea    0x2347c85(%rip),%rdx        # 313a860 <typeinfo for QSGRectangleNode@@Base+0x123d8>
+    df2bdb:	44 89 e1             	mov    %r12d,%ecx
+    df2bde:	48 89 df             	mov    %rbx,%rdi
+    df2be1:	48 85 c0             	test   %rax,%rax
+    df2be4:	48 0f 44 c2          	cmove  %rdx,%rax
+    df2be8:	48 89 ea             	mov    %rbp,%rdx
+    df2beb:	48 8b 70 28          	mov    0x28(%rax),%rsi
+    df2bef:	e8                   	.byte 0xe8
+FIELDDATA_BRANCH_TARGET 0xcd99c0
+  
+  /data/client-15.32.df7b29/bin/client:     file format elf64-x86-64
+  
+  
+  Disassembly of section .text:
+  
+  0000000000cd99c0 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x13b190>:
+    cd99c0:	48 83 7f 18 00       	cmpq   $0x0,0x18(%rdi)
+    cd99c5:	0f 84 1d 04 00 00    	je     cd9de8 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x13b5b8>
+    cd99cb:	41 57                	push   %r15
+    cd99cd:	41 56                	push   %r14
+    cd99cf:	41 55                	push   %r13
+    cd99d1:	41 54                	push   %r12
+    cd99d3:	49 89 fc             	mov    %rdi,%r12
+    cd99d6:	55                   	push   %rbp
+    cd99d7:	53                   	push   %rbx
+    cd99d8:	48 81 ec 88 00 00 00 	sub    $0x88,%rsp
+    cd99df:	48 8b 47 28          	mov    0x28(%rdi),%rax
+    cd99e3:	48 85 c0             	test   %rax,%rax
+    cd99e6:	0f 84 94 03 00 00    	je     cd9d80 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x13b550>
+    cd99ec:	66 0f ef c0          	pxor   %xmm0,%xmm0
+    cd99f0:	48 8b 6f 50          	mov    0x50(%rdi),%rbp
+    cd99f4:	48 8d 7f 40          	lea    0x40(%rdi),%rdi
+    cd99f8:	f3 0f 5a 80 d0 00 00 	cvtss2sd 0xd0(%rax),%xmm0
+    cd99ff:	00 
+    cd9a00:	f2 0f 59 05 a0 6b c7 	mulsd  0x1c76ba0(%rip),%xmm0        # 29505a8 <std::__detail::__to_chars_10_impl<unsigned int>(char*, unsigned int, unsigned int)::__digits@@Base+0x8aee48>
+    cd9a07:	01 
+    cd9a08:	48 89 7c 24 08       	mov    %rdi,0x8(%rsp)
+    cd9a0d:	66 0f 14 c0          	unpcklpd %xmm0,%xmm0
+    cd9a11:	0f 29 44 24 40       	movaps %xmm0,0x40(%rsp)
+    cd9a16:	48 39 fd             	cmp    %rdi,%rbp
+    cd9a19:	0f 84 61 03 00 00    	je     cd9d80 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x13b550>
+    cd9a1f:	48 8d 5c 24 60       	lea    0x60(%rsp),%rbx
+    cd9a24:	4d 8d 6c 24 70       	lea    0x70(%r12),%r13
+    cd9a29:	48 89 5c 24 10       	mov    %rbx,0x10(%rsp)
+    cd9a2e:	48 8d 5c 24 38       	lea    0x38(%rsp),%rbx
+    cd9a33:	48 89 5c 24 18       	mov    %rbx,0x18(%rsp)
+    cd9a38:	0f 1f 84 00 00 00 00 	nopl   0x0(%rax,%rax,1)
+    cd9a3f:	00 
+    cd9a40:	8b 7d 38             	mov    0x38(%rbp),%edi
+    cd9a43:	8b 55 34             	mov    0x34(%rbp),%edx
+    cd9a46:	8b 5d 20             	mov    0x20(%rbp),%ebx
+    cd9a49:	c1 e7 05             	shl    $0x5,%edi
+    cd9a4c:	c1 e2 05             	shl    $0x5,%edx
+    cd9a4f:	66 0f 6e cf          	movd   %edi,%xmm1
+    cd9a53:	8b 7d 30             	mov    0x30(%rbp),%edi
+    cd9a56:	66 0f 6e ea          	movd   %edx,%xmm5
+    cd9a5a:	8b 50 50             	mov    0x50(%rax),%edx
+    cd9a5d:	66 0f 70 c9 e0       	pshufd $0xe0,%xmm1,%xmm1
+    cd9a62:	c1 e7 05             	shl    $0x5,%edi
+    cd9a65:	66 0f 6e c7          	movd   %edi,%xmm0
+    cd9a69:	66 0f 62 c5          	punpckldq %xmm5,%xmm0
+    cd9a6d:	66 0f fe c1          	paddd  %xmm1,%xmm0
+    cd9a71:	f3 0f e6 c0          	cvtdq2pd %xmm0,%xmm0
+    cd9a75:	85 d2                	test   %edx,%edx
+    cd9a77:	74 2e                	je     cd9aa7 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x13b277>
+    cd9a79:	f3 0f 7e 50 10       	movq   0x10(%rax),%xmm2
+    cd9a7e:	f3                   	repz
+    cd9a7f:	0f                   	.byte 0xf
+FIELDDATA_BRANCH_TARGET 0x4dcec0
+  
+  /data/client-15.32.df7b29/bin/client:     file format elf64-x86-64
+  
+  
+  Disassembly of section .plt:
+  
+  00000000004dcec0 <QDebug::putByteArray(char const*, unsigned long, QDebug::Latin1Content)@plt>:
+    4dcec0:	ff 25 82 48 c5 02    	jmp    *0x2c54882(%rip)        # 3131748 <QDebug::putByteArray(char const*, unsigned long, QDebug::Latin1Content)@Qt_6>
+    4dcec6:	68 e9 02 00 00       	push   $0x2e9
+    4dcecb:	e9 50 d1 ff ff       	jmp    4da020 <QBrush::QBrush()@plt-0x10>
+  
+  00000000004dced0 <QPainter::QPainter()@plt>:
+    4dced0:	ff 25 7a 48 c5 02    	jmp    *0x2c5487a(%rip)        # 3131750 <QPainter::QPainter()@Qt_6>
+    4dced6:	68 ea 02 00 00       	push   $0x2ea
+    4dcedb:	e9 40 d1 ff ff       	jmp    4da020 <QBrush::QBrush()@plt-0x10>
+  
+  00000000004dcee0 <QObjectData::dynamicMetaObject() const@plt>:
+    4dcee0:	ff 25 72 48 c5 02    	jmp    *0x2c54872(%rip)        # 3131758 <QObjectData::dynamicMetaObject() const@Qt_6>
+    4dcee6:	68 eb 02 00 00       	push   $0x2eb
+    4dceeb:	e9 30 d1 ff ff       	jmp    4da020 <QBrush::QBrush()@plt-0x10>
+  
+  00000000004dcef0 <QString::indexOf(QRegularExpression const&, long long, QRegularExpressionMatch*) const@plt>:
+    4dcef0:	ff 25 6a 48 c5 02    	jmp    *0x2c5486a(%rip)        # 3131760 <QString::indexOf(QRegularExpression const&, long long, QRegularExpressionMatch*) const@Qt_6>
+    4dcef6:	68 ec 02 00 00       	push   $0x2ec
+    4dcefb:	e9 20 d1 ff ff       	jmp    4da020 <QBrush::QBrush()@plt-0x10>
+  
+  00000000004dcf00 <QBuffer::QBuffer(QObject*)@plt>:
+    4dcf00:	ff 25 62 48 c5 02    	jmp    *0x2c54862(%rip)        # 3131768 <QBuffer::QBuffer(QObject*)@Qt_6>
+    4dcf06:	68 ed 02 00 00       	push   $0x2ed
+    4dcf0b:	e9 10 d1 ff ff       	jmp    4da020 <QBrush::QBrush()@plt-0x10>
+  
+  00000000004dcf10 <std::__throw_out_of_range_fmt(char const*, ...)@plt>:
+    4dcf10:	ff 25 5a 48 c5 02    	jmp    *0x2c5485a(%rip)        # 3131770 <std::__throw_out_of_range_fmt(char const*, ...)@GLIBCXX_3.4.20>
+    4dcf16:	68 ee 02 00 00       	push   $0x2ee
+    4dcf1b:	e9 00 d1 ff ff       	jmp    4da020 <QBrush::QBrush()@plt-0x10>
+  
+  00000000004dcf20 <QQuickItem::size() const@plt>:
+    4dcf20:	ff 25 52 48 c5 02    	jmp    *0x2c54852(%rip)        # 3131778 <QQuickItem::size() const@Qt_6>
+    4dcf26:	68 ef 02 00 00       	push   $0x2ef
+    4dcf2b:	e9 f0 d0 ff ff       	jmp    4da020 <QBrush::QBrush()@plt-0x10>
+  
+  00000000004dcf30 <QColor::setRgbF(float, float, float, float)@plt>:
+    4dcf30:	ff 25 4a 48 c5 02    	jmp    *0x2c5484a(%rip)        # 3131780 <QColor::setRgbF(float, float, float, float)@Qt_6>
+    4dcf36:	68 f0 02 00 00       	push   $0x2f0
+    4dcf3b:	e9 e0 d0 ff ff       	jmp    4da020 <QBrush::QBrush()@plt-0x10>
+  
+  00000000004dcf40 <QDateTime::fromString(QStringView, Qt::DateFormat)@plt>:
+    4dcf40:	ff 25 42 48 c5 02    	jmp    *0x2c54842(%rip)        # 3131788 <QDateTime::fromString(QStringView, Qt::DateFormat)@Qt_6>
+    4dcf46:	68 f1 02 00 00       	push   $0x2f1
+    4dcf4b:	e9 d0 d0 ff ff       	jmp    4da020 <QBrush::QBrush()@plt-0x10>
+  
+  00000000004dcf50 <QWindow::raise()@plt>:
+    4dcf50:	ff 25 3a 48 c5 02    	jmp    *0x2c5483a(%rip)        # 3131790 <QWindow::raise()@Qt_6>
+    4dcf56:	68 f2 02 00 00       	push   $0x2f2
+    4dcf5b:	e9 c0 d0 ff ff       	jmp    4da020 <QBrush::QBrush()@plt-0x10>
+  
+  00000000004dcf60 <QSysInfo::prettyProductName()@plt>:
+    4dcf60:	ff 25 32 48 c5 02    	jmp    *0x2c54832(%rip)        # 3131798 <QSysInfo::prettyProductName()@Qt_6>
+    4dcf66:	68 f3 02 00 00       	push   $0x2f3
+    4dcf6b:	e9 b0 d0 ff ff       	jmp    4da020 <QBrush::QBrush()@plt-0x10>
+  
+  00000000004dcf70 <QAbstractItemModel::endResetModel()@plt>:
+    4dcf70:	ff 25 2a 48 c5 02    	jmp    *0x2c5482a(%rip)        # 31317a0 <QAbstractItemModel::endResetModel()@Qt_6>
+    4dcf76:	68 f4 02 00 00       	push   $0x2f4
+    4dcf7b:	e9 a0 d0 ff ff       	jmp    4da020 <QBrush::QBrush()@plt-0x10>
+FIELDDATA_BRANCH_TARGET 0x4da3b0
+  
+  /data/client-15.32.df7b29/bin/client:     file format elf64-x86-64
+  
+  
+  Disassembly of section .plt:
+  
+  00000000004da3b0 <QTextStream::operator<<(char)@plt>:
+    4da3b0:	ff 25 0a 5e c5 02    	jmp    *0x2c55e0a(%rip)        # 31301c0 <QTextStream::operator<<(char)@Qt_6>
+    4da3b6:	68 38 00 00 00       	push   $0x38
+    4da3bb:	e9 60 fc ff ff       	jmp    4da020 <QBrush::QBrush()@plt-0x10>
+  
+  00000000004da3c0 <QNetworkAccessManager::get(QNetworkRequest const&)@plt>:
+    4da3c0:	ff 25 02 5e c5 02    	jmp    *0x2c55e02(%rip)        # 31301c8 <QNetworkAccessManager::get(QNetworkRequest const&)@Qt_6>
+    4da3c6:	68 39 00 00 00       	push   $0x39
+    4da3cb:	e9 50 fc ff ff       	jmp    4da020 <QBrush::QBrush()@plt-0x10>
+  
+  00000000004da3d0 <QMetaObject::cast(QObject const*) const@plt>:
+    4da3d0:	ff 25 fa 5d c5 02    	jmp    *0x2c55dfa(%rip)        # 31301d0 <QMetaObject::cast(QObject const*) const@Qt_6>
+    4da3d6:	68 3a 00 00 00       	push   $0x3a
+    4da3db:	e9 40 fc ff ff       	jmp    4da020 <QBrush::QBrush()@plt-0x10>
+  
+  00000000004da3e0 <QDebug::putTupleLikeImplImpl(char const*, char const*, unsigned long, void (**)(QDebug&, void const*), void const**)@plt>:
+    4da3e0:	ff 25 f2 5d c5 02    	jmp    *0x2c55df2(%rip)        # 31301d8 <QDebug::putTupleLikeImplImpl(char const*, char const*, unsigned long, void (**)(QDebug&, void const*), void const**)@Qt_6>
+    4da3e6:	68 3b 00 00 00       	push   $0x3b
+    4da3eb:	e9 30 fc ff ff       	jmp    4da020 <QBrush::QBrush()@plt-0x10>
+  
+  00000000004da3f0 <__memcpy_chk@plt>:
+    4da3f0:	ff 25 ea 5d c5 02    	jmp    *0x2c55dea(%rip)        # 31301e0 <__memcpy_chk@GLIBC_2.3.4>
+    4da3f6:	68 3c 00 00 00       	push   $0x3c
+    4da3fb:	e9 20 fc ff ff       	jmp    4da020 <QBrush::QBrush()@plt-0x10>
+  
+  00000000004da400 <QQmlPrivate::AOTCompiledContext::initCallObjectPropertyLookup(unsigned int, QObject*, int) const@plt>:
+    4da400:	ff 25 e2 5d c5 02    	jmp    *0x2c55de2(%rip)        # 31301e8 <QQmlPrivate::AOTCompiledContext::initCallObjectPropertyLookup(unsigned int, QObject*, int) const@Qt_6>
+    4da406:	68 3d 00 00 00       	push   $0x3d
+    4da40b:	e9 10 fc ff ff       	jmp    4da020 <QBrush::QBrush()@plt-0x10>
+  
+  00000000004da410 <nan@plt>:
+    4da410:	ff 25 da 5d c5 02    	jmp    *0x2c55dda(%rip)        # 31301f0 <nan@GLIBC_2.2.5>
+    4da416:	68 3e 00 00 00       	push   $0x3e
+    4da41b:	e9 00 fc ff ff       	jmp    4da020 <QBrush::QBrush()@plt-0x10>
+  
+  00000000004da420 <QAbstractItemModel::beginMoveRows(QModelIndex const&, int, int, QModelIndex const&, int)@plt>:
+    4da420:	ff 25 d2 5d c5 02    	jmp    *0x2c55dd2(%rip)        # 31301f8 <QAbstractItemModel::beginMoveRows(QModelIndex const&, int, int, QModelIndex const&, int)@Qt_6>
+    4da426:	68 3f 00 00 00       	push   $0x3f
+    4da42b:	e9 f0 fb ff ff       	jmp    4da020 <QBrush::QBrush()@plt-0x10>
+  
+  00000000004da430 <operator delete(void*)@plt>:
+    4da430:	ff 25 ca 5d c5 02    	jmp    *0x2c55dca(%rip)        # 3130200 <operator delete(void*)@GLIBCXX_3.4>
+    4da436:	68 40 00 00 00       	push   $0x40
+    4da43b:	e9 e0 fb ff ff       	jmp    4da020 <QBrush::QBrush()@plt-0x10>
+  
+  00000000004da440 <QApplication::qt_metacast(char const*)@plt>:
+    4da440:	ff 25 c2 5d c5 02    	jmp    *0x2c55dc2(%rip)        # 3130208 <QApplication::qt_metacast(char const*)@Qt_6>
+    4da446:	68 41 00 00 00       	push   $0x41
+    4da44b:	e9 d0 fb ff ff       	jmp    4da020 <QBrush::QBrush()@plt-0x10>
+  
+  00000000004da450 <QDateTime::setMSecsSinceEpoch(long long)@plt>:
+    4da450:	ff 25 ba 5d c5 02    	jmp    *0x2c55dba(%rip)        # 3130210 <QDateTime::setMSecsSinceEpoch(long long)@Qt_6>
+    4da456:	68 42 00 00 00       	push   $0x42
+    4da45b:	e9 c0 fb ff ff       	jmp    4da020 <QBrush::QBrush()@plt-0x10>
+  
+  00000000004da460 <std::__throw_length_error(char const*)@plt>:
+    4da460:	ff 25 b2 5d c5 02    	jmp    *0x2c55db2(%rip)        # 3130218 <std::__throw_length_error(char const*)@GLIBCXX_3.4>
+    4da466:	68 43 00 00 00       	push   $0x43
+    4da46b:	e9 b0 fb ff ff       	jmp    4da020 <QBrush::QBrush()@plt-0x10>
+FIELDDATA_BRANCH_TARGET 0x4de9a0
+  
+  /data/client-15.32.df7b29/bin/client:     file format elf64-x86-64
+  
+  
+  Disassembly of section .plt:
+  
+  00000000004de9a0 <fmax@plt>:
+    4de9a0:	ff 25 12 3b c5 02    	jmp    *0x2c53b12(%rip)        # 31324b8 <fmax@GLIBC_2.2.5>
+    4de9a6:	68 97 04 00 00       	push   $0x497
+    4de9ab:	e9 70 b6 ff ff       	jmp    4da020 <QBrush::QBrush()@plt-0x10>
+  
+  00000000004de9b0 <QJsonArray::detach(long long)@plt>:
+    4de9b0:	ff 25 0a 3b c5 02    	jmp    *0x2c53b0a(%rip)        # 31324c0 <QJsonArray::detach(long long)@Qt_6>
+    4de9b6:	68 98 04 00 00       	push   $0x498
+    4de9bb:	e9 60 b6 ff ff       	jmp    4da020 <QBrush::QBrush()@plt-0x10>
+  
+  00000000004de9c0 <memmove@plt>:
+    4de9c0:	ff 25 02 3b c5 02    	jmp    *0x2c53b02(%rip)        # 31324c8 <memmove@GLIBC_2.2.5>
+    4de9c6:	68 99 04 00 00       	push   $0x499
+    4de9cb:	e9 50 b6 ff ff       	jmp    4da020 <QBrush::QBrush()@plt-0x10>
+  
+  00000000004de9d0 <QNetworkRequest::~QNetworkRequest()@plt>:
+    4de9d0:	ff 25 fa 3a c5 02    	jmp    *0x2c53afa(%rip)        # 31324d0 <QNetworkRequest::~QNetworkRequest()@Qt_6>
+    4de9d6:	68 9a 04 00 00       	push   $0x49a
+    4de9db:	e9 40 b6 ff ff       	jmp    4da020 <QBrush::QBrush()@plt-0x10>
+  
+  00000000004de9e0 <QObject::disconnectImpl(QObject const*, void**, QObject const*, void**, QMetaObject const*)@plt>:
+    4de9e0:	ff 25 f2 3a c5 02    	jmp    *0x2c53af2(%rip)        # 31324d8 <QObject::disconnectImpl(QObject const*, void**, QObject const*, void**, QMetaObject const*)@Qt_6>
+    4de9e6:	68 9b 04 00 00       	push   $0x49b
+    4de9eb:	e9 30 b6 ff ff       	jmp    4da020 <QBrush::QBrush()@plt-0x10>
+  
+  00000000004de9f0 <QThreadPool::start(QRunnable*, int)@plt>:
+    4de9f0:	ff 25 ea 3a c5 02    	jmp    *0x2c53aea(%rip)        # 31324e0 <QThreadPool::start(QRunnable*, int)@Qt_6>
+    4de9f6:	68 9c 04 00 00       	push   $0x49c
+    4de9fb:	e9 20 b6 ff ff       	jmp    4da020 <QBrush::QBrush()@plt-0x10>
+  
+  00000000004dea00 <std::__detail::_List_node_base::_M_hook(std::__detail::_List_node_base*)@plt>:
+    4dea00:	ff 25 e2 3a c5 02    	jmp    *0x2c53ae2(%rip)        # 31324e8 <std::__detail::_List_node_base::_M_hook(std::__detail::_List_node_base*)@GLIBCXX_3.4.15>
+    4dea06:	68 9d 04 00 00       	push   $0x49d
+    4dea0b:	e9 10 b6 ff ff       	jmp    4da020 <QBrush::QBrush()@plt-0x10>
+  
+  00000000004dea10 <QObject::doSetProperty(char const*, QVariant const*, QVariant*)@plt>:
+    4dea10:	ff 25 da 3a c5 02    	jmp    *0x2c53ada(%rip)        # 31324f0 <QObject::doSetProperty(char const*, QVariant const*, QVariant*)@Qt_6>
+    4dea16:	68 9e 04 00 00       	push   $0x49e
+    4dea1b:	e9 00 b6 ff ff       	jmp    4da020 <QBrush::QBrush()@plt-0x10>
+  
+  00000000004dea20 <QQmlPrivate::AOTCompiledContext::captureTranslation() const@plt>:
+    4dea20:	ff 25 d2 3a c5 02    	jmp    *0x2c53ad2(%rip)        # 31324f8 <QQmlPrivate::AOTCompiledContext::captureTranslation() const@Qt_6>
+    4dea26:	68 9f 04 00 00       	push   $0x49f
+    4dea2b:	e9 f0 b5 ff ff       	jmp    4da020 <QBrush::QBrush()@plt-0x10>
+  
+  00000000004dea30 <QImage::setPixel(int, int, unsigned int)@plt>:
+    4dea30:	ff 25 ca 3a c5 02    	jmp    *0x2c53aca(%rip)        # 3132500 <QImage::setPixel(int, int, unsigned int)@Qt_6>
+    4dea36:	68 a0 04 00 00       	push   $0x4a0
+    4dea3b:	e9 e0 b5 ff ff       	jmp    4da020 <QBrush::QBrush()@plt-0x10>
+  
+  00000000004dea40 <QDataStream::~QDataStream()@plt>:
+    4dea40:	ff 25 c2 3a c5 02    	jmp    *0x2c53ac2(%rip)        # 3132508 <QDataStream::~QDataStream()@Qt_6>
+    4dea46:	68 a1 04 00 00       	push   $0x4a1
+    4dea4b:	e9 d0 b5 ff ff       	jmp    4da020 <QBrush::QBrush()@plt-0x10>
+  
+  00000000004dea50 <QPixmap::copy(QRect const&) const@plt>:
+    4dea50:	ff 25 ba 3a c5 02    	jmp    *0x2c53aba(%rip)        # 3132510 <QPixmap::copy(QRect const&) const@Qt_6>
+    4dea56:	68 a2 04 00 00       	push   $0x4a2
+    4dea5b:	e9 c0 b5 ff ff       	jmp    4da020 <QBrush::QBrush()@plt-0x10>
+FIELDDATA_BRANCH_TARGET 0x4dafb0
+  
+  /data/client-15.32.df7b29/bin/client:     file format elf64-x86-64
+  
+  
+  Disassembly of section .plt:
+  
+  00000000004dafb0 <fmin@plt>:
+    4dafb0:	ff 25 0a 58 c5 02    	jmp    *0x2c5580a(%rip)        # 31307c0 <fmin@GLIBC_2.2.5>
+    4dafb6:	68 f8 00 00 00       	push   $0xf8
+    4dafbb:	e9 60 f0 ff ff       	jmp    4da020 <QBrush::QBrush()@plt-0x10>
+  
+  00000000004dafc0 <QKeySequence::QKeySequence(QString const&, QKeySequence::SequenceFormat)@plt>:
+    4dafc0:	ff 25 02 58 c5 02    	jmp    *0x2c55802(%rip)        # 31307c8 <QKeySequence::QKeySequence(QString const&, QKeySequence::SequenceFormat)@Qt_6>
+    4dafc6:	68 f9 00 00 00       	push   $0xf9
+    4dafcb:	e9 50 f0 ff ff       	jmp    4da020 <QBrush::QBrush()@plt-0x10>
+  
+  00000000004dafd0 <QUrl::toPercentEncoding(QString const&, QByteArray const&, QByteArray const&)@plt>:
+    4dafd0:	ff 25 fa 57 c5 02    	jmp    *0x2c557fa(%rip)        # 31307d0 <QUrl::toPercentEncoding(QString const&, QByteArray const&, QByteArray const&)@Qt_6>
+    4dafd6:	68 fa 00 00 00       	push   $0xfa
+    4dafdb:	e9 40 f0 ff ff       	jmp    4da020 <QBrush::QBrush()@plt-0x10>
+  
+  00000000004dafe0 <QApplication::QApplication(int&, char**, int)@plt>:
+    4dafe0:	ff 25 f2 57 c5 02    	jmp    *0x2c557f2(%rip)        # 31307d8 <QApplication::QApplication(int&, char**, int)@Qt_6>
+    4dafe6:	68 fb 00 00 00       	push   $0xfb
+    4dafeb:	e9 30 f0 ff ff       	jmp    4da020 <QBrush::QBrush()@plt-0x10>
+  
+  00000000004daff0 <QQuickAsyncImageProvider::QQuickAsyncImageProvider()@plt>:
+    4daff0:	ff 25 ea 57 c5 02    	jmp    *0x2c557ea(%rip)        # 31307e0 <QQuickAsyncImageProvider::QQuickAsyncImageProvider()@Qt_6>
+    4daff6:	68 fc 00 00 00       	push   $0xfc
+    4daffb:	e9 20 f0 ff ff       	jmp    4da020 <QBrush::QBrush()@plt-0x10>
+  
+  00000000004db000 <std::ostream::put(char)@plt>:
+    4db000:	ff 25 e2 57 c5 02    	jmp    *0x2c557e2(%rip)        # 31307e8 <std::ostream::put(char)@GLIBCXX_3.4>
+    4db006:	68 fd 00 00 00       	push   $0xfd
+    4db00b:	e9 10 f0 ff ff       	jmp    4da020 <QBrush::QBrush()@plt-0x10>
+  
+  00000000004db010 <std::future_category()@plt>:
+    4db010:	ff 25 da 57 c5 02    	jmp    *0x2c557da(%rip)        # 31307f0 <std::future_category()@GLIBCXX_3.4.15>
+    4db016:	68 fe 00 00 00       	push   $0xfe
+    4db01b:	e9 00 f0 ff ff       	jmp    4da020 <QBrush::QBrush()@plt-0x10>
+  
+  00000000004db020 <QJSEngine::convertManaged(QJSManagedValue const&, QMetaType, void*)@plt>:
+    4db020:	ff 25 d2 57 c5 02    	jmp    *0x2c557d2(%rip)        # 31307f8 <QJSEngine::convertManaged(QJSManagedValue const&, QMetaType, void*)@Qt_6>
+    4db026:	68 ff 00 00 00       	push   $0xff
+    4db02b:	e9 f0 ef ff ff       	jmp    4da020 <QBrush::QBrush()@plt-0x10>
+  
+  00000000004db030 <QLocale::toString(QDateTime const&, QLocale::FormatType) const@plt>:
+    4db030:	ff 25 ca 57 c5 02    	jmp    *0x2c557ca(%rip)        # 3130800 <QLocale::toString(QDateTime const&, QLocale::FormatType) const@Qt_6>
+    4db036:	68 00 01 00 00       	push   $0x100
+    4db03b:	e9 e0 ef ff ff       	jmp    4da020 <QBrush::QBrush()@plt-0x10>
+  
+  00000000004db040 <QWindow::setOpacity(double)@plt>:
+    4db040:	ff 25 c2 57 c5 02    	jmp    *0x2c557c2(%rip)        # 3130808 <QWindow::setOpacity(double)@Qt_6>
+    4db046:	68 01 01 00 00       	push   $0x101
+    4db04b:	e9 d0 ef ff ff       	jmp    4da020 <QBrush::QBrush()@plt-0x10>
+  
+  00000000004db050 <QQuickText::setVAlign(QQuickText::VAlignment)@plt>:
+    4db050:	ff 25 ba 57 c5 02    	jmp    *0x2c557ba(%rip)        # 3130810 <QQuickText::setVAlign(QQuickText::VAlignment)@Qt_6_PRIVATE_API>
+    4db056:	68 02 01 00 00       	push   $0x102
+    4db05b:	e9 c0 ef ff ff       	jmp    4da020 <QBrush::QBrush()@plt-0x10>
+  
+  00000000004db060 <QFont::operator<(QFont const&) const@plt>:
+    4db060:	ff 25 b2 57 c5 02    	jmp    *0x2c557b2(%rip)        # 3130818 <QFont::operator<(QFont const&) const@Qt_6>
+    4db066:	68 03 01 00 00       	push   $0x103
+    4db06b:	e9 b0 ef ff ff       	jmp    4da020 <QBrush::QBrush()@plt-0x10>
+```
+
+<!-- END WORLDMAP METHOD DISPATCH -->
