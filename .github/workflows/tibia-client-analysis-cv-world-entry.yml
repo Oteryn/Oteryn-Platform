@@ -1,6 +1,6 @@
 name: Tibia CV World Entry
 
-# Recovery trigger: 2026-08-12 live session verification found no preserved 1020x650 world session.
+# Recovery trigger: 2026-08-12 23:54 CEST explicit verified world-login retry.
 on:
   push:
     branches: [ops/oteryn-tibia-client-analysis-20260811]
@@ -42,12 +42,10 @@ jobs:
           pkg="$HOME/.local/share/CipSoft GmbH/Tibia/packages/Tibia"
           client="$pkg/bin/client"
           [[ -x "$client" ]]
-
           pgrep -f '/wireproxy .*wireproxy.conf' >/dev/null
           curl --socks5-hostname 127.0.0.1:25344 -fsS --max-time 10 https://www.cloudflare.com/cdn-cgi/trace >/tmp/cv-warp.trace
           grep -q '^warp=on$' /tmp/cv-warp.trace
           echo WARP_VERIFIED=true
-
           cat >/tmp/proxychains-cv.conf <<'EOF'
           strict_chain
           proxy_dns
@@ -57,7 +55,6 @@ jobs:
           [ProxyList]
           socks5 127.0.0.1 25344
           EOF
-
           lvp=$(find /usr/share/vulkan/icd.d -maxdepth 1 -type f -name 'lvp_icd*.json' -print -quit 2>/dev/null || true)
           if [[ -z "$lvp" ]]; then
             apt-get update -qq
@@ -65,32 +62,23 @@ jobs:
             lvp=$(find /usr/share/vulkan/icd.d -maxdepth 1 -type f -name 'lvp_icd*.json' -print -quit)
           fi
           [[ -f "$lvp" ]]
-
           pkill -x client 2>/dev/null || true
           pgrep -f '^Xvfb :99' >/dev/null || nohup Xvfb :99 -screen 0 1280x800x24 >/data/runtime/xvfb.log 2>&1 </dev/null &
           : >/data/runtime/client-cv-world-entry.log
           cd "$pkg"
-          nohup env VK_ICD_FILENAMES="$lvp" VK_DRIVER_FILES="$lvp" LIBGL_ALWAYS_SOFTWARE=1 \
-            proxychains4 -f /tmp/proxychains-cv.conf "$client" \
-            >/data/runtime/client-cv-world-entry.log 2>&1 </dev/null &
-
+          nohup env VK_ICD_FILENAMES="$lvp" VK_DRIVER_FILES="$lvp" LIBGL_ALWAYS_SOFTWARE=1 proxychains4 -f /tmp/proxychains-cv.conf "$client" >/data/runtime/client-cv-world-entry.log 2>&1 </dev/null &
           for n in $(seq 1 50); do pgrep -x client >/dev/null && break; sleep 0.4; done
-          pid=$(pgrep -x client | head -n1)
-          [[ -n "$pid" ]]
+          pid=$(pgrep -x client | head -n1); [[ -n "$pid" ]]
           sleep 10
-
           best=''; best_area=0; bw=0; bh=0
           for w in $(xdotool search --onlyvisible --name '^Tibia$' 2>/dev/null || true); do
             geom=$(xdotool getwindowgeometry --shell "$w" 2>/dev/null || true)
-            width=$(printf '%s\n' "$geom" | sed -n 's/^WIDTH=//p')
-            height=$(printf '%s\n' "$geom" | sed -n 's/^HEIGHT=//p')
+            width=$(printf '%s\n' "$geom" | sed -n 's/^WIDTH=//p'); height=$(printf '%s\n' "$geom" | sed -n 's/^HEIGHT=//p')
             [[ -n "$width" && -n "$height" ]] || continue
-            area=$((width*height))
-            if (( area > best_area )); then best=$w; best_area=$area; bw=$width; bh=$height; fi
+            area=$((width*height)); if (( area > best_area )); then best=$w; best_area=$area; bw=$width; bh=$height; fi
           done
           [[ -n "$best" && "$bw" == 1020 && "$bh" == 650 ]]
           echo FIXED_WINDOW_GEOMETRY=true
-
           import -display :99 -window "$best" /tmp/cv-login-before.png
           xdotool windowactivate --sync "$best" 2>/dev/null || true
           xdotool mousemove --window "$best" 535 275 click 1
@@ -102,77 +90,49 @@ jobs:
           xdotool mousemove --window "$best" 590 388 click 1
           unset TIBIA_TEST_EMAIL TIBIA_TEST_PASSWORD
           echo LOGIN_SUBMITTED=true
-
           transitioned=0
           for n in $(seq 1 35); do
-            sleep 1
-            import -display :99 -window "$best" /tmp/cv-after-login.png
-            ae=$(compare -metric AE /tmp/cv-login-before.png /tmp/cv-after-login.png null: 2>&1 || true)
-            ae=${ae%%.*}
-            [[ "$ae" =~ ^[0-9]+$ ]] || ae=0
+            sleep 1; import -display :99 -window "$best" /tmp/cv-after-login.png
+            ae=$(compare -metric AE /tmp/cv-login-before.png /tmp/cv-after-login.png null: 2>&1 || true); ae=${ae%%.*}; [[ "$ae" =~ ^[0-9]+$ ]] || ae=0
             if (( ae > 45000 )); then transitioned=1; break; fi
           done
-          echo LOGIN_VISUAL_TRANSITION=$transitioned
-          (( transitioned == 1 ))
-
-          import -display :99 -window "$best" /tmp/cv-select-before.png
-          xdotool mousemove --window "$best" 285 193 click 1
-          sleep 0.4
-          xdotool key --window "$best" Return
+          echo LOGIN_VISUAL_TRANSITION=$transitioned; (( transitioned == 1 ))
+          xdotool mousemove --window "$best" 285 193 click 1; sleep 0.4; xdotool key --window "$best" Return
           echo FIRST_CHARACTER_ACTIVATION_SENT=true
-          sleep 3
-          xdotool mousemove --window "$best" 285 193 click --repeat 2 --delay 160 1
+          sleep 3; xdotool mousemove --window "$best" 285 193 click --repeat 2 --delay 160 1
           echo FIRST_CHARACTER_DOUBLECLICK_SENT=true
-
-          sustained=0
-          max_local=0
-          direct_seen=0
-          udp_seen=0
-          consecutive=0
+          sustained=0; max_local=0; direct_seen=0; udp_seen=0; consecutive=0
           for n in $(seq 1 60); do
             sleep 1
-            tcp_rows=$(ss -ntp 2>/dev/null | grep "pid=$pid," || true)
-            udp_rows=$(ss -nup 2>/dev/null | grep "pid=$pid," || true)
+            current_pid=$(pgrep -x client | tail -n1); [[ -n "$current_pid" ]] || continue
+            tcp_rows=$(ss -ntp 2>/dev/null | grep "pid=$current_pid," || true); udp_rows=$(ss -nup 2>/dev/null | grep "pid=$current_pid," || true)
             local_count=$(printf '%s\n' "$tcp_rows" | awk '$5 ~ /127\.0\.0\.1:25344$/ || $5 ~ /\[::1\]:25344$/ {n++} END{print n+0}')
-            total_count=$(printf '%s\n' "$tcp_rows" | grep -c . || true)
-            direct_count=$((total_count-local_count))
-            udp_count=$(printf '%s\n' "$udp_rows" | grep -c . || true)
-            (( local_count > max_local )) && max_local=$local_count || true
-            (( direct_count > 0 )) && direct_seen=1 || true
-            (( udp_count > 0 )) && udp_seen=1 || true
+            total_count=$(printf '%s\n' "$tcp_rows" | grep -c . || true); direct_count=$((total_count-local_count)); udp_count=$(printf '%s\n' "$udp_rows" | grep -c . || true)
+            (( local_count > max_local )) && max_local=$local_count || true; (( direct_count > 0 )) && direct_seen=1 || true; (( udp_count > 0 )) && udp_seen=1 || true
             if (( local_count > 0 )); then consecutive=$((consecutive+1)); else consecutive=0; fi
-            if (( consecutive >= 6 )); then sustained=1; break; fi
+            if (( consecutive >= 6 )); then sustained=1; pid=$current_pid; break; fi
           done
+          echo CLIENT_PID_WORLD=$pid
           echo CLIENT_LOCAL_SOCKS_MAX=$max_local
           echo CLIENT_DIRECT_TCP_SEEN=$direct_seen
           echo CLIENT_UDP_SEEN=$udp_seen
           echo CLIENT_SUSTAINED_TUNNELED_SESSION=$sustained
-          [[ "$direct_seen" -eq 0 && "$udp_seen" -eq 0 ]]
-          (( sustained == 1 ))
-
+          [[ "$direct_seen" -eq 0 && "$udp_seen" -eq 0 ]]; (( sustained == 1 ))
           sleep 6
           import -display :99 -window "$best" /tmp/cv-world-before.png
           convert /tmp/cv-world-before.png -crop 620x390+190+90 /tmp/cv-viewport-before.png
-          xdotool key --window "$best" Right
-          sleep 2
+          xdotool key --window "$best" Right; sleep 2
           import -display :99 -window "$best" /tmp/cv-world-after-right.png
           convert /tmp/cv-world-after-right.png -crop 620x390+190+90 /tmp/cv-viewport-after-right.png
-          move_ae=$(compare -metric AE /tmp/cv-viewport-before.png /tmp/cv-viewport-after-right.png null: 2>&1 || true)
-          move_ae=${move_ae%%.*}
-          [[ "$move_ae" =~ ^[0-9]+$ ]] || move_ae=0
-          echo VIEWPORT_CHANGED_PIXELS_AFTER_RIGHT=$move_ae
-          (( move_ae > 1000 ))
+          move_ae=$(compare -metric AE /tmp/cv-viewport-before.png /tmp/cv-viewport-after-right.png null: 2>&1 || true); move_ae=${move_ae%%.*}; [[ "$move_ae" =~ ^[0-9]+$ ]] || move_ae=0
+          echo VIEWPORT_CHANGED_PIXELS_AFTER_RIGHT=$move_ae; (( move_ae > 1000 ))
           xdotool key --window "$best" Left
           echo CONTROLLED_MOVE_ACTION_PROVEN=true
-
           cp /tmp/cv-world-after-right.png /tmp/tibia-cv-world-proof-safe.png
-          convert /tmp/tibia-cv-world-proof-safe.png -fill '#202020' \
-            -draw 'rectangle 0,0 1020,80 rectangle 0,80 180,650 rectangle 840,80 1020,650 rectangle 0,520 1020,650' \
-            /tmp/tibia-cv-world-proof-safe.png
+          convert /tmp/tibia-cv-world-proof-safe.png -fill '#202020' -draw 'rectangle 0,0 1020,80 rectangle 0,80 180,650 rectangle 840,80 1020,650 rectangle 0,520 1020,650' /tmp/tibia-cv-world-proof-safe.png
           echo PHYSICAL_WORLD_SESSION_AND_ACTION_PROVEN=true
           INNER
           docker cp "$CONTAINER_NAME:/tmp/tibia-cv-world-proof-safe.png" /tmp/tibia-cv-world-proof-safe.png
-
       - name: Upload privacy-safe world proof
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
@@ -181,7 +141,6 @@ jobs:
           path: /tmp/tibia-cv-world-proof-safe.png
           retention-days: 7
           if-no-files-found: warn
-
       - name: Verify canonical staging unchanged
         if: always()
         shell: bash
