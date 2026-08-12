@@ -66,6 +66,18 @@ jobs:
           fi
           docker inspect --format 'name={{.Name}} status={{.State.Status}} image={{.Config.Image}}' "$CONTAINER_NAME"
 
+      - name: Repair interrupted package state in owned container
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          docker exec "$CONTAINER_NAME" bash -lc '
+            set -Eeuo pipefail
+            export DEBIAN_FRONTEND=noninteractive
+            dpkg --configure -a
+            apt-get -f install -y
+            dpkg --audit
+          '
+
       - name: Install launcher prerequisites
         shell: bash
         run: |
