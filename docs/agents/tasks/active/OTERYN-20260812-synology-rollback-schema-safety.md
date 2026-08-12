@@ -47,8 +47,8 @@ The older `OTERYN-20260801-public-domain-repair` record's latest durable checkpo
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-12T07:46:00Z
-head: 8eef9629110204404b18412fd7fc5c7eb71c8f85
+updated_at: 2026-08-12T08:20:00Z
+head: c93baa129de0015b0714461ca2b69549fdc37d21
 branch: ops/synology-rollback-schema-safety-1007
 pr: 1013
 status: validating
@@ -63,30 +63,36 @@ owned_paths:
 blockers:
   - PR #1003 owns .github/workflows/deploy-synology-staging.yml; workflow mutation remains deferred.
 proven:
-  - branch was created from protected main ab43c4b47173e7208d34851c4091f79051379f7a and was behind_by=0 at the material checkpoint.
-  - PR #1003 remains open and owns .github/workflows/deploy-synology-staging.yml; PR #1013 does not modify it.
+  - PR #1013 is mergeable and remains scoped to the dedicated task branch.
+  - candidate release identity is derived from matching Platform/Gateway OCI revision labels and rejects disagreement with explicit release identity.
+  - candidate migration compatibility metadata is now read from /var/www/html/deploy/synology/release-contract.env inside the exact Platform image, not from an independently checked-out workflow revision.
+  - the image contract parser accepts only the three bounded compatibility keys and requires expand-contract policy plus bounded schema identifiers.
+  - pre-existing running Platform/Gateway/Canary images are snapshotted before pull using their Docker image IDs resolved immediately to immutable RepoDigests, preventing mutable-tag drift.
+  - when no managed current-release exists but a complete running-image snapshot exists, the old Platform/Gateway revision is verified and a synthetic observed-<sha> schema identity records the exact pre-migration DB/application pairing; that DB is backed up before migration.
+  - an existing non-empty Platform DB without either managed state or a complete running-image baseline fails closed before migration.
+  - legacy snapshot parsing occurs in a subshell so candidate image variables are not overwritten.
   - release-state metadata validates exact application SHA, immutable runtime image identities, schema compatibility identity, accepted schema identities and rollback eligibility.
   - deployment persists candidate identity before migration and writes schema state unknown before invoking migrate; known schema identity is persisted only after migrate succeeds.
-  - a pre-migration Platform DB dump is tied to old/candidate release SHAs, old schema identity and SHA-256 evidence.
-  - rollback validates actual independent schema identity against last-good application compatibility before old images are started and explicitly does not change schema.
+  - rollback validates independent schema identity against last-good application compatibility before old images are started and explicitly does not change schema.
   - recover-schema.sh is explicit staging-only recovery and validates managed evidence/digest/transition identity before recreating only the staging Platform DB.
-  - health helper aliases are translated at the shared Docker boundary to repository-pinned alpine/python @sha256 identities while existing health assertions remain unchanged.
-  - deterministic tests cover compatible rollback, incompatible schema rejection, missing metadata, stale identity, immutable helper mapping, migration ambiguity ordering, explicit recovery and truthful image rollback.
+  - deterministic focused tests now include image-bound contract parsing, unexpected contract-key rejection, immutable legacy snapshot ordering, candidate-variable preservation, fail-closed missing baseline, world-name quoting and all prior rollback/recovery cases.
 derived:
-  - migration-bearing ambiguous outcomes fail closed because schema identity cannot remain inherited from the prior successful release.
+  - the two P1 findings from Codex review at fbbf519471 are addressed structurally: candidate metadata is image-bound and legacy migration cannot proceed without a backup-capable baseline.
 unknown:
-  - terminal result of the next validation generation.
-  - fresh independent review result.
+  - terminal result of exact-head CI generation for c93baa129de0015b0714461ca2b69549fdc37d21.
+  - fresh independent review result on the final coherent head.
 conflicts: []
-first_failure:
-  marker: checkpoint-missing-blockers
-  evidence: CI run 31575212822 classify-changes rejected the prior material head because this checkpoint lacked mandatory blockers.
-rejected_hypotheses:
-  - image rollback implicitly restores schema; it does not.
-  - migration reversal is safe by default; no such contract exists.
-  - current-release alone is sufficient after a failed migration-bearing deployment; candidate and independent schema state are required.
+review_findings_repaired:
+  - schema-state remained known across failed destructive recovery; fixed by unknown-before-drop/known-after-complete-restore.
+  - marketplace scheduler could write during restore; fixed by explicit stop and verification.
+  - compatibility test called wrong subcommand; fixed and focused suite wired to Synology CI.
+  - release-state world name with spaces was not shell-safe; fixed with %q serialization and round-trip test.
+  - first managed migration lacked legacy baseline; fixed with immutable pre-pull running-image snapshot plus observed pre-migration schema identity and fail-closed no-baseline behavior.
+  - release contract came from workflow checkout rather than selected image; fixed by reading the contract from the exact Platform image whose OCI revision is verified.
 changed_paths:
+  - .github/workflows/build-synology-staging-images.yml
   - deploy/synology/release-contract.env
+  - deploy/synology/scripts/deploy.sh
   - deploy/synology/scripts/lib.sh
   - deploy/synology/scripts/recover-schema.sh
   - deploy/synology/scripts/release-state.sh
@@ -95,11 +101,23 @@ changed_paths:
   - tests/ci/test_synology_rollback_contract.py
   - this task record
 validation:
-  - command: compare main...ops/synology-rollback-schema-safety-1007
+  - command: prior exact-head focused Synology gate at fbbf519471
     result: PASS
-    evidence: bounded implementation/test/docs scope; no #1003 workflow mutation.
-  - command: CI 31575212822
-    result: FAIL
-    evidence: checkpoint schema only: mandatory blockers field missing; repaired in this checkpoint-only revision.
-next_action: wait for/review the post-repair CI generation, repair verified implementation defects only, then perform full diff self-review and fresh independent review.
+    evidence: 14/14 tests, shell syntax, Compose/LAN validation and image builds passed before the two newest review findings.
+  - command: exact-head CI generation c93baa129de0015b0714461ca2b69549fdc37d21
+    result: PENDING
+    evidence: workflow runs 31578320346/351/353/359/362/365/369/396 created for current head.
+self_review:
+  result: PENDING
+  exact_head: c93baa129de0015b0714461ca2b69549fdc37d21
+  acceptance_checked: true
+  full_diff_checked: false
+  negative_paths_checked: true
+  rollback_checked: true
+  compatibility_checked: true
+  related_prs_checked: false
+  findings: []
+  evidence:
+    - image-bound compatibility contract and legacy baseline repairs are present on current head.
+next_action: inspect current-head focused Synology validation and full diff; repair only verified defects, then request/complete fresh exact-head Codex review before final CI/merge gate.
 ```
