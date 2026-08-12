@@ -1,0 +1,256 @@
+name: Tibia Decoded Worldmap Runtime Capture V2
+
+on:
+  push:
+    branches: [ops/oteryn-tibia-client-analysis-20260811]
+    paths: [.github/workflows/tibia-client-analysis-gdb-worldmap-capture-v2.yml]
+
+permissions:
+  contents: read
+
+env:
+  CONTAINER_NAME: oteryn-tibia-client-analysis
+
+jobs:
+  capture:
+    name: Capture decoded map through PID-scoped client
+    runs-on: oteryn-staging
+    timeout-minutes: 12
+    steps:
+      - name: Verify exact owned runtime and snapshot staging
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          [[ "$RUNNER_NAME" == "oteryn-synology-staging" ]]
+          [[ "$(docker inspect --format '{{ index .Config.Labels "com.blakinio.owner" }}' "$CONTAINER_NAME")" == "oteryn" ]]
+          [[ "$(docker inspect --format '{{ index .Config.Labels "com.blakinio.purpose" }}' "$CONTAINER_NAME")" == "tibia-client-analysis" ]]
+          [[ "$(docker inspect --format '{{.State.Status}}' "$CONTAINER_NAME")" == "running" ]]
+          docker ps -a --filter 'label=com.docker.compose.project=oteryn-staging' --format '{{.ID}}\t{{.Names}}' | sort >/tmp/oteryn-before.tsv
+
+      - name: Instrument decoded content and enter world without OCR
+        shell: bash
+        env:
+          TIBIA_TEST_EMAIL: ${{ secrets.TIBIA_TEST_EMAIL }}
+          TIBIA_TEST_PASSWORD: ${{ secrets.TIBIA_TEST_PASSWORD }}
+        run: |
+          set -Eeuo pipefail
+          [[ -n "$TIBIA_TEST_EMAIL" && -n "$TIBIA_TEST_PASSWORD" ]]
+          docker exec -e TIBIA_TEST_EMAIL -e TIBIA_TEST_PASSWORD -i "$CONTAINER_NAME" bash <<'INNER'
+          set -Eeuo pipefail
+          export DISPLAY=:99 HOME=/data/home
+          pkg="$HOME/.local/share/CipSoft GmbH/Tibia/packages/Tibia"
+          client="$pkg/bin/client"
+          [[ -x "$client" ]]
+
+          pgrep -f '/wireproxy .*wireproxy.conf' >/dev/null
+          curl --socks5-hostname 127.0.0.1:25344 -fsS --max-time 10 https://www.cloudflare.com/cdn-cgi/trace >/tmp/gdbv2-warp.trace
+          grep -q '^warp=on$' /tmp/gdbv2-warp.trace
+          echo WARP_VERIFIED=true
+          cat >/tmp/proxychains-gdbv2.conf <<'EOF'
+          strict_chain
+          proxy_dns
+          quiet_mode
+          tcp_read_time_out 15000
+          tcp_connect_time_out 8000
+          [ProxyList]
+          socks5 127.0.0.1 25344
+          EOF
+
+          command -v gdb >/dev/null || {
+            apt-get update -qq
+            DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends gdb >/dev/null
+          }
+          lvp=$(find /usr/share/vulkan/icd.d -maxdepth 1 -type f -name 'lvp_icd*.json' -print -quit)
+          [[ -f "$lvp" ]]
+
+          rm -f /data/runtime/worldmap-live-capture-v2.txt /data/runtime/worldmap-gdb-v2.log
+          cat >/tmp/worldmap-capture-v2.gdb <<'GDB'
+          set pagination off
+          set confirm off
+          set breakpoint pending on
+          set print thread-events off
+          starti
+          python
+          import gdb, struct
+          inf=gdb.selected_inferior()
+          pid=inf.pid
+          lines=open(f'/proc/{pid}/maps',errors='replace').read().splitlines()
+          entries=[]
+          for line in lines:
+              if '/packages/Tibia/bin/client' not in line:
+                  continue
+              p=line.split()
+              if len(p) >= 5:
+                  entries.append((int(p[2],16),int(p[0].split('-')[0],16)))
+          if not entries:
+              raise gdb.GdbError('PIE mapping unavailable')
+          zero=[e for e in entries if e[0] == 0]
+          base=(zero[0] if zero else sorted(entries)[0])[1]
+          gdb.write(f'PIE_BASE=0x{base:x}\n')
+          out='/data/runtime/worldmap-live-capture-v2.txt'
+          open(out,'w').write('WORLD_MAP_RUNTIME_CAPTURE_V2\n')
+
+          def read(addr,n): return bytes(inf.read_memory(addr,n))
+          def u32(addr): return struct.unpack('<I',read(addr,4))[0]
+          def u64(addr): return struct.unpack('<Q',read(addr,8))[0]
+          def su64(addr):
+              try: return u64(addr)
+              except: return 0
+          def words(addr,n):
+              if addr < 0x10000: return []
+              vals=[]
+              for i in range(n):
+                  try: vals.append(u32(addr+4*i))
+                  except: vals.append(4294967295)
+              return vals
+
+          class MapContentBP(gdb.Breakpoint):
+              def __init__(self,addr):
+                  super().__init__(f'*0x{addr:x}',internal=False)
+                  self.accepted=0
+              def stop(self):
+                  try:
+                      rsp=int(gdb.parse_and_eval('$rsp'))
+                      rbx=int(gdb.parse_and_eval('$rbx'))
+                      order=int(gdb.parse_and_eval('$rbp')) & 0xffffffff
+                      x=u32(rsp+0x88); y=u32(rsp+0x8c); z=u32(rsp+0x90)
+                      if not (0 < x < 100000 and 0 < y < 100000 and z < 32 and order < 128):
+                          return False
+                      raw28=u32(rbx+0x28); raw30=u32(rbx+0x30)
+                      original_nested=su64(rbx+0x10)
+                      selected0=su64(rsp+0x100)
+                      selected1=su64(rsp+0x108)
+                      selected2=su64(rsp+0x110)
+                      selected28=su64(rsp+0x118)
+                      selected30=su64(rsp+0x120)
+                      ow=words(original_nested,12)
+                      sw=words(selected0,16)
+                      with open(out,'a') as f:
+                          f.write('REC x=%d y=%d z=%d order=%d raw28=%d raw30=%d orig=0x%x sel0=0x%x sel1=0x%x sel2=0x%x sel28=%d sel30=%d orig_words=%s sel_words=%s\n' % (
+                              x,y,z,order,raw28,raw30,original_nested,selected0,selected1,selected2,selected28,selected30,
+                              ','.join(map(str,ow)),','.join(map(str,sw))))
+                      self.accepted += 1
+                      if self.accepted >= 240:
+                          self.enabled=False
+                          gdb.write('CAPTURE_LIMIT_REACHED=true\n')
+                  except Exception as e:
+                      gdb.write('CAPTURE_BP_ERROR=%s\n' % type(e).__name__)
+                  return False
+
+          MapContentBP(base+0x19a8ea3)
+          gdb.write('DECODED_CONTENT_BREAKPOINT_READY=true\n')
+          end
+          continue
+          GDB
+
+          pkill -x client 2>/dev/null || true
+          pkill -f 'gdb .*packages/Tibia/bin/client' 2>/dev/null || true
+          sleep 1
+          pgrep -f '^Xvfb :99' >/dev/null || nohup Xvfb :99 -screen 0 1280x800x24 >/data/runtime/xvfb.log 2>&1 </dev/null &
+          cd "$pkg"
+          nohup env VK_ICD_FILENAMES="$lvp" VK_DRIVER_FILES="$lvp" LIBGL_ALWAYS_SOFTWARE=1 \
+            proxychains4 -f /tmp/proxychains-gdbv2.conf \
+            gdb -q -x /tmp/worldmap-capture-v2.gdb --args "$client" \
+            >/data/runtime/worldmap-gdb-v2.log 2>&1 </dev/null &
+
+          for n in $(seq 1 80); do
+            grep -q 'DECODED_CONTENT_BREAKPOINT_READY=true' /data/runtime/worldmap-gdb-v2.log 2>/dev/null && break
+            sleep 0.5
+          done
+          grep -q 'DECODED_CONTENT_BREAKPOINT_READY=true' /data/runtime/worldmap-gdb-v2.log
+          echo GDB_DECODED_BREAKPOINT_READY=true
+
+          for n in $(seq 1 80); do pgrep -x client >/dev/null && break; sleep 0.5; done
+          pid=$(pgrep -x client | head -n1)
+          [[ -n "$pid" ]]
+          echo CLIENT_PID_READY=true
+
+          best=''
+          for n in $(seq 1 80); do
+            for w in $(xdotool search --onlyvisible --pid "$pid" --name '^Tibia$' 2>/dev/null || true); do
+              xwininfo -id "$w" >/dev/null 2>&1 || continue
+              geom=$(xdotool getwindowgeometry --shell "$w" 2>/dev/null || true)
+              width=$(printf '%s\n' "$geom" | sed -n 's/^WIDTH=//p')
+              height=$(printf '%s\n' "$geom" | sed -n 's/^HEIGHT=//p')
+              if [[ "$width" == 1020 && "$height" == 650 ]]; then best=$w; break; fi
+            done
+            [[ -n "$best" ]] && break
+            sleep 0.5
+          done
+          [[ -n "$best" ]]
+          echo LIVE_PID_SCOPED_WINDOW=true
+          sleep 5
+
+          # Login geometry already proved by the successful non-OCR run 31620129239.
+          xdotool windowactivate --sync "$best" 2>/dev/null || true
+          xdotool mousemove --window "$best" 535 275 click 1
+          xdotool key --window "$best" ctrl+a
+          xdotool type --window "$best" --delay 3 -- "$TIBIA_TEST_EMAIL"
+          xdotool mousemove --window "$best" 535 304 click 1
+          xdotool key --window "$best" ctrl+a
+          xdotool type --window "$best" --delay 3 -- "$TIBIA_TEST_PASSWORD"
+          xdotool mousemove --window "$best" 590 388 click 1
+          unset TIBIA_TEST_EMAIL TIBIA_TEST_PASSWORD
+          echo LOGIN_SUBMITTED_WITHOUT_OCR=true
+
+          # Network-state wait replaces text recognition. The successful path can have several local SOCKS channels.
+          connected=0
+          for n in $(seq 1 45); do
+            sleep 1
+            tcp_rows=$(ss -ntp 2>/dev/null | grep "pid=$pid," || true)
+            lc=$(printf '%s\n' "$tcp_rows" | awk '$5 ~ /127\.0\.0\.1:25344$/ || $5 ~ /\[::1\]:25344$/ {n++} END{print n+0}')
+            if (( lc >= 1 )); then connected=1; fi
+            # Give character-list UI time to settle even after TCP appears.
+            (( n >= 12 && connected == 1 )) && break
+          done
+          echo AUTH_TCP_OBSERVED=$connected
+          (( connected == 1 ))
+
+          # First visible character row in the fixed 1020x650 selector; no OCR-derived target.
+          xdotool mousemove --window "$best" 285 193 click 1
+          xdotool key --window "$best" Return
+          sleep 3
+          xdotool mousemove --window "$best" 285 193 click --repeat 2 --delay 160 1
+          echo CHARACTER_ENTRY_SENT_WITHOUT_OCR=true
+
+          records=0
+          for n in $(seq 1 90); do
+            sleep 1
+            records=$(grep -c '^REC ' /data/runtime/worldmap-live-capture-v2.txt 2>/dev/null || true)
+            (( records >= 20 )) && break
+          done
+          echo DECODED_RECORD_COUNT_AFTER_ENTRY=$records
+          (( records >= 20 ))
+
+          # One reversible in-world action to force directional map updates.
+          xdotool key --window "$best" Right
+          sleep 2
+          xdotool key --window "$best" Left
+          sleep 3
+          records=$(grep -c '^REC ' /data/runtime/worldmap-live-capture-v2.txt 2>/dev/null || true)
+          echo DECODED_RECORD_COUNT_FINAL=$records
+
+          tcp_rows=$(ss -ntp 2>/dev/null | grep "pid=$pid," || true)
+          udp_rows=$(ss -nup 2>/dev/null | grep "pid=$pid," || true)
+          local_count=$(printf '%s\n' "$tcp_rows" | awk '$5 ~ /127\.0\.0\.1:25344$/ || $5 ~ /\[::1\]:25344$/ {n++} END{print n+0}')
+          total_count=$(printf '%s\n' "$tcp_rows" | grep -c . || true)
+          direct_count=$((total_count-local_count))
+          udp_count=$(printf '%s\n' "$udp_rows" | grep -c . || true)
+          echo FINAL_LOCAL_SOCKS_COUNT=$local_count
+          echo FINAL_DIRECT_TCP_COUNT=$direct_count
+          echo FINAL_UDP_COUNT=$udp_count
+          [[ "$direct_count" -eq 0 && "$udp_count" -eq 0 ]]
+
+          echo WORLDMAP_CAPTURE_BEGIN
+          grep '^REC ' /data/runtime/worldmap-live-capture-v2.txt | head -n 60
+          echo WORLDMAP_CAPTURE_END
+          INNER
+
+      - name: Verify canonical staging unchanged
+        if: always()
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          docker ps -a --filter 'label=com.docker.compose.project=oteryn-staging' --format '{{.ID}}\t{{.Names}}' | sort >/tmp/oteryn-after.tsv
+          diff -u /tmp/oteryn-before.tsv /tmp/oteryn-after.tsv
+          docker inspect --format 'analysis_name={{.Name}} status={{.State.Status}} owner={{ index .Config.Labels "com.blakinio.owner" }} purpose={{ index .Config.Labels "com.blakinio.purpose" }}' "$CONTAINER_NAME"
