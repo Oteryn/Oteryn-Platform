@@ -45,6 +45,13 @@ def classify_path(raw_path: str) -> PathClassification:
     if not path:
         return PathClassification("shared", ALL_GATES)
 
+    # The Agent Governance workflow is itself part of the governance surface.
+    # Treating this one file as a generic workflow would fan a governance-only
+    # change into Phase 7, edge, DB-outage and game-auth runtime proof. The
+    # dedicated Agent Governance workflow validates its own executable change.
+    if path == ".github/workflows/agent-governance.yml":
+        return PathClassification("agent_governance", NO_GATES)
+
     if _matches(
         path,
         (
@@ -64,6 +71,7 @@ def classify_path(raw_path: str) -> PathClassification:
             "tools/agents/**",
             ".github/ISSUE_TEMPLATE/**",
             ".github/PULL_REQUEST_TEMPLATE/**",
+            ".github/PULL_REQUEST_TEMPLATE.md",
             ".github/pull_request_template.md",
         ),
     ):
