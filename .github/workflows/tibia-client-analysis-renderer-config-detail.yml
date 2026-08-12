@@ -1,0 +1,103 @@
+name: Tibia Client Renderer Config Detail
+
+on:
+  push:
+    branches: [ops/oteryn-tibia-client-analysis-20260811]
+    paths: [.github/workflows/tibia-client-analysis-renderer-config-detail.yml]
+
+permissions:
+  contents: read
+
+env:
+  CONTAINER_NAME: oteryn-tibia-client-analysis
+
+jobs:
+  inspect:
+    name: Resolve active renderer setting without private values
+    runs-on: oteryn-staging
+    timeout-minutes: 3
+    steps:
+      - name: Verify owned runtime and snapshot staging
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          [[ "$RUNNER_NAME" == "oteryn-synology-staging" ]]
+          [[ "$(docker inspect --format '{{ index .Config.Labels "com.blakinio.owner" }}' "$CONTAINER_NAME")" == "oteryn" ]]
+          [[ "$(docker inspect --format '{{ index .Config.Labels "com.blakinio.purpose" }}' "$CONTAINER_NAME")" == "oteryn" || "$(docker inspect --format '{{ index .Config.Labels "com.blakinio.purpose" }}' "$CONTAINER_NAME")" == "tibia-client-analysis" ]]
+          [[ "$(docker inspect --format '{{.State.Status}}' "$CONTAINER_NAME")" == "running" ]]
+          docker ps -a --filter 'label=com.docker.compose.project=oteryn-staging' --format '{{.ID}}\t{{.Names}}' | sort >/tmp/oteryn-before.tsv
+
+      - name: Parse renderer-related config keys and generic values
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          docker exec -i "$CONTAINER_NAME" python3 - <<'PY'
+          from pathlib import Path
+          import json,re,hashlib
+          roots=[Path('/data/home/.local/share/CipSoft GmbH/Tibia'),Path('/data/home/.config')]
+          allowed_values={'opengl','vulkan','auto','automatic','software','hardware','true','false','0','1','2','3','4','enabled','disabled'}
+          allowed_key_terms=('render','graphic','vulkan','opengl','backend','engine','api')
+          records=[]
+
+          def emit(path,key,value,kind):
+              ks=str(key).strip().lower()
+              if not any(t in ks for t in allowed_key_terms): return
+              vs=str(value).strip().lower()
+              safe=vs if vs in allowed_values else f'non_generic_len_{len(vs)}'
+              rel=str(path).replace('/data/home/','~/')
+              records.append((rel,kind,ks[:120],safe))
+
+          def walk_json(path,obj,prefix=''):
+              if isinstance(obj,dict):
+                  for k,v in obj.items():
+                      key=f'{prefix}.{k}' if prefix else str(k)
+                      if isinstance(v,(dict,list)): walk_json(path,v,key)
+                      else: emit(path,key,v,'json')
+              elif isinstance(obj,list):
+                  for i,v in enumerate(obj):
+                      if isinstance(v,(dict,list)): walk_json(path,v,f'{prefix}[]')
+
+          candidates=[]
+          for root in roots:
+              if not root.exists(): continue
+              for p in root.rglob('*'):
+                  if not p.is_file(): continue
+                  try:
+                      if p.stat().st_size > 2_000_000: continue
+                  except OSError: continue
+                  if p.suffix.lower() in {'.json','.ini','.conf','.cfg','.xml'} or any(k in p.name.lower() for k in ('config','option','setting','client')):
+                      candidates.append(p)
+          for p in candidates:
+              try: text=p.read_text(errors='replace')
+              except Exception: continue
+              if not any(t in text.lower() for t in allowed_key_terms): continue
+              if p.suffix.lower()=='.json':
+                  try:
+                      walk_json(p,json.loads(text))
+                  except Exception:
+                      pass
+              for line in text.splitlines():
+                  lo=line.lower()
+                  if not any(t in lo for t in allowed_key_terms): continue
+                  m=re.match(r'^\s*([A-Za-z0-9_.-]{1,120})\s*[:=]\s*["\']?([^"\',}\s]{1,120})',line)
+                  if m: emit(p,m.group(1),m.group(2),'line')
+
+          uniq=[]
+          for r in records:
+              if r not in uniq: uniq.append(r)
+          print(f'RENDERER_RECORD_COUNT={len(uniq)}')
+          for i,(path,kind,key,value) in enumerate(uniq[:120],1):
+              print(f'RENDERER_{i}_PATH={path}')
+              print(f'RENDERER_{i}_KIND={kind}')
+              print(f'RENDERER_{i}_KEY={key}')
+              print(f'RENDERER_{i}_VALUE={value}')
+          PY
+
+      - name: Verify canonical staging unchanged
+        if: always()
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          docker ps -a --filter 'label=com.docker.compose.project=oteryn-staging' --format '{{.ID}}\t{{.Names}}' | sort >/tmp/oteryn-after.tsv
+          diff -u /tmp/oteryn-before.tsv /tmp/oteryn-after.tsv
+          docker inspect --format 'analysis_name={{.Name}} status={{.State.Status}} owner={{ index .Config.Labels "com.blakinio.owner" }} purpose={{ index .Config.Labels "com.blakinio.purpose" }}' "$CONTAINER_NAME"
