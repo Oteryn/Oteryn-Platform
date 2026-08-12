@@ -1,6 +1,9 @@
 name: Tibia Client Analysis Trace
 
 on:
+  push:
+    branches: [ops/oteryn-tibia-client-analysis-20260811]
+    paths: [.github/workflows/tibia-client-analysis-trace.yml]
   pull_request:
     branches: [main]
     paths: [.github/workflows/tibia-client-analysis-trace.yml]
@@ -25,7 +28,7 @@ jobs:
           [[ "$(docker inspect --format '{{ index .Config.Labels "com.blakinio.owner" }}' "$CONTAINER_NAME")" == "oteryn" ]]
           [[ "$(docker inspect --format '{{ index .Config.Labels "com.blakinio.purpose" }}' "$CONTAINER_NAME")" == "tibia-client-analysis" ]]
           [[ "$(docker inspect --format '{{.State.Status}}' "$CONTAINER_NAME")" == "running" ]]
-          docker ps -a --filter 'label=com.docker.compose.project=oteryn-staging' --format '{{.ID}}\t{{.Names}}' | sort > /tmp/oteryn-before.tsv
+          docker ps -a --filter 'label=com.docker.compose.project=oteryn-staging' --format '{{.ID}}\t{{.Names}}' | sort >/tmp/oteryn-before.tsv
 
       - name: Establish verified userspace WARP SOCKS egress
         shell: bash
@@ -38,16 +41,11 @@ jobs:
           state="$root/state"
           [[ "$(sha256sum "$bin/wgcf" | awk '{print $1}')" == 2ff97f2201972ce582a424455d50a3719a380eef0cd1f3144f7779348e122a2c ]]
           [[ -x "$bin/wireproxy" ]]
-          "$bin/wgcf" help >/dev/null
-          "$bin/wireproxy" -v
           cd "$state"
-          if [[ ! -s wgcf-account.toml ]]; then
-            "$bin/wgcf" register --accept-tos >/dev/null
-          fi
-          chmod 600 wgcf-account.toml
+          [[ -s wgcf-account.toml ]]
           "$bin/wgcf" generate >/dev/null
-          chmod 600 wgcf-profile.conf
-          cat > wireproxy.conf <<EOF
+          chmod 600 wgcf-account.toml wgcf-profile.conf
+          cat >wireproxy.conf <<EOF
           WGConfig = $state/wgcf-profile.conf
 
           [Socks5]
@@ -62,18 +60,12 @@ jobs:
             if curl --socks5-hostname 127.0.0.1:25344 -fsS --max-time 10 https://www.cloudflare.com/cdn-cgi/trace >/tmp/warp-trace 2>/dev/null; then ready=1; break; fi
             sleep 2
           done
-          echo USERSPACE_WARP_READY=$ready
-          if (( ready == 0 )); then
-            echo WIREPROXY_DIAGNOSTIC_BEGIN
-            tail -n 80 "$root/wireproxy.log" 2>/dev/null | sed -E '/(private|token|license|account)/Id' || true
-            echo WIREPROXY_DIAGNOSTIC_END
-            exit 1
-          fi
+          (( ready == 1 ))
           baseline=$(curl -fsS --max-time 10 https://www.cloudflare.com/cdn-cgi/trace | sed -n 's/^ip=//p')
           warp_ip=$(sed -n 's/^ip=//p' /tmp/warp-trace)
           warp_state=$(sed -n 's/^warp=//p' /tmp/warp-trace)
           [[ -n "$baseline" && -n "$warp_ip" && "$baseline" != "$warp_ip" ]]
-          [[ "$warp_state" == "on" || "$warp_state" == "plus" ]]
+          [[ "$warp_state" == on || "$warp_state" == plus ]]
           echo USERSPACE_WARP_EGRESS_VERIFIED=true
           grep -E '^(loc|warp)=' /tmp/warp-trace
           cat >/tmp/proxychains-tibia.conf <<'EOF'
@@ -129,7 +121,19 @@ jobs:
           echo "$best" >/tmp/tibia-window-id
           INNER
 
+      - name: Verify test secrets are available on push
+        if: github.event_name == 'push'
+        shell: bash
+        env:
+          TIBIA_TEST_EMAIL: ${{ secrets.TIBIA_TEST_EMAIL }}
+          TIBIA_TEST_PASSWORD: ${{ secrets.TIBIA_TEST_PASSWORD }}
+        run: |
+          set -Eeuo pipefail
+          [[ -n "$TIBIA_TEST_EMAIL" && -n "$TIBIA_TEST_PASSWORD" ]]
+          echo TIBIA_TEST_SECRETS_AVAILABLE=true
+
       - name: Attempt bounded test login through proven WARP path
+        if: github.event_name == 'push'
         shell: bash
         env:
           TIBIA_TEST_EMAIL: ${{ secrets.TIBIA_TEST_EMAIL }}
@@ -169,7 +173,7 @@ jobs:
           docker cp "$CONTAINER_NAME:/tmp/login-result-safe.png" /tmp/login-result-safe.png
 
       - name: Upload privacy-safe login result screenshot
-        if: always()
+        if: always() && github.event_name == 'push'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: tibia-login-result-safe
