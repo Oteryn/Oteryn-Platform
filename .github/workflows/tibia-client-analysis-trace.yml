@@ -13,7 +13,7 @@ env:
 
 jobs:
   trace:
-    name: Verify WARP and attempt test-account login
+    name: Recover WARP and attempt Tibia test login
     runs-on: oteryn-staging
     timeout-minutes: 10
     steps:
@@ -26,17 +26,42 @@ jobs:
           [[ "$(docker inspect --format '{{ index .Config.Labels "com.blakinio.purpose" }}' "$CONTAINER_NAME")" == "tibia-client-analysis" ]]
           docker ps -a --filter 'label=com.docker.compose.project=oteryn-staging' --format '{{.ID}}\t{{.Names}}' | sort > /tmp/oteryn-before.tsv
 
-      - name: Require verified WARP egress
+      - name: Recover and verify WARP inside owned container
         shell: bash
         run: |
           set -Eeuo pipefail
-          docker exec "$CONTAINER_NAME" bash -lc '
-            set -Eeuo pipefail
-            trace=$(curl -fsS --max-time 15 https://www.cloudflare.com/cdn-cgi/trace)
-            printf "%s\n" "$trace" | grep -q "^warp=on$"
-            echo WARP_VERIFIED=true
-            printf "%s\n" "$trace" | grep -E "^(loc|warp)="
-          '
+          docker exec -i "$CONTAINER_NAME" bash <<'INNER'
+          set -Eeuo pipefail
+          command -v warp-cli
+          command -v warp-svc
+          pkill -f 'warp-svc' 2>/dev/null || true
+          nohup warp-svc >/data/runtime/warp-svc.log 2>&1 </dev/null &
+          ready=0
+          for n in $(seq 1 20); do
+            if timeout 5 warp-cli --accept-tos status >/dev/null 2>&1; then ready=1; break; fi
+            sleep 1
+          done
+          echo WARP_CLI_READY=$ready
+          (( ready == 1 ))
+          timeout 10 warp-cli --accept-tos registration new >/dev/null 2>&1 || true
+          timeout 10 warp-cli --accept-tos mode warp+doh >/dev/null
+          timeout 10 warp-cli --accept-tos tunnel protocol set MASQUE >/dev/null || true
+          timeout 10 warp-cli --accept-tos connect >/dev/null
+          verified=0
+          for n in $(seq 1 20); do
+            trace=$(curl -fsS --max-time 10 https://www.cloudflare.com/cdn-cgi/trace || true)
+            if printf '%s\n' "$trace" | grep -q '^warp=on$'; then
+              verified=1
+              echo WARP_TRACE_BEGIN
+              printf '%s\n' "$trace" | grep -E '^(loc|warp)='
+              echo WARP_TRACE_END
+              break
+            fi
+            sleep 2
+          done
+          echo WARP_VERIFIED=$verified
+          (( verified == 1 ))
+          INNER
 
       - name: Attempt test-account login without exposing credentials
         shell: bash
@@ -45,28 +70,22 @@ jobs:
           TIBIA_TEST_PASSWORD: ${{ secrets.TIBIA_TEST_PASSWORD }}
         run: |
           set -Eeuo pipefail
-          [[ -n "$TIBIA_TEST_EMAIL" ]]
-          [[ -n "$TIBIA_TEST_PASSWORD" ]]
+          [[ -n "$TIBIA_TEST_EMAIL" && -n "$TIBIA_TEST_PASSWORD" ]]
           docker exec -e TIBIA_TEST_EMAIL -e TIBIA_TEST_PASSWORD -i "$CONTAINER_NAME" bash <<'INNER'
           set -Eeuo pipefail
           export DISPLAY=:99 HOME=/data/home
+          trace=$(curl -fsS --max-time 10 https://www.cloudflare.com/cdn-cgi/trace)
+          printf '%s\n' "$trace" | grep -q '^warp=on$'
           client="$HOME/.local/share/CipSoft GmbH/Tibia/packages/Tibia/bin/client"
           pgrep -f "^$client" >/dev/null
-          trace=$(curl -fsS --max-time 15 https://www.cloudflare.com/cdn-cgi/trace)
-          printf '%s\n' "$trace" | grep -q '^warp=on$'
-
           best=''; best_area=0
           for w in $(xdotool search --onlyvisible --name '^Tibia$' 2>/dev/null || true); do
             geom=$(xdotool getwindowgeometry --shell "$w" 2>/dev/null || true)
-            width=$(printf '%s\n' "$geom" | sed -n 's/^WIDTH=//p')
-            height=$(printf '%s\n' "$geom" | sed -n 's/^HEIGHT=//p')
+            width=$(printf '%s\n' "$geom" | sed -n 's/^WIDTH=//p'); height=$(printf '%s\n' "$geom" | sed -n 's/^HEIGHT=//p')
             [[ -n "$width" && -n "$height" ]] || continue
-            area=$((width*height))
-            if (( area > best_area )); then best=$w; best_area=$area; fi
+            area=$((width*height)); if (( area > best_area )); then best=$w; best_area=$area; fi
           done
           [[ -n "$best" && "$best_area" -ge 600000 ]]
-
-          # Known geometry from the bounded 1020x650 login-form capture.
           xdotool mousemove --window "$best" 535 275 click 1
           xdotool key --window "$best" ctrl+a
           xdotool type --window "$best" --delay 5 -- "$TIBIA_TEST_EMAIL"
@@ -76,7 +95,6 @@ jobs:
           xdotool mousemove --window "$best" 590 388 click 1
           unset TIBIA_TEST_EMAIL TIBIA_TEST_PASSWORD
           sleep 12
-
           import -display :99 -window "$best" /tmp/login-result-raw.png
           test -s /tmp/login-result-raw.png
           convert /tmp/login-result-raw.png -resize 200% -colorspace Gray -contrast-stretch 1%x1% /tmp/login-result-ocr.png
@@ -88,18 +106,14 @@ jobs:
           with open('/tmp/login-result.tsv',newline='',errors='replace') as f:
               for r in csv.DictReader(f,delimiter='\t'):
                   t=(r.get('text') or '').strip().strip(':,.!?()[]')
-                  if t and allowed.fullmatch(t):
-                      print(t)
+                  if t and allowed.fullmatch(t): print(t)
           PY
           echo SAFE_LOGIN_RESULT_END
-
-          # Persist only a privacy-safe screenshot: redact the central account/character dialog region.
           cp /tmp/login-result-raw.png /tmp/login-result-safe.png
           convert /tmp/login-result-safe.png -fill '#202020' -draw 'rectangle 360,225 675,440' /tmp/login-result-safe.png
           INNER
           docker cp "$CONTAINER_NAME:/tmp/login-result-safe.png" /tmp/login-result-safe.png
           test -s /tmp/login-result-safe.png
-          echo LOGIN_RESULT_SCREENSHOT_BYTES=$(stat -c %s /tmp/login-result-safe.png)
 
       - name: Upload privacy-safe login result screenshot
         if: always()
