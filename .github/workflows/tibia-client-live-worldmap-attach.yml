@@ -26,38 +26,27 @@ jobs:
           set -Eeuo pipefail
           bin='/data/home/.local/share/CipSoft GmbH/Tibia/packages/Tibia/bin/client'
           readelf -rW "$bin" >/tmp/rtti-rela
-          python3 - <<'PY'
-import re
-rows=[]
-for line in open('/tmp/rtti-rela', errors='replace'):
-    p=line.split()
-    if len(p) < 4 or not re.fullmatch(r'[0-9a-fA-F]+', p[0]):
-        continue
-    try: loc=int(p[0],16)
-    except ValueError: continue
-    rows.append((loc,line.rstrip()))
-for name,center in [
-    ('PLAYER_TYPEINFO_NAME_REF',0x3089ab8),
-    ('PLAYER_META_NAME_REF',0x313ce78),
-    ('PROCESSOR_TYPEINFO_NAME_REF',0x3080760),
-    ('TRANSLATOR_TYPEINFO_NAME_REF',0x3080750),
-    ('WRITER_TYPEINFO_NAME_REF',0x3080730),
-]:
-    print(f'{name}_BEGIN center=0x{center:x}')
-    for loc,line in rows:
-        if center-0x180 <= loc <= center+0x280:
-            print(line)
-    print(f'{name}_END')
-PY
+          echo PLAYER_TYPEINFO_NEIGHBOR_BEGIN
+          grep -Ei '^0000000003089[89a-f][0-9a-f]{2}' /tmp/rtti-rela | head -n 240 || true
+          echo PLAYER_TYPEINFO_NEIGHBOR_END
+          echo PLAYER_META_NEIGHBOR_BEGIN
+          grep -Ei '^000000000313c[e-f][0-9a-f]{2}|^000000000313d0[0-9a-f]{2}' /tmp/rtti-rela | head -n 240 || true
+          echo PLAYER_META_NEIGHBOR_END
+          echo PROTOCOL_TYPES_NEIGHBOR_BEGIN
+          grep -Ei '^0000000003080[5-9][0-9a-f]{2}' /tmp/rtti-rela | head -n 300 || true
+          echo PROTOCOL_TYPES_NEIGHBOR_END
           echo SECTION_MAP_BEGIN
           readelf -SW "$bin" | grep -E '\.(data\.rel\.ro|rodata|data|bss|text)' || true
           echo SECTION_MAP_END
-          for range in '3089900:3089d80' '313cd00:313d100' '3080580:3080a00'; do
-            a=${range%:*}; b=${range#*:}
-            echo "BYTES_${a}_${b}_BEGIN"
-            objdump -s --start-address="0x$a" --stop-address="0x$b" "$bin" 2>/dev/null || true
-            echo "BYTES_${a}_${b}_END"
-          done
+          echo PLAYER_TYPEINFO_BYTES_BEGIN
+          objdump -s --start-address=0x3089900 --stop-address=0x3089d80 "$bin" 2>/dev/null || true
+          echo PLAYER_TYPEINFO_BYTES_END
+          echo PLAYER_META_BYTES_BEGIN
+          objdump -s --start-address=0x313cd00 --stop-address=0x313d100 "$bin" 2>/dev/null || true
+          echo PLAYER_META_BYTES_END
+          echo PROTOCOL_TYPES_BYTES_BEGIN
+          objdump -s --start-address=0x3080580 --stop-address=0x3080a00 "$bin" 2>/dev/null || true
+          echo PROTOCOL_TYPES_BYTES_END
           rm -f /tmp/rtti-rela
           pid=$(pgrep -x client | head -n1 || true)
           [[ -n "$pid" ]]
