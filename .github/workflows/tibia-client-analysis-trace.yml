@@ -26,13 +26,17 @@ jobs:
           [[ "$(docker inspect --format '{{ index .Config.Labels "com.blakinio.purpose" }}' "$CONTAINER_NAME")" == "tibia-client-analysis" ]]
           docker ps -a --filter 'label=com.docker.compose.project=oteryn-staging' --format '{{.ID}}\t{{.Names}}' | sort > /tmp/oteryn-before.tsv
 
-      - name: Install and verify Tor SOCKS egress inside owned container
+      - name: Repair only owned container package state and verify Tor SOCKS egress
         shell: bash
         run: |
           set -Eeuo pipefail
           docker exec -i "$CONTAINER_NAME" bash <<'INNER'
           set -Eeuo pipefail
           export DEBIAN_FRONTEND=noninteractive
+          if dpkg-query -W -f='${db:Status-Status}\n' cloudflare-warp 2>/dev/null | grep -Eq 'half-installed|half-configured|unpacked'; then
+            dpkg --remove --force-remove-reinstreq cloudflare-warp >/dev/null 2>&1 || dpkg --purge --force-all cloudflare-warp >/dev/null 2>&1 || true
+          fi
+          dpkg --configure -a >/dev/null
           apt-get update -qq
           apt-get install -y -qq --no-install-recommends tor torsocks proxychains4 curl iproute2 >/dev/null
           pkill -f '^/usr/bin/tor' 2>/dev/null || true
