@@ -27,8 +27,8 @@ jobs:
           docker exec "$CONTAINER_NAME" bash -lc '
             set -Eeuo pipefail
             client=/data/client-15.32.df7b29/bin/client
-            echo OUTER_COORDINATE_LOOP
-            objdump -d -C --start-address=0x19a8b78 --stop-address=0x19a8d98 "$client"
-            echo CONTENT_AND_BUILDER_CALL
-            objdump -d -C --start-address=0x19a8df5 --stop-address=0x19a8ed8 "$client"
+            echo SELECT_NESTED_PAYLOAD_HELPER
+            objdump -d -C --start-address=0x1ab4e50 --stop-address=0x1ab4fc0 "$client"
+            echo MAP_CONTENT_BUILDER_EXTENDED
+            objdump -d -C --start-address=0xceca50 --stop-address=0xcece80 "$client"
           '
