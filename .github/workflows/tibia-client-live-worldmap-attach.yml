@@ -1,4 +1,4 @@
-name: Tibia Outbound RTTI Vtables
+name: Tibia Outbound RTTI Neighborhoods
 
 on:
   push:
@@ -13,11 +13,11 @@ env:
 
 jobs:
   attach:
-    name: Resolve outbound handler RTTI and vtables
+    name: Inspect outbound RTTI relocation neighborhoods
     runs-on: oteryn-staging
     timeout-minutes: 3
     steps:
-      - name: Find relocations to outbound class names and nearby vtable entries
+      - name: Dump relocation neighborhoods and section bytes
         shell: bash
         run: |
           set -Eeuo pipefail
@@ -26,15 +26,38 @@ jobs:
           set -Eeuo pipefail
           bin='/data/home/.local/share/CipSoft GmbH/Tibia/packages/Tibia/bin/client'
           readelf -rW "$bin" >/tmp/rtti-rela
-          echo PLAYER_HANDLER_RELOCS_BEGIN
-          grep -Ei 'R_X86_64_RELATIVE.*(1cad8c0|1cddb40)' /tmp/rtti-rela | head -n 80 || true
-          echo PLAYER_HANDLER_RELOCS_END
-          echo PROCESSOR_RELOCS_BEGIN
-          grep -Ei 'R_X86_64_RELATIVE.*(1cac3e0|1cac3a0|1cac340)' /tmp/rtti-rela | head -n 120 || true
-          echo PROCESSOR_RELOCS_END
-          echo RTTI_NAMES_BEGIN
-          strings -a -t x "$bin" | grep -E 'N5tibia(4game29TPlayerProtocolMessageHandler|8protocol31TProtocolClientMessageProcessor|8protocol32TProtobufClientMessageTranslator|8protocol15TProtocolWriter)E' || true
-          echo RTTI_NAMES_END
+          python3 - <<'PY'
+import re
+rows=[]
+for line in open('/tmp/rtti-rela', errors='replace'):
+    p=line.split()
+    if len(p) < 4 or not re.fullmatch(r'[0-9a-fA-F]+', p[0]):
+        continue
+    try: loc=int(p[0],16)
+    except ValueError: continue
+    rows.append((loc,line.rstrip()))
+for name,center in [
+    ('PLAYER_TYPEINFO_NAME_REF',0x3089ab8),
+    ('PLAYER_META_NAME_REF',0x313ce78),
+    ('PROCESSOR_TYPEINFO_NAME_REF',0x3080760),
+    ('TRANSLATOR_TYPEINFO_NAME_REF',0x3080750),
+    ('WRITER_TYPEINFO_NAME_REF',0x3080730),
+]:
+    print(f'{name}_BEGIN center=0x{center:x}')
+    for loc,line in rows:
+        if center-0x180 <= loc <= center+0x280:
+            print(line)
+    print(f'{name}_END')
+PY
+          echo SECTION_MAP_BEGIN
+          readelf -SW "$bin" | grep -E '\.(data\.rel\.ro|rodata|data|bss|text)' || true
+          echo SECTION_MAP_END
+          for range in '3089900:3089d80' '313cd00:313d100' '3080580:3080a00'; do
+            a=${range%:*}; b=${range#*:}
+            echo "BYTES_${a}_${b}_BEGIN"
+            objdump -s --start-address="0x$a" --stop-address="0x$b" "$bin" 2>/dev/null || true
+            echo "BYTES_${a}_${b}_END"
+          done
           rm -f /tmp/rtti-rela
           pid=$(pgrep -x client | head -n1 || true)
           [[ -n "$pid" ]]
