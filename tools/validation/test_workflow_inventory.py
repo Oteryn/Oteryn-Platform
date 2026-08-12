@@ -34,6 +34,18 @@ class WorkflowInventoryTest(unittest.TestCase):
         with self.assertRaisesRegex(WorkflowInventoryError, "unclassified workflow"):
             classify_workflow(Path("mystery.yml"), text)
 
+    def test_filename_classification_cannot_bypass_unsupported_trigger(self) -> None:
+        text = BASE.format(events="  repository_dispatch:")
+        for filename in ("ci.yml", "build-malicious.yml", "deploy-malicious.yml"):
+            with self.subTest(filename=filename):
+                with self.assertRaisesRegex(WorkflowInventoryError, "unsupported top-level event"):
+                    classify_workflow(Path(filename), text)
+
+    def test_supported_trigger_cannot_hide_an_unsupported_trigger(self) -> None:
+        text = BASE.format(events="  pull_request:\n  repository_dispatch:")
+        with self.assertRaisesRegex(WorkflowInventoryError, "unsupported top-level event"):
+            classify_workflow(Path("feature-contract.yml"), text)
+
     def test_job_name_cannot_masquerade_as_supported_event(self) -> None:
         text = """name: Test
 on:
