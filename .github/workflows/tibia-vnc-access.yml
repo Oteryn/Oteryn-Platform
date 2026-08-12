@@ -1,0 +1,84 @@
+name: Tibia VNC Access
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
+    paths:
+      - .github/workflows/tibia-vnc-access.yml
+
+permissions:
+  contents: read
+
+env:
+  CONTAINER_NAME: oteryn-tibia-client-analysis
+  RELAY_NAME: oteryn-tibia-vnc-relay
+
+jobs:
+  vnc:
+    name: Expose live Tibia Xvfb over LAN VNC
+    runs-on: oteryn-staging
+    timeout-minutes: 8
+    steps:
+      - name: Verify owned live runtime
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          [[ "$RUNNER_NAME" == "oteryn-synology-staging" ]]
+          [[ "$(docker inspect --format '{{ index .Config.Labels "com.blakinio.owner" }}' "$CONTAINER_NAME")" == "oteryn" ]]
+          [[ "$(docker inspect --format '{{ index .Config.Labels "com.blakinio.purpose" }}' "$CONTAINER_NAME")" == "tibia-client-analysis" ]]
+          [[ "$(docker inspect --format '{{.State.Status}}' "$CONTAINER_NAME")" == "running" ]]
+          docker exec "$CONTAINER_NAME" pgrep -x client >/dev/null
+          docker exec "$CONTAINER_NAME" pgrep -f '^Xvfb :99' >/dev/null
+
+      - name: Start x11vnc on existing display without restarting client
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          docker exec -i "$CONTAINER_NAME" bash <<'INNER'
+          set -Eeuo pipefail
+          export DEBIAN_FRONTEND=noninteractive
+          if ! command -v x11vnc >/dev/null 2>&1; then
+            apt-get update -qq
+            apt-get install -y --no-install-recommends x11vnc >/dev/null
+          fi
+          pkill -f '^x11vnc .* -display :99' 2>/dev/null || true
+          nohup x11vnc -display :99 -forever -shared -noxdamage -rfbport 5900 -listen 0.0.0.0 -nopw >/data/runtime/x11vnc.log 2>&1 </dev/null &
+          for _ in $(seq 1 30); do
+            ss -lnt | grep -q ':5900 ' && break
+            sleep 1
+          done
+          ss -lnt | grep -q ':5900 '
+          pgrep -f '^x11vnc .* -display :99' >/dev/null
+          pgrep -x client >/dev/null
+          echo X11VNC_READY=true
+          INNER
+
+      - name: Publish VNC port on Synology LAN
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          target_ip=$(docker inspect -f '{{range.NetworkSettings.Networks}}{{.IPAddress}}{{end}}' "$CONTAINER_NAME")
+          [[ -n "$target_ip" ]]
+          docker rm -f "$RELAY_NAME" >/dev/null 2>&1 || true
+          docker run -d --name "$RELAY_NAME" --restart unless-stopped --network host alpine/socat \
+            TCP-LISTEN:5900,fork,reuseaddr TCP:"$target_ip":5900 >/dev/null
+          for _ in $(seq 1 30); do
+            if docker run --rm --network host alpine sh -lc 'nc -z 127.0.0.1 5900'; then break; fi
+            sleep 1
+          done
+          docker run --rm --network host alpine sh -lc 'nc -z 127.0.0.1 5900'
+          echo VNC_RELAY_READY=true
+
+      - name: Resolve Synology LAN address and verify VNC banner
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          ips=$(docker run --rm --network host alpine sh -lc "hostname -i 2>/dev/null || hostname -I 2>/dev/null || true")
+          echo HOST_IP_CANDIDATES="$ips"
+          lan_ip=$(printf '%s\n' "$ips" | tr ' ' '\n' | awk '/^(10\.|192\.168\.|172\.(1[6-9]|2[0-9]|3[01])\.)/{print; exit}')
+          [[ -n "$lan_ip" ]]
+          banner=$(docker run --rm --network host alpine sh -lc "timeout 3 nc $lan_ip 5900 | head -c 12" || true)
+          [[ "$banner" == RFB* ]]
+          echo VNC_ADDRESS="$lan_ip:5900"
+          echo VNC_BANNER_VERIFIED=true
