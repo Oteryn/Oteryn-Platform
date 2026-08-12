@@ -44,7 +44,7 @@ jobs:
             export DEBIAN_FRONTEND=noninteractive
             if ! command -v Xvfb >/dev/null 2>&1; then
               apt-get update -qq
-              apt-get install -y --no-install-recommends xvfb x11-utils >/tmp/oteryn-x11-install.log 2>&1
+              apt-get install -y --no-install-recommends xvfb >/tmp/oteryn-x11-install.log 2>&1
             fi
             if [[ ! -S /tmp/.X11-unix/X99 ]]; then
               rm -f /tmp/.X99-lock
@@ -55,7 +55,6 @@ jobs:
               done
             fi
             [[ -S /tmp/.X11-unix/X99 ]]
-            DISPLAY=:99 xdpyinfo >/dev/null
             echo VIRTUAL_DISPLAY_READY=true
           '
 
