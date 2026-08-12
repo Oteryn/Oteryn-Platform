@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 
+# Docker Hub index digests verified 2026-08-12. Health probes keep their exact
+# historical behavior while the Docker boundary substitutes immutable identities.
 OTERYN_HEALTH_ALPINE_IMAGE='alpine@sha256:14358309a308569c32bdc37e2e0e9694be33a9d99e68afb0f5ff33cc1f695dce'
 OTERYN_HEALTH_PYTHON_IMAGE='python@sha256:6d43704baacd1bfbe7c295d7f13079d5d8104ed33568873133f8fc69980419df'
 
@@ -43,36 +45,23 @@ load_oteryn_env_file() {
         fi
     fi
 
-    # Character Bazaar Staging Control loads both a partial durable state file
-    # and the complete ephemeral deployment .env. Apply the public-origin
-    # migration only to the complete .env; the state file intentionally carries
-    # Marketplace keys only and must not be treated as deployment configuration.
     if [[ "${GITHUB_WORKFLOW:-}" == "Character Bazaar Staging Control" \
         && "$(basename -- "$env_file")" == ".env" ]]; then
         case "${APP_URL:-}" in
             https://oteryn.molehill.cloud|http://127.0.0.1:8000) ;;
-            *)
-                echo "Character Bazaar public staging APP_URL must be the canonical origin or the exact legacy loopback value." >&2
-                return 1
-                ;;
+            *) echo "Character Bazaar public staging APP_URL must be the canonical origin or the exact legacy loopback value." >&2; return 1 ;;
         esac
         case "${SESSION_SECURE_COOKIE:-}" in
             true|false|'') ;;
-            *)
-                echo "Character Bazaar public staging SESSION_SECURE_COOKIE must be boolean." >&2
-                return 1
-                ;;
+            *) echo "Character Bazaar public staging SESSION_SECURE_COOKIE must be boolean." >&2; return 1 ;;
         esac
-
         APP_URL=https://oteryn.molehill.cloud
         SESSION_SECURE_COOKIE=true
         export APP_URL SESSION_SECURE_COOKIE
     fi
 }
 
-_oteryn_deploy_state_dir() {
-    printf '%s\n' "${OTERYN_STATE_DIR:-/var/lib/oteryn-staging-state}"
-}
+_oteryn_deploy_state_dir() { printf '%s\n' "${OTERYN_STATE_DIR:-/var/lib/oteryn-staging-state}"; }
 
 _oteryn_release_sha() {
     local sha="${OTERYN_RELEASE_SHA:-${GITHUB_SHA:-}}"
@@ -86,25 +75,36 @@ _oteryn_release_sha() {
     printf '%s\n' "$sha"
 }
 
+_oteryn_read_state_key() {
+    local file="$1" key="$2" value
+    value="$(sed -n "s/^${key}=//p" "$file" | head -n 1)"
+    [[ -n "$value" ]] || { echo "Missing $key in $file" >&2; return 1; }
+    printf '%s\n' "$value"
+}
+
 _oteryn_before_platform_migrate() {
-    local state_dir release_sha backup_dir backup_file backup_meta current_file
+    local state_dir release_sha backup_dir backup_file backup_meta current_file old_sha old_schema
     state_dir="$(_oteryn_deploy_state_dir)"
     release_sha="$(_oteryn_release_sha)"
     mkdir -p "$state_dir/backups"
     chmod 700 "$state_dir" "$state_dir/backups"
-    current_file="$state_dir/current-release.env"
 
+    # Candidate identity is persisted before migrate. If the process disappears
+    # later, rollback still knows exactly which release may have changed schema.
+    bash "$SCRIPT_DIR/release-state.sh" write "$state_dir/candidate-release.env" "$release_sha" \
+        "$OTERYN_SCHEMA_COMPATIBILITY_ID" "$OTERYN_APP_ACCEPTS_SCHEMA_IDS" \
+        "$PLATFORM_IMAGE" "$GATEWAY_IMAGE" "$CANARY_IMAGE" 1
+
+    current_file="$state_dir/current-release.env"
     if [[ -f "$current_file" ]]; then
         bash "$SCRIPT_DIR/release-state.sh" validate "$current_file"
         cp "$current_file" "$state_dir/last-good-release.env.tmp"
         chmod 600 "$state_dir/last-good-release.env.tmp"
         mv "$state_dir/last-good-release.env.tmp" "$state_dir/last-good-release.env"
+        old_sha="$(_oteryn_read_state_key "$current_file" RELEASE_SHA)"
+        old_schema="$(_oteryn_read_state_key "$current_file" SCHEMA_COMPATIBILITY_ID)"
 
-        # Backup is deliberately taken before migrate and tied to both sides of
-        # the transition. It is recovery evidence, not an automatic rollback.
-        # shellcheck disable=SC1090
-        source "$current_file"
-        backup_dir="$state_dir/backups/${RELEASE_SHA}-before-${release_sha}"
+        backup_dir="$state_dir/backups/${old_sha}-before-${release_sha}"
         mkdir -p "$backup_dir"
         chmod 700 "$backup_dir"
         backup_file="$backup_dir/platform.sql"
@@ -115,17 +115,15 @@ _oteryn_before_platform_migrate() {
         mv "$backup_file.tmp" "$backup_file"
         backup_meta="$backup_dir/evidence.env"
         {
-            printf 'BACKUP_FROM_RELEASE_SHA=%s\n' "$RELEASE_SHA"
+            printf 'BACKUP_FROM_RELEASE_SHA=%s\n' "$old_sha"
             printf 'BACKUP_BEFORE_RELEASE_SHA=%s\n' "$release_sha"
-            printf 'BACKUP_SCHEMA_COMPATIBILITY_ID=%s\n' "$SCHEMA_COMPATIBILITY_ID"
+            printf 'BACKUP_SCHEMA_COMPATIBILITY_ID=%s\n' "$old_schema"
             printf 'BACKUP_SHA256=%s\n' "$(sha256sum "$backup_file" | awk '{print $1}')"
         } >"$backup_meta.tmp"
         chmod 600 "$backup_meta.tmp"
         mv "$backup_meta.tmp" "$backup_meta"
     fi
 
-    # Unknown is persisted before invoking migrate so a crash, timeout or
-    # transport loss cannot accidentally authorize image rollback.
     {
         printf 'SCHEMA_STATE=unknown\n'
         printf 'MIGRATION_TARGET_RELEASE_SHA=%s\n' "$release_sha"
@@ -148,20 +146,20 @@ _oteryn_after_platform_migrate() {
 }
 
 _oteryn_finalize_release_on_exit() {
-    local rc="$?" state_dir release_sha
+    local rc="$?" state_dir
     [[ "$rc" -eq 0 ]] || return "$rc"
     [[ "$(basename -- "${0:-}")" == "deploy.sh" ]] || return 0
     state_dir="$(_oteryn_deploy_state_dir)"
-    release_sha="$(_oteryn_release_sha)"
-    bash "$SCRIPT_DIR/release-state.sh" write "$state_dir/current-release.env" "$release_sha" \
-        "$OTERYN_SCHEMA_COMPATIBILITY_ID" "$OTERYN_APP_ACCEPTS_SCHEMA_IDS" \
-        "$PLATFORM_IMAGE" "$GATEWAY_IMAGE" "$CANARY_IMAGE" 1
+    bash "$SCRIPT_DIR/release-state.sh" validate "$state_dir/candidate-release.env"
+    cp "$state_dir/candidate-release.env" "$state_dir/current-release.env.tmp"
+    chmod 600 "$state_dir/current-release.env.tmp"
+    mv "$state_dir/current-release.env.tmp" "$state_dir/current-release.env"
+    rm -f "$state_dir/candidate-release.env"
     return 0
 }
 
-# All current health probes still execute unchanged, but mutable historical
-# aliases are translated at the single Docker invocation boundary to repository-
-# pinned immutable identities. Regression tests forbid any unhandled helper tag.
+# Immutable substitution is centralized here so no existing health assertion,
+# retry bound, network namespace or header check is weakened.
 docker() {
     local -a args=("$@")
     local i
@@ -178,9 +176,7 @@ docker() {
             _oteryn_before_platform_migrate
             command docker "${args[@]}"
             local rc=$?
-            if [[ "$rc" -eq 0 ]]; then
-                _oteryn_after_platform_migrate
-            fi
+            if [[ "$rc" -eq 0 ]]; then _oteryn_after_platform_migrate; fi
             return "$rc"
         fi
     fi
