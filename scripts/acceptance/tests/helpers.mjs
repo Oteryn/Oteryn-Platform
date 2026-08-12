@@ -199,11 +199,18 @@ export async function login(page, email, password) {
   const emailInput = page.locator('input[name="email"]');
   const passwordInput = page.locator('input[name="password"]');
 
-  // WebKit may restore a prior credential field while a repeated login form settles.
-  // Populate the password first and the identity last, then prove the exact request
-  // values before submission so cross-field autofill cannot corrupt the login.
-  await passwordInput.fill(password);
-  await emailInput.fill(email);
+  // Credential fields can re-settle while a repeated login form is restored,
+  // especially in WebKit. Write identity first and the secret last, then use a
+  // bounded field-stabilization loop; Playwright test retries remain zero.
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    await emailInput.fill(email);
+    await passwordInput.fill(password);
+    await page.waitForTimeout(50);
+
+    if ((await emailInput.inputValue()) === email && (await passwordInput.inputValue()) === password) {
+      break;
+    }
+  }
   await expect(emailInput).toHaveValue(email);
   await expect(passwordInput).toHaveValue(password);
 
