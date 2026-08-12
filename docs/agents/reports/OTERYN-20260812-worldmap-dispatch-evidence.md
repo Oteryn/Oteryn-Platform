@@ -52,54 +52,29 @@ Method indices decoded from the Qt6 metadata table:
 
 ## PROVEN — exact handler bodies
 
-The Qt jump-table case for method index 1 is `0xdf2b88`. It loads the method argument from `0x8(%rcx)`, restores the frame, and tail-jumps at `0xdf2b96` to:
-
 ```text
-handleFullMapMessage body = 0xcec8d0
+handleFullMapMessage       -> 0xcec8d0
+handleFieldDataMessage     -> 0xcd3190
+handleCreateOnMapMessage   -> 0xcecc70
+handleChangeOnMapMessage   -> 0xcecf40
+handleDeleteOnMapMessage   -> 0xcd4e20
 ```
 
-The Qt jump-table case for method index 8 is `0xdf2cd8`. It loads the method argument from `0x8(%rcx)`, restores the frame, and tail-jumps at `0xdf2ce6` to:
-
-```text
-handleFieldDataMessage body = 0xcd3190
-```
-
-This supersedes the earlier UNKNOWN handler-address state and must be used by continuation work.
+The Qt jump-table case for method index 1 is `0xdf2b88` and tail-jumps to `0xcec8d0`. The case for method index 8 is `0xdf2cd8` and tail-jumps to `0xcd3190`.
 
 ## PROVEN — common map-data routine
 
-`handleFieldDataMessage` directly calls `0x19a8a80` at `0xcd3224` and returns immediately afterwards:
+`handleFieldDataMessage` directly calls `0x19a8a80` at `0xcd3224` and returns immediately afterwards. Directional Worldmap cases (`LeftColumn`, `RightColumn`, `TopRow`, `BottomRow`) also converge on `0x19a8a80` after constructing region-like arguments.
 
-```text
-cd3190 ...
-cd321a mov 0x28(%rax),%rsi
-cd321e movq %xmm0,0x20(%rsp)
-cd3224 call 0x19a8a80
-cd3229 add $0x58,%rsp
-cd322d ret
-```
-
-The directional Worldmap cases (`LeftColumn`, `RightColumn`, `TopRow`, `BottomRow`) construct region-like stack objects through helpers around `0xbc63e0`, `0xbc6470`, `0xbc6500`, and `0xbc6590`, then converge on:
-
-```text
-df2bd0 ...
-df2beb mov 0x28(%rax),%rsi
-df2bef call 0x19a8a80
-```
-
-Therefore it is directly verified that `0x19a8a80` is shared by `FieldData` and multiple directional map-update paths.
+Therefore `0x19a8a80` is directly verified as a shared routine used by FieldData and multiple directional map-update paths.
 
 ## INFERENCE — role of `0x19a8a80`
 
-High confidence: `0x19a8a80` is the central routine that applies decoded map-field data over a supplied region/range. This is an inference from the verified callers and argument construction, not yet a recovered symbol or runtime capture.
+High confidence: `0x19a8a80` is the central routine that applies decoded map-field data over a supplied region/range. Its full content-order and appearance semantics remain to be recovered/proven.
 
-The routine is non-trivial and extends at least through branches around `0x19a965f`. Its prologue stores incoming arguments, accesses nested message data, constructs temporary list/sequence state, and enters iteration-like control flow. Full semantic recovery is still required to prove content ordering and appearance/type extraction.
+## PROVEN — Coordinate schema
 
-## PROVEN — useful FullMap observations
-
-The beginning of `0xcec8d0` reads a nested object from the FullMap message and copies three adjacent 32-bit values from offsets corresponding to `+0x18`, `+0x1c`, `+0x20` in the generated object representation. It also shifts the first two values left by five bits before further processing and stores state at handler offsets `+0x98`/`+0xa0`.
-
-Separately, the embedded standard protobuf descriptor for `Coordinate` was previously recovered and proves:
+An embedded standard protobuf `FileDescriptorProto` for `shared.proto` proves:
 
 ```text
 Coordinate.x = field 1, uint32
@@ -107,41 +82,53 @@ Coordinate.y = field 2, uint32
 Coordinate.z = field 3, uint32
 ```
 
-The exact mapping between those generated-object offsets and the `Coordinate` fields is still an inference until the relevant runtime/generated representation is tied down directly.
+The beginning of `handleFullMapMessage` reads a nested object and copies three adjacent 32-bit values from generated-object offsets `+0x18`, `+0x1c`, `+0x20`. Exact identity of those generated offsets with Coordinate fields remains an inference until tied directly to the generated runtime type.
 
-## PROVEN — adjacent mutation handlers
+## INFERENCE — generated protobuf defaults
 
-Qt dispatch also establishes exact bodies for subsequent map mutations:
+Current static evidence gives these high-confidence candidates, but they are not yet promoted to PROVEN type identities:
 
 ```text
-handleCreateOnMapMessage  -> 0xcecc70
-handleChangeOnMapMessage  -> 0xcecf40
-handleDeleteOnMapMessage  -> 0xcd4e20
+0x313a820 -> Coordinate default instance candidate
+0x313a860 -> MapFieldData default instance candidate
+0x314b480 -> AppearanceInstance default instance candidate
 ```
 
-These functions expose coordinate/payload and storage-facing virtual calls and are likely useful for recovering ordered stack/content mutation semantics after the bulk-map path is understood.
+`0x313a820` recurs in FullMap/FieldData/Create/Change/Delete at coordinate dereference sites. `0x313a860` occurs at map-field payload selection before accesses around `+0x28`. `0x314b480` is used by Create/Change when selecting an appearance-like payload.
 
-## Rejected hypothesis
+## Rejected hypotheses
 
-`0xde9ca0` is not a Worldmap static metacall. Exact Qt stringdata identified it as `tibia::sessiondump::TSessiondumpPlayer`. Do not reuse the earlier ordinal-based association.
+- `0xde9ca0` is not a Worldmap static metacall. Exact Qt stringdata identifies it as `tibia::sessiondump::TSessiondumpPlayer`. Do not reuse the earlier ordinal-based association.
+- Full `.text` traversal with Python/Capstone is not an appropriate bounded method on this runner; native streaming `objdump` succeeded and should remain preferred.
+- Do not start from encrypted TCP unless the decoded protobuf path is disproved by new evidence.
 
-## Current incomplete acceptance item
+## Runtime capture / authentication boundary
 
-Not yet proven:
+The final acceptance proof is still missing:
 
 ```text
 (x, y, z) -> ordered field/tile contents -> appearance/type IDs
 ```
 
-The next bounded objective is to fully trace `0x19a8a80`, identify the concrete iteration/content construction path and appearance-related calls, then select the lowest-risk decoded-message runtime interception point and capture at least one real map message without touching canonical staging services.
+Static reverse can continue without account credentials. However, a real decoded FullMap/FieldData message is normally produced only after the client has an active game-world session (initial world entry or a subsequent map update). Therefore an authenticated game session is likely required for the final bounded runtime capture.
 
-## Pending bounded trace
+This is currently an **INFERENCE**, not proof that credentials must be supplied manually. Before requesting any credential from the user, the continuation agent must inspect the owned runtime for an already usable safe session/test-account mechanism without exposing secrets. Never print, persist, commit, or copy passwords, tokens, session keys, account data, or protected character data into GitHub Actions logs or repository files.
 
-A follow-up read-only trace was triggered by reopening draft PR #1006:
+If no safe authenticated session is available, stop at that authority boundary and ask the user only to perform the minimum interactive login needed to establish the session. Do not ask the user to paste credentials into chat, workflow inputs, repository secrets created ad hoc, scripts, or logs.
 
-- workflow run: `31581303533`
-- job: `94064762140`
-- workflow: `Tibia Client Analysis Trace`
-- requested label: `oteryn-staging`
+## Pending trace state
 
-At the latest verified checkpoint this job was `queued` with `runner_id=0`; no result is claimed. The GitHub integration cannot list repository self-hosted runners (`403 Resource not accessible by integration`), so the reason for the queue is UNKNOWN.
+Several bounded trace runs were triggered while the self-hosted runner queue was congested. At the last reliable checkpoint, a trace run/job had acquired the runner but its final result was not retained as verified evidence in the durable record. Do not assume success or failure from chat history. Inspect live GitHub workflow state and use only completed run/job evidence.
+
+## Exact continuation objective
+
+1. Verify live branch HEAD, PR #1006 state, CI, path ownership, runner/runtime state and ownership labels.
+2. Read this report plus the active task/handover; do not reconstruct from chat.
+3. Inspect completed trace runs and persist any newly verified result.
+4. Fully trace `0x19a8a80` enough to prove field iteration/content ordering and identify appearance/type extraction.
+5. Tie the default-instance candidates above to concrete generated protobuf types where possible.
+6. Select the lowest-risk interception point after `TProtobufServerMessageTranslator` and before mutation of `TWorldMapStorage`.
+7. Determine whether the owned runtime already has a safe authenticated-session mechanism. Do not expose credentials.
+8. If a safe session exists, perform one bounded decoded-message capture and normalize it to deterministic `(x,y,z) -> ordered contents -> appearance/type IDs` records.
+9. If interactive login is genuinely required, checkpoint all static findings and stop only at that explicit user-authority boundary with precise login instructions.
+10. After proof, clean temporary analysis workflows before any terminal merge decision; preserve proprietary client material outside Git.
