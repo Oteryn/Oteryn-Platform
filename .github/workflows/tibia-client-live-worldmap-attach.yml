@@ -1,4 +1,4 @@
-name: Tibia Send Method Xrefs
+name: Tibia Outbound Processor Surfaces
 
 on:
   push:
@@ -13,27 +13,23 @@ env:
 
 jobs:
   attach:
-    name: Trace sendGo and sendRotate xrefs
+    name: Inspect protocol processor and writer surfaces
     runs-on: oteryn-staging
-    timeout-minutes: 4
+    timeout-minutes: 3
     steps:
-      - name: Locate send-method strings and code references
+      - name: Dump bounded strings around outbound protocol classes
         shell: bash
         run: |
           set -Eeuo pipefail
           docker exec -i "$CONTAINER_NAME" bash <<'INNER'
           set -Eeuo pipefail
           bin='/data/home/.local/share/CipSoft GmbH/Tibia/packages/Tibia/bin/client'
-          echo SEND_STRINGS_BEGIN
-          strings -a -t x "$bin" | grep -E ' send(Go(North|East|South|West|NorthEast|SouthEast|SouthWest|NorthWest|Path)|Rotate(North|East|South|West)|Stop|Cancel|Attack|Follow|UseObject|UseTwoObjects|UseOnCreature|MoveObject|TalkMessage)$' || true
-          echo SEND_STRINGS_END
-          tmp=/tmp/send-xrefs.$$
-          objdump -d -M intel "$bin" >"$tmp"
-          for addr in $(strings -a -t x "$bin" | grep -E ' send(Go(North|East|South|West|NorthEast|SouthEast|SouthWest|NorthWest|Path)|Rotate(North|East|South|West)|Stop|Cancel|Attack|Follow|UseObject|UseTwoObjects|UseOnCreature|MoveObject|TalkMessage)$' | awk '{print $1}'); do
-            echo "XREF_STRING_VA=0x$addr"
-            grep -n -E "# +0*${addr}([ <]|$)" "$tmp" | head -n 40 || true
-          done
-          rm -f "$tmp"
+          echo PROCESSOR_REGION_BEGIN
+          strings -a -t x "$bin" | awk '$1>="1cabf00" && $1<="1cad000" {print}'
+          echo PROCESSOR_REGION_END
+          echo PROTOCOL_REGION_BEGIN
+          strings -a -t x "$bin" | awk '$1>="1cd0000" && $1<="1cd3000" {print}' | grep -E -i 'protocol|writer|processor|send|message|packet|serialize|network|gameclient' | head -n 500 || true
+          echo PROTOCOL_REGION_END
           pid=$(pgrep -x client | head -n1 || true)
           [[ -n "$pid" ]]
           tcp_rows=$(ss -ntp 2>/dev/null | grep "pid=$pid," || true)
