@@ -101,3 +101,26 @@ blockers:
   - "Final runtime acceptance requires an authenticated game-world session capable of producing a decoded FullMap/FieldData update. The official client and graphical login form are now running in the owned container, but the Email and Password fields are empty. No approved credential source or existing authenticated session is available to this task. Credentials must not be committed, logged, placed in workflow inputs, or exposed through OCR output."
 next_action: "Complete authentication through a user-controlled or otherwise approved secret-preserving interactive path into the already running owned client; then immediately run one bounded decoded-message capture at the proven worldmap boundary and normalize one message to deterministic (x,y,z) -> ordered contents -> appearance/type IDs evidence."
 ```
+
+## Runtime checkpoint — 2026-08-12T14:01Z
+
+This later checkpoint supersedes the authentication/tunnel portions of the YAML checkpoint above where they conflict.
+
+### PROVEN
+
+- GitHub Actions run `31604103984`, job `94138500351`, established Cloudflare WARP through a completely userspace WireGuard path (`wgcf` + `wireproxy` SOCKS5). Cloudflare trace returned `warp=on`; direct and proxied public IPs differed; `PROXYCHAINS_WARP_EGRESS_VERIFIED=true`.
+- The same run relaunched the real installed Tibia client through `proxychains4` and verified the client process had no direct remote TCP socket outside local SOCKS `127.0.0.1:25344`: `CLIENT_TCP_USERSPACE_WARP_CONFINEMENT_VERIFIED=true`.
+- GitHub Actions push run `31604419752`, job `94139596953`, independently repeated both userspace WARP egress proof and Tibia TCP confinement proof successfully.
+- Both runs verified canonical `oteryn-staging` container inventory unchanged; the owned analysis container remained running with the required ownership labels.
+- On PR run `31604103984`, both `TIBIA_TEST_EMAIL` and `TIBIA_TEST_PASSWORD` resolved to empty values and the login step failed closed before credential entry.
+- On same-branch push run `31604419752`, both secrets again resolved to empty values. The explicit secret-availability gate failed and the login step was skipped. No credential values were entered, printed, persisted, committed, OCRed or uploaded.
+
+### CONFLICT
+
+The durable continuation prompt states that repository Actions secrets named `TIBIA_TEST_EMAIL` and `TIBIA_TEST_PASSWORD` had been created. Live GitHub Actions evidence from both pull-request and same-branch push events proves that those names are currently unavailable to this workflow (both resolve empty). Live execution is authoritative for the current state.
+
+### AUTHORITY BOUNDARY
+
+The network requirement is now solved: WARP egress and actual Tibia TCP confinement are proven. The remaining blocker is an approved authenticated test account credential source. The available GitHub connector exposes no repository Actions-secret read/write capability, and credentials must not be supplied through chat, workflow inputs, logs, repository files or other non-secret channels.
+
+`next_action`: restore/create GitHub Actions repository secrets named exactly `TIBIA_TEST_EMAIL` and `TIBIA_TEST_PASSWORD` in `blakinio/Oteryn-Platform`, or establish an equivalent approved secret-preserving interactive authenticated session. After the secrets exist, rerun job `94139596953` (or an equivalent exact userspace-WARP trace), enter the test world, and immediately continue to the already-proven decoded Worldmap boundary to capture and normalize one live `(x,y,z) -> ordered contents -> appearance/type IDs` sample.
