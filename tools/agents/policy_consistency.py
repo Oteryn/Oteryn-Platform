@@ -429,6 +429,8 @@ def _repo_has_conditional_user_authorization(clause: str, repository: str) -> bo
 
 
 def _repo_has_positive_read_only_assertion(clause: str, repository: str) -> bool:
+    if _has_positive_mutation_grant(clause):
+        return False
     window = _repo_specific_window(clause, repository, 120)
     if "read-only" not in window:
         return False
@@ -493,6 +495,26 @@ def _reject_contradictory_repository_mutation_grants(errors: list[str], source: 
                 if _repo_has_conditional_user_authorization(clause, repository):
                     continue
                 errors.append(f"{source}: contradictory repository mutation authorization in authoritative policy: {repository}")
+
+
+def _reject_contradictory_completion_declarations(errors: list[str], source: str, policy_text: str) -> None:
+    requirement = (
+        r"(?:exact-head(?:\s+full-diff)?\s+self-review|real\s+E2E|"
+        r"required\s+CI\s+on\s+the\s+exact\s+final\s+head|"
+        r"zero\s+unresolved(?:\s+material)?\s+(?:review\s+threads?|findings?)|"
+        r"terminal\s+task\s+record|task\s+archival|released\s+ownership|ownership\s+release)"
+    )
+    patterns = (
+        re.compile(rf"\b{requirement}\b.{{0,80}}\b(?:is|are|be|becomes?)\s+(?:optional|not\s+required)\b", re.I),
+        re.compile(rf"\b(?:may|can)\s+(?:be\s+)?(?:skip(?:ped)?|omit(?:ted)?)\b.{{0,80}}\b{requirement}\b", re.I),
+        re.compile(rf"\b(?:task|work|delivery)\b.{{0,80}}\b(?:may|can)\s+be\s+(?:completed|closed|done)\b.{{0,100}}\bwith(?:out)?\b.{{0,50}}\b{requirement}\b", re.I),
+        re.compile(r"\b(?:task|work|delivery)\b.{0,80}\b(?:may|can)\s+be\s+(?:completed|closed|done)\b.{0,100}\b(?:with|despite)\b.{0,50}\bunresolved(?:\s+(?:material\s+)?)?(?:review\s+threads?|findings?)\b", re.I),
+        re.compile(rf"\bcompletion\b.{{0,50}}\b(?:does|do)\s+not\s+require\b.{{0,80}}\b{requirement}\b", re.I),
+    )
+    for statement in _logical_markdown_statements(policy_text):
+        normalized = _normalize_inline_markdown(statement)
+        if any(pattern.search(normalized) for pattern in patterns):
+            errors.append(f"{source}: contradictory completion declaration in authoritative policy: {statement}")
 
 
 def validate_policy(root: Path = REPO_ROOT) -> list[str]:
@@ -588,6 +610,8 @@ def validate_policy(root: Path = REPO_ROOT) -> list[str]:
         for source, markers in completion_markers.items():
             for marker in markers:
                 _require_marker(errors, source, completion_source_text[source], marker)
+        for source, text in completion_source_text.items():
+            _reject_contradictory_completion_declarations(errors, source, text)
 
     except PolicyConsistencyError as exc:
         errors.append(str(exc))
