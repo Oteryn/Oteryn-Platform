@@ -1,4 +1,4 @@
-name: Tibia Outbound Table Owner
+name: Tibia Outbound RTTI Vtables
 
 on:
   push:
@@ -13,11 +13,11 @@ env:
 
 jobs:
   attach:
-    name: Identify outbound table owner
+    name: Resolve outbound handler RTTI and vtables
     runs-on: oteryn-staging
     timeout-minutes: 3
     steps:
-      - name: Inspect strings surrounding the send-method table
+      - name: Find relocations to outbound class names and nearby vtable entries
         shell: bash
         run: |
           set -Eeuo pipefail
@@ -25,12 +25,17 @@ jobs:
           docker exec -i "$CONTAINER_NAME" bash <<'INNER'
           set -Eeuo pipefail
           bin='/data/home/.local/share/CipSoft GmbH/Tibia/packages/Tibia/bin/client'
-          echo PRECEDING_STRINGS_BEGIN
-          strings -a -t x "$bin" | awk '$1>="1ccc000" && $1<="1cd0c00" {print}' | tail -n 900
-          echo PRECEDING_STRINGS_END
-          echo NEAR_PLAYER_HANDLER_BEGIN
-          strings -a -t x "$bin" | awk '$1>="1cad700" && $1<="1cada80" {print}'
-          echo NEAR_PLAYER_HANDLER_END
+          readelf -rW "$bin" >/tmp/rtti-rela
+          echo PLAYER_HANDLER_RELOCS_BEGIN
+          grep -Ei 'R_X86_64_RELATIVE.*(1cad8c0|1cddb40)' /tmp/rtti-rela | head -n 80 || true
+          echo PLAYER_HANDLER_RELOCS_END
+          echo PROCESSOR_RELOCS_BEGIN
+          grep -Ei 'R_X86_64_RELATIVE.*(1cac3e0|1cac3a0|1cac340)' /tmp/rtti-rela | head -n 120 || true
+          echo PROCESSOR_RELOCS_END
+          echo RTTI_NAMES_BEGIN
+          strings -a -t x "$bin" | grep -E 'N5tibia(4game29TPlayerProtocolMessageHandler|8protocol31TProtocolClientMessageProcessor|8protocol32TProtobufClientMessageTranslator|8protocol15TProtocolWriter)E' || true
+          echo RTTI_NAMES_END
+          rm -f /tmp/rtti-rela
           pid=$(pgrep -x client | head -n1 || true)
           [[ -n "$pid" ]]
           tcp_rows=$(ss -ntp 2>/dev/null | grep "pid=$pid," || true)
