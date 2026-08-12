@@ -507,7 +507,7 @@ def _reject_contradictory_completion_declarations(errors: list[str], source: str
     patterns = (
         re.compile(rf"\b{requirement}\b.{{0,80}}\b(?:is|are|be|becomes?)\s+(?:optional|not\s+required)\b", re.I),
         re.compile(rf"\b(?:may|can)\s+(?:be\s+)?(?:skip(?:ped)?|omit(?:ted)?)\b.{{0,80}}\b{requirement}\b", re.I),
-        re.compile(rf"\b(?:task|work|delivery)\b.{{0,80}}\b(?:may|can)\s+be\s+(?:completed|closed|done)\b.{{0,100}}\bwith(?:out)?\b.{{0,50}}\b{requirement}\b", re.I),
+        re.compile(rf"\b(?:task|work|delivery)\b.{{0,80}}\b(?:may|can)\s+be\s+(?:completed|closed|done)\b.{{0,100}}\bwithout\b.{{0,50}}\b{requirement}\b", re.I),
         re.compile(r"\b(?:task|work|delivery)\b.{0,80}\b(?:may|can)\s+be\s+(?:completed|closed|done)\b.{0,100}\b(?:with|despite)\b.{0,50}\bunresolved(?:\s+(?:material\s+)?)?(?:review\s+threads?|findings?)\b", re.I),
         re.compile(rf"\bcompletion\b.{{0,50}}\b(?:does|do)\s+not\s+require\b.{{0,80}}\b{requirement}\b", re.I),
     )
