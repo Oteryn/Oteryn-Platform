@@ -13,9 +13,9 @@ env:
 
 jobs:
   trace:
-    name: Verify isolated Tor egress and attempt Tibia test login
+    name: Verify userspace WARP egress and attempt Tibia test login
     runs-on: oteryn-staging
-    timeout-minutes: 12
+    timeout-minutes: 15
     steps:
       - name: Verify owned runtime and snapshot staging
         shell: bash
@@ -24,37 +24,87 @@ jobs:
           [[ "$RUNNER_NAME" == "oteryn-synology-staging" ]]
           [[ "$(docker inspect --format '{{ index .Config.Labels "com.blakinio.owner" }}' "$CONTAINER_NAME")" == "oteryn" ]]
           [[ "$(docker inspect --format '{{ index .Config.Labels "com.blakinio.purpose" }}' "$CONTAINER_NAME")" == "tibia-client-analysis" ]]
+          [[ "$(docker inspect --format '{{.State.Status}}' "$CONTAINER_NAME")" == "running" ]]
           docker ps -a --filter 'label=com.docker.compose.project=oteryn-staging' --format '{{.ID}}\t{{.Names}}' | sort > /tmp/oteryn-before.tsv
+          test -s /tmp/oteryn-before.tsv
 
-      - name: Repair only owned container package state and verify Tor SOCKS egress
+      - name: Materialize pinned userspace WARP tooling
         shell: bash
         run: |
           set -Eeuo pipefail
           docker exec -i "$CONTAINER_NAME" bash <<'INNER'
           set -Eeuo pipefail
-          export DEBIAN_FRONTEND=noninteractive
-          if dpkg-query -W -f='${db:Status-Status}\n' cloudflare-warp 2>/dev/null | grep -Eq 'half-installed|half-configured|unpacked'; then
-            dpkg --remove --force-remove-reinstreq cloudflare-warp >/dev/null 2>&1 || dpkg --purge --force-all cloudflare-warp >/dev/null 2>&1 || true
+          mkdir -p /data/runtime/userspace-warp/bin /data/runtime/userspace-warp/state
+          chmod 700 /data/runtime/userspace-warp /data/runtime/userspace-warp/state
+          cd /data/runtime/userspace-warp/bin
+          curl -fL --retry 3 --connect-timeout 10 \
+            -o wgcf \
+            https://github.com/ViRb3/wgcf/releases/download/v2.2.32/wgcf_2.2.32_linux_amd64
+          echo '2ff97f2201972ce582a424455d50a3719a380eef0cd1f3144f7779348e122a2c  wgcf' | sha256sum -c -
+          chmod 755 wgcf
+          curl -fL --retry 3 --connect-timeout 10 \
+            -o wireproxy.tar.gz \
+            https://github.com/windtf/wireproxy/releases/download/v1.1.3/wireproxy_linux_amd64.tar.gz
+          echo 'e88c1d090740373fc606c1bafd81d9a5eadc642cce5667616e20e9d7a444f51c  wireproxy.tar.gz' | sha256sum -c -
+          rm -rf wireproxy-extract
+          mkdir wireproxy-extract
+          tar -xzf wireproxy.tar.gz -C wireproxy-extract
+          wp=$(find wireproxy-extract -type f -name wireproxy -print -quit)
+          [[ -n "$wp" ]]
+          cp "$wp" wireproxy
+          chmod 755 wireproxy
+          ./wgcf --version
+          ./wireproxy --version
+          INNER
+
+      - name: Establish and prove userspace WARP SOCKS egress
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          docker exec -i "$CONTAINER_NAME" bash <<'INNER'
+          set -Eeuo pipefail
+          root=/data/runtime/userspace-warp
+          bin="$root/bin"
+          state="$root/state"
+          cd "$state"
+          if [[ ! -s wgcf-account.toml ]]; then
+            "$bin/wgcf" register --accept-tos >/dev/null
           fi
-          dpkg --configure -a >/dev/null
-          apt-get update -qq
-          apt-get install -y -qq --no-install-recommends tor torsocks proxychains4 curl iproute2 >/dev/null
-          pkill -f '^/usr/bin/tor' 2>/dev/null || true
-          mkdir -p /data/runtime/tor-data
-          chmod 700 /data/runtime/tor-data
-          nohup tor --SocksPort 127.0.0.1:9050 --DataDirectory /data/runtime/tor-data --Log 'notice file /data/runtime/tor.log' >/dev/null 2>&1 </dev/null &
+          chmod 600 wgcf-account.toml
+          "$bin/wgcf" generate >/dev/null
+          chmod 600 wgcf-profile.conf
+          cat > wireproxy.conf <<EOF
+          WGConfig = $state/wgcf-profile.conf
+
+          [Socks5]
+          BindAddress = 127.0.0.1:25344
+          EOF
+          chmod 600 wireproxy.conf
+          "$bin/wireproxy" -n -c "$state/wireproxy.conf"
+          pkill -f '/wireproxy .*wireproxy.conf' 2>/dev/null || true
+          nohup "$bin/wireproxy" -c "$state/wireproxy.conf" >"$root/wireproxy.log" 2>&1 </dev/null &
           ready=0
-          for n in $(seq 1 45); do
-            if curl --socks5-hostname 127.0.0.1:9050 -fsS --max-time 10 https://www.cloudflare.com/cdn-cgi/trace >/tmp/tor-trace 2>/dev/null; then ready=1; break; fi
+          for n in $(seq 1 30); do
+            if curl --socks5-hostname 127.0.0.1:25344 -fsS --max-time 10 https://www.cloudflare.com/cdn-cgi/trace > /tmp/warp-trace 2>/dev/null; then
+              ready=1
+              break
+            fi
             sleep 2
           done
-          echo TOR_READY=$ready
-          (( ready == 1 ))
+          echo USERSPACE_WARP_READY=$ready
+          if (( ready == 0 )); then
+            echo WIREPROXY_DIAGNOSTIC_BEGIN
+            tail -n 80 "$root/wireproxy.log" 2>/dev/null | sed -E '/(private|token|license|account)/Id' || true
+            echo WIREPROXY_DIAGNOSTIC_END
+            exit 1
+          fi
           baseline=$(curl -fsS --max-time 10 https://www.cloudflare.com/cdn-cgi/trace | sed -n 's/^ip=//p')
-          torip=$(curl --socks5-hostname 127.0.0.1:9050 -fsS --max-time 10 https://www.cloudflare.com/cdn-cgi/trace | sed -n 's/^ip=//p')
-          [[ -n "$baseline" && -n "$torip" && "$baseline" != "$torip" ]]
-          echo TOR_EGRESS_VERIFIED=true
-          curl --socks5-hostname 127.0.0.1:9050 -fsS --max-time 10 https://www.cloudflare.com/cdn-cgi/trace | grep -E '^(loc|warp)='
+          warp_ip=$(sed -n 's/^ip=//p' /tmp/warp-trace)
+          warp_state=$(sed -n 's/^warp=//p' /tmp/warp-trace)
+          [[ -n "$baseline" && -n "$warp_ip" && "$baseline" != "$warp_ip" ]]
+          [[ "$warp_state" == "on" || "$warp_state" == "plus" ]]
+          echo USERSPACE_WARP_EGRESS_VERIFIED=true
+          grep -E '^(loc|warp)=' /tmp/warp-trace
           cat >/tmp/proxychains-tibia.conf <<'EOF'
           strict_chain
           proxy_dns
@@ -62,14 +112,14 @@ jobs:
           tcp_read_time_out 15000
           tcp_connect_time_out 8000
           [ProxyList]
-          socks5 127.0.0.1 9050
+          socks5 127.0.0.1 25344
           EOF
           proxy_ip=$(proxychains4 -f /tmp/proxychains-tibia.conf curl -fsS --max-time 15 https://www.cloudflare.com/cdn-cgi/trace | sed -n 's/^ip=//p')
-          [[ -n "$proxy_ip" && "$proxy_ip" == "$torip" ]]
-          echo PROXYCHAINS_EGRESS_VERIFIED=true
+          [[ -n "$proxy_ip" && "$proxy_ip" == "$warp_ip" ]]
+          echo PROXYCHAINS_WARP_EGRESS_VERIFIED=true
           INNER
 
-      - name: Relaunch Tibia through Tor and prove client TCP confinement
+      - name: Relaunch Tibia through userspace WARP and prove TCP confinement
         shell: bash
         run: |
           set -Eeuo pipefail
@@ -79,25 +129,25 @@ jobs:
           pkg="$HOME/.local/share/CipSoft GmbH/Tibia/packages/Tibia"
           client="$pkg/bin/client"
           [[ -x "$client" ]]
-          torip=$(curl --socks5-hostname 127.0.0.1:9050 -fsS --max-time 10 https://www.cloudflare.com/cdn-cgi/trace | sed -n 's/^ip=//p')
           baseip=$(curl -fsS --max-time 10 https://www.cloudflare.com/cdn-cgi/trace | sed -n 's/^ip=//p')
-          [[ -n "$torip" && "$torip" != "$baseip" ]]
-          pkill -f "$client" 2>/dev/null || true
+          warpip=$(curl --socks5-hostname 127.0.0.1:25344 -fsS --max-time 10 https://www.cloudflare.com/cdn-cgi/trace | sed -n 's/^ip=//p')
+          [[ -n "$warpip" && "$warpip" != "$baseip" ]]
+          pkill -f 'packages/Tibia/bin/client' 2>/dev/null || true
           pgrep -f '^Xvfb :99' >/dev/null || nohup Xvfb :99 -screen 0 1280x800x24 >/data/runtime/xvfb.log 2>&1 </dev/null &
           sleep 2
           cd "$pkg"
-          nohup proxychains4 -f /tmp/proxychains-tibia.conf "$client" >/data/runtime/client-tor.log 2>&1 </dev/null &
+          nohup proxychains4 -f /tmp/proxychains-tibia.conf "$client" >/data/runtime/client-userspace-warp.log 2>&1 </dev/null &
           for n in $(seq 1 30); do pgrep -f 'packages/Tibia/bin/client' >/dev/null && break; sleep 1; done
           pid=$(pgrep -f 'packages/Tibia/bin/client' | head -n1)
           [[ -n "$pid" ]]
-          sleep 8
+          sleep 10
           sockets=$(ss -ntp 2>/dev/null | grep "pid=$pid," || true)
-          if printf '%s\n' "$sockets" | awk '{print $5}' | grep -Ev '^(127\.0\.0\.1|\[::1\]):9050$' | grep -q .; then
+          if printf '%s\n' "$sockets" | awk '{print $5}' | grep -Ev '^(127\.0\.0\.1|\[::1\]):25344$' | grep -q .; then
             echo CLIENT_DIRECT_TCP_DETECTED=true >&2
             exit 1
           fi
-          printf '%s\n' "$sockets" | awk '{print $5}' | grep -Eq '^(127\.0\.0\.1|\[::1\]):9050$'
-          echo CLIENT_TCP_TOR_CONFINEMENT_VERIFIED=true
+          printf '%s\n' "$sockets" | awk '{print $5}' | grep -Eq '^(127\.0\.0\.1|\[::1\]):25344$'
+          echo CLIENT_TCP_USERSPACE_WARP_CONFINEMENT_VERIFIED=true
           best=''; best_area=0
           for w in $(xdotool search --onlyvisible --name '^Tibia$' 2>/dev/null || true); do
             geom=$(xdotool getwindowgeometry --shell "$w" 2>/dev/null || true)
@@ -111,7 +161,7 @@ jobs:
           echo "$best" >/tmp/tibia-window-id
           INNER
 
-      - name: Attempt bounded test login through proven Tor path
+      - name: Attempt bounded test login through proven userspace WARP path
         shell: bash
         env:
           TIBIA_TEST_EMAIL: ${{ secrets.TIBIA_TEST_EMAIL }}
@@ -148,7 +198,7 @@ jobs:
           PY
           echo SAFE_LOGIN_RESULT_END
           cp /tmp/login-result-raw.png /tmp/login-result-safe.png
-          convert /tmp/login-result-safe.png -fill '#202020' -draw 'rectangle 330,190 710,480' /tmp/login-result-safe.png
+          convert /tmp/login-result-safe.png -fill '#202020' -draw 'rectangle 300,150 740,520' /tmp/login-result-safe.png
           INNER
           docker cp "$CONTAINER_NAME:/tmp/login-result-safe.png" /tmp/login-result-safe.png
           test -s /tmp/login-result-safe.png
