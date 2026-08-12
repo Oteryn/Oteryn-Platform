@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - .github/workflows/tibia-client-analysis-dispatch.yml
+      - .github/workflows/tibia-client-analysis-trace.yml
 
 permissions:
   contents: read
@@ -42,7 +43,6 @@ jobs:
           docker exec -i "$CONTAINER_NAME" /data/reverse-venv/bin/python - <<'PY'
           from pathlib import Path
           import subprocess,re
-
           client=Path('/data/client-15.32.df7b29/bin/client')
           def dis(a,b):
               return subprocess.check_output(['objdump','-d','-C',f'--start-address={a}',f'--stop-address={b}',str(client)],text=True,errors='replace')
@@ -62,26 +62,21 @@ jobs:
                       if x not in rip: rip.append(x)
               print(label+'_DIRECT_TARGETS='+','.join(hex(x) for x in calls))
               print(label+'_RIP_TARGETS='+','.join(hex(x) for x in rip))
-              return text,calls,rip
-
-          full,fcalls,frip=summarize('FULLMAP_HANDLER',0xcec8d0,0xced200)
-          field,dcalls,drip=summarize('FIELDDATA_HANDLER',0xcd3190,0xcd3230)
-          common,ccalls,crip=summarize('COMMON_MAP_DATA',0x19a8a80,0x19a9700)
-
+              return calls
+          fc=summarize('FULLMAP_HANDLER',0xcec8d0,0xced200)
+          dc=summarize('FIELDDATA_HANDLER',0xcd3190,0xcd3230)
+          cc=summarize('COMMON_MAP_DATA',0x19a8a80,0x19a9700)
           print('=== COMMON_MAP_DATA_CALLSITES ===')
-          # Scan disassembly for exact direct call references to the shared routine.
           alltext=subprocess.check_output(['objdump','-d','-C',str(client)],text=True,errors='replace')
           for ln in alltext.splitlines():
               if re.search(r'\bcall\s+19a8a80\b',ln): print(ln)
-
-          print('=== SELECTED_TARGET_DISASSEMBLY ===')
+          print('=== SELECTED_DIRECT_TARGETS ===')
           selected=[]
-          for x in fcalls+dcalls+ccalls:
-              if 0x500000 <= x < 0x1c00000 and x not in selected:
-                  selected.append(x)
-          for x in selected[:40]:
+          for x in fc+dc+cc:
+              if 0x500000 <= x < 0x1c00000 and x not in selected: selected.append(x)
+          for x in selected[:32]:
               print(f'--- TARGET 0x{x:x} ---')
-              print(dis(x,x+0x100))
+              print(dis(x,x+0xc0))
           PY
 
       - name: Verify canonical staging unchanged
