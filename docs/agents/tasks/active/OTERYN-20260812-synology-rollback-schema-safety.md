@@ -47,8 +47,8 @@ The older `OTERYN-20260801-public-domain-repair` record's latest durable checkpo
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-12T08:34:00Z
-head: f568ccac6a316aea97eea1207c24b8e0fa852ceb
+updated_at: 2026-08-12T08:39:00Z
+head: 7f5be276ae3b4aff90de2b63827dcaffd050bf99
 branch: ops/synology-rollback-schema-safety-1007
 pr: 1013
 status: validating
@@ -65,14 +65,18 @@ blockers:
 proven:
   - PR #1013 remains scoped to the dedicated task branch and the compare against main contains only the declared Synology workflow, deployment, test, operator-doc and task-record paths.
   - candidate release identity is derived from matching Platform/Gateway OCI revision labels and rejects disagreement with explicit release identity or GATEWAY_VERSION.
-  - failed nested release-identity validation now propagates explicitly through command substitutions with `|| return 1`; the prior focused mismatch test exposed this real fail-open defect.
-  - candidate migration compatibility metadata is read from /var/www/html/deploy/synology/release-contract.env inside the exact Platform image rather than an independently checked-out workflow revision.
+  - failed nested release-identity validation propagates explicitly through command substitutions with `|| return 1`; the prior focused mismatch test exposed this real fail-open defect.
+  - candidate migration compatibility metadata is read from /var/www/html/deploy/synology/release-contract.env inside the exact Platform image with networking disabled and a read-only filesystem rather than from an independently checked-out workflow revision.
   - the image contract parser accepts only the three bounded compatibility keys and requires expand-contract policy plus bounded schema identifiers.
   - pre-existing running Platform/Gateway/Canary images are snapshotted before pull using Docker image IDs resolved immediately to immutable RepoDigests.
   - when no managed current-release exists but a complete running-image snapshot exists, the old Platform/Gateway revision is verified and a synthetic observed-<sha> identity records the exact pre-migration DB/application pairing before backup and migration.
   - an existing non-empty Platform DB without either managed state or a complete running-image baseline fails closed before migration.
   - legacy snapshot parsing occurs in a subshell so candidate image variables are not overwritten.
-  - schema state is persisted unknown before destructive recovery and known only after complete restore.
+  - full-diff self-review found that migration preparation originally occurred only when exec-ing migrate, after the candidate Platform container had already been started; this was repaired so preparation runs before the `up -d platform` command.
+  - existing Platform DB consumers are quiesced before the pre-migration dump: Platform, Gateway and internal proxy stop, and a running optional Marketplace scheduler is stopped and verified stopped.
+  - a Marketplace scheduler that was running before migration is recreated from the candidate Platform image after migration succeeds and the new schema identity is known.
+  - schema state is persisted unknown before candidate Platform start/migration and known only after migrate succeeds.
+  - schema state is also persisted unknown before destructive recovery and known only after complete restore.
   - optional marketplace-scheduler is stopped and verified stopped before destructive recovery.
   - compatibility tests invoke the implemented compatible-schema subcommand and are wired into Synology CI.
   - release-state values use shell-safe %q serialization and the world-name round trip is covered.
@@ -83,8 +87,9 @@ proven:
 derived:
   - the two P1 findings from Codex review at fbbf519471 are structurally addressed by image-bound candidate metadata and backup-capable legacy baseline bootstrap.
   - the proposed #1003 workflow and this implementation compose without path mutation or hidden release-identity assumptions because both use the same verified OCI revision/digest identity.
+  - quiescing DB consumers before backup plus delaying candidate Platform start until after the backup closes the self-review race between old writes, backup capture and candidate startup.
 unknown:
-  - terminal result of the exact-head CI generation after the release-identity propagation repair and final documentation/checkpoint commit.
+  - terminal result of the exact-head CI generation after the final self-review hardening and checkpoint commit.
   - fresh independent Codex review result on the final coherent head.
 conflicts: []
 first_failure:
@@ -96,6 +101,7 @@ rejected_hypotheses:
   - workflow checkout metadata is sufficient to identify a historical selected image contract; it is not.
   - mutable running-image tags remain reliable after pull; immutable pre-pull RepoDigest capture is required.
   - the OCI mismatch failure was only a test-harness defect; direct shell reproduction proved the nested command-substitution failure could be masked by the caller.
+  - starting the candidate Platform before pre-migration preparation was harmless; existing internal routing and concurrent DB consumers made that ordering unsafe enough to harden.
 changed_paths:
   - .github/workflows/build-synology-staging-images.yml
   - deploy/synology/release-contract.env
@@ -110,15 +116,15 @@ changed_paths:
 validation:
   - command: prior exact-head focused Synology gate at fbbf519471
     result: PASS
-    evidence: 14/14 tests, shell syntax, Compose/LAN validation and image builds passed before the two subsequent review findings.
+    evidence: 14/14 tests, shell syntax, Compose/LAN validation and image builds passed before the later review and self-review hardening.
   - command: Agent Governance run 31578389351
     result: FAIL
     evidence: checkpoint schema only; unsupported nested keys were removed in commit 93e653787957bfe2e9754d961fa9c4ea5bd35ca3.
   - command: Build Synology run 31578389324 focused contract test
     result: FAIL
-    evidence: release revision mismatch negative test exposed masked nested-function failure; fixed by explicit propagation in commit 5a38ddbef29a5a77e52b1d4d12706914d12877cb.
+    evidence: release revision mismatch negative test exposed masked nested-function failure; explicit propagation was added in commit 5a38ddbef29a5a77e52b1d4d12706914d12877cb.
   - command: final candidate exact-head focused and repository CI
     result: NOT_RUN
-    evidence: final generation starts after this documentation/checkpoint commit.
-next_action: inspect final-candidate exact-head focused Synology validation and full diff, repair only verified defects, then obtain fresh exact-head Codex review and complete the merge gate.
+    evidence: final generation starts after this checkpoint commit.
+next_action: inspect final-candidate exact-head focused Synology validation, then obtain a fresh exact-head Codex review; if both are clean, complete terminal CI, resolve review threads and squash merge.
 ```
