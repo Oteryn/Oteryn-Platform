@@ -64,8 +64,12 @@
         "tablet-820x1180": {"profile": "support-moderation-responsive", "project": "support-moderation-chromium-tablet", "mode": "project", "evidence": "e1"},
         "mobile-390x844": {"profile": "support-moderation-responsive", "project": "support-moderation-chromium-mobile", "mode": "project", "evidence": "e1"}
       },
-      "browsers": {"chromium-primary": {"profile": "support-moderation-responsive", "projects": ["support-moderation-chromium-desktop"], "evidence": "e1"}},
-      "portability": {"status": "excluded", "rationale": "Support and moderation includes private notes, enforcement actions, appeals and notification state. The full owner/moderator matrix remains zero-retry Chromium; authorization and privacy are additionally proven at feature level."}
+      "browsers": {
+        "chromium-primary": {"profile": "support-moderation-responsive", "projects": ["support-moderation-chromium-desktop"], "evidence": "e1"},
+        "firefox-bounded": {"profile": "standard-portability", "projects": ["portability-firefox"], "evidence": "e1"},
+        "webkit-bounded": {"profile": "standard-portability", "projects": ["portability-webkit"], "evidence": "e1"}
+      },
+      "portability": {"status": "covered", "profile": "standard-portability", "projects": ["portability-firefox", "portability-webkit"], "evidence": "e1"}
     },
     {
       "id": "game-catalog.public-items-creatures-and-loot",

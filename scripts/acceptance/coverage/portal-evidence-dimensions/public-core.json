@@ -30,6 +30,7 @@
       ],
       "viewports": {
         "desktop-1440x1000": {"profile": "standard-responsive", "project": "responsive-desktop", "mode": "project", "evidence": "e1"},
+        "tablet-820x1180": {"profile": "standard-responsive", "project": "responsive-tablet", "mode": "project", "evidence": "e1"},
         "mobile-390x844": {"profile": "standard-responsive", "project": "responsive-mobile", "mode": "project", "evidence": "e1"}
       },
       "browsers": {
@@ -84,6 +85,7 @@
       "evidence": [{"id": "e1", "file": "scripts/acceptance/tests/public-localization.spec.mjs", "markers": ["@localization canonical English and Polish public shells remain truthful and navigable"]}],
       "viewports": {
         "desktop-1440x1000": {"profile": "standard-responsive", "project": "responsive-desktop", "mode": "project", "evidence": "e1"},
+        "tablet-820x1180": {"profile": "standard-responsive", "project": "responsive-tablet", "mode": "project", "evidence": "e1"},
         "mobile-390x844": {"profile": "standard-responsive", "project": "responsive-mobile", "mode": "project", "evidence": "e1"}
       },
       "browsers": {
@@ -102,8 +104,12 @@
         "tablet-820x1180": {"profile": "community-responsive", "project": "community-data-chromium-tablet", "mode": "project", "evidence": "e1"},
         "mobile-390x844": {"profile": "community-responsive", "project": "community-data-chromium-mobile", "mode": "project", "evidence": "e1"}
       },
-      "browsers": {"chromium-primary": {"profile": "community-responsive", "projects": ["community-data-chromium-desktop"], "evidence": "e1"}},
-      "portability": {"status": "excluded", "rationale": "The complete community fixture covers dependency recovery, privacy and responsive Chromium. Firefox/WebKit portability is represented by the core public game-data profile to avoid duplicating the larger stateful fixture."}
+      "browsers": {
+        "chromium-primary": {"profile": "community-responsive", "projects": ["community-data-chromium-desktop"], "evidence": "e1"},
+        "firefox-bounded": {"profile": "standard-portability", "projects": ["portability-firefox"], "evidence": "e1"},
+        "webkit-bounded": {"profile": "standard-portability", "projects": ["portability-webkit"], "evidence": "e1"}
+      },
+      "portability": {"status": "covered", "profile": "standard-portability", "projects": ["portability-firefox", "portability-webkit"], "evidence": "e1"}
     }
   ]
 }

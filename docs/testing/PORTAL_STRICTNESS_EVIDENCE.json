@@ -3,233 +3,166 @@
   "surfaces": {
     "wiki.public": {
       "state_categories": {
-        "not_found": {
-          "status": "covered",
-          "evidence": {
-            "file": "scripts/acceptance/tests/wiki-reconciliation-acceptance.spec.mjs",
-            "markers": [
-              "@portal-wiki-public route-complete empty, read, search, invalid, not-found, unavailable, recovery and EN/PL states",
-              "expect(response?.status()).toBe(404);"
-            ]
-          }
-        },
-        "csrf_expiry": {
-          "status": "not_applicable",
-          "rule": "read_only_surface",
-          "reason": "Every route owned by wiki.public is GET/HEAD, so browser CSRF expiry cannot apply to this read-only surface."
-        },
-        "rate_limit": {
-          "status": "covered",
-          "evidence": {
-            "file": "tests/Feature/Wiki/PublicWikiSearchTest.php",
-            "markers": [
-              "test_search_is_rate_limited_by_locale_and_source",
-              "->assertStatus(429);"
-            ]
-          }
-        },
-        "server_failure": {
-          "status": "covered",
-          "evidence": {
-            "file": "scripts/acceptance/tests/wiki-reconciliation-acceptance.spec.mjs",
-            "markers": [
-              "@portal-wiki-public route-complete empty, read, search, invalid, not-found, unavailable, recovery and EN/PL states",
-              "expect(response?.status()).toBe(503);"
-            ]
-          }
-        },
-        "recovery": {
-          "status": "covered",
-          "evidence": {
-            "file": "scripts/acceptance/tests/wiki-reconciliation-acceptance.spec.mjs",
-            "markers": [
-              "@portal-wiki-public route-complete empty, read, search, invalid, not-found, unavailable, recovery and EN/PL states",
-              "wikiFixture('restore-public');"
-            ]
-          }
-        }
+        "not_found": {"status": "covered", "evidence": {"file": "scripts/acceptance/tests/wiki-reconciliation-acceptance.spec.mjs", "markers": ["@portal-wiki-public route-complete empty, read, search, invalid, not-found, unavailable, recovery and EN/PL states", "expect(response?.status()).toBe(404);"]}},
+        "csrf_expiry": {"status": "not_applicable", "rule": "read_only_surface", "reason": "Every route owned by wiki.public is GET/HEAD, so browser CSRF expiry cannot apply to this read-only surface."},
+        "rate_limit": {"status": "covered", "evidence": {"file": "tests/Feature/Wiki/PublicWikiSearchTest.php", "markers": ["test_search_is_rate_limited_by_locale_and_source", "->assertStatus(429);"]}},
+        "server_failure": {"status": "covered", "evidence": {"file": "scripts/acceptance/tests/wiki-reconciliation-acceptance.spec.mjs", "markers": ["@portal-wiki-public route-complete empty, read, search, invalid, not-found, unavailable, recovery and EN/PL states", "expect(response?.status()).toBe(503);"]}},
+        "recovery": {"status": "covered", "evidence": {"file": "scripts/acceptance/tests/wiki-reconciliation-acceptance.spec.mjs", "markers": ["@portal-wiki-public route-complete empty, read, search, invalid, not-found, unavailable, recovery and EN/PL states", "wikiFixture('restore-public');"]}}
       },
-      "locale": {
-        "status": "covered",
-        "evidence": {
-          "file": "scripts/acceptance/tests/wiki-reconciliation-acceptance.spec.mjs",
-          "markers": [
-            "@portal-wiki-public route-complete empty, read, search, invalid, not-found, unavailable, recovery and EN/PL states",
-            "page.goto('/pl/wiki')",
-            "page.goto('/en/wiki')"
-          ]
-        }
-      },
-      "accessibility": {
-        "status": "covered",
-        "evidence": {
-          "file": "scripts/acceptance/tests/wiki-reconciliation-acceptance.spec.mjs",
-          "markers": [
-            "@portal-wiki-public route-complete empty, read, search, invalid, not-found, unavailable, recovery and EN/PL states",
-            "assertAccessibilitySmoke(page);"
-          ]
-        }
-      },
-      "overflow": {
-        "status": "covered",
-        "evidence": {
-          "file": "scripts/acceptance/tests/wiki-reconciliation-acceptance.spec.mjs",
-          "markers": [
-            "@portal-wiki-public route-complete empty, read, search, invalid, not-found, unavailable, recovery and EN/PL states",
-            "assertNoPageOverflow(page);"
-          ]
-        }
-      }
+      "locale": {"status": "covered", "evidence": {"file": "scripts/acceptance/tests/wiki-reconciliation-acceptance.spec.mjs", "markers": ["@portal-wiki-public route-complete empty, read, search, invalid, not-found, unavailable, recovery and EN/PL states", "page.goto('/pl/wiki')", "page.goto('/en/wiki')"]}},
+      "accessibility": {"status": "covered", "evidence": {"file": "scripts/acceptance/tests/wiki-reconciliation-acceptance.spec.mjs", "markers": ["@portal-wiki-public route-complete empty, read, search, invalid, not-found, unavailable, recovery and EN/PL states", "assertAccessibilitySmoke(page);"]}},
+      "overflow": {"status": "covered", "evidence": {"file": "scripts/acceptance/tests/wiki-reconciliation-acceptance.spec.mjs", "markers": ["@portal-wiki-public route-complete empty, read, search, invalid, not-found, unavailable, recovery and EN/PL states", "assertNoPageOverflow(page);"]}}
     },
     "wiki.admin-editorial-lifecycle": {
       "state_categories": {
-        "not_found": {
-          "status": "covered",
-          "evidence": {
-            "file": "scripts/acceptance/tests/wiki-strictness-acceptance.spec.mjs",
-            "markers": [
-              "@portal-wiki-admin-strictness not-found csrf-419 server-failure recovery",
-              "expect(response?.status()).toBe(404);"
-            ]
-          }
-        },
-        "csrf_expiry": {
-          "status": "covered",
-          "evidence": {
-            "file": "scripts/acceptance/tests/wiki-strictness-acceptance.spec.mjs",
-            "markers": [
-              "@portal-wiki-admin-strictness not-found csrf-419 server-failure recovery",
-              "expect(csrfResponse.status()).toBe(419);"
-            ]
-          }
-        },
-        "rate_limit": {
-          "status": "not_applicable",
-          "rule": "no_throttle_middleware",
-          "reason": "No route owned by the administrator Wiki surface has a throttle middleware; rate limiting is not part of this privileged lifecycle contract."
-        },
-        "server_failure": {
-          "status": "covered",
-          "evidence": {
-            "file": "scripts/acceptance/tests/wiki-strictness-acceptance.spec.mjs",
-            "markers": [
-              "@portal-wiki-admin-strictness not-found csrf-419 server-failure recovery",
-              "expect(response?.status()).toBe(500);"
-            ]
-          }
-        },
-        "recovery": {
-          "status": "covered",
-          "evidence": {
-            "file": "scripts/acceptance/tests/wiki-strictness-acceptance.spec.mjs",
-            "markers": [
-              "@portal-wiki-admin-strictness not-found csrf-419 server-failure recovery",
-              "restoreWikiAdminAvailability();",
-              "expect(response?.status()).toBe(200);"
-            ]
-          }
-        }
+        "not_found": {"status": "covered", "evidence": {"file": "scripts/acceptance/tests/wiki-strictness-acceptance.spec.mjs", "markers": ["@portal-wiki-admin-strictness not-found csrf-419 server-failure recovery", "expect(response?.status()).toBe(404);"]}},
+        "csrf_expiry": {"status": "covered", "evidence": {"file": "scripts/acceptance/tests/wiki-strictness-acceptance.spec.mjs", "markers": ["@portal-wiki-admin-strictness not-found csrf-419 server-failure recovery", "expect(csrfResponse.status()).toBe(419);"]}},
+        "rate_limit": {"status": "not_applicable", "rule": "no_throttle_middleware", "reason": "No route owned by the administrator Wiki surface has a throttle middleware; rate limiting is not part of this privileged lifecycle contract."},
+        "server_failure": {"status": "covered", "evidence": {"file": "scripts/acceptance/tests/wiki-strictness-acceptance.spec.mjs", "markers": ["@portal-wiki-admin-strictness not-found csrf-419 server-failure recovery", "expect(response?.status()).toBe(500);"]}},
+        "recovery": {"status": "covered", "evidence": {"file": "scripts/acceptance/tests/wiki-strictness-acceptance.spec.mjs", "markers": ["@portal-wiki-admin-strictness not-found csrf-419 server-failure recovery", "restoreWikiAdminAvailability();", "expect(response?.status()).toBe(200);"]}}
       },
-      "locale": {
-        "status": "not_applicable",
-        "rule": "operator_surface_without_locale_route",
-        "reason": "The trusted administrator Wiki UI is intentionally unlocalized and has no locale route segment; EN/PL editorial content parity is separately exercised through the Wiki lifecycle and public reads."
-      },
-      "accessibility": {
-        "status": "covered",
-        "evidence": {
-          "file": "scripts/acceptance/tests/wiki-reconciliation-acceptance.spec.mjs",
-          "markers": [
-            "@portal-wiki-admin complete validation, draft, signed-preview, conflict, review, publish, unpublish, revision-restore, archive and audit lifecycle",
-            "assertAccessibilitySmoke(page);"
-          ]
-        }
-      },
-      "overflow": {
-        "status": "covered",
-        "evidence": {
-          "file": "scripts/acceptance/tests/wiki-reconciliation-acceptance.spec.mjs",
-          "markers": [
-            "@portal-wiki-admin complete validation, draft, signed-preview, conflict, review, publish, unpublish, revision-restore, archive and audit lifecycle",
-            "assertNoPageOverflow(page);"
-          ]
-        }
-      }
+      "locale": {"status": "not_applicable", "rule": "operator_surface_without_locale_route", "reason": "The trusted administrator Wiki UI is intentionally unlocalized and has no locale route segment; EN/PL editorial content parity is separately exercised through the Wiki lifecycle and public reads."},
+      "accessibility": {"status": "covered", "evidence": {"file": "scripts/acceptance/tests/wiki-reconciliation-acceptance.spec.mjs", "markers": ["@portal-wiki-admin complete validation, draft, signed-preview, conflict, review, publish, unpublish, revision-restore, archive and audit lifecycle", "assertAccessibilitySmoke(page);"]}},
+      "overflow": {"status": "covered", "evidence": {"file": "scripts/acceptance/tests/wiki-reconciliation-acceptance.spec.mjs", "markers": ["@portal-wiki-admin complete validation, draft, signed-preview, conflict, review, publish, unpublish, revision-restore, archive and audit lifecycle", "assertNoPageOverflow(page);"]}}
     },
     "editorial-media.admin": {
       "state_categories": {
-        "not_found": {
-          "status": "covered",
-          "evidence": {
-            "file": "scripts/acceptance/tests/editorial-media-strictness-acceptance.spec.mjs",
-            "markers": [
-              "@portal-editorial-media-strictness not-found csrf-419 server-failure recovery",
-              "expect(response?.status()).toBe(404);"
-            ]
-          }
-        },
-        "csrf_expiry": {
-          "status": "covered",
-          "evidence": {
-            "file": "scripts/acceptance/tests/editorial-media-strictness-acceptance.spec.mjs",
-            "markers": [
-              "@portal-editorial-media-strictness not-found csrf-419 server-failure recovery",
-              "expect(csrfResponse.status()).toBe(419);"
-            ]
-          }
-        },
-        "rate_limit": {
-          "status": "not_applicable",
-          "rule": "no_throttle_middleware",
-          "reason": "No route owned by Editorial Media administration has throttle middleware; this trusted upload/library lifecycle has no rate-limit contract."
-        },
-        "server_failure": {
-          "status": "covered",
-          "evidence": {
-            "file": "scripts/acceptance/tests/editorial-media-strictness-acceptance.spec.mjs",
-            "markers": [
-              "@portal-editorial-media-strictness not-found csrf-419 server-failure recovery",
-              "expect(response?.status()).toBe(500);"
-            ]
-          }
-        },
-        "recovery": {
-          "status": "covered",
-          "evidence": {
-            "file": "scripts/acceptance/tests/editorial-media-strictness-acceptance.spec.mjs",
-            "markers": [
-              "@portal-editorial-media-strictness not-found csrf-419 server-failure recovery",
-              "restoreEditorialMediaAvailability();",
-              "expect(response?.status()).toBe(200);"
-            ]
-          }
-        }
+        "not_found": {"status": "covered", "evidence": {"file": "scripts/acceptance/tests/editorial-media-strictness-acceptance.spec.mjs", "markers": ["@portal-editorial-media-strictness not-found csrf-419 server-failure recovery", "expect(response?.status()).toBe(404);"]}},
+        "csrf_expiry": {"status": "covered", "evidence": {"file": "scripts/acceptance/tests/editorial-media-strictness-acceptance.spec.mjs", "markers": ["@portal-editorial-media-strictness not-found csrf-419 server-failure recovery", "expect(csrfResponse.status()).toBe(419);"]}},
+        "rate_limit": {"status": "not_applicable", "rule": "no_throttle_middleware", "reason": "No route owned by Editorial Media administration has throttle middleware; this trusted upload/library lifecycle has no rate-limit contract."},
+        "server_failure": {"status": "covered", "evidence": {"file": "scripts/acceptance/tests/editorial-media-strictness-acceptance.spec.mjs", "markers": ["@portal-editorial-media-strictness not-found csrf-419 server-failure recovery", "expect(response?.status()).toBe(500);"]}},
+        "recovery": {"status": "covered", "evidence": {"file": "scripts/acceptance/tests/editorial-media-strictness-acceptance.spec.mjs", "markers": ["@portal-editorial-media-strictness not-found csrf-419 server-failure recovery", "restoreEditorialMediaAvailability();", "expect(response?.status()).toBe(200);"]}}
       },
-      "locale": {
-        "status": "not_applicable",
-        "rule": "operator_surface_without_locale_route",
-        "reason": "Editorial Media is a trusted administrator asset-management surface with no locale route segment and does not publish localized player content itself."
+      "locale": {"status": "not_applicable", "rule": "operator_surface_without_locale_route", "reason": "Editorial Media is a trusted administrator asset-management surface with no locale route segment and does not publish localized player content itself."},
+      "accessibility": {"status": "covered", "evidence": {"file": "scripts/acceptance/tests/editorial-media-acceptance.spec.mjs", "markers": ["@portal-editorial-media manager validates, uploads, privately previews, protects references, deletes and audits", "assertAccessibilitySmoke(page);"]}},
+      "overflow": {"status": "covered", "evidence": {"file": "scripts/acceptance/tests/editorial-media-acceptance.spec.mjs", "markers": ["@portal-editorial-media manager validates, uploads, privately previews, protects references, deletes and audits", "assertNoPageOverflow(page);"]}}
+    },
+    "admin.core-rbac-cms-audit": {
+      "state_categories": {
+        "not_found": {"status": "covered", "evidence": {"file": "scripts/acceptance/tests/portal-487-strictness-acceptance.spec.mjs", "markers": ["@portal-487-strictness admin-cms not-found csrf-419 server-failure recovery", "'/admin/news/999999999/edit'"]}},
+        "csrf_expiry": {"status": "covered", "evidence": {"file": "scripts/acceptance/tests/portal-487-strictness-acceptance.spec.mjs", "markers": ["@portal-487-strictness admin-cms not-found csrf-419 server-failure recovery", "['/admin/news', 'POST']"]}},
+        "rate_limit": {"status": "not_applicable", "rule": "no_throttle_middleware", "reason": "The exact administrator core, RBAC, CMS and audit routes assigned to this surface have no throttle middleware; runtime route topology is validated before this exception is accepted."},
+        "server_failure": {"status": "covered", "evidence": {"file": "scripts/acceptance/tests/portal-487-strictness-acceptance.spec.mjs", "markers": ["@portal-487-strictness admin-cms not-found csrf-419 server-failure recovery", "['admin.core-rbac-cms-audit', '/admin/news']"]}},
+        "recovery": {"status": "covered", "evidence": {"file": "scripts/acceptance/tests/portal-487-strictness-acceptance.spec.mjs", "markers": ["@portal-487-strictness admin-cms not-found csrf-419 server-failure recovery", "await expectServerFailureRecovery(page, surface, path);"]}}
       },
-      "accessibility": {
-        "status": "covered",
-        "evidence": {
-          "file": "scripts/acceptance/tests/editorial-media-acceptance.spec.mjs",
-          "markers": [
-            "@portal-editorial-media manager validates, uploads, privately previews, protects references, deletes and audits",
-            "assertAccessibilitySmoke(page);"
-          ]
-        }
+      "locale": {"status": "not_applicable", "rule": "operator_surface_without_locale_route", "reason": "The trusted admin.core-rbac-cms-audit rendered routes are administrator-only routes without a locale path segment; localized public/editorial output is exercised on its public surfaces."},
+      "overflow": {"status": "covered", "evidence": {"file": "scripts/acceptance/tests/portal-487-strictness-acceptance.spec.mjs", "markers": ["@portal-487-strictness admin-cms not-found csrf-419 server-failure recovery", "['admin.core-rbac-cms-audit', '/admin/news']", "assertNoOverflow(page);"]}}
+    },
+    "admin.homepage-template-selector": {
+      "state_categories": {
+        "not_found": {"status": "covered", "evidence": {"file": "scripts/acceptance/tests/portal-487-strictness-acceptance.spec.mjs", "markers": ["@portal-487-strictness admin-cms not-found csrf-419 server-failure recovery", "'/admin/portal/homepage/preview/not-a-real-template'"]}},
+        "csrf_expiry": {"status": "covered", "evidence": {"file": "scripts/acceptance/tests/portal-487-strictness-acceptance.spec.mjs", "markers": ["@portal-487-strictness admin-cms not-found csrf-419 server-failure recovery", "['/admin/portal/homepage/active', 'PUT']"]}},
+        "rate_limit": {"status": "not_applicable", "rule": "no_throttle_middleware", "reason": "Homepage-template selector routes are protected administrator settings routes without throttle middleware; the runtime route set is checked before accepting non-applicability."},
+        "server_failure": {"status": "covered", "evidence": {"file": "scripts/acceptance/tests/portal-487-strictness-acceptance.spec.mjs", "markers": ["@portal-487-strictness admin-cms not-found csrf-419 server-failure recovery", "['admin.homepage-template-selector', '/admin/portal/homepage']"]}},
+        "recovery": {"status": "covered", "evidence": {"file": "scripts/acceptance/tests/portal-487-strictness-acceptance.spec.mjs", "markers": ["@portal-487-strictness admin-cms not-found csrf-419 server-failure recovery", "portalFixture('restore', surface);"]}}
       },
-      "overflow": {
-        "status": "covered",
-        "evidence": {
-          "file": "scripts/acceptance/tests/editorial-media-acceptance.spec.mjs",
-          "markers": [
-            "@portal-editorial-media manager validates, uploads, privately previews, protects references, deletes and audits",
-            "assertNoPageOverflow(page);"
-          ]
-        }
-      }
+      "overflow": {"status": "covered", "evidence": {"file": "scripts/acceptance/tests/portal-487-strictness-acceptance.spec.mjs", "markers": ["@portal-487-strictness admin-cms not-found csrf-419 server-failure recovery", "['admin.homepage-template-selector', '/admin/portal/homepage']", "assertNoOverflow(page);"]}}
+    },
+    "announcements.admin-localization-home-composition": {
+      "state_categories": {
+        "not_found": {"status": "covered", "evidence": {"file": "scripts/acceptance/tests/portal-487-strictness-acceptance.spec.mjs", "markers": ["@portal-487-strictness admin-cms not-found csrf-419 server-failure recovery", "'/admin/announcements/999999999/edit'"]}},
+        "csrf_expiry": {"status": "covered", "evidence": {"file": "scripts/acceptance/tests/portal-487-strictness-acceptance.spec.mjs", "markers": ["@portal-487-strictness admin-cms not-found csrf-419 server-failure recovery", "['/admin/announcements', 'POST']"]}},
+        "rate_limit": {"status": "not_applicable", "rule": "no_throttle_middleware", "reason": "Announcement administration and rendered announcement routes have no throttle middleware; Laravel runtime route metadata is checked before this bounded exception is accepted."},
+        "server_failure": {"status": "covered", "evidence": {"file": "scripts/acceptance/tests/portal-487-strictness-acceptance.spec.mjs", "markers": ["@portal-487-strictness admin-cms not-found csrf-419 server-failure recovery", "['announcements.admin-localization-home-composition', '/admin/announcements']"]}},
+        "recovery": {"status": "covered", "evidence": {"file": "scripts/acceptance/tests/portal-487-strictness-acceptance.spec.mjs", "markers": ["@portal-487-strictness admin-cms not-found csrf-419 server-failure recovery", "portalFixture('restore', surface);"]}}
+      },
+      "overflow": {"status": "covered", "evidence": {"file": "scripts/acceptance/tests/portal-487-strictness-acceptance.spec.mjs", "markers": ["@portal-487-strictness admin-cms not-found csrf-419 server-failure recovery", "['announcements.admin-localization-home-composition', '/admin/announcements']", "assertNoOverflow(page);"]}}
+    },
+    "downloads.public-admin-localization": {
+      "state_categories": {
+        "not_found": {"status": "covered", "evidence": {"file": "scripts/acceptance/tests/portal-487-strictness-acceptance.spec.mjs", "markers": ["@portal-487-strictness admin-cms not-found csrf-419 server-failure recovery", "'/admin/downloads/999999999/edit'"]}},
+        "csrf_expiry": {"status": "covered", "evidence": {"file": "scripts/acceptance/tests/portal-487-strictness-acceptance.spec.mjs", "markers": ["@portal-487-strictness admin-cms not-found csrf-419 server-failure recovery", "['/admin/downloads', 'POST']"]}},
+        "rate_limit": {"status": "not_applicable", "rule": "no_throttle_middleware", "reason": "Download publication and player download routes have no throttle middleware in their exact runtime route metadata, so a route-level 429 contract is not applicable here."},
+        "server_failure": {"status": "covered", "evidence": {"file": "scripts/acceptance/tests/portal-487-strictness-acceptance.spec.mjs", "markers": ["@portal-487-strictness admin-cms not-found csrf-419 server-failure recovery", "['downloads.public-admin-localization', '/admin/downloads']"]}},
+        "recovery": {"status": "covered", "evidence": {"file": "scripts/acceptance/tests/portal-487-strictness-acceptance.spec.mjs", "markers": ["@portal-487-strictness admin-cms not-found csrf-419 server-failure recovery", "portalFixture('restore', surface);"]}}
+      },
+      "accessibility": {"status": "covered", "evidence": {"file": "scripts/acceptance/tests/portal-487-strictness-acceptance.spec.mjs", "markers": ["@portal-487-strictness public not-found accessibility overflow server-failure recovery", "'/download'", "assertAccessibilitySmoke(page);"]}},
+      "overflow": {"status": "covered", "evidence": {"file": "scripts/acceptance/tests/portal-487-strictness-acceptance.spec.mjs", "markers": ["@portal-487-strictness public not-found accessibility overflow server-failure recovery", "'/download'", "assertNoOverflow(page);"]}}
+    },
+    "events.public-admin": {
+      "state_categories": {
+        "not_found": {"status": "covered", "evidence": {"file": "scripts/acceptance/tests/portal-487-strictness-acceptance.spec.mjs", "markers": ["@portal-487-strictness admin-cms not-found csrf-419 server-failure recovery", "'/admin/events/999999999/edit'"]}},
+        "csrf_expiry": {"status": "covered", "evidence": {"file": "scripts/acceptance/tests/portal-487-strictness-acceptance.spec.mjs", "markers": ["@portal-487-strictness admin-cms not-found csrf-419 server-failure recovery", "['/admin/events', 'POST']"]}},
+        "rate_limit": {"status": "not_applicable", "rule": "no_throttle_middleware", "reason": "Event public and administrator routes do not declare throttle middleware; exact runtime route middleware is inspected before this non-applicability can close the finding."},
+        "server_failure": {"status": "covered", "evidence": {"file": "scripts/acceptance/tests/portal-487-strictness-acceptance.spec.mjs", "markers": ["@portal-487-strictness admin-cms not-found csrf-419 server-failure recovery", "['events.public-admin', '/admin/events']"]}},
+        "recovery": {"status": "covered", "evidence": {"file": "scripts/acceptance/tests/portal-487-strictness-acceptance.spec.mjs", "markers": ["@portal-487-strictness admin-cms not-found csrf-419 server-failure recovery", "portalFixture('restore', surface);"]}}
+      },
+      "accessibility": {"status": "covered", "evidence": {"file": "scripts/acceptance/tests/portal-487-strictness-acceptance.spec.mjs", "markers": ["@portal-487-strictness public not-found accessibility overflow server-failure recovery", "'/events'", "assertAccessibilitySmoke(page);"]}},
+      "overflow": {"status": "covered", "evidence": {"file": "scripts/acceptance/tests/portal-487-strictness-acceptance.spec.mjs", "markers": ["@portal-487-strictness public not-found accessibility overflow server-failure recovery", "'/events'", "assertNoOverflow(page);"]}}
+    },
+    "public.community-deaths-and-policy": {
+      "state_categories": {
+        "not_found": {"status": "covered", "evidence": {"file": "scripts/acceptance/tests/portal-487-strictness-acceptance.spec.mjs", "markers": ["@portal-487-strictness public not-found accessibility overflow server-failure recovery", "'/guilds/not-a-real-portal-487-guild'"]}},
+        "csrf_expiry": {"status": "not_applicable", "rule": "read_only_surface", "reason": "The public community deaths, directory and profile surface routes represented by this strictness owner are read-only GET/HEAD routes, so browser CSRF expiry cannot occur."},
+        "rate_limit": {"status": "not_applicable", "rule": "no_throttle_middleware", "reason": "The exact public community route set has no throttle middleware; Laravel runtime route metadata is checked before this route-level rate-limit exception is accepted."},
+        "server_failure": {"status": "covered", "evidence": {"file": "scripts/acceptance/tests/community-data-acceptance.spec.mjs", "markers": ["@portal-community complete rankings, privacy-aware profile, deaths, guild search, localization, resilience and responsive lifecycle", "expect(response?.status()).toBe(503);"]}},
+        "recovery": {"status": "covered", "evidence": {"file": "scripts/acceptance/tests/community-data-acceptance.spec.mjs", "markers": ["@portal-community complete rankings, privacy-aware profile, deaths, guild search, localization, resilience and responsive lifecycle", "await page.goto('/deaths');"]}}
+      },
+      "overflow": {"status": "covered", "evidence": {"file": "scripts/acceptance/tests/portal-487-strictness-acceptance.spec.mjs", "markers": ["@portal-487-strictness public not-found accessibility overflow server-failure recovery", "'/deaths'", "assertNoOverflow(page);"]}}
+    },
+    "public.game-data": {
+      "state_categories": {
+        "not_found": {"status": "covered", "evidence": {"file": "scripts/acceptance/tests/portal-487-strictness-acceptance.spec.mjs", "markers": ["@portal-487-strictness public not-found accessibility overflow server-failure recovery", "'/characters/not-a-real-portal-487-character'"]}},
+        "csrf_expiry": {"status": "not_applicable", "rule": "read_only_surface", "reason": "The public game-data routes owned by this surface are read-only GET/HEAD routes, so CSRF expiry is not an applicable HTTP state for these player-facing reads."},
+        "rate_limit": {"status": "not_applicable", "rule": "no_throttle_middleware", "reason": "The exact public game-data routes do not use throttle middleware; Laravel runtime route metadata must confirm that topology before the strictness contract accepts this exception."},
+        "server_failure": {"status": "covered", "evidence": {"file": "scripts/acceptance/tests/resilience-critical.spec.mjs", "markers": ["@resilience Canary public read fails closed and recovers after grant restoration", "expect(failed?.status()).toBe(503);"]}},
+        "recovery": {"status": "covered", "evidence": {"file": "scripts/acceptance/tests/resilience-critical.spec.mjs", "markers": ["@resilience Canary public read fails closed and recovers after grant restoration", "const recovered = await page.goto('/online');"]}}
+      },
+      "accessibility": {"status": "covered", "evidence": {"file": "scripts/acceptance/tests/portal-487-strictness-acceptance.spec.mjs", "markers": ["@portal-487-strictness public not-found accessibility overflow server-failure recovery", "'/highscores'", "assertAccessibilitySmoke(page);"]}},
+      "overflow": {"status": "covered", "evidence": {"file": "scripts/acceptance/tests/portal-487-strictness-acceptance.spec.mjs", "markers": ["@portal-487-strictness public not-found accessibility overflow server-failure recovery", "'/highscores'", "assertNoOverflow(page);"]}}
+    },
+    "public.home-and-seo": {
+      "state_categories": {
+        "not_found": {"status": "covered", "evidence": {"file": "scripts/acceptance/tests/portal-487-strictness-acceptance.spec.mjs", "markers": ["@portal-487-strictness public not-found accessibility overflow server-failure recovery", "'/not-a-real-portal-487-route'"]}},
+        "csrf_expiry": {"status": "not_applicable", "rule": "read_only_surface", "reason": "Home, sitemap and robots routes are read-only GET/HEAD requests and have no mutation contract, so CSRF expiry cannot be produced by this exact public surface."},
+        "rate_limit": {"status": "not_applicable", "rule": "no_throttle_middleware", "reason": "Home, sitemap and robots routes do not declare throttle middleware; runtime route metadata is checked before the rate-limit category is accepted as not applicable."},
+        "server_failure": {"status": "covered", "evidence": {"file": "scripts/acceptance/tests/portal-487-strictness-acceptance.spec.mjs", "markers": ["@portal-487-strictness public not-found accessibility overflow server-failure recovery", "expectGracefulHomeNewsFailureRecovery(page);", "toHaveAttribute('data-content-state', 'UNAVAILABLE')"]}},
+        "recovery": {"status": "covered", "evidence": {"file": "scripts/acceptance/tests/portal-487-strictness-acceptance.spec.mjs", "markers": ["@portal-487-strictness public not-found accessibility overflow server-failure recovery", "expectGracefulHomeNewsFailureRecovery(page);", "not.toHaveAttribute('data-content-state', 'UNAVAILABLE')"]}}
+      },
+      "overflow": {"status": "covered", "evidence": {"file": "scripts/acceptance/tests/portal-487-strictness-acceptance.spec.mjs", "markers": ["@portal-487-strictness public not-found accessibility overflow server-failure recovery", "expectGracefulHomeNewsFailureRecovery(page);", "assertNoOverflow(page);"]}}
+    },
+    "public.localization-core": {
+      "state_categories": {
+        "not_found": {"status": "covered", "evidence": {"file": "scripts/acceptance/tests/public-localization.spec.mjs", "markers": ["@localization canonical English and Polish public shells remain truthful and navigable", "page.goto('/pl/brakujaca-strona')", "expect(missingResponse?.status()).toBe(404);"]}},
+        "csrf_expiry": {"status": "covered", "evidence": {"file": "scripts/acceptance/tests/portal-487-strictness-acceptance.spec.mjs", "markers": ["@portal-487-strictness admin-cms not-found csrf-419 server-failure recovery", "['/admin/news/999999999/translations/pl', 'PUT']"]}},
+        "rate_limit": {"status": "not_applicable", "rule": "no_throttle_middleware", "reason": "The exact localized public shell routes have no throttle middleware; the strictness validator resolves runtime route middleware before accepting this exception."},
+        "server_failure": {"status": "covered", "evidence": {"file": "scripts/acceptance/tests/portal-487-strictness-acceptance.spec.mjs", "markers": ["@portal-487-strictness public not-found accessibility overflow server-failure recovery", "['public.localization-core', '/en']"]}},
+        "recovery": {"status": "covered", "evidence": {"file": "scripts/acceptance/tests/portal-487-strictness-acceptance.spec.mjs", "markers": ["@portal-487-strictness public not-found accessibility overflow server-failure recovery", "portalFixture('restore', surface);"]}}
+      },
+      "accessibility": {"status": "covered", "evidence": {"file": "scripts/acceptance/tests/portal-487-strictness-acceptance.spec.mjs", "markers": ["@portal-487-strictness public not-found accessibility overflow server-failure recovery", "'/en'", "assertAccessibilitySmoke(page);"]}},
+      "overflow": {"status": "covered", "evidence": {"file": "scripts/acceptance/tests/portal-487-strictness-acceptance.spec.mjs", "markers": ["@portal-487-strictness public not-found accessibility overflow server-failure recovery", "'/en'", "assertNoOverflow(page);"]}}
+    },
+    "public.news-and-managed-pages": {
+      "state_categories": {
+        "not_found": {"status": "covered", "evidence": {"file": "scripts/acceptance/tests/portal-487-strictness-acceptance.spec.mjs", "markers": ["@portal-487-strictness public not-found accessibility overflow server-failure recovery", "'/news/not-a-real-portal-487-article'"]}},
+        "csrf_expiry": {"status": "not_applicable", "rule": "read_only_surface", "reason": "The public news and managed-page routes represented by this surface are read-only GET/HEAD requests; their administrator mutations are owned by separate admin surfaces."},
+        "rate_limit": {"status": "not_applicable", "rule": "no_throttle_middleware", "reason": "Public news and managed-page routes have no throttle middleware in the exact runtime route set, which the strictness validator checks before accepting this exception."},
+        "server_failure": {"status": "covered", "evidence": {"file": "scripts/acceptance/tests/portal-487-strictness-acceptance.spec.mjs", "markers": ["@portal-487-strictness public not-found accessibility overflow server-failure recovery", "['public.news-and-managed-pages', '/news']"]}},
+        "recovery": {"status": "covered", "evidence": {"file": "scripts/acceptance/tests/portal-487-strictness-acceptance.spec.mjs", "markers": ["@portal-487-strictness public not-found accessibility overflow server-failure recovery", "portalFixture('restore', surface);"]}}
+      },
+      "accessibility": {"status": "covered", "evidence": {"file": "scripts/acceptance/tests/portal-487-strictness-acceptance.spec.mjs", "markers": ["@portal-487-strictness public not-found accessibility overflow server-failure recovery", "'/news'", "assertAccessibilitySmoke(page);"]}},
+      "overflow": {"status": "covered", "evidence": {"file": "scripts/acceptance/tests/portal-487-strictness-acceptance.spec.mjs", "markers": ["@portal-487-strictness public not-found accessibility overflow server-failure recovery", "'/news'", "assertNoOverflow(page);"]}}
+    },
+    "support-legal.public-admin-localization": {
+      "state_categories": {
+        "not_found": {"status": "covered", "evidence": {"file": "scripts/acceptance/tests/portal-487-strictness-acceptance.spec.mjs", "markers": ["@portal-487-strictness admin-cms not-found csrf-419 server-failure recovery", "'/admin/support-content/not-a-real-key/edit'"]}},
+        "csrf_expiry": {"status": "covered", "evidence": {"file": "scripts/acceptance/tests/portal-487-strictness-acceptance.spec.mjs", "markers": ["@portal-487-strictness admin-cms not-found csrf-419 server-failure recovery", "['/admin/support-content/support', 'PUT']"]}},
+        "rate_limit": {"status": "not_applicable", "rule": "no_throttle_middleware", "reason": "Support/legal editorial public reads and administrator content-management routes have no throttle middleware; exact runtime route metadata is validated before accepting this exception."},
+        "server_failure": {"status": "covered", "evidence": {"file": "scripts/acceptance/tests/portal-487-strictness-acceptance.spec.mjs", "markers": ["@portal-487-strictness admin-cms not-found csrf-419 server-failure recovery", "['support-legal.public-admin-localization', '/admin/support-content']"]}},
+        "recovery": {"status": "covered", "evidence": {"file": "scripts/acceptance/tests/portal-487-strictness-acceptance.spec.mjs", "markers": ["@portal-487-strictness admin-cms not-found csrf-419 server-failure recovery", "portalFixture('restore', surface);"]}}
+      },
+      "accessibility": {"status": "covered", "evidence": {"file": "scripts/acceptance/tests/portal-487-strictness-acceptance.spec.mjs", "markers": ["@portal-487-strictness public not-found accessibility overflow server-failure recovery", "'/support'", "assertAccessibilitySmoke(page);"]}},
+      "overflow": {"status": "covered", "evidence": {"file": "scripts/acceptance/tests/portal-487-strictness-acceptance.spec.mjs", "markers": ["@portal-487-strictness public not-found accessibility overflow server-failure recovery", "'/support'", "assertNoOverflow(page);"]}}
+    },
+    "support.moderation-lifecycle": {
+      "state_categories": {
+        "not_found": {"status": "covered", "evidence": {"file": "scripts/acceptance/tests/portal-487-strictness-acceptance.spec.mjs", "markers": ["@portal-487-strictness support-moderation not-found csrf-419 rate-429 server-failure recovery", "page.goto('/support/tickets/999999999'"]}},
+        "csrf_expiry": {"status": "covered", "evidence": {"file": "scripts/acceptance/tests/portal-487-strictness-acceptance.spec.mjs", "markers": ["@portal-487-strictness support-moderation not-found csrf-419 rate-429 server-failure recovery", "csrfStatus(page, '/support/tickets', 'POST')"]}},
+        "rate_limit": {"status": "covered", "evidence": {"file": "scripts/acceptance/tests/portal-487-strictness-acceptance.spec.mjs", "markers": ["@portal-487-strictness support-moderation not-found csrf-419 rate-429 server-failure recovery", "expect(statuses[6]).toBe(429);"]}},
+        "server_failure": {"status": "covered", "evidence": {"file": "scripts/acceptance/tests/portal-487-strictness-acceptance.spec.mjs", "markers": ["@portal-487-strictness support-moderation not-found csrf-419 rate-429 server-failure recovery", "portalFixture('make-unavailable', 'support.moderation-lifecycle')", "expect(response?.status()).toBe(500);"]}},
+        "recovery": {"status": "covered", "evidence": {"file": "scripts/acceptance/tests/portal-487-strictness-acceptance.spec.mjs", "markers": ["@portal-487-strictness support-moderation not-found csrf-419 rate-429 server-failure recovery", "portalFixture('restore', 'support.moderation-lifecycle')", "expect(response?.status()).toBe(200);"]}}
+      },
+      "overflow": {"status": "covered", "evidence": {"file": "scripts/acceptance/tests/portal-487-strictness-acceptance.spec.mjs", "markers": ["@portal-487-strictness support-moderation not-found csrf-419 rate-429 server-failure recovery", "page.goto('/support/tickets')", "assertNoOverflow(page);"]}}
     }
   }
 }
