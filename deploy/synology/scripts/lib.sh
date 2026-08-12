@@ -73,7 +73,7 @@ _oteryn_release_sha_for_images() {
 
 _oteryn_release_sha() {
     local explicit_sha="${OTERYN_RELEASE_SHA:-}" revision
-    revision="$(_oteryn_release_sha_for_images "$PLATFORM_IMAGE" "$GATEWAY_IMAGE")"
+    revision="$(_oteryn_release_sha_for_images "$PLATFORM_IMAGE" "$GATEWAY_IMAGE")" || return 1
     if [[ -n "$explicit_sha" && "$explicit_sha" != "$revision" ]]; then
         echo "OTERYN_RELEASE_SHA disagrees with runtime OCI application revision." >&2
         return 1
@@ -113,8 +113,9 @@ _oteryn_contract_from_platform_image() {
 }
 
 _oteryn_load_candidate_contract() {
-    IFS=$'\t' read -r OTERYN_MIGRATION_POLICY OTERYN_SCHEMA_COMPATIBILITY_ID OTERYN_APP_ACCEPTS_SCHEMA_IDS \
-        < <(_oteryn_contract_from_platform_image "$PLATFORM_IMAGE")
+    local contract
+    contract="$(_oteryn_contract_from_platform_image "$PLATFORM_IMAGE")" || return 1
+    IFS=$'\t' read -r OTERYN_MIGRATION_POLICY OTERYN_SCHEMA_COMPATIBILITY_ID OTERYN_APP_ACCEPTS_SCHEMA_IDS <<<"$contract" || return 1
     [[ -n "${OTERYN_MIGRATION_POLICY:-}" && -n "${OTERYN_SCHEMA_COMPATIBILITY_ID:-}" && -n "${OTERYN_APP_ACCEPTS_SCHEMA_IDS:-}" ]] || {
         echo "Unable to load candidate release contract from Platform image." >&2
         return 1
@@ -138,7 +139,10 @@ _oteryn_bootstrap_legacy_current_release() {
     if [[ ! -f "$legacy_file" ]]; then
         table_count="$(command docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" exec -T \
             -e MYSQL_PWD="$MARIADB_ROOT_PASSWORD" mariadb mariadb -uroot -N -e \
-            "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='$PLATFORM_DB_NAME';")"
+            "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='$PLATFORM_DB_NAME';")" || {
+            echo "Cannot determine whether Platform DB is fresh; refusing migration." >&2
+            return 1
+        }
         [[ "$table_count" =~ ^[0-9]+$ ]] || { echo "Cannot determine whether Platform DB is fresh; refusing migration." >&2; return 1; }
         if (( table_count > 0 )); then
             echo "Existing Platform DB has no managed application baseline; refusing migration before backup-capable baseline is proven." >&2
@@ -159,7 +163,7 @@ _oteryn_bootstrap_legacy_current_release() {
         echo "Legacy running-release snapshot is incomplete; refusing migration." >&2
         return 1
     }
-    old_sha="$(_oteryn_release_sha_for_images "$old_platform" "$old_gateway")"
+    old_sha="$(_oteryn_release_sha_for_images "$old_platform" "$old_gateway")" || return 1
 
     # This synthetic identity is not an unverified image contract. It names the
     # exact pre-migration DB state that the observed old application is running
@@ -173,12 +177,12 @@ _oteryn_bootstrap_legacy_current_release() {
 _oteryn_before_platform_migrate() {
     local state_dir release_sha backup_dir backup_file backup_meta current_file old_sha old_schema
     state_dir="$(_oteryn_deploy_state_dir)"
-    _oteryn_load_candidate_contract
-    release_sha="$(_oteryn_release_sha)"
+    _oteryn_load_candidate_contract || return 1
+    release_sha="$(_oteryn_release_sha)" || return 1
     mkdir -p "$state_dir/backups"
     chmod 700 "$state_dir" "$state_dir/backups"
 
-    _oteryn_bootstrap_legacy_current_release "$state_dir"
+    _oteryn_bootstrap_legacy_current_release "$state_dir" || return 1
 
     bash "$SCRIPT_DIR/release-state.sh" write "$state_dir/candidate-release.env" "$release_sha" \
         "$OTERYN_SCHEMA_COMPATIBILITY_ID" "$OTERYN_APP_ACCEPTS_SCHEMA_IDS" \
@@ -190,8 +194,8 @@ _oteryn_before_platform_migrate() {
         cp "$current_file" "$state_dir/last-good-release.env.tmp"
         chmod 600 "$state_dir/last-good-release.env.tmp"
         mv "$state_dir/last-good-release.env.tmp" "$state_dir/last-good-release.env"
-        old_sha="$(_oteryn_read_state_key "$current_file" RELEASE_SHA)"
-        old_schema="$(_oteryn_read_state_key "$current_file" SCHEMA_COMPATIBILITY_ID)"
+        old_sha="$(_oteryn_read_state_key "$current_file" RELEASE_SHA)" || return 1
+        old_schema="$(_oteryn_read_state_key "$current_file" SCHEMA_COMPATIBILITY_ID)" || return 1
 
         backup_dir="$state_dir/backups/${old_sha}-before-${release_sha}"
         mkdir -p "$backup_dir"
@@ -224,7 +228,7 @@ _oteryn_before_platform_migrate() {
 _oteryn_after_platform_migrate() {
     local state_dir release_sha
     state_dir="$(_oteryn_deploy_state_dir)"
-    release_sha="$(_oteryn_release_sha)"
+    release_sha="$(_oteryn_release_sha)" || return 1
     {
         printf 'SCHEMA_STATE=known\n'
         printf 'SCHEMA_COMPATIBILITY_ID=%s\n' "$OTERYN_SCHEMA_COMPATIBILITY_ID"
@@ -260,10 +264,10 @@ docker() {
     if [[ "$(basename -- "${0:-}")" == "deploy.sh" ]]; then
         local joined=" ${args[*]} "
         if [[ "$joined" == *" exec -T platform php artisan migrate --force --no-interaction "* ]]; then
-            _oteryn_before_platform_migrate
+            _oteryn_before_platform_migrate || return 1
             command docker "${args[@]}"
             local rc=$?
-            if [[ "$rc" -eq 0 ]]; then _oteryn_after_platform_migrate; fi
+            if [[ "$rc" -eq 0 ]]; then _oteryn_after_platform_migrate || return 1; fi
             return "$rc"
         fi
     fi
