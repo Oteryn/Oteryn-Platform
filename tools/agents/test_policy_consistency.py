@@ -193,6 +193,21 @@ class PolicyConsistencyTests(unittest.TestCase):
         self._append_root(root, "- Agents may remove files from acme/production autonomously.")
         self.assertIn("acme/production", self._findings(root))
 
+    def test_create_files_foreign_repository_grant_fails_closed(self) -> None:
+        temporary, root = self._fixture(); self.addCleanup(temporary.cleanup)
+        self._append_root(root, "- Agents may create files in acme/production autonomously.")
+        self.assertIn("acme/production", self._findings(root))
+
+    def test_create_branches_foreign_repository_grant_fails_closed(self) -> None:
+        temporary, root = self._fixture(); self.addCleanup(temporary.cleanup)
+        self._append_root(root, "- Agents may create branches in acme/production autonomously.")
+        self.assertIn("acme/production", self._findings(root))
+
+    def test_branch_foreign_repository_grant_fails_closed(self) -> None:
+        temporary, root = self._fixture(); self.addCleanup(temporary.cleanup)
+        self._append_root(root, "- Agents may branch acme/production autonomously.")
+        self.assertIn("acme/production", self._findings(root))
+
     def test_gerund_repository_edit_grant_fails_closed(self) -> None:
         temporary, root = self._fixture(); self.addCleanup(temporary.cleanup)
         self._append_root(root, "- Editing acme/production is explicitly allowed.")
