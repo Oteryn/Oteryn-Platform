@@ -49,14 +49,16 @@ jobs:
           nohup proxychains4 -f /tmp/proxychains-tibia.conf "$client" >/data/runtime/client-userspace-warp.log 2>&1 </dev/null &
           for n in $(seq 1 30); do pgrep -f 'packages/Tibia/bin/client' >/dev/null && break; sleep 1; done
           sleep 10
-          best=''; best_area=0
+          best=''; best_area=0; best_width=0; best_height=0
           for w in $(xdotool search --onlyvisible --name '^Tibia$' 2>/dev/null || true); do
             geom=$(xdotool getwindowgeometry --shell "$w" 2>/dev/null || true)
             width=$(printf '%s\n' "$geom" | sed -n 's/^WIDTH=//p'); height=$(printf '%s\n' "$geom" | sed -n 's/^HEIGHT=//p')
             [[ -n "$width" && -n "$height" ]] || continue
-            area=$((width*height)); if (( area > best_area )); then best=$w; best_area=$area; fi
+            area=$((width*height))
+            if (( area > best_area )); then best=$w; best_area=$area; best_width=$width; best_height=$height; fi
           done
           [[ -n "$best" && "$best_area" -ge 600000 ]]
+          [[ "$best_width" -ge 1000 && "$best_width" -le 1100 && "$best_height" -ge 620 && "$best_height" -le 700 ]]
           xdotool mousemove --window "$best" 535 275 click 1
           xdotool key --window "$best" ctrl+a
           xdotool type --window "$best" --delay 3 -- "$TIBIA_TEST_EMAIL"
@@ -71,37 +73,68 @@ jobs:
           tesseract /tmp/select-ocr.png stdout --psm 11 tsv 2>/dev/null >/tmp/select.tsv || true
           python3 - <<'PY' >/tmp/row.env
           import csv
-          candidates=[]
+
+          words=[]
           with open('/tmp/select.tsv',newline='',errors='replace') as f:
               for r in csv.DictReader(f,delimiter='\t'):
-                  t=(r.get('text') or '').strip().lower().strip(':,.!?()[]')
-                  if t!='online':
+                  token=(r.get('text') or '').strip().lower().strip(':,.!?()[]')
+                  if token not in {'select','character','status','ok'}:
                       continue
                   try:
                       conf=float(r.get('conf') or -1)
+                      left=int(r.get('left') or 0)//2
                       top=int(r.get('top') or 0)//2
+                      width=max(1,int(r.get('width') or 0)//2)
                       height=max(1,int(r.get('height') or 0)//2)
                   except ValueError:
                       continue
                   if conf >= 20:
-                      candidates.append((conf,top+height//2))
-          if not candidates:
-              raise SystemExit('No online character row detected')
-          _,y=max(candidates)
-          if not (120 <= y <= 600):
-              raise SystemExit(f'Unsafe character row y={y}')
-          print(f'ROW_Y={y}')
+                      words.append((token,conf,left+width//2,top+height//2))
+
+          select_y=min((y for t,_,_,y in words if t=='select' and 80 <= y <= 160), default=None)
+          status_y=min((y for t,_,_,y in words if t=='status' and 250 <= y <= 450), default=None)
+          if select_y is None or status_y is None:
+              raise SystemExit('Select Character dialog anchors not detected')
+
+          headers=[(conf,x,y) for t,conf,x,y in words if t=='character' and select_y+20 <= y <= status_y-40]
+          if not headers:
+              raise SystemExit('Character list header not detected')
+          _,header_x,header_y=max(headers)
+          row_y=header_y + max(32,min(46,(status_y-header_y)//4))
+          row_x=max(180,min(260,header_x-25))
+          if not (170 <= row_x <= 270 and header_y+25 <= row_y <= status_y-45):
+              raise SystemExit('Derived character row geometry is unsafe')
+
+          ok=[(conf,x,y) for t,conf,x,y in words if t=='ok' and y >= status_y+80]
+          if ok:
+              _,ok_x,ok_y=max(ok)
+              print(f'OK_X={ok_x}')
+              print(f'OK_Y={ok_y}')
+          else:
+              print('OK_X=')
+              print('OK_Y=')
+          print(f'ROW_X={row_x}')
+          print(f'ROW_Y={row_y}')
           PY
           source /tmp/row.env
-          echo CHARACTER_ROW_DETECTED=true
-          echo "character_row_y=$ROW_Y"
-          # Use the OCR-proven row Y and a stable interior X in the character list; double-click
-          # the row so the dialog itself performs its normal character activation action.
-          xdotool mousemove --window "$best" 500 "$ROW_Y" click --repeat 2 --delay 180 1
-          sleep 40
+          echo SELECT_CHARACTER_ANCHORED=true
+          echo "character_row_geometry=$ROW_X,$ROW_Y"
+          xdotool mousemove --window "$best" "$ROW_X" "$ROW_Y" click --repeat 2 --delay 180 1
+          sleep 20
           import -display :99 -window "$best" /tmp/post-entry.png
           convert /tmp/post-entry.png -resize 200% -colorspace Gray -contrast-stretch 1%x1% /tmp/post-entry-ocr.png
           tesseract /tmp/post-entry-ocr.png stdout --psm 11 2>/dev/null >/tmp/post-entry.txt || true
+          if grep -qi 'Select Character' /tmp/post-entry.txt; then
+            [[ -n "$OK_X" && -n "$OK_Y" ]]
+            echo DOUBLE_CLICK_DID_NOT_ENTER_WORLD=true
+            xdotool mousemove --window "$best" "$ROW_X" "$ROW_Y" click 1
+            sleep 1
+            xdotool mousemove --window "$best" "$OK_X" "$OK_Y" click 1
+            sleep 40
+            import -display :99 -window "$best" /tmp/post-entry.png
+            convert /tmp/post-entry.png -resize 200% -colorspace Gray -contrast-stretch 1%x1% /tmp/post-entry-ocr.png
+            tesseract /tmp/post-entry-ocr.png stdout --psm 11 2>/dev/null >/tmp/post-entry.txt || true
+          fi
           if grep -qi 'Select Character' /tmp/post-entry.txt; then
             echo STILL_ON_CHARACTER_SELECTION=true >&2
             exit 1
@@ -117,10 +150,12 @@ jobs:
             echo CLIENT_DIRECT_TCP_DETECTED=true >&2
             exit 1
           fi
-          # Keep the live client untouched after this point. Save the full screenshot only in the
-          # owned runtime and export a masked copy for manual visual verification.
           cp /tmp/post-entry.png /tmp/post-entry-safe.png
-          convert /tmp/post-entry-safe.png -fill '#202020' -draw 'rectangle 0,0 1280,70 rectangle 0,70 180,800 rectangle 1100,70 1280,800' /tmp/post-entry-safe.png
+          image_width=$(identify -format '%w' /tmp/post-entry-safe.png)
+          image_height=$(identify -format '%h' /tmp/post-entry-safe.png)
+          right_start=$((image_width-180))
+          bottom_start=$((image_height-130))
+          convert /tmp/post-entry-safe.png -fill '#202020' -draw "rectangle 0,0 ${image_width},70 rectangle 0,70 180,${image_height} rectangle ${right_start},70 ${image_width},${image_height} rectangle 0,${bottom_start} ${image_width},${image_height}" /tmp/post-entry-safe.png
           echo POST_ENTRY_SCREEN_CAPTURED=true
           INNER
           docker cp "$CONTAINER_NAME:/tmp/post-entry-safe.png" /tmp/post-entry-safe.png
