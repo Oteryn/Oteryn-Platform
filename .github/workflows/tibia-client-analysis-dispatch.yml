@@ -15,7 +15,7 @@ env:
 
 jobs:
   inspect:
-    name: Decode Tibia AppearanceInstance descriptor
+    name: Trace Tibia appearance value flow
     runs-on: oteryn-staging
     timeout-minutes: 6
     steps:
@@ -29,7 +29,7 @@ jobs:
           [[ "$(docker inspect --format '{{.State.Status}}' "$CONTAINER_NAME")" == "running" ]]
           docker ps -a --filter 'label=com.docker.compose.project=oteryn-staging' --format '{{.ID}}\t{{.Names}}' | sort >/tmp/oteryn-before.tsv
 
-      - name: Decode embedded protobuf descriptor neighborhoods
+      - name: Disassemble value flow after AppearanceInstance extraction
         shell: bash
         run: |
           set -Eeuo pipefail
@@ -39,27 +39,14 @@ jobs:
           [[ -f "$client" ]]
           [[ "$(stat -c %s "$client")" == "51965216" ]]
           [[ "$(sha256sum "$client" | awk '{print $1}')" == "e6c244bd39fe2e0632f6f000efd3147164696efa8e901718668e0442325ff7fe" ]]
-          python3 - <<'PY'
-          from pathlib import Path
-          import re
-          p=Path('/data/client-15.32.df7b29/bin/client')
-          b=p.read_bytes()
-          needle=b'AppearanceInstance'
-          hits=[m.start() for m in re.finditer(re.escape(needle), b)]
-          print('APPEARANCE_INSTANCE_HIT_COUNT='+str(len(hits)))
-          for i,pos in enumerate(hits[:80]):
-              lo=max(0,pos-768); hi=min(len(b),pos+1536)
-              chunk=b[lo:hi]
-              toks=[]
-              for m in re.finditer(rb'[A-Za-z_][A-Za-z0-9_:.<>/-]{2,}', chunk):
-                  s=m.group().decode('ascii','replace')
-                  if s not in toks: toks.append(s)
-              print(f'NEIGHBORHOOD index={i} fileoff=0x{pos:x}')
-              print('TOKENS '+' | '.join(toks[:120]))
-          PY
-          echo PROTO_FILE_STRINGS_BEGIN
-          strings -a -t x "$client" | grep -Ei '\.proto($|[^A-Za-z])|AppearanceInstance|appearance[_A-Za-z]*id|type[_A-Za-z]*id' | head -n 320 || true
-          echo PROTO_FILE_STRINGS_END
+          echo VALUE_FLOW_BEGIN
+          objdump -d --start-address=0x19a8e80 --stop-address=0x19a9160 "$client"
+          echo VALUE_FLOW_END
+          echo TARGET_WINDOWS_BEGIN
+          for a in 0x177c150 0x4de900 0x6b3a90 0x4df670 0x6b3ae0 0x1b22930 0x4daf40 0x4df5a0 0x4da460; do
+            s=$((a)); e=$((a+0x180)); echo "TARGET $a"; objdump -d --start-address=$s --stop-address=$e "$client" | head -n 120 || true
+          done
+          echo TARGET_WINDOWS_END
           INNER
 
       - name: Verify authenticated session retained and staging unchanged
