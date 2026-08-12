@@ -1,0 +1,74 @@
+name: Tibia Two Steps Right
+
+on:
+  push:
+    branches: [ops/oteryn-tibia-client-analysis-20260811]
+    paths: [.github/workflows/tibia-client-two-steps-right.yml]
+
+permissions:
+  contents: read
+
+env:
+  CONTAINER_NAME: oteryn-tibia-client-analysis
+
+jobs:
+  move:
+    runs-on: oteryn-staging
+    timeout-minutes: 3
+    steps:
+      - name: Move live character exactly two steps right
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          [[ "$RUNNER_NAME" == "oteryn-synology-staging" ]]
+          [[ "$(docker inspect --format '{{ index .Config.Labels "com.blakinio.owner" }}' "$CONTAINER_NAME")" == "oteryn" ]]
+          [[ "$(docker inspect --format '{{ index .Config.Labels "com.blakinio.purpose" }}' "$CONTAINER_NAME")" == "tibia-client-analysis" ]]
+          [[ "$(docker inspect --format '{{.State.Status}}' "$CONTAINER_NAME")" == "running" ]]
+          docker exec -i "$CONTAINER_NAME" bash <<'INNER'
+          set -Eeuo pipefail
+          export DISPLAY=:99 HOME=/data/home
+          pid_before=$(pgrep -x client | head -n1); [[ -n "$pid_before" ]]
+          echo CLIENT_PID_BEFORE=$pid_before
+
+          tcp_rows=$(ss -ntp 2>/dev/null | grep "pid=$pid_before," || true)
+          local_before=$(printf '%s\n' "$tcp_rows" | awk '$5 ~ /127\.0\.0\.1:25344$/ || $5 ~ /\[::1\]:25344$/ {n++} END{print n+0}')
+          total_before=$(printf '%s\n' "$tcp_rows" | grep -c . || true)
+          direct_before=$((total_before-local_before))
+          echo ACTIVE_LOCAL_SOCKS_COUNT_BEFORE=$local_before
+          echo ACTIVE_DIRECT_TCP_COUNT_BEFORE=$direct_before
+          (( local_before > 0 && direct_before == 0 ))
+
+          win=''; best=0
+          for w in $(xdotool search --onlyvisible --pid "$pid_before" --name '^Tibia$' 2>/dev/null || true); do
+            geom=$(xdotool getwindowgeometry --shell "$w" 2>/dev/null || true)
+            width=$(printf '%s\n' "$geom" | sed -n 's/^WIDTH=//p')
+            height=$(printf '%s\n' "$geom" | sed -n 's/^HEIGHT=//p')
+            [[ "$width" =~ ^[0-9]+$ && "$height" =~ ^[0-9]+$ ]] || continue
+            area=$((width*height))
+            if (( area > best )); then win=$w; best=$area; fi
+          done
+          [[ -n "$win" ]]
+          echo TARGET_WINDOW=$win
+
+          xdotool key --clearmodifiers --window "$win" Right
+          echo STEP_RIGHT_1_SENT=true
+          sleep 1
+          xdotool key --clearmodifiers --window "$win" Right
+          echo STEP_RIGHT_2_SENT=true
+          sleep 2
+
+          pid_after=$(pgrep -x client | head -n1); [[ -n "$pid_after" ]]
+          echo CLIENT_PID_AFTER=$pid_after
+          [[ "$pid_after" == "$pid_before" ]]
+          kill -0 "$pid_after"
+
+          tcp_rows=$(ss -ntp 2>/dev/null | grep "pid=$pid_after," || true)
+          local_after=$(printf '%s\n' "$tcp_rows" | awk '$5 ~ /127\.0\.0\.1:25344$/ || $5 ~ /\[::1\]:25344$/ {n++} END{print n+0}')
+          total_after=$(printf '%s\n' "$tcp_rows" | grep -c . || true)
+          direct_after=$((total_after-local_after))
+          echo ACTIVE_LOCAL_SOCKS_COUNT_AFTER=$local_after
+          echo ACTIVE_DIRECT_TCP_COUNT_AFTER=$direct_after
+          (( local_after > 0 && direct_after == 0 ))
+          echo TWO_RIGHT_INPUTS_COMPLETED=true
+          echo LIVE_SESSION_RETAINED=true
+          INNER
