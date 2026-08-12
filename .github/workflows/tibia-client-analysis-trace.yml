@@ -27,7 +27,7 @@ jobs:
           [[ "$(docker inspect --format '{{.State.Status}}' "$CONTAINER_NAME")" == "running" ]]
           docker ps -a --filter 'label=com.docker.compose.project=oteryn-staging' --format '{{.ID}}\t{{.Names}}' | sort >/tmp/oteryn-before.tsv
 
-      - name: Login account, select first visible character row, and enter world
+      - name: Login account and enter world through exact character row
         shell: bash
         env:
           TIBIA_TEST_EMAIL: ${{ secrets.TIBIA_TEST_EMAIL }}
@@ -40,9 +40,11 @@ jobs:
           export DISPLAY=:99 HOME=/data/home
           pkg="$HOME/.local/share/CipSoft GmbH/Tibia/packages/Tibia"
           client="$pkg/bin/client"
+
           pgrep -f '/wireproxy .*wireproxy.conf' >/dev/null
           curl --socks5-hostname 127.0.0.1:25344 -fsS --max-time 10 https://www.cloudflare.com/cdn-cgi/trace >/tmp/warp-trace
           grep -q '^warp=on$' /tmp/warp-trace
+
           pkill -f 'packages/Tibia/bin/client' 2>/dev/null || true
           pgrep -f '^Xvfb :99' >/dev/null || nohup Xvfb :99 -screen 0 1280x800x24 >/data/runtime/xvfb.log 2>&1 </dev/null &
           cd "$pkg"
@@ -53,7 +55,8 @@ jobs:
           best=''; best_area=0; best_width=0; best_height=0
           for w in $(xdotool search --onlyvisible --name '^Tibia$' 2>/dev/null || true); do
             geom=$(xdotool getwindowgeometry --shell "$w" 2>/dev/null || true)
-            width=$(printf '%s\n' "$geom" | sed -n 's/^WIDTH=//p'); height=$(printf '%s\n' "$geom" | sed -n 's/^HEIGHT=//p')
+            width=$(printf '%s\n' "$geom" | sed -n 's/^WIDTH=//p')
+            height=$(printf '%s\n' "$geom" | sed -n 's/^HEIGHT=//p')
             [[ -n "$width" && -n "$height" ]] || continue
             area=$((width*height))
             if (( area > best_area )); then best=$w; best_area=$area; best_width=$width; best_height=$height; fi
@@ -74,11 +77,11 @@ jobs:
           import -display :99 -window "$best" /tmp/select.png
           convert /tmp/select.png -resize 200% -colorspace Gray -contrast-stretch 1%x1% /tmp/select-ocr.png
           tesseract /tmp/select-ocr.png stdout --psm 11 tsv 2>/dev/null >/tmp/select.tsv || true
+
           python3 - <<'PY' >/tmp/row.env
           import csv
-
           words=[]
-          row_points=[]
+          points=[]
           with open('/tmp/select.tsv',newline='',errors='replace') as f:
               for r in csv.DictReader(f,delimiter='\t'):
                   token=(r.get('text') or '').strip().lower().strip(':,.!?()[]')
@@ -92,119 +95,99 @@ jobs:
                       continue
                   if conf < 20:
                       continue
-                  x=left+width//2
-                  y=top+height//2
-                  if token in {'select','character','status','ok','cancel','online','offline'}:
+                  x=left+width//2; y=top+height//2
+                  if token in {'select','character','status'}:
                       words.append((token,conf,x,y))
-                  # Use arbitrary OCR only as geometry. Never emit its text.
-                  if 170 <= x <= 650 and 190 <= y <= 325:
-                      row_points.append((x,y))
+                  if 170 <= x <= 650 and 185 <= y <= 325:
+                      points.append((x,y))
 
-          select_y=min((y for t,_,_,y in words if t=='select' and 80 <= y <= 160), default=None)
-          status_y=min((y for t,_,_,y in words if t=='status' and 320 <= y <= 370), default=None)
-          if select_y is None or status_y is None:
-              raise SystemExit('Select Character dialog anchors not detected')
+          select_y=min((y for t,_,_,y in words if t=='select' and 80 <= y <= 160),default=None)
           headers=[(conf,x,y) for t,conf,x,y in words if t=='character' and 155 <= y <= 195]
-          if not headers:
-              raise SystemExit('Character list header not detected')
+          status_y=min((y for t,_,_,y in words if t=='status' and 320 <= y <= 370),default=None)
+          if select_y is None or not headers or status_y is None:
+              raise SystemExit('Select Character anchors unavailable')
           _,header_x,header_y=max(headers)
 
           clusters=[]
-          for _,y in sorted(row_points,key=lambda p:p[1]):
+          for x,y in sorted(points,key=lambda p:p[1]):
               if y <= header_y+8:
                   continue
-              if not clusters or y-clusters[-1][-1] > 8:
-                  clusters.append([y])
+              if not clusters or y-clusters[-1][0][-1] > 8:
+                  clusters.append(([y],[x]))
               else:
-                  clusters[-1].append(y)
-          candidates=[c for c in clusters if len(c) >= 2]
+                  clusters[-1][0].append(y); clusters[-1][1].append(x)
+          candidates=[c for c in clusters if len(c[0]) >= 2 and max(c[1])-min(c[1]) >= 100]
           if not candidates:
-              raise SystemExit('No character-row geometry cluster detected')
-          first=candidates[0]
-          row_y=round(sum(first)/len(first))
-          row_x=max(210,min(340,header_x+40))
-          if not (185 <= row_y <= 240 and header_y+8 <= row_y <= status_y-90):
-              raise SystemExit(f'Derived character row geometry is unsafe: header={header_y} row={row_y} status={status_y}')
-
-          ok=[(conf,x,y) for t,conf,x,y in words if t=='ok' and 485 <= y <= 530]
-          cancel=[(conf,x,y) for t,conf,x,y in words if t=='cancel' and 485 <= y <= 530]
-          if ok:
-              _,ok_x,ok_y=max(ok)
-          elif cancel:
-              _,cancel_x,cancel_y=max(cancel)
-              ok_x=cancel_x-52
-              ok_y=cancel_y
-          else:
-              raise SystemExit('OK/Cancel action row not detected')
-          if not (760 <= ok_x <= 820 and 490 <= ok_y <= 525):
-              raise SystemExit(f'Derived OK button geometry is unsafe: {ok_x},{ok_y}')
-
+              raise SystemExit('No full character row cluster')
+          ys,xs=candidates[0]
+          row_y=round(sum(ys)/len(ys))
+          row_x=max(230,min(340,header_x+40))
+          if not (185 <= row_y <= 215 and header_y+8 <= row_y < status_y):
+              raise SystemExit('Unsafe character row geometry')
           print(f'ROW_X={row_x}')
           print(f'ROW_Y={row_y}')
-          print(f'OK_X={ok_x}')
-          print(f'OK_Y={ok_y}')
           PY
           source /tmp/row.env
-          echo SELECT_CHARACTER_ANCHORED=true
           echo "character_row_geometry=$ROW_X,$ROW_Y"
-          echo OK_BUTTON_ANCHORED=true
-
-          crop_y=$((ROW_Y-20))
-          convert /tmp/select.png -crop "600x40+170+${crop_y}" +repage /tmp/row-before.png
-          row_before=$(sha256sum /tmp/row-before.png | awk '{print $1}')
-          xdotool mousemove --window "$best" "$ROW_X" "$ROW_Y" click 1
-          sleep 1
-          import -display :99 -window "$best" /tmp/selected.png
-          convert /tmp/selected.png -crop "600x40+170+${crop_y}" +repage /tmp/row-after.png
-          row_after=$(sha256sum /tmp/row-after.png | awk '{print $1}')
-          [[ "$row_before" != "$row_after" ]]
-          echo CHARACTER_ROW_VISUAL_CHANGE=true
-
-          xdotool mousemove --window "$best" "$OK_X" "$OK_Y" click 1
-          sleep 1
-          import -display :99 -window "$best" /tmp/post-entry-1.png
-          sleep 4
-          import -display :99 -window "$best" /tmp/post-entry-5.png
-          sleep 10
-          import -display :99 -window "$best" /tmp/post-entry-15.png
-
-          for shot in /tmp/post-entry-1.png /tmp/post-entry-5.png /tmp/post-entry-15.png; do
-            convert "$shot" -resize 200% -colorspace Gray -contrast-stretch 1%x1% "${shot%.png}-ocr.png"
-            tesseract "${shot%.png}-ocr.png" stdout --psm 11 2>/dev/null >"${shot%.png}.txt" || true
-          done
-          python3 - <<'PY'
-          from pathlib import Path
-          allow={'already','logged','connection','failed','error','server','world','queue','maintenance','session','client','account','character','select','login','password','email','online','offline','connecting','please','try','again','entering','game','skills','battle','store','vip','inventory','health','mana','quest','prey'}
-          for label,path in [('t1','/tmp/post-entry-1.txt'),('t5','/tmp/post-entry-5.txt'),('t15','/tmp/post-entry-15.txt')]:
-              text=Path(path).read_text(errors='replace').lower()
-              normalized=''.join(ch if ch.isalnum() else ' ' for ch in text)
-              safe=[]
-              for token in normalized.split():
-                  if token in allow and token not in safe:
-                      safe.append(token)
-              print(f'{label}_safe_state_tokens=' + ','.join(safe))
-          PY
-
-          if grep -qi 'Select Character' /tmp/post-entry-15.txt; then
-            echo STILL_ON_CHARACTER_SELECTION=true >&2
-            exit 1
-          fi
-          if grep -qiE 'Account Login|E-?mail|Password' /tmp/post-entry-15.txt; then
-            echo RETURNED_TO_ACCOUNT_LOGIN=true >&2
-            exit 1
-          fi
 
           pid=$(pgrep -f 'packages/Tibia/bin/client' | head -n1)
           [[ -n "$pid" ]]
-          sockets=$(ss -ntp 2>/dev/null | grep "pid=$pid," || true)
-          if printf '%s\n' "$sockets" | awk '{print $5}' | grep -Ev '^(127\.0\.0\.1|\[::1\]):25344$' | grep -q .; then
-            echo CLIENT_DIRECT_TCP_DETECTED=true >&2
+          socket_counts() {
+            local label="$1"
+            local tcp udp local_socks direct
+            tcp=$(ss -ntp 2>/dev/null | grep "pid=$pid," || true)
+            udp=$(ss -nup 2>/dev/null | grep "pid=$pid," || true)
+            local_socks=$(printf '%s\n' "$tcp" | awk '$5 ~ /127\.0\.0\.1:25344$/ || $5 ~ /\[::1\]:25344$/ {n++} END{print n+0}')
+            tcp_count=$(printf '%s\n' "$tcp" | grep -c . || true)
+            udp_count=$(printf '%s\n' "$udp" | grep -c . || true)
+            direct=$((tcp_count-local_socks))
+            echo "${label}_tcp_total=$tcp_count"
+            echo "${label}_tcp_local_socks=$local_socks"
+            echo "${label}_tcp_direct=$direct"
+            echo "${label}_udp_total=$udp_count"
+            [[ "$direct" -eq 0 && "$udp_count" -eq 0 ]]
+          }
+
+          socket_counts before_activation
+          xdotool mousemove --window "$best" "$ROW_X" "$ROW_Y" click --repeat 2 --delay 160 1
+          sleep 1
+          socket_counts after_doubleclick_1s
+          import -display :99 -window "$best" /tmp/post-entry-1.png
+          sleep 2
+          socket_counts after_doubleclick_3s
+          import -display :99 -window "$best" /tmp/post-entry-3.png
+          sleep 7
+          socket_counts after_doubleclick_10s
+          import -display :99 -window "$best" /tmp/post-entry-10.png
+
+          for shot in /tmp/post-entry-1.png /tmp/post-entry-3.png /tmp/post-entry-10.png; do
+            convert "$shot" -resize 200% -colorspace Gray -contrast-stretch 1%x1% "${shot%.png}-ocr.png"
+            tesseract "${shot%.png}-ocr.png" stdout --psm 11 2>/dev/null >"${shot%.png}.txt" || true
+          done
+
+          python3 - <<'PY'
+          from pathlib import Path
+          allow={'account','login','email','password','select','character','connecting','world','game','skills','battle','store','vip','inventory','health','mana','quest','prey','online'}
+          for label,path in [('t1','/tmp/post-entry-1.txt'),('t3','/tmp/post-entry-3.txt'),('t10','/tmp/post-entry-10.txt')]:
+              text=Path(path).read_text(errors='replace').lower()
+              words=''.join(ch if ch.isalnum() else ' ' for ch in text).split()
+              safe=[]
+              for token in words:
+                  if token in allow and token not in safe: safe.append(token)
+              print(f'{label}_safe_state_tokens=' + ','.join(safe))
+          PY
+
+          if grep -qi 'Select Character' /tmp/post-entry-10.txt; then
+            echo DOUBLECLICK_LEFT_SELECT_CHARACTER=true >&2
             exit 1
           fi
-          established_local=$(printf '%s\n' "$sockets" | grep -c 'ESTAB.*127\.0\.0\.1:25344' || true)
-          echo "CLIENT_LOCAL_WARP_ESTABLISHED_COUNT=$established_local"
+          if grep -qiE 'Account Login|E-?mail|Password' /tmp/post-entry-10.txt; then
+            echo DOUBLECLICK_RETURNED_ACCOUNT_LOGIN=true >&2
+            exit 1
+          fi
 
-          cp /tmp/post-entry-15.png /tmp/post-entry-safe.png
+          socket_counts final_world
+          cp /tmp/post-entry-10.png /tmp/post-entry-safe.png
           image_width=$(identify -format '%w' /tmp/post-entry-safe.png)
           image_height=$(identify -format '%h' /tmp/post-entry-safe.png)
           cx=$((image_width/2)); cy=$((image_height/2))
