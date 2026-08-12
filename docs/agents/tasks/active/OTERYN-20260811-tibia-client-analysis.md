@@ -2,7 +2,7 @@
 
 ## Objective
 
-Materialize and inspect the current official Linux Tibia client on the Synology Oteryn staging host in an isolated analysis container, identify the decoded map-protocol boundary, and prove a deterministic map record path without modifying canonical Oteryn staging services.
+Inspect the current official Linux Tibia client on the Synology Oteryn staging host in the isolated task-owned analysis container, prove the decoded map-protocol boundary and obtain a deterministic live map record path without modifying canonical Oteryn staging services.
 
 ## Scope
 
@@ -10,117 +10,127 @@ Materialize and inspect the current official Linux Tibia client on the Synology 
 - Branch: `ops/oteryn-tibia-client-analysis-20260811`
 - PR: `#1006` (draft)
 - Runner label: `oteryn-staging`
-- Verified runner name: `oteryn-synology-staging`
+- Verified runner: `oteryn-synology-staging`
 - Owned runtime container: `oteryn-tibia-client-analysis`
-- Owned bind path: `/volume1/docker/oteryn/tibia-analysis`
+- Owned bind: `/volume1/docker/oteryn/tibia-analysis` -> `/data`
 - Ownership labels: `com.blakinio.owner=oteryn`, `com.blakinio.purpose=tibia-client-analysis`
+- Graphical runtime: `DISPLAY=:99`, Xvfb `:99`
+- Installed client: `/data/home/.local/share/CipSoft GmbH/Tibia/packages/Tibia/bin/client`
 
 ## Safety and lifecycle
 
-Do not modify, restart, stop, remove, clean, or reconfigure canonical `oteryn-staging` Compose services, deployment infrastructure, databases, networks, volumes, or unrelated containers. No blanket Docker cleanup is allowed.
+Do not modify, restart, stop, remove, clean, or reconfigure canonical `oteryn-staging` Compose services, deployment infrastructure, databases, networks, volumes, or unrelated containers. No blanket Docker cleanup.
 
-Do not commit proprietary Tibia binaries or extracted assets. Persist only hashes, addresses, bounded disassembly/control-flow evidence, safe workflows/scripts, and research notes. Never persist credentials, tokens, account data, character data, process arguments, or secret-bearing environment/state contents.
+Do not commit proprietary Tibia binaries/assets, credentials, tokens, session material, account data or character-private data. The owned analysis container and bind remain intentionally retained while this task is active.
 
-The owned analysis container and `/volume1/docker/oteryn/tibia-analysis` remain intentionally retained while this task is active.
+The currently authenticated client/session, when still alive, is valuable runtime state. Do not kill/restart/relaunch the client, restart Xvfb, recreate the container, disturb WARP/wireproxy, or relog merely for convenience. Discover the current client PID live; never hard-code an old PID. If an experiment requires terminating the authenticated process, stop and record why first.
 
-## Durable evidence
+## Durable evidence order
 
-Read in this order:
-
-1. `docs/agents/reports/OTERYN-20260811-tibia-client-analysis-handover.md`
-2. `docs/agents/reports/OTERYN-20260812-worldmap-dispatch-evidence.md`
-
-The worldmap report contains the generated bounded trace and deep-trace blocks written by successful self-hosted Actions runs.
+1. `docs/agents/prompts/OTERYN-20260811-tibia-client-analysis-continuation.md`
+2. `docs/agents/reports/OTERYN-20260811-tibia-client-analysis-handover.md`
+3. `docs/agents/reports/OTERYN-20260812-worldmap-dispatch-evidence.md`
 
 ## Context checkpoint
 
 ```yaml
-checkpoint_version: 3
-updated_at: 2026-08-12T12:01:30Z
+checkpoint_version: 4
+updated_at: 2026-08-12T18:00:00Z
 branch: ops/oteryn-tibia-client-analysis-20260811
 pr: 1006
-status: blocked_on_authenticated_world_session
-observed_pr_head_before_this_checkpoint: 66834dc93ffa167b8422cea3b55d20bfc683cbb3
-context_routes:
-  - docs/agents/PROMPTING_STANDARD.md
-  - docs/agents/PROMPTING_HANDOVER.md
-  - docs/agents/CONTEXT_HANDOFF.md
-  - docs/agents/reports/OTERYN-20260811-tibia-client-analysis-handover.md
-  - docs/agents/reports/OTERYN-20260812-worldmap-dispatch-evidence.md
-owned_paths:
-  - .github/workflows/tibia-client-analysis-one-shot.yml
-  - .github/workflows/tibia-client-analysis-continue.yml
-  - .github/workflows/tibia-client-analysis-relay.yml
-  - .github/workflows/tibia-client-analysis-dispatch.yml
-  - .github/workflows/tibia-client-analysis-trace.yml
-  - docs/agents/tasks/active/OTERYN-20260811-tibia-client-analysis.md
-  - docs/agents/reports/OTERYN-20260811-tibia-client-analysis-handover.md
-  - docs/agents/reports/OTERYN-20260812-worldmap-dispatch-evidence.md
+status: authenticated_world_entry_proven_decoded_capture_pending
+runtime:
+  runner_label: oteryn-staging
+  runner_name: oteryn-synology-staging
+  container: oteryn-tibia-client-analysis
+  bind: /volume1/docker/oteryn/tibia-analysis:/data
+  display: :99
+  client_path: /data/home/.local/share/CipSoft GmbH/Tibia/packages/Tibia/bin/client
+  client_process: client
+  pid_policy: discover_live_with_pgrep_do_not_hardcode
+  network_path: client -> proxychains4 -> SOCKS5 127.0.0.1:25344 -> wireproxy/userspace Cloudflare WARP -> Tibia
 proven:
   - "Current official client is 15.32.df7b29; original bounded executable /data/client-15.32.df7b29/bin/client is 51965216 bytes with SHA-256 e6c244bd39fe2e0632f6f000efd3147164696efa8e901718668e0442325ff7fe."
-  - "TWorldmapProtocolMessageHandler exact bodies include FullMap 0xcec8d0, FieldData 0xcd3190, Create 0xcecc70, Change 0xcecf40 and Delete 0xcd4e20."
-  - "0x19a8a80 is a shared map-data routine called by FieldData, FullMap/meta-dispatch and multiple directional/floor update paths."
+  - "TWorldmapProtocolMessageHandler bodies include FullMap 0xcec8d0, FieldData 0xcd3190, Create 0xcecc70, Change 0xcecf40 and Delete 0xcd4e20."
+  - "0x19a8a80 is a shared decoded map-data routine; repeated map fields and each field's repeated contents are traversed by increasing array index, preserving protobuf order while computing world coordinates."
   - "Coordinate protobuf schema is x=field 1 uint32, y=field 2 uint32, z=field 3 uint32."
-  - "Run 31585256131 / job 94077482965 completed SUCCESS on oteryn-synology-staging, persisted bounded trace evidence and verified canonical oteryn-staging inventory unchanged."
-  - "The central routine indexes repeated map-field entries by array index, computes world coordinates from region dimensions/base coordinates, then iterates each field's repeated content array by monotonically increasing index."
-  - "At 0x19a8e21 the content element is selected from 0x8(base,index,8); the inner loop increments the content index and therefore preserves protobuf repeated-field order."
-  - "Each selected content element exposes values at generated-object offsets +0x28 and +0x30 and selects a nested payload at +0x10 using helper 0x1ab4e50 with default-instance candidate 0x314b480 before calling map-content builder 0xceca50."
-  - "Run 31585575487 / job 94078511849 completed SUCCESS on oteryn-synology-staging, persisted the bounded deep trace and again verified canonical staging unchanged."
-  - "Official launcher was started in the owned container on Xvfb display :99. A bounded screenshot proved the central blue download tile; run 31593652146 / job 94104018357 uploaded artifact 9140141360 and verified canonical staging unchanged."
-  - "Run 31593816173 / job 94104541247 clicked the verified download tile at window-relative coordinate 400,193. The launcher downloaded the official runtime, growing /data/home from 1320698 bytes to 388524108 bytes, and materialized /data/home/.local/share/CipSoft GmbH/Tibia/packages/Tibia/bin/client. Canonical staging remained unchanged."
-  - "Run 31594068971 / job 94105341913 launched the installed official client successfully. ldd reported no missing dependencies, process PID 5136 remained alive, and the 1020x650 Tibia client window was visible alongside the launcher. Artifact 9140336079 contains the bounded client welcome-screen capture. Canonical staging remained unchanged."
-  - "Run 31594315448 / job 94106127186 opened the client's Login form and performed OCR only on allow-listed label words. It identified Email, Password, Remember Email, Account and Login labels without emitting arbitrary field contents. Artifact 9140453170 contains the bounded login-form screenshot. Canonical staging remained unchanged."
-  - "The login screenshot directly shows empty Email and Password fields; no authenticated session or saved credential value is present in the fresh owned runtime."
+  - "At 0x19a8e21 a content element is selected; generated-object values occur around +0x28/+0x30, nested payload selection from +0x10 uses helper 0x1ab4e50/default-instance candidate 0x314b480, followed by map-content builder 0xceca50."
+  - "Userspace WARP is proven through wireproxy SOCKS5 127.0.0.1:25344. Client launch through proxychains4 can be confined to this path with no direct Tibia TCP/UDP."
+  - "The official client launches on Xvfb :99 with Mesa lavapipe/software Vulkan and exposes a 1020x650 Tibia window in the proven runtime."
+  - "Repository Actions secrets TIBIA_TEST_EMAIL and TIBIA_TEST_PASSWORD became available to the successful bounded login workflow and were used only via Actions secret injection; values were not printed, OCRed, persisted or committed."
+  - "Non-OCR login/world entry is PROVEN by .github/workflows/tibia-client-analysis-cv-world-entry.yml, introduced at bd0bb114b8f812d849228ae325f8a5e2d71f6d62."
+  - "Successful world-entry run 31620129239 attempt 1 / job 94192583991 completed successfully; external account history later showed Last Login Aug 12 2026 18:57:15 CEST, consistent with this entry."
+  - "Successful rerun 31620129239 attempt 2 / job 94202682934 completed successfully. It proved CLIENT_LOCAL_SOCKS_MAX=7, CLIENT_DIRECT_TCP_SEEN=0, CLIENT_UDP_SEEN=0, CLIENT_SUSTAINED_TUNNELED_SESSION=1."
+  - "The successful non-OCR login geometry for the exact 1020x650 layout is approximately email (535,275), password (535,304), Login (590,388); transition away from login is detected by image differencing, not OCR, with the proven >45000 changed-pixel threshold."
+  - "First character row activation is proven around (285,193): click + Return, followed after 3 seconds by a deterministic double-click on the same row as bounded fallback."
+  - "World presence/action was independently proven in successful attempt 2: VIEWPORT_CHANGED_PIXELS_AFTER_RIGHT=117976, CONTROLLED_MOVE_ACTION_PROVEN=true, PHYSICAL_WORLD_SESSION_AND_ACTION_PROVEN=true; Left was then sent to return to the starting tile."
+  - "The successful login workflow intentionally leaves the client process running after job completion. A subsequent active-session workflow found the surviving session with ACTIVE_LOCAL_SOCKS_COUNT=2 and ACTIVE_DIRECT_TCP_COUNT=0."
+  - "Qt/Tibia may recreate/replace its X11 window across transitions; old window IDs are not durable. Future interactions must resolve the current visible Tibia window from the live client PID rather than retaining a historical X11 ID."
+  - "Classical/Tesseract OCR is not required for successful login/world entry and was unreliable as the primary targeting mechanism."
+  - "UI pixel differences alone are not semantic proof. A private-message experiment changed the UI substantially but the user observed the intended message had not been delivered and a movement occurred instead."
+  - "Later V2 chat experiment typed '*Glera Mars* zajaczek to faja' into the bottom chat area and preserved active SOCKS, but absent independent delivery confirmation it must not be labelled a proven delivered private message."
 derived:
-  - "The static path is sufficient to prove deterministic coordinate traversal and ordered field-content traversal before world-map storage mutation."
-  - "0x314b480 remains the high-confidence AppearanceInstance default-instance candidate because it is passed to the protobuf message-selection helper for each ordered field content before 0xceca50 materializes the corresponding runtime map-content object."
-  - "The lowest-risk dynamic proof point remains after protobuf translation and at/before TWorldmapProtocolMessageHandler / 0x19a8a80, rather than encrypted TCP reconstruction."
-  - "The owned Docker/Xvfb runtime is now sufficient for client-side authenticated dynamic capture once the user completes authentication interactively or through another approved secret-preserving mechanism."
+  - "The highest-value live map capture point remains after protobuf translation and at/before TWorldmapProtocolMessageHandler / 0x19a8a80, rather than reconstructing encrypted TCP first."
+  - "For future non-OCR control, the desired architecture is decoded GameState for reads plus internal outbound action/message builders for writes; xdotool/CV should become diagnostic/recovery mechanisms rather than the final control interface."
+  - "If the current authenticated process is still alive, attaching/instrumenting it after world entry is preferable to starting the client under GDB because startup-under-GDB previously changed timing/UI behavior and failed to reproduce the otherwise proven entry path."
 unknown:
-  - "A live decoded FullMap/FieldData message has not yet been captured and normalized to a concrete (x,y,z) -> ordered contents -> appearance/type IDs sample."
-  - "The exact semantic name of generated-object offsets +0x28 and +0x30 on each field-content protobuf object is not yet proven from static evidence alone."
-  - "The exact appearance/type identifier field consumed inside the downstream runtime builder remains to be confirmed against a live message or stronger generated-protobuf type binding."
-conflicts: []
+  - "Whether the authenticated client process/session is still alive at the start of the next agent session; this must be verified live before any relog/restart."
+  - "A live decoded FullMap/FieldData message has not yet been normalized to a concrete (x,y,z) -> ordered contents -> appearance/type IDs sample."
+  - "The exact semantic names of generated-object offsets +0x28/+0x30 and the final appearance/type identifier consumed downstream remain unproven."
+  - "Protocol-native outbound movement/turn/use/attack/chat message builders have not yet been proven; existing successful movement used xdotool."
+  - "The exact amount of OTBM-relevant map coverage recoverable from visible/received/cached official-client state remains to be proven."
+conflicts:
+  - "Older checkpoint_version 3 and the 2026-08-12T14:01Z section said authentication was blocked because Actions secrets resolved empty. This is superseded by later successful authenticated world-entry runs after the secrets became available."
 validation:
-  - command: "GitHub Actions run 31585256131 / job 94077482965"
+  - command: "GitHub Actions run 31620129239 attempt 2 / job 94202682934"
     result: PASS
-    evidence: "Bounded common-map-data trace generated and persisted; runtime identity and staging-preservation checks passed."
-  - command: "GitHub Actions run 31585575487 / job 94078511849"
-    result: PASS
-    evidence: "Deep trace of common tail, map-content builder and protobuf helpers generated and persisted; staging-preservation check passed."
-  - command: "GitHub Actions run 31593816173 / job 94104541247"
-    result: PASS
-    evidence: "Official launcher installation completed; installed client path materialized; staging-preservation check passed."
-  - command: "GitHub Actions run 31594068971 / job 94105341913"
-    result: PASS
-    evidence: "Installed official client launched with no missing shared-library dependencies and remained alive; screenshot artifact 9140336079 uploaded; staging-preservation check passed."
-  - command: "GitHub Actions run 31594315448 / job 94106127186"
-    result: PASS
-    evidence: "Login form opened; safe-label OCR identified form geometry; screenshot artifact 9140453170 uploaded; staging-preservation check passed."
-blockers:
-  - "Final runtime acceptance requires an authenticated game-world session capable of producing a decoded FullMap/FieldData update. The official client and graphical login form are now running in the owned container, but the Email and Password fields are empty. No approved credential source or existing authenticated session is available to this task. Credentials must not be committed, logged, placed in workflow inputs, or exposed through OCR output."
-next_action: "Complete authentication through a user-controlled or otherwise approved secret-preserving interactive path into the already running owned client; then immediately run one bounded decoded-message capture at the proven worldmap boundary and normalize one message to deterministic (x,y,z) -> ordered contents -> appearance/type IDs evidence."
+    evidence: "WARP verified; non-OCR login transition; first-character activation; sustained tunneled session; controlled in-world movement; privacy-safe proof; canonical staging unchanged."
+  - command: "GitHub Actions job 94203489987"
+    result: PASS_WITH_SEMANTIC_LIMIT
+    evidence: "Verified surviving active session and zero direct TCP; private-message semantic outcome was not proven and must not be inferred from pixel change."
+  - command: "GitHub Actions run 31621938187 / jobs 94198656638 and 94201117705"
+    result: FAIL_FOR_DECODED_CAPTURE
+    evidence: "Authentication observed but DECODED_RECORD_COUNT_AFTER_ENTRY=0; GDB/UI path did not reproduce character entry."
+  - command: "GitHub Actions run 31624128761"
+    result: FAILURE
+    evidence: "Attempted live-worldmap attach workflow failed; do not treat it as decoded-map evidence. Inspect exact logs before retrying rather than repeating blindly."
+constraints:
+  - "Preserve an existing authenticated session whenever technically possible."
+  - "Tibia may disconnect an idle character; if long analysis risks timeout, use the smallest verified reversible keepalive, preferably turn-in-place and restore direction, not autonomous wandering."
+  - "Before and after invasive runtime work verify live client PID, tunneled connection, zero direct Tibia TCP, and that the character was not intentionally logged out."
+  - "The recovery login workflow contains pkill -x client and therefore MUST NOT be rerun while an authenticated client survives."
+  - "Do not use UI_CHANGED_PIXELS alone as proof of a semantic game action."
+next_action: "First verify whether the authenticated client PID and tunneled world session still survive inside oteryn-tibia-client-analysis. If alive, preserve it and perform one non-destructive attach/instrumentation experiment at the already-proven decoded Worldmap boundary to capture a real (x,y,z) -> ordered contents -> appearance/type IDs record, then detach safely and re-verify the session. Only if the session is genuinely gone, recover it using the proven non-OCR WARP-confined world-entry workflow."
 ```
 
-## Runtime checkpoint — 2026-08-12T14:01Z
+## Proven recovery/login recipe
 
-This later checkpoint supersedes the authentication/tunnel portions of the YAML checkpoint above where they conflict.
+Use only if live inspection proves that the existing authenticated session is gone.
 
-### PROVEN
+1. Verify the task-owned container and labels; never touch canonical `oteryn-staging` services.
+2. Verify `wireproxy` and `curl --socks5-hostname 127.0.0.1:25344 .../cdn-cgi/trace` reports `warp=on` before credential use.
+3. Launch the installed official client through `proxychains4` using SOCKS5 `127.0.0.1:25344`, on Xvfb `:99`, with lavapipe software Vulkan.
+4. Resolve the largest visible `^Tibia$` window and require the proven exact `1020x650` geometry for the fixed-coordinate path.
+5. Inject Actions secrets only into the bounded login step. Click email `(535,275)`, Ctrl+A/type email; password `(535,304)`, Ctrl+A/type password; click Login `(590,388)`; immediately unset secret variables.
+6. Detect a material transition away from the login form using `compare -metric AE`, not OCR; the proven threshold is >45000 changed pixels.
+7. Activate the first character around `(285,193)` with click + Return; after 3 seconds use double-click at the same point as bounded fallback.
+8. Prove world entry by sustained client TCP exclusively to local SOCKS plus an actual in-world action/viewport response. Do not treat authentication alone as world entry.
+9. Leave the client process alive after success.
 
-- GitHub Actions run `31604103984`, job `94138500351`, established Cloudflare WARP through a completely userspace WireGuard path (`wgcf` + `wireproxy` SOCKS5). Cloudflare trace returned `warp=on`; direct and proxied public IPs differed; `PROXYCHAINS_WARP_EGRESS_VERIFIED=true`.
-- The same run relaunched the real installed Tibia client through `proxychains4` and verified the client process had no direct remote TCP socket outside local SOCKS `127.0.0.1:25344`: `CLIENT_TCP_USERSPACE_WARP_CONFINEMENT_VERIFIED=true`.
-- GitHub Actions push run `31604419752`, job `94139596953`, independently repeated both userspace WARP egress proof and Tibia TCP confinement proof successfully.
-- Both runs verified canonical `oteryn-staging` container inventory unchanged; the owned analysis container remained running with the required ownership labels.
-- On PR run `31604103984`, both `TIBIA_TEST_EMAIL` and `TIBIA_TEST_PASSWORD` resolved to empty values and the login step failed closed before credential entry.
-- On same-branch push run `31604419752`, both secrets again resolved to empty values. The explicit secret-availability gate failed and the login step was skipped. No credential values were entered, printed, persisted, committed, OCRed or uploaded.
+Canonical implementation: `.github/workflows/tibia-client-analysis-cv-world-entry.yml`.
 
-### CONFLICT
+## Research direction after world entry
 
-The durable continuation prompt states that repository Actions secrets named `TIBIA_TEST_EMAIL` and `TIBIA_TEST_PASSWORD` had been created. Live GitHub Actions evidence from both pull-request and same-branch push events proves that those names are currently unavailable to this workflow (both resolve empty). Live execution is authoritative for the current state.
+Prioritize structured runtime data over OCR:
 
-### AUTHORITY BOUNDARY
+`server -> session processing -> decoded protobuf/messages -> Worldmap/GameState -> normalized world model`
 
-The network requirement is now solved: WARP egress and actual Tibia TCP confinement are proven. The remaining blocker is an approved authenticated test account credential source. The available GitHub connector exposes no repository Actions-secret read/write capability, and credentials must not be supplied through chat, workflow inputs, logs, repository files or other non-secret channels.
+For outbound actions investigate:
 
-`next_action`: restore/create GitHub Actions repository secrets named exactly `TIBIA_TEST_EMAIL` and `TIBIA_TEST_PASSWORD` in `blakinio/Oteryn-Platform`, or establish an equivalent approved secret-preserving interactive authenticated session. After the secrets exist, rerun job `94139596953` (or an equivalent exact userspace-WARP trace), enter the test world, and immediately continue to the already-proven decoded Worldmap boundary to capture and normalize one live `(x,y,z) -> ordered contents -> appearance/type IDs` sample.
+`game action -> internal client action/message builder -> serialization -> session framing/encryption -> TCP`
+
+The immediate map acceptance target remains one real bounded runtime record:
+
+`(x,y,z) -> ordered tile/field contents -> appearance/type IDs`
+
+Only after this is proven should an OTBM exporter or protocol-native control layer be treated as feasible rather than assumed.
