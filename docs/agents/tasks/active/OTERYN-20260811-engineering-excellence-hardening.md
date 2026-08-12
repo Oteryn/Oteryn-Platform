@@ -14,7 +14,6 @@ required_reads:
   - docs/architecture/TEST_STRATEGY.md
 search_first:
   - Issue #1002
-  - PR #992 agent-governance ownership
   - PR #1003 live head/base/CI/review state
   - open PR changed-file ownership for all owned paths
 optional_reads: []
@@ -35,9 +34,10 @@ Close Issue #1002 by making verification, E2E dependency installation, prompt/go
 - [x] Deterministic prompt-contract regression fixtures and executable validator exist.
 - [x] Workflow inventory/classification is machine enforced.
 - [x] Synology staging resolves exact source SHA images to immutable digests before deployment.
-- [ ] Agent Governance executes deterministic prompt/governance regression after PR #992 releases ownership.
+- [x] Agent Governance executes deterministic prompt-contract tests and the live evaluator and triggers on prompt-eval harness changes.
 - [x] Deep System Validation installs acceptance dependencies with committed lockfile via `npm ci`.
 - [ ] Exact-final-head CI/E2E/self-review and fresh independent Codex review are green before merge.
+- [ ] Issue #1002 closes and this task archives after verified squash merge.
 
 ## Ownership
 
@@ -53,16 +53,16 @@ owned_paths:
   - tests/Integration/REGISTRY.json
   - tools/validation/**
   - docs/agents/evals/prompt-contract-v1.json
+  - .github/workflows/agent-governance.yml
   - .github/workflows/ci.yml
   - .github/workflows/deep-system-validation.yml
   - .github/workflows/game-catalog-contract.yml
   - .github/workflows/deploy-synology-staging.yml
+  - tests/ci/test_acceptance_lockfile_contract.py
+  - tests/ci/test_game_catalog_cross_repo_trigger.py
+  - tests/ci/test_synology_deploy_release_identity.py
   - docs/agents/tasks/active/OTERYN-20260811-engineering-excellence-hardening.md
-deferred_overlap_paths:
-  - path: .github/workflows/agent-governance.yml
-    owner: PR #992
-  - path: tools/agents/**
-    owner: PR #992
+  - docs/agents/tasks/archive/OTERYN-20260811-engineering-excellence-hardening.md
 modules:
   - build-test
   - ci
@@ -70,9 +70,8 @@ modules:
   - synology-staging-deployment
 dependencies:
   - Issue #1002
-  - terminal PR #992 with lifecycle ownership release before agent-governance edit
 blockers:
-  - PR #992 remains open and owns .github/workflows/agent-governance.yml plus tools/agents/**
+  - none
 cross_repository_tasks:
   - none
 ```
@@ -81,11 +80,11 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-12T06:56:40Z
-head: a0a5d1c68c782e16b521e12e582f87f99d7cd47e
+updated_at: 2026-08-12T14:25:00+02:00
+head: f1c04011018132c66b6005db9a10b280007e8ce9
 branch: fix/engineering-excellence-hardening
 pr: 1003
-status: waiting
+status: validating
 context_routes:
   - testing
   - agent-governance
@@ -97,34 +96,42 @@ owned_paths:
   - tests/Integration/REGISTRY.json
   - tools/validation/**
   - docs/agents/evals/prompt-contract-v1.json
+  - .github/workflows/agent-governance.yml
   - .github/workflows/ci.yml
   - .github/workflows/deep-system-validation.yml
   - .github/workflows/game-catalog-contract.yml
   - .github/workflows/deploy-synology-staging.yml
+  - tests/ci/test_acceptance_lockfile_contract.py
+  - tests/ci/test_game_catalog_cross_repo_trigger.py
+  - tests/ci/test_synology_deploy_release_identity.py
   - docs/agents/tasks/active/OTERYN-20260811-engineering-excellence-hardening.md
+  - docs/agents/tasks/archive/OTERYN-20260811-engineering-excellence-hardening.md
 proven:
-  - Protected main was ab43c4b47173e7208d34851c4091f79051379f7a when PR #1003 was synchronized; merge commit 3f0a5256a71605c11cd14a98e8314d2f2eeb2213 incorporated that main without force.
-  - PR #1001 is merged/terminal and its previous .github/workflows/deep-system-validation.yml ownership is released.
-  - Deep System Validation on a0a5d1c68c782e16b521e12e582f87f99d7cd47e contains the landed current-main workflow with exactly the acceptance install changed from npm install to npm ci.
-  - Reconcile run 31571721768 generated a0a5d1c68c782e16b521e12e582f87f99d7cd47e with a one-line Deep System change and self-deletion of the temporary helper; connector fast-forwarded the branch after the workflow-token push was rejected for missing workflows permission.
-  - PR #992 remains open at 3dc0c3429f8b96c913109b1dabfd494d0bbe23ed and owns .github/workflows/agent-governance.yml and tools/agents/**.
-  - Current PR #1003 remains draft and mergeable; no production deployment, protected-environment approval, secret mutation, live customer-data mutation, payment action, or external-repository write has been performed.
+  - PR #992 and Issue #991 are terminal; the policy-consistency task is archived and its Agent Governance/tools ownership is released.
+  - Protected main 25ca5180849996462dfcfd2a0914eb6d765a47d3 was incorporated into the task branch by history-preserving merge commit 794c1f2a86a1d81de13aac49ccfc0d9c3acec788 with force=false.
+  - Compare after synchronization reported behind_by=0 and preserved the bounded engineering-hardening diff while taking newer governance and portal evidence from main.
+  - No open PR for Issue #1008 was visible before the Agent Governance edit; PR #1013 for Issue #1007 was previously verified to avoid the deploy-synology-staging workflow owned by this task.
+  - Material head f1c04011018132c66b6005db9a10b280007e8ce9 extends the landed Agent Governance workflow without removing policy-consistency, checkpoint, liveness or Control Room gates.
+  - Agent Governance now executes `python tools/validation/test_prompt_eval.py` and `python tools/validation/prompt_eval.py`, and pull-request/push path filters include both prompt-eval harness files; the eval contract itself is already covered by `docs/agents/**`.
+  - Deep System Validation retains the deterministic acceptance `npm ci` edit based on the committed lockfile.
+  - The current PR diff contains exactly 18 task-related paths after synchronization; BUILD_TEST_MATRIX.md and TEST_STRATEGY.md no longer differ from current main.
 derived:
-  - All currently safe non-overlapping implementation work is complete; final Agent Governance wiring must wait for PR #992 terminal lifecycle ownership release by explicit task instruction and repository ownership policy.
-  - Exact-final-head CI and fresh final-head Codex review cannot be validly completed until the deferred Agent Governance edit and any resulting main synchronization are incorporated.
+  - All known material implementation work for Issue #1002 is present; only exact-final-head validation, independent review, merge and lifecycle closeout remain.
 unknown:
-  - Final landed current-main form of .github/workflows/agent-governance.yml after PR #992 becomes terminal.
-  - Whether protected main or open-PR ownership will change before PR #992 releases the deferred paths.
+  - Terminal results of repository-required workflows on the checkpoint-only final head created by this update.
+  - Fresh independent Codex review result for the checkpoint-only final head created by this update.
 conflicts: []
 first_failure:
-  marker: agent_governance_ownership_release
-  evidence: PR #992 is open at 3dc0c3429f8b96c913109b1dabfd494d0bbe23ed and explicitly owns the deferred Agent Governance surface.
+  marker: none-known-before-final-gates
+  evidence: Current implementation is synchronized with main and all previously deferred Agent Governance wiring is present; final exact-head checks have not yet completed.
 rejected_hypotheses:
   - Add tests/Integration directly to phpunit.xml; the existing cross-repository test requires an external generated snapshot environment.
-  - Treat prior Agent Governance failure as infrastructure; exact logs proved the task record previously omitted open PR #1003 identity.
-  - Push the generated Deep System workflow commit with GITHUB_TOKEN; run 31571721768 proved GitHub rejects workflow mutation without workflows permission, while the generated commit object remained verifiable and was safely fast-forwarded with the GitHub connector.
+  - Treat deterministic prompt-contract checks as model-behavior proof; the harness explicitly limits itself to repository text contracts and requires repeated runtime/model trials when nondeterminism matters.
+  - Rebuild Agent Governance from the pre-#992 branch version; the final edit extends the landed fail-closed governance workflow instead.
+  - Force-push to synchronize main; current main was merged history-preservingly and the branch ref moved with force=false.
 changed_paths:
   - .github/dependabot.yml
+  - .github/workflows/agent-governance.yml
   - .github/workflows/ci.yml
   - .github/workflows/deep-system-validation.yml
   - .github/workflows/deploy-synology-staging.yml
@@ -139,29 +146,24 @@ changed_paths:
   - tests/ci/test_synology_deploy_release_identity.py
   - tools/validation/prompt_eval.py
   - tools/validation/test_prompt_eval.py
-  - tools/validation/test_verify_integration_test_registration.py
-  - tools/validation/test_workflow_inventory.py
   - tools/validation/verify_integration_test_registration.py
   - tools/validation/workflow_inventory.py
 validation:
-  - command: live protected-main, PR, issue, active-task, ownership and open-PR preflight
-    result: PASS
-    evidence: Main ab43c4b47173e7208d34851c4091f79051379f7a, PR #1003, Issue #1002, PR #1001, PR #992 and all open PR changed-file inventories relevant to owned paths were inspected before mutation.
   - command: history-preserving current-main synchronization
     result: PASS
-    evidence: 3f0a5256a71605c11cd14a98e8314d2f2eeb2213 merged protected main ab43c4b47173e7208d34851c4091f79051379f7a into the task branch with force=false; compare then showed zero commits behind.
-  - command: deterministic Deep System workflow reconciliation
+    evidence: Merge commit 794c1f2a86a1d81de13aac49ccfc0d9c3acec788 has parents task head 9e3c01fa6cea7efb26409283e64affc1c138afa3 and protected main 25ca5180849996462dfcfd2a0914eb6d765a47d3; branch ref update used force=false and compare reported behind_by=0.
+  - command: Agent Governance prompt-eval wiring inspection
     result: PASS
-    evidence: Run 31571721768 generated a0a5d1c68c782e16b521e12e582f87f99d7cd47e after git diff --cached --check and an exact 1:1 line-count assertion; commit diff proves only npm install -> npm ci plus removal of the temporary helper.
-  - command: current-head applicable GitHub Actions on a0a5d1c68c782e16b521e12e582f87f99d7cd47e
+    evidence: Material head f1c04011018132c66b6005db9a10b280007e8ce9 adds blocking prompt evaluator unit/live steps and harness path triggers while retaining all landed #992 governance gates.
+  - command: final checkpoint-head required GitHub Actions
     result: NOT_RUN
-    evidence: Pull-request workflow generation was queued/pending when this checkpoint was written; it is supporting evidence only because Agent Governance wiring is still deferred and this is not the final delivery head.
-  - command: final-head Codex review
+    evidence: This task-record-only update creates the final validation generation.
+  - command: final checkpoint-head fresh Codex review
     result: NOT_RUN
-    evidence: Final delivery head does not yet exist because PR #992 still owns the required Agent Governance path.
+    evidence: This task-record-only update creates the final review generation.
 blockers:
-  - PR #992 remains open at 3dc0c3429f8b96c913109b1dabfd494d0bbe23ed and retains ownership of .github/workflows/agent-governance.yml and tools/agents/**.
-next_action: When PR #992 is terminal and its lifecycle ownership is released, refresh protected main and open-PR ownership, then extend the landed .github/workflows/agent-governance.yml with prompt-eval regression and harness/contract triggers before exact-final-head validation and review.
+  - none
+next_action: Validate the unchanged checkpoint-only final head with all repository-required workflows and a fresh full-diff Codex review; resolve every material finding, then mark PR #1003 ready, squash-merge with expected-head protection, verify main, archive this task and close Issue #1002.
 ```
 
 ## Recovery checkpoint
@@ -169,26 +171,26 @@ next_action: When PR #992 is terminal and its lifecycle ownership is released, r
 ```yaml
 recovery:
   policy_version: 1
-  generation: 1
-  session_id: 20260812T064100Z-engineering-hardening
-  session_started_at: 2026-08-12T06:41:00Z
-  checkpointed_at: 2026-08-12T06:56:40Z
-  last_progress_at: 2026-08-12T06:56:40Z
-  phase: waiting-for-agent-governance-ownership-release
-  exact_head: a0a5d1c68c782e16b521e12e582f87f99d7cd47e
+  generation: 2
+  session_id: coordinator-20260812-engineering-hardening-final
+  session_started_at: 2026-08-12T14:25:00+02:00
+  checkpointed_at: 2026-08-12T14:25:00+02:00
+  last_progress_at: 2026-08-12T14:25:00+02:00
+  phase: final-exact-head-validation
+  exact_head: f1c04011018132c66b6005db9a10b280007e8ce9
   pull_request: 1003
-  active_operation: none
-  external_run_ids: [31571721768]
-  operation_started_at: null
-  wait_deadline_at: null
-  check_generation: null
+  active_operation: create final checkpoint generation after current-main synchronization and Agent Governance prompt-eval wiring
+  external_run_ids: []
+  operation_started_at: 2026-08-12T14:25:00+02:00
+  wait_deadline_at: 2026-08-12T15:10:00+02:00
+  check_generation: final-checkpoint
   checks_used: 0
-  status: waiting
+  status: active
   safe_to_resume: true
-  resume_condition: PR #992 is terminal and lifecycle ownership of .github/workflows/agent-governance.yml and tools/agents/** is released.
-  next_action: Verify PR #992 terminal/archive state, protected main, PR #1003 head/base and open-PR ownership; if ownership is released, synchronize main without force and wire prompt evals into the landed Agent Governance workflow.
+  resume_condition: exact-head required checks and fresh review are terminal and branch head remains unchanged
+  next_action: inspect exact-head CI and fresh review, repair only material findings, then squash-merge and lifecycle-close the task
 ```
 
 ## Notes
 
-Issue #1002. No production or staging deployment, protected-environment approval, credential mutation, live data mutation, payment action, or external-repository write is authorized by this task. The checkpoint `head` records the last material implementation head before this task-metadata-only checkpoint commit; live PR state remains authoritative for the current branch head.
+Issue #1002. `feature_scope: internal_only`; user-facing/runtime E2E is not introduced by this change. No production or staging deployment, protected-environment approval, credential mutation, live data mutation, payment action, or external-repository write is authorized or performed by this task.
