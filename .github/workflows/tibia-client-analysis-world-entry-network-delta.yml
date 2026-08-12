@@ -1,0 +1,251 @@
+name: Tibia Client World Entry Network Delta
+
+on:
+  push:
+    branches: [ops/oteryn-tibia-client-analysis-20260811]
+    paths: [.github/workflows/tibia-client-analysis-world-entry-network-delta.yml]
+
+permissions:
+  contents: read
+
+env:
+  CONTAINER_NAME: oteryn-tibia-client-analysis
+
+jobs:
+  trace:
+    name: Trace Tibia network delta at verified character activation
+    runs-on: oteryn-staging
+    timeout-minutes: 10
+    steps:
+      - name: Verify owned runtime and snapshot staging
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          [[ "$RUNNER_NAME" == "oteryn-synology-staging" ]]
+          [[ "$(docker inspect --format '{{ index .Config.Labels "com.blakinio.owner" }}' "$CONTAINER_NAME")" == "oteryn" ]]
+          [[ "$(docker inspect --format '{{ index .Config.Labels "com.blakinio.purpose" }}' "$CONTAINER_NAME")" == "tibia-client-analysis" ]]
+          [[ "$(docker inspect --format '{{.State.Status}}' "$CONTAINER_NAME")" == "running" ]]
+          docker ps -a --filter 'label=com.docker.compose.project=oteryn-staging' --format '{{.ID}}\t{{.Names}}' | sort >/tmp/oteryn-before.tsv
+
+      - name: Measure network syscalls before and after world entry
+        shell: bash
+        env:
+          TIBIA_TEST_EMAIL: ${{ secrets.TIBIA_TEST_EMAIL }}
+          TIBIA_TEST_PASSWORD: ${{ secrets.TIBIA_TEST_PASSWORD }}
+        run: |
+          set -Eeuo pipefail
+          [[ -n "$TIBIA_TEST_EMAIL" && -n "$TIBIA_TEST_PASSWORD" ]]
+          docker exec -e TIBIA_TEST_EMAIL -e TIBIA_TEST_PASSWORD -i "$CONTAINER_NAME" bash <<'INNER'
+          set -Eeuo pipefail
+          export DISPLAY=:99 HOME=/data/home
+          pkg="$HOME/.local/share/CipSoft GmbH/Tibia/packages/Tibia"
+          client="$pkg/bin/client"
+
+          pgrep -f '/wireproxy .*wireproxy.conf' >/dev/null
+          curl --socks5-hostname 127.0.0.1:25344 -fsS --max-time 10 https://www.cloudflare.com/cdn-cgi/trace >/tmp/warp-network-delta.trace
+          grep -q '^warp=on$' /tmp/warp-network-delta.trace
+          echo WARP_EGRESS_VERIFIED=true
+
+          if command -v strace >/dev/null 2>&1; then
+            echo STRACE_PREINSTALLED=true
+          else
+            apt-get update -qq
+            DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends strace >/dev/null
+            echo STRACE_INSTALLED_IN_OWNED_RUNTIME=true
+          fi
+
+          sed '/^[[:space:]]*quiet_mode[[:space:]]*$/d' /tmp/proxychains-tibia.conf >/tmp/proxychains-tibia-network-delta.conf
+          grep -q '^strict_chain' /tmp/proxychains-tibia-network-delta.conf
+          grep -q '^proxy_dns' /tmp/proxychains-tibia-network-delta.conf
+
+          pkill -f 'packages/Tibia/bin/client' 2>/dev/null || true
+          pgrep -f '^Xvfb :99' >/dev/null || nohup Xvfb :99 -screen 0 1280x800x24 >/data/runtime/xvfb.log 2>&1 </dev/null &
+          rm -f /data/runtime/tibia-world-entry-network.strace*
+          : >/data/runtime/client-world-entry-network-delta.log
+          cd "$pkg"
+          nohup strace -ff -ttt -s 128 -e trace=network -o /data/runtime/tibia-world-entry-network.strace \
+            proxychains4 -f /tmp/proxychains-tibia-network-delta.conf "$client" \
+            >/data/runtime/client-world-entry-network-delta.log 2>&1 </dev/null &
+          for n in $(seq 1 30); do pgrep -f 'packages/Tibia/bin/client' >/dev/null && break; sleep 1; done
+          pgrep -f 'packages/Tibia/bin/client' >/dev/null
+          echo CLIENT_RUNNING_UNDER_PARENT_STRACE=true
+          sleep 10
+
+          best=''; best_area=0; best_width=0; best_height=0
+          for w in $(xdotool search --onlyvisible --name '^Tibia$' 2>/dev/null || true); do
+            geom=$(xdotool getwindowgeometry --shell "$w" 2>/dev/null || true)
+            width=$(printf '%s\n' "$geom" | sed -n 's/^WIDTH=//p')
+            height=$(printf '%s\n' "$geom" | sed -n 's/^HEIGHT=//p')
+            [[ -n "$width" && -n "$height" ]] || continue
+            area=$((width*height))
+            if (( area > best_area )); then best=$w; best_area=$area; best_width=$width; best_height=$height; fi
+          done
+          [[ -n "$best" && "$best_width" == 1020 && "$best_height" == 650 ]]
+
+          xdotool mousemove --window "$best" 535 275 click 1
+          xdotool key --window "$best" ctrl+a
+          xdotool type --window "$best" --delay 3 -- "$TIBIA_TEST_EMAIL"
+          xdotool mousemove --window "$best" 535 304 click 1
+          xdotool key --window "$best" ctrl+a
+          xdotool type --window "$best" --delay 3 -- "$TIBIA_TEST_PASSWORD"
+          xdotool mousemove --window "$best" 590 388 click 1
+          unset TIBIA_TEST_EMAIL TIBIA_TEST_PASSWORD
+          sleep 25
+
+          import -display :99 -window "$best" /tmp/network-delta-select.png
+          convert /tmp/network-delta-select.png -resize 200% -colorspace Gray -contrast-stretch 1%x1% /tmp/network-delta-select-ocr.png
+          tesseract /tmp/network-delta-select-ocr.png stdout --psm 11 tsv 2>/dev/null >/tmp/network-delta-select.tsv || true
+          python3 - <<'PY' >/tmp/network-delta-row.env
+          import csv
+          safe=[]; opaque=[]
+          with open('/tmp/network-delta-select.tsv',newline='',errors='replace') as f:
+              for r in csv.DictReader(f,delimiter='\t'):
+                  token=(r.get('text') or '').strip().lower().strip(':,.!?()[]')
+                  try:
+                      conf=float(r.get('conf') or -1)
+                      left=int(r.get('left') or 0)//2; top=int(r.get('top') or 0)//2
+                      width=max(1,int(r.get('width') or 0)//2); height=max(1,int(r.get('height') or 0)//2)
+                  except ValueError:
+                      continue
+                  if conf < 20: continue
+                  x=left+width//2; y=top+height//2
+                  if token in {'select','character','status','ok','cancel'}:
+                      safe.append((token,x,y))
+                  elif 220 <= x <= 555 and 185 <= y <= 202:
+                      opaque.append((x,y))
+          title=any(t=='select' and 440<=x<=510 and 100<=y<=130 for t,x,y in safe)
+          header=any(t=='character' and 220<=x<=290 and 160<=y<=185 for t,x,y in safe)
+          ok=any(t=='ok' and 770<=x<=810 and 495<=y<=525 for t,x,y in safe)
+          if not (title and header and ok and len(opaque) >= 2):
+              raise SystemExit('Verified Select Character geometry not found')
+          row_x=round(sum(x for x,_ in opaque)/len(opaque)); row_y=round(sum(y for _,y in opaque)/len(opaque))
+          row_x=min(max(row_x,260),360)
+          if not (260 <= row_x <= 360 and 188 <= row_y <= 198):
+              raise SystemExit(f'Unsafe row geometry {row_x},{row_y}')
+          print(f'ROW_X={row_x}')
+          print(f'ROW_Y={row_y}')
+          PY
+          source /tmp/network-delta-row.env
+          echo SELECT_CHARACTER_VERIFIED=true
+          echo "VERIFIED_CHARACTER_ROW_GEOMETRY=$ROW_X,$ROW_Y"
+
+          python3 - <<'PY' >/tmp/network-before.env
+          from pathlib import Path
+          import glob,re
+          lines=[]
+          for p in glob.glob('/data/runtime/tibia-world-entry-network.strace*'):
+              try: lines.extend(Path(p).read_text(errors='replace').splitlines())
+              except OSError: pass
+          proxy=Path('/data/runtime/client-world-entry-network-delta.log').read_text(errors='replace').splitlines()
+          ok=[l for l in proxy if 'chain' in l.lower() and 'ok' in l.lower()]
+          ports=set()
+          for l in ok:
+              for m in re.finditer(r':([0-9]{1,5})(?=\D|$)',l):
+                  p=int(m.group(1))
+                  if 1 <= p <= 65535 and p != 25344: ports.add(p)
+          print(f'BEFORE_TRACE_LINES={len(lines)}')
+          print(f'BEFORE_SOCKET_STREAM={sum("socket(" in l and "SOCK_STREAM" in l for l in lines)}')
+          print(f'BEFORE_SOCKET_DGRAM={sum("socket(" in l and "SOCK_DGRAM" in l for l in lines)}')
+          print(f'BEFORE_CONNECT={sum("connect(" in l for l in lines)}')
+          print(f'BEFORE_SENDTO={sum("sendto(" in l for l in lines)}')
+          print(f'BEFORE_SENDMSG={sum("sendmsg(" in l for l in lines)}')
+          print(f'BEFORE_PROXY_OK={len(ok)}')
+          print('BEFORE_PROXY_PORTS=' + ','.join(map(str,sorted(ports))))
+          PY
+          cat /tmp/network-before.env
+
+          xdotool mousemove --window "$best" "$ROW_X" "$ROW_Y" click --repeat 2 --delay 180 1
+          echo VERIFIED_CHARACTER_ROW_DOUBLECLICKED=true
+          sleep 0.25
+          import -display :99 -window "$best" /tmp/network-delta-t025.png
+          sleep 0.50
+          import -display :99 -window "$best" /tmp/network-delta-t075.png
+          sleep 0.75
+          import -display :99 -window "$best" /tmp/network-delta-t150.png
+          sleep 2.50
+          import -display :99 -window "$best" /tmp/network-delta-t400.png
+
+          python3 - <<'PY'
+          from pathlib import Path
+          import glob,re
+          before={}
+          for raw in Path('/tmp/network-before.env').read_text().splitlines():
+              if '=' in raw:
+                  k,v=raw.split('=',1); before[k]=v
+          lines=[]
+          for p in glob.glob('/data/runtime/tibia-world-entry-network.strace*'):
+              try: lines.extend(Path(p).read_text(errors='replace').splitlines())
+              except OSError: pass
+          proxy=Path('/data/runtime/client-world-entry-network-delta.log').read_text(errors='replace').splitlines()
+          ok=[l for l in proxy if 'chain' in l.lower() and 'ok' in l.lower()]
+          ports=set()
+          for l in ok:
+              for m in re.finditer(r':([0-9]{1,5})(?=\D|$)',l):
+                  p=int(m.group(1))
+                  if 1 <= p <= 65535 and p != 25344: ports.add(p)
+          metrics={
+              'TRACE_LINES':len(lines),
+              'SOCKET_STREAM':sum('socket(' in l and 'SOCK_STREAM' in l for l in lines),
+              'SOCKET_DGRAM':sum('socket(' in l and 'SOCK_DGRAM' in l for l in lines),
+              'CONNECT':sum('connect(' in l for l in lines),
+              'SENDTO':sum('sendto(' in l for l in lines),
+              'SENDMSG':sum('sendmsg(' in l for l in lines),
+              'PROXY_OK':len(ok),
+          }
+          for key,val in metrics.items():
+              b=int(before.get('BEFORE_'+key,'0'))
+              print(f'AFTER_{key}={val}')
+              print(f'DELTA_{key}={val-b}')
+          print('AFTER_PROXY_PORTS=' + ','.join(map(str,sorted(ports))))
+          before_ports={int(x) for x in before.get('BEFORE_PROXY_PORTS','').split(',') if x.isdigit()}
+          print('DELTA_PROXY_PORTS=' + ','.join(map(str,sorted(ports-before_ports))))
+          connect_lines=[l for l in lines if 'connect(' in l]
+          print(f'CONNECT_SUCCESS_TOTAL={sum(re.search(r"connect\(.*\)\s+=\s+0(?:\s|$)",l) is not None for l in connect_lines)}')
+          for err in ['EINPROGRESS','ECONNREFUSED','ETIMEDOUT','ENETUNREACH','EHOSTUNREACH','EACCES','ECONNRESET']:
+              print(f'CONNECT_{err}_TOTAL={sum(err in l for l in connect_lines)}')
+          print(f'CONNECT_LOCAL_SOCKS_TOTAL={sum("sin_port=htons(25344)" in l and ("127.0.0.1" in l or "::1" in l) for l in connect_lines)}')
+          print(f'NETWORK_TRACE_FILE_COUNT={len(glob.glob("/data/runtime/tibia-world-entry-network.strace*"))}')
+          PY
+
+          for item in 025 075 150 400; do
+            convert "/tmp/network-delta-t${item}.png" -crop 900x500+60+80 -resize 150% -colorspace Gray -contrast-stretch 1%x1% "/tmp/network-delta-t${item}-ocr.png"
+            tesseract "/tmp/network-delta-t${item}-ocr.png" stdout --psm 11 2>/dev/null >"/tmp/network-delta-t${item}.txt" || true
+          done
+          python3 - <<'PY'
+          from pathlib import Path
+          allow={'already','logged','connection','failed','error','server','world','queue','maintenance','session','client','account','character','select','login','password','email','online','offline','connecting','please','try','again','could','not','timeout','battle','skills','inventory','health','mana','disconnected','lost','unable','enter','game'}
+          final=''
+          for label in ('025','075','150','400'):
+              text=Path(f'/tmp/network-delta-t{label}.txt').read_text(errors='replace').lower()
+              if label=='400': final=text
+              normalized=''.join(ch if ch.isalnum() else ' ' for ch in text)
+              safe=[]
+              for token in normalized.split():
+                  if token in allow and token not in safe: safe.append(token)
+              print(f'T{label}_SAFE_TOKENS=' + ','.join(safe))
+          account=('account login' in final or ('email' in final and 'password' in final))
+          select=('select character' in final)
+          game=any(x in final for x in ['battle','skills','inventory','health','mana'])
+          print(f'FINAL_ACCOUNT_LOGIN={str(account).lower()}')
+          print(f'FINAL_SELECT_CHARACTER={str(select).lower()}')
+          print(f'FINAL_GAME_MARKERS={str(game).lower()}')
+          PY
+
+          pid=$(pgrep -f 'packages/Tibia/bin/client' | head -n1)
+          [[ -n "$pid" ]]
+          tcp_rows=$(ss -ntp 2>/dev/null | grep "pid=$pid," || true)
+          direct_tcp=$(printf '%s\n' "$tcp_rows" | awk '{print $5}' | grep -Ev '^(127\.0\.0\.1|\[::1\]):25344$' | grep -c . || true)
+          echo "FINAL_DIRECT_TCP_COUNT=$direct_tcp"
+          [[ "$direct_tcp" -eq 0 ]]
+          echo CLIENT_LEFT_RUNNING=true
+          INNER
+
+      - name: Verify canonical staging unchanged and client remains running
+        if: always()
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          docker ps -a --filter 'label=com.docker.compose.project=oteryn-staging' --format '{{.ID}}\t{{.Names}}' | sort >/tmp/oteryn-after.tsv
+          diff -u /tmp/oteryn-before.tsv /tmp/oteryn-after.tsv
+          docker exec "$CONTAINER_NAME" pgrep -f 'packages/Tibia/bin/client' >/dev/null
+          docker inspect --format 'analysis_name={{.Name}} status={{.State.Status}} owner={{ index .Config.Labels "com.blakinio.owner" }} purpose={{ index .Config.Labels "com.blakinio.purpose" }}' "$CONTAINER_NAME"
