@@ -49,7 +49,7 @@ jobs:
 
           base=$(awk '$NF ~ /\/packages\/Tibia\/bin\/client$/ && $3=="00000000" {split($1,a,"-"); print "0x" a[1]; exit}' /proc/$pid/maps)
           [[ -n "$base" ]]
-          bp=$(printf '0x%x' $((base+0x19a8ea3)))
+          bp=$(printf '0x%x' $((base+0x19a8e26)))
           echo CLIENT_PID=$pid
           echo PIE_BASE=$base
           echo DECODED_BP=$bp
