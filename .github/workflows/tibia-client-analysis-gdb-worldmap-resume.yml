@@ -1,0 +1,117 @@
+name: Tibia Decoded Worldmap Resume
+
+on:
+  push:
+    branches: [ops/oteryn-tibia-client-analysis-20260811]
+    paths: [.github/workflows/tibia-client-analysis-gdb-worldmap-resume.yml]
+
+permissions:
+  contents: read
+
+env:
+  CONTAINER_NAME: oteryn-tibia-client-analysis
+
+jobs:
+  resume:
+    name: Resume instrumented world entry without OCR
+    runs-on: oteryn-staging
+    timeout-minutes: 5
+    steps:
+      - name: Verify owned runtime and resume capture
+        shell: bash
+        env:
+          TIBIA_TEST_EMAIL: ${{ secrets.TIBIA_TEST_EMAIL }}
+          TIBIA_TEST_PASSWORD: ${{ secrets.TIBIA_TEST_PASSWORD }}
+        run: |
+          set -Eeuo pipefail
+          [[ "$RUNNER_NAME" == "oteryn-synology-staging" ]]
+          [[ "$(docker inspect --format '{{ index .Config.Labels "com.blakinio.owner" }}' "$CONTAINER_NAME")" == "oteryn" ]]
+          [[ "$(docker inspect --format '{{ index .Config.Labels "com.blakinio.purpose" }}' "$CONTAINER_NAME")" == "tibia-client-analysis" ]]
+          [[ -n "$TIBIA_TEST_EMAIL" && -n "$TIBIA_TEST_PASSWORD" ]]
+          docker ps -a --filter 'label=com.docker.compose.project=oteryn-staging' --format '{{.ID}}\t{{.Names}}' | sort >/tmp/oteryn-before.tsv
+          docker exec -e TIBIA_TEST_EMAIL -e TIBIA_TEST_PASSWORD -i "$CONTAINER_NAME" bash <<'INNER'
+          set -Eeuo pipefail
+          export DISPLAY=:99 HOME=/data/home
+          pgrep -f '/wireproxy .*wireproxy.conf' >/dev/null
+          curl --socks5-hostname 127.0.0.1:25344 -fsS --max-time 10 https://www.cloudflare.com/cdn-cgi/trace | grep -q '^warp=on$'
+          grep -q 'DECODED_CONTENT_BREAKPOINT_READY=true' /data/runtime/worldmap-gdb.log
+          pgrep -f 'gdb .*packages/Tibia/bin/client' >/dev/null
+          pid=$(pgrep -x client | head -n1)
+          [[ -n "$pid" ]]
+          echo INSTRUMENTED_CLIENT_STILL_ALIVE=true
+
+          # Resolve only a live window owned by this exact inferior PID; retry because Qt may replace transient windows.
+          best=''
+          for n in $(seq 1 50); do
+            best=''
+            for w in $(xdotool search --onlyvisible --pid "$pid" --name '^Tibia$' 2>/dev/null || true); do
+              xwininfo -id "$w" >/dev/null 2>&1 || continue
+              geom=$(xdotool getwindowgeometry --shell "$w" 2>/dev/null || true)
+              width=$(printf '%s\n' "$geom" | sed -n 's/^WIDTH=//p')
+              height=$(printf '%s\n' "$geom" | sed -n 's/^HEIGHT=//p')
+              if [[ "$width" == 1020 && "$height" == 650 ]]; then best=$w; break; fi
+            done
+            [[ -n "$best" ]] && break
+            sleep 0.4
+          done
+          [[ -n "$best" ]]
+          echo PID_SCOPED_TIBIA_WINDOW=true
+
+          # Fixed client-relative coordinates previously proven successful. No OCR/Tesseract.
+          xdotool windowactivate --sync "$best" 2>/dev/null || true
+          xdotool mousemove --window "$best" 535 275 click 1
+          xdotool key --window "$best" ctrl+a
+          xdotool type --window "$best" --delay 3 -- "$TIBIA_TEST_EMAIL"
+          xdotool mousemove --window "$best" 535 304 click 1
+          xdotool key --window "$best" ctrl+a
+          xdotool type --window "$best" --delay 3 -- "$TIBIA_TEST_PASSWORD"
+          xdotool mousemove --window "$best" 590 388 click 1
+          unset TIBIA_TEST_EMAIL TIBIA_TEST_PASSWORD
+          sleep 3
+          xdotool mousemove --window "$best" 285 193 click 1
+          xdotool key --window "$best" Return
+          sleep 3
+          xdotool mousemove --window "$best" 285 193 click --repeat 2 --delay 160 1
+          echo CHARACTER_ENTRY_SENT_WITHOUT_OCR=true
+
+          records=0
+          for n in $(seq 1 70); do
+            sleep 1
+            records=$(grep -c '^REC ' /data/runtime/worldmap-live-capture.txt 2>/dev/null || true)
+            (( records >= 12 )) && break
+          done
+          echo DECODED_RECORD_COUNT_AFTER_ENTRY=$records
+          (( records >= 12 ))
+
+          # Trigger bounded directional map updates while retaining the successful reversible action pattern.
+          xdotool key --window "$best" Right
+          sleep 2
+          xdotool key --window "$best" Left
+          sleep 2
+          records=$(grep -c '^REC ' /data/runtime/worldmap-live-capture.txt 2>/dev/null || true)
+          echo DECODED_RECORD_COUNT_FINAL=$records
+
+          tcp_rows=$(ss -ntp 2>/dev/null | grep "pid=$pid," || true)
+          udp_rows=$(ss -nup 2>/dev/null | grep "pid=$pid," || true)
+          local_count=$(printf '%s\n' "$tcp_rows" | awk '$5 ~ /127\.0\.0\.1:25344$/ || $5 ~ /\[::1\]:25344$/ {n++} END{print n+0}')
+          total_count=$(printf '%s\n' "$tcp_rows" | grep -c . || true)
+          direct_count=$((total_count-local_count))
+          udp_count=$(printf '%s\n' "$udp_rows" | grep -c . || true)
+          echo FINAL_LOCAL_SOCKS_COUNT=$local_count
+          echo FINAL_DIRECT_TCP_COUNT=$direct_count
+          echo FINAL_UDP_COUNT=$udp_count
+          [[ "$direct_count" -eq 0 && "$udp_count" -eq 0 ]]
+
+          echo WORLDMAP_CAPTURE_BEGIN
+          grep '^REC ' /data/runtime/worldmap-live-capture.txt | head -n 50
+          echo WORLDMAP_CAPTURE_END
+          INNER
+
+      - name: Verify canonical staging unchanged
+        if: always()
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          docker ps -a --filter 'label=com.docker.compose.project=oteryn-staging' --format '{{.ID}}\t{{.Names}}' | sort >/tmp/oteryn-after.tsv
+          diff -u /tmp/oteryn-before.tsv /tmp/oteryn-after.tsv
+          docker inspect --format 'analysis_name={{.Name}} status={{.State.Status}} owner={{ index .Config.Labels "com.blakinio.owner" }} purpose={{ index .Config.Labels "com.blakinio.purpose" }}' "$CONTAINER_NAME"
