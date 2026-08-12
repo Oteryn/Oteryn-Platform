@@ -13,9 +13,9 @@ env:
 
 jobs:
   trace:
-    name: Install and launch Tibia runtime
+    name: Refine Tibia launcher control OCR
     runs-on: oteryn-staging
-    timeout-minutes: 12
+    timeout-minutes: 8
     steps:
       - name: Verify owned runtime and snapshot staging
         shell: bash
@@ -25,7 +25,7 @@ jobs:
           [[ "$(docker inspect --format '{{ index .Config.Labels "com.blakinio.owner" }}' "$CONTAINER_NAME")" == "oteryn" ]]
           [[ "$(docker inspect --format '{{ index .Config.Labels "com.blakinio.purpose" }}' "$CONTAINER_NAME")" == "tibia-client-analysis" ]]
           docker ps -a --filter 'label=com.docker.compose.project=oteryn-staging' --format '{{.ID}}\t{{.Names}}' | sort > /tmp/oteryn-before.tsv
-      - name: Click identified launcher action
+      - name: OCR enhanced lower launcher area
         shell: bash
         run: |
           set -Eeuo pipefail
@@ -33,56 +33,14 @@ jobs:
             set -Eeuo pipefail
             export DISPLAY=:99
             wid=$(xdotool search --onlyvisible --name "^Tibia$" | head -n1)
-            [[ -n "$wid" ]]
-            before=$(du -sb /data/home 2>/dev/null | awk "{print \$1}" || echo 0)
-            xdotool mousemove --window "$wid" 510 405 click 1
-            echo ACTION_CLICK_SENT=true
-            sleep 8
-            after=$(du -sb /data/home 2>/dev/null | awk "{print \$1}" || echo 0)
-            echo HOME_BYTES_BEFORE=$before HOME_BYTES_AFTER=$after
-          '
-      - name: Wait for runtime and launch verified client
-        shell: bash
-        run: |
-          set -Eeuo pipefail
-          docker exec "$CONTAINER_NAME" bash -lc '
-            set -Eeuo pipefail
-            export DISPLAY=:99
-            c=/data/client-15.32.df7b29/bin/client
-            qt=""
-            for _ in $(seq 1 72); do
-              qt=$(find /data -type f -name libQt6WebEngineQuick.so.6 -print -quit 2>/dev/null || true)
-              [[ -n "$qt" ]] && break
-              sleep 5
-            done
-            [[ -n "$qt" ]]
-            echo QT_RUNTIME_FOUND=true
-            libdir=$(dirname "$qt"); base=$(dirname "$libdir")
-            plugdir=""; qmldir=""
-            for d in "$base/plugins" "$libdir/plugins"; do [[ -d "$d" ]] && { plugdir=$d; break; }; done
-            for d in "$base/qml" "$libdir/qml"; do [[ -d "$d" ]] && { qmldir=$d; break; }; done
-            : > /data/runtime/client-launch.log
-            cd "$(dirname "$c")"
-            args=(env DISPLAY=:99 LD_LIBRARY_PATH="$libdir")
-            [[ -n "$plugdir" ]] && args+=(QT_PLUGIN_PATH="$plugdir")
-            [[ -n "$qmldir" ]] && args+=(QML2_IMPORT_PATH="$qmldir")
-            args+=("$c")
-            nohup "${args[@]}" >/data/runtime/client-launch.log 2>&1 </dev/null &
-            sleep 20
-            count=0
-            for p in /proc/[0-9]*; do
-              [[ -r "$p/exe" ]] || continue
-              exe=$(readlink -f "$p/exe" 2>/dev/null || true)
-              [[ "$exe" == "$c" ]] && count=$((count+1))
-            done
-            echo CLIENT_PROCESS_COUNT=$count
-            if (( count == 0 )); then
-              echo SANITIZED_CLIENT_DIAGNOSTIC_BEGIN
-              sed -E "/(token|password|account|session|cookie|authorization|bearer)/Id" /data/runtime/client-launch.log | tail -80
-              echo SANITIZED_CLIENT_DIAGNOSTIC_END
-              exit 1
-            fi
-            echo CLIENT_LAUNCH_FAILED=false
+            import -display :99 -window "$wid" /tmp/launcher-full.png
+            convert /tmp/launcher-full.png -crop 800x140+0+308 +repage -resize 400% -colorspace Gray -contrast-stretch 1%x1% -sharpen 0x1 /tmp/launcher-lower.png
+            echo OCR_PSM6_BEGIN
+            tesseract /tmp/launcher-lower.png stdout --psm 6 tsv 2>/dev/null | awk -F "\t" "NR==1 || (NF>=12 && \$12 != \"\" && \$12 !~ /^[[:space:]]*$/){print}"
+            echo OCR_PSM6_END
+            echo OCR_PSM11_BEGIN
+            tesseract /tmp/launcher-lower.png stdout --psm 11 tsv 2>/dev/null | awk -F "\t" "NR==1 || (NF>=12 && \$12 != \"\" && \$12 !~ /^[[:space:]]*$/){print}"
+            echo OCR_PSM11_END
           '
       - name: Verify canonical staging unchanged
         if: always()
