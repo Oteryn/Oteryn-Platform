@@ -43,27 +43,15 @@ jobs:
           pgrep -f '^Xvfb :99' >/dev/null
           pkill -x x11vnc 2>/dev/null || true
           rm -f /data/runtime/x11vnc.log
-          x11vnc -display :99 -forever -shared -noxdamage -rfbport 5900 -nopw -o /data/runtime/x11vnc.log -bg || {
-            echo X11VNC_START_FAILED=true
-            cat /data/runtime/x11vnc.log 2>/dev/null || true
-            exit 1
-          }
-          ready=0
-          for _ in $(seq 1 20); do
-            if ss -lnt | grep -q ':5900 '; then ready=1; break; fi
-            sleep 1
-          done
-          if [[ "$ready" != 1 ]]; then
-            echo X11VNC_LISTEN_FAILED=true
-            cat /data/runtime/x11vnc.log 2>/dev/null || true
-            exit 1
-          fi
+          x11vnc -display :99 -forever -shared -noxdamage -rfbport 5900 -nopw -o /data/runtime/x11vnc.log -bg
+          for _ in $(seq 1 20); do ss -lnt | grep -q ':5900 ' && break; sleep 1; done
+          ss -lnt | grep -q ':5900 '
           pgrep -x x11vnc >/dev/null
           pgrep -x client >/dev/null
           echo X11VNC_READY=true
           INNER
 
-      - name: Publish VNC port on Synology LAN
+      - name: Publish VNC explicitly on Synology LAN addresses
         shell: bash
         run: |
           set -Eeuo pipefail
@@ -71,30 +59,31 @@ jobs:
           [[ -n "$target_ip" ]]
           docker rm -f "$RELAY_NAME" >/dev/null 2>&1 || true
           docker run -d --name "$RELAY_NAME" --restart unless-stopped --network host alpine/socat \
-            TCP-LISTEN:5900,fork,reuseaddr TCP:"$target_ip":5900 >/dev/null
-          ready=0
-          for _ in $(seq 1 20); do
-            if docker run --rm --network host alpine sh -lc 'nc -z 127.0.0.1 5900'; then ready=1; break; fi
-            sleep 1
-          done
-          [[ "$ready" == 1 ]]
+            TCP-LISTEN:5900,bind=0.0.0.0,fork,reuseaddr TCP:"$target_ip":5900 >/dev/null
+          sleep 2
+          docker logs "$RELAY_NAME" || true
+          docker inspect -f '{{.State.Running}}' "$RELAY_NAME" | grep -qx true
           echo VNC_RELAY_READY=true
 
-      - name: Resolve Synology LAN address and verify VNC banner
+      - name: Verify RFB on physical Synology LAN interfaces
         shell: bash
         run: |
           set -Eeuo pipefail
-          addr_dump=$(docker run --rm --network host alpine sh -lc 'ip -4 -o addr show scope global 2>/dev/null || true')
-          echo HOST_ADDR_DUMP_BEGIN
+          addr_dump=$(docker run --rm --network host alpine sh -lc 'ip -4 -o addr show scope global')
           printf '%s\n' "$addr_dump"
-          echo HOST_ADDR_DUMP_END
-          candidates=$(printf '%s\n' "$addr_dump" | awk '{print $4}' | cut -d/ -f1 | grep -E '^(192\.168\.|10\.|172\.(1[6-9]|2[0-9]|3[01])\.)' | awk '!seen[$0]++')
+          candidates=$(printf '%s\n' "$addr_dump" | awk '$2 ~ /^ovs_eth/ {print $4}' | cut -d/ -f1 | awk '!seen[$0]++')
           [[ -n "$candidates" ]]
-          lan_ip=''
           for ip in $candidates; do
-            banner=$(docker run --rm --network host alpine sh -lc "timeout 3 nc $ip 5900 | head -c 12" || true)
-            if [[ "$banner" == RFB* ]]; then lan_ip="$ip"; break; fi
+            echo TESTING_VNC_ADDRESS="$ip:5900"
+            banner=$(docker run --rm --network host alpine sh -lc "timeout 2 nc $ip 5900 | head -c 12" || true)
+            echo RFB_BANNER="$banner"
+            if [[ "$banner" == RFB* ]]; then
+              echo VNC_ADDRESS="$ip:5900"
+              echo VNC_BANNER_VERIFIED=true
+              exit 0
+            fi
           done
-          [[ -n "$lan_ip" ]]
-          echo VNC_ADDRESS="$lan_ip:5900"
-          echo VNC_BANNER_VERIFIED=true
+          echo HOST_LISTENERS_BEGIN
+          docker run --rm --network host alpine sh -lc 'ss -lntp 2>/dev/null | grep 5900 || netstat -lntp 2>/dev/null | grep 5900 || true'
+          echo HOST_LISTENERS_END
+          exit 1
