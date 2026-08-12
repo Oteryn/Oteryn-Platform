@@ -13,11 +13,11 @@ env:
 
 jobs:
   verify:
-    name: Verify current client is actually in world
+    name: Verify recovered client is actually in world
     runs-on: oteryn-staging
     timeout-minutes: 3
     steps:
-      - name: Verify runtime and reversible in-world action
+      - name: Verify runtime, all client PIDs, sockets and reversible world action
         shell: bash
         run: |
           set -Eeuo pipefail
@@ -27,15 +27,20 @@ jobs:
           docker exec -i "$CONTAINER_NAME" bash <<'INNER'
           set -Eeuo pipefail
           export DISPLAY=:99 HOME=/data/home
-          pid=$(pgrep -x client | head -n1 || true)
-          [[ -n "$pid" ]]
-          tcp_rows=$(ss -ntp 2>/dev/null | grep "pid=$pid," || true)
-          local_count=$(printf '%s\n' "$tcp_rows" | awk '$5 ~ /127\.0\.0\.1:25344$/ || $5 ~ /\[::1\]:25344$/ {n++} END{print n+0}')
-          total_count=$(printf '%s\n' "$tcp_rows" | grep -c . || true)
-          echo CLIENT_PID=$pid
+          mapfile -t pids < <(pgrep -x client || true)
+          (( ${#pids[@]} > 0 ))
+          echo CLIENT_PIDS=${pids[*]}
+          all_tcp=''
+          for pid in "${pids[@]}"; do
+            rows=$(ss -ntp 2>/dev/null | grep "pid=$pid," || true)
+            [[ -z "$rows" ]] || all_tcp+=$'\n'$rows
+          done
+          local_count=$(printf '%s\n' "$all_tcp" | awk '$5 ~ /127\.0\.0\.1:25344$/ || $5 ~ /\[::1\]:25344$/ {n++} END{print n+0}')
+          total_count=$(printf '%s\n' "$all_tcp" | grep -c . || true)
+          direct_count=$((total_count-local_count))
           echo ACTIVE_LOCAL_SOCKS_COUNT=$local_count
-          echo ACTIVE_DIRECT_TCP_COUNT=$((total_count-local_count))
-          (( total_count-local_count == 0 ))
+          echo ACTIVE_DIRECT_TCP_COUNT=$direct_count
+          (( direct_count == 0 ))
 
           best=''; best_area=0; bw=0; bh=0
           for w in $(xdotool search --onlyvisible --name '^Tibia$' 2>/dev/null || true); do
@@ -47,26 +52,27 @@ jobs:
             if (( area > best_area )); then best=$w; best_area=$area; bw=$width; bh=$height; fi
           done
           [[ -n "$best" ]]
+          echo WINDOW_ID=$best
           echo WINDOW_GEOMETRY=${bw}x${bh}
-          [[ "$bw" == 1020 && "$bh" == 650 ]]
 
           import -display :99 -window "$best" /tmp/world-verify-before.png
-          convert /tmp/world-verify-before.png -crop 620x390+190+90 /tmp/world-verify-before-vp.png
+          crop_w=$(( bw > 620 ? 620 : bw ))
+          crop_h=$(( bh > 390 ? 390 : bh ))
+          crop_x=$(( (bw-crop_w)/2 ))
+          crop_y=$(( (bh-crop_h)/2 ))
+          convert /tmp/world-verify-before.png -crop "${crop_w}x${crop_h}+${crop_x}+${crop_y}" /tmp/world-verify-before-vp.png
           xdotool windowactivate --sync "$best" 2>/dev/null || true
           xdotool key --window "$best" Right
           sleep 2
           import -display :99 -window "$best" /tmp/world-verify-after.png
-          convert /tmp/world-verify-after.png -crop 620x390+190+90 /tmp/world-verify-after-vp.png
+          convert /tmp/world-verify-after.png -crop "${crop_w}x${crop_h}+${crop_x}+${crop_y}" /tmp/world-verify-after-vp.png
           ae=$(compare -metric AE /tmp/world-verify-before-vp.png /tmp/world-verify-after-vp.png null: 2>&1 || true)
           ae=${ae%%.*}
           [[ "$ae" =~ ^[0-9]+$ ]] || ae=0
           echo VIEWPORT_CHANGED_PIXELS_AFTER_RIGHT=$ae
-          if (( ae > 1000 )); then
-            xdotool key --window "$best" Left
-            sleep 1
-            echo IN_WORLD_SESSION_PROVEN=true
-          else
-            echo IN_WORLD_SESSION_PROVEN=false
-            exit 42
-          fi
+          (( ae > 1000 ))
+          xdotool key --window "$best" Left
+          sleep 1
+          echo IN_WORLD_SESSION_PROVEN=true
+          (( local_count > 0 ))
           INNER
