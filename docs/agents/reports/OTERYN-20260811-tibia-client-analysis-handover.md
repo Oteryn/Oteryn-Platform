@@ -2282,3 +2282,1440 @@ va_or_fileoff=0x1cd90c6 text=tibia::protobuf::protocol::GameserverMessageTibiaTi
 ```
 
 <!-- END GENERATED WORLDMAP JUMP TABLE -->
+
+<!-- BEGIN GENERATED WORLDMAP VTABLE -->
+
+## Generated Worldmap vtable evidence
+
+Source: GitHub Actions run `31579018335` on `oteryn-synology-staging`. Sanitized address/disassembly metadata only.
+
+```text
+qt_metacall_candidate=0xe004d0
+qword_hits=2
+HIT index=0 file_off=0x28d740 va=0x28d740 section=.rela.dyn
+HIT index=1 file_off=0x308c258 va=0x308c258 section=.data.rel.ro
+
+candidate_address_points=7
+CANDIDATE index=0 address_point_va=0x308c248 file_off=0x308c248 qt_metacall_slot_index=2
+  vtable_offset=0x130 target=0xc31990
+  vtable_offset=0x138 target=0xc2a420
+  vtable_offset=0x140 target=0xc26920
+  vtable_offset=0x148 target=0xc2e3c0
+  vtable_offset=0x150 target=0xc269f0
+  vtable_offset=0x158 target=0xc26b70
+  slot=0x0 ptr=0xdedea0
+  slot=0x8 ptr=0xdfe4e0
+  slot=0x10 ptr=0xe004d0
+  slot=0x18 ptr=0xc3efc0
+  slot=0x20 ptr=0xc3f180
+  slot=0x60 ptr=0xc3a190
+  slot=0x68 ptr=0xc21510
+  slot=0x70 ptr=0xc21520
+  slot=0x78 ptr=0xc21530
+  slot=0x80 ptr=0xc21660
+  slot=0x88 ptr=0xc293d0
+  slot=0x90 ptr=0xc26700
+  slot=0x98 ptr=0xc26cf0
+  slot=0xa0 ptr=0xc21700
+  slot=0xa8 ptr=0xc27280
+  slot=0xb0 ptr=0xc21740
+  slot=0xb8 ptr=0xc21690
+  slot=0xc0 ptr=0xc26df0
+  slot=0xc8 ptr=0xc27020
+  slot=0xd0 ptr=0xc26940
+  slot=0xd8 ptr=0xc216d0
+  slot=0xe0 ptr=0xc268b0
+  slot=0xe8 ptr=0xc27350
+  slot=0xf0 ptr=0xc21810
+  slot=0xf8 ptr=0xc21820
+  slot=0x100 ptr=0xc26350
+  slot=0x108 ptr=0xc27390
+  slot=0x110 ptr=0xc273c0
+  slot=0x118 ptr=0xc21830
+  slot=0x120 ptr=0xc21860
+  slot=0x128 ptr=0xc2a960
+  slot=0x130 ptr=0xc31990
+  slot=0x138 ptr=0xc2a420
+  slot=0x140 ptr=0xc26920
+  slot=0x148 ptr=0xc2e3c0
+  slot=0x150 ptr=0xc269f0
+  slot=0x158 ptr=0xc26b70
+CANDIDATE index=1 address_point_va=0x308c240 file_off=0x308c240 qt_metacall_slot_index=3
+  vtable_offset=0x130 target=0xc2a960
+  vtable_offset=0x138 target=0xc31990
+  vtable_offset=0x140 target=0xc2a420
+  vtable_offset=0x148 target=0xc26920
+  vtable_offset=0x150 target=0xc2e3c0
+  vtable_offset=0x158 target=0xc269f0
+  slot=0x8 ptr=0xdedea0
+  slot=0x10 ptr=0xdfe4e0
+  slot=0x18 ptr=0xe004d0
+  slot=0x20 ptr=0xc3efc0
+  slot=0x28 ptr=0xc3f180
+  slot=0x68 ptr=0xc3a190
+  slot=0x70 ptr=0xc21510
+  slot=0x78 ptr=0xc21520
+  slot=0x80 ptr=0xc21530
+  slot=0x88 ptr=0xc21660
+  slot=0x90 ptr=0xc293d0
+  slot=0x98 ptr=0xc26700
+  slot=0xa0 ptr=0xc26cf0
+  slot=0xa8 ptr=0xc21700
+  slot=0xb0 ptr=0xc27280
+  slot=0xb8 ptr=0xc21740
+  slot=0xc0 ptr=0xc21690
+  slot=0xc8 ptr=0xc26df0
+  slot=0xd0 ptr=0xc27020
+  slot=0xd8 ptr=0xc26940
+  slot=0xe0 ptr=0xc216d0
+  slot=0xe8 ptr=0xc268b0
+  slot=0xf0 ptr=0xc27350
+  slot=0xf8 ptr=0xc21810
+  slot=0x100 ptr=0xc21820
+  slot=0x108 ptr=0xc26350
+  slot=0x110 ptr=0xc27390
+  slot=0x118 ptr=0xc273c0
+  slot=0x120 ptr=0xc21830
+  slot=0x128 ptr=0xc21860
+  slot=0x130 ptr=0xc2a960
+  slot=0x138 ptr=0xc31990
+  slot=0x140 ptr=0xc2a420
+  slot=0x148 ptr=0xc26920
+  slot=0x150 ptr=0xc2e3c0
+  slot=0x158 ptr=0xc269f0
+CANDIDATE index=2 address_point_va=0x308c238 file_off=0x308c238 qt_metacall_slot_index=4
+  vtable_offset=0x130 target=0xc21860
+  vtable_offset=0x138 target=0xc2a960
+  vtable_offset=0x140 target=0xc31990
+  vtable_offset=0x148 target=0xc2a420
+  vtable_offset=0x150 target=0xc26920
+  vtable_offset=0x158 target=0xc2e3c0
+  slot=0x10 ptr=0xdedea0
+  slot=0x18 ptr=0xdfe4e0
+  slot=0x20 ptr=0xe004d0
+  slot=0x28 ptr=0xc3efc0
+  slot=0x30 ptr=0xc3f180
+  slot=0x70 ptr=0xc3a190
+  slot=0x78 ptr=0xc21510
+  slot=0x80 ptr=0xc21520
+  slot=0x88 ptr=0xc21530
+  slot=0x90 ptr=0xc21660
+  slot=0x98 ptr=0xc293d0
+  slot=0xa0 ptr=0xc26700
+  slot=0xa8 ptr=0xc26cf0
+  slot=0xb0 ptr=0xc21700
+  slot=0xb8 ptr=0xc27280
+  slot=0xc0 ptr=0xc21740
+  slot=0xc8 ptr=0xc21690
+  slot=0xd0 ptr=0xc26df0
+  slot=0xd8 ptr=0xc27020
+  slot=0xe0 ptr=0xc26940
+  slot=0xe8 ptr=0xc216d0
+  slot=0xf0 ptr=0xc268b0
+  slot=0xf8 ptr=0xc27350
+  slot=0x100 ptr=0xc21810
+  slot=0x108 ptr=0xc21820
+  slot=0x110 ptr=0xc26350
+  slot=0x118 ptr=0xc27390
+  slot=0x120 ptr=0xc273c0
+  slot=0x128 ptr=0xc21830
+  slot=0x130 ptr=0xc21860
+  slot=0x138 ptr=0xc2a960
+  slot=0x140 ptr=0xc31990
+  slot=0x148 ptr=0xc2a420
+  slot=0x150 ptr=0xc26920
+  slot=0x158 ptr=0xc2e3c0
+CANDIDATE index=3 address_point_va=0x308c230 file_off=0x308c230 qt_metacall_slot_index=5
+  vtable_offset=0x130 target=0xc21830
+  vtable_offset=0x138 target=0xc21860
+  vtable_offset=0x140 target=0xc2a960
+  vtable_offset=0x148 target=0xc31990
+  vtable_offset=0x150 target=0xc2a420
+  vtable_offset=0x158 target=0xc26920
+  slot=0x0 ptr=0xc31bb0
+  slot=0x18 ptr=0xdedea0
+  slot=0x20 ptr=0xdfe4e0
+  slot=0x28 ptr=0xe004d0
+  slot=0x30 ptr=0xc3efc0
+  slot=0x38 ptr=0xc3f180
+  slot=0x78 ptr=0xc3a190
+  slot=0x80 ptr=0xc21510
+  slot=0x88 ptr=0xc21520
+  slot=0x90 ptr=0xc21530
+  slot=0x98 ptr=0xc21660
+  slot=0xa0 ptr=0xc293d0
+  slot=0xa8 ptr=0xc26700
+  slot=0xb0 ptr=0xc26cf0
+  slot=0xb8 ptr=0xc21700
+  slot=0xc0 ptr=0xc27280
+  slot=0xc8 ptr=0xc21740
+  slot=0xd0 ptr=0xc21690
+  slot=0xd8 ptr=0xc26df0
+  slot=0xe0 ptr=0xc27020
+  slot=0xe8 ptr=0xc26940
+  slot=0xf0 ptr=0xc216d0
+  slot=0xf8 ptr=0xc268b0
+  slot=0x100 ptr=0xc27350
+  slot=0x108 ptr=0xc21810
+  slot=0x110 ptr=0xc21820
+  slot=0x118 ptr=0xc26350
+  slot=0x120 ptr=0xc27390
+  slot=0x128 ptr=0xc273c0
+  slot=0x130 ptr=0xc21830
+  slot=0x138 ptr=0xc21860
+  slot=0x140 ptr=0xc2a960
+  slot=0x148 ptr=0xc31990
+  slot=0x150 ptr=0xc2a420
+  slot=0x158 ptr=0xc26920
+CANDIDATE index=4 address_point_va=0x308c228 file_off=0x308c228 qt_metacall_slot_index=6
+  vtable_offset=0x130 target=0xc273c0
+  vtable_offset=0x138 target=0xc21830
+  vtable_offset=0x140 target=0xc21860
+  vtable_offset=0x148 target=0xc2a960
+  vtable_offset=0x150 target=0xc31990
+  vtable_offset=0x158 target=0xc2a420
+  slot=0x0 ptr=0xc21500
+  slot=0x8 ptr=0xc31bb0
+  slot=0x20 ptr=0xdedea0
+  slot=0x28 ptr=0xdfe4e0
+  slot=0x30 ptr=0xe004d0
+  slot=0x38 ptr=0xc3efc0
+  slot=0x40 ptr=0xc3f180
+  slot=0x80 ptr=0xc3a190
+  slot=0x88 ptr=0xc21510
+  slot=0x90 ptr=0xc21520
+  slot=0x98 ptr=0xc21530
+  slot=0xa0 ptr=0xc21660
+  slot=0xa8 ptr=0xc293d0
+  slot=0xb0 ptr=0xc26700
+  slot=0xb8 ptr=0xc26cf0
+  slot=0xc0 ptr=0xc21700
+  slot=0xc8 ptr=0xc27280
+  slot=0xd0 ptr=0xc21740
+  slot=0xd8 ptr=0xc21690
+  slot=0xe0 ptr=0xc26df0
+  slot=0xe8 ptr=0xc27020
+  slot=0xf0 ptr=0xc26940
+  slot=0xf8 ptr=0xc216d0
+  slot=0x100 ptr=0xc268b0
+  slot=0x108 ptr=0xc27350
+  slot=0x110 ptr=0xc21810
+  slot=0x118 ptr=0xc21820
+  slot=0x120 ptr=0xc26350
+  slot=0x128 ptr=0xc27390
+  slot=0x130 ptr=0xc273c0
+  slot=0x138 ptr=0xc21830
+  slot=0x140 ptr=0xc21860
+  slot=0x148 ptr=0xc2a960
+  slot=0x150 ptr=0xc31990
+  slot=0x158 ptr=0xc2a420
+CANDIDATE index=5 address_point_va=0x308c220 file_off=0x308c220 qt_metacall_slot_index=7
+  vtable_offset=0x130 target=0xc27390
+  vtable_offset=0x138 target=0xc273c0
+  vtable_offset=0x140 target=0xc21830
+  vtable_offset=0x148 target=0xc21860
+  vtable_offset=0x150 target=0xc2a960
+  vtable_offset=0x158 target=0xc31990
+  slot=0x0 ptr=0xb1a310
+  slot=0x8 ptr=0xc21500
+  slot=0x10 ptr=0xc31bb0
+  slot=0x28 ptr=0xdedea0
+  slot=0x30 ptr=0xdfe4e0
+  slot=0x38 ptr=0xe004d0
+  slot=0x40 ptr=0xc3efc0
+  slot=0x48 ptr=0xc3f180
+  slot=0x88 ptr=0xc3a190
+  slot=0x90 ptr=0xc21510
+  slot=0x98 ptr=0xc21520
+  slot=0xa0 ptr=0xc21530
+  slot=0xa8 ptr=0xc21660
+  slot=0xb0 ptr=0xc293d0
+  slot=0xb8 ptr=0xc26700
+  slot=0xc0 ptr=0xc26cf0
+  slot=0xc8 ptr=0xc21700
+  slot=0xd0 ptr=0xc27280
+  slot=0xd8 ptr=0xc21740
+  slot=0xe0 ptr=0xc21690
+  slot=0xe8 ptr=0xc26df0
+  slot=0xf0 ptr=0xc27020
+  slot=0xf8 ptr=0xc26940
+  slot=0x100 ptr=0xc216d0
+  slot=0x108 ptr=0xc268b0
+  slot=0x110 ptr=0xc27350
+  slot=0x118 ptr=0xc21810
+  slot=0x120 ptr=0xc21820
+  slot=0x128 ptr=0xc26350
+  slot=0x130 ptr=0xc27390
+  slot=0x138 ptr=0xc273c0
+  slot=0x140 ptr=0xc21830
+  slot=0x148 ptr=0xc21860
+  slot=0x150 ptr=0xc2a960
+  slot=0x158 ptr=0xc31990
+CANDIDATE index=6 address_point_va=0x308c218 file_off=0x308c218 qt_metacall_slot_index=8
+  vtable_offset=0x130 target=0xc26350
+  vtable_offset=0x138 target=0xc27390
+  vtable_offset=0x140 target=0xc273c0
+  vtable_offset=0x148 target=0xc21830
+  vtable_offset=0x150 target=0xc21860
+  vtable_offset=0x158 target=0xc2a960
+  slot=0x0 ptr=0xc274a0
+  slot=0x8 ptr=0xb1a310
+  slot=0x10 ptr=0xc21500
+  slot=0x18 ptr=0xc31bb0
+  slot=0x30 ptr=0xdedea0
+  slot=0x38 ptr=0xdfe4e0
+  slot=0x40 ptr=0xe004d0
+  slot=0x48 ptr=0xc3efc0
+  slot=0x50 ptr=0xc3f180
+  slot=0x90 ptr=0xc3a190
+  slot=0x98 ptr=0xc21510
+  slot=0xa0 ptr=0xc21520
+  slot=0xa8 ptr=0xc21530
+  slot=0xb0 ptr=0xc21660
+  slot=0xb8 ptr=0xc293d0
+  slot=0xc0 ptr=0xc26700
+  slot=0xc8 ptr=0xc26cf0
+  slot=0xd0 ptr=0xc21700
+  slot=0xd8 ptr=0xc27280
+  slot=0xe0 ptr=0xc21740
+  slot=0xe8 ptr=0xc21690
+  slot=0xf0 ptr=0xc26df0
+  slot=0xf8 ptr=0xc27020
+  slot=0x100 ptr=0xc26940
+  slot=0x108 ptr=0xc216d0
+  slot=0x110 ptr=0xc268b0
+  slot=0x118 ptr=0xc27350
+  slot=0x120 ptr=0xc21810
+  slot=0x128 ptr=0xc21820
+  slot=0x130 ptr=0xc26350
+  slot=0x138 ptr=0xc27390
+  slot=0x140 ptr=0xc273c0
+  slot=0x148 ptr=0xc21830
+  slot=0x150 ptr=0xc21860
+  slot=0x158 ptr=0xc2a960
+
+handler_slot_target_count=12
+HANDLER_SLOT_TARGET_DISASSEMBLY
+TARGET 0xc31990
+  c31990:	41 55                	push   %r13
+  c31992:	41 54                	push   %r12
+  c31994:	55                   	push   %rbp
+  c31995:	48 89 fd             	mov    %rdi,%rbp
+  c31998:	53                   	push   %rbx
+  c31999:	48 89 f3             	mov    %rsi,%rbx
+  c3199c:	48 83 ec 08          	sub    $0x8,%rsp
+  c319a0:	48 8b 3e             	mov    (%rsi),%rdi
+  c319a3:	48 8b 07             	mov    (%rdi),%rax
+  c319a6:	ff 10                	call   *(%rax)
+  c319a8:	3d d5 00 00 00       	cmp    $0xd5,%eax
+  c319ad:	74 51                	je     c31a00 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x931d0>
+  c319af:	48 8b 3b             	mov    (%rbx),%rdi
+  c319b2:	48 8b 07             	mov    (%rdi),%rax
+  c319b5:	ff 10                	call   *(%rax)
+  c319b7:	3d d6 00 00 00       	cmp    $0xd6,%eax
+  c319bc:	74 22                	je     c319e0 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x931b0>
+  c319be:	48 8b 3b             	mov    (%rbx),%rdi
+  c319c1:	48 8b 07             	mov    (%rdi),%rax
+  c319c4:	ff 10                	call   *(%rax)
+  c319c6:	3d d7 00 00 00       	cmp    $0xd7,%eax
+  c319cb:	0f 84 9f 00 00 00    	je     c31a70 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x93240>
+  c319d1:	48 83 c4 08          	add    $0x8,%rsp
+  c319d5:	5b                   	pop    %rbx
+  c319d6:	5d                   	pop    %rbp
+  c319d7:	41 5c                	pop    %r12
+  c319d9:	41 5d                	pop    %r13
+  c319db:	c3                   	ret
+  c319dc:	0f 1f 40 00          	nopl   0x0(%rax)
+  c319e0:	48 8b 45 00          	mov    0x0(%rbp),%rax
+  c319e4:	48 8b 80 98 00 00 00 	mov    0x98(%rax),%rax
+  c319eb:	48 83 c4 08          	add    $0x8,%rsp
+  c319ef:	48 89 ef             	mov    %rbp,%rdi
+  c319f2:	5b                   	pop    %rbx
+  c319f3:	5d                   	pop    %rbp
+  c319f4:	41 5c                	pop    %r12
+  c319f6:	41 5d                	pop    %r13
+  c319f8:	ff e0                	jmp    *%rax
+  c319fa:	66 0f 1f 44 00 00    	nopw   0x0(%rax,%rax,1)
+  c31a00:	48 8b 45 00          	mov    0x0(%rbp),%rax
+  c31a04:	48 8d 15 f5 4c ff ff 	lea    -0xb30b(%rip),%rdx        # c26700 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x87ed0>
+  c31a0b:	48 8b 80 90 00 00 00 	mov    0x90(%rax),%rax
+  c31a12:	48 39 d0             	cmp    %rdx,%rax
+  c31a15:	75 d4                	jne    c319eb <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x931bb>
+  c31a17:	48 8b 7d 20          	mov    0x20(%rbp),%rdi
+  c31a1b:	48 8d 0d 3e 16 01 00 	lea    0x1163e(%rip),%rcx        # c43060 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0xa4830>
+  c31a22:	48 8b 07             	mov    (%rdi),%rax
+  c31a25:	48 8b 90 80 00 00 00 	mov    0x80(%rax),%rdx
+  c31a2c:	48 39 ca             	cmp    %rcx,%rdx
+  c31a2f:	0f 85 33 01 00 00    	jne    c31b68 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x93338>
+  c31a35:	48 ba ff ff ff ff ff 	movabs $0x7fffffffffffffff,%rdx
+  c31a3c:	ff ff 7f 
+  c31a3f:	48 39 57 50          	cmp    %rdx,0x50(%rdi)
+  c31a43:	75 8c                	jne    c319d1 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x931a1>
+  c31a45:	ff 50 70             	call   *0x70(%rax)
+  c31a48:	48 83 c4 08          	add    $0x8,%rsp
+  c31a4c:	48 89 ef             	mov    %rbp,%rdi
+  c31a4f:	31 c9                	xor    %ecx,%ecx
+  c31a51:	5b                   	pop    %rbx
+  c31a52:	ba 0a 00 00 00       	mov    $0xa,%edx
+  c31a57:	48 8d 35 62 a9 45 02 	lea    0x245a962(%rip),%rsi        # 308c3c0 <QObject::staticMetaObject@Qt_6>
+  c31a5e:	5d                   	pop    %rbp
+  c31a5f:	41 5c                	pop    %r12
+  c31a61:	41 5d                	pop    %r13
+  c31a63:	e9 58 d3 8a ff       	jmp    4dedc0 <QMetaObject::activate(QObject*, QMetaObject const*, int, void**)@plt>
+  c31a68:	0f 1f 84 00 00 00 00 	nopl   0x0(%rax,%rax,1)
+  c31a6f:	00 
+  c31a70:	48 8b 3b             	mov    (%rbx),%rdi
+  c31a73:	45 31 e4             	xor    %r12d,%r12d
+  c31a76:	48 85 ff             	test   %rdi,%rdi
+  c31a79:	74 45                	je     c31ac0 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x93290>
+  c31a7b:	31 c9                	xor    %ecx,%ecx
+  c31a7d:	48 8d 15 7c 96 45 02 	lea    0x245967c(%rip),%rdx        # 308b100 <vtable for __cxxabiv1::__si_class_type_info@CXXABI_1.3>
+  c31a84:	48 8d 35 d5 e9 43 02 	lea    0x243e9d5(%rip),%rsi        # 3070460 <vtable for __cxxabiv1::__class_type_info@CXXABI_1.3>
+  c31a8b:	e8 f0 e3 8a ff       	call   4dfe80 <__dynamic_cast@plt>
+  c31a90:	48 89 c7             	mov    %rax,%rdi
+  c31a93:	48 85 c0             	test   %rax,%rax
+  c31a96:	74 28                	je     c31ac0 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x93290>
+  c31a98:	4c 8b 63 08          	mov    0x8(%rbx),%r12
+  c31a9c:	4d 85 e4             	test   %r12,%r12
+  c31a9f:	74 1f                	je     c31ac0 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x93290>
+  c31aa1:	48 8b 05 00 e0 4f 02 	mov    0x24fe000(%rip),%rax        # 312faa8 <__libc_single_threaded@GLIBC_2.32>
+  c31aa8:	80 38 00             	cmpb   $0x0,(%rax)
+  c31aab:	0f 84 dd 00 00 00    	je     c31b8e <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x9335e>
+  c31ab1:	41 83 44 24 08 01    	addl   $0x1,0x8(%r12)
+  c31ab7:	66 0f 1f 84 00 00 00 	nopw   0x0(%rax,%rax,1)
+  c31abe:	00 00 
+  c31ac0:	48 8b 55 20          	mov    0x20(%rbp),%rdx
+  c31ac4:	48 8b 45 00          	mov    0x0(%rbp),%rax
+  c31ac8:	4c 8b 6f 10          	mov    0x10(%rdi),%r13
+TARGET 0xc2a420
+  c2a420:	41 56                	push   %r14
+  c2a422:	48 8d 15 57 72 ff ff 	lea    -0x8da9(%rip),%rdx        # c21680 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x82e50>
+  c2a429:	41 54                	push   %r12
+  c2a42b:	55                   	push   %rbp
+  c2a42c:	48 89 fd             	mov    %rdi,%rbp
+  c2a42f:	53                   	push   %rbx
+  c2a430:	48 81 ec a8 00 00 00 	sub    $0xa8,%rsp
+  c2a437:	48 8b 7f 10          	mov    0x10(%rdi),%rdi
+  c2a43b:	48 8b 07             	mov    (%rdi),%rax
+  c2a43e:	48 8b 40 78          	mov    0x78(%rax),%rax
+  c2a442:	48 39 d0             	cmp    %rdx,%rax
+  c2a445:	0f 85 45 04 00 00    	jne    c2a890 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x8c060>
+  c2a44b:	48 8d 9f 98 02 00 00 	lea    0x298(%rdi),%rbx
+  c2a452:	0f b6 03             	movzbl (%rbx),%eax
+  c2a455:	f3 0f 6f 5b 10       	movdqu 0x10(%rbx),%xmm3
+  c2a45a:	48 8b 53 20          	mov    0x20(%rbx),%rdx
+  c2a45e:	88 44 24 10          	mov    %al,0x10(%rsp)
+  c2a462:	8b 43 02             	mov    0x2(%rbx),%eax
+  c2a465:	89 44 24 12          	mov    %eax,0x12(%rsp)
+  c2a469:	48 8b 43 08          	mov    0x8(%rbx),%rax
+  c2a46d:	48 89 54 24 30       	mov    %rdx,0x30(%rsp)
+  c2a472:	48 89 44 24 18       	mov    %rax,0x18(%rsp)
+  c2a477:	48 8b 43 10          	mov    0x10(%rbx),%rax
+  c2a47b:	0f 29 5c 24 20       	movaps %xmm3,0x20(%rsp)
+  c2a480:	48 85 c0             	test   %rax,%rax
+  c2a483:	74 04                	je     c2a489 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x8bc59>
+  c2a485:	f0 83 00 01          	lock addl $0x1,(%rax)
+  c2a489:	4c 8d 64 24 38       	lea    0x38(%rsp),%r12
+  c2a48e:	48 8d 73 28          	lea    0x28(%rbx),%rsi
+  c2a492:	4c 89 e7             	mov    %r12,%rdi
+  c2a495:	e8 46 2b 8b ff       	call   4dcfe0 <QDateTime::QDateTime(QDateTime const&)@plt>
+  c2a49a:	f3 0f 6f 63 30       	movdqu 0x30(%rbx),%xmm4
+  c2a49f:	48 8b 53 40          	mov    0x40(%rbx),%rdx
+  c2a4a3:	48 8b 43 30          	mov    0x30(%rbx),%rax
+  c2a4a7:	48 89 54 24 50       	mov    %rdx,0x50(%rsp)
+  c2a4ac:	0f 29 64 24 40       	movaps %xmm4,0x40(%rsp)
+  c2a4b1:	48 85 c0             	test   %rax,%rax
+  c2a4b4:	74 04                	je     c2a4ba <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x8bc8a>
+  c2a4b6:	f0 83 00 01          	lock addl $0x1,(%rax)
+  c2a4ba:	8b 43 48             	mov    0x48(%rbx),%eax
+  c2a4bd:	f3 0f 6f 6b 50       	movdqu 0x50(%rbx),%xmm5
+  c2a4c2:	48 8b 53 60          	mov    0x60(%rbx),%rdx
+  c2a4c6:	89 44 24 58          	mov    %eax,0x58(%rsp)
+  c2a4ca:	48 8b 43 50          	mov    0x50(%rbx),%rax
+  c2a4ce:	48 89 54 24 70       	mov    %rdx,0x70(%rsp)
+  c2a4d3:	0f 29 6c 24 60       	movaps %xmm5,0x60(%rsp)
+  c2a4d8:	48 85 c0             	test   %rax,%rax
+  c2a4db:	74 04                	je     c2a4e1 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x8bcb1>
+  c2a4dd:	f0 83 00 01          	lock addl $0x1,(%rax)
+  c2a4e1:	8b 43 68             	mov    0x68(%rbx),%eax
+  c2a4e4:	f3 0f 6f 73 70       	movdqu 0x70(%rbx),%xmm6
+  c2a4e9:	48 8b 93 80 00 00 00 	mov    0x80(%rbx),%rdx
+  c2a4f0:	89 44 24 78          	mov    %eax,0x78(%rsp)
+  c2a4f4:	48 8b 43 70          	mov    0x70(%rbx),%rax
+  c2a4f8:	48 89 94 24 90 00 00 	mov    %rdx,0x90(%rsp)
+  c2a4ff:	00 
+  c2a500:	0f 29 b4 24 80 00 00 	movaps %xmm6,0x80(%rsp)
+  c2a507:	00 
+  c2a508:	48 85 c0             	test   %rax,%rax
+  c2a50b:	74 04                	je     c2a511 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x8bce1>
+  c2a50d:	f0 83 00 01          	lock addl $0x1,(%rax)
+  c2a511:	8b 83 88 00 00 00    	mov    0x88(%rbx),%eax
+  c2a517:	48 8b 5d 20          	mov    0x20(%rbp),%rbx
+  c2a51b:	48 8d 0d 2e 6c 0c 00 	lea    0xc6c2e(%rip),%rcx        # cf1150 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x152920>
+  c2a522:	89 84 24 98 00 00 00 	mov    %eax,0x98(%rsp)
+  c2a529:	48 8b 03             	mov    (%rbx),%rax
+  c2a52c:	48 8b 50 38          	mov    0x38(%rax),%rdx
+  c2a530:	48 39 ca             	cmp    %rcx,%rdx
+  c2a533:	0f 85 27 03 00 00    	jne    c2a860 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x8c030>
+  c2a539:	f2 0f 10 43 38       	movsd  0x38(%rbx),%xmm0
+  c2a53e:	66 0f ef c9          	pxor   %xmm1,%xmm1
+  c2a542:	66 0f 2f c1          	comisd %xmm1,%xmm0
+  c2a546:	76 64                	jbe    c2a5ac <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x8bd7c>
+  c2a548:	48 8b 40 48          	mov    0x48(%rax),%rax
+  c2a54c:	48 8d 15 2d 6d 0c 00 	lea    0xc6d2d(%rip),%rdx        # cf1280 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x152a50>
+  c2a553:	f2 0f 11 43 40       	movsd  %xmm0,0x40(%rbx)
+  c2a558:	48 39 d0             	cmp    %rdx,%rax
+  c2a55b:	0f 85 df 03 00 00    	jne    c2a940 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x8c110>
+  c2a561:	48 8b 7b 08          	mov    0x8(%rbx),%rdi
+  c2a565:	48 8b 07             	mov    (%rdi),%rax
+  c2a568:	ff 50 18             	call   *0x18(%rax)
+  c2a56b:	f2 0f 10 43 38       	movsd  0x38(%rbx),%xmm0
+  c2a570:	66 0f ef c9          	pxor   %xmm1,%xmm1
+  c2a574:	48 8b 53 28          	mov    0x28(%rbx),%rdx
+  c2a578:	48 89 43 28          	mov    %rax,0x28(%rbx)
+  c2a57c:	66 0f 2e c1          	ucomisd %xmm1,%xmm0
+  c2a580:	7a 02                	jp     c2a584 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x8bd54>
+  c2a582:	74 19                	je     c2a59d <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x8bd6d>
+  c2a584:	48 29 d0             	sub    %rdx,%rax
+  c2a587:	66 0f ef c9          	pxor   %xmm1,%xmm1
+TARGET 0xc26920
+  c26920:	31 c9                	xor    %ecx,%ecx
+  c26922:	ba 0c 00 00 00       	mov    $0xc,%edx
+  c26927:	48 8d 35 92 5a 46 02 	lea    0x2465a92(%rip),%rsi        # 308c3c0 <QObject::staticMetaObject@Qt_6>
+  c2692e:	e9 8d 84 8b ff       	jmp    4dedc0 <QMetaObject::activate(QObject*, QMetaObject const*, int, void**)@plt>
+  c26933:	90                   	nop
+  c26934:	66 66 2e 0f 1f 84 00 	data16 cs nopw 0x0(%rax,%rax,1)
+  c2693b:	00 00 00 00 
+  c2693f:	90                   	nop
+  c26940:	55                   	push   %rbp
+  c26941:	53                   	push   %rbx
+  c26942:	48 89 fb             	mov    %rdi,%rbx
+  c26945:	48 83 ec 18          	sub    $0x18,%rsp
+  c26949:	48 8b 6f 20          	mov    0x20(%rdi),%rbp
+  c2694d:	66 0f 2e 45 38       	ucomisd 0x38(%rbp),%xmm0
+  c26952:	7a 0c                	jp     c26960 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x88130>
+  c26954:	75 0a                	jne    c26960 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x88130>
+  c26956:	48 83 c4 18          	add    $0x18,%rsp
+  c2695a:	5b                   	pop    %rbx
+  c2695b:	5d                   	pop    %rbp
+  c2695c:	c3                   	ret
+  c2695d:	0f 1f 00             	nopl   (%rax)
+  c26960:	48 8b 45 00          	mov    0x0(%rbp),%rax
+  c26964:	48 8d 15 15 a9 0c 00 	lea    0xca915(%rip),%rdx        # cf1280 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x152a50>
+  c2696b:	48 8b 40 48          	mov    0x48(%rax),%rax
+  c2696f:	48 39 d0             	cmp    %rdx,%rax
+  c26972:	75 6c                	jne    c269e0 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x881b0>
+  c26974:	48 8b 7d 08          	mov    0x8(%rbp),%rdi
+  c26978:	f2 0f 11 44 24 08    	movsd  %xmm0,0x8(%rsp)
+  c2697e:	48 8b 07             	mov    (%rdi),%rax
+  c26981:	ff 50 18             	call   *0x18(%rax)
+  c26984:	f2 0f 10 4d 38       	movsd  0x38(%rbp),%xmm1
+  c26989:	66 0f ef d2          	pxor   %xmm2,%xmm2
+  c2698d:	48 8b 55 28          	mov    0x28(%rbp),%rdx
+  c26991:	f2 0f 10 44 24 08    	movsd  0x8(%rsp),%xmm0
+  c26997:	48 89 45 28          	mov    %rax,0x28(%rbp)
+  c2699b:	66 0f 2e ca          	ucomisd %xmm2,%xmm1
+  c2699f:	7a 02                	jp     c269a3 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x88173>
+  c269a1:	74 19                	je     c269bc <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x8818c>
+  c269a3:	48 29 d0             	sub    %rdx,%rax
+  c269a6:	66 0f ef d2          	pxor   %xmm2,%xmm2
+  c269aa:	f2 48 0f 2a d0       	cvtsi2sd %rax,%xmm2
+  c269af:	f2 0f 59 d1          	mulsd  %xmm1,%xmm2
+  c269b3:	f2 48 0f 2c c2       	cvttsd2si %xmm2,%rax
+  c269b8:	48 01 45 30          	add    %rax,0x30(%rbp)
+  c269bc:	f2 0f 11 45 38       	movsd  %xmm0,0x38(%rbp)
+  c269c1:	48 83 c4 18          	add    $0x18,%rsp
+  c269c5:	48 89 df             	mov    %rbx,%rdi
+  c269c8:	31 c9                	xor    %ecx,%ecx
+  c269ca:	ba 0d 00 00 00       	mov    $0xd,%edx
+  c269cf:	5b                   	pop    %rbx
+  c269d0:	48 8d 35 e9 59 46 02 	lea    0x24659e9(%rip),%rsi        # 308c3c0 <QObject::staticMetaObject@Qt_6>
+  c269d7:	5d                   	pop    %rbp
+  c269d8:	e9 e3 83 8b ff       	jmp    4dedc0 <QMetaObject::activate(QObject*, QMetaObject const*, int, void**)@plt>
+  c269dd:	0f 1f 00             	nopl   (%rax)
+  c269e0:	48 89 ef             	mov    %rbp,%rdi
+  c269e3:	ff d0                	call   *%rax
+  c269e5:	eb da                	jmp    c269c1 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x88191>
+  c269e7:	90                   	nop
+  c269e8:	0f 1f 84 00 00 00 00 	nopl   0x0(%rax,%rax,1)
+  c269ef:	00 
+  c269f0:	41 54                	push   %r12
+  c269f2:	55                   	push   %rbp
+  c269f3:	53                   	push   %rbx
+  c269f4:	48 89 fb             	mov    %rdi,%rbx
+  c269f7:	48 83 ec 10          	sub    $0x10,%rsp
+  c269fb:	48 8b bf a8 00 00 00 	mov    0xa8(%rdi),%rdi
+  c26a02:	48 85 ff             	test   %rdi,%rdi
+  c26a05:	0f 84 15 01 00 00    	je     c26b20 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x882f0>
+  c26a0b:	80 7f 08 00          	cmpb   $0x0,0x8(%rdi)
+  c26a0f:	4c 8d 25 aa 59 46 02 	lea    0x24659aa(%rip),%r12        # 308c3c0 <QObject::staticMetaObject@Qt_6>
+  c26a16:	75 60                	jne    c26a78 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x88248>
+  c26a18:	48 8b 03             	mov    (%rbx),%rax
+  c26a1b:	48 8d 15 1e ff ff ff 	lea    -0xe2(%rip),%rdx        # c26940 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x88110>
+  c26a22:	f2 0f 10 47 10       	movsd  0x10(%rdi),%xmm0
+  c26a27:	48 8b 80 d0 00 00 00 	mov    0xd0(%rax),%rax
+  c26a2e:	48 39 d0             	cmp    %rdx,%rax
+  c26a31:	0f 85 f9 00 00 00    	jne    c26b30 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x88300>
+  c26a37:	48 8b 6b 20          	mov    0x20(%rbx),%rbp
+  c26a3b:	66 0f 2e 45 38       	ucomisd 0x38(%rbp),%xmm0
+  c26a40:	7a 5e                	jp     c26aa0 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x88270>
+  c26a42:	75 5c                	jne    c26aa0 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x88270>
+  c26a44:	48 c7 83 a8 00 00 00 	movq   $0x0,0xa8(%rbx)
+  c26a4b:	00 00 00 00 
+  c26a4f:	be 18 00 00 00       	mov    $0x18,%esi
+  c26a54:	e8 a7 7e 8b ff       	call   4de900 <operator delete(void*, unsigned long)@plt>
+  c26a59:	48 83 c4 10          	add    $0x10,%rsp
+  c26a5d:	4c 89 e6             	mov    %r12,%rsi
+  c26a60:	48 89 df             	mov    %rbx,%rdi
+  c26a63:	31 c9                	xor    %ecx,%ecx
+  c26a65:	5b                   	pop    %rbx
+TARGET 0xc2e3c0
+  c2e3c0:	41 57                	push   %r15
+  c2e3c2:	41 56                	push   %r14
+  c2e3c4:	41 55                	push   %r13
+  c2e3c6:	41 54                	push   %r12
+  c2e3c8:	49 89 f4             	mov    %rsi,%r12
+  c2e3cb:	55                   	push   %rbp
+  c2e3cc:	48 89 fd             	mov    %rdi,%rbp
+  c2e3cf:	53                   	push   %rbx
+  c2e3d0:	48 83 ec 58          	sub    $0x58,%rsp
+  c2e3d4:	0f b6 05 95 79 56 02 	movzbl 0x2567995(%rip),%eax        # 3195d70 <guard variable for QMetaType::registerMutableViewImpl<QList<QObject*>, QIterable<QMetaSequence> >(std::function<bool (void*, void*)>, QMetaType, QMetaType)::unregister@@Base+0x3908>
+  c2e3db:	84 c0                	test   %al,%al
+  c2e3dd:	0f 84 e5 00 00 00    	je     c2e4c8 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x8fc98>
+  c2e3e3:	4d 8b 04 24          	mov    (%r12),%r8
+  c2e3e7:	48 8b 05 62 79 56 02 	mov    0x2567962(%rip),%rax        # 3195d50 <guard variable for QMetaType::registerMutableViewImpl<QList<QObject*>, QIterable<QMetaSequence> >(std::function<bool (void*, void*)>, QMetaType, QMetaType)::unregister@@Base+0x38e8>
+  c2e3ee:	41 8b 70 38          	mov    0x38(%r8),%esi
+  c2e3f2:	48 85 c0             	test   %rax,%rax
+  c2e3f5:	74 53                	je     c2e44a <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x8fc1a>
+  c2e3f7:	4c 8d 2d 4a 79 56 02 	lea    0x256794a(%rip),%r13        # 3195d48 <guard variable for QMetaType::registerMutableViewImpl<QList<QObject*>, QIterable<QMetaSequence> >(std::function<bool (void*, void*)>, QMetaType, QMetaType)::unregister@@Base+0x38e0>
+  c2e3fe:	4c 89 ef             	mov    %r13,%rdi
+  c2e401:	0f 1f 80 00 00 00 00 	nopl   0x0(%rax)
+  c2e408:	48 8b 50 10          	mov    0x10(%rax),%rdx
+  c2e40c:	48 8b 48 18          	mov    0x18(%rax),%rcx
+  c2e410:	3b 70 20             	cmp    0x20(%rax),%esi
+  c2e413:	7f 18                	jg     c2e42d <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x8fbfd>
+  c2e415:	48 89 c7             	mov    %rax,%rdi
+  c2e418:	48 85 d2             	test   %rdx,%rdx
+  c2e41b:	74 23                	je     c2e440 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x8fc10>
+  c2e41d:	48 89 d0             	mov    %rdx,%rax
+  c2e420:	48 8b 50 10          	mov    0x10(%rax),%rdx
+  c2e424:	48 8b 48 18          	mov    0x18(%rax),%rcx
+  c2e428:	3b 70 20             	cmp    0x20(%rax),%esi
+  c2e42b:	7e e8                	jle    c2e415 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x8fbe5>
+  c2e42d:	48 85 c9             	test   %rcx,%rcx
+  c2e430:	74 0e                	je     c2e440 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x8fc10>
+  c2e432:	48 89 c8             	mov    %rcx,%rax
+  c2e435:	eb d1                	jmp    c2e408 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x8fbd8>
+  c2e437:	66 0f 1f 84 00 00 00 	nopw   0x0(%rax,%rax,1)
+  c2e43e:	00 00 
+  c2e440:	4c 39 ef             	cmp    %r13,%rdi
+  c2e443:	74 05                	je     c2e44a <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x8fc1a>
+  c2e445:	39 77 20             	cmp    %esi,0x20(%rdi)
+  c2e448:	7e 46                	jle    c2e490 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x8fc60>
+  c2e44a:	81 fe b4 00 00 00    	cmp    $0xb4,%esi
+  c2e450:	0f 84 ba 01 00 00    	je     c2e610 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x8fde0>
+  c2e456:	48 89 e1             	mov    %rsp,%rcx
+  c2e459:	ba 02 00 00 00       	mov    $0x2,%edx
+  c2e45e:	48 89 ef             	mov    %rbp,%rdi
+  c2e461:	4c 89 64 24 08       	mov    %r12,0x8(%rsp)
+  c2e466:	48 8d 35 53 df 45 02 	lea    0x245df53(%rip),%rsi        # 308c3c0 <QObject::staticMetaObject@Qt_6>
+  c2e46d:	48 c7 04 24 00 00 00 	movq   $0x0,(%rsp)
+  c2e474:	00 
+  c2e475:	e8 46 09 8b ff       	call   4dedc0 <QMetaObject::activate(QObject*, QMetaObject const*, int, void**)@plt>
+  c2e47a:	48 83 c4 58          	add    $0x58,%rsp
+  c2e47e:	5b                   	pop    %rbx
+  c2e47f:	5d                   	pop    %rbp
+  c2e480:	41 5c                	pop    %r12
+  c2e482:	41 5d                	pop    %r13
+  c2e484:	41 5e                	pop    %r14
+  c2e486:	41 5f                	pop    %r15
+  c2e488:	c3                   	ret
+  c2e489:	0f 1f 80 00 00 00 00 	nopl   0x0(%rax)
+  c2e490:	48 8b 85 a8 00 00 00 	mov    0xa8(%rbp),%rax
+  c2e497:	48 85 c0             	test   %rax,%rax
+  c2e49a:	74 06                	je     c2e4a2 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x8fc72>
+  c2e49c:	80 78 09 00          	cmpb   $0x0,0x9(%rax)
+  c2e4a0:	75 d8                	jne    c2e47a <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x8fc4a>
+  c2e4a2:	48 8b 45 20          	mov    0x20(%rbp),%rax
+  c2e4a6:	f2 0f 10 40 38       	movsd  0x38(%rax),%xmm0
+  c2e4ab:	66 0f 2f 05 35 58 13 	comisd 0x1135835(%rip),%xmm0        # 1d63ce8 <typeinfo name for QMetaType::registerConverter<QList<QObject*>, QIterable<QMetaSequence>, QtPrivate::QSequentialIterableConvertFunctor<QList<QObject*> > >(QtPrivate::QSequentialIterableConvertFunctor<QList<QObject*> >)::{lambda(void const*, void*)#1}@@Base+0x7a728>
+  c2e4b2:	01 
+  c2e4b3:	76 95                	jbe    c2e44a <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x8fc1a>
+  c2e4b5:	48 83 c4 58          	add    $0x58,%rsp
+  c2e4b9:	5b                   	pop    %rbx
+  c2e4ba:	5d                   	pop    %rbp
+  c2e4bb:	41 5c                	pop    %r12
+  c2e4bd:	41 5d                	pop    %r13
+  c2e4bf:	41 5e                	pop    %r14
+  c2e4c1:	41 5f                	pop    %r15
+  c2e4c3:	c3                   	ret
+  c2e4c4:	0f 1f 40 00          	nopl   0x0(%rax)
+  c2e4c8:	48 8d 3d a1 78 56 02 	lea    0x25678a1(%rip),%rdi        # 3195d70 <guard variable for QMetaType::registerMutableViewImpl<QList<QObject*>, QIterable<QMetaSequence> >(std::function<bool (void*, void*)>, QMetaType, QMetaType)::unregister@@Base+0x3908>
+  c2e4cf:	e8 fc c9 8a ff       	call   4daed0 <__cxa_guard_acquire@plt>
+  c2e4d4:	85 c0                	test   %eax,%eax
+  c2e4d6:	0f 84 07 ff ff ff    	je     c2e3e3 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x8fbb3>
+  c2e4dc:	48 8b 05 fd 57 13 01 	mov    0x11357fd(%rip),%rax        # 1d63ce0 <typeinfo name for QMetaType::registerConverter<QList<QObject*>, QIterable<QMetaSequence>, QtPrivate::QSequentialIterableConvertFunctor<QList<QObject*> > >(QtPrivate::QSequentialIterableConvertFunctor<QList<QObject*> >)::{lambda(void const*, void*)#1}@@Base+0x7a720>
+  c2e4e3:	45 31 ff             	xor    %r15d,%r15d
+  c2e4e6:	4c 8d 2d 5b 78 56 02 	lea    0x256785b(%rip),%r13        # 3195d48 <guard variable for QMetaType::registerMutableViewImpl<QList<QObject*>, QIterable<QMetaSequence> >(std::function<bool (void*, void*)>, QMetaType, QMetaType)::unregister@@Base+0x38e0>
+  c2e4ed:	c7 05 51 78 56 02 00 	movl   $0x0,0x2567851(%rip)        # 3195d48 <guard variable for QMetaType::registerMutableViewImpl<QList<QObject*>, QIterable<QMetaSequence> >(std::function<bool (void*, void*)>, QMetaType, QMetaType)::unregister@@Base+0x38e0>
+  c2e4f4:	00 00 00 
+  c2e4f7:	48 c7 05 4e 78 56 02 	movq   $0x0,0x256784e(%rip)        # 3195d50 <guard variable for QMetaType::registerMutableViewImpl<QList<QObject*>, QIterable<QMetaSequence> >(std::function<bool (void*, void*)>, QMetaType, QMetaType)::unregister@@Base+0x38e8>
+TARGET 0xc269f0
+  c269f0:	41 54                	push   %r12
+  c269f2:	55                   	push   %rbp
+  c269f3:	53                   	push   %rbx
+  c269f4:	48 89 fb             	mov    %rdi,%rbx
+  c269f7:	48 83 ec 10          	sub    $0x10,%rsp
+  c269fb:	48 8b bf a8 00 00 00 	mov    0xa8(%rdi),%rdi
+  c26a02:	48 85 ff             	test   %rdi,%rdi
+  c26a05:	0f 84 15 01 00 00    	je     c26b20 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x882f0>
+  c26a0b:	80 7f 08 00          	cmpb   $0x0,0x8(%rdi)
+  c26a0f:	4c 8d 25 aa 59 46 02 	lea    0x24659aa(%rip),%r12        # 308c3c0 <QObject::staticMetaObject@Qt_6>
+  c26a16:	75 60                	jne    c26a78 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x88248>
+  c26a18:	48 8b 03             	mov    (%rbx),%rax
+  c26a1b:	48 8d 15 1e ff ff ff 	lea    -0xe2(%rip),%rdx        # c26940 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x88110>
+  c26a22:	f2 0f 10 47 10       	movsd  0x10(%rdi),%xmm0
+  c26a27:	48 8b 80 d0 00 00 00 	mov    0xd0(%rax),%rax
+  c26a2e:	48 39 d0             	cmp    %rdx,%rax
+  c26a31:	0f 85 f9 00 00 00    	jne    c26b30 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x88300>
+  c26a37:	48 8b 6b 20          	mov    0x20(%rbx),%rbp
+  c26a3b:	66 0f 2e 45 38       	ucomisd 0x38(%rbp),%xmm0
+  c26a40:	7a 5e                	jp     c26aa0 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x88270>
+  c26a42:	75 5c                	jne    c26aa0 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x88270>
+  c26a44:	48 c7 83 a8 00 00 00 	movq   $0x0,0xa8(%rbx)
+  c26a4b:	00 00 00 00 
+  c26a4f:	be 18 00 00 00       	mov    $0x18,%esi
+  c26a54:	e8 a7 7e 8b ff       	call   4de900 <operator delete(void*, unsigned long)@plt>
+  c26a59:	48 83 c4 10          	add    $0x10,%rsp
+  c26a5d:	4c 89 e6             	mov    %r12,%rsi
+  c26a60:	48 89 df             	mov    %rbx,%rdi
+  c26a63:	31 c9                	xor    %ecx,%ecx
+  c26a65:	5b                   	pop    %rbx
+  c26a66:	ba 08 00 00 00       	mov    $0x8,%edx
+  c26a6b:	5d                   	pop    %rbp
+  c26a6c:	41 5c                	pop    %r12
+  c26a6e:	e9 4d 83 8b ff       	jmp    4dedc0 <QMetaObject::activate(QObject*, QMetaObject const*, int, void**)@plt>
+  c26a73:	0f 1f 44 00 00       	nopl   0x0(%rax,%rax,1)
+  c26a78:	48 8b 7b 20          	mov    0x20(%rbx),%rdi
+  c26a7c:	48 8b 07             	mov    (%rdi),%rax
+  c26a7f:	ff 50 70             	call   *0x70(%rax)
+  c26a82:	48 89 df             	mov    %rbx,%rdi
+  c26a85:	31 c9                	xor    %ecx,%ecx
+  c26a87:	ba 0a 00 00 00       	mov    $0xa,%edx
+  c26a8c:	4c 89 e6             	mov    %r12,%rsi
+  c26a8f:	e8 2c 83 8b ff       	call   4dedc0 <QMetaObject::activate(QObject*, QMetaObject const*, int, void**)@plt>
+  c26a94:	48 8b bb a8 00 00 00 	mov    0xa8(%rbx),%rdi
+  c26a9b:	e9 78 ff ff ff       	jmp    c26a18 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x881e8>
+  c26aa0:	48 8b 45 00          	mov    0x0(%rbp),%rax
+  c26aa4:	48 8d 15 d5 a7 0c 00 	lea    0xca7d5(%rip),%rdx        # cf1280 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x152a50>
+  c26aab:	48 8b 40 48          	mov    0x48(%rax),%rax
+  c26aaf:	48 39 d0             	cmp    %rdx,%rax
+  c26ab2:	0f 85 88 00 00 00    	jne    c26b40 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x88310>
+  c26ab8:	48 8b 7d 08          	mov    0x8(%rbp),%rdi
+  c26abc:	f2 0f 11 44 24 08    	movsd  %xmm0,0x8(%rsp)
+  c26ac2:	48 8b 07             	mov    (%rdi),%rax
+  c26ac5:	ff 50 18             	call   *0x18(%rax)
+  c26ac8:	f2 0f 10 4d 38       	movsd  0x38(%rbp),%xmm1
+  c26acd:	66 0f ef d2          	pxor   %xmm2,%xmm2
+  c26ad1:	48 8b 55 28          	mov    0x28(%rbp),%rdx
+  c26ad5:	f2 0f 10 44 24 08    	movsd  0x8(%rsp),%xmm0
+  c26adb:	48 89 45 28          	mov    %rax,0x28(%rbp)
+  c26adf:	66 0f 2e ca          	ucomisd %xmm2,%xmm1
+  c26ae3:	7a 6b                	jp     c26b50 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x88320>
+  c26ae5:	75 69                	jne    c26b50 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x88320>
+  c26ae7:	f2 0f 11 45 38       	movsd  %xmm0,0x38(%rbp)
+  c26aec:	31 c9                	xor    %ecx,%ecx
+  c26aee:	ba 0d 00 00 00       	mov    $0xd,%edx
+  c26af3:	4c 89 e6             	mov    %r12,%rsi
+  c26af6:	48 89 df             	mov    %rbx,%rdi
+  c26af9:	e8 c2 82 8b ff       	call   4dedc0 <QMetaObject::activate(QObject*, QMetaObject const*, int, void**)@plt>
+  c26afe:	48 8b bb a8 00 00 00 	mov    0xa8(%rbx),%rdi
+  c26b05:	48 c7 83 a8 00 00 00 	movq   $0x0,0xa8(%rbx)
+  c26b0c:	00 00 00 00 
+  c26b10:	48 85 ff             	test   %rdi,%rdi
+  c26b13:	0f 84 40 ff ff ff    	je     c26a59 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x88229>
+  c26b19:	e9 31 ff ff ff       	jmp    c26a4f <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x8821f>
+  c26b1e:	66 90                	xchg   %ax,%ax
+  c26b20:	48 83 c4 10          	add    $0x10,%rsp
+  c26b24:	5b                   	pop    %rbx
+  c26b25:	5d                   	pop    %rbp
+  c26b26:	41 5c                	pop    %r12
+  c26b28:	c3                   	ret
+  c26b29:	0f 1f 80 00 00 00 00 	nopl   0x0(%rax)
+  c26b30:	48 89 df             	mov    %rbx,%rdi
+  c26b33:	ff d0                	call   *%rax
+  c26b35:	eb c7                	jmp    c26afe <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x882ce>
+  c26b37:	66 0f 1f 84 00 00 00 	nopw   0x0(%rax,%rax,1)
+  c26b3e:	00 00 
+  c26b40:	48 89 ef             	mov    %rbp,%rdi
+  c26b43:	ff d0                	call   *%rax
+  c26b45:	eb a5                	jmp    c26aec <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x882bc>
+  c26b47:	66 0f 1f 84 00 00 00 	nopw   0x0(%rax,%rax,1)
+TARGET 0xc26b70
+  c26b70:	41 54                	push   %r12
+  c26b72:	48 8d 0d 87 fb ff ff 	lea    -0x479(%rip),%rcx        # c26700 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x87ed0>
+  c26b79:	55                   	push   %rbp
+  c26b7a:	53                   	push   %rbx
+  c26b7b:	48 8b 07             	mov    (%rdi),%rax
+  c26b7e:	48 89 fb             	mov    %rdi,%rbx
+  c26b81:	48 8b 90 90 00 00 00 	mov    0x90(%rax),%rdx
+  c26b88:	48 39 ca             	cmp    %rcx,%rdx
+  c26b8b:	0f 85 3f 01 00 00    	jne    c26cd0 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x884a0>
+  c26b91:	48 8b 7f 20          	mov    0x20(%rdi),%rdi
+  c26b95:	48 8d 35 c4 c4 01 00 	lea    0x1c4c4(%rip),%rsi        # c43060 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0xa4830>
+  c26b9c:	48 8b 17             	mov    (%rdi),%rdx
+  c26b9f:	48 8b 8a 80 00 00 00 	mov    0x80(%rdx),%rcx
+  c26ba6:	48 39 f1             	cmp    %rsi,%rcx
+  c26ba9:	0f 85 d9 00 00 00    	jne    c26c88 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x88458>
+  c26baf:	48 b9 ff ff ff ff ff 	movabs $0x7fffffffffffffff,%rcx
+  c26bb6:	ff ff 7f 
+  c26bb9:	48 39 4f 50          	cmp    %rcx,0x50(%rdi)
+  c26bbd:	0f 84 d2 00 00 00    	je     c26c95 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x88465>
+  c26bc3:	4c 8d 25 f6 57 46 02 	lea    0x24657f6(%rip),%r12        # 308c3c0 <QObject::staticMetaObject@Qt_6>
+  c26bca:	48 8b 80 d0 00 00 00 	mov    0xd0(%rax),%rax
+  c26bd1:	48 8d 15 68 fd ff ff 	lea    -0x298(%rip),%rdx        # c26940 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x88110>
+  c26bd8:	48 39 d0             	cmp    %rdx,%rax
+  c26bdb:	0f 85 df 00 00 00    	jne    c26cc0 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x88490>
+  c26be1:	48 8b 6b 20          	mov    0x20(%rbx),%rbp
+  c26be5:	66 0f ef c0          	pxor   %xmm0,%xmm0
+  c26be9:	66 0f 2e 45 38       	ucomisd 0x38(%rbp),%xmm0
+  c26bee:	7a 20                	jp     c26c10 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x883e0>
+  c26bf0:	75 1e                	jne    c26c10 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x883e0>
+  c26bf2:	4c 89 e6             	mov    %r12,%rsi
+  c26bf5:	48 89 df             	mov    %rbx,%rdi
+  c26bf8:	31 c9                	xor    %ecx,%ecx
+  c26bfa:	5b                   	pop    %rbx
+  c26bfb:	ba 05 00 00 00       	mov    $0x5,%edx
+  c26c00:	5d                   	pop    %rbp
+  c26c01:	41 5c                	pop    %r12
+  c26c03:	e9 b8 81 8b ff       	jmp    4dedc0 <QMetaObject::activate(QObject*, QMetaObject const*, int, void**)@plt>
+  c26c08:	0f 1f 84 00 00 00 00 	nopl   0x0(%rax,%rax,1)
+  c26c0f:	00 
+  c26c10:	48 8b 45 00          	mov    0x0(%rbp),%rax
+  c26c14:	48 8d 15 65 a6 0c 00 	lea    0xca665(%rip),%rdx        # cf1280 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x152a50>
+  c26c1b:	48 8b 40 48          	mov    0x48(%rax),%rax
+  c26c1f:	48 39 d0             	cmp    %rdx,%rax
+  c26c22:	0f 85 b8 00 00 00    	jne    c26ce0 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x884b0>
+  c26c28:	48 8b 7d 08          	mov    0x8(%rbp),%rdi
+  c26c2c:	48 8b 07             	mov    (%rdi),%rax
+  c26c2f:	ff 50 18             	call   *0x18(%rax)
+  c26c32:	f2 0f 10 45 38       	movsd  0x38(%rbp),%xmm0
+  c26c37:	66 0f ef c9          	pxor   %xmm1,%xmm1
+  c26c3b:	48 8b 55 28          	mov    0x28(%rbp),%rdx
+  c26c3f:	48 89 45 28          	mov    %rax,0x28(%rbp)
+  c26c43:	66 0f 2e c1          	ucomisd %xmm1,%xmm0
+  c26c47:	7a 02                	jp     c26c4b <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x8841b>
+  c26c49:	74 19                	je     c26c64 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x88434>
+  c26c4b:	48 29 d0             	sub    %rdx,%rax
+  c26c4e:	66 0f ef c9          	pxor   %xmm1,%xmm1
+  c26c52:	f2 48 0f 2a c8       	cvtsi2sd %rax,%xmm1
+  c26c57:	f2 0f 59 c8          	mulsd  %xmm0,%xmm1
+  c26c5b:	f2 48 0f 2c c1       	cvttsd2si %xmm1,%rax
+  c26c60:	48 01 45 30          	add    %rax,0x30(%rbp)
+  c26c64:	48 c7 45 38 00 00 00 	movq   $0x0,0x38(%rbp)
+  c26c6b:	00 
+  c26c6c:	31 c9                	xor    %ecx,%ecx
+  c26c6e:	ba 0d 00 00 00       	mov    $0xd,%edx
+  c26c73:	4c 89 e6             	mov    %r12,%rsi
+  c26c76:	48 89 df             	mov    %rbx,%rdi
+  c26c79:	e8 42 81 8b ff       	call   4dedc0 <QMetaObject::activate(QObject*, QMetaObject const*, int, void**)@plt>
+  c26c7e:	e9 6f ff ff ff       	jmp    c26bf2 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x883c2>
+  c26c83:	0f 1f 44 00 00       	nopl   0x0(%rax,%rax,1)
+  c26c88:	ff d1                	call   *%rcx
+  c26c8a:	84 c0                	test   %al,%al
+  c26c8c:	74 44                	je     c26cd2 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x884a2>
+  c26c8e:	48 8b 7b 20          	mov    0x20(%rbx),%rdi
+  c26c92:	48 8b 17             	mov    (%rdi),%rdx
+  c26c95:	ff 52 70             	call   *0x70(%rdx)
+  c26c98:	4c 8d 25 21 57 46 02 	lea    0x2465721(%rip),%r12        # 308c3c0 <QObject::staticMetaObject@Qt_6>
+  c26c9f:	31 c9                	xor    %ecx,%ecx
+  c26ca1:	48 89 df             	mov    %rbx,%rdi
+  c26ca4:	ba 0a 00 00 00       	mov    $0xa,%edx
+  c26ca9:	4c 89 e6             	mov    %r12,%rsi
+  c26cac:	e8 0f 81 8b ff       	call   4dedc0 <QMetaObject::activate(QObject*, QMetaObject const*, int, void**)@plt>
+  c26cb1:	48 8b 03             	mov    (%rbx),%rax
+  c26cb4:	e9 11 ff ff ff       	jmp    c26bca <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x8839a>
+  c26cb9:	0f 1f 80 00 00 00 00 	nopl   0x0(%rax)
+  c26cc0:	66 0f ef c0          	pxor   %xmm0,%xmm0
+  c26cc4:	48 89 df             	mov    %rbx,%rdi
+  c26cc7:	ff d0                	call   *%rax
+  c26cc9:	e9 24 ff ff ff       	jmp    c26bf2 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x883c2>
+  c26cce:	66 90                	xchg   %ax,%ax
+  c26cd0:	ff d2                	call   *%rdx
+TARGET 0xc2a960
+  c2a960:	55                   	push   %rbp
+  c2a961:	53                   	push   %rbx
+  c2a962:	48 89 fb             	mov    %rdi,%rbx
+  c2a965:	48 83 ec 08          	sub    $0x8,%rsp
+  c2a969:	0f b6 05 c0 b3 56 02 	movzbl 0x256b3c0(%rip),%eax        # 3195d30 <guard variable for QMetaType::registerMutableViewImpl<QList<QObject*>, QIterable<QMetaSequence> >(std::function<bool (void*, void*)>, QMetaType, QMetaType)::unregister@@Base+0x38c8>
+  c2a970:	84 c0                	test   %al,%al
+  c2a972:	74 3c                	je     c2a9b0 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x8c180>
+  c2a974:	48 8b 7b 10          	mov    0x10(%rbx),%rdi
+  c2a978:	48 85 ff             	test   %rdi,%rdi
+  c2a97b:	0f 84 06 01 00 00    	je     c2aa87 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x8c257>
+  c2a981:	48 8b 07             	mov    (%rdi),%rax
+  c2a984:	48 8d 15 f5 6c ff ff 	lea    -0x930b(%rip),%rdx        # c21680 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x82e50>
+  c2a98b:	48 8b 40 78          	mov    0x78(%rax),%rax
+  c2a98f:	48 39 d0             	cmp    %rdx,%rax
+  c2a992:	0f 85 00 01 00 00    	jne    c2aa98 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x8c268>
+  c2a998:	48 83 c4 08          	add    $0x8,%rsp
+  c2a99c:	48 8d 87 98 02 00 00 	lea    0x298(%rdi),%rax
+  c2a9a3:	5b                   	pop    %rbx
+  c2a9a4:	5d                   	pop    %rbp
+  c2a9a5:	c3                   	ret
+  c2a9a6:	66 2e 0f 1f 84 00 00 	cs nopw 0x0(%rax,%rax,1)
+  c2a9ad:	00 00 00 
+  c2a9b0:	48 8d 2d 79 b3 56 02 	lea    0x256b379(%rip),%rbp        # 3195d30 <guard variable for QMetaType::registerMutableViewImpl<QList<QObject*>, QIterable<QMetaSequence> >(std::function<bool (void*, void*)>, QMetaType, QMetaType)::unregister@@Base+0x38c8>
+  c2a9b7:	48 89 ef             	mov    %rbp,%rdi
+  c2a9ba:	e8 11 05 8b ff       	call   4daed0 <__cxa_guard_acquire@plt>
+  c2a9bf:	85 c0                	test   %eax,%eax
+  c2a9c1:	74 b1                	je     c2a974 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x8c144>
+  c2a9c3:	31 f6                	xor    %esi,%esi
+  c2a9c5:	48 8d 15 98 c0 47 01 	lea    0x147c098(%rip),%rdx        # 20a6a64 <std::__detail::__to_chars_10_impl<unsigned int>(char*, unsigned int, unsigned int)::__digits@@Base+0x5304>
+  c2a9cc:	48 8d 3d dd b2 56 02 	lea    0x256b2dd(%rip),%rdi        # 3195cb0 <guard variable for QMetaType::registerMutableViewImpl<QList<QObject*>, QIterable<QMetaSequence> >(std::function<bool (void*, void*)>, QMetaType, QMetaType)::unregister@@Base+0x3848>
+  c2a9d3:	c6 05 c6 b2 56 02 00 	movb   $0x0,0x256b2c6(%rip)        # 3195ca0 <guard variable for QMetaType::registerMutableViewImpl<QList<QObject*>, QIterable<QMetaSequence> >(std::function<bool (void*, void*)>, QMetaType, QMetaType)::unregister@@Base+0x3838>
+  c2a9da:	c7 05 be b2 56 02 00 	movl   $0x0,0x256b2be(%rip)        # 3195ca2 <guard variable for QMetaType::registerMutableViewImpl<QList<QObject*>, QIterable<QMetaSequence> >(std::function<bool (void*, void*)>, QMetaType, QMetaType)::unregister@@Base+0x383a>
+  c2a9e1:	00 00 00 
+  c2a9e4:	48 c7 05 b9 b2 56 02 	movq   $0x0,0x256b2b9(%rip)        # 3195ca8 <guard variable for QMetaType::registerMutableViewImpl<QList<QObject*>, QIterable<QMetaSequence> >(std::function<bool (void*, void*)>, QMetaType, QMetaType)::unregister@@Base+0x3840>
+  c2a9eb:	00 00 00 00 
+  c2a9ef:	e8 1c 48 8b ff       	call   4df210 <QString::fromUtf8(QByteArrayView)@plt>
+  c2a9f4:	48 8d 3d cd b2 56 02 	lea    0x256b2cd(%rip),%rdi        # 3195cc8 <guard variable for QMetaType::registerMutableViewImpl<QList<QObject*>, QIterable<QMetaSequence> >(std::function<bool (void*, void*)>, QMetaType, QMetaType)::unregister@@Base+0x3860>
+  c2a9fb:	e8 50 3a 8b ff       	call   4de450 <QDateTime::QDateTime()@plt>
+  c2aa00:	66 0f ef c0          	pxor   %xmm0,%xmm0
+  c2aa04:	48 8d 15 1d 87 50 02 	lea    0x250871d(%rip),%rdx        # 3133128 <typeinfo for QSGRectangleNode@@Base+0xaca0>
+  c2aa0b:	48 8d 35 8e b2 56 02 	lea    0x256b28e(%rip),%rsi        # 3195ca0 <guard variable for QMetaType::registerMutableViewImpl<QList<QObject*>, QIterable<QMetaSequence> >(std::function<bool (void*, void*)>, QMetaType, QMetaType)::unregister@@Base+0x3838>
+  c2aa12:	48 8d 3d 57 6b bb ff 	lea    -0x4494a9(%rip),%rdi        # 7e1570 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string(char const*, unsigned long, std::allocator<char> const&)@@Base+0xafc50>
+  c2aa19:	0f 29 05 b0 b2 56 02 	movaps %xmm0,0x256b2b0(%rip)        # 3195cd0 <guard variable for QMetaType::registerMutableViewImpl<QList<QObject*>, QIterable<QMetaSequence> >(std::function<bool (void*, void*)>, QMetaType, QMetaType)::unregister@@Base+0x3868>
+  c2aa20:	0f 29 05 c9 b2 56 02 	movaps %xmm0,0x256b2c9(%rip)        # 3195cf0 <guard variable for QMetaType::registerMutableViewImpl<QList<QObject*>, QIterable<QMetaSequence> >(std::function<bool (void*, void*)>, QMetaType, QMetaType)::unregister@@Base+0x3888>
+  c2aa27:	0f 29 05 e2 b2 56 02 	movaps %xmm0,0x256b2e2(%rip)        # 3195d10 <guard variable for QMetaType::registerMutableViewImpl<QList<QObject*>, QIterable<QMetaSequence> >(std::function<bool (void*, void*)>, QMetaType, QMetaType)::unregister@@Base+0x38a8>
+  c2aa2e:	48 c7 05 a7 b2 56 02 	movq   $0x0,0x256b2a7(%rip)        # 3195ce0 <guard variable for QMetaType::registerMutableViewImpl<QList<QObject*>, QIterable<QMetaSequence> >(std::function<bool (void*, void*)>, QMetaType, QMetaType)::unregister@@Base+0x3878>
+  c2aa35:	00 00 00 00 
+  c2aa39:	c7 05 a5 b2 56 02 00 	movl   $0x0,0x256b2a5(%rip)        # 3195ce8 <guard variable for QMetaType::registerMutableViewImpl<QList<QObject*>, QIterable<QMetaSequence> >(std::function<bool (void*, void*)>, QMetaType, QMetaType)::unregister@@Base+0x3880>
+  c2aa40:	00 00 00 
+  c2aa43:	48 c7 05 b2 b2 56 02 	movq   $0x0,0x256b2b2(%rip)        # 3195d00 <guard variable for QMetaType::registerMutableViewImpl<QList<QObject*>, QIterable<QMetaSequence> >(std::function<bool (void*, void*)>, QMetaType, QMetaType)::unregister@@Base+0x3898>
+  c2aa4a:	00 00 00 00 
+  c2aa4e:	c7 05 b0 b2 56 02 00 	movl   $0x0,0x256b2b0(%rip)        # 3195d08 <guard variable for QMetaType::registerMutableViewImpl<QList<QObject*>, QIterable<QMetaSequence> >(std::function<bool (void*, void*)>, QMetaType, QMetaType)::unregister@@Base+0x38a0>
+  c2aa55:	00 00 00 
+  c2aa58:	48 c7 05 bd b2 56 02 	movq   $0x0,0x256b2bd(%rip)        # 3195d20 <guard variable for QMetaType::registerMutableViewImpl<QList<QObject*>, QIterable<QMetaSequence> >(std::function<bool (void*, void*)>, QMetaType, QMetaType)::unregister@@Base+0x38b8>
+  c2aa5f:	00 00 00 00 
+  c2aa63:	c7 05 bb b2 56 02 00 	movl   $0x0,0x256b2bb(%rip)        # 3195d28 <guard variable for QMetaType::registerMutableViewImpl<QList<QObject*>, QIterable<QMetaSequence> >(std::function<bool (void*, void*)>, QMetaType, QMetaType)::unregister@@Base+0x38c0>
+  c2aa6a:	00 00 00 
+  c2aa6d:	e8 ce fc 8a ff       	call   4da740 <__cxa_atexit@plt>
+  c2aa72:	48 89 ef             	mov    %rbp,%rdi
+  c2aa75:	e8 36 4f 8b ff       	call   4df9b0 <__cxa_guard_release@plt>
+  c2aa7a:	48 8b 7b 10          	mov    0x10(%rbx),%rdi
+  c2aa7e:	48 85 ff             	test   %rdi,%rdi
+  c2aa81:	0f 85 fa fe ff ff    	jne    c2a981 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x8c151>
+  c2aa87:	48 83 c4 08          	add    $0x8,%rsp
+  c2aa8b:	48 8d 05 0e b2 56 02 	lea    0x256b20e(%rip),%rax        # 3195ca0 <guard variable for QMetaType::registerMutableViewImpl<QList<QObject*>, QIterable<QMetaSequence> >(std::function<bool (void*, void*)>, QMetaType, QMetaType)::unregister@@Base+0x3838>
+  c2aa92:	5b                   	pop    %rbx
+  c2aa93:	5d                   	pop    %rbp
+  c2aa94:	c3                   	ret
+  c2aa95:	0f 1f 00             	nopl   (%rax)
+  c2aa98:	48 83 c4 08          	add    $0x8,%rsp
+  c2aa9c:	5b                   	pop    %rbx
+  c2aa9d:	5d                   	pop    %rbp
+  c2aa9e:	ff e0                	jmp    *%rax
+  c2aaa0:	48 89 c3             	mov    %rax,%rbx
+  c2aaa3:	e9 38 0f 91 ff       	jmp    53b9e0 <std::runtime_error::~runtime_error()@plt+0x5b710>
+  c2aaa8:	0f 1f 84 00 00 00 00 	nopl   0x0(%rax,%rax,1)
+  c2aaaf:	00 
+  c2aab0:	41 55                	push   %r13
+  c2aab2:	48 8d 15 37 7e 08 00 	lea    0x87e37(%rip),%rdx        # cb28f0 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x1140c0>
+  c2aab9:	41 54                	push   %r12
+  c2aabb:	49 89 f4             	mov    %rsi,%r12
+  c2aabe:	55                   	push   %rbp
+  c2aabf:	48 89 fd             	mov    %rdi,%rbp
+  c2aac2:	53                   	push   %rbx
+  c2aac3:	48 83 ec 28          	sub    $0x28,%rsp
+  c2aac7:	48 8b 7f 18          	mov    0x18(%rdi),%rdi
+  c2aacb:	8b 76 30             	mov    0x30(%rsi),%esi
+  c2aace:	48 8b 07             	mov    (%rdi),%rax
+  c2aad1:	48 8b 40 28          	mov    0x28(%rax),%rax
+  c2aad5:	48 39 d0             	cmp    %rdx,%rax
+TARGET 0xc21860
+  c21860:	48 83 bf a8 00 00 00 	cmpq   $0x0,0xa8(%rdi)
+  c21867:	00 
+  c21868:	0f 95 c0             	setne  %al
+  c2186b:	c3                   	ret
+  c2186c:	0f 1f 40 00          	nopl   0x0(%rax)
+  c21870:	41 54                	push   %r12
+  c21872:	4c 8d 25 77 10 09 00 	lea    0x91077(%rip),%r12        # cb28f0 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x1140c0>
+  c21879:	55                   	push   %rbp
+  c2187a:	48 89 fd             	mov    %rdi,%rbp
+  c2187d:	53                   	push   %rbx
+  c2187e:	48 8b 7f 18          	mov    0x18(%rdi),%rdi
+  c21882:	48 89 f3             	mov    %rsi,%rbx
+  c21885:	8b 76 18             	mov    0x18(%rsi),%esi
+  c21888:	48 8b 07             	mov    (%rdi),%rax
+  c2188b:	48 8b 40 28          	mov    0x28(%rax),%rax
+  c2188f:	4c 39 e0             	cmp    %r12,%rax
+  c21892:	75 34                	jne    c218c8 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x83098>
+  c21894:	48 8b 7f 18          	mov    0x18(%rdi),%rdi
+  c21898:	40 0f be f6          	movsbl %sil,%esi
+  c2189c:	e8 1f c7 8b ff       	call   4ddfc0 <QDataStream::operator<<(signed char)@plt>
+  c218a1:	48 8b 7d 18          	mov    0x18(%rbp),%rdi
+  c218a5:	8b 73 1c             	mov    0x1c(%rbx),%esi
+  c218a8:	48 8b 07             	mov    (%rdi),%rax
+  c218ab:	48 8b 40 28          	mov    0x28(%rax),%rax
+  c218af:	4c 39 e0             	cmp    %r12,%rax
+  c218b2:	75 1c                	jne    c218d0 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x830a0>
+  c218b4:	48 8b 7f 18          	mov    0x18(%rdi),%rdi
+  c218b8:	5b                   	pop    %rbx
+  c218b9:	40 0f be f6          	movsbl %sil,%esi
+  c218bd:	5d                   	pop    %rbp
+  c218be:	41 5c                	pop    %r12
+  c218c0:	e9 fb c6 8b ff       	jmp    4ddfc0 <QDataStream::operator<<(signed char)@plt>
+  c218c5:	0f 1f 00             	nopl   (%rax)
+  c218c8:	40 0f b6 f6          	movzbl %sil,%esi
+  c218cc:	ff d0                	call   *%rax
+  c218ce:	eb d1                	jmp    c218a1 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x83071>
+  c218d0:	5b                   	pop    %rbx
+  c218d1:	40 0f b6 f6          	movzbl %sil,%esi
+  c218d5:	5d                   	pop    %rbp
+  c218d6:	41 5c                	pop    %r12
+  c218d8:	ff e0                	jmp    *%rax
+  c218da:	66 0f 1f 44 00 00    	nopw   0x0(%rax,%rax,1)
+  c218e0:	48 8b 7f 18          	mov    0x18(%rdi),%rdi
+  c218e4:	48 8d 15 05 10 09 00 	lea    0x91005(%rip),%rdx        # cb28f0 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x1140c0>
+  c218eb:	8b 76 18             	mov    0x18(%rsi),%esi
+  c218ee:	48 8b 07             	mov    (%rdi),%rax
+  c218f1:	48 8b 40 28          	mov    0x28(%rax),%rax
+  c218f5:	48 39 d0             	cmp    %rdx,%rax
+  c218f8:	75 16                	jne    c21910 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x830e0>
+  c218fa:	48 8b 7f 18          	mov    0x18(%rdi),%rdi
+  c218fe:	40 0f be f6          	movsbl %sil,%esi
+  c21902:	e9 b9 c6 8b ff       	jmp    4ddfc0 <QDataStream::operator<<(signed char)@plt>
+  c21907:	66 0f 1f 84 00 00 00 	nopw   0x0(%rax,%rax,1)
+  c2190e:	00 00 
+  c21910:	40 0f b6 f6          	movzbl %sil,%esi
+  c21914:	ff e0                	jmp    *%rax
+  c21916:	66 2e 0f 1f 84 00 00 	cs nopw 0x0(%rax,%rax,1)
+  c2191d:	00 00 00 
+  c21920:	48 8b 7f 18          	mov    0x18(%rdi),%rdi
+  c21924:	48 8d 15 c5 0f 09 00 	lea    0x90fc5(%rip),%rdx        # cb28f0 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x1140c0>
+  c2192b:	8b 76 18             	mov    0x18(%rsi),%esi
+  c2192e:	48 8b 07             	mov    (%rdi),%rax
+  c21931:	48 8b 40 28          	mov    0x28(%rax),%rax
+  c21935:	48 39 d0             	cmp    %rdx,%rax
+  c21938:	75 16                	jne    c21950 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x83120>
+  c2193a:	48 8b 7f 18          	mov    0x18(%rdi),%rdi
+  c2193e:	40 0f be f6          	movsbl %sil,%esi
+  c21942:	e9 79 c6 8b ff       	jmp    4ddfc0 <QDataStream::operator<<(signed char)@plt>
+  c21947:	66 0f 1f 84 00 00 00 	nopw   0x0(%rax,%rax,1)
+  c2194e:	00 00 
+  c21950:	40 0f b6 f6          	movzbl %sil,%esi
+  c21954:	ff e0                	jmp    *%rax
+  c21956:	66 2e 0f 1f 84 00 00 	cs nopw 0x0(%rax,%rax,1)
+  c2195d:	00 00 00 
+  c21960:	48 8b 7f 18          	mov    0x18(%rdi),%rdi
+  c21964:	48 8d 15 85 0f 09 00 	lea    0x90f85(%rip),%rdx        # cb28f0 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x1140c0>
+  c2196b:	8b 76 18             	mov    0x18(%rsi),%esi
+  c2196e:	48 8b 07             	mov    (%rdi),%rax
+  c21971:	48 8b 40 28          	mov    0x28(%rax),%rax
+  c21975:	48 39 d0             	cmp    %rdx,%rax
+  c21978:	75 16                	jne    c21990 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x83160>
+  c2197a:	48 8b 7f 18          	mov    0x18(%rdi),%rdi
+  c2197e:	40 0f be f6          	movsbl %sil,%esi
+  c21982:	e9 39 c6 8b ff       	jmp    4ddfc0 <QDataStream::operator<<(signed char)@plt>
+  c21987:	66 0f 1f 84 00 00 00 	nopw   0x0(%rax,%rax,1)
+  c2198e:	00 00 
+  c21990:	40 0f b6 f6          	movzbl %sil,%esi
+  c21994:	ff e0                	jmp    *%rax
+  c21996:	66 2e 0f 1f 84 00 00 	cs nopw 0x0(%rax,%rax,1)
+  c2199d:	00 00 00 
+TARGET 0xc21830
+  c21830:	48 8b 87 80 00 00 00 	mov    0x80(%rdi),%rax
+  c21837:	66 0f ef c0          	pxor   %xmm0,%xmm0
+  c2183b:	48 85 c0             	test   %rax,%rax
+  c2183e:	74 1a                	je     c2185a <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x8302a>
+  c21840:	66 0f ef c0          	pxor   %xmm0,%xmm0
+  c21844:	66 0f ef c9          	pxor   %xmm1,%xmm1
+  c21848:	f2 48 0f 2a 87 88 00 	cvtsi2sdq 0x88(%rdi),%xmm0
+  c2184f:	00 00 
+  c21851:	f2 48 0f 2a c8       	cvtsi2sd %rax,%xmm1
+  c21856:	f2 0f 5e c1          	divsd  %xmm1,%xmm0
+  c2185a:	c3                   	ret
+  c2185b:	90                   	nop
+  c2185c:	0f 1f 40 00          	nopl   0x0(%rax)
+  c21860:	48 83 bf a8 00 00 00 	cmpq   $0x0,0xa8(%rdi)
+  c21867:	00 
+  c21868:	0f 95 c0             	setne  %al
+  c2186b:	c3                   	ret
+  c2186c:	0f 1f 40 00          	nopl   0x0(%rax)
+  c21870:	41 54                	push   %r12
+  c21872:	4c 8d 25 77 10 09 00 	lea    0x91077(%rip),%r12        # cb28f0 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x1140c0>
+  c21879:	55                   	push   %rbp
+  c2187a:	48 89 fd             	mov    %rdi,%rbp
+  c2187d:	53                   	push   %rbx
+  c2187e:	48 8b 7f 18          	mov    0x18(%rdi),%rdi
+  c21882:	48 89 f3             	mov    %rsi,%rbx
+  c21885:	8b 76 18             	mov    0x18(%rsi),%esi
+  c21888:	48 8b 07             	mov    (%rdi),%rax
+  c2188b:	48 8b 40 28          	mov    0x28(%rax),%rax
+  c2188f:	4c 39 e0             	cmp    %r12,%rax
+  c21892:	75 34                	jne    c218c8 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x83098>
+  c21894:	48 8b 7f 18          	mov    0x18(%rdi),%rdi
+  c21898:	40 0f be f6          	movsbl %sil,%esi
+  c2189c:	e8 1f c7 8b ff       	call   4ddfc0 <QDataStream::operator<<(signed char)@plt>
+  c218a1:	48 8b 7d 18          	mov    0x18(%rbp),%rdi
+  c218a5:	8b 73 1c             	mov    0x1c(%rbx),%esi
+  c218a8:	48 8b 07             	mov    (%rdi),%rax
+  c218ab:	48 8b 40 28          	mov    0x28(%rax),%rax
+  c218af:	4c 39 e0             	cmp    %r12,%rax
+  c218b2:	75 1c                	jne    c218d0 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x830a0>
+  c218b4:	48 8b 7f 18          	mov    0x18(%rdi),%rdi
+  c218b8:	5b                   	pop    %rbx
+  c218b9:	40 0f be f6          	movsbl %sil,%esi
+  c218bd:	5d                   	pop    %rbp
+  c218be:	41 5c                	pop    %r12
+  c218c0:	e9 fb c6 8b ff       	jmp    4ddfc0 <QDataStream::operator<<(signed char)@plt>
+  c218c5:	0f 1f 00             	nopl   (%rax)
+  c218c8:	40 0f b6 f6          	movzbl %sil,%esi
+  c218cc:	ff d0                	call   *%rax
+  c218ce:	eb d1                	jmp    c218a1 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x83071>
+  c218d0:	5b                   	pop    %rbx
+  c218d1:	40 0f b6 f6          	movzbl %sil,%esi
+  c218d5:	5d                   	pop    %rbp
+  c218d6:	41 5c                	pop    %r12
+  c218d8:	ff e0                	jmp    *%rax
+  c218da:	66 0f 1f 44 00 00    	nopw   0x0(%rax,%rax,1)
+  c218e0:	48 8b 7f 18          	mov    0x18(%rdi),%rdi
+  c218e4:	48 8d 15 05 10 09 00 	lea    0x91005(%rip),%rdx        # cb28f0 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x1140c0>
+  c218eb:	8b 76 18             	mov    0x18(%rsi),%esi
+  c218ee:	48 8b 07             	mov    (%rdi),%rax
+  c218f1:	48 8b 40 28          	mov    0x28(%rax),%rax
+  c218f5:	48 39 d0             	cmp    %rdx,%rax
+  c218f8:	75 16                	jne    c21910 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x830e0>
+  c218fa:	48 8b 7f 18          	mov    0x18(%rdi),%rdi
+  c218fe:	40 0f be f6          	movsbl %sil,%esi
+  c21902:	e9 b9 c6 8b ff       	jmp    4ddfc0 <QDataStream::operator<<(signed char)@plt>
+  c21907:	66 0f 1f 84 00 00 00 	nopw   0x0(%rax,%rax,1)
+  c2190e:	00 00 
+  c21910:	40 0f b6 f6          	movzbl %sil,%esi
+  c21914:	ff e0                	jmp    *%rax
+  c21916:	66 2e 0f 1f 84 00 00 	cs nopw 0x0(%rax,%rax,1)
+  c2191d:	00 00 00 
+  c21920:	48 8b 7f 18          	mov    0x18(%rdi),%rdi
+  c21924:	48 8d 15 c5 0f 09 00 	lea    0x90fc5(%rip),%rdx        # cb28f0 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x1140c0>
+  c2192b:	8b 76 18             	mov    0x18(%rsi),%esi
+  c2192e:	48 8b 07             	mov    (%rdi),%rax
+  c21931:	48 8b 40 28          	mov    0x28(%rax),%rax
+  c21935:	48 39 d0             	cmp    %rdx,%rax
+  c21938:	75 16                	jne    c21950 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x83120>
+  c2193a:	48 8b 7f 18          	mov    0x18(%rdi),%rdi
+  c2193e:	40 0f be f6          	movsbl %sil,%esi
+  c21942:	e9 79 c6 8b ff       	jmp    4ddfc0 <QDataStream::operator<<(signed char)@plt>
+  c21947:	66 0f 1f 84 00 00 00 	nopw   0x0(%rax,%rax,1)
+  c2194e:	00 00 
+  c21950:	40 0f b6 f6          	movzbl %sil,%esi
+  c21954:	ff e0                	jmp    *%rax
+  c21956:	66 2e 0f 1f 84 00 00 	cs nopw 0x0(%rax,%rax,1)
+  c2195d:	00 00 00 
+  c21960:	48 8b 7f 18          	mov    0x18(%rdi),%rdi
+  c21964:	48 8d 15 85 0f 09 00 	lea    0x90f85(%rip),%rdx        # cb28f0 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x1140c0>
+  c2196b:	8b 76 18             	mov    0x18(%rsi),%esi
+TARGET 0xc273c0
+  c273c0:	48 8b 97 88 00 00 00 	mov    0x88(%rdi),%rdx
+  c273c7:	48 8b 06             	mov    (%rsi),%rax
+  c273ca:	48 39 d0             	cmp    %rdx,%rax
+  c273cd:	74 71                	je     c27440 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x88c10>
+  c273cf:	55                   	push   %rbp
+  c273d0:	48 89 f5             	mov    %rsi,%rbp
+  c273d3:	48 8d 35 b6 ff ff ff 	lea    -0x4a(%rip),%rsi        # c27390 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x88b60>
+  c273da:	53                   	push   %rbx
+  c273db:	48 89 fb             	mov    %rdi,%rbx
+  c273de:	48 83 ec 08          	sub    $0x8,%rsp
+  c273e2:	48 8b 0f             	mov    (%rdi),%rcx
+  c273e5:	48 8b 89 08 01 00 00 	mov    0x108(%rcx),%rcx
+  c273ec:	48 39 f1             	cmp    %rsi,%rcx
+  c273ef:	0f 85 83 00 00 00    	jne    c27478 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x88c48>
+  c273f5:	48 3b 87 80 00 00 00 	cmp    0x80(%rdi),%rax
+  c273fc:	7f 4a                	jg     c27448 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x88c18>
+  c273fe:	48 39 c2             	cmp    %rax,%rdx
+  c27401:	7c 0d                	jl     c27410 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x88be0>
+  c27403:	48 83 c4 08          	add    $0x8,%rsp
+  c27407:	5b                   	pop    %rbx
+  c27408:	5d                   	pop    %rbp
+  c27409:	c3                   	ret
+  c2740a:	66 0f 1f 44 00 00    	nopw   0x0(%rax,%rax,1)
+  c27410:	48 8b 45 00          	mov    0x0(%rbp),%rax
+  c27414:	48 89 df             	mov    %rbx,%rdi
+  c27417:	31 c9                	xor    %ecx,%ecx
+  c27419:	ba 06 00 00 00       	mov    $0x6,%edx
+  c2741e:	48 8d 35 9b 4f 46 02 	lea    0x2464f9b(%rip),%rsi        # 308c3c0 <QObject::staticMetaObject@Qt_6>
+  c27425:	48 89 83 88 00 00 00 	mov    %rax,0x88(%rbx)
+  c2742c:	48 83 c4 08          	add    $0x8,%rsp
+  c27430:	5b                   	pop    %rbx
+  c27431:	5d                   	pop    %rbp
+  c27432:	e9 89 79 8b ff       	jmp    4dedc0 <QMetaObject::activate(QObject*, QMetaObject const*, int, void**)@plt>
+  c27437:	66 0f 1f 84 00 00 00 	nopw   0x0(%rax,%rax,1)
+  c2743e:	00 00 
+  c27440:	c3                   	ret
+  c27441:	0f 1f 80 00 00 00 00 	nopl   0x0(%rax)
+  c27448:	48 89 87 80 00 00 00 	mov    %rax,0x80(%rdi)
+  c2744f:	ba 06 00 00 00       	mov    $0x6,%edx
+  c27454:	31 c9                	xor    %ecx,%ecx
+  c27456:	48 8d 35 63 4f 46 02 	lea    0x2464f63(%rip),%rsi        # 308c3c0 <QObject::staticMetaObject@Qt_6>
+  c2745d:	e8 5e 79 8b ff       	call   4dedc0 <QMetaObject::activate(QObject*, QMetaObject const*, int, void**)@plt>
+  c27462:	48 8b 45 00          	mov    0x0(%rbp),%rax
+  c27466:	48 8b 93 88 00 00 00 	mov    0x88(%rbx),%rdx
+  c2746d:	48 39 c2             	cmp    %rax,%rdx
+  c27470:	7d 91                	jge    c27403 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x88bd3>
+  c27472:	eb 9c                	jmp    c27410 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x88be0>
+  c27474:	0f 1f 40 00          	nopl   0x0(%rax)
+  c27478:	48 89 ee             	mov    %rbp,%rsi
+  c2747b:	ff d1                	call   *%rcx
+  c2747d:	48 8b 45 00          	mov    0x0(%rbp),%rax
+  c27481:	48 8b 93 88 00 00 00 	mov    0x88(%rbx),%rdx
+  c27488:	48 39 c2             	cmp    %rax,%rdx
+  c2748b:	0f 8d 72 ff ff ff    	jge    c27403 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x88bd3>
+  c27491:	e9 7a ff ff ff       	jmp    c27410 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x88be0>
+  c27496:	66 2e 0f 1f 84 00 00 	cs nopw 0x0(%rax,%rax,1)
+  c2749d:	00 00 00 
+  c274a0:	41 57                	push   %r15
+  c274a2:	41 56                	push   %r14
+  c274a4:	49 89 d6             	mov    %rdx,%r14
+  c274a7:	41 55                	push   %r13
+  c274a9:	41 54                	push   %r12
+  c274ab:	49 89 f4             	mov    %rsi,%r12
+  c274ae:	55                   	push   %rbp
+  c274af:	89 cd                	mov    %ecx,%ebp
+  c274b1:	53                   	push   %rbx
+  c274b2:	48 89 fb             	mov    %rdi,%rbx
+  c274b5:	48 81 ec 98 00 00 00 	sub    $0x98,%rsp
+  c274bc:	48 8b bf 10 02 00 00 	mov    0x210(%rdi),%rdi
+  c274c3:	48 8b 07             	mov    (%rdi),%rax
+  c274c6:	ff 50 10             	call   *0x10(%rax)
+  c274c9:	48 8b bb 40 02 00 00 	mov    0x240(%rbx),%rdi
+  c274d0:	49 89 c5             	mov    %rax,%r13
+  c274d3:	b8 01 00 00 00       	mov    $0x1,%eax
+  c274d8:	48 85 ff             	test   %rdi,%rdi
+  c274db:	0f 84 61 01 00 00    	je     c27642 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x88e12>
+  c274e1:	4c 8d 3d 18 19 32 00 	lea    0x321918(%rip),%r15        # f48e00 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x3aa5d0>
+  c274e8:	e9 ee 00 00 00       	jmp    c275db <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x88dab>
+  c274ed:	0f 1f 00             	nopl   (%rax)
+  c274f0:	48 8b 76 48          	mov    0x48(%rsi),%rsi
+  c274f4:	48 8d 7c 24 30       	lea    0x30(%rsp),%rdi
+  c274f9:	48 8b 06             	mov    (%rsi),%rax
+  c274fc:	ff 50 28             	call   *0x28(%rax)
+  c274ff:	48 8b 44 24 40       	mov    0x40(%rsp),%rax
+  c27504:	48 89 83 60 03 00 00 	mov    %rax,0x360(%rbx)
+  c2750b:	49 39 04 24          	cmp    %rax,(%r12)
+  c2750f:	0f 8e 8d 01 00 00    	jle    c276a2 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x88e72>
+  c27515:	48 8b bb 40 02 00 00 	mov    0x240(%rbx),%rdi
+  c2751c:	48 8d 15 7d ea 31 00 	lea    0x31ea7d(%rip),%rdx        # f45fa0 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x3a7770>
+  c27523:	48 8b 07             	mov    (%rdi),%rax
+TARGET 0xc27390
+  c27390:	48 8b 06             	mov    (%rsi),%rax
+  c27393:	48 3b 87 80 00 00 00 	cmp    0x80(%rdi),%rax
+  c2739a:	7f 04                	jg     c273a0 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x88b70>
+  c2739c:	c3                   	ret
+  c2739d:	0f 1f 00             	nopl   (%rax)
+  c273a0:	48 89 87 80 00 00 00 	mov    %rax,0x80(%rdi)
+  c273a7:	31 c9                	xor    %ecx,%ecx
+  c273a9:	ba 06 00 00 00       	mov    $0x6,%edx
+  c273ae:	48 8d 35 0b 50 46 02 	lea    0x246500b(%rip),%rsi        # 308c3c0 <QObject::staticMetaObject@Qt_6>
+  c273b5:	e9 06 7a 8b ff       	jmp    4dedc0 <QMetaObject::activate(QObject*, QMetaObject const*, int, void**)@plt>
+  c273ba:	66 0f 1f 44 00 00    	nopw   0x0(%rax,%rax,1)
+  c273c0:	48 8b 97 88 00 00 00 	mov    0x88(%rdi),%rdx
+  c273c7:	48 8b 06             	mov    (%rsi),%rax
+  c273ca:	48 39 d0             	cmp    %rdx,%rax
+  c273cd:	74 71                	je     c27440 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x88c10>
+  c273cf:	55                   	push   %rbp
+  c273d0:	48 89 f5             	mov    %rsi,%rbp
+  c273d3:	48 8d 35 b6 ff ff ff 	lea    -0x4a(%rip),%rsi        # c27390 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x88b60>
+  c273da:	53                   	push   %rbx
+  c273db:	48 89 fb             	mov    %rdi,%rbx
+  c273de:	48 83 ec 08          	sub    $0x8,%rsp
+  c273e2:	48 8b 0f             	mov    (%rdi),%rcx
+  c273e5:	48 8b 89 08 01 00 00 	mov    0x108(%rcx),%rcx
+  c273ec:	48 39 f1             	cmp    %rsi,%rcx
+  c273ef:	0f 85 83 00 00 00    	jne    c27478 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x88c48>
+  c273f5:	48 3b 87 80 00 00 00 	cmp    0x80(%rdi),%rax
+  c273fc:	7f 4a                	jg     c27448 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x88c18>
+  c273fe:	48 39 c2             	cmp    %rax,%rdx
+  c27401:	7c 0d                	jl     c27410 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x88be0>
+  c27403:	48 83 c4 08          	add    $0x8,%rsp
+  c27407:	5b                   	pop    %rbx
+  c27408:	5d                   	pop    %rbp
+  c27409:	c3                   	ret
+  c2740a:	66 0f 1f 44 00 00    	nopw   0x0(%rax,%rax,1)
+  c27410:	48 8b 45 00          	mov    0x0(%rbp),%rax
+  c27414:	48 89 df             	mov    %rbx,%rdi
+  c27417:	31 c9                	xor    %ecx,%ecx
+  c27419:	ba 06 00 00 00       	mov    $0x6,%edx
+  c2741e:	48 8d 35 9b 4f 46 02 	lea    0x2464f9b(%rip),%rsi        # 308c3c0 <QObject::staticMetaObject@Qt_6>
+  c27425:	48 89 83 88 00 00 00 	mov    %rax,0x88(%rbx)
+  c2742c:	48 83 c4 08          	add    $0x8,%rsp
+  c27430:	5b                   	pop    %rbx
+  c27431:	5d                   	pop    %rbp
+  c27432:	e9 89 79 8b ff       	jmp    4dedc0 <QMetaObject::activate(QObject*, QMetaObject const*, int, void**)@plt>
+  c27437:	66 0f 1f 84 00 00 00 	nopw   0x0(%rax,%rax,1)
+  c2743e:	00 00 
+  c27440:	c3                   	ret
+  c27441:	0f 1f 80 00 00 00 00 	nopl   0x0(%rax)
+  c27448:	48 89 87 80 00 00 00 	mov    %rax,0x80(%rdi)
+  c2744f:	ba 06 00 00 00       	mov    $0x6,%edx
+  c27454:	31 c9                	xor    %ecx,%ecx
+  c27456:	48 8d 35 63 4f 46 02 	lea    0x2464f63(%rip),%rsi        # 308c3c0 <QObject::staticMetaObject@Qt_6>
+  c2745d:	e8 5e 79 8b ff       	call   4dedc0 <QMetaObject::activate(QObject*, QMetaObject const*, int, void**)@plt>
+  c27462:	48 8b 45 00          	mov    0x0(%rbp),%rax
+  c27466:	48 8b 93 88 00 00 00 	mov    0x88(%rbx),%rdx
+  c2746d:	48 39 c2             	cmp    %rax,%rdx
+  c27470:	7d 91                	jge    c27403 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x88bd3>
+  c27472:	eb 9c                	jmp    c27410 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x88be0>
+  c27474:	0f 1f 40 00          	nopl   0x0(%rax)
+  c27478:	48 89 ee             	mov    %rbp,%rsi
+  c2747b:	ff d1                	call   *%rcx
+  c2747d:	48 8b 45 00          	mov    0x0(%rbp),%rax
+  c27481:	48 8b 93 88 00 00 00 	mov    0x88(%rbx),%rdx
+  c27488:	48 39 c2             	cmp    %rax,%rdx
+  c2748b:	0f 8d 72 ff ff ff    	jge    c27403 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x88bd3>
+  c27491:	e9 7a ff ff ff       	jmp    c27410 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x88be0>
+  c27496:	66 2e 0f 1f 84 00 00 	cs nopw 0x0(%rax,%rax,1)
+  c2749d:	00 00 00 
+  c274a0:	41 57                	push   %r15
+  c274a2:	41 56                	push   %r14
+  c274a4:	49 89 d6             	mov    %rdx,%r14
+  c274a7:	41 55                	push   %r13
+  c274a9:	41 54                	push   %r12
+  c274ab:	49 89 f4             	mov    %rsi,%r12
+  c274ae:	55                   	push   %rbp
+  c274af:	89 cd                	mov    %ecx,%ebp
+  c274b1:	53                   	push   %rbx
+  c274b2:	48 89 fb             	mov    %rdi,%rbx
+  c274b5:	48 81 ec 98 00 00 00 	sub    $0x98,%rsp
+  c274bc:	48 8b bf 10 02 00 00 	mov    0x210(%rdi),%rdi
+  c274c3:	48 8b 07             	mov    (%rdi),%rax
+  c274c6:	ff 50 10             	call   *0x10(%rax)
+  c274c9:	48 8b bb 40 02 00 00 	mov    0x240(%rbx),%rdi
+  c274d0:	49 89 c5             	mov    %rax,%r13
+  c274d3:	b8 01 00 00 00       	mov    $0x1,%eax
+  c274d8:	48 85 ff             	test   %rdi,%rdi
+  c274db:	0f 84 61 01 00 00    	je     c27642 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x88e12>
+  c274e1:	4c 8d 3d 18 19 32 00 	lea    0x321918(%rip),%r15        # f48e00 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x3aa5d0>
+  c274e8:	e9 ee 00 00 00       	jmp    c275db <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x88dab>
+  c274ed:	0f 1f 00             	nopl   (%rax)
+TARGET 0xc26350
+  c26350:	41 57                	push   %r15
+  c26352:	4c 8d 7f 58          	lea    0x58(%rdi),%r15
+  c26356:	41 56                	push   %r14
+  c26358:	41 55                	push   %r13
+  c2635a:	49 89 f5             	mov    %rsi,%r13
+  c2635d:	41 54                	push   %r12
+  c2635f:	49 89 fc             	mov    %rdi,%r12
+  c26362:	55                   	push   %rbp
+  c26363:	89 d5                	mov    %edx,%ebp
+  c26365:	53                   	push   %rbx
+  c26366:	48 83 ec 18          	sub    $0x18,%rsp
+  c2636a:	48 8b 47 60          	mov    0x60(%rdi),%rax
+  c2636e:	48 85 c0             	test   %rax,%rax
+  c26371:	0f 84 e9 00 00 00    	je     c26460 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x87c30>
+  c26377:	48 8b 36             	mov    (%rsi),%rsi
+  c2637a:	4c 89 fb             	mov    %r15,%rbx
+  c2637d:	0f 1f 00             	nopl   (%rax)
+  c26380:	48 8b 50 10          	mov    0x10(%rax),%rdx
+  c26384:	48 8b 48 18          	mov    0x18(%rax),%rcx
+  c26388:	48 3b 70 20          	cmp    0x20(%rax),%rsi
+  c2638c:	7f 19                	jg     c263a7 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x87b77>
+  c2638e:	48 89 c3             	mov    %rax,%rbx
+  c26391:	48 85 d2             	test   %rdx,%rdx
+  c26394:	74 22                	je     c263b8 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x87b88>
+  c26396:	48 89 d0             	mov    %rdx,%rax
+  c26399:	48 8b 50 10          	mov    0x10(%rax),%rdx
+  c2639d:	48 8b 48 18          	mov    0x18(%rax),%rcx
+  c263a1:	48 3b 70 20          	cmp    0x20(%rax),%rsi
+  c263a5:	7e e7                	jle    c2638e <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x87b5e>
+  c263a7:	48 85 c9             	test   %rcx,%rcx
+  c263aa:	74 0c                	je     c263b8 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x87b88>
+  c263ac:	48 89 c8             	mov    %rcx,%rax
+  c263af:	eb cf                	jmp    c26380 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x87b50>
+  c263b1:	0f 1f 80 00 00 00 00 	nopl   0x0(%rax)
+  c263b8:	49 39 df             	cmp    %rbx,%r15
+  c263bb:	0f 84 9f 00 00 00    	je     c26460 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x87c30>
+  c263c1:	48 3b 73 20          	cmp    0x20(%rbx),%rsi
+  c263c5:	7d 7d                	jge    c26444 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x87c14>
+  c263c7:	bf 30 00 00 00       	mov    $0x30,%edi
+  c263cc:	e8 9f 92 8b ff       	call   4df670 <operator new(unsigned long)@plt>
+  c263d1:	4d 8b 6d 00          	mov    0x0(%r13),%r13
+  c263d5:	c7 40 28 00 00 00 00 	movl   $0x0,0x28(%rax)
+  c263dc:	49 89 c6             	mov    %rax,%r14
+  c263df:	4c 89 68 20          	mov    %r13,0x20(%rax)
+  c263e3:	48 8b 53 20          	mov    0x20(%rbx),%rdx
+  c263e7:	4c 89 e9             	mov    %r13,%rcx
+  c263ea:	49 39 d5             	cmp    %rdx,%r13
+  c263ed:	0f 8d 25 01 00 00    	jge    c26518 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x87ce8>
+  c263f3:	4d 8b 44 24 68       	mov    0x68(%r12),%r8
+  c263f8:	49 39 d8             	cmp    %rbx,%r8
+  c263fb:	4c 89 04 24          	mov    %r8,(%rsp)
+  c263ff:	74 24                	je     c26425 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x87bf5>
+  c26401:	48 89 df             	mov    %rbx,%rdi
+  c26404:	e8 e7 7b 8b ff       	call   4ddff0 <std::_Rb_tree_decrement(std::_Rb_tree_node_base*)@plt>
+  c26409:	4c 8b 04 24          	mov    (%rsp),%r8
+  c2640d:	4c 3b 68 20          	cmp    0x20(%rax),%r13
+  c26411:	48 89 c6             	mov    %rax,%rsi
+  c26414:	0f 8e 90 01 00 00    	jle    c265aa <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x87d7a>
+  c2641a:	48 83 78 18 00       	cmpq   $0x0,0x18(%rax)
+  c2641f:	0f 84 bc 00 00 00    	je     c264e1 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x87cb1>
+  c26425:	48 89 de             	mov    %rbx,%rsi
+  c26428:	bf 01 00 00 00       	mov    $0x1,%edi
+  c2642d:	4c 89 f3             	mov    %r14,%rbx
+  c26430:	48 89 f2             	mov    %rsi,%rdx
+  c26433:	4c 89 f9             	mov    %r15,%rcx
+  c26436:	4c 89 f6             	mov    %r14,%rsi
+  c26439:	e8 a2 75 8b ff       	call   4dd9e0 <std::_Rb_tree_insert_and_rebalance(bool, std::_Rb_tree_node_base*, std::_Rb_tree_node_base*, std::_Rb_tree_node_base&)@plt>
+  c2643e:	49 83 44 24 78 01    	addq   $0x1,0x78(%r12)
+  c26444:	89 6b 28             	mov    %ebp,0x28(%rbx)
+  c26447:	48 83 c4 18          	add    $0x18,%rsp
+  c2644b:	5b                   	pop    %rbx
+  c2644c:	5d                   	pop    %rbp
+  c2644d:	41 5c                	pop    %r12
+  c2644f:	41 5d                	pop    %r13
+  c26451:	41 5e                	pop    %r14
+  c26453:	41 5f                	pop    %r15
+  c26455:	c3                   	ret
+  c26456:	66 2e 0f 1f 84 00 00 	cs nopw 0x0(%rax,%rax,1)
+  c2645d:	00 00 00 
+  c26460:	bf 30 00 00 00       	mov    $0x30,%edi
+  c26465:	e8 06 92 8b ff       	call   4df670 <operator new(unsigned long)@plt>
+  c2646a:	49 83 7c 24 78 00    	cmpq   $0x0,0x78(%r12)
+  c26470:	49 89 c6             	mov    %rax,%r14
+  c26473:	49 8b 45 00          	mov    0x0(%r13),%rax
+  c26477:	41 c7 46 28 00 00 00 	movl   $0x0,0x28(%r14)
+  c2647e:	00 
+  c2647f:	49 89 46 20          	mov    %rax,0x20(%r14)
+  c26483:	74 0f                	je     c26494 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x87c64>
+  c26485:	49 8b 74 24 70       	mov    0x70(%r12),%rsi
+  c2648a:	49 8b 46 20          	mov    0x20(%r14),%rax
+
+METHOD_NAME_FILE_OFFSETS
+handleFullMapMessage=0x1cd8c2f
+handleLeftColumnMessage=0x1cd8c87
+handleRightColumnMessage=0x1cd8ce8
+handleTopRowMessage=0x1cd8d4c
+handleBottomRowMessage=0x1cd8da1
+handleTopFloorMessage=0x1cd8dff
+handleBottomFloorMessage=0x1cd8e5a
+handleFieldDataMessage=0x1cd8ebe
+handleCreateOnMapMessage=0x1cd8f1c
+handleChangeOnMapMessage=0x1cd8f80
+handleDeleteOnMapMessage=0x1cd8fe4
+handleAmbientLightMessage=0x1cd9048
+handleTibiaTimeMessage=0x1cd90af
+receivedFullMapMessage=0x1ccbab9
+receivedLeftColumnMessage=0x1ccbb13
+receivedRightColumnMessage=0x1ccbb76
+receivedTopRowMessage=0x1ccbbdc
+receivedBottomRowMessage=0x1ccbc33
+receivedTopFloorMessage=0x1ccbe55
+receivedBottomFloorMessage=0x1ccbeb2
+receivedFieldDataMessage=0x1ccbc93
+receivedCreateOnMapMessage=0x1ccbfe4
+receivedChangeOnMapMessage=0x1ccbf18
+receivedDeleteOnMapMessage=0x1ccbf7e
+receivedAmbientLightMessage=0x1ccbcf3
+receivedTibiaTimeMessage=0x1cce706
+```
+
+<!-- END GENERATED WORLDMAP VTABLE -->
