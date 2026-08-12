@@ -143,11 +143,11 @@ def test_image_rollback_never_claims_database_rollback() -> None:
 
 
 def main() -> None:
-    tests = sorted(
+    tests = [
         value
-        for name, value in globals().items()
+        for name, value in sorted(globals().items())
         if name.startswith("test_") and callable(value)
-    )
+    ]
     for test in tests:
         test()
     print(f"synology rollback contract: PASS ({len(tests)} tests)")
