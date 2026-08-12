@@ -74,6 +74,30 @@ def run_release_sha(platform_sha: str, gateway_sha: str, *, explicit_sha: str = 
         )
 
 
+def run_image_contract(payload: str) -> subprocess.CompletedProcess[str]:
+    with tempfile.TemporaryDirectory() as td:
+        root = pathlib.Path(td)
+        docker = root / "docker"
+        docker.write_text(
+            "#!/usr/bin/env bash\n"
+            "set -euo pipefail\n"
+            "if [[ \"${1:-}\" == run ]]; then cat \"$OTERYN_TEST_CONTRACT\"; exit 0; fi\n"
+            "exit 9\n"
+        )
+        docker.chmod(0o755)
+        contract = root / "contract.env"
+        contract.write_text(payload)
+        env = os.environ.copy()
+        env.update({"PATH": f"{root}:{env['PATH']}", "OTERYN_TEST_CONTRACT": str(contract)})
+        return subprocess.run(
+            ["bash", "-c", 'source "$1"; _oteryn_contract_from_platform_image example/platform:test', "bash", str(LIB)],
+            text=True,
+            capture_output=True,
+            check=False,
+            env=env,
+        )
+
+
 def test_compatible_rollback_is_accepted() -> None:
     with tempfile.TemporaryDirectory() as td:
         root = pathlib.Path(td)
@@ -176,6 +200,55 @@ def test_release_sha_rejects_conflicting_explicit_identity() -> None:
     result = run_release_sha(NEW_SHA, NEW_SHA, explicit_sha=OLD_SHA)
     assert result.returncode != 0
     assert "OTERYN_RELEASE_SHA disagrees" in result.stderr
+
+
+def test_candidate_contract_is_loaded_from_platform_image() -> None:
+    result = run_image_contract(
+        "OTERYN_MIGRATION_POLICY=expand-contract\n"
+        "OTERYN_SCHEMA_COMPATIBILITY_ID=schema-v2\n"
+        "OTERYN_APP_ACCEPTS_SCHEMA_IDS=schema-v1,schema-v2\n"
+    )
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == "expand-contract\tschema-v2\tschema-v1,schema-v2"
+
+
+def test_candidate_contract_rejects_unexpected_image_metadata() -> None:
+    result = run_image_contract(
+        "OTERYN_MIGRATION_POLICY=expand-contract\n"
+        "OTERYN_SCHEMA_COMPATIBILITY_ID=schema-v2\n"
+        "OTERYN_APP_ACCEPTS_SCHEMA_IDS=schema-v2\n"
+        "UNTRUSTED_OVERRIDE=yes\n"
+    )
+    assert result.returncode != 0
+    assert "Unexpected release contract key" in result.stderr
+
+
+def test_legacy_bootstrap_uses_immutable_running_image_snapshot() -> None:
+    lib = LIB.read_text()
+    deploy = (SCRIPTS / "deploy.sh").read_text()
+    assert "image_id=\"$(docker inspect --format '{{.Image}}' \"$container_id\")\"" in deploy
+    assert "release-state.sh\" resolve-image \"$image_id\"" in deploy
+    assert deploy.index("snapshot_current_images") < deploy.index('"${compose[@]}" pull')
+    assert "observed_schema=\"observed-${old_sha}\"" in lib
+    assert "Legacy running-release snapshot is incomplete; refusing migration." in lib
+
+
+def test_legacy_bootstrap_does_not_replace_candidate_image_variables() -> None:
+    lib = LIB.read_text()
+    start = lib.index("_oteryn_bootstrap_legacy_current_release()")
+    end = lib.index("_oteryn_before_platform_migrate()", start)
+    bootstrap = lib[start:end]
+    assert "mapfile -t legacy_images" in bootstrap
+    assert "unset PLATFORM_IMAGE GATEWAY_IMAGE CANARY_IMAGE" not in bootstrap
+    assert "source \"$legacy_file\"" not in bootstrap
+
+
+def test_existing_database_without_baseline_fails_closed() -> None:
+    lib = LIB.read_text()
+    assert "Existing Platform DB has no managed application baseline; refusing migration before backup-capable baseline is proven." in lib
+    bootstrap = lib.index("_oteryn_bootstrap_legacy_current_release")
+    candidate = lib.index('release-state.sh\" write \"$state_dir/candidate-release.env', bootstrap)
+    assert bootstrap < candidate
 
 
 def test_health_probe_helpers_are_repository_pinned_by_digest() -> None:
