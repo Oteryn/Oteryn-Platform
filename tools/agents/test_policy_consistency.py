@@ -275,6 +275,11 @@ class PolicyConsistencyTests(unittest.TestCase):
         self._append_root(root, "- Writes to acme/production are allowed only when explicit permission is granted by the project owner for the current task.")
         self.assertEqual([], validate_policy(root))
 
+    def test_passive_deployment_permission_does_not_unlock_foreign_repository_writes(self) -> None:
+        temporary, root = self._fixture(); self.addCleanup(temporary.cleanup)
+        self._append_root(root, "- Writes to acme/production are allowed only when explicit permission for deployment is granted by the project owner for the current task.")
+        self.assertIn("acme/production", self._findings(root))
+
     def test_denied_passive_authorization_is_not_an_exception(self) -> None:
         temporary, root = self._fixture(); self.addCleanup(temporary.cleanup)
         self._append_root(root, "- Writes to acme/production are allowed only when explicit permission is denied by the project owner for the current task.")
