@@ -15,7 +15,7 @@ env:
 
 jobs:
   inspect:
-    name: Discover Tibia appearance catalogs
+    name: Inspect captured Tibia appearance IDs
     runs-on: oteryn-staging
     timeout-minutes: 6
     steps:
@@ -29,39 +29,59 @@ jobs:
           [[ "$(docker inspect --format '{{.State.Status}}' "$CONTAINER_NAME")" == "running" ]]
           docker ps -a --filter 'label=com.docker.compose.project=oteryn-staging' --format '{{.ID}}\t{{.Names}}' | sort >/tmp/oteryn-before.tsv
 
-      - name: Discover appearance metadata without dumping assets
+      - name: Locate appearance catalog and inspect captured IDs
         shell: bash
         run: |
           set -Eeuo pipefail
           docker exec -i "$CONTAINER_NAME" bash <<'INNER'
           set -Eeuo pipefail
           pkg='/data/home/.local/share/CipSoft GmbH/Tibia/packages/Tibia'
-          echo ROOT_METADATA_BEGIN
-          find "$pkg" -maxdepth 1 -type f -printf '%s\t%f\n' | sort -k2
-          echo ROOT_METADATA_END
+          echo CATALOG_FILES_BEGIN
+          find "$pkg" -type f \( -name '*catalog-content*.json' -o -name 'catalog-content.json' \) -printf '%s\t%p\n' | sort
+          echo CATALOG_FILES_END
+          catalog=$(find "$pkg" -type f \( -name '*catalog-content*.json' -o -name 'catalog-content.json' \) | head -n1)
+          [[ -n "$catalog" ]]
+          echo CATALOG_PATH="$catalog"
+          python3 - "$catalog" <<'PY'
+          import json,sys,os
+          p=sys.argv[1]
+          data=json.load(open(p,'r',encoding='utf-8'))
+          print('CATALOG_ENTRY_COUNT',len(data))
+          for obj in data:
+              t=obj.get('type')
+              if t in ('appearances','sprite'):
+                  print('CATALOG_ENTRY',json.dumps(obj,sort_keys=True,separators=(',',':')))
+          apps=[o for o in data if o.get('type')=='appearances']
+          if len(apps)!=1:
+              raise SystemExit(f'expected exactly one appearances entry, got {len(apps)}')
+          print('APPEARANCES_RELATIVE_FILE',apps[0].get('file'))
+          PY
+          rel=$(python3 - "$catalog" <<'PY'
+          import json,sys
+          data=json.load(open(sys.argv[1],'r',encoding='utf-8'))
+          print([o for o in data if o.get('type')=='appearances'][0]['file'])
+          PY
+          )
+          base=$(dirname "$catalog")
+          app="$base/$rel"
+          [[ -f "$app" ]]
+          echo APPEARANCES_FILE="$app"
+          echo APPEARANCES_SIZE=$(stat -c %s "$app")
+          echo APPEARANCES_SHA256=$(sha256sum "$app" | awk '{print $1}')
 
-          echo EXACT_CANDIDATE_NAMES_BEGIN
-          find "$pkg" -type f -printf '%s\t%p\n' \
-            | grep -Ei '/(appearances?|objects?|items?|things?|catalog[^/]*|assets\.json|package\.json)([-_.]|$)' \
-            | grep -Ev '/(qml|3rdpartylicences)/' \
-            | sed -n '1,300p' || true
-          echo EXACT_CANDIDATE_NAMES_END
+          # Look for an already installed decoder/protobuf schema before adding any dependency.
+          echo PROTO_DECODER_CANDIDATES_BEGIN
+          find /data "$pkg" -type f \( -name 'appearances.proto' -o -name 'appearances_pb2.py' -o -name 'appearances.pb.h' \) -printf '%p\n' 2>/dev/null | sed -n '1,80p' || true
+          echo PROTO_DECODER_CANDIDATES_END
 
-          for f in "$pkg/assets.json" "$pkg/package.json"; do
-            if [[ -f "$f" ]]; then
-              echo MANIFEST_FILE="$f" SIZE=$(stat -c %s "$f")
-              echo MANIFEST_APPEARANCE_LINES_BEGIN
-              grep -niE 'appear|object|item|thing|catalog' "$f" | sed -n '1,220p' || true
-              echo MANIFEST_APPEARANCE_LINES_END
-            fi
-          done
+          # The official client binary embeds protobuf descriptors. Record only schema tokens needed for classification.
+          client=/data/client-15.32.df7b29/bin/client
+          echo APPEARANCE_SCHEMA_TOKENS_BEGIN
+          strings -a "$client" | grep -E '^(Appearances|Appearance|AppearanceFlags|bank|fullbank|clip|waypoints|objectID|objectCount|upgradeTier|liquidType)$' | sort -u || true
+          echo APPEARANCE_SCHEMA_TOKENS_END
 
-          echo ASSET_BASENAME_CLASSES_BEGIN
-          find "$pkg/assets" -maxdepth 1 -type f -printf '%f\n' \
-            | sed -E 's/-[0-9a-f]{64}\.[^.]+(\.lzma)?$//' \
-            | sed -E 's/-[0-9]{2,}.*$//' \
-            | sort | uniq -c | sort -nr | sed -n '1,120p'
-          echo ASSET_BASENAME_CLASSES_END
+          # Preserve a tiny binary sample metadata only; never print proprietary protobuf bytes.
+          echo CAPTURED_IDS=4407,313,6379,19394,6217
           INNER
 
       - name: Verify authenticated session retained and staging unchanged
