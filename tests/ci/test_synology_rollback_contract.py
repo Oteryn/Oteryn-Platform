@@ -33,9 +33,10 @@ def release(path: pathlib.Path, *, sha: str, schema: str, accepts: str, eligible
     )
 
 
-def run_compatible(current: pathlib.Path, old: pathlib.Path, schema: str = "schema-v2") -> subprocess.CompletedProcess[str]:
+def run_compatible(candidate: pathlib.Path, old: pathlib.Path, schema: str = "schema-v2") -> subprocess.CompletedProcess[str]:
+    candidate_sha = next(line.split("=", 1)[1] for line in candidate.read_text().splitlines() if line.startswith("RELEASE_SHA="))
     return subprocess.run(
-        ["bash", str(RELEASE_STATE), "compatible", str(current), str(old), schema],
+        ["bash", str(RELEASE_STATE), "compatible-schema", schema, str(old), candidate_sha],
         text=True,
         capture_output=True,
         check=False,
