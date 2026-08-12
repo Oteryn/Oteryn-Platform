@@ -18,6 +18,15 @@ TOP_LEVEL_PERMISSIONS = re.compile(
     r"(?m)^permissions:\s*(?:\{\s*\}|read-all|write-all)?\s*$"
 )
 DIRECT_MAPPING_KEY = re.compile(r"^  ([A-Za-z0-9_-]+):(?:\s.*)?$")
+SUPPORTED_EVENTS = frozenset(
+    {
+        "pull_request",
+        "push",
+        "schedule",
+        "workflow_call",
+        "workflow_dispatch",
+    }
+)
 
 
 class WorkflowInventoryError(RuntimeError):
@@ -57,6 +66,15 @@ def _top_level_on_events(text: str) -> set[str]:
 def classify_workflow(path: Path, text: str) -> str:
     name = path.name
     events = _top_level_on_events(text)
+    unsupported_events = events - SUPPORTED_EVENTS
+
+    if not events:
+        raise WorkflowInventoryError(f"unclassified workflow: {path.as_posix()} (no supported top-level event)")
+    if unsupported_events:
+        rendered = ", ".join(sorted(unsupported_events))
+        raise WorkflowInventoryError(
+            f"unclassified workflow: {path.as_posix()} (unsupported top-level event(s): {rendered})"
+        )
 
     if name == "ci.yml":
         return "required_core"
