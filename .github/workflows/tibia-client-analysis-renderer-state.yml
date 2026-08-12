@@ -1,0 +1,139 @@
+name: Tibia Client Renderer State
+
+on:
+  push:
+    branches: [ops/oteryn-tibia-client-analysis-20260811]
+    paths: [.github/workflows/tibia-client-analysis-renderer-state.yml]
+
+permissions:
+  contents: read
+
+env:
+  CONTAINER_NAME: oteryn-tibia-client-analysis
+
+jobs:
+  inspect:
+    name: Inspect renderer config and graphics devices safely
+    runs-on: oteryn-staging
+    timeout-minutes: 4
+    steps:
+      - name: Verify ownership and inspect host graphics devices
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          [[ "$RUNNER_NAME" == "oteryn-synology-staging" ]]
+          [[ "$(docker inspect --format '{{ index .Config.Labels "com.blakinio.owner" }}' "$CONTAINER_NAME")" == "oteryn" ]]
+          [[ "$(docker inspect --format '{{ index .Config.Labels "com.blakinio.purpose" }}' "$CONTAINER_NAME")" == "tibia-client-analysis" ]]
+          docker ps -a --filter 'label=com.docker.compose.project=oteryn-staging' --format '{{.ID}}\t{{.Names}}' | sort >/tmp/oteryn-before.tsv
+          if [[ -d /dev/dri ]]; then
+            echo HOST_DRI_PRESENT=true
+            echo HOST_DRI_NODE_COUNT=$(find /dev/dri -maxdepth 1 -type c 2>/dev/null | wc -l | tr -d ' ')
+            echo HOST_DRI_RENDER_NODE_COUNT=$(find /dev/dri -maxdepth 1 -type c -name 'renderD*' 2>/dev/null | wc -l | tr -d ' ')
+          else
+            echo HOST_DRI_PRESENT=false
+            echo HOST_DRI_NODE_COUNT=0
+            echo HOST_DRI_RENDER_NODE_COUNT=0
+          fi
+
+      - name: Inspect client-side renderer configuration and capabilities
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          docker exec -i "$CONTAINER_NAME" bash <<'INNER'
+          set -Eeuo pipefail
+          export HOME=/data/home DISPLAY=:99
+          echo CONTAINER_DRI_PRESENT=$(test -d /dev/dri && echo true || echo false)
+          echo CONTAINER_DRI_NODE_COUNT=$(find /dev/dri -maxdepth 1 -type c 2>/dev/null | wc -l | tr -d ' ')
+          echo CONTAINER_DRI_RENDER_NODE_COUNT=$(find /dev/dri -maxdepth 1 -type c -name 'renderD*' 2>/dev/null | wc -l | tr -d ' ')
+
+          pkg="$HOME/.local/share/CipSoft GmbH/Tibia/packages/Tibia"
+          client="$pkg/bin/client"
+          [[ -x "$client" ]]
+          echo CLIENT_BINARY_PRESENT=true
+
+          python3 - <<'PY'
+          from pathlib import Path
+          roots=[
+              Path('/data/home/.local/share/CipSoft GmbH/Tibia'),
+              Path('/data/home/.config'),
+              Path('/data/home/.cache'),
+          ]
+          candidates=[]
+          for root in roots:
+              if not root.exists(): continue
+              for p in root.rglob('*'):
+                  if not p.is_file(): continue
+                  try:
+                      if p.stat().st_size > 5_000_000: continue
+                  except OSError: continue
+                  n=p.name.lower()
+                  if any(k in n for k in ('config','option','setting','client')) or p.suffix.lower() in {'.json','.ini','.conf','.cfg','.xml'}:
+                      candidates.append(p)
+          print(f'RENDERER_CONFIG_CANDIDATE_COUNT={len(candidates)}')
+          hits=[]
+          for p in candidates[:1000]:
+              try: text=p.read_text(errors='replace')
+              except Exception: continue
+              low=text.lower()
+              if not any(k in low for k in ('renderer','rendering','vulkan','opengl','graphicsengine','graphics engine','graphicsapi','graphics api')):
+                  continue
+              # Emit only generic graphics key/value vocabulary, never arbitrary config/user strings.
+              for line in text.splitlines():
+                  ll=line.lower()
+                  if not any(k in ll for k in ('renderer','rendering','vulkan','opengl','graphicsengine','graphics engine','graphicsapi','graphics api')):
+                      continue
+                  words=[]
+                  for token in ll.replace('=',' ').replace(':',' ').replace('"',' ').replace("'",' ').replace(',',' ').split():
+                      clean=''.join(c for c in token if c.isalnum() or c in '_-')
+                      if clean in {'renderer','rendering','vulkan','opengl','graphicsengine','graphics_engine','graphicsapi','graphics_api','graphics','engine','api','auto','automatic','software','hardware','enabled','disabled','true','false','0','1','2','3','4'} and clean not in words:
+                          words.append(clean)
+                  if words:
+                      sig=' '.join(words)
+                      if sig not in hits: hits.append(sig)
+          print(f'RENDERER_CONFIG_SIGNATURE_COUNT={len(hits)}')
+          for i,s in enumerate(hits[:40],1): print(f'RENDERER_CONFIG_SIGNATURE_{i}={s}')
+          PY
+
+          strings "$client" | grep -Eai '(vulkan|opengl|graphics.?api|render(er|ing).*(vulkan|opengl)|(vulkan|opengl).*render)' | head -n 300 >/tmp/renderer-strings.txt || true
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          raw=Path('/tmp/renderer-strings.txt').read_text(errors='replace').lower()
+          vocab={'vulkan','opengl','renderer','rendering','graphics','api','engine','backend','auto','automatic','software','hardware','fallback','available','unavailable','failed','failure','initialize','initialization','device','driver','mesa','glx','egl'}
+          sigs=[]
+          for line in raw.splitlines():
+              kept=[]
+              for w in re.findall(r'[a-z]+',line):
+                  if w in vocab and w not in kept: kept.append(w)
+              if kept:
+                  sig=' '.join(kept)
+                  if sig not in sigs: sigs.append(sig)
+          print(f'CLIENT_RENDERER_BINARY_SIGNATURE_COUNT={len(sigs)}')
+          for i,s in enumerate(sigs[:50],1): print(f'CLIENT_RENDERER_BINARY_SIGNATURE_{i}={s}')
+          PY
+
+          for p in /usr/share/vulkan/icd.d/*.json /etc/vulkan/icd.d/*.json; do
+            [[ -f "$p" ]] || continue
+            base=$(basename "$p")
+            case "$base" in
+              *lvp*|*lavapipe*) echo VULKAN_ICD_LAVAPIPE=true ;;
+              *intel*) echo VULKAN_ICD_INTEL=true ;;
+              *radeon*|*amd*) echo VULKAN_ICD_AMD=true ;;
+              *nvidia*) echo VULKAN_ICD_NVIDIA=true ;;
+            esac
+          done
+          if ! compgen -G '/usr/share/vulkan/icd.d/*.json' >/dev/null && ! compgen -G '/etc/vulkan/icd.d/*.json' >/dev/null; then
+            echo VULKAN_ICD_PRESENT=false
+          else
+            echo VULKAN_ICD_PRESENT=true
+          fi
+          INNER
+
+      - name: Verify canonical staging unchanged
+        if: always()
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          docker ps -a --filter 'label=com.docker.compose.project=oteryn-staging' --format '{{.ID}}\t{{.Names}}' | sort >/tmp/oteryn-after.tsv
+          diff -u /tmp/oteryn-before.tsv /tmp/oteryn-after.tsv
+          docker inspect --format 'analysis_name={{.Name}} status={{.State.Status}} owner={{ index .Config.Labels "com.blakinio.owner" }} purpose={{ index .Config.Labels "com.blakinio.purpose" }}' "$CONTAINER_NAME"
