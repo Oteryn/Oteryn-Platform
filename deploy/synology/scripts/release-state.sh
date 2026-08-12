@@ -17,6 +17,7 @@ contains_schema_id() {
 validate_release_file() {
     local file="$1"
     [[ -f "$file" ]] || { echo "Missing release metadata: $file" >&2; return 1; }
+    unset RELEASE_SHA PLATFORM_IMAGE GATEWAY_IMAGE CANARY_IMAGE SCHEMA_COMPATIBILITY_ID APP_ACCEPTS_SCHEMA_IDS MIGRATION_POLICY ROLLBACK_ELIGIBLE
     # shellcheck disable=SC1090
     source "$file"
     is_sha "${RELEASE_SHA:-}" || { echo "Invalid or missing RELEASE_SHA" >&2; return 1; }
@@ -29,17 +30,16 @@ validate_release_file() {
     [[ "${ROLLBACK_ELIGIBLE:-}" =~ ^[01]$ ]] || { echo "Missing/invalid ROLLBACK_ELIGIBLE" >&2; return 1; }
 }
 
-assert_rollback_compatible() {
-    local current_file="$1" last_good_file="$2"
-    validate_release_file "$current_file" || return 1
-    local current_release_sha="$RELEASE_SHA" current_schema="$SCHEMA_COMPATIBILITY_ID"
+assert_schema_compatible() {
+    local schema_id="$1" last_good_file="$2" candidate_sha="$3"
+    is_schema_id "$schema_id" || { echo "Current schema identity is invalid" >&2; return 1; }
+    is_sha "$candidate_sha" || { echo "Candidate release identity is invalid" >&2; return 1; }
     validate_release_file "$last_good_file" || return 1
     local old_sha="$RELEASE_SHA" old_accepts="$APP_ACCEPTS_SCHEMA_IDS" old_eligible="$ROLLBACK_ELIGIBLE"
-
-    [[ "$current_release_sha" != "$old_sha" ]] || { echo "Last-good identity is stale: it equals current release" >&2; return 1; }
+    [[ "$candidate_sha" != "$old_sha" ]] || { echo "Last-good identity is stale: it equals candidate release" >&2; return 1; }
     [[ "$old_eligible" == 1 ]] || { echo "Last-good release is explicitly ineligible for image rollback" >&2; return 1; }
-    contains_schema_id "$current_schema" "$old_accepts" || {
-        echo "Rollback rejected: last-good application does not declare compatibility with current schema '$current_schema'." >&2
+    contains_schema_id "$schema_id" "$old_accepts" || {
+        echo "Rollback rejected: last-good application does not declare compatibility with current schema '$schema_id'." >&2
         return 1
     }
 }
@@ -70,6 +70,12 @@ SCHEMA_COMPATIBILITY_ID=$schema_id
 APP_ACCEPTS_SCHEMA_IDS=$accepts
 MIGRATION_POLICY=expand-contract
 ROLLBACK_ELIGIBLE=$eligible
+GAME_WORLD_ID=${GAME_WORLD_ID:-}
+GAME_WORLD_SLUG=${GAME_WORLD_SLUG:-}
+GAME_WORLD_NAME=${GAME_WORLD_NAME:-}
+GAME_WORLD_REGION=${GAME_WORLD_REGION:-}
+GAME_WORLD_HOST=${GAME_WORLD_HOST:-}
+GAME_WORLD_PORT=${GAME_WORLD_PORT:-}
 EOF
     validate_release_file "$tmp"
     mv "$tmp" "$out"
@@ -77,8 +83,8 @@ EOF
 
 case "${1:-}" in
     validate) validate_release_file "$2" ;;
-    compatible) assert_rollback_compatible "$2" "$3" ;;
+    compatible-schema) assert_schema_compatible "$2" "$3" "$4" ;;
     resolve-image) resolve_image "$2" ;;
     write) write_release "$2" "$3" "$4" "$5" "$6" "$7" "$8" "$9" ;;
-    *) echo "usage: $0 {validate FILE|compatible CURRENT LAST_GOOD|resolve-image IMAGE|write OUT SHA SCHEMA ACCEPTS PLATFORM GATEWAY CANARY ELIGIBLE}" >&2; exit 2 ;;
+    *) echo "usage: $0 {validate FILE|compatible-schema SCHEMA LAST_GOOD CANDIDATE_SHA|resolve-image IMAGE|write OUT SHA SCHEMA ACCEPTS PLATFORM GATEWAY CANARY ELIGIBLE}" >&2; exit 2 ;;
 esac
