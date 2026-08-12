@@ -1,4 +1,4 @@
-name: Tibia Creatures Handler Binutils Map
+name: Tibia Creatures Signal ABI Map
 
 on:
   push:
@@ -16,7 +16,7 @@ jobs:
     runs-on: oteryn-staging
     timeout-minutes: 4
     steps:
-      - name: Recover creatures handler RTTI/metaobject without extra packages
+      - name: Decode TCreaturesGameActionHandler signal names and ABI
         shell: bash
         run: |
           set -Eeuo pipefail
@@ -28,27 +28,27 @@ jobs:
           bin='/data/home/.local/share/CipSoft GmbH/Tibia/packages/Tibia/bin/client'
           pid=$(pgrep -x client | tail -n1 || true); [[ -n "$pid" ]]
           echo CLIENT_PID=$pid
-          command -v readelf >/dev/null
-          command -v objdump >/dev/null
 
-          echo RTTI_STRINGS_BEGIN
-          strings -a -t x "$bin" | grep -E 'TCreaturesGameActionHandler|TCreatureID|sendAttack|sendFollow' | sed -n '1,240p'
-          echo RTTI_STRINGS_END
+          # The previous RTTI proof placed TCreaturesGameActionHandler's Qt string-data
+          # inside the 0x1cb0d50 block, whose QMetaObject is the 0x3085060 group.
+          echo CREATURES_META_BYTES_BEGIN
+          objdump -s --start-address=0x3085060 --stop-address=0x30850a0 "$bin" 2>/dev/null
+          echo CREATURES_META_BYTES_END
 
-          echo RELOC_NEIGHBORHOOD_BEGIN
-          readelf -Wr "$bin" 2>/dev/null | grep -E '307d|3085|30c7|TCreatures|Creature' | sed -n '1,500p' || true
-          echo RELOC_NEIGHBORHOOD_END
+          echo CREATURES_STRING_REGION_BEGIN
+          strings -a -t x "$bin" | awk '$1 >= "1cb0d20" && $1 <= "1cb1300" {print}'
+          echo CREATURES_STRING_REGION_END
 
-          echo STATIC_METAOBJECT_BYTES_BEGIN
-          objdump -s --start-address=0x3085160 --stop-address=0x30851c0 "$bin" 2>/dev/null || true
-          echo STATIC_METAOBJECT_BYTES_END
+          echo CREATURES_META_REFERENCES_BEGIN
+          objdump -d "$bin" 2>/dev/null | grep -E -B12 -A30 '3085060' | sed -n '1,1800p' || true
+          echo CREATURES_META_REFERENCES_END
 
-          echo STATIC_METAOBJECT_REFERENCES_BEGIN
-          objdump -d "$bin" 2>/dev/null | grep -E -B8 -A16 '3085160' | sed -n '1,900p' || true
-          echo STATIC_METAOBJECT_REFERENCES_END
+          echo CREATURES_METACALL_DISASM_BEGIN
+          objdump -d --start-address=0xd16000 --stop-address=0xd16880 "$bin" 2>/dev/null | sed -n '1,2200p'
+          echo CREATURES_METACALL_DISASM_END
 
           python3 - "$pid" "$bin" <<'PY'
-          import sys,struct,re,subprocess
+          import sys,struct
           pid=int(sys.argv[1]); path=sys.argv[2]
           maps=[]; base=None
           for line in open(f'/proc/{pid}/maps'):
@@ -59,72 +59,42 @@ jobs:
               if mpath==path and base is None: base=lo-off
           if base is None: raise SystemExit('NO_BASE')
           print(f'CLIENT_BASE=0x{base:x}')
-
-          # Parse relocation output from binutils. RELATIVE entries expose addends directly.
-          txt=subprocess.check_output(['readelf','-Wr',path],text=True,errors='replace')
-          rel=[]
-          for line in txt.splitlines():
-              m=re.match(r'^\s*([0-9a-fA-F]+)\s+\S+\s+R_X86_64_RELATIVE\s+([0-9a-fA-F]+)\s*$',line)
-              if m: rel.append((int(m.group(1),16),int(m.group(2),16)))
-          print(f'RELATIVE_RELOC_COUNT={len(rel)}')
-
-          # Find exact file VA for the RTTI type-name string from strings output.
-          out=subprocess.check_output(['strings','-a','-t','x',path],text=True,errors='replace')
-          target=None
-          for line in out.splitlines():
-              if 'TCreaturesGameActionHandlerE' in line and line.strip().split(maxsplit=1)[1].startswith('N5tibia'):
-                  target=int(line.strip().split()[0],16); print(f'RTTI_NAME_VA=0x{target:x}'); break
-          if target is None:
-              print('RTTI_NAME_NOT_FOUND=true')
-          else:
-              # A class type_info object normally has a relocation to the name at +8.
-              name_refs=[off for off,add in rel if add==target]
-              print('RTTI_NAME_REFS='+' '.join(hex(x) for x in name_refs))
-              static_vptrs=[]
-              for nr in name_refs:
-                  rtti=nr-8
-                  print(f'RTTI_CANDIDATE=0x{rtti:x}')
-                  for vo,add in rel:
-                      if add==rtti:
-                          # Itanium object vptr points two qwords past vtable start; relocation to RTTI is second header qword.
-                          sv=vo+8
-                          static_vptrs.append(sv)
-                          print(f'VTABLE_RTTI_RELOC=0x{vo:x} STATIC_OBJECT_VPTR_CANDIDATE=0x{sv:x}')
-              static_vptrs=sorted(set(static_vptrs))
-              print('STATIC_VPTR_CANDIDATES='+' '.join(hex(x) for x in static_vptrs))
-              with open(f'/proc/{pid}/mem','rb',buffering=0) as mem:
-                  for sv in static_vptrs:
-                      rv=base+sv; needle=struct.pack('<Q',rv); found=[]
-                      for lo,hi,perms,off,mpath in maps:
-                          if 'r' not in perms or 'w' not in perms: continue
-                          size=hi-lo
-                          if size<=0 or size>256*1024*1024: continue
-                          try: mem.seek(lo); data=mem.read(size)
-                          except OSError: continue
-                          p=0
-                          while True:
-                              i=data.find(needle,p)
-                              if i<0: break
-                              found.append(lo+i); p=i+8
-                      print(f'VPTR_SCAN static=0x{sv:x} runtime=0x{rv:x} count={len(found)} objects='+' '.join(hex(x) for x in found))
-
-          # Read the live-relocated staticMetaObject directly from process memory.
-          meta=base+0x3085160
+          obj=0x56427e947710
+          # Relocate the object address only if the client base changed: rediscover vptr uniquely.
+          runtime_vptr=base+0x3087a90
+          needle=struct.pack('<Q',runtime_vptr); found=[]
           with open(f'/proc/{pid}/mem','rb',buffering=0) as mem:
-              mem.seek(meta); raw=mem.read(56)
-              q=struct.unpack('<7Q',raw)
+              for lo,hi,perms,off,mpath in maps:
+                  if 'r' not in perms or 'w' not in perms: continue
+                  size=hi-lo
+                  if size<=0 or size>256*1024*1024: continue
+                  try: mem.seek(lo); data=mem.read(size)
+                  except OSError: continue
+                  pos=0
+                  while True:
+                      i=data.find(needle,pos)
+                      if i<0: break
+                      found.append(lo+i); pos=i+8
+              print(f'CREATURES_VPTR_RUNTIME=0x{runtime_vptr:x}')
+              print('CREATURES_OBJECTS='+' '.join(hex(x) for x in found))
+              if len(found)!=1: raise SystemExit('CREATURES_OBJECT_NOT_UNIQUE')
+              obj=found[0]
+              meta=base+0x3085060
+              mem.seek(meta); q=struct.unpack('<7Q',mem.read(56))
               print(f'CREATURES_META_RUNTIME=0x{meta:x}')
-              print('META_QWORDS='+' '.join(f'{x:016x}' for x in q))
-              for idx,val in enumerate(q):
-                  if val:
-                      for lo,hi,perms,off,mpath in maps:
-                          if lo<=val<hi and 'r' in perms:
-                              try:
-                                  mem.seek(val); b=mem.read(512)
-                                  printable=''.join(chr(x) if 32<=x<127 else '.' for x in b)
-                                  print(f'META_PTR_{idx}=0x{val:x} MAP={mpath or "[anon]"} ASCII={printable}')
-                              except OSError: pass
-                              break
+              print('CREATURES_META_QWORDS='+' '.join(f'{x:016x}' for x in q))
+              for idx in (1,2,3,5):
+                  val=q[idx]
+                  if not val: continue
+                  for lo,hi,perms,off,mpath in maps:
+                      if lo<=val<hi and 'r' in perms:
+                          mem.seek(val); b=mem.read(1024)
+                          printable=''.join(chr(x) if 32<=x<127 else '.' for x in b)
+                          print(f'CREATURES_META_PTR_{idx}=0x{val:x} ASCII={printable}')
+                          break
+              # dump first 0x100 bytes of live handler to expose linked collaborators/state pointers
+              mem.seek(obj); raw=mem.read(0x100)
+              print('CREATURES_OBJECT_QWORDS='+' '.join(f'{x:016x}' for x in struct.unpack('<32Q',raw)))
           PY
 
           tcp_rows=$(ss -ntp 2>/dev/null | grep "pid=$pid," || true)
