@@ -889,3 +889,1020 @@ Several bounded trace runs were triggered while the self-hosted runner queue was
 ```
 <!-- END GENERATED TRACE 315-next -->
 <!-- END GENERATED TRACE EVIDENCE -->
+
+<!-- BEGIN GENERATED DEEP TRACE EVIDENCE -->
+## Generated bounded deep trace
+
+- Client SHA-256: `e6c244bd39fe2e0632f6f000efd3147164696efa8e901718668e0442325ff7fe`
+- Central routine: `0x19a8a80`
+- Active Tibia client processes by `/proc/*/comm`: `0`
+- X11 socket present: `false`
+- Wayland socket present: `false`
+- Session inspection intentionally records no environment values, account data, tokens, process arguments, or client state file contents.
+
+### COMMON_TAIL `0x19a9170..0x19a9700`
+```text
+0x19a9170: or     %al,(%rcx)
+0x19a9172: add    $0x10,%rax
+0x19a9176: add    $0x10,%rdx
+0x19a917a: cmp    %rsi,%rax
+0x19a917d: jne    19a9151 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::compare(char const*) const@@Base+0x1838c1>
+0x19a917f: mov    %rsi,0xf8(%rsp)
+0x19a9186: 
+0x19a9187: mov    %rbp,%rdi
+0x19a918a: mov    0x20(%rsp),%rsi
+0x19a918f: call   *%r12
+0x19a9192: mov    0xf8(%rsp),%r12
+0x19a9199: 
+0x19a919a: mov    0xf0(%rsp),%rbx
+0x19a91a1: 
+0x19a91a2: cmp    %rbx,%r12
+0x19a91a5: jne    19a91c7 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::compare(char const*) const@@Base+0x183937>
+0x19a91a7: jmp    19a9228 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::compare(char const*) const@@Base+0x183998>
+0x19a91a9: nopl   0x0(%rax)
+0x19a91b0: mov    0x8(%rbp),%eax
+0x19a91b3: lea    -0x1(%rax),%edx
+0x19a91b6: mov    %edx,0x8(%rbp)
+0x19a91b9: cmp    $0x1,%eax
+0x19a91bc: je     19a9205 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::compare(char const*) const@@Base+0x183975>
+0x19a91be: add    $0x10,%rbx
+0x19a91c2: cmp    %rbx,%r12
+0x19a91c5: je     19a9220 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::compare(char const*) const@@Base+0x183990>
+0x19a91c7: mov    0x8(%rbx),%rbp
+0x19a91cb: test   %rbp,%rbp
+0x19a91ce: je     19a91be <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::compare(char const*) const@@Base+0x18392e>
+0x19a91d0: mov    0x8(%rbp),%rax
+0x19a91d4: lea    0x8(%rbp),%rdx
+0x19a91d8: movabs $0x100000001,%rsi
+0x19a91df: 
+0x19a91e2: cmp    %rsi,%rax
+0x19a91e5: je     19a9520 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::compare(char const*) const@@Base+0x183c90>
+0x19a91eb: mov    0x17868b6(%rip),%rax        # 312faa8 <__libc_single_threaded@GLIBC_2.32>
+0x19a91f2: cmpb   $0x0,(%rax)
+0x19a91f5: jne    19a91b0 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::compare(char const*) const@@Base+0x183920>
+0x19a91f7: mov    $0xffffffff,%eax
+0x19a91fc: lock xadd %eax,(%rdx)
+0x19a9200: cmp    $0x1,%eax
+0x19a9203: jne    19a91be <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::compare(char const*) const@@Base+0x18392e>
+0x19a9205: mov    %rbp,%rdi
+0x19a9208: add    $0x10,%rbx
+0x19a920c: call   6b3a90 <std::runtime_error::~runtime_error()@plt+0x1d37c0>
+0x19a9211: cmp    %rbx,%r12
+0x19a9214: jne    19a91c7 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::compare(char const*) const@@Base+0x183937>
+0x19a9216: cs nopw 0x0(%rax,%rax,1)
+0x19a921d: 
+0x19a9220: mov    0xf0(%rsp),%rbx
+0x19a9227: 
+0x19a9228: test   %rbx,%rbx
+0x19a922b: je     19a9240 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::compare(char const*) const@@Base+0x1839b0>
+0x19a922d: mov    0x100(%rsp),%rsi
+0x19a9234: 
+0x19a9235: mov    %rbx,%rdi
+0x19a9238: sub    %rbx,%rsi
+0x19a923b: call   4de900 <operator delete(void*, unsigned long)@plt>
+0x19a9240: mov    0x8(%rsp),%rax
+0x19a9245: mov    0xd8(%rax),%rdi
+0x19a924c: test   %rdi,%rdi
+0x19a924f: je     19a927e <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::compare(char const*) const@@Base+0x1839ee>
+0x19a9251: mov    (%rdi),%rax
+0x19a9254: lea    -0xe85a4b(%rip),%rcx        # b23810 <std::ctype<char>::do_widen(char) const@@Base+0x128b0>
+0x19a925b: mov    0x80(%rax),%rdx
+0x19a9262: cmp    %rcx,%rdx
+0x19a9265: jne    19a9634 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::compare(char const*) const@@Base+0x183da4>
+0x19a926b: mov    0x98(%rdi),%ecx
+0x19a9271: cmp    %ecx,0x90(%rsp)
+0x19a9278: je     19a95c0 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::compare(char const*) const@@Base+0x183d30>
+0x19a927e: mov    0xa8(%rsp),%r13
+0x19a9285: 
+0x19a9286: mov    0xa0(%rsp),%rbp
+0x19a928d: 
+0x19a928e: mov    0x178(%rsp),%ebx
+0x19a9295: cmp    %rbp,%r13
+0x19a9298: jne    19a92bb <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::compare(char const*) const@@Base+0x183a2b>
+0x19a929a: jmp    19a9318 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::compare(char const*) const@@Base+0x183a88>
+0x19a929c: nopl   0x0(%rax)
+0x19a92a0: mov    0x8(%r12),%eax
+0x19a92a5: lea    -0x1(%rax),%edx
+0x19a92a8: mov    %edx,0x8(%r12)
+0x19a92ad: cmp    $0x1,%eax
+0x19a92b0: je     19a92fb <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::compare(char const*) const@@Base+0x183a6b>
+0x19a92b2: add    $0x10,%rbp
+0x19a92b6: cmp    %rbp,%r13
+0x19a92b9: je     19a9310 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::compare(char const*) const@@Base+0x183a80>
+0x19a92bb: mov    0x8(%rbp),%r12
+0x19a92bf: test   %r12,%r12
+0x19a92c2: je     19a92b2 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::compare(char const*) const@@Base+0x183a22>
+0x19a92c4: mov    0x8(%r12),%rax
+0x19a92c9: lea    0x8(%r12),%rdx
+0x19a92ce: movabs $0x100000001,%rcx
+0x19a92d5: 
+0x19a92d8: cmp    %rcx,%rax
+0x19a92db: je     19a94a8 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::compare(char const*) const@@Base+0x183c18>
+0x19a92e1: mov    0x17867c0(%rip),%rax        # 312faa8 <__libc_single_threaded@GLIBC_2.32>
+0x19a92e8: cmpb   $0x0,(%rax)
+0x19a92eb: jne    19a92a0 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::compare(char const*) const@@Base+0x183a10>
+0x19a92ed: mov    $0xffffffff,%eax
+0x19a92f2: lock xadd %eax,(%rdx)
+0x19a92f6: cmp    $0x1,%eax
+0x19a92f9: jne    19a92b2 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::compare(char const*) const@@Base+0x183a22>
+0x19a92fb: mov    %r12,%rdi
+0x19a92fe: add    $0x10,%rbp
+0x19a9302: call   6b3a90 <std::runtime_error::~runtime_error()@plt+0x1d37c0>
+0x19a9307: cmp    %rbp,%r13
+0x19a930a: jne    19a92bb <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::compare(char const*) const@@Base+0x183a2b>
+0x19a930c: nopl   0x0(%rax)
+0x19a9310: mov    0xa0(%rsp),%rbp
+0x19a9317: 
+0x19a9318: test   %rbp,%rbp
+0x19a931b: je     19a9330 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::compare(char const*) const@@Base+0x183aa0>
+0x19a931d: mov    0xb0(%rsp),%rsi
+0x19a9324: 
+0x19a9325: mov    %rbp,%rdi
+0x19a9328: sub    %rbp,%rsi
+0x19a932b: call   4de900 <operator delete(void*, unsigned long)@plt>
+0x19a9330: lea    0x1(%rbx),%eax
+0x19a9333: add    %rax,0x30(%rsp)
+0x19a9338: jmp    19a9367 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::compare(char const*) const@@Base+0x183ad7>
+0x19a933a: nopw   0x0(%rax,%rax,1)
+0x19a9340: sub    $0x1,%esi
+0x19a9343: sub    %r10d,%esi
+0x19a9346: add    %esi,%eax
+0x19a9348: sub    %eax,%edi
+0x19a934a: add    %edi,%edx
+0x19a934c: add    %edi,%ecx
+0x19a934e: jmp    19a8cd3 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::compare(char const*) const@@Base+0x183443>
+0x19a9353: nopl   0x0(%rax,%rax,1)
+0x19a9358: mov    0x178(%rsp),%eax
+0x19a935f: add    $0x1,%eax
+0x19a9362: add    %rax,0x30(%rsp)
+0x19a9367: mov    0x68(%rsp),%rbx
+0x19a936c: test   %rbx,%rbx
+0x19a936f: je     19a93ae <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::compare(char const*) const@@Base+0x183b1e>
+0x19a9371: mov    0x8(%rbx),%rax
+0x19a9375: lea    0x8(%rbx),%rdx
+0x19a9379: movabs $0x100000001,%rcx
+0x19a9380: 
+0x19a9383: cmp    %rcx,%rax
+0x19a9386: je     19a95d0 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::compare(char const*) const@@Base+0x183d40>
+0x19a938c: mov    0x1786715(%rip),%rax        # 312faa8 <__libc_single_threaded@GLIBC_2.32>
+0x19a9393: cmpb   $0x0,(%rax)
+0x19a9396: je     19a9598 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::compare(char const*) const@@Base+0x183d08>
+0x19a939c: mov    0x8(%rbx),%eax
+0x19a939f: lea    -0x1(%rax),%edx
+0x19a93a2: mov    %edx,0x8(%rbx)
+0x19a93a5: cmp    $0x1,%eax
+0x19a93a8: je     19a95aa <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::compare(char const*) const@@Base+0x183d1a>
+0x19a93ae: lea    0x171a843(%rip),%rax        # 30c3bf8 <QMetaSequence::MetaSequence<QList<QObject*> >::value@@Base+0x33c18>
+0x19a93b5: mov    %rax,0x130(%rsp)
+0x19a93bc: 
+0x19a93bd: testb  $0x1,0x138(%rsp)
+0x19a93c4: 
+0x19a93c5: jne    19a9490 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::compare(char const*) const@@Base+0x183c00>
+0x19a93cb: mov    0x38(%rsp),%rdi
+0x19a93d0: call   1aab450 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::compare(char const*) const@@Base+0x285bc0>
+0x19a93d5: cmpq   $0x0,0x170(%rsp)
+0x19a93dc: 
+0x19a93de: je     19a93ef <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::compare(char const*) const@@Base+0x183b5f>
+0x19a93e0: cmpq   $0x0,0x160(%rsp)
+0x19a93e7: 
+0x19a93e9: je     19a9558 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::compare(char const*) const@@Base+0x183cc8>
+0x19a93ef: addq   $0x1,0x28(%rsp)
+0x19a93f5: movslq 0xd8(%rsp),%rax
+0x19a93fc: 
+0x19a93fd: mov    0x28(%rsp),%rcx
+0x19a9402: cmp    %rax,%rcx
+0x19a9405: jb     19a8b78 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::compare(char const*) const@@Base+0x1832e8>
+0x19a940b: mov    0x48(%rsp),%rsi
+0x19a9410: movslq 0x3c(%rsi),%rdx
+0x19a9414: mov    0x38(%rsi),%eax
+0x19a9417: movslq 0x40(%rsi),%rsi
+0x19a941b: test   %edx,%edx
+0x19a941d: setle  %cl
+0x19a9420: test   %eax,%eax
+0x19a9422: setle  %dil
+0x19a9426: or     %dil,%cl
+0x19a9429: jne    19a9433 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::compare(char const*) const@@Base+0x183ba3>
+0x19a942b: test   %esi,%esi
+0x19a942d: jg     19a9624 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::compare(char const*) const@@Base+0x183d94>
+0x19a9433: xor    %ebx,%ebx
+0x19a9435: mov    0x30(%rsp),%rax
+0x19a943a: cmp    %rax,%rbx
+0x19a943d: jne    5da25c <std::runtime_error::~runtime_error()@plt+0xf9f8c>
+0x19a9443: lea    0x1702b7e(%rip),%rax        # 30abfc8 <QMetaSequence::MetaSequence<QList<QObject*> >::value@@Base+0x1bfe8>
+0x19a944a: mov    %rax,0xc0(%rsp)
+0x19a9451: 
+0x19a9452: testb  $0x1,0xc8(%rsp)
+0x19a9459: 
+0x19a945a: jne    19a964d <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::compare(char const*) const@@Base+0x183dbd>
+0x19a9460: cmpq   $0x0,0xe0(%rsp)
+0x19a9467: 
+0x19a9469: je     19a947a <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::compare(char const*) const@@Base+0x183bea>
+0x19a946b: cmpq   $0x0,0xd0(%rsp)
+0x19a9472: 
+0x19a9474: je     19a9674 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::compare(char const*) const@@Base+0x183de4>
+0x19a947a: add    $0x188,%rsp
+0x19a9481: pop    %rbx
+0x19a9482: pop    %rbp
+0x19a9483: pop    %r12
+0x19a9485: pop    %r13
+0x19a9487: pop    %r14
+0x19a9489: pop    %r15
+0x19a948b: ret
+0x19a948c: nopl   0x0(%rax)
+0x19a9490: lea    0x138(%rsp),%rdi
+0x19a9497: 
+0x19a9498: call   177c150 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0xbdd920>
+0x19a949d: jmp    19a93cb <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::compare(char const*) const@@Base+0x183b3b>
+0x19a94a2: nopw   0x0(%rax,%rax,1)
+0x19a94a8: movq   $0x0,0x8(%r12)
+0x19a94af: 
+0x19a94b1: mov    (%r12),%rax
+0x19a94b5: mov    %r12,%rdi
+0x19a94b8: call   *0x10(%rax)
+0x19a94bb: mov    (%r12),%rax
+0x19a94bf: mov    %r12,%rdi
+0x19a94c2: call   *0x18(%rax)
+0x19a94c5: jmp    19a92b2 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::compare(char const*) const@@Base+0x183a22>
+0x19a94ca: lea    0xf0(%rsp),%rax
+0x19a94d1: 
+0x19a94d2: mov    %rax,0x20(%rsp)
+0x19a94d7: mov    0x8(%rsp),%rax
+0x19a94dc: pxor   %xmm0,%xmm0
+0x19a94e0: mov    0x20(%rsp),%rdx
+0x19a94e5: mov    0x10(%rsp),%rsi
+0x19a94ea: mov    0x10(%rax),%rdi
+0x19a94ee: mov    (%rdi),%rax
+0x19a94f1: mov    0xa8(%rax),%rax
+0x19a94f8: movaps %xmm0,0xf0(%rsp)
+0x19a94ff: 
+0x19a9500: call   *%rax
+0x19a9502: mov    0xf8(%rsp),%rdi
+0x19a9509: 
+0x19a950a: test   %rdi,%rdi
+0x19a950d: je     19a9240 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::compare(char const*) const@@Base+0x1839b0>
+0x19a9513: call   6b3ae0 <std::runtime_error::~runtime_error()@plt+0x1d3810>
+0x19a9518: jmp    19a9240 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::compare(char const*) const@@Base+0x1839b0>
+0x19a951d: nopl   (%rax)
+0x19a9520: mov    0x0(%rbp),%rax
+0x19a9524: mov    %rbp,%rdi
+0x19a9527: movq   $0x0,0x8(%rbp)
+0x19a952e: 
+0x19a952f: call   *0x10(%rax)
+0x19a9532: mov    0x0(%rbp),%rax
+0x19a9536: mov    %rbp,%rdi
+0x19a9539: call   *0x18(%rax)
+0x19a953c: jmp    19a91be <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::compare(char const*) const@@Base+0x18392e>
+0x19a9541: nopl   0x0(%rax)
+0x19a9548: and    $0xfffffffffffffffe,%rsi
+0x19a954c: add    $0x8,%rsi
+0x19a9550: jmp    19a8e7b <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::compare(char const*) const@@Base+0x1835eb>
+0x19a9555: nopl   (%rax)
+0x19a9558: lea    0x160(%rsp),%rdi
+0x19a955f: 
+0x19a9560: call   1b22930 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::compare(char const*) const@@Base+0x2fd0a0>
+0x19a9565: jmp    19a93ef <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::compare(char const*) const@@Base+0x183b5f>
+0x19a956a: nopw   0x0(%rax,%rax,1)
+0x19a9570: lock addl $0x1,0x8(%rbx)
+0x19a9575: mov    0x78(%rsp),%rbx
+0x19a957a: cmp    %r14,%r13
+0x19a957d: jne    19a8fce <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::compare(char const*) const@@Base+0x18373e>
+0x19a9583: test   %r14,%r14
+0x19a9586: je     19a9039 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::compare(char const*) const@@Base+0x1837a9>
+0x19a958c: jmp    19a9008 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::compare(char const*) const@@Base+0x183778>
+0x19a9591: nopl   0x0(%rax)
+0x19a9598: mov    $0xffffffff,%eax
+0x19a959d: lock xadd %eax,(%rdx)
+0x19a95a1: cmp    $0x1,%eax
+0x19a95a4: jne    19a93ae <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::compare(char const*) const@@Base+0x183b1e>
+0x19a95aa: mov    %rbx,%rdi
+0x19a95ad: call   6b3a90 <std::runtime_error::~runtime_error()@plt+0x1d37c0>
+0x19a95b2: jmp    19a93ae <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::compare(char const*) const@@Base+0x183b1e>
+0x19a95b7: nopw   0x0(%rax,%rax,1)
+0x19a95be: 
+0x19a95c0: mov    0x10(%rsp),%rsi
+0x19a95c5: call   *0x88(%rax)
+0x19a95cb: jmp    19a927e <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::compare(char const*) const@@Base+0x1839ee>
+0x19a95d0: mov    (%rbx),%rax
+0x19a95d3: mov    %rbx,%rdi
+0x19a95d6: movq   $0x0,0x8(%rbx)
+0x19a95dd: 
+0x19a95de: call   *0x10(%rax)
+0x19a95e1: mov    (%rbx),%rax
+0x19a95e4: mov    %rbx,%rdi
+0x19a95e7: call   *0x18(%rax)
+0x19a95ea: jmp    19a93ae <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::compare(char const*) const@@Base+0x183b1e>
+0x19a95ef: mov    0x48(%rsp),%rcx
+0x19a95f4: movslq 0x3c(%rcx),%rdx
+0x19a95f8: mov    0x38(%rcx),%eax
+0x19a95fb: movslq 0x40(%rcx),%rsi
+0x19a95ff: test   %edx,%edx
+0x19a9601: setle  %cl
+0x19a9604: test   %eax,%eax
+0x19a9606: setle  %dil
+0x19a960a: or     %dil,%cl
+0x19a960d: jne    19a9443 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::compare(char const*) const@@Base+0x183bb3>
+0x19a9613: test   %esi,%esi
+0x19a9615: jle    19a9443 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::compare(char const*) const@@Base+0x183bb3>
+0x19a961b: movq   $0x0,0x30(%rsp)
+0x19a9622: 
+0x19a9624: movslq %eax,%rbx
+0x19a9627: imul   %rdx,%rbx
+0x19a962b: imul   %rsi,%rbx
+0x19a962f: jmp    19a9435 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::compare(char const*) const@@Base+0x183ba5>
+0x19a9634: mov    0x10(%rsp),%rsi
+0x19a9639: call   *%rdx
+0x19a963b: jmp    19a927e <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::compare(char const*) const@@Base+0x1839ee>
+0x19a9640: and    $0xfffffffffffffffe,%rax
+0x19a9644: lea    0x8(%rax),%rsi
+0x19a9648: jmp    19a8c32 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::compare(char const*) const@@Base+0x1833a2>
+0x19a964d: lea    0xc8(%rsp),%rdi
+0x19a9654: 
+0x19a9655: call   177c150 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0xbdd920>
+0x19a965a: jmp    19a9460 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::compare(char const*) const@@Base+0x183bd0>
+0x19a965f: and    $0xfffffffffffffffe,%rax
+0x19a9663: lea    0x8(%rax),%rsi
+0x19a9667: jmp    19a8b44 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::compare(char const*) const@@Base+0x1832b4>
+0x19a966c: mov    %rax,%rsi
+0x19a966f: jmp    19a917f <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::compare(char const*) const@@Base+0x1838ef>
+0x19a9674: lea    0xd0(%rsp),%rdi
+0x19a967b: 
+0x19a967c: call   1b22930 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::compare(char const*) const@@Base+0x2fd0a0>
+0x19a9681: jmp    19a947a <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::compare(char const*) const@@Base+0x183bea>
+0x19a9686: test   %rbx,%rbx
+0x19a9689: jns    19a9690 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::compare(char const*) const@@Base+0x183e00>
+0x19a968b: call   4daf40 <std::__throw_bad_array_new_length()@plt>
+0x19a9690: call   4df5a0 <std::__throw_bad_alloc()@plt>
+0x19a9695: movabs $0x7ffffffffffffff,%rdx
+0x19a969c: 
+0x19a969f: cmp    %rdx,%rax
+0x19a96a2: cmova  %rdx,%rax
+0x19a96a6: shl    $0x4,%rax
+0x19a96aa: mov    %rax,0x58(%rsp)
+0x19a96af: mov    %rax,%rdi
+0x19a96b2: call   4df670 <operator new(unsigned long)@plt>
+0x19a96b7: mov    0x58(%rsp),%r9
+0x19a96bc: mov    %rax,%r8
+0x19a96bf: add    %rax,%r9
+0x19a96c2: lea    0x10(%rax),%rax
+0x19a96c6: jmp    19a8f93 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::compare(char const*) const@@Base+0x183703>
+0x19a96cb: add    $0x10,%r13
+0x19a96cf: mov    %r13,0xa8(%rsp)
+0x19a96d6: 
+0x19a96d7: jmp    19a8ddf <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::compare(char const*) const@@Base+0x18354f>
+0x19a96dc: nopl   0x0(%rax)
+0x19a96e0: movabs $0x7ffffffffffffff0,%rax
+0x19a96e7: 
+0x19a96ea: mov    %rax,0x58(%rsp)
+0x19a96ef: mov    %rax,%rdi
+0x19a96f2: jmp    19a96b2 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::compare(char const*) const@@Base+0x183e22>
+0x19a96f4: lea    0xf9a97c(%rip),%rdi        # 2944077 <std::__detail::__to_chars_10_impl<unsigned int>(char*, unsigned int, unsigned int)::__digits@@Base+0x8a2917>
+0x19a96fb: call   4da460 <std::__throw_length_error(char const*)@plt>
+```
+
+### MAP_CONTENT_BUILD `0xceca50..0xcecc70`
+```text
+0xceca50: push   %r15
+0xceca52: push   %r14
+0xceca54: lea    0x10(%rdx),%r14
+0xceca58: push   %r13
+0xceca5a: mov    %rcx,%r13
+0xceca5d: push   %r12
+0xceca5f: mov    %rdx,%r12
+0xceca62: push   %rbp
+0xceca63: mov    %rsi,%rbp
+0xceca66: push   %rbx
+0xceca67: mov    %rdi,%rbx
+0xceca6a: mov    %r14,%rdi
+0xceca6d: sub    $0xe8,%rsp
+0xceca74: mov    0x24a67a6(%rip),%esi        # 3193220 <guard variable for QMetaType::registerMutableViewImpl<QList<QObject*>, QIterable<QMetaSequence> >(std::function<bool (void*, void*)>, QMetaType, QMetaType)::unregister@@Base+0xdb8>
+0xceca7a: call   1aab810 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::compare(char const*) const@@Base+0x285f80>
+0xceca7f: test   %al,%al
+0xceca81: jne    cecad8 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x14e2a8>
+0xceca83: mov    0x50(%rbp),%r14
+0xceca87: mov    0x60(%rbp),%rdi
+0xceca8b: mov    (%r14),%rax
+0xceca8e: mov    0xa0(%rax),%r15
+0xceca95: mov    (%rdi),%rax
+0xceca98: call   *0x10(%rax)
+0xceca9b: lea    0x40(%rsp),%rdi
+0xcecaa0: lea    0x20(%rsp),%r8
+0xcecaa5: mov    %r13,%rcx
+0xcecaa8: mov    %rax,0x20(%rsp)
+0xcecaad: mov    %r12,%rdx
+0xcecab0: mov    %r14,%rsi
+0xcecab3: call   *%r15
+0xcecab6: movdqa 0x40(%rsp),%xmm0
+0xcecabc: movups %xmm0,(%rbx)
+0xcecabf: add    $0xe8,%rsp
+0xcecac6: mov    %rbx,%rax
+0xcecac9: pop    %rbx
+0xcecaca: pop    %rbp
+0xcecacb: pop    %r12
+0xcecacd: pop    %r13
+0xcecacf: pop    %r14
+0xcecad1: pop    %r15
+0xcecad3: ret
+0xcecad4: nopl   0x0(%rax)
+0xcecad8: mov    0x24a6749(%rip),%rdx        # 3193228 <guard variable for QMetaType::registerMutableViewImpl<QList<QObject*>, QIterable<QMetaSequence> >(std::function<bool (void*, void*)>, QMetaType, QMetaType)::unregister@@Base+0xdc0>
+0xcecadf: mov    0x24a673b(%rip),%esi        # 3193220 <guard variable for QMetaType::registerMutableViewImpl<QList<QObject*>, QIterable<QMetaSequence> >(std::function<bool (void*, void*)>, QMetaType, QMetaType)::unregister@@Base+0xdb8>
+0xcecae5: mov    %r14,%rdi
+0xcecae8: lea    0x40(%rsp),%r12
+0xcecaed: call   1aac200 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::compare(char const*) const@@Base+0x286970>
+0xcecaf2: mov    %r12,%rdi
+0xcecaf5: mov    %rax,%rsi
+0xcecaf8: call   182ae20 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::compare(char const*) const@@Base+0x5590>
+0xcecafd: mov    0x80(%rbp),%rdi
+0xcecb04: mov    %r12,%rsi
+0xcecb07: mov    (%rdi),%rax
+0xcecb0a: call   *0xf0(%rax)
+0xcecb10: mov    0x30(%rbp),%rsi
+0xcecb14: mov    0x9c(%rsp),%edx
+0xcecb1b: mov    %rsp,%rdi
+0xcecb1e: mov    (%rsi),%rax
+0xcecb21: call   *0x60(%rax)
+0xcecb24: mov    (%rsp),%rbp
+0xcecb28: lea    0x2274a71(%rip),%rdi        # 2f615a0 <std::__detail::__to_chars_10_impl<unsigned int>(char*, unsigned int, unsigned int)::__digits@@Base+0xebfe40>
+0xcecb2f: mov    0x8(%r13),%rax
+0xcecb33: mov    0x10(%r13),%ecx
+0xcecb37: mov    0x0(%rbp),%rsi
+0xcecb3b: mov    0x88(%rsi),%rdx
+0xcecb42: mov    %rdi,0x20(%rsp)
+0xcecb47: lea    0x1848c2(%rip),%rdi        # e71410 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x2d2be0>
+0xcecb4e: mov    %rax,0x28(%rsp)
+0xcecb53: mov    %ecx,0x30(%rsp)
+0xcecb57: cmp    %rdi,%rdx
+0xcecb5a: jne    cecc18 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x14e3e8>
+0xcecb60: mov    0x68(%rbp),%edx
+0xcecb63: cmp    %edx,%ecx
+0xcecb65: je     cecb79 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x14e349>
+0xcecb67: mov    %rbp,%rdi
+0xcecb6a: call   *0x1a0(%rsi)
+0xcecb70: mov    0x28(%rsp),%rax
+0xcecb75: mov    0x30(%rsp),%edx
+0xcecb79: mov    %rax,0x60(%rbp)
+0xcecb7d: lea    0x10(%rsp),%rcx
+0xcecb82: lea    0x58(%rbp),%rax
+0xcecb86: mov    %rbp,%rdi
+0xcecb89: mov    %edx,0x68(%rbp)
+0xcecb8c: lea    0x238b16d(%rip),%rsi        # 3077d00 <QObject::staticMetaObject@Qt_6>
+0xcecb93: xor    %edx,%edx
+0xcecb95: movq   $0x0,0x10(%rsp)
+0xcecb9c: 
+0xcecb9e: mov    %rax,0x18(%rsp)
+0xcecba3: call   4dedc0 <QMetaObject::activate(QObject*, QMetaObject const*, int, void**)@plt>
+0xcecba8: mov    (%rsp),%rsi
+0xcecbac: lea    0x184b8d(%rip),%rdx        # e71740 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x2d2f10>
+0xcecbb3: mov    (%rsi),%rax
+0xcecbb6: mov    0x1e8(%rax),%rax
+0xcecbbd: cmp    %rdx,%rax
+0xcecbc0: jne    cecc28 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x14e3f8>
+0xcecbc2: mov    0xa8(%rsi),%rdx
+0xcecbc9: mov    0xb0(%rsi),%rax
+0xcecbd0: mov    %rdx,0x20(%rsp)
+0xcecbd5: mov    %rax,0x28(%rsp)
+0xcecbda: test   %rax,%rax
+0xcecbdd: je     cecbef <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x14e3bf>
+0xcecbdf: mov    0x2442ec2(%rip),%rcx        # 312faa8 <__libc_single_threaded@GLIBC_2.32>
+0xcecbe6: cmpb   $0x0,(%rcx)
+0xcecbe9: je     cecc40 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x14e410>
+0xcecbeb: addl   $0x1,0x8(%rax)
+0xcecbef: mov    0x8(%rsp),%rdi
+0xcecbf4: mov    %rdx,(%rbx)
+0xcecbf7: mov    %rax,0x8(%rbx)
+0xcecbfb: test   %rdi,%rdi
+0xcecbfe: je     cecc05 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x14e3d5>
+0xcecc00: call   6b3ae0 <std::runtime_error::~runtime_error()@plt+0x1d3810>
+0xcecc05: mov    %r12,%rdi
+0xcecc08: call   1824e70 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0xc86640>
+0xcecc0d: jmp    cecabf <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x14e28f>
+0xcecc12: nopw   0x0(%rax,%rax,1)
+0xcecc18: lea    0x20(%rsp),%rsi
+0xcecc1d: mov    %rbp,%rdi
+0xcecc20: call   *%rdx
+0xcecc22: jmp    cecba8 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x14e378>
+0xcecc24: nopl   0x0(%rax)
+0xcecc28: lea    0x20(%rsp),%rdi
+0xcecc2d: call   *%rax
+0xcecc2f: mov    0x20(%rsp),%rdx
+0xcecc34: mov    0x28(%rsp),%rax
+0xcecc39: jmp    cecbef <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x14e3bf>
+0xcecc3b: nopl   0x0(%rax,%rax,1)
+0xcecc40: lock addl $0x1,0x8(%rax)
+0xcecc45: mov    0x20(%rsp),%rdx
+0xcecc4a: mov    0x28(%rsp),%rax
+0xcecc4f: jmp    cecbef <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x14e3bf>
+0xcecc51: mov    %rax,%rbx
+0xcecc54: jmp    54a35c <std::runtime_error::~runtime_error()@plt+0x6a08c>
+0xcecc59: mov    %rax,%rbx
+0xcecc5c: jmp    54a36b <std::runtime_error::~runtime_error()@plt+0x6a09b>
+0xcecc61: nop
+0xcecc62: data16 cs nopw 0x0(%rax,%rax,1)
+0xcecc69: 
+0xcecc6d: nopl   (%rax)
+```
+
+### PROTO_MESSAGE_SELECT `0x1ab4e50..0x1ab50d0`
+```text
+0x1ab4e50: push   %r15
+0x1ab4e52: push   %r14
+0x1ab4e54: push   %r13
+0x1ab4e56: mov    %rsi,%r13
+0x1ab4e59: push   %r12
+0x1ab4e5b: mov    %rdi,%r12
+0x1ab4e5e: push   %rbp
+0x1ab4e5f: mov    %rdx,%rbp
+0x1ab4e62: push   %rbx
+0x1ab4e63: sub    $0x18,%rsp
+0x1ab4e67: movzwl 0xa(%rdi),%edi
+0x1ab4e6b: mov    0x10(%rdx),%rax
+0x1ab4e6f: movzwl 0xa(%rdx),%r9d
+0x1ab4e74: test   %di,%di
+0x1ab4e77: js     1ab4ef7 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::compare(char const*) const@@Base+0x28f667>
+0x1ab4e79: mov    0x10(%r12),%r8
+0x1ab4e7e: shl    $0x5,%rdi
+0x1ab4e82: lea    (%r8,%rdi,1),%rsi
+0x1ab4e86: test   %r9w,%r9w
+0x1ab4e8a: js     1ab5080 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::compare(char const*) const@@Base+0x28f7f0>
+0x1ab4e90: shl    $0x5,%r9
+0x1ab4e94: xor    %edi,%edi
+0x1ab4e96: add    %rax,%r9
+0x1ab4e99: nopl   0x0(%rax)
+0x1ab4ea0: cmp    %rax,%r9
+0x1ab4ea3: je     1ab4ec4 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::compare(char const*) const@@Base+0x28f634>
+0x1ab4ea5: cmp    %rsi,%r8
+0x1ab4ea8: je     1ab4ec4 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::compare(char const*) const@@Base+0x28f634>
+0x1ab4eaa: mov    (%r8),%edx
+0x1ab4ead: mov    (%rax),%ecx
+0x1ab4eaf: cmp    %edx,%ecx
+0x1ab4eb1: jle    1ab4f48 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::compare(char const*) const@@Base+0x28f6b8>
+0x1ab4eb7: add    $0x1,%rdi
+0x1ab4ebb: add    $0x20,%r8
+0x1ab4ebf: cmp    %rax,%r9
+0x1ab4ec2: jne    1ab4ea5 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::compare(char const*) const@@Base+0x28f615>
+0x1ab4ec4: sub    %r8,%rsi
+0x1ab4ec7: sar    $0x5,%rsi
+0x1ab4ecb: add    %rdi,%rsi
+0x1ab4ece: cmp    %r9,%rax
+0x1ab4ed1: je     1ab4eef <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::compare(char const*) const@@Base+0x28f65f>
+0x1ab4ed3: nopl   0x0(%rax,%rax,1)
+0x1ab4ed8: movzbl 0x12(%rax),%edx
+0x1ab4edc: and    $0x1,%edx
+0x1ab4edf: cmp    $0x1,%dl
+0x1ab4ee2: adc    $0x0,%rsi
+0x1ab4ee6: add    $0x20,%rax
+0x1ab4eea: cmp    %rax,%r9
+0x1ab4eed: jne    1ab4ed8 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::compare(char const*) const@@Base+0x28f648>
+0x1ab4eef: mov    %r12,%rdi
+0x1ab4ef2: call   1ab1250 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::compare(char const*) const@@Base+0x28b9c0>
+0x1ab4ef7: movzwl 0xa(%rbp),%r14d
+0x1ab4efc: mov    0x10(%rbp),%rbx
+0x1ab4f00: test   %r14w,%r14w
+0x1ab4f04: js     1ab4f80 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::compare(char const*) const@@Base+0x28f6f0>
+0x1ab4f06: shl    $0x5,%r14
+0x1ab4f0a: add    %rbx,%r14
+0x1ab4f0d: cmp    %r14,%rbx
+0x1ab4f10: je     1ab4f36 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::compare(char const*) const@@Base+0x28f6a6>
+0x1ab4f12: nopw   0x0(%rax,%rax,1)
+0x1ab4f18: mov    (%rbx),%edx
+0x1ab4f1a: mov    0x0(%rbp),%r8
+0x1ab4f1e: lea    0x8(%rbx),%rcx
+0x1ab4f22: mov    %r13,%rsi
+0x1ab4f25: mov    %r12,%rdi
+0x1ab4f28: add    $0x20,%rbx
+0x1ab4f2c: call   1ab3410 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::compare(char const*) const@@Base+0x28db80>
+0x1ab4f31: cmp    %rbx,%r14
+0x1ab4f34: jne    1ab4f18 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::compare(char const*) const@@Base+0x28f688>
+0x1ab4f36: add    $0x18,%rsp
+0x1ab4f3a: pop    %rbx
+0x1ab4f3b: pop    %rbp
+0x1ab4f3c: pop    %r12
+0x1ab4f3e: pop    %r13
+0x1ab4f40: pop    %r14
+0x1ab4f42: pop    %r15
+0x1ab4f44: ret
+0x1ab4f45: nopl   (%rax)
+0x1ab4f48: lea    0x20(%rax),%r10
+0x1ab4f4c: je     1ab4f68 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::compare(char const*) const@@Base+0x28f6d8>
+0x1ab4f4e: movzbl 0x12(%rax),%eax
+0x1ab4f52: and    $0x1,%eax
+0x1ab4f55: cmp    $0x1,%al
+0x1ab4f57: mov    %r10,%rax
+0x1ab4f5a: adc    $0x0,%rdi
+0x1ab4f5e: jmp    1ab4ea0 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::compare(char const*) const@@Base+0x28f610>
+0x1ab4f63: nopl   0x0(%rax,%rax,1)
+0x1ab4f68: add    $0x1,%rdi
+0x1ab4f6c: add    $0x20,%r8
+0x1ab4f70: mov    %r10,%rax
+0x1ab4f73: jmp    1ab4ea0 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::compare(char const*) const@@Base+0x28f610>
+0x1ab4f78: nopl   0x0(%rax,%rax,1)
+0x1ab4f7f: 
+0x1ab4f80: mov    0x8(%rbx),%r14
+0x1ab4f84: xor    %r15d,%r15d
+0x1ab4f87: movzbl 0xa(%r14),%eax
+0x1ab4f8c: mov    %eax,0xc(%rsp)
+0x1ab4f90: mov    (%rbx),%rax
+0x1ab4f93: mov    (%rax),%rbx
+0x1ab4f96: cs nopw 0x0(%rax,%rax,1)
+0x1ab4f9d: 
+0x1ab4fa0: cmp    %r14,%rbx
+0x1ab4fa3: je     1ab5059 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::compare(char const*) const@@Base+0x28f7c9>
+0x1ab4fa9: movzbl %r15b,%eax
+0x1ab4fad: mov    0x0(%rbp),%r8
+0x1ab4fb1: mov    %r13,%rsi
+0x1ab4fb4: mov    %r12,%rdi
+0x1ab4fb7: shl    $0x5,%rax
+0x1ab4fbb: lea    0x10(%rbx,%rax,1),%rax
+0x1ab4fc0: mov    (%rax),%edx
+0x1ab4fc2: lea    0x8(%rax),%rcx
+0x1ab4fc6: call   1ab3410 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::compare(char const*) const@@Base+0x28db80>
+0x1ab4fcb: cmpb   $0x0,0xb(%rbx)
+0x1ab4fcf: je     1ab5020 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::compare(char const*) const@@Base+0x28f790>
+0x1ab4fd1: movzbl 0xa(%rbx),%esi
+0x1ab4fd5: add    $0x1,%r15d
+0x1ab4fd9: cmp    %esi,%r15d
+0x1ab4fdc: jl     1ab4fa0 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::compare(char const*) const@@Base+0x28f710>
+0x1ab4fde: mov    %r15d,%edx
+0x1ab4fe1: mov    %rbx,%rax
+0x1ab4fe4: je     1ab4ffe <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::compare(char const*) const@@Base+0x28f76e>
+0x1ab4fe6: jmp    1ab4fa0 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::compare(char const*) const@@Base+0x28f710>
+0x1ab4fe8: nopl   0x0(%rax,%rax,1)
+0x1ab4fef: 
+0x1ab4ff0: movzbl 0x8(%rcx),%r15d
+0x1ab4ff5: movzbl 0xa(%rax),%edx
+0x1ab4ff9: cmp    %r15d,%edx
+0x1ab4ffc: jne    1ab5078 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::compare(char const*) const@@Base+0x28f7e8>
+0x1ab4ffe: mov    %rax,%rcx
+0x1ab5001: mov    (%rax),%rax
+0x1ab5004: cmpb   $0x0,0xb(%rax)
+0x1ab5008: je     1ab4ff0 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::compare(char const*) const@@Base+0x28f760>
+0x1ab500a: cmp    %edx,%r15d
+0x1ab500d: je     1ab5224 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::compare(char const*) const@@Base+0x28f994>
+0x1ab5013: mov    %rcx,%rbx
+0x1ab5016: jmp    1ab4fa0 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::compare(char const*) const@@Base+0x28f710>
+0x1ab5018: nopl   0x0(%rax,%rax,1)
+0x1ab501f: 
+0x1ab5020: lea    0x1(%r15),%r9d
+0x1ab5024: movzbl %r9b,%r9d
+0x1ab5028: mov    0xf0(%rbx,%r9,8),%rbx
+0x1ab502f: 
+0x1ab5030: cmpb   $0x0,0xb(%rbx)
+0x1ab5034: jne    1ab504d <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::compare(char const*) const@@Base+0x28f7bd>
+0x1ab5036: cs nopw 0x0(%rax,%rax,1)
+0x1ab503d: 
+0x1ab5040: mov    0xf0(%rbx),%rbx
+0x1ab5047: cmpb   $0x0,0xb(%rbx)
+0x1ab504b: je     1ab5040 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::compare(char const*) const@@Base+0x28f7b0>
+0x1ab504d: xor    %r15d,%r15d
+0x1ab5050: cmp    %r14,%rbx
+0x1ab5053: jne    1ab4fa9 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::compare(char const*) const@@Base+0x28f719>
+0x1ab5059: cmp    %r15d,0xc(%rsp)
+0x1ab505e: jne    1ab4fa9 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::compare(char const*) const@@Base+0x28f719>
+0x1ab5064: add    $0x18,%rsp
+0x1ab5068: pop    %rbx
+0x1ab5069: pop    %rbp
+0x1ab506a: pop    %r12
+0x1ab506c: pop    %r13
+0x1ab506e: pop    %r14
+0x1ab5070: pop    %r15
+0x1ab5072: ret
+0x1ab5073: nopl   0x0(%rax,%rax,1)
+0x1ab5078: mov    %rax,%rbx
+0x1ab507b: jmp    1ab4fa0 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::compare(char const*) const@@Base+0x28f710>
+0x1ab5080: mov    0x8(%rax),%r9
+0x1ab5084: mov    (%rax),%rax
+0x1ab5087: xor    %ecx,%ecx
+0x1ab5089: movzbl 0xa(%r9),%r10d
+0x1ab508e: mov    (%rax),%rax
+0x1ab5091: test   %rdi,%rdi
+0x1ab5094: je     1ab5167 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::compare(char const*) const@@Base+0x28f8d7>
+0x1ab509a: xor    %edi,%edi
+0x1ab509c: jmp    1ab50b1 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::compare(char const*) const@@Base+0x28f821>
+0x1ab509e: xchg   %ax,%ax
+0x1ab50a0: add    $0x1,%rdi
+0x1ab50a4: add    $0x20,%r8
+0x1ab50a8: cmp    %rsi,%r8
+0x1ab50ab: je     1ab5167 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::compare(char const*) const@@Base+0x28f8d7>
+0x1ab50b1: cmp    %rax,%r9
+0x1ab50b4: je     1ab51d8 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::compare(char const*) const@@Base+0x28f948>
+0x1ab50ba: movzbl %cl,%edx
+0x1ab50bd: mov    %ecx,%r11d
+0x1ab50c0: shl    $0x5,%rdx
+0x1ab50c4: lea    0x10(%rax,%rdx,1),%rdx
+0x1ab50c9: mov    (%rdx),%ebx
+0x1ab50cb: cmp    %ebx,(%r8)
+0x1ab50ce: jl     1ab50a0 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::compare(char const*) const@@Base+0x28f810>
+```
+
+### FIELD_ITEM_ADVANCE `0x1aab450..0x1aab650`
+```text
+0x1aab450: cmpq   $0x0,(%rdi)
+0x1aab454: je     1aab460 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::compare(char const*) const@@Base+0x285bd0>
+0x1aab456: ret
+0x1aab457: nopw   0x0(%rax,%rax,1)
+0x1aab45e: 
+0x1aab460: push   %r14
+0x1aab462: push   %r13
+0x1aab464: push   %r12
+0x1aab466: push   %rbp
+0x1aab467: mov    %rdi,%rbp
+0x1aab46a: push   %rbx
+0x1aab46b: movzwl 0xa(%rdi),%r12d
+0x1aab470: mov    0x10(%rdi),%rbx
+0x1aab474: test   %r12w,%r12w
+0x1aab478: js     1aab4d0 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::compare(char const*) const@@Base+0x285c40>
+0x1aab47a: shl    $0x5,%r12
+0x1aab47e: add    %rbx,%r12
+0x1aab481: cmp    %r12,%rbx
+0x1aab484: je     1aab4b3 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::compare(char const*) const@@Base+0x285c23>
+0x1aab486: cs nopw 0x0(%rax,%rax,1)
+0x1aab48d: 
+0x1aab490: lea    0x8(%rbx),%rdi
+0x1aab494: add    $0x20,%rbx
+0x1aab498: call   1aab190 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::compare(char const*) const@@Base+0x285900>
+0x1aab49d: cmp    %r12,%rbx
+0x1aab4a0: jne    1aab490 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::compare(char const*) const@@Base+0x285c00>
+0x1aab4a2: movzwl 0xa(%rbp),%eax
+0x1aab4a6: mov    0x10(%rbp),%r12
+0x1aab4aa: test   %ax,%ax
+0x1aab4ad: js     1aab5a0 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::compare(char const*) const@@Base+0x285d10>
+0x1aab4b3: movzwl 0x8(%rbp),%esi
+0x1aab4b7: pop    %rbx
+0x1aab4b8: mov    %r12,%rdi
+0x1aab4bb: pop    %rbp
+0x1aab4bc: pop    %r12
+0x1aab4be: shl    $0x5,%rsi
+0x1aab4c2: pop    %r13
+0x1aab4c4: pop    %r14
+0x1aab4c6: jmp    4db7b0 <operator delete[](void*, unsigned long)@plt>
+0x1aab4cb: nopl   0x0(%rax,%rax,1)
+0x1aab4d0: mov    0x8(%rbx),%r12
+0x1aab4d4: mov    (%rbx),%rax
+0x1aab4d7: xor    %r14d,%r14d
+0x1aab4da: movzbl 0xa(%r12),%r13d
+0x1aab4e0: mov    (%rax),%rbx
+0x1aab4e3: nopl   0x0(%rax,%rax,1)
+0x1aab4e8: cmp    %rbx,%r12
+0x1aab4eb: je     1aab580 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::compare(char const*) const@@Base+0x285cf0>
+0x1aab4f1: movzbl %r14b,%eax
+0x1aab4f5: add    $0x1,%r14d
+0x1aab4f9: shl    $0x5,%rax
+0x1aab4fd: lea    0x18(%rbx,%rax,1),%rdi
+0x1aab502: call   1aab190 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::compare(char const*) const@@Base+0x285900>
+0x1aab507: cmpb   $0x0,0xb(%rbx)
+0x1aab50b: je     1aab550 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::compare(char const*) const@@Base+0x285cc0>
+0x1aab50d: movzbl 0xa(%rbx),%esi
+0x1aab511: cmp    %esi,%r14d
+0x1aab514: jl     1aab4e8 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::compare(char const*) const@@Base+0x285c58>
+0x1aab516: jne    1aab4e8 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::compare(char const*) const@@Base+0x285c58>
+0x1aab518: mov    %r14d,%edx
+0x1aab51b: mov    %rbx,%rax
+0x1aab51e: jmp    1aab52e <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::compare(char const*) const@@Base+0x285c9e>
+0x1aab520: movzbl 0x8(%rcx),%r14d
+0x1aab525: movzbl 0xa(%rax),%edx
+0x1aab529: cmp    %r14d,%edx
+0x1aab52c: jne    1aab590 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::compare(char const*) const@@Base+0x285d00>
+0x1aab52e: mov    %rax,%rcx
+0x1aab531: mov    (%rax),%rax
+0x1aab534: cmpb   $0x0,0xb(%rax)
+0x1aab538: je     1aab520 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::compare(char const*) const@@Base+0x285c90>
+0x1aab53a: cmp    %r14d,%edx
+0x1aab53d: je     1aab5d1 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::compare(char const*) const@@Base+0x285d41>
+0x1aab543: mov    %rcx,%rbx
+0x1aab546: jmp    1aab4e8 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::compare(char const*) const@@Base+0x285c58>
+0x1aab548: nopl   0x0(%rax,%rax,1)
+0x1aab54f: 
+0x1aab550: movzbl %r14b,%r14d
+0x1aab554: mov    0xf0(%rbx,%r14,8),%rbx
+0x1aab55b: 
+0x1aab55c: cmpb   $0x0,0xb(%rbx)
+0x1aab560: jne    1aab575 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::compare(char const*) const@@Base+0x285ce5>
+0x1aab562: nopw   0x0(%rax,%rax,1)
+0x1aab568: mov    0xf0(%rbx),%rbx
+0x1aab56f: cmpb   $0x0,0xb(%rbx)
+0x1aab573: je     1aab568 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::compare(char const*) const@@Base+0x285cd8>
+0x1aab575: xor    %r14d,%r14d
+0x1aab578: jmp    1aab4e8 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::compare(char const*) const@@Base+0x285c58>
+0x1aab57d: nopl   (%rax)
+0x1aab580: cmp    %r14d,%r13d
+0x1aab583: jne    1aab4f1 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::compare(char const*) const@@Base+0x285c61>
+0x1aab589: jmp    1aab4a2 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::compare(char const*) const@@Base+0x285c12>
+0x1aab58e: xchg   %ax,%ax
+0x1aab590: mov    %rax,%rbx
+0x1aab593: jmp    1aab4e8 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::compare(char const*) const@@Base+0x285c58>
+0x1aab598: nopl   0x0(%rax,%rax,1)
+0x1aab59f: 
+0x1aab5a0: test   %r12,%r12
+0x1aab5a3: je     1aab5c8 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::compare(char const*) const@@Base+0x285d38>
+0x1aab5a5: cmpq   $0x0,0x10(%r12)
+0x1aab5ab: jne    1aab5d9 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::compare(char const*) const@@Base+0x285d49>
+0x1aab5ad: pop    %rbx
+0x1aab5ae: mov    %r12,%rdi
+0x1aab5b1: pop    %rbp
+0x1aab5b2: mov    $0x18,%esi
+0x1aab5b7: pop    %r12
+0x1aab5b9: pop    %r13
+0x1aab5bb: pop    %r14
+0x1aab5bd: jmp    4de900 <operator delete(void*, unsigned long)@plt>
+0x1aab5c2: nopw   0x0(%rax,%rax,1)
+0x1aab5c8: pop    %rbx
+0x1aab5c9: pop    %rbp
+0x1aab5ca: pop    %r12
+0x1aab5cc: pop    %r13
+0x1aab5ce: pop    %r14
+0x1aab5d0: ret
+0x1aab5d1: mov    %esi,%r14d
+0x1aab5d4: jmp    1aab4e8 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::compare(char const*) const@@Base+0x285c58>
+0x1aab5d9: mov    (%r12),%rdi
+0x1aab5dd: call   1aa9e60 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::compare(char const*) const@@Base+0x2845d0>
+0x1aab5e2: jmp    1aab5ad <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::compare(char const*) const@@Base+0x285d1d>
+0x1aab5e4: data16 cs nopw 0x0(%rax,%rax,1)
+0x1aab5eb: 
+0x1aab5ef: nop
+0x1aab5f0: mov    0x10(%rdi),%r9
+0x1aab5f4: xor    %eax,%eax
+0x1aab5f6: mov    (%r9),%rdx
+0x1aab5f9: movzbl 0xa(%rdx),%edi
+0x1aab5fd: mov    %rdi,%r8
+0x1aab600: test   %rdi,%rdi
+0x1aab603: jne    1aab619 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::compare(char const*) const@@Base+0x285d89>
+0x1aab605: jmp    1aab644 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::compare(char const*) const@@Base+0x285db4>
+0x1aab607: nopw   0x0(%rax,%rax,1)
+0x1aab60e: 
+0x1aab610: add    $0x1,%rax
+0x1aab614: cmp    %rax,%rdi
+0x1aab617: je     1aab626 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::compare(char const*) const@@Base+0x285d96>
+0x1aab619: mov    %rax,%rcx
+0x1aab61c: shl    $0x5,%rcx
+0x1aab620: cmp    %esi,0x10(%rdx,%rcx,1)
+0x1aab624: jl     1aab610 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::compare(char const*) const@@Base+0x285d80>
+0x1aab626: mov    %eax,%ecx
+0x1aab628: cmpb   $0x0,0xb(%rdx)
+0x1aab62c: jne    1aab662 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::compare(char const*) const@@Base+0x285dd2>
+0x1aab62e: mov    0xf0(%rdx,%rax,8),%rdx
+0x1aab635: 
+0x1aab636: xor    %eax,%eax
+0x1aab638: movzbl 0xa(%rdx),%edi
+0x1aab63c: mov    %rdi,%r8
+0x1aab63f: test   %rdi,%rdi
+0x1aab642: jne    1aab619 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::compare(char const*) const@@Base+0x285d89>
+0x1aab644: xor    %ecx,%ecx
+0x1aab646: jmp    1aab628 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::compare(char const*) const@@Base+0x285d98>
+0x1aab648: nopl   0x0(%rax,%rax,1)
+0x1aab64f: 
+```
+
+### PROTO_COPY_HELPER `0x1b13c80..0x1b13ec0`
+```text
+0x1b13c80: push   %r15
+0x1b13c82: push   %r14
+0x1b13c84: push   %r13
+0x1b13c86: push   %r12
+0x1b13c88: push   %rbp
+0x1b13c89: push   %rbx
+0x1b13c8a: sub    $0x18,%rsp
+0x1b13c8e: mov    (%rdi),%rbx
+0x1b13c91: test   $0x1,%bl
+0x1b13c94: je     1b13e40 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::compare(char const*) const@@Base+0x2ee5b0>
+0x1b13c9a: and    $0xfffffffffffffffe,%rbx
+0x1b13c9e: add    $0x8,%rbx
+0x1b13ca2: mov    0x8(%rbx),%r12
+0x1b13ca6: mov    0x8(%rsi),%r14
+0x1b13caa: movabs $0x7fffffffffffffff,%rax
+0x1b13cb1: 
+0x1b13cb4: mov    (%rsi),%r15
+0x1b13cb7: sub    %r12,%rax
+0x1b13cba: cmp    %r14,%rax
+0x1b13cbd: jb     1b13e73 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::compare(char const*) const@@Base+0x2ee5e3>
+0x1b13cc3: mov    (%rbx),%rbp
+0x1b13cc6: lea    0x10(%rbx),%r8
+0x1b13cca: lea    (%r14,%r12,1),%r13
+0x1b13cce: cmp    %r8,%rbp
+0x1b13cd1: je     1b13df8 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::compare(char const*) const@@Base+0x2ee568>
+0x1b13cd7: mov    0x10(%rbx),%rax
+0x1b13cdb: cmp    %r13,%rax
+0x1b13cde: jb     1b13d20 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::compare(char const*) const@@Base+0x2ee490>
+0x1b13ce0: test   %r14,%r14
+0x1b13ce3: je     1b13d02 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::compare(char const*) const@@Base+0x2ee472>
+0x1b13ce5: lea    0x0(%rbp,%r12,1),%rdi
+0x1b13cea: cmp    $0x1,%r14
+0x1b13cee: je     1b13e28 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::compare(char const*) const@@Base+0x2ee598>
+0x1b13cf4: mov    %r14,%rdx
+0x1b13cf7: mov    %r15,%rsi
+0x1b13cfa: call   4dc4b0 <memcpy@plt>
+0x1b13cff: mov    (%rbx),%rbp
+0x1b13d02: mov    %r13,0x8(%rbx)
+0x1b13d06: movb   $0x0,0x0(%rbp,%r13,1)
+0x1b13d0c: add    $0x18,%rsp
+0x1b13d10: pop    %rbx
+0x1b13d11: pop    %rbp
+0x1b13d12: pop    %r12
+0x1b13d14: pop    %r13
+0x1b13d16: pop    %r14
+0x1b13d18: pop    %r15
+0x1b13d1a: ret
+0x1b13d1b: nopl   0x0(%rax,%rax,1)
+0x1b13d20: test   %r13,%r13
+0x1b13d23: js     1b13e7f <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::compare(char const*) const@@Base+0x2ee5ef>
+0x1b13d29: add    %rax,%rax
+0x1b13d2c: mov    %rax,(%rsp)
+0x1b13d30: cmp    %rax,%r13
+0x1b13d33: jb     1b13de0 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::compare(char const*) const@@Base+0x2ee550>
+0x1b13d39: mov    %r13,(%rsp)
+0x1b13d3d: mov    %r13,%rdi
+0x1b13d40: add    $0x1,%rdi
+0x1b13d44: js     1b13dec <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::compare(char const*) const@@Base+0x2ee55c>
+0x1b13d4a: mov    %r8,0x8(%rsp)
+0x1b13d4f: call   4df670 <operator new(unsigned long)@plt>
+0x1b13d54: test   %r12,%r12
+0x1b13d57: mov    0x8(%rsp),%r8
+0x1b13d5c: mov    %rax,%rbp
+0x1b13d5f: je     1b13d83 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::compare(char const*) const@@Base+0x2ee4f3>
+0x1b13d61: mov    (%rbx),%rsi
+0x1b13d64: cmp    $0x1,%r12
+0x1b13d68: je     1b13e58 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::compare(char const*) const@@Base+0x2ee5c8>
+0x1b13d6e: mov    %r12,%rdx
+0x1b13d71: mov    %rax,%rdi
+0x1b13d74: mov    %r8,0x8(%rsp)
+0x1b13d79: call   4dc4b0 <memcpy@plt>
+0x1b13d7e: mov    0x8(%rsp),%r8
+0x1b13d83: test   %r15,%r15
+0x1b13d86: je     1b13db1 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::compare(char const*) const@@Base+0x2ee521>
+0x1b13d88: test   %r14,%r14
+0x1b13d8b: je     1b13db1 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::compare(char const*) const@@Base+0x2ee521>
+0x1b13d8d: lea    0x0(%rbp,%r12,1),%rdi
+0x1b13d92: cmp    $0x1,%r14
+0x1b13d96: je     1b13e68 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::compare(char const*) const@@Base+0x2ee5d8>
+0x1b13d9c: mov    %r14,%rdx
+0x1b13d9f: mov    %r15,%rsi
+0x1b13da2: mov    %r8,0x8(%rsp)
+0x1b13da7: call   4dc4b0 <memcpy@plt>
+0x1b13dac: mov    0x8(%rsp),%r8
+0x1b13db1: mov    (%rbx),%rdi
+0x1b13db4: cmp    %rdi,%r8
+0x1b13db7: je     1b13dc6 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::compare(char const*) const@@Base+0x2ee536>
+0x1b13db9: mov    0x10(%rbx),%rax
+0x1b13dbd: lea    0x1(%rax),%rsi
+0x1b13dc1: call   4de900 <operator delete(void*, unsigned long)@plt>
+0x1b13dc6: mov    (%rsp),%rax
+0x1b13dca: mov    %rbp,(%rbx)
+0x1b13dcd: mov    %rax,0x10(%rbx)
+0x1b13dd1: jmp    1b13d02 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::compare(char const*) const@@Base+0x2ee472>
+0x1b13dd6: cs nopw 0x0(%rax,%rax,1)
+0x1b13ddd: 
+0x1b13de0: mov    %rax,%rdi
+0x1b13de3: test   %rax,%rax
+0x1b13de6: jns    1b13d40 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::compare(char const*) const@@Base+0x2ee4b0>
+0x1b13dec: call   4df5a0 <std::__throw_bad_alloc()@plt>
+0x1b13df1: nopl   0x0(%rax)
+0x1b13df8: cmp    $0xf,%r13
+0x1b13dfc: jbe    1b13ce0 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::compare(char const*) const@@Base+0x2ee450>
+0x1b13e02: test   %r13,%r13
+0x1b13e05: js     1b13e7f <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::compare(char const*) const@@Base+0x2ee5ef>
+0x1b13e07: cmp    $0x1d,%r13
+0x1b13e0b: ja     1b13d39 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::compare(char const*) const@@Base+0x2ee4a9>
+0x1b13e11: movq   $0x1e,(%rsp)
+0x1b13e18: 
+0x1b13e19: mov    $0x1f,%edi
+0x1b13e1e: jmp    1b13d4a <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::compare(char const*) const@@Base+0x2ee4ba>
+0x1b13e23: nopl   0x0(%rax,%rax,1)
+0x1b13e28: movzbl (%r15),%eax
+0x1b13e2c: mov    %al,(%rdi)
+0x1b13e2e: mov    (%rbx),%rbp
+0x1b13e31: jmp    1b13d02 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::compare(char const*) const@@Base+0x2ee472>
+0x1b13e36: cs nopw 0x0(%rax,%rax,1)
+0x1b13e3d: 
+0x1b13e40: mov    %rsi,(%rsp)
+0x1b13e44: call   1ab65f0 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::compare(char const*) const@@Base+0x290d60>
+0x1b13e49: mov    (%rsp),%rsi
+0x1b13e4d: mov    %rax,%rbx
+0x1b13e50: jmp    1b13ca2 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::compare(char const*) const@@Base+0x2ee412>
+0x1b13e55: nopl   (%rax)
+0x1b13e58: movzbl (%rsi),%eax
+0x1b13e5b: mov    %al,0x0(%rbp)
+0x1b13e5e: jmp    1b13d83 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::compare(char const*) const@@Base+0x2ee4f3>
+0x1b13e63: nopl   0x0(%rax,%rax,1)
+0x1b13e68: movzbl (%r15),%eax
+0x1b13e6c: mov    %al,(%rdi)
+0x1b13e6e: jmp    1b13db1 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::compare(char const*) const@@Base+0x2ee521>
+0x1b13e73: lea    0xe30503(%rip),%rdi        # 294437d <std::__detail::__to_chars_10_impl<unsigned int>(char*, unsigned int, unsigned int)::__digits@@Base+0x8a2c1d>
+0x1b13e7a: call   4da460 <std::__throw_length_error(char const*)@plt>
+0x1b13e7f: lea    0xe3025c(%rip),%rdi        # 29440e2 <std::__detail::__to_chars_10_impl<unsigned int>(char*, unsigned int, unsigned int)::__digits@@Base+0x8a2982>
+0x1b13e86: call   4da460 <std::__throw_length_error(char const*)@plt>
+0x1b13e8b: nop
+0x1b13e8c: nopl   0x0(%rax)
+0x1b13e90: push   %r12
+0x1b13e92: mov    $0xffffffff,%edx
+0x1b13e97: push   %rbp
+0x1b13e98: push   %rbx
+0x1b13e99: mov    %rdi,%rbx
+0x1b13e9c: sub    $0xd0,%rsp
+0x1b13ea3: mov    %rsp,%r12
+0x1b13ea6: mov    %r12,%rdi
+0x1b13ea9: call   1afbb80 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::compare(char const*) const@@Base+0x2d62f0>
+0x1b13eae: mov    (%rbx),%rax
+0x1b13eb1: lea    -0x5e428(%rip),%rdx        # 1ab5a90 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::compare(char const*) const@@Base+0x290200>
+0x1b13eb8: mov    0x20(%rax),%rax
+0x1b13ebc: cmp    %rdx,%rax
+0x1b13ebf: .byte 0xf
+```
+<!-- END GENERATED DEEP TRACE EVIDENCE -->
