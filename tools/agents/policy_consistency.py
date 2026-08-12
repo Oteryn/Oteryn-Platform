@@ -456,7 +456,7 @@ def _repository_identifiers_in_grant_clause(clause: str) -> list[str]:
         mutation_match = re.search(
             rf"\b{MUTATION_TERM}\b"
             r"(?:\s+(?:the|a|an|any|repository|repo|files?|content|code|changes?|branches?|commits?|metadata|access|operations?)){0,6}"
-            r"(?:\s+(?:in|to|into|of|on|within|for))?\s*$",
+            r"(?:\s+(?:in|to|into|of|on|within|for|from))?\s*$",
             before,
             flags=re.I,
         )
