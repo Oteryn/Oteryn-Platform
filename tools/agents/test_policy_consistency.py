@@ -280,6 +280,11 @@ class PolicyConsistencyTests(unittest.TestCase):
         self._append_root(root, "- Writes to acme/production are allowed only when the user explicitly authorizes acme/other in the current task.")
         self.assertIn("acme/production", self._findings(root))
 
+    def test_other_repository_write_permission_does_not_unlock_target_writes(self) -> None:
+        temporary, root = self._fixture(); self.addCleanup(temporary.cleanup)
+        self._append_root(root, "- Writes to acme/production are allowed only when the project owner explicitly authorizes write permission for another repository in the current task.")
+        self.assertIn("acme/production", self._findings(root))
+
     def test_matching_write_authorization_is_not_a_contradiction(self) -> None:
         temporary, root = self._fixture(); self.addCleanup(temporary.cleanup)
         self._append_root(root, "- Writes to acme/production are allowed only when the project owner explicitly authorizes write access to acme/production in the current task.")
@@ -520,6 +525,16 @@ class PolicyConsistencyTests(unittest.TestCase):
     def test_completion_even_if_material_findings_remain_fails_closed(self) -> None:
         temporary, root = self._fixture(); self.addCleanup(temporary.cleanup)
         self._append_override(root, "A task can be closed even if there are unresolved material findings.")
+        self.assertIn("contradictory completion declaration", self._findings(root))
+
+    def test_completion_when_exact_head_ci_has_not_passed_fails_closed(self) -> None:
+        temporary, root = self._fixture(); self.addCleanup(temporary.cleanup)
+        self._append_override(root, "A task may be completed when required CI on the exact final head has not passed.")
+        self.assertIn("contradictory completion declaration", self._findings(root))
+
+    def test_completion_after_exact_head_ci_fails_fails_closed(self) -> None:
+        temporary, root = self._fixture(); self.addCleanup(temporary.cleanup)
+        self._append_override(root, "A task may be completed after required CI on the exact final head fails.")
         self.assertIn("contradictory completion declaration", self._findings(root))
 
     def test_fenced_completion_weakening_example_is_not_authoritative(self) -> None:
