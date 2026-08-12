@@ -32,7 +32,7 @@ jobs:
         run: |
           set -Eeuo pipefail
           docker exec -i "$CONTAINER_NAME" python3 - <<'PY'
-          import hashlib,re
+          import csv,hashlib,re
           from pathlib import Path
 
           log=Path('/data/runtime/client-userspace-warp.log')
@@ -76,6 +76,29 @@ jobs:
               print(f'PROXY_LIST_{i}_TYPE={typ}')
               print(f'PROXY_LIST_{i}_LOCAL={str(host in {"127.0.0.1","::1","localhost"}).lower()}')
               print(f'PROXY_LIST_{i}_PORT={port if port.isdigit() else "non_numeric"}')
+
+          # Inspect only allow-listed UI words from the retained Select Character TSV.
+          # Never emit arbitrary OCR text, character names, account data, or secrets.
+          tsv=Path('/tmp/select.tsv')
+          safe_tokens={'select','character','status','ok','cancel','online','offline','account','login','logout','play','enter','game','manage'}
+          if tsv.exists():
+              with tsv.open(newline='',errors='replace') as f:
+                  for r in csv.DictReader(f,delimiter='\t'):
+                      token=(r.get('text') or '').strip().lower().strip(':,.!?()[]')
+                      if token not in safe_tokens:
+                          continue
+                      try:
+                          conf=float(r.get('conf') or -1)
+                          left=int(r.get('left') or 0)//2
+                          top=int(r.get('top') or 0)//2
+                          width=max(1,int(r.get('width') or 0)//2)
+                          height=max(1,int(r.get('height') or 0)//2)
+                      except ValueError:
+                          continue
+                      if conf >= 20:
+                          print(f'SAFE_UI_TOKEN={token};x={left+width//2};y={top+height//2};conf={int(conf)}')
+          else:
+              print('SAFE_UI_TSV_PRESENT=false')
 
           def classify(label,path):
               p=Path(path)
