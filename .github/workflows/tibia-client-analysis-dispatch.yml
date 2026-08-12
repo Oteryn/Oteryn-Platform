@@ -6,7 +6,6 @@ on:
     types: [opened, synchronize, reopened]
     paths:
       - .github/workflows/tibia-client-analysis-dispatch.yml
-      - .github/workflows/tibia-client-analysis-trace.yml
 
 permissions:
   contents: read
@@ -15,10 +14,10 @@ env:
   CONTAINER_NAME: oteryn-tibia-client-analysis
 
 jobs:
-  decode:
-    name: Trace Worldmap map-data helper
+  diagnose:
+    name: Diagnose Tibia world-entry network failure
     runs-on: oteryn-staging
-    timeout-minutes: 10
+    timeout-minutes: 6
     steps:
       - name: Verify owned runtime and snapshot staging
         shell: bash
@@ -28,45 +27,73 @@ jobs:
           [[ "$(docker inspect --format '{{ index .Config.Labels "com.blakinio.owner" }}' "$CONTAINER_NAME")" == "oteryn" ]]
           [[ "$(docker inspect --format '{{ index .Config.Labels "com.blakinio.purpose" }}' "$CONTAINER_NAME")" == "tibia-client-analysis" ]]
           [[ "$(docker inspect --format '{{.State.Status}}' "$CONTAINER_NAME")" == "running" ]]
-          docker ps -a --filter 'label=com.docker.compose.project=oteryn-staging' --format '{{.ID}}\t{{.Names}}' | sort > /tmp/oteryn-before.tsv
-          test -s /tmp/oteryn-before.tsv
-          docker exec "$CONTAINER_NAME" bash -lc '
-            set -Eeuo pipefail
-            c=/data/client-15.32.df7b29/bin/client
-            [[ "$(stat -c %s "$c")" == 51965216 ]]
-            [[ "$(sha256sum "$c" | awk "{print \$1}")" == e6c244bd39fe2e0632f6f000efd3147164696efa8e901718668e0442325ff7fe ]]
-          '
+          docker ps -a --filter 'label=com.docker.compose.project=oteryn-staging' --format '{{.ID}}\t{{.Names}}' | sort >/tmp/oteryn-before.tsv
 
-      - name: Trace exact handlers and common map-data routine
+      - name: Inspect userspace WARP and sanitized failure state
         shell: bash
         run: |
           set -Eeuo pipefail
-          docker exec -i "$CONTAINER_NAME" /data/reverse-venv/bin/python - <<'PY'
+          docker exec -i "$CONTAINER_NAME" bash <<'INNER'
+          set -Eeuo pipefail
+          export HOME=/data/home DISPLAY=:99
+          pgrep -f '/wireproxy .*wireproxy.conf' >/dev/null
+          curl --socks5-hostname 127.0.0.1:25344 -fsS --max-time 10 https://www.cloudflare.com/cdn-cgi/trace >/tmp/warp-diagnostic-trace
+          grep -q '^warp=on$' /tmp/warp-diagnostic-trace
+          echo USERSPACE_WARP_ALIVE=true
+          cfg=/tmp/proxychains-tibia.conf
+          [[ -f "$cfg" ]]
+          grep -Eq '^[[:space:]]*(proxy_dns|proxy_dns_old)[[:space:]]*$' "$cfg" && echo PROXYCHAINS_REMOTE_DNS=true || echo PROXYCHAINS_REMOTE_DNS=false
+          grep -Eq '^[[:space:]]*strict_chain[[:space:]]*$' "$cfg" && echo PROXYCHAINS_STRICT_CHAIN=true || echo PROXYCHAINS_STRICT_CHAIN=false
+          grep -Eq '^[[:space:]]*dynamic_chain[[:space:]]*$' "$cfg" && echo PROXYCHAINS_DYNAMIC_CHAIN=true || echo PROXYCHAINS_DYNAMIC_CHAIN=false
+          grep -Eq '^[[:space:]]*socks5[[:space:]]+127\.0\.0\.1[[:space:]]+25344([[:space:]]|$)' "$cfg" && echo PROXYCHAINS_LOCAL_SOCKS=true || echo PROXYCHAINS_LOCAL_SOCKS=false
+
+          pid=$(pgrep -f 'packages/Tibia/bin/client' | head -n1 || true)
+          [[ -n "$pid" ]]
+          echo CLIENT_PROCESS_ALIVE=true
+          tcp_rows=$(ss -ntp 2>/dev/null | grep "pid=$pid," || true)
+          udp_rows=$(ss -nup 2>/dev/null | grep "pid=$pid," || true)
+          tcp_count=$(printf '%s\n' "$tcp_rows" | grep -c . || true)
+          udp_count=$(printf '%s\n' "$udp_rows" | grep -c . || true)
+          local_socks_count=$(printf '%s\n' "$tcp_rows" | awk '$5 ~ /127\.0\.0\.1:25344$/ || $5 ~ /\[::1\]:25344$/ {n++} END{print n+0}')
+          direct_tcp_count=$((tcp_count-local_socks_count))
+          echo "client_tcp_socket_count=$tcp_count"
+          echo "client_tcp_local_socks_count=$local_socks_count"
+          echo "client_tcp_direct_count=$direct_tcp_count"
+          echo "client_udp_socket_count=$udp_count"
+
+          log=/data/runtime/client-userspace-warp.log
+          [[ -f "$log" ]]
+          python3 - <<'PY'
           from pathlib import Path
-          import subprocess,re
-          client=Path('/data/client-15.32.df7b29/bin/client')
-          def dis(a,b):
-              return subprocess.check_output(['objdump','-d','-C',f'--start-address={a}',f'--stop-address={b}',str(client)],text=True,errors='replace')
-          for label,a,b in [('FULLMAP_HANDLER',0xcec8d0,0xced200),('FIELDDATA_HANDLER',0xcd3190,0xcd3230),('COMMON_MAP_DATA',0x19a8a80,0x19a9700)]:
-              text=dis(a,b)
-              print(f'=== {label} 0x{a:x}..0x{b:x} ===')
-              print(text)
-              calls=[]
-              for ln in text.splitlines():
-                  m=re.search(r'\b(?:call|jmp)\s+([0-9a-f]+)\b',ln)
-                  if m and int(m.group(1),16) not in calls: calls.append(int(m.group(1),16))
-              print(label+'_DIRECT_TARGETS='+','.join(hex(x) for x in calls))
-          print('=== COMMON_MAP_DATA_CALLSITES ===')
-          alltext=subprocess.check_output(['objdump','-d','-C',str(client)],text=True,errors='replace')
-          for ln in alltext.splitlines():
-              if re.search(r'\bcall\s+19a8a80\b',ln): print(ln)
+          import re
+          p=Path('/data/runtime/client-userspace-warp.log')
+          lines=p.read_text(errors='replace').splitlines()
+          triggers={'failed','failure','error','timeout','timed','refused','denied','unreachable','closed','reset','proxy','connect','connection','socket','server','dns','resolve','resolution','handshake'}
+          safe={'proxychains','proxy','chain','strict','dynamic','socks','socks5','tcp','udp','dns','request','response','connect','connected','connecting','connection','socket','server','failed','failure','error','timeout','timed','out','refused','denied','unreachable','closed','reset','handshake','auth','authentication','remote','host','name','resolve','resolution','success','successful','ok','fatal','warning','warn','network','route','no','yes','true','false','read','write','send','receive','received','open','opening'}
+          emitted=[]
+          for line in lines[-400:]:
+              words=re.findall(r"[A-Za-z]+",line.lower())
+              if not any(w in triggers for w in words):
+                  continue
+              kept=[]
+              for w in words:
+                  if w in safe and w not in kept:
+                      kept.append(w)
+              if kept:
+                  sig=' '.join(kept)
+                  if sig not in emitted:
+                      emitted.append(sig)
+          print(f'sanitized_failure_signature_count={len(emitted)}')
+          for i,sig in enumerate(emitted[:20],1):
+              print(f'sanitized_failure_signature_{i}={sig}')
           PY
+          INNER
 
       - name: Verify canonical staging unchanged
         if: always()
         shell: bash
         run: |
           set -Eeuo pipefail
-          docker ps -a --filter 'label=com.docker.compose.project=oteryn-staging' --format '{{.ID}}\t{{.Names}}' | sort > /tmp/oteryn-after.tsv
-          if [[ -f /tmp/oteryn-before.tsv ]]; then diff -u /tmp/oteryn-before.tsv /tmp/oteryn-after.tsv; fi
-          docker inspect --format 'analysis_name={{.Name}} status={{.State.Status}} exit={{.State.ExitCode}} oom={{.State.OOMKilled}} owner={{ index .Config.Labels "com.blakinio.owner" }} purpose={{ index .Config.Labels "com.blakinio.purpose" }}' "$CONTAINER_NAME"
+          docker ps -a --filter 'label=com.docker.compose.project=oteryn-staging' --format '{{.ID}}\t{{.Names}}' | sort >/tmp/oteryn-after.tsv
+          diff -u /tmp/oteryn-before.tsv /tmp/oteryn-after.tsv
+          docker inspect --format 'analysis_name={{.Name}} status={{.State.Status}} owner={{ index .Config.Labels "com.blakinio.owner" }} purpose={{ index .Config.Labels "com.blakinio.purpose" }}' "$CONTAINER_NAME"
