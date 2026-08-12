@@ -14,8 +14,8 @@ env:
   CONTAINER_NAME: oteryn-tibia-client-analysis
 
 jobs:
-  capture:
-    name: Inspect live Tibia common map data
+  trace:
+    name: Trace Tibia common map data prologue
     runs-on: oteryn-staging
     timeout-minutes: 6
     steps:
@@ -29,13 +29,32 @@ jobs:
           [[ "$(docker inspect --format '{{.State.Status}}' "$CONTAINER_NAME")" == "running" ]]
           docker ps -a --filter 'label=com.docker.compose.project=oteryn-staging' --format '{{.ID}}\t{{.Names}}' | sort >/tmp/oteryn-before.tsv
 
-      - name: Capture bounded common-map arguments from authenticated client
+      - name: Disassemble bounded common-map prologue
         shell: bash
         run: |
           set -Eeuo pipefail
           docker exec -i "$CONTAINER_NAME" bash <<'INNER'
           set -Eeuo pipefail
-          export HOME=/data/home DISPLAY=:99
+          client=/data/client-15.32.df7b29/bin/client
+          [[ -f "$client" ]]
+          [[ "$(stat -c %s "$client")" == "51965216" ]]
+          [[ "$(sha256sum "$client" | awk '{print $1}')" == "e6c244bd39fe2e0632f6f000efd3147164696efa8e901718668e0442325ff7fe" ]]
+          command -v objdump >/dev/null
+          echo COMMON_PROLOGUE_BEGIN
+          objdump -d --start-address=0x19a8a80 --stop-address=0x19a8d80 "$client"
+          echo COMMON_PROLOGUE_END
+          INNER
+
+      - name: Verify authenticated session retained and staging unchanged
+        if: always()
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          docker ps -a --filter 'label=com.docker.compose.project=oteryn-staging' --format '{{.ID}}\t{{.Names}}' | sort >/tmp/oteryn-after.tsv
+          diff -u /tmp/oteryn-before.tsv /tmp/oteryn-after.tsv
+          docker inspect --format 'analysis_name={{.Name}} status={{.State.Status}} owner={{ index .Config.Labels "com.blakinio.owner" }} purpose={{ index .Config.Labels "com.blakinio.purpose" }}' "$CONTAINER_NAME"
+          docker exec -i "$CONTAINER_NAME" bash <<'INNER'
+          set -Eeuo pipefail
           pid=$(pgrep -x client | head -n1)
           [[ -n "$pid" ]]
           tcp_rows=$(ss -ntp 2>/dev/null | grep "pid=$pid," || true)
@@ -45,96 +64,5 @@ jobs:
           echo ACTIVE_LOCAL_SOCKS_COUNT=$local_count
           echo ACTIVE_DIRECT_TCP_COUNT=$direct_count
           (( local_count > 0 && direct_count == 0 ))
-
-          base=$(awk '$NF ~ /\/packages\/Tibia\/bin\/client$/ && $3=="00000000" {split($1,a,"-"); print "0x" a[1]; exit}' /proc/$pid/maps)
-          [[ -n "$base" ]]
-          common=$(printf '0x%x' $((base+0x19a8a80)))
-          echo CLIENT_PID=$pid
-          echo PIE_BASE=$base
-          echo COMMON_BP=$common
-
-          win=''; best=0
-          for w in $(xdotool search --onlyvisible --pid "$pid" --name '^Tibia$' 2>/dev/null || true); do
-            geom=$(xdotool getwindowgeometry --shell "$w" 2>/dev/null || true)
-            width=$(printf '%s\n' "$geom" | sed -n 's/^WIDTH=//p')
-            height=$(printf '%s\n' "$geom" | sed -n 's/^HEIGHT=//p')
-            [[ "$width" =~ ^[0-9]+$ && "$height" =~ ^[0-9]+$ ]] || continue
-            area=$((width*height))
-            if (( area > best )); then win=$w; best=$area; fi
-          done
-          [[ -n "$win" ]]
-
-          cat >/tmp/live-common-map.gdb <<GDB
-          set pagination off
-          set confirm off
-          set print thread-events off
-          set logging file /data/runtime/worldmap-common-args.log
-          set logging overwrite on
-          set logging enabled on
-          break *$common
-          commands
-          silent
-          printf "HIT CommonMapData rdi=%p rsi=%p rdx=%p rcx=%p\\n", \$rdi, \$rsi, \$rdx, \$rcx
-          printf "RSI_WORDS_BEGIN\\n"
-          x/24wx \$rsi
-          printf "RSI_WORDS_END\\n"
-          printf "RDX_WORDS_BEGIN\\n"
-          x/24wx \$rdx
-          printf "RDX_WORDS_END\\n"
-          continue
-          end
-          continue
-          detach
-          quit
-          GDB
-
-          rm -f /data/runtime/worldmap-common-args.log /data/runtime/worldmap-common-outer.log
-          gdb -q -nx -p "$pid" -x /tmp/live-common-map.gdb >/data/runtime/worldmap-common-outer.log 2>&1 &
-          gdbpid=$!
-          sleep 3
-          kill -0 "$gdbpid"
-          xdotool key --window "$win" Right
-          sleep 1
-          xdotool key --window "$win" Left
-          sleep 1
-          xdotool key --window "$win" Up
-          sleep 1
-          xdotool key --window "$win" Down
-          sleep 4
-          kill -INT "$gdbpid" 2>/dev/null || true
-          for n in $(seq 1 10); do
-            kill -0 "$gdbpid" 2>/dev/null || break
-            sleep 1
-          done
-          if kill -0 "$gdbpid" 2>/dev/null; then
-            echo GDB_CLEAN_DETACH_TIMEOUT=true
-            exit 1
-          fi
-          wait "$gdbpid" 2>/dev/null || true
-
-          kill -0 "$pid"
-          tcp_rows=$(ss -ntp 2>/dev/null | grep "pid=$pid," || true)
-          local_after=$(printf '%s\n' "$tcp_rows" | awk '$5 ~ /127\.0\.0\.1:25344$/ || $5 ~ /\[::1\]:25344$/ {n++} END{print n+0}')
-          total_after=$(printf '%s\n' "$tcp_rows" | grep -c . || true)
-          direct_after=$((total_after-local_after))
-          echo ACTIVE_LOCAL_SOCKS_COUNT_AFTER_ATTACH=$local_after
-          echo ACTIVE_DIRECT_TCP_COUNT_AFTER_ATTACH=$direct_after
-          (( local_after > 0 && direct_after == 0 ))
-          hits=$(grep -c '^HIT CommonMapData' /data/runtime/worldmap-common-args.log 2>/dev/null || true)
-          echo COMMON_MAP_HIT_COUNT=$hits
-          echo COMMON_ARGS_BEGIN
-          sed -n '/^HIT CommonMapData/,$p' /data/runtime/worldmap-common-args.log | head -n 220 || true
-          echo COMMON_ARGS_END
-          (( hits >= 1 ))
           echo LIVE_SESSION_RETAINED=true
-          echo LIVE_COMMON_MAP_ARGUMENTS_CAPTURED=true
           INNER
-
-      - name: Verify canonical staging unchanged
-        if: always()
-        shell: bash
-        run: |
-          set -Eeuo pipefail
-          docker ps -a --filter 'label=com.docker.compose.project=oteryn-staging' --format '{{.ID}}\t{{.Names}}' | sort >/tmp/oteryn-after.tsv
-          diff -u /tmp/oteryn-before.tsv /tmp/oteryn-after.tsv
-          docker inspect --format 'analysis_name={{.Name}} status={{.State.Status}} owner={{ index .Config.Labels "com.blakinio.owner" }} purpose={{ index .Config.Labels "com.blakinio.purpose" }}' "$CONTAINER_NAME"
