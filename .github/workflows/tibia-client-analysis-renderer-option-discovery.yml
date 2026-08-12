@@ -1,0 +1,153 @@
+name: Tibia Renderer Option Discovery
+
+on:
+  push:
+    branches: [ops/oteryn-tibia-client-analysis-20260811]
+    paths: [.github/workflows/tibia-client-analysis-renderer-option-discovery.yml]
+
+permissions:
+  contents: read
+
+env:
+  CONTAINER_NAME: oteryn-tibia-client-analysis
+
+jobs:
+  discover:
+    name: Discover renderer config and bounded client strings
+    runs-on: oteryn-staging
+    timeout-minutes: 4
+    steps:
+      - name: Verify owned runtime and snapshot staging
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          [[ "$RUNNER_NAME" == "oteryn-synology-staging" ]]
+          [[ "$(docker inspect --format '{{ index .Config.Labels "com.blakinio.owner" }}' "$CONTAINER_NAME")" == "oteryn" ]]
+          [[ "$(docker inspect --format '{{ index .Config.Labels "com.blakinio.purpose" }}' "$CONTAINER_NAME")" == "tibia-client-analysis" ]]
+          docker ps -a --filter 'label=com.docker.compose.project=oteryn-staging' --format '{{.ID}}\t{{.Names}}' | sort >/tmp/oteryn-before.tsv
+
+      - name: Inspect only renderer-related config metadata
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          docker exec -i "$CONTAINER_NAME" python3 - <<'PY'
+          from pathlib import Path
+          import json,re,hashlib
+
+          home=Path('/data/home')
+          roots=[
+              home/'.local/share/CipSoft GmbH/Tibia',
+              home/'.config',
+              home/'.local/share',
+          ]
+          keywords=('renderer','render','vulkan','opengl','graphics','graphic','software','backend','engine')
+          value_allow={'vulkan','opengl','software','auto','automatic','default','true','false','0','1','2','3','4'}
+          seen=set(); hits=[]
+
+          def safe_rel(p):
+              try: return str(p.relative_to(home))
+              except Exception: return p.name
+
+          def walk_json(obj,path,out):
+              if isinstance(obj,dict):
+                  for k,v in obj.items():
+                      kp=path+[str(k)]
+                      kl=str(k).lower()
+                      if any(x in kl for x in keywords):
+                          if isinstance(v,(str,int,float,bool)) or v is None:
+                              sv=str(v).lower()
+                              if sv in value_allow or any(x in sv for x in ('vulkan','opengl','software')):
+                                  out.append(('.'.join(kp),str(v)))
+                              else:
+                                  out.append(('.'.join(kp),f'<type:{type(v).__name__}>'))
+                          else:
+                              out.append(('.'.join(kp),f'<type:{type(v).__name__}>'))
+                      walk_json(v,kp,out)
+              elif isinstance(obj,list):
+                  for i,v in enumerate(obj): walk_json(v,path+[str(i)],out)
+              elif isinstance(obj,str):
+                  lo=obj.lower()
+                  if any(x in lo for x in ('vulkan','opengl')):
+                      out.append(('.'.join(path), obj if len(obj)<=80 else '<long-string>'))
+
+          candidates=[]
+          for root in roots:
+              if not root.exists(): continue
+              for p in root.rglob('*'):
+                  try:
+                      if not p.is_file() or p.stat().st_size>2_000_000: continue
+                  except OSError: continue
+                  if p in seen: continue
+                  seen.add(p); candidates.append(p)
+
+          for p in candidates:
+              try: raw=p.read_bytes()
+              except OSError: continue
+              if b'\x00' in raw[:4096]: continue
+              text=raw.decode('utf-8','replace')
+              lo=text.lower()
+              if not any(x in lo for x in keywords): continue
+              structured=[]
+              if p.suffix.lower()=='.json' or text.lstrip().startswith(('{','[')):
+                  try:
+                      obj=json.loads(text)
+                      walk_json(obj,[],structured)
+                  except Exception:
+                      pass
+              if structured:
+                  for key,val in structured[:30]:
+                      hits.append((safe_rel(p),key,val))
+              else:
+                  # Emit only renderer vocabulary and assignment-like key names, never arbitrary line contents.
+                  for line in text.splitlines():
+                      low=line.lower()
+                      if not any(x in low for x in keywords): continue
+                      keys=re.findall(r'[A-Za-z_][A-Za-z0-9_.-]{2,60}',line)
+                      selected=[]
+                      for k in keys:
+                          kl=k.lower()
+                          if any(x in kl for x in keywords) and k not in selected: selected.append(k)
+                      if selected:
+                          vals=[]
+                          for v in re.findall(r'(?i)\b(vulkan|opengl|software|auto|automatic|default)\b',line):
+                              if v.lower() not in [x.lower() for x in vals]: vals.append(v)
+                          hits.append((safe_rel(p),','.join(selected[:8]),','.join(vals[:8]) or '<value-redacted>'))
+
+          print(f'RENDERER_CONFIG_HIT_COUNT={len(hits)}')
+          for i,(path,key,val) in enumerate(hits[:80],1):
+              print(f'RENDERER_CONFIG_{i}_FILE={path}')
+              print(f'RENDERER_CONFIG_{i}_KEY={key}')
+              print(f'RENDERER_CONFIG_{i}_VALUE={val}')
+          PY
+
+          docker exec -i "$CONTAINER_NAME" bash <<'INNER'
+          set -Eeuo pipefail
+          export HOME=/data/home
+          client="$HOME/.local/share/CipSoft GmbH/Tibia/packages/Tibia/bin/client"
+          [[ -x "$client" ]]
+          strings -a "$client" | python3 - <<'PY'
+          import sys,re
+          keywords=('vulkan','opengl','renderer','software renderer','graphics api','rendering backend','graphics engine')
+          out=[]
+          for raw in sys.stdin:
+              s=raw.strip()
+              lo=s.lower()
+              if not any(k in lo for k in keywords): continue
+              if len(s)>180 or '@' in s: continue
+              # Keep only printable bounded program strings; these are binary metadata, not runtime account state.
+              if not all((32 <= ord(c) < 127) for c in s): continue
+              if s not in out: out.append(s)
+          print(f'CLIENT_RENDERER_BOUNDED_STRING_COUNT={len(out)}')
+          for i,s in enumerate(out[:120],1):
+              print(f'CLIENT_RENDERER_STRING_{i}={s}')
+          PY
+          INNER
+
+      - name: Verify canonical staging unchanged
+        if: always()
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          docker ps -a --filter 'label=com.docker.compose.project=oteryn-staging' --format '{{.ID}}\t{{.Names}}' | sort >/tmp/oteryn-after.tsv
+          diff -u /tmp/oteryn-before.tsv /tmp/oteryn-after.tsv
+          docker inspect --format 'analysis_name={{.Name}} status={{.State.Status}} owner={{ index .Config.Labels "com.blakinio.owner" }} purpose={{ index .Config.Labels "com.blakinio.purpose" }}' "$CONTAINER_NAME"
