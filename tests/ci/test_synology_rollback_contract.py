@@ -116,6 +116,25 @@ def test_recovery_requires_verified_managed_backup_and_never_runs_implicitly() -
     assert "bash \"$SCRIPT_DIR/recover-schema.sh\"" not in rollback
 
 
+def test_recovery_marks_schema_unknown_before_destructive_restore() -> None:
+    recovery = (SCRIPTS / "recover-schema.sh").read_text()
+    unknown = "printf 'SCHEMA_STATE=unknown\\n'"
+    drop = "DROP DATABASE IF EXISTS"
+    known = "printf 'SCHEMA_STATE=known\\n'"
+    assert unknown in recovery and drop in recovery and known in recovery
+    assert recovery.index(unknown) < recovery.index(drop) < recovery.rindex(known)
+
+
+def test_recovery_stops_optional_marketplace_scheduler_before_drop() -> None:
+    recovery = (SCRIPTS / "recover-schema.sh").read_text()
+    scheduler_stop = '"${marketplace_compose[@]}" stop marketplace-scheduler'
+    drop = "DROP DATABASE IF EXISTS"
+    assert "compose.marketplace.yml" in recovery
+    assert scheduler_stop in recovery
+    assert "Recovery rejected: marketplace-scheduler is still running." in recovery
+    assert recovery.index(scheduler_stop) < recovery.index(drop)
+
+
 def test_image_rollback_never_claims_database_rollback() -> None:
     rollback = (SCRIPTS / "rollback.sh").read_text()
     assert "Database schema was NOT rolled back or changed" in rollback
