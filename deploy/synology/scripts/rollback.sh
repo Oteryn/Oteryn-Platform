@@ -51,6 +51,11 @@ OTERYN_ENV_FILE="$ENV_FILE" bash "$SCRIPT_DIR/health-check.sh"
     --region="$GAME_WORLD_REGION" --host="$GAME_WORLD_HOST" --port="$GAME_WORLD_PORT" \
     --status=online --login-enabled=1
 
+# Marketplace is an optional Platform-image consumer outside the base manifest.
+# Reconcile it to the selected last-good Platform image and the effective/durable
+# Marketplace state before claiming the runtime release has been restored.
+_oteryn_reconcile_marketplace_scheduler_after_runtime_change
+
 cp "$last_good_file" "$state_dir/current-release.env.tmp"
 chmod 600 "$state_dir/current-release.env.tmp"
 mv "$state_dir/current-release.env.tmp" "$state_dir/current-release.env"
