@@ -47,8 +47,8 @@ The older `OTERYN-20260801-public-domain-repair` record's latest durable checkpo
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-12T08:20:00Z
-head: c93baa129de0015b0714461ca2b69549fdc37d21
+updated_at: 2026-08-12T08:29:00Z
+head: 1d6486f7ac1891456ec0be63cc0f983affe4e248
 branch: ops/synology-rollback-schema-safety-1007
 pr: 1013
 status: validating
@@ -65,30 +65,33 @@ blockers:
 proven:
   - PR #1013 is mergeable and remains scoped to the dedicated task branch.
   - candidate release identity is derived from matching Platform/Gateway OCI revision labels and rejects disagreement with explicit release identity.
-  - candidate migration compatibility metadata is now read from /var/www/html/deploy/synology/release-contract.env inside the exact Platform image, not from an independently checked-out workflow revision.
+  - candidate migration compatibility metadata is read from /var/www/html/deploy/synology/release-contract.env inside the exact Platform image rather than an independently checked-out workflow revision.
   - the image contract parser accepts only the three bounded compatibility keys and requires expand-contract policy plus bounded schema identifiers.
-  - pre-existing running Platform/Gateway/Canary images are snapshotted before pull using their Docker image IDs resolved immediately to immutable RepoDigests, preventing mutable-tag drift.
-  - when no managed current-release exists but a complete running-image snapshot exists, the old Platform/Gateway revision is verified and a synthetic observed-<sha> schema identity records the exact pre-migration DB/application pairing; that DB is backed up before migration.
+  - pre-existing running Platform/Gateway/Canary images are snapshotted before pull using Docker image IDs resolved immediately to immutable RepoDigests.
+  - when no managed current-release exists but a complete running-image snapshot exists, the old Platform/Gateway revision is verified and a synthetic observed-<sha> identity records the exact pre-migration DB/application pairing before backup and migration.
   - an existing non-empty Platform DB without either managed state or a complete running-image baseline fails closed before migration.
   - legacy snapshot parsing occurs in a subshell so candidate image variables are not overwritten.
-  - release-state metadata validates exact application SHA, immutable runtime image identities, schema compatibility identity, accepted schema identities and rollback eligibility.
-  - deployment persists candidate identity before migration and writes schema state unknown before invoking migrate; known schema identity is persisted only after migrate succeeds.
+  - schema state is persisted unknown before destructive recovery and known only after complete restore.
+  - optional marketplace-scheduler is stopped and verified stopped before destructive recovery.
+  - compatibility tests invoke the implemented compatible-schema subcommand and are wired into Synology CI.
+  - release-state values use shell-safe %q serialization and the world-name round trip is covered.
   - rollback validates independent schema identity against last-good application compatibility before old images are started and explicitly does not change schema.
-  - recover-schema.sh is explicit staging-only recovery and validates managed evidence/digest/transition identity before recreating only the staging Platform DB.
-  - deterministic focused tests now include image-bound contract parsing, unexpected contract-key rejection, immutable legacy snapshot ordering, candidate-variable preservation, fail-closed missing baseline, world-name quoting and all prior rollback/recovery cases.
+  - recover-schema.sh validates managed evidence, digest and transition identity before recreating only the staging Platform DB.
+  - deterministic focused tests include image-bound contract parsing, unexpected contract-key rejection, immutable legacy snapshot ordering, candidate-variable preservation, fail-closed missing baseline, world-name quoting and prior rollback/recovery cases.
 derived:
-  - the two P1 findings from Codex review at fbbf519471 are addressed structurally: candidate metadata is image-bound and legacy migration cannot proceed without a backup-capable baseline.
+  - the two P1 findings from Codex review at fbbf519471 are structurally addressed by image-bound candidate metadata and backup-capable legacy baseline bootstrap.
 unknown:
-  - terminal result of exact-head CI generation for c93baa129de0015b0714461ca2b69549fdc37d21.
+  - terminal result of the next exact-head CI generation after checkpoint repair.
   - fresh independent review result on the final coherent head.
 conflicts: []
-review_findings_repaired:
-  - schema-state remained known across failed destructive recovery; fixed by unknown-before-drop/known-after-complete-restore.
-  - marketplace scheduler could write during restore; fixed by explicit stop and verification.
-  - compatibility test called wrong subcommand; fixed and focused suite wired to Synology CI.
-  - release-state world name with spaces was not shell-safe; fixed with %q serialization and round-trip test.
-  - first managed migration lacked legacy baseline; fixed with immutable pre-pull running-image snapshot plus observed pre-migration schema identity and fail-closed no-baseline behavior.
-  - release contract came from workflow checkout rather than selected image; fixed by reading the contract from the exact Platform image whose OCI revision is verified.
+first_failure:
+  marker: checkpoint-unsupported-keys
+  evidence: Agent Governance run 31578389351 rejected unsupported review_findings_repaired and self_review mappings in the checkpoint; implementation tests were not implicated.
+rejected_hypotheses:
+  - image rollback implicitly restores schema; it does not.
+  - migration reversal is safe by default; no such contract exists.
+  - workflow checkout metadata is sufficient to identify a historical selected image contract; it is not.
+  - mutable running-image tags remain reliable after pull; immutable pre-pull RepoDigest capture is required.
 changed_paths:
   - .github/workflows/build-synology-staging-images.yml
   - deploy/synology/release-contract.env
@@ -104,20 +107,11 @@ validation:
   - command: prior exact-head focused Synology gate at fbbf519471
     result: PASS
     evidence: 14/14 tests, shell syntax, Compose/LAN validation and image builds passed before the two newest review findings.
-  - command: exact-head CI generation c93baa129de0015b0714461ca2b69549fdc37d21
-    result: PENDING
-    evidence: workflow runs 31578320346/351/353/359/362/365/369/396 created for current head.
-self_review:
-  result: PENDING
-  exact_head: c93baa129de0015b0714461ca2b69549fdc37d21
-  acceptance_checked: true
-  full_diff_checked: false
-  negative_paths_checked: true
-  rollback_checked: true
-  compatibility_checked: true
-  related_prs_checked: false
-  findings: []
-  evidence:
-    - image-bound compatibility contract and legacy baseline repairs are present on current head.
-next_action: inspect current-head focused Synology validation and full diff; repair only verified defects, then request/complete fresh exact-head Codex review before final CI/merge gate.
+  - command: Agent Governance run 31578389351
+    result: FAIL
+    evidence: checkpoint schema only; unsupported top-level nested mappings were rejected and removed in this repair.
+  - command: current exact-head focused and repository CI
+    result: NOT_RUN
+    evidence: a new validation generation is required after this checkpoint-schema repair commit.
+next_action: inspect the new exact-head focused Synology validation and full diff, repair verified defects only, then obtain fresh exact-head Codex review and complete the merge gate.
 ```
