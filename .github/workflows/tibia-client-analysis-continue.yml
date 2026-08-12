@@ -55,38 +55,74 @@ jobs:
         shell: bash
         run: |
           set -Eeuo pipefail
-          docker exec "$CONTAINER_NAME" bash -lc '
-            set -Eeuo pipefail
-            root=/data/client-15.32.df7b29
-            out="$root/bounded-reverse-evidence.txt"
-            {
-              echo "CLIENT_IDENTITY"
-              echo "version=15.32.df7b29"
-              echo "client_size=$(stat -c %s "$root/bin/client")"
-              echo "client_sha256=$(sha256sum "$root/bin/client" | awk "{print \$1}")"
-              echo "protodesc_cold_size=$(stat -c %s "$root/proto-sections/protodesc_cold.bin")"
-              echo "protodesc_cold_sha256=$(sha256sum "$root/proto-sections/protodesc_cold.bin" | awk "{print \$1}")"
-              echo
-              echo "PROTO_TARGET_SUMMARY"
-              grep "^TARGET " "$root/protodesc-target-contexts.txt" || true
-              echo
-              echo "PROTO_TARGET_CONTEXTS_BOUNDED"
-              awk '
-                /^TARGET / {print; next}
-                /^BEGIN / {keep=1; count=0; print; next}
-                /^END / {if (keep) print; keep=0; next}
-                keep && count < 18 {print; count++}
-              ' "$root/protodesc-target-contexts.txt" | sed -n "1,420p"
-              echo
-              echo "WHOLE_PROTO_SECTION_DECODE_RAW_HEAD"
-              sed -n "1,80p" "$root/protodesc-decode-raw.txt"
-              echo
-              echo "WORLDMAP_META_CONTROL_FLOW"
-              grep -E "^[[:space:]]*[0-9a-f]+:.*(call|jmp|cmp|lea)" "$root/worldmap-meta-code-wide.txt" | sed -n "1,700p" || true
-            } > "$out"
-            test -s "$out"
-            sed -n "1,1300p" "$out"
-          '
+          docker exec -i "$CONTAINER_NAME" python3 - <<'PY'
+          from pathlib import Path
+          import hashlib
+          import re
+
+          root = Path('/data/client-15.32.df7b29')
+          client = root / 'bin/client'
+          proto = root / 'proto-sections/protodesc_cold.bin'
+          contexts = root / 'protodesc-target-contexts.txt'
+          decode = root / 'protodesc-decode-raw.txt'
+          worldmap = root / 'worldmap-meta-code-wide.txt'
+          out = root / 'bounded-reverse-evidence.txt'
+
+          lines = [
+              'CLIENT_IDENTITY',
+              'version=15.32.df7b29',
+              f'client_size={client.stat().st_size}',
+              f'client_sha256={hashlib.sha256(client.read_bytes()).hexdigest()}',
+              f'protodesc_cold_size={proto.stat().st_size}',
+              f'protodesc_cold_sha256={hashlib.sha256(proto.read_bytes()).hexdigest()}',
+              '',
+              'PROTO_TARGET_SUMMARY',
+          ]
+
+          context_lines = contexts.read_text(errors='replace').splitlines()
+          lines.extend(line for line in context_lines if line.startswith('TARGET '))
+          lines.extend(['', 'PROTO_TARGET_CONTEXTS_BOUNDED'])
+
+          keep = False
+          count = 0
+          emitted = 0
+          for line in context_lines:
+              if line.startswith('TARGET '):
+                  lines.append(line)
+                  continue
+              if line.startswith('BEGIN '):
+                  keep = True
+                  count = 0
+                  lines.append(line)
+                  emitted += 1
+                  continue
+              if line.startswith('END '):
+                  if keep:
+                      lines.append(line)
+                      emitted += 1
+                  keep = False
+                  continue
+              if keep and count < 18 and emitted < 420:
+                  lines.append(line)
+                  count += 1
+                  emitted += 1
+
+          lines.extend(['', 'WHOLE_PROTO_SECTION_DECODE_RAW_HEAD'])
+          lines.extend(decode.read_text(errors='replace').splitlines()[:80])
+
+          lines.extend(['', 'WORLDMAP_META_CONTROL_FLOW'])
+          control = re.compile(r'^\s*[0-9a-f]+:.*(?:call|jmp|cmp|lea)')
+          selected = []
+          for line in worldmap.read_text(errors='replace').splitlines():
+              if control.search(line):
+                  selected.append(line)
+                  if len(selected) >= 700:
+                      break
+          lines.extend(selected)
+          out.write_text('\n'.join(lines) + '\n')
+          print(out.read_text())
+          PY
+          docker exec "$CONTAINER_NAME" test -s /data/client-15.32.df7b29/bounded-reverse-evidence.txt
 
       - name: Persist sanitized evidence into owned handover
         shell: bash
