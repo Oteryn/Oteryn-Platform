@@ -805,3 +805,40 @@ WORLDMAP_META_CONTROL_FLOW
 ```
 
 <!-- END GENERATED RUNTIME EVIDENCE -->
+
+<!-- BEGIN GENERATED SCHEMA EVIDENCE -->
+
+## Generated protobuf schema evidence
+
+Source: GitHub Actions run `31578183923` on `oteryn-synology-staging`. This is sanitized descriptor metadata only.
+
+```text
+candidate_descriptor_starts=7
+UNPARSED start=0x60 hint=shared.proto next=0x1040
+UNPARSED start=0x1040 hint=appearances.proto next=0x26a0
+UNPARSED start=0x26a0 hint=map.proto next=0x2c00
+UNPARSED start=0x2c00 hint=sounds-common.proto next=0x6bc0
+DESCRIPTOR start=0x6bc0 end=0x70ad name=sounds.proto package=tibia.protobuf.sound messages=6 enums=0
+UNPARSED start=0x70c0 hint=google/protobuf/descriptor.proto next=0x9e60
+DESCRIPTOR start=0x9e60 end=0x9f2c name=google/protobuf/cpp_features.proto package=pb messages=1 enums=0
+
+TARGET_SCHEMAS
+
+TARGET_STATUS
+AppearanceInstance=NOT_FOUND
+Coordinate=NOT_FOUND
+GameserverMessageBottomFloor=NOT_FOUND
+GameserverMessageBottomRow=NOT_FOUND
+GameserverMessageFieldData=NOT_FOUND
+GameserverMessageFullMap=NOT_FOUND
+GameserverMessageLeftColumn=NOT_FOUND
+GameserverMessageRightColumn=NOT_FOUND
+GameserverMessageTopFloor=NOT_FOUND
+GameserverMessageTopRow=NOT_FOUND
+MapArea=NOT_FOUND
+MapFieldData=NOT_FOUND
+
+MAP_RELATED_DESCRIPTOR_INVENTORY
+```
+
+<!-- END GENERATED SCHEMA EVIDENCE -->
