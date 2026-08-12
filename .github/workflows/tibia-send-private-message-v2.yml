@@ -1,0 +1,94 @@
+name: Tibia Send Private Message V2
+
+on:
+  push:
+    branches: [ops/oteryn-tibia-client-analysis-20260811]
+    paths: [.github/workflows/tibia-send-private-message-v2.yml]
+
+permissions:
+  contents: read
+
+env:
+  CONTAINER_NAME: oteryn-tibia-client-analysis
+
+jobs:
+  send:
+    name: Send direct message through Tibia chat entry
+    runs-on: oteryn-staging
+    timeout-minutes: 5
+    steps:
+      - name: Verify active world session and send direct message
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          [[ "$RUNNER_NAME" == "oteryn-synology-staging" ]]
+          [[ "$(docker inspect --format '{{ index .Config.Labels "com.blakinio.owner" }}' "$CONTAINER_NAME")" == "oteryn" ]]
+          [[ "$(docker inspect --format '{{ index .Config.Labels "com.blakinio.purpose" }}' "$CONTAINER_NAME")" == "tibia-client-analysis" ]]
+          [[ "$(docker inspect --format '{{.State.Status}}' "$CONTAINER_NAME")" == "running" ]]
+
+          docker exec -i "$CONTAINER_NAME" bash <<'INNER'
+          set -Eeuo pipefail
+          export DISPLAY=:99 HOME=/data/home
+          pid=$(pgrep -x client | head -n1)
+          [[ -n "$pid" ]]
+
+          tcp_rows=$(ss -ntp 2>/dev/null | grep "pid=$pid," || true)
+          local_count=$(printf '%s\n' "$tcp_rows" | awk '$5 ~ /127\.0\.0\.1:25344$/ || $5 ~ /\[::1\]:25344$/ {n++} END{print n+0}')
+          total_count=$(printf '%s\n' "$tcp_rows" | grep -c . || true)
+          direct_count=$((total_count-local_count))
+          echo ACTIVE_LOCAL_SOCKS_COUNT=$local_count
+          echo ACTIVE_DIRECT_TCP_COUNT=$direct_count
+          (( local_count > 0 ))
+          (( direct_count == 0 ))
+
+          best=''; best_area=0; bw=0; bh=0
+          for w in $(xdotool search --onlyvisible --pid "$pid" --name '^Tibia$' 2>/dev/null || true); do
+            geom=$(xdotool getwindowgeometry --shell "$w" 2>/dev/null || true)
+            width=$(printf '%s\n' "$geom" | sed -n 's/^WIDTH=//p')
+            height=$(printf '%s\n' "$geom" | sed -n 's/^HEIGHT=//p')
+            [[ "$width" =~ ^[0-9]+$ && "$height" =~ ^[0-9]+$ ]] || continue
+            area=$((width*height))
+            if (( area > best_area )); then best=$w; best_area=$area; bw=$width; bh=$height; fi
+          done
+          [[ -n "$best" ]]
+          echo ACTIVE_TIBIA_WINDOW_RESOLVED=true
+          echo ACTIVE_TIBIA_WINDOW_GEOMETRY=${bw}x${bh}
+
+          # Activate the live client and explicitly focus the console input area.
+          # The proven runtime geometry is 1020x650; the chat entry is in the bottom console strip.
+          xdotool windowactivate --sync "$best" 2>/dev/null || true
+          import -display :99 -window "$best" /tmp/pmv2-before.png
+
+          # Switch to Default channel, then click the text-entry strip near the bottom of the client.
+          # No movement keys are emitted by this workflow.
+          xdotool key --window "$best" ctrl+d
+          sleep 0.5
+          chat_x=$((bw/2))
+          chat_y=$((bh-18))
+          xdotool mousemove --window "$best" "$chat_x" "$chat_y" click 1
+          sleep 0.3
+
+          # Replace any pre-existing draft and use Tibia's documented direct-message syntax.
+          xdotool key --window "$best" ctrl+a
+          xdotool type --window "$best" --delay 20 -- '*Glera Mars* zajaczek to faja'
+          import -display :99 -window "$best" /tmp/pmv2-typed.png
+          xdotool key --window "$best" Return
+          sleep 2
+          import -display :99 -window "$best" /tmp/pmv2-after.png
+
+          typed_ae=$(compare -metric AE /tmp/pmv2-before.png /tmp/pmv2-typed.png null: 2>&1 || true)
+          typed_ae=${typed_ae%%.*}; [[ "$typed_ae" =~ ^[0-9]+$ ]] || typed_ae=0
+          sent_ae=$(compare -metric AE /tmp/pmv2-typed.png /tmp/pmv2-after.png null: 2>&1 || true)
+          sent_ae=${sent_ae%%.*}; [[ "$sent_ae" =~ ^[0-9]+$ ]] || sent_ae=0
+          echo CHAT_TEXT_ENTRY_CHANGED_PIXELS=$typed_ae
+          echo CHAT_AFTER_RETURN_CHANGED_PIXELS=$sent_ae
+          (( typed_ae > 100 ))
+          (( sent_ae > 100 ))
+
+          # Ensure the live session is still present after send.
+          tcp_rows=$(ss -ntp 2>/dev/null | grep "pid=$pid," || true)
+          local_after=$(printf '%s\n' "$tcp_rows" | awk '$5 ~ /127\.0\.0\.1:25344$/ || $5 ~ /\[::1\]:25344$/ {n++} END{print n+0}')
+          echo ACTIVE_LOCAL_SOCKS_COUNT_AFTER_SEND=$local_after
+          (( local_after > 0 ))
+          echo DIRECT_MESSAGE_CHAT_COMMAND_SENT=true
+          INNER
