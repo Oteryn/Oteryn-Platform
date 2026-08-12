@@ -27,82 +27,93 @@ jobs:
           [[ "$(docker inspect --format '{{.State.Status}}' "$CONTAINER_NAME")" == "running" ]]
           docker ps -a --filter 'label=com.docker.compose.project=oteryn-staging' --format '{{.ID}}\t{{.Names}}' | sort >/tmp/oteryn-before.tsv
 
-      - name: Classify each transparent WARP prerequisite
+      - name: Classify wireproxy config schema and socket shape
         shell: bash
         run: |
           set -Eeuo pipefail
           docker exec -i "$CONTAINER_NAME" bash <<'INNER'
           set -u
           echo PREFLIGHT_STARTED=true
-
           orig_default=$(ip -4 route show default | head -n1 || true)
-          [[ -n "$orig_default" ]] && echo DEFAULT_ROUTE_PRESENT=true || echo DEFAULT_ROUTE_PRESENT=false
           orig_gw=$(awk '{for(i=1;i<=NF;i++) if($i=="via") print $(i+1)}' <<<"$orig_default")
           orig_dev=$(awk '{for(i=1;i<=NF;i++) if($i=="dev") print $(i+1)}' <<<"$orig_default")
+          [[ -n "$orig_default" ]] && echo DEFAULT_ROUTE_PRESENT=true || echo DEFAULT_ROUTE_PRESENT=false
           [[ -n "$orig_gw" ]] && echo DEFAULT_GATEWAY_PRESENT=true || echo DEFAULT_GATEWAY_PRESENT=false
           [[ -n "$orig_dev" ]] && echo DEFAULT_DEVICE_PRESENT=true || echo DEFAULT_DEVICE_PRESENT=false
 
           wp_pid=$(pgrep -f '/wireproxy .*wireproxy.conf' | head -n1 || true)
           [[ -n "$wp_pid" ]] && echo WIREPROXY_MATCHED=true || echo WIREPROXY_MATCHED=false
+          wp_cfg=''
           if [[ -n "$wp_pid" && -r "/proc/$wp_pid/cmdline" ]]; then
-            echo WIREPROXY_CMDLINE_READABLE=true
             mapfile -d '' -t wp_args <"/proc/$wp_pid/cmdline" || true
             echo WIREPROXY_ARG_COUNT=${#wp_args[@]}
-            wp_cfg=''
             for arg in "${wp_args[@]}"; do
-              if [[ -f "$arg" ]]; then
-                echo WIREPROXY_FILE_ARG_PRESENT=true
-                case "$arg" in
-                  *wireproxy*.conf) wp_cfg="$arg"; echo WIREPROXY_NAMED_CONFIG_ARG=true; break ;;
-                esac
-              fi
+              if [[ -f "$arg" && "$arg" == *wireproxy*.conf ]]; then wp_cfg="$arg"; break; fi
             done
-            [[ -n "$wp_cfg" ]] || echo WIREPROXY_NAMED_CONFIG_ARG=false
-          else
-            echo WIREPROXY_CMDLINE_READABLE=false
-            wp_cfg=''
           fi
-
           if [[ -z "$wp_cfg" ]]; then
-            # Search only known runtime/config roots and emit count, not paths or file contents.
             mapfile -t cfgs < <(find /tmp /data/runtime /data/home -maxdepth 3 -type f -name '*wireproxy*.conf' 2>/dev/null | head -n 20)
             echo WIREPROXY_CONFIG_CANDIDATE_COUNT=${#cfgs[@]}
             if (( ${#cfgs[@]} == 1 )); then wp_cfg=${cfgs[0]}; fi
           fi
+          [[ -n "$wp_cfg" && -r "$wp_cfg" ]] && echo WIREPROXY_CONFIG_RESOLVED=true || echo WIREPROXY_CONFIG_RESOLVED=false
 
           if [[ -n "$wp_cfg" && -r "$wp_cfg" ]]; then
-            echo WIREPROXY_CONFIG_RESOLVED=true
-            endpoint=$(awk -F= '/^[[:space:]]*Endpoint[[:space:]]*=/{gsub(/[[:space:]]/,"",$2); print $2; exit}' "$wp_cfg")
-            [[ -n "$endpoint" ]] && echo WIREPROXY_ENDPOINT_FIELD_PRESENT=true || echo WIREPROXY_ENDPOINT_FIELD_PRESENT=false
-            if [[ -n "$endpoint" ]]; then
-              endpoint_host=${endpoint%:*}; endpoint_host=${endpoint_host#[}; endpoint_host=${endpoint_host%]}
-              if [[ "$endpoint_host" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]]; then
-                echo WIREPROXY_ENDPOINT_HOST_TYPE=ipv4
-                warp_ip="$endpoint_host"
-              else
-                echo WIREPROXY_ENDPOINT_HOST_TYPE=name_or_ipv6
-                warp_ip=$(getent ahostsv4 "$endpoint_host" 2>/dev/null | awk 'NR==1{print $1}' || true)
-              fi
-              [[ "$warp_ip" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]] && echo WIREPROXY_ENDPOINT_IPV4_RESOLVED=true || echo WIREPROXY_ENDPOINT_IPV4_RESOLVED=false
-              if [[ -n "${warp_ip:-}" && -n "$orig_dev" ]]; then
-                route=$(ip -4 route get "$warp_ip" 2>/dev/null || true)
-                [[ "$route" == *"dev $orig_dev"* ]] && echo WIREPROXY_ENDPOINT_USES_ORIGINAL_DEVICE=true || echo WIREPROXY_ENDPOINT_USES_ORIGINAL_DEVICE=false
-              fi
-            fi
-          else
-            echo WIREPROXY_CONFIG_RESOLVED=false
+            python3 - "$wp_cfg" <<'PY'
+          import re,sys
+          from pathlib import Path
+          lines=Path(sys.argv[1]).read_text(errors='replace').splitlines()
+          sections=[]; keys=[]
+          for raw in lines:
+              s=raw.strip()
+              m=re.fullmatch(r'\[([A-Za-z0-9_.-]{1,64})\]',s)
+              if m:
+                  name=m.group(1).lower()
+                  if name not in sections: sections.append(name)
+                  continue
+              m=re.match(r'^([A-Za-z][A-Za-z0-9_.-]{0,63})\s*[=:]',s)
+              if m:
+                  key=m.group(1).lower()
+                  if key not in keys: keys.append(key)
+          print('WIREPROXY_SECTION_NAMES=' + ','.join(sections))
+          print('WIREPROXY_KEY_NAMES=' + ','.join(keys))
+          print('WIREPROXY_ENDPOINT_KEY_CASEFOLD=' + str('endpoint' in keys).lower())
+          print('WIREPROXY_PEER_ENDPOINT_KEY_CASEFOLD=' + str(any(k.endswith('endpoint') for k in keys)).lower())
+          PY
           fi
 
-          t2s_bin=/data/runtime/tun2socks-v2.7.0
-          t2s_zip=/data/runtime/tun2socks-linux-amd64-v2.7.0.zip
-          echo TUN2SOCKS_BINARY_PRESENT=$(test -x "$t2s_bin" && echo true || echo false)
-          echo TUN2SOCKS_ZIP_PRESENT=$(test -f "$t2s_zip" && echo true || echo false)
-          if [[ -f "$t2s_zip" ]]; then
-            actual=$(sha256sum "$t2s_zip" | awk '{print $1}')
-            [[ "$actual" == a612baa287a3b6de6221f74fd02b442a50888508227ecf51e1288a5ccbb77381 ]] && echo TUN2SOCKS_ZIP_SHA_OK=true || echo TUN2SOCKS_ZIP_SHA_OK=false
+          if [[ -n "$wp_pid" ]]; then
+            python3 - "$wp_pid" <<'PY'
+          import re,subprocess,sys
+          pid=sys.argv[1]
+          p=subprocess.run(['ss','-H','-unap'],capture_output=True,text=True)
+          lines=[l for l in p.stdout.splitlines() if f'pid={pid},' in l]
+          wildcard=ipv4=ipv6=other=0
+          for line in lines:
+              parts=line.split()
+              peer=parts[4] if len(parts)>=5 else ''
+              if peer in {'*:*','0.0.0.0:*','[::]:*'} or peer.endswith(':*'):
+                  wildcard+=1
+              elif re.match(r'^(?:\d{1,3}\.){3}\d{1,3}:\d+$',peer):
+                  ipv4+=1
+              elif ':' in peer:
+                  ipv6+=1
+              else:
+                  other+=1
+          print(f'WIREPROXY_UDP_SOCKET_COUNT={len(lines)}')
+          print(f'WIREPROXY_UDP_PEER_WILDCARD_COUNT={wildcard}')
+          print(f'WIREPROXY_UDP_PEER_IPV4_COUNT={ipv4}')
+          print(f'WIREPROXY_UDP_PEER_IPV6_COUNT={ipv6}')
+          print(f'WIREPROXY_UDP_PEER_OTHER_COUNT={other}')
+          PY
           fi
 
           echo TUN_DEVICE_AVAILABLE=$(test -c /dev/net/tun && echo true || echo false)
+          if curl --socks5-hostname 127.0.0.1:25344 -fsS --max-time 10 https://www.cloudflare.com/cdn-cgi/trace 2>/dev/null | grep -q '^warp=on$'; then
+            echo LOCAL_SOCKS_WARP_ON=true
+          else
+            echo LOCAL_SOCKS_WARP_ON=false
+          fi
           echo PREFLIGHT_COMPLETE=true
           INNER
 
