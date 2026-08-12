@@ -1,0 +1,146 @@
+name: Tibia Live Worldmap Attach
+
+on:
+  push:
+    branches: [ops/oteryn-tibia-client-analysis-20260811]
+    paths: [.github/workflows/tibia-client-live-worldmap-attach.yml]
+
+permissions:
+  contents: read
+
+env:
+  CONTAINER_NAME: oteryn-tibia-client-analysis
+  CAPTURE_FILE: /data/runtime/worldmap-live-attach.txt
+  GDB_LOG: /data/runtime/worldmap-live-attach-gdb.log
+
+jobs:
+  attach:
+    name: Capture decoded Worldmap from already logged-in client
+    runs-on: oteryn-staging
+    timeout-minutes: 5
+    steps:
+      - name: Verify owned active session and attach without restart
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          [[ "$RUNNER_NAME" == "oteryn-synology-staging" ]]
+          [[ "$(docker inspect --format '{{ index .Config.Labels "com.blakinio.owner" }}' "$CONTAINER_NAME")" == "oteryn" ]]
+          [[ "$(docker inspect --format '{{ index .Config.Labels "com.blakinio.purpose" }}' "$CONTAINER_NAME")" == "tibia-client-analysis" ]]
+          [[ "$(docker inspect --format '{{.State.Status}}' "$CONTAINER_NAME")" == "running" ]]
+
+          docker exec -e CAPTURE_FILE -e GDB_LOG -i "$CONTAINER_NAME" bash <<'INNER'
+          set -Eeuo pipefail
+          export DISPLAY=:99 HOME=/data/home
+          pid=$(pgrep -x client | head -n1)
+          [[ -n "$pid" ]]
+          echo CLIENT_PID=$pid
+
+          # Hard gate: reuse the already authenticated live session; never restart/relogin here.
+          tcp_rows=$(ss -ntp 2>/dev/null | grep "pid=$pid," || true)
+          local_count=$(printf '%s\n' "$tcp_rows" | awk '$5 ~ /127\.0\.0\.1:25344$/ || $5 ~ /\[::1\]:25344$/ {n++} END{print n+0}')
+          total_count=$(printf '%s\n' "$tcp_rows" | grep -c . || true)
+          direct_count=$((total_count-local_count))
+          echo ACTIVE_LOCAL_SOCKS_COUNT=$local_count
+          echo ACTIVE_DIRECT_TCP_COUNT=$direct_count
+          (( local_count > 0 ))
+          (( direct_count == 0 ))
+          command -v gdb >/dev/null
+
+          maps=/proc/$pid/maps
+          [[ -r "$maps" ]]
+          base=$(awk '$NF ~ /\/packages\/Tibia\/bin\/client$/ && $3=="00000000" {split($1,a,"-"); print "0x" a[1]; exit}' "$maps")
+          if [[ -z "$base" ]]; then
+            base=$(awk '$NF ~ /\/packages\/Tibia\/bin\/client$/ {split($1,a,"-"); printf "0x%x\n", strtonum("0x" a[1])-strtonum("0x" $3); exit}' "$maps")
+          fi
+          [[ -n "$base" ]]
+          printf 'PIE_BASE=%s\n' "$base"
+          bp=$(python3 - "$base" <<'PY'
+import sys
+print(hex(int(sys.argv[1],16)+0x19a8ea3))
+PY
+)
+          printf 'DECODED_BP=%s\n' "$bp"
+          rm -f "$CAPTURE_FILE" "$GDB_LOG"
+          printf 'WORLD_MAP_LIVE_ATTACH_V1\n' >"$CAPTURE_FILE"
+
+          cat >/tmp/live-worldmap-attach.gdb <<GDB
+set pagination off
+set confirm off
+set print thread-events off
+set logging file $GDB_LOG
+set logging overwrite on
+set logging enabled on
+python
+import gdb, os, struct
+out=os.environ['CAPTURE_FILE']
+inf=gdb.selected_inferior()
+def rd(a,n): return bytes(inf.read_memory(a,n))
+def u32(a): return struct.unpack('<I',rd(a,4))[0]
+class CaptureBP(gdb.Breakpoint):
+    def __init__(self,spec):
+        super().__init__(spec)
+        self.n=0
+    def stop(self):
+        try:
+            rsp=int(gdb.parse_and_eval('$rsp'))
+            rbx=int(gdb.parse_and_eval('$rbx'))
+            order=int(gdb.parse_and_eval('$rbp')) & 0xffffffff
+            x=u32(rsp+0x88); y=u32(rsp+0x8c); z=u32(rsp+0x90)
+            if 0 < x < 100000 and 0 < y < 100000 and z < 32 and order < 128:
+                raw28=u32(rbx+0x28); raw30=u32(rbx+0x30)
+                with open(out,'a') as f:
+                    f.write(f'REC x={x} y={y} z={z} order={order} raw28={raw28} raw30={raw30}\n')
+                    f.flush()
+                self.n += 1
+                if self.n >= 64:
+                    self.enabled=False
+                    gdb.post_event(lambda: gdb.execute('interrupt'))
+        except Exception as e:
+            gdb.write('CAPTURE_ERROR='+type(e).__name__+'\n')
+        return False
+CaptureBP('$bp')
+gdb.write('LIVE_DECODED_BREAKPOINT_READY=true\n')
+end
+continue
+GDB
+
+          # Attach to the existing game client. No restart, kill, login, or credential access.
+          gdb -q -nx -p "$pid" -x /tmp/live-worldmap-attach.gdb >"$GDB_LOG" 2>&1 &
+          gdbpid=$!
+          detached=0
+          for n in $(seq 1 45); do
+            sleep 1
+            records=$(grep -c '^REC ' "$CAPTURE_FILE" 2>/dev/null || true)
+            if (( records >= 8 )); then
+              kill -INT "$gdbpid" 2>/dev/null || true
+              sleep 1
+              kill -TERM "$gdbpid" 2>/dev/null || true
+              wait "$gdbpid" 2>/dev/null || true
+              detached=1
+              break
+            fi
+            kill -0 "$gdbpid" 2>/dev/null || break
+          done
+          if kill -0 "$gdbpid" 2>/dev/null; then
+            kill -INT "$gdbpid" 2>/dev/null || true
+            sleep 1
+            kill -TERM "$gdbpid" 2>/dev/null || true
+            wait "$gdbpid" 2>/dev/null || true
+          fi
+
+          # The inferior must still be alive and connected after debugger detach.
+          kill -0 "$pid"
+          tcp_rows=$(ss -ntp 2>/dev/null | grep "pid=$pid," || true)
+          local_after=$(printf '%s\n' "$tcp_rows" | awk '$5 ~ /127\.0\.0\.1:25344$/ || $5 ~ /\[::1\]:25344$/ {n++} END{print n+0}')
+          echo ACTIVE_LOCAL_SOCKS_COUNT_AFTER_ATTACH=$local_after
+          (( local_after > 0 ))
+          records=$(grep -c '^REC ' "$CAPTURE_FILE" 2>/dev/null || true)
+          echo DECODED_CAPTURE_RECORD_COUNT=$records
+          echo CAPTURE_BEGIN
+          grep '^REC ' "$CAPTURE_FILE" | head -n 80 || true
+          echo CAPTURE_END
+          grep -E 'LIVE_DECODED_BREAKPOINT_READY|CAPTURE_ERROR|ptrace|Operation not permitted|Cannot attach' "$GDB_LOG" | tail -n 30 || true
+          (( records >= 1 ))
+          echo LIVE_SESSION_RETAINED=true
+          echo LIVE_DECODED_WORLDMAP_CAPTURE_PROVEN=true
+          INNER
