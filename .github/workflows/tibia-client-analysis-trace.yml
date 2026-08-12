@@ -6,15 +6,14 @@ on:
     paths: [.github/workflows/tibia-client-analysis-trace.yml]
 
 permissions:
-  contents: write
+  contents: read
 
 env:
   CONTAINER_NAME: oteryn-tibia-client-analysis
-  SCREENSHOT_B64_PATH: docs/agents/reports/OTERYN-20260812-launcher-screen.b64
 
 jobs:
   trace:
-    name: Persist Tibia launcher screenshot
+    name: Locate launcher action with multi-pass OCR
     runs-on: oteryn-staging
     timeout-minutes: 8
     steps:
@@ -26,7 +25,8 @@ jobs:
           [[ "$(docker inspect --format '{{ index .Config.Labels "com.blakinio.owner" }}' "$CONTAINER_NAME")" == "oteryn" ]]
           [[ "$(docker inspect --format '{{ index .Config.Labels "com.blakinio.purpose" }}' "$CONTAINER_NAME")" == "tibia-client-analysis" ]]
           docker ps -a --filter 'label=com.docker.compose.project=oteryn-staging' --format '{{.ID}}\t{{.Names}}' | sort > /tmp/oteryn-before.tsv
-      - name: Capture bounded pre-login launcher screenshot
+
+      - name: Detect and activate Install or Play control
         shell: bash
         run: |
           set -Eeuo pipefail
@@ -34,36 +34,42 @@ jobs:
             set -Eeuo pipefail
             export DISPLAY=:99
             wid=$(xdotool search --onlyvisible --name "^Tibia$" | head -n1)
-            import -display :99 -window "$wid" /tmp/launcher-full.png
-            base64 -w0 /tmp/launcher-full.png > /data/runtime/launcher-screen.b64
-            test -s /data/runtime/launcher-screen.b64
-            echo SCREENSHOT_BYTES=$(stat -c %s /tmp/launcher-full.png)
+            [[ -n "$wid" ]]
+            import -display :99 -window "$wid" /tmp/launcher.png
+            mkdir -p /tmp/ocr
+            convert /tmp/launcher.png -resize 300% /tmp/ocr/orig.png
+            convert /tmp/launcher.png -resize 300% -colorspace Gray -contrast-stretch 1%x1% /tmp/ocr/gray.png
+            convert /tmp/launcher.png -resize 300% -colorspace Gray -threshold 55% /tmp/ocr/th55.png
+            convert /tmp/launcher.png -resize 300% -colorspace Gray -negate -threshold 55% /tmp/ocr/inv55.png
+            found=0
+            for img in /tmp/ocr/*.png; do
+              for psm in 6 11 12; do
+                out=/tmp/ocr/$(basename "$img").$psm.tsv
+                tesseract "$img" stdout --psm "$psm" tsv 2>/dev/null > "$out" || true
+                match=$(awk -F "\t" '''NR>1 && NF>=12 {t=tolower($12); if (t ~ /^(install|play|download|update|start)$/) {print $7" "$8" "$9" "$10" "$12; exit}}''' "$out" || true)
+                if [[ -n "$match" ]]; then
+                  read -r x y w h text <<<"$match"
+                  cx=$(( (x + w/2) / 3 )); cy=$(( (y + h/2) / 3 ))
+                  echo OCR_ACTION_TEXT=$text OCR_ACTION_X=$cx OCR_ACTION_Y=$cy SOURCE=$(basename "$img") PSM=$psm
+                  before=$(du -sb /data/home 2>/dev/null | awk "{print \$1}" || echo 0)
+                  xdotool mousemove --window "$wid" "$cx" "$cy" click 1
+                  sleep 8
+                  after=$(du -sb /data/home 2>/dev/null | awk "{print \$1}" || echo 0)
+                  echo HOME_BYTES_BEFORE=$before HOME_BYTES_AFTER=$after
+                  found=1
+                  break 2
+                fi
+              done
+            done
+            echo OCR_ACTION_FOUND=$found
+            if (( found == 0 )); then
+              echo OCR_CANDIDATES_BEGIN
+              tesseract /tmp/ocr/gray.png stdout --psm 11 tsv 2>/dev/null | awk -F "\t" '''NR>1 && NF>=12 && $12!="" {printf "x=%d y=%d w=%d h=%d text=%s\n",$7/3,$8/3,$9/3,$10/3,$12}''' | tail -120
+              echo OCR_CANDIDATES_END
+              exit 1
+            fi
           '
-          docker exec "$CONTAINER_NAME" cat /data/runtime/launcher-screen.b64 > /tmp/launcher-screen.b64
-      - name: Persist screenshot text to task branch
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-          HEAD_REF: ${{ github.head_ref }}
-          REPOSITORY: ${{ github.repository }}
-        run: |
-          set -Eeuo pipefail
-          python3 - <<'PY'
-          import base64,json,os,pathlib,urllib.request,urllib.error
-          repo=os.environ['REPOSITORY']; ref=os.environ['HEAD_REF']; path=os.environ['SCREENSHOT_B64_PATH']; token=os.environ['GH_TOKEN']
-          headers={'Authorization':f'Bearer {token}','Accept':'application/vnd.github+json','X-GitHub-Api-Version':'2022-11-28','User-Agent':'oteryn-launcher-screenshot-writer'}
-          content=pathlib.Path('/tmp/launcher-screen.b64').read_text().strip()+'\n'
-          api=f'https://api.github.com/repos/{repo}/contents/{path}?ref={ref}'
-          sha=None
-          try:
-            with urllib.request.urlopen(urllib.request.Request(api,headers=headers)) as r: sha=json.load(r)['sha']
-          except urllib.error.HTTPError as e:
-            if e.code != 404: raise
-          payload={'message':'docs: persist bounded launcher screenshot','content':base64.b64encode(content.encode()).decode(),'branch':ref}
-          if sha: payload['sha']=sha
-          req=urllib.request.Request(f'https://api.github.com/repos/{repo}/contents/{path}',data=json.dumps(payload).encode(),headers=headers,method='PUT')
-          with urllib.request.urlopen(req) as r: print('persisted_commit='+json.load(r)['commit']['sha'])
-          PY
+
       - name: Verify canonical staging unchanged
         if: always()
         shell: bash
