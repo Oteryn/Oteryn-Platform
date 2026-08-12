@@ -5,6 +5,7 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 DEPLOY_DIR="$(cd -- "$SCRIPT_DIR/.." && pwd)"
 ENV_FILE="${OTERYN_ENV_FILE:-$DEPLOY_DIR/.env}"
 COMPOSE_FILE="$DEPLOY_DIR/compose.yml"
+MARKETPLACE_COMPOSE_FILE="$DEPLOY_DIR/compose.marketplace.yml"
 state_dir="${OTERYN_STATE_DIR:-/var/lib/oteryn-staging-state}"
 
 # shellcheck source=deploy/synology/scripts/lib.sh
@@ -57,10 +58,33 @@ source "$schema_file"
 [[ "${MIGRATION_TARGET_RELEASE_SHA:-}" == "$BACKUP_BEFORE_RELEASE_SHA" ]] || { echo "Recovery rejected: schema state is not tied to this failed candidate." >&2; exit 1; }
 
 compose=(docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE")
+marketplace_compose=(docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" -f "$MARKETPLACE_COMPOSE_FILE")
+
+# Persist uncertainty before any destructive database operation. Any failure
+# from this point onward leaves rollback fail-closed until a complete restore
+# has established and persisted a known schema identity.
+{
+    printf 'SCHEMA_STATE=unknown\n'
+    printf 'MIGRATION_TARGET_RELEASE_SHA=%s\n' "$BACKUP_BEFORE_RELEASE_SHA"
+} >"$schema_file.tmp"
+chmod 600 "$schema_file.tmp"
+mv "$schema_file.tmp" "$schema_file"
+
+# Stop every known Platform DB consumer before recreation/import. Marketplace is
+# optional, but if its scheduler container exists it must stop successfully.
+marketplace_scheduler_id="$("${marketplace_compose[@]}" ps -a -q marketplace-scheduler 2>/dev/null || true)"
+if [[ -n "$marketplace_scheduler_id" ]]; then
+    "${marketplace_compose[@]}" stop marketplace-scheduler
+    marketplace_scheduler_running="$(docker inspect --format '{{.State.Running}}' "$marketplace_scheduler_id")"
+    [[ "$marketplace_scheduler_running" == false ]] || {
+        echo "Recovery rejected: marketplace-scheduler is still running." >&2
+        exit 1
+    }
+fi
+"${compose[@]}" stop platform gateway internal-proxy
 
 # This is an explicit destructive staging recovery. It never runs implicitly from
 # deploy.sh or rollback.sh. The dump is restored into the staging Platform DB only.
-"${compose[@]}" stop platform gateway internal-proxy
 "${compose[@]}" exec -T -e MYSQL_PWD="$MARIADB_ROOT_PASSWORD" mariadb \
     mariadb -uroot -e "DROP DATABASE IF EXISTS \`$PLATFORM_DB_NAME\`; CREATE DATABASE \`$PLATFORM_DB_NAME\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
 "${compose[@]}" exec -T -e MYSQL_PWD="$MARIADB_ROOT_PASSWORD" mariadb \
