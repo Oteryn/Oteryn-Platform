@@ -1,4 +1,4 @@
-name: Tibia Player Protocol Method Map
+name: Tibia Live World Session Verify
 
 on:
   push:
@@ -12,34 +12,21 @@ env:
   CONTAINER_NAME: oteryn-tibia-client-analysis
 
 jobs:
-  attach:
-    name: Map player protocol meta-methods to code
+  verify:
+    name: Verify current client is actually in world
     runs-on: oteryn-staging
     timeout-minutes: 3
     steps:
-      - name: Dump method names and metacall disassembly
+      - name: Verify runtime and reversible in-world action
         shell: bash
         run: |
           set -Eeuo pipefail
           [[ "$RUNNER_NAME" == "oteryn-synology-staging" ]]
+          [[ "$(docker inspect --format '{{ index .Config.Labels "com.blakinio.owner" }}' "$CONTAINER_NAME")" == "oteryn" ]]
+          [[ "$(docker inspect --format '{{ index .Config.Labels "com.blakinio.purpose" }}' "$CONTAINER_NAME")" == "tibia-client-analysis" ]]
           docker exec -i "$CONTAINER_NAME" bash <<'INNER'
           set -Eeuo pipefail
-          bin='/data/home/.local/share/CipSoft GmbH/Tibia/packages/Tibia/bin/client'
-          echo SEND_NAMES_BEGIN
-          strings -a -t x "$bin" | awk '$1>="1cd0bfa" && $1<="1cd2200" {print}' | head -n 500
-          echo SEND_NAMES_END
-          echo METACALL_DC23A0_BEGIN
-          objdump -d --start-address=0xdc23a0 --stop-address=0xdc2c80 "$bin" 2>/dev/null || true
-          echo METACALL_DC23A0_END
-          echo METACALL_D13200_BEGIN
-          objdump -d --start-address=0xd13200 --stop-address=0xd13b80 "$bin" 2>/dev/null || true
-          echo METACALL_D13200_END
-          echo MOVEMENT_FUNCS_BEGIN
-          for a in ee2cd0 ee2d50 ee2dd0 ee2e50 ee30d0 ee3150 ee2ed0 ee2f50 ee2fd0 ee3050 ee31d0 ee3250 ee32d0 ee3350; do
-            echo "FUNC_$a"
-            objdump -d --start-address="0x$a" --stop-address="$((0x$a+0x80))" "$bin" 2>/dev/null || true
-          done
-          echo MOVEMENT_FUNCS_END
+          export DISPLAY=:99 HOME=/data/home
           pid=$(pgrep -x client | head -n1 || true)
           [[ -n "$pid" ]]
           tcp_rows=$(ss -ntp 2>/dev/null | grep "pid=$pid," || true)
@@ -48,5 +35,38 @@ jobs:
           echo CLIENT_PID=$pid
           echo ACTIVE_LOCAL_SOCKS_COUNT=$local_count
           echo ACTIVE_DIRECT_TCP_COUNT=$((total_count-local_count))
-          (( local_count > 0 && total_count-local_count == 0 ))
+          (( total_count-local_count == 0 ))
+
+          best=''; best_area=0; bw=0; bh=0
+          for w in $(xdotool search --onlyvisible --name '^Tibia$' 2>/dev/null || true); do
+            geom=$(xdotool getwindowgeometry --shell "$w" 2>/dev/null || true)
+            width=$(printf '%s\n' "$geom" | sed -n 's/^WIDTH=//p')
+            height=$(printf '%s\n' "$geom" | sed -n 's/^HEIGHT=//p')
+            [[ -n "$width" && -n "$height" ]] || continue
+            area=$((width*height))
+            if (( area > best_area )); then best=$w; best_area=$area; bw=$width; bh=$height; fi
+          done
+          [[ -n "$best" ]]
+          echo WINDOW_GEOMETRY=${bw}x${bh}
+          [[ "$bw" == 1020 && "$bh" == 650 ]]
+
+          import -display :99 -window "$best" /tmp/world-verify-before.png
+          convert /tmp/world-verify-before.png -crop 620x390+190+90 /tmp/world-verify-before-vp.png
+          xdotool windowactivate --sync "$best" 2>/dev/null || true
+          xdotool key --window "$best" Right
+          sleep 2
+          import -display :99 -window "$best" /tmp/world-verify-after.png
+          convert /tmp/world-verify-after.png -crop 620x390+190+90 /tmp/world-verify-after-vp.png
+          ae=$(compare -metric AE /tmp/world-verify-before-vp.png /tmp/world-verify-after-vp.png null: 2>&1 || true)
+          ae=${ae%%.*}
+          [[ "$ae" =~ ^[0-9]+$ ]] || ae=0
+          echo VIEWPORT_CHANGED_PIXELS_AFTER_RIGHT=$ae
+          if (( ae > 1000 )); then
+            xdotool key --window "$best" Left
+            sleep 1
+            echo IN_WORLD_SESSION_PROVEN=true
+          else
+            echo IN_WORLD_SESSION_PROVEN=false
+            exit 42
+          fi
           INNER
