@@ -13,7 +13,7 @@ env:
 
 jobs:
   diagnose:
-    name: Classify Tibia account warning without private text
+    name: Resolve generic Tibia warning without private text
     runs-on: oteryn-staging
     timeout-minutes: 3
     steps:
@@ -27,71 +27,68 @@ jobs:
           [[ "$(docker inspect --format '{{.State.Status}}' "$CONTAINER_NAME")" == "running" ]]
           docker ps -a --filter 'label=com.docker.compose.project=oteryn-staging' --format '{{.ID}}\t{{.Names}}' | sort >/tmp/oteryn-before.tsv
 
-      - name: Read only generic warning vocabulary from retained Select Character OCR
+      - name: Fuzzy-classify only the generic orange warning line
         shell: bash
         run: |
           set -Eeuo pipefail
           docker exec -i "$CONTAINER_NAME" python3 - <<'PY'
-          import csv
+          import csv,hashlib
           from pathlib import Path
 
-          candidates=[
-              Path('/tmp/select.tsv'),
-              Path('/tmp/network-delta-select.tsv'),
-              Path('/tmp/doubleclick-select.tsv'),
-          ]
+          candidates=[Path('/tmp/select.tsv'),Path('/tmp/network-delta-select.tsv'),Path('/tmp/doubleclick-select.tsv')]
           source=next((p for p in candidates if p.exists()),None)
           if source is None:
               raise SystemExit('No retained Select Character OCR TSV')
 
-          allowed={
-              'you','your','need','needs','to','have','has','must','confirm','confirmed','confirmation',
-              'verify','verified','verification','account','email','e-mail','play','playing','login','log','in',
-              'this','character','manage','activate','activated','activation','secure','security','authenticator',
-              'premium','free','registered','register','registration','before','can','cannot','could','not','yet',
-              'please','visit','website','create','change','password','new','old','connect','connected','connection',
-              'protect','protected','protection','required','requires','use','using','with','a','an','the','and','or',
-              'only','all','regular','features','feature','status','locked','unlock','unlocked','world','game'
-          }
-          found=[]; unknown_count=0
+          dictionary='''you your need needs to have has must confirm confirmed confirmation verify verified verification
+          account email e-mail play playing login log in this character characters manage activate activated activation
+          secure security authenticator premium free registered register registration before can cannot could not yet
+          please visit website create change password new old connect connected connection protect protected protection
+          required requires use using with a an the and or only all regular features feature status locked unlock unlocked
+          world game complete completed continue order first at least one click here access open opening browser web page
+          address valid enable enabled set setup up go go-to account-management manage-account create-character create-a-character
+          existing available currently no now then from on for of through option options profile client tibia'''.split()
+
+          def lev(a,b):
+              prev=list(range(len(b)+1))
+              for i,ca in enumerate(a,1):
+                  cur=[i]
+                  for j,cb in enumerate(b,1):
+                      cur.append(min(cur[-1]+1,prev[j]+1,prev[j-1]+(ca!=cb)))
+                  prev=cur
+              return prev[-1]
+
+          words=[]
           with source.open(newline='',errors='replace') as f:
               for r in csv.DictReader(f,delimiter='\t'):
                   raw=(r.get('text') or '').strip()
                   token=raw.lower().strip(':,.!?()[]')
                   try:
                       conf=float(r.get('conf') or -1)
-                      left=int(r.get('left') or 0)//2
-                      top=int(r.get('top') or 0)//2
-                      width=max(1,int(r.get('width') or 0)//2)
-                      height=max(1,int(r.get('height') or 0)//2)
+                      left=int(r.get('left') or 0)//2; top=int(r.get('top') or 0)//2
+                      width=max(1,int(r.get('width') or 0)//2); height=max(1,int(r.get('height') or 0)//2)
                   except ValueError:
                       continue
-                  if conf < 20:
-                      continue
+                  if conf < 20: continue
                   x=left+width//2; y=top+height//2
-                  # The generic orange account warning is the line above the Character column header.
-                  if not (145 <= x <= 870 and 137 <= y <= 158):
-                      continue
-                  if token in allowed:
-                      found.append((left,token))
-                  else:
-                      unknown_count += 1
-          found.sort()
-          print('WARNING_ALLOWED_TOKENS=' + ' '.join(t for _,t in found))
-          print(f'WARNING_UNKNOWN_TOKEN_COUNT={unknown_count}')
-          tokens={t for _,t in found}
-          checks={
-              'CONFIRMATION_RELATED': bool(tokens & {'confirm','confirmed','confirmation','verify','verified','verification','activate','activated','activation'}),
-              'AUTHENTICATOR_RELATED': 'authenticator' in tokens,
-              'ACCOUNT_RELATED': 'account' in tokens,
-              'CHARACTER_RELATED': 'character' in tokens,
-              'MANAGE_ACCOUNT_RELATED': 'manage' in tokens and 'account' in tokens,
-              'PLAY_RELATED': bool(tokens & {'play','playing','game','world'}),
-              'SECURITY_RELATED': bool(tokens & {'secure','security','protect','protected','protection'}),
-              'REQUIRED_RELATED': bool(tokens & {'need','needs','must','required','requires','cannot'}),
-          }
-          for k,v in checks.items():
-              print(f'WARNING_{k}={str(v).lower()}')
+                  if 145 <= x <= 870 and 137 <= y <= 158:
+                      words.append((left,token,conf))
+          words.sort()
+          print(f'WARNING_TOKEN_COUNT={len(words)}')
+          for i,(_,token,conf) in enumerate(words,1):
+              ranked=sorted((lev(token,c),c) for c in dictionary)
+              d1,c1=ranked[0]; d2,c2=ranked[1]
+              exact=d1==0
+              # Only exact dictionary words or fuzzy candidate labels are emitted; raw unknown OCR is never emitted.
+              print(f'W{i}_LEN={len(token)}')
+              print(f'W{i}_CONF={conf:.1f}')
+              print(f'W{i}_MATCH1={c1}')
+              print(f'W{i}_DIST1={d1}')
+              print(f'W{i}_MATCH2={c2}')
+              print(f'W{i}_DIST2={d2}')
+              print(f'W{i}_EXACT={str(exact).lower()}')
+              if not exact:
+                  print(f'W{i}_SHA256_PREFIX={hashlib.sha256(token.encode()).hexdigest()[:10]}')
           PY
 
       - name: Verify WARP and canonical staging unchanged
