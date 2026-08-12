@@ -3,8 +3,7 @@ name: Tibia Client Analysis Trace
 on:
   pull_request:
     branches: [main]
-    paths:
-      - .github/workflows/tibia-client-analysis-trace.yml
+    paths: [.github/workflows/tibia-client-analysis-trace.yml]
 
 permissions:
   contents: read
@@ -14,9 +13,9 @@ env:
 
 jobs:
   trace:
-    name: Install Tibia runtime through launcher controls
+    name: Inspect Tibia launcher controls
     runs-on: oteryn-staging
-    timeout-minutes: 12
+    timeout-minutes: 8
     steps:
       - name: Verify owned runtime and snapshot staging
         shell: bash
@@ -25,88 +24,24 @@ jobs:
           [[ "$RUNNER_NAME" == "oteryn-synology-staging" ]]
           [[ "$(docker inspect --format '{{ index .Config.Labels "com.blakinio.owner" }}' "$CONTAINER_NAME")" == "oteryn" ]]
           [[ "$(docker inspect --format '{{ index .Config.Labels "com.blakinio.purpose" }}' "$CONTAINER_NAME")" == "tibia-client-analysis" ]]
-          [[ "$(docker inspect --format '{{.State.Status}}' "$CONTAINER_NAME")" == "running" ]]
           docker ps -a --filter 'label=com.docker.compose.project=oteryn-staging' --format '{{.ID}}\t{{.Names}}' | sort > /tmp/oteryn-before.tsv
-          test -s /tmp/oteryn-before.tsv
-
-      - name: Traverse launcher controls until installation starts
+      - name: OCR launcher window controls
         shell: bash
         run: |
           set -Eeuo pipefail
           docker exec "$CONTAINER_NAME" bash -lc '
             set -Eeuo pipefail
-            export DISPLAY=:99
-            [[ -S /tmp/.X11-unix/X99 ]]
-            wid=$(xdotool search --onlyvisible --name "^Tibia$" 2>/dev/null | head -n1)
-            [[ -n "$wid" ]]
-            start_size=$(du -sb /data/home 2>/dev/null | awk "{print \$1}" || echo 0)
-            echo START_HOME_BYTES=$start_size
-            started=0
-            for n in $(seq 1 16); do
-              xdotool key --window "$wid" Tab
-              xdotool key --window "$wid" Return
-              sleep 4
-              qt=$(find /data -type f -name libQt6WebEngineQuick.so.6 -print -quit 2>/dev/null || true)
-              now_size=$(du -sb /data/home 2>/dev/null | awk "{print \$1}" || echo 0)
-              log_changed=$(grep -E "Changing local package status from .*NotInstalled|Installing|Download.*Tibia|package.*Tibia" /data/runtime/launcher.log 2>/dev/null | tail -n 3 || true)
-              echo TAB_ATTEMPT=$n HOME_BYTES=$now_size QT_FOUND=$( [[ -n "$qt" ]] && echo true || echo false )
-              [[ -n "$log_changed" ]] && printf "%s\n" "$log_changed"
-              if [[ -n "$qt" ]] || (( now_size > start_size + 1048576 )); then started=1; break; fi
-            done
-            echo INSTALLATION_STARTED=$started
-            (( started == 1 ))
+            export DISPLAY=:99 DEBIAN_FRONTEND=noninteractive
+            if ! command -v tesseract >/dev/null 2>&1; then apt-get update -qq && apt-get install -y --no-install-recommends tesseract-ocr >/tmp/ocr-install.log 2>&1; fi
+            wid=$(xdotool search --onlyvisible --name "^Tibia$" | head -n1)
+            import -display :99 -window "$wid" /tmp/launcher-full.png
+            tesseract /tmp/launcher-full.png stdout --psm 11 tsv 2>/dev/null | awk -F "\t" "NR==1 || (NF>=12 && \$12 != \"\" && \$12 !~ /^[[:space:]]*$/){print}"
           '
-
-      - name: Wait for runtime and launch verified client
-        shell: bash
-        run: |
-          set -Eeuo pipefail
-          docker exec "$CONTAINER_NAME" bash -lc '
-            set -Eeuo pipefail
-            export DISPLAY=:99
-            c=/data/client-15.32.df7b29/bin/client
-            qt=""
-            for _ in $(seq 1 72); do
-              qt=$(find /data -type f -name libQt6WebEngineQuick.so.6 -print -quit 2>/dev/null || true)
-              [[ -n "$qt" ]] && break
-              sleep 5
-            done
-            [[ -n "$qt" ]]
-            echo QT_RUNTIME_FOUND=true
-            libdir=$(dirname "$qt")
-            base=$(dirname "$libdir")
-            plugdir=""; qmldir=""
-            for d in "$base/plugins" "$libdir/plugins"; do [[ -d "$d" ]] && { plugdir=$d; break; }; done
-            for d in "$base/qml" "$libdir/qml"; do [[ -d "$d" ]] && { qmldir=$d; break; }; done
-            : > /data/runtime/client-launch.log
-            cd "$(dirname "$c")"
-            args=(env DISPLAY=:99 LD_LIBRARY_PATH="$libdir")
-            [[ -n "$plugdir" ]] && args+=(QT_PLUGIN_PATH="$plugdir")
-            [[ -n "$qmldir" ]] && args+=(QML2_IMPORT_PATH="$qmldir")
-            args+=("$c")
-            nohup "${args[@]}" >/data/runtime/client-launch.log 2>&1 </dev/null &
-            sleep 20
-            count=0
-            for p in /proc/[0-9]*; do
-              [[ -r "$p/exe" ]] || continue
-              exe=$(readlink -f "$p/exe" 2>/dev/null || true)
-              [[ "$exe" == "$c" ]] && count=$((count+1))
-            done
-            echo CLIENT_PROCESS_COUNT=$count
-            if (( count == 0 )); then
-              echo SANITIZED_CLIENT_DIAGNOSTIC_BEGIN
-              sed -E "/(token|password|account|session|cookie|authorization|bearer)/Id" /data/runtime/client-launch.log | tail -80
-              echo SANITIZED_CLIENT_DIAGNOSTIC_END
-              exit 1
-            fi
-            echo CLIENT_LAUNCH_FAILED=false
-          '
-
       - name: Verify canonical staging unchanged
         if: always()
         shell: bash
         run: |
           set -Eeuo pipefail
           docker ps -a --filter 'label=com.docker.compose.project=oteryn-staging' --format '{{.ID}}\t{{.Names}}' | sort > /tmp/oteryn-after.tsv
-          if [[ -f /tmp/oteryn-before.tsv ]]; then diff -u /tmp/oteryn-before.tsv /tmp/oteryn-after.tsv; fi
-          docker inspect --format 'analysis_name={{.Name}} status={{.State.Status}} exit={{.State.ExitCode}} oom={{.State.OOMKilled}} owner={{ index .Config.Labels "com.blakinio.owner" }} purpose={{ index .Config.Labels "com.blakinio.purpose" }}' "$CONTAINER_NAME"
+          diff -u /tmp/oteryn-before.tsv /tmp/oteryn-after.tsv
+          docker inspect --format 'analysis_name={{.Name}} status={{.State.Status}} owner={{ index .Config.Labels "com.blakinio.owner" }} purpose={{ index .Config.Labels "com.blakinio.purpose" }}' "$CONTAINER_NAME"
