@@ -6,7 +6,11 @@ This contract applies to Synology **staging** deployment and recovery. It is not
 
 ## Migration compatibility policy
 
-Synology staging uses `expand-contract` by default. A release must declare a schema compatibility identity and the schema identities its application can safely run against. Destructive contract migrations must be separated from the release that first stops depending on the old schema.
+Synology staging uses `expand-contract`. A release declares a schema compatibility identity and the schema identities its application can safely run against in `deploy/synology/release-contract.env`.
+
+The deployment does **not** trust the workflow checkout as the source of that contract. Before a migration-bearing deployment it reads `/var/www/html/deploy/synology/release-contract.env` from the exact selected Platform image and separately proves that the Platform and Gateway OCI `org.opencontainers.image.revision` labels identify the same exact 40-character application commit. This keeps compatibility metadata bound to the immutable application artifact even when a workflow checks out a different repository revision or deploys a historical release.
+
+Destructive contract migrations must be separated from the release that first stops depending on the old schema.
 
 Image rollback is allowed only when all of the following are proven from durable state:
 
@@ -18,16 +22,22 @@ Image rollback is allowed only when all of the following are proven from durable
 
 Missing or contradictory metadata fails closed.
 
-## Durable state
+## Durable state and first managed deployment
 
 The deployment state directory stores:
 
-- `candidate-release.env`: exact release SHA, immutable runtime image identities and compatibility contract for the deployment currently being attempted;
+- `candidate-release.env`: exact release SHA, immutable runtime image identities and the compatibility contract read from the selected Platform image;
 - `current-release.env`: the last deployment that completed all staging health checks;
 - `last-good-release.env`: the previous known-good release retained as the image rollback target;
 - `schema-state.env`: independent database schema identity; it is written as `unknown` before migration begins and becomes `known` only after the migration command returns success;
 - `backups/<old-sha>-before-<candidate-sha>/platform.sql`: pre-migration staging Platform DB backup;
 - matching `evidence.env`: old/candidate release identities, schema identity and SHA-256 of the backup.
+
+Before pulling candidate images, `deploy.sh` snapshots any currently running Platform, Gateway and Canary containers by Docker image ID and immediately resolves those images to immutable repository digests. This prevents a later pull of a mutable tag from changing the meaning of the recorded last-good runtime.
+
+On the first deployment that introduces managed release state to an existing staging installation, a complete running-image snapshot is required. Platform and Gateway must expose the same valid OCI application revision. The existing pre-migration database/application pairing is recorded with a synthetic `observed-<release-sha>` schema identity, then the normal pre-migration backup is created before migration begins. This synthetic identity describes the observed pre-migration state only; it is not presented as an application-authored compatibility contract.
+
+If the Platform database is already non-empty but neither managed release state nor a complete provable running-image baseline exists, deployment fails **before migration**. A fresh empty database may proceed without a prior last-good release.
 
 The schema state is deliberately independent from application state. A failed deployment after `migrate --force` can therefore never inherit the old release's schema claim.
 
@@ -47,7 +57,9 @@ Recovery is explicit and staging-only:
 deploy/synology/scripts/recover-schema.sh /var/lib/oteryn-staging-state/backups/<old-sha>-before-<candidate-sha>/evidence.env
 ```
 
-The recovery command refuses to proceed unless the managed backup exists, its SHA-256 matches the evidence, source/target release identities match durable last-good/candidate state, the backup schema identity matches the last-good release, and schema state is tied to the failed candidate. It stops application-facing services, recreates only the staging Platform database, restores the verified dump, and records the restored schema identity. It does not change runtime images. Run `rollback.sh` separately afterward so image rollback still passes its compatibility gate and health probes.
+The recovery command refuses to proceed unless the managed backup exists, its SHA-256 matches the evidence, source/target release identities match durable last-good/candidate state, the backup schema identity matches the last-good release, and schema state is tied to the failed candidate. It persists schema state as unknown before the first destructive database command. It stops the base Platform database consumers and, when present, the optional Marketplace scheduler and verifies that scheduler is no longer running. It then recreates only the staging Platform database, restores the verified dump, and records the restored schema identity only after the complete import succeeds.
+
+Recovery does not change runtime images. Run `rollback.sh` separately afterward so image rollback still passes its compatibility gate and health probes.
 
 No deployment or rollback path invokes schema recovery automatically. Laravel migration reversal is not used as a generic recovery mechanism.
 
@@ -59,11 +71,12 @@ Health-check helper containers are mapped at the common Docker invocation bounda
 
 Before merging changes to this contract:
 
-- run `python -m pytest tests/ci/test_synology_rollback_contract.py`;
+- run `python3 tests/ci/test_synology_rollback_contract.py` through the Synology deployment-package CI gate;
 - run shell syntax validation for all modified Synology scripts;
+- build the Platform/Gateway/deploy-runner images and validate the Platform image contains the release contract;
 - run repository deployment-contract / governance tests applicable to the exact head;
-- validate the deployment workflow contract without changing a concurrently owned workflow;
-- review failure before migration, failure/ambiguity during migration, failure after migration but before health success, compatible rollback, incompatible rollback, verified backup recovery, and recovery evidence mismatch;
-- obtain a fresh independent review.
+- validate compatibility with the concurrently owned staging workflow without editing that workflow;
+- review failure before migration, unprovable legacy baseline, failure/ambiguity during migration, failure after migration but before health success, compatible rollback, incompatible rollback, verified backup recovery, recovery evidence mismatch, runtime OCI revision mismatch and historical-image contract selection;
+- obtain a fresh independent review of the exact final head.
 
-Staging evidence must never be promoted to a claim of production rollback readiness.
+The task deliberately performs no protected staging or production deployment. The complete executable integration path is therefore validated with deterministic contract tests plus repository production-like/deep validation; this evidence must never be promoted to a claim of production rollback readiness.
