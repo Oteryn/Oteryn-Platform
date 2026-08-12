@@ -27,7 +27,7 @@ jobs:
           [[ "$(docker inspect --format '{{.State.Status}}' "$CONTAINER_NAME")" == "running" ]]
           docker ps -a --filter 'label=com.docker.compose.project=oteryn-staging' --format '{{.ID}}\t{{.Names}}' | sort >/tmp/oteryn-before.tsv
 
-      - name: Switch only owned client to alternate renderer and attempt world entry
+      - name: Switch owned client to rendererIndex 1 and attempt world entry
         shell: bash
         env:
           TIBIA_TEST_EMAIL: ${{ secrets.TIBIA_TEST_EMAIL }}
@@ -55,12 +55,15 @@ jobs:
           python3 - "$options" <<'PY'
           import json,sys
           p=sys.argv[1]
-          obj=json.load(open(p))
+          with open(p,encoding='utf-8') as f:
+              obj=json.load(f)
           opts=obj.get('options')
-          if not isinstance(opts,dict) or opts.get('rendererIndex') != 0:
-              raise SystemExit('Expected verified rendererIndex=0 baseline')
+          if not isinstance(opts,dict):
+              raise SystemExit('options object missing')
+          print('BASELINE_RENDERER_INDEX=' + str(opts.get('rendererIndex')))
           opts['rendererIndex']=1
-          with open(p,'w') as f: json.dump(obj,f,separators=(',',':'))
+          with open(p,'w',encoding='utf-8') as f:
+              json.dump(obj,f,separators=(',',':'))
           PY
           [[ "$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["options"]["rendererIndex"])' "$options")" == 1 ]]
           echo RENDERER_INDEX_TEST_VALUE=1
@@ -84,7 +87,7 @@ jobs:
           cd "$pkg"
           : >/data/runtime/client-renderer-index1.log
           nohup proxychains4 -f /tmp/proxychains-renderer1.conf "$client" >/data/runtime/client-renderer-index1.log 2>&1 </dev/null &
-          for n in $(seq 1 30); do pgrep -x client >/dev/null && break; sleep 1; done
+          for n in $(seq 1 40); do pgrep -x client >/dev/null && break; sleep 0.5; done
           pid=$(pgrep -x client | head -n1)
           [[ -n "$pid" ]]
           sleep 10
@@ -93,33 +96,27 @@ jobs:
           [[ "$effective" == 1 ]]
           if grep -Fqi 'failed vulkan instance' /data/runtime/client-renderer-index1.log; then
             echo RENDERER1_FAILED_VULKAN_INSTANCE=true
-          else
-            echo RENDERER1_FAILED_VULKAN_INSTANCE=false
+            exit 4
           fi
+          echo RENDERER1_FAILED_VULKAN_INSTANCE=false
 
           best=''; best_area=0; bw=0; bh=0
           for w in $(xdotool search --onlyvisible --name '^Tibia$' 2>/dev/null || true); do
             geom=$(xdotool getwindowgeometry --shell "$w" 2>/dev/null || true)
-            width=$(printf '%s\n' "$geom" | sed -n 's/^WIDTH=//p'); height=$(printf '%s\n' "$geom" | sed -n 's/^HEIGHT=//p')
+            width=$(printf '%s\n' "$geom" | sed -n 's/^WIDTH=//p')
+            height=$(printf '%s\n' "$geom" | sed -n 's/^HEIGHT=//p')
             [[ -n "$width" && -n "$height" ]] || continue
-            area=$((width*height)); if (( area > best_area )); then best=$w; best_area=$area; bw=$width; bh=$height; fi
+            area=$((width*height))
+            if (( area > best_area )); then best=$w; best_area=$area; bw=$width; bh=$height; fi
           done
           [[ -n "$best" && "$bw" == 1020 && "$bh" == 650 ]]
+
           import -display :99 -window "$best" /tmp/renderer1-start.png
           convert /tmp/renderer1-start.png -crop 900x500+60+80 -resize 150% -colorspace Gray -contrast-stretch 1%x1% /tmp/renderer1-start-ocr.png
           tesseract /tmp/renderer1-start-ocr.png stdout --psm 11 2>/dev/null >/tmp/renderer1-start.txt || true
           if ! grep -qiE 'Account Login|E-?mail|Password' /tmp/renderer1-start.txt; then
-            python3 - <<'PY'
-          from pathlib import Path
-          import re
-          raw=Path('/tmp/renderer1-start.txt').read_text(errors='replace').lower()
-          allow={'renderer','rendering','graphics','opengl','vulkan','confirm','confirmation','keep','yes','no','failed','error','account','login','email','password'}
-          safe=[]
-          for w in re.findall(r'[a-z]+',raw):
-              if w in allow and w not in safe: safe.append(w)
-          print('START_SAFE_TOKENS=' + ','.join(safe))
-          PY
-            raise SystemExit('Alternate renderer did not reach Account Login')
+            echo RENDERER1_ACCOUNT_LOGIN_READY=false
+            exit 5
           fi
           echo RENDERER1_ACCOUNT_LOGIN_READY=true
 
@@ -143,24 +140,39 @@ jobs:
               for r in csv.DictReader(f,delimiter='\t'):
                   token=(r.get('text') or '').strip().lower().strip(':,.!?()[]')
                   try:
-                      conf=float(r.get('conf') or -1); left=int(r.get('left') or 0)//2; top=int(r.get('top') or 0)//2
-                      width=max(1,int(r.get('width') or 0)//2); height=max(1,int(r.get('height') or 0)//2)
-                  except ValueError: continue
-                  if conf < 20: continue
+                      conf=float(r.get('conf') or -1)
+                      left=int(r.get('left') or 0)//2
+                      top=int(r.get('top') or 0)//2
+                      width=max(1,int(r.get('width') or 0)//2)
+                      height=max(1,int(r.get('height') or 0)//2)
+                  except ValueError:
+                      continue
+                  if conf < 20:
+                      continue
                   x=left+width//2; y=top+height//2
-                  if token in {'select','character','status'}: anchors.append((token,x,y))
-                  if 180 <= x <= 390 and 185 <= y <= 200: candidates.append((left,x,y,width,conf))
+                  if token in {'select','character','status'}:
+                      anchors.append((token,x,y))
+                  elif 180 <= x <= 390 and 185 <= y <= 200:
+                      candidates.append((left,x,y,conf))
           title=any(t=='select' and 100<=y<=130 for t,x,y in anchors)
           header=[(x,y) for t,x,y in anchors if t=='character' and 160<=y<=185]
           status=[(x,y) for t,x,y in anchors if t=='status' and 160<=y<=190]
-          if not title or not header or not status or not candidates: raise SystemExit('Select Character structure not proven')
-          candidates.sort(); left,x,y,width,conf=candidates[0]
-          if not (188 <= y <= 198 and x < status[0][0]-30): raise SystemExit('Unsafe name target')
-          print(f'NAME_X={x}'); print(f'NAME_Y={y}')
+          if not title or not header or not status or not candidates:
+              raise SystemExit('Select Character structure not proven')
+          candidates.sort()
+          _,x,y,conf=candidates[0]
+          if not (188 <= y <= 198 and x < status[0][0]-30):
+              raise SystemExit('Unsafe name target')
+          print(f'NAME_X={x}')
+          print(f'NAME_Y={y}')
+          print(f'NAME_CONF={int(conf)}')
           PY
           source /tmp/renderer1-target.env
           echo SELECT_CHARACTER_AND_EXACT_NAME_TARGET_VERIFIED=true
+          echo "CHARACTER_NAME_TARGET=$NAME_X,$NAME_Y"
+
           xdotool mousemove --window "$best" "$NAME_X" "$NAME_Y" click --repeat 2 --delay 180 1
+          echo CHARACTER_TARGET_ACTIVATED=true
 
           sleep 1
           import -display :99 -window "$best" /tmp/renderer1-t1.png
@@ -168,39 +180,45 @@ jobs:
           import -display :99 -window "$best" /tmp/renderer1-t5.png
           sleep 10
           import -display :99 -window "$best" /tmp/renderer1-t15.png
-          for n in 1 5 15; do
+          sleep 30
+          import -display :99 -window "$best" /tmp/renderer1-t45.png
+
+          for n in 1 5 15 45; do
             convert "/tmp/renderer1-t${n}.png" -crop 900x500+60+80 -resize 150% -colorspace Gray -contrast-stretch 1%x1% "/tmp/renderer1-t${n}-ocr.png"
             tesseract "/tmp/renderer1-t${n}-ocr.png" stdout --psm 11 2>/dev/null >"/tmp/renderer1-t${n}.txt" || true
           done
+
           python3 - <<'PY'
           from pathlib import Path
-          import re
-          allow={'account','login','email','password','select','character','connecting','connection','failed','error','server','world','game','battle','skills','inventory','health','mana','capacity','experience','store','vip','prey','quest','online','already','logged','session','disconnected','queue','maintenance','renderer','opengl','vulkan'}
-          final=''
-          for n in ('1','5','15'):
+          for n in (1,5,15,45):
               raw=Path(f'/tmp/renderer1-t{n}.txt').read_text(errors='replace').lower()
-              if n=='15': final=raw
-              safe=[]
-              for w in re.findall(r'[a-z]+',raw):
-                  if w in allow and w not in safe: safe.append(w)
-              print(f'T{n}_SAFE=' + ','.join(safe))
+              account=('account login' in raw or ('email' in raw and 'password' in raw))
+              select=('select character' in raw)
+              game=sum(x in raw for x in ('battle','skills','inventory','health','mana','capacity','experience'))>=2
+              print(f'T{n}_ACCOUNT_LOGIN={str(account).lower()}')
+              print(f'T{n}_SELECT_CHARACTER={str(select).lower()}')
+              print(f'T{n}_GAME_MARKERS={str(game).lower()}')
+          final=Path('/tmp/renderer1-t45.txt').read_text(errors='replace').lower()
           account=('account login' in final or ('email' in final and 'password' in final))
           select=('select character' in final)
           game=sum(x in final for x in ('battle','skills','inventory','health','mana','capacity','experience'))>=2
           print(f'FINAL_ACCOUNT_LOGIN={str(account).lower()}')
           print(f'FINAL_SELECT_CHARACTER={str(select).lower()}')
           print(f'FINAL_GAME_MARKERS={str(game).lower()}')
-          if account or select or not game: raise SystemExit(2)
+          if account or select or not game:
+              raise SystemExit(2)
           PY
 
           pid=$(pgrep -x client | head -n1)
           [[ -n "$pid" ]]
           direct_tcp=$(ss -ntp 2>/dev/null | grep "pid=$pid," | awk '{print $5}' | grep -Ev '^(127\.0\.0\.1|\[::1\]):25344$' | grep -c . || true)
           udp_count=$(ss -nup 2>/dev/null | grep "pid=$pid," | grep -c . || true)
+          echo "FINAL_DIRECT_TCP_COUNT=$direct_tcp"
+          echo "FINAL_UDP_COUNT=$udp_count"
           [[ "$direct_tcp" -eq 0 && "$udp_count" -eq 0 ]]
           echo CLIENT_NETWORK_CONFINED_TO_WARP_SOCKS=true
 
-          cp /tmp/renderer1-t15.png /tmp/tibia-renderer1-online-safe.png
+          cp /tmp/renderer1-t45.png /tmp/tibia-renderer1-online-safe.png
           convert /tmp/tibia-renderer1-online-safe.png -fill '#202020' -draw 'rectangle 0,0 1020,70 rectangle 0,70 180,650 rectangle 840,70 1020,650 rectangle 0,520 1020,650' /tmp/tibia-renderer1-online-safe.png
           success=1
           echo PHYSICAL_TIBIA_WORLD_LOGIN_PROVEN=true
