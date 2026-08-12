@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import pathlib
+import re
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 SCRIPTS = ROOT / "deploy" / "synology" / "scripts"
@@ -46,6 +47,7 @@ def test_recovery_workflow_reconstructs_ephemeral_environment() -> None:
     assert "if: always()" in workflow
     assert "rm -f deploy/synology/.env" in workflow
     assert "environment: production" not in workflow
+    assert 'ref: ${{ github.sha }}' in workflow
 
 
 def test_recovery_workflow_is_in_focused_ci_trigger() -> None:
@@ -92,6 +94,28 @@ def test_same_release_redeploy_preserves_distinct_last_good() -> None:
     skip_block = wrapper.index('if [[ "${OTERYN_SAME_RELEASE_REDEPLOY:-0}" == 1 ]]')
     actual_migrate = wrapper.index('command docker "${args[@]}"', skip_block)
     assert skip_block < actual_migrate
+
+
+def test_health_probe_helper_pins_are_full_immutable_digests() -> None:
+    lib = LIB.read_text()
+    alpine = re.search(r"^OTERYN_HEALTH_ALPINE_IMAGE='([^']+)'$", lib, re.MULTILINE)
+    python = re.search(r"^OTERYN_HEALTH_PYTHON_IMAGE='([^']+)'$", lib, re.MULTILINE)
+    assert alpine is not None
+    assert python is not None
+    assert re.fullmatch(r"alpine@sha256:[0-9a-f]{64}", alpine.group(1))
+    assert re.fullmatch(r"python@sha256:[0-9a-f]{64}", python.group(1))
+    assert 'alpine:3.22) args[$i]="$OTERYN_HEALTH_ALPINE_IMAGE"' in lib
+    assert 'python:3.12-alpine) args[$i]="$OTERYN_HEALTH_PYTHON_IMAGE"' in lib
+
+
+def test_rollback_revalidates_last_good_image_revision_before_start() -> None:
+    rollback = ROLLBACK.read_text()
+    pull = rollback.index('"${compose[@]}" pull platform gateway canary')
+    revision = rollback.index('last_good_revision="$(_oteryn_release_sha_for_images "$PLATFORM_IMAGE" "$GATEWAY_IMAGE")"')
+    compare = rollback.index('[[ "$last_good_revision" == "$RELEASE_SHA" ]]', revision)
+    start = rollback.index('"${compose[@]}" up -d canary platform internal-proxy gateway')
+    assert pull < revision < compare < start
+    assert "last-good runtime image revision does not match persisted release identity" in rollback
 
 
 def main() -> None:

@@ -37,13 +37,22 @@ bash "$SCRIPT_DIR/release-state.sh" compatible-schema "$schema_identity" "$last_
 # Load immutable last-good runtime identity only after all compatibility gates.
 # shellcheck disable=SC1090
 source "$last_good_file"
-for name in PLATFORM_IMAGE GATEWAY_IMAGE CANARY_IMAGE GAME_WORLD_ID GAME_WORLD_SLUG GAME_WORLD_NAME GAME_WORLD_REGION GAME_WORLD_HOST GAME_WORLD_PORT; do
+for name in RELEASE_SHA PLATFORM_IMAGE GATEWAY_IMAGE CANARY_IMAGE GAME_WORLD_ID GAME_WORLD_SLUG GAME_WORLD_NAME GAME_WORLD_REGION GAME_WORLD_HOST GAME_WORLD_PORT; do
     [[ -n "${!name:-}" ]] || { echo "Rollback configuration is incomplete: $name" >&2; exit 1; }
 done
 
 export PLATFORM_IMAGE GATEWAY_IMAGE CANARY_IMAGE
 compose=(docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE")
 "${compose[@]}" pull platform gateway canary
+
+# Re-prove that immutable last-good Platform/Gateway artifacts still identify the
+# exact persisted application release before starting any rollback runtime.
+last_good_revision="$(_oteryn_release_sha_for_images "$PLATFORM_IMAGE" "$GATEWAY_IMAGE")"
+[[ "$last_good_revision" == "$RELEASE_SHA" ]] || {
+    echo "Rollback rejected: last-good runtime image revision does not match persisted release identity." >&2
+    exit 1
+}
+
 "${compose[@]}" up -d canary platform internal-proxy gateway
 
 # Marketplace is an optional Platform-image consumer outside the base manifest.
