@@ -230,13 +230,14 @@ def test_legacy_bootstrap_uses_immutable_running_image_snapshot() -> None:
     assert "release-state.sh\" resolve-image \"$image_id\"" in deploy
     assert deploy.index("snapshot_current_images") < deploy.index('"${compose[@]}" pull')
     assert "observed_schema=\"observed-${old_sha}\"" in lib
+    assert "_oteryn_write_schema_state_known \"$state_dir\" \"$observed_schema\" \"$old_sha\"" in lib
     assert "Legacy running-release snapshot is incomplete; refusing migration." in lib
 
 
 def test_legacy_bootstrap_does_not_replace_candidate_image_variables() -> None:
     lib = LIB.read_text()
     start = lib.index("_oteryn_bootstrap_legacy_current_release()")
-    end = lib.index("_oteryn_quiesce_platform_db_consumers()", start)
+    end = lib.index("_oteryn_marketplace_state_file()", start)
     bootstrap = lib[start:end]
     assert "mapfile -t legacy_images" in bootstrap
     assert "unset PLATFORM_IMAGE GATEWAY_IMAGE CANARY_IMAGE" not in bootstrap
@@ -260,6 +261,14 @@ def test_candidate_platform_is_not_started_before_migration_preparation() -> Non
     assert up_branch < prepare < start_candidate
 
 
+def test_pre_migration_backup_uses_actual_known_schema_identity() -> None:
+    lib = LIB.read_text()
+    before = lib[lib.index("_oteryn_before_platform_migrate()") : lib.index("_oteryn_after_platform_migrate()")]
+    assert 'old_schema="$(_oteryn_known_schema_identity "$state_dir")"' in before
+    assert 'old_schema="$(_oteryn_read_state_key "$current_file" SCHEMA_COMPATIBILITY_ID)"' not in before
+    assert "BACKUP_SCHEMA_COMPATIBILITY_ID=%s" in before
+
+
 def test_pre_migration_backup_quiesces_db_consumers_and_restores_scheduler() -> None:
     lib = LIB.read_text()
     before = lib.index("_oteryn_before_platform_migrate()")
@@ -270,9 +279,20 @@ def test_pre_migration_backup_quiesces_db_consumers_and_restores_scheduler() -> 
     quiesce = lib[lib.index("_oteryn_quiesce_platform_db_consumers()") : before]
     assert 'stop platform gateway internal-proxy' in quiesce
     assert "OTERYN_MARKETPLACE_SCHEDULER_WAS_RUNNING=1" in quiesce
+    assert 'command docker stop "$scheduler_id"' in quiesce
     after = lib[lib.index("_oteryn_after_platform_migrate()") : lib.index("_oteryn_finalize_release_on_exit()")]
     assert "_oteryn_restore_quiesced_consumers_after_migrate" in after
-    assert 'up -d marketplace-scheduler' in lib
+    assert 'up -d --force-recreate marketplace-scheduler' in lib
+
+
+def test_marketplace_scheduler_recreation_uses_effective_or_durable_state() -> None:
+    lib = LIB.read_text()
+    assert 'printf \'%s/marketplace.env\\n\'' in lib
+    assert "grep -q '^MARKETPLACE_ENABLED=' \"$ENV_FILE\"" in lib
+    assert "Unexpected durable Marketplace state key" in lib
+    assert "_oteryn_load_marketplace_runtime_state" in lib
+    assert 'scheduler_image="$(command docker inspect --format \'{{.Config.Image}}\' "$scheduler_id")"' in lib
+    assert '[[ "$scheduler_image" == "$PLATFORM_IMAGE" ]]' in lib
 
 
 def test_health_probe_helpers_are_repository_pinned_by_digest() -> None:
@@ -307,23 +327,54 @@ def test_recovery_requires_verified_managed_backup_and_never_runs_implicitly() -
     assert "bash \"$SCRIPT_DIR/recover-schema.sh\"" not in rollback
 
 
+def test_recovery_evidence_is_allowlisted_not_sourced() -> None:
+    recovery = (SCRIPTS / "recover-schema.sh").read_text()
+    assert 'source "$evidence_file"' not in recovery
+    assert "Recovery evidence contains unexpected key" in recovery
+    assert "Recovery evidence contains duplicate key" in recovery
+    for key in (
+        "BACKUP_FROM_RELEASE_SHA",
+        "BACKUP_BEFORE_RELEASE_SHA",
+        "BACKUP_SCHEMA_COMPATIBILITY_ID",
+        "BACKUP_SHA256",
+    ):
+        assert key in recovery
+
+
+def test_recovery_accepts_actual_backup_schema_via_last_good_contract() -> None:
+    recovery = (SCRIPTS / "recover-schema.sh").read_text()
+    assert 'compatible-schema \\\n    "$BACKUP_SCHEMA_COMPATIBILITY_ID" "$last_good_file" "$candidate_sha"' in recovery
+    assert '[[ "$SCHEMA_COMPATIBILITY_ID" == "$BACKUP_SCHEMA_COMPATIBILITY_ID" ]]' not in recovery
+
+
 def test_recovery_marks_schema_unknown_before_destructive_restore() -> None:
     recovery = (SCRIPTS / "recover-schema.sh").read_text()
     unknown = "printf 'SCHEMA_STATE=unknown\\n'"
     drop = "DROP DATABASE IF EXISTS"
-    known = "printf 'SCHEMA_STATE=known\\n'"
+    known = '_oteryn_write_schema_state_known "$state_dir"'
     assert unknown in recovery and drop in recovery and known in recovery
     assert recovery.index(unknown) < recovery.index(drop) < recovery.rindex(known)
 
 
 def test_recovery_stops_optional_marketplace_scheduler_before_drop() -> None:
     recovery = (SCRIPTS / "recover-schema.sh").read_text()
-    scheduler_stop = '"${marketplace_compose[@]}" stop marketplace-scheduler'
+    scheduler_stop = 'command docker stop "$marketplace_scheduler_id"'
     drop = "DROP DATABASE IF EXISTS"
-    assert "compose.marketplace.yml" in recovery
+    assert "_oteryn_marketplace_scheduler_id" in recovery
     assert scheduler_stop in recovery
     assert "Recovery rejected: marketplace-scheduler is still running." in recovery
     assert recovery.index(scheduler_stop) < recovery.index(drop)
+
+
+def test_runtime_rollback_reconciles_marketplace_before_release_promotion() -> None:
+    rollback = (SCRIPTS / "rollback.sh").read_text()
+    reconcile = rollback.index("_oteryn_reconcile_marketplace_scheduler_after_runtime_change")
+    promote = rollback.index('cp "$last_good_file" "$state_dir/current-release.env.tmp"')
+    assert reconcile < promote
+    lib = LIB.read_text()
+    reconcile_body = lib[lib.index("_oteryn_reconcile_marketplace_scheduler_after_runtime_change()") : lib.index("_oteryn_before_platform_migrate()")]
+    assert "_oteryn_recreate_marketplace_scheduler" in reconcile_body
+    assert 'command docker rm -f "$scheduler_id"' in reconcile_body
 
 
 def test_image_rollback_never_claims_database_rollback() -> None:
