@@ -61,8 +61,8 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-12T10:27:00+02:00
-head: 2a68f1cb26a93f0ce4bc14e1aaab21e2d77983c5
+updated_at: 2026-08-12T11:43:13+02:00
+head: b027ffe1ff9d78173e01f9e31f9f0cc4287426bb
 branch: test/agent-policy-consistency
 pr: 992
 status: validating
@@ -88,16 +88,19 @@ proven:
   - The two P1 threads from exact-head review 1efead13f342280aea6961ef301e9b6ff0453e6b were replied to with the 82-test proof and resolved only after that proof existed.
   - On material head 2a68f1cb26a93f0ce4bc14e1aaab21e2d77983c5, CI, Agent Governance, Edge Security Emulation, Platform DB Outage Validation and Game Auth Ticket Concurrency reached success before this checkpoint refresh.
   - Phase 7 run 31578139662 failed before application validation during composer dependency download with curl error 60 / self-signed certificate against GitHub API; no task-owned runtime/application code participates in that failure and the failed exact-head job was retried without changing the branch.
+  - Fresh exact-head review on 14677cd534ceb204a78828285acc68238a502c71 reproduced a foreign-repository authorization bypass through unrelated local-file write approval, two completion-weakening phrasings that escaped detection, and a case-sensitive false positive for the canonical GitHub repository identity.
+  - Material repair b027ffe1ff9d78173e01f9e31f9f0cc4287426bb binds active mutation authorization to the target repository or an explicit repository pronoun, compares the canonical repository identity case-insensitively, and rejects completion before exact-head CI passes or despite unresolved material findings.
+  - Local validation on b027ffe1ff9d78173e01f9e31f9f0cc4287426bb passed 89 of 89 policy-consistency regressions, the live validator, 12 of 12 CI routing tests and git diff checks.
 derived:
-  - All currently known material policy-consistency findings have implementation repairs and focused regressions on 2a68f1cb26a93f0ce4bc14e1aaab21e2d77983c5.
-  - This task-record-only refresh does not change parser, routing, workflow or application behavior; 2a68f1cb26a93f0ce4bc14e1aaab21e2d77983c5 remains the latest material implementation/test head and live GitHub state is authoritative for the final metadata head created by this update.
+  - All currently known material policy-consistency findings have implementation repairs and focused regressions on b027ffe1ff9d78173e01f9e31f9f0cc4287426bb.
+  - This checkpoint-only refresh does not change parser, routing, workflow or application behavior; b027ffe1ff9d78173e01f9e31f9f0cc4287426bb remains the latest material implementation/test head and live GitHub state is authoritative for the final metadata head created by this update.
 unknown:
-  - Terminal repository-required CI result on the final metadata head created by this update.
-  - Fresh Codex review result for the final metadata head created by this update.
+  - Terminal repository-required CI result on the final checkpoint head created by this update.
+  - Fresh Codex review result for the final checkpoint head created by this update.
 conflicts: []
 first_failure:
-  marker: codex-read-only-and-completion-weakening-generation
-  evidence: Fresh Codex review on 1efead13f342280aea6961ef301e9b6ff0453e6b identified read-only exemption of an affirmative mutation grant and marker-only completion validation. Material head 2a68f1cb26a93f0ce4bc14e1aaab21e2d77983c5 repairs both and Agent Governance 31578139727 / job 94054827809 proves 82/82 regressions plus live policy validation pass.
+  marker: codex-final-parser-gap-generation
+  evidence: Fresh review on 14677cd534ceb204a78828285acc68238a502c71 reproduced unrelated-write authorization scope, two completion-weakening bypasses and canonical repository case sensitivity. Material repair b027ffe1ff9d78173e01f9e31f9f0cc4287426bb passes 89/89 focused regressions, the live validator and 12/12 routing tests locally.
 rejected_hypotheses:
   - A positive read-only assertion may safely exempt the rest of the same clause; an affirmative mutation grant in that clause must still fail closed.
   - Presence of closeout marker substrings alone proves the completion contract cannot be weakened; contradictory authoritative declarations must also be rejected.
@@ -111,6 +114,9 @@ changed_paths:
   - tools/agents/policy_consistency.py
   - tools/agents/test_policy_consistency.py
 validation:
+  - command: python tools/agents/test_policy_consistency.py && python tools/agents/policy_consistency.py && python tests/ci/test_classify_changes.py on b027ffe1ff9d78173e01f9e31f9f0cc4287426bb
+    result: PASS
+    evidence: 89 of 89 policy-consistency regressions, live policy validation and 12 of 12 CI routing tests completed successfully; git diff checks also passed.
   - command: Agent Governance run 31578139727 on material head 2a68f1cb26a93f0ce4bc14e1aaab21e2d77983c5
     result: PASS
     evidence: job 94054827809 completed 82 of 82 policy-consistency regressions, live policy validation, 3 checkpoint validations, live liveness validation for 3 active tasks with 0 advisory findings and Control Room validation successfully.
@@ -122,7 +128,7 @@ validation:
     evidence: this task-record-only refresh creates the final validation generation.
 blockers:
   - none
-next_action: Validate the final metadata-only branch head created by this update with repository-required exact-head CI, Agent Governance and a fresh Codex review; if every required check passes with zero unresolved material threads and ownership/base state remains conflict-free, squash-merge PR #992 with expected-head protection, verify main, close Issue #991 and archive/release this task through the repository-mandated lifecycle.
+next_action: Commit and push this checkpoint, resolve the now-addressed review thread with exact repair evidence, then validate the resulting exact head with repository-required CI, Agent Governance and a fresh Codex review.
 ```
 
 ## Recovery checkpoint
@@ -130,31 +136,24 @@ next_action: Validate the final metadata-only branch head created by this update
 ```yaml
 recovery:
   policy_version: 1
-  generation: 24
-  session_id: agent-20260812-1027-final-policy-consistency-checkpoint
-  session_started_at: 2026-08-12T10:13:00+02:00
-  checkpointed_at: 2026-08-12T10:27:00+02:00
-  last_progress_at: 2026-08-12T10:27:00+02:00
+  generation: 25
+  session_id: codex-20260812-1143-final-policy-parser-repair
+  session_started_at: 2026-08-12T11:31:00+02:00
+  checkpointed_at: 2026-08-12T11:43:13+02:00
+  last_progress_at: 2026-08-12T11:43:13+02:00
   phase: final-checkpoint-validation
-  exact_head: 2a68f1cb26a93f0ce4bc14e1aaab21e2d77983c5
+  exact_head: b027ffe1ff9d78173e01f9e31f9f0cc4287426bb
   pull_request: 992
-  active_operation: create final checkpoint after read-only/completion contradiction repairs and 82-test Agent Governance proof
-  external_run_ids:
-    - 31578139727
-    - 31578139670
-    - 31578139668
-    - 31578139662
-    - 31578139660
-    - 31578139671
-    - 31578139657
-  operation_started_at: 2026-08-12T10:27:00+02:00
-  wait_deadline_at: 2026-08-12T11:12:00+02:00
-  check_generation: final-read-only-completion-checkpoint
+  active_operation: checkpoint final parser-gap repairs after 89-test local proof
+  external_run_ids: []
+  operation_started_at: 2026-08-12T11:43:13+02:00
+  wait_deadline_at: 2026-08-12T12:28:13+02:00
+  check_generation: final-parser-gap-repair-checkpoint
   checks_used: 0
   status: active
   safe_to_resume: true
-  resume_condition: final metadata-head required checks and fresh review are terminal and branch head remains unchanged
-  next_action: inspect final exact-head CI and fresh review, then squash-merge only if every merge gate remains satisfied
+  resume_condition: final checkpoint head required checks and fresh review are terminal and branch head remains unchanged
+  next_action: push the final checkpoint, resolve the addressed thread with evidence, and inspect exact-head CI plus fresh review
 ```
 
 ## Notes
