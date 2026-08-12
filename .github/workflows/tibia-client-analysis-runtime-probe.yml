@@ -1,0 +1,38 @@
+name: Tibia Runtime Probe Prep
+
+on:
+  push:
+    branches: [ops/oteryn-tibia-client-analysis-20260811]
+    paths: [.github/workflows/tibia-client-analysis-runtime-probe.yml]
+
+permissions:
+  contents: read
+
+env:
+  CONTAINER_NAME: oteryn-tibia-client-analysis
+
+jobs:
+  inspect:
+    name: Inspect bounded decoded-map probe points
+    runs-on: oteryn-staging
+    timeout-minutes: 3
+    steps:
+      - name: Verify owned runtime and dump bounded disassembly
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          [[ "$RUNNER_NAME" == "oteryn-synology-staging" ]]
+          [[ "$(docker inspect --format '{{ index .Config.Labels "com.blakinio.owner" }}' "$CONTAINER_NAME")" == "oteryn" ]]
+          [[ "$(docker inspect --format '{{ index .Config.Labels "com.blakinio.purpose" }}' "$CONTAINER_NAME")" == "tibia-client-analysis" ]]
+          docker exec "$CONTAINER_NAME" bash -lc '
+            set -Eeuo pipefail
+            client=/data/client-15.32.df7b29/bin/client
+            echo FIELDDATA_HANDLER
+            objdump -d -C --start-address=0xcd3190 --stop-address=0xcd3260 "$client"
+            echo COMMON_ENTRY
+            objdump -d -C --start-address=0x19a8a80 --stop-address=0x19a8b90 "$client"
+            echo CONTENT_LOOP
+            objdump -d -C --start-address=0x19a8d90 --stop-address=0x19a8ef8 "$client"
+            echo BUILDER_ENTRY
+            objdump -d -C --start-address=0xceca50 --stop-address=0xcecb30 "$client"
+          '
