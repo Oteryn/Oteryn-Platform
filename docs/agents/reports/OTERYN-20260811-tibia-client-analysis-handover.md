@@ -3719,3 +3719,323 @@ receivedTibiaTimeMessage=0x1cce706
 ```
 
 <!-- END GENERATED WORLDMAP VTABLE -->
+
+<!-- BEGIN GENERATED WORLDMAP QMETAOBJECT -->
+
+## Generated Worldmap QMetaObject evidence
+
+Source: GitHub Actions run `31579228118` on `oteryn-synology-staging`. Sanitized static metadata only.
+
+```text
+static_metacall=0xde9ca0
+static_metacall_qword_hits=2
+HIT index=0 off=0x28dab8 va=0x28dab8 section=.rela.dyn
+  qword delta=-0x40 value=0x308c3c8 -> .data.rel.ro:off=0x308c3c8
+  qword delta=-0x38 value=0x8 -> .comment:off=0x318e258
+  qword delta=-0x30 value=0x1ce1434 -> .rodata:off=0x1ce1434
+  qword delta=-0x28 value=0x308c3d0 -> .data.rel.ro:off=0x308c3d0
+  qword delta=-0x20 value=0x8 -> .comment:off=0x318e258
+  qword delta=-0x18 value=0x1ce1180 -> .rodata:off=0x1ce1180
+  qword delta=-0x10 value=0x308c3d8 -> .data.rel.ro:off=0x308c3d8
+  qword delta=-0x8 value=0x8 -> .comment:off=0x318e258
+  qword delta=+0x0 value=0xde9ca0 -> .text:off=0xde9ca0
+  qword delta=+0x8 value=0x308c3e8 -> .data.rel.ro:off=0x308c3e8
+  qword delta=+0x10 value=0x8 -> .comment:off=0x318e258
+  qword delta=+0x18 value=0x308b440 -> .data.rel.ro:off=0x308b440
+  qword delta=+0x20 value=0x308c400 -> .data.rel.ro:off=0x308c400
+  qword delta=+0x28 value=0x8 -> .comment:off=0x318e258
+  qword delta=+0x30 value=0x30775a0 -> .data.rel.ro:off=0x30775a0
+  qword delta=+0x38 value=0x308c408 -> .data.rel.ro:off=0x308c408
+  qword delta=+0x40 value=0x8 -> .comment:off=0x318e258
+  qword delta=+0x48 value=0xd1ccd0 -> .text:off=0xd1ccd0
+HIT index=1 off=0x308c3d8 va=0x308c3d8 section=.data.rel.ro
+  qword delta=-0x40 value=0xc269f0 -> .text:off=0xc269f0
+  qword delta=-0x38 value=0xc26b70 -> .text:off=0xc26b70
+  qword delta=-0x30 value=0x0 -> .comment:off=0x318e250
+  qword delta=-0x28 value=0x0 -> .comment:off=0x318e250
+  qword delta=-0x20 value=0x0 -> .comment:off=0x318e250
+  qword delta=-0x18 value=0x0 -> .comment:off=0x318e250
+  qword delta=-0x10 value=0x1ce1434 -> .rodata:off=0x1ce1434
+  qword delta=-0x8 value=0x1ce1180 -> .rodata:off=0x1ce1180
+  qword delta=+0x0 value=0xde9ca0 -> .text:off=0xde9ca0
+  qword delta=+0x8 value=0x0 -> .comment:off=0x318e250
+  qword delta=+0x10 value=0x308b440 -> .data.rel.ro:off=0x308b440
+  qword delta=+0x18 value=0x0 -> .comment:off=0x318e250
+  qword delta=+0x20 value=0x0 -> .comment:off=0x318e250
+  qword delta=+0x28 value=0x30775a0 -> .data.rel.ro:off=0x30775a0
+  qword delta=+0x30 value=0xd1ccd0 -> .text:off=0xd1ccd0
+  qword delta=+0x38 value=0xd2af60 -> .text:off=0xd2af60
+  qword delta=+0x40 value=0xd2f300 -> .text:off=0xd2f300
+  qword delta=+0x48 value=0x844350 -> .text:off=0x844350
+
+KNOWN_CLASS_NAME_OFFSETS
+0x1cd67a0
+0x1cd8bb4
+
+QMETAOBJECT_CANDIDATES=18
+CANDIDATE 0 score=14 base_off=0x308c3c8 base_va=0x308c3c8 section=.data.rel.ro metacall_delta=0x10 annotations=q1=small_u32_header:[13, 0, 0, 0, 20, 14, 0, 0];q7=small_u32_header:[0, 0, 29991616, 0, 50820800, 0, 0, 0]
+  q0=0x1ce1434 -> .rodata:0x1ce1434
+  q1=0x1ce1180 -> .rodata:0x1ce1180
+  q2=0xde9ca0 -> .text:0xde9ca0
+  q3=0x0 -> .comment:0x318e250
+  q4=0x308b440 -> .data.rel.ro:0x308b440
+  q5=0x0 -> .comment:0x318e250
+  q6=0x0 -> .comment:0x318e250
+  q7=0x30775a0 -> .data.rel.ro:0x30775a0
+CANDIDATE 1 score=14 base_off=0x308c3d0 base_va=0x308c3d0 section=.data.rel.ro metacall_delta=0x8 annotations=q0=small_u32_header:[13, 0, 0, 0, 20, 14, 0, 0];q6=small_u32_header:[0, 0, 29991616, 0, 50820800, 0, 0, 0]
+  q0=0x1ce1180 -> .rodata:0x1ce1180
+  q1=0xde9ca0 -> .text:0xde9ca0
+  q2=0x0 -> .comment:0x318e250
+  q3=0x308b440 -> .data.rel.ro:0x308b440
+  q4=0x0 -> .comment:0x318e250
+  q5=0x0 -> .comment:0x318e250
+  q6=0x30775a0 -> .data.rel.ro:0x30775a0
+  q7=0xd1ccd0 -> .text:0xd1ccd0
+CANDIDATE 2 score=11 base_off=0x28da78 base_va=0x28da78 section=.rela.dyn metacall_delta=0x40 annotations=q5=small_u32_header:[13, 0, 0, 0, 20, 14, 0, 0]
+  q0=0x308c3c8 -> .data.rel.ro:0x308c3c8
+  q1=0x8 -> .comment:0x318e258
+  q2=0x1ce1434 -> .rodata:0x1ce1434
+  q3=0x308c3d0 -> .data.rel.ro:0x308c3d0
+  q4=0x8 -> .comment:0x318e258
+  q5=0x1ce1180 -> .rodata:0x1ce1180
+  q6=0x308c3d8 -> .data.rel.ro:0x308c3d8
+  q7=0x8 -> .comment:0x318e258
+CANDIDATE 3 score=11 base_off=0x28da80 base_va=0x28da80 section=.rela.dyn metacall_delta=0x38 annotations=q4=small_u32_header:[13, 0, 0, 0, 20, 14, 0, 0]
+  q0=0x8 -> .comment:0x318e258
+  q1=0x1ce1434 -> .rodata:0x1ce1434
+  q2=0x308c3d0 -> .data.rel.ro:0x308c3d0
+  q3=0x8 -> .comment:0x318e258
+  q4=0x1ce1180 -> .rodata:0x1ce1180
+  q5=0x308c3d8 -> .data.rel.ro:0x308c3d8
+  q6=0x8 -> .comment:0x318e258
+  q7=0xde9ca0 -> .text:0xde9ca0
+CANDIDATE 4 score=11 base_off=0x28da88 base_va=0x28da88 section=.rela.dyn metacall_delta=0x30 annotations=q3=small_u32_header:[13, 0, 0, 0, 20, 14, 0, 0]
+  q0=0x1ce1434 -> .rodata:0x1ce1434
+  q1=0x308c3d0 -> .data.rel.ro:0x308c3d0
+  q2=0x8 -> .comment:0x318e258
+  q3=0x1ce1180 -> .rodata:0x1ce1180
+  q4=0x308c3d8 -> .data.rel.ro:0x308c3d8
+  q5=0x8 -> .comment:0x318e258
+  q6=0xde9ca0 -> .text:0xde9ca0
+  q7=0x308c3e8 -> .data.rel.ro:0x308c3e8
+CANDIDATE 5 score=11 base_off=0x28da90 base_va=0x28da90 section=.rela.dyn metacall_delta=0x28 annotations=q2=small_u32_header:[13, 0, 0, 0, 20, 14, 0, 0]
+  q0=0x308c3d0 -> .data.rel.ro:0x308c3d0
+  q1=0x8 -> .comment:0x318e258
+  q2=0x1ce1180 -> .rodata:0x1ce1180
+  q3=0x308c3d8 -> .data.rel.ro:0x308c3d8
+  q4=0x8 -> .comment:0x318e258
+  q5=0xde9ca0 -> .text:0xde9ca0
+  q6=0x308c3e8 -> .data.rel.ro:0x308c3e8
+  q7=0x8 -> .comment:0x318e258
+CANDIDATE 6 score=11 base_off=0x28da98 base_va=0x28da98 section=.rela.dyn metacall_delta=0x20 annotations=q1=small_u32_header:[13, 0, 0, 0, 20, 14, 0, 0]
+  q0=0x8 -> .comment:0x318e258
+  q1=0x1ce1180 -> .rodata:0x1ce1180
+  q2=0x308c3d8 -> .data.rel.ro:0x308c3d8
+  q3=0x8 -> .comment:0x318e258
+  q4=0xde9ca0 -> .text:0xde9ca0
+  q5=0x308c3e8 -> .data.rel.ro:0x308c3e8
+  q6=0x8 -> .comment:0x318e258
+  q7=0x308b440 -> .data.rel.ro:0x308b440
+CANDIDATE 7 score=11 base_off=0x28daa0 base_va=0x28daa0 section=.rela.dyn metacall_delta=0x18 annotations=q0=small_u32_header:[13, 0, 0, 0, 20, 14, 0, 0]
+  q0=0x1ce1180 -> .rodata:0x1ce1180
+  q1=0x308c3d8 -> .data.rel.ro:0x308c3d8
+  q2=0x8 -> .comment:0x318e258
+  q3=0xde9ca0 -> .text:0xde9ca0
+  q4=0x308c3e8 -> .data.rel.ro:0x308c3e8
+  q5=0x8 -> .comment:0x318e258
+  q6=0x308b440 -> .data.rel.ro:0x308b440
+  q7=0x308c400 -> .data.rel.ro:0x308c400
+CANDIDATE 8 score=11 base_off=0x28dab0 base_va=0x28dab0 section=.rela.dyn metacall_delta=0x8 annotations=q7=small_u32_header:[0, 0, 29991616, 0, 50820800, 0, 0, 0]
+  q0=0x8 -> .comment:0x318e258
+  q1=0xde9ca0 -> .text:0xde9ca0
+  q2=0x308c3e8 -> .data.rel.ro:0x308c3e8
+  q3=0x8 -> .comment:0x318e258
+  q4=0x308b440 -> .data.rel.ro:0x308b440
+  q5=0x308c400 -> .data.rel.ro:0x308c400
+  q6=0x8 -> .comment:0x318e258
+  q7=0x30775a0 -> .data.rel.ro:0x30775a0
+CANDIDATE 9 score=11 base_off=0x28dab8 base_va=0x28dab8 section=.rela.dyn metacall_delta=0x0 annotations=q6=small_u32_header:[0, 0, 29991616, 0, 50820800, 0, 0, 0]
+  q0=0xde9ca0 -> .text:0xde9ca0
+  q1=0x308c3e8 -> .data.rel.ro:0x308c3e8
+  q2=0x8 -> .comment:0x318e258
+  q3=0x308b440 -> .data.rel.ro:0x308b440
+  q4=0x308c400 -> .data.rel.ro:0x308c400
+  q5=0x8 -> .comment:0x318e258
+  q6=0x30775a0 -> .data.rel.ro:0x30775a0
+  q7=0x308c408 -> .data.rel.ro:0x308c408
+CANDIDATE 10 score=11 base_off=0x308c398 base_va=0x308c398 section=.data.rel.ro metacall_delta=0x40 annotations=q7=small_u32_header:[13, 0, 0, 0, 20, 14, 0, 0]
+  q0=0xc269f0 -> .text:0xc269f0
+  q1=0xc26b70 -> .text:0xc26b70
+  q2=0x0 -> .comment:0x318e250
+  q3=0x0 -> .comment:0x318e250
+  q4=0x0 -> .comment:0x318e250
+  q5=0x0 -> .comment:0x318e250
+  q6=0x1ce1434 -> .rodata:0x1ce1434
+  q7=0x1ce1180 -> .rodata:0x1ce1180
+CANDIDATE 11 score=11 base_off=0x308c3a0 base_va=0x308c3a0 section=.data.rel.ro metacall_delta=0x38 annotations=q6=small_u32_header:[13, 0, 0, 0, 20, 14, 0, 0]
+  q0=0xc26b70 -> .text:0xc26b70
+  q1=0x0 -> .comment:0x318e250
+  q2=0x0 -> .comment:0x318e250
+  q3=0x0 -> .comment:0x318e250
+  q4=0x0 -> .comment:0x318e250
+  q5=0x1ce1434 -> .rodata:0x1ce1434
+  q6=0x1ce1180 -> .rodata:0x1ce1180
+  q7=0xde9ca0 -> .text:0xde9ca0
+
+TOP_CANDIDATE_REFERENCED_DATA
+REF qvalue=0x1ce1434 section=.rodata off=0x1ce1434
+  U32 00000118 00000026 0000013f 00000011 00000151 00000000 00000152 0000002a 0000017d 0000000b 00000189 0000001d 000001a7 00000016 000001be 0000000a 000001c9 00000017 000001e1 0000000b 000001ed 0000001b 00000209 0000001d 00000227 0000001a 00000242 0000002a 0000026d 00000012 00000280 0000001a 0000029b 0000002a 000002c6 00000012 000002d9 00000006 000002e0 00000008 000002e9 00000016 00000300 0000001b 0000031c 00000013 00000330 00000016
+  STR +0x118 tibia::sessiondump::TSessiondumpPlayer
+  STR +0x13f publishGameAction
+  STR +0x152 std::shared_ptr<tibia::input::IGameAction>
+  STR +0x17d pGameAction
+  STR +0x189 preprocessingMessageAvailable
+  STR +0x1a7 TSessiondumpPacketInfo
+  STR +0x1be PacketInfo
+  STR +0x1c9 TSessiondumpMessageInfo
+  STR +0x1e1 MessageInfo
+  STR +0x1ed std::function<QByteArray()>
+  STR +0x209 RawMessageBytesReaderFunction
+  STR +0x227 gameserverMessageAvailable
+  STR +0x242 tibia::protobuf::TGameserverMessagePointer
+  STR +0x26d pGameserverMessage
+  STR +0x280 gameclientMessageAvailable
+  STR +0x29b tibia::protobuf::TGameclientMessagePointer
+  STR +0x2c6 pGameclientMessage
+  STR +0x2d9 paused
+  STR +0x2e0 finished
+  STR +0x2e9 sessiondumpInfoChanged
+  STR +0x300 sessiondumpPacketsProcessed
+  STR +0x31c skipToMarkerChanged
+  STR +0x330 requestResetOfStorages
+  STR +0x347 sessiondumpProcessingChanged
+  STR +0x364 sessiondumpLoadingError
+  STR +0x37c ErrorMessage
+  STR +0x389 finishedLoadingSessiondump
+  STR +0x3a4 currentPlayspeedChanged
+  STR +0x3bc handleGameAction
+  STR +0x3cd onSessiondumpMetadataLoaded
+REF qvalue=0x1ce1180 section=.rodata off=0x1ce1180
+  U32 0000000d 00000000 00000000 00000000 00000014 0000000e 00000000 00000000 00000000 00000000 00000000 00000000 00000000 0000000e 00000001 00000001 00000086 00000002 00000106 00000001 00000005 00000003 00000089 00000002 00000006 00000003 0000000c 00000001 00000090 00000002 00000006 00000007 0000000f 00000001 00000093 00000002 00000006 00000009 00000012 00000000 00000096 00000002 00000106 0000000b 00000013 00000000 00000097 00000002
+  STR +0x3cc tibia::sessiondump::TSessiondumpPlayer
+  STR +0x3f3 publishGameAction
+  STR +0x406 std::shared_ptr<tibia::input::IGameAction>
+  STR +0x431 pGameAction
+  STR +0x43d preprocessingMessageAvailable
+  STR +0x45b TSessiondumpPacketInfo
+  STR +0x472 PacketInfo
+  STR +0x47d TSessiondumpMessageInfo
+  STR +0x495 MessageInfo
+  STR +0x4a1 std::function<QByteArray()>
+  STR +0x4bd RawMessageBytesReaderFunction
+  STR +0x4db gameserverMessageAvailable
+  STR +0x4f6 tibia::protobuf::TGameserverMessagePointer
+  STR +0x521 pGameserverMessage
+  STR +0x534 gameclientMessageAvailable
+  STR +0x54f tibia::protobuf::TGameclientMessagePointer
+  STR +0x57a pGameclientMessage
+  STR +0x58d paused
+  STR +0x594 finished
+  STR +0x59d sessiondumpInfoChanged
+  STR +0x5b4 sessiondumpPacketsProcessed
+  STR +0x5d0 skipToMarkerChanged
+  STR +0x5e4 requestResetOfStorages
+  STR +0x5fb sessiondumpProcessingChanged
+  STR +0x618 sessiondumpLoadingError
+  STR +0x630 ErrorMessage
+  STR +0x63d finishedLoadingSessiondump
+  STR +0x658 currentPlayspeedChanged
+  STR +0x670 handleGameAction
+  STR +0x681 onSessiondumpMetadataLoaded
+REF qvalue=0xde9ca0 section=.text off=0xde9ca0
+  U32 2475f685 0f13fa83 00011a87 358d4800 00fa1d78 8348d289 634828ec 01489604 0fe0fff0 0000441f 0f05fe83 0000f685 518b4800 318b4808 a10d8d48 48fffffd 3948028b d5840fc8 48000000 fdbe0d8d 3948ffff d5840fc8 48000000 fdee0d8d 3948ffff d5840fc8 48000000 fe0e0d8d 3948ffff d5840fc8 48000000 fe2e0d8d 3948ffff e5840fc8 48000000 fe3e0d8d 3948ffff e5840fc8 48000000 fe4e0d8d 3948ffff e5840fc8 48000000 fe5e0d8d 3948ffff dd840fc8 48000003 fe6e0d8d
+  STR +0x1e9 52%*
+  STR +0x2a9 5r$*
+  STR +0x2ce 5M$*
+  STR +0x2f9 5"$*
+  STR +0x3b9 5b#*
+  STR +0x3d9 5B#*
+  STR +0x4f6 5e^,
+REF qvalue=0x0 section=.comment off=0x318e250
+  U32 3a434347 65442820 6e616962 2e323120 2d302e32 642b3431 32316265 20293175 322e3231 0000302e 7368732e 61747274 692e0062 7265746e 6e2e0070 2e65746f 2e756e67 706f7270 79747265 6f6e2e00 672e6574 622e756e 646c6975 0064692d 746f6e2e 42412e65 61742d49 672e0067 682e756e 00687361 6e79642e 006d7973 6e79642e 00727473 756e672e 7265762e 6e6f6973 6e672e00 65762e75 6f697372 00725f6e 6c65722e 79642e61 722e006e 2e616c65 00746c70 696e692e 702e0074
+  STR +0x0 GCC: (Debian 12.2.0-14+deb12u1) 12.2.0
+  STR +0x28 .shstrtab
+  STR +0x32 .interp
+  STR +0x3a .note.gnu.property
+  STR +0x4d .note.gnu.build-id
+  STR +0x60 .note.ABI-tag
+  STR +0x6e .gnu.hash
+  STR +0x78 .dynsym
+  STR +0x80 .dynstr
+  STR +0x88 .gnu.version
+  STR +0x95 .gnu.version_r
+  STR +0xa4 .rela.dyn
+  STR +0xae .rela.plt
+  STR +0xb8 .init
+  STR +0xbe .plt.got
+  STR +0xc7 .text
+  STR +0xcd malloc_hook
+  STR +0xd9 .fini
+  STR +0xdf .rodata
+  STR +0xe7 protodesc_cold
+  STR +0xf6 .eh_frame_hdr
+  STR +0x104 .eh_frame
+  STR +0x10e .gcc_except_table
+  STR +0x120 .tdata
+  STR +0x127 .tbss
+  STR +0x12d .init_array
+  STR +0x139 .fini_array
+  STR +0x145 .data.rel.ro
+  STR +0x152 .dynamic
+  STR +0x15b .got.plt
+REF qvalue=0x308b440 section=.data.rel.ro off=0x308b440
+  U32 0314b320 00000000 02f5ec40 00000000 031399e0 00000000 02f5ec40 00000000 0314b2a0 00000000 0314b220 00000000 0314b1a0 00000000 02f5ec40 00000000 03149360 00000000 02f5ec40 00000000 031493e0 00000000 02f5ec40 00000000 02f5ec40 00000000 02f5ec40 00000000 02f5ec40 00000000 02f5ec40 00000000 02f5ec40 00000000 02f5ec40 00000000 02f5ec40 00000000 00000000 00000000 02f5ec40 00000000 02f5ec40 00000000 02f5ec40 00000000 031399e0 00000000
+REF qvalue=0x30775a0 section=.data.rel.ro off=0x30775a0
+  U32 00000000 00000000 01c9a2c0 00000000 030776c0 00000000 00000000 00000000 01c9a300 00000000 03077548 00000000 00000000 00000000 01c9a3a0 00000000 00000000 00000000 01c9a400 00000000 03077500 00000000 00000000 00000000 01c9a460 00000000 03077518 00000000 00000000 00000000 01c9a4a0 00000000 00000000 00000002 030777f0 00000000 00000002 00000000 03077530 00000000 00000802 00000000 00000000 00000000 01c9a4c0 00000000 03077548 00000000
+REF qvalue=0xd1ccd0 section=.text off=0xd1ccd0
+  U32 087f8b48 387f8348 e9057400 ff7c0200 f9058d48 c3022597 00841f0f 00000000 087f8b48 387f8348 e9057400 ff7c01e0 39058d48 c3023791 00841f0f 00000000 087f8b48 387f8348 e9057400 ff7c01c0 b9058d48 c30236ef 00841f0f 00000000 087f8b48 387f8348 e9057400 ff7c01a0 59058d48 c3022597 00841f0f 00000000 087f8b48 387f8348 e9057400 ff7c0180 f9058d48 c3022596 00841f0f 00000000 087f8b48 387f8348 e9057400 ff7c0160 f9058d48 c3022532 00841f0f 00000000
+  STR +0x2f0 ATUH
+  STR +0x3d7 []A\
+  STR +0x542 oGXH
+  STR +0x547 WhfH
+REF qvalue=0x308c3c8 section=.data.rel.ro off=0x308c3c8
+  U32 01ce1434 00000000 01ce1180 00000000 00de9ca0 00000000 00000000 00000000 0308b440 00000000 00000000 00000000 00000000 00000000 030775a0 00000000 00d1ccd0 00000000 00d2af60 00000000 00d2f300 00000000 00844350 00000000 00844680 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 007ec950 00000000 008319f0 00000000 007e06d0 00000000 007e6b70 00000000
+REF qvalue=0x8 section=.comment off=0x318e258
+  U32 6e616962 2e323120 2d302e32 642b3431 32316265 20293175 322e3231 0000302e 7368732e 61747274 692e0062 7265746e 6e2e0070 2e65746f 2e756e67 706f7270 79747265 6f6e2e00 672e6574 622e756e 646c6975 0064692d 746f6e2e 42412e65 61742d49 672e0067 682e756e 00687361 6e79642e 006d7973 6e79642e 00727473 756e672e 7265762e 6e6f6973 6e672e00 65762e75 6f697372 00725f6e 6c65722e 79642e61 722e006e 2e616c65 00746c70 696e692e 702e0074 672e746c 2e00746f
+  STR +0x0 bian 12.2.0-14+deb12u1) 12.2.0
+  STR +0x20 .shstrtab
+  STR +0x2a .interp
+  STR +0x32 .note.gnu.property
+  STR +0x45 .note.gnu.build-id
+  STR +0x58 .note.ABI-tag
+  STR +0x66 .gnu.hash
+  STR +0x70 .dynsym
+  STR +0x78 .dynstr
+  STR +0x80 .gnu.version
+  STR +0x8d .gnu.version_r
+  STR +0x9c .rela.dyn
+  STR +0xa6 .rela.plt
+  STR +0xb0 .init
+  STR +0xb6 .plt.got
+  STR +0xbf .text
+  STR +0xc5 malloc_hook
+  STR +0xd1 .fini
+  STR +0xd7 .rodata
+  STR +0xdf protodesc_cold
+  STR +0xee .eh_frame_hdr
+  STR +0xfc .eh_frame
+  STR +0x106 .gcc_except_table
+  STR +0x118 .tdata
+  STR +0x11f .tbss
+  STR +0x125 .init_array
+  STR +0x131 .fini_array
+  STR +0x13d .data.rel.ro
+  STR +0x14a .dynamic
+  STR +0x153 .got.plt
+REF qvalue=0x308c3d0 section=.data.rel.ro off=0x308c3d0
+  U32 01ce1180 00000000 00de9ca0 00000000 00000000 00000000 0308b440 00000000 00000000 00000000 00000000 00000000 030775a0 00000000 00d1ccd0 00000000 00d2af60 00000000 00d2f300 00000000 00844350 00000000 00844680 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 007ec950 00000000 008319f0 00000000 007e06d0 00000000 007e6b70 00000000 007e0b60 00000000
+REF qvalue=0x308c3d8 section=.data.rel.ro off=0x308c3d8
+  U32 00de9ca0 00000000 00000000 00000000 0308b440 00000000 00000000 00000000 00000000 00000000 030775a0 00000000 00d1ccd0 00000000 00d2af60 00000000 00d2f300 00000000 00844350 00000000 00844680 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 007ec950 00000000 008319f0 00000000 007e06d0 00000000 007e6b70 00000000 007e0b60 00000000 006afe60 00000000
+```
+
+<!-- END GENERATED WORLDMAP QMETAOBJECT -->
