@@ -43,7 +43,7 @@ jobs:
           pgrep -f '^Xvfb :99' >/dev/null
           pkill -x x11vnc 2>/dev/null || true
           rm -f /data/runtime/x11vnc.log
-          x11vnc -display :99 -auth guess -forever -shared -noxdamage -rfbport 5900 -nopw -o /data/runtime/x11vnc.log -bg || {
+          x11vnc -display :99 -forever -shared -noxdamage -rfbport 5900 -nopw -o /data/runtime/x11vnc.log -bg || {
             echo X11VNC_START_FAILED=true
             cat /data/runtime/x11vnc.log 2>/dev/null || true
             exit 1
