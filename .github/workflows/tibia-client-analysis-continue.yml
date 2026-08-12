@@ -14,7 +14,7 @@ env:
 
 jobs:
   continue:
-    name: Disassemble Worldmap static metacall
+    name: Decode Worldmap Qt jump table
     runs-on: oteryn-staging
     timeout-minutes: 15
     steps:
@@ -35,84 +35,116 @@ jobs:
           docker ps -a --filter 'label=com.docker.compose.project=oteryn-staging' --format '{{.ID}}\t{{.Names}}' | sort > /tmp/oteryn-before.tsv
           test -s /tmp/oteryn-before.tsv
           docker exec "$CONTAINER_NAME" bash -lc '
+            set -Eeuo pipefail
             root=/data/client-15.32.df7b29
             [[ "$(stat -c %s "$root/bin/client")" == "51965216" ]]
             [[ "$(sha256sum "$root/bin/client" | awk "{print \$1}")" == "e6c244bd39fe2e0632f6f000efd3147164696efa8e901718668e0442325ff7fe" ]]
           '
 
-      - name: Disassemble candidate Worldmap static metacall and direct targets
+      - name: Decode 20-entry Worldmap static-metacall jump table
         shell: bash
         run: |
           set -Eeuo pipefail
-          docker exec -i "$CONTAINER_NAME" python3 - <<'PY'
+          docker exec -i "$CONTAINER_NAME" /data/reverse-venv/bin/python - <<'PY'
           from pathlib import Path
-          import re, subprocess
-          root=Path('/data/client-15.32.df7b29'); client=str(root/'bin/client')
-          start=0xde9ca0; stop=0xdea500
-          text=subprocess.check_output(['objdump','-d','-C',f'--start-address={start}',f'--stop-address={stop}',client],text=True,errors='replace')
-          lines=text.splitlines()
-          calls=[]; jumps=[]
-          for line in lines:
-              m=re.match(r'^\s*([0-9a-f]+):.*\bcall\s+([0-9a-f]+)',line)
-              if m: calls.append((int(m.group(1),16),int(m.group(2),16),line.strip()))
-              m2=re.match(r'^\s*([0-9a-f]+):.*\bjmp\s+\*?([^#]+)',line)
-              if m2: jumps.append(line.strip())
-          out=[]
-          out.append('candidate_worldmap_static_metacall=0xde9ca0')
-          out.append(f'direct_call_count={len(calls)}')
-          for a,t,l in calls: out.append(f'CALL site=0x{a:x} target=0x{t:x} text={l}')
-          out.append('')
-          out.append('FULL_DISASSEMBLY')
-          out.extend(lines)
-          p=root/'worldmap-static-metacall.txt'; p.write_text('\n'.join(out)+'\n'); print(p.read_text())
-          PY
+          from elftools.elf.elffile import ELFFile
+          import struct, subprocess, re
 
-      - name: Disassemble each non-PLT direct target briefly
+          root=Path('/data/client-15.32.df7b29')
+          client=root/'bin/client'
+          table_va=0x1d8ba2c
+          count=20
+
+          with client.open('rb') as f:
+              elf=ELFFile(f)
+              table_off=None
+              section_name=None
+              for sec in elf.iter_sections():
+                  lo=sec['sh_addr']; hi=lo+sec['sh_size']
+                  if lo <= table_va < hi:
+                      table_off=sec['sh_offset']+(table_va-lo)
+                      section_name=sec.name
+                      break
+              if table_off is None:
+                  raise SystemExit('jump table VA not mapped to an ELF section')
+              f.seek(table_off)
+              data=f.read(count*4)
+          if len(data)!=count*4:
+              raise SystemExit('short jump table read')
+
+          entries=struct.unpack('<20i',data)
+          targets=[(table_va+rel)&0xffffffffffffffff for rel in entries]
+          lines=[
+              'candidate_worldmap_static_metacall=0xde9ca0',
+              f'jump_table_va=0x{table_va:x}',
+              f'jump_table_file_offset=0x{table_off:x}',
+              f'jump_table_section={section_name}',
+              f'entry_count={count}',
+              '',
+              'METHOD_CASE_TARGETS',
+          ]
+          for idx,(rel,target) in enumerate(zip(entries,targets)):
+              lines.append(f'method_index={idx} rel={rel:+d} rel_hex=0x{rel & 0xffffffff:08x} target=0x{target:x}')
+
+          lines += ['', 'CASE_DISASSEMBLY']
+          for idx,target in enumerate(targets):
+              start=max(0,target-8); stop=target+0x90
+              text=subprocess.check_output(['objdump','-d','-C',f'--start-address={start}',f'--stop-address={stop}',str(client)],text=True,errors='replace')
+              lines.append(f'CASE method_index={idx} target=0x{target:x}')
+              body=[]
+              for line in text.splitlines():
+                  m=re.match(r'^\s*([0-9a-f]+):',line)
+                  if m and int(m.group(1),16)>=target:
+                      body.append(line)
+                      if len(body)>=30: break
+              lines.extend(body)
+
+          # The Qt string table is adjacent to the already-proven class/method strings.
+          raw=client.read_bytes()
+          lines += ['', 'WORLDMAP_STRING_NEIGHBORHOOD']
+          lo=0x1cd8b80; hi=0x1cd91c0
+          p=lo
+          while p<hi:
+              q=raw.find(b'\x00',p,hi)
+              if q<0: break
+              if q>p:
+                  chunk=raw[p:q]
+                  if all(32<=b<127 for b in chunk):
+                      s=chunk.decode('ascii','replace')
+                      if any(k in s for k in ('Worldmap','worldmap','handle','received','GameserverMessage','MapFieldData','MapArea','AppearanceInstance')):
+                          lines.append(f'va_or_fileoff=0x{p:x} text={s}')
+              p=q+1
+
+          out=root/'worldmap-jump-table.txt'
+          out.write_text('\n'.join(lines)+'\n')
+          print(out.read_text())
+          PY
+          docker exec "$CONTAINER_NAME" test -s /data/client-15.32.df7b29/worldmap-jump-table.txt
+
+      - name: Persist sanitized jump-table evidence
         shell: bash
         run: |
           set -Eeuo pipefail
-          docker exec -i "$CONTAINER_NAME" python3 - <<'PY'
-          from pathlib import Path
-          import re, subprocess
-          root=Path('/data/client-15.32.df7b29'); client=str(root/'bin/client')
-          src=(root/'worldmap-static-metacall.txt').read_text(errors='replace')
-          targets=[]
-          for m in re.finditer(r'target=0x([0-9a-f]+)',src):
-              t=int(m.group(1),16)
-              if 0x500000 <= t < 0x1c00000 and t not in targets: targets.append(t)
-          lines=[f'target_count={len(targets)}']
-          for t in targets[:40]:
-              lines.append(f'\nTARGET 0x{t:x}')
-              try:
-                  d=subprocess.check_output(['objdump','-d','-C',f'--start-address={t}',f'--stop-address={t+0x180}',client],text=True,errors='replace')
-              except subprocess.CalledProcessError as e:
-                  d=e.output or ''
-              lines.extend(d.splitlines()[:120])
-          p=root/'worldmap-static-targets.txt'; p.write_text('\n'.join(lines)+'\n'); print(p.read_text())
-          PY
-
-      - name: Persist sanitized handler evidence
-        shell: bash
-        run: |
-          set -Eeuo pipefail
-          docker cp "$CONTAINER_NAME:/data/client-15.32.df7b29/worldmap-static-metacall.txt" /tmp/metacall.txt
-          docker cp "$CONTAINER_NAME:/data/client-15.32.df7b29/worldmap-static-targets.txt" /tmp/targets.txt
+          docker cp "$CONTAINER_NAME:/data/client-15.32.df7b29/worldmap-jump-table.txt" /tmp/worldmap-jump-table.txt
           python3 - <<'PY'
           from pathlib import Path
           import os
-          p=Path(os.environ['HANDOVER']); a=Path('/tmp/metacall.txt').read_text(errors='replace'); b=Path('/tmp/targets.txt').read_text(errors='replace')
-          begin='<!-- BEGIN GENERATED WORLDMAP HANDLER EVIDENCE -->'; end='<!-- END GENERATED WORLDMAP HANDLER EVIDENCE -->'
-          block=f'{begin}\n\n## Generated Worldmap handler evidence\n\nSource: GitHub Actions run `{os.environ.get("GITHUB_RUN_ID","unknown")}` on `oteryn-synology-staging`. Sanitized disassembly only.\n\n```text\n{a.rstrip()}\n\n{b.rstrip()}\n```\n\n{end}'
+          p=Path(os.environ['HANDOVER'])
+          e=Path('/tmp/worldmap-jump-table.txt').read_text(errors='replace')
+          begin='<!-- BEGIN GENERATED WORLDMAP JUMP TABLE -->'; end='<!-- END GENERATED WORLDMAP JUMP TABLE -->'
+          block=f'{begin}\n\n## Generated Worldmap jump-table evidence\n\nSource: GitHub Actions run `{os.environ.get("GITHUB_RUN_ID","unknown")}` on `oteryn-synology-staging`. Sanitized address/disassembly metadata only.\n\n```text\n{e.rstrip()}\n```\n\n{end}'
           text=p.read_text()
-          if begin in text and end in text: text=text.split(begin,1)[0].rstrip()+'\n\n'+block+'\n\n'+text.split(end,1)[1].lstrip()
-          else: text=text.rstrip()+'\n\n'+block+'\n'
+          if begin in text and end in text:
+              text=text.split(begin,1)[0].rstrip()+'\n\n'+block+'\n\n'+text.split(end,1)[1].lstrip()
+          else:
+              text=text.rstrip()+'\n\n'+block+'\n'
           p.write_text(text)
           PY
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add "$HANDOVER"
           if ! git diff --cached --quiet; then
-            git commit -m "docs(analysis): record Worldmap handler disassembly"
+            git commit -m "docs(analysis): decode Worldmap Qt jump table"
             git push origin HEAD:ops/oteryn-tibia-client-analysis-20260811
           fi
 
