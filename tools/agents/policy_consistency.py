@@ -29,7 +29,10 @@ REPO_TOKEN = re.compile(r"(?<![A-Za-z0-9_.-])([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)(?
 QUOTED_REPO_TOKEN = re.compile(r"`([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)`")
 MUTATION_TERM = r"(?:writ(?:e|es|ing|ten)|writable|edit(?:s|ed|ing)?|modif(?:y|ies|ied|ying)|push(?:es|ed|ing)?|commit(?:s|ted|ting)?|merge(?:s|d|ing)?|mutat(?:e|es|ed|ing|ion|ions))"
 MUTATION_WORD = re.compile(rf"\b{MUTATION_TERM}\b", re.I)
-NEGATED_MUTATION = re.compile(rf"\b(?:not|never)\s+{MUTATION_TERM}\b", re.I)
+NEGATED_MUTATION = re.compile(
+    rf"\b(?:(?:not|never)\s+{MUTATION_TERM}|refrain(?:s|ed|ing)?\s+from\s+{MUTATION_TERM})\b",
+    re.I,
+)
 MODAL_ADVERB_TERM = r"(?:also|additionally|still|now|explicitly|autonomously)"
 MANDATORY_MUTATION = re.compile(
     rf"\b(?:(?:must|shall)\s+(?:{MODAL_ADVERB_TERM}\s+)*(?:be\s+)?{MUTATION_TERM}|"
@@ -37,7 +40,7 @@ MANDATORY_MUTATION = re.compile(
     re.I,
 )
 POSITIVE_AUTH = re.compile(
-    r"\b(?:(?:have|has)\s+(?:explicit\s+)?permission|allow|allows|allowed|authorize|authorizes|authorized|permit|permits|permitted|may|can|grant|grants|granted)\b",
+    r"\b(?:(?:have|has)\s+(?:explicit\s+)?(?:permission|write\s+access)|allow|allows|allowed|authorize|authorizes|authorized|permit|permits|permitted|may|can|grant|grants|granted)\b",
     re.I,
 )
 NEGATIVE_AUTH = re.compile(
