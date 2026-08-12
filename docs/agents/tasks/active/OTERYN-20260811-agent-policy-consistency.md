@@ -61,8 +61,8 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-12T12:23:00+02:00
-head: aded29c619b24c9f98f21d9febbc07f457447519
+updated_at: 2026-08-12T13:15:01+02:00
+head: 5d89a8783809610713aca96200cd136153e1d0e6
 branch: test/agent-policy-consistency
 pr: 992
 status: validating
@@ -86,16 +86,19 @@ proven:
   - Material head aded29c619b24c9f98f21d9febbc07f457447519 extends mutation grammar to create/creation and branch forms and adds regressions for create-files, create-branches and direct branch grants while retaining slash-prose suppression.
   - Agent Governance run 31586901594 passed on material head aded29c619b24c9f98f21d9febbc07f457447519. Job 94082713486 ran 92 of 92 policy-consistency regressions successfully, then passed the live validator, checkpoint validation, live task liveness and Control Room.
   - Review threads for target-binding, completion weakening and create/branch mutation coverage were resolved only after implementation or exact test evidence existed.
+  - Fresh review on checkpoint head 9597211528d20f4edb8ca58c88cc22335c5cbfbf identified two remaining P1 variants: generic write permission for another repository and completion when exact-final-head CI has not passed or fails.
+  - Repair d2170c7ffc7c55a6e8b2873d516da947c61668db binds generic write permission to the detected target and rejects negative exact-head CI completion predicates; regression head 5d89a8783809610713aca96200cd136153e1d0e6 adds all three adversarial examples.
+  - Local focused validation on 5d89a8783809610713aca96200cd136153e1d0e6 passed 95 of 95 policy-consistency regressions, the live validator, 12 of 12 CI routing tests, all 3 active checkpoint validations and git diff checks.
 derived:
-  - All currently known material review findings have implementation repairs and focused regression coverage on aded29c619b24c9f98f21d9febbc07f457447519.
-  - This task-record-only update creates a new metadata head; aded29c619b24c9f98f21d9febbc07f457447519 remains the latest material implementation/test head.
+  - All currently known material review findings have implementation repairs and focused regression coverage on 5d89a8783809610713aca96200cd136153e1d0e6.
+  - This task-record-only update creates a new metadata head; 5d89a8783809610713aca96200cd136153e1d0e6 remains the latest material implementation/test head.
 unknown:
   - Terminal repository-required workflow results on the metadata-only final head created by this update.
   - Fresh Codex review result on the metadata-only final head created by this update.
 conflicts: []
 first_failure:
-  marker: none-known-after-creation-mutation-repair
-  evidence: Agent Governance 31586901594 / job 94082713486 passed 92/92 focused regressions and live policy validation on material head aded29c619b24c9f98f21d9febbc07f457447519.
+  marker: none-known-after-final-authorization-gate-regressions
+  evidence: Local focused validation on 5d89a8783809610713aca96200cd136153e1d0e6 passed 95/95 policy regressions, live policy validation, 12/12 routing tests and checkpoint validation.
 rejected_hypotheses:
   - Repository creation and branch creation are non-mutating operations; both modify repository state and must be covered by the foreign-repository boundary.
   - Any nearby owner approval is sufficient authorization for a foreign-repository mutation; authorization must bind to writing/mutating the actual target.
@@ -108,6 +111,9 @@ changed_paths:
   - tools/agents/policy_consistency.py
   - tools/agents/test_policy_consistency.py
 validation:
+  - command: python tools/agents/test_policy_consistency.py && python tools/agents/policy_consistency.py && python tests/ci/test_classify_changes.py && python tools/agents/checkpoint.py --tasks docs/agents/tasks/active --require-checkpoint on 5d89a8783809610713aca96200cd136153e1d0e6
+    result: PASS
+    evidence: 95/95 policy-consistency regressions, live validator, 12/12 routing tests and 3 active checkpoint validations passed locally.
   - command: Agent Governance run 31586901594 on material head aded29c619b24c9f98f21d9febbc07f457447519
     result: PASS
     evidence: job 94082713486 completed 92/92 policy-consistency regressions, live policy validator, checkpoint validation, live task liveness and Control Room successfully.
@@ -124,20 +130,19 @@ next_action: Freeze the branch, validate every repository-required workflow and 
 ```yaml
 recovery:
   policy_version: 1
-  generation: 26
-  session_id: coordinator-20260812-final-creation-repair
-  session_started_at: 2026-08-12T12:19:00+02:00
-  checkpointed_at: 2026-08-12T12:23:00+02:00
-  last_progress_at: 2026-08-12T12:23:00+02:00
+  generation: 27
+  session_id: codex-20260812-final-authorization-gates
+  session_started_at: 2026-08-12T13:05:00+02:00
+  checkpointed_at: 2026-08-12T13:15:01+02:00
+  last_progress_at: 2026-08-12T13:15:01+02:00
   phase: final-checkpoint-validation
-  exact_head: aded29c619b24c9f98f21d9febbc07f457447519
+  exact_head: 5d89a8783809610713aca96200cd136153e1d0e6
   pull_request: 992
-  active_operation: checkpoint creation-and-branch mutation repair after 92-test exact-head Agent Governance proof
-  external_run_ids:
-    - 31586901594
-  operation_started_at: 2026-08-12T12:23:00+02:00
-  wait_deadline_at: 2026-08-12T13:08:00+02:00
-  check_generation: final-creation-mutation-checkpoint
+  active_operation: checkpoint final authorization and completion gate regressions after 95-test local proof
+  external_run_ids: []
+  operation_started_at: 2026-08-12T13:15:01+02:00
+  wait_deadline_at: 2026-08-12T14:00:01+02:00
+  check_generation: final-authorization-gate-checkpoint
   checks_used: 0
   status: active
   safe_to_resume: true
