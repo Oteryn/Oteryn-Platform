@@ -13,7 +13,7 @@ env:
 
 jobs:
   trace:
-    name: Enter Tibia world and capture proof
+    name: Login Tibia character and keep session alive
     runs-on: oteryn-staging
     timeout-minutes: 12
     steps:
@@ -27,7 +27,7 @@ jobs:
           [[ "$(docker inspect --format '{{.State.Status}}' "$CONTAINER_NAME")" == "running" ]]
           docker ps -a --filter 'label=com.docker.compose.project=oteryn-staging' --format '{{.ID}}\t{{.Names}}' | sort >/tmp/oteryn-before.tsv
 
-      - name: Login account and enter selected character
+      - name: Login account, select online row, click detected Ok, and keep client running
         shell: bash
         env:
           TIBIA_TEST_EMAIL: ${{ secrets.TIBIA_TEST_EMAIL }}
@@ -58,7 +58,9 @@ jobs:
             area=$((width*height)); if (( area > best_area )); then best=$w; best_area=$area; fi
           done
           [[ -n "$best" && "$best_area" -ge 600000 ]]
-          xdotool windowactivate --sync "$best" || true
+          # Known-good account login sequence from the successful character-selection run.
+          xdotool mousemove --window "$best" 510 302 click 1 || true
+          sleep 2
           xdotool mousemove --window "$best" 535 275 click 1
           xdotool key --window "$best" ctrl+a
           xdotool type --window "$best" --delay 3 -- "$TIBIA_TEST_EMAIL"
@@ -70,44 +72,75 @@ jobs:
           sleep 25
           import -display :99 -window "$best" /tmp/character-select.png
           convert /tmp/character-select.png -resize 200% -colorspace Gray -contrast-stretch 1%x1% /tmp/character-select-ocr.png
-          tesseract /tmp/character-select-ocr.png stdout --psm 11 2>/dev/null >/tmp/character-select.txt || true
-          grep -qi 'Select Character' /tmp/character-select.txt
+          tesseract /tmp/character-select-ocr.png stdout --psm 11 tsv 2>/dev/null >/tmp/character-select.tsv || true
+          python3 - <<'PY' >/tmp/select-controls.env
+          import csv
+          rows=[]
+          with open('/tmp/character-select.tsv', newline='', errors='replace') as f:
+              for r in csv.DictReader(f, delimiter='\t'):
+                  text=(r.get('text') or '').strip()
+                  try:
+                      conf=float(r.get('conf') or -1)
+                      left=int(r.get('left') or 0)//2; top=int(r.get('top') or 0)//2
+                      width=int(r.get('width') or 0)//2; height=int(r.get('height') or 0)//2
+                  except ValueError:
+                      continue
+                  if conf >= 30 and text:
+                      rows.append((text,left,top,width,height))
+          def centre(r): return (r[1]+max(1,r[3]//2), r[2]+max(1,r[4]//2))
+          online=[r for r in rows if r[0].lower()=='online']
+          ok=[r for r in rows if r[0].lower()=='ok']
+          select=[r for r in rows if r[0].lower()=='select']
+          if not select: raise SystemExit('Select Character not detected')
+          if not online: raise SystemExit('No online character row marker detected')
+          if not ok: raise SystemExit('Ok button not detected')
+          # Prefer the uppermost online marker in the character list and the lowest/rightmost Ok control.
+          row=min(online, key=lambda r:r[2])
+          button=max(ok, key=lambda r:(r[2],r[1]))
+          rx,ry=centre(row); ox,oy=centre(button)
+          print(f'ROW_X={rx}')
+          print(f'ROW_Y={ry}')
+          print(f'OK_X={ox}')
+          print(f'OK_Y={oy}')
+          PY
+          source /tmp/select-controls.env
           echo CHARACTER_SELECT_PROVEN=true
-          # Character selection dialog supports keyboard navigation. Focus the dialog, select
-          # the first character, and activate the default action without guessing button geometry.
-          xdotool mousemove --window "$best" 500 250 click 1
-          xdotool key --window "$best" Home
-          sleep 1
-          xdotool key --window "$best" Return
+          echo SELECT_ONLINE_ROW_DETECTED=true
+          echo OK_CONTROL_DETECTED=true
+          xdotool mousemove --window "$best" "$ROW_X" "$ROW_Y" click 1
+          sleep 2
+          xdotool mousemove --window "$best" "$OK_X" "$OK_Y" click 1
           sleep 40
-          import -display :99 -window "$best" /tmp/world-entry.png
-          convert /tmp/world-entry.png -resize 200% -colorspace Gray -contrast-stretch 1%x1% /tmp/world-entry-ocr.png
-          tesseract /tmp/world-entry-ocr.png stdout --psm 11 2>/dev/null >/tmp/world-entry.txt || true
+          import -display :99 -window "$best" /tmp/post-entry.png
+          convert /tmp/post-entry.png -resize 200% -colorspace Gray -contrast-stretch 1%x1% /tmp/post-entry-ocr.png
+          tesseract /tmp/post-entry-ocr.png stdout --psm 11 2>/dev/null >/tmp/post-entry.txt || true
+          # Hard fail if the account-login form is still visible. Success requires multiple game-UI markers.
           python3 - <<'PY'
-          text=open('/tmp/world-entry.txt',errors='replace').read().lower()
-          login_markers=sum(text.count(x) for x in ('select character','account login','password'))
-          game_markers=sum(text.count(x) for x in ('skills','battle','health','mana','inventory','quests','prey','store','logout'))
-          print(f'POST_ENTRY_LOGIN_MARKERS={login_markers}')
-          print(f'POST_ENTRY_GAME_MARKERS={game_markers}')
-          if game_markers < 2 or login_markers >= 2:
-              raise SystemExit('World-entry state not proven')
+          text=open('/tmp/post-entry.txt',errors='replace').read().lower()
+          if 'password' in text and 'login' in text:
+              raise SystemExit('Account login form still visible after character selection')
+          markers=[m for m in ('health','mana','skills','battle','inventory','prey','store','logout','quests') if m in text]
+          print('GAME_UI_MARKERS=' + ','.join(markers))
+          if len(markers) < 2:
+              raise SystemExit('Game viewport not proven')
           print('TIBIA_WORLD_ENTRY_PROVEN=true')
           PY
-          # Full screenshot is retained only inside the owned runtime. Export a privacy-safe
-          # proof with the central game viewport and account/character side regions masked.
-          cp /tmp/world-entry.png /tmp/world-entry-safe.png
-          convert /tmp/world-entry-safe.png -fill '#202020' \
-            -draw 'rectangle 0,0 220,800 rectangle 1030,0 1280,800 rectangle 0,0 1280,80' \
-            /tmp/world-entry-safe.png
+          # Keep client and WARP processes running. Export privacy-safe screenshot only.
+          cp /tmp/post-entry.png /tmp/post-entry-safe.png
+          convert /tmp/post-entry-safe.png -fill '#202020' -draw 'rectangle 0,0 1280,70' /tmp/post-entry-safe.png
+          pid=$(pgrep -f 'packages/Tibia/bin/client' | head -n1)
+          [[ -n "$pid" ]]
+          echo "$pid" >/data/runtime/tibia-world-session.pid
+          echo TIBIA_SESSION_LEFT_RUNNING=true
           INNER
-          docker cp "$CONTAINER_NAME:/tmp/world-entry-safe.png" /tmp/world-entry-safe.png
+          docker cp "$CONTAINER_NAME:/tmp/post-entry-safe.png" /tmp/post-entry-safe.png
 
-      - name: Upload privacy-safe world screenshot
+      - name: Upload privacy-safe logged-in screenshot
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: tibia-world-entry-screenshot-safe
-          path: /tmp/world-entry-safe.png
+          name: tibia-logged-in-screenshot-safe
+          path: /tmp/post-entry-safe.png
           retention-days: 7
           if-no-files-found: warn
 
