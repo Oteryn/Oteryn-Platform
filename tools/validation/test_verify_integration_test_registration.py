@@ -38,6 +38,9 @@ class IntegrationTestRegistrationTest(unittest.TestCase):
         invocation_as_comment: bool = False,
         duplicate: bool = False,
         include_environment: bool = True,
+        dispatch_input: str | None = None,
+        dispatch_input_as_comment: bool = False,
+        dispatch_input_as_inline_comment: bool = False,
     ) -> Path:
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
@@ -46,18 +49,27 @@ class IntegrationTestRegistrationTest(unittest.TestCase):
         if include_test:
             self.write(root / TEST_PATH, "<?php\n")
 
-        workflow_lines = [
-            "name: Example Integration",
-            "on:",
-            f"  {event}:",
-            "    paths:",
-            f"      - '{workflow_trigger}'",
+        workflow_lines = ["name: Example Integration", "on:", f"  {event}:"]
+        if event == "workflow_dispatch":
+            workflow_lines.append("    inputs:")
+            if dispatch_input is not None:
+                if dispatch_input_as_comment:
+                    workflow_lines.append(f"      # {dispatch_input}:")
+                elif dispatch_input_as_inline_comment:
+                    workflow_lines.append(f"      unrelated: # {dispatch_input}:")
+                    workflow_lines.extend(["        required: false", "        type: boolean"])
+                else:
+                    workflow_lines.append(f"      {dispatch_input}:")
+                    workflow_lines.extend(["        required: true", "        type: boolean"])
+        else:
+            workflow_lines.extend(["    paths:", f"      - '{workflow_trigger}'"])
+        workflow_lines.extend([
             "permissions:",
             "  contents: read",
             "jobs:",
             f"  {JOB}:",
             f"    if: {workflow_condition}",
-        ]
+        ])
         if workflow_condition_comment is not None:
             workflow_lines.append(f"    # {workflow_condition_comment}")
         workflow_lines.extend([
@@ -103,6 +115,18 @@ class IntegrationTestRegistrationTest(unittest.TestCase):
         root = self.make_repository()
         self.assertEqual([TEST_PATH], validate_repository(root))
 
+    def test_valid_workflow_dispatch_input_registration_passes(self) -> None:
+        condition = "github.event_name == 'workflow_dispatch'"
+        root = self.make_repository(
+            event="workflow_dispatch",
+            registration_event="workflow_dispatch",
+            trigger_marker="run_proof:",
+            job_condition_marker=condition,
+            workflow_condition=condition,
+            dispatch_input="run_proof",
+        )
+        self.assertEqual([TEST_PATH], validate_repository(root))
+
     def test_unregistered_test_fails(self) -> None:
         root = self.make_repository(registration_path="tests/Integration/Example/OtherTest.php")
         self.assert_registration_error(root, "unregistered Integration test")
@@ -130,6 +154,32 @@ class IntegrationTestRegistrationTest(unittest.TestCase):
     def test_trigger_marker_must_be_in_declared_top_level_event(self) -> None:
         root = self.make_repository(registration_event="workflow_dispatch")
         self.assert_registration_error(root, "has no top-level on.workflow_dispatch trigger")
+
+    def test_commented_workflow_dispatch_input_cannot_satisfy_trigger_contract(self) -> None:
+        condition = "github.event_name == 'workflow_dispatch'"
+        root = self.make_repository(
+            event="workflow_dispatch",
+            registration_event="workflow_dispatch",
+            trigger_marker="run_proof:",
+            job_condition_marker=condition,
+            workflow_condition=condition,
+            dispatch_input="run_proof",
+            dispatch_input_as_comment=True,
+        )
+        self.assert_registration_error(root, "does not contain executable marker")
+
+    def test_inline_comment_cannot_spoof_workflow_dispatch_input(self) -> None:
+        condition = "github.event_name == 'workflow_dispatch'"
+        root = self.make_repository(
+            event="workflow_dispatch",
+            registration_event="workflow_dispatch",
+            trigger_marker="run_proof:",
+            job_condition_marker=condition,
+            workflow_condition=condition,
+            dispatch_input="run_proof",
+            dispatch_input_as_inline_comment=True,
+        )
+        self.assert_registration_error(root, "does not contain executable marker")
 
     def test_proving_job_must_match_registry_job(self) -> None:
         root = self.make_repository(registration_job="other-job")
