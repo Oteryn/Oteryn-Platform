@@ -1,4 +1,4 @@
-name: Tibia Player Protocol Dispatch
+name: Tibia Send Method Xrefs
 
 on:
   push:
@@ -13,24 +13,27 @@ env:
 
 jobs:
   attach:
-    name: Decode player protocol method dispatch
+    name: Trace sendGo and sendRotate xrefs
     runs-on: oteryn-staging
-    timeout-minutes: 3
+    timeout-minutes: 4
     steps:
-      - name: Dump metadata and static metacall
+      - name: Locate send-method strings and code references
         shell: bash
         run: |
           set -Eeuo pipefail
           docker exec -i "$CONTAINER_NAME" bash <<'INNER'
           set -Eeuo pipefail
           bin='/data/home/.local/share/CipSoft GmbH/Tibia/packages/Tibia/bin/client'
-          echo STATIC_METACALL=0xdec960
-          echo DISASM_BEGIN
-          objdump -d -M intel --start-address=0xdec960 --stop-address=0xdecf80 "$bin"
-          echo DISASM_END
-          echo METADATA_BEGIN
-          objdump -s --start-address=0x1cb5620 --stop-address=0x1cb57fc "$bin"
-          echo METADATA_END
+          echo SEND_STRINGS_BEGIN
+          strings -a -t x "$bin" | grep -E ' send(Go(North|East|South|West|NorthEast|SouthEast|SouthWest|NorthWest|Path)|Rotate(North|East|South|West)|Stop|Cancel|Attack|Follow|UseObject|UseTwoObjects|UseOnCreature|MoveObject|TalkMessage)$' || true
+          echo SEND_STRINGS_END
+          tmp=/tmp/send-xrefs.$$
+          objdump -d -M intel "$bin" >"$tmp"
+          for addr in $(strings -a -t x "$bin" | grep -E ' send(Go(North|East|South|West|NorthEast|SouthEast|SouthWest|NorthWest|Path)|Rotate(North|East|South|West)|Stop|Cancel|Attack|Follow|UseObject|UseTwoObjects|UseOnCreature|MoveObject|TalkMessage)$' | awk '{print $1}'); do
+            echo "XREF_STRING_VA=0x$addr"
+            grep -n -E "# +0*${addr}([ <]|$)" "$tmp" | head -n 40 || true
+          done
+          rm -f "$tmp"
           pid=$(pgrep -x client | head -n1 || true)
           [[ -n "$pid" ]]
           tcp_rows=$(ss -ntp 2>/dev/null | grep "pid=$pid," || true)
