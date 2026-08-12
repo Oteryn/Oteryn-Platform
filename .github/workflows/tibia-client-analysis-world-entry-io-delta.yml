@@ -1,0 +1,211 @@
+name: Tibia World Entry Established Socket IO
+
+on:
+  push:
+    branches: [ops/oteryn-tibia-client-analysis-20260811]
+    paths: [.github/workflows/tibia-client-analysis-world-entry-io-delta.yml]
+
+permissions:
+  contents: read
+
+env:
+  CONTAINER_NAME: oteryn-tibia-client-analysis
+
+jobs:
+  trace:
+    name: Measure established WARP socket IO at character activation
+    runs-on: oteryn-staging
+    timeout-minutes: 10
+    steps:
+      - name: Verify owned runtime and snapshot staging
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          [[ "$RUNNER_NAME" == "oteryn-synology-staging" ]]
+          [[ "$(docker inspect --format '{{ index .Config.Labels "com.blakinio.owner" }}' "$CONTAINER_NAME")" == "oteryn" ]]
+          [[ "$(docker inspect --format '{{ index .Config.Labels "com.blakinio.purpose" }}' "$CONTAINER_NAME")" == "tibia-client-analysis" ]]
+          [[ "$(docker inspect --format '{{.State.Status}}' "$CONTAINER_NAME")" == "running" ]]
+          docker ps -a --filter 'label=com.docker.compose.project=oteryn-staging' --format '{{.ID}}\t{{.Names}}' | sort >/tmp/oteryn-before.tsv
+
+      - name: Trace only aggregate IO on established local SOCKS sockets
+        shell: bash
+        env:
+          TIBIA_TEST_EMAIL: ${{ secrets.TIBIA_TEST_EMAIL }}
+          TIBIA_TEST_PASSWORD: ${{ secrets.TIBIA_TEST_PASSWORD }}
+        run: |
+          set -Eeuo pipefail
+          [[ -n "$TIBIA_TEST_EMAIL" && -n "$TIBIA_TEST_PASSWORD" ]]
+          docker exec -e TIBIA_TEST_EMAIL -e TIBIA_TEST_PASSWORD -i "$CONTAINER_NAME" bash <<'INNER'
+          set -Eeuo pipefail
+          export DISPLAY=:99 HOME=/data/home
+          pkg="$HOME/.local/share/CipSoft GmbH/Tibia/packages/Tibia"
+          client="$pkg/bin/client"
+
+          pgrep -f '/wireproxy .*wireproxy.conf' >/dev/null
+          curl --socks5-hostname 127.0.0.1:25344 -fsS --max-time 10 https://www.cloudflare.com/cdn-cgi/trace >/tmp/warp-io-delta.trace
+          grep -q '^warp=on$' /tmp/warp-io-delta.trace
+          echo WARP_EGRESS_VERIFIED=true
+          command -v strace >/dev/null
+
+          pkill -f 'packages/Tibia/bin/client' 2>/dev/null || true
+          pgrep -f '^Xvfb :99' >/dev/null || nohup Xvfb :99 -screen 0 1280x800x24 >/data/runtime/xvfb.log 2>&1 </dev/null &
+          rm -f /data/runtime/tibia-world-entry-io.strace*
+          cd "$pkg"
+          nohup strace -ff -ttt -s 0 \
+            -e trace=read,write,readv,writev,sendto,recvfrom,sendmsg,recvmsg,sendmmsg,recvmmsg,connect,socket,clone,clone3,fork,vfork,execve \
+            -o /data/runtime/tibia-world-entry-io.strace \
+            proxychains4 -f /tmp/proxychains-tibia.conf "$client" \
+            >/data/runtime/client-world-entry-io.log 2>&1 </dev/null &
+          for n in $(seq 1 30); do pgrep -x client >/dev/null && break; sleep 1; done
+          pid=$(pgrep -x client | head -n1)
+          [[ -n "$pid" ]]
+          echo CLIENT_RUNNING_UNDER_PARENT_STRACE=true
+          sleep 10
+
+          best=''; best_area=0; best_width=0; best_height=0
+          for w in $(xdotool search --onlyvisible --name '^Tibia$' 2>/dev/null || true); do
+            geom=$(xdotool getwindowgeometry --shell "$w" 2>/dev/null || true)
+            width=$(printf '%s\n' "$geom" | sed -n 's/^WIDTH=//p'); height=$(printf '%s\n' "$geom" | sed -n 's/^HEIGHT=//p')
+            [[ -n "$width" && -n "$height" ]] || continue
+            area=$((width*height))
+            if (( area > best_area )); then best=$w; best_area=$area; best_width=$width; best_height=$height; fi
+          done
+          [[ -n "$best" && "$best_width" == 1020 && "$best_height" == 650 ]]
+
+          xdotool mousemove --window "$best" 535 275 click 1
+          xdotool key --window "$best" ctrl+a
+          xdotool type --window "$best" --delay 3 -- "$TIBIA_TEST_EMAIL"
+          xdotool mousemove --window "$best" 535 304 click 1
+          xdotool key --window "$best" ctrl+a
+          xdotool type --window "$best" --delay 3 -- "$TIBIA_TEST_PASSWORD"
+          xdotool mousemove --window "$best" 590 388 click 1
+          unset TIBIA_TEST_EMAIL TIBIA_TEST_PASSWORD
+          sleep 25
+
+          import -display :99 -window "$best" /tmp/io-select.png
+          convert /tmp/io-select.png -resize 200% -colorspace Gray -contrast-stretch 1%x1% /tmp/io-select-ocr.png
+          tesseract /tmp/io-select-ocr.png stdout --psm 11 tsv 2>/dev/null >/tmp/io-select.tsv || true
+          python3 - <<'PY' >/tmp/io-row.env
+          import csv
+          safe=[]; points=[]
+          with open('/tmp/io-select.tsv',newline='',errors='replace') as f:
+              for r in csv.DictReader(f,delimiter='\t'):
+                  token=(r.get('text') or '').strip().lower().strip(':,.!?()[]')
+                  try:
+                      conf=float(r.get('conf') or -1); left=int(r.get('left') or 0)//2; top=int(r.get('top') or 0)//2
+                      width=max(1,int(r.get('width') or 0)//2); height=max(1,int(r.get('height') or 0)//2)
+                  except ValueError: continue
+                  if conf < 20: continue
+                  x=left+width//2; y=top+height//2
+                  if token in {'select','character','status'}: safe.append((token,x,y))
+                  if 220 <= x <= 555 and 185 <= y <= 202: points.append((x,y))
+          title=any(t=='select' and 440<=x<=510 and 100<=y<=130 for t,x,y in safe)
+          header=any(t=='character' and 220<=x<=290 and 160<=y<=185 for t,x,y in safe)
+          if not (title and header and len(points)>=2): raise SystemExit('Select Character geometry unavailable')
+          row_y=round(sum(y for _,y in points)/len(points)); row_x=292
+          if not (188 <= row_y <= 198): raise SystemExit(f'Unsafe character row y={row_y}')
+          print(f'ROW_X={row_x}'); print(f'ROW_Y={row_y}')
+          PY
+          source /tmp/io-row.env
+          echo SELECT_CHARACTER_VERIFIED=true
+          echo "VERIFIED_CHARACTER_ROW_GEOMETRY=$ROW_X,$ROW_Y"
+
+          socks_fds=$(ss -ntp 2>/dev/null | grep "pid=$pid," | awk '$5 ~ /127\.0\.0\.1:25344$/ || $5 ~ /\[::1\]:25344$/ {print}' | sed -n 's/.*fd=\([0-9][0-9]*\).*/\1/p' | sort -nu | paste -sd, -)
+          [[ -n "$socks_fds" ]]
+          socks_fd_count=$(printf '%s' "$socks_fds" | tr ',' '\n' | grep -c .)
+          echo "ESTABLISHED_LOCAL_SOCKS_FD_COUNT=$socks_fd_count"
+          [[ "$socks_fd_count" -ge 1 ]]
+
+          baseline_start=$(date +%s.%N)
+          sleep 2
+          activation=$(date +%s.%N)
+          xdotool mousemove --window "$best" "$ROW_X" "$ROW_Y" click 1
+          sleep 0.15
+          xdotool key --window "$best" Return
+          sleep 2
+          activation_end=$(date +%s.%N)
+          printf 'BASELINE_START=%s\nACTIVATION=%s\nACTIVATION_END=%s\nSOCKS_FDS=%s\n' "$baseline_start" "$activation" "$activation_end" "$socks_fds" >/tmp/io-markers.env
+
+          import -display :99 -window "$best" /tmp/io-post.png
+          convert /tmp/io-post.png -crop 900x500+60+80 -resize 150% -colorspace Gray -contrast-stretch 1%x1% /tmp/io-post-ocr.png
+          tesseract /tmp/io-post-ocr.png stdout --psm 11 2>/dev/null >/tmp/io-post.txt || true
+
+          python3 - <<'PY'
+          from pathlib import Path
+          import glob,re
+          cfg={}
+          for line in Path('/tmp/io-markers.env').read_text().splitlines():
+              k,v=line.split('=',1); cfg[k]=v
+          b0=float(cfg['BASELINE_START']); a0=float(cfg['ACTIVATION']); a1=float(cfg['ACTIVATION_END'])
+          fds={int(x) for x in cfg['SOCKS_FDS'].split(',') if x}
+          ops=('read','write','readv','writev','sendto','recvfrom','sendmsg','recvmsg','sendmmsg','recvmmsg')
+          rows=[]; process=[]
+          for path in glob.glob('/data/runtime/tibia-world-entry-io.strace*'):
+              try: lines=Path(path).read_text(errors='replace').splitlines()
+              except OSError: continue
+              for line in lines:
+                  m=re.match(r'^([0-9]+(?:\.[0-9]+)?)\s+([A-Za-z0-9_]+)\((.*)$',line)
+                  if not m: continue
+                  ts=float(m.group(1)); op=m.group(2); tail=m.group(3)
+                  if b0 <= ts <= a1 and op in ops:
+                      fm=re.match(r'([0-9]+),',tail)
+                      if fm and int(fm.group(1)) in fds:
+                          rm=re.search(r'\)\s+=\s+(-?[0-9]+)',line)
+                          ret=int(rm.group(1)) if rm else -1
+                          rows.append((ts,op,ret))
+                  if a0 <= ts <= a1 and op in {'clone','clone3','fork','vfork','execve'}:
+                      process.append((op,line))
+          def summarize(lo,hi,label):
+              subset=[r for r in rows if lo <= r[0] < hi]
+              tx={'write','writev','sendto','sendmsg','sendmmsg'}
+              rx={'read','readv','recvfrom','recvmsg','recvmmsg'}
+              print(f'{label}_SOCKS_IO_CALLS={len(subset)}')
+              print(f'{label}_SOCKS_TX_CALLS={sum(op in tx for _,op,_ in subset)}')
+              print(f'{label}_SOCKS_RX_CALLS={sum(op in rx for _,op,_ in subset)}')
+              print(f'{label}_SOCKS_TX_BYTES={sum(max(ret,0) for _,op,ret in subset if op in tx)}')
+              print(f'{label}_SOCKS_RX_BYTES={sum(max(ret,0) for _,op,ret in subset if op in rx)}')
+              print(f'{label}_SOCKS_ZERO_OR_ERROR_CALLS={sum(ret<=0 for _,_,ret in subset)}')
+          summarize(b0,a0,'BASELINE')
+          summarize(a0,a1,'ACTIVATION')
+          print(f'ACTIVATION_PROCESS_EVENT_COUNT={len(process)}')
+          for op in ('clone','clone3','fork','vfork','execve'):
+              print(f'ACTIVATION_PROCESS_{op.upper()}_COUNT={sum(x==op for x,_ in process)}')
+          PY
+
+          python3 - <<'PY'
+          from pathlib import Path
+          raw=Path('/tmp/io-post.txt').read_text(errors='replace').lower()
+          normalized=''.join(ch if ch.isalnum() else ' ' for ch in raw)
+          words=normalized.split()
+          allow={'account','login','email','password','select','character','connecting','connection','failed','error','server','world','game','skills','battle','store','vip','inventory','health','mana','quest','prey','online','already','logged','session','try','again','please','invalid','authentication','disconnected'}
+          safe=[]
+          for token in words:
+              if token in allow and token not in safe: safe.append(token)
+          print('POST_SAFE_STATE_TOKENS=' + ','.join(safe))
+          account=('account login' in raw or ('email' in raw and 'password' in raw))
+          select=('select character' in raw)
+          game=any(x in raw for x in ['battle','skills','inventory','health','mana'])
+          print(f'POST_ACCOUNT_LOGIN={str(account).lower()}')
+          print(f'POST_SELECT_CHARACTER={str(select).lower()}')
+          print(f'POST_GAME_MARKERS={str(game).lower()}')
+          PY
+
+          pid=$(pgrep -x client | head -n1)
+          [[ -n "$pid" ]]
+          direct_tcp=$(ss -ntp 2>/dev/null | grep "pid=$pid," | awk '{print $5}' | grep -Ev '^(127\.0\.0\.1|\[::1\]):25344$' | grep -c . || true)
+          udp_count=$(ss -nup 2>/dev/null | grep "pid=$pid," | grep -c . || true)
+          echo "FINAL_DIRECT_TCP_COUNT=$direct_tcp"
+          echo "FINAL_UDP_COUNT=$udp_count"
+          [[ "$direct_tcp" -eq 0 && "$udp_count" -eq 0 ]]
+          echo CLIENT_LEFT_RUNNING=true
+          INNER
+
+      - name: Verify canonical staging unchanged and client remains running
+        if: always()
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          docker ps -a --filter 'label=com.docker.compose.project=oteryn-staging' --format '{{.ID}}\t{{.Names}}' | sort >/tmp/oteryn-after.tsv
+          diff -u /tmp/oteryn-before.tsv /tmp/oteryn-after.tsv
+          docker exec "$CONTAINER_NAME" pgrep -x client >/dev/null
+          docker inspect --format 'analysis_name={{.Name}} status={{.State.Status}} owner={{ index .Config.Labels "com.blakinio.owner" }} purpose={{ index .Config.Labels "com.blakinio.purpose" }}' "$CONTAINER_NAME"
