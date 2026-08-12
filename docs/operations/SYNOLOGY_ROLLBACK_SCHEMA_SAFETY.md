@@ -28,11 +28,11 @@ The deployment state directory stores:
 
 - `candidate-release.env`: exact release SHA, immutable runtime image identities and the compatibility contract read from the selected Platform image;
 - `current-release.env`: the last deployment that completed all staging health checks;
-- `last-good-release.env`: the previous known-good release retained as the image rollback target;
-- `schema-state.env`: independent database schema identity; it is written as `unknown` before migration begins and becomes `known` only after the migration command returns success;
+- `last-good-release.env`: the previous distinct known-good release retained as the image rollback target;
+- `schema-state.env`: independent database schema identity; it is written as `unknown` before a migration-bearing transition and becomes `known` only after the migration command returns success;
 - `backups/<old-sha>-before-<candidate-sha>/platform.sql`: pre-migration staging Platform DB backup;
-- matching `evidence.env`: old/candidate release identities, the schema identity that actually existed at dump time and SHA-256 of the backup;
-- `marketplace.env` when Character Bazaar staging has been configured: the bounded durable Marketplace enablement/escrow/transfer settings used to reconstruct its optional scheduler without losing staging secrets or state.
+- matching `evidence.env`: source/candidate release identities, the schema identity that actually existed at dump time, the exact Compose project and Platform database target, and SHA-256 of the backup;
+- `marketplace.env` when Character Bazaar staging has been configured: the bounded durable Marketplace enablement/escrow/transfer settings used to reconstruct its Platform/scheduler runtime without losing staging secrets or state.
 
 Before pulling candidate images, `deploy.sh` snapshots any currently running Platform, Gateway and Canary containers by Docker image ID and immediately resolves those images to immutable repository digests. This prevents a later pull of a mutable tag from changing the meaning of the recorded last-good runtime.
 
@@ -40,15 +40,19 @@ On the first deployment that introduces managed release state to an existing sta
 
 If the Platform database is already non-empty but neither managed release state nor a complete provable running-image baseline exists, deployment fails **before migration**. A fresh empty database may proceed without a prior last-good release.
 
-For an existing release, the deployment reads the actual known identity from `schema-state.env`, not the current application's primary schema ID, and records that identity in backup evidence. This distinction is required after a compatible image-only rollback, where the old application may intentionally be running against a newer schema it accepts.
+For a migration-bearing release change, the deployment reads the actual known identity from `schema-state.env`, not the current application's primary schema ID, and records that identity in backup evidence. This distinction is required after a compatible image-only rollback, where the old application may intentionally be running against a newer schema it accepts.
 
-The deployment then quiesces all known Platform DB consumers **before** the backup: Platform, Gateway and internal proxy are stopped, and a running optional Marketplace scheduler is stopped and verified stopped. Only after consumers are quiesced is the single-transaction pre-migration dump created. The candidate Platform container is not started until that preparation and backup have completed and schema state has been persisted as `unknown`. If the Marketplace scheduler was running before quiesce, it is recreated on the candidate Platform image only after migration succeeds and the new schema identity is known. Scheduler reconstruction loads the effective Character Bazaar control environment when present, otherwise the bounded durable `marketplace.env`, and verifies that the recreated scheduler is actually running the selected Platform image.
+The deployment then quiesces all known Platform DB consumers **before** the backup: Platform, Gateway and internal proxy are stopped, and a running optional Marketplace scheduler is stopped and verified stopped. Only after consumers are quiesced is the single-transaction pre-migration dump created. The candidate Platform container is not started until preparation and backup complete and schema state is persisted as `unknown`.
 
-The schema state is deliberately independent from application state. A failed deployment after `migrate --force` can therefore never inherit the old release's schema claim.
+After a successful migration, Marketplace reconciliation is based on the effective Character Bazaar control environment when it explicitly contains Marketplace state, otherwise the bounded durable `marketplace.env`. If Marketplace is enabled, both the browser-facing Platform container and the scheduler are force-recreated with the selected Platform image and verified enabled/running. A standard deploy therefore cannot leave the Platform service disabled while only the scheduler is enabled.
+
+A redeploy of the exact already-current application SHA is not treated as a new migration boundary. The candidate must still accept the known schema, migration execution is skipped, the existing distinct `last-good-release.env` is preserved, and Marketplace runtime is reconciled before final health validation. This prevents a same-release repair/recreate from silently destroying the previous rollback target.
+
+The schema state is deliberately independent from application state. A failed migration-bearing deployment can therefore never inherit the old release's schema claim.
 
 ## Normal compatible image rollback
 
-Run `deploy/synology/scripts/rollback.sh`. It validates the actual schema identity against the last-good application's accepted schema identities before old images are pulled or started. The optional Marketplace scheduler is then reconciled to the selected last-good Platform image and the effective/durable Marketplace enablement state before release-state promotion. On success it updates application release state only.
+Run `deploy/synology/scripts/rollback.sh`. It validates the actual schema identity against the last-good application's accepted schema identities before old images are pulled or started. Optional Marketplace state is then reconciled for **both** Platform and scheduler to the selected last-good image before health checks and release-state promotion. On success it updates application release state only.
 
 **Image rollback does not reverse, restore or otherwise change database schema.**
 
@@ -56,15 +60,25 @@ Run `deploy/synology/scripts/rollback.sh`. It validates the actual schema identi
 
 If migration starts and its outcome is ambiguous, `schema-state.env` remains `SCHEMA_STATE=unknown`; ordinary image rollback is rejected.
 
-Recovery is explicit and staging-only:
+The supported post-failure entry point is the manual `Recover Synology Staging Schema` GitHub Actions workflow (`.github/workflows/recover-synology-staging-schema.yml`). The deployment workflow intentionally removes its secret-bearing ephemeral `.env` even on failure, so recovery reconstructs a new ephemeral staging environment from the protected `synology-staging` Environment and accepts only a managed relative evidence path of the form:
 
-```bash
-deploy/synology/scripts/recover-schema.sh /var/lib/oteryn-staging-state/backups/<old-sha>-before-<candidate-sha>/evidence.env
+```text
+<old-40-char-sha>-before-<candidate-40-char-sha>/evidence.env
 ```
 
-The recovery command refuses to proceed unless the managed backup exists, its SHA-256 matches the evidence, source/target release identities match durable last-good/candidate state, the last-good application explicitly accepts the schema identity recorded from the actual database at backup time, and schema state is tied to the failed candidate. Recovery evidence is parsed as an exact allowlisted data format and cannot override operational deployment values such as the configured Platform database name. It persists schema state as unknown before the first destructive database command. It stops the base Platform database consumers and, when present, the optional Marketplace scheduler and verifies that scheduler is no longer running. It then recreates only the configured staging Platform database, restores the verified dump, and records the restored schema identity only after the complete import succeeds.
+The workflow serializes with the same `synology-staging-deployment` concurrency group and calls:
 
-Recovery does not change runtime images. Run `rollback.sh` separately afterward so image rollback still passes its compatibility gate and health probes.
+```bash
+OTERYN_ENV_FILE=deploy/synology/.env \
+  bash deploy/synology/scripts/recover-schema.sh \
+  "$OTERYN_STATE_DIR/backups/<old-sha>-before-<candidate-sha>/evidence.env"
+```
+
+The recovery command refuses to proceed unless the managed backup exists, its SHA-256 matches the evidence, source/target release identities match durable last-good/candidate state, the last-good application explicitly accepts the schema identity recorded from the actual database at backup time, schema state is tied to the failed candidate, and the recorded Compose project plus Platform database name exactly match the reconstructed operational target.
+
+Recovery evidence is parsed as an exact allowlisted data format and cannot override operational values. All target/evidence checks complete **before** schema state is marked unknown or any `DROP DATABASE` command is issued. Recovery then stops Platform DB consumers, recreates only the verified staging Platform database, restores the verified dump, and records the restored schema identity only after the complete import succeeds.
+
+Recovery does not change runtime images. Run the normal runtime rollback separately afterward so image rollback still passes compatibility gates and health probes.
 
 No deployment or rollback path invokes schema recovery automatically. Laravel migration reversal is not used as a generic recovery mechanism.
 
@@ -76,12 +90,14 @@ Health-check helper containers are mapped at the common Docker invocation bounda
 
 Before merging changes to this contract:
 
-- run `python3 tests/ci/test_synology_rollback_contract.py` through the Synology deployment-package CI gate;
+- run `python3 tests/ci/test_synology_rollback_contract.py`;
+- run `python3 tests/ci/test_synology_rollback_recovery_contract.py`;
 - run shell syntax validation for all modified Synology scripts;
+- run the dedicated `Synology Rollback Contract` workflow on the exact head;
 - build the Platform/Gateway/deploy-runner images and validate the Platform image contains the release contract;
 - run repository deployment-contract / governance tests applicable to the exact head;
-- validate compatibility with the concurrently owned staging workflow without editing that workflow;
-- review failure before migration, unprovable legacy baseline, consumer quiesce failure, failure/ambiguity during migration, failure after migration but before health success, compatible rollback, incompatible rollback, verified backup recovery, recovery evidence mismatch, runtime OCI revision mismatch, Marketplace scheduler state preservation and historical-image contract selection;
+- validate compatibility with the concurrently owned staging deployment workflow without editing that workflow;
+- review failure before migration, unprovable legacy baseline, same-release redeploy, consumer quiesce failure, failure/ambiguity during migration, failure after migration but before health success, compatible rollback, incompatible rollback, verified backup recovery, target/evidence mismatch, runtime OCI revision mismatch, Marketplace Platform/scheduler state preservation and historical-image contract selection;
 - obtain a fresh independent review of the exact final head.
 
-The task deliberately performs no protected staging or production deployment. The complete executable integration path is therefore validated with deterministic contract tests plus repository production-like/deep validation; this evidence must never be promoted to a claim of production rollback readiness.
+The task deliberately performs no protected staging or production deployment. Repository CI and production-like/deep validation prove the implementation contract only; they must never be promoted to a claim of production rollback readiness.

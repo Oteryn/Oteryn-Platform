@@ -45,16 +45,17 @@ export PLATFORM_IMAGE GATEWAY_IMAGE CANARY_IMAGE
 compose=(docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE")
 "${compose[@]}" pull platform gateway canary
 "${compose[@]}" up -d canary platform internal-proxy gateway
+
+# Marketplace is an optional Platform-image consumer outside the base manifest.
+# Reconcile both the browser-facing Platform service and scheduler to the selected
+# last-good image/effective state before health checks and release-state promotion.
+_oteryn_reconcile_marketplace_scheduler_after_runtime_change
+
 OTERYN_ENV_FILE="$ENV_FILE" bash "$SCRIPT_DIR/health-check.sh"
 "${compose[@]}" exec -T platform php artisan game-auth:world:ensure \
     --id="$GAME_WORLD_ID" --slug="$GAME_WORLD_SLUG" --name="$GAME_WORLD_NAME" \
     --region="$GAME_WORLD_REGION" --host="$GAME_WORLD_HOST" --port="$GAME_WORLD_PORT" \
     --status=online --login-enabled=1
-
-# Marketplace is an optional Platform-image consumer outside the base manifest.
-# Reconcile it to the selected last-good Platform image and the effective/durable
-# Marketplace state before claiming the runtime release has been restored.
-_oteryn_reconcile_marketplace_scheduler_after_runtime_change
 
 cp "$last_good_file" "$state_dir/current-release.env.tmp"
 chmod 600 "$state_dir/current-release.env.tmp"

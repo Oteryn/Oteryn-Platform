@@ -130,6 +130,15 @@ _oteryn_read_state_key() {
     printf '%s\n' "$value"
 }
 
+_oteryn_schema_list_contains() {
+    local needle="$1" list="$2" item
+    IFS=',' read -r -a items <<<"$list"
+    for item in "${items[@]}"; do
+        [[ "$item" == "$needle" ]] && return 0
+    done
+    return 1
+}
+
 _oteryn_write_schema_state_known() {
     local state_dir="$1" schema_id="$2" release_sha="$3"
     [[ "$schema_id" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$ ]] || { echo "Cannot persist invalid schema identity." >&2; return 1; }
@@ -258,19 +267,39 @@ _oteryn_marketplace_scheduler_id() {
     printf '%s\n' "$ids"
 }
 
-_oteryn_recreate_marketplace_scheduler() {
-    local marketplace_file="$DEPLOY_DIR/compose.marketplace.yml" scheduler_id scheduler_running scheduler_image
+_oteryn_recreate_marketplace_runtime() {
+    local marketplace_file="$DEPLOY_DIR/compose.marketplace.yml"
+    local platform_id scheduler_id platform_running scheduler_running platform_image scheduler_image
+    local platform_enabled scheduler_enabled
     local -a marketplace_compose=(command docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" -f "$marketplace_file")
     [[ -f "$marketplace_file" ]] || { echo "Marketplace Compose file is missing." >&2; return 1; }
-    _oteryn_load_marketplace_runtime_state || { echo "Cannot prove Marketplace runtime settings for scheduler recreation." >&2; return 1; }
-    [[ "$MARKETPLACE_ENABLED" == true ]] || { echo "Refusing to recreate Marketplace scheduler while durable/effective state is disabled." >&2; return 1; }
+    _oteryn_load_marketplace_runtime_state || { echo "Cannot prove Marketplace runtime settings for runtime recreation." >&2; return 1; }
+    [[ "$MARKETPLACE_ENABLED" == true ]] || { echo "Refusing to recreate Marketplace runtime while durable/effective state is disabled." >&2; return 1; }
+
+    "${marketplace_compose[@]}" up -d --no-deps --force-recreate platform
     "${marketplace_compose[@]}" up -d --force-recreate marketplace-scheduler
+
+    platform_id="$("${marketplace_compose[@]}" ps -a -q platform)" || return 1
     scheduler_id="$(_oteryn_marketplace_scheduler_id)" || return 1
-    [[ -n "$scheduler_id" ]] || { echo "Marketplace scheduler was not recreated." >&2; return 1; }
+    [[ -n "$platform_id" && -n "$scheduler_id" ]] || { echo "Marketplace Platform/scheduler runtime was not recreated." >&2; return 1; }
+
+    platform_running="$(command docker inspect --format '{{.State.Running}}' "$platform_id")" || return 1
     scheduler_running="$(command docker inspect --format '{{.State.Running}}' "$scheduler_id")" || return 1
+    platform_image="$(command docker inspect --format '{{.Config.Image}}' "$platform_id")" || return 1
     scheduler_image="$(command docker inspect --format '{{.Config.Image}}' "$scheduler_id")" || return 1
-    [[ "$scheduler_running" == true ]] || { echo "Marketplace scheduler is not running after recreation." >&2; return 1; }
-    [[ "$scheduler_image" == "$PLATFORM_IMAGE" ]] || { echo "Marketplace scheduler image does not match the selected Platform runtime image." >&2; return 1; }
+    platform_enabled="$(command docker inspect --format '{{range .Config.Env}}{{println .}}{{end}}' "$platform_id" | sed -n 's/^MARKETPLACE_ENABLED=//p' | head -n 1)"
+    scheduler_enabled="$(command docker inspect --format '{{range .Config.Env}}{{println .}}{{end}}' "$scheduler_id" | sed -n 's/^MARKETPLACE_ENABLED=//p' | head -n 1)"
+
+    [[ "$platform_running" == true && "$scheduler_running" == true ]] || { echo "Marketplace Platform/scheduler is not fully running after recreation." >&2; return 1; }
+    [[ "$platform_image" == "$PLATFORM_IMAGE" ]] || { echo "Marketplace Platform image does not match the selected Platform image." >&2; return 1; }
+    [[ "$scheduler_image" == "$PLATFORM_IMAGE" ]] || { echo "Marketplace scheduler image does not match the selected Platform image." >&2; return 1; }
+    [[ "$platform_enabled" == true && "$scheduler_enabled" == true ]] || { echo "Marketplace runtime did not receive enabled settings." >&2; return 1; }
+}
+
+_oteryn_recreate_marketplace_scheduler() {
+    # Compatibility name retained for the existing contract test; recreation now
+    # covers both the browser-facing Platform container and scheduler.
+    _oteryn_recreate_marketplace_runtime
 }
 
 _oteryn_quiesce_platform_db_consumers() {
@@ -297,14 +326,6 @@ _oteryn_quiesce_platform_db_consumers() {
     "${base_compose[@]}" stop platform gateway internal-proxy
 }
 
-_oteryn_restore_quiesced_consumers_after_migrate() {
-    if [[ "${OTERYN_MARKETPLACE_SCHEDULER_WAS_RUNNING:-0}" == 1 ]]; then
-        _oteryn_recreate_marketplace_scheduler || return 1
-        OTERYN_MARKETPLACE_SCHEDULER_WAS_RUNNING=0
-        export OTERYN_MARKETPLACE_SCHEDULER_WAS_RUNNING
-    fi
-}
-
 _oteryn_reconcile_marketplace_scheduler_after_runtime_change() {
     local scheduler_id state_rc
     scheduler_id="$(_oteryn_marketplace_scheduler_id)" || return 1
@@ -325,6 +346,12 @@ _oteryn_reconcile_marketplace_scheduler_after_runtime_change() {
     fi
 }
 
+_oteryn_restore_quiesced_consumers_after_migrate() {
+    _oteryn_reconcile_marketplace_scheduler_after_runtime_change || return 1
+    OTERYN_MARKETPLACE_SCHEDULER_WAS_RUNNING=0
+    export OTERYN_MARKETPLACE_SCHEDULER_WAS_RUNNING
+}
+
 _oteryn_before_platform_migrate() {
     local state_dir release_sha backup_dir backup_file backup_meta current_file old_sha old_schema
     state_dir="$(_oteryn_deploy_state_dir)"
@@ -342,11 +369,22 @@ _oteryn_before_platform_migrate() {
     current_file="$state_dir/current-release.env"
     if [[ -f "$current_file" ]]; then
         bash "$SCRIPT_DIR/release-state.sh" validate "$current_file"
+        old_sha="$(_oteryn_read_state_key "$current_file" RELEASE_SHA)" || return 1
+        old_schema="$(_oteryn_known_schema_identity "$state_dir")" || return 1
+
+        if [[ "$old_sha" == "$release_sha" ]]; then
+            _oteryn_schema_list_contains "$old_schema" "$OTERYN_APP_ACCEPTS_SCHEMA_IDS" || {
+                echo "Same-release redeploy rejected: candidate application does not accept the known current schema." >&2
+                return 1
+            }
+            OTERYN_SAME_RELEASE_REDEPLOY=1
+            export OTERYN_SAME_RELEASE_REDEPLOY
+            return 0
+        fi
+
         cp "$current_file" "$state_dir/last-good-release.env.tmp"
         chmod 600 "$state_dir/last-good-release.env.tmp"
         mv "$state_dir/last-good-release.env.tmp" "$state_dir/last-good-release.env"
-        old_sha="$(_oteryn_read_state_key "$current_file" RELEASE_SHA)" || return 1
-        old_schema="$(_oteryn_known_schema_identity "$state_dir")" || return 1
 
         _oteryn_quiesce_platform_db_consumers || return 1
 
@@ -364,6 +402,8 @@ _oteryn_before_platform_migrate() {
             printf 'BACKUP_FROM_RELEASE_SHA=%s\n' "$old_sha"
             printf 'BACKUP_BEFORE_RELEASE_SHA=%s\n' "$release_sha"
             printf 'BACKUP_SCHEMA_COMPATIBILITY_ID=%s\n' "$old_schema"
+            printf 'BACKUP_COMPOSE_PROJECT_NAME=%s\n' "${COMPOSE_PROJECT_NAME:-oteryn-staging}"
+            printf 'BACKUP_PLATFORM_DB_NAME=%s\n' "$PLATFORM_DB_NAME"
             printf 'BACKUP_SHA256=%s\n' "$(sha256sum "$backup_file" | awk '{print $1}')"
         } >"$backup_meta.tmp"
         chmod 600 "$backup_meta.tmp"
@@ -422,6 +462,14 @@ docker() {
         fi
         if [[ "$joined" == *" exec -T platform php artisan migrate --force --no-interaction "* ]]; then
             [[ "${OTERYN_MIGRATION_PREPARED:-0}" == 1 ]] || _oteryn_before_platform_migrate || return 1
+            if [[ "${OTERYN_SAME_RELEASE_REDEPLOY:-0}" == 1 ]]; then
+                echo "Same-release redeploy: skipping migration; the exact current image already proved this schema transition."
+                OTERYN_SAME_RELEASE_REDEPLOY=0
+                OTERYN_MIGRATION_PREPARED=0
+                export OTERYN_SAME_RELEASE_REDEPLOY OTERYN_MIGRATION_PREPARED
+                _oteryn_reconcile_marketplace_scheduler_after_runtime_change || return 1
+                return 0
+            fi
             command docker "${args[@]}"
             rc=$?
             if [[ "$rc" -eq 0 ]]; then

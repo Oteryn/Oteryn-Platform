@@ -1,0 +1,168 @@
+name: Recover Synology Staging Schema
+
+on:
+  workflow_dispatch:
+    inputs:
+      backup_evidence:
+        description: Managed relative backup evidence path (<old-sha>-before-<candidate-sha>/evidence.env)
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: synology-staging-deployment
+  cancel-in-progress: false
+
+jobs:
+  recover:
+    if: github.ref == 'refs/heads/main'
+    runs-on: oteryn-staging
+    environment: synology-staging
+    timeout-minutes: 30
+    env:
+      CANONICAL_PUBLIC_APP_URL: https://oteryn.molehill.cloud
+      APP_KEY: ${{ secrets.OTERYN_STAGING_APP_KEY }}
+      MARIADB_ROOT_PASSWORD: ${{ secrets.OTERYN_STAGING_MARIADB_ROOT_PASSWORD }}
+      PLATFORM_DB_PASSWORD: ${{ secrets.OTERYN_STAGING_PLATFORM_DB_PASSWORD }}
+      CANARY_DB_PASSWORD: ${{ secrets.OTERYN_STAGING_CANARY_DB_PASSWORD }}
+      CANARY_READONLY_DB_PASSWORD: ${{ secrets.OTERYN_STAGING_CANARY_READONLY_DB_PASSWORD }}
+      CANARY_PROVISIONING_DB_PASSWORD: ${{ secrets.OTERYN_STAGING_CANARY_PROVISIONING_DB_PASSWORD }}
+      CANARY_CHARACTER_CREATE_DB_PASSWORD: ${{ secrets.OTERYN_STAGING_CANARY_CHARACTER_CREATE_DB_PASSWORD }}
+      REDIS_PASSWORD: ${{ secrets.OTERYN_STAGING_REDIS_PASSWORD }}
+      CANARY_RUNTIME_REDIS_PASSWORD: ${{ secrets.OTERYN_STAGING_CANARY_RUNTIME_REDIS_PASSWORD }}
+      OTERYN_PLATFORM_SERVICE_TOKEN: ${{ secrets.OTERYN_STAGING_PLATFORM_SERVICE_TOKEN }}
+      GAME_AUTH_GATEWAY_SERVICE_TOKEN_SHA256: ${{ secrets.OTERYN_STAGING_PLATFORM_SERVICE_TOKEN_SHA256 }}
+      GAME_AUTH_GATEWAY_PREVIOUS_SERVICE_TOKEN_SHA256: ${{ secrets.OTERYN_STAGING_PLATFORM_PREVIOUS_SERVICE_TOKEN_SHA256 }}
+      GAME_SESSION_SERVICE_TOKEN: ${{ secrets.OTERYN_STAGING_GAME_SESSION_SERVICE_TOKEN }}
+      CANARY_GAME_SESSION_SERVICE_TOKEN_SHA256: ${{ secrets.OTERYN_STAGING_GAME_SESSION_SERVICE_TOKEN_SHA256 }}
+      CANARY_GAME_SESSION_PREVIOUS_SERVICE_TOKEN_SHA256: ${{ secrets.OTERYN_STAGING_GAME_SESSION_PREVIOUS_SERVICE_TOKEN_SHA256 }}
+
+    steps:
+      - name: Checkout trusted main
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+
+      - name: Validate recovery request and runner
+        env:
+          BACKUP_EVIDENCE_INPUT: ${{ inputs.backup_evidence }}
+          OTERYN_STATE_DIR_INPUT: ${{ vars.OTERYN_STAGING_STATE_DIR }}
+          APP_URL_INPUT: ${{ vars.OTERYN_STAGING_APP_URL }}
+        run: |
+          set -euo pipefail
+          docker version >/dev/null
+          docker compose version >/dev/null
+          sha256sum --version >/dev/null
+
+          if [[ ! "$BACKUP_EVIDENCE_INPUT" =~ ^[0-9a-f]{40}-before-[0-9a-f]{40}/evidence\.env$ ]]; then
+            echo "backup_evidence must be exactly <old-sha>-before-<candidate-sha>/evidence.env." >&2
+            exit 1
+          fi
+
+          state_dir="${OTERYN_STATE_DIR_INPUT:-/var/lib/oteryn-staging-state}"
+          app_url="${APP_URL_INPUT:-$CANONICAL_PUBLIC_APP_URL}"
+          if [[ ! "$state_dir" =~ ^/[A-Za-z0-9._/-]+$ ]]; then
+            echo "OTERYN_STAGING_STATE_DIR must be an absolute simple path." >&2
+            exit 1
+          fi
+          if [[ "$app_url" != "$CANONICAL_PUBLIC_APP_URL" ]]; then
+            echo "OTERYN_STAGING_APP_URL must exactly equal the canonical staging origin." >&2
+            exit 1
+          fi
+
+          required_names=(
+            APP_KEY MARIADB_ROOT_PASSWORD PLATFORM_DB_PASSWORD CANARY_DB_PASSWORD
+            CANARY_READONLY_DB_PASSWORD CANARY_PROVISIONING_DB_PASSWORD
+            CANARY_CHARACTER_CREATE_DB_PASSWORD REDIS_PASSWORD
+            CANARY_RUNTIME_REDIS_PASSWORD OTERYN_PLATFORM_SERVICE_TOKEN
+            GAME_AUTH_GATEWAY_SERVICE_TOKEN_SHA256 GAME_SESSION_SERVICE_TOKEN
+            CANARY_GAME_SESSION_SERVICE_TOKEN_SHA256
+          )
+          for name in "${required_names[@]}"; do
+            [[ -n "${!name:-}" ]] || { echo "Required synology-staging secret is missing: $name" >&2; exit 1; }
+          done
+
+      - name: Write ephemeral recovery environment
+        env:
+          OTERYN_STATE_DIR_INPUT: ${{ vars.OTERYN_STAGING_STATE_DIR }}
+          APP_URL_INPUT: ${{ vars.OTERYN_STAGING_APP_URL }}
+        run: |
+          set -euo pipefail
+          umask 077
+          state_dir="${OTERYN_STATE_DIR_INPUT:-/var/lib/oteryn-staging-state}"
+          app_url="${APP_URL_INPUT:-$CANONICAL_PUBLIC_APP_URL}"
+
+          cat > deploy/synology/.env <<EOF
+          COMPOSE_PROJECT_NAME=oteryn-staging
+          PLATFORM_BIND_ADDRESS=127.0.0.1
+          GATEWAY_BIND_ADDRESS=127.0.0.1
+          CANARY_LOGIN_BIND_ADDRESS=127.0.0.1
+          CANARY_GAME_BIND_ADDRESS=127.0.0.1
+          PLATFORM_PORT=8000
+          GATEWAY_PORT=8080
+          CANARY_LOGIN_PORT=7171
+          CANARY_GAME_PORT=7172
+          GAME_WORLD_ID=1
+          GAME_WORLD_SLUG=oteryn-staging
+          GAME_WORLD_NAME=Oteryn Staging
+          GAME_WORLD_REGION=LAN
+          GAME_WORLD_HOST=127.0.0.1
+          GAME_WORLD_PORT=7172
+          PLATFORM_IMAGE=rollback-placeholder
+          GATEWAY_IMAGE=rollback-placeholder
+          CANARY_IMAGE=rollback-placeholder
+          APP_NAME=Oteryn Platform Staging
+          APP_ENV=staging
+          APP_DEBUG=false
+          APP_KEY=$APP_KEY
+          APP_URL=$app_url
+          LOG_LEVEL=info
+          SESSION_SECURE_COOKIE=true
+          MARIADB_ROOT_PASSWORD=$MARIADB_ROOT_PASSWORD
+          PLATFORM_DB_NAME=oteryn_platform
+          PLATFORM_DB_USER=oteryn_platform
+          PLATFORM_DB_PASSWORD=$PLATFORM_DB_PASSWORD
+          CANARY_DB_NAME=canary
+          CANARY_DB_USER=canary
+          CANARY_DB_PASSWORD=$CANARY_DB_PASSWORD
+          CANARY_READONLY_DB_USER=oteryn_readonly
+          CANARY_READONLY_DB_PASSWORD=$CANARY_READONLY_DB_PASSWORD
+          CANARY_PROVISIONING_DB_USER=oteryn_provisioning
+          CANARY_PROVISIONING_DB_PASSWORD=$CANARY_PROVISIONING_DB_PASSWORD
+          CANARY_CHARACTER_CREATE_DB_USER=oteryn_character_create
+          CANARY_CHARACTER_CREATE_DB_PASSWORD=$CANARY_CHARACTER_CREATE_DB_PASSWORD
+          REDIS_PASSWORD=$REDIS_PASSWORD
+          CANARY_RUNTIME_REDIS_USERNAME=oteryn_runtime
+          CANARY_RUNTIME_REDIS_PASSWORD=$CANARY_RUNTIME_REDIS_PASSWORD
+          OTERYN_PLATFORM_SERVICE_TOKEN=$OTERYN_PLATFORM_SERVICE_TOKEN
+          GAME_AUTH_GATEWAY_SERVICE_TOKEN_SHA256=$GAME_AUTH_GATEWAY_SERVICE_TOKEN_SHA256
+          GAME_AUTH_GATEWAY_PREVIOUS_SERVICE_TOKEN_SHA256=$GAME_AUTH_GATEWAY_PREVIOUS_SERVICE_TOKEN_SHA256
+          GAME_SESSION_SERVICE_TOKEN=$GAME_SESSION_SERVICE_TOKEN
+          CANARY_GAME_SESSION_SERVICE_TOKEN_SHA256=$CANARY_GAME_SESSION_SERVICE_TOKEN_SHA256
+          CANARY_GAME_SESSION_PREVIOUS_SERVICE_TOKEN_SHA256=$CANARY_GAME_SESSION_PREVIOUS_SERVICE_TOKEN_SHA256
+          CANARY_SERVER_NAME=Oteryn Staging
+          CANARY_SERVER_IP=127.0.0.1
+          CANARY_TEST_ACCOUNTS=false
+          CANARY_DATA_PACK=data-otservbr-global
+          CANARY_MAP_URL=https://github.com/opentibiabr/canary/releases/download/v3.6.1/otservbr.otbm
+          GATEWAY_VERSION=recovery
+          OTERYN_STATE_DIR=$state_dir
+          EOF
+          chmod 600 deploy/synology/.env
+
+      - name: Recover verified pre-migration schema
+        env:
+          BACKUP_EVIDENCE_INPUT: ${{ inputs.backup_evidence }}
+          OTERYN_STATE_DIR_INPUT: ${{ vars.OTERYN_STAGING_STATE_DIR }}
+        run: |
+          set -euo pipefail
+          state_dir="${OTERYN_STATE_DIR_INPUT:-/var/lib/oteryn-staging-state}"
+          OTERYN_ENV_FILE=deploy/synology/.env \
+            bash deploy/synology/scripts/recover-schema.sh \
+            "$state_dir/backups/$BACKUP_EVIDENCE_INPUT"
+
+      - name: Remove ephemeral recovery environment
+        if: always()
+        run: rm -f deploy/synology/.env

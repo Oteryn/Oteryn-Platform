@@ -5,11 +5,11 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 DEPLOY_DIR="$(cd -- "$SCRIPT_DIR/.." && pwd)"
 ENV_FILE="${OTERYN_ENV_FILE:-$DEPLOY_DIR/.env}"
 COMPOSE_FILE="$DEPLOY_DIR/compose.yml"
-state_dir="${OTERYN_STATE_DIR:-/var/lib/oteryn-staging-state}"
 
 # shellcheck source=deploy/synology/scripts/lib.sh
 source "$SCRIPT_DIR/lib.sh"
 load_oteryn_env_file "$ENV_FILE"
+state_dir="${OTERYN_STATE_DIR:-/var/lib/oteryn-staging-state}"
 
 if [[ $# -ne 1 ]]; then
     echo "usage: $0 BACKUP_EVIDENCE_ENV" >&2
@@ -25,7 +25,8 @@ esac
 
 # Evidence is data, never shell input. Parse the exact generated allowlist so a
 # malformed file cannot override PLATFORM_DB_NAME or any other operational value.
-unset BACKUP_FROM_RELEASE_SHA BACKUP_BEFORE_RELEASE_SHA BACKUP_SCHEMA_COMPATIBILITY_ID BACKUP_SHA256
+unset BACKUP_FROM_RELEASE_SHA BACKUP_BEFORE_RELEASE_SHA BACKUP_SCHEMA_COMPATIBILITY_ID
+unset BACKUP_COMPOSE_PROJECT_NAME BACKUP_PLATFORM_DB_NAME BACKUP_SHA256
 seen='|'
 while IFS= read -r line || [[ -n "$line" ]]; do
     line="${line%$'\r'}"
@@ -34,7 +35,7 @@ while IFS= read -r line || [[ -n "$line" ]]; do
     key="${line%%=*}"
     value="${line#*=}"
     case "$key" in
-        BACKUP_FROM_RELEASE_SHA|BACKUP_BEFORE_RELEASE_SHA|BACKUP_SCHEMA_COMPATIBILITY_ID|BACKUP_SHA256) ;;
+        BACKUP_FROM_RELEASE_SHA|BACKUP_BEFORE_RELEASE_SHA|BACKUP_SCHEMA_COMPATIBILITY_ID|BACKUP_COMPOSE_PROJECT_NAME|BACKUP_PLATFORM_DB_NAME|BACKUP_SHA256) ;;
         *) echo "Recovery evidence contains unexpected key: $key" >&2; exit 1 ;;
     esac
     if [[ "$seen" == *"|$key|"* ]]; then
@@ -45,13 +46,27 @@ while IFS= read -r line || [[ -n "$line" ]]; do
     printf -v "$key" '%s' "$value"
 done < "$evidence_file"
 
-for name in BACKUP_FROM_RELEASE_SHA BACKUP_BEFORE_RELEASE_SHA BACKUP_SCHEMA_COMPATIBILITY_ID BACKUP_SHA256; do
+for name in \
+    BACKUP_FROM_RELEASE_SHA BACKUP_BEFORE_RELEASE_SHA BACKUP_SCHEMA_COMPATIBILITY_ID \
+    BACKUP_COMPOSE_PROJECT_NAME BACKUP_PLATFORM_DB_NAME BACKUP_SHA256; do
     [[ -n "${!name:-}" ]] || { echo "Recovery evidence is incomplete: $name" >&2; exit 1; }
 done
 [[ "$BACKUP_FROM_RELEASE_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "Invalid backup source release SHA" >&2; exit 1; }
 [[ "$BACKUP_BEFORE_RELEASE_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "Invalid backup target release SHA" >&2; exit 1; }
 [[ "$BACKUP_SCHEMA_COMPATIBILITY_ID" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$ ]] || { echo "Invalid backup schema compatibility identity" >&2; exit 1; }
+[[ "$BACKUP_COMPOSE_PROJECT_NAME" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$ ]] || { echo "Invalid backup Compose project identity" >&2; exit 1; }
+[[ "$BACKUP_PLATFORM_DB_NAME" =~ ^[A-Za-z0-9_][A-Za-z0-9_.-]{0,63}$ ]] || { echo "Invalid backup Platform database identity" >&2; exit 1; }
 [[ "$BACKUP_SHA256" =~ ^[0-9a-f]{64}$ ]] || { echo "Invalid backup digest" >&2; exit 1; }
+
+effective_compose_project="${COMPOSE_PROJECT_NAME:-oteryn-staging}"
+[[ "$BACKUP_COMPOSE_PROJECT_NAME" == "$effective_compose_project" ]] || {
+    echo "Recovery rejected: backup Compose project does not match the configured staging target." >&2
+    exit 1
+}
+[[ "$BACKUP_PLATFORM_DB_NAME" == "$PLATFORM_DB_NAME" ]] || {
+    echo "Recovery rejected: backup database does not match the configured Platform database target." >&2
+    exit 1
+}
 
 backup_file="$(dirname -- "$evidence_file")/platform.sql"
 [[ -s "$backup_file" ]] || { echo "Recovery backup is missing or empty." >&2; exit 1; }
@@ -83,9 +98,8 @@ schema_target="$(_oteryn_read_state_key "$schema_file" MIGRATION_TARGET_RELEASE_
 
 compose=(docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE")
 
-# Persist uncertainty before any destructive database operation. Any failure
-# from this point onward leaves rollback fail-closed until a complete restore
-# has established and persisted a known schema identity.
+# Persist uncertainty only after all immutable evidence, release identity and
+# destructive target checks have passed.
 {
     printf 'SCHEMA_STATE=unknown\n'
     printf 'MIGRATION_TARGET_RELEASE_SHA=%s\n' "$BACKUP_BEFORE_RELEASE_SHA"
