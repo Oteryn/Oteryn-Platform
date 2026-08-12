@@ -115,6 +115,51 @@ def test_stale_last_good_identity_is_rejected() -> None:
         assert "stale" in result.stderr.lower()
 
 
+def test_release_state_round_trips_world_name_with_spaces() -> None:
+    with tempfile.TemporaryDirectory() as td:
+        state = pathlib.Path(td) / "release.env"
+        env = os.environ.copy()
+        env.update(
+            {
+                "GAME_WORLD_ID": "1",
+                "GAME_WORLD_SLUG": "oteryn-staging",
+                "GAME_WORLD_NAME": "Oteryn Staging",
+                "GAME_WORLD_REGION": "EU",
+                "GAME_WORLD_HOST": "127.0.0.1",
+                "GAME_WORLD_PORT": "7172",
+            }
+        )
+        write = subprocess.run(
+            [
+                "bash",
+                str(RELEASE_STATE),
+                "write",
+                str(state),
+                NEW_SHA,
+                "schema-v2",
+                "schema-v1,schema-v2",
+                f"example/platform@sha256:{DIGEST_A}",
+                f"example/gateway@sha256:{DIGEST_B}",
+                f"example/canary@sha256:{DIGEST_C}",
+                "1",
+            ],
+            text=True,
+            capture_output=True,
+            check=False,
+            env=env,
+        )
+        assert write.returncode == 0, write.stderr
+        assert "GAME_WORLD_NAME=Oteryn\\ Staging" in state.read_text()
+        read = subprocess.run(
+            ["bash", "-c", 'source "$1"; printf "%s" "$GAME_WORLD_NAME"', "bash", str(state)],
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        assert read.returncode == 0, read.stderr
+        assert read.stdout == "Oteryn Staging"
+
+
 def test_release_sha_is_derived_from_matching_runtime_oci_revisions() -> None:
     result = run_release_sha(NEW_SHA, NEW_SHA)
     assert result.returncode == 0, result.stderr
