@@ -1,0 +1,208 @@
+name: Tibia CV World Entry
+
+on:
+  push:
+    branches: [ops/oteryn-tibia-client-analysis-20260811]
+    paths: [.github/workflows/tibia-client-analysis-cv-world-entry.yml]
+
+permissions:
+  contents: read
+
+env:
+  CONTAINER_NAME: oteryn-tibia-client-analysis
+
+jobs:
+  login:
+    name: Enter Tibia world without OCR targeting
+    runs-on: oteryn-staging
+    timeout-minutes: 10
+    steps:
+      - name: Verify owned runtime and snapshot staging
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          [[ "$RUNNER_NAME" == "oteryn-synology-staging" ]]
+          [[ "$(docker inspect --format '{{ index .Config.Labels "com.blakinio.owner" }}' "$CONTAINER_NAME")" == "oteryn" ]]
+          [[ "$(docker inspect --format '{{ index .Config.Labels "com.blakinio.purpose" }}' "$CONTAINER_NAME")" == "tibia-client-analysis" ]]
+          [[ "$(docker inspect --format '{{.State.Status}}' "$CONTAINER_NAME")" == "running" ]]
+          docker ps -a --filter 'label=com.docker.compose.project=oteryn-staging' --format '{{.ID}}\t{{.Names}}' | sort >/tmp/oteryn-before.tsv
+
+      - name: Login and enter first character using geometry and runtime signals
+        shell: bash
+        env:
+          TIBIA_TEST_EMAIL: ${{ secrets.TIBIA_TEST_EMAIL }}
+          TIBIA_TEST_PASSWORD: ${{ secrets.TIBIA_TEST_PASSWORD }}
+        run: |
+          set -Eeuo pipefail
+          [[ -n "$TIBIA_TEST_EMAIL" && -n "$TIBIA_TEST_PASSWORD" ]]
+          docker exec -e TIBIA_TEST_EMAIL -e TIBIA_TEST_PASSWORD -i "$CONTAINER_NAME" bash <<'INNER'
+          set -Eeuo pipefail
+          export DISPLAY=:99 HOME=/data/home
+          pkg="$HOME/.local/share/CipSoft GmbH/Tibia/packages/Tibia"
+          client="$pkg/bin/client"
+          [[ -x "$client" ]]
+
+          # Egress is a hard gate. No credential use unless the already-owned userspace WARP path is alive.
+          pgrep -f '/wireproxy .*wireproxy.conf' >/dev/null
+          curl --socks5-hostname 127.0.0.1:25344 -fsS --max-time 10 https://www.cloudflare.com/cdn-cgi/trace >/tmp/cv-warp.trace
+          grep -q '^warp=on$' /tmp/cv-warp.trace
+          echo WARP_VERIFIED=true
+
+          cat >/tmp/proxychains-cv.conf <<'EOF'
+          strict_chain
+          proxy_dns
+          quiet_mode
+          tcp_read_time_out 15000
+          tcp_connect_time_out 8000
+          [ProxyList]
+          socks5 127.0.0.1 25344
+          EOF
+
+          # Keep the software Vulkan path that was already proven viable on this runtime.
+          lvp=$(find /usr/share/vulkan/icd.d -maxdepth 1 -type f -name 'lvp_icd*.json' -print -quit 2>/dev/null || true)
+          if [[ -z "$lvp" ]]; then
+            apt-get update -qq
+            DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends mesa-vulkan-drivers >/dev/null
+            lvp=$(find /usr/share/vulkan/icd.d -maxdepth 1 -type f -name 'lvp_icd*.json' -print -quit)
+          fi
+          [[ -f "$lvp" ]]
+
+          pkill -x client 2>/dev/null || true
+          pgrep -f '^Xvfb :99' >/dev/null || nohup Xvfb :99 -screen 0 1280x800x24 >/data/runtime/xvfb.log 2>&1 </dev/null &
+          : >/data/runtime/client-cv-world-entry.log
+          cd "$pkg"
+          nohup env VK_ICD_FILENAMES="$lvp" VK_DRIVER_FILES="$lvp" LIBGL_ALWAYS_SOFTWARE=1 \
+            proxychains4 -f /tmp/proxychains-cv.conf "$client" \
+            >/data/runtime/client-cv-world-entry.log 2>&1 </dev/null &
+
+          for n in $(seq 1 50); do pgrep -x client >/dev/null && break; sleep 0.4; done
+          pid=$(pgrep -x client | head -n1)
+          [[ -n "$pid" ]]
+          sleep 10
+
+          best=''; best_area=0; bw=0; bh=0
+          for w in $(xdotool search --onlyvisible --name '^Tibia$' 2>/dev/null || true); do
+            geom=$(xdotool getwindowgeometry --shell "$w" 2>/dev/null || true)
+            width=$(printf '%s\n' "$geom" | sed -n 's/^WIDTH=//p')
+            height=$(printf '%s\n' "$geom" | sed -n 's/^HEIGHT=//p')
+            [[ -n "$width" && -n "$height" ]] || continue
+            area=$((width*height))
+            if (( area > best_area )); then best=$w; best_area=$area; bw=$width; bh=$height; fi
+          done
+          [[ -n "$best" && "$bw" == 1020 && "$bh" == 650 ]]
+          echo FIXED_WINDOW_GEOMETRY=true
+
+          # No OCR. The login controls are fixed in this exact 1020x650 client geometry, already proven by prior captures.
+          import -display :99 -window "$best" /tmp/cv-login-before.png
+          xdotool windowactivate --sync "$best" 2>/dev/null || true
+          xdotool mousemove --window "$best" 535 275 click 1
+          xdotool key --window "$best" ctrl+a
+          xdotool type --window "$best" --delay 3 -- "$TIBIA_TEST_EMAIL"
+          xdotool mousemove --window "$best" 535 304 click 1
+          xdotool key --window "$best" ctrl+a
+          xdotool type --window "$best" --delay 3 -- "$TIBIA_TEST_PASSWORD"
+          xdotool mousemove --window "$best" 590 388 click 1
+          unset TIBIA_TEST_EMAIL TIBIA_TEST_PASSWORD
+          echo LOGIN_SUBMITTED=true
+
+          # Wait for a material visual transition away from the login form. compare reports changed pixels; no text is read.
+          transitioned=0
+          for n in $(seq 1 35); do
+            sleep 1
+            import -display :99 -window "$best" /tmp/cv-after-login.png
+            ae=$(compare -metric AE /tmp/cv-login-before.png /tmp/cv-after-login.png null: 2>&1 || true)
+            ae=${ae%%.*}
+            [[ "$ae" =~ ^[0-9]+$ ]] || ae=0
+            if (( ae > 45000 )); then transitioned=1; break; fi
+          done
+          echo LOGIN_VISUAL_TRANSITION=$transitioned
+          (( transitioned == 1 ))
+
+          # Character-selection geometry from the already-observed exact client layout:
+          # first character row is y~=193, character-name column x=180..390.
+          # Use a fixed row point rather than OCR-derived text coordinates.
+          import -display :99 -window "$best" /tmp/cv-select-before.png
+          xdotool mousemove --window "$best" 285 193 click 1
+          sleep 0.4
+          xdotool key --window "$best" Return
+          echo FIRST_CHARACTER_ACTIVATION_SENT=true
+
+          # If Return only selected the row, a deterministic double-click on the same row is the second bounded activation.
+          sleep 3
+          xdotool mousemove --window "$best" 285 193 click --repeat 2 --delay 160 1
+          echo FIRST_CHARACTER_DOUBLECLICK_SENT=true
+
+          # Runtime truth beats OCR: look for the game client maintaining its TCP connection only via local SOCKS.
+          sustained=0
+          max_local=0
+          direct_seen=0
+          udp_seen=0
+          consecutive=0
+          for n in $(seq 1 60); do
+            sleep 1
+            tcp_rows=$(ss -ntp 2>/dev/null | grep "pid=$pid," || true)
+            udp_rows=$(ss -nup 2>/dev/null | grep "pid=$pid," || true)
+            local_count=$(printf '%s\n' "$tcp_rows" | awk '$5 ~ /127\.0\.0\.1:25344$/ || $5 ~ /\[::1\]:25344$/ {n++} END{print n+0}')
+            total_count=$(printf '%s\n' "$tcp_rows" | grep -c . || true)
+            direct_count=$((total_count-local_count))
+            udp_count=$(printf '%s\n' "$udp_rows" | grep -c . || true)
+            (( local_count > max_local )) && max_local=$local_count || true
+            (( direct_count > 0 )) && direct_seen=1 || true
+            (( udp_count > 0 )) && udp_seen=1 || true
+            if (( local_count > 0 )); then
+              consecutive=$((consecutive+1))
+            else
+              consecutive=0
+            fi
+            if (( consecutive >= 6 )); then sustained=1; break; fi
+          done
+          echo CLIENT_LOCAL_SOCKS_MAX=$max_local
+          echo CLIENT_DIRECT_TCP_SEEN=$direct_seen
+          echo CLIENT_UDP_SEEN=$udp_seen
+          echo CLIENT_SUSTAINED_TUNNELED_SESSION=$sustained
+          [[ "$direct_seen" -eq 0 && "$udp_seen" -eq 0 ]]
+          (( sustained == 1 ))
+
+          # Controlled in-world action: capture central viewport, step right then left, and require visual change.
+          # This uses image differencing, not OCR, and returns the character to its starting tile when both steps succeed.
+          sleep 6
+          import -display :99 -window "$best" /tmp/cv-world-before.png
+          convert /tmp/cv-world-before.png -crop 620x390+190+90 /tmp/cv-viewport-before.png
+          xdotool key --window "$best" Right
+          sleep 2
+          import -display :99 -window "$best" /tmp/cv-world-after-right.png
+          convert /tmp/cv-world-after-right.png -crop 620x390+190+90 /tmp/cv-viewport-after-right.png
+          move_ae=$(compare -metric AE /tmp/cv-viewport-before.png /tmp/cv-viewport-after-right.png null: 2>&1 || true)
+          move_ae=${move_ae%%.*}
+          [[ "$move_ae" =~ ^[0-9]+$ ]] || move_ae=0
+          echo VIEWPORT_CHANGED_PIXELS_AFTER_RIGHT=$move_ae
+          (( move_ae > 1000 ))
+          xdotool key --window "$best" Left
+          echo CONTROLLED_MOVE_ACTION_PROVEN=true
+
+          # Privacy-safe evidence: redact account/side/bottom UI. Never expose credentials or character data.
+          cp /tmp/cv-world-after-right.png /tmp/tibia-cv-world-proof-safe.png
+          convert /tmp/tibia-cv-world-proof-safe.png -fill '#202020' \
+            -draw 'rectangle 0,0 1020,80 rectangle 0,80 180,650 rectangle 840,80 1020,650 rectangle 0,520 1020,650' \
+            /tmp/tibia-cv-world-proof-safe.png
+          echo PHYSICAL_WORLD_SESSION_AND_ACTION_PROVEN=true
+          INNER
+          docker cp "$CONTAINER_NAME:/tmp/tibia-cv-world-proof-safe.png" /tmp/tibia-cv-world-proof-safe.png
+
+      - name: Upload privacy-safe world proof
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: tibia-cv-world-proof
+          path: /tmp/tibia-cv-world-proof-safe.png
+          retention-days: 7
+          if-no-files-found: warn
+
+      - name: Verify canonical staging unchanged
+        if: always()
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          docker ps -a --filter 'label=com.docker.compose.project=oteryn-staging' --format '{{.ID}}\t{{.Names}}' | sort >/tmp/oteryn-after.tsv
+          diff -u /tmp/oteryn-before.tsv /tmp/oteryn-after.tsv
+          docker inspect --format 'analysis_name={{.Name}} status={{.State.Status}} owner={{ index .Config.Labels "com.blakinio.owner" }} purpose={{ index .Config.Labels "com.blakinio.purpose" }}' "$CONTAINER_NAME"
