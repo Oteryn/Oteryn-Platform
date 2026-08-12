@@ -40,10 +40,10 @@ jobs:
       CANARY_GAME_SESSION_PREVIOUS_SERVICE_TOKEN_SHA256: ${{ secrets.OTERYN_STAGING_GAME_SESSION_PREVIOUS_SERVICE_TOKEN_SHA256 }}
 
     steps:
-      - name: Checkout trusted main
+      - name: Checkout exact trusted source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: main
+          ref: ${{ github.sha }}
 
       - name: Validate recovery request and runner
         env:
