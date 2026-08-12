@@ -119,6 +119,18 @@
       "paths": ["README.md"],
       "classes": ["docs_only"],
       "gates": []
+    },
+    {
+      "name": "agent_governance_workflow_is_governance_only",
+      "paths": [".github/workflows/agent-governance.yml"],
+      "classes": ["agent_governance"],
+      "gates": []
+    },
+    {
+      "name": "pull_request_template_directory_is_governance_only",
+      "paths": [".github/PULL_REQUEST_TEMPLATE/security-review.md"],
+      "classes": ["agent_governance"],
+      "gates": []
     }
   ]
 }
