@@ -15,7 +15,7 @@ env:
 
 jobs:
   inspect:
-    name: Trace Tibia appearance value flow
+    name: Trace Tibia worldmap appearance construction
     runs-on: oteryn-staging
     timeout-minutes: 6
     steps:
@@ -29,7 +29,7 @@ jobs:
           [[ "$(docker inspect --format '{{.State.Status}}' "$CONTAINER_NAME")" == "running" ]]
           docker ps -a --filter 'label=com.docker.compose.project=oteryn-staging' --format '{{.ID}}\t{{.Names}}' | sort >/tmp/oteryn-before.tsv
 
-      - name: Disassemble value flow after AppearanceInstance extraction
+      - name: Disassemble bounded worldmap appearance constructor
         shell: bash
         run: |
           set -Eeuo pipefail
@@ -39,14 +39,15 @@ jobs:
           [[ -f "$client" ]]
           [[ "$(stat -c %s "$client")" == "51965216" ]]
           [[ "$(sha256sum "$client" | awk '{print $1}')" == "e6c244bd39fe2e0632f6f000efd3147164696efa8e901718668e0442325ff7fe" ]]
-          echo VALUE_FLOW_BEGIN
-          objdump -d --start-address=0x19a8e80 --stop-address=0x19a9160 "$client"
-          echo VALUE_FLOW_END
-          echo TARGET_WINDOWS_BEGIN
-          for a in 0x177c150 0x4de900 0x6b3a90 0x4df670 0x6b3ae0 0x1b22930 0x4daf40 0x4df5a0 0x4da460; do
-            s=$((a)); e=$((a+0x180)); echo "TARGET $a"; objdump -d --start-address=$s --stop-address=$e "$client" | head -n 120 || true
-          done
-          echo TARGET_WINDOWS_END
+          echo CECA50_BEGIN
+          objdump -d --start-address=0xceca20 --stop-address=0xcecc70 "$client"
+          echo CECA50_END
+          echo CECA50_CALLERS_BEGIN
+          objdump -d "$client" | grep -B10 -A12 -E 'call[[:space:]].*ceca50' | head -n 420 || true
+          echo CECA50_CALLERS_END
+          echo APPEARANCE_RUNTIME_STRINGS_BEGIN
+          strings -a -t x "$client" | grep -Ei 'TWorldMapAppearanceInstance|TAppearanceInstance|AppearanceTypeID|objectID|typeID' | head -n 180 || true
+          echo APPEARANCE_RUNTIME_STRINGS_END
           INNER
 
       - name: Verify authenticated session retained and staging unchanged
