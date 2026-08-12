@@ -61,8 +61,8 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-12T13:15:01+02:00
-head: 5d89a8783809610713aca96200cd136153e1d0e6
+updated_at: 2026-08-12T13:41:14+02:00
+head: 77ee0c2e4c75ca65045b99e772c8679b3b82083f
 branch: test/agent-policy-consistency
 pr: 992
 status: validating
@@ -89,9 +89,11 @@ proven:
   - Fresh review on checkpoint head 9597211528d20f4edb8ca58c88cc22335c5cbfbf identified two remaining P1 variants: generic write permission for another repository and completion when exact-final-head CI has not passed or fails.
   - Repair d2170c7ffc7c55a6e8b2873d516da947c61668db binds generic write permission to the detected target and rejects negative exact-head CI completion predicates; regression head 5d89a8783809610713aca96200cd136153e1d0e6 adds all three adversarial examples.
   - Local focused validation on 5d89a8783809610713aca96200cd136153e1d0e6 passed 95 of 95 policy-consistency regressions, the live validator, 12 of 12 CI routing tests, all 3 active checkpoint validations and git diff checks.
+  - Final checkpoint candidate bb9422e9a4d012e434c47152034d629e36c9d276 passed all 13 required checks and fresh full-diff review with zero material P1/P2, but branch protection rejected merge after main advanced.
+  - Merge head 77ee0c2e4c75ca65045b99e772c8679b3b82083f incorporates protected main 66443e1d4bec220d45e74ead9fbc445d0abbca6e without conflicts; focused validation still passes 95/95 policy regressions, live validator, 12/12 routing tests and 3 checkpoint validations.
 derived:
   - All currently known material review findings have implementation repairs and focused regression coverage on 5d89a8783809610713aca96200cd136153e1d0e6.
-  - This task-record-only update creates a new metadata head; 5d89a8783809610713aca96200cd136153e1d0e6 remains the latest material implementation/test head.
+  - This task-record-only update creates a new metadata head; 77ee0c2e4c75ca65045b99e772c8679b3b82083f remains the latest main-synchronized material head.
 unknown:
   - Terminal repository-required workflow results on the metadata-only final head created by this update.
   - Fresh Codex review result on the metadata-only final head created by this update.
@@ -119,7 +121,7 @@ validation:
     evidence: job 94082713486 completed 92/92 policy-consistency regressions, live policy validator, checkpoint validation, live task liveness and Control Room successfully.
   - command: final metadata-head repository-required CI and fresh Codex review
     result: NOT_RUN
-    evidence: this checkpoint-only update creates the final validation generation.
+    evidence: this checkpoint-only update creates a new final validation generation after mandatory main synchronization.
 blockers:
   - none
 next_action: Freeze the branch, validate every repository-required workflow and fresh Codex review on the resulting exact metadata head, resolve the procedural checkpoint thread with final-head evidence, then squash-merge PR #992 with expected-head protection and perform lifecycle archival before closing Issue #991.
@@ -130,19 +132,19 @@ next_action: Freeze the branch, validate every repository-required workflow and 
 ```yaml
 recovery:
   policy_version: 1
-  generation: 27
-  session_id: codex-20260812-final-authorization-gates
+  generation: 28
+  session_id: codex-20260812-main-synchronized-final-gate
   session_started_at: 2026-08-12T13:05:00+02:00
-  checkpointed_at: 2026-08-12T13:15:01+02:00
-  last_progress_at: 2026-08-12T13:15:01+02:00
+  checkpointed_at: 2026-08-12T13:41:14+02:00
+  last_progress_at: 2026-08-12T13:41:14+02:00
   phase: final-checkpoint-validation
-  exact_head: 5d89a8783809610713aca96200cd136153e1d0e6
+  exact_head: 77ee0c2e4c75ca65045b99e772c8679b3b82083f
   pull_request: 992
-  active_operation: checkpoint final authorization and completion gate regressions after 95-test local proof
+  active_operation: checkpoint mandatory main synchronization after branch protection rejected stale-base merge
   external_run_ids: []
-  operation_started_at: 2026-08-12T13:15:01+02:00
-  wait_deadline_at: 2026-08-12T14:00:01+02:00
-  check_generation: final-authorization-gate-checkpoint
+  operation_started_at: 2026-08-12T13:41:14+02:00
+  wait_deadline_at: 2026-08-12T14:26:14+02:00
+  check_generation: main-synchronized-final-checkpoint
   checks_used: 0
   status: active
   safe_to_resume: true
