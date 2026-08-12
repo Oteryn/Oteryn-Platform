@@ -171,19 +171,37 @@ _oteryn_quiesce_platform_db_consumers() {
     local -a base_compose=(command docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE")
     local -a marketplace_compose=(command docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" -f "$marketplace_file")
 
+    OTERYN_MARKETPLACE_SCHEDULER_WAS_RUNNING=0
+    export OTERYN_MARKETPLACE_SCHEDULER_WAS_RUNNING
     if [[ -f "$marketplace_file" ]]; then
         scheduler_id="$("${marketplace_compose[@]}" ps -a -q marketplace-scheduler 2>/dev/null || true)"
         if [[ -n "$scheduler_id" ]]; then
-            "${marketplace_compose[@]}" stop marketplace-scheduler
             scheduler_running="$(command docker inspect --format '{{.State.Running}}' "$scheduler_id")" || return 1
-            [[ "$scheduler_running" == false ]] || {
-                echo "Deployment rejected: marketplace-scheduler is still running before migration backup." >&2
-                return 1
-            }
+            if [[ "$scheduler_running" == true ]]; then
+                OTERYN_MARKETPLACE_SCHEDULER_WAS_RUNNING=1
+                export OTERYN_MARKETPLACE_SCHEDULER_WAS_RUNNING
+                "${marketplace_compose[@]}" stop marketplace-scheduler
+                scheduler_running="$(command docker inspect --format '{{.State.Running}}' "$scheduler_id")" || return 1
+                [[ "$scheduler_running" == false ]] || {
+                    echo "Deployment rejected: marketplace-scheduler is still running before migration backup." >&2
+                    return 1
+                }
+            fi
         fi
     fi
 
     "${base_compose[@]}" stop platform gateway internal-proxy
+}
+
+_oteryn_restore_quiesced_consumers_after_migrate() {
+    local marketplace_file="$DEPLOY_DIR/compose.marketplace.yml"
+    local -a marketplace_compose=(command docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" -f "$marketplace_file")
+    if [[ "${OTERYN_MARKETPLACE_SCHEDULER_WAS_RUNNING:-0}" == 1 ]]; then
+        [[ -f "$marketplace_file" ]] || { echo "Marketplace scheduler was quiesced but its Compose file is missing." >&2; return 1; }
+        "${marketplace_compose[@]}" up -d marketplace-scheduler
+        OTERYN_MARKETPLACE_SCHEDULER_WAS_RUNNING=0
+        export OTERYN_MARKETPLACE_SCHEDULER_WAS_RUNNING
+    fi
 }
 
 _oteryn_before_platform_migrate() {
@@ -250,6 +268,7 @@ _oteryn_after_platform_migrate() {
     } >"$state_dir/schema-state.env.tmp"
     chmod 600 "$state_dir/schema-state.env.tmp"
     mv "$state_dir/schema-state.env.tmp" "$state_dir/schema-state.env"
+    _oteryn_restore_quiesced_consumers_after_migrate || return 1
 }
 
 _oteryn_finalize_release_on_exit() {
