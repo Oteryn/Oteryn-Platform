@@ -1045,3 +1045,551 @@ CANDIDATE_QT_METACALL_NEIGHBORHOOD
 ```
 
 <!-- END GENERATED DECODED MAP REVERSE -->
+
+<!-- BEGIN GENERATED WORLDMAP HANDLER EVIDENCE -->
+
+## Generated Worldmap handler evidence
+
+Source: GitHub Actions run `31578626668` on `oteryn-synology-staging`. Sanitized disassembly only.
+
+```text
+candidate_worldmap_static_metacall=0xde9ca0
+direct_call_count=16
+CALL site=0xde9ee0 target=0x4dedc0 text=de9ee0:	e8 db 4e 6f ff       	call   4dedc0 <QMetaObject::activate(QObject*, QMetaObject const*, int, void**)@plt>
+CALL site=0xde9f10 target=0x4dedc0 text=de9f10:	e8 ab 4e 6f ff       	call   4dedc0 <QMetaObject::activate(QObject*, QMetaObject const*, int, void**)@plt>
+CALL site=0xde9f80 target=0x4dedc0 text=de9f80:	e8 3b 4e 6f ff       	call   4dedc0 <QMetaObject::activate(QObject*, QMetaObject const*, int, void**)@plt>
+CALL site=0xdea0e2 target=0x4dedc0 text=dea0e2:	e8 d9 4c 6f ff       	call   4dedc0 <QMetaObject::activate(QObject*, QMetaObject const*, int, void**)@plt>
+CALL site=0xdea10d target=0x4dedc0 text=dea10d:	e8 ae 4c 6f ff       	call   4dedc0 <QMetaObject::activate(QObject*, QMetaObject const*, int, void**)@plt>
+CALL site=0xdea1bd target=0x4dedc0 text=dea1bd:	e8 fe 4b 6f ff       	call   4dedc0 <QMetaObject::activate(QObject*, QMetaObject const*, int, void**)@plt>
+CALL site=0xdea1ed target=0x4dedc0 text=dea1ed:	e8 ce 4b 6f ff       	call   4dedc0 <QMetaObject::activate(QObject*, QMetaObject const*, int, void**)@plt>
+CALL site=0xdea220 target=0x4dedc0 text=dea220:	e8 9b 4b 6f ff       	call   4dedc0 <QMetaObject::activate(QObject*, QMetaObject const*, int, void**)@plt>
+CALL site=0xdea250 target=0x4dedc0 text=dea250:	e8 6b 4b 6f ff       	call   4dedc0 <QMetaObject::activate(QObject*, QMetaObject const*, int, void**)@plt>
+CALL site=0xdea280 target=0x4dedc0 text=dea280:	e8 3b 4b 6f ff       	call   4dedc0 <QMetaObject::activate(QObject*, QMetaObject const*, int, void**)@plt>
+CALL site=0xdea2b0 target=0x4dedc0 text=dea2b0:	e8 0b 4b 6f ff       	call   4dedc0 <QMetaObject::activate(QObject*, QMetaObject const*, int, void**)@plt>
+CALL site=0xdea3b0 target=0x4dedc0 text=dea3b0:	e8 0b 4a 6f ff       	call   4dedc0 <QMetaObject::activate(QObject*, QMetaObject const*, int, void**)@plt>
+CALL site=0xdea3e0 target=0x4dedc0 text=dea3e0:	e8 db 49 6f ff       	call   4dedc0 <QMetaObject::activate(QObject*, QMetaObject const*, int, void**)@plt>
+CALL site=0xdea410 target=0x4dedc0 text=dea410:	e8 ab 49 6f ff       	call   4dedc0 <QMetaObject::activate(QObject*, QMetaObject const*, int, void**)@plt>
+CALL site=0xdea440 target=0x4dedc0 text=dea440:	e8 7b 49 6f ff       	call   4dedc0 <QMetaObject::activate(QObject*, QMetaObject const*, int, void**)@plt>
+CALL site=0xdea46d target=0x4dedc0 text=dea46d:	e8 4e 49 6f ff       	call   4dedc0 <QMetaObject::activate(QObject*, QMetaObject const*, int, void**)@plt>
+
+FULL_DISASSEMBLY
+
+/data/client-15.32.df7b29/bin/client:     file format elf64-x86-64
+
+
+Disassembly of section .text:
+
+0000000000de9ca0 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x24b470>:
+  de9ca0:	85 f6                	test   %esi,%esi
+  de9ca2:	75 24                	jne    de9cc8 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x24b498>
+  de9ca4:	83 fa 13             	cmp    $0x13,%edx
+  de9ca7:	0f 87 1a 01 00 00    	ja     de9dc7 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x24b597>
+  de9cad:	48 8d 35 78 1d fa 00 	lea    0xfa1d78(%rip),%rsi        # 1d8ba2c <typeinfo name for QMetaType::registerConverter<QList<QObject*>, QIterable<QMetaSequence>, QtPrivate::QSequentialIterableConvertFunctor<QList<QObject*> > >(QtPrivate::QSequentialIterableConvertFunctor<QList<QObject*> >)::{lambda(void const*, void*)#1}@@Base+0xa246c>
+  de9cb4:	89 d2                	mov    %edx,%edx
+  de9cb6:	48 83 ec 28          	sub    $0x28,%rsp
+  de9cba:	48 63 04 96          	movslq (%rsi,%rdx,4),%rax
+  de9cbe:	48 01 f0             	add    %rsi,%rax
+  de9cc1:	ff e0                	jmp    *%rax
+  de9cc3:	0f 1f 44 00 00       	nopl   0x0(%rax,%rax,1)
+  de9cc8:	83 fe 05             	cmp    $0x5,%esi
+  de9ccb:	0f 85 f6 00 00 00    	jne    de9dc7 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x24b597>
+  de9cd1:	48 8b 51 08          	mov    0x8(%rcx),%rdx
+  de9cd5:	48 8b 31             	mov    (%rcx),%rsi
+  de9cd8:	48 8d 0d a1 fd ff ff 	lea    -0x25f(%rip),%rcx        # de9a80 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x24b250>
+  de9cdf:	48 8b 02             	mov    (%rdx),%rax
+  de9ce2:	48 39 c8             	cmp    %rcx,%rax
+  de9ce5:	0f 84 d5 00 00 00    	je     de9dc0 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x24b590>
+  de9ceb:	48 8d 0d be fd ff ff 	lea    -0x242(%rip),%rcx        # de9ab0 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x24b280>
+  de9cf2:	48 39 c8             	cmp    %rcx,%rax
+  de9cf5:	0f 84 d5 00 00 00    	je     de9dd0 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x24b5a0>
+  de9cfb:	48 8d 0d ee fd ff ff 	lea    -0x212(%rip),%rcx        # de9af0 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x24b2c0>
+  de9d02:	48 39 c8             	cmp    %rcx,%rax
+  de9d05:	0f 84 d5 00 00 00    	je     de9de0 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x24b5b0>
+  de9d0b:	48 8d 0d 0e fe ff ff 	lea    -0x1f2(%rip),%rcx        # de9b20 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x24b2f0>
+  de9d12:	48 39 c8             	cmp    %rcx,%rax
+  de9d15:	0f 84 d5 00 00 00    	je     de9df0 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x24b5c0>
+  de9d1b:	48 8d 0d 2e fe ff ff 	lea    -0x1d2(%rip),%rcx        # de9b50 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x24b320>
+  de9d22:	48 39 c8             	cmp    %rcx,%rax
+  de9d25:	0f 84 e5 00 00 00    	je     de9e10 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x24b5e0>
+  de9d2b:	48 8d 0d 3e fe ff ff 	lea    -0x1c2(%rip),%rcx        # de9b70 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x24b340>
+  de9d32:	48 39 c8             	cmp    %rcx,%rax
+  de9d35:	0f 84 e5 00 00 00    	je     de9e20 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x24b5f0>
+  de9d3b:	48 8d 0d 4e fe ff ff 	lea    -0x1b2(%rip),%rcx        # de9b90 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x24b360>
+  de9d42:	48 39 c8             	cmp    %rcx,%rax
+  de9d45:	0f 84 e5 00 00 00    	je     de9e30 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x24b600>
+  de9d4b:	48 8d 0d 5e fe ff ff 	lea    -0x1a2(%rip),%rcx        # de9bb0 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x24b380>
+  de9d52:	48 39 c8             	cmp    %rcx,%rax
+  de9d55:	0f 84 dd 03 00 00    	je     dea138 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x24b908>
+  de9d5b:	48 8d 0d 6e fe ff ff 	lea    -0x192(%rip),%rcx        # de9bd0 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x24b3a0>
+  de9d62:	48 39 c8             	cmp    %rcx,%rax
+  de9d65:	0f 84 d5 00 00 00    	je     de9e40 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x24b610>
+  de9d6b:	48 8d 0d 7e fe ff ff 	lea    -0x182(%rip),%rcx        # de9bf0 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x24b3c0>
+  de9d72:	48 39 c8             	cmp    %rcx,%rax
+  de9d75:	0f 84 d5 00 00 00    	je     de9e50 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x24b620>
+  de9d7b:	48 8d 0d 8e fe ff ff 	lea    -0x172(%rip),%rcx        # de9c10 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x24b3e0>
+  de9d82:	48 39 c8             	cmp    %rcx,%rax
+  de9d85:	0f 84 dd 00 00 00    	je     de9e68 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x24b638>
+  de9d8b:	48 8d 0d 9e fe ff ff 	lea    -0x162(%rip),%rcx        # de9c30 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x24b400>
+  de9d92:	48 39 c8             	cmp    %rcx,%rax
+  de9d95:	0f 84 85 03 00 00    	je     dea120 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x24b8f0>
+  de9d9b:	48 8d 0d be fe ff ff 	lea    -0x142(%rip),%rcx        # de9c60 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x24b430>
+  de9da2:	48 39 c8             	cmp    %rcx,%rax
+  de9da5:	0f 85 a5 03 00 00    	jne    dea150 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x24b920>
+  de9dab:	48 83 7a 08 00       	cmpq   $0x0,0x8(%rdx)
+  de9db0:	75 15                	jne    de9dc7 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x24b597>
+  de9db2:	c7 06 0c 00 00 00    	movl   $0xc,(%rsi)
+  de9db8:	c3                   	ret
+  de9db9:	0f 1f 80 00 00 00 00 	nopl   0x0(%rax)
+  de9dc0:	48 83 7a 08 00       	cmpq   $0x0,0x8(%rdx)
+  de9dc5:	74 39                	je     de9e00 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x24b5d0>
+  de9dc7:	c3                   	ret
+  de9dc8:	0f 1f 84 00 00 00 00 	nopl   0x0(%rax,%rax,1)
+  de9dcf:	00 
+  de9dd0:	48 83 7a 08 00       	cmpq   $0x0,0x8(%rdx)
+  de9dd5:	75 f0                	jne    de9dc7 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x24b597>
+  de9dd7:	c7 06 01 00 00 00    	movl   $0x1,(%rsi)
+  de9ddd:	c3                   	ret
+  de9dde:	66 90                	xchg   %ax,%ax
+  de9de0:	48 83 7a 08 00       	cmpq   $0x0,0x8(%rdx)
+  de9de5:	75 e0                	jne    de9dc7 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x24b597>
+  de9de7:	c7 06 02 00 00 00    	movl   $0x2,(%rsi)
+  de9ded:	c3                   	ret
+  de9dee:	66 90                	xchg   %ax,%ax
+  de9df0:	48 83 7a 08 00       	cmpq   $0x0,0x8(%rdx)
+  de9df5:	75 d0                	jne    de9dc7 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x24b597>
+  de9df7:	c7 06 03 00 00 00    	movl   $0x3,(%rsi)
+  de9dfd:	c3                   	ret
+  de9dfe:	66 90                	xchg   %ax,%ax
+  de9e00:	c7 06 00 00 00 00    	movl   $0x0,(%rsi)
+  de9e06:	c3                   	ret
+  de9e07:	66 0f 1f 84 00 00 00 	nopw   0x0(%rax,%rax,1)
+  de9e0e:	00 00 
+  de9e10:	48 83 7a 08 00       	cmpq   $0x0,0x8(%rdx)
+  de9e15:	75 b0                	jne    de9dc7 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x24b597>
+  de9e17:	c7 06 04 00 00 00    	movl   $0x4,(%rsi)
+  de9e1d:	c3                   	ret
+  de9e1e:	66 90                	xchg   %ax,%ax
+  de9e20:	48 83 7a 08 00       	cmpq   $0x0,0x8(%rdx)
+  de9e25:	75 a0                	jne    de9dc7 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x24b597>
+  de9e27:	c7 06 05 00 00 00    	movl   $0x5,(%rsi)
+  de9e2d:	c3                   	ret
+  de9e2e:	66 90                	xchg   %ax,%ax
+  de9e30:	48 83 7a 08 00       	cmpq   $0x0,0x8(%rdx)
+  de9e35:	75 90                	jne    de9dc7 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x24b597>
+  de9e37:	c7 06 06 00 00 00    	movl   $0x6,(%rsi)
+  de9e3d:	c3                   	ret
+  de9e3e:	66 90                	xchg   %ax,%ax
+  de9e40:	48 83 7a 08 00       	cmpq   $0x0,0x8(%rdx)
+  de9e45:	75 80                	jne    de9dc7 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x24b597>
+  de9e47:	c7 06 08 00 00 00    	movl   $0x8,(%rsi)
+  de9e4d:	c3                   	ret
+  de9e4e:	66 90                	xchg   %ax,%ax
+  de9e50:	48 83 7a 08 00       	cmpq   $0x0,0x8(%rdx)
+  de9e55:	0f 85 6c ff ff ff    	jne    de9dc7 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x24b597>
+  de9e5b:	c7 06 09 00 00 00    	movl   $0x9,(%rsi)
+  de9e61:	c3                   	ret
+  de9e62:	66 0f 1f 44 00 00    	nopw   0x0(%rax,%rax,1)
+  de9e68:	48 83 7a 08 00       	cmpq   $0x0,0x8(%rdx)
+  de9e6d:	0f 85 54 ff ff ff    	jne    de9dc7 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x24b597>
+  de9e73:	c7 06 0a 00 00 00    	movl   $0xa,(%rsi)
+  de9e79:	c3                   	ret
+  de9e7a:	66 0f 1f 44 00 00    	nopw   0x0(%rax,%rax,1)
+  de9e80:	31 c9                	xor    %ecx,%ecx
+  de9e82:	ba 0c 00 00 00       	mov    $0xc,%edx
+  de9e87:	48 8d 35 32 25 2a 02 	lea    0x22a2532(%rip),%rsi        # 308c3c0 <QObject::staticMetaObject@Qt_6>
+  de9e8e:	48 83 c4 28          	add    $0x28,%rsp
+  de9e92:	e9 29 4f 6f ff       	jmp    4dedc0 <QMetaObject::activate(QObject*, QMetaObject const*, int, void**)@plt>
+  de9e97:	66 0f 1f 84 00 00 00 	nopw   0x0(%rax,%rax,1)
+  de9e9e:	00 00 
+  de9ea0:	31 c9                	xor    %ecx,%ecx
+  de9ea2:	ba 0a 00 00 00       	mov    $0xa,%edx
+  de9ea7:	48 8d 35 12 25 2a 02 	lea    0x22a2512(%rip),%rsi        # 308c3c0 <QObject::staticMetaObject@Qt_6>
+  de9eae:	48 83 c4 28          	add    $0x28,%rsp
+  de9eb2:	e9 09 4f 6f ff       	jmp    4dedc0 <QMetaObject::activate(QObject*, QMetaObject const*, int, void**)@plt>
+  de9eb7:	66 0f 1f 84 00 00 00 	nopw   0x0(%rax,%rax,1)
+  de9ebe:	00 00 
+  de9ec0:	48 8b 41 08          	mov    0x8(%rcx),%rax
+  de9ec4:	ba 0b 00 00 00       	mov    $0xb,%edx
+  de9ec9:	48 89 e1             	mov    %rsp,%rcx
+  de9ecc:	48 8d 35 ed 24 2a 02 	lea    0x22a24ed(%rip),%rsi        # 308c3c0 <QObject::staticMetaObject@Qt_6>
+  de9ed3:	48 c7 04 24 00 00 00 	movq   $0x0,(%rsp)
+  de9eda:	00 
+  de9edb:	48 89 44 24 08       	mov    %rax,0x8(%rsp)
+  de9ee0:	e8 db 4e 6f ff       	call   4dedc0 <QMetaObject::activate(QObject*, QMetaObject const*, int, void**)@plt>
+  de9ee5:	48 83 c4 28          	add    $0x28,%rsp
+  de9ee9:	c3                   	ret
+  de9eea:	66 0f 1f 44 00 00    	nopw   0x0(%rax,%rax,1)
+  de9ef0:	48 8b 41 08          	mov    0x8(%rcx),%rax
+  de9ef4:	ba 02 00 00 00       	mov    $0x2,%edx
+  de9ef9:	48 89 e1             	mov    %rsp,%rcx
+  de9efc:	48 8d 35 bd 24 2a 02 	lea    0x22a24bd(%rip),%rsi        # 308c3c0 <QObject::staticMetaObject@Qt_6>
+  de9f03:	48 c7 04 24 00 00 00 	movq   $0x0,(%rsp)
+  de9f0a:	00 
+  de9f0b:	48 89 44 24 08       	mov    %rax,0x8(%rsp)
+  de9f10:	e8 ab 4e 6f ff       	call   4dedc0 <QMetaObject::activate(QObject*, QMetaObject const*, int, void**)@plt>
+  de9f15:	eb ce                	jmp    de9ee5 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x24b6b5>
+  de9f17:	66 0f 1f 84 00 00 00 	nopw   0x0(%rax,%rax,1)
+  de9f1e:	00 00 
+  de9f20:	31 c9                	xor    %ecx,%ecx
+  de9f22:	ba 05 00 00 00       	mov    $0x5,%edx
+  de9f27:	48 8d 35 92 24 2a 02 	lea    0x22a2492(%rip),%rsi        # 308c3c0 <QObject::staticMetaObject@Qt_6>
+  de9f2e:	48 83 c4 28          	add    $0x28,%rsp
+  de9f32:	e9 89 4e 6f ff       	jmp    4dedc0 <QMetaObject::activate(QObject*, QMetaObject const*, int, void**)@plt>
+  de9f37:	66 0f 1f 84 00 00 00 	nopw   0x0(%rax,%rax,1)
+  de9f3e:	00 00 
+  de9f40:	31 c9                	xor    %ecx,%ecx
+  de9f42:	ba 04 00 00 00       	mov    $0x4,%edx
+  de9f47:	48 8d 35 72 24 2a 02 	lea    0x22a2472(%rip),%rsi        # 308c3c0 <QObject::staticMetaObject@Qt_6>
+  de9f4e:	48 83 c4 28          	add    $0x28,%rsp
+  de9f52:	e9 69 4e 6f ff       	jmp    4dedc0 <QMetaObject::activate(QObject*, QMetaObject const*, int, void**)@plt>
+  de9f57:	66 0f 1f 84 00 00 00 	nopw   0x0(%rax,%rax,1)
+  de9f5e:	00 00 
+  de9f60:	48 8b 41 08          	mov    0x8(%rcx),%rax
+  de9f64:	ba 03 00 00 00       	mov    $0x3,%edx
+  de9f69:	48 89 e1             	mov    %rsp,%rcx
+  de9f6c:	48 8d 35 4d 24 2a 02 	lea    0x22a244d(%rip),%rsi        # 308c3c0 <QObject::staticMetaObject@Qt_6>
+  de9f73:	48 c7 04 24 00 00 00 	movq   $0x0,(%rsp)
+  de9f7a:	00 
+  de9f7b:	48 89 44 24 08       	mov    %rax,0x8(%rsp)
+  de9f80:	e8 3b 4e 6f ff       	call   4dedc0 <QMetaObject::activate(QObject*, QMetaObject const*, int, void**)@plt>
+  de9f85:	e9 5b ff ff ff       	jmp    de9ee5 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x24b6b5>
+  de9f8a:	66 0f 1f 44 00 00    	nopw   0x0(%rax,%rax,1)
+  de9f90:	31 c9                	xor    %ecx,%ecx
+  de9f92:	ba 0d 00 00 00       	mov    $0xd,%edx
+  de9f97:	48 8d 35 22 24 2a 02 	lea    0x22a2422(%rip),%rsi        # 308c3c0 <QObject::staticMetaObject@Qt_6>
+  de9f9e:	48 83 c4 28          	add    $0x28,%rsp
+  de9fa2:	e9 19 4e 6f ff       	jmp    4dedc0 <QMetaObject::activate(QObject*, QMetaObject const*, int, void**)@plt>
+  de9fa7:	66 0f 1f 84 00 00 00 	nopw   0x0(%rax,%rax,1)
+  de9fae:	00 00 
+  de9fb0:	48 8b 07             	mov    (%rdi),%rax
+  de9fb3:	48 8b 71 08          	mov    0x8(%rcx),%rsi
+  de9fb7:	48 8b 80 48 01 00 00 	mov    0x148(%rax),%rax
+  de9fbe:	48 83 c4 28          	add    $0x28,%rsp
+  de9fc2:	ff e0                	jmp    *%rax
+  de9fc4:	0f 1f 40 00          	nopl   0x0(%rax)
+  de9fc8:	48 8b 07             	mov    (%rdi),%rax
+  de9fcb:	48 8d 15 4e c9 e3 ff 	lea    -0x1c36b2(%rip),%rdx        # c26920 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x880f0>
+  de9fd2:	48 8b 80 40 01 00 00 	mov    0x140(%rax),%rax
+  de9fd9:	48 39 d0             	cmp    %rdx,%rax
+  de9fdc:	0f 84 9e fe ff ff    	je     de9e80 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x24b650>
+  de9fe2:	48 83 c4 28          	add    $0x28,%rsp
+  de9fe6:	ff e0                	jmp    *%rax
+  de9fe8:	0f 1f 84 00 00 00 00 	nopl   0x0(%rax,%rax,1)
+  de9fef:	00 
+  de9ff0:	48 8b 07             	mov    (%rdi),%rax
+  de9ff3:	48 8b 80 38 01 00 00 	mov    0x138(%rax),%rax
+  de9ffa:	48 83 c4 28          	add    $0x28,%rsp
+  de9ffe:	ff e0                	jmp    *%rax
+  dea000:	48 8b 07             	mov    (%rdi),%rax
+  dea003:	48 8b 71 08          	mov    0x8(%rcx),%rsi
+  dea007:	48 8b 80 30 01 00 00 	mov    0x130(%rax),%rax
+  dea00e:	48 83 c4 28          	add    $0x28,%rsp
+  dea012:	ff e0                	jmp    *%rax
+  dea014:	0f 1f 40 00          	nopl   0x0(%rax)
+  dea018:	31 c9                	xor    %ecx,%ecx
+  dea01a:	ba 09 00 00 00       	mov    $0x9,%edx
+  dea01f:	48 8d 35 9a 23 2a 02 	lea    0x22a239a(%rip),%rsi        # 308c3c0 <QObject::staticMetaObject@Qt_6>
+  dea026:	48 83 c4 28          	add    $0x28,%rsp
+  dea02a:	e9 91 4d 6f ff       	jmp    4dedc0 <QMetaObject::activate(QObject*, QMetaObject const*, int, void**)@plt>
+  dea02f:	90                   	nop
+  dea030:	31 c9                	xor    %ecx,%ecx
+  dea032:	ba 08 00 00 00       	mov    $0x8,%edx
+  dea037:	48 8d 35 82 23 2a 02 	lea    0x22a2382(%rip),%rsi        # 308c3c0 <QObject::staticMetaObject@Qt_6>
+  dea03e:	48 83 c4 28          	add    $0x28,%rsp
+  dea042:	e9 79 4d 6f ff       	jmp    4dedc0 <QMetaObject::activate(QObject*, QMetaObject const*, int, void**)@plt>
+  dea047:	66 0f 1f 84 00 00 00 	nopw   0x0(%rax,%rax,1)
+  dea04e:	00 00 
+  dea050:	31 c9                	xor    %ecx,%ecx
+  dea052:	ba 07 00 00 00       	mov    $0x7,%edx
+  dea057:	48 8d 35 62 23 2a 02 	lea    0x22a2362(%rip),%rsi        # 308c3c0 <QObject::staticMetaObject@Qt_6>
+  dea05e:	48 83 c4 28          	add    $0x28,%rsp
+  dea062:	e9 59 4d 6f ff       	jmp    4dedc0 <QMetaObject::activate(QObject*, QMetaObject const*, int, void**)@plt>
+  dea067:	66 0f 1f 84 00 00 00 	nopw   0x0(%rax,%rax,1)
+  dea06e:	00 00 
+  dea070:	31 c9                	xor    %ecx,%ecx
+  dea072:	ba 06 00 00 00       	mov    $0x6,%edx
+  dea077:	48 8d 35 42 23 2a 02 	lea    0x22a2342(%rip),%rsi        # 308c3c0 <QObject::staticMetaObject@Qt_6>
+  dea07e:	48 83 c4 28          	add    $0x28,%rsp
+  dea082:	e9 39 4d 6f ff       	jmp    4dedc0 <QMetaObject::activate(QObject*, QMetaObject const*, int, void**)@plt>
+  dea087:	66 0f 1f 84 00 00 00 	nopw   0x0(%rax,%rax,1)
+  dea08e:	00 00 
+  dea090:	48 8b 07             	mov    (%rdi),%rax
+  dea093:	48 8b 80 50 01 00 00 	mov    0x150(%rax),%rax
+  dea09a:	48 83 c4 28          	add    $0x28,%rsp
+  dea09e:	ff e0                	jmp    *%rax
+  dea0a0:	48 8b 07             	mov    (%rdi),%rax
+  dea0a3:	48 8b 80 58 01 00 00 	mov    0x158(%rax),%rax
+  dea0aa:	e9 33 ff ff ff       	jmp    de9fe2 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x24b7b2>
+  dea0af:	90                   	nop
+  dea0b0:	48 8b 41 18          	mov    0x18(%rcx),%rax
+  dea0b4:	48 8b 51 10          	mov    0x10(%rcx),%rdx
+  dea0b8:	48 8d 35 01 23 2a 02 	lea    0x22a2301(%rip),%rsi        # 308c3c0 <QObject::staticMetaObject@Qt_6>
+  dea0bf:	48 c7 04 24 00 00 00 	movq   $0x0,(%rsp)
+  dea0c6:	00 
+  dea0c7:	48 8b 49 08          	mov    0x8(%rcx),%rcx
+  dea0cb:	48 89 54 24 10       	mov    %rdx,0x10(%rsp)
+  dea0d0:	ba 01 00 00 00       	mov    $0x1,%edx
+  dea0d5:	48 89 4c 24 08       	mov    %rcx,0x8(%rsp)
+  dea0da:	48 89 e1             	mov    %rsp,%rcx
+  dea0dd:	48 89 44 24 18       	mov    %rax,0x18(%rsp)
+  dea0e2:	e8 d9 4c 6f ff       	call   4dedc0 <QMetaObject::activate(QObject*, QMetaObject const*, int, void**)@plt>
+  dea0e7:	e9 f9 fd ff ff       	jmp    de9ee5 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x24b6b5>
+  dea0ec:	0f 1f 40 00          	nopl   0x0(%rax)
+  dea0f0:	48 8b 41 08          	mov    0x8(%rcx),%rax
+  dea0f4:	31 d2                	xor    %edx,%edx
+  dea0f6:	48 89 e1             	mov    %rsp,%rcx
+  dea0f9:	48 8d 35 c0 22 2a 02 	lea    0x22a22c0(%rip),%rsi        # 308c3c0 <QObject::staticMetaObject@Qt_6>
+  dea100:	48 c7 04 24 00 00 00 	movq   $0x0,(%rsp)
+  dea107:	00 
+  dea108:	48 89 44 24 08       	mov    %rax,0x8(%rsp)
+  dea10d:	e8 ae 4c 6f ff       	call   4dedc0 <QMetaObject::activate(QObject*, QMetaObject const*, int, void**)@plt>
+  dea112:	e9 ce fd ff ff       	jmp    de9ee5 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x24b6b5>
+  dea117:	66 0f 1f 84 00 00 00 	nopw   0x0(%rax,%rax,1)
+  dea11e:	00 00 
+  dea120:	48 83 7a 08 00       	cmpq   $0x0,0x8(%rdx)
+  dea125:	0f 85 9c fc ff ff    	jne    de9dc7 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x24b597>
+  dea12b:	c7 06 0b 00 00 00    	movl   $0xb,(%rsi)
+  dea131:	c3                   	ret
+  dea132:	66 0f 1f 44 00 00    	nopw   0x0(%rax,%rax,1)
+  dea138:	48 83 7a 08 00       	cmpq   $0x0,0x8(%rdx)
+  dea13d:	0f 85 84 fc ff ff    	jne    de9dc7 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x24b597>
+  dea143:	c7 06 07 00 00 00    	movl   $0x7,(%rsi)
+  dea149:	c3                   	ret
+  dea14a:	66 0f 1f 44 00 00    	nopw   0x0(%rax,%rax,1)
+  dea150:	48 8d 0d 29 fb ff ff 	lea    -0x4d7(%rip),%rcx        # de9c80 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x24b450>
+  dea157:	48 39 c8             	cmp    %rcx,%rax
+  dea15a:	0f 85 67 fc ff ff    	jne    de9dc7 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x24b597>
+  dea160:	48 83 7a 08 00       	cmpq   $0x0,0x8(%rdx)
+  dea165:	0f 85 5c fc ff ff    	jne    de9dc7 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x24b597>
+  dea16b:	c7 06 0d 00 00 00    	movl   $0xd,(%rsi)
+  dea171:	c3                   	ret
+  dea172:	66 66 2e 0f 1f 84 00 	data16 cs nopw 0x0(%rax,%rax,1)
+  dea179:	00 00 00 00 
+  dea17d:	0f 1f 00             	nopl   (%rax)
+  dea180:	31 c9                	xor    %ecx,%ecx
+  dea182:	31 d2                	xor    %edx,%edx
+  dea184:	48 8d 35 b5 64 2c 02 	lea    0x22c64b5(%rip),%rsi        # 30b0640 <QSortFilterProxyModel::staticMetaObject@Qt_6>
+  dea18b:	e9 30 4c 6f ff       	jmp    4dedc0 <QMetaObject::activate(QObject*, QMetaObject const*, int, void**)@plt>
+  dea190:	31 c9                	xor    %ecx,%ecx
+  dea192:	31 d2                	xor    %edx,%edx
+  dea194:	48 8d 35 65 5e 2c 02 	lea    0x22c5e65(%rip),%rsi        # 30b0000 <QSortFilterProxyModel::staticMetaObject@Qt_6>
+  dea19b:	e9 20 4c 6f ff       	jmp    4dedc0 <QMetaObject::activate(QObject*, QMetaObject const*, int, void**)@plt>
+  dea1a0:	48 83 ec 18          	sub    $0x18,%rsp
+  dea1a4:	31 d2                	xor    %edx,%edx
+  dea1a6:	48 89 74 24 08       	mov    %rsi,0x8(%rsp)
+  dea1ab:	48 89 e1             	mov    %rsp,%rcx
+  dea1ae:	48 8d 35 0b d7 29 02 	lea    0x229d70b(%rip),%rsi        # 30878c0 <QObject::staticMetaObject@Qt_6>
+  dea1b5:	48 c7 04 24 00 00 00 	movq   $0x0,(%rsp)
+  dea1bc:	00 
+  dea1bd:	e8 fe 4b 6f ff       	call   4dedc0 <QMetaObject::activate(QObject*, QMetaObject const*, int, void**)@plt>
+  dea1c2:	48 83 c4 18          	add    $0x18,%rsp
+  dea1c6:	c3                   	ret
+  dea1c7:	90                   	nop
+  dea1c8:	0f 1f 84 00 00 00 00 	nopl   0x0(%rax,%rax,1)
+  dea1cf:	00 
+  dea1d0:	48 83 ec 18          	sub    $0x18,%rsp
+  dea1d4:	31 d2                	xor    %edx,%edx
+  dea1d6:	48 89 74 24 08       	mov    %rsi,0x8(%rsp)
+  dea1db:	48 89 e1             	mov    %rsp,%rcx
+  dea1de:	48 8d 35 bb b7 29 02 	lea    0x229b7bb(%rip),%rsi        # 30859a0 <QObject::staticMetaObject@Qt_6>
+  dea1e5:	48 c7 04 24 00 00 00 	movq   $0x0,(%rsp)
+  dea1ec:	00 
+  dea1ed:	e8 ce 4b 6f ff       	call   4dedc0 <QMetaObject::activate(QObject*, QMetaObject const*, int, void**)@plt>
+  dea1f2:	48 83 c4 18          	add    $0x18,%rsp
+  dea1f6:	c3                   	ret
+  dea1f7:	90                   	nop
+  dea1f8:	0f 1f 84 00 00 00 00 	nopl   0x0(%rax,%rax,1)
+  dea1ff:	00 
+  dea200:	48 83 ec 18          	sub    $0x18,%rsp
+  dea204:	ba 01 00 00 00       	mov    $0x1,%edx
+  dea209:	48 89 74 24 08       	mov    %rsi,0x8(%rsp)
+  dea20e:	48 89 e1             	mov    %rsp,%rcx
+  dea211:	48 8d 35 88 b7 29 02 	lea    0x229b788(%rip),%rsi        # 30859a0 <QObject::staticMetaObject@Qt_6>
+  dea218:	48 c7 04 24 00 00 00 	movq   $0x0,(%rsp)
+  dea21f:	00 
+  dea220:	e8 9b 4b 6f ff       	call   4dedc0 <QMetaObject::activate(QObject*, QMetaObject const*, int, void**)@plt>
+  dea225:	48 83 c4 18          	add    $0x18,%rsp
+  dea229:	c3                   	ret
+  dea22a:	66 0f 1f 44 00 00    	nopw   0x0(%rax,%rax,1)
+  dea230:	48 83 ec 18          	sub    $0x18,%rsp
+  dea234:	ba 02 00 00 00       	mov    $0x2,%edx
+  dea239:	48 89 74 24 08       	mov    %rsi,0x8(%rsp)
+  dea23e:	48 89 e1             	mov    %rsp,%rcx
+  dea241:	48 8d 35 58 b7 29 02 	lea    0x229b758(%rip),%rsi        # 30859a0 <QObject::staticMetaObject@Qt_6>
+  dea248:	48 c7 04 24 00 00 00 	movq   $0x0,(%rsp)
+  dea24f:	00 
+  dea250:	e8 6b 4b 6f ff       	call   4dedc0 <QMetaObject::activate(QObject*, QMetaObject const*, int, void**)@plt>
+  dea255:	48 83 c4 18          	add    $0x18,%rsp
+  dea259:	c3                   	ret
+  dea25a:	66 0f 1f 44 00 00    	nopw   0x0(%rax,%rax,1)
+  dea260:	48 83 ec 18          	sub    $0x18,%rsp
+  dea264:	ba 03 00 00 00       	mov    $0x3,%edx
+  dea269:	48 89 74 24 08       	mov    %rsi,0x8(%rsp)
+  dea26e:	48 89 e1             	mov    %rsp,%rcx
+  dea271:	48 8d 35 28 b7 29 02 	lea    0x229b728(%rip),%rsi        # 30859a0 <QObject::staticMetaObject@Qt_6>
+  dea278:	48 c7 04 24 00 00 00 	movq   $0x0,(%rsp)
+  dea27f:	00 
+  dea280:	e8 3b 4b 6f ff       	call   4dedc0 <QMetaObject::activate(QObject*, QMetaObject const*, int, void**)@plt>
+  dea285:	48 83 c4 18          	add    $0x18,%rsp
+  dea289:	c3                   	ret
+  dea28a:	66 0f 1f 44 00 00    	nopw   0x0(%rax,%rax,1)
+  dea290:	48 83 ec 18          	sub    $0x18,%rsp
+  dea294:	ba 04 00 00 00       	mov    $0x4,%edx
+  dea299:	48 89 74 24 08       	mov    %rsi,0x8(%rsp)
+  dea29e:	48 89 e1             	mov    %rsp,%rcx
+  dea2a1:	48 8d 35 f8 b6 29 02 	lea    0x229b6f8(%rip),%rsi        # 30859a0 <QObject::staticMetaObject@Qt_6>
+  dea2a8:	48 c7 04 24 00 00 00 	movq   $0x0,(%rsp)
+  dea2af:	00 
+  dea2b0:	e8 0b 4b 6f ff       	call   4dedc0 <QMetaObject::activate(QObject*, QMetaObject const*, int, void**)@plt>
+  dea2b5:	48 83 c4 18          	add    $0x18,%rsp
+  dea2b9:	c3                   	ret
+  dea2ba:	66 0f 1f 44 00 00    	nopw   0x0(%rax,%rax,1)
+  dea2c0:	85 f6                	test   %esi,%esi
+  dea2c2:	75 1c                	jne    dea2e0 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x24bab0>
+  dea2c4:	83 fa 07             	cmp    $0x7,%edx
+  dea2c7:	77 65                	ja     dea32e <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x24bafe>
+  dea2c9:	48 8d 35 ac 17 fa 00 	lea    0xfa17ac(%rip),%rsi        # 1d8ba7c <typeinfo name for QMetaType::registerConverter<QList<QObject*>, QIterable<QMetaSequence>, QtPrivate::QSequentialIterableConvertFunctor<QList<QObject*> > >(QtPrivate::QSequentialIterableConvertFunctor<QList<QObject*> >)::{lambda(void const*, void*)#1}@@Base+0xa24bc>
+  dea2d0:	89 d2                	mov    %edx,%edx
+  dea2d2:	48 83 ec 18          	sub    $0x18,%rsp
+  dea2d6:	48 63 04 96          	movslq (%rsi,%rdx,4),%rax
+  dea2da:	48 01 f0             	add    %rsi,%rax
+  dea2dd:	ff e0                	jmp    *%rax
+  dea2df:	90                   	nop
+  dea2e0:	83 fe 05             	cmp    $0x5,%esi
+  dea2e3:	75 49                	jne    dea32e <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x24bafe>
+  dea2e5:	48 8b 51 08          	mov    0x8(%rcx),%rdx
+  dea2e9:	48 8b 31             	mov    (%rcx),%rsi
+  dea2ec:	48 8d 0d dd fe ff ff 	lea    -0x123(%rip),%rcx        # dea1d0 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x24b9a0>
+  dea2f3:	48 8b 02             	mov    (%rdx),%rax
+  dea2f6:	48 39 c8             	cmp    %rcx,%rax
+  dea2f9:	74 35                	je     dea330 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x24bb00>
+  dea2fb:	48 8d 0d fe fe ff ff 	lea    -0x102(%rip),%rcx        # dea200 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x24b9d0>
+  dea302:	48 39 c8             	cmp    %rcx,%rax
+  dea305:	74 39                	je     dea340 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x24bb10>
+  dea307:	48 8d 0d 22 ff ff ff 	lea    -0xde(%rip),%rcx        # dea230 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x24ba00>
+  dea30e:	48 39 c8             	cmp    %rcx,%rax
+  dea311:	74 3d                	je     dea350 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x24bb20>
+  dea313:	48 8d 0d 46 ff ff ff 	lea    -0xba(%rip),%rcx        # dea260 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x24ba30>
+  dea31a:	48 39 c8             	cmp    %rcx,%rax
+  dea31d:	0f 85 75 01 00 00    	jne    dea498 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x24bc68>
+  dea323:	48 83 7a 08 00       	cmpq   $0x0,0x8(%rdx)
+  dea328:	0f 84 92 01 00 00    	je     dea4c0 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x24bc90>
+  dea32e:	c3                   	ret
+  dea32f:	90                   	nop
+  dea330:	48 83 7a 08 00       	cmpq   $0x0,0x8(%rdx)
+  dea335:	75 f7                	jne    dea32e <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x24bafe>
+  dea337:	c7 06 00 00 00 00    	movl   $0x0,(%rsi)
+  dea33d:	c3                   	ret
+  dea33e:	66 90                	xchg   %ax,%ax
+  dea340:	48 83 7a 08 00       	cmpq   $0x0,0x8(%rdx)
+  dea345:	75 e7                	jne    dea32e <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x24bafe>
+  dea347:	c7 06 01 00 00 00    	movl   $0x1,(%rsi)
+  dea34d:	c3                   	ret
+  dea34e:	66 90                	xchg   %ax,%ax
+  dea350:	48 83 7a 08 00       	cmpq   $0x0,0x8(%rdx)
+  dea355:	75 d7                	jne    dea32e <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x24bafe>
+  dea357:	c7 06 02 00 00 00    	movl   $0x2,(%rsi)
+  dea35d:	c3                   	ret
+  dea35e:	66 90                	xchg   %ax,%ax
+  dea360:	48 8b 07             	mov    (%rdi),%rax
+  dea363:	48 8b 71 08          	mov    0x8(%rcx),%rsi
+  dea367:	48 8b 80 a8 00 00 00 	mov    0xa8(%rax),%rax
+  dea36e:	48 83 c4 18          	add    $0x18,%rsp
+  dea372:	ff e0                	jmp    *%rax
+  dea374:	0f 1f 40 00          	nopl   0x0(%rax)
+  dea378:	48 8b 07             	mov    (%rdi),%rax
+  dea37b:	48 8b 71 08          	mov    0x8(%rcx),%rsi
+  dea37f:	48 8b 80 a0 00 00 00 	mov    0xa0(%rax),%rax
+  dea386:	48 83 c4 18          	add    $0x18,%rsp
+  dea38a:	ff e0                	jmp    *%rax
+  dea38c:	0f 1f 40 00          	nopl   0x0(%rax)
+  dea390:	48 8b 41 08          	mov    0x8(%rcx),%rax
+  dea394:	ba 04 00 00 00       	mov    $0x4,%edx
+  dea399:	48 89 e1             	mov    %rsp,%rcx
+  dea39c:	48 8d 35 fd b5 29 02 	lea    0x229b5fd(%rip),%rsi        # 30859a0 <QObject::staticMetaObject@Qt_6>
+  dea3a3:	48 c7 04 24 00 00 00 	movq   $0x0,(%rsp)
+  dea3aa:	00 
+  dea3ab:	48 89 44 24 08       	mov    %rax,0x8(%rsp)
+  dea3b0:	e8 0b 4a 6f ff       	call   4dedc0 <QMetaObject::activate(QObject*, QMetaObject const*, int, void**)@plt>
+  dea3b5:	48 83 c4 18          	add    $0x18,%rsp
+  dea3b9:	c3                   	ret
+  dea3ba:	66 0f 1f 44 00 00    	nopw   0x0(%rax,%rax,1)
+  dea3c0:	48 8b 41 08          	mov    0x8(%rcx),%rax
+  dea3c4:	ba 03 00 00 00       	mov    $0x3,%edx
+  dea3c9:	48 89 e1             	mov    %rsp,%rcx
+  dea3cc:	48 8d 35 cd b5 29 02 	lea    0x229b5cd(%rip),%rsi        # 30859a0 <QObject::staticMetaObject@Qt_6>
+  dea3d3:	48 c7 04 24 00 00 00 	movq   $0x0,(%rsp)
+  dea3da:	00 
+  dea3db:	48 89 44 24 08       	mov    %rax,0x8(%rsp)
+  dea3e0:	e8 db 49 6f ff       	call   4dedc0 <QMetaObject::activate(QObject*, QMetaObject const*, int, void**)@plt>
+  dea3e5:	eb ce                	jmp    dea3b5 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x24bb85>
+  dea3e7:	66 0f 1f 84 00 00 00 	nopw   0x0(%rax,%rax,1)
+  dea3ee:	00 00 
+  dea3f0:	48 8b 41 08          	mov    0x8(%rcx),%rax
+  dea3f4:	ba 02 00 00 00       	mov    $0x2,%edx
+  dea3f9:	48 89 e1             	mov    %rsp,%rcx
+  dea3fc:	48 8d 35 9d b5 29 02 	lea    0x229b59d(%rip),%rsi        # 30859a0 <QObject::staticMetaObject@Qt_6>
+  dea403:	48 c7 04 24 00 00 00 	movq   $0x0,(%rsp)
+  dea40a:	00 
+  dea40b:	48 89 44 24 08       	mov    %rax,0x8(%rsp)
+  dea410:	e8 ab 49 6f ff       	call   4dedc0 <QMetaObject::activate(QObject*, QMetaObject const*, int, void**)@plt>
+  dea415:	eb 9e                	jmp    dea3b5 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x24bb85>
+  dea417:	66 0f 1f 84 00 00 00 	nopw   0x0(%rax,%rax,1)
+  dea41e:	00 00 
+  dea420:	48 8b 41 08          	mov    0x8(%rcx),%rax
+  dea424:	ba 01 00 00 00       	mov    $0x1,%edx
+  dea429:	48 89 e1             	mov    %rsp,%rcx
+  dea42c:	48 8d 35 6d b5 29 02 	lea    0x229b56d(%rip),%rsi        # 30859a0 <QObject::staticMetaObject@Qt_6>
+  dea433:	48 c7 04 24 00 00 00 	movq   $0x0,(%rsp)
+  dea43a:	00 
+  dea43b:	48 89 44 24 08       	mov    %rax,0x8(%rsp)
+  dea440:	e8 7b 49 6f ff       	call   4dedc0 <QMetaObject::activate(QObject*, QMetaObject const*, int, void**)@plt>
+  dea445:	e9 6b ff ff ff       	jmp    dea3b5 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x24bb85>
+  dea44a:	66 0f 1f 44 00 00    	nopw   0x0(%rax,%rax,1)
+  dea450:	48 8b 41 08          	mov    0x8(%rcx),%rax
+  dea454:	31 d2                	xor    %edx,%edx
+  dea456:	48 89 e1             	mov    %rsp,%rcx
+  dea459:	48 8d 35 40 b5 29 02 	lea    0x229b540(%rip),%rsi        # 30859a0 <QObject::staticMetaObject@Qt_6>
+  dea460:	48 c7 04 24 00 00 00 	movq   $0x0,(%rsp)
+  dea467:	00 
+  dea468:	48 89 44 24 08       	mov    %rax,0x8(%rsp)
+  dea46d:	e8 4e 49 6f ff       	call   4dedc0 <QMetaObject::activate(QObject*, QMetaObject const*, int, void**)@plt>
+  dea472:	e9 3e ff ff ff       	jmp    dea3b5 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x24bb85>
+  dea477:	66 0f 1f 84 00 00 00 	nopw   0x0(%rax,%rax,1)
+  dea47e:	00 00 
+  dea480:	48 8b 07             	mov    (%rdi),%rax
+  dea483:	48 8b 71 08          	mov    0x8(%rcx),%rsi
+  dea487:	48 8b 80 b0 00 00 00 	mov    0xb0(%rax),%rax
+  dea48e:	48 83 c4 18          	add    $0x18,%rsp
+  dea492:	ff e0                	jmp    *%rax
+  dea494:	0f 1f 40 00          	nopl   0x0(%rax)
+  dea498:	48 8d 0d f1 fd ff ff 	lea    -0x20f(%rip),%rcx        # dea290 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x24ba60>
+  dea49f:	48 39 c8             	cmp    %rcx,%rax
+  dea4a2:	0f 85 86 fe ff ff    	jne    dea32e <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x24bafe>
+  dea4a8:	48 83 7a 08 00       	cmpq   $0x0,0x8(%rdx)
+  dea4ad:	0f 85 7b fe ff ff    	jne    dea32e <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x24bafe>
+  dea4b3:	c7 06 04 00 00 00    	movl   $0x4,(%rsi)
+  dea4b9:	c3                   	ret
+  dea4ba:	66 0f 1f 44 00 00    	nopw   0x0(%rax,%rax,1)
+  dea4c0:	c7 06 03 00 00 00    	movl   $0x3,(%rsi)
+  dea4c6:	c3                   	ret
+  dea4c7:	90                   	nop
+  dea4c8:	0f 1f 84 00 00 00 00 	nopl   0x0(%rax,%rax,1)
+  dea4cf:	00 
+  dea4d0:	31 c9                	xor    %ecx,%ecx
+  dea4d2:	31 d2                	xor    %edx,%edx
+  dea4d4:	48 8d 35 a5 60 18 02 	lea    0x21860a5(%rip),%rsi        # 2f70580 <std::__detail::__to_chars_10_impl<unsigned int>(char*, unsigned int, unsigned int)::__digits@@Base+0xecee20>
+  dea4db:	e9 e0 48 6f ff       	jmp    4dedc0 <QMetaObject::activate(QObject*, QMetaObject const*, int, void**)@plt>
+  dea4e0:	31 c9                	xor    %ecx,%ecx
+  dea4e2:	ba 01 00 00 00       	mov    $0x1,%edx
+  dea4e7:	48 8d 35 92 60 18 02 	lea    0x2186092(%rip),%rsi        # 2f70580 <std::__detail::__to_chars_10_impl<unsigned int>(char*, unsigned int, unsigned int)::__digits@@Base+0xecee20>
+  dea4ee:	e9 cd 48 6f ff       	jmp    4dedc0 <QMetaObject::activate(QObject*, QMetaObject const*, int, void**)@plt>
+  dea4f3:	90                   	nop
+  dea4f4:	66 66 2e 0f 1f 84 00 	data16 cs nopw 0x0(%rax,%rax,1)
+  dea4fb:	00 00 00 00 
+  dea4ff:	90                   	nop
+
+target_count=0
+```
+
+<!-- END GENERATED WORLDMAP HANDLER EVIDENCE -->
