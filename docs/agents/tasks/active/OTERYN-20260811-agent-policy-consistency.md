@@ -115,7 +115,7 @@ validation:
     result: PASS
     evidence: job 94054827809 completed 82 of 82 policy-consistency regressions, live policy validation, 3 checkpoint validations, live liveness validation for 3 active tasks with 0 advisory findings and Control Room validation successfully.
   - command: material-head repository workflow generation
-    result: PARTIAL
+    result: FAIL
     evidence: CI 31578139670, Agent Governance 31578139727, Edge Security Emulation 31578139660, Platform DB Outage Validation 31578139657 and Game Auth Ticket Concurrency 31578139671 reached success; Deep System Validation 31578139668 remained active and Phase 7 31578139662 encountered an external composer TLS failure before application validation and was retried on the same head.
   - command: final metadata-head required CI and fresh Codex review
     result: NOT_RUN
