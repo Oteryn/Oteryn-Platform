@@ -1,5 +1,6 @@
 name: Tibia CV World Entry
 
+# Recovery trigger: 2026-08-12 live session verification found no preserved 1020x650 world session.
 on:
   push:
     branches: [ops/oteryn-tibia-client-analysis-20260811]
@@ -42,7 +43,6 @@ jobs:
           client="$pkg/bin/client"
           [[ -x "$client" ]]
 
-          # Egress is a hard gate. No credential use unless the already-owned userspace WARP path is alive.
           pgrep -f '/wireproxy .*wireproxy.conf' >/dev/null
           curl --socks5-hostname 127.0.0.1:25344 -fsS --max-time 10 https://www.cloudflare.com/cdn-cgi/trace >/tmp/cv-warp.trace
           grep -q '^warp=on$' /tmp/cv-warp.trace
@@ -58,7 +58,6 @@ jobs:
           socks5 127.0.0.1 25344
           EOF
 
-          # Keep the software Vulkan path that was already proven viable on this runtime.
           lvp=$(find /usr/share/vulkan/icd.d -maxdepth 1 -type f -name 'lvp_icd*.json' -print -quit 2>/dev/null || true)
           if [[ -z "$lvp" ]]; then
             apt-get update -qq
@@ -92,7 +91,6 @@ jobs:
           [[ -n "$best" && "$bw" == 1020 && "$bh" == 650 ]]
           echo FIXED_WINDOW_GEOMETRY=true
 
-          # No OCR. The login controls are fixed in this exact 1020x650 client geometry, already proven by prior captures.
           import -display :99 -window "$best" /tmp/cv-login-before.png
           xdotool windowactivate --sync "$best" 2>/dev/null || true
           xdotool mousemove --window "$best" 535 275 click 1
@@ -105,7 +103,6 @@ jobs:
           unset TIBIA_TEST_EMAIL TIBIA_TEST_PASSWORD
           echo LOGIN_SUBMITTED=true
 
-          # Wait for a material visual transition away from the login form. compare reports changed pixels; no text is read.
           transitioned=0
           for n in $(seq 1 35); do
             sleep 1
@@ -118,21 +115,15 @@ jobs:
           echo LOGIN_VISUAL_TRANSITION=$transitioned
           (( transitioned == 1 ))
 
-          # Character-selection geometry from the already-observed exact client layout:
-          # first character row is y~=193, character-name column x=180..390.
-          # Use a fixed row point rather than OCR-derived text coordinates.
           import -display :99 -window "$best" /tmp/cv-select-before.png
           xdotool mousemove --window "$best" 285 193 click 1
           sleep 0.4
           xdotool key --window "$best" Return
           echo FIRST_CHARACTER_ACTIVATION_SENT=true
-
-          # If Return only selected the row, a deterministic double-click on the same row is the second bounded activation.
           sleep 3
           xdotool mousemove --window "$best" 285 193 click --repeat 2 --delay 160 1
           echo FIRST_CHARACTER_DOUBLECLICK_SENT=true
 
-          # Runtime truth beats OCR: look for the game client maintaining its TCP connection only via local SOCKS.
           sustained=0
           max_local=0
           direct_seen=0
@@ -149,11 +140,7 @@ jobs:
             (( local_count > max_local )) && max_local=$local_count || true
             (( direct_count > 0 )) && direct_seen=1 || true
             (( udp_count > 0 )) && udp_seen=1 || true
-            if (( local_count > 0 )); then
-              consecutive=$((consecutive+1))
-            else
-              consecutive=0
-            fi
+            if (( local_count > 0 )); then consecutive=$((consecutive+1)); else consecutive=0; fi
             if (( consecutive >= 6 )); then sustained=1; break; fi
           done
           echo CLIENT_LOCAL_SOCKS_MAX=$max_local
@@ -163,8 +150,6 @@ jobs:
           [[ "$direct_seen" -eq 0 && "$udp_seen" -eq 0 ]]
           (( sustained == 1 ))
 
-          # Controlled in-world action: capture central viewport, step right then left, and require visual change.
-          # This uses image differencing, not OCR, and returns the character to its starting tile when both steps succeed.
           sleep 6
           import -display :99 -window "$best" /tmp/cv-world-before.png
           convert /tmp/cv-world-before.png -crop 620x390+190+90 /tmp/cv-viewport-before.png
@@ -180,7 +165,6 @@ jobs:
           xdotool key --window "$best" Left
           echo CONTROLLED_MOVE_ACTION_PROVEN=true
 
-          # Privacy-safe evidence: redact account/side/bottom UI. Never expose credentials or character data.
           cp /tmp/cv-world-after-right.png /tmp/tibia-cv-world-proof-safe.png
           convert /tmp/tibia-cv-world-proof-safe.png -fill '#202020' \
             -draw 'rectangle 0,0 1020,80 rectangle 0,80 180,650 rectangle 840,80 1020,650 rectangle 0,520 1020,650' \
