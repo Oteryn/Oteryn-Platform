@@ -14,8 +14,8 @@ env:
   CONTAINER_NAME: oteryn-tibia-client-analysis
 
 jobs:
-  trace:
-    name: Trace Tibia map field content extraction
+  capture:
+    name: Capture ordered Tibia map field contents
     runs-on: oteryn-staging
     timeout-minutes: 6
     steps:
@@ -29,32 +29,13 @@ jobs:
           [[ "$(docker inspect --format '{{.State.Status}}' "$CONTAINER_NAME")" == "running" ]]
           docker ps -a --filter 'label=com.docker.compose.project=oteryn-staging' --format '{{.ID}}\t{{.Names}}' | sort >/tmp/oteryn-before.tsv
 
-      - name: Disassemble bounded field-content path
+      - name: Capture bounded ordered contents from authenticated client
         shell: bash
         run: |
           set -Eeuo pipefail
           docker exec -i "$CONTAINER_NAME" bash <<'INNER'
           set -Eeuo pipefail
-          client=/data/client-15.32.df7b29/bin/client
-          [[ -f "$client" ]]
-          [[ "$(stat -c %s "$client")" == "51965216" ]]
-          [[ "$(sha256sum "$client" | awk '{print $1}')" == "e6c244bd39fe2e0632f6f000efd3147164696efa8e901718668e0442325ff7fe" ]]
-          command -v objdump >/dev/null
-          echo FIELD_CONTENT_PATH_BEGIN
-          objdump -d --start-address=0x19a8d20 --stop-address=0x19a9340 "$client"
-          echo FIELD_CONTENT_PATH_END
-          INNER
-
-      - name: Verify authenticated session retained and staging unchanged
-        if: always()
-        shell: bash
-        run: |
-          set -Eeuo pipefail
-          docker ps -a --filter 'label=com.docker.compose.project=oteryn-staging' --format '{{.ID}}\t{{.Names}}' | sort >/tmp/oteryn-after.tsv
-          diff -u /tmp/oteryn-before.tsv /tmp/oteryn-after.tsv
-          docker inspect --format 'analysis_name={{.Name}} status={{.State.Status}} owner={{ index .Config.Labels "com.blakinio.owner" }} purpose={{ index .Config.Labels "com.blakinio.purpose" }}' "$CONTAINER_NAME"
-          docker exec -i "$CONTAINER_NAME" bash <<'INNER'
-          set -Eeuo pipefail
+          export HOME=/data/home DISPLAY=:99
           pid=$(pgrep -x client | head -n1)
           [[ -n "$pid" ]]
           tcp_rows=$(ss -ntp 2>/dev/null | grep "pid=$pid," || true)
@@ -64,5 +45,90 @@ jobs:
           echo ACTIVE_LOCAL_SOCKS_COUNT=$local_count
           echo ACTIVE_DIRECT_TCP_COUNT=$direct_count
           (( local_count > 0 && direct_count == 0 ))
+
+          base=$(awk '$NF ~ /\/packages\/Tibia\/bin\/client$/ && $3=="00000000" {split($1,a,"-"); print "0x" a[1]; exit}' /proc/$pid/maps)
+          [[ -n "$base" ]]
+          content_bp=$(printf '0x%x' $((base+0x19a8ea3)))
+          echo CLIENT_PID=$pid
+          echo PIE_BASE=$base
+          echo CONTENT_BP=$content_bp
+
+          win=''; best=0
+          for w in $(xdotool search --onlyvisible --pid "$pid" --name '^Tibia$' 2>/dev/null || true); do
+            geom=$(xdotool getwindowgeometry --shell "$w" 2>/dev/null || true)
+            width=$(printf '%s\n' "$geom" | sed -n 's/^WIDTH=//p')
+            height=$(printf '%s\n' "$geom" | sed -n 's/^HEIGHT=//p')
+            [[ "$width" =~ ^[0-9]+$ && "$height" =~ ^[0-9]+$ ]] || continue
+            area=$((width*height))
+            if (( area > best )); then win=$w; best=$area; fi
+          done
+          [[ -n "$win" ]]
+
+          cat >/tmp/live-map-contents.gdb <<GDB
+          set pagination off
+          set confirm off
+          set print thread-events off
+          set logging file /data/runtime/worldmap-ordered-contents.log
+          set logging overwrite on
+          set logging enabled on
+          set \$n = 0
+          break *$content_bp
+          commands
+          silent
+          set \$n = \$n + 1
+          if \$n <= 192
+            printf "CONTENT n=%u x=%u y=%u z=%u idx=%u ptr=%p kind28=%u value30=%u app0=%p app8=%p app16=%p app24=%p\\n", \$n, *(unsigned int*)(\$rsp+0x88), *(unsigned int*)(\$rsp+0x8c), *(unsigned int*)(\$rsp+0x90), \$ebp, \$rbx, *(unsigned int*)(\$rbx+0x28), *(unsigned int*)(\$rbx+0x30), *(void**)(\$rsp+0x100), *(void**)(\$rsp+0x108), *(void**)(\$rsp+0x110), *(void**)(\$rsp+0x118)
+          end
+          continue
+          end
+          continue
+          detach
+          quit
+          GDB
+
+          rm -f /data/runtime/worldmap-ordered-contents.log /data/runtime/worldmap-ordered-contents-outer.log
+          gdb -q -nx -p "$pid" -x /tmp/live-map-contents.gdb >/data/runtime/worldmap-ordered-contents-outer.log 2>&1 &
+          gdbpid=$!
+          sleep 3
+          kill -0 "$gdbpid"
+          xdotool key --window "$win" Right
+          sleep 2
+          xdotool key --window "$win" Left
+          sleep 4
+          kill -INT "$gdbpid" 2>/dev/null || true
+          for n in $(seq 1 10); do
+            kill -0 "$gdbpid" 2>/dev/null || break
+            sleep 1
+          done
+          if kill -0 "$gdbpid" 2>/dev/null; then
+            echo GDB_CLEAN_DETACH_TIMEOUT=true
+            exit 1
+          fi
+          wait "$gdbpid" 2>/dev/null || true
+
+          kill -0 "$pid"
+          tcp_rows=$(ss -ntp 2>/dev/null | grep "pid=$pid," || true)
+          local_after=$(printf '%s\n' "$tcp_rows" | awk '$5 ~ /127\.0\.0\.1:25344$/ || $5 ~ /\[::1\]:25344$/ {n++} END{print n+0}')
+          total_after=$(printf '%s\n' "$tcp_rows" | grep -c . || true)
+          direct_after=$((total_after-local_after))
+          echo ACTIVE_LOCAL_SOCKS_COUNT_AFTER_ATTACH=$local_after
+          echo ACTIVE_DIRECT_TCP_COUNT_AFTER_ATTACH=$direct_after
+          (( local_after > 0 && direct_after == 0 ))
+          content_count=$(grep -c '^CONTENT ' /data/runtime/worldmap-ordered-contents.log 2>/dev/null || true)
+          echo CONTENT_RECORD_COUNT=$content_count
+          echo ORDERED_CONTENT_CAPTURE_BEGIN
+          grep '^CONTENT ' /data/runtime/worldmap-ordered-contents.log | head -n 192 || true
+          echo ORDERED_CONTENT_CAPTURE_END
+          (( content_count >= 1 ))
           echo LIVE_SESSION_RETAINED=true
+          echo LIVE_ORDERED_CONTENTS_CAPTURED=true
           INNER
+
+      - name: Verify canonical staging unchanged
+        if: always()
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          docker ps -a --filter 'label=com.docker.compose.project=oteryn-staging' --format '{{.ID}}\t{{.Names}}' | sort >/tmp/oteryn-after.tsv
+          diff -u /tmp/oteryn-before.tsv /tmp/oteryn-after.tsv
+          docker inspect --format 'analysis_name={{.Name}} status={{.State.Status}} owner={{ index .Config.Labels "com.blakinio.owner" }} purpose={{ index .Config.Labels "com.blakinio.purpose" }}' "$CONTAINER_NAME"
