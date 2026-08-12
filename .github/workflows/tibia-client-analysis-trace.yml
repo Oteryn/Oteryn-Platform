@@ -34,7 +34,7 @@ jobs:
           set -Eeuo pipefail
           export DEBIAN_FRONTEND=noninteractive
           apt-get update -qq
-          apt-get install -y -qq --no-install-recommends tor torsocks proxychains4 curl >/dev/null
+          apt-get install -y -qq --no-install-recommends tor torsocks proxychains4 curl iproute2 >/dev/null
           pkill -f '^/usr/bin/tor' 2>/dev/null || true
           mkdir -p /data/runtime/tor-data
           chmod 700 /data/runtime/tor-data
@@ -52,25 +52,24 @@ jobs:
           echo TOR_EGRESS_VERIFIED=true
           curl --socks5-hostname 127.0.0.1:9050 -fsS --max-time 10 https://www.cloudflare.com/cdn-cgi/trace | grep -E '^(loc|warp)='
           cat >/tmp/proxychains-tibia.conf <<'EOF'
-strict_chain
-proxy_dns
-quiet_mode
-tcp_read_time_out 15000
-tcp_connect_time_out 8000
-[ProxyList]
-socks5 127.0.0.1 9050
-EOF
+          strict_chain
+          proxy_dns
+          quiet_mode
+          tcp_read_time_out 15000
+          tcp_connect_time_out 8000
+          [ProxyList]
+          socks5 127.0.0.1 9050
+          EOF
+          proxy_ip=$(proxychains4 -f /tmp/proxychains-tibia.conf curl -fsS --max-time 15 https://www.cloudflare.com/cdn-cgi/trace | sed -n 's/^ip=//p')
+          [[ -n "$proxy_ip" && "$proxy_ip" == "$torip" ]]
+          echo PROXYCHAINS_EGRESS_VERIFIED=true
           INNER
 
-      - name: Relaunch Tibia through Tor and attempt test login
+      - name: Relaunch Tibia through Tor and prove client TCP confinement
         shell: bash
-        env:
-          TIBIA_TEST_EMAIL: ${{ secrets.TIBIA_TEST_EMAIL }}
-          TIBIA_TEST_PASSWORD: ${{ secrets.TIBIA_TEST_PASSWORD }}
         run: |
           set -Eeuo pipefail
-          [[ -n "$TIBIA_TEST_EMAIL" && -n "$TIBIA_TEST_PASSWORD" ]]
-          docker exec -e TIBIA_TEST_EMAIL -e TIBIA_TEST_PASSWORD -i "$CONTAINER_NAME" bash <<'INNER'
+          docker exec -i "$CONTAINER_NAME" bash <<'INNER'
           set -Eeuo pipefail
           export DISPLAY=:99 HOME=/data/home
           pkg="$HOME/.local/share/CipSoft GmbH/Tibia/packages/Tibia"
@@ -85,8 +84,16 @@ EOF
           cd "$pkg"
           nohup proxychains4 -f /tmp/proxychains-tibia.conf "$client" >/data/runtime/client-tor.log 2>&1 </dev/null &
           for n in $(seq 1 30); do pgrep -f 'packages/Tibia/bin/client' >/dev/null && break; sleep 1; done
-          pgrep -f 'packages/Tibia/bin/client' >/dev/null
+          pid=$(pgrep -f 'packages/Tibia/bin/client' | head -n1)
+          [[ -n "$pid" ]]
           sleep 8
+          sockets=$(ss -ntp 2>/dev/null | grep "pid=$pid," || true)
+          if printf '%s\n' "$sockets" | awk '{print $5}' | grep -Ev '^(127\.0\.0\.1|\[::1\]):9050$' | grep -q .; then
+            echo CLIENT_DIRECT_TCP_DETECTED=true >&2
+            exit 1
+          fi
+          printf '%s\n' "$sockets" | awk '{print $5}' | grep -Eq '^(127\.0\.0\.1|\[::1\]):9050$'
+          echo CLIENT_TCP_TOR_CONFINEMENT_VERIFIED=true
           best=''; best_area=0
           for w in $(xdotool search --onlyvisible --name '^Tibia$' 2>/dev/null || true); do
             geom=$(xdotool getwindowgeometry --shell "$w" 2>/dev/null || true)
@@ -95,9 +102,24 @@ EOF
             area=$((width*height)); if (( area > best_area )); then best=$w; best_area=$area; fi
           done
           [[ -n "$best" && "$best_area" -ge 600000 ]]
-          # Open Login on welcome screen, then use the already-proven 1020x650 form geometry.
           xdotool mousemove --window "$best" 510 302 click 1 || true
           sleep 2
+          echo "$best" >/tmp/tibia-window-id
+          INNER
+
+      - name: Attempt bounded test login through proven Tor path
+        shell: bash
+        env:
+          TIBIA_TEST_EMAIL: ${{ secrets.TIBIA_TEST_EMAIL }}
+          TIBIA_TEST_PASSWORD: ${{ secrets.TIBIA_TEST_PASSWORD }}
+        run: |
+          set -Eeuo pipefail
+          [[ -n "$TIBIA_TEST_EMAIL" && -n "$TIBIA_TEST_PASSWORD" ]]
+          docker exec -e TIBIA_TEST_EMAIL -e TIBIA_TEST_PASSWORD -i "$CONTAINER_NAME" bash <<'INNER'
+          set -Eeuo pipefail
+          export DISPLAY=:99 HOME=/data/home
+          best=$(cat /tmp/tibia-window-id)
+          [[ -n "$best" ]]
           xdotool mousemove --window "$best" 535 275 click 1
           xdotool key --window "$best" ctrl+a
           xdotool type --window "$best" --delay 3 -- "$TIBIA_TEST_EMAIL"
