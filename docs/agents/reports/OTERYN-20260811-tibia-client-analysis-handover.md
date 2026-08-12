@@ -810,23 +810,27 @@ WORLDMAP_META_CONTROL_FLOW
 
 ## Generated protobuf schema evidence
 
-Source: GitHub Actions run `31578183923` on `oteryn-synology-staging`. This is sanitized descriptor metadata only.
+Source: GitHub Actions run `31578344093` on `oteryn-synology-staging`. Sanitized descriptor metadata only.
 
 ```text
 candidate_descriptor_starts=7
-UNPARSED start=0x60 hint=shared.proto next=0x1040
-UNPARSED start=0x1040 hint=appearances.proto next=0x26a0
-UNPARSED start=0x26a0 hint=map.proto next=0x2c00
-UNPARSED start=0x2c00 hint=sounds-common.proto next=0x6bc0
+DESCRIPTOR start=0x60 end=0x6b2 name=shared.proto package=tibia.protobuf.shared messages=1 enums=6
+DESCRIPTOR start=0x1040 end=0x2507 name=appearances.proto package=tibia.protobuf.appearances messages=28 enums=1
+DESCRIPTOR start=0x26a0 end=0x2abb name=map.proto package=tibia.protobuf.map messages=4 enums=2
+DESCRIPTOR start=0x2c00 end=0x69dc name=sounds-common.proto package=tibia.protobuf.sound messages=5 enums=3
 DESCRIPTOR start=0x6bc0 end=0x70ad name=sounds.proto package=tibia.protobuf.sound messages=6 enums=0
-UNPARSED start=0x70c0 hint=google/protobuf/descriptor.proto next=0x9e60
+DESCRIPTOR start=0x70c0 end=0x93b1 name=google/protobuf/descriptor.proto package=google.protobuf messages=22 enums=0
 DESCRIPTOR start=0x9e60 end=0x9f2c name=google/protobuf/cpp_features.proto package=pb messages=1 enums=0
 
 TARGET_SCHEMAS
+MESSAGE tibia.protobuf.shared.Coordinate source=shared.proto descriptor=0x60-0x6b2
+  field=1 name=x label=optional type=uint32 oneof=-
+  field=2 name=y label=optional type=uint32 oneof=-
+  field=3 name=z label=optional type=uint32 oneof=-
 
 TARGET_STATUS
 AppearanceInstance=NOT_FOUND
-Coordinate=NOT_FOUND
+Coordinate=FOUND
 GameserverMessageBottomFloor=NOT_FOUND
 GameserverMessageBottomRow=NOT_FOUND
 GameserverMessageFieldData=NOT_FOUND
@@ -838,7 +842,15 @@ GameserverMessageTopRow=NOT_FOUND
 MapArea=NOT_FOUND
 MapFieldData=NOT_FOUND
 
-MAP_RELATED_DESCRIPTOR_INVENTORY
+DESCRIPTOR_INVENTORY
+shared.proto package=tibia.protobuf.shared messages=Coordinate
+appearances.proto package=tibia.protobuf.appearances messages=Appearances,SpritePhase,SpriteAnimation,Box,SpriteInfo,FrameGroup,Appearance,AppearanceFlags,AppearanceFlagImbueable,AppearanceFlagBank,AppearanceFlagWrite,AppearanceFlagWriteOnce,AppearanceFlagLight,AppearanceFlagHeight,AppearanceFlagShift,AppearanceFlagClothes,AppearanceFlagDefaultAction,AppearanceFlagMarket,AppearanceFlagNPC,AppearanceFlagAutomap,AppearanceFlagHook,AppearanceFlagLenshelp,AppearanceFlagChangedToExpire,AppearanceFlagCyclopedia,AppearanceFlagUpgradeClassification,AppearanceFlagSkillWheelGem,AppearanceFlagProficiency,SpecialMeaningAppearanceIds
+map.proto package=tibia.protobuf.map messages=Map,Area,Npc,MapFile
+sounds-common.proto package=tibia.protobuf.sound messages=SimpleSoundEffect,RandomSoundEffect,DelayedSoundEffect,AppearanceTypesCountSoundEffect,MinMaxFloat
+sounds.proto package=tibia.protobuf.sound messages=Sounds,Sound,NumericSoundEffect,AmbienceStream,AmbienceObjectStream,MusicTemplate
+google/protobuf/descriptor.proto package=google.protobuf messages=FileDescriptorSet,FileDescriptorProto,DescriptorProto,ExtensionRangeOptions,FieldDescriptorProto,OneofDescriptorProto,EnumDescriptorProto,EnumValueDescriptorProto,ServiceDescriptorProto,MethodDescriptorProto,FileOptions,MessageOptions,FieldOptions,OneofOptions,EnumOptions,EnumValueOptions,ServiceOptions,MethodOptions,UninterpretedOption,FeatureSet,SourceCodeInfo,GeneratedCodeInfo
+google/protobuf/cpp_features.proto package=pb messages=CppFeatures
 ```
 
 <!-- END GENERATED SCHEMA EVIDENCE -->
+
