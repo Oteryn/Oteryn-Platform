@@ -13,9 +13,9 @@ env:
 
 jobs:
   trace:
-    name: Verify isolated WARP egress before Tibia auth
+    name: Verify WARP and attempt test-account login
     runs-on: oteryn-staging
-    timeout-minutes: 12
+    timeout-minutes: 10
     steps:
       - name: Verify owned runtime and snapshot staging
         shell: bash
@@ -26,47 +26,89 @@ jobs:
           [[ "$(docker inspect --format '{{ index .Config.Labels "com.blakinio.purpose" }}' "$CONTAINER_NAME")" == "tibia-client-analysis" ]]
           docker ps -a --filter 'label=com.docker.compose.project=oteryn-staging' --format '{{.ID}}\t{{.Names}}' | sort > /tmp/oteryn-before.tsv
 
-      - name: Establish Cloudflare WARP only inside owned analysis container
+      - name: Require verified WARP egress
         shell: bash
         run: |
           set -Eeuo pipefail
-          docker exec -i "$CONTAINER_NAME" bash <<'INNER'
+          docker exec "$CONTAINER_NAME" bash -lc '
+            set -Eeuo pipefail
+            trace=$(curl -fsS --max-time 15 https://www.cloudflare.com/cdn-cgi/trace)
+            printf "%s\n" "$trace" | grep -q "^warp=on$"
+            echo WARP_VERIFIED=true
+            printf "%s\n" "$trace" | grep -E "^(loc|warp)="
+          '
+
+      - name: Attempt test-account login without exposing credentials
+        shell: bash
+        env:
+          TIBIA_TEST_EMAIL: ${{ secrets.TIBIA_TEST_EMAIL }}
+          TIBIA_TEST_PASSWORD: ${{ secrets.TIBIA_TEST_PASSWORD }}
+        run: |
           set -Eeuo pipefail
-          export DEBIAN_FRONTEND=noninteractive
-          echo BASELINE_TRACE_BEGIN
-          curl -fsS --max-time 15 https://www.cloudflare.com/cdn-cgi/trace | grep -E '^(ip|loc|warp)=' || true
-          echo BASELINE_TRACE_END
-          if ! command -v warp-cli >/dev/null 2>&1; then
-            apt-get update -qq
-            apt-get install -y -qq curl gnupg lsb-release ca-certificates >/dev/null
-            curl -fsSL https://pkg.cloudflareclient.com/pubkey.gpg | gpg --yes --dearmor --output /usr/share/keyrings/cloudflare-warp-archive-keyring.gpg
-            codename=$(lsb_release -cs)
-            echo "deb [signed-by=/usr/share/keyrings/cloudflare-warp-archive-keyring.gpg] https://pkg.cloudflareclient.com/ $codename main" > /etc/apt/sources.list.d/cloudflare-client.list
-            apt-get update -qq
-            apt-get install -y -qq cloudflare-warp >/dev/null
-          fi
-          pkill -f '^/usr/bin/warp-svc' 2>/dev/null || true
-          nohup /usr/bin/warp-svc >/data/runtime/warp-svc.log 2>&1 </dev/null &
-          for n in $(seq 1 20); do warp-cli --accept-tos status >/dev/null 2>&1 && break; sleep 1; done
-          warp-cli --accept-tos registration new >/dev/null 2>&1 || true
-          warp-cli --accept-tos mode warp+doh >/dev/null
-          warp-cli --accept-tos tunnel protocol set MASQUE >/dev/null
-          warp-cli --accept-tos connect >/dev/null
-          ok=0
-          for n in $(seq 1 30); do
-            trace=$(curl -fsS --max-time 15 https://www.cloudflare.com/cdn-cgi/trace || true)
-            if printf '%s\n' "$trace" | grep -q '^warp=on$'; then
-              ok=1
-              echo WARP_TRACE_BEGIN
-              printf '%s\n' "$trace" | grep -E '^(ip|loc|warp)='
-              echo WARP_TRACE_END
-              break
-            fi
-            sleep 2
+          [[ -n "$TIBIA_TEST_EMAIL" ]]
+          [[ -n "$TIBIA_TEST_PASSWORD" ]]
+          docker exec -e TIBIA_TEST_EMAIL -e TIBIA_TEST_PASSWORD -i "$CONTAINER_NAME" bash <<'INNER'
+          set -Eeuo pipefail
+          export DISPLAY=:99 HOME=/data/home
+          client="$HOME/.local/share/CipSoft GmbH/Tibia/packages/Tibia/bin/client"
+          pgrep -f "^$client" >/dev/null
+          trace=$(curl -fsS --max-time 15 https://www.cloudflare.com/cdn-cgi/trace)
+          printf '%s\n' "$trace" | grep -q '^warp=on$'
+
+          best=''; best_area=0
+          for w in $(xdotool search --onlyvisible --name '^Tibia$' 2>/dev/null || true); do
+            geom=$(xdotool getwindowgeometry --shell "$w" 2>/dev/null || true)
+            width=$(printf '%s\n' "$geom" | sed -n 's/^WIDTH=//p')
+            height=$(printf '%s\n' "$geom" | sed -n 's/^HEIGHT=//p')
+            [[ -n "$width" && -n "$height" ]] || continue
+            area=$((width*height))
+            if (( area > best_area )); then best=$w; best_area=$area; fi
           done
-          echo WARP_VERIFIED=$ok
-          (( ok == 1 ))
+          [[ -n "$best" && "$best_area" -ge 600000 ]]
+
+          # Known geometry from the bounded 1020x650 login-form capture.
+          xdotool mousemove --window "$best" 535 275 click 1
+          xdotool key --window "$best" ctrl+a
+          xdotool type --window "$best" --delay 5 -- "$TIBIA_TEST_EMAIL"
+          xdotool mousemove --window "$best" 535 304 click 1
+          xdotool key --window "$best" ctrl+a
+          xdotool type --window "$best" --delay 5 -- "$TIBIA_TEST_PASSWORD"
+          xdotool mousemove --window "$best" 590 388 click 1
+          unset TIBIA_TEST_EMAIL TIBIA_TEST_PASSWORD
+          sleep 12
+
+          import -display :99 -window "$best" /tmp/login-result-raw.png
+          test -s /tmp/login-result-raw.png
+          convert /tmp/login-result-raw.png -resize 200% -colorspace Gray -contrast-stretch 1%x1% /tmp/login-result-ocr.png
+          tesseract /tmp/login-result-ocr.png stdout --psm 11 tsv 2>/dev/null > /tmp/login-result.tsv || true
+          echo SAFE_LOGIN_RESULT_BEGIN
+          python3 - <<'PY'
+          import csv,re
+          allowed=re.compile(r'^(login|account|password|email|authenticator|token|character|characters|select|enter|game|error|sorry|incorrect|invalid|connection|connecting|loading|ok|cancel|remember)$',re.I)
+          with open('/tmp/login-result.tsv',newline='',errors='replace') as f:
+              for r in csv.DictReader(f,delimiter='\t'):
+                  t=(r.get('text') or '').strip().strip(':,.!?()[]')
+                  if t and allowed.fullmatch(t):
+                      print(t)
+          PY
+          echo SAFE_LOGIN_RESULT_END
+
+          # Persist only a privacy-safe screenshot: redact the central account/character dialog region.
+          cp /tmp/login-result-raw.png /tmp/login-result-safe.png
+          convert /tmp/login-result-safe.png -fill '#202020' -draw 'rectangle 360,225 675,440' /tmp/login-result-safe.png
           INNER
+          docker cp "$CONTAINER_NAME:/tmp/login-result-safe.png" /tmp/login-result-safe.png
+          test -s /tmp/login-result-safe.png
+          echo LOGIN_RESULT_SCREENSHOT_BYTES=$(stat -c %s /tmp/login-result-safe.png)
+
+      - name: Upload privacy-safe login result screenshot
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: tibia-login-result-safe
+          path: /tmp/login-result-safe.png
+          if-no-files-found: warn
+          retention-days: 7
 
       - name: Verify canonical staging unchanged
         if: always()
