@@ -18,15 +18,9 @@ TOP_LEVEL_PERMISSIONS = re.compile(
     r"(?m)^permissions:\s*(?:\{\s*\}|read-all|write-all)?\s*$"
 )
 DIRECT_MAPPING_KEY = re.compile(r"^  ([A-Za-z0-9_-]+):(?:\s.*)?$")
-SUPPORTED_EVENTS = frozenset(
-    {
-        "pull_request",
-        "push",
-        "schedule",
-        "workflow_call",
-        "workflow_dispatch",
-    }
-)
+DOMAIN_EVENTS = frozenset({"pull_request", "pull_request_target", "push"})
+MANUAL_EVENTS = frozenset({"issue_comment", "workflow_dispatch"})
+SUPPORTED_EVENTS = frozenset({*DOMAIN_EVENTS, *MANUAL_EVENTS, "schedule", "workflow_call"})
 
 
 class WorkflowInventoryError(RuntimeError):
@@ -86,11 +80,11 @@ def classify_workflow(path: Path, text: str) -> str:
         return "deployment_operation"
     if "workflow_call" in events:
         return "reusable_validation"
-    if "schedule" in events and not ({"pull_request", "push"} & events):
+    if "schedule" in events and not (DOMAIN_EVENTS & events):
         return "scheduled_validation"
-    if {"pull_request", "push"} & events:
+    if DOMAIN_EVENTS & events:
         return "domain_validation"
-    if "workflow_dispatch" in events:
+    if MANUAL_EVENTS & events:
         return "manual_validation"
 
     raise WorkflowInventoryError(f"unclassified workflow: {path.as_posix()}")
