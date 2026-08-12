@@ -27,7 +27,7 @@ jobs:
           [[ "$(docker inspect --format '{{.State.Status}}' "$CONTAINER_NAME")" == "running" ]]
           docker ps -a --filter 'label=com.docker.compose.project=oteryn-staging' --format '{{.ID}}\t{{.Names}}' | sort >/tmp/oteryn-before.tsv
 
-      - name: Classify client failures and proxy configuration
+      - name: Classify client failures and retained UI state
         shell: bash
         run: |
           set -Eeuo pipefail
@@ -68,7 +68,7 @@ jobs:
               if not in_list or not s or s.startswith('#'):
                   continue
               parts=s.split()
-              if len(parts)>=4:
+              if len(parts)>=3:
                   typ,host,port=parts[:3]
                   proxy_lines.append((typ,host,port))
           print(f'PROXY_LIST_ENTRY_COUNT={len(proxy_lines)}')
@@ -76,6 +76,31 @@ jobs:
               print(f'PROXY_LIST_{i}_TYPE={typ}')
               print(f'PROXY_LIST_{i}_LOCAL={str(host in {"127.0.0.1","::1","localhost"}).lower()}')
               print(f'PROXY_LIST_{i}_PORT={port if port.isdigit() else "non_numeric"}')
+
+          def classify(label,path):
+              p=Path(path)
+              if not p.exists():
+                  print(f'{label}_OCR_PRESENT=false')
+                  return
+              raw=p.read_text(errors='replace').lower()
+              norm=' '.join(''.join(ch if ch.isalnum() else ' ' for ch in raw).split())
+              print(f'{label}_OCR_PRESENT=true')
+              checks={
+                  'ACCOUNT_LOGIN': ('account' in norm and 'login' in norm),
+                  'EMAIL_PASSWORD': ('email' in norm and 'password' in norm),
+                  'SELECT_CHARACTER': ('select' in norm and 'character' in norm),
+                  'ONLINE': 'online' in norm,
+                  'ALREADY': 'already' in norm,
+                  'LOGGED': 'logged' in norm,
+                  'CONNECTION_FAILED': ('connection' in norm and 'failed' in norm),
+                  'QUEUE': 'queue' in norm,
+                  'MAINTENANCE': 'maintenance' in norm,
+              }
+              for key,val in checks.items():
+                  print(f'{label}_{key}={str(val).lower()}')
+              print(f'{label}_LIKELY_ALREADY_LOGGED_IN={str(checks["ALREADY"] and (checks["LOGGED"] or checks["ONLINE"])).lower()}')
+          classify('EARLY','/tmp/post-entry-early.txt')
+          classify('FINAL','/tmp/post-entry.txt')
           PY
 
       - name: Verify live WARP and canonical staging unchanged
