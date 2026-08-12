@@ -1,0 +1,271 @@
+name: Tibia Official Launcher World Entry
+
+on:
+  push:
+    branches: [ops/oteryn-tibia-client-analysis-20260811]
+    paths: [.github/workflows/tibia-client-analysis-launcher-world-entry.yml]
+
+permissions:
+  contents: read
+
+env:
+  CONTAINER_NAME: oteryn-tibia-client-analysis
+
+jobs:
+  enter:
+    name: Launch Tibia officially, enter character, and leave online
+    runs-on: oteryn-staging
+    timeout-minutes: 12
+    steps:
+      - name: Verify owned runtime and snapshot staging
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          [[ "$RUNNER_NAME" == "oteryn-synology-staging" ]]
+          [[ "$(docker inspect --format '{{ index .Config.Labels "com.blakinio.owner" }}' "$CONTAINER_NAME")" == "oteryn" ]]
+          [[ "$(docker inspect --format '{{ index .Config.Labels "com.blakinio.purpose" }}' "$CONTAINER_NAME")" == "tibia-client-analysis" ]]
+          [[ "$(docker inspect --format '{{.State.Status}}' "$CONTAINER_NAME")" == "running" ]]
+          docker ps -a --filter 'label=com.docker.compose.project=oteryn-staging' --format '{{.ID}}\t{{.Names}}' | sort >/tmp/oteryn-before.tsv
+
+      - name: Start through official launcher and enter world
+        shell: bash
+        env:
+          TIBIA_TEST_EMAIL: ${{ secrets.TIBIA_TEST_EMAIL }}
+          TIBIA_TEST_PASSWORD: ${{ secrets.TIBIA_TEST_PASSWORD }}
+        run: |
+          set -Eeuo pipefail
+          [[ -n "$TIBIA_TEST_EMAIL" && -n "$TIBIA_TEST_PASSWORD" ]]
+          docker exec -e TIBIA_TEST_EMAIL -e TIBIA_TEST_PASSWORD -i "$CONTAINER_NAME" bash <<'INNER'
+          set -Eeuo pipefail
+          export DISPLAY=:99 HOME=/data/home
+          export XDG_CONFIG_HOME="$HOME/.config" XDG_DATA_HOME="$HOME/.local/share" XDG_CACHE_HOME="$HOME/.cache"
+          launcher=/data/bootstrap/Tibia/Tibia
+          pkg="$HOME/.local/share/CipSoft GmbH/Tibia/packages/Tibia"
+          client="$pkg/bin/client"
+          [[ -x "$launcher" && -x "$client" ]]
+          echo OFFICIAL_LAUNCHER_PRESENT=true
+          echo OFFICIAL_CLIENT_PRESENT=true
+
+          pgrep -f '/wireproxy .*wireproxy.conf' >/dev/null
+          curl --socks5-hostname 127.0.0.1:25344 -fsS --max-time 10 https://www.cloudflare.com/cdn-cgi/trace >/tmp/launcher-warp.trace
+          grep -q '^warp=on$' /tmp/launcher-warp.trace
+          echo WARP_VERIFIED=true
+          cat >/tmp/proxychains-launcher.conf <<'EOF'
+          strict_chain
+          proxy_dns
+          quiet_mode
+          tcp_read_time_out 15000
+          tcp_connect_time_out 8000
+          [ProxyList]
+          socks5 127.0.0.1 25344
+          EOF
+
+          pkill -x client 2>/dev/null || true
+          pkill -x Tibia 2>/dev/null || true
+          pgrep -f '^Xvfb :99' >/dev/null || nohup Xvfb :99 -screen 0 1280x800x24 >/data/runtime/xvfb.log 2>&1 </dev/null &
+          cd /data/bootstrap/Tibia
+          : >/data/runtime/official-launcher.log
+          nohup proxychains4 -f /tmp/proxychains-launcher.conf "$launcher" >/data/runtime/official-launcher.log 2>&1 </dev/null &
+          launch_pid=$!
+          echo OFFICIAL_LAUNCHER_STARTED=true
+          sleep 15
+
+          mapfile -t wins < <(xdotool search --onlyvisible --name '.*' 2>/dev/null || true)
+          echo VISIBLE_WINDOW_COUNT=${#wins[@]}
+          [[ ${#wins[@]} -gt 0 ]]
+
+          found_play=false
+          play_window=''
+          play_x=''
+          play_y=''
+          idx=0
+          for w in "${wins[@]}"; do
+            idx=$((idx+1))
+            geom=$(xdotool getwindowgeometry --shell "$w" 2>/dev/null || true)
+            width=$(printf '%s\n' "$geom" | sed -n 's/^WIDTH=//p')
+            height=$(printf '%s\n' "$geom" | sed -n 's/^HEIGHT=//p')
+            [[ -n "$width" && -n "$height" && "$width" -ge 300 && "$height" -ge 200 ]] || continue
+            import -display :99 -window "$w" "/tmp/launcher-window-${idx}.png" 2>/dev/null || continue
+            convert "/tmp/launcher-window-${idx}.png" -resize 180% -colorspace Gray -contrast-stretch 1%x1% "/tmp/launcher-window-${idx}-ocr.png" 2>/dev/null || continue
+            tesseract "/tmp/launcher-window-${idx}-ocr.png" stdout --psm 11 tsv 2>/dev/null >"/tmp/launcher-window-${idx}.tsv" || true
+            W="$w" IDX="$idx" python3 - <<'PY' >"/tmp/launcher-window-${idx}.env"
+          import csv,os
+          idx=os.environ['IDX']
+          rows=[]
+          with open(f'/tmp/launcher-window-{idx}.tsv',newline='',errors='replace') as f:
+              for r in csv.DictReader(f,delimiter='\t'):
+                  token=(r.get('text') or '').strip().lower().strip(':,.!?()[]')
+                  try:
+                      conf=float(r.get('conf') or -1)
+                      left=int(r.get('left') or 0); top=int(r.get('top') or 0)
+                      width=max(1,int(r.get('width') or 0)); height=max(1,int(r.get('height') or 0))
+                  except ValueError:
+                      continue
+                  if conf < 30: continue
+                  # Image was resized to 180%.
+                  x=round((left+width/2)/1.8); y=round((top+height/2)/1.8)
+                  if token in {'play','start','launch','update','install','tibia','ready'}:
+                      rows.append((token,x,y,int(conf)))
+          for token,x,y,conf in rows:
+              print(f'SAFE_TOKEN={token},{x},{y},{conf}')
+          action=[r for r in rows if r[0] in {'play','start','launch'}]
+          if action:
+              token,x,y,conf=max(action,key=lambda r:r[3])
+              print('ACTION_FOUND=true')
+              print(f'ACTION_X={x}')
+              print(f'ACTION_Y={y}')
+          else:
+              print('ACTION_FOUND=false')
+          PY
+            cat "/tmp/launcher-window-${idx}.env"
+            if grep -q '^ACTION_FOUND=true$' "/tmp/launcher-window-${idx}.env"; then
+              source "/tmp/launcher-window-${idx}.env"
+              found_play=true
+              play_window="$w"
+              play_x="$ACTION_X"
+              play_y="$ACTION_Y"
+              break
+            fi
+          done
+
+          if [[ "$found_play" == true ]]; then
+            echo OFFICIAL_LAUNCHER_ACTION_FOUND=true
+            xdotool windowactivate --sync "$play_window" 2>/dev/null || true
+            xdotool mousemove --window "$play_window" "$play_x" "$play_y" click 1
+            echo OFFICIAL_LAUNCHER_ACTION_CLICKED=true
+          else
+            echo OFFICIAL_LAUNCHER_ACTION_FOUND=false
+          fi
+
+          # The launcher may auto-start the game or may require the action above.
+          for n in $(seq 1 80); do
+            pgrep -x client >/dev/null && break
+            sleep 0.5
+          done
+          pid=$(pgrep -x client | head -n1 || true)
+          [[ -n "$pid" ]]
+          echo CLIENT_STARTED_BY_LAUNCHER_PATH=true
+          ppid=$(awk '/^PPid:/{print $2}' "/proc/$pid/status")
+          echo CLIENT_PARENT_PID_PRESENT=$([[ -n "$ppid" && "$ppid" != 0 ]] && echo true || echo false)
+          if pgrep -afi 'battleye|beservice|bedaisy' >/dev/null 2>&1; then
+            echo BATTLEYE_NAMED_PROCESS_PRESENT=true
+          else
+            echo BATTLEYE_NAMED_PROCESS_PRESENT=false
+          fi
+          sleep 12
+
+          # Select the largest visible Tibia game window.
+          best=''; best_area=0; bw=0; bh=0
+          for w in $(xdotool search --onlyvisible --name '^Tibia$' 2>/dev/null || true); do
+            geom=$(xdotool getwindowgeometry --shell "$w" 2>/dev/null || true)
+            width=$(printf '%s\n' "$geom" | sed -n 's/^WIDTH=//p')
+            height=$(printf '%s\n' "$geom" | sed -n 's/^HEIGHT=//p')
+            [[ -n "$width" && -n "$height" ]] || continue
+            area=$((width*height)); if (( area > best_area )); then best=$w; best_area=$area; bw=$width; bh=$height; fi
+          done
+          [[ -n "$best" && "$bw" -ge 900 && "$bh" -ge 550 ]]
+          echo GAME_WINDOW_FROM_LAUNCHER_VERIFIED=true
+
+          import -display :99 -window "$best" /tmp/launcher-client-start.png
+          convert /tmp/launcher-client-start.png -crop 900x500+60+80 -resize 150% -colorspace Gray -contrast-stretch 1%x1% /tmp/launcher-client-start-ocr.png
+          tesseract /tmp/launcher-client-start-ocr.png stdout --psm 11 2>/dev/null >/tmp/launcher-client-start.txt || true
+          if ! grep -qiE 'Account Login|E-?mail|Password' /tmp/launcher-client-start.txt; then
+            echo LAUNCHER_CLIENT_ACCOUNT_LOGIN_READY=false
+            exit 5
+          fi
+          echo LAUNCHER_CLIENT_ACCOUNT_LOGIN_READY=true
+
+          xdotool mousemove --window "$best" 535 275 click 1
+          xdotool key --window "$best" ctrl+a
+          xdotool type --window "$best" --delay 3 -- "$TIBIA_TEST_EMAIL"
+          xdotool mousemove --window "$best" 535 304 click 1
+          xdotool key --window "$best" ctrl+a
+          xdotool type --window "$best" --delay 3 -- "$TIBIA_TEST_PASSWORD"
+          xdotool mousemove --window "$best" 590 388 click 1
+          unset TIBIA_TEST_EMAIL TIBIA_TEST_PASSWORD
+          sleep 25
+
+          import -display :99 -window "$best" /tmp/launcher-select.png
+          convert /tmp/launcher-select.png -resize 200% -colorspace Gray -contrast-stretch 1%x1% /tmp/launcher-select-ocr.png
+          tesseract /tmp/launcher-select-ocr.png stdout --psm 11 tsv 2>/dev/null >/tmp/launcher-select.tsv || true
+          python3 - <<'PY' >/tmp/launcher-target.env
+          import csv
+          anchors=[]; candidates=[]
+          with open('/tmp/launcher-select.tsv',newline='',errors='replace') as f:
+              for r in csv.DictReader(f,delimiter='\t'):
+                  token=(r.get('text') or '').strip().lower().strip(':,.!?()[]')
+                  try:
+                      conf=float(r.get('conf') or -1); left=int(r.get('left') or 0)//2; top=int(r.get('top') or 0)//2
+                      width=max(1,int(r.get('width') or 0)//2); height=max(1,int(r.get('height') or 0)//2)
+                  except ValueError: continue
+                  if conf < 20: continue
+                  x=left+width//2; y=top+height//2
+                  if token in {'select','character','status'}: anchors.append((token,x,y))
+                  elif 180 <= x <= 390 and 185 <= y <= 202: candidates.append((left,x,y,conf))
+          if not any(t=='select' and 100<=y<=135 for t,x,y in anchors): raise SystemExit('Select Character absent')
+          status=[(x,y) for t,x,y in anchors if t=='status' and 160<=y<=190]
+          if not status or not candidates: raise SystemExit('character target absent')
+          candidates.sort(); _,x,y,conf=candidates[0]
+          if not (188<=y<=200 and x < status[0][0]-30): raise SystemExit('unsafe target')
+          print(f'NAME_X={x}'); print(f'NAME_Y={y}'); print(f'NAME_CONF={int(conf)}')
+          PY
+          source /tmp/launcher-target.env
+          echo LAUNCHER_CHARACTER_TARGET_VERIFIED=true
+          xdotool mousemove --window "$best" "$NAME_X" "$NAME_Y" click --repeat 2 --delay 180 1
+          echo LAUNCHER_CHARACTER_ACTIVATED=true
+
+          sleep 2; import -display :99 -window "$best" /tmp/launcher-t2.png
+          sleep 8; import -display :99 -window "$best" /tmp/launcher-t10.png
+          sleep 20; import -display :99 -window "$best" /tmp/launcher-t30.png
+          for n in 2 10 30; do
+            convert "/tmp/launcher-t${n}.png" -crop 900x500+60+80 -resize 150% -colorspace Gray -contrast-stretch 1%x1% "/tmp/launcher-t${n}-ocr.png"
+            tesseract "/tmp/launcher-t${n}-ocr.png" stdout --psm 11 2>/dev/null >"/tmp/launcher-t${n}.txt" || true
+          done
+          python3 - <<'PY'
+          from pathlib import Path
+          for n in (2,10,30):
+              raw=Path(f'/tmp/launcher-t{n}.txt').read_text(errors='replace').lower()
+              account=('account login' in raw or ('email' in raw and 'password' in raw))
+              select=('select character' in raw)
+              game=sum(k in raw for k in ('battle','skills','inventory','health','mana','capacity','experience'))>=2
+              print(f'T{n}_ACCOUNT_LOGIN={str(account).lower()}')
+              print(f'T{n}_SELECT_CHARACTER={str(select).lower()}')
+              print(f'T{n}_GAME_MARKERS={str(game).lower()}')
+          final=Path('/tmp/launcher-t30.txt').read_text(errors='replace').lower()
+          account=('account login' in final or ('email' in final and 'password' in final))
+          select=('select character' in final)
+          game=sum(k in final for k in ('battle','skills','inventory','health','mana','capacity','experience'))>=2
+          if account or select or not game: raise SystemExit(6)
+          PY
+
+          pid=$(pgrep -x client | head -n1)
+          [[ -n "$pid" ]]
+          sockets=$(ss -ntp 2>/dev/null | grep "pid=$pid," || true)
+          direct=$(printf '%s\n' "$sockets" | awk '{print $5}' | grep -Ev '^(127\.0\.0\.1|\[::1\]):25344$' | grep -c . || true)
+          echo FINAL_DIRECT_REMOTE_TCP=$direct
+          [[ "$direct" == 0 ]]
+          cp /tmp/launcher-t30.png /tmp/tibia-launcher-online-safe.png
+          convert /tmp/tibia-launcher-online-safe.png -fill '#202020' -draw 'rectangle 0,0 1020,70 rectangle 0,70 180,650 rectangle 840,70 1020,650 rectangle 0,520 1020,650' /tmp/tibia-launcher-online-safe.png
+          echo PHYSICAL_TIBIA_WORLD_LOGIN_PROVEN=true
+          echo TIBIA_CHARACTER_LEFT_ONLINE=true
+          echo OFFICIAL_LAUNCHER_PATH_LEFT_ACTIVE=true
+          INNER
+          docker cp "$CONTAINER_NAME:/tmp/tibia-launcher-online-safe.png" /tmp/tibia-launcher-online-safe.png
+
+      - name: Upload privacy-safe in-world proof
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: tibia-official-launcher-online-proof
+          path: /tmp/tibia-launcher-online-safe.png
+          retention-days: 7
+          if-no-files-found: warn
+
+      - name: Verify canonical staging unchanged and client remains running
+        if: always()
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          docker ps -a --filter 'label=com.docker.compose.project=oteryn-staging' --format '{{.ID}}\t{{.Names}}' | sort >/tmp/oteryn-after.tsv
+          diff -u /tmp/oteryn-before.tsv /tmp/oteryn-after.tsv
+          docker inspect --format 'analysis_name={{.Name}} status={{.State.Status}} owner={{ index .Config.Labels "com.blakinio.owner" }} purpose={{ index .Config.Labels "com.blakinio.purpose" }}' "$CONTAINER_NAME"
