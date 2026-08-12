@@ -15,7 +15,7 @@ env:
 
 jobs:
   inspect:
-    name: Trace resolved Tibia appearance factory method
+    name: Correlate Tibia AppearanceInstance descriptor fields
     runs-on: oteryn-staging
     timeout-minutes: 6
     steps:
@@ -29,7 +29,7 @@ jobs:
           [[ "$(docker inspect --format '{{.State.Status}}' "$CONTAINER_NAME")" == "running" ]]
           docker ps -a --filter 'label=com.docker.compose.project=oteryn-staging' --format '{{.ID}}\t{{.Names}}' | sort >/tmp/oteryn-before.tsv
 
-      - name: Disassemble resolved factory method and direct targets
+      - name: Correlate descriptor strings and field-name neighborhoods
         shell: bash
         run: |
           set -Eeuo pipefail
@@ -39,12 +39,35 @@ jobs:
           [[ -f "$client" ]]
           [[ "$(stat -c %s "$client")" == "51965216" ]]
           [[ "$(sha256sum "$client" | awk '{print $1}')" == "e6c244bd39fe2e0632f6f000efd3147164696efa8e901718668e0442325ff7fe" ]]
-          echo FACTORY_METHOD_BEGIN
-          objdump -d --start-address=0x762d30 --stop-address=0x763450 "$client"
-          echo FACTORY_METHOD_END
-          echo PAYLOAD30_USES_BEGIN
-          objdump -d --start-address=0x762d30 --stop-address=0x763450 "$client" | grep -n -B8 -A12 -E '0x30\(%r(dx|12|bx|si|di|bp)\)|30 00 00 00' || true
-          echo PAYLOAD30_USES_END
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          b=Path('/data/client-15.32.df7b29/bin/client').read_bytes()
+          apps=[m.start() for m in re.finditer(b'AppearanceInstance', b)]
+          needles=[b'object_id',b'objectId',b'objectID',b'objectid',b'type_id',b'typeId',b'typeID',b'appearance_id',b'appearanceId',b'appearanceID',b'object_count',b'objectCount',b'upgrade_tier',b'upgradeTier',b'liquid_type',b'liquidType']
+          print('APPEARANCE_HITS',len(apps))
+          for n in needles:
+              hits=[m.start() for m in re.finditer(re.escape(n),b)]
+              if not hits: continue
+              print('FIELD_TOKEN',n.decode(),'COUNT',len(hits))
+              for p in hits[:80]:
+                  d=min((abs(p-a),a) for a in apps) if apps else (None,None)
+                  print(f'  off=0x{p:x} nearestAppearance=0x{d[1]:x} distance={d[0]}')
+          # Show printable tokens around AppearanceInstance occurrences that are near likely protocol descriptor clusters.
+          for i,a in enumerate(apps):
+              lo=max(0,a-1536); hi=min(len(b),a+3072)
+              chunk=b[lo:hi]
+              words=[]
+              for m in re.finditer(rb'[A-Za-z_][A-Za-z0-9_]{2,}',chunk):
+                  s=m.group().decode('ascii','replace')
+                  if s not in words: words.append(s)
+              if any(x in words for x in ['object_id','objectId','objectID','type_id','typeId','typeID','object_count','objectCount']):
+                  print(f'PROTO_NEIGHBORHOOD index={i} appearance_off=0x{a:x}')
+                  print('TOKENS '+' | '.join(words[:220]))
+          PY
+          echo LOWERCASE_PROTO_FIELDS_BEGIN
+          strings -a -t x "$client" | grep -E '(^|[^A-Za-z])(object_id|object_count|type_id|appearance_id|upgrade_tier|liquid_type|hook_direction|deco_item_object_id)([^A-Za-z]|$)' | head -n 320 || true
+          echo LOWERCASE_PROTO_FIELDS_END
           INNER
 
       - name: Verify authenticated session retained and staging unchanged
