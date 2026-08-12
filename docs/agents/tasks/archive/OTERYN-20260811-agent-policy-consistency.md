@@ -29,8 +29,8 @@ Tracks Issue #991 and PR #992.
 - [x] Focused negative fixtures prove task-status, budget, repository-scope and closeout drift are rejected.
 - [x] Agent Governance CI executes the focused tests and live validator.
 - [x] Governance-only changes, including directory-based PR templates, route without unrelated heavy runtime gates by design.
-- [ ] Exact-head required CI, Agent Governance and fresh review pass before merge.
-- [ ] Issue #991 closes and this task archives after merge.
+- [x] Exact-head required CI, Agent Governance and fresh review pass before merge.
+- [x] Issue #991 closes and this task archives after merge.
 
 ## Ownership
 
@@ -57,26 +57,35 @@ cross_repository_tasks:
   - none
 ```
 
+## Result
+
+`completed`
+
+- Delivery PR: #992.
+- Exact validated delivery head: `acb17a8e43e6ec96b922b3f18ad5f71cfceaadb2`.
+- Protected-base SHA: `66443e1d4bec220d45e74ead9fbc445d0abbca6e`.
+- Squash merge on `main`: `b016ed95f3d3f60df0afe86ad70e5eb7e28cbdcb`.
+- Exact-head policy regressions: 95/95 PASS; live policy validator PASS.
+- Exact-head GitHub Actions: all 13 emitted checks PASS, including Agent Governance run `31593003558`, CI run `31593003575`, and Deep System Validation run `31593003533`.
+- Fresh exact-head full-diff review: `PASS_ZERO_MATERIAL_FINDINGS` for P1/P2 scope.
+- PR hygiene: zero unresolved material review threads; mergeability and ownership were rechecked immediately before merge.
+- Ownership release: active record removed by this archive move; no paths remain claimed by this task.
+
 ## Context checkpoint
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-12T13:41:14+02:00
-head: 77ee0c2e4c75ca65045b99e772c8679b3b82083f
-branch: test/agent-policy-consistency
+updated_at: 2026-08-12T14:09:24+02:00
+head: acb17a8e43e6ec96b922b3f18ad5f71cfceaadb2
+branch: docs/OTERYN-20260811-agent-policy-consistency-closeout
 pr: 992
-status: validating
+status: completed
+merge_sha: b016ed95f3d3f60df0afe86ad70e5eb7e28cbdcb
 context_routes:
   - agent-governance
   - testing
   - ci-repair
 owned_paths:
-  - tools/agents/policy_consistency.py
-  - tools/agents/test_policy_consistency.py
-  - .github/workflows/agent-governance.yml
-  - scripts/ci/classify_changes.py
-  - tests/ci/fixtures/change-routing-cases.json
-  - docs/agents/tasks/active/OTERYN-20260811-agent-policy-consistency.md
   - docs/agents/tasks/archive/OTERYN-20260811-agent-policy-consistency.md
 proven:
   - PR #992 remains limited to the six declared changed paths and is based on current main without known ownership conflict.
@@ -91,12 +100,11 @@ proven:
   - Local focused validation on 5d89a8783809610713aca96200cd136153e1d0e6 passed 95 of 95 policy-consistency regressions, the live validator, 12 of 12 CI routing tests, all 3 active checkpoint validations and git diff checks.
   - Final checkpoint candidate bb9422e9a4d012e434c47152034d629e36c9d276 passed all 13 required checks and fresh full-diff review with zero material P1/P2, but branch protection rejected merge after main advanced.
   - Merge head 77ee0c2e4c75ca65045b99e772c8679b3b82083f incorporates protected main 66443e1d4bec220d45e74ead9fbc445d0abbca6e without conflicts; focused validation still passes 95/95 policy regressions, live validator, 12/12 routing tests and 3 checkpoint validations.
+  - Final head acb17a8e43e6ec96b922b3f18ad5f71cfceaadb2 passed all 13 emitted GitHub checks, fresh full-diff review with zero material P1/P2, zero unresolved review threads and final mergeability/ownership checks.
+  - PR #992 squash-merged with expected-head protection as b016ed95f3d3f60df0afe86ad70e5eb7e28cbdcb; protected main now contains the exact delivery.
 derived:
-  - All currently known material review findings have implementation repairs and focused regression coverage on 5d89a8783809610713aca96200cd136153e1d0e6.
-  - This task-record-only update creates a new metadata head; 77ee0c2e4c75ca65045b99e772c8679b3b82083f remains the latest main-synchronized material head.
-unknown:
-  - Terminal repository-required workflow results on the metadata-only final head created by this update.
-  - Fresh Codex review result on the metadata-only final head created by this update.
+  - Issue #991 acceptance is satisfied and task ownership can be released through this archive move.
+unknown: []
 conflicts: []
 first_failure:
   marker: none-known-after-final-authorization-gate-regressions
@@ -113,6 +121,15 @@ changed_paths:
   - tools/agents/policy_consistency.py
   - tools/agents/test_policy_consistency.py
 validation:
+  - command: exact-head required GitHub Actions on acb17a8e43e6ec96b922b3f18ad5f71cfceaadb2
+    result: PASS
+    evidence: all 13 emitted checks completed successfully; Agent Governance 31593003558 and Deep System Validation 31593003533 passed.
+  - command: fresh exact-head full-diff review and PR hygiene
+    result: PASS
+    evidence: PASS_ZERO_MATERIAL_FINDINGS for P1/P2 scope, zero unresolved review threads, mergeable and no ownership conflict immediately before merge.
+  - command: protected-main merge verification
+    result: PASS
+    evidence: expected head acb17a8e43e6ec96b922b3f18ad5f71cfceaadb2 squash-merged as b016ed95f3d3f60df0afe86ad70e5eb7e28cbdcb.
   - command: python tools/agents/test_policy_consistency.py && python tools/agents/policy_consistency.py && python tests/ci/test_classify_changes.py && python tools/agents/checkpoint.py --tasks docs/agents/tasks/active --require-checkpoint on 5d89a8783809610713aca96200cd136153e1d0e6
     result: PASS
     evidence: 95/95 policy-consistency regressions, live validator, 12/12 routing tests and 3 active checkpoint validations passed locally.
@@ -122,9 +139,8 @@ validation:
   - command: final metadata-head repository-required CI and fresh Codex review
     result: NOT_RUN
     evidence: this checkpoint-only update creates a new final validation generation after mandatory main synchronization.
-blockers:
-  - none
-next_action: Freeze the branch, validate every repository-required workflow and fresh Codex review on the resulting exact metadata head, resolve the procedural checkpoint thread with final-head evidence, then squash-merge PR #992 with expected-head protection and perform lifecycle archival before closing Issue #991.
+blockers: []
+next_action: none
 ```
 
 ## Recovery checkpoint
@@ -132,26 +148,33 @@ next_action: Freeze the branch, validate every repository-required workflow and 
 ```yaml
 recovery:
   policy_version: 1
-  generation: 28
-  session_id: codex-20260812-main-synchronized-final-gate
+  generation: 29
+  session_id: codex-20260812-post-merge-closeout
   session_started_at: 2026-08-12T13:05:00+02:00
-  checkpointed_at: 2026-08-12T13:41:14+02:00
-  last_progress_at: 2026-08-12T13:41:14+02:00
-  phase: final-checkpoint-validation
-  exact_head: 77ee0c2e4c75ca65045b99e772c8679b3b82083f
+  checkpointed_at: 2026-08-12T14:09:24+02:00
+  last_progress_at: 2026-08-12T14:09:24+02:00
+  phase: terminal-closeout
+  exact_head: acb17a8e43e6ec96b922b3f18ad5f71cfceaadb2
   pull_request: 992
-  active_operation: checkpoint mandatory main synchronization after branch protection rejected stale-base merge
-  external_run_ids: []
-  operation_started_at: 2026-08-12T13:41:14+02:00
-  wait_deadline_at: 2026-08-12T14:26:14+02:00
-  check_generation: main-synchronized-final-checkpoint
+  active_operation: archive terminal task record and release ownership after verified squash merge
+  external_run_ids:
+    - 31593003558
+    - 31593003575
+    - 31593003533
+  operation_started_at: 2026-08-12T14:09:24+02:00
+  wait_deadline_at: 2026-08-12T14:24:24+02:00
+  check_generation: post-merge-closeout
   checks_used: 0
-  status: active
+  status: completed
   safe_to_resume: true
-  resume_condition: final checkpoint head required checks and fresh review are terminal and branch head remains unchanged
-  next_action: inspect exact-head required CI and fresh review; merge only with zero unresolved material findings
+  resume_condition: none
+  next_action: none
 ```
 
 ## Notes
 
 `feature_scope: internal_only`; user-facing/runtime E2E is `NOT_APPLICABLE` because this task changes repository governance, validation and routing only. Executable outcome proof is the focused Python regression suite, live policy validator, routing tests and repository-required exact-head checks. Generic workflow and classifier changes remain fail closed with all applicable gates.
+
+## Closeout
+
+This archive record supersedes `docs/agents/tasks/active/OTERYN-20260811-agent-policy-consistency.md`. Issue #991 acceptance is complete, task ownership is released, and no production, credential, protected-environment or external-repository mutation was part of this lifecycle closeout.
