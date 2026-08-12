@@ -13,9 +13,9 @@ env:
 
 jobs:
   trace:
-    name: Launch installed Tibia client
+    name: Inspect Tibia login form safely
     runs-on: oteryn-staging
-    timeout-minutes: 10
+    timeout-minutes: 8
     steps:
       - name: Verify owned runtime and snapshot staging
         shell: bash
@@ -26,60 +26,59 @@ jobs:
           [[ "$(docker inspect --format '{{ index .Config.Labels "com.blakinio.purpose" }}' "$CONTAINER_NAME")" == "tibia-client-analysis" ]]
           docker ps -a --filter 'label=com.docker.compose.project=oteryn-staging' --format '{{.ID}}\t{{.Names}}' | sort > /tmp/oteryn-before.tsv
 
-      - name: Launch official installed client
+      - name: Open login form and OCR safe labels
         shell: bash
         run: |
           set -Eeuo pipefail
           docker exec -i "$CONTAINER_NAME" bash <<'INNER'
           set -Eeuo pipefail
           export DISPLAY=:99 HOME=/data/home
-          pkg="$HOME/.local/share/CipSoft GmbH/Tibia/packages/Tibia"
-          client="$pkg/bin/client"
-          [[ -x "$client" ]]
-          echo CLIENT_PATH="$client"
-          echo LDD_MISSING_BEGIN
-          ldd "$client" 2>/dev/null | grep 'not found' || true
-          echo LDD_MISSING_END
-          before=$(mktemp)
-          xdotool search --onlyvisible --name '.*' 2>/dev/null | sort -n > "$before" || true
-          pkill -f '^/data/home/.local/share/CipSoft GmbH/Tibia/packages/Tibia/bin/client' 2>/dev/null || true
-          : > /data/runtime/installed-client-launch.log
-          cd "$pkg"
-          nohup "$client" >/data/runtime/installed-client-launch.log 2>&1 </dev/null &
-          pid=$!
-          echo CLIENT_PID=$pid
-          alive=0
-          for n in $(seq 1 12); do
-            sleep 3
-            if kill -0 "$pid" 2>/dev/null; then alive=1; else alive=0; break; fi
+          client="$HOME/.local/share/CipSoft GmbH/Tibia/packages/Tibia/bin/client"
+          pgrep -f "^$client" >/dev/null
+          best=''; best_area=0
+          for w in $(xdotool search --onlyvisible --name '^Tibia$' 2>/dev/null || true); do
+            geom=$(xdotool getwindowgeometry --shell "$w" 2>/dev/null || true)
+            width=$(printf '%s\n' "$geom" | sed -n 's/^WIDTH=//p')
+            height=$(printf '%s\n' "$geom" | sed -n 's/^HEIGHT=//p')
+            [[ -n "$width" && -n "$height" ]] || continue
+            area=$((width*height))
+            echo WINDOW_ID=$w WIDTH=$width HEIGHT=$height AREA=$area
+            if (( area > best_area )); then best=$w; best_area=$area; fi
           done
-          echo CLIENT_PROCESS_ALIVE=$alive
-          echo VISIBLE_WINDOWS_BEGIN
-          for w in $(xdotool search --onlyvisible --name '.*' 2>/dev/null || true); do
-            printf 'id=%s name=' "$w"
-            xdotool getwindowname "$w" 2>/dev/null || true
-          done
-          echo VISIBLE_WINDOWS_END
-          import -display :99 -window root /tmp/client-screen.png || true
-          if (( alive == 0 )); then
-            echo SANITIZED_CLIENT_DIAGNOSTIC_BEGIN
-            sed -E '/(token|password|account|session|cookie|authorization|bearer)/Id' /data/runtime/installed-client-launch.log | tail -120
-            echo SANITIZED_CLIENT_DIAGNOSTIC_END
-            exit 1
-          fi
-          test -s /tmp/client-screen.png
+          [[ -n "$best" ]]
+          echo CLIENT_WINDOW_ID=$best CLIENT_WINDOW_AREA=$best_area
+          xdotool windowactivate --sync "$best" || true
+          xdotool mousemove --window "$best" 510 302 click 1
+          sleep 4
+          import -display :99 -window "$best" /tmp/login-form.png
+          test -s /tmp/login-form.png
+          convert /tmp/login-form.png -resize 200% -colorspace Gray -contrast-stretch 1%x1% /tmp/login-form-ocr.png
+          tesseract /tmp/login-form-ocr.png stdout --psm 11 tsv 2>/dev/null > /tmp/login.tsv || true
+          echo SAFE_LOGIN_LABELS_BEGIN
+          python3 - <<'PY'
+          import csv,re
+          allowed=re.compile(r'(login|account|email|password|authenticator|token|remember|cancel|ok|submit|two.factor|2fa|character)',re.I)
+          with open('/tmp/login.tsv',newline='',errors='replace') as f:
+              for r in csv.DictReader(f,delimiter='\t'):
+                  t=(r.get('text') or '').strip()
+                  if t and allowed.search(t):
+                      x=int(float(r.get('left') or 0))//2; y=int(float(r.get('top') or 0))//2
+                      w=int(float(r.get('width') or 0))//2; h=int(float(r.get('height') or 0))//2
+                      # labels only; never emit arbitrary field contents
+                      print(f'x={x} y={y} w={w} h={h} label={t}')
+          PY
+          echo SAFE_LOGIN_LABELS_END
           INNER
-          docker cp "$CONTAINER_NAME:/tmp/client-screen.png" /tmp/client-screen.png
-          test -s /tmp/client-screen.png
-          echo CLIENT_SCREENSHOT_BYTES=$(stat -c %s /tmp/client-screen.png)
+          docker cp "$CONTAINER_NAME:/tmp/login-form.png" /tmp/login-form.png
+          test -s /tmp/login-form.png
+          echo LOGIN_SCREENSHOT_BYTES=$(stat -c %s /tmp/login-form.png)
 
-      - name: Upload client screenshot
-        if: always()
+      - name: Upload login form screenshot
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: tibia-client-screen
-          path: /tmp/client-screen.png
-          if-no-files-found: warn
+          name: tibia-login-form-screen
+          path: /tmp/login-form.png
+          if-no-files-found: error
           retention-days: 7
 
       - name: Verify canonical staging unchanged
