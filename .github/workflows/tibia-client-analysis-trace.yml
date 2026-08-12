@@ -13,9 +13,9 @@ env:
 
 jobs:
   trace:
-    name: Capture sanitized Tibia character selection
+    name: Login Tibia character and leave session running
     runs-on: oteryn-staging
-    timeout-minutes: 10
+    timeout-minutes: 12
     steps:
       - name: Verify owned runtime and snapshot staging
         shell: bash
@@ -27,18 +27,22 @@ jobs:
           [[ "$(docker inspect --format '{{.State.Status}}' "$CONTAINER_NAME")" == "running" ]]
           docker ps -a --filter 'label=com.docker.compose.project=oteryn-staging' --format '{{.ID}}\t{{.Names}}' | sort >/tmp/oteryn-before.tsv
 
-      - name: Login and capture privacy-sanitized character-selection screen
+      - name: Login account, select visible character row, and enter world
         shell: bash
         env:
           TIBIA_TEST_EMAIL: ${{ secrets.TIBIA_TEST_EMAIL }}
           TIBIA_TEST_PASSWORD: ${{ secrets.TIBIA_TEST_PASSWORD }}
         run: |
           set -Eeuo pipefail
+          [[ -n "$TIBIA_TEST_EMAIL" && -n "$TIBIA_TEST_PASSWORD" ]]
           docker exec -e TIBIA_TEST_EMAIL -e TIBIA_TEST_PASSWORD -i "$CONTAINER_NAME" bash <<'INNER'
           set -Eeuo pipefail
           export DISPLAY=:99 HOME=/data/home
           pkg="$HOME/.local/share/CipSoft GmbH/Tibia/packages/Tibia"
           client="$pkg/bin/client"
+          pgrep -f '/wireproxy .*wireproxy.conf' >/dev/null
+          curl --socks5-hostname 127.0.0.1:25344 -fsS --max-time 10 https://www.cloudflare.com/cdn-cgi/trace >/tmp/warp-trace
+          grep -q '^warp=on$' /tmp/warp-trace
           pkill -f 'packages/Tibia/bin/client' 2>/dev/null || true
           pgrep -f '^Xvfb :99' >/dev/null || nohup Xvfb :99 -screen 0 1280x800x24 >/data/runtime/xvfb.log 2>&1 </dev/null &
           cd "$pkg"
@@ -53,8 +57,6 @@ jobs:
             area=$((width*height)); if (( area > best_area )); then best=$w; best_area=$area; fi
           done
           [[ -n "$best" && "$best_area" -ge 600000 ]]
-          xdotool mousemove --window "$best" 510 302 click 1 || true
-          sleep 2
           xdotool mousemove --window "$best" 535 275 click 1
           xdotool key --window "$best" ctrl+a
           xdotool type --window "$best" --delay 3 -- "$TIBIA_TEST_EMAIL"
@@ -64,48 +66,80 @@ jobs:
           xdotool mousemove --window "$best" 590 388 click 1
           unset TIBIA_TEST_EMAIL TIBIA_TEST_PASSWORD
           sleep 25
-          import -display :99 -window "$best" /tmp/select-raw.png
-          convert /tmp/select-raw.png -resize 200% -colorspace Gray -contrast-stretch 1%x1% /tmp/select-ocr.png
+          import -display :99 -window "$best" /tmp/select.png
+          convert /tmp/select.png -resize 200% -colorspace Gray -contrast-stretch 1%x1% /tmp/select-ocr.png
           tesseract /tmp/select-ocr.png stdout --psm 11 tsv 2>/dev/null >/tmp/select.tsv || true
-          cp /tmp/select-raw.png /tmp/select-safe.png
-          python3 - <<'PY' >/tmp/redactions.txt
-          import csv,re
-          allowed={x.lower() for x in ['Select','Character','Characters','online','Ok','Cancel','Create','Manage','Account','You','need','to','complete','the','recovery','setup','process']}
+          python3 - <<'PY' >/tmp/row.env
+          import csv
+          candidates=[]
           with open('/tmp/select.tsv',newline='',errors='replace') as f:
               for r in csv.DictReader(f,delimiter='\t'):
-                  t=(r.get('text') or '').strip().strip(':,.!?()[]')
-                  if not t: continue
+                  t=(r.get('text') or '').strip().lower().strip(':,.!?()[]')
+                  if t!='online':
+                      continue
                   try:
                       conf=float(r.get('conf') or -1)
-                      x=int(r.get('left') or 0)//2; y=int(r.get('top') or 0)//2
-                      w=max(1,int(r.get('width') or 0)//2); h=max(1,int(r.get('height') or 0)//2)
-                  except ValueError: continue
-                  if conf < 20 or t.lower() in allowed: continue
-                  # Pad each non-whitelisted text box before redaction.
-                  print(f'{max(0,x-4)} {max(0,y-3)} {x+w+4} {y+h+3}')
+                      top=int(r.get('top') or 0)//2
+                      height=max(1,int(r.get('height') or 0)//2)
+                  except ValueError:
+                      continue
+                  if conf >= 20:
+                      candidates.append((conf,top+height//2))
+          if not candidates:
+              raise SystemExit('No online character row detected')
+          _,y=max(candidates)
+          if not (120 <= y <= 600):
+              raise SystemExit(f'Unsafe character row y={y}')
+          print(f'ROW_Y={y}')
           PY
-          while read -r x1 y1 x2 y2; do
-            [[ -n "$x1" ]] || continue
-            convert /tmp/select-safe.png -fill '#202020' -draw "rectangle $x1,$y1 $x2,$y2" /tmp/select-safe.png
-          done </tmp/redactions.txt
-          # Also mask the extreme top bar where account metadata could appear.
-          convert /tmp/select-safe.png -fill '#202020' -draw 'rectangle 0,0 1280,65' /tmp/select-safe.png
-          grep -qi 'select' /tmp/select.tsv
-          echo SANITIZED_CHARACTER_SELECTION_CAPTURED=true
+          source /tmp/row.env
+          echo CHARACTER_ROW_DETECTED=true
+          echo "character_row_y=$ROW_Y"
+          # Use the OCR-proven row Y and a stable interior X in the character list; double-click
+          # the row so the dialog itself performs its normal character activation action.
+          xdotool mousemove --window "$best" 500 "$ROW_Y" click --repeat 2 --delay 180 1
+          sleep 40
+          import -display :99 -window "$best" /tmp/post-entry.png
+          convert /tmp/post-entry.png -resize 200% -colorspace Gray -contrast-stretch 1%x1% /tmp/post-entry-ocr.png
+          tesseract /tmp/post-entry-ocr.png stdout --psm 11 2>/dev/null >/tmp/post-entry.txt || true
+          if grep -qi 'Select Character' /tmp/post-entry.txt; then
+            echo STILL_ON_CHARACTER_SELECTION=true >&2
+            exit 1
+          fi
+          if grep -qiE 'Account Login|E-?mail|Password' /tmp/post-entry.txt; then
+            echo RETURNED_TO_ACCOUNT_LOGIN=true >&2
+            exit 1
+          fi
+          pid=$(pgrep -f 'packages/Tibia/bin/client' | head -n1)
+          [[ -n "$pid" ]]
+          sockets=$(ss -ntp 2>/dev/null | grep "pid=$pid," || true)
+          if printf '%s\n' "$sockets" | awk '{print $5}' | grep -Ev '^(127\.0\.0\.1|\[::1\]):25344$' | grep -q .; then
+            echo CLIENT_DIRECT_TCP_DETECTED=true >&2
+            exit 1
+          fi
+          # Keep the live client untouched after this point. Save the full screenshot only in the
+          # owned runtime and export a masked copy for manual visual verification.
+          cp /tmp/post-entry.png /tmp/post-entry-safe.png
+          convert /tmp/post-entry-safe.png -fill '#202020' -draw 'rectangle 0,0 1280,70 rectangle 0,70 180,800 rectangle 1100,70 1280,800' /tmp/post-entry-safe.png
+          echo POST_ENTRY_SCREEN_CAPTURED=true
           INNER
-          docker cp "$CONTAINER_NAME:/tmp/select-safe.png" /tmp/select-safe.png
+          docker cp "$CONTAINER_NAME:/tmp/post-entry-safe.png" /tmp/post-entry-safe.png
 
-      - name: Upload sanitized character-selection screenshot
+      - name: Upload privacy-safe post-entry screenshot
+        if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: tibia-character-selection-sanitized
-          path: /tmp/select-safe.png
+          name: tibia-post-entry-screen-safe
+          path: /tmp/post-entry-safe.png
           retention-days: 7
+          if-no-files-found: warn
 
-      - name: Verify canonical staging unchanged
+      - name: Verify canonical staging unchanged and client remains running
         if: always()
         shell: bash
         run: |
           set -Eeuo pipefail
           docker ps -a --filter 'label=com.docker.compose.project=oteryn-staging' --format '{{.ID}}\t{{.Names}}' | sort >/tmp/oteryn-after.tsv
           diff -u /tmp/oteryn-before.tsv /tmp/oteryn-after.tsv
+          docker exec "$CONTAINER_NAME" pgrep -f 'packages/Tibia/bin/client' >/dev/null
+          docker inspect --format 'analysis_name={{.Name}} status={{.State.Status}} owner={{ index .Config.Labels "com.blakinio.owner" }} purpose={{ index .Config.Labels "com.blakinio.purpose" }}' "$CONTAINER_NAME"
