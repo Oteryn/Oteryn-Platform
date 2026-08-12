@@ -25,30 +25,34 @@ jobs:
           set -Eeuo pipefail
           bin='/data/home/.local/share/CipSoft GmbH/Tibia/packages/Tibia/bin/client'
           readelf -rW "$bin" >/tmp/outbound-rela
-          echo RELOCS_TO_OUTBOUND_STRINGS_BEGIN
-          awk '
-            $1 ~ /^[0-9a-fA-F]+$/ && $0 ~ /R_X86_64_RELATIVE/ {
-              add=$NF; if (add ~ /^[0-9a-fA-F]+$/) {
-                x=strtonum("0x" add);
-                if (x>=strtonum("0x1cd0800") && x<=strtonum("0x1cd2200")) print $0;
-              }
-            }
-          ' /tmp/outbound-rela | head -n 300
-          echo RELOCS_TO_OUTBOUND_STRINGS_END
-          echo CANDIDATE_METAOBJECT_NEIGHBORS_BEGIN
-          awk '
-            $1 ~ /^[0-9a-fA-F]+$/ && $0 ~ /R_X86_64_RELATIVE/ {
-              add=$NF; if (add ~ /^[0-9a-fA-F]+$/) {
-                x=strtonum("0x" add);
-                if (x>=strtonum("0x1cd0800") && x<=strtonum("0x1cd2200")) print $1;
-              }
-            }
-          ' /tmp/outbound-rela | while read loc; do
-            dec=$((16#$loc)); lo=$((dec-24)); hi=$((dec+56));
-            printf 'CANDIDATE_RELOC_LOCATION=0x%s\n' "$loc"
-            awk -v lo="$lo" -v hi="$hi" '$1 ~ /^[0-9a-fA-F]+$/ {x=strtonum("0x"$1); if (x>=lo && x<=hi) print}' /tmp/outbound-rela
-          done | head -n 800
-          echo CANDIDATE_METAOBJECT_NEIGHBORS_END
+          python3 - <<'PY'
+import re
+lines=open('/tmp/outbound-rela',errors='replace').read().splitlines()
+rows=[]
+for line in lines:
+    parts=line.split()
+    if len(parts)<4 or 'R_X86_64_RELATIVE' not in line:
+        continue
+    try:
+        loc=int(parts[0],16); add=int(parts[-1],16)
+    except ValueError:
+        continue
+    rows.append((loc,add,line))
+hits=[r for r in rows if 0x1cd0800 <= r[1] <= 0x1cd2200]
+print('RELOCS_TO_OUTBOUND_STRINGS_BEGIN')
+for _,_,line in hits[:300]: print(line)
+print('RELOCS_TO_OUTBOUND_STRINGS_END')
+print('CANDIDATE_METAOBJECT_NEIGHBORS_BEGIN')
+seen=set()
+for loc,add,line in hits:
+    if loc in seen: continue
+    seen.add(loc)
+    print(f'CANDIDATE_RELOC_LOCATION=0x{loc:x} ADDEND=0x{add:x}')
+    for l,a,txt in rows:
+        if loc-0x28 <= l <= loc+0x48:
+            print(txt)
+print('CANDIDATE_METAOBJECT_NEIGHBORS_END')
+PY
           rm -f /tmp/outbound-rela
           pid=$(pgrep -x client | head -n1 || true); [[ -n "$pid" ]]
           tcp_rows=$(ss -ntp 2>/dev/null | grep "pid=$pid," || true)
