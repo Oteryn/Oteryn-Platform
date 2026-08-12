@@ -107,6 +107,89 @@ def _mapping_child_block(text: str, root_key: str, child_key: str) -> str | None
     return "\n".join(lines[child_index:child_end])
 
 
+def _direct_child_mapping_block(block_text: str, child_key: str) -> str | None:
+    """Return a direct mapping child from an already isolated YAML block."""
+
+    lines = block_text.splitlines()
+    if not lines:
+        return None
+    parent_indent = len(lines[0]) - len(lines[0].lstrip(" "))
+    child_indent = parent_indent + 2
+    prefix = " " * child_indent + f"{child_key}:"
+
+    child_index: int | None = None
+    for index, line in enumerate(lines[1:], start=1):
+        if not line.strip() or line.lstrip().startswith("#"):
+            continue
+        indent = len(line) - len(line.lstrip(" "))
+        if indent <= parent_indent:
+            break
+        if indent == child_indent and line.startswith(prefix) and line[len(prefix) :].strip() == "":
+            child_index = index
+            break
+    if child_index is None:
+        return None
+
+    child_end = len(lines)
+    for index in range(child_index + 1, len(lines)):
+        line = lines[index]
+        if not line.strip() or line.lstrip().startswith("#"):
+            continue
+        indent = len(line) - len(line.lstrip(" "))
+        if indent <= child_indent:
+            child_end = index
+            break
+    return "\n".join(lines[child_index:child_end])
+
+
+def _strip_yaml_comment(line: str) -> str:
+    """Strip an unquoted YAML comment from one conservative workflow line."""
+
+    single_quoted = False
+    double_quoted = False
+    escaped = False
+    for index, char in enumerate(line):
+        if char == "\\" and double_quoted and not escaped:
+            escaped = True
+            continue
+        if char == '"' and not single_quoted and not escaped:
+            double_quoted = not double_quoted
+        elif char == "'" and not double_quoted:
+            single_quoted = not single_quoted
+        elif char == "#" and not single_quoted and not double_quoted and (
+            index == 0 or line[index - 1].isspace()
+        ):
+            return line[:index].rstrip()
+        escaped = False
+    return line.rstrip()
+
+
+def _event_contains_trigger_marker(event: str, event_block: str, trigger: str) -> bool:
+    """Bind a registry trigger marker to executable event configuration.
+
+    workflow_dispatch markers that name an input must be a real direct child of
+    ``on.workflow_dispatch.inputs``. Other event markers are searched only in
+    executable YAML text after comments are removed.
+    """
+
+    marker = trigger.strip()
+    input_match = re.fullmatch(r"([A-Za-z0-9_-]+):", marker)
+    if event == "workflow_dispatch" and input_match is not None:
+        inputs_block = _direct_child_mapping_block(event_block, "inputs")
+        if inputs_block is None:
+            return False
+        return _direct_child_mapping_block(inputs_block, input_match.group(1)) is not None
+
+    executable_lines = []
+    for line in event_block.splitlines()[1:]:
+        if line.lstrip().startswith("#"):
+            continue
+        code = _strip_yaml_comment(line)
+        if code.strip():
+            executable_lines.append(code)
+    return marker in "\n".join(executable_lines)
+
+
 def _mapping_direct_scalar(block_text: str, key: str) -> str | None:
     """Return one direct scalar child from an already isolated YAML block.
 
@@ -208,9 +291,9 @@ def validate_repository(root: Path) -> list[str]:
             event_block = _mapping_child_block(workflow_text, "on", event)
             if event_block is None:
                 raise RegistrationError(f"{test_path}: workflow {workflow} has no top-level on.{event} trigger")
-            if trigger not in event_block:
+            if not _event_contains_trigger_marker(event, event_block, trigger):
                 raise RegistrationError(
-                    f"{test_path}: top-level on.{event} trigger does not contain marker {trigger}"
+                    f"{test_path}: top-level on.{event} trigger does not contain executable marker {trigger}"
                 )
 
             job_block = _mapping_child_block(workflow_text, "jobs", job)
