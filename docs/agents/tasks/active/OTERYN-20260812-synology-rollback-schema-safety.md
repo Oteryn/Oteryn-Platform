@@ -39,12 +39,15 @@ owned_paths:
   - docs/agents/tasks/archive/OTERYN-20260812-synology-rollback-schema-safety.md
 excluded_paths:
   - .github/workflows/deploy-synology-staging.yml
+  - deploy/synology/scripts/production-target-preflight.sh
 modules:
   - synology-staging-deployment
 blockers:
-  - none; PR #1003 still owns .github/workflows/deploy-synology-staging.yml, this task does not edit it, and its immutable release-SHA/digest handoff remains compatible with this implementation.
+  - none; PR #1003 owns .github/workflows/deploy-synology-staging.yml and temporarily owns deploy/synology/scripts/production-target-preflight.sh to repair the exact release-identity consumer compatibility finding; this task does not edit either path.
 cross_repository_tasks: []
 ```
+
+Ownership coordination at 2026-08-12T18:26:15+02:00: PR #1013 has no diff for `deploy/synology/scripts/production-target-preflight.sh`; that path is explicitly released from this wildcard lease to PR #1003 so the exact-SHA/digest producer and its preflight consumer can be repaired atomically. All other `deploy/synology/**` ownership remains with this task.
 
 The older `OTERYN-20260801-public-domain-repair` record's latest durable checkpoint has `branch: none`, `pr: none`, omits the current implementation paths from active ownership, and explicitly releases its former implementation ownership.
 
@@ -52,8 +55,8 @@ The older `OTERYN-20260801-public-domain-repair` record's latest durable checkpo
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-12T09:45:00Z
-head: 5764a48ea91df3597182c921f1fe24cf6565cc50
+updated_at: 2026-08-12T18:26:15+02:00
+head: 7bdf6a519f83f367cf442665c09d8729ddd3c405
 branch: ops/synology-rollback-schema-safety-1007
 pr: 1013
 status: validating
@@ -61,7 +64,7 @@ context_routes:
   - ci-repair
   - testing
 owned_paths:
-  - deploy/synology/**
+  - deploy/synology/** except deploy/synology/scripts/production-target-preflight.sh
   - .github/workflows/build-synology-staging-images.yml
   - .github/workflows/recover-synology-staging-schema.yml
   - .github/workflows/synology-rollback-contract.yml
@@ -83,11 +86,13 @@ proven:
   - health helper aliases remain mapped to repository-pinned immutable Alpine and Python digests without changing probe retry or assertion behavior.
   - rollback validates independent schema identity against last-good application compatibility and explicitly states that image rollback does not restore or change database schema.
   - deterministic focused CI covers rollback compatibility, missing/stale metadata, immutable probes, recovery target binding, guarded recovery workflow, Marketplace runtime reconciliation and same-release last-good preservation.
-  - PR #1003's proposed staging workflow resolves release_sha-tagged Platform/Gateway images and Canary input to immutable digests and verifies Platform/Gateway OCI revisions, composing with this image-bound contract without path overlap.
+  - PR #1003's proposed staging workflow resolves release_sha-tagged Platform/Gateway images and Canary input to immutable digests and verifies Platform/Gateway OCI revisions.
+  - PR #1013 does not modify deploy/synology/scripts/production-target-preflight.sh; that consumer path is now explicitly excluded from this task and transferred to PR #1003 for the exact-SHA/digest compatibility repair identified by fresh review.
   - protected staging and production execution remain outside this task; no recovery/deploy workflow has been dispatched and no production evidence is claimed.
 derived:
   - the four P1 findings from the Codex review of 4085fc5de3 are structurally addressed by the guarded recovery workflow, target-bound backup evidence, complete Marketplace runtime reconciliation and same-release rollback-target preservation.
   - repository contract tests plus exact-head standard CI can prove implementation behavior without performing the protected staging mutation that remains separately gated.
+  - this ownership-only checkpoint creates a successor PR head after material implementation head 7bdf6a519f83f367cf442665c09d8729ddd3c405; live PR state is authoritative for that successor identity.
 unknown:
   - terminal result of the exact-head CI generation after this checkpoint commit.
   - fresh independent Codex review result on the final coherent head.
@@ -132,22 +137,22 @@ next_action: inspect aggregate exact-head CI and fresh exact-head Codex review; 
 ```yaml
 recovery:
   policy_version: 1
-  generation: 1
-  session_id: 20260812T094500Z-issue-1007
-  session_started_at: 2026-08-12T09:45:00Z
-  checkpointed_at: 2026-08-12T09:45:00Z
-  last_progress_at: 2026-08-12T09:45:00Z
+  generation: 2
+  session_id: 20260812T182615+0200-ownership-coordination
+  session_started_at: 2026-08-12T18:26:15+02:00
+  checkpointed_at: 2026-08-12T18:26:15+02:00
+  last_progress_at: 2026-08-12T18:26:15+02:00
   phase: exact-head validation and independent review
-  exact_head: 5764a48ea91df3597182c921f1fe24cf6565cc50
+  exact_head: 7bdf6a519f83f367cf442665c09d8729ddd3c405
   pull_request: 1013
-  active_operation: final exact-head GitHub Actions and Codex review
+  active_operation: ownership coordination plus final exact-head GitHub Actions and Codex review
   external_run_ids: []
-  operation_started_at: 2026-08-12T09:45:00Z
-  wait_deadline_at: 2026-08-12T10:30:00Z
-  check_generation: final
+  operation_started_at: 2026-08-12T18:26:15+02:00
+  wait_deadline_at: 2026-08-12T19:11:15+02:00
+  check_generation: ownership-coordination-successor
   checks_used: 0
   status: active
   safe_to_resume: true
-  resume_condition: exact-head required checks and fresh review are terminal
-  next_action: Inspect aggregate exact-head CI and fresh Codex review; repair findings or merge only when every gate is green.
+  resume_condition: exact-head required checks and fresh review are terminal after PR #1003 releases its two excluded paths
+  next_action: After PR #1003 releases .github/workflows/deploy-synology-staging.yml and deploy/synology/scripts/production-target-preflight.sh, refresh against live main and continue exact-head validation without touching those paths beforehand.
 ```
