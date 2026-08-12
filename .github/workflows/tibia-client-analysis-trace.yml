@@ -7,10 +7,11 @@ on:
       - .github/workflows/tibia-client-analysis-trace.yml
 
 permissions:
-  contents: read
+  contents: write
 
 env:
   CONTAINER_NAME: oteryn-tibia-client-analysis
+  EVIDENCE_PATH: docs/agents/reports/OTERYN-20260812-worldmap-dispatch-evidence.md
 
 jobs:
   trace:
@@ -35,47 +36,158 @@ jobs:
             [[ "$(sha256sum "$c" | awk "{print \$1}")" == e6c244bd39fe2e0632f6f000efd3147164696efa8e901718668e0442325ff7fe ]]
           '
 
-      - name: Trace exact handlers and common map-data routine
+      - name: Generate bounded trace evidence
         shell: bash
         run: |
           set -Eeuo pipefail
-          docker exec -i "$CONTAINER_NAME" /data/reverse-venv/bin/python - <<'PY'
+          docker exec -i "$CONTAINER_NAME" /data/reverse-venv/bin/python - > /tmp/worldmap-trace-evidence.md <<'PY'
           from pathlib import Path
-          import subprocess,re
+          import re, subprocess
+
           client=Path('/data/client-15.32.df7b29/bin/client')
+          sha=subprocess.check_output(['sha256sum',str(client)],text=True).split()[0]
+          size=client.stat().st_size
+
           def dis(a,b):
-              return subprocess.check_output(['objdump','-d','-C',f'--start-address={a}',f'--stop-address={b}',str(client)],text=True,errors='replace')
-          def summarize(label,a,b):
-              text=dis(a,b)
-              print(f'=== {label} 0x{a:x}..0x{b:x} ===')
-              print(text)
-              calls=[]; rip=[]
+              return subprocess.check_output(
+                  ['objdump','-d','-C',f'--start-address={a}',f'--stop-address={b}',str(client)],
+                  text=True,errors='replace')
+
+          def instructions(text):
+              out=[]
               for ln in text.splitlines():
-                  m=re.search(r'\b(?:call|jmp)\s+([0-9a-f]+)\b',ln)
+                  m=re.match(r'^\s*([0-9a-f]+):\s+((?:[0-9a-f]{2}\s+)+)\s*(.*)$',ln)
                   if m:
-                      x=int(m.group(1),16)
-                      if x not in calls: calls.append(x)
-                  m=re.search(r'#\s*([0-9a-f]+)\s',ln)
-                  if m:
-                      x=int(m.group(1),16)
-                      if x not in rip: rip.append(x)
-              print(label+'_DIRECT_TARGETS='+','.join(hex(x) for x in calls))
-              print(label+'_RIP_TARGETS='+','.join(hex(x) for x in rip))
-              return calls
-          fc=summarize('FULLMAP_HANDLER',0xcec8d0,0xced200)
-          dc=summarize('FIELDDATA_HANDLER',0xcd3190,0xcd3230)
-          cc=summarize('COMMON_MAP_DATA',0x19a8a80,0x19a9700)
-          print('=== COMMON_MAP_DATA_CALLSITES ===')
-          alltext=subprocess.check_output(['objdump','-d','-C',str(client)],text=True,errors='replace')
-          for ln in alltext.splitlines():
-              if re.search(r'\bcall\s+19a8a80\b',ln): print(ln)
-          print('=== SELECTED_DIRECT_TARGETS ===')
-          selected=[]
-          for x in fc+dc+cc:
-              if 0x500000 <= x < 0x1c00000 and x not in selected: selected.append(x)
-          for x in selected[:32]:
-              print(f'--- TARGET 0x{x:x} ---')
-              print(dis(x,x+0xc0))
+                      out.append((int(m.group(1),16),m.group(3).strip()))
+              return out
+
+          common=dis(0x19a8a80,0x19a9700)
+          ins=instructions(common)
+          direct=[]
+          branches=[]
+          mem_offsets=[]
+          for addr,op in ins:
+              m=re.search(r'\bcall\s+([0-9a-f]+)\b',op)
+              if m:
+                  x=int(m.group(1),16)
+                  if x not in direct: direct.append(x)
+              m=re.search(r'\bj(?:mp|[a-z]{1,3})\s+([0-9a-f]+)\b',op)
+              if m:
+                  x=int(m.group(1),16)
+                  if 0x19a8a80 <= x < 0x19a9700:
+                      branches.append((addr,x,op.split()[0]))
+              for mm in re.finditer(r'0x([0-9a-f]+)\(%r(?:ax|bx|cx|dx|si|di|bp|sp|8|9|10|11|12|13|14|15)\)',op):
+                  off=int(mm.group(1),16)
+                  if off not in mem_offsets: mem_offsets.append(off)
+
+          candidates=[0x313a820,0x313a860,0x314b480]
+          refs={c:[] for c in candidates}
+          proc=subprocess.Popen(['objdump','-d','-C',str(client)],stdout=subprocess.PIPE,text=True,errors='replace')
+          assert proc.stdout is not None
+          for ln in proc.stdout:
+              for c in candidates:
+                  if f'# {c:x} ' in ln or f'# {c:x}<' in ln or f'# {c:x}\n' in ln:
+                      refs[c].append(ln.rstrip())
+          rc=proc.wait()
+          if rc != 0:
+              raise SystemExit(rc)
+
+          callsites=[]
+          proc=subprocess.Popen(['objdump','-d','-C',str(client)],stdout=subprocess.PIPE,text=True,errors='replace')
+          assert proc.stdout is not None
+          for ln in proc.stdout:
+              if re.search(r'\bcall\s+19a8a80\b',ln):
+                  callsites.append(ln.rstrip())
+          rc=proc.wait()
+          if rc != 0:
+              raise SystemExit(rc)
+
+          print('<!-- BEGIN GENERATED TRACE 315-next -->')
+          print('## Generated bounded common-map-data trace')
+          print()
+          print(f'- Client size: `{size}`')
+          print(f'- Client SHA-256: `{sha}`')
+          print('- Common routine: `0x19a8a80`')
+          print(f'- Decoded instructions in bounded window: `{len(ins)}`')
+          print('- Direct call targets: ' + (', '.join(f'`0x{x:x}`' for x in direct) or '`none`'))
+          print('- Observed positive register-relative offsets: ' + (', '.join(f'`0x{x:x}`' for x in sorted(mem_offsets)) or '`none`'))
+          print()
+          print('### Internal control-flow edges')
+          print('```text')
+          for a,b,k in branches[:120]: print(f'0x{a:x} {k} -> 0x{b:x}')
+          print('```')
+          print()
+          print('### Direct callsites of `0x19a8a80`')
+          print('```text')
+          for ln in callsites[:80]: print(ln)
+          print('```')
+          print()
+          print('### Default-instance candidate references')
+          for c in candidates:
+              print(f'#### `0x{c:x}`')
+              print('```text')
+              for ln in refs[c][:120]: print(ln)
+              print('```')
+          print()
+          print('### Bounded disassembly `0x19a8a80..0x19a9700`')
+          print('```text')
+          for a,op in ins[:420]: print(f'0x{a:x}: {op}')
+          print('```')
+          print('<!-- END GENERATED TRACE 315-next -->')
+          PY
+          test -s /tmp/worldmap-trace-evidence.md
+          grep -F 'Common routine: `0x19a8a80`' /tmp/worldmap-trace-evidence.md >/dev/null
+
+      - name: Persist bounded evidence to task branch
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HEAD_REF: ${{ github.head_ref }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY'
+          import base64, json, os, pathlib, urllib.request
+
+          repo=os.environ['REPOSITORY']
+          ref=os.environ['HEAD_REF']
+          token=os.environ['GH_TOKEN']
+          path=os.environ['EVIDENCE_PATH']
+          api=f'https://api.github.com/repos/{repo}/contents/{path}?ref={ref}'
+          headers={
+              'Authorization':f'Bearer {token}',
+              'Accept':'application/vnd.github+json',
+              'X-GitHub-Api-Version':'2022-11-28',
+              'User-Agent':'oteryn-bounded-evidence-writer',
+          }
+          req=urllib.request.Request(api,headers=headers)
+          with urllib.request.urlopen(req) as r:
+              cur=json.load(r)
+          text=base64.b64decode(cur['content']).decode()
+          block=pathlib.Path('/tmp/worldmap-trace-evidence.md').read_text()
+          begin='<!-- BEGIN GENERATED TRACE EVIDENCE -->'
+          end='<!-- END GENERATED TRACE EVIDENCE -->'
+          wrapped=begin+'\n'+block.rstrip()+'\n'+end
+          if begin in text and end in text:
+              left=text.split(begin,1)[0].rstrip()
+              right=text.split(end,1)[1].lstrip()
+              new=left+'\n\n'+wrapped+'\n'
+              if right:
+                  new+='\n'+right
+          else:
+              new=text.rstrip()+'\n\n'+wrapped+'\n'
+          payload=json.dumps({
+              'message':'docs: persist bounded worldmap trace evidence',
+              'content':base64.b64encode(new.encode()).decode(),
+              'sha':cur['sha'],
+              'branch':ref,
+          }).encode()
+          put=urllib.request.Request(
+              f'https://api.github.com/repos/{repo}/contents/{path}',
+              data=payload,headers=headers,method='PUT')
+          with urllib.request.urlopen(put) as r:
+              result=json.load(r)
+          print('persisted_commit='+result['commit']['sha'])
           PY
 
       - name: Verify canonical staging unchanged
