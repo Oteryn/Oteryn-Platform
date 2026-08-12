@@ -61,8 +61,8 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-12T00:40:00+02:00
-head: 9d991c3c96af8a57429618fd5ced48034f46967a
+updated_at: 2026-08-12T09:31:00+02:00
+head: 1c04f6328730c848231c1b54c54bb8df46b8a64e
 branch: test/agent-policy-consistency
 pr: 992
 status: validating
@@ -80,26 +80,26 @@ owned_paths:
   - docs/agents/tasks/archive/OTERYN-20260811-agent-policy-consistency.md
 proven:
   - Protected main ab43c4b47173e7208d34851c4091f79051379f7a is incorporated and the PR remains limited to the six declared task-owned paths.
-  - Earlier review generations exposed and drove regression coverage for repository-scope grants, authorization scoping and polarity, Markdown wrapping/emphasis/fences, slash-shaped prose, active/passive mutation grammar, duplicate declarations, nested YAML examples and checkpoint freshness.
-  - Fresh Codex review on checkpoint head e40225bfc959002a618f352078a4e52cc22c011d exposed two additional P1 findings: mandatory mutation grants such as must/shall edit were not recognized, and independent passive/permission grants after conjunctions were not split from an earlier conditional authorization clause.
-  - Source commit 6437571cd44ed9801853dce5c6656ac8493d0f6f recognizes mutation-specific must/shall/required-to forms without treating bare mandatory words as universal authorization, and recognizes passive allowed/authorized/permitted/required plus permission-to mutation clauses as independent grants.
-  - Test head 9d991c3c96af8a57429618fd5ced48034f46967a adds regressions for must, shall and required-to mutation grants; passive allowed and permission grants after conjunctions; and the negative must-not-edit case while retaining all prior regressions.
-  - Agent Governance run 31543265797 passed on 9d991c3c96af8a57429618fd5ced48034f46967a. Job 93950188307 executed 65 of 65 policy-consistency regressions successfully, then passed the live policy validator, 3 active checkpoint validations, live liveness validation for 3 active tasks with 0 advisory findings, and Control Room validation.
-  - The two P1 review threads from e40225bfc959002a618f352078a4e52cc22c011d are resolved only after the 65-test exact-head Agent Governance evidence on 9d991c3c96af8a57429618fd5ced48034f46967a.
+  - Earlier review generations exposed and drove regression coverage for repository-scope grants, authorization scoping and polarity, Markdown wrapping/emphasis/fences, slash-shaped prose, active/passive/mandatory mutation grammar, duplicate declarations, nested YAML examples and checkpoint freshness.
+  - Fresh Codex review on checkpoint head 3dc0c3429f8b96c913109b1dabfd494d0bbe23ed exposed two additional material findings: have/has write access to a foreign repository was not recognized as an affirmative mutation grant, and may refrain from editing a foreign repository was incorrectly treated as a positive mutation grant.
+  - Parser commit eaeab0c4ad59228ffcab30db09527194bf71e1fe recognizes have/has write access as positive mutation authority and treats refrain from a mutation as clause-local denial/non-grant semantics.
+  - Test head 1c04f6328730c848231c1b54c54bb8df46b8a64e adds focused regressions for have write access, has write access, refrain-from denial, and a later independent affirmative grant after a refrain clause.
+  - Compare 3dc0c3429f8b96c913109b1dabfd494d0bbe23ed...1c04f6328730c848231c1b54c54bb8df46b8a64e changes exactly tools/agents/policy_consistency.py (+5/-2) and tools/agents/test_policy_consistency.py (+22), with no unrelated path change.
+  - Agent Governance run 31574092122 passed on 1c04f6328730c848231c1b54c54bb8df46b8a64e. Job 94042199953 executed 69 of 69 policy-consistency regressions successfully, including all four new cases, then passed the live policy validator, 3 active checkpoint validations, live liveness validation for 3 active tasks with 0 advisory findings, and Control Room validation.
 derived:
   - All currently known material parser findings have implementation repairs and explicit focused regressions; this task-record-only refresh creates a new final checkpoint generation without changing parser/runtime behavior.
-  - Recording 9d991c3c96af8a57429618fd5ced48034f46967a as the latest material implementation/test head avoids self-referential checkpoint SHA churn; live GitHub state remains authoritative for the actual branch head produced by this checkpoint commit.
+  - Recording 1c04f6328730c848231c1b54c54bb8df46b8a64e as the latest material implementation/test head avoids self-referential checkpoint SHA churn; live GitHub state remains authoritative for the actual branch head produced by this checkpoint commit.
 unknown:
   - Terminal repository-required CI result on the checkpoint-only final head created by this update.
   - Fresh Codex review result for the checkpoint-only final head created by this update.
 conflicts: []
 first_failure:
-  marker: codex-mandatory-and-passive-grant-bypasses
-  evidence: Fresh Codex review on e40225bfc959002a618f352078a4e52cc22c011d identified mandatory must/shall mutation grants and conjunction-introduced passive grants as P1 bypasses; implementation/test head 9d991c3c96af8a57429618fd5ced48034f46967a repairs both and Agent Governance 31543265797 proves 65 focused regressions plus the live validator pass.
+  marker: codex-write-access-and-refrain-polarity
+  evidence: Fresh Codex review on 3dc0c3429f8b96c913109b1dabfd494d0bbe23ed identified have/has write access as a missed foreign-repository grant and may refrain from editing as a false-positive grant; material head 1c04f6328730c848231c1b54c54bb8df46b8a64e repairs both and Agent Governance 31574092122 proves 69 focused regressions plus the live validator pass.
 rejected_hypotheses:
-  - Positive authorization vocabulary limited to may/can/allow/permission is sufficient; mandatory must/shall/required-to mutation rules can also expand the effective write boundary and must be rejected for unauthorized repositories.
-  - Independent grants after and always begin with a direct mutation or may/can; passive are allowed/authorized/permitted/required to and have permission to forms must be split before applying a left-side authorization exception.
-  - Adding must globally to positive authorization is safe; mandatory authority is recognized only when syntactically bound to a mutation, preserving must-not and unrelated mandatory prose.
+  - Existing permission/may/can/allow vocabulary covers every affirmative write grant; direct have/has write access wording can also expand the effective write boundary.
+  - A modal may anywhere near a mutation makes the clause affirmative; refrain from editing is denial/non-grant language and must not be promoted to mutation authority.
+  - Treating refrain as a denial can suppress later grants in the same logical statement; regression coverage proves the denial remains clause-local while a later independent affirmative grant is still rejected.
 changed_paths:
   - .github/workflows/agent-governance.yml
   - docs/agents/tasks/active/OTERYN-20260811-agent-policy-consistency.md
@@ -108,15 +108,15 @@ changed_paths:
   - tools/agents/policy_consistency.py
   - tools/agents/test_policy_consistency.py
 validation:
-  - command: Agent Governance run 31543265797 on implementation/test head 9d991c3c96af8a57429618fd5ced48034f46967a
+  - command: Agent Governance run 31574092122 on implementation/test head 1c04f6328730c848231c1b54c54bb8df46b8a64e
     result: PASS
-    evidence: job 93950188307 completed 65 of 65 policy-consistency regressions, live policy validation, 3 checkpoint validations, live liveness validation for 3 active tasks with 0 advisory findings and Control Room validation successfully.
-  - command: e40225b final-head repository-required CI and Agent Governance before the latest review repairs
+    evidence: job 94042199953 completed 69 of 69 policy-consistency regressions, including the four final review regressions, live policy validation, 3 checkpoint validations, live liveness validation for 3 active tasks with 0 advisory findings and Control Room validation successfully.
+  - command: minimal final-review repair comparison
     result: PASS
-    evidence: CI 31542583723 and Agent Governance 31542583727 passed on e40225bfc959002a618f352078a4e52cc22c011d; that generation was not mergeable because its fresh Codex review subsequently produced two P1 findings that are now repaired on 9d991c3c96af8a57429618fd5ced48034f46967a.
+    evidence: compare 3dc0c3429f8b96c913109b1dabfd494d0bbe23ed...1c04f6328730c848231c1b54c54bb8df46b8a64e contains exactly two intended files with +5/-2 parser and +22 test changes.
   - command: checkpoint-only final-head required CI, Agent Governance and fresh Codex review
     result: NOT_RUN
-    evidence: this task-record-only update creates the next exact-head validation generation.
+    evidence: this task-record-only update creates the final validation generation.
 blockers:
   - none
 next_action: Validate the checkpoint-only final branch head created by this update with repository-required CI, Agent Governance and a fresh Codex review; if every required check passes with zero unresolved material threads, squash-merge PR #992 with expected-head protection, verify main, close Issue #991 and archive this task through the repository-mandated lifecycle.
@@ -127,26 +127,26 @@ next_action: Validate the checkpoint-only final branch head created by this upda
 ```yaml
 recovery:
   policy_version: 1
-  generation: 21
-  session_id: agent-20260812-0040-final-checkpoint-refresh
-  session_started_at: 2026-08-12T00:40:00+02:00
-  checkpointed_at: 2026-08-12T00:40:00+02:00
-  last_progress_at: 2026-08-12T00:40:00+02:00
+  generation: 22
+  session_id: agent-20260812-0931-final-grant-parser-checkpoint
+  session_started_at: 2026-08-12T09:31:00+02:00
+  checkpointed_at: 2026-08-12T09:31:00+02:00
+  last_progress_at: 2026-08-12T09:31:00+02:00
   phase: final-checkpoint-validation
-  exact_head: 9d991c3c96af8a57429618fd5ced48034f46967a
+  exact_head: 1c04f6328730c848231c1b54c54bb8df46b8a64e
   pull_request: 992
-  active_operation: create refreshed final checkpoint after mandatory/passive grant repairs and 65-test Agent Governance proof
+  active_operation: create refreshed final checkpoint after write-access and refrain-polarity repairs and 69-test Agent Governance proof
   external_run_ids:
-    - 31543265797
-    - 31543265772
-    - 31543265751
-    - 31543265786
-    - 31543265768
-    - 31543265750
-    - 31543265784
-  operation_started_at: 2026-08-12T00:40:00+02:00
-  wait_deadline_at: 2026-08-12T01:25:00+02:00
-  check_generation: mandatory-passive-final-checkpoint
+    - 31574092122
+    - 31574092149
+    - 31574092118
+    - 31574092124
+    - 31574092125
+    - 31574092150
+    - 31574092175
+  operation_started_at: 2026-08-12T09:31:00+02:00
+  wait_deadline_at: 2026-08-12T10:16:00+02:00
+  check_generation: write-access-refrain-final-checkpoint
   checks_used: 0
   status: active
   safe_to_resume: true
