@@ -1,4 +1,4 @@
-# bounded persistence of already-generated protobuf/Qt reverse evidence
+# bounded deterministic protobuf descriptor extraction
 name: Tibia Client Analysis Continue
 
 on:
@@ -17,7 +17,7 @@ env:
 
 jobs:
   continue:
-    name: Persist bounded Tibia reverse evidence
+    name: Extract Tibia map protobuf schemas
     runs-on: oteryn-staging
     timeout-minutes: 15
     steps:
@@ -46,104 +46,131 @@ jobs:
             [[ "$(sha256sum "$client" | awk "{print \$1}")" == "e6c244bd39fe2e0632f6f000efd3147164696efa8e901718668e0442325ff7fe" ]]
             [[ "$(stat -c %s "$proto")" == "40808" ]]
             [[ "$(sha256sum "$proto" | awk "{print \$1}")" == "1106af5ecbecd85a701b800ec4f697edab4288a4aa64b3fa5781222e6f65c324" ]]
-            test -s "$root/protodesc-target-contexts.txt"
-            test -f "$root/protodesc-decode-raw.txt"
-            test -s "$root/worldmap-meta-code-wide.txt"
           '
 
-      - name: Build compact evidence from successful prior artifacts
+      - name: Extract FileDescriptorProto records and target schemas
         shell: bash
         run: |
           set -Eeuo pipefail
-          docker exec -i "$CONTAINER_NAME" python3 - <<'PY'
+          docker exec -i "$CONTAINER_NAME" /data/reverse-venv/bin/python - <<'PY'
           from pathlib import Path
-          import hashlib
+          from google.protobuf import descriptor_pb2
+          from google.protobuf.message import DecodeError
           import re
 
           root = Path('/data/client-15.32.df7b29')
-          client = root / 'bin/client'
-          proto = root / 'proto-sections/protodesc_cold.bin'
-          contexts = root / 'protodesc-target-contexts.txt'
-          decode = root / 'protodesc-decode-raw.txt'
-          worldmap = root / 'worldmap-meta-code-wide.txt'
-          out = root / 'bounded-reverse-evidence.txt'
+          raw = (root / 'proto-sections/protodesc_cold.bin').read_bytes()
+          out = root / 'map-protobuf-schemas.txt'
 
-          lines = [
-              'CLIENT_IDENTITY',
-              'version=15.32.df7b29',
-              f'client_size={client.stat().st_size}',
-              f'client_sha256={hashlib.sha256(client.read_bytes()).hexdigest()}',
-              f'protodesc_cold_size={proto.stat().st_size}',
-              f'protodesc_cold_sha256={hashlib.sha256(proto.read_bytes()).hexdigest()}',
-              '',
-              'PROTO_TARGET_SUMMARY',
-          ]
-
-          context_lines = contexts.read_text(errors='replace').splitlines()
-          lines.extend(line for line in context_lines if line.startswith('TARGET '))
-          lines.extend(['', 'PROTO_TARGET_CONTEXTS_BOUNDED'])
-
-          keep = False
-          count = 0
-          emitted = 0
-          for line in context_lines:
-              if line.startswith('TARGET '):
-                  lines.append(line)
+          # A FileDescriptorProto starts with field 1 (name), wire type 2: 0x0a <len> <name.proto>.
+          candidates = []
+          for i in range(len(raw) - 4):
+              if raw[i] != 0x0a:
                   continue
-              if line.startswith('BEGIN '):
-                  keep = True
-                  count = 0
-                  lines.append(line)
-                  emitted += 1
+              n = raw[i + 1]
+              if n == 0 or n >= 0x80 or i + 2 + n > len(raw):
                   continue
-              if line.startswith('END '):
-                  if keep:
-                      lines.append(line)
-                      emitted += 1
-                  keep = False
+              name_b = raw[i + 2:i + 2 + n]
+              if name_b.endswith(b'.proto') and re.fullmatch(rb'[A-Za-z0-9_./-]+\.proto', name_b):
+                  candidates.append((i, name_b.decode('ascii')))
+
+          lines = [f'candidate_descriptor_starts={len(candidates)}']
+          parsed = []
+          for idx, (start, hint) in enumerate(candidates):
+              upper = candidates[idx + 1][0] if idx + 1 < len(candidates) else len(raw)
+              best = None
+              # Descriptor records are followed by a small non-protobuf section record header.
+              # Trim at most 192 bytes before the next candidate; this is bounded and deterministic.
+              low = max(start + 2 + len(hint), upper - 192)
+              for end in range(upper, low - 1, -1):
+                  msg = descriptor_pb2.FileDescriptorProto()
+                  try:
+                      consumed = msg.MergeFromString(raw[start:end])
+                  except DecodeError:
+                      continue
+                  if consumed != end - start or msg.name != hint:
+                      continue
+                  best = (end, msg)
+                  break
+              if best is None:
+                  lines.append(f'UNPARSED start=0x{start:x} hint={hint} next=0x{upper:x}')
                   continue
-              if keep and count < 18 and emitted < 420:
-                  lines.append(line)
-                  count += 1
-                  emitted += 1
+              end, msg = best
+              parsed.append((start, end, msg))
+              lines.append(f'DESCRIPTOR start=0x{start:x} end=0x{end:x} name={msg.name} package={msg.package} messages={len(msg.message_type)} enums={len(msg.enum_type)}')
 
-          lines.extend(['', 'WHOLE_PROTO_SECTION_DECODE_RAW_HEAD'])
-          lines.extend(decode.read_text(errors='replace').splitlines()[:80])
+          targets = {
+              'GameserverMessageFullMap', 'GameserverMessageFieldData',
+              'GameserverMessageLeftColumn', 'GameserverMessageRightColumn',
+              'GameserverMessageTopRow', 'GameserverMessageBottomRow',
+              'GameserverMessageTopFloor', 'GameserverMessageBottomFloor',
+              'MapFieldData', 'MapArea', 'Coordinate', 'AppearanceInstance',
+          }
 
-          lines.extend(['', 'WORLDMAP_META_CONTROL_FLOW'])
-          control = re.compile(r'^\s*[0-9a-f]+:.*(?:call|jmp|cmp|lea)')
-          selected = []
-          for line in worldmap.read_text(errors='replace').splitlines():
-              if control.search(line):
-                  selected.append(line)
-                  if len(selected) >= 700:
-                      break
-          lines.extend(selected)
+          def type_name(field):
+              if field.type_name:
+                  return field.type_name
+              names = {
+                  1:'double',2:'float',3:'int64',4:'uint64',5:'int32',6:'fixed64',7:'fixed32',
+                  8:'bool',9:'string',10:'group',11:'message',12:'bytes',13:'uint32',14:'enum',
+                  15:'sfixed32',16:'sfixed64',17:'sint32',18:'sint64'
+              }
+              return names.get(field.type, f'type{field.type}')
+
+          found = set()
+          lines.append('')
+          lines.append('TARGET_SCHEMAS')
+          for start, end, fd in parsed:
+              for msg in fd.message_type:
+                  if msg.name not in targets:
+                      continue
+                  found.add(msg.name)
+                  lines.append(f'MESSAGE {fd.package}.{msg.name} source={fd.name} descriptor=0x{start:x}-0x{end:x}')
+                  for f in msg.field:
+                      label = {1:'optional',2:'required',3:'repeated'}.get(f.label, str(f.label))
+                      oneof = msg.oneof_decl[f.oneof_index].name if f.HasField('oneof_index') and f.oneof_index < len(msg.oneof_decl) else '-'
+                      lines.append(f'  field={f.number} name={f.name} label={label} type={type_name(f)} oneof={oneof}')
+                  for nested in msg.nested_type:
+                      lines.append(f'  nested={nested.name} fields={len(nested.field)}')
+                      for f in nested.field:
+                          label = {1:'optional',2:'required',3:'repeated'}.get(f.label, str(f.label))
+                          lines.append(f'    field={f.number} name={f.name} label={label} type={type_name(f)}')
+
+          lines.append('')
+          lines.append('TARGET_STATUS')
+          for name in sorted(targets):
+              lines.append(f'{name}={"FOUND" if name in found else "NOT_FOUND"}')
+
+          # Also list map/protocol descriptors and message names to reveal aliases/naming differences.
+          lines.append('')
+          lines.append('MAP_RELATED_DESCRIPTOR_INVENTORY')
+          for start, end, fd in parsed:
+              msg_names = [m.name for m in fd.message_type]
+              if any(re.search(r'(map|field|appearance|coordinate|gameserver)', n, re.I) for n in msg_names) or re.search(r'(map|protocol|shared)', fd.name, re.I):
+                  lines.append(f'{fd.name} package={fd.package} messages=' + ','.join(msg_names))
+
           out.write_text('\n'.join(lines) + '\n')
           print(out.read_text())
           PY
-          docker exec "$CONTAINER_NAME" test -s /data/client-15.32.df7b29/bounded-reverse-evidence.txt
+          docker exec "$CONTAINER_NAME" test -s /data/client-15.32.df7b29/map-protobuf-schemas.txt
 
-      - name: Persist sanitized evidence into owned handover
+      - name: Persist sanitized schema evidence into handover
         shell: bash
         run: |
           set -Eeuo pipefail
-          docker cp "$CONTAINER_NAME:/data/client-15.32.df7b29/bounded-reverse-evidence.txt" /tmp/bounded-reverse-evidence.txt
+          docker cp "$CONTAINER_NAME:/data/client-15.32.df7b29/map-protobuf-schemas.txt" /tmp/map-protobuf-schemas.txt
           python3 - <<'PY'
           from pathlib import Path
           import os
-
           handover = Path(os.environ['HANDOVER'])
-          evidence = Path('/tmp/bounded-reverse-evidence.txt').read_text(errors='replace')
-          begin = '<!-- BEGIN GENERATED RUNTIME EVIDENCE -->'
-          end = '<!-- END GENERATED RUNTIME EVIDENCE -->'
+          evidence = Path('/tmp/map-protobuf-schemas.txt').read_text(errors='replace')
+          begin = '<!-- BEGIN GENERATED SCHEMA EVIDENCE -->'
+          end = '<!-- END GENERATED SCHEMA EVIDENCE -->'
           block = (
-              f"{begin}\n\n"
-              "## Generated bounded runtime evidence\n\n"
-              f"Source: GitHub Actions run `{os.environ.get('GITHUB_RUN_ID', 'unknown')}` on exact runner "
-              "`oteryn-synology-staging`. Evidence is bounded text/assembly metadata from the already-owned "
-              "analysis runtime; no Tibia binary or extracted proprietary asset is committed.\n\n"
-              f"```text\n{evidence.rstrip()}\n```\n\n{end}"
+              f'{begin}\n\n## Generated protobuf schema evidence\n\n'
+              f'Source: GitHub Actions run `{os.environ.get("GITHUB_RUN_ID", "unknown")}` on `oteryn-synology-staging`. '
+              'This is sanitized descriptor metadata only.\n\n'
+              f'```text\n{evidence.rstrip()}\n```\n\n{end}'
           )
           text = handover.read_text()
           if begin in text and end in text:
@@ -157,10 +184,8 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add "$HANDOVER"
-          if git diff --cached --quiet; then
-            echo "No handover evidence change"
-          else
-            git commit -m "docs(analysis): persist bounded Tibia reverse evidence"
+          if ! git diff --cached --quiet; then
+            git commit -m "docs(analysis): record Tibia protobuf schemas"
             git push origin HEAD:ops/oteryn-tibia-client-analysis-20260811
           fi
 
