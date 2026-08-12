@@ -1,0 +1,88 @@
+name: Tibia Client Analysis Trace
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - .github/workflows/tibia-client-analysis-trace.yml
+
+permissions:
+  contents: read
+
+env:
+  CONTAINER_NAME: oteryn-tibia-client-analysis
+
+jobs:
+  trace:
+    name: Trace Worldmap map-data helper
+    runs-on: oteryn-staging
+    timeout-minutes: 10
+    steps:
+      - name: Verify owned runtime and snapshot staging
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          [[ "$RUNNER_NAME" == "oteryn-synology-staging" ]]
+          [[ "$(docker inspect --format '{{ index .Config.Labels "com.blakinio.owner" }}' "$CONTAINER_NAME")" == "oteryn" ]]
+          [[ "$(docker inspect --format '{{ index .Config.Labels "com.blakinio.purpose" }}' "$CONTAINER_NAME")" == "tibia-client-analysis" ]]
+          [[ "$(docker inspect --format '{{.State.Status}}' "$CONTAINER_NAME")" == "running" ]]
+          docker ps -a --filter 'label=com.docker.compose.project=oteryn-staging' --format '{{.ID}}\t{{.Names}}' | sort > /tmp/oteryn-before.tsv
+          test -s /tmp/oteryn-before.tsv
+          docker exec "$CONTAINER_NAME" bash -lc '
+            set -Eeuo pipefail
+            c=/data/client-15.32.df7b29/bin/client
+            [[ "$(stat -c %s "$c")" == 51965216 ]]
+            [[ "$(sha256sum "$c" | awk "{print \$1}")" == e6c244bd39fe2e0632f6f000efd3147164696efa8e901718668e0442325ff7fe ]]
+          '
+
+      - name: Trace exact handlers and common map-data routine
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          docker exec -i "$CONTAINER_NAME" /data/reverse-venv/bin/python - <<'PY'
+          from pathlib import Path
+          import subprocess,re
+          client=Path('/data/client-15.32.df7b29/bin/client')
+          def dis(a,b):
+              return subprocess.check_output(['objdump','-d','-C',f'--start-address={a}',f'--stop-address={b}',str(client)],text=True,errors='replace')
+          def summarize(label,a,b):
+              text=dis(a,b)
+              print(f'=== {label} 0x{a:x}..0x{b:x} ===')
+              print(text)
+              calls=[]; rip=[]
+              for ln in text.splitlines():
+                  m=re.search(r'\b(?:call|jmp)\s+([0-9a-f]+)\b',ln)
+                  if m:
+                      x=int(m.group(1),16)
+                      if x not in calls: calls.append(x)
+                  m=re.search(r'#\s*([0-9a-f]+)\s',ln)
+                  if m:
+                      x=int(m.group(1),16)
+                      if x not in rip: rip.append(x)
+              print(label+'_DIRECT_TARGETS='+','.join(hex(x) for x in calls))
+              print(label+'_RIP_TARGETS='+','.join(hex(x) for x in rip))
+              return calls
+          fc=summarize('FULLMAP_HANDLER',0xcec8d0,0xced200)
+          dc=summarize('FIELDDATA_HANDLER',0xcd3190,0xcd3230)
+          cc=summarize('COMMON_MAP_DATA',0x19a8a80,0x19a9700)
+          print('=== COMMON_MAP_DATA_CALLSITES ===')
+          alltext=subprocess.check_output(['objdump','-d','-C',str(client)],text=True,errors='replace')
+          for ln in alltext.splitlines():
+              if re.search(r'\bcall\s+19a8a80\b',ln): print(ln)
+          print('=== SELECTED_DIRECT_TARGETS ===')
+          selected=[]
+          for x in fc+dc+cc:
+              if 0x500000 <= x < 0x1c00000 and x not in selected: selected.append(x)
+          for x in selected[:32]:
+              print(f'--- TARGET 0x{x:x} ---')
+              print(dis(x,x+0xc0))
+          PY
+
+      - name: Verify canonical staging unchanged
+        if: always()
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          docker ps -a --filter 'label=com.docker.compose.project=oteryn-staging' --format '{{.ID}}\t{{.Names}}' | sort > /tmp/oteryn-after.tsv
+          if [[ -f /tmp/oteryn-before.tsv ]]; then diff -u /tmp/oteryn-before.tsv /tmp/oteryn-after.tsv; fi
+          docker inspect --format 'analysis_name={{.Name}} status={{.State.Status}} exit={{.State.ExitCode}} oom={{.State.OOMKilled}} owner={{ index .Config.Labels "com.blakinio.owner" }} purpose={{ index .Config.Labels "com.blakinio.purpose" }}' "$CONTAINER_NAME"
