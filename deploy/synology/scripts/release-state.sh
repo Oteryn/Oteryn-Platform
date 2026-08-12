@@ -18,6 +18,10 @@ validate_release_file() {
     local file="$1"
     [[ -f "$file" ]] || { echo "Missing release metadata: $file" >&2; return 1; }
     unset RELEASE_SHA PLATFORM_IMAGE GATEWAY_IMAGE CANARY_IMAGE SCHEMA_COMPATIBILITY_ID APP_ACCEPTS_SCHEMA_IDS MIGRATION_POLICY ROLLBACK_ELIGIBLE
+    unset GAME_WORLD_ID GAME_WORLD_SLUG GAME_WORLD_NAME GAME_WORLD_REGION GAME_WORLD_HOST GAME_WORLD_PORT
+    # State files are written only by write_release using printf %q for every
+    # value, so sourcing preserves exact bytes without allowing whitespace or
+    # shell metacharacters to become syntax.
     # shellcheck disable=SC1090
     source "$file"
     is_sha "${RELEASE_SHA:-}" || { echo "Invalid or missing RELEASE_SHA" >&2; return 1; }
@@ -52,6 +56,11 @@ resolve_image() {
     printf '%s\n' "$digest"
 }
 
+write_state_value() {
+    local key="$1" value="$2"
+    printf '%s=%q\n' "$key" "$value"
+}
+
 write_release() {
     local out="$1" release_sha="$2" schema_id="$3" accepts="$4" platform="$5" gateway="$6" canary="$7" eligible="$8"
     is_sha "$release_sha" || { echo "Release SHA must be exact 40-char lowercase git SHA" >&2; return 1; }
@@ -61,22 +70,22 @@ write_release() {
     [[ "$eligible" =~ ^[01]$ ]] || return 1
     local tmp="${out}.tmp"
     umask 077
-    cat >"$tmp" <<EOF
-RELEASE_SHA=$release_sha
-PLATFORM_IMAGE=$platform
-GATEWAY_IMAGE=$gateway
-CANARY_IMAGE=$canary
-SCHEMA_COMPATIBILITY_ID=$schema_id
-APP_ACCEPTS_SCHEMA_IDS=$accepts
-MIGRATION_POLICY=expand-contract
-ROLLBACK_ELIGIBLE=$eligible
-GAME_WORLD_ID=${GAME_WORLD_ID:-}
-GAME_WORLD_SLUG=${GAME_WORLD_SLUG:-}
-GAME_WORLD_NAME=${GAME_WORLD_NAME:-}
-GAME_WORLD_REGION=${GAME_WORLD_REGION:-}
-GAME_WORLD_HOST=${GAME_WORLD_HOST:-}
-GAME_WORLD_PORT=${GAME_WORLD_PORT:-}
-EOF
+    {
+        write_state_value RELEASE_SHA "$release_sha"
+        write_state_value PLATFORM_IMAGE "$platform"
+        write_state_value GATEWAY_IMAGE "$gateway"
+        write_state_value CANARY_IMAGE "$canary"
+        write_state_value SCHEMA_COMPATIBILITY_ID "$schema_id"
+        write_state_value APP_ACCEPTS_SCHEMA_IDS "$accepts"
+        write_state_value MIGRATION_POLICY expand-contract
+        write_state_value ROLLBACK_ELIGIBLE "$eligible"
+        write_state_value GAME_WORLD_ID "${GAME_WORLD_ID:-}"
+        write_state_value GAME_WORLD_SLUG "${GAME_WORLD_SLUG:-}"
+        write_state_value GAME_WORLD_NAME "${GAME_WORLD_NAME:-}"
+        write_state_value GAME_WORLD_REGION "${GAME_WORLD_REGION:-}"
+        write_state_value GAME_WORLD_HOST "${GAME_WORLD_HOST:-}"
+        write_state_value GAME_WORLD_PORT "${GAME_WORLD_PORT:-}"
+    } >"$tmp"
     validate_release_file "$tmp"
     mv "$tmp" "$out"
 }
