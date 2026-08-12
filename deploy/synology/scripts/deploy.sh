@@ -195,14 +195,15 @@ stage_bootstrap_files() {
 snapshot_current_images() {
     local tmp="$state_dir/last-good.env.tmp"
     local found=0
-    local service container_id image
+    local service container_id image_id image
     : > "$tmp"
     chmod 600 "$tmp"
 
     for service in platform gateway canary; do
         container_id="$("${compose[@]}" ps -q "$service" 2>/dev/null || true)"
         if [[ -n "$container_id" ]]; then
-            image="$(docker inspect --format '{{.Config.Image}}' "$container_id")"
+            image_id="$(docker inspect --format '{{.Image}}' "$container_id")"
+            image="$(bash "$SCRIPT_DIR/release-state.sh" resolve-image "$image_id")"
             case "$service" in
                 platform) printf 'PLATFORM_IMAGE=%q\n' "$image" >> "$tmp" ;;
                 gateway) printf 'GATEWAY_IMAGE=%q\n' "$image" >> "$tmp" ;;
