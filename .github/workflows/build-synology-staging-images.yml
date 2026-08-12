@@ -16,6 +16,7 @@ on:
       - routes/**
       - services/game-gateway/**
       - deploy/synology/**
+      - tests/ci/test_synology_rollback_contract.py
       - .github/workflows/build-synology-staging-images.yml
       - .github/workflows/deploy-synology-staging.yml
   push:
@@ -33,6 +34,7 @@ on:
       - routes/**
       - services/game-gateway/**
       - deploy/synology/**
+      - tests/ci/test_synology_rollback_contract.py
       - .github/workflows/build-synology-staging-images.yml
       - .github/workflows/deploy-synology-staging.yml
   workflow_dispatch:
@@ -60,11 +62,16 @@ jobs:
             deploy/synology/scripts/lib.sh \
             deploy/synology/scripts/deploy.sh \
             deploy/synology/scripts/health-check.sh \
+            deploy/synology/scripts/recover-schema.sh \
+            deploy/synology/scripts/release-state.sh \
             deploy/synology/scripts/rollback.sh \
             deploy/synology/runner/entrypoint.sh
           sh -n \
             deploy/synology/tls/init.sh \
             deploy/synology/mariadb/init/10-platform-database.sh
+
+      - name: Validate schema-safe rollback contract
+        run: python3 tests/ci/test_synology_rollback_contract.py
 
       - name: Validate Compose manifests and LAN isolation
         run: |
