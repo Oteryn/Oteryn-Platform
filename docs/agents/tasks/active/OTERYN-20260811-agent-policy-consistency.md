@@ -28,7 +28,7 @@ Tracks Issue #991.
 - [x] Deterministic validator covers current trusted governance and contradictory scope declarations.
 - [x] Focused negative fixtures prove task-status, budget, repository-scope and closeout drift are rejected.
 - [x] Agent Governance CI executes the focused tests and live validator.
-- [x] Governance-only changes, including directory-based PR templates, route without unrelated heavy runtime gates.
+- [x] Governance-only changes, including directory-based PR templates, route without unrelated heavy runtime gates by design.
 - [ ] Exact-head required CI, Agent Governance and fresh review pass before merge.
 - [ ] Issue #991 closes and this task archives after merge.
 
@@ -61,8 +61,8 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-12T09:53:00+02:00
-head: 639e7afcb807d09f3df4b6d9a55bbf7786c6bd00
+updated_at: 2026-08-12T10:27:00+02:00
+head: 2a68f1cb26a93f0ce4bc14e1aaab21e2d77983c5
 branch: test/agent-policy-consistency
 pr: 992
 status: validating
@@ -79,28 +79,30 @@ owned_paths:
   - docs/agents/tasks/active/OTERYN-20260811-agent-policy-consistency.md
   - docs/agents/tasks/archive/OTERYN-20260811-agent-policy-consistency.md
 proven:
-  - Protected main ab43c4b47173e7208d34851c4091f79051379f7a is incorporated and the PR remains limited to the six declared task-owned paths.
-  - Earlier review generations drove fail-closed coverage for repository-scope grants, authorization scoping and polarity, Markdown wrapping/emphasis/fences, slash-shaped prose, active/passive/mandatory mutation grammar, duplicate declarations, nested YAML examples and checkpoint freshness.
-  - Fresh Codex review on checkpoint head 5535311de640f91a6706a1b4583b63a6ed01e1bd exposed four material findings: write-access grants after conditional conjunctions were not split; delete/remove mutations were missing; full/unrestricted write-access modifiers bypassed positive authority; and do-not-allow / never-authorize / never-permit denials were false positives.
-  - Repair commits 5f9e472aa44bba7c8185d07fff5f4044fbd5882b and 639e7afcb807d09f3df4b6d9a55bbf7786c6bd00 close those findings by extending mutation vocabulary, write-access modifiers, grant splitting, negative authorization forms and removal association through the from preposition.
-  - Test head be7bec7d48ddb3d07a690fbd83a1112e35265548 added focused regressions for conditional write-access splitting, delete/remove, full/unrestricted write access, do-not-allow, never-authorize and never-permit; its first Agent Governance attempt correctly exposed one remaining remove-from association failure, which 639e7afcb807d09f3df4b6d9a55bbf7786c6bd00 repairs.
-  - Agent Governance run 31575678582 passed on 639e7afcb807d09f3df4b6d9a55bbf7786c6bd00. Job 94047133313 executed 77 of 77 policy-consistency regressions successfully, then passed the live policy validator, 3 active checkpoint validations, live liveness for 3 active tasks with 0 advisory findings, and Control Room validation.
-  - All four material review threads from 5535311de640f91a6706a1b4583b63a6ed01e1bd were replied to with exact-head regression evidence and resolved only after the 77-test proof.
+  - Protected main ab43c4b47173e7208d34851c4091f79051379f7a was incorporated at the latest ownership/base check and the PR diff remained limited to the six declared task-owned paths.
+  - Earlier Codex review generations drove explicit fail-closed coverage for repository grants, authorization scoping and polarity, Markdown wrapping/emphasis/fences, slash-shaped prose, active/passive/mandatory mutation grammar, duplicate declarations, nested YAML examples, task checkpoint freshness, write-access variants, destructive mutations and denial forms.
+  - Exact-head review on 1efead13f342280aea6961ef301e9b6ff0453e6b exposed two final P1 findings: a positive foreign-repository mutation could be hidden by a same-clause read-only assertion, and completion requirements could be weakened by contradictory authoritative declarations while retaining the required marker text.
+  - Parser repair commits e868bbd1caf37fb1f3356793986ca84cb5811ee9 and 7620306b37a744ce655e6d4e5420c66bf06fca13 prevent read-only exemption of positive mutation grants and add fenced-aware contradiction detection for completion requirements while narrowing the weakening grammar to avoid false positives.
+  - Material head 2a68f1cb26a93f0ce4bc14e1aaab21e2d77983c5 adds regressions for positive grants paired with read-only assertions, optional exact-final-head CI, completion with unresolved review threads, completion without task archival and fenced non-authoritative weakening examples.
+  - Agent Governance run 31578139727 passed on material head 2a68f1cb26a93f0ce4bc14e1aaab21e2d77983c5. Job 94054827809 executed 82 of 82 policy-consistency regressions successfully, then passed the live policy validator, 3 active checkpoint validations, live liveness for 3 active tasks with 0 advisory findings, and Control Room validation.
+  - The two P1 threads from exact-head review 1efead13f342280aea6961ef301e9b6ff0453e6b were replied to with the 82-test proof and resolved only after that proof existed.
+  - On material head 2a68f1cb26a93f0ce4bc14e1aaab21e2d77983c5, CI, Agent Governance, Edge Security Emulation, Platform DB Outage Validation and Game Auth Ticket Concurrency reached success before this checkpoint refresh.
+  - Phase 7 run 31578139662 failed before application validation during composer dependency download with curl error 60 / self-signed certificate against GitHub API; no task-owned runtime/application code participates in that failure and the failed exact-head job was retried without changing the branch.
 derived:
-  - All currently known material parser findings have implementation repairs and explicit focused regressions; this task-record-only refresh creates a new final checkpoint generation without changing parser/runtime behavior.
-  - Recording 639e7afcb807d09f3df4b6d9a55bbf7786c6bd00 as the latest material implementation/test head avoids self-referential checkpoint SHA churn; live GitHub state remains authoritative for the actual branch head produced by this checkpoint commit.
+  - All currently known material policy-consistency findings have implementation repairs and focused regressions on 2a68f1cb26a93f0ce4bc14e1aaab21e2d77983c5.
+  - This task-record-only refresh does not change parser, routing, workflow or application behavior; 2a68f1cb26a93f0ce4bc14e1aaab21e2d77983c5 remains the latest material implementation/test head and live GitHub state is authoritative for the final metadata head created by this update.
 unknown:
-  - Terminal repository-required CI result on the checkpoint-only final head created by this update.
-  - Fresh Codex review result for the checkpoint-only final head created by this update.
+  - Terminal repository-required CI result on the final metadata head created by this update.
+  - Fresh Codex review result for the final metadata head created by this update.
 conflicts: []
 first_failure:
-  marker: codex-final-grant-grammar-generation
-  evidence: Fresh Codex review on 5535311de640f91a6706a1b4583b63a6ed01e1bd identified four grant/denial bypasses. Initial repair head be7bec7d48ddb3d07a690fbd83a1112e35265548 passed 76/77 regressions and exposed only remove-files-from association; material head 639e7afcb807d09f3df4b6d9a55bbf7786c6bd00 repairs that final case and Agent Governance 31575678582 proves 77/77 focused regressions plus the live validator pass.
+  marker: codex-read-only-and-completion-weakening-generation
+  evidence: Fresh Codex review on 1efead13f342280aea6961ef301e9b6ff0453e6b identified read-only exemption of an affirmative mutation grant and marker-only completion validation. Material head 2a68f1cb26a93f0ce4bc14e1aaab21e2d77983c5 repairs both and Agent Governance 31578139727 / job 94054827809 proves 82/82 regressions plus live policy validation pass.
 rejected_hypotheses:
-  - Direct have/has write-access support is sufficient without adding the same grammar to conjunction splitting; independent RHS write-access grants must be split from prior conditional authorization.
-  - Edit/push/commit/merge cover all meaningful repository mutation vocabulary; delete/remove are direct mutations and must fail closed on foreign repositories.
-  - Only explicit can modify write-access wording; common full/unrestricted/direct/autonomous modifiers also represent affirmative authority.
-  - Negating only grant is sufficient; allow/authorize/permit require corresponding do-not/never/not denial recognition to avoid false positives.
+  - A positive read-only assertion may safely exempt the rest of the same clause; an affirmative mutation grant in that clause must still fail closed.
+  - Presence of closeout marker substrings alone proves the completion contract cannot be weakened; contradictory authoritative declarations must also be rejected.
+  - Completion weakening detection may match any use of with/without near closeout terms; only explicit weakening grammar is rejected and fenced examples remain non-authoritative.
+  - Phase 7 composer curl error 60 demonstrates an application regression; the job stopped at dependency download before application validation and the failure is external to the task-owned diff.
 changed_paths:
   - .github/workflows/agent-governance.yml
   - docs/agents/tasks/active/OTERYN-20260811-agent-policy-consistency.md
@@ -109,18 +111,18 @@ changed_paths:
   - tools/agents/policy_consistency.py
   - tools/agents/test_policy_consistency.py
 validation:
-  - command: Agent Governance run 31575678582 on implementation/test head 639e7afcb807d09f3df4b6d9a55bbf7786c6bd00
+  - command: Agent Governance run 31578139727 on material head 2a68f1cb26a93f0ce4bc14e1aaab21e2d77983c5
     result: PASS
-    evidence: job 94047133313 completed 77 of 77 policy-consistency regressions, live policy validation, 3 checkpoint validations, live liveness validation for 3 active tasks with 0 advisory findings and Control Room validation successfully.
-  - command: first repair Agent Governance run 31575370050 on be7bec7d48ddb3d07a690fbd83a1112e35265548
-    result: FAIL
-    evidence: job 94046169494 ran 77 tests with exactly one failure, test_remove_foreign_repository_grant_fails_closed; the first actionable failure was the missing from preposition in mutation-to-repository association and is repaired on 639e7afcb807d09f3df4b6d9a55bbf7786c6bd00.
-  - command: checkpoint-only final-head required CI, Agent Governance and fresh Codex review
+    evidence: job 94054827809 completed 82 of 82 policy-consistency regressions, live policy validation, 3 checkpoint validations, live liveness validation for 3 active tasks with 0 advisory findings and Control Room validation successfully.
+  - command: material-head repository workflow generation
+    result: PARTIAL
+    evidence: CI 31578139670, Agent Governance 31578139727, Edge Security Emulation 31578139660, Platform DB Outage Validation 31578139657 and Game Auth Ticket Concurrency 31578139671 reached success; Deep System Validation 31578139668 remained active and Phase 7 31578139662 encountered an external composer TLS failure before application validation and was retried on the same head.
+  - command: final metadata-head required CI and fresh Codex review
     result: NOT_RUN
-    evidence: this task-record-only update creates the final validation generation.
+    evidence: this task-record-only refresh creates the final validation generation.
 blockers:
   - none
-next_action: Validate the checkpoint-only final branch head created by this update with repository-required CI, Agent Governance and a fresh Codex review; if every required check passes with zero unresolved material threads, squash-merge PR #992 with expected-head protection, verify main, close Issue #991 and archive this task through the repository-mandated lifecycle.
+next_action: Validate the final metadata-only branch head created by this update with repository-required exact-head CI, Agent Governance and a fresh Codex review; if every required check passes with zero unresolved material threads and ownership/base state remains conflict-free, squash-merge PR #992 with expected-head protection, verify main, close Issue #991 and archive/release this task through the repository-mandated lifecycle.
 ```
 
 ## Recovery checkpoint
@@ -128,30 +130,30 @@ next_action: Validate the checkpoint-only final branch head created by this upda
 ```yaml
 recovery:
   policy_version: 1
-  generation: 23
-  session_id: agent-20260812-0953-final-grant-grammar-checkpoint
-  session_started_at: 2026-08-12T09:40:00+02:00
-  checkpointed_at: 2026-08-12T09:53:00+02:00
-  last_progress_at: 2026-08-12T09:53:00+02:00
+  generation: 24
+  session_id: agent-20260812-1027-final-policy-consistency-checkpoint
+  session_started_at: 2026-08-12T10:13:00+02:00
+  checkpointed_at: 2026-08-12T10:27:00+02:00
+  last_progress_at: 2026-08-12T10:27:00+02:00
   phase: final-checkpoint-validation
-  exact_head: 639e7afcb807d09f3df4b6d9a55bbf7786c6bd00
+  exact_head: 2a68f1cb26a93f0ce4bc14e1aaab21e2d77983c5
   pull_request: 992
-  active_operation: create refreshed final checkpoint after final grant-grammar repairs and 77-test Agent Governance proof
+  active_operation: create final checkpoint after read-only/completion contradiction repairs and 82-test Agent Governance proof
   external_run_ids:
-    - 31575678582
-    - 31575678567
-    - 31575678595
-    - 31575678600
-    - 31575678639
-    - 31575678841
-    - 31575679149
-  operation_started_at: 2026-08-12T09:53:00+02:00
-  wait_deadline_at: 2026-08-12T10:38:00+02:00
-  check_generation: final-grant-grammar-checkpoint
+    - 31578139727
+    - 31578139670
+    - 31578139668
+    - 31578139662
+    - 31578139660
+    - 31578139671
+    - 31578139657
+  operation_started_at: 2026-08-12T10:27:00+02:00
+  wait_deadline_at: 2026-08-12T11:12:00+02:00
+  check_generation: final-read-only-completion-checkpoint
   checks_used: 0
   status: active
   safe_to_resume: true
-  resume_condition: checkpoint-only exact-head required checks and fresh review are terminal and branch head remains unchanged
+  resume_condition: final metadata-head required checks and fresh review are terminal and branch head remains unchanged
   next_action: inspect final exact-head CI and fresh review, then squash-merge only if every merge gate remains satisfied
 ```
 
