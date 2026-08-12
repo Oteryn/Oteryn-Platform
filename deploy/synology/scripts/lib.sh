@@ -23,14 +23,12 @@ load_oteryn_env_file() {
             echo "Invalid staging environment line; expected KEY=VALUE." >&2
             return 1
         fi
-
         key="${line%%=*}"
         value="${line#*=}"
         if [[ ! "$key" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]; then
             echo "Invalid staging environment key: $key" >&2
             return 1
         fi
-
         printf -v "$key" '%s' "$value"
         export "$key"
     done < "$env_file"
@@ -45,8 +43,7 @@ load_oteryn_env_file() {
         fi
     fi
 
-    if [[ "${GITHUB_WORKFLOW:-}" == "Character Bazaar Staging Control" \
-        && "$(basename -- "$env_file")" == ".env" ]]; then
+    if [[ "${GITHUB_WORKFLOW:-}" == "Character Bazaar Staging Control" && "$(basename -- "$env_file")" == ".env" ]]; then
         case "${APP_URL:-}" in
             https://oteryn.molehill.cloud|http://127.0.0.1:8000) ;;
             *) echo "Character Bazaar public staging APP_URL must be the canonical origin or the exact legacy loopback value." >&2; return 1 ;;
@@ -64,7 +61,16 @@ load_oteryn_env_file() {
 _oteryn_deploy_state_dir() { printf '%s\n' "${OTERYN_STATE_DIR:-/var/lib/oteryn-staging-state}"; }
 
 _oteryn_release_sha() {
-    local sha="${OTERYN_RELEASE_SHA:-${GITHUB_SHA:-}}"
+    local sha="${OTERYN_RELEASE_SHA:-}"
+    # PR #1003's owned workflow contract writes GATEWAY_VERSION=sha-<release_sha>
+    # after verifying Platform/Gateway OCI revision labels against that same SHA.
+    # Prefer that application identity over the workflow checkout's GITHUB_SHA.
+    if [[ -z "$sha" && "${GATEWAY_VERSION:-}" =~ ^sha-([0-9a-f]{40})$ ]]; then
+        sha="${BASH_REMATCH[1]}"
+    fi
+    if [[ -z "$sha" ]]; then
+        sha="${GITHUB_SHA:-}"
+    fi
     if [[ -z "$sha" ]] && command -v git >/dev/null 2>&1; then
         sha="$(git -C "$REPO_ROOT" rev-parse HEAD 2>/dev/null || true)"
     fi
@@ -89,8 +95,6 @@ _oteryn_before_platform_migrate() {
     mkdir -p "$state_dir/backups"
     chmod 700 "$state_dir" "$state_dir/backups"
 
-    # Candidate identity is persisted before migrate. If the process disappears
-    # later, rollback still knows exactly which release may have changed schema.
     bash "$SCRIPT_DIR/release-state.sh" write "$state_dir/candidate-release.env" "$release_sha" \
         "$OTERYN_SCHEMA_COMPATIBILITY_ID" "$OTERYN_APP_ACCEPTS_SCHEMA_IDS" \
         "$PLATFORM_IMAGE" "$GATEWAY_IMAGE" "$CANARY_IMAGE" 1
@@ -158,8 +162,6 @@ _oteryn_finalize_release_on_exit() {
     return 0
 }
 
-# Immutable substitution is centralized here so no existing health assertion,
-# retry bound, network namespace or header check is weakened.
 docker() {
     local -a args=("$@")
     local i
