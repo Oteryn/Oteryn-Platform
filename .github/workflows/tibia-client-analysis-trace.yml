@@ -19,18 +19,17 @@ jobs:
     runs-on: oteryn-staging
     timeout-minutes: 12
     steps:
-      - name: Verify exact owned runtime and host tunnel support
+      - name: Verify exact owned runtime and snapshot staging
         shell: bash
         run: |
           set -Eeuo pipefail
           [[ "$RUNNER_NAME" == "oteryn-synology-staging" ]]
           [[ "$(docker inspect --format '{{ index .Config.Labels "com.blakinio.owner" }}' "$CONTAINER_NAME")" == "oteryn" ]]
           [[ "$(docker inspect --format '{{ index .Config.Labels "com.blakinio.purpose" }}' "$CONTAINER_NAME")" == "tibia-client-analysis" ]]
-          test -c /dev/net/tun
           docker ps -a --filter 'label=com.docker.compose.project=oteryn-staging' --format '{{.ID}}\t{{.Names}}' | sort > /tmp/oteryn-before.tsv
           docker exec "$CONTAINER_NAME" bash -lc 'test -s /var/cache/apt/archives/cloudflare-warp_2026.6.880.0_amd64.deb && cp /var/cache/apt/archives/cloudflare-warp_2026.6.880.0_amd64.deb /data/cloudflare-warp.deb'
 
-      - name: Recreate only task-owned analysis container with TUN capability
+      - name: Recreate only task-owned analysis container with NET_ADMIN
         shell: bash
         run: |
           set -Eeuo pipefail
@@ -41,15 +40,14 @@ jobs:
             --name "$CONTAINER_NAME" \
             --restart unless-stopped \
             --cap-add NET_ADMIN \
-            --device /dev/net/tun:/dev/net/tun \
             --label com.blakinio.owner=oteryn \
             --label com.blakinio.purpose=tibia-client-analysis \
             --label com.blakinio.task=OTERYN-20260811-tibia-client-analysis \
             -v "$HOST_DATA_DIR:/data" \
             "$SNAPSHOT_IMAGE" sleep infinity >/dev/null
           [[ "$(docker inspect --format '{{ index .Config.Labels "com.blakinio.owner" }}' "$CONTAINER_NAME")" == "oteryn" ]]
-          docker exec "$CONTAINER_NAME" test -c /dev/net/tun
-          docker inspect --format 'capadd={{json .HostConfig.CapAdd}} devices={{json .HostConfig.Devices}}' "$CONTAINER_NAME"
+          docker exec "$CONTAINER_NAME" bash -lc 'mkdir -p /dev/net; test -e /dev/net/tun || mknod /dev/net/tun c 10 200; chmod 666 /dev/net/tun; test -c /dev/net/tun'
+          docker inspect --format 'capadd={{json .HostConfig.CapAdd}}' "$CONTAINER_NAME"
 
       - name: Extract cached WARP package and verify tunneled egress
         shell: bash
@@ -90,6 +88,12 @@ jobs:
             sleep 2
           done
           echo WARP_VERIFIED=$verified
+          if (( verified == 0 )); then
+            echo WARP_DIAGNOSTIC_BEGIN
+            timeout 5 "$cli" --accept-tos status 2>&1 | sed -E '/(token|account|device|license)/Id' || true
+            tail -n 80 /data/runtime/warp-svc.log 2>/dev/null | sed -E '/(token|account|device|license)/Id' || true
+            echo WARP_DIAGNOSTIC_END
+          fi
           (( verified == 1 ))
           INNER
 
@@ -109,9 +113,9 @@ jobs:
           pkg="$HOME/.local/share/CipSoft GmbH/Tibia/packages/Tibia"
           client="$pkg/bin/client"
           [[ -x "$client" ]]
+          pgrep -f '^Xvfb :99' >/dev/null || nohup Xvfb :99 -screen 0 1280x800x24 >/data/runtime/xvfb.log 2>&1 </dev/null &
+          sleep 2
           if ! pgrep -f "^$client" >/dev/null; then
-            pgrep -f '^Xvfb :99' >/dev/null || nohup Xvfb :99 -screen 0 1280x800x24 >/data/runtime/xvfb.log 2>&1 </dev/null &
-            sleep 2
             cd "$pkg"
             nohup "$client" >/data/runtime/installed-client-launch.log 2>&1 </dev/null &
             for n in $(seq 1 20); do pgrep -f "^$client" >/dev/null && break; sleep 1; done
@@ -125,7 +129,6 @@ jobs:
             area=$((width*height)); if (( area > best_area )); then best=$w; best_area=$area; fi
           done
           [[ -n "$best" && "$best_area" -ge 600000 ]]
-          # Ensure login dialog is open; click welcome Login if needed, harmless if already open.
           xdotool mousemove --window "$best" 510 302 click 1 || true
           sleep 2
           xdotool mousemove --window "$best" 535 275 click 1
