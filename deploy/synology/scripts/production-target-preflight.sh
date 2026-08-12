@@ -164,19 +164,33 @@ platform_image="$(docker inspect --format '{{.Config.Image}}' "${containers[plat
 gateway_image="$(docker inspect --format '{{.Config.Image}}' "${containers[gateway]}")"
 canary_image="$(docker inspect --format '{{.Config.Image}}' "${containers[canary]}")"
 
-[[ "$platform_image" =~ ^ghcr\.io/blakinio/oteryn-platform:sha-([a-f0-9]{40})$ ]] \
-    || fail "Platform is not deployed from an exact sha-<40 hex> tag"
-deployed_release_sha="${BASH_REMATCH[1]}"
-[[ "$gateway_image" == "ghcr.io/blakinio/oteryn-game-gateway:sha-$deployed_release_sha" ]] \
-    || fail "Gateway release tag does not match the exact Platform release SHA"
+[[ "$platform_image" =~ ^ghcr\.io/blakinio/oteryn-platform@sha256:([a-f0-9]{64})$ ]] \
+    || fail "Platform is not deployed by immutable digest"
+platform_digest="sha256:${BASH_REMATCH[1]}"
+[[ "$gateway_image" =~ ^ghcr\.io/blakinio/oteryn-game-gateway@sha256:([a-f0-9]{64})$ ]] \
+    || fail "Gateway is not deployed by immutable digest"
+gateway_digest="sha256:${BASH_REMATCH[1]}"
 [[ "$canary_image" =~ @sha256:([a-f0-9]{64})$ ]] \
     || fail "Canary is not deployed by immutable digest"
 canary_digest="sha256:${BASH_REMATCH[1]}"
 
+deployed_release_sha=""
 for service in platform gateway canary; do
     image_id="$(docker inspect --format '{{.Image}}' "${containers[$service]}")"
     [[ "$image_id" =~ ^sha256:[a-f0-9]{64}$ ]] || fail "$service image ID is not immutable"
+
+    if [[ "$service" == "platform" || "$service" == "gateway" ]]; then
+        image_revision="$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "$image_id")"
+        [[ "$image_revision" =~ ^[a-f0-9]{40}$ ]] \
+            || fail "$service image is missing an exact org.opencontainers.image.revision"
+        if [[ -z "$deployed_release_sha" ]]; then
+            deployed_release_sha="$image_revision"
+        elif [[ "$image_revision" != "$deployed_release_sha" ]]; then
+            fail "Gateway OCI revision does not match the Platform release SHA"
+        fi
+    fi
 done
+[[ -n "$deployed_release_sha" ]] || fail "unable to recover deployed release SHA from immutable image metadata"
 
 assert_named_volume() {
     local service="$1"
