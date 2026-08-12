@@ -33,6 +33,7 @@ jobs:
           set -Eeuo pipefail
           docker exec -i "$CONTAINER_NAME" python3 - <<'PY'
           import csv,hashlib,re
+          from collections import defaultdict
           from pathlib import Path
 
           log=Path('/data/runtime/client-userspace-warp.log')
@@ -77,16 +78,13 @@ jobs:
               print(f'PROXY_LIST_{i}_LOCAL={str(host in {"127.0.0.1","::1","localhost"}).lower()}')
               print(f'PROXY_LIST_{i}_PORT={port if port.isdigit() else "non_numeric"}')
 
-          # Inspect only allow-listed UI words from the retained Select Character TSV.
-          # Never emit arbitrary OCR text, character names, account data, or secrets.
           tsv=Path('/tmp/select.tsv')
           safe_tokens={'select','character','status','ok','cancel','online','offline','account','login','logout','play','enter','game','manage'}
+          row_points=[]
           if tsv.exists():
               with tsv.open(newline='',errors='replace') as f:
                   for r in csv.DictReader(f,delimiter='\t'):
                       token=(r.get('text') or '').strip().lower().strip(':,.!?()[]')
-                      if token not in safe_tokens:
-                          continue
                       try:
                           conf=float(r.get('conf') or -1)
                           left=int(r.get('left') or 0)//2
@@ -95,10 +93,35 @@ jobs:
                           height=max(1,int(r.get('height') or 0)//2)
                       except ValueError:
                           continue
-                      if conf >= 20:
-                          print(f'SAFE_UI_TOKEN={token};x={left+width//2};y={top+height//2};conf={int(conf)}')
+                      if conf < 20:
+                          continue
+                      x=left+width//2
+                      y=top+height//2
+                      if token in safe_tokens:
+                          print(f'SAFE_UI_TOKEN={token};x={x};y={y};conf={int(conf)}')
+                      # Geometry-only use of arbitrary OCR tokens. Their text is never emitted.
+                      if 170 <= x <= 650 and 195 <= y <= 325:
+                          row_points.append((x,y))
           else:
               print('SAFE_UI_TSV_PRESENT=false')
+
+          if row_points:
+              clusters=[]
+              for _,y in sorted(row_points,key=lambda p:p[1]):
+                  if not clusters or y-clusters[-1][-1] > 8:
+                      clusters.append([y])
+                  else:
+                      clusters[-1].append(y)
+              candidates=[c for c in clusters if len(c) >= 2]
+              if candidates:
+                  first=candidates[0]
+                  row_y=round(sum(first)/len(first))
+                  print(f'GEOMETRY_FIRST_ROW_Y={row_y}')
+                  print(f'GEOMETRY_FIRST_ROW_TOKEN_COUNT={len(first)}')
+              else:
+                  print('GEOMETRY_FIRST_ROW_Y=unresolved')
+          else:
+              print('GEOMETRY_FIRST_ROW_Y=unresolved')
 
           def classify(label,path):
               p=Path(path)
