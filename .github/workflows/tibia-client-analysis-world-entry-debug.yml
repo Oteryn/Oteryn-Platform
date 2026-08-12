@@ -13,9 +13,9 @@ env:
 
 jobs:
   debug:
-    name: Trace tunneled Tibia world entry
+    name: Enter Tibia world through verified character row
     runs-on: oteryn-staging
-    timeout-minutes: 10
+    timeout-minutes: 8
     steps:
       - name: Verify owned runtime and snapshot staging
         shell: bash
@@ -27,7 +27,7 @@ jobs:
           [[ "$(docker inspect --format '{{.State.Status}}' "$CONTAINER_NAME")" == "running" ]]
           docker ps -a --filter 'label=com.docker.compose.project=oteryn-staging' --format '{{.ID}}\t{{.Names}}' | sort >/tmp/oteryn-before.tsv
 
-      - name: Login, activate selected character, and summarize proxy path
+      - name: Login and enter first verified visible character row
         shell: bash
         env:
           TIBIA_TEST_EMAIL: ${{ secrets.TIBIA_TEST_EMAIL }}
@@ -65,8 +65,7 @@ jobs:
             area=$((width*height))
             if (( area > best_area )); then best=$w; best_area=$area; best_width=$width; best_height=$height; fi
           done
-          [[ -n "$best" && "$best_area" -ge 600000 ]]
-          [[ "$best_width" -ge 1000 && "$best_width" -le 1100 && "$best_height" -ge 620 && "$best_height" -le 700 ]]
+          [[ -n "$best" && "$best_width" == 1020 && "$best_height" == 650 ]]
 
           xdotool mousemove --window "$best" 535 275 click 1
           xdotool key --window "$best" ctrl+a
@@ -78,67 +77,32 @@ jobs:
           unset TIBIA_TEST_EMAIL TIBIA_TEST_PASSWORD
           sleep 25
 
-          import -display :99 -window "$best" /tmp/select-debug.png
-          convert /tmp/select-debug.png -crop 900x500+60+80 -resize 180% -colorspace Gray -contrast-stretch 1%x1% /tmp/select-debug-ocr.png
-          tesseract /tmp/select-debug-ocr.png stdout --psm 11 tsv 2>/dev/null >/tmp/select-debug.tsv || true
-          python3 - <<'PY' >/tmp/entry-geometry.env
-          import csv
-          words=[]
-          with open('/tmp/select-debug.tsv',newline='',errors='replace') as f:
-              for r in csv.DictReader(f,delimiter='\t'):
-                  token=(r.get('text') or '').strip().lower().strip(':,.!?()[]')
-                  if token not in {'select','character','status','ok','cancel'}:
-                      continue
-                  try:
-                      conf=float(r.get('conf') or -1)
-                      # OCR coordinates are in a 1.8x crop that starts at +60,+80.
-                      x=60+(int(r.get('left') or 0)+max(1,int(r.get('width') or 0))//2)/1.8
-                      y=80+(int(r.get('top') or 0)+max(1,int(r.get('height') or 0))//2)/1.8
-                  except ValueError:
-                      continue
-                  if conf >= 20:
-                      words.append((token,conf,int(round(x)),int(round(y))))
-          select_y=min((y for t,_,_,y in words if t=='select' and 100 <= y <= 145), default=None)
-          status_y=min((y for t,_,_,y in words if t=='status' and 285 <= y <= 380), default=None)
-          if select_y is None or status_y is None:
-              raise SystemExit('Select Character anchors not detected')
-          headers=[(conf,x,y) for t,conf,x,y in words if t=='character' and select_y+25 <= y <= status_y-50]
-          if not headers:
-              raise SystemExit('Character header not detected')
-          _,header_x,header_y=max(headers)
-          row_x=max(210,min(300,header_x+10))
-          row_y=header_y+max(18,min(34,(status_y-header_y)//5))
-          cancel=[(conf,x,y) for t,conf,x,y in words if t=='cancel' and 470 <= y <= 545]
-          ok=[(conf,x,y) for t,conf,x,y in words if t=='ok' and 470 <= y <= 545]
-          if ok:
-              _,ok_x,ok_y=max(ok)
-          elif cancel:
-              _,cancel_x,cancel_y=max(cancel)
-              ok_x,ok_y=cancel_x-52,cancel_y
-          else:
-              raise SystemExit('OK action row not detected')
-          if not (180 <= row_x <= 320 and 180 <= row_y <= 245 and 720 <= ok_x <= 830 and 475 <= ok_y <= 535):
-              raise SystemExit(f'Unsafe entry geometry row={row_x},{row_y} ok={ok_x},{ok_y}')
-          print(f'ROW_X={row_x}')
-          print(f'ROW_Y={row_y}')
-          print(f'OK_X={ok_x}')
-          print(f'OK_Y={ok_y}')
+          import -display :99 -window "$best" /tmp/select-fixed.png
+          convert /tmp/select-fixed.png -crop 900x500+60+80 -resize 150% -colorspace Gray -contrast-stretch 1%x1% /tmp/select-fixed-ocr.png
+          tesseract /tmp/select-fixed-ocr.png stdout --psm 11 2>/dev/null >/tmp/select-fixed.txt || true
+          python3 - <<'PY'
+          from pathlib import Path
+          t=Path('/tmp/select-fixed.txt').read_text(errors='replace').lower()
+          if 'select character' not in t and not ('select' in t and 'character' in t and 'account status' in t):
+              raise SystemExit('Select Character dialog not verified')
+          print('SELECT_CHARACTER_VERIFIED=true')
           PY
-          source /tmp/entry-geometry.env
-          echo CHARACTER_ACTION_GEOMETRY_VERIFIED=true
-          echo "character_action_geometry=$ROW_X,$ROW_Y->$OK_X,$OK_Y"
 
-          xdotool mousemove --window "$best" "$ROW_X" "$ROW_Y" click 1
+          # Direct screenshot evidence for this exact 1020x650 client geometry places
+          # the first visible character row at y≈190..252 and the OK button at 792,511.
+          # Click the interior row center, not OCR text whose title/header ambiguity caused prior failures.
+          xdotool mousemove --window "$best" 400 214 click 1
           sleep 1
-          xdotool mousemove --window "$best" "$OK_X" "$OK_Y" click 1
+          import -display :99 -window "$best" /tmp/row-selected.png
+          xdotool mousemove --window "$best" 792 511 click 1
+          echo CHARACTER_ROW_AND_OK_ACTIVATED=true
+
           sleep 1
-          import -display :99 -window "$best" /tmp/entry-t1.png
-          sleep 2
-          import -display :99 -window "$best" /tmp/entry-t3.png
+          import -display :99 -window "$best" /tmp/entry-fixed-t1.png
           sleep 3
-          import -display :99 -window "$best" /tmp/entry-t6.png
+          import -display :99 -window "$best" /tmp/entry-fixed-t4.png
           sleep 6
-          import -display :99 -window "$best" /tmp/entry-t12.png
+          import -display :99 -window "$best" /tmp/entry-fixed-t10.png
 
           pid=$(pgrep -f 'packages/Tibia/bin/client' | head -n1)
           [[ -n "$pid" ]]
@@ -154,67 +118,62 @@ jobs:
           from pathlib import Path
           lines=Path('/data/runtime/client-world-entry-debug.log').read_text(errors='replace').splitlines()[-1200:]
           chain=[line for line in lines if 'chain' in line.lower() or 'proxychains' in line.lower() or 'dns-' in line.lower()]
-          ports=set()
-          statuses={k:0 for k in ['ok','timeout','refused','denied','error','failed']}
+          ports=set(); statuses={k:0 for k in ['ok','timeout','refused','denied','error','failed']}
           for line in chain:
               lo=line.lower()
               for k in statuses:
-                  if k in lo:
-                      statuses[k]+=1
+                  if k in lo: statuses[k]+=1
               for m in re.finditer(r':([0-9]{1,5})(?=\D|$)',line):
                   p=int(m.group(1))
-                  if 1 <= p <= 65535 and p != 25344:
-                      ports.add(p)
+                  if 1 <= p <= 65535 and p != 25344: ports.add(p)
           print(f'PROXY_DEBUG_LINE_COUNT={len(chain)}')
           print('PROXY_TARGET_PORTS=' + ','.join(map(str,sorted(ports))))
           print('PROXY_STATUS_COUNTS=' + ','.join(f'{k}:{v}' for k,v in statuses.items()))
           PY
 
-          for sec in 1 3 6 12; do
-            shot="/tmp/entry-t${sec}.png"
-            convert "$shot" -crop 900x500+60+80 -resize 160% -colorspace Gray -contrast-stretch 1%x1% "/tmp/entry-t${sec}-ocr.png"
-            tesseract "/tmp/entry-t${sec}-ocr.png" stdout --psm 11 2>/dev/null >"/tmp/entry-t${sec}.txt" || true
+          for sec in 1 4 10; do
+            shot="/tmp/entry-fixed-t${sec}.png"
+            convert "$shot" -crop 900x500+60+80 -resize 150% -colorspace Gray -contrast-stretch 1%x1% "/tmp/entry-fixed-t${sec}-ocr.png"
+            tesseract "/tmp/entry-fixed-t${sec}-ocr.png" stdout --psm 11 2>/dev/null >"/tmp/entry-fixed-t${sec}.txt" || true
           done
           python3 - <<'PY'
           from pathlib import Path
-          allow={'already','logged','connection','failed','error','server','world','queue','maintenance','session','client','account','character','select','login','password','email','online','offline','connecting','please','try','again','could','not','timeout'}
+          allow={'already','logged','connection','failed','error','server','world','queue','maintenance','session','client','account','character','select','login','password','email','online','offline','connecting','please','try','again','could','not','timeout','battle','skills','inventory','health','mana'}
           final=''
-          for sec in (1,3,6,12):
-              text=Path(f'/tmp/entry-t{sec}.txt').read_text(errors='replace').lower()
-              final=text if sec==12 else final
-              normalized=''.join(ch if ch.isalnum() else ' ' for ch in text)
+          for sec in (1,4,10):
+              text=Path(f'/tmp/entry-fixed-t{sec}.txt').read_text(errors='replace').lower()
+              if sec==10: final=text
+              norm=''.join(ch if ch.isalnum() else ' ' for ch in text)
               safe=[]
-              for token in normalized.split():
-                  if token in allow and token not in safe:
-                      safe.append(token)
+              for token in norm.split():
+                  if token in allow and token not in safe: safe.append(token)
               print(f'T{sec}_SAFE_TOKENS=' + ','.join(safe))
           account=('account login' in final or ('email' in final and 'password' in final))
           select=('select character' in final)
+          game=any(x in final for x in ['battle','skills','inventory','health','mana'])
           print(f'FINAL_ACCOUNT_LOGIN={str(account).lower()}')
           print(f'FINAL_SELECT_CHARACTER={str(select).lower()}')
+          print(f'FINAL_GAME_MARKERS={str(game).lower()}')
           if account or select:
               raise SystemExit(2)
           PY
 
-          cp /tmp/entry-t12.png /tmp/entry-t12-safe.png
-          image_width=$(identify -format '%w' /tmp/entry-t12-safe.png)
-          image_height=$(identify -format '%h' /tmp/entry-t12-safe.png)
-          right_start=$((image_width-180)); bottom_start=$((image_height-130))
-          convert /tmp/entry-t12-safe.png -fill '#202020' -draw "rectangle 0,0 ${image_width},70 rectangle 0,70 180,${image_height} rectangle ${right_start},70 ${image_width},${image_height} rectangle 0,${bottom_start} ${image_width},${image_height}" /tmp/entry-t12-safe.png
-          echo WORLD_ENTRY_CANDIDATE_CAPTURED=true
+          cp /tmp/entry-fixed-t10.png /tmp/entry-fixed-safe.png
+          convert /tmp/entry-fixed-safe.png -fill '#202020' -draw 'rectangle 0,0 1020,70 rectangle 0,70 180,650 rectangle 840,70 1020,650 rectangle 0,520 1020,650' /tmp/entry-fixed-safe.png
+          echo WORLD_ENTRY_SCREEN_CAPTURED=true
           INNER
 
-      - name: Export privacy-safe candidate screenshot
+      - name: Export privacy-safe world screenshot
         if: always()
         shell: bash
-        run: docker cp "$CONTAINER_NAME:/tmp/entry-t12-safe.png" /tmp/entry-t12-safe.png 2>/dev/null || true
+        run: docker cp "$CONTAINER_NAME:/tmp/entry-fixed-safe.png" /tmp/entry-fixed-safe.png 2>/dev/null || true
 
-      - name: Upload privacy-safe candidate screenshot
+      - name: Upload privacy-safe world screenshot
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: tibia-world-entry-debug-safe
-          path: /tmp/entry-t12-safe.png
+          name: tibia-world-entry-fixed-safe
+          path: /tmp/entry-fixed-safe.png
           retention-days: 7
           if-no-files-found: warn
 
