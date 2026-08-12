@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 import pathlib
 import subprocess
 import tempfile
@@ -91,19 +90,18 @@ def test_health_probe_helpers_are_repository_pinned_by_digest() -> None:
     assert "OTERYN_HEALTH_PYTHON_IMAGE='python@sha256:" in lib
     assert "alpine:3.22) args[$i]=\"$OTERYN_HEALTH_ALPINE_IMAGE\"" in lib
     assert "python:3.12-alpine) args[$i]=\"$OTERYN_HEALTH_PYTHON_IMAGE\"" in lib
-    # Every mutable helper alias currently present in the probe script must be
-    # covered by the single Docker invocation boundary above.
     assert health.count("alpine:3.22") >= 1
     assert health.count("python:3.12-alpine") == 1
 
 
 def test_migration_ambiguity_fails_closed_before_migrate() -> None:
     lib = (SCRIPTS / "lib.sh").read_text()
-    unknown = "printf 'SCHEMA_STATE=unknown\\n'"
-    migrate = "php artisan migrate --force --no-interaction"
-    known = "printf 'SCHEMA_STATE=known\\n'"
-    assert unknown in lib and migrate in lib and known in lib
-    assert lib.index(unknown) < lib.index(migrate) < lib.rindex(known)
+    assert "printf 'SCHEMA_STATE=unknown\\n'" in lib
+    assert "printf 'SCHEMA_STATE=known\\n'" in lib
+    before = lib.index("_oteryn_before_platform_migrate", lib.index("docker()"))
+    execute = lib.index('command docker "${args[@]}"', before)
+    after = lib.index("_oteryn_after_platform_migrate", execute)
+    assert before < execute < after
 
 
 def test_recovery_requires_verified_managed_backup_and_never_runs_implicitly() -> None:
