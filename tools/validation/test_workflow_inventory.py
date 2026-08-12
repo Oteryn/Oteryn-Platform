@@ -31,6 +31,10 @@ class WorkflowInventoryTest(unittest.TestCase):
                 text = BASE.format(events=events.rstrip())
                 self.assertEqual(expected, classify_workflow(Path(filename), text))
 
+    def test_quoted_supported_event_is_classified(self) -> None:
+        text = BASE.format(events='  "pull_request":')
+        self.assertEqual("domain_validation", classify_workflow(Path("feature-contract.yml"), text))
+
     def test_unknown_trigger_shape_fails_closed(self) -> None:
         text = BASE.format(events="  repository_dispatch:")
         with self.assertRaisesRegex(WorkflowInventoryError, "unclassified workflow"):
@@ -47,6 +51,18 @@ class WorkflowInventoryTest(unittest.TestCase):
         text = BASE.format(events="  pull_request:\n  repository_dispatch:")
         with self.assertRaisesRegex(WorkflowInventoryError, "unsupported top-level event"):
             classify_workflow(Path("feature-contract.yml"), text)
+
+    def test_quoted_unsupported_trigger_cannot_hide_behind_supported_trigger(self) -> None:
+        text = BASE.format(events='  pull_request:\n  "repository_dispatch":')
+        for filename in ("ci.yml", "build-malicious.yml", "deploy-malicious.yml"):
+            with self.subTest(filename=filename):
+                with self.assertRaisesRegex(WorkflowInventoryError, "unsupported top-level event"):
+                    classify_workflow(Path(filename), text)
+
+    def test_unparseable_direct_event_key_fails_closed(self) -> None:
+        text = BASE.format(events="  pull_request:\n  repository.dispatch:")
+        with self.assertRaisesRegex(WorkflowInventoryError, "unparseable top-level workflow event key"):
+            classify_workflow(Path("build-malicious.yml"), text)
 
     def test_job_name_cannot_masquerade_as_supported_event(self) -> None:
         text = """name: Test
