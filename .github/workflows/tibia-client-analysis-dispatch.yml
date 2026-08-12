@@ -3,6 +3,7 @@ name: Tibia Client Analysis Dispatch
 on:
   pull_request:
     branches: [main]
+    types: [opened, synchronize, reopened]
     paths:
       - .github/workflows/tibia-client-analysis-dispatch.yml
       - .github/workflows/tibia-client-analysis-trace.yml
