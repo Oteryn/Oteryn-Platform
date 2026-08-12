@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import pathlib
 import subprocess
 import tempfile
@@ -7,6 +8,7 @@ import tempfile
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 SCRIPTS = ROOT / "deploy" / "synology" / "scripts"
 RELEASE_STATE = SCRIPTS / "release-state.sh"
+LIB = SCRIPTS / "lib.sh"
 
 OLD_SHA = "1" * 40
 NEW_SHA = "2" * 40
@@ -41,6 +43,35 @@ def run_compatible(candidate: pathlib.Path, old: pathlib.Path, schema: str = "sc
         capture_output=True,
         check=False,
     )
+
+
+def run_release_sha(platform_sha: str, gateway_sha: str, *, explicit_sha: str = "") -> subprocess.CompletedProcess[str]:
+    with tempfile.TemporaryDirectory() as td:
+        root = pathlib.Path(td)
+        docker = root / "docker"
+        docker.write_text(
+            "#!/usr/bin/env bash\n"
+            "set -euo pipefail\n"
+            "ref=${@: -1}\n"
+            f"case \"$ref\" in *platform*) printf '%s\\n' '{platform_sha}' ;; *gateway*) printf '%s\\n' '{gateway_sha}' ;; *) exit 9 ;; esac\n"
+        )
+        docker.chmod(0o755)
+        env = os.environ.copy()
+        env.update(
+            {
+                "PATH": f"{root}:{env['PATH']}",
+                "PLATFORM_IMAGE": "example/platform:test",
+                "GATEWAY_IMAGE": "example/gateway:test",
+                "OTERYN_RELEASE_SHA": explicit_sha,
+            }
+        )
+        return subprocess.run(
+            ["bash", "-c", 'source "$1"; _oteryn_release_sha', "bash", str(LIB)],
+            text=True,
+            capture_output=True,
+            check=False,
+            env=env,
+        )
 
 
 def test_compatible_rollback_is_accepted() -> None:
@@ -84,8 +115,26 @@ def test_stale_last_good_identity_is_rejected() -> None:
         assert "stale" in result.stderr.lower()
 
 
+def test_release_sha_is_derived_from_matching_runtime_oci_revisions() -> None:
+    result = run_release_sha(NEW_SHA, NEW_SHA)
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == NEW_SHA
+
+
+def test_release_sha_rejects_runtime_revision_mismatch() -> None:
+    result = run_release_sha(NEW_SHA, OLD_SHA)
+    assert result.returncode != 0
+    assert "OCI application revisions disagree" in result.stderr
+
+
+def test_release_sha_rejects_conflicting_explicit_identity() -> None:
+    result = run_release_sha(NEW_SHA, NEW_SHA, explicit_sha=OLD_SHA)
+    assert result.returncode != 0
+    assert "OTERYN_RELEASE_SHA disagrees" in result.stderr
+
+
 def test_health_probe_helpers_are_repository_pinned_by_digest() -> None:
-    lib = (SCRIPTS / "lib.sh").read_text()
+    lib = LIB.read_text()
     health = (SCRIPTS / "health-check.sh").read_text()
     assert "OTERYN_HEALTH_ALPINE_IMAGE='alpine@sha256:" in lib
     assert "OTERYN_HEALTH_PYTHON_IMAGE='python@sha256:" in lib
@@ -96,7 +145,7 @@ def test_health_probe_helpers_are_repository_pinned_by_digest() -> None:
 
 
 def test_migration_ambiguity_fails_closed_before_migrate() -> None:
-    lib = (SCRIPTS / "lib.sh").read_text()
+    lib = LIB.read_text()
     assert "printf 'SCHEMA_STATE=unknown\\n'" in lib
     assert "printf 'SCHEMA_STATE=known\\n'" in lib
     before = lib.index("_oteryn_before_platform_migrate", lib.index("docker()"))
