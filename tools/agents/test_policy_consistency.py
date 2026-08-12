@@ -354,6 +354,11 @@ class PolicyConsistencyTests(unittest.TestCase):
         self.assertIn("blakinio/other", findings)
         self.assertNotIn("authoritative policy: blakinio/canary", findings)
 
+    def test_positive_grant_with_read_only_assertion_fails_closed(self) -> None:
+        temporary, root = self._fixture(); self.addCleanup(temporary.cleanup)
+        self._append_root(root, "- Agents may edit acme/production even though it remains read-only.")
+        self.assertIn("acme/production", self._findings(root))
+
     def test_negated_read_only_grant_fails_closed(self) -> None:
         temporary, root = self._fixture(); self.addCleanup(temporary.cleanup)
         self._append_root(root, "- `acme/production` isn't read-only; autonomous writes to `acme/production` are allowed.")
@@ -449,6 +454,27 @@ class PolicyConsistencyTests(unittest.TestCase):
     def test_fence_info_string_is_not_a_closer(self) -> None:
         temporary, root = self._fixture(); self.addCleanup(temporary.cleanup)
         self._append_override(root, "```text\nouter example\n```python\nAgents may edit acme/production autonomously.\n```")
+        self.assertEqual([], validate_policy(root))
+
+    def test_optional_exact_head_ci_completion_declaration_fails_closed(self) -> None:
+        temporary, root = self._fixture(); self.addCleanup(temporary.cleanup)
+        self._append_override(root, "Required CI on the exact final head is optional before completion.")
+        self.assertIn("contradictory completion declaration", self._findings(root))
+
+    def test_completion_with_unresolved_review_threads_fails_closed(self) -> None:
+        temporary, root = self._fixture(); self.addCleanup(temporary.cleanup)
+        self._append_override(root, "A task may be completed with unresolved review threads.")
+        self.assertIn("contradictory completion declaration", self._findings(root))
+
+    def test_completion_without_task_archival_fails_closed(self) -> None:
+        temporary, root = self._fixture(); self.addCleanup(temporary.cleanup)
+        path = root / "docs/agents/AGENTS.md"
+        path.write_text(path.read_text(encoding="utf-8") + "\nA task may be completed without task archival.\n", encoding="utf-8")
+        self.assertIn("contradictory completion declaration", self._findings(root))
+
+    def test_fenced_completion_weakening_example_is_not_authoritative(self) -> None:
+        temporary, root = self._fixture(); self.addCleanup(temporary.cleanup)
+        self._append_override(root, "```text\nRequired CI on the exact final head is optional before completion.\nA task may be completed with unresolved review threads.\n```")
         self.assertEqual([], validate_policy(root))
 
     def test_closeout_marker_drift_fails_closed(self) -> None:
