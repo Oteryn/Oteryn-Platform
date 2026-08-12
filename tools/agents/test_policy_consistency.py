@@ -245,6 +245,16 @@ class PolicyConsistencyTests(unittest.TestCase):
         self._append_root(root, "- Writes to acme/production are allowed only when the project owner explicitly authorizes read access in the current task.")
         self.assertIn("acme/production", self._findings(root))
 
+    def test_deployment_authorization_does_not_unlock_foreign_repository_writes(self) -> None:
+        temporary, root = self._fixture(); self.addCleanup(temporary.cleanup)
+        self._append_root(root, "- Writes to acme/production are allowed only when the project owner explicitly authorizes deployment in the current task.")
+        self.assertIn("acme/production", self._findings(root))
+
+    def test_task_approval_does_not_unlock_foreign_repository_writes(self) -> None:
+        temporary, root = self._fixture(); self.addCleanup(temporary.cleanup)
+        self._append_root(root, "- Writes to acme/production are allowed only when the project owner explicitly approves the current task.")
+        self.assertIn("acme/production", self._findings(root))
+
     def test_other_repository_authorization_does_not_unlock_target_writes(self) -> None:
         temporary, root = self._fixture(); self.addCleanup(temporary.cleanup)
         self._append_root(root, "- Writes to acme/production are allowed only when the user explicitly authorizes acme/other in the current task.")
