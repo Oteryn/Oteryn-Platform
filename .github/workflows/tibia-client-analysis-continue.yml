@@ -14,7 +14,7 @@ env:
 
 jobs:
   continue:
-    name: Scan Tibia protocol descriptors and Worldmap Qt dispatch
+    name: Disassemble Worldmap static metacall
     runs-on: oteryn-staging
     timeout-minutes: 15
     steps:
@@ -35,104 +35,12 @@ jobs:
           docker ps -a --filter 'label=com.docker.compose.project=oteryn-staging' --format '{{.ID}}\t{{.Names}}' | sort > /tmp/oteryn-before.tsv
           test -s /tmp/oteryn-before.tsv
           docker exec "$CONTAINER_NAME" bash -lc '
-            set -Eeuo pipefail
             root=/data/client-15.32.df7b29
             [[ "$(stat -c %s "$root/bin/client")" == "51965216" ]]
             [[ "$(sha256sum "$root/bin/client" | awk "{print \$1}")" == "e6c244bd39fe2e0632f6f000efd3147164696efa8e901718668e0442325ff7fe" ]]
           '
 
-      - name: Scan entire ELF for serialized FileDescriptorProto records
-        shell: bash
-        run: |
-          set -Eeuo pipefail
-          docker exec -i "$CONTAINER_NAME" /data/reverse-venv/bin/python - <<'PY'
-          from pathlib import Path
-          from google.protobuf import descriptor_pb2
-          import re
-
-          root=Path('/data/client-15.32.df7b29')
-          path=root/'bin/client'
-          raw=path.read_bytes()
-          out=root/'elf-protobuf-descriptor-scan.txt'
-          allowed={1,2,3,4,5,6,7,8,9,10,11,12,14}
-
-          def varint(p,limit):
-              value=0; shift=0
-              for _ in range(10):
-                  if p>=limit: raise ValueError
-                  b=raw[p]; p+=1; value|=(b&0x7f)<<shift
-                  if b<0x80: return value,p
-                  shift+=7
-              raise ValueError
-
-          def wire_end(start,limit):
-              p=start; fields=0
-              while p<limit:
-                  try: tag,q=varint(p,limit)
-                  except ValueError: break
-                  num=tag>>3; wire=tag&7
-                  if num not in allowed or wire not in (0,1,2,5): break
-                  p=q
-                  try:
-                      if wire==0: _,p=varint(p,limit)
-                      elif wire==1: p+=8
-                      elif wire==5: p+=4
-                      else:
-                          n,p=varint(p,limit); p+=n
-                  except ValueError: break
-                  if p>limit: break
-                  fields+=1
-              return p if fields else start
-
-          candidates=[]
-          for m in re.finditer(rb'(?P<name>[A-Za-z0-9_./-]{1,100}\.proto)', raw):
-              name=m.group('name'); name_start=m.start('name')
-              n=len(name)
-              if n<0x80 and name_start>=2 and raw[name_start-2]==0x0a and raw[name_start-1]==n:
-                  candidates.append((name_start-2,name.decode()))
-          candidates=sorted(set(candidates))
-
-          parsed=[]; lines=[f'candidate_descriptor_starts={len(candidates)}']
-          for idx,(start,hint) in enumerate(candidates):
-              next_start=candidates[idx+1][0] if idx+1<len(candidates) else min(len(raw),start+1048576)
-              end=wire_end(start,next_start)
-              msg=descriptor_pb2.FileDescriptorProto()
-              try:
-                  consumed=msg.MergeFromString(raw[start:end])
-              except Exception:
-                  continue
-              if consumed!=end-start or msg.name!=hint: continue
-              parsed.append((start,end,msg))
-              lines.append(f'DESCRIPTOR file_off=0x{start:x}-0x{end:x} name={msg.name} package={msg.package} messages={len(msg.message_type)}')
-
-          targets={'GameserverMessageFullMap','GameserverMessageFieldData','GameserverMessageLeftColumn','GameserverMessageRightColumn','GameserverMessageTopRow','GameserverMessageBottomRow','GameserverMessageTopFloor','GameserverMessageBottomFloor','MapFieldData','MapArea','Coordinate','AppearanceInstance'}
-          scalar={1:'double',2:'float',3:'int64',4:'uint64',5:'int32',6:'fixed64',7:'fixed32',8:'bool',9:'string',10:'group',11:'message',12:'bytes',13:'uint32',14:'enum',15:'sfixed32',16:'sfixed64',17:'sint32',18:'sint64'}
-          def tn(f): return f.type_name or scalar.get(f.type,str(f.type))
-          def lab(f): return {1:'optional',2:'required',3:'repeated'}.get(f.label,str(f.label))
-          found=set(); lines += ['', 'TARGET_SCHEMAS']
-          for start,end,fd in parsed:
-              for msg in fd.message_type:
-                  if msg.name not in targets: continue
-                  found.add(msg.name)
-                  lines.append(f'MESSAGE {fd.package}.{msg.name} source={fd.name} file_off=0x{start:x}-0x{end:x}')
-                  for f in msg.field:
-                      oneof=msg.oneof_decl[f.oneof_index].name if f.HasField('oneof_index') and f.oneof_index<len(msg.oneof_decl) else '-'
-                      lines.append(f'  field={f.number} name={f.name} label={lab(f)} type={tn(f)} oneof={oneof}')
-                  for n in msg.nested_type:
-                      lines.append(f'  NESTED {n.name}')
-                      for f in n.field: lines.append(f'    field={f.number} name={f.name} label={lab(f)} type={tn(f)}')
-          lines += ['', 'TARGET_STATUS']
-          for n in sorted(targets): lines.append(f'{n}={"FOUND" if n in found else "NOT_FOUND"}')
-          lines += ['', 'PROTOCOL_RELATED_DESCRIPTORS']
-          for start,end,fd in parsed:
-              names=','.join(m.name for m in fd.message_type)
-              if re.search(r'(game|server|protocol|map|appearance|shared)', fd.name+' '+fd.package+' '+names, re.I):
-                  lines.append(f'{fd.name} package={fd.package} file_off=0x{start:x} messages={names}')
-          out.write_text('\n'.join(lines)+'\n')
-          print(out.read_text())
-          PY
-
-      - name: Recover Worldmap Qt ordinal and candidate metacall dispatch
+      - name: Disassemble candidate Worldmap static metacall and direct targets
         shell: bash
         run: |
           set -Eeuo pipefail
@@ -140,53 +48,61 @@ jobs:
           from pathlib import Path
           import re, subprocess
           root=Path('/data/client-15.32.df7b29'); client=str(root/'bin/client')
-          text=subprocess.check_output(['objdump','-d','-C','--start-address=14677800','--stop-address=14686000',client],text=True,errors='replace')
+          start=0xde9ca0; stop=0xdea500
+          text=subprocess.check_output(['objdump','-d','-C',f'--start-address={start}',f'--stop-address={stop}',client],text=True,errors='replace')
           lines=text.splitlines()
-          class_ref='1cd8bb4'
-          world_idx=None
-          cast_refs=[]
-          for i,line in enumerate(lines):
-              if 'strcmp@plt' in line and i>0:
-                  prev='\n'.join(lines[max(0,i-4):i+1])
-                  m=re.search(r'#\s*([0-9a-f]+)',prev)
-                  if m:
-                      cast_refs.append((len(cast_refs)+1,int(m.group(1),16),lines[max(0,i-3):i+2]))
-                      if m.group(1).lower()==class_ref:
-                          world_idx=len(cast_refs)
-          metacalls=[]
-          for i,line in enumerate(lines):
-              if 'QObject::qt_metacall' in line and 'call' in line:
-                  addr=int(line.strip().split(':',1)[0],16)
-                  metacalls.append((addr,i))
+          calls=[]; jumps=[]
+          for line in lines:
+              m=re.match(r'^\s*([0-9a-f]+):.*\bcall\s+([0-9a-f]+)',line)
+              if m: calls.append((int(m.group(1),16),int(m.group(2),16),line.strip()))
+              m2=re.match(r'^\s*([0-9a-f]+):.*\bjmp\s+\*?([^#]+)',line)
+              if m2: jumps.append(line.strip())
           out=[]
-          out.append(f'worldmap_class_string_va=0x{class_ref}')
-          out.append(f'qt_metacast_reference_count={len(cast_refs)}')
-          out.append(f'worldmap_qt_metacast_ordinal={world_idx}')
-          out.append(f'qt_metacall_call_count={len(metacalls)}')
-          if world_idx and world_idx<=len(metacalls):
-              addr,i=metacalls[world_idx-1]
-              out.append(f'worldmap_candidate_qt_metacall_base_call=0x{addr:x}')
-              lo=max(0,i-20); hi=min(len(lines),i+120)
-              out.append('CANDIDATE_QT_METACALL_NEIGHBORHOOD')
-              out.extend(lines[lo:hi])
-          else:
-              out.append('worldmap_candidate_qt_metacall=UNRESOLVED')
-          p=root/'worldmap-qt-dispatch-candidate.txt'; p.write_text('\n'.join(out)+'\n'); print(p.read_text())
+          out.append('candidate_worldmap_static_metacall=0xde9ca0')
+          out.append(f'direct_call_count={len(calls)}')
+          for a,t,l in calls: out.append(f'CALL site=0x{a:x} target=0x{t:x} text={l}')
+          out.append('')
+          out.append('FULL_DISASSEMBLY')
+          out.extend(lines)
+          p=root/'worldmap-static-metacall.txt'; p.write_text('\n'.join(out)+'\n'); print(p.read_text())
           PY
 
-      - name: Persist sanitized reverse evidence
+      - name: Disassemble each non-PLT direct target briefly
         shell: bash
         run: |
           set -Eeuo pipefail
-          docker cp "$CONTAINER_NAME:/data/client-15.32.df7b29/elf-protobuf-descriptor-scan.txt" /tmp/elf-protobuf.txt
-          docker cp "$CONTAINER_NAME:/data/client-15.32.df7b29/worldmap-qt-dispatch-candidate.txt" /tmp/worldmap-qt.txt
+          docker exec -i "$CONTAINER_NAME" python3 - <<'PY'
+          from pathlib import Path
+          import re, subprocess
+          root=Path('/data/client-15.32.df7b29'); client=str(root/'bin/client')
+          src=(root/'worldmap-static-metacall.txt').read_text(errors='replace')
+          targets=[]
+          for m in re.finditer(r'target=0x([0-9a-f]+)',src):
+              t=int(m.group(1),16)
+              if 0x500000 <= t < 0x1c00000 and t not in targets: targets.append(t)
+          lines=[f'target_count={len(targets)}']
+          for t in targets[:40]:
+              lines.append(f'\nTARGET 0x{t:x}')
+              try:
+                  d=subprocess.check_output(['objdump','-d','-C',f'--start-address={t}',f'--stop-address={t+0x180}',client],text=True,errors='replace')
+              except subprocess.CalledProcessError as e:
+                  d=e.output or ''
+              lines.extend(d.splitlines()[:120])
+          p=root/'worldmap-static-targets.txt'; p.write_text('\n'.join(lines)+'\n'); print(p.read_text())
+          PY
+
+      - name: Persist sanitized handler evidence
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          docker cp "$CONTAINER_NAME:/data/client-15.32.df7b29/worldmap-static-metacall.txt" /tmp/metacall.txt
+          docker cp "$CONTAINER_NAME:/data/client-15.32.df7b29/worldmap-static-targets.txt" /tmp/targets.txt
           python3 - <<'PY'
           from pathlib import Path
           import os
-          p=Path(os.environ['HANDOVER'])
-          e1=Path('/tmp/elf-protobuf.txt').read_text(errors='replace'); e2=Path('/tmp/worldmap-qt.txt').read_text(errors='replace')
-          begin='<!-- BEGIN GENERATED DECODED MAP REVERSE -->'; end='<!-- END GENERATED DECODED MAP REVERSE -->'
-          block=f'{begin}\n\n## Generated decoded-map reverse evidence\n\nSource: GitHub Actions run `{os.environ.get("GITHUB_RUN_ID","unknown")}` on `oteryn-synology-staging`. Sanitized descriptors/disassembly only.\n\n```text\n{e1.rstrip()}\n\n{e2.rstrip()}\n```\n\n{end}'
+          p=Path(os.environ['HANDOVER']); a=Path('/tmp/metacall.txt').read_text(errors='replace'); b=Path('/tmp/targets.txt').read_text(errors='replace')
+          begin='<!-- BEGIN GENERATED WORLDMAP HANDLER EVIDENCE -->'; end='<!-- END GENERATED WORLDMAP HANDLER EVIDENCE -->'
+          block=f'{begin}\n\n## Generated Worldmap handler evidence\n\nSource: GitHub Actions run `{os.environ.get("GITHUB_RUN_ID","unknown")}` on `oteryn-synology-staging`. Sanitized disassembly only.\n\n```text\n{a.rstrip()}\n\n{b.rstrip()}\n```\n\n{end}'
           text=p.read_text()
           if begin in text and end in text: text=text.split(begin,1)[0].rstrip()+'\n\n'+block+'\n\n'+text.split(end,1)[1].lstrip()
           else: text=text.rstrip()+'\n\n'+block+'\n'
@@ -196,7 +112,7 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add "$HANDOVER"
           if ! git diff --cached --quiet; then
-            git commit -m "docs(analysis): record Tibia decoded-map reverse evidence"
+            git commit -m "docs(analysis): record Worldmap handler disassembly"
             git push origin HEAD:ops/oteryn-tibia-client-analysis-20260811
           fi
 
