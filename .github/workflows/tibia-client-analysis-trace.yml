@@ -13,9 +13,9 @@ env:
 
 jobs:
   trace:
-    name: Trigger and verify Tibia client installation
+    name: Launch installed Tibia client
     runs-on: oteryn-staging
-    timeout-minutes: 15
+    timeout-minutes: 10
     steps:
       - name: Verify owned runtime and snapshot staging
         shell: bash
@@ -26,49 +26,59 @@ jobs:
           [[ "$(docker inspect --format '{{ index .Config.Labels "com.blakinio.purpose" }}' "$CONTAINER_NAME")" == "tibia-client-analysis" ]]
           docker ps -a --filter 'label=com.docker.compose.project=oteryn-staging' --format '{{.ID}}\t{{.Names}}' | sort > /tmp/oteryn-before.tsv
 
-      - name: Click verified download tile and wait for runtime
+      - name: Launch official installed client
         shell: bash
         run: |
           set -Eeuo pipefail
           docker exec -i "$CONTAINER_NAME" bash <<'INNER'
           set -Eeuo pipefail
-          export DISPLAY=:99
-          wid=$(xdotool search --onlyvisible --name '^Tibia$' | head -n1)
-          [[ -n "$wid" ]]
-          before=$(du -sb /data/home 2>/dev/null | awk '{print $1}' || echo 0)
-          echo HOME_BYTES_BEFORE=$before
-          xdotool mousemove --window "$wid" 400 193 click 1
-          echo DOWNLOAD_TILE_CLICK_SENT=true
-          installed=0
-          for n in $(seq 1 96); do
-            sleep 5
-            now=$(du -sb /data/home 2>/dev/null | awk '{print $1}' || echo 0)
-            qt=$(find /data -type f -name 'libQt6WebEngineQuick.so.6' -print -quit 2>/dev/null || true)
-            client=$(find /data/home -type f -name client -perm -111 -print -quit 2>/dev/null || true)
-            if (( n % 6 == 0 )); then
-              echo WAIT_TICK=$n HOME_BYTES=$now QT_FOUND=$( [[ -n "$qt" ]] && echo true || echo false ) CLIENT_FOUND=$( [[ -n "$client" ]] && echo true || echo false )
-              grep -E 'Changing local package status|Downloading|Installing|Installed|Finished downloading file for package.*Tibia' /data/runtime/launcher.log 2>/dev/null | tail -n 8 || true
-            fi
-            if [[ -n "$qt" ]] || [[ -n "$client" ]]; then
-              installed=1
-              echo INSTALLED_RUNTIME_HINT=$([[ -n "$client" ]] && echo "$client" || echo "$qt")
-              break
-            fi
+          export DISPLAY=:99 HOME=/data/home
+          pkg="$HOME/.local/share/CipSoft GmbH/Tibia/packages/Tibia"
+          client="$pkg/bin/client"
+          [[ -x "$client" ]]
+          echo CLIENT_PATH="$client"
+          echo LDD_MISSING_BEGIN
+          ldd "$client" 2>/dev/null | grep 'not found' || true
+          echo LDD_MISSING_END
+          before=$(mktemp)
+          xdotool search --onlyvisible --name '.*' 2>/dev/null | sort -n > "$before" || true
+          pkill -f '^/data/home/.local/share/CipSoft GmbH/Tibia/packages/Tibia/bin/client' 2>/dev/null || true
+          : > /data/runtime/installed-client-launch.log
+          cd "$pkg"
+          nohup "$client" >/data/runtime/installed-client-launch.log 2>&1 </dev/null &
+          pid=$!
+          echo CLIENT_PID=$pid
+          alive=0
+          for n in $(seq 1 12); do
+            sleep 3
+            if kill -0 "$pid" 2>/dev/null; then alive=1; else alive=0; break; fi
           done
-          echo INSTALL_RUNTIME_FOUND=$installed
-          after=$(du -sb /data/home 2>/dev/null | awk '{print $1}' || echo 0)
-          echo HOME_BYTES_AFTER=$after
-          import -display :99 -window "$wid" /tmp/launcher-after.png || true
-          (( installed == 1 ))
+          echo CLIENT_PROCESS_ALIVE=$alive
+          echo VISIBLE_WINDOWS_BEGIN
+          for w in $(xdotool search --onlyvisible --name '.*' 2>/dev/null || true); do
+            printf 'id=%s name=' "$w"
+            xdotool getwindowname "$w" 2>/dev/null || true
+          done
+          echo VISIBLE_WINDOWS_END
+          import -display :99 -window root /tmp/client-screen.png || true
+          if (( alive == 0 )); then
+            echo SANITIZED_CLIENT_DIAGNOSTIC_BEGIN
+            sed -E '/(token|password|account|session|cookie|authorization|bearer)/Id' /data/runtime/installed-client-launch.log | tail -120
+            echo SANITIZED_CLIENT_DIAGNOSTIC_END
+            exit 1
+          fi
+          test -s /tmp/client-screen.png
           INNER
-          docker cp "$CONTAINER_NAME:/tmp/launcher-after.png" /tmp/launcher-after.png || true
+          docker cp "$CONTAINER_NAME:/tmp/client-screen.png" /tmp/client-screen.png
+          test -s /tmp/client-screen.png
+          echo CLIENT_SCREENSHOT_BYTES=$(stat -c %s /tmp/client-screen.png)
 
-      - name: Upload post-click launcher screenshot
+      - name: Upload client screenshot
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: tibia-launcher-after-install-click
-          path: /tmp/launcher-after.png
+          name: tibia-client-screen
+          path: /tmp/client-screen.png
           if-no-files-found: warn
           retention-days: 7
 
