@@ -1,4 +1,4 @@
-# bounded protobuf descriptor + Qt dispatch evidence, persisted to the owned handover
+# bounded persistence of already-generated protobuf/Qt reverse evidence
 name: Tibia Client Analysis Continue
 
 on:
@@ -17,7 +17,7 @@ env:
 
 jobs:
   continue:
-    name: Persist bounded Tibia protobuf and Worldmap evidence
+    name: Persist bounded Tibia reverse evidence
     runs-on: oteryn-staging
     timeout-minutes: 15
     steps:
@@ -39,152 +39,53 @@ jobs:
           test -s /tmp/oteryn-before.tsv
           docker exec "$CONTAINER_NAME" bash -lc '
             set -Eeuo pipefail
-            client=/data/client-15.32.df7b29/bin/client
-            proto=/data/client-15.32.df7b29/proto-sections/protodesc_cold.bin
+            root=/data/client-15.32.df7b29
+            client="$root/bin/client"
+            proto="$root/proto-sections/protodesc_cold.bin"
             [[ "$(stat -c %s "$client")" == "51965216" ]]
             [[ "$(sha256sum "$client" | awk "{print \$1}")" == "e6c244bd39fe2e0632f6f000efd3147164696efa8e901718668e0442325ff7fe" ]]
             [[ "$(stat -c %s "$proto")" == "40808" ]]
             [[ "$(sha256sum "$proto" | awk "{print \$1}")" == "1106af5ecbecd85a701b800ec4f697edab4288a4aa64b3fa5781222e6f65c324" ]]
+            test -s "$root/protodesc-target-contexts.txt"
+            test -f "$root/protodesc-decode-raw.txt"
+            test -s "$root/worldmap-meta-code-wide.txt"
           '
 
-      - name: Build compact reverse evidence inside owned container
+      - name: Build compact evidence from successful prior artifacts
         shell: bash
         run: |
           set -Eeuo pipefail
           docker exec "$CONTAINER_NAME" bash -lc '
             set -Eeuo pipefail
-            export DEBIAN_FRONTEND=noninteractive
-            if ! python3 -c "from google.protobuf import descriptor_pb2" >/dev/null 2>&1; then
-              apt-get update >/dev/null
-              apt-get install -y --no-install-recommends python3-protobuf >/dev/null
-              rm -rf /var/lib/apt/lists/*
-            fi
-            cat > /data/tibia_reverse_evidence.py <<"PY"
-          from pathlib import Path
-          import re
-          from google.protobuf import descriptor_pb2
-          from google.protobuf.message import DecodeError
-
-          root = Path("/data/client-15.32.df7b29")
-          proto = root / "proto-sections/protodesc_cold.bin"
-          raw = proto.read_bytes()
-          targets = [
-              "GameserverMessageFullMap",
-              "GameserverMessageFieldData",
-              "MapFieldData",
-              "MapArea",
-              "Coordinate",
-              "AppearanceInstance",
-          ]
-
-          def printable_context(pos, radius=320):
-              lo=max(0,pos-radius); hi=min(len(raw),pos+radius)
-              strings=[]
-              for m in re.finditer(rb"[ -~]{3,}", raw[lo:hi]):
-                  s=m.group().decode("ascii", "replace")
-                  strings.append(f"0x{lo+m.start():x}:{s}")
-              return strings
-
-          lines=[]
-          lines.append(f"protodesc_cold_size={len(raw)}")
-          import hashlib
-          lines.append(f"protodesc_cold_sha256={hashlib.sha256(raw).hexdigest()}")
-          lines.append("")
-          lines.append("TARGET_OCCURRENCES")
-          for target in targets:
-              needle=target.encode()
-              poss=[]; start=0
-              while True:
-                  i=raw.find(needle,start)
-                  if i < 0: break
-                  poss.append(i); start=i+1
-              lines.append(f"{target}: " + (", ".join(f"0x{x:x}" for x in poss) or "NONE"))
-              for p in poss[:3]:
-                  for s in printable_context(p):
-                      lines.append(f"  {s}")
-
-          # Heuristic FileDescriptorProto recovery. A generated raw descriptor commonly
-          # starts with field 1 (name) containing a *.proto file name. Candidate slices
-          # are bounded by the next candidate start; only semantically plausible parses
-          # are retained. This is evidence discovery, not an assertion that every hit is exact.
-          def read_varint(buf, off):
-              val=0; shift=0
-              for n in range(10):
-                  if off+n >= len(buf): return None
-                  b=buf[off+n]; val |= (b & 0x7f) << shift
-                  if not (b & 0x80): return val, off+n+1
-                  shift += 7
-              return None
-
-          starts=[]
-          for i,b in enumerate(raw[:-3]):
-              if b != 0x0a: continue
-              rv=read_varint(raw,i+1)
-              if not rv: continue
-              ln,j=rv
-              if ln < 3 or ln > 240 or j+ln > len(raw): continue
-              name=raw[j:j+ln]
-              if name.endswith(b".proto") and all(32 <= c < 127 for c in name):
-                  starts.append((i,name.decode("ascii","replace")))
-          lines.append("")
-          lines.append("FILE_DESCRIPTOR_PROTO_CANDIDATES")
-          if not starts:
-              lines.append("none")
-          for idx,(start,name_hint) in enumerate(starts):
-              end=starts[idx+1][0] if idx+1 < len(starts) else len(raw)
-              # Also try progressively shorter tails around NUL/padding boundaries.
-              ends=[end]
-              for pad in range(start+1,end):
-                  if raw[pad:pad+8] == b"\x00"*8:
-                      ends.append(pad)
-                      break
-              best=None
-              for candidate_end in sorted(set(ends)):
-                  msg=descriptor_pb2.FileDescriptorProto()
-                  try:
-                      consumed=msg.MergeFromString(raw[start:candidate_end])
-                  except DecodeError:
-                      continue
-                  if not msg.name.endswith(".proto"):
-                      continue
-                  names=[m.name for m in msg.message_type]
-                  score=sum(t in names for t in targets)
-                  result=(score, consumed, candidate_end, msg, names)
-                  if best is None or result[0] > best[0]: best=result
-              if best:
-                  score,consumed,candidate_end,msg,names=best
-                  lines.append(f"start=0x{start:x} hint={name_hint} parsed_name={msg.name} package={msg.package} consumed={consumed} slice={candidate_end-start} target_score={score}")
-                  for m in msg.message_type:
-                      if m.name in targets or any(t.lower() in m.name.lower() for t in ("Map","Coordinate","Appearance")):
-                          fields=[]
-                          for f in m.field:
-                              fields.append(f"{f.number}:{f.name}:label={f.label}:type={f.type}:type_name={f.type_name or '-'}")
-                          lines.append(f"  message {m.name} fields=[" + "; ".join(fields) + "]")
-
-          # Preserve the prior raw-protobuf outcome when available.
-          raw_decode=root / "protodesc-decode-raw.txt"
-          lines.append("")
-          lines.append("WHOLE_SECTION_DECODE_RAW")
-          if raw_decode.exists():
-              txt=raw_decode.read_text(errors="replace").strip().splitlines()
-              lines.extend(txt[:40] if txt else ["empty"])
-          else:
-              lines.append("missing")
-
-          out=root / "bounded-reverse-evidence.txt"
-          out.write_text("\n".join(lines)+"\n")
-          print(out.read_text())
-          PY
-            python3 /data/tibia_reverse_evidence.py
-
-            client=/data/client-15.32.df7b29/bin/client
+            root=/data/client-15.32.df7b29
+            out="$root/bounded-reverse-evidence.txt"
             {
+              echo "CLIENT_IDENTITY"
+              echo "version=15.32.df7b29"
+              echo "client_size=$(stat -c %s "$root/bin/client")"
+              echo "client_sha256=$(sha256sum "$root/bin/client" | awk "{print \$1}")"
+              echo "protodesc_cold_size=$(stat -c %s "$root/proto-sections/protodesc_cold.bin")"
+              echo "protodesc_cold_sha256=$(sha256sum "$root/proto-sections/protodesc_cold.bin" | awk "{print \$1}")"
               echo
-              echo "WORLDMAP_DISPATCH_WINDOW"
-              objdump -d -C --start-address=$((0xdff700)) --stop-address=$((0xe01000)) "$client" \
-                | grep -E "^[[:space:]]*[0-9a-f]+:|call|jmp|cmp.*\\$0x|lea.*1cd8" \
-                | sed -n "1,1400p"
-            } >> /data/client-15.32.df7b29/bounded-reverse-evidence.txt
+              echo "PROTO_TARGET_SUMMARY"
+              grep "^TARGET " "$root/protodesc-target-contexts.txt" || true
+              echo
+              echo "PROTO_TARGET_CONTEXTS_BOUNDED"
+              awk '
+                /^TARGET / {print; next}
+                /^BEGIN / {keep=1; count=0; print; next}
+                /^END / {if (keep) print; keep=0; next}
+                keep && count < 18 {print; count++}
+              ' "$root/protodesc-target-contexts.txt" | sed -n "1,420p"
+              echo
+              echo "WHOLE_PROTO_SECTION_DECODE_RAW_HEAD"
+              sed -n "1,80p" "$root/protodesc-decode-raw.txt"
+              echo
+              echo "WORLDMAP_META_CONTROL_FLOW"
+              grep -E "^[[:space:]]*[0-9a-f]+:.*(call|jmp|cmp|lea)" "$root/worldmap-meta-code-wide.txt" | sed -n "1,700p" || true
+            } > "$out"
+            test -s "$out"
+            sed -n "1,1300p" "$out"
           '
 
       - name: Persist sanitized evidence into owned handover
@@ -195,18 +96,26 @@ jobs:
           python3 - <<'PY'
           from pathlib import Path
           import os
-          handover=Path(os.environ['HANDOVER'])
-          evidence=Path('/tmp/bounded-reverse-evidence.txt').read_text(errors='replace')
-          begin='<!-- BEGIN GENERATED RUNTIME EVIDENCE -->'
-          end='<!-- END GENERATED RUNTIME EVIDENCE -->'
-          block=f'''{begin}\n\n## Generated bounded runtime evidence\n\nSource: GitHub Actions run `{os.environ.get('GITHUB_RUN_ID','unknown')}` on exact runner `oteryn-synology-staging`. Generated from the already-owned analysis container; no proprietary binary content is committed.\n\n```text\n{evidence.rstrip()}\n```\n\n{end}'''
-          text=handover.read_text()
+
+          handover = Path(os.environ['HANDOVER'])
+          evidence = Path('/tmp/bounded-reverse-evidence.txt').read_text(errors='replace')
+          begin = '<!-- BEGIN GENERATED RUNTIME EVIDENCE -->'
+          end = '<!-- END GENERATED RUNTIME EVIDENCE -->'
+          block = (
+              f"{begin}\n\n"
+              "## Generated bounded runtime evidence\n\n"
+              f"Source: GitHub Actions run `{os.environ.get('GITHUB_RUN_ID', 'unknown')}` on exact runner "
+              "`oteryn-synology-staging`. Evidence is bounded text/assembly metadata from the already-owned "
+              "analysis runtime; no Tibia binary or extracted proprietary asset is committed.\n\n"
+              f"```text\n{evidence.rstrip()}\n```\n\n{end}"
+          )
+          text = handover.read_text()
           if begin in text and end in text:
-              before=text.split(begin,1)[0].rstrip()
-              after=text.split(end,1)[1].lstrip()
-              text=before+'\n\n'+block+'\n\n'+after
+              before = text.split(begin, 1)[0].rstrip()
+              after = text.split(end, 1)[1].lstrip()
+              text = before + '\n\n' + block + '\n\n' + after
           else:
-              text=text.rstrip()+'\n\n'+block+'\n'
+              text = text.rstrip() + '\n\n' + block + '\n'
           handover.write_text(text)
           PY
           git config user.name "github-actions[bot]"
