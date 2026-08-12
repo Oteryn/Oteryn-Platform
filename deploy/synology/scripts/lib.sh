@@ -88,7 +88,7 @@ _oteryn_release_sha() {
 _oteryn_contract_from_platform_image() {
     local platform_image="$1" payload line key value
     local policy='' schema='' accepts=''
-    payload="$(command docker run --rm --entrypoint cat "$platform_image" /var/www/html/deploy/synology/release-contract.env 2>/dev/null)" || {
+    payload="$(command docker run --rm --network none --read-only --entrypoint cat "$platform_image" /var/www/html/deploy/synology/release-contract.env 2>/dev/null)" || {
         echo "Cannot read release compatibility contract from Platform image; refusing migration-bearing deployment." >&2
         return 1
     }
@@ -151,10 +151,6 @@ _oteryn_bootstrap_legacy_current_release() {
         return 0
     fi
 
-    # last-good.env is generated locally by deploy.sh using printf %q from the
-    # exact running containers before any pull can move mutable tags. Read it in
-    # a subshell so candidate PLATFORM_IMAGE/GATEWAY_IMAGE/CANARY_IMAGE remain
-    # unchanged in the deployment process.
     mapfile -t legacy_images < <(bash -c 'set -euo pipefail; source "$1"; printf "%s\n%s\n%s\n" "${PLATFORM_IMAGE:-}" "${GATEWAY_IMAGE:-}" "${CANARY_IMAGE:-}"' bash "$legacy_file")
     old_platform="${legacy_images[0]:-}"
     old_gateway="${legacy_images[1]:-}"
@@ -165,13 +161,29 @@ _oteryn_bootstrap_legacy_current_release() {
     }
     old_sha="$(_oteryn_release_sha_for_images "$old_platform" "$old_gateway")" || return 1
 
-    # This synthetic identity is not an unverified image contract. It names the
-    # exact pre-migration DB state that the observed old application is running
-    # against at bootstrap time. A backup of that exact state is created below
-    # before any migration, so recovery can truthfully return to this identity.
     observed_schema="observed-${old_sha}"
     bash "$SCRIPT_DIR/release-state.sh" write "$current_file" "$old_sha" \
         "$observed_schema" "$observed_schema" "$old_platform" "$old_gateway" "$old_canary" 1
+}
+
+_oteryn_quiesce_platform_db_consumers() {
+    local marketplace_file="$DEPLOY_DIR/compose.marketplace.yml" scheduler_id scheduler_running
+    local -a base_compose=(command docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE")
+    local -a marketplace_compose=(command docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" -f "$marketplace_file")
+
+    if [[ -f "$marketplace_file" ]]; then
+        scheduler_id="$("${marketplace_compose[@]}" ps -a -q marketplace-scheduler 2>/dev/null || true)"
+        if [[ -n "$scheduler_id" ]]; then
+            "${marketplace_compose[@]}" stop marketplace-scheduler
+            scheduler_running="$(command docker inspect --format '{{.State.Running}}' "$scheduler_id")" || return 1
+            [[ "$scheduler_running" == false ]] || {
+                echo "Deployment rejected: marketplace-scheduler is still running before migration backup." >&2
+                return 1
+            }
+        fi
+    fi
+
+    "${base_compose[@]}" stop platform gateway internal-proxy
 }
 
 _oteryn_before_platform_migrate() {
@@ -196,6 +208,8 @@ _oteryn_before_platform_migrate() {
         mv "$state_dir/last-good-release.env.tmp" "$state_dir/last-good-release.env"
         old_sha="$(_oteryn_read_state_key "$current_file" RELEASE_SHA)" || return 1
         old_schema="$(_oteryn_read_state_key "$current_file" SCHEMA_COMPATIBILITY_ID)" || return 1
+
+        _oteryn_quiesce_platform_db_consumers || return 1
 
         backup_dir="$state_dir/backups/${old_sha}-before-${release_sha}"
         mkdir -p "$backup_dir"
@@ -253,7 +267,7 @@ _oteryn_finalize_release_on_exit() {
 
 docker() {
     local -a args=("$@")
-    local i
+    local i joined rc
     for i in "${!args[@]}"; do
         case "${args[$i]}" in
             alpine:3.22) args[$i]="$OTERYN_HEALTH_ALPINE_IMAGE" ;;
@@ -262,12 +276,25 @@ docker() {
     done
 
     if [[ "$(basename -- "${0:-}")" == "deploy.sh" ]]; then
-        local joined=" ${args[*]} "
-        if [[ "$joined" == *" exec -T platform php artisan migrate --force --no-interaction "* ]]; then
+        joined=" ${args[*]} "
+        if [[ "${OTERYN_MIGRATION_PREPARED:-0}" != 1 && "$joined" == *" up -d platform "* ]]; then
             _oteryn_before_platform_migrate || return 1
             command docker "${args[@]}"
-            local rc=$?
-            if [[ "$rc" -eq 0 ]]; then _oteryn_after_platform_migrate || return 1; fi
+            rc=$?
+            [[ "$rc" -eq 0 ]] || return "$rc"
+            OTERYN_MIGRATION_PREPARED=1
+            export OTERYN_MIGRATION_PREPARED
+            return 0
+        fi
+        if [[ "$joined" == *" exec -T platform php artisan migrate --force --no-interaction "* ]]; then
+            [[ "${OTERYN_MIGRATION_PREPARED:-0}" == 1 ]] || _oteryn_before_platform_migrate || return 1
+            command docker "${args[@]}"
+            rc=$?
+            if [[ "$rc" -eq 0 ]]; then
+                _oteryn_after_platform_migrate || return 1
+                OTERYN_MIGRATION_PREPARED=0
+                export OTERYN_MIGRATION_PREPARED
+            fi
             return "$rc"
         fi
     fi
