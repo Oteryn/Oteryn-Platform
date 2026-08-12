@@ -1,0 +1,92 @@
+name: Tibia Transparent WARP TUN Prerequisites
+
+on:
+  push:
+    branches: [ops/oteryn-tibia-client-analysis-20260811]
+    paths: [.github/workflows/tibia-client-analysis-tun-prereq.yml]
+
+permissions:
+  contents: read
+
+env:
+  CONTAINER_NAME: oteryn-tibia-client-analysis
+
+jobs:
+  diagnose:
+    name: Diagnose owned-container transparent TUN prerequisites
+    runs-on: oteryn-staging
+    timeout-minutes: 4
+    steps:
+      - name: Verify owned runtime and snapshot staging
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          [[ "$RUNNER_NAME" == "oteryn-synology-staging" ]]
+          [[ "$(docker inspect --format '{{ index .Config.Labels "com.blakinio.owner" }}' "$CONTAINER_NAME")" == "oteryn" ]]
+          [[ "$(docker inspect --format '{{ index .Config.Labels "com.blakinio.purpose" }}' "$CONTAINER_NAME")" == "tibia-client-analysis" ]]
+          docker ps -a --filter 'label=com.docker.compose.project=oteryn-staging' --format '{{.ID}}\t{{.Names}}' | sort >/tmp/oteryn-before.tsv
+
+      - name: Diagnose prerequisites without changing routes
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          docker exec -i "$CONTAINER_NAME" bash <<'INNER'
+          set -Eeuo pipefail
+          test_tun=otryprereq0
+          cleanup() { ip link del "$test_tun" 2>/dev/null || true; }
+          trap cleanup EXIT
+
+          default=$(ip -4 route show default | head -n1 || true)
+          [[ -n "$default" ]] && echo DEFAULT_ROUTE_PRESENT=true || echo DEFAULT_ROUTE_PRESENT=false
+          gw=$(awk '{for(i=1;i<=NF;i++) if($i=="via") print $(i+1)}' <<<"$default")
+          dev=$(awk '{for(i=1;i<=NF;i++) if($i=="dev") print $(i+1)}' <<<"$default")
+          [[ -n "$gw" ]] && echo DEFAULT_GATEWAY_PRESENT=true || echo DEFAULT_GATEWAY_PRESENT=false
+          [[ -n "$dev" ]] && echo DEFAULT_DEVICE_PRESENT=true || echo DEFAULT_DEVICE_PRESENT=false
+          [[ -c /dev/net/tun ]] && echo DEV_NET_TUN_PRESENT=true || echo DEV_NET_TUN_PRESENT=false
+
+          if pgrep -f '/wireproxy .*wireproxy.conf' >/dev/null; then
+            echo WIREPROXY_PATTERN_PRESENT=true
+          else
+            echo WIREPROXY_PATTERN_PRESENT=false
+          fi
+          wp_pid=$(pgrep -f '/wireproxy ' | head -n1 || true)
+          [[ -n "$wp_pid" ]] && echo WIREPROXY_PROCESS_PRESENT=true || echo WIREPROXY_PROCESS_PRESENT=false
+          wp_cfg=''
+          if [[ -n "$wp_pid" && -r "/proc/$wp_pid/cmdline" ]]; then
+            while IFS= read -r -d '' arg; do
+              if [[ -f "$arg" && "$arg" == *wireproxy*.conf ]]; then wp_cfg="$arg"; break; fi
+            done <"/proc/$wp_pid/cmdline" || true
+          fi
+          [[ -n "$wp_cfg" ]] && echo WIREPROXY_CONFIG_DISCOVERED=true || echo WIREPROXY_CONFIG_DISCOVERED=false
+          endpoint=''
+          if [[ -n "$wp_cfg" ]]; then
+            endpoint=$(awk -F= '/^[[:space:]]*Endpoint[[:space:]]*=/{gsub(/[[:space:]]/,"",$2); print $2; exit}' "$wp_cfg")
+          fi
+          [[ -n "$endpoint" ]] && echo WIREPROXY_ENDPOINT_PRESENT=true || echo WIREPROXY_ENDPOINT_PRESENT=false
+
+          if curl --socks5-hostname 127.0.0.1:25344 -fsS --max-time 10 https://www.cloudflare.com/cdn-cgi/trace 2>/dev/null | grep -q '^warp=on$'; then
+            echo LOCAL_SOCKS_WARP_ON=true
+          else
+            echo LOCAL_SOCKS_WARP_ON=false
+          fi
+
+          if ip tuntap add mode tun dev "$test_tun" 2>/tmp/tun-prereq.err; then
+            echo TUN_CREATE_ALLOWED=true
+            ip addr add 198.18.254.1/30 dev "$test_tun"
+            ip link set dev "$test_tun" up
+            ip link show "$test_tun" >/dev/null
+            echo TUN_CONFIGURE_ALLOWED=true
+          else
+            echo TUN_CREATE_ALLOWED=false
+            if grep -qi 'operation not permitted' /tmp/tun-prereq.err; then echo TUN_CREATE_FAILURE_PERMISSION=true; else echo TUN_CREATE_FAILURE_PERMISSION=false; fi
+          fi
+          INNER
+
+      - name: Verify canonical staging unchanged
+        if: always()
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          docker ps -a --filter 'label=com.docker.compose.project=oteryn-staging' --format '{{.ID}}\t{{.Names}}' | sort >/tmp/oteryn-after.tsv
+          diff -u /tmp/oteryn-before.tsv /tmp/oteryn-after.tsv
+          docker inspect --format 'analysis_name={{.Name}} status={{.State.Status}} owner={{ index .Config.Labels "com.blakinio.owner" }} purpose={{ index .Config.Labels "com.blakinio.purpose" }}' "$CONTAINER_NAME"
