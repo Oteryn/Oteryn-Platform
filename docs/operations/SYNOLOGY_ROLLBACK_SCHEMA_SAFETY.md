@@ -8,7 +8,7 @@ This contract applies to Synology **staging** deployment and recovery. It is not
 
 Synology staging uses `expand-contract`. A release declares a schema compatibility identity and the schema identities its application can safely run against in `deploy/synology/release-contract.env`.
 
-The deployment does **not** trust the workflow checkout as the source of that contract. Before a migration-bearing deployment it reads `/var/www/html/deploy/synology/release-contract.env` from the exact selected Platform image and separately proves that the Platform and Gateway OCI `org.opencontainers.image.revision` labels identify the same exact 40-character application commit. This keeps compatibility metadata bound to the immutable application artifact even when a workflow checks out a different repository revision or deploys a historical release.
+The deployment does **not** trust the workflow checkout as the source of that contract. Before a migration-bearing deployment it reads `/var/www/html/deploy/synology/release-contract.env` from the exact selected Platform image with networking disabled and a read-only container filesystem, and separately proves that the Platform and Gateway OCI `org.opencontainers.image.revision` labels identify the same exact 40-character application commit. This keeps compatibility metadata bound to the immutable application artifact even when a workflow checks out a different repository revision or deploys a historical release.
 
 Destructive contract migrations must be separated from the release that first stops depending on the old schema.
 
@@ -38,6 +38,8 @@ Before pulling candidate images, `deploy.sh` snapshots any currently running Pla
 On the first deployment that introduces managed release state to an existing staging installation, a complete running-image snapshot is required. Platform and Gateway must expose the same valid OCI application revision. The existing pre-migration database/application pairing is recorded with a synthetic `observed-<release-sha>` schema identity, then the normal pre-migration backup is created before migration begins. This synthetic identity describes the observed pre-migration state only; it is not presented as an application-authored compatibility contract.
 
 If the Platform database is already non-empty but neither managed release state nor a complete provable running-image baseline exists, deployment fails **before migration**. A fresh empty database may proceed without a prior last-good release.
+
+For an existing release, the deployment quiesces all known Platform DB consumers **before** the backup: Platform, Gateway and internal proxy are stopped, and a running optional Marketplace scheduler is stopped and verified stopped. Only after consumers are quiesced is the single-transaction pre-migration dump created. The candidate Platform container is not started until that preparation and backup have completed and schema state has been persisted as `unknown`. If the Marketplace scheduler was running before quiesce, it is recreated on the candidate Platform image after migration succeeds and the new schema identity is known.
 
 The schema state is deliberately independent from application state. A failed deployment after `migrate --force` can therefore never inherit the old release's schema claim.
 
@@ -76,7 +78,7 @@ Before merging changes to this contract:
 - build the Platform/Gateway/deploy-runner images and validate the Platform image contains the release contract;
 - run repository deployment-contract / governance tests applicable to the exact head;
 - validate compatibility with the concurrently owned staging workflow without editing that workflow;
-- review failure before migration, unprovable legacy baseline, failure/ambiguity during migration, failure after migration but before health success, compatible rollback, incompatible rollback, verified backup recovery, recovery evidence mismatch, runtime OCI revision mismatch and historical-image contract selection;
+- review failure before migration, unprovable legacy baseline, consumer quiesce failure, failure/ambiguity during migration, failure after migration but before health success, compatible rollback, incompatible rollback, verified backup recovery, recovery evidence mismatch, runtime OCI revision mismatch and historical-image contract selection;
 - obtain a fresh independent review of the exact final head.
 
 The task deliberately performs no protected staging or production deployment. The complete executable integration path is therefore validated with deterministic contract tests plus repository production-like/deep validation; this evidence must never be promoted to a claim of production rollback readiness.
