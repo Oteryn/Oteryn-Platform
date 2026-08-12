@@ -61,9 +61,55 @@ def discover_integration_tests(root: Path) -> list[str]:
     )
 
 
-def _workflow_executes_phpunit_test(workflow_text: str, test_path: str) -> bool:
+def _mapping_child_block(text: str, root_key: str, child_key: str) -> str | None:
+    """Return one direct child block from a top-level YAML mapping.
+
+    This deliberately supports the conservative workflow shape enforced by this
+    repository: a top-level mapping key at column zero and direct children at
+    two spaces. It does not attempt to be a general YAML parser.
+    """
+
+    lines = text.splitlines()
+    root_index: int | None = None
+    for index, line in enumerate(lines):
+        if line == f"{root_key}:":
+            root_index = index
+            break
+    if root_index is None:
+        return None
+
+    root_end = len(lines)
+    for index in range(root_index + 1, len(lines)):
+        line = lines[index]
+        if line and not line.startswith((" ", "\t", "#")):
+            root_end = index
+            break
+
+    child_prefix = f"  {child_key}:"
+    child_index: int | None = None
+    for index in range(root_index + 1, root_end):
+        line = lines[index]
+        if line.startswith(child_prefix) and line[len(child_prefix) :].strip() == "":
+            child_index = index
+            break
+    if child_index is None:
+        return None
+
+    child_end = root_end
+    for index in range(child_index + 1, root_end):
+        line = lines[index]
+        if not line.strip() or line.lstrip().startswith("#"):
+            continue
+        indent = len(line) - len(line.lstrip(" "))
+        if indent <= 2:
+            child_end = index
+            break
+    return "\n".join(lines[child_index:child_end])
+
+
+def _job_executes_phpunit_test(job_text: str, test_path: str) -> bool:
     executable_text = "\n".join(
-        line for line in workflow_text.splitlines() if not line.lstrip().startswith("#")
+        line for line in job_text.splitlines() if not line.lstrip().startswith("#")
     )
     pattern = re.compile(
         r"vendor/bin/phpunit[\s\\]+" + re.escape(test_path) + r"(?:[\s\\]|$)"
@@ -76,8 +122,8 @@ def validate_repository(root: Path) -> list[str]:
     registry = _load_json(root / REGISTRY_PATH)
     if not isinstance(registry, dict):
         raise RegistrationError("integration-test registry root must be a JSON object")
-    if registry.get("schema_version") != 1:
-        raise RegistrationError("integration-test registry schema_version must equal 1")
+    if registry.get("schema_version") != 2:
+        raise RegistrationError("integration-test registry schema_version must equal 2")
 
     records = registry.get("tests")
     if not isinstance(records, list):
@@ -112,8 +158,11 @@ def validate_repository(root: Path) -> list[str]:
         record = registered[test_path]
         try:
             workflow = _non_empty_string(record.get("workflow"), "workflow", test_path)
+            event = _non_empty_string(record.get("event"), "event", test_path)
+            job = _non_empty_string(record.get("job"), "job", test_path)
             invocation = _non_empty_string(record.get("invocation_marker"), "invocation_marker", test_path)
             trigger = _non_empty_string(record.get("trigger_marker"), "trigger_marker", test_path)
+            condition = _non_empty_string(record.get("job_condition_marker"), "job_condition_marker", test_path)
             if invocation != test_path:
                 raise RegistrationError(
                     f"{test_path}: invocation_marker must be the exact test path so directory-only execution cannot satisfy registration"
@@ -123,13 +172,25 @@ def validate_repository(root: Path) -> list[str]:
                 raise RegistrationError(f"{test_path}: workflow must be a direct YAML file under {WORKFLOW_ROOT.as_posix()}/")
             workflow_path = _relative_file(root, workflow, "workflow", test_path)
             workflow_text = workflow_path.read_text(encoding="utf-8")
-            if not _workflow_executes_phpunit_test(workflow_text, invocation):
+
+            event_block = _mapping_child_block(workflow_text, "on", event)
+            if event_block is None:
+                raise RegistrationError(f"{test_path}: workflow {workflow} has no top-level on.{event} trigger")
+            if trigger not in event_block:
                 raise RegistrationError(
-                    f"{test_path}: workflow {workflow} does not executably invoke {invocation} through vendor/bin/phpunit"
+                    f"{test_path}: top-level on.{event} trigger does not contain marker {trigger}"
                 )
-            if trigger not in workflow_text:
+
+            job_block = _mapping_child_block(workflow_text, "jobs", job)
+            if job_block is None:
+                raise RegistrationError(f"{test_path}: workflow {workflow} has no jobs.{job} proving job")
+            if condition not in job_block:
                 raise RegistrationError(
-                    f"{test_path}: workflow {workflow} does not contain trigger marker {trigger}"
+                    f"{test_path}: proving job {job} does not contain required condition marker {condition}"
+                )
+            if not _job_executes_phpunit_test(job_block, invocation):
+                raise RegistrationError(
+                    f"{test_path}: proving job {job} does not executably invoke {invocation} through vendor/bin/phpunit"
                 )
 
             required_environment = record.get("required_environment", [])
@@ -137,10 +198,10 @@ def validate_repository(root: Path) -> list[str]:
                 not isinstance(name, str) or not name.strip() for name in required_environment
             ):
                 raise RegistrationError(f"{test_path}: required_environment must be an array of non-empty strings")
-            missing_environment = [name for name in required_environment if name not in workflow_text]
+            missing_environment = [name for name in required_environment if name not in job_block]
             if missing_environment:
                 raise RegistrationError(
-                    f"{test_path}: workflow {workflow} is missing required environment markers: "
+                    f"{test_path}: proving job {job} is missing required environment markers: "
                     + ", ".join(missing_environment)
                 )
         except RegistrationError as exc:
