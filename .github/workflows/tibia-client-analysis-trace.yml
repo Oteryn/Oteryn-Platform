@@ -15,7 +15,7 @@ jobs:
   trace:
     name: Locate launcher action with multi-pass OCR
     runs-on: oteryn-staging
-    timeout-minutes: 8
+    timeout-minutes: 10
     steps:
       - name: Verify owned runtime and snapshot staging
         shell: bash
@@ -30,45 +30,78 @@ jobs:
         shell: bash
         run: |
           set -Eeuo pipefail
-          docker exec "$CONTAINER_NAME" bash -lc '
-            set -Eeuo pipefail
-            export DISPLAY=:99
-            wid=$(xdotool search --onlyvisible --name "^Tibia$" | head -n1)
-            [[ -n "$wid" ]]
-            import -display :99 -window "$wid" /tmp/launcher.png
-            mkdir -p /tmp/ocr
-            convert /tmp/launcher.png -resize 300% /tmp/ocr/orig.png
-            convert /tmp/launcher.png -resize 300% -colorspace Gray -contrast-stretch 1%x1% /tmp/ocr/gray.png
-            convert /tmp/launcher.png -resize 300% -colorspace Gray -threshold 55% /tmp/ocr/th55.png
-            convert /tmp/launcher.png -resize 300% -colorspace Gray -negate -threshold 55% /tmp/ocr/inv55.png
-            found=0
-            for img in /tmp/ocr/*.png; do
-              for psm in 6 11 12; do
-                out=/tmp/ocr/$(basename "$img").$psm.tsv
-                tesseract "$img" stdout --psm "$psm" tsv 2>/dev/null > "$out" || true
-                match=$(awk -F "\t" '''NR>1 && NF>=12 {t=tolower($12); if (t ~ /^(install|play|download|update|start)$/) {print $7" "$8" "$9" "$10" "$12; exit}}''' "$out" || true)
-                if [[ -n "$match" ]]; then
-                  read -r x y w h text <<<"$match"
-                  cx=$(( (x + w/2) / 3 )); cy=$(( (y + h/2) / 3 ))
-                  echo OCR_ACTION_TEXT=$text OCR_ACTION_X=$cx OCR_ACTION_Y=$cy SOURCE=$(basename "$img") PSM=$psm
-                  before=$(du -sb /data/home 2>/dev/null | awk "{print \$1}" || echo 0)
-                  xdotool mousemove --window "$wid" "$cx" "$cy" click 1
-                  sleep 8
-                  after=$(du -sb /data/home 2>/dev/null | awk "{print \$1}" || echo 0)
-                  echo HOME_BYTES_BEFORE=$before HOME_BYTES_AFTER=$after
-                  found=1
-                  break 2
-                fi
-              done
+          docker exec -i "$CONTAINER_NAME" bash <<'INNER'
+          set -Eeuo pipefail
+          export DISPLAY=:99
+          wid=$(xdotool search --onlyvisible --name '^Tibia$' | head -n1)
+          [[ -n "$wid" ]]
+          import -display :99 -window "$wid" /tmp/launcher.png
+          mkdir -p /tmp/ocr
+          convert /tmp/launcher.png -resize 300% /tmp/ocr/orig.png
+          convert /tmp/launcher.png -resize 300% -colorspace Gray -contrast-stretch 1%x1% /tmp/ocr/gray.png
+          convert /tmp/launcher.png -resize 300% -colorspace Gray -threshold 55% /tmp/ocr/th55.png
+          convert /tmp/launcher.png -resize 300% -colorspace Gray -negate -threshold 55% /tmp/ocr/inv55.png
+          rm -f /tmp/ocr_match.txt
+          for img in /tmp/ocr/*.png; do
+            for psm in 6 11 12; do
+              out="/tmp/ocr/$(basename "$img").$psm.tsv"
+              tesseract "$img" stdout --psm "$psm" tsv 2>/dev/null > "$out" || true
+              OUT="$out" IMG="$img" PSM="$psm" python3 - <<'PY'
+          import csv, os, re
+          target=re.compile(r'^(install|play|download|update|start)$', re.I)
+          with open(os.environ['OUT'], newline='', errors='replace') as f:
+              for r in csv.DictReader(f, delimiter='\t'):
+                  text=(r.get('text') or '').strip()
+                  if target.fullmatch(text):
+                      vals=[r.get('left','0'),r.get('top','0'),r.get('width','0'),r.get('height','0'),text,os.environ['IMG'],os.environ['PSM']]
+                      with open('/tmp/ocr_match.txt','w') as o: o.write(' '.join(vals)+'\n')
+                      break
+          PY
+              [[ -s /tmp/ocr_match.txt ]] && break 2
             done
-            echo OCR_ACTION_FOUND=$found
-            if (( found == 0 )); then
-              echo OCR_CANDIDATES_BEGIN
-              tesseract /tmp/ocr/gray.png stdout --psm 11 tsv 2>/dev/null | awk -F "\t" '''NR>1 && NF>=12 && $12!="" {printf "x=%d y=%d w=%d h=%d text=%s\n",$7/3,$8/3,$9/3,$10/3,$12}''' | tail -120
-              echo OCR_CANDIDATES_END
-              exit 1
-            fi
-          '
+          done
+          found=0
+          if [[ -s /tmp/ocr_match.txt ]]; then
+            read -r x y w h text img psm < /tmp/ocr_match.txt
+            cx=$(( (x + w/2) / 3 ))
+            cy=$(( (y + h/2) / 3 ))
+            echo "OCR_ACTION_TEXT=$text OCR_ACTION_X=$cx OCR_ACTION_Y=$cy SOURCE=$(basename "$img") PSM=$psm"
+            before=$(du -sb /data/home 2>/dev/null | awk '{print $1}' || echo 0)
+            xdotool mousemove --window "$wid" "$cx" "$cy" click 1
+            sleep 8
+            after=$(du -sb /data/home 2>/dev/null | awk '{print $1}' || echo 0)
+            echo "HOME_BYTES_BEFORE=$before HOME_BYTES_AFTER=$after"
+            found=1
+          fi
+          echo OCR_ACTION_FOUND=$found
+          if (( found == 0 )); then
+            echo OCR_CANDIDATES_BEGIN
+            python3 - <<'PY'
+          import csv
+          p='/tmp/ocr/gray.png.11.tsv'
+          with open(p,newline='',errors='replace') as f:
+              rows=csv.DictReader(f,delimiter='\t')
+              vals=[]
+              for r in rows:
+                  t=(r.get('text') or '').strip()
+                  if t:
+                      vals.append((int(float(r.get('left') or 0))//3,int(float(r.get('top') or 0))//3,int(float(r.get('width') or 0))//3,int(float(r.get('height') or 0))//3,t))
+          for x,y,w,h,t in vals[-140:]: print(f'x={x} y={y} w={w} h={h} text={t}')
+          PY
+            echo OCR_CANDIDATES_END
+          fi
+          INNER
+          docker cp "$CONTAINER_NAME:/tmp/launcher.png" /tmp/launcher.png
+          test -s /tmp/launcher.png
+          echo SCREENSHOT_BYTES=$(stat -c %s /tmp/launcher.png)
+
+      - name: Upload launcher screenshot evidence
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: tibia-launcher-screen
+          path: /tmp/launcher.png
+          if-no-files-found: error
+          retention-days: 7
 
       - name: Verify canonical staging unchanged
         if: always()
