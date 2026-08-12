@@ -17,18 +17,46 @@ TOP_LEVEL_ON = re.compile(r"(?m)^on:\s*$")
 TOP_LEVEL_PERMISSIONS = re.compile(
     r"(?m)^permissions:\s*(?:\{\s*\}|read-all|write-all)?\s*$"
 )
+DIRECT_MAPPING_KEY = re.compile(r"^  ([A-Za-z0-9_-]+):(?:\s.*)?$")
 
 
 class WorkflowInventoryError(RuntimeError):
     """Raised when the workflow inventory cannot be classified safely."""
 
 
-def _contains_event(text: str, event: str) -> bool:
-    return re.search(rf"(?m)^  {re.escape(event)}:\s*", text) is not None
+def _top_level_on_events(text: str) -> set[str]:
+    """Return only direct children of the top-level ``on`` mapping.
+
+    A two-space key elsewhere (for example a job named ``pull_request``) must
+    never be mistaken for a workflow event. The repository contract already
+    requires block-style ``on:`` at column zero, so a conservative indentation
+    parser is safer here than a workflow-wide regex.
+    """
+
+    lines = text.splitlines()
+    on_index: int | None = None
+    for index, line in enumerate(lines):
+        if line == "on:":
+            on_index = index
+            break
+    if on_index is None:
+        return set()
+
+    events: set[str] = set()
+    for line in lines[on_index + 1 :]:
+        if not line.strip() or line.lstrip().startswith("#"):
+            continue
+        if not line.startswith((" ", "\t")):
+            break
+        match = DIRECT_MAPPING_KEY.match(line)
+        if match:
+            events.add(match.group(1))
+    return events
 
 
 def classify_workflow(path: Path, text: str) -> str:
     name = path.name
+    events = _top_level_on_events(text)
 
     if name == "ci.yml":
         return "required_core"
@@ -38,15 +66,13 @@ def classify_workflow(path: Path, text: str) -> str:
         return "build"
     if name.startswith("deploy-") or "staging-control" in name or "main-operation" in name:
         return "deployment_operation"
-    if _contains_event(text, "workflow_call"):
+    if "workflow_call" in events:
         return "reusable_validation"
-    if _contains_event(text, "schedule") and not (
-        _contains_event(text, "pull_request") or _contains_event(text, "push")
-    ):
+    if "schedule" in events and not ({"pull_request", "push"} & events):
         return "scheduled_validation"
-    if _contains_event(text, "pull_request") or _contains_event(text, "push"):
+    if {"pull_request", "push"} & events:
         return "domain_validation"
-    if _contains_event(text, "workflow_dispatch"):
+    if "workflow_dispatch" in events:
         return "manual_validation"
 
     raise WorkflowInventoryError(f"unclassified workflow: {path.as_posix()}")
