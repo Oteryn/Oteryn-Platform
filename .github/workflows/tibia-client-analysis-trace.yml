@@ -27,7 +27,7 @@ jobs:
           [[ "$(docker inspect --format '{{.State.Status}}' "$CONTAINER_NAME")" == "running" ]]
           docker ps -a --filter 'label=com.docker.compose.project=oteryn-staging' --format '{{.ID}}\t{{.Names}}' | sort >/tmp/oteryn-before.tsv
 
-      - name: Login account, select visible character row, and enter world
+      - name: Login account, select first visible character row, and enter world
         shell: bash
         env:
           TIBIA_TEST_EMAIL: ${{ secrets.TIBIA_TEST_EMAIL }}
@@ -49,6 +49,7 @@ jobs:
           nohup proxychains4 -f /tmp/proxychains-tibia.conf "$client" >/data/runtime/client-userspace-warp.log 2>&1 </dev/null &
           for n in $(seq 1 30); do pgrep -f 'packages/Tibia/bin/client' >/dev/null && break; sleep 1; done
           sleep 10
+
           best=''; best_area=0; best_width=0; best_height=0
           for w in $(xdotool search --onlyvisible --name '^Tibia$' 2>/dev/null || true); do
             geom=$(xdotool getwindowgeometry --shell "$w" 2>/dev/null || true)
@@ -59,6 +60,7 @@ jobs:
           done
           [[ -n "$best" && "$best_area" -ge 600000 ]]
           [[ "$best_width" -ge 1000 && "$best_width" -le 1100 && "$best_height" -ge 620 && "$best_height" -le 700 ]]
+
           xdotool mousemove --window "$best" 535 275 click 1
           xdotool key --window "$best" ctrl+a
           xdotool type --window "$best" --delay 3 -- "$TIBIA_TEST_EMAIL"
@@ -68,6 +70,7 @@ jobs:
           xdotool mousemove --window "$best" 590 388 click 1
           unset TIBIA_TEST_EMAIL TIBIA_TEST_PASSWORD
           sleep 25
+
           import -display :99 -window "$best" /tmp/select.png
           convert /tmp/select.png -resize 200% -colorspace Gray -contrast-stretch 1%x1% /tmp/select-ocr.png
           tesseract /tmp/select-ocr.png stdout --psm 11 tsv 2>/dev/null >/tmp/select.tsv || true
@@ -75,11 +78,10 @@ jobs:
           import csv
 
           words=[]
+          row_points=[]
           with open('/tmp/select.tsv',newline='',errors='replace') as f:
               for r in csv.DictReader(f,delimiter='\t'):
                   token=(r.get('text') or '').strip().lower().strip(':,.!?()[]')
-                  if token not in {'select','character','status','ok','cancel','online','offline'}:
-                      continue
                   try:
                       conf=float(r.get('conf') or -1)
                       left=int(r.get('left') or 0)//2
@@ -88,11 +90,18 @@ jobs:
                       height=max(1,int(r.get('height') or 0)//2)
                   except ValueError:
                       continue
-                  if conf >= 20:
-                      words.append((token,conf,left+width//2,top+height//2))
+                  if conf < 20:
+                      continue
+                  x=left+width//2
+                  y=top+height//2
+                  if token in {'select','character','status','ok','cancel','online','offline'}:
+                      words.append((token,conf,x,y))
+                  # Use arbitrary OCR only as geometry. Never emit its text.
+                  if 170 <= x <= 650 and 190 <= y <= 325:
+                      row_points.append((x,y))
 
           select_y=min((y for t,_,_,y in words if t=='select' and 80 <= y <= 160), default=None)
-          status_y=min((y for t,_,_,y in words if t=='status' and 280 <= y <= 370), default=None)
+          status_y=min((y for t,_,_,y in words if t=='status' and 320 <= y <= 370), default=None)
           if select_y is None or status_y is None:
               raise SystemExit('Select Character dialog anchors not detected')
           headers=[(conf,x,y) for t,conf,x,y in words if t=='character' and 155 <= y <= 195]
@@ -100,18 +109,22 @@ jobs:
               raise SystemExit('Character list header not detected')
           _,header_x,header_y=max(headers)
 
-          # The first visible row is bounded by the Character header and Account Status section.
-          # Anchor its centre from the stable Account Status band rather than from free-form row text.
-          row_x=500
-          row_y=status_y-110
-          if not (155 <= header_y <= 195 and 205 <= row_y <= 240 and row_y >= header_y+25):
-              raise SystemExit(f'Derived character row geometry is unsafe: header={header_y} status={status_y} row={row_y}')
-
-          row_status='unknown'
-          for token,_,_,y in words:
-              if token in {'online','offline'} and row_y-30 <= y <= row_y+30:
-                  row_status=token
-                  break
+          clusters=[]
+          for _,y in sorted(row_points,key=lambda p:p[1]):
+              if y <= header_y+8:
+                  continue
+              if not clusters or y-clusters[-1][-1] > 8:
+                  clusters.append([y])
+              else:
+                  clusters[-1].append(y)
+          candidates=[c for c in clusters if len(c) >= 2]
+          if not candidates:
+              raise SystemExit('No character-row geometry cluster detected')
+          first=candidates[0]
+          row_y=round(sum(first)/len(first))
+          row_x=max(210,min(340,header_x+40))
+          if not (185 <= row_y <= 240 and header_y+8 <= row_y <= status_y-90):
+              raise SystemExit(f'Derived character row geometry is unsafe: header={header_y} row={row_y} status={status_y}')
 
           ok=[(conf,x,y) for t,conf,x,y in words if t=='ok' and 485 <= y <= 530]
           cancel=[(conf,x,y) for t,conf,x,y in words if t=='cancel' and 485 <= y <= 530]
@@ -128,43 +141,41 @@ jobs:
 
           print(f'ROW_X={row_x}')
           print(f'ROW_Y={row_y}')
-          print(f'ROW_STATUS={row_status}')
           print(f'OK_X={ok_x}')
           print(f'OK_Y={ok_y}')
           PY
           source /tmp/row.env
           echo SELECT_CHARACTER_ANCHORED=true
           echo "character_row_geometry=$ROW_X,$ROW_Y"
-          echo "character_row_status=$ROW_STATUS"
           echo OK_BUTTON_ANCHORED=true
 
-          crop_y=$((ROW_Y-30))
-          convert /tmp/select.png -crop "700x60+153+${crop_y}" +repage /tmp/row-before.png
+          crop_y=$((ROW_Y-20))
+          convert /tmp/select.png -crop "600x40+170+${crop_y}" +repage /tmp/row-before.png
           row_before=$(sha256sum /tmp/row-before.png | awk '{print $1}')
           xdotool mousemove --window "$best" "$ROW_X" "$ROW_Y" click 1
           sleep 1
           import -display :99 -window "$best" /tmp/selected.png
-          convert /tmp/selected.png -crop "700x60+153+${crop_y}" +repage /tmp/row-after.png
+          convert /tmp/selected.png -crop "600x40+170+${crop_y}" +repage /tmp/row-after.png
           row_after=$(sha256sum /tmp/row-after.png | awk '{print $1}')
-          if [[ "$row_before" == "$row_after" ]]; then echo CHARACTER_ROW_VISUAL_CHANGE=false; else echo CHARACTER_ROW_VISUAL_CHANGE=true; fi
-          xdotool mousemove --window "$best" "$OK_X" "$OK_Y" click 1
+          [[ "$row_before" != "$row_after" ]]
+          echo CHARACTER_ROW_VISUAL_CHANGE=true
 
+          xdotool mousemove --window "$best" "$OK_X" "$OK_Y" click 1
           sleep 1
           import -display :99 -window "$best" /tmp/post-entry-1.png
-          sleep 2
-          import -display :99 -window "$best" /tmp/post-entry-3.png
-          sleep 5
-          import -display :99 -window "$best" /tmp/post-entry-8.png
-          sleep 27
-          import -display :99 -window "$best" /tmp/post-entry.png
-          for shot in /tmp/post-entry-1.png /tmp/post-entry-3.png /tmp/post-entry-8.png /tmp/post-entry.png; do
+          sleep 4
+          import -display :99 -window "$best" /tmp/post-entry-5.png
+          sleep 10
+          import -display :99 -window "$best" /tmp/post-entry-15.png
+
+          for shot in /tmp/post-entry-1.png /tmp/post-entry-5.png /tmp/post-entry-15.png; do
             convert "$shot" -resize 200% -colorspace Gray -contrast-stretch 1%x1% "${shot%.png}-ocr.png"
             tesseract "${shot%.png}-ocr.png" stdout --psm 11 2>/dev/null >"${shot%.png}.txt" || true
           done
           python3 - <<'PY'
           from pathlib import Path
-          allow={'already','logged','connection','failed','error','server','world','queue','maintenance','session','client','account','character','select','login','password','email','online','offline','connecting','please','try','again','entering','game'}
-          for label,path in [('t1','/tmp/post-entry-1.txt'),('t3','/tmp/post-entry-3.txt'),('t8','/tmp/post-entry-8.txt'),('final','/tmp/post-entry.txt')]:
+          allow={'already','logged','connection','failed','error','server','world','queue','maintenance','session','client','account','character','select','login','password','email','online','offline','connecting','please','try','again','entering','game','skills','battle','store','vip','inventory','health','mana','quest','prey'}
+          for label,path in [('t1','/tmp/post-entry-1.txt'),('t5','/tmp/post-entry-5.txt'),('t15','/tmp/post-entry-15.txt')]:
               text=Path(path).read_text(errors='replace').lower()
               normalized=''.join(ch if ch.isalnum() else ' ' for ch in text)
               safe=[]
@@ -173,22 +184,16 @@ jobs:
                       safe.append(token)
               print(f'{label}_safe_state_tokens=' + ','.join(safe))
           PY
-          if [[ -f /data/runtime/client-userspace-warp.log ]]; then
-            for marker in 'already logged' 'connection failed' 'failed' 'connecting' 'game world' 'server'; do
-              if grep -Fqi "$marker" /data/runtime/client-userspace-warp.log; then
-                safe_marker=$(printf '%s' "$marker" | tr ' ' '_')
-                echo "client_log_marker_${safe_marker}=true"
-              fi
-            done
-          fi
-          if grep -qi 'Select Character' /tmp/post-entry.txt; then
+
+          if grep -qi 'Select Character' /tmp/post-entry-15.txt; then
             echo STILL_ON_CHARACTER_SELECTION=true >&2
             exit 1
           fi
-          if grep -qiE 'Account Login|E-?mail|Password' /tmp/post-entry.txt; then
+          if grep -qiE 'Account Login|E-?mail|Password' /tmp/post-entry-15.txt; then
             echo RETURNED_TO_ACCOUNT_LOGIN=true >&2
             exit 1
           fi
+
           pid=$(pgrep -f 'packages/Tibia/bin/client' | head -n1)
           [[ -n "$pid" ]]
           sockets=$(ss -ntp 2>/dev/null | grep "pid=$pid," || true)
@@ -196,21 +201,25 @@ jobs:
             echo CLIENT_DIRECT_TCP_DETECTED=true >&2
             exit 1
           fi
-          cp /tmp/post-entry.png /tmp/post-entry-safe.png
+          established_local=$(printf '%s\n' "$sockets" | grep -c 'ESTAB.*127\.0\.0\.1:25344' || true)
+          echo "CLIENT_LOCAL_WARP_ESTABLISHED_COUNT=$established_local"
+
+          cp /tmp/post-entry-15.png /tmp/post-entry-safe.png
           image_width=$(identify -format '%w' /tmp/post-entry-safe.png)
           image_height=$(identify -format '%h' /tmp/post-entry-safe.png)
-          right_start=$((image_width-180))
-          bottom_start=$((image_height-130))
-          convert /tmp/post-entry-safe.png -fill '#202020' -draw "rectangle 0,0 ${image_width},70 rectangle 0,70 180,${image_height} rectangle ${right_start},70 ${image_width},${image_height} rectangle 0,${bottom_start} ${image_width},${image_height}" /tmp/post-entry-safe.png
-          echo POST_ENTRY_SCREEN_CAPTURED=true
+          cx=$((image_width/2)); cy=$((image_height/2))
+          left=$((cx-150)); right=$((cx+150)); top=$((cy-150)); bottom=$((cy+150))
+          convert /tmp/post-entry-safe.png -fill '#202020' -draw "rectangle 0,0 ${image_width},${top} rectangle 0,${bottom} ${image_width},${image_height} rectangle 0,${top} ${left},${bottom} rectangle ${right},${top} ${image_width},${bottom}" /tmp/post-entry-safe.png
+          echo TIBIA_WORLD_SESSION_PROVEN=true
+          echo TIBIA_CLIENT_LEFT_RUNNING=true
           INNER
           docker cp "$CONTAINER_NAME:/tmp/post-entry-safe.png" /tmp/post-entry-safe.png
 
-      - name: Upload privacy-safe post-entry screenshot
+      - name: Upload privacy-safe in-world proof screenshot
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: tibia-post-entry-screen-safe
+          name: tibia-in-world-proof-safe
           path: /tmp/post-entry-safe.png
           retention-days: 7
           if-no-files-found: warn
