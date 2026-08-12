@@ -15,7 +15,7 @@ env:
 
 jobs:
   inspect:
-    name: Inspect captured Tibia appearance IDs
+    name: Locate live Tibia protocol handler for native actions
     runs-on: oteryn-staging
     timeout-minutes: 6
     steps:
@@ -29,59 +29,68 @@ jobs:
           [[ "$(docker inspect --format '{{.State.Status}}' "$CONTAINER_NAME")" == "running" ]]
           docker ps -a --filter 'label=com.docker.compose.project=oteryn-staging' --format '{{.ID}}\t{{.Names}}' | sort >/tmp/oteryn-before.tsv
 
-      - name: Locate appearance catalog and inspect captured IDs
+      - name: Locate TPlayerProtocolMessageHandler instance read-only
         shell: bash
         run: |
           set -Eeuo pipefail
           docker exec -i "$CONTAINER_NAME" bash <<'INNER'
           set -Eeuo pipefail
-          pkg='/data/home/.local/share/CipSoft GmbH/Tibia/packages/Tibia'
-          echo CATALOG_FILES_BEGIN
-          find "$pkg" -type f \( -name '*catalog-content*.json' -o -name 'catalog-content.json' \) -printf '%s\t%p\n' | sort
-          echo CATALOG_FILES_END
-          catalog=$(find "$pkg" -type f \( -name '*catalog-content*.json' -o -name 'catalog-content.json' \) | head -n1)
-          [[ -n "$catalog" ]]
-          echo CATALOG_PATH="$catalog"
-          python3 - "$catalog" <<'PY'
-          import json,sys,os
-          p=sys.argv[1]
-          data=json.load(open(p,'r',encoding='utf-8'))
-          print('CATALOG_ENTRY_COUNT',len(data))
-          for obj in data:
-              t=obj.get('type')
-              if t in ('appearances','sprite'):
-                  print('CATALOG_ENTRY',json.dumps(obj,sort_keys=True,separators=(',',':')))
-          apps=[o for o in data if o.get('type')=='appearances']
-          if len(apps)!=1:
-              raise SystemExit(f'expected exactly one appearances entry, got {len(apps)}')
-          print('APPEARANCES_RELATIVE_FILE',apps[0].get('file'))
+          bin='/data/home/.local/share/CipSoft GmbH/Tibia/packages/Tibia/bin/client'
+          pid=$(pgrep -x client | tail -n1 || true)
+          [[ -n "$pid" ]]
+          echo CLIENT_PID=$pid
+          python3 - "$pid" "$bin" <<'PY'
+          import sys,struct
+          pid=int(sys.argv[1]); binpath=sys.argv[2]
+          maps=[]; base=None
+          for line in open(f'/proc/{pid}/maps'):
+              p=line.rstrip('\n').split(maxsplit=5)
+              lo,hi=[int(x,16) for x in p[0].split('-')]
+              perms=p[1]; off=int(p[2],16); path=p[5] if len(p)>5 else ''
+              maps.append((lo,hi,perms,off,path))
+              if path==binpath and base is None: base=lo-off
+          if base is None: raise SystemExit('NO_CLIENT_BASE')
+          print(f'CLIENT_BASE=0x{base:x}')
+          # Static RTTI relocation at 0x308a000 => object vptr is 0x308a008 under Itanium ABI.
+          vptr=base+0x308a008
+          print(f'PLAYER_HANDLER_VPTR_RUNTIME=0x{vptr:x}')
+          needle=struct.pack('<Q',vptr)
+          found=[]
+          with open(f'/proc/{pid}/mem','rb',buffering=0) as mem:
+              for lo,hi,perms,off,path in maps:
+                  if 'r' not in perms or 'w' not in perms: continue
+                  size=hi-lo
+                  if size<=0 or size>256*1024*1024: continue
+                  try:
+                      mem.seek(lo); data=mem.read(size)
+                  except OSError: continue
+                  start=0
+                  while True:
+                      i=data.find(needle,start)
+                      if i<0: break
+                      addr=lo+i; found.append(addr)
+                      print(f'PLAYER_HANDLER_OBJECT_CANDIDATE=0x{addr:x} MAP={path or "[anon]"}')
+                      q=[]
+                      for j in range(0,0x60,8):
+                          if i+j+8<=len(data): q.append(struct.unpack_from('<Q',data,i+j)[0])
+                      print('QWORDS='+' '.join(f'{x:016x}' for x in q))
+                      start=i+8
+          print(f'PLAYER_HANDLER_OBJECT_CANDIDATE_COUNT={len(found)}')
           PY
-          rel=$(python3 - "$catalog" <<'PY'
-          import json,sys
-          data=json.load(open(sys.argv[1],'r',encoding='utf-8'))
-          print([o for o in data if o.get('type')=='appearances'][0]['file'])
-          PY
-          )
-          base=$(dirname "$catalog")
-          app="$base/$rel"
-          [[ -f "$app" ]]
-          echo APPEARANCES_FILE="$app"
-          echo APPEARANCES_SIZE=$(stat -c %s "$app")
-          echo APPEARANCES_SHA256=$(sha256sum "$app" | awk '{print $1}')
 
-          # Look for an already installed decoder/protobuf schema before adding any dependency.
-          echo PROTO_DECODER_CANDIDATES_BEGIN
-          find /data "$pkg" -type f \( -name 'appearances.proto' -o -name 'appearances_pb2.py' -o -name 'appearances.pb.h' \) -printf '%p\n' 2>/dev/null | sed -n '1,80p' || true
-          echo PROTO_DECODER_CANDIDATES_END
+          echo MOVEMENT_FUNCTIONS_BEGIN
+          for a in ee2cd0 ee2d50 ee2dd0 ee2e50 ee2ed0 ee2f50 ee2fd0 ee3050 ee30d0 ee3150 ee31d0 ee3250 ee32d0 ee3350; do
+            echo FUNC_0x$a
+            objdump -d --start-address="0x$a" --stop-address="$((0x$a+0x80))" "$bin" 2>/dev/null | sed -n '1,28p' || true
+          done
+          echo MOVEMENT_FUNCTIONS_END
 
-          # The official client binary embeds protobuf descriptors. Record only schema tokens needed for classification.
-          client=/data/client-15.32.df7b29/bin/client
-          echo APPEARANCE_SCHEMA_TOKENS_BEGIN
-          strings -a "$client" | grep -E '^(Appearances|Appearance|AppearanceFlags|bank|fullbank|clip|waypoints|objectID|objectCount|upgradeTier|liquidType)$' | sort -u || true
-          echo APPEARANCE_SCHEMA_TOKENS_END
-
-          # Preserve a tiny binary sample metadata only; never print proprietary protobuf bytes.
-          echo CAPTURED_IDS=4407,313,6379,19394,6217
+          tcp_rows=$(ss -ntp 2>/dev/null | grep "pid=$pid," || true)
+          local_count=$(printf '%s\n' "$tcp_rows" | awk '$5 ~ /127\.0\.0\.1:25344$/ || $5 ~ /\[::1\]:25344$/ {n++} END{print n+0}')
+          total_count=$(printf '%s\n' "$tcp_rows" | grep -c . || true)
+          echo ACTIVE_LOCAL_SOCKS_COUNT=$local_count
+          echo ACTIVE_DIRECT_TCP_COUNT=$((total_count-local_count))
+          (( local_count > 0 && total_count-local_count == 0 ))
           INNER
 
       - name: Verify authenticated session retained and staging unchanged
@@ -91,16 +100,4 @@ jobs:
           set -Eeuo pipefail
           docker ps -a --filter 'label=com.docker.compose.project=oteryn-staging' --format '{{.ID}}\t{{.Names}}' | sort >/tmp/oteryn-after.tsv
           diff -u /tmp/oteryn-before.tsv /tmp/oteryn-after.tsv
-          docker exec -i "$CONTAINER_NAME" bash <<'INNER'
-          set -Eeuo pipefail
-          pid=$(pgrep -x client | head -n1)
-          [[ -n "$pid" ]]
-          tcp_rows=$(ss -ntp 2>/dev/null | grep "pid=$pid," || true)
-          local_count=$(printf '%s\n' "$tcp_rows" | awk '$5 ~ /127\.0\.0\.1:25344$/ || $5 ~ /\[::1\]:25344$/ {n++} END{print n+0}')
-          total_count=$(printf '%s\n' "$tcp_rows" | grep -c . || true)
-          direct_count=$((total_count-local_count))
-          echo ACTIVE_LOCAL_SOCKS_COUNT=$local_count
-          echo ACTIVE_DIRECT_TCP_COUNT=$direct_count
-          (( local_count > 0 && direct_count == 0 ))
-          echo LIVE_SESSION_RETAINED=true
-          INNER
+          docker inspect --format 'analysis_name={{.Name}} status={{.State.Status}} owner={{ index .Config.Labels "com.blakinio.owner" }} purpose={{ index .Config.Labels "com.blakinio.purpose" }}' "$CONTAINER_NAME"
