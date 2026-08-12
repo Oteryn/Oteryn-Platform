@@ -140,3 +140,18 @@ def test_image_rollback_never_claims_database_rollback() -> None:
     assert "Database schema was NOT rolled back or changed" in rollback
     assert "migrate:rollback" not in rollback
     assert "migrate:rollback" not in (SCRIPTS / "deploy.sh").read_text()
+
+
+def main() -> None:
+    tests = sorted(
+        value
+        for name, value in globals().items()
+        if name.startswith("test_") and callable(value)
+    )
+    for test in tests:
+        test()
+    print(f"synology rollback contract: PASS ({len(tests)} tests)")
+
+
+if __name__ == "__main__":
+    main()
