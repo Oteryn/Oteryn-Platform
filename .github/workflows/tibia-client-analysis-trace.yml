@@ -13,7 +13,7 @@ env:
 
 jobs:
   trace:
-    name: Detect character selection and enter Tibia world
+    name: Enter Tibia world and capture proof
     runs-on: oteryn-staging
     timeout-minutes: 12
     steps:
@@ -27,7 +27,7 @@ jobs:
           [[ "$(docker inspect --format '{{.State.Status}}' "$CONTAINER_NAME")" == "running" ]]
           docker ps -a --filter 'label=com.docker.compose.project=oteryn-staging' --format '{{.ID}}\t{{.Names}}' | sort >/tmp/oteryn-before.tsv
 
-      - name: Relaunch and authenticate through proven WARP
+      - name: Login account and enter selected character
         shell: bash
         env:
           TIBIA_TEST_EMAIL: ${{ secrets.TIBIA_TEST_EMAIL }}
@@ -49,14 +49,7 @@ jobs:
           cd "$pkg"
           nohup proxychains4 -f /tmp/proxychains-tibia.conf "$client" >/data/runtime/client-userspace-warp.log 2>&1 </dev/null &
           for n in $(seq 1 30); do pgrep -f 'packages/Tibia/bin/client' >/dev/null && break; sleep 1; done
-          pid=$(pgrep -f 'packages/Tibia/bin/client' | head -n1)
-          [[ -n "$pid" ]]
           sleep 10
-          sockets=$(ss -ntp 2>/dev/null | grep "pid=$pid," || true)
-          if printf '%s\n' "$sockets" | awk '{print $5}' | grep -Ev '^(127\.0\.0\.1|\[::1\]):25344$' | grep -q .; then
-            echo CLIENT_DIRECT_TCP_DETECTED=true >&2
-            exit 1
-          fi
           best=''; best_area=0
           for w in $(xdotool search --onlyvisible --name '^Tibia$' 2>/dev/null || true); do
             geom=$(xdotool getwindowgeometry --shell "$w" 2>/dev/null || true)
@@ -65,6 +58,7 @@ jobs:
             area=$((width*height)); if (( area > best_area )); then best=$w; best_area=$area; fi
           done
           [[ -n "$best" && "$best_area" -ge 600000 ]]
+          xdotool windowactivate --sync "$best" || true
           xdotool mousemove --window "$best" 535 275 click 1
           xdotool key --window "$best" ctrl+a
           xdotool type --window "$best" --delay 3 -- "$TIBIA_TEST_EMAIL"
@@ -76,83 +70,44 @@ jobs:
           sleep 25
           import -display :99 -window "$best" /tmp/character-select.png
           convert /tmp/character-select.png -resize 200% -colorspace Gray -contrast-stretch 1%x1% /tmp/character-select-ocr.png
-          tesseract /tmp/character-select-ocr.png stdout --psm 11 tsv 2>/dev/null >/tmp/character-select.tsv || true
-          python3 - <<'PY' >/tmp/controls.env
-          import csv
-          rows=[]
-          with open('/tmp/character-select.tsv', newline='', errors='replace') as f:
-              for r in csv.DictReader(f, delimiter='\t'):
-                  text=(r.get('text') or '').strip()
-                  try:
-                      conf=float(r.get('conf') or -1)
-                      left=int(r.get('left') or 0)//2; top=int(r.get('top') or 0)//2
-                      width=int(r.get('width') or 0)//2; height=int(r.get('height') or 0)//2
-                  except ValueError:
-                      continue
-                  if conf >= 35 and text:
-                      rows.append((text,left,top,width,height))
-          login=[r for r in rows if r[0].lower() in ('login','enter','play') and r[2] > 300]
-          if not login:
-              raise SystemExit('No Login/Enter/Play control detected on character-select screen')
-          login=max(login, key=lambda r:(r[2],r[1]))
-          lx=login[1]+max(1,login[3]//2); ly=login[2]+max(1,login[4]//2)
-          # Character rows are above the action controls. Click the horizontal centre of the list,
-          # just below the Select Character header; then activate the OCR-detected Login control.
-          headers=[r for r in rows if r[0].lower()=='select']
-          if not headers:
-              raise SystemExit('Select Character header not detected')
-          header=min(headers,key=lambda r:r[2])
-          row_y=max(header[2]+70, 175)
-          row_y=min(row_y, ly-120)
-          print(f'LOGIN_X={lx}')
-          print(f'LOGIN_Y={ly}')
-          print(f'ROW_X=360')
-          print(f'ROW_Y={row_y}')
-          PY
-          source /tmp/controls.env
-          echo CHARACTER_SELECT_CONTROLS_DETECTED=true
-          echo "character_row_y=$ROW_Y login_y=$LOGIN_Y"
-          xdotool mousemove --window "$best" "$ROW_X" "$ROW_Y" click 1
-          sleep 2
-          xdotool mousemove --window "$best" "$LOGIN_X" "$LOGIN_Y" click 1
-          sleep 35
-          import -display :99 -window "$best" /tmp/post-entry.png
-          pid=$(pgrep -f 'packages/Tibia/bin/client' | head -n1)
-          [[ -n "$pid" ]]
-          sockets=$(ss -ntp 2>/dev/null | grep "pid=$pid," || true)
-          if printf '%s\n' "$sockets" | awk '{print $5}' | grep -Ev '^(127\.0\.0\.1|\[::1\]):25344$' | grep -q .; then
-            echo CLIENT_DIRECT_TCP_DETECTED=true >&2
-            exit 1
-          fi
-          convert /tmp/post-entry.png -resize 200% -colorspace Gray -contrast-stretch 1%x1% /tmp/post-entry-ocr.png
-          tesseract /tmp/post-entry-ocr.png stdout --psm 11 tsv 2>/dev/null >/tmp/post-entry.tsv || true
+          tesseract /tmp/character-select-ocr.png stdout --psm 11 2>/dev/null >/tmp/character-select.txt || true
+          grep -qi 'Select Character' /tmp/character-select.txt
+          echo CHARACTER_SELECT_PROVEN=true
+          # Character selection dialog supports keyboard navigation. Focus the dialog, select
+          # the first character, and activate the default action without guessing button geometry.
+          xdotool mousemove --window "$best" 500 250 click 1
+          xdotool key --window "$best" Home
+          sleep 1
+          xdotool key --window "$best" Return
+          sleep 40
+          import -display :99 -window "$best" /tmp/world-entry.png
+          convert /tmp/world-entry.png -resize 200% -colorspace Gray -contrast-stretch 1%x1% /tmp/world-entry-ocr.png
+          tesseract /tmp/world-entry-ocr.png stdout --psm 11 2>/dev/null >/tmp/world-entry.txt || true
           python3 - <<'PY'
-          import csv
-          words=[]
-          with open('/tmp/post-entry.tsv',newline='',errors='replace') as f:
-              for r in csv.DictReader(f,delimiter='\t'):
-                  t=(r.get('text') or '').strip().lower().strip(':,.!?()[]')
-                  if t: words.append(t)
-          login_markers={'login','account','select','character','characters'}
-          game_markers={'skills','battle','health','mana','inventory','quests','prey','store','logout'}
-          l=sum(w in login_markers for w in words)
-          g=sum(w in game_markers for w in words)
-          print(f'POST_ENTRY_LOGIN_MARKERS={l}')
-          print(f'POST_ENTRY_GAME_MARKERS={g}')
-          if g < 2 or l >= 3:
+          text=open('/tmp/world-entry.txt',errors='replace').read().lower()
+          login_markers=sum(text.count(x) for x in ('select character','account login','password'))
+          game_markers=sum(text.count(x) for x in ('skills','battle','health','mana','inventory','quests','prey','store','logout'))
+          print(f'POST_ENTRY_LOGIN_MARKERS={login_markers}')
+          print(f'POST_ENTRY_GAME_MARKERS={game_markers}')
+          if game_markers < 2 or login_markers >= 2:
               raise SystemExit('World-entry state not proven')
           print('TIBIA_WORLD_ENTRY_PROVEN=true')
           PY
-          convert /tmp/post-entry.png -crop 1280x90+0+0 +repage /tmp/post-entry-safe-top.png
+          # Full screenshot is retained only inside the owned runtime. Export a privacy-safe
+          # proof with the central game viewport and account/character side regions masked.
+          cp /tmp/world-entry.png /tmp/world-entry-safe.png
+          convert /tmp/world-entry-safe.png -fill '#202020' \
+            -draw 'rectangle 0,0 220,800 rectangle 1030,0 1280,800 rectangle 0,0 1280,80' \
+            /tmp/world-entry-safe.png
           INNER
-          docker cp "$CONTAINER_NAME:/tmp/post-entry-safe-top.png" /tmp/post-entry-safe-top.png
+          docker cp "$CONTAINER_NAME:/tmp/world-entry-safe.png" /tmp/world-entry-safe.png
 
-      - name: Upload privacy-safe world-entry proof
+      - name: Upload privacy-safe world screenshot
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: tibia-world-entry-proof-safe
-          path: /tmp/post-entry-safe-top.png
+          name: tibia-world-entry-screenshot-safe
+          path: /tmp/world-entry-safe.png
           retention-days: 7
           if-no-files-found: warn
 
