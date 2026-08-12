@@ -12,7 +12,10 @@ from verify_integration_test_registration import RegistrationError, validate_rep
 
 TEST_PATH = "tests/Integration/Example/ExampleIntegrationTest.php"
 WORKFLOW_PATH = ".github/workflows/example-integration.yml"
+EVENT = "pull_request"
 TRIGGER = "tests/Integration/Example/**"
+JOB = "integration"
+CONDITION = "github.event_name == 'pull_request'"
 ENVIRONMENT = ["EXAMPLE_BASELINE_PATH", "EXAMPLE_CANDIDATE_PATH"]
 
 
@@ -22,10 +25,15 @@ class IntegrationTestRegistrationTest(unittest.TestCase):
         *,
         include_test: bool = True,
         registration_path: str = TEST_PATH,
+        event: str = EVENT,
+        registration_event: str = EVENT,
+        registration_job: str = JOB,
         invocation_marker: str = TEST_PATH,
         trigger_marker: str = TRIGGER,
+        job_condition_marker: str = CONDITION,
         workflow_invocation: str = TEST_PATH,
         workflow_trigger: str = TRIGGER,
+        workflow_condition: str = CONDITION,
         invocation_as_comment: bool = False,
         duplicate: bool = False,
         include_environment: bool = True,
@@ -40,13 +48,14 @@ class IntegrationTestRegistrationTest(unittest.TestCase):
         workflow_lines = [
             "name: Example Integration",
             "on:",
-            "  pull_request:",
+            f"  {event}:",
             "    paths:",
             f"      - '{workflow_trigger}'",
             "permissions:",
             "  contents: read",
             "jobs:",
-            "  integration:",
+            f"  {JOB}:",
+            f"    if: {workflow_condition}",
             "    runs-on: ubuntu-latest",
             "    env:",
         ]
@@ -63,12 +72,15 @@ class IntegrationTestRegistrationTest(unittest.TestCase):
         record = {
             "path": registration_path,
             "workflow": WORKFLOW_PATH,
+            "event": registration_event,
+            "job": registration_job,
             "invocation_marker": invocation_marker,
             "trigger_marker": trigger_marker,
+            "job_condition_marker": job_condition_marker,
             "required_environment": ENVIRONMENT,
         }
         records = [record, dict(record)] if duplicate else [record]
-        registry = {"schema_version": 1, "tests": records}
+        registry = {"schema_version": 2, "tests": records}
         self.write(root / "tests/Integration/REGISTRY.json", json.dumps(registry, indent=2) + "\n")
         return root
 
@@ -110,13 +122,32 @@ class IntegrationTestRegistrationTest(unittest.TestCase):
         root = self.make_repository(invocation_as_comment=True)
         self.assert_registration_error(root, "does not executably invoke")
 
-    def test_workflow_must_contain_trigger_marker(self) -> None:
-        root = self.make_repository(workflow_trigger="tests/Integration/Other/**")
-        self.assert_registration_error(root, "does not contain trigger marker")
+    def test_trigger_marker_must_be_in_declared_top_level_event(self) -> None:
+        root = self.make_repository(registration_event="workflow_dispatch")
+        self.assert_registration_error(root, "has no top-level on.workflow_dispatch trigger")
 
-    def test_workflow_must_contain_required_environment_markers(self) -> None:
+    def test_proving_job_must_match_registry_job(self) -> None:
+        root = self.make_repository(registration_job="other-job")
+        self.assert_registration_error(root, "has no jobs.other-job proving job")
+
+    def test_proving_job_condition_must_match_declared_event_path(self) -> None:
+        root = self.make_repository(
+            job_condition_marker="github.event_name == 'pull_request'",
+            workflow_condition="github.event_name == 'workflow_dispatch'",
+        )
+        self.assert_registration_error(root, "does not contain required condition marker")
+
+    def test_unrelated_trigger_text_cannot_satisfy_proving_job_contract(self) -> None:
+        root = self.make_repository(
+            registration_event="pull_request",
+            workflow_condition="github.event_name == 'workflow_dispatch'",
+            job_condition_marker="github.event_name == 'pull_request'",
+        )
+        self.assert_registration_error(root, "does not contain required condition marker")
+
+    def test_workflow_must_contain_required_environment_markers_in_proving_job(self) -> None:
         root = self.make_repository(include_environment=False)
-        self.assert_registration_error(root, "missing required environment markers")
+        self.assert_registration_error(root, "is missing required environment markers")
 
 
 if __name__ == "__main__":
