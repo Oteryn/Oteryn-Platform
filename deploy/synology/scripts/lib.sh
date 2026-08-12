@@ -132,6 +132,7 @@ _oteryn_read_state_key() {
 _oteryn_bootstrap_legacy_current_release() {
     local state_dir="$1" current_file="$state_dir/current-release.env" legacy_file="$state_dir/last-good.env"
     local old_platform old_gateway old_canary old_sha observed_schema table_count
+    local -a legacy_images
     [[ ! -f "$current_file" ]] || return 0
 
     if [[ ! -f "$legacy_file" ]]; then
@@ -147,13 +148,13 @@ _oteryn_bootstrap_legacy_current_release() {
     fi
 
     # last-good.env is generated locally by deploy.sh using printf %q from the
-    # exact running containers before any pull can move mutable tags.
-    unset PLATFORM_IMAGE GATEWAY_IMAGE CANARY_IMAGE
-    # shellcheck disable=SC1090
-    source "$legacy_file"
-    old_platform="${PLATFORM_IMAGE:-}"
-    old_gateway="${GATEWAY_IMAGE:-}"
-    old_canary="${CANARY_IMAGE:-}"
+    # exact running containers before any pull can move mutable tags. Read it in
+    # a subshell so candidate PLATFORM_IMAGE/GATEWAY_IMAGE/CANARY_IMAGE remain
+    # unchanged in the deployment process.
+    mapfile -t legacy_images < <(bash -c 'set -euo pipefail; source "$1"; printf "%s\n%s\n%s\n" "${PLATFORM_IMAGE:-}" "${GATEWAY_IMAGE:-}" "${CANARY_IMAGE:-}"' bash "$legacy_file")
+    old_platform="${legacy_images[0]:-}"
+    old_gateway="${legacy_images[1]:-}"
+    old_canary="${legacy_images[2]:-}"
     [[ -n "$old_platform" && -n "$old_gateway" && -n "$old_canary" ]] || {
         echo "Legacy running-release snapshot is incomplete; refusing migration." >&2
         return 1
