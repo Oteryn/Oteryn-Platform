@@ -78,7 +78,7 @@ jobs:
           with open('/tmp/select.tsv',newline='',errors='replace') as f:
               for r in csv.DictReader(f,delimiter='\t'):
                   token=(r.get('text') or '').strip().lower().strip(':,.!?()[]')
-                  if token not in {'select','character','status','ok'}:
+                  if token not in {'select','character','status','ok','cancel','online','offline'}:
                       continue
                   try:
                       conf=float(r.get('conf') or -1)
@@ -105,36 +105,60 @@ jobs:
           if not (170 <= row_x <= 270 and header_y+25 <= row_y <= status_y-45):
               raise SystemExit('Derived character row geometry is unsafe')
 
+          row_status='unknown'
+          for token,_,_,y in words:
+              if token in {'online','offline'} and header_y+10 <= y <= status_y-45:
+                  row_status=token
+                  break
+
           ok=[(conf,x,y) for t,conf,x,y in words if t=='ok' and y >= status_y+80]
+          cancel=[(conf,x,y) for t,conf,x,y in words if t=='cancel' and y >= status_y+80]
           if ok:
               _,ok_x,ok_y=max(ok)
-              print(f'OK_X={ok_x}')
-              print(f'OK_Y={ok_y}')
+          elif cancel:
+              _,cancel_x,cancel_y=max(cancel)
+              ok_x=cancel_x-52
+              ok_y=cancel_y
           else:
-              print('OK_X=')
-              print('OK_Y=')
+              raise SystemExit('OK/Cancel action row not detected')
+          if not (700 <= ok_x <= 830 and 470 <= ok_y <= 550):
+              raise SystemExit('Derived OK button geometry is unsafe')
+
           print(f'ROW_X={row_x}')
           print(f'ROW_Y={row_y}')
+          print(f'ROW_STATUS={row_status}')
+          print(f'OK_X={ok_x}')
+          print(f'OK_Y={ok_y}')
           PY
           source /tmp/row.env
           echo SELECT_CHARACTER_ANCHORED=true
           echo "character_row_geometry=$ROW_X,$ROW_Y"
-          xdotool mousemove --window "$best" "$ROW_X" "$ROW_Y" click --repeat 2 --delay 180 1
-          sleep 20
+          echo "character_row_status=$ROW_STATUS"
+          echo OK_BUTTON_ANCHORED=true
+          xdotool mousemove --window "$best" "$ROW_X" "$ROW_Y" click 1
+          sleep 1
+          xdotool mousemove --window "$best" "$OK_X" "$OK_Y" click 1
+          sleep 8
+          import -display :99 -window "$best" /tmp/post-entry-early.png
+          sleep 27
           import -display :99 -window "$best" /tmp/post-entry.png
-          convert /tmp/post-entry.png -resize 200% -colorspace Gray -contrast-stretch 1%x1% /tmp/post-entry-ocr.png
-          tesseract /tmp/post-entry-ocr.png stdout --psm 11 2>/dev/null >/tmp/post-entry.txt || true
-          if grep -qi 'Select Character' /tmp/post-entry.txt; then
-            [[ -n "$OK_X" && -n "$OK_Y" ]]
-            echo DOUBLE_CLICK_DID_NOT_ENTER_WORLD=true
-            xdotool mousemove --window "$best" "$ROW_X" "$ROW_Y" click 1
-            sleep 1
-            xdotool mousemove --window "$best" "$OK_X" "$OK_Y" click 1
-            sleep 40
-            import -display :99 -window "$best" /tmp/post-entry.png
-            convert /tmp/post-entry.png -resize 200% -colorspace Gray -contrast-stretch 1%x1% /tmp/post-entry-ocr.png
-            tesseract /tmp/post-entry-ocr.png stdout --psm 11 2>/dev/null >/tmp/post-entry.txt || true
-          fi
+          for shot in /tmp/post-entry-early.png /tmp/post-entry.png; do
+            convert "$shot" -resize 200% -colorspace Gray -contrast-stretch 1%x1% "${shot%.png}-ocr.png"
+            tesseract "${shot%.png}-ocr.png" stdout --psm 11 2>/dev/null >"${shot%.png}.txt" || true
+          done
+          python3 - <<'PY'
+          from pathlib import Path
+          allow={'already','logged','connection','failed','error','server','world','queue','maintenance','session','client','account','character','select','login','password','email','online','offline','connecting','please','try','again'}
+          for label,path in [('early','/tmp/post-entry-early.txt'),('final','/tmp/post-entry.txt')]:
+              text=Path(path).read_text(errors='replace').lower()
+              normalized=''.join(ch if ch.isalnum() else ' ' for ch in text)
+              words=normalized.split()
+              safe=[]
+              for token in words:
+                  if token in allow and token not in safe:
+                      safe.append(token)
+              print(f'{label}_safe_state_tokens=' + ','.join(safe))
+          PY
           if grep -qi 'Select Character' /tmp/post-entry.txt; then
             echo STILL_ON_CHARACTER_SELECTION=true >&2
             exit 1
