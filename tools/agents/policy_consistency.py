@@ -413,11 +413,13 @@ def _repo_has_conditional_user_authorization(clause: str, repository: str) -> bo
         return False
 
     repository_reference = re.escape(repository)
+    target_reference = rf"(?:it|that\s+repository|this\s+repository|{repository_reference})"
     active_authorization = re.search(
         rf"\b(?:the\s+)?(?:user|project\s+owner|owner)\b.{{0,100}}?"
         rf"\bexplicitly\s+(?:authoriz(?:e|es|ed)|grant(?:s|ed)?|permit(?:s|ted)?|approve(?:s|d)?)\b"
-        rf".{{0,60}}?(?:\b(?:write\s+(?:access|task|permission|authorization)|separate\s+(?:write\s+)?permission)\b|"
-        rf"\b(?:it|that\s+repository|this\s+repository)\b|\b{MUTATION_TERM}\b.{{0,60}}?\b{repository_reference}\b)",
+        rf".{{0,60}}?(?:\b{target_reference}\b|"
+        rf"\b(?:write\s+(?:access|task|permission|authorization)|separate\s+(?:write\s+)?permission)\b.{{0,60}}?\b{target_reference}\b|"
+        rf"\b{MUTATION_TERM}\b.{{0,60}}?\b{repository_reference}\b)",
         condition,
     )
     passive_authorization = re.search(
@@ -516,6 +518,7 @@ def _reject_contradictory_completion_declarations(errors: list[str], source: str
         re.compile(rf"\bcompletion\b.{{0,50}}\b(?:does|do)\s+not\s+require\b.{{0,80}}\b{requirement}\b", re.I),
         re.compile(rf"\b(?:task|work|delivery)\b.{{0,80}}\b(?:may|can)\s+be\s+(?:completed|closed|done)\b.{{0,80}}\bbefore\b.{{0,50}}\b{requirement}\b.{{0,50}}\b(?:has|have)\s+passed\b", re.I),
         re.compile(r"\b(?:task|work|delivery)\b.{0,80}\b(?:may|can)\s+be\s+(?:completed|closed|done)\b.{0,80}\beven\s+if\b.{0,50}\bunresolved(?:\s+(?:material\s+)?)?(?:review\s+threads?|findings?)\b", re.I),
+        re.compile(rf"\b(?:task|work|delivery)\b.{{0,80}}\b(?:may|can)\s+be\s+(?:completed|closed|done)\b.{{0,80}}\b(?:when|after|if|while|despite|even\s+if)\b.{{0,80}}\b{requirement}\b.{{0,60}}\b(?:(?:has|have|is|are)\s+)?(?:not\s+passed|fail(?:s|ed|ing)?)\b", re.I),
     )
     for statement in _logical_markdown_statements(policy_text):
         normalized = _normalize_inline_markdown(statement)
