@@ -44,6 +44,7 @@ jobs:
             deploy/synology/scripts/lib.sh \
             deploy/synology/scripts/deploy.sh \
             deploy/synology/scripts/health-check.sh \
+            deploy/synology/scripts/prepare-fresh-schema-baseline.sh \
             deploy/synology/scripts/recover-schema.sh \
             deploy/synology/scripts/release-state.sh \
             deploy/synology/scripts/rollback.sh
@@ -53,3 +54,4 @@ jobs:
           set -euo pipefail
           python3 tests/ci/test_synology_rollback_contract.py
           python3 tests/ci/test_synology_rollback_recovery_contract.py
+          python3 deploy/synology/tests/test_fresh_baseline_contract.py

@@ -23,9 +23,10 @@ case "$(cd -- "$(dirname -- "$evidence_file")" && pwd)/$(basename -- "$evidence_
     *) echo "Recovery evidence must be a managed staging backup under $state_dir/backups." >&2; exit 1 ;;
 esac
 
-# Evidence is data, never shell input. Parse the exact generated allowlist so a
-# malformed file cannot override PLATFORM_DB_NAME or any other operational value.
-unset BACKUP_FROM_RELEASE_SHA BACKUP_BEFORE_RELEASE_SHA BACKUP_SCHEMA_COMPATIBILITY_ID
+# Evidence is data, never shell input. Existing managed release backups omit the
+# kind and are treated as release baselines; fresh first-deploy baselines declare
+# BACKUP_BASELINE_KIND=fresh-empty explicitly.
+unset BACKUP_BASELINE_KIND BACKUP_FROM_RELEASE_SHA BACKUP_BEFORE_RELEASE_SHA BACKUP_SCHEMA_COMPATIBILITY_ID
 unset BACKUP_COMPOSE_PROJECT_NAME BACKUP_PLATFORM_DB_NAME BACKUP_SHA256
 seen='|'
 while IFS= read -r line || [[ -n "$line" ]]; do
@@ -35,7 +36,7 @@ while IFS= read -r line || [[ -n "$line" ]]; do
     key="${line%%=*}"
     value="${line#*=}"
     case "$key" in
-        BACKUP_FROM_RELEASE_SHA|BACKUP_BEFORE_RELEASE_SHA|BACKUP_SCHEMA_COMPATIBILITY_ID|BACKUP_COMPOSE_PROJECT_NAME|BACKUP_PLATFORM_DB_NAME|BACKUP_SHA256) ;;
+        BACKUP_BASELINE_KIND|BACKUP_FROM_RELEASE_SHA|BACKUP_BEFORE_RELEASE_SHA|BACKUP_SCHEMA_COMPATIBILITY_ID|BACKUP_COMPOSE_PROJECT_NAME|BACKUP_PLATFORM_DB_NAME|BACKUP_SHA256) ;;
         *) echo "Recovery evidence contains unexpected key: $key" >&2; exit 1 ;;
     esac
     if [[ "$seen" == *"|$key|"* ]]; then
@@ -46,12 +47,24 @@ while IFS= read -r line || [[ -n "$line" ]]; do
     printf -v "$key" '%s' "$value"
 done < "$evidence_file"
 
+baseline_kind="${BACKUP_BASELINE_KIND:-release}"
+case "$baseline_kind" in
+    release|fresh-empty) ;;
+    *) echo "Recovery evidence has unsupported baseline kind: $baseline_kind" >&2; exit 1 ;;
+esac
+
 for name in \
-    BACKUP_FROM_RELEASE_SHA BACKUP_BEFORE_RELEASE_SHA BACKUP_SCHEMA_COMPATIBILITY_ID \
+    BACKUP_BEFORE_RELEASE_SHA BACKUP_SCHEMA_COMPATIBILITY_ID \
     BACKUP_COMPOSE_PROJECT_NAME BACKUP_PLATFORM_DB_NAME BACKUP_SHA256; do
     [[ -n "${!name:-}" ]] || { echo "Recovery evidence is incomplete: $name" >&2; exit 1; }
 done
-[[ "$BACKUP_FROM_RELEASE_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "Invalid backup source release SHA" >&2; exit 1; }
+if [[ "$baseline_kind" == release ]]; then
+    [[ -n "${BACKUP_FROM_RELEASE_SHA:-}" ]] || { echo "Recovery evidence is incomplete: BACKUP_FROM_RELEASE_SHA" >&2; exit 1; }
+    [[ "$BACKUP_FROM_RELEASE_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "Invalid backup source release SHA" >&2; exit 1; }
+else
+    [[ -z "${BACKUP_FROM_RELEASE_SHA:-}" ]] || { echo "Fresh-empty recovery evidence must not claim a source application release." >&2; exit 1; }
+    [[ "$BACKUP_SCHEMA_COMPATIBILITY_ID" == fresh-empty ]] || { echo "Fresh-empty recovery evidence has the wrong schema identity." >&2; exit 1; }
+fi
 [[ "$BACKUP_BEFORE_RELEASE_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "Invalid backup target release SHA" >&2; exit 1; }
 [[ "$BACKUP_SCHEMA_COMPATIBILITY_ID" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$ ]] || { echo "Invalid backup schema compatibility identity" >&2; exit 1; }
 [[ "$BACKUP_COMPOSE_PROJECT_NAME" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$ ]] || { echo "Invalid backup Compose project identity" >&2; exit 1; }
@@ -68,30 +81,49 @@ effective_compose_project="${COMPOSE_PROJECT_NAME:-oteryn-staging}"
     exit 1
 }
 
-backup_file="$(dirname -- "$evidence_file")/platform.sql"
+backup_dir="$(dirname -- "$evidence_file")"
+backup_file="$backup_dir/platform.sql"
 [[ -s "$backup_file" ]] || { echo "Recovery backup is missing or empty." >&2; exit 1; }
 actual_sha="$(sha256sum "$backup_file" | awk '{print $1}')"
 [[ "$actual_sha" == "$BACKUP_SHA256" ]] || { echo "Recovery backup digest mismatch." >&2; exit 1; }
 
 candidate_file="$state_dir/candidate-release.env"
-last_good_file="$state_dir/last-good-release.env"
 schema_file="$state_dir/schema-state.env"
-for file in "$candidate_file" "$last_good_file" "$schema_file"; do
-    [[ -f "$file" ]] || { echo "Recovery rejected: required state is missing: $file" >&2; exit 1; }
-done
+[[ -f "$candidate_file" ]] || { echo "Recovery rejected: required state is missing: $candidate_file" >&2; exit 1; }
+[[ -f "$schema_file" ]] || { echo "Recovery rejected: required state is missing: $schema_file" >&2; exit 1; }
 
 bash "$SCRIPT_DIR/release-state.sh" validate "$candidate_file"
-bash "$SCRIPT_DIR/release-state.sh" validate "$last_good_file"
 candidate_sha="$(_oteryn_read_state_key "$candidate_file" RELEASE_SHA)"
-last_good_sha="$(_oteryn_read_state_key "$last_good_file" RELEASE_SHA)"
 [[ "$candidate_sha" == "$BACKUP_BEFORE_RELEASE_SHA" ]] || { echo "Recovery rejected: backup target does not match candidate release." >&2; exit 1; }
-[[ "$last_good_sha" == "$BACKUP_FROM_RELEASE_SHA" ]] || { echo "Recovery rejected: backup source does not match last-good release." >&2; exit 1; }
 
-# The backup records the schema that actually existed at dump time. The last-good
-# application's primary schema identity may differ after a compatible image-only
-# rollback, so prove acceptance rather than asserting equality with its primary ID.
-bash "$SCRIPT_DIR/release-state.sh" compatible-schema \
-    "$BACKUP_SCHEMA_COMPATIBILITY_ID" "$last_good_file" "$candidate_sha"
+if [[ "$baseline_kind" == release ]]; then
+    last_good_file="$state_dir/last-good-release.env"
+    [[ -f "$last_good_file" ]] || { echo "Recovery rejected: required state is missing: $last_good_file" >&2; exit 1; }
+    bash "$SCRIPT_DIR/release-state.sh" validate "$last_good_file"
+    last_good_sha="$(_oteryn_read_state_key "$last_good_file" RELEASE_SHA)"
+    [[ "$last_good_sha" == "$BACKUP_FROM_RELEASE_SHA" ]] || { echo "Recovery rejected: backup source does not match last-good release." >&2; exit 1; }
+    [[ "$(basename -- "$backup_dir")" == "${last_good_sha}-before-${candidate_sha}" ]] || {
+        echo "Recovery rejected: managed backup directory does not match the recorded release transition." >&2
+        exit 1
+    }
+
+    # The backup records the schema that actually existed at dump time. The
+    # last-good application's primary schema identity may differ after a compatible
+    # image-only rollback, so prove acceptance instead of equating primary IDs.
+    bash "$SCRIPT_DIR/release-state.sh" compatible-schema \
+        "$BACKUP_SCHEMA_COMPATIBILITY_ID" "$last_good_file" "$candidate_sha"
+else
+    [[ "$(basename -- "$backup_dir")" == "fresh-empty-before-${candidate_sha}" ]] || {
+        echo "Fresh-empty recovery rejected: managed backup directory does not match the failed candidate." >&2
+        exit 1
+    }
+    for forbidden in "$state_dir/current-release.env" "$state_dir/last-good-release.env" "$state_dir/last-good.env"; do
+        [[ ! -f "$forbidden" ]] || {
+            echo "Fresh-empty recovery rejected: an application baseline now exists at $forbidden" >&2
+            exit 1
+        }
+    done
+fi
 
 schema_target="$(_oteryn_read_state_key "$schema_file" MIGRATION_TARGET_RELEASE_SHA)"
 [[ "$schema_target" == "$BACKUP_BEFORE_RELEASE_SHA" ]] || { echo "Recovery rejected: schema state is not tied to this failed candidate." >&2; exit 1; }
@@ -122,14 +154,22 @@ fi
 "${compose[@]}" stop platform gateway internal-proxy
 
 # This is an explicit destructive staging recovery. It never runs implicitly from
-# deploy.sh or rollback.sh. The dump is restored into the staging Platform DB only.
+# deploy.sh or rollback.sh. The dump is restored into the verified Platform DB only.
 "${compose[@]}" exec -T -e MYSQL_PWD="$MARIADB_ROOT_PASSWORD" mariadb \
     mariadb -uroot -e "DROP DATABASE IF EXISTS \`$PLATFORM_DB_NAME\`; CREATE DATABASE \`$PLATFORM_DB_NAME\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
 "${compose[@]}" exec -T -e MYSQL_PWD="$MARIADB_ROOT_PASSWORD" mariadb \
     mariadb -uroot "$PLATFORM_DB_NAME" <"$backup_file"
 
-_oteryn_write_schema_state_known "$state_dir" "$BACKUP_SCHEMA_COMPATIBILITY_ID" "$BACKUP_FROM_RELEASE_SHA"
-
-# Keep candidate-release.env until rollback.sh succeeds. It is the durable proof
-# of which failed application transition the restored schema just recovered from.
-echo "Staging Platform database restored from verified pre-migration backup. Runtime images were not changed; run rollback.sh separately after compatibility validation."
+if [[ "$baseline_kind" == fresh-empty ]]; then
+    restored_table_count="$("${compose[@]}" exec -T -e MYSQL_PWD="$MARIADB_ROOT_PASSWORD" mariadb \
+        mariadb -uroot -N -e "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='$PLATFORM_DB_NAME';")"
+    [[ "$restored_table_count" == 0 ]] || {
+        echo "Fresh-empty recovery failed closed: restored database is not empty." >&2
+        exit 1
+    }
+    _oteryn_write_schema_state_known "$state_dir" fresh-empty "$candidate_sha"
+    echo "Fresh empty staging Platform database baseline restored. No last-good runtime exists for image rollback; retry the candidate deployment explicitly."
+else
+    _oteryn_write_schema_state_known "$state_dir" "$BACKUP_SCHEMA_COMPATIBILITY_ID" "$BACKUP_FROM_RELEASE_SHA"
+    echo "Staging Platform database restored from verified pre-migration backup. Runtime images were not changed; run rollback.sh separately after compatibility validation."
+fi

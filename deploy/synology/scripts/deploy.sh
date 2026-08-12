@@ -320,6 +320,11 @@ apply_sql_template "$REPO_ROOT/database/provisioning/canary-character-create.sql
         print
     }'
 
+# The first managed migration of a truly empty Platform DB receives its own
+# verified pre-migration dump. This runs immediately before lib.sh's migration
+# preparation hook and before the candidate Platform container can start.
+OTERYN_ENV_FILE="$ENV_FILE" bash "$SCRIPT_DIR/prepare-fresh-schema-baseline.sh"
+
 "${compose[@]}" up -d platform
 "${compose[@]}" exec -T platform php artisan migrate --force --no-interaction
 if ! "${compose[@]}" exec -T platform sh -ec 'test -s storage/oauth-private.key && test -s storage/oauth-public.key'; then
@@ -344,5 +349,8 @@ OTERYN_ENV_FILE="$ENV_FILE" bash "$SCRIPT_DIR/health-check.sh"
     --port="$GAME_WORLD_PORT" \
     --status=online \
     --login-enabled=1
+
+rm -f "$state_dir/backups/fresh-empty-before-"*/evidence.env "$state_dir/backups/fresh-empty-before-"*/platform.sql 2>/dev/null || true
+rmdir "$state_dir/backups/fresh-empty-before-"* 2>/dev/null || true
 
 echo "Oteryn Synology staging deployment is healthy."

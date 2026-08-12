@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       backup_evidence:
-        description: Managed relative backup evidence path (<old-sha>-before-<candidate-sha>/evidence.env)
+        description: Managed relative evidence path (<old-sha>|fresh-empty)-before-<candidate-sha>/evidence.env
         required: true
         type: string
 
@@ -56,8 +56,8 @@ jobs:
           docker compose version >/dev/null
           sha256sum --version >/dev/null
 
-          if [[ ! "$BACKUP_EVIDENCE_INPUT" =~ ^[0-9a-f]{40}-before-[0-9a-f]{40}/evidence\.env$ ]]; then
-            echo "backup_evidence must be exactly <old-sha>-before-<candidate-sha>/evidence.env." >&2
+          if [[ ! "$BACKUP_EVIDENCE_INPUT" =~ ^([0-9a-f]{40}|fresh-empty)-before-[0-9a-f]{40}/evidence\.env$ ]]; then
+            echo "backup_evidence must be exactly (<old-40-sha>|fresh-empty)-before-<candidate-40-sha>/evidence.env." >&2
             exit 1
           fi
 
