@@ -80,8 +80,8 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-12T15:18:00+02:00
-head: live-pr-1003-authoritative
+updated_at: 2026-08-12T17:12:00+02:00
+head: bdb20db896c5b7fa134fae6c437413761b54618a
 branch: fix/engineering-excellence-hardening
 pr: 1003
 status: validating
@@ -107,27 +107,29 @@ owned_paths:
   - docs/agents/tasks/active/OTERYN-20260811-engineering-excellence-hardening.md
   - docs/agents/tasks/archive/OTERYN-20260811-engineering-excellence-hardening.md
 proven:
-  - PR #992 and Issue #991 are terminal and their Agent Governance/tools ownership is released.
-  - Protected main 25ca5180849996462dfcfd2a0914eb6d765a47d3 was incorporated by history-preserving merge commit 794c1f2a86a1d81de13aac49ccfc0d9c3acec788 with force=false and zero commits behind at synchronization.
-  - Exact PR head d9bde9362e9f2557e4c44cfeeb78f1f887b5c4d4 completed all 16 emitted pull-request workflows successfully before final Codex review.
-  - Post-ready Codex review PRR_kwDOTcsYjs8AAAABJQ6E5g reviewed d9bde9362e and reported one P1 and two P2 findings; merge was not attempted.
-  - P1 showed Integration registration markers could come from unrelated workflow paths; validator now binds a declared top-level event to a declared proving job, its condition, exact PHPUnit invocation and required environment in that same job.
-  - Game Catalog registry schema v2 now truthfully declares workflow_dispatch, job cross-repository-staging, semantic opt-in run_cross_repository_staging and the dispatch-only job condition, matching Issue #1002 manual-contract scope.
-  - P2 showed workflow event regex could mistake a job name for an event; workflow inventory now derives events only from direct children of the top-level on mapping and has regressions for job/nested-key masquerading.
-  - The checkpoint uses live-pr-1003-authoritative rather than pretending a commit can embed its own future SHA; concrete reviewed/material SHAs remain in evidence and live PR state is authoritative by AGENTS.md.
+  - Live protected main is 25ca5180849996462dfcfd2a0914eb6d765a47d3 and PR #1003 is based on that generation.
+  - Exact PR head 07fc86921ea1cce60e222041c9a8e60bf6e15314 received Codex review PRR_kwDOTcsYjs8AAAABJROTLg; the review explicitly says Reviewed commit 07fc86921e.
+  - That exact-head Codex review reported three material P2 findings: comments could spoof a proving-job condition marker, filename-first workflow classification could bypass unsupported events, and the moving live-pr-1003-authoritative checkpoint alias violated immutable checkpoint semantics.
+  - Material implementation head bdb20db896c5b7fa134fae6c437413761b54618a parses the proving job direct if scalar, rejects commented condition spoofing, validates workflow event shapes before filename classification, and adds regressions for both bypass classes.
+  - This task record stores the immutable material implementation head bdb20db896c5b7fa134fae6c437413761b54618a. The commit containing this checkpoint is intentionally a checkpoint-only successor whose SHA cannot be embedded in its own contents; live PR #1003 must be queried for the successor exact head before attributing final CI or review evidence.
+  - Portal Exhaustive Acceptance run 31601106328 attempt 1 failed in the bounded portability profile because Playwright WebKit returned an internal error while launching the browser for tests/portal/support-moderation.spec.ts:389, before an application assertion executed.
+  - The immediately preceding green generation d9bde9362e9f2557e4c44cfeeb78f1f887b5c4d4 passed the same 54-test portability profile and the same WebKit test; the d9bde936..07fc8692 change set contained validator/regression/checkpoint changes rather than portal or browser-runtime changes.
+  - A rerun of job 94128450395 was started only after that evidence-based classification; attempt 2 was later cancelled by the new-head repair commits, not counted as a passing rerun.
 derived:
-  - The three Codex findings are addressed in the current branch generation, but the new head requires a complete fresh exact-head workflow generation and fresh Codex review before merge.
+  - The 07fc8692 portability failure is classified as a transient WebKit/browser-runner launch flake rather than a deterministic repository regression; the final repair generation must still prove the portability profile again on its own exact head.
+  - All material findings currently known from exact-head Codex review PRR_kwDOTcsYjs8AAAABJROTLg have code, regression, or checkpoint repairs in this generation.
 unknown:
-  - Terminal result of every emitted workflow on the current live PR #1003 head after Codex repairs.
-  - Fresh independent Codex review result for the current live PR #1003 head after Codex repairs.
+  - Terminal result of every required/emitted workflow on the checkpoint-only successor exact PR head.
+  - Fresh independent Codex review result for that final exact PR head.
 conflicts: []
 first_failure:
-  marker: none-known-after-codex-repairs
-  evidence: All three findings from review PRR_kwDOTcsYjs8AAAABJQ6E5g have corresponding code/contract/checkpoint repairs; fresh exact-head validation is now required.
+  marker: exact-head-Codex-P2-repairs-require-fresh-proof
+  evidence: Review PRR_kwDOTcsYjs8AAAABJROTLg found three P2 issues on 07fc8692; material code repairs end at bdb20db896c5b7fa134fae6c437413761b54618a and this checkpoint records them before the final hosted proof generation.
 rejected_hypotheses:
-  - Treat the Codex P1 as requiring automatic cross-repository execution on every PR; Issue #1002 explicitly requires an explicit semantic/manual Game Catalog contract, so the correct repair is truthful event/job binding rather than changing scope.
-  - Continue storing the parent SHA as an alleged exact checkpoint head; a task-record commit necessarily changes the branch SHA, so live PR state is the authoritative current-head source and immutable SHAs are retained as evidence.
-  - Keep workflow-wide event regex matching; it admits unsupported events when unrelated two-space job keys resemble supported events.
+  - Treat the WebKit portability failure as an application assertion regression: the artifact records a browserType.launch internal WebKit error, while the same test/profile passed immediately before and no portal/browser runtime changed between d9bde936 and 07fc8692.
+  - Accept job-condition marker text from arbitrary job comments: direct job-level if parsing is now required and covered by standalone and inline comment-spoof regressions.
+  - Classify build/deploy/ci workflows by filename before checking event shape: unsupported top-level events now fail closed before semantic filename classification.
+  - Store a moving PR-ref alias in checkpoint head fields: immutable material SHA bdb20db896c5b7fa134fae6c437413761b54618a is recorded and the checkpoint-only successor is explicitly identified as requiring live verification.
 changed_paths:
   - .github/dependabot.yml
   - .github/workflows/agent-governance.yml
@@ -153,18 +155,21 @@ validation:
   - command: exact-head pull-request workflows on d9bde9362e9f2557e4c44cfeeb78f1f887b5c4d4
     result: PASS
     evidence: All 16 emitted runs completed success, including CI, Agent Governance, Deep System Validation, browser/E2E, Phase 7, Game Catalog and deployment-build contracts.
-  - command: post-ready Codex review on d9bde9362e9f2557e4c44cfeeb78f1f887b5c4d4
+  - command: exact-head Codex review on 07fc86921ea1cce60e222041c9a8e60bf6e15314
     result: FAIL
-    evidence: Review PRR_kwDOTcsYjs8AAAABJQ6E5g reported P1 Integration trigger/job decoupling, P2 workflow-event scope, and P2 stale checkpoint head; all three are patched in the subsequent branch generation.
-  - command: current-head required GitHub Actions after Codex repairs
+    evidence: Review PRR_kwDOTcsYjs8AAAABJROTLg reviewed 07fc86921e and reported three material P2 findings; all are addressed by the bdb20db8 material repair generation plus this immutable checkpoint correction.
+  - command: Portal Exhaustive Acceptance run 31601106328 attempt 1 plus preceding green run 31598174695
+    result: FAIL
+    evidence: Red artifact isolated WebKit browserType.launch internal error; preceding exact profile/test passed. Failure classified transient before rerun; rerun attempt 2 was cancelled by subsequent repair-head updates and is not green evidence.
+  - command: final checkpoint-successor GitHub Actions generation
     result: NOT_RUN
-    evidence: This checkpoint update belongs to the new validation generation; live PR #1003 head is authoritative and must be checked after this commit.
-  - command: current-head fresh Codex review after repairs
+    evidence: Hosted workflows must execute on the exact live PR head created by this checkpoint update.
+  - command: final checkpoint-successor Codex review
     result: NOT_RUN
-    evidence: Fresh review must target the new live PR #1003 head after all repair commits.
+    evidence: Fresh review must be requested only after the final exact PR head and hosted gates are confirmed.
 blockers:
   - none
-next_action: Read live PR #1003 head, validate every emitted exact-head workflow, request a fresh Codex full-diff review, resolve every material finding, then squash-merge with expected-head protection and perform lifecycle closeout.
+next_action: Read the live PR #1003 successor head created by this checkpoint commit, then validate its complete exact-head GitHub Actions generation before requesting a fresh exact-head Codex review.
 ```
 
 ## Recovery checkpoint
@@ -172,24 +177,24 @@ next_action: Read live PR #1003 head, validate every emitted exact-head workflow
 ```yaml
 recovery:
   policy_version: 1
-  generation: 4
+  generation: 5
   session_id: coordinator-20260812-engineering-hardening-final
-  session_started_at: 2026-08-12T14:25:00+02:00
-  checkpointed_at: 2026-08-12T15:18:00+02:00
-  last_progress_at: 2026-08-12T15:18:00+02:00
-  phase: codex-repair-validation
-  exact_head: live-pr-1003-authoritative
+  session_started_at: 2026-08-12T16:39:00+02:00
+  checkpointed_at: 2026-08-12T17:12:00+02:00
+  last_progress_at: 2026-08-12T17:12:00+02:00
+  phase: final-exact-head-validation
+  exact_head: bdb20db896c5b7fa134fae6c437413761b54618a
   pull_request: 1003
-  active_operation: validate Codex P1/P2 repairs on the current live PR head
+  active_operation: validate the checkpoint-only successor exact PR head after Codex P2 repairs
   external_run_ids: []
-  operation_started_at: 2026-08-12T15:18:00+02:00
-  wait_deadline_at: 2026-08-12T16:03:00+02:00
-  check_generation: post-codex-repairs
+  operation_started_at: 2026-08-12T17:12:00+02:00
+  wait_deadline_at: null
+  check_generation: final-codex-p2-repairs
   checks_used: 0
   status: active
   safe_to_resume: true
-  resume_condition: exact-head required checks and fresh review are terminal and branch head remains unchanged
-  next_action: inspect live PR head, exact-head CI and fresh review, repair only material findings, then squash-merge and lifecycle-close the task
+  resume_condition: live PR #1003 successor head is stable and its exact-head hosted checks can be observed
+  next_action: query live PR #1003 head and aggregate exact-head checks, investigate any failure, then request fresh Codex review only after green hosted proof
 ```
 
 ## Notes
