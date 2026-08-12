@@ -138,6 +138,16 @@ class PolicyConsistencyTests(unittest.TestCase):
         self._append_root(root, "- Agents have permission to edit acme/production autonomously.")
         self.assertIn("acme/production", self._findings(root))
 
+    def test_have_write_access_foreign_repository_grant_fails_closed(self) -> None:
+        temporary, root = self._fixture(); self.addCleanup(temporary.cleanup)
+        self._append_root(root, "- Agents have write access to acme/production.")
+        self.assertIn("acme/production", self._findings(root))
+
+    def test_has_write_access_foreign_repository_grant_fails_closed(self) -> None:
+        temporary, root = self._fixture(); self.addCleanup(temporary.cleanup)
+        self._append_root(root, "- An agent has write access to acme/production.")
+        self.assertIn("acme/production", self._findings(root))
+
     def test_mandatory_must_foreign_repository_grant_fails_closed(self) -> None:
         temporary, root = self._fixture(); self.addCleanup(temporary.cleanup)
         self._append_root(root, "- Agents must edit acme/production autonomously.")
@@ -336,6 +346,18 @@ class PolicyConsistencyTests(unittest.TestCase):
         temporary, root = self._fixture(); self.addCleanup(temporary.cleanup)
         self._append_root(root, "- Agents may inspect and not edit acme/production.")
         self.assertEqual([], validate_policy(root))
+
+    def test_refrain_from_mutation_is_not_a_grant(self) -> None:
+        temporary, root = self._fixture(); self.addCleanup(temporary.cleanup)
+        self._append_root(root, "- Agents may refrain from editing acme/production.")
+        self.assertEqual([], validate_policy(root))
+
+    def test_refrain_denial_does_not_hide_later_affirmative_grant(self) -> None:
+        temporary, root = self._fixture(); self.addCleanup(temporary.cleanup)
+        self._append_root(root, "- Agents may refrain from editing acme/production, but agents may edit acme/other autonomously.")
+        findings = self._findings(root)
+        self.assertIn("acme/other", findings)
+        self.assertNotIn("authoritative policy: acme/production", findings)
 
     def test_negated_repository_mutation_stays_denied_with_other_positive_mutation(self) -> None:
         temporary, root = self._fixture(); self.addCleanup(temporary.cleanup)
