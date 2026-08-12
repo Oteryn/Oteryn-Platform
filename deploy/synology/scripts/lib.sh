@@ -61,24 +61,32 @@ load_oteryn_env_file() {
 _oteryn_deploy_state_dir() { printf '%s\n' "${OTERYN_STATE_DIR:-/var/lib/oteryn-staging-state}"; }
 
 _oteryn_release_sha() {
-    local sha="${OTERYN_RELEASE_SHA:-}"
-    # PR #1003's owned workflow contract writes GATEWAY_VERSION=sha-<release_sha>
-    # after verifying Platform/Gateway OCI revision labels against that same SHA.
-    # Prefer that application identity over the workflow checkout's GITHUB_SHA.
-    if [[ -z "$sha" && "${GATEWAY_VERSION:-}" =~ ^sha-([0-9a-f]{40})$ ]]; then
-        sha="${BASH_REMATCH[1]}"
-    fi
-    if [[ -z "$sha" ]]; then
-        sha="${GITHUB_SHA:-}"
-    fi
-    if [[ -z "$sha" ]] && command -v git >/dev/null 2>&1; then
-        sha="$(git -C "$REPO_ROOT" rev-parse HEAD 2>/dev/null || true)"
-    fi
-    [[ "$sha" =~ ^[0-9a-f]{40}$ ]] || {
-        echo "Cannot prove exact application release SHA; refusing migration-bearing deployment." >&2
+    local platform_revision gateway_revision explicit_sha="${OTERYN_RELEASE_SHA:-}"
+    platform_revision="$(command docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "$PLATFORM_IMAGE" 2>/dev/null || true)"
+    gateway_revision="$(command docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "$GATEWAY_IMAGE" 2>/dev/null || true)"
+
+    [[ "$platform_revision" =~ ^[0-9a-f]{40}$ ]] || {
+        echo "Cannot prove Platform OCI application revision; refusing migration-bearing deployment." >&2
         return 1
     }
-    printf '%s\n' "$sha"
+    [[ "$gateway_revision" =~ ^[0-9a-f]{40}$ ]] || {
+        echo "Cannot prove Gateway OCI application revision; refusing migration-bearing deployment." >&2
+        return 1
+    }
+    [[ "$platform_revision" == "$gateway_revision" ]] || {
+        echo "Platform/Gateway OCI application revisions disagree; refusing deployment." >&2
+        return 1
+    }
+    if [[ -n "$explicit_sha" && "$explicit_sha" != "$platform_revision" ]]; then
+        echo "OTERYN_RELEASE_SHA disagrees with runtime OCI application revision." >&2
+        return 1
+    fi
+    if [[ "${GATEWAY_VERSION:-}" =~ ^sha-([0-9a-f]{40})$ && "${BASH_REMATCH[1]}" != "$platform_revision" ]]; then
+        echo "GATEWAY_VERSION disagrees with runtime OCI application revision." >&2
+        return 1
+    fi
+
+    printf '%s\n' "$platform_revision"
 }
 
 _oteryn_read_state_key() {
