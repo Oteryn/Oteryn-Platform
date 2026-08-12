@@ -1,0 +1,146 @@
+name: Tibia Renderer Index Probe
+
+on:
+  push:
+    branches: [ops/oteryn-tibia-client-analysis-20260811]
+    paths: [.github/workflows/tibia-client-analysis-renderer-index-probe.yml]
+
+permissions:
+  contents: read
+
+env:
+  CONTAINER_NAME: oteryn-tibia-client-analysis
+
+jobs:
+  probe:
+    name: Map rendererIndex to runtime backend safely
+    runs-on: oteryn-staging
+    timeout-minutes: 6
+    steps:
+      - name: Verify owned runtime and snapshot staging
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          [[ "$RUNNER_NAME" == "oteryn-synology-staging" ]]
+          [[ "$(docker inspect --format '{{ index .Config.Labels "com.blakinio.owner" }}' "$CONTAINER_NAME")" == "oteryn" ]]
+          [[ "$(docker inspect --format '{{ index .Config.Labels "com.blakinio.purpose" }}' "$CONTAINER_NAME")" == "tibia-client-analysis" ]]
+          [[ "$(docker inspect --format '{{.State.Status}}' "$CONTAINER_NAME")" == "running" ]]
+          docker ps -a --filter 'label=com.docker.compose.project=oteryn-staging' --format '{{.ID}}\t{{.Names}}' | sort >/tmp/oteryn-before.tsv
+
+      - name: Probe renderer indices with reversible config edits
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          docker exec -i "$CONTAINER_NAME" bash <<'INNER'
+          set -Eeuo pipefail
+          export DISPLAY=:99 HOME=/data/home
+          pkg="$HOME/.local/share/CipSoft GmbH/Tibia/packages/Tibia"
+          client="$pkg/bin/client"
+          cfg="$pkg/conf/clientoptions.json"
+          [[ -x "$client" && -f "$cfg" ]]
+          cp "$cfg" /tmp/clientoptions.renderer-probe.backup.json
+          cleanup() {
+            pkill -x client 2>/dev/null || true
+            cp /tmp/clientoptions.renderer-probe.backup.json "$cfg" 2>/dev/null || true
+          }
+          trap cleanup EXIT
+
+          pgrep -f '/wireproxy .*wireproxy.conf' >/dev/null
+          curl --socks5-hostname 127.0.0.1:25344 -fsS --max-time 10 https://www.cloudflare.com/cdn-cgi/trace >/tmp/renderer-probe-warp.trace
+          grep -q '^warp=on$' /tmp/renderer-probe-warp.trace
+          cat >/tmp/proxychains-renderer-probe.conf <<'EOF'
+          strict_chain
+          proxy_dns
+          quiet_mode
+          tcp_read_time_out 15000
+          tcp_connect_time_out 8000
+          [ProxyList]
+          socks5 127.0.0.1 25344
+          EOF
+          pgrep -f '^Xvfb :99' >/dev/null || nohup Xvfb :99 -screen 0 1280x800x24 >/data/runtime/xvfb.log 2>&1 </dev/null &
+
+          for idx in 0 1 2 3; do
+            cp /tmp/clientoptions.renderer-probe.backup.json "$cfg"
+            IDX="$idx" CFG="$cfg" python3 - <<'PY'
+          import json,os
+          p=os.environ['CFG']; idx=int(os.environ['IDX'])
+          with open(p,encoding='utf-8') as f: d=json.load(f)
+          if not isinstance(d.get('options'),dict): raise SystemExit('options object missing')
+          d['options']['rendererIndex']=idx
+          with open(p,'w',encoding='utf-8') as f: json.dump(d,f,separators=(',',':'))
+          PY
+            pkill -x client 2>/dev/null || true
+            log="/data/runtime/renderer-index-${idx}.log"
+            : >"$log"
+            cd "$pkg"
+            nohup proxychains4 -f /tmp/proxychains-renderer-probe.conf "$client" >"$log" 2>&1 </dev/null &
+            for n in $(seq 1 20); do pgrep -x client >/dev/null && break; sleep 0.25; done
+            if pgrep -x client >/dev/null; then
+              echo "IDX_${idx}_PROCESS_STARTED=true"
+            else
+              echo "IDX_${idx}_PROCESS_STARTED=false"
+            fi
+            sleep 7
+            if pgrep -x client >/dev/null; then echo "IDX_${idx}_PROCESS_ALIVE_AFTER_7S=true"; else echo "IDX_${idx}_PROCESS_ALIVE_AFTER_7S=false"; fi
+            python3 - "$idx" "$log" <<'PY'
+          import re,sys
+          from pathlib import Path
+          idx=sys.argv[1]; raw=Path(sys.argv[2]).read_text(errors='replace').lower()
+          vocab={'vulkan','opengl','glx','egl','renderer','rendering','graphics','gpu','device','driver','mesa','llvmpipe','software','hardware','failed','failure','error','fatal','warning','instance','surface','swapchain','initialize','initialization','fallback'}
+          sigs=[]
+          for line in raw.splitlines():
+              if not any(k in line for k in ('vulkan','opengl','glx','egl','renderer','render','graphics','gpu','mesa','llvmpipe')): continue
+              kept=[]
+              for w in re.findall(r'[a-z]+',line):
+                  if w in vocab and w not in kept: kept.append(w)
+              if kept:
+                  sig=' '.join(kept)
+                  if sig not in sigs: sigs.append(sig)
+          print(f'IDX_{idx}_GRAPHICS_SIGNATURE_COUNT={len(sigs)}')
+          for i,s in enumerate(sigs[:20],1): print(f'IDX_{idx}_GRAPHICS_SIGNATURE_{i}={s}')
+          print(f'IDX_{idx}_HAS_VULKAN_FAILED={str("vulkan" in raw and "failed" in raw).lower()}')
+          print(f'IDX_{idx}_HAS_OPENGL={str("opengl" in raw).lower()}')
+          print(f'IDX_{idx}_HAS_LLVMPIPE={str("llvmpipe" in raw).lower()}')
+          PY
+            if pgrep -x client >/dev/null; then
+              best=''; best_area=0
+              for w in $(xdotool search --onlyvisible --name '^Tibia$' 2>/dev/null || true); do
+                geom=$(xdotool getwindowgeometry --shell "$w" 2>/dev/null || true)
+                width=$(printf '%s\n' "$geom" | sed -n 's/^WIDTH=//p'); height=$(printf '%s\n' "$geom" | sed -n 's/^HEIGHT=//p')
+                [[ -n "$width" && -n "$height" ]] || continue
+                area=$((width*height)); if (( area > best_area )); then best=$w; best_area=$area; fi
+              done
+              if [[ -n "$best" ]]; then
+                import -display :99 -window "$best" "/tmp/renderer-${idx}.png" 2>/dev/null || true
+                convert "/tmp/renderer-${idx}.png" -crop 700x450+160+80 -resize 130% -colorspace Gray -contrast-stretch 1%x1% "/tmp/renderer-${idx}-ocr.png" 2>/dev/null || true
+                tesseract "/tmp/renderer-${idx}-ocr.png" stdout --psm 11 2>/dev/null >"/tmp/renderer-${idx}.txt" || true
+                IDX="$idx" python3 - <<'PY'
+          import os
+          from pathlib import Path
+          idx=os.environ['IDX']; p=Path(f'/tmp/renderer-{idx}.txt')
+          t=p.read_text(errors='replace').lower() if p.exists() else ''
+          login=('account login' in t or ('email' in t and 'password' in t))
+          print(f'IDX_{idx}_ACCOUNT_LOGIN_VISIBLE={str(login).lower()}')
+          PY
+              fi
+            fi
+            pkill -x client 2>/dev/null || true
+            sleep 1
+          done
+          echo RENDERER_INDEX_PROBE_COMPLETE=true
+          INNER
+
+      - name: Verify config restored and canonical staging unchanged
+        if: always()
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          docker exec "$CONTAINER_NAME" python3 - <<'PY'
+          import json
+          p='/data/home/.local/share/CipSoft GmbH/Tibia/packages/Tibia/conf/clientoptions.json'
+          with open(p,encoding='utf-8') as f: d=json.load(f)
+          print('RESTORED_RENDERER_INDEX='+str(d.get('options',{}).get('rendererIndex')))
+          PY
+          docker ps -a --filter 'label=com.docker.compose.project=oteryn-staging' --format '{{.ID}}\t{{.Names}}' | sort >/tmp/oteryn-after.tsv
+          diff -u /tmp/oteryn-before.tsv /tmp/oteryn-after.tsv
+          docker inspect --format 'analysis_name={{.Name}} status={{.State.Status}} owner={{ index .Config.Labels "com.blakinio.owner" }} purpose={{ index .Config.Labels "com.blakinio.purpose" }}' "$CONTAINER_NAME"
