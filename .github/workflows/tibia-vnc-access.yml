@@ -84,11 +84,17 @@ jobs:
         shell: bash
         run: |
           set -Eeuo pipefail
-          ips=$(docker run --rm --network host alpine sh -lc "hostname -i 2>/dev/null || hostname -I 2>/dev/null || true")
-          echo HOST_IP_CANDIDATES="$ips"
-          lan_ip=$(printf '%s\n' "$ips" | tr ' ' '\n' | awk '/^(10\.|192\.168\.|172\.(1[6-9]|2[0-9]|3[01])\.)/{print; exit}')
+          addr_dump=$(docker run --rm --network host alpine sh -lc 'ip -4 -o addr show scope global 2>/dev/null || true')
+          echo HOST_ADDR_DUMP_BEGIN
+          printf '%s\n' "$addr_dump"
+          echo HOST_ADDR_DUMP_END
+          candidates=$(printf '%s\n' "$addr_dump" | awk '{print $4}' | cut -d/ -f1 | grep -E '^(192\.168\.|10\.|172\.(1[6-9]|2[0-9]|3[01])\.)' | awk '!seen[$0]++')
+          [[ -n "$candidates" ]]
+          lan_ip=''
+          for ip in $candidates; do
+            banner=$(docker run --rm --network host alpine sh -lc "timeout 3 nc $ip 5900 | head -c 12" || true)
+            if [[ "$banner" == RFB* ]]; then lan_ip="$ip"; break; fi
+          done
           [[ -n "$lan_ip" ]]
-          banner=$(docker run --rm --network host alpine sh -lc "timeout 3 nc $lan_ip 5900 | head -c 12" || true)
-          [[ "$banner" == RFB* ]]
           echo VNC_ADDRESS="$lan_ip:5900"
           echo VNC_BANNER_VERIFIED=true
