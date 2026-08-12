@@ -14,7 +14,7 @@ env:
 
 jobs:
   trace:
-    name: Materialize and launch Tibia runtime
+    name: Inspect Tibia launcher install UI
     runs-on: oteryn-staging
     timeout-minutes: 10
     steps:
@@ -28,117 +28,39 @@ jobs:
           [[ "$(docker inspect --format '{{.State.Status}}' "$CONTAINER_NAME")" == "running" ]]
           docker ps -a --filter 'label=com.docker.compose.project=oteryn-staging' --format '{{.ID}}\t{{.Names}}' | sort > /tmp/oteryn-before.tsv
           test -s /tmp/oteryn-before.tsv
-          docker exec "$CONTAINER_NAME" bash -lc '
-            set -Eeuo pipefail
-            c=/data/client-15.32.df7b29/bin/client
-            [[ "$(stat -c %s "$c")" == 51965216 ]]
-            [[ "$(sha256sum "$c" | awk "{print \$1}")" == e6c244bd39fe2e0632f6f000efd3147164696efa8e901718668e0442325ff7fe ]]
-            test -x /data/bootstrap/Tibia/Tibia
-          '
 
-      - name: Prepare virtual display in owned container
+      - name: Inspect launcher window geometry
         shell: bash
         run: |
           set -Eeuo pipefail
           docker exec "$CONTAINER_NAME" bash -lc '
             set -Eeuo pipefail
-            if [[ ! -S /tmp/.X11-unix/X99 ]]; then
-              rm -f /tmp/.X99-lock
-              nohup Xvfb :99 -screen 0 1280x720x24 -nolisten tcp >/tmp/oteryn-xvfb.log 2>&1 </dev/null &
-              for _ in $(seq 1 30); do [[ -S /tmp/.X11-unix/X99 ]] && break; sleep 0.2; done
-            fi
             [[ -S /tmp/.X11-unix/X99 ]]
-            echo VIRTUAL_DISPLAY_READY=true
-          '
-
-      - name: Run official launcher to materialize complete runtime
-        shell: bash
-        run: |
-          set -Eeuo pipefail
-          docker exec "$CONTAINER_NAME" bash -lc '
-            set -Eeuo pipefail
-            export HOME=/data/home
-            export XDG_CONFIG_HOME=/data/home/.config
-            export XDG_DATA_HOME=/data/home/.local/share
-            export XDG_CACHE_HOME=/data/home/.cache
-            mkdir -p "$XDG_CONFIG_HOME" "$XDG_DATA_HOME" "$XDG_CACHE_HOME" /data/runtime
-            : > /data/runtime/launcher.log
-            before=$(find /data -type f -name libQt6WebEngineQuick.so.6 2>/dev/null | wc -l)
-            echo QT_RUNTIME_BEFORE=$before
-            launcher=/data/bootstrap/Tibia/Tibia
-            live=0
-            for p in /proc/[0-9]*; do
-              [[ -r "$p/exe" ]] || continue
-              exe=$(readlink -f "$p/exe" 2>/dev/null || true)
-              [[ "$exe" == "$launcher" ]] && live=$((live+1))
-            done
-            if (( live == 0 )); then
-              cd /data/bootstrap/Tibia
-              nohup env DISPLAY=:99 HOME="$HOME" XDG_CONFIG_HOME="$XDG_CONFIG_HOME" XDG_DATA_HOME="$XDG_DATA_HOME" XDG_CACHE_HOME="$XDG_CACHE_HOME" ./Tibia >/data/runtime/launcher.log 2>&1 </dev/null &
+            export DEBIAN_FRONTEND=noninteractive
+            if ! command -v xdotool >/dev/null 2>&1 || ! command -v xwininfo >/dev/null 2>&1; then
+              apt-get update -qq
+              apt-get install -y --no-install-recommends xdotool x11-utils >/tmp/oteryn-x11-tools-install.log 2>&1
             fi
-            for _ in $(seq 1 24); do
-              sleep 5
-              after=$(find /data -type f -name libQt6WebEngineQuick.so.6 2>/dev/null | wc -l)
-              (( after > 0 )) && break
-            done
-            echo QT_RUNTIME_AFTER=$after
+            export DISPLAY=:99
+            launcher=/data/bootstrap/Tibia/Tibia
             launcher_count=0
-            client_count=0
-            verified=/data/client-15.32.df7b29/bin/client
             for p in /proc/[0-9]*; do
               [[ -r "$p/exe" ]] || continue
               exe=$(readlink -f "$p/exe" 2>/dev/null || true)
               [[ "$exe" == "$launcher" ]] && launcher_count=$((launcher_count+1))
-              [[ "$exe" == "$verified" ]] && client_count=$((client_count+1))
             done
             echo LAUNCHER_PROCESS_COUNT=$launcher_count
-            echo VERIFIED_CLIENT_PROCESS_COUNT=$client_count
-            if (( after == 0 )); then
-              echo MATERIALIZATION_INCOMPLETE=true
-              echo SANITIZED_LAUNCHER_DIAGNOSTIC_BEGIN
-              sed -E "/(token|password|account|session|cookie|authorization|bearer)/Id" /data/runtime/launcher.log | tail -60
-              echo SANITIZED_LAUNCHER_DIAGNOSTIC_END
-              exit 1
-            fi
-            echo MATERIALIZATION_INCOMPLETE=false
-          '
-
-      - name: Launch verified client with materialized runtime
-        shell: bash
-        run: |
-          set -Eeuo pipefail
-          docker exec "$CONTAINER_NAME" bash -lc '
-            set -Eeuo pipefail
-            c=/data/client-15.32.df7b29/bin/client
-            qt=$(find /data -type f -name libQt6WebEngineQuick.so.6 -print -quit 2>/dev/null)
-            libdir=$(dirname "$qt")
-            base=$(dirname "$libdir")
-            plugdir=""; qmldir=""
-            for d in "$base/plugins" "$libdir/plugins"; do [[ -d "$d" ]] && { plugdir=$d; break; }; done
-            for d in "$base/qml" "$libdir/qml"; do [[ -d "$d" ]] && { qmldir=$d; break; }; done
-            : > /data/runtime/client-launch.log
-            cd "$(dirname "$c")"
-            args=(env DISPLAY=:99 LD_LIBRARY_PATH="$libdir")
-            [[ -n "$plugdir" ]] && args+=(QT_PLUGIN_PATH="$plugdir")
-            [[ -n "$qmldir" ]] && args+=(QML2_IMPORT_PATH="$qmldir")
-            args+=("$c")
-            nohup "${args[@]}" >/data/runtime/client-launch.log 2>&1 </dev/null &
-            sleep 15
-            count=0
-            for p in /proc/[0-9]*; do
-              [[ -r "$p/exe" ]] || continue
-              exe=$(readlink -f "$p/exe" 2>/dev/null || true)
-              [[ "$exe" == "$c" ]] && count=$((count+1))
+            (( launcher_count > 0 ))
+            echo VISIBLE_TOP_LEVEL_WINDOWS_BEGIN
+            xdotool search --onlyvisible --name ".*" 2>/dev/null | head -20 | while read -r wid; do
+              name=$(xdotool getwindowname "$wid" 2>/dev/null || true)
+              geom=$(xwininfo -id "$wid" 2>/dev/null | awk "/Absolute upper-left X:|Absolute upper-left Y:|Width:|Height:/{printf \"%s \",\$NF}")
+              printf "window=%s title=%q geometry=%s\n" "$wid" "$name" "$geom"
             done
-            echo CLIENT_PROCESS_COUNT=$count
-            if (( count == 0 )); then
-              echo CLIENT_LAUNCH_FAILED=true
-              echo SANITIZED_CLIENT_DIAGNOSTIC_BEGIN
-              sed -E "/(token|password|account|session|cookie|authorization|bearer)/Id" /data/runtime/client-launch.log | tail -60
-              echo SANITIZED_CLIENT_DIAGNOSTIC_END
-              exit 1
-            fi
-            echo CLIENT_LAUNCH_FAILED=false
+            echo VISIBLE_TOP_LEVEL_WINDOWS_END
+            echo ROOT_TREE_BEGIN
+            xwininfo -root -tree 2>/dev/null | sed -n "1,80p"
+            echo ROOT_TREE_END
           '
 
       - name: Verify canonical staging unchanged
