@@ -1,0 +1,54 @@
+name: Tibia Action Class Xrefs
+
+on:
+  push:
+    branches: [ops/oteryn-tibia-client-analysis-20260811]
+    paths: [.github/workflows/tibia-client-action-class-xrefs.yml]
+
+permissions:
+  contents: read
+
+env:
+  CONTAINER_NAME: oteryn-tibia-client-analysis
+
+jobs:
+  xrefs:
+    runs-on: oteryn-staging
+    timeout-minutes: 5
+    steps:
+      - name: Resolve Qt class xrefs and nearby generated code
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          docker exec -i "$CONTAINER_NAME" bash <<'INNER'
+          set -Eeuo pipefail
+          bin='/data/home/.local/share/CipSoft GmbH/Tibia/packages/Tibia/bin/client'
+          tmp=/tmp/action-xrefs.$$
+          objdump -d -M intel "$bin" >"$tmp"
+          for spec in \
+            '1cb4958 movement' \
+            '1cb0238 generic' \
+            '1cb0e78 creatures' \
+            '1cb2550 usewith' \
+            '1cb33d4 chat' \
+            '1c8e6cc internalrouter' \
+            '1cb4f44 playerprotocol'; do
+            set -- $spec; addr=$1; label=$2
+            echo "=== $label CLASS_XREF 0x$addr ==="
+            grep -n -E "# +0*${addr}([ <]|$)" "$tmp" | head -n 20 || true
+          done
+          echo '=== PLAYER_PROTOCOL_METHOD_XREFS ==='
+          for addr in 1cb4fc8 1cb5014 1cb5064 1cb50b4; do
+            echo "-- 0x$addr --"
+            grep -n -E "# +0*${addr}([ <]|$)" "$tmp" | head -n 30 || true
+          done
+          rm -f "$tmp"
+          pid=$(pgrep -x client | head -n1 || true); [[ -n "$pid" ]]
+          tcp_rows=$(ss -ntp 2>/dev/null | grep "pid=$pid," || true)
+          local_count=$(printf '%s\n' "$tcp_rows" | awk '$5 ~ /127\.0\.0\.1:25344$/ || $5 ~ /\[::1\]:25344$/ {n++} END{print n+0}')
+          total_count=$(printf '%s\n' "$tcp_rows" | grep -c . || true)
+          echo CLIENT_PID=$pid
+          echo ACTIVE_LOCAL_SOCKS_COUNT=$local_count
+          echo ACTIVE_DIRECT_TCP_COUNT=$((total_count-local_count))
+          (( local_count > 0 && total_count-local_count == 0 ))
+          INNER
