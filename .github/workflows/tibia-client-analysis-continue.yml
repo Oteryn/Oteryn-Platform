@@ -14,7 +14,7 @@ env:
 
 jobs:
   continue:
-    name: Resolve Worldmap vtable handler slots
+    name: Decode Worldmap Qt metaobject
     runs-on: oteryn-staging
     timeout-minutes: 15
     steps:
@@ -41,126 +41,136 @@ jobs:
             [[ "$(sha256sum "$root/bin/client" | awk "{print \$1}")" == "e6c244bd39fe2e0632f6f000efd3147164696efa8e901718668e0442325ff7fe" ]]
           '
 
-      - name: Locate candidate vtable by qt_metacall pointer and resolve slots
+      - name: Locate and decode QMetaObject structures referencing static metacall
         shell: bash
         run: |
           set -Eeuo pipefail
           docker exec -i "$CONTAINER_NAME" /data/reverse-venv/bin/python - <<'PY'
           from pathlib import Path
           from elftools.elf.elffile import ELFFile
-          import struct, subprocess, re
+          import struct, re
 
           root=Path('/data/client-15.32.df7b29')
           client=root/'bin/client'
           raw=client.read_bytes()
-          qt_metacall=0xe004d0
-          needle=struct.pack('<Q',qt_metacall)
+          static_metacall=0xde9ca0
+          class_name=b'tibia::worldmap::TWorldmapProtocolMessageHandler'
 
           with client.open('rb') as f:
               elf=ELFFile(f)
-              sections=[]
+              secs=[]
               for sec in elf.iter_sections():
-                  sections.append((sec.name,sec['sh_offset'],sec['sh_size'],sec['sh_addr']))
+                  secs.append((sec.name,int(sec['sh_offset']),int(sec['sh_size']),int(sec['sh_addr'])))
 
           def off_to_va(off):
-              for name,so,ss,va in sections:
-                  if so <= off < so+ss:
-                      return va+(off-so),name
+              for name,so,ss,va in secs:
+                  if so <= off < so+ss: return va+(off-so),name
               return None,None
+          def va_to_off(va):
+              for name,so,ss,sva in secs:
+                  if sva <= va < sva+ss: return so+(va-sva),name
+              return None,None
+          def q(off):
+              return struct.unpack_from('<Q',raw,off)[0] if 0<=off<=len(raw)-8 else None
+          def u32(off):
+              return struct.unpack_from('<I',raw,off)[0] if 0<=off<=len(raw)-4 else None
 
-          hits=[]; p=0
+          hits=[]; needle=struct.pack('<Q',static_metacall); p=0
           while True:
               p=raw.find(needle,p)
               if p<0: break
-              va,sec=off_to_va(p)
-              hits.append((p,va,sec)); p+=1
+              va,sec=off_to_va(p); hits.append((p,va,sec)); p+=1
 
-          lines=[f'qt_metacall_candidate=0x{qt_metacall:x}',f'qword_hits={len(hits)}']
+          lines=[f'static_metacall=0x{static_metacall:x}',f'static_metacall_qword_hits={len(hits)}']
+          for i,(off,va,sec) in enumerate(hits):
+              lines.append(f'HIT index={i} off=0x{off:x} va={"0x%x"%va if va is not None else "UNKNOWN"} section={sec}')
+              for delta in range(-0x40,0x49,8):
+                  o=off+delta
+                  v=q(o)
+                  vsec=''
+                  if v is not None:
+                      vo,vn=va_to_off(v)
+                      if vo is not None: vsec=f' -> {vn}:off=0x{vo:x}'
+                  lines.append(f'  qword delta={delta:+#x} value={"0x%x"%v if v is not None else "NA"}{vsec}')
+
+          # Search likely static QMetaObject records: in Qt6 the direct static-metacall qword is normally
+          # surrounded by pointers to stringdata and uint metadata. Score candidates by whether referenced
+          # data resolves to the known class/method-name region.
+          known_name_offsets=[]
+          p=0
+          while True:
+              p=raw.find(class_name,p)
+              if p<0: break
+              known_name_offsets.append(p); p+=1
+          lines += ['', 'KNOWN_CLASS_NAME_OFFSETS']
+          for x in known_name_offsets: lines.append(f'0x{x:x}')
+
           candidates=[]
-          for n,(off,va,sec) in enumerate(hits):
-              lines.append(f'HIT index={n} file_off=0x{off:x} va={"0x%x"%va if va is not None else "UNKNOWN"} section={sec}')
-              if va is None: continue
-              # Candidate address-point is expected a few QObject virtuals before qt_metacall.
-              for back_qwords in range(2,9):
-                  address_point_va=va-back_qwords*8
-                  address_point_off=off-back_qwords*8
-                  if address_point_off<0: continue
-                  vals=[]
-                  for slot in range(0,0x170,8):
-                      qoff=address_point_off+slot
-                      if qoff+8>len(raw): break
-                      vals.append(struct.unpack_from('<Q',raw,qoff)[0])
-                  # Strong signal: six target vtable slots used by Worldmap static metacall must be executable-looking pointers.
-                  wanted=[0x130,0x138,0x140,0x148,0x150,0x158]
-                  resolved={s: vals[s//8] if s//8<len(vals) else 0 for s in wanted}
-                  executable=sum(1 for v in resolved.values() if 0x500000 <= v < 0x1c00000)
-                  if executable>=5:
-                      candidates.append((address_point_va,address_point_off,back_qwords,resolved))
+          for hit_off,hit_va,sec in hits:
+              for base_delta in range(-0x40,1,8):
+                  base=hit_off+base_delta
+                  vals=[q(base+i*8) for i in range(8)]
+                  score=0; annotations=[]
+                  for idx,v in enumerate(vals):
+                      if v is None: continue
+                      vo,vsec=va_to_off(v)
+                      if vo is not None:
+                          score+=1
+                          sample=raw[vo:vo+256]
+                          if class_name in sample:
+                              score+=20; annotations.append(f'q{idx}=class_string_region')
+                          if b'handleFullMapMessage' in sample or b'handleFieldDataMessage' in sample:
+                              score+=10; annotations.append(f'q{idx}=handler_string_region')
+                          # Meta-data begins with a small revision and small offsets/counts.
+                          if vo+40<=len(raw):
+                              words=[u32(vo+j*4) for j in range(10)]
+                              if words and words[0] is not None and words[0] <= 20 and all(w is not None for w in words):
+                                  score+=3; annotations.append(f'q{idx}=small_u32_header:{words[:8]}')
+                  if q(hit_off)==static_metacall and score>=4:
+                      candidates.append((score,base,hit_off,vals,annotations))
+          candidates.sort(reverse=True,key=lambda x:x[0])
+          lines += ['',f'QMETAOBJECT_CANDIDATES={len(candidates)}']
+          for ci,(score,base,hit_off,vals,ann) in enumerate(candidates[:12]):
+              bva,bsec=off_to_va(base)
+              lines.append(f'CANDIDATE {ci} score={score} base_off=0x{base:x} base_va={"0x%x"%bva if bva else "UNKNOWN"} section={bsec} metacall_delta=0x{hit_off-base:x} annotations={";".join(ann)}')
+              for i,v in enumerate(vals):
+                  vo,vsec=va_to_off(v) if v is not None else (None,None)
+                  lines.append(f'  q{i}=0x{v:x}' + (f' -> {vsec}:0x{vo:x}' if vo is not None else ''))
 
-          # De-duplicate candidates by address point.
-          uniq=[]; seen=set()
-          for c in candidates:
-              if c[0] not in seen: seen.add(c[0]); uniq.append(c)
-          lines += ['',f'candidate_address_points={len(uniq)}']
-          for ci,(ap_va,ap_off,back,resolved) in enumerate(uniq):
-              lines.append(f'CANDIDATE index={ci} address_point_va=0x{ap_va:x} file_off=0x{ap_off:x} qt_metacall_slot_index={back}')
-              for s,v in resolved.items(): lines.append(f'  vtable_offset=0x{s:x} target=0x{v:x}')
-              # dump all nearby function-pointer-looking slots for context
-              for s in range(0,0x160,8):
-                  v=struct.unpack_from('<Q',raw,ap_off+s)[0]
-                  if 0x500000 <= v < 0x1c00000:
-                      lines.append(f'  slot=0x{s:x} ptr=0x{v:x}')
+          # Dump raw uint32 metadata/string samples for every pointer in top candidates, sufficient to
+          # deterministically parse the exact Qt layout in a following bounded pass.
+          lines += ['', 'TOP_CANDIDATE_REFERENCED_DATA']
+          seen=set()
+          for score,base,hit_off,vals,ann in candidates[:4]:
+              for idx,v in enumerate(vals):
+                  if v in seen or v is None: continue
+                  vo,vsec=va_to_off(v)
+                  if vo is None: continue
+                  seen.add(v)
+                  words=[u32(vo+j*4) for j in range(min(64,(len(raw)-vo)//4))]
+                  ascii_runs=[]
+                  for m in re.finditer(rb'[ -~]{4,}',raw[vo:vo+2048]):
+                      ascii_runs.append((m.start(),m.group()[:180].decode('ascii','replace')))
+                      if len(ascii_runs)>=30: break
+                  lines.append(f'REF qvalue=0x{v:x} section={vsec} off=0x{vo:x}')
+                  lines.append('  U32 ' + ' '.join(f'{w:08x}' for w in words[:48] if w is not None))
+                  for ro,s in ascii_runs: lines.append(f'  STR +0x{ro:x} {s}')
 
-          # Disassemble unique six-slot targets from all candidates.
-          targets=[]
-          for _,_,_,resolved in uniq:
-              for v in resolved.values():
-                  if 0x500000 <= v < 0x1c00000 and v not in targets: targets.append(v)
-          lines += ['',f'handler_slot_target_count={len(targets)}','HANDLER_SLOT_TARGET_DISASSEMBLY']
-          for t in targets:
-              lines.append(f'TARGET 0x{t:x}')
-              d=subprocess.check_output(['objdump','-d','-C',f'--start-address={t}',f'--stop-address={t+0x240}',str(client)],text=True,errors='replace')
-              body=[]
-              for line in d.splitlines():
-                  m=re.match(r'^\s*([0-9a-f]+):',line)
-                  if m and int(m.group(1),16)>=t:
-                      body.append(line)
-                      if len(body)>=90: break
-              lines.extend(body)
-
-          # Search every occurrence of known handler/signal names to make method-order evidence explicit.
-          lines += ['', 'METHOD_NAME_FILE_OFFSETS']
-          names=[
-              'handleFullMapMessage','handleLeftColumnMessage','handleRightColumnMessage','handleTopRowMessage','handleBottomRowMessage',
-              'handleTopFloorMessage','handleBottomFloorMessage','handleFieldDataMessage','handleCreateOnMapMessage','handleChangeOnMapMessage',
-              'handleDeleteOnMapMessage','handleAmbientLightMessage','handleTibiaTimeMessage',
-              'receivedFullMapMessage','receivedLeftColumnMessage','receivedRightColumnMessage','receivedTopRowMessage','receivedBottomRowMessage',
-              'receivedTopFloorMessage','receivedBottomFloorMessage','receivedFieldDataMessage','receivedCreateOnMapMessage','receivedChangeOnMapMessage',
-              'receivedDeleteOnMapMessage','receivedAmbientLightMessage','receivedTibiaTimeMessage'
-          ]
-          for name in names:
-              b=name.encode(); offs=[]; q=0
-              while True:
-                  q=raw.find(b,q)
-                  if q<0: break
-                  offs.append(q); q+=1
-              lines.append(f'{name}=' + ','.join(f'0x{x:x}' for x in offs))
-
-          out=root/'worldmap-vtable-slots.txt'; out.write_text('\n'.join(lines)+'\n'); print(out.read_text())
+          out=root/'worldmap-qmetaobject.txt'; out.write_text('\n'.join(lines)+'\n'); print(out.read_text())
           PY
-          docker exec "$CONTAINER_NAME" test -s /data/client-15.32.df7b29/worldmap-vtable-slots.txt
+          docker exec "$CONTAINER_NAME" test -s /data/client-15.32.df7b29/worldmap-qmetaobject.txt
 
-      - name: Persist sanitized vtable evidence
+      - name: Persist sanitized QMetaObject evidence
         shell: bash
         run: |
           set -Eeuo pipefail
-          docker cp "$CONTAINER_NAME:/data/client-15.32.df7b29/worldmap-vtable-slots.txt" /tmp/worldmap-vtable-slots.txt
+          docker cp "$CONTAINER_NAME:/data/client-15.32.df7b29/worldmap-qmetaobject.txt" /tmp/worldmap-qmetaobject.txt
           python3 - <<'PY'
           from pathlib import Path
           import os
-          p=Path(os.environ['HANDOVER']); e=Path('/tmp/worldmap-vtable-slots.txt').read_text(errors='replace')
-          begin='<!-- BEGIN GENERATED WORLDMAP VTABLE -->'; end='<!-- END GENERATED WORLDMAP VTABLE -->'
-          block=f'{begin}\n\n## Generated Worldmap vtable evidence\n\nSource: GitHub Actions run `{os.environ.get("GITHUB_RUN_ID","unknown")}` on `oteryn-synology-staging`. Sanitized address/disassembly metadata only.\n\n```text\n{e.rstrip()}\n```\n\n{end}'
+          p=Path(os.environ['HANDOVER']); e=Path('/tmp/worldmap-qmetaobject.txt').read_text(errors='replace')
+          begin='<!-- BEGIN GENERATED WORLDMAP QMETAOBJECT -->'; end='<!-- END GENERATED WORLDMAP QMETAOBJECT -->'
+          block=f'{begin}\n\n## Generated Worldmap QMetaObject evidence\n\nSource: GitHub Actions run `{os.environ.get("GITHUB_RUN_ID","unknown")}` on `oteryn-synology-staging`. Sanitized static metadata only.\n\n```text\n{e.rstrip()}\n```\n\n{end}'
           text=p.read_text()
           if begin in text and end in text: text=text.split(begin,1)[0].rstrip()+'\n\n'+block+'\n\n'+text.split(end,1)[1].lstrip()
           else: text=text.rstrip()+'\n\n'+block+'\n'
@@ -170,7 +180,7 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add "$HANDOVER"
           if ! git diff --cached --quiet; then
-            git commit -m "docs(analysis): resolve Worldmap vtable slots"
+            git commit -m "docs(analysis): record Worldmap QMetaObject evidence"
             git push origin HEAD:ops/oteryn-tibia-client-analysis-20260811
           fi
 
