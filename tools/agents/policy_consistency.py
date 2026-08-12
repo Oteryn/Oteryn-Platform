@@ -412,10 +412,12 @@ def _repo_has_conditional_user_authorization(clause: str, repository: str) -> bo
     if not any(value in condition for value in ("current task", "write task", "separate permission")):
         return False
 
+    repository_reference = re.escape(repository)
     active_authorization = re.search(
         rf"\b(?:the\s+)?(?:user|project\s+owner|owner)\b.{{0,100}}?"
         rf"\bexplicitly\s+(?:authoriz(?:e|es|ed)|grant(?:s|ed)?|permit(?:s|ted)?|approve(?:s|d)?)\b"
-        rf".{{0,60}}?(?:\b{MUTATION_TERM}\b|\b(?:write\s+(?:access|task|permission|authorization)|separate\s+(?:write\s+)?permission)\b|\b(?:it|that\s+repository|this\s+repository)\b)",
+        rf".{{0,60}}?(?:\b(?:write\s+(?:access|task|permission|authorization)|separate\s+(?:write\s+)?permission)\b|"
+        rf"\b(?:it|that\s+repository|this\s+repository)\b|\b{MUTATION_TERM}\b.{{0,60}}?\b{repository_reference}\b)",
         condition,
     )
     passive_authorization = re.search(
@@ -490,7 +492,7 @@ def _reject_contradictory_repository_mutation_grants(errors: list[str], source: 
     for statement in _logical_markdown_statements(policy_text):
         for clause in _policy_clauses(statement):
             for repository in _repository_identifiers_in_grant_clause(clause):
-                if repository == REPOSITORY_FULL_NAME:
+                if repository.casefold() == REPOSITORY_FULL_NAME.casefold():
                     continue
                 if _repo_has_positive_read_only_assertion(clause, repository):
                     continue
@@ -512,6 +514,8 @@ def _reject_contradictory_completion_declarations(errors: list[str], source: str
         re.compile(rf"\b(?:task|work|delivery)\b.{{0,80}}\b(?:may|can)\s+be\s+(?:completed|closed|done)\b.{{0,100}}\bwithout\b.{{0,50}}\b{requirement}\b", re.I),
         re.compile(r"\b(?:task|work|delivery)\b.{0,80}\b(?:may|can)\s+be\s+(?:completed|closed|done)\b.{0,100}\b(?:with|despite)\b.{0,50}\bunresolved(?:\s+(?:material\s+)?)?(?:review\s+threads?|findings?)\b", re.I),
         re.compile(rf"\bcompletion\b.{{0,50}}\b(?:does|do)\s+not\s+require\b.{{0,80}}\b{requirement}\b", re.I),
+        re.compile(rf"\b(?:task|work|delivery)\b.{{0,80}}\b(?:may|can)\s+be\s+(?:completed|closed|done)\b.{{0,80}}\bbefore\b.{{0,50}}\b{requirement}\b.{{0,50}}\b(?:has|have)\s+passed\b", re.I),
+        re.compile(r"\b(?:task|work|delivery)\b.{0,80}\b(?:may|can)\s+be\s+(?:completed|closed|done)\b.{0,80}\beven\s+if\b.{0,50}\bunresolved(?:\s+(?:material\s+)?)?(?:review\s+threads?|findings?)\b", re.I),
     )
     for statement in _logical_markdown_statements(policy_text):
         normalized = _normalize_inline_markdown(statement)

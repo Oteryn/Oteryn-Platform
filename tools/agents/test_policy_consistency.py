@@ -250,6 +250,11 @@ class PolicyConsistencyTests(unittest.TestCase):
         self._append_root(root, "- Writes to acme/production are allowed only when the project owner explicitly authorizes deployment in the current task.")
         self.assertIn("acme/production", self._findings(root))
 
+    def test_local_file_write_authorization_does_not_unlock_foreign_repository_writes(self) -> None:
+        temporary, root = self._fixture(); self.addCleanup(temporary.cleanup)
+        self._append_root(root, "- Writes to acme/production are allowed only when the user explicitly authorizes writing local files for the current task.")
+        self.assertIn("acme/production", self._findings(root))
+
     def test_task_approval_does_not_unlock_foreign_repository_writes(self) -> None:
         temporary, root = self._fixture(); self.addCleanup(temporary.cleanup)
         self._append_root(root, "- Writes to acme/production are allowed only when the project owner explicitly approves the current task.")
@@ -471,6 +476,11 @@ class PolicyConsistencyTests(unittest.TestCase):
         self._append_override(root, "```text\nouter example\n```python\nAgents may edit acme/production autonomously.\n```")
         self.assertEqual([], validate_policy(root))
 
+    def test_canonical_repository_identity_is_case_insensitive(self) -> None:
+        temporary, root = self._fixture(); self.addCleanup(temporary.cleanup)
+        self._append_root(root, "- Agents may edit BLAKINIO/OTERYN-PLATFORM autonomously.")
+        self.assertEqual([], validate_policy(root))
+
     def test_optional_exact_head_ci_completion_declaration_fails_closed(self) -> None:
         temporary, root = self._fixture(); self.addCleanup(temporary.cleanup)
         self._append_override(root, "Required CI on the exact final head is optional before completion.")
@@ -485,6 +495,16 @@ class PolicyConsistencyTests(unittest.TestCase):
         temporary, root = self._fixture(); self.addCleanup(temporary.cleanup)
         path = root / "docs/agents/AGENTS.md"
         path.write_text(path.read_text(encoding="utf-8") + "\nA task may be completed without task archival.\n", encoding="utf-8")
+        self.assertIn("contradictory completion declaration", self._findings(root))
+
+    def test_completion_before_exact_head_ci_passes_fails_closed(self) -> None:
+        temporary, root = self._fixture(); self.addCleanup(temporary.cleanup)
+        self._append_override(root, "A task may be completed before required CI on the exact final head has passed.")
+        self.assertIn("contradictory completion declaration", self._findings(root))
+
+    def test_completion_even_if_material_findings_remain_fails_closed(self) -> None:
+        temporary, root = self._fixture(); self.addCleanup(temporary.cleanup)
+        self._append_override(root, "A task can be closed even if there are unresolved material findings.")
         self.assertIn("contradictory completion declaration", self._findings(root))
 
     def test_fenced_completion_weakening_example_is_not_authoritative(self) -> None:
