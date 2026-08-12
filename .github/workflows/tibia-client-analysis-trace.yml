@@ -13,9 +13,9 @@ env:
 
 jobs:
   trace:
-    name: Test Tibia world entry
+    name: Detect character selection and enter Tibia world
     runs-on: oteryn-staging
-    timeout-minutes: 10
+    timeout-minutes: 12
     steps:
       - name: Verify owned runtime and snapshot staging
         shell: bash
@@ -27,33 +27,36 @@ jobs:
           [[ "$(docker inspect --format '{{.State.Status}}' "$CONTAINER_NAME")" == "running" ]]
           docker ps -a --filter 'label=com.docker.compose.project=oteryn-staging' --format '{{.ID}}\t{{.Names}}' | sort >/tmp/oteryn-before.tsv
 
-      - name: Verify WARP and authenticated client remain active
+      - name: Relaunch and authenticate through proven WARP
         shell: bash
+        env:
+          TIBIA_TEST_EMAIL: ${{ secrets.TIBIA_TEST_EMAIL }}
+          TIBIA_TEST_PASSWORD: ${{ secrets.TIBIA_TEST_PASSWORD }}
         run: |
           set -Eeuo pipefail
-          docker exec -i "$CONTAINER_NAME" bash <<'INNER'
+          [[ -n "$TIBIA_TEST_EMAIL" && -n "$TIBIA_TEST_PASSWORD" ]]
+          docker exec -e TIBIA_TEST_EMAIL -e TIBIA_TEST_PASSWORD -i "$CONTAINER_NAME" bash <<'INNER'
           set -Eeuo pipefail
           export DISPLAY=:99 HOME=/data/home
           pgrep -f '/wireproxy .*wireproxy.conf' >/dev/null
           curl --socks5-hostname 127.0.0.1:25344 -fsS --max-time 10 https://www.cloudflare.com/cdn-cgi/trace >/tmp/warp-trace
           grep -q '^warp=on$' /tmp/warp-trace
+          pkg="$HOME/.local/share/CipSoft GmbH/Tibia/packages/Tibia"
+          client="$pkg/bin/client"
+          pkill -f 'packages/Tibia/bin/client' 2>/dev/null || true
+          pgrep -f '^Xvfb :99' >/dev/null || nohup Xvfb :99 -screen 0 1280x800x24 >/data/runtime/xvfb.log 2>&1 </dev/null &
+          sleep 2
+          cd "$pkg"
+          nohup proxychains4 -f /tmp/proxychains-tibia.conf "$client" >/data/runtime/client-userspace-warp.log 2>&1 </dev/null &
+          for n in $(seq 1 30); do pgrep -f 'packages/Tibia/bin/client' >/dev/null && break; sleep 1; done
           pid=$(pgrep -f 'packages/Tibia/bin/client' | head -n1)
           [[ -n "$pid" ]]
+          sleep 10
           sockets=$(ss -ntp 2>/dev/null | grep "pid=$pid," || true)
           if printf '%s\n' "$sockets" | awk '{print $5}' | grep -Ev '^(127\.0\.0\.1|\[::1\]):25344$' | grep -q .; then
             echo CLIENT_DIRECT_TCP_DETECTED=true >&2
             exit 1
           fi
-          echo AUTHENTICATED_WARP_CLIENT_READY=true
-          INNER
-
-      - name: Select first character and attempt world entry
-        shell: bash
-        run: |
-          set -Eeuo pipefail
-          docker exec -i "$CONTAINER_NAME" bash <<'INNER'
-          set -Eeuo pipefail
-          export DISPLAY=:99 HOME=/data/home
           best=''; best_area=0
           for w in $(xdotool search --onlyvisible --name '^Tibia$' 2>/dev/null || true); do
             geom=$(xdotool getwindowgeometry --shell "$w" 2>/dev/null || true)
@@ -62,39 +65,96 @@ jobs:
             area=$((width*height)); if (( area > best_area )); then best=$w; best_area=$area; fi
           done
           [[ -n "$best" && "$best_area" -ge 600000 ]]
-          import -display :99 -window "$best" /tmp/pre-entry.png
-          xdotool mousemove --window "$best" 300 192 click 1
-          sleep 1
-          xdotool mousemove --window "$best" 790 511 click 1
-          sleep 30
+          xdotool mousemove --window "$best" 535 275 click 1
+          xdotool key --window "$best" ctrl+a
+          xdotool type --window "$best" --delay 3 -- "$TIBIA_TEST_EMAIL"
+          xdotool mousemove --window "$best" 535 304 click 1
+          xdotool key --window "$best" ctrl+a
+          xdotool type --window "$best" --delay 3 -- "$TIBIA_TEST_PASSWORD"
+          xdotool mousemove --window "$best" 590 388 click 1
+          unset TIBIA_TEST_EMAIL TIBIA_TEST_PASSWORD
+          sleep 25
+          import -display :99 -window "$best" /tmp/character-select.png
+          convert /tmp/character-select.png -resize 200% -colorspace Gray -contrast-stretch 1%x1% /tmp/character-select-ocr.png
+          tesseract /tmp/character-select-ocr.png stdout --psm 11 tsv 2>/dev/null >/tmp/character-select.tsv || true
+          python3 - <<'PY' >/tmp/controls.env
+          import csv
+          rows=[]
+          with open('/tmp/character-select.tsv', newline='', errors='replace') as f:
+              for r in csv.DictReader(f, delimiter='\t'):
+                  text=(r.get('text') or '').strip()
+                  try:
+                      conf=float(r.get('conf') or -1)
+                      left=int(r.get('left') or 0)//2; top=int(r.get('top') or 0)//2
+                      width=int(r.get('width') or 0)//2; height=int(r.get('height') or 0)//2
+                  except ValueError:
+                      continue
+                  if conf >= 35 and text:
+                      rows.append((text,left,top,width,height))
+          login=[r for r in rows if r[0].lower() in ('login','enter','play') and r[2] > 300]
+          if not login:
+              raise SystemExit('No Login/Enter/Play control detected on character-select screen')
+          login=max(login, key=lambda r:(r[2],r[1]))
+          lx=login[1]+max(1,login[3]//2); ly=login[2]+max(1,login[4]//2)
+          # Character rows are above the action controls. Click the horizontal centre of the list,
+          # just below the Select Character header; then activate the OCR-detected Login control.
+          headers=[r for r in rows if r[0].lower()=='select']
+          if not headers:
+              raise SystemExit('Select Character header not detected')
+          header=min(headers,key=lambda r:r[2])
+          row_y=max(header[2]+70, 175)
+          row_y=min(row_y, ly-120)
+          print(f'LOGIN_X={lx}')
+          print(f'LOGIN_Y={ly}')
+          print(f'ROW_X=360')
+          print(f'ROW_Y={row_y}')
+          PY
+          source /tmp/controls.env
+          echo CHARACTER_SELECT_CONTROLS_DETECTED=true
+          echo "character_row_y=$ROW_Y login_y=$LOGIN_Y"
+          xdotool mousemove --window "$best" "$ROW_X" "$ROW_Y" click 1
+          sleep 2
+          xdotool mousemove --window "$best" "$LOGIN_X" "$LOGIN_Y" click 1
+          sleep 35
           import -display :99 -window "$best" /tmp/post-entry.png
+          pid=$(pgrep -f 'packages/Tibia/bin/client' | head -n1)
+          [[ -n "$pid" ]]
+          sockets=$(ss -ntp 2>/dev/null | grep "pid=$pid," || true)
+          if printf '%s\n' "$sockets" | awk '{print $5}' | grep -Ev '^(127\.0\.0\.1|\[::1\]):25344$' | grep -q .; then
+            echo CLIENT_DIRECT_TCP_DETECTED=true >&2
+            exit 1
+          fi
           convert /tmp/post-entry.png -resize 200% -colorspace Gray -contrast-stretch 1%x1% /tmp/post-entry-ocr.png
           tesseract /tmp/post-entry-ocr.png stdout --psm 11 tsv 2>/dev/null >/tmp/post-entry.tsv || true
-          echo SAFE_POST_ENTRY_RESULT_BEGIN
           python3 - <<'PY'
-          import csv,re
-          allowed=re.compile(r'^(login|account|character|characters|select|enter|game|error|sorry|incorrect|invalid|connection|connecting|loading|ok|cancel|online|offline|recovery|setup|process|server|world|client|queue|premium|free)$',re.I)
+          import csv
+          words=[]
           with open('/tmp/post-entry.tsv',newline='',errors='replace') as f:
               for r in csv.DictReader(f,delimiter='\t'):
-                  t=(r.get('text') or '').strip().strip(':,.!?()[]')
-                  if t and allowed.fullmatch(t): print(t)
+                  t=(r.get('text') or '').strip().lower().strip(':,.!?()[]')
+                  if t: words.append(t)
+          login_markers={'login','account','select','character','characters'}
+          game_markers={'skills','battle','health','mana','inventory','quests','prey','store','logout'}
+          l=sum(w in login_markers for w in words)
+          g=sum(w in game_markers for w in words)
+          print(f'POST_ENTRY_LOGIN_MARKERS={l}')
+          print(f'POST_ENTRY_GAME_MARKERS={g}')
+          if g < 2 or l >= 3:
+              raise SystemExit('World-entry state not proven')
+          print('TIBIA_WORLD_ENTRY_PROVEN=true')
           PY
-          echo SAFE_POST_ENTRY_RESULT_END
-          # Export only non-sensitive diagnostic regions: title/status strip and lower-right action/error area.
-          convert /tmp/post-entry.png -crop 760x90+130+105 +repage /tmp/post-entry-top.png
-          convert /tmp/post-entry.png -crop 330x180+550+350 +repage /tmp/post-entry-action.png
+          convert /tmp/post-entry.png -crop 1280x90+0+0 +repage /tmp/post-entry-safe-top.png
           INNER
-          docker cp "$CONTAINER_NAME:/tmp/post-entry-top.png" /tmp/post-entry-top.png
-          docker cp "$CONTAINER_NAME:/tmp/post-entry-action.png" /tmp/post-entry-action.png
+          docker cp "$CONTAINER_NAME:/tmp/post-entry-safe-top.png" /tmp/post-entry-safe-top.png
 
-      - name: Upload safe world-entry diagnostics
+      - name: Upload privacy-safe world-entry proof
+        if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: tibia-world-entry-safe
-          path: |
-            /tmp/post-entry-top.png
-            /tmp/post-entry-action.png
+          name: tibia-world-entry-proof-safe
+          path: /tmp/post-entry-safe-top.png
           retention-days: 7
+          if-no-files-found: warn
 
       - name: Verify canonical staging unchanged
         if: always()
