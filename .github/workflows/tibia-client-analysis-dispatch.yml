@@ -15,9 +15,9 @@ env:
 
 jobs:
   inspect:
-    name: Correlate Tibia AppearanceInstance descriptor fields
+    name: Keep live Tibia session active safely
     runs-on: oteryn-staging
-    timeout-minutes: 6
+    timeout-minutes: 4
     steps:
       - name: Verify owned runtime and snapshot staging
         shell: bash
@@ -29,65 +29,56 @@ jobs:
           [[ "$(docker inspect --format '{{.State.Status}}' "$CONTAINER_NAME")" == "running" ]]
           docker ps -a --filter 'label=com.docker.compose.project=oteryn-staging' --format '{{.ID}}\t{{.Names}}' | sort >/tmp/oteryn-before.tsv
 
-      - name: Correlate descriptor strings and field-name neighborhoods
+      - name: Perform bounded anti-idle movement on existing authenticated client
         shell: bash
         run: |
           set -Eeuo pipefail
           docker exec -i "$CONTAINER_NAME" bash <<'INNER'
           set -Eeuo pipefail
-          client=/data/client-15.32.df7b29/bin/client
-          [[ -f "$client" ]]
-          [[ "$(stat -c %s "$client")" == "51965216" ]]
-          [[ "$(sha256sum "$client" | awk '{print $1}')" == "e6c244bd39fe2e0632f6f000efd3147164696efa8e901718668e0442325ff7fe" ]]
-          python3 - <<'PY'
-          from pathlib import Path
-          import re
-          b=Path('/data/client-15.32.df7b29/bin/client').read_bytes()
-          apps=[m.start() for m in re.finditer(b'AppearanceInstance', b)]
-          needles=[b'object_id',b'objectId',b'objectID',b'objectid',b'type_id',b'typeId',b'typeID',b'appearance_id',b'appearanceId',b'appearanceID',b'object_count',b'objectCount',b'upgrade_tier',b'upgradeTier',b'liquid_type',b'liquidType']
-          print('APPEARANCE_HITS',len(apps))
-          for n in needles:
-              hits=[m.start() for m in re.finditer(re.escape(n),b)]
-              if not hits: continue
-              print('FIELD_TOKEN',n.decode(),'COUNT',len(hits))
-              for p in hits[:80]:
-                  d=min((abs(p-a),a) for a in apps) if apps else (None,None)
-                  print(f'  off=0x{p:x} nearestAppearance=0x{d[1]:x} distance={d[0]}')
-          # Show printable tokens around AppearanceInstance occurrences that are near likely protocol descriptor clusters.
-          for i,a in enumerate(apps):
-              lo=max(0,a-1536); hi=min(len(b),a+3072)
-              chunk=b[lo:hi]
-              words=[]
-              for m in re.finditer(rb'[A-Za-z_][A-Za-z0-9_]{2,}',chunk):
-                  s=m.group().decode('ascii','replace')
-                  if s not in words: words.append(s)
-              if any(x in words for x in ['object_id','objectId','objectID','type_id','typeId','typeID','object_count','objectCount']):
-                  print(f'PROTO_NEIGHBORHOOD index={i} appearance_off=0x{a:x}')
-                  print('TOKENS '+' | '.join(words[:220]))
-          PY
-          echo LOWERCASE_PROTO_FIELDS_BEGIN
-          strings -a -t x "$client" | grep -E '(^|[^A-Za-z])(object_id|object_count|type_id|appearance_id|upgrade_tier|liquid_type|hook_direction|deco_item_object_id)([^A-Za-z]|$)' | head -n 320 || true
-          echo LOWERCASE_PROTO_FIELDS_END
-          INNER
-
-      - name: Verify authenticated session retained and staging unchanged
-        if: always()
-        shell: bash
-        run: |
-          set -Eeuo pipefail
-          docker ps -a --filter 'label=com.docker.compose.project=oteryn-staging' --format '{{.ID}}\t{{.Names}}' | sort >/tmp/oteryn-after.tsv
-          diff -u /tmp/oteryn-before.tsv /tmp/oteryn-after.tsv
-          docker inspect --format 'analysis_name={{.Name}} status={{.State.Status}} owner={{ index .Config.Labels "com.blakinio.owner" }} purpose={{ index .Config.Labels "com.blakinio.purpose" }}' "$CONTAINER_NAME"
-          docker exec -i "$CONTAINER_NAME" bash <<'INNER'
-          set -Eeuo pipefail
+          export DISPLAY=:99
           pid=$(pgrep -x client | head -n1)
           [[ -n "$pid" ]]
           tcp_rows=$(ss -ntp 2>/dev/null | grep "pid=$pid," || true)
           local_count=$(printf '%s\n' "$tcp_rows" | awk '$5 ~ /127\.0\.0\.1:25344$/ || $5 ~ /\[::1\]:25344$/ {n++} END{print n+0}')
           total_count=$(printf '%s\n' "$tcp_rows" | grep -c . || true)
           direct_count=$((total_count-local_count))
-          echo ACTIVE_LOCAL_SOCKS_COUNT=$local_count
-          echo ACTIVE_DIRECT_TCP_COUNT=$direct_count
+          echo ACTIVE_LOCAL_SOCKS_COUNT_BEFORE=$local_count
+          echo ACTIVE_DIRECT_TCP_COUNT_BEFORE=$direct_count
+          (( local_count > 0 && direct_count == 0 ))
+
+          best=''; best_area=0
+          for w in $(xdotool search --onlyvisible --name '^Tibia$' 2>/dev/null || true); do
+            wpid=$(xdotool getwindowpid "$w" 2>/dev/null || true)
+            [[ "$wpid" == "$pid" ]] || continue
+            geom=$(xdotool getwindowgeometry --shell "$w" 2>/dev/null || true)
+            width=$(printf '%s\n' "$geom" | sed -n 's/^WIDTH=//p')
+            height=$(printf '%s\n' "$geom" | sed -n 's/^HEIGHT=//p')
+            [[ -n "$width" && -n "$height" ]] || continue
+            area=$((width*height))
+            if (( area > best_area )); then best=$w; best_area=$area; fi
+          done
+          [[ -n "$best" ]]
+          xdotool windowactivate --sync "$best" 2>/dev/null || true
+          xdotool key --window "$best" Right
+          sleep 1
+          xdotool key --window "$best" Left
+          sleep 1
+          echo BOUNDED_ANTI_IDLE_RIGHT_LEFT_SENT=true
+
+          tcp_rows=$(ss -ntp 2>/dev/null | grep "pid=$pid," || true)
+          local_count=$(printf '%s\n' "$tcp_rows" | awk '$5 ~ /127\.0\.0\.1:25344$/ || $5 ~ /\[::1\]:25344$/ {n++} END{print n+0}')
+          total_count=$(printf '%s\n' "$tcp_rows" | grep -c . || true)
+          direct_count=$((total_count-local_count))
+          echo ACTIVE_LOCAL_SOCKS_COUNT_AFTER=$local_count
+          echo ACTIVE_DIRECT_TCP_COUNT_AFTER=$direct_count
           (( local_count > 0 && direct_count == 0 ))
           echo LIVE_SESSION_RETAINED=true
           INNER
+
+      - name: Verify staging unchanged
+        if: always()
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          docker ps -a --filter 'label=com.docker.compose.project=oteryn-staging' --format '{{.ID}}\t{{.Names}}' | sort >/tmp/oteryn-after.tsv
+          diff -u /tmp/oteryn-before.tsv /tmp/oteryn-after.tsv
