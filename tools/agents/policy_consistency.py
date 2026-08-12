@@ -27,7 +27,7 @@ NUMBER_WORDS = {
 
 REPO_TOKEN = re.compile(r"(?<![A-Za-z0-9_.-])([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)(?![A-Za-z0-9_.-])")
 QUOTED_REPO_TOKEN = re.compile(r"`([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)`")
-MUTATION_TERM = r"(?:writ(?:e|es|ing|ten)|writable|edit(?:s|ed|ing)?|modif(?:y|ies|ied|ying)|push(?:es|ed|ing)?|commit(?:s|ted|ting)?|merge(?:s|d|ing)?|delet(?:e|es|ed|ing)|remov(?:e|es|ed|ing)|mutat(?:e|es|ed|ing|ion|ions))"
+MUTATION_TERM = r"(?:writ(?:e|es|ing|ten)|writable|edit(?:s|ed|ing)?|modif(?:y|ies|ied|ying)|push(?:es|ed|ing)?|commit(?:s|ted|ting)?|merge(?:s|d|ing)?|delet(?:e|es|ed|ing)|remov(?:e|es|ed|ing)|creat(?:e|es|ed|ing|ion|ions)|branch(?:es|ed|ing)?|mutat(?:e|es|ed|ing|ion|ions))"
 MUTATION_WORD = re.compile(rf"\b{MUTATION_TERM}\b", re.I)
 NEGATED_MUTATION = re.compile(
     rf"\b(?:(?:not|never)\s+{MUTATION_TERM}|refrain(?:s|ed|ing)?\s+from\s+{MUTATION_TERM})\b",
