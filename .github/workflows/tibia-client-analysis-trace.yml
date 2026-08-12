@@ -13,7 +13,7 @@ env:
 
 jobs:
   trace:
-    name: Login Tibia character and keep session alive
+    name: Enter Tibia world by detected character row
     runs-on: oteryn-staging
     timeout-minutes: 12
     steps:
@@ -27,7 +27,7 @@ jobs:
           [[ "$(docker inspect --format '{{.State.Status}}' "$CONTAINER_NAME")" == "running" ]]
           docker ps -a --filter 'label=com.docker.compose.project=oteryn-staging' --format '{{.ID}}\t{{.Names}}' | sort >/tmp/oteryn-before.tsv
 
-      - name: Login account, select online row, click detected Ok, and keep client running
+      - name: Login account and double-click detected online character row
         shell: bash
         env:
           TIBIA_TEST_EMAIL: ${{ secrets.TIBIA_TEST_EMAIL }}
@@ -58,7 +58,6 @@ jobs:
             area=$((width*height)); if (( area > best_area )); then best=$w; best_area=$area; fi
           done
           [[ -n "$best" && "$best_area" -ge 600000 ]]
-          # Known-good account login sequence from the successful character-selection run.
           xdotool mousemove --window "$best" 510 302 click 1 || true
           sleep 2
           xdotool mousemove --window "$best" 535 275 click 1
@@ -76,56 +75,52 @@ jobs:
           python3 - <<'PY' >/tmp/select-controls.env
           import csv
           rows=[]
-          with open('/tmp/character-select.tsv', newline='', errors='replace') as f:
-              for r in csv.DictReader(f, delimiter='\t'):
-                  text=(r.get('text') or '').strip()
+          with open('/tmp/character-select.tsv',newline='',errors='replace') as f:
+              for r in csv.DictReader(f,delimiter='\t'):
+                  t=(r.get('text') or '').strip()
                   try:
-                      conf=float(r.get('conf') or -1)
-                      left=int(r.get('left') or 0)//2; top=int(r.get('top') or 0)//2
-                      width=int(r.get('width') or 0)//2; height=int(r.get('height') or 0)//2
-                  except ValueError:
-                      continue
-                  if conf >= 30 and text:
-                      rows.append((text,left,top,width,height))
-          def centre(r): return (r[1]+max(1,r[3]//2), r[2]+max(1,r[4]//2))
+                      c=float(r.get('conf') or -1); l=int(r.get('left') or 0)//2; y=int(r.get('top') or 0)//2; w=int(r.get('width') or 0)//2; h=int(r.get('height') or 0)//2
+                  except ValueError: continue
+                  if c>=30 and t: rows.append((t,l,y,w,h))
+          def ctr(r): return r[1]+max(1,r[3]//2), r[2]+max(1,r[4]//2)
           online=[r for r in rows if r[0].lower()=='online']
-          ok=[r for r in rows if r[0].lower()=='ok']
           select=[r for r in rows if r[0].lower()=='select']
-          if not select: raise SystemExit('Select Character not detected')
-          if not online: raise SystemExit('No online character row marker detected')
-          if not ok: raise SystemExit('Ok button not detected')
-          # Prefer the uppermost online marker in the character list and the lowest/rightmost Ok control.
-          row=min(online, key=lambda r:r[2])
-          button=max(ok, key=lambda r:(r[2],r[1]))
-          rx,ry=centre(row); ox,oy=centre(button)
-          print(f'ROW_X={rx}')
-          print(f'ROW_Y={ry}')
-          print(f'OK_X={ox}')
-          print(f'OK_Y={oy}')
+          ok=[r for r in rows if r[0].lower()=='ok']
+          cancel=[r for r in rows if r[0].lower()=='cancel']
+          if not select or not online: raise SystemExit('Character selection state not proven')
+          row=min(online,key=lambda r:r[2]); rx,ry=ctr(row)
+          print(f'ROW_X={rx}'); print(f'ROW_Y={ry}')
+          # Safe geometry evidence only; no character/account text is emitted.
+          print(f'SAFE_ONLINE_Y={ry}')
+          if ok:
+              _,oy=ctr(max(ok,key=lambda r:(r[2],r[1]))); print(f'SAFE_OK_Y={oy}')
+          if cancel:
+              _,cy=ctr(max(cancel,key=lambda r:(r[2],r[1]))); print(f'SAFE_CANCEL_Y={cy}')
           PY
           source /tmp/select-controls.env
           echo CHARACTER_SELECT_PROVEN=true
           echo SELECT_ONLINE_ROW_DETECTED=true
-          echo OK_CONTROL_DETECTED=true
-          xdotool mousemove --window "$best" "$ROW_X" "$ROW_Y" click 1
-          sleep 2
-          xdotool mousemove --window "$best" "$OK_X" "$OK_Y" click 1
-          sleep 40
+          xdotool mousemove --window "$best" "$ROW_X" "$ROW_Y"
+          xdotool click --repeat 2 --delay 180 1
+          sleep 35
           import -display :99 -window "$best" /tmp/post-entry.png
           convert /tmp/post-entry.png -resize 200% -colorspace Gray -contrast-stretch 1%x1% /tmp/post-entry-ocr.png
           tesseract /tmp/post-entry-ocr.png stdout --psm 11 2>/dev/null >/tmp/post-entry.txt || true
-          # Hard fail if the account-login form is still visible. Success requires multiple game-UI markers.
           python3 - <<'PY'
+          import re
           text=open('/tmp/post-entry.txt',errors='replace').read().lower()
-          if 'password' in text and 'login' in text:
-              raise SystemExit('Account login form still visible after character selection')
-          markers=[m for m in ('health','mana','skills','battle','inventory','prey','store','logout','quests') if m in text]
-          print('GAME_UI_MARKERS=' + ','.join(markers))
-          if len(markers) < 2:
-              raise SystemExit('Game viewport not proven')
+          account_form=('password' in text and 'login' in text)
+          game=[m for m in ('health','mana','skills','battle','inventory','prey','store','logout','quests') if m in text]
+          print('ACCOUNT_LOGIN_FORM_VISIBLE=' + str(account_form).lower())
+          print('GAME_UI_MARKERS=' + ','.join(game))
+          safe=[]
+          for phrase in ('connection','connecting','error','sorry','server','world','queue','offline','online','login'):
+              if phrase in text: safe.append(phrase)
+          print('SAFE_STATE_WORDS=' + ','.join(safe))
+          if account_form or len(game)<2:
+              raise SystemExit('World entry not proven after detected-row double click')
           print('TIBIA_WORLD_ENTRY_PROVEN=true')
           PY
-          # Keep client and WARP processes running. Export privacy-safe screenshot only.
           cp /tmp/post-entry.png /tmp/post-entry-safe.png
           convert /tmp/post-entry-safe.png -fill '#202020' -draw 'rectangle 0,0 1280,70' /tmp/post-entry-safe.png
           pid=$(pgrep -f 'packages/Tibia/bin/client' | head -n1)
