@@ -130,6 +130,29 @@ _oteryn_read_state_key() {
     printf '%s\n' "$value"
 }
 
+_oteryn_write_schema_state_known() {
+    local state_dir="$1" schema_id="$2" release_sha="$3"
+    [[ "$schema_id" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$ ]] || { echo "Cannot persist invalid schema identity." >&2; return 1; }
+    [[ "$release_sha" =~ ^[0-9a-f]{40}$ ]] || { echo "Cannot persist schema state without exact release identity." >&2; return 1; }
+    {
+        printf 'SCHEMA_STATE=known\n'
+        printf 'SCHEMA_COMPATIBILITY_ID=%s\n' "$schema_id"
+        printf 'MIGRATION_TARGET_RELEASE_SHA=%s\n' "$release_sha"
+    } >"$state_dir/schema-state.env.tmp"
+    chmod 600 "$state_dir/schema-state.env.tmp"
+    mv "$state_dir/schema-state.env.tmp" "$state_dir/schema-state.env"
+}
+
+_oteryn_known_schema_identity() {
+    local state_dir="$1" schema_file="$state_dir/schema-state.env" schema_state schema_id
+    [[ -f "$schema_file" ]] || { echo "Managed schema identity is missing; refusing migration-bearing deployment." >&2; return 1; }
+    schema_state="$(_oteryn_read_state_key "$schema_file" SCHEMA_STATE)" || return 1
+    schema_id="$(_oteryn_read_state_key "$schema_file" SCHEMA_COMPATIBILITY_ID)" || return 1
+    [[ "$schema_state" == known ]] || { echo "Managed schema identity is not known; refusing migration-bearing deployment." >&2; return 1; }
+    [[ "$schema_id" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$ ]] || { echo "Managed schema identity is invalid; refusing migration-bearing deployment." >&2; return 1; }
+    printf '%s\n' "$schema_id"
+}
+
 _oteryn_bootstrap_legacy_current_release() {
     local state_dir="$1" current_file="$state_dir/current-release.env" legacy_file="$state_dir/last-good.env"
     local old_platform old_gateway old_canary old_sha observed_schema table_count
@@ -164,29 +187,110 @@ _oteryn_bootstrap_legacy_current_release() {
     observed_schema="observed-${old_sha}"
     bash "$SCRIPT_DIR/release-state.sh" write "$current_file" "$old_sha" \
         "$observed_schema" "$observed_schema" "$old_platform" "$old_gateway" "$old_canary" 1
+    _oteryn_write_schema_state_known "$state_dir" "$observed_schema" "$old_sha"
+}
+
+_oteryn_marketplace_state_file() {
+    printf '%s/marketplace.env\n' "$(_oteryn_deploy_state_dir)"
+}
+
+_oteryn_load_marketplace_runtime_state() {
+    local durable_file source_file line key value seen='|'
+    local -a required=(
+        MARKETPLACE_ENABLED
+        MARKETPLACE_ESCROW_CANARY_ACCOUNT_ID
+        MARKETPLACE_ESCROW_CANARY_ACCOUNT_NAME
+        MARKETPLACE_ESCROW_CANARY_ACCOUNT_CREATION_EPOCH
+        CANARY_CHARACTER_TRANSFER_DB_USER
+        CANARY_CHARACTER_TRANSFER_DB_PASSWORD
+    )
+    durable_file="$(_oteryn_marketplace_state_file)"
+    source_file="$durable_file"
+    if [[ -f "$ENV_FILE" ]] && grep -q '^MARKETPLACE_ENABLED=' "$ENV_FILE"; then
+        source_file="$ENV_FILE"
+    fi
+    [[ -f "$source_file" ]] || return 2
+
+    unset MARKETPLACE_ENABLED MARKETPLACE_ESCROW_CANARY_ACCOUNT_ID MARKETPLACE_ESCROW_CANARY_ACCOUNT_NAME
+    unset MARKETPLACE_ESCROW_CANARY_ACCOUNT_CREATION_EPOCH CANARY_CHARACTER_TRANSFER_DB_USER CANARY_CHARACTER_TRANSFER_DB_PASSWORD
+
+    while IFS= read -r line || [[ -n "$line" ]]; do
+        line="${line%$'\r'}"
+        [[ -z "$line" || "$line" =~ ^[[:space:]]*# ]] && continue
+        [[ "$line" == *=* ]] || { echo "Invalid Marketplace state line." >&2; return 1; }
+        key="${line%%=*}"
+        value="${line#*=}"
+        case "$key" in
+            MARKETPLACE_ENABLED|MARKETPLACE_ESCROW_CANARY_ACCOUNT_ID|MARKETPLACE_ESCROW_CANARY_ACCOUNT_NAME|MARKETPLACE_ESCROW_CANARY_ACCOUNT_CREATION_EPOCH|CANARY_CHARACTER_TRANSFER_DB_USER|CANARY_CHARACTER_TRANSFER_DB_PASSWORD)
+                if [[ "$seen" == *"|$key|"* ]]; then
+                    echo "Duplicate Marketplace state key: $key" >&2
+                    return 1
+                fi
+                seen="${seen}${key}|"
+                printf -v "$key" '%s' "$value"
+                export "$key"
+                ;;
+            *)
+                [[ "$source_file" != "$durable_file" ]] || { echo "Unexpected durable Marketplace state key: $key" >&2; return 1; }
+                ;;
+        esac
+    done < "$source_file"
+
+    local name
+    for name in "${required[@]}"; do
+        [[ -n "${!name:-}" ]] || { echo "Marketplace runtime state is incomplete: $name" >&2; return 1; }
+    done
+    [[ "$MARKETPLACE_ENABLED" == true || "$MARKETPLACE_ENABLED" == false ]] || { echo "Marketplace runtime state has invalid enabled flag." >&2; return 1; }
+    if [[ "$MARKETPLACE_ENABLED" == true ]]; then
+        [[ "$MARKETPLACE_ESCROW_CANARY_ACCOUNT_ID" =~ ^[1-9][0-9]*$ ]] || { echo "Enabled Marketplace runtime state has invalid escrow id." >&2; return 1; }
+        [[ -n "$CANARY_CHARACTER_TRANSFER_DB_USER" && -n "$CANARY_CHARACTER_TRANSFER_DB_PASSWORD" ]] || { echo "Enabled Marketplace runtime state lacks transfer credentials." >&2; return 1; }
+    fi
+}
+
+_oteryn_marketplace_scheduler_id() {
+    local ids count
+    ids="$(command docker ps -a \
+        --filter "label=com.docker.compose.project=${COMPOSE_PROJECT_NAME:-oteryn-staging}" \
+        --filter 'label=com.docker.compose.service=marketplace-scheduler' \
+        --format '{{.ID}}' | sed '/^$/d')" || return 1
+    count="$(printf '%s\n' "$ids" | sed '/^$/d' | wc -l | tr -d ' ')"
+    [[ "$count" -le 1 ]] || { echo "Expected at most one Marketplace scheduler container." >&2; return 1; }
+    printf '%s\n' "$ids"
+}
+
+_oteryn_recreate_marketplace_scheduler() {
+    local marketplace_file="$DEPLOY_DIR/compose.marketplace.yml" scheduler_id scheduler_running scheduler_image
+    local -a marketplace_compose=(command docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" -f "$marketplace_file")
+    [[ -f "$marketplace_file" ]] || { echo "Marketplace Compose file is missing." >&2; return 1; }
+    _oteryn_load_marketplace_runtime_state || { echo "Cannot prove Marketplace runtime settings for scheduler recreation." >&2; return 1; }
+    [[ "$MARKETPLACE_ENABLED" == true ]] || { echo "Refusing to recreate Marketplace scheduler while durable/effective state is disabled." >&2; return 1; }
+    "${marketplace_compose[@]}" up -d --force-recreate marketplace-scheduler
+    scheduler_id="$(_oteryn_marketplace_scheduler_id)" || return 1
+    [[ -n "$scheduler_id" ]] || { echo "Marketplace scheduler was not recreated." >&2; return 1; }
+    scheduler_running="$(command docker inspect --format '{{.State.Running}}' "$scheduler_id")" || return 1
+    scheduler_image="$(command docker inspect --format '{{.Config.Image}}' "$scheduler_id")" || return 1
+    [[ "$scheduler_running" == true ]] || { echo "Marketplace scheduler is not running after recreation." >&2; return 1; }
+    [[ "$scheduler_image" == "$PLATFORM_IMAGE" ]] || { echo "Marketplace scheduler image does not match the selected Platform runtime image." >&2; return 1; }
 }
 
 _oteryn_quiesce_platform_db_consumers() {
-    local marketplace_file="$DEPLOY_DIR/compose.marketplace.yml" scheduler_id scheduler_running
+    local scheduler_id scheduler_running
     local -a base_compose=(command docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE")
-    local -a marketplace_compose=(command docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" -f "$marketplace_file")
 
     OTERYN_MARKETPLACE_SCHEDULER_WAS_RUNNING=0
     export OTERYN_MARKETPLACE_SCHEDULER_WAS_RUNNING
-    if [[ -f "$marketplace_file" ]]; then
-        scheduler_id="$("${marketplace_compose[@]}" ps -a -q marketplace-scheduler 2>/dev/null || true)"
-        if [[ -n "$scheduler_id" ]]; then
+    scheduler_id="$(_oteryn_marketplace_scheduler_id)" || return 1
+    if [[ -n "$scheduler_id" ]]; then
+        scheduler_running="$(command docker inspect --format '{{.State.Running}}' "$scheduler_id")" || return 1
+        if [[ "$scheduler_running" == true ]]; then
+            OTERYN_MARKETPLACE_SCHEDULER_WAS_RUNNING=1
+            export OTERYN_MARKETPLACE_SCHEDULER_WAS_RUNNING
+            command docker stop "$scheduler_id" >/dev/null
             scheduler_running="$(command docker inspect --format '{{.State.Running}}' "$scheduler_id")" || return 1
-            if [[ "$scheduler_running" == true ]]; then
-                OTERYN_MARKETPLACE_SCHEDULER_WAS_RUNNING=1
-                export OTERYN_MARKETPLACE_SCHEDULER_WAS_RUNNING
-                "${marketplace_compose[@]}" stop marketplace-scheduler
-                scheduler_running="$(command docker inspect --format '{{.State.Running}}' "$scheduler_id")" || return 1
-                [[ "$scheduler_running" == false ]] || {
-                    echo "Deployment rejected: marketplace-scheduler is still running before migration backup." >&2
-                    return 1
-                }
-            fi
+            [[ "$scheduler_running" == false ]] || {
+                echo "Deployment rejected: marketplace-scheduler is still running before migration backup." >&2
+                return 1
+            }
         fi
     fi
 
@@ -194,13 +298,30 @@ _oteryn_quiesce_platform_db_consumers() {
 }
 
 _oteryn_restore_quiesced_consumers_after_migrate() {
-    local marketplace_file="$DEPLOY_DIR/compose.marketplace.yml"
-    local -a marketplace_compose=(command docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" -f "$marketplace_file")
     if [[ "${OTERYN_MARKETPLACE_SCHEDULER_WAS_RUNNING:-0}" == 1 ]]; then
-        [[ -f "$marketplace_file" ]] || { echo "Marketplace scheduler was quiesced but its Compose file is missing." >&2; return 1; }
-        "${marketplace_compose[@]}" up -d marketplace-scheduler
+        _oteryn_recreate_marketplace_scheduler || return 1
         OTERYN_MARKETPLACE_SCHEDULER_WAS_RUNNING=0
         export OTERYN_MARKETPLACE_SCHEDULER_WAS_RUNNING
+    fi
+}
+
+_oteryn_reconcile_marketplace_scheduler_after_runtime_change() {
+    local scheduler_id state_rc
+    scheduler_id="$(_oteryn_marketplace_scheduler_id)" || return 1
+    set +e
+    _oteryn_load_marketplace_runtime_state
+    state_rc=$?
+    set -e
+    if [[ "$state_rc" -eq 2 ]]; then
+        [[ -z "$scheduler_id" ]] || { echo "Marketplace scheduler exists but no durable/effective Marketplace state is available." >&2; return 1; }
+        return 0
+    fi
+    [[ "$state_rc" -eq 0 ]] || return "$state_rc"
+
+    if [[ "$MARKETPLACE_ENABLED" == true ]]; then
+        _oteryn_recreate_marketplace_scheduler || return 1
+    elif [[ -n "$scheduler_id" ]]; then
+        command docker rm -f "$scheduler_id" >/dev/null
     fi
 }
 
@@ -225,7 +346,7 @@ _oteryn_before_platform_migrate() {
         chmod 600 "$state_dir/last-good-release.env.tmp"
         mv "$state_dir/last-good-release.env.tmp" "$state_dir/last-good-release.env"
         old_sha="$(_oteryn_read_state_key "$current_file" RELEASE_SHA)" || return 1
-        old_schema="$(_oteryn_read_state_key "$current_file" SCHEMA_COMPATIBILITY_ID)" || return 1
+        old_schema="$(_oteryn_known_schema_identity "$state_dir")" || return 1
 
         _oteryn_quiesce_platform_db_consumers || return 1
 
@@ -261,13 +382,7 @@ _oteryn_after_platform_migrate() {
     local state_dir release_sha
     state_dir="$(_oteryn_deploy_state_dir)"
     release_sha="$(_oteryn_release_sha)" || return 1
-    {
-        printf 'SCHEMA_STATE=known\n'
-        printf 'SCHEMA_COMPATIBILITY_ID=%s\n' "$OTERYN_SCHEMA_COMPATIBILITY_ID"
-        printf 'MIGRATION_TARGET_RELEASE_SHA=%s\n' "$release_sha"
-    } >"$state_dir/schema-state.env.tmp"
-    chmod 600 "$state_dir/schema-state.env.tmp"
-    mv "$state_dir/schema-state.env.tmp" "$state_dir/schema-state.env"
+    _oteryn_write_schema_state_known "$state_dir" "$OTERYN_SCHEMA_COMPATIBILITY_ID" "$release_sha"
     _oteryn_restore_quiesced_consumers_after_migrate || return 1
 }
 
