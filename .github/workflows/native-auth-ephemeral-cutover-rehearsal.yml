@@ -35,7 +35,7 @@ jobs:
       artifact-digest: ${{ steps.upload.outputs.artifact-digest }}
     steps:
       - name: Checkout exact Platform/Gateway source
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           ref: ${{ env.GATEWAY_REF }}
           persist-credentials: false
@@ -90,7 +90,7 @@ jobs:
       VCPKG_NUGET_API_KEY: ${{ github.token }}
     steps:
       - name: Checkout exact Canary source
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           repository: blakinio/canary
           ref: ${{ env.CANARY_REF }}
@@ -182,7 +182,7 @@ jobs:
       VCPKG_NUGET_API_KEY: ${{ github.token }}
     steps:
       - name: Checkout exact OTClient source
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           repository: blakinio/otclient
           ref: ${{ env.OTCLIENT_REF }}
@@ -281,19 +281,19 @@ jobs:
       OTCLIENT_ARTIFACT_DIGEST: ${{ needs.build-otclient.outputs.artifact-digest }}
     steps:
       - name: Checkout validation runner head
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           persist-credentials: false
 
       - name: Checkout exact Platform runtime source
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           ref: ${{ env.PLATFORM_REF }}
           path: platform-source
           persist-credentials: false
 
       - name: Checkout exact Canary runtime source
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           repository: blakinio/canary
           ref: ${{ env.CANARY_REF }}
@@ -301,7 +301,7 @@ jobs:
           persist-credentials: false
 
       - name: Checkout exact OTClient runtime source
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           repository: blakinio/otclient
           ref: ${{ env.OTCLIENT_REF }}
@@ -309,7 +309,7 @@ jobs:
           persist-credentials: false
 
       - name: Checkout exact Canary rehearsal harness
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           repository: blakinio/canary
           ref: ${{ env.CANARY_HARNESS_REF }}
@@ -317,7 +317,7 @@ jobs:
           persist-credentials: false
 
       - name: Checkout matching Tibia client assets
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           repository: dudantas/tibia-client
           path: tibia-client-assets
