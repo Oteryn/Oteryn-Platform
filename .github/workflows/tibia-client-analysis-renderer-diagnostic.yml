@@ -1,0 +1,148 @@
+name: Tibia Linux Renderer Diagnostic
+
+on:
+  push:
+    branches: [ops/oteryn-tibia-client-analysis-20260811]
+    paths: [.github/workflows/tibia-client-analysis-renderer-diagnostic.yml]
+
+permissions:
+  contents: read
+
+env:
+  CONTAINER_NAME: oteryn-tibia-client-analysis
+
+jobs:
+  diagnose:
+    name: Diagnose Xvfb and Tibia renderer without login
+    runs-on: oteryn-staging
+    timeout-minutes: 5
+    steps:
+      - name: Verify owned runtime and snapshot staging
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          [[ "$RUNNER_NAME" == "oteryn-synology-staging" ]]
+          [[ "$(docker inspect --format '{{ index .Config.Labels "com.blakinio.owner" }}' "$CONTAINER_NAME")" == "oteryn" ]]
+          [[ "$(docker inspect --format '{{ index .Config.Labels "com.blakinio.purpose" }}' "$CONTAINER_NAME")" == "tibia-client-analysis" ]]
+          docker ps -a --filter 'label=com.docker.compose.project=oteryn-staging' --format '{{.ID}}\t{{.Names}}' | sort >/tmp/oteryn-before.tsv
+
+      - name: Inspect renderer capabilities and sanitized client graphics log
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          docker exec -i "$CONTAINER_NAME" bash <<'INNER'
+          set -Eeuo pipefail
+          export DISPLAY=:99 HOME=/data/home
+          echo XVFB_PROCESS_PRESENT=$(pgrep -f '^Xvfb :99' >/dev/null && echo true || echo false)
+          if command -v xdpyinfo >/dev/null 2>&1 && xdpyinfo -display :99 >/tmp/xdpyinfo.txt 2>/dev/null; then
+            echo X_DISPLAY_RESPONDS=true
+            grep -q 'GLX' /tmp/xdpyinfo.txt && echo X_GLX_EXTENSION=true || echo X_GLX_EXTENSION=false
+            grep -q 'MIT-SHM' /tmp/xdpyinfo.txt && echo X_MIT_SHM_EXTENSION=true || echo X_MIT_SHM_EXTENSION=false
+          else
+            echo X_DISPLAY_RESPONDS=false
+          fi
+
+          echo GLXINFO_PRESENT=$(command -v glxinfo >/dev/null 2>&1 && echo true || echo false)
+          if ! command -v glxinfo >/dev/null 2>&1; then
+            apt-get update -qq
+            DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends mesa-utils >/dev/null
+            echo MESA_UTILS_INSTALLED_IN_OWNED_RUNTIME=true
+          fi
+          if glxinfo -B >/tmp/glxinfo.txt 2>/tmp/glxinfo.err; then
+            echo GLXINFO_SUCCESS=true
+            python3 - <<'PY'
+          from pathlib import Path
+          t=Path('/tmp/glxinfo.txt').read_text(errors='replace').lower()
+          print('GLX_DIRECT_RENDERING=' + ('true' if 'direct rendering: yes' in t else 'false'))
+          print('GLX_RENDERER_LLVMPIPE=' + ('true' if 'llvmpipe' in t else 'false'))
+          print('GLX_RENDERER_SOFTWARE=' + ('true' if any(x in t for x in ('llvmpipe','softpipe','software rasterizer')) else 'false'))
+          print('GLX_OPENGL_CORE_3_PLUS=' + ('true' if any(x in t for x in ('core profile version string: 3.','core profile version string: 4.')) else 'false'))
+          PY
+          else
+            echo GLXINFO_SUCCESS=false
+          fi
+
+          echo VULKANINFO_PRESENT=$(command -v vulkaninfo >/dev/null 2>&1 && echo true || echo false)
+          if ! command -v vulkaninfo >/dev/null 2>&1; then
+            apt-get update -qq
+            DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends vulkan-tools >/dev/null || true
+            echo VULKAN_TOOLS_INSTALL_ATTEMPTED=true
+          fi
+          if command -v vulkaninfo >/dev/null 2>&1 && timeout 20s vulkaninfo --summary >/tmp/vulkaninfo.txt 2>/tmp/vulkaninfo.err; then
+            echo VULKANINFO_SUCCESS=true
+            python3 - <<'PY'
+          from pathlib import Path
+          t=Path('/tmp/vulkaninfo.txt').read_text(errors='replace').lower()
+          print('VULKAN_DEVICE_LLVMPIPE=' + ('true' if 'llvmpipe' in t else 'false'))
+          print('VULKAN_DEVICE_CPU=' + ('true' if 'device type' in t and 'cpu' in t else 'false'))
+          print('VULKAN_DEVICE_COUNT=' + str(t.count('device name')))
+          PY
+          else
+            echo VULKANINFO_SUCCESS=false
+            python3 - <<'PY'
+          from pathlib import Path
+          import re
+          p=Path('/tmp/vulkaninfo.err')
+          raw=p.read_text(errors='replace').lower() if p.exists() else ''
+          vocab={'error','failed','failure','vulkan','display','surface','driver','device','instance','extension','xlib','xcb','headless','mesa','loader','icd','permission','denied','found','cannot','could','not','initialize','initialization'}
+          toks=[]
+          for w in re.findall(r'[a-z]+',raw):
+              if w in vocab and w not in toks: toks.append(w)
+          print('VULKANINFO_SAFE_ERROR_TOKENS=' + ','.join(toks))
+          PY
+          fi
+
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          candidates=[
+              Path('/data/runtime/client-transparent-warp-v2.log'),
+              Path('/data/runtime/client-userspace-warp.log'),
+          ]
+          vocab={'vulkan','opengl','glx','egl','renderer','rendering','graphics','gpu','device','driver','mesa','llvmpipe','xlib','xcb','surface','swapchain','failed','failure','error','fatal','warning','unsupported','support','initialize','initialization','available','extension','instance','physical','software','hardware','display','window','shader','texture','framebuffer'}
+          for p in candidates:
+              if not p.exists():
+                  continue
+              lines=p.read_text(errors='replace').splitlines()
+              matching=[]
+              for line in lines[-1000:]:
+                  low=line.lower()
+                  if not any(k in low for k in ('vulkan','opengl','glx','egl','renderer','render','graphics','gpu','mesa')):
+                      continue
+                  words=re.findall(r'[A-Za-z]+',low)
+                  kept=[]
+                  for w in words:
+                      if w in vocab and w not in kept: kept.append(w)
+                  if kept:
+                      sig=' '.join(kept)
+                      if sig not in matching: matching.append(sig)
+              print(f'{p.name.upper().replace("-","_").replace(".","_")}_GRAPHICS_SIGNATURE_COUNT={len(matching)}')
+              for i,s in enumerate(matching[:30],1):
+                  print(f'{p.name.upper().replace("-","_").replace(".","_")}_GRAPHICS_SIGNATURE_{i}={s}')
+          PY
+
+          pkg="$HOME/.local/share/CipSoft GmbH/Tibia/packages/Tibia"
+          client="$pkg/bin/client"
+          if [[ -x "$client" ]]; then
+            strings "$client" | grep -Eai '(^|[^a-z])(vulkan|opengl|renderer|rendering backend|graphics api)([^a-z]|$)' | head -n 200 >/tmp/client-renderer-strings.txt || true
+            echo CLIENT_RENDERER_STRING_COUNT=$(wc -l </tmp/client-renderer-strings.txt)
+            python3 - <<'PY'
+          from pathlib import Path
+          import re
+          raw=Path('/tmp/client-renderer-strings.txt').read_text(errors='replace').lower()
+          keys=[]
+          for pat in ('vulkan','opengl','renderer','graphics api','software'):
+              if pat in raw: keys.append(pat.replace(' ','_'))
+          print('CLIENT_RENDERER_STRING_FAMILIES=' + ','.join(keys))
+          PY
+          fi
+          INNER
+
+      - name: Verify canonical staging unchanged
+        if: always()
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          docker ps -a --filter 'label=com.docker.compose.project=oteryn-staging' --format '{{.ID}}\t{{.Names}}' | sort >/tmp/oteryn-after.tsv
+          diff -u /tmp/oteryn-before.tsv /tmp/oteryn-after.tsv
+          docker inspect --format 'analysis_name={{.Name}} status={{.State.Status}} owner={{ index .Config.Labels "com.blakinio.owner" }} purpose={{ index .Config.Labels "com.blakinio.purpose" }}' "$CONTAINER_NAME"
