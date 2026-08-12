@@ -17,7 +17,9 @@ TOP_LEVEL_ON = re.compile(r"(?m)^on:\s*$")
 TOP_LEVEL_PERMISSIONS = re.compile(
     r"(?m)^permissions:\s*(?:\{\s*\}|read-all|write-all)?\s*$"
 )
-DIRECT_MAPPING_KEY = re.compile(r"^  ([A-Za-z0-9_-]+):(?:\s.*)?$")
+DIRECT_MAPPING_KEY = re.compile(
+    r'^  (?:(?P<plain>[A-Za-z0-9_-]+)|"(?P<double>[A-Za-z0-9_-]+)"|\'(?P<single>[A-Za-z0-9_-]+)\'):(?:\s.*)?$'
+)
 DOMAIN_EVENTS = frozenset({"pull_request", "pull_request_target", "push"})
 MANUAL_EVENTS = frozenset({"issue_comment", "workflow_dispatch"})
 SUPPORTED_EVENTS = frozenset({*DOMAIN_EVENTS, *MANUAL_EVENTS, "schedule", "workflow_call"})
@@ -33,7 +35,9 @@ def _top_level_on_events(text: str) -> set[str]:
     A two-space key elsewhere (for example a job named ``pull_request``) must
     never be mistaken for a workflow event. The repository contract already
     requires block-style ``on:`` at column zero, so a conservative indentation
-    parser is safer here than a workflow-wide regex.
+    parser is safer here than a workflow-wide regex. Quoted YAML keys are
+    accepted only for the same bounded key grammar; any unparseable direct
+    child fails closed instead of disappearing from the inventory.
     """
 
     lines = text.splitlines()
@@ -51,9 +55,18 @@ def _top_level_on_events(text: str) -> set[str]:
             continue
         if not line.startswith((" ", "\t")):
             break
+        if line.startswith("\t"):
+            raise WorkflowInventoryError("unparseable top-level workflow event indentation")
+        indent = len(line) - len(line.lstrip(" "))
+        if indent == 1:
+            raise WorkflowInventoryError("unparseable top-level workflow event indentation")
+        if indent != 2:
+            continue
         match = DIRECT_MAPPING_KEY.match(line)
-        if match:
-            events.add(match.group(1))
+        if match is None:
+            raise WorkflowInventoryError(f"unparseable top-level workflow event key: {line.strip()}")
+        event = next(group for group in match.groups() if group is not None)
+        events.add(event)
     return events
 
 
