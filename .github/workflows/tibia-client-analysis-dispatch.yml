@@ -1,0 +1,108 @@
+name: Tibia Client Analysis Dispatch
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - .github/workflows/tibia-client-analysis-dispatch.yml
+
+permissions:
+  contents: read
+
+env:
+  CONTAINER_NAME: oteryn-tibia-client-analysis
+
+jobs:
+  decode:
+    name: Decode Worldmap dispatch table
+    runs-on: oteryn-staging
+    timeout-minutes: 10
+    steps:
+      - name: Verify owned runtime and snapshot staging
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          [[ "$RUNNER_NAME" == "oteryn-synology-staging" ]]
+          [[ "$(docker inspect --format '{{ index .Config.Labels "com.blakinio.owner" }}' "$CONTAINER_NAME")" == "oteryn" ]]
+          [[ "$(docker inspect --format '{{ index .Config.Labels "com.blakinio.purpose" }}' "$CONTAINER_NAME")" == "tibia-client-analysis" ]]
+          [[ "$(docker inspect --format '{{.State.Status}}' "$CONTAINER_NAME")" == "running" ]]
+          docker ps -a --filter 'label=com.docker.compose.project=oteryn-staging' --format '{{.ID}}\t{{.Names}}' | sort > /tmp/oteryn-before.tsv
+          test -s /tmp/oteryn-before.tsv
+          docker exec "$CONTAINER_NAME" bash -lc '
+            set -Eeuo pipefail
+            c=/data/client-15.32.df7b29/bin/client
+            [[ "$(stat -c %s "$c")" == 51965216 ]]
+            [[ "$(sha256sum "$c" | awk "{print \$1}")" == e6c244bd39fe2e0632f6f000efd3147164696efa8e901718668e0442325ff7fe ]]
+          '
+
+      - name: Decode Qt6 Worldmap metadata and jump table
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          docker exec -i "$CONTAINER_NAME" /data/reverse-venv/bin/python - <<'PY'
+          from pathlib import Path
+          from elftools.elf.elffile import ELFFile
+          import struct, subprocess, re
+
+          client=Path('/data/client-15.32.df7b29/bin/client')
+          raw=client.read_bytes()
+          with client.open('rb') as f:
+              elf=ELFile=ELFFile(f)
+              secs={s.name:(int(s['sh_offset']),int(s['sh_size']),int(s['sh_addr'])) for s in elf.iter_sections()}
+          def vaoff(va):
+              for n,(o,z,a) in secs.items():
+                  if a <= va < a+z: return o+(va-a)
+              raise ValueError(hex(va))
+          def u32(o): return struct.unpack_from('<I',raw,o)[0]
+          def i32(o): return struct.unpack_from('<i',raw,o)[0]
+          qmeta=0x3087800; sva=0x1cd8a54; mva=0x1cd8820; smc=0xdf2a60; jva=0x1d8bd10
+          so=vaoff(sva); mo=vaoff(mva); jo=vaoff(jva)
+          h=[u32(mo+4*i) for i in range(14)]
+          rev,cni,cic,cid,mc,md,pc,pd,ec,ed,cc,cd,flags,sc=h
+          def qs(i):
+              rel=u32(so+8*i); size=u32(so+8*i+4)
+              return raw[so+rel:so+rel+size].decode('utf-8','replace')
+          print('QMETADATA',hex(qmeta),hex(sva),hex(mva),hex(smc),hex(jva))
+          print('HEADER',*h)
+          print('CLASS',cni,repr(qs(cni)))
+          assert qs(cni)=='tibia::worldmap::TWorldmapProtocolMessageHandler'
+          assert mc==14 and sc==1
+          mb=mo+md*4
+          names=[]
+          for idx in range(mc):
+              row=[u32(mb+4*(idx*6+k)) for k in range(6)]
+              name=qs(row[0]); names.append(name)
+              print('METHOD',idx,repr(name),'argc',row[1],'params',row[2],'tag',repr(qs(row[3])),'flags',hex(row[4]),'metatype',row[5],'raw',row)
+          fi=names.index('handleFullMapMessage'); di=names.index('handleFieldDataMessage')
+          print('PROVEN_INDEX FullMap',fi)
+          print('PROVEN_INDEX FieldData',di)
+          targets=[]
+          for idx,name in enumerate(names):
+              rel=i32(jo+4*idx); target=jva+rel; targets.append(target)
+              print('JUMP',idx,repr(name),f'rel={rel:+#x}',f'target=0x{target:x}')
+          def dis(a,n=0x180):
+              return subprocess.check_output(['objdump','-d','-C',f'--start-address={a}',f'--stop-address={a+n}',str(client)],text=True,errors='replace')
+          for label,idx in [('FULLMAP',fi),('FIELDDATA',di)]:
+              print('===',label,'CASE',hex(targets[idx]),'===')
+              txt=dis(targets[idx])
+              print(txt)
+              dest=[]
+              for ln in txt.splitlines():
+                  m=re.search(r'\b(?:call|jmp)\s+([0-9a-f]+)\b',ln)
+                  if m:
+                      a=int(m.group(1),16)
+                      if a not in dest: dest.append(a)
+              print(label+'_DIRECT_BRANCH_TARGETS',','.join(hex(x) for x in dest[:16]))
+              for a in dest[:8]:
+                  print('===',label,'TARGET',hex(a),'===')
+                  print(dis(a,0x100))
+          PY
+
+      - name: Verify canonical staging unchanged
+        if: always()
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          docker ps -a --filter 'label=com.docker.compose.project=oteryn-staging' --format '{{.ID}}\t{{.Names}}' | sort > /tmp/oteryn-after.tsv
+          if [[ -f /tmp/oteryn-before.tsv ]]; then diff -u /tmp/oteryn-before.tsv /tmp/oteryn-after.tsv; fi
+          docker inspect --format 'analysis_name={{.Name}} status={{.State.Status}} exit={{.State.ExitCode}} oom={{.State.OOMKilled}} owner={{ index .Config.Labels "com.blakinio.owner" }} purpose={{ index .Config.Labels "com.blakinio.purpose" }}' "$CONTAINER_NAME"
