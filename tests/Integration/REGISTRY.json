@@ -1,11 +1,14 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "tests": [
     {
       "path": "tests/Integration/GameCatalog/CrossRepositoryGameCatalogTest.php",
       "workflow": ".github/workflows/game-catalog-contract.yml",
+      "event": "workflow_dispatch",
+      "job": "cross-repository-staging",
       "invocation_marker": "tests/Integration/GameCatalog/CrossRepositoryGameCatalogTest.php",
-      "trigger_marker": "tests/Integration/GameCatalog/**",
+      "trigger_marker": "run_cross_repository_staging:",
+      "job_condition_marker": "github.event_name == 'workflow_dispatch' && inputs.run_cross_repository_staging",
       "required_environment": [
         "GAME_CATALOG_BASELINE_PATH",
         "GAME_CATALOG_CANDIDATE_PATH",
