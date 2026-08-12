@@ -1,0 +1,120 @@
+name: Tibia Client TUN Capability
+
+on:
+  push:
+    branches: [ops/oteryn-tibia-client-analysis-20260811]
+    paths: [.github/workflows/tibia-client-analysis-tun-capability.yml]
+
+permissions:
+  contents: read
+
+env:
+  CONTAINER_NAME: oteryn-tibia-client-analysis
+
+jobs:
+  probe:
+    name: Probe owned Tibia container TUN capability
+    runs-on: oteryn-staging
+    timeout-minutes: 4
+    steps:
+      - name: Verify owned runtime and snapshot staging
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          [[ "$RUNNER_NAME" == "oteryn-synology-staging" ]]
+          [[ "$(docker inspect --format '{{ index .Config.Labels "com.blakinio.owner" }}' "$CONTAINER_NAME")" == "oteryn" ]]
+          [[ "$(docker inspect --format '{{ index .Config.Labels "com.blakinio.purpose" }}' "$CONTAINER_NAME")" == "tibia-client-analysis" ]]
+          [[ "$(docker inspect --format '{{.State.Status}}' "$CONTAINER_NAME")" == "running" ]]
+          docker ps -a --filter 'label=com.docker.compose.project=oteryn-staging' --format '{{.ID}}\t{{.Names}}' | sort >/tmp/oteryn-before.tsv
+
+      - name: Probe TUN and debugger capabilities without route mutation
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          docker exec -i "$CONTAINER_NAME" bash <<'INNER'
+          set -Eeuo pipefail
+          cleanup() {
+            ip link del oteryn-probe-tun 2>/dev/null || true
+          }
+          trap cleanup EXIT
+
+          echo DEV_NET_TUN_PRESENT=$(test -c /dev/net/tun && echo true || echo false)
+          for cmd in ip capsh tun2socks badvpn-tun2socks wg wireguard-go curl iptables nft gdb strace; do
+            if command -v "$cmd" >/dev/null 2>&1; then
+              echo "CMD_${cmd//-/_}=true"
+            else
+              echo "CMD_${cmd//-/_}=false"
+            fi
+          done
+
+          if command -v capsh >/dev/null 2>&1; then
+            if capsh --print 2>/dev/null | grep -qE 'Current:.*cap_net_admin'; then
+              echo CAP_NET_ADMIN_EFFECTIVE=true
+            else
+              echo CAP_NET_ADMIN_EFFECTIVE=false
+            fi
+            if capsh --print 2>/dev/null | grep -qE 'Current:.*cap_sys_ptrace'; then
+              echo CAP_SYS_PTRACE_EFFECTIVE=true
+            else
+              echo CAP_SYS_PTRACE_EFFECTIVE=false
+            fi
+          else
+            echo CAP_NET_ADMIN_EFFECTIVE=unknown
+            echo CAP_SYS_PTRACE_EFFECTIVE=unknown
+          fi
+
+          if [[ -r /proc/sys/kernel/yama/ptrace_scope ]]; then
+            echo PTRACE_SCOPE=$(cat /proc/sys/kernel/yama/ptrace_scope)
+          else
+            echo PTRACE_SCOPE=unavailable
+          fi
+
+          if [[ -c /dev/net/tun ]] && command -v ip >/dev/null 2>&1; then
+            if ip tuntap add dev oteryn-probe-tun mode tun 2>/tmp/tun-probe.err; then
+              echo TUN_CREATE=true
+              ip link set dev oteryn-probe-tun up
+              echo TUN_LINK_UP=true
+              ip link del oteryn-probe-tun
+              echo TUN_DELETE=true
+            else
+              echo TUN_CREATE=false
+              python3 - <<'PY'
+          from pathlib import Path
+          text=Path('/tmp/tun-probe.err').read_text(errors='replace').lower()
+          categories=[]
+          for token in ('permission','operation not permitted','invalid argument','not supported','device','busy'):
+              if token in text:
+                  categories.append(token.replace(' ','_'))
+          print('TUN_CREATE_ERROR_CATEGORIES=' + (','.join(categories) if categories else 'other'))
+          PY
+            fi
+          else
+            echo TUN_CREATE=unavailable
+          fi
+
+          pgrep -f '/wireproxy .*wireproxy.conf' >/dev/null
+          curl --socks5-hostname 127.0.0.1:25344 -fsS --max-time 10 https://www.cloudflare.com/cdn-cgi/trace \
+            | grep -E '^(loc|warp)='
+
+          if command -v apt-cache >/dev/null 2>&1; then
+            echo APT_CACHE_PRESENT=true
+            for pkg in badvpn tun2socks; do
+              candidate=$(apt-cache policy "$pkg" 2>/dev/null | awk '/Candidate:/ {print $2; exit}')
+              [[ -n "$candidate" ]] || candidate=none
+              echo "APT_${pkg^^}_CANDIDATE=$candidate"
+            done
+            matches=$(apt-cache search 'tun2socks|badvpn' 2>/dev/null | wc -l | tr -d ' ')
+            echo APT_TUN2SOCKS_SEARCH_COUNT=$matches
+          else
+            echo APT_CACHE_PRESENT=false
+          fi
+          INNER
+
+      - name: Verify canonical staging unchanged and analysis runtime healthy
+        if: always()
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          docker ps -a --filter 'label=com.docker.compose.project=oteryn-staging' --format '{{.ID}}\t{{.Names}}' | sort >/tmp/oteryn-after.tsv
+          diff -u /tmp/oteryn-before.tsv /tmp/oteryn-after.tsv
+          docker inspect --format 'analysis_name={{.Name}} status={{.State.Status}} owner={{ index .Config.Labels "com.blakinio.owner" }} purpose={{ index .Config.Labels "com.blakinio.purpose" }}' "$CONTAINER_NAME"
