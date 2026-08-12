@@ -48,8 +48,6 @@ jobs:
 
           best=''; best_area=0
           for w in $(xdotool search --onlyvisible --name '^Tibia$' 2>/dev/null || true); do
-            wpid=$(xdotool getwindowpid "$w" 2>/dev/null || true)
-            [[ "$wpid" == "$pid" ]] || continue
             geom=$(xdotool getwindowgeometry --shell "$w" 2>/dev/null || true)
             width=$(printf '%s\n' "$geom" | sed -n 's/^WIDTH=//p')
             height=$(printf '%s\n' "$geom" | sed -n 's/^HEIGHT=//p')
@@ -58,6 +56,7 @@ jobs:
             if (( area > best_area )); then best=$w; best_area=$area; fi
           done
           [[ -n "$best" ]]
+          echo TIBIA_WINDOW=$best
           xdotool windowactivate --sync "$best" 2>/dev/null || true
           xdotool key --window "$best" Right
           sleep 1
