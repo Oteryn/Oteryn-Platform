@@ -80,8 +80,8 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-12T14:25:00+02:00
-head: f1c04011018132c66b6005db9a10b280007e8ce9
+updated_at: 2026-08-12T14:47:00+02:00
+head: ea93f299c4a7b1f17bb5c5f105899c45f21e5bba
 branch: fix/engineering-excellence-hardening
 pr: 1003
 status: validating
@@ -108,23 +108,26 @@ owned_paths:
   - docs/agents/tasks/archive/OTERYN-20260811-engineering-excellence-hardening.md
 proven:
   - PR #992 and Issue #991 are terminal; the policy-consistency task is archived and its Agent Governance/tools ownership is released.
-  - Protected main 25ca5180849996462dfcfd2a0914eb6d765a47d3 was incorporated into the task branch by history-preserving merge commit 794c1f2a86a1d81de13aac49ccfc0d9c3acec788 with force=false.
-  - Compare after synchronization reported behind_by=0 and preserved the bounded engineering-hardening diff while taking newer governance and portal evidence from main.
+  - Protected main 25ca5180849996462dfcfd2a0914eb6d765a47d3 was incorporated by history-preserving merge commit 794c1f2a86a1d81de13aac49ccfc0d9c3acec788 with force=false; compare reported behind_by=0.
   - No open PR for Issue #1008 was visible before the Agent Governance edit; PR #1013 for Issue #1007 was previously verified to avoid the deploy-synology-staging workflow owned by this task.
-  - Material head f1c04011018132c66b6005db9a10b280007e8ce9 extends the landed Agent Governance workflow without removing policy-consistency, checkpoint, liveness or Control Room gates.
-  - Agent Governance now executes `python tools/validation/test_prompt_eval.py` and `python tools/validation/prompt_eval.py`, and pull-request/push path filters include both prompt-eval harness files; the eval contract itself is already covered by `docs/agents/**`.
-  - Deep System Validation retains the deterministic acceptance `npm ci` edit based on the committed lockfile.
-  - The current PR diff contains exactly 18 task-related paths after synchronization; BUILD_TEST_MATRIX.md and TEST_STRATEGY.md no longer differ from current main.
+  - Material head f1c04011018132c66b6005db9a10b280007e8ce9 extended landed Agent Governance with blocking prompt-eval unit/live steps and harness path triggers while preserving every #992 policy/checkpoint/liveness/Control Room gate.
+  - Final-checkpoint CI on 507bbec52839e6199e89061a2d85475ef37fb119 exposed a real restack regression: CI referenced `tools/validation/test_verify_integration_test_registration.py` and `tools/validation/test_workflow_inventory.py`, but both files were absent from the branch.
+  - Both missing test files existed in previously reviewed material commit 4229facd42de8b7ec2a2b5954d7358f734fe8a37 and were restored without redesign as commits a448e5b6fb75610d6cb407da3f07788427a17783 and ea93f299c4a7b1f17bb5c5f105899c45f21e5bba.
+  - CI run 31598034929 on ea93f299c4a7b1f17bb5c5f105899c45f21e5bba passed `classify-changes`, including routing contracts, Integration registry tests/live validator, deterministic prompt tests/live evaluator, workflow inventory tests/live validator, checkpoint validation and path classification; runtime-tests proceeded afterward.
+  - Agent Governance run 31598034956, job 94118258644, passed on ea93f299c4a7b1f17bb5c5f105899c45f21e5bba, including policy consistency, both prompt-contract steps, checkpoint validation, live ownership/liveness and Control Room.
+  - Deep System Validation retains acceptance dependency installation through committed lockfile via `npm ci`.
 derived:
-  - All known material implementation work for Issue #1002 is present; only exact-final-head validation, independent review, merge and lifecycle closeout remain.
+  - The only discovered final-checkpoint implementation failure was the two missing regression files, and focused validation now proves that repair; full exact-head gates and independent review remain.
 unknown:
-  - Terminal results of repository-required workflows on the checkpoint-only final head created by this update.
+  - Terminal results of all repository-required workflows on the checkpoint-only final head created by this update.
   - Fresh independent Codex review result for the checkpoint-only final head created by this update.
 conflicts: []
 first_failure:
-  marker: none-known-before-final-gates
-  evidence: Current implementation is synchronized with main and all previously deferred Agent Governance wiring is present; final exact-head checks have not yet completed.
+  marker: none-known-after-restored-validation-regressions
+  evidence: CI classify-changes 31598034929 and Agent Governance 31598034956 both passed the repaired validator surfaces on material head ea93f299c4a7b1f17bb5c5f105899c45f21e5bba.
 rejected_hypotheses:
+  - Treat the missing validator-test error as runner infrastructure; exact CI log proved the file path was absent from the checked-out repository.
+  - Reimplement the missing tests from scratch; the exact intended tests already existed on previous reviewed commit 4229facd42de8b7ec2a2b5954d7358f734fe8a37 and were recoverable.
   - Add tests/Integration directly to phpunit.xml; the existing cross-repository test requires an external generated snapshot environment.
   - Treat deterministic prompt-contract checks as model-behavior proof; the harness explicitly limits itself to repository text contracts and requires repeated runtime/model trials when nondeterminism matters.
   - Rebuild Agent Governance from the pre-#992 branch version; the final edit extends the landed fail-closed governance workflow instead.
@@ -146,24 +149,29 @@ changed_paths:
   - tests/ci/test_synology_deploy_release_identity.py
   - tools/validation/prompt_eval.py
   - tools/validation/test_prompt_eval.py
+  - tools/validation/test_verify_integration_test_registration.py
+  - tools/validation/test_workflow_inventory.py
   - tools/validation/verify_integration_test_registration.py
   - tools/validation/workflow_inventory.py
 validation:
   - command: history-preserving current-main synchronization
     result: PASS
     evidence: Merge commit 794c1f2a86a1d81de13aac49ccfc0d9c3acec788 has parents task head 9e3c01fa6cea7efb26409283e64affc1c138afa3 and protected main 25ca5180849996462dfcfd2a0914eb6d765a47d3; branch ref update used force=false and compare reported behind_by=0.
-  - command: Agent Governance prompt-eval wiring inspection
+  - command: CI classify-changes validation on material head ea93f299c4a7b1f17bb5c5f105899c45f21e5bba
     result: PASS
-    evidence: Material head f1c04011018132c66b6005db9a10b280007e8ce9 adds blocking prompt evaluator unit/live steps and harness path triggers while retaining all landed #992 governance gates.
+    evidence: Run 31598034929 job 94118258213 passed routing, Integration registry, deterministic prompt contracts, workflow inventory, task checkpoint and change classification.
+  - command: Agent Governance on material head ea93f299c4a7b1f17bb5c5f105899c45f21e5bba
+    result: PASS
+    evidence: Run 31598034956 job 94118258644 passed policy consistency, prompt evaluator tests/live suite, checkpoint, liveness, ownership and Control Room.
   - command: final checkpoint-head required GitHub Actions
     result: NOT_RUN
-    evidence: This task-record-only update creates the final validation generation.
+    evidence: This task-record-only update creates the final validation generation after restoring the intended validator regressions.
   - command: final checkpoint-head fresh Codex review
     result: NOT_RUN
-    evidence: This task-record-only update creates the final review generation.
+    evidence: This task-record-only update creates the final review generation after restoring the intended validator regressions.
 blockers:
   - none
-next_action: Validate the unchanged checkpoint-only final head with all repository-required workflows and a fresh full-diff Codex review; resolve every material finding, then mark PR #1003 ready, squash-merge with expected-head protection, verify main, archive this task and close Issue #1002.
+next_action: Validate the unchanged checkpoint-only final head with every emitted/applicable workflow and a fresh full-diff Codex review; resolve every material finding, then mark PR #1003 ready, squash-merge with expected-head protection, verify main, archive this task and close Issue #1002.
 ```
 
 ## Recovery checkpoint
@@ -171,19 +179,21 @@ next_action: Validate the unchanged checkpoint-only final head with all reposito
 ```yaml
 recovery:
   policy_version: 1
-  generation: 2
+  generation: 3
   session_id: coordinator-20260812-engineering-hardening-final
   session_started_at: 2026-08-12T14:25:00+02:00
-  checkpointed_at: 2026-08-12T14:25:00+02:00
-  last_progress_at: 2026-08-12T14:25:00+02:00
+  checkpointed_at: 2026-08-12T14:47:00+02:00
+  last_progress_at: 2026-08-12T14:47:00+02:00
   phase: final-exact-head-validation
-  exact_head: f1c04011018132c66b6005db9a10b280007e8ce9
+  exact_head: ea93f299c4a7b1f17bb5c5f105899c45f21e5bba
   pull_request: 1003
-  active_operation: create final checkpoint generation after current-main synchronization and Agent Governance prompt-eval wiring
-  external_run_ids: []
-  operation_started_at: 2026-08-12T14:25:00+02:00
-  wait_deadline_at: 2026-08-12T15:10:00+02:00
-  check_generation: final-checkpoint
+  active_operation: create final checkpoint generation after restored validator regressions passed focused validation
+  external_run_ids:
+    - 31598034929
+    - 31598034956
+  operation_started_at: 2026-08-12T14:47:00+02:00
+  wait_deadline_at: 2026-08-12T15:32:00+02:00
+  check_generation: final-checkpoint-after-restored-tests
   checks_used: 0
   status: active
   safe_to_resume: true
@@ -193,4 +203,4 @@ recovery:
 
 ## Notes
 
-Issue #1002. `feature_scope: internal_only`; user-facing/runtime E2E is not introduced by this change. No production or staging deployment, protected-environment approval, credential mutation, live data mutation, payment action, or external-repository write is authorized or performed by this task.
+Issue #1002. `feature_scope: internal_only`; no production or staging deployment, protected-environment approval, credential mutation, live data mutation, payment action, or external-repository write is authorized or performed by this task.
