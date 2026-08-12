@@ -14,7 +14,7 @@ env:
 
 jobs:
   continue:
-    name: Recover Tibia map protobuf schemas
+    name: Scan Tibia protocol descriptors and Worldmap Qt dispatch
     runs-on: oteryn-staging
     timeout-minutes: 15
     steps:
@@ -39,11 +39,9 @@ jobs:
             root=/data/client-15.32.df7b29
             [[ "$(stat -c %s "$root/bin/client")" == "51965216" ]]
             [[ "$(sha256sum "$root/bin/client" | awk "{print \$1}")" == "e6c244bd39fe2e0632f6f000efd3147164696efa8e901718668e0442325ff7fe" ]]
-            [[ "$(stat -c %s "$root/proto-sections/protodesc_cold.bin")" == "40808" ]]
-            [[ "$(sha256sum "$root/proto-sections/protodesc_cold.bin" | awk "{print \$1}")" == "1106af5ecbecd85a701b800ec4f697edab4288a4aa64b3fa5781222e6f65c324" ]]
           '
 
-      - name: Parse descriptor wire prefixes and target schemas
+      - name: Scan entire ELF for serialized FileDescriptorProto records
         shell: bash
         run: |
           set -Eeuo pipefail
@@ -53,109 +51,144 @@ jobs:
           import re
 
           root=Path('/data/client-15.32.df7b29')
-          raw=(root/'proto-sections/protodesc_cold.bin').read_bytes()
-          out=root/'map-protobuf-schemas.txt'
+          path=root/'bin/client'
+          raw=path.read_bytes()
+          out=root/'elf-protobuf-descriptor-scan.txt'
           allowed={1,2,3,4,5,6,7,8,9,10,11,12,14}
 
-          def varint(buf,p,limit):
+          def varint(p,limit):
               value=0; shift=0
               for _ in range(10):
-                  if p>=limit: raise ValueError('eof')
-                  b=buf[p]; p+=1
-                  value |= (b & 0x7f) << shift
-                  if b < 0x80: return value,p
-                  shift += 7
-              raise ValueError('long varint')
+                  if p>=limit: raise ValueError
+                  b=raw[p]; p+=1; value|=(b&0x7f)<<shift
+                  if b<0x80: return value,p
+                  shift+=7
+              raise ValueError
 
-          def descriptor_end(start,limit):
-              p=start
-              fields=0
-              while p < limit:
-                  field_start=p
-                  try: tag,p2=varint(raw,p,limit)
+          def wire_end(start,limit):
+              p=start; fields=0
+              while p<limit:
+                  try: tag,q=varint(p,limit)
                   except ValueError: break
                   num=tag>>3; wire=tag&7
                   if num not in allowed or wire not in (0,1,2,5): break
-                  p=p2
+                  p=q
                   try:
-                      if wire==0: _,p=varint(raw,p,limit)
+                      if wire==0: _,p=varint(p,limit)
                       elif wire==1: p+=8
                       elif wire==5: p+=4
                       else:
-                          n,p=varint(raw,p,limit); p+=n
+                          n,p=varint(p,limit); p+=n
                   except ValueError: break
                   if p>limit: break
                   fields+=1
               return p if fields else start
 
           candidates=[]
-          for i in range(len(raw)-4):
-              if raw[i]!=0x0a: continue
-              n=raw[i+1]
-              if not (0<n<0x80) or i+2+n>len(raw): continue
-              name=raw[i+2:i+2+n]
-              if name.endswith(b'.proto') and re.fullmatch(rb'[A-Za-z0-9_./-]+\.proto',name):
-                  candidates.append((i,name.decode()))
+          for m in re.finditer(rb'(?P<name>[A-Za-z0-9_./-]{1,100}\.proto)', raw):
+              name=m.group('name'); name_start=m.start('name')
+              n=len(name)
+              if n<0x80 and name_start>=2 and raw[name_start-2]==0x0a and raw[name_start-1]==n:
+                  candidates.append((name_start-2,name.decode()))
+          candidates=sorted(set(candidates))
 
           parsed=[]; lines=[f'candidate_descriptor_starts={len(candidates)}']
           for idx,(start,hint) in enumerate(candidates):
-              limit=candidates[idx+1][0] if idx+1<len(candidates) else len(raw)
-              end=descriptor_end(start,limit)
+              next_start=candidates[idx+1][0] if idx+1<len(candidates) else min(len(raw),start+1048576)
+              end=wire_end(start,next_start)
               msg=descriptor_pb2.FileDescriptorProto()
-              ok=False
               try:
                   consumed=msg.MergeFromString(raw[start:end])
-                  ok=(consumed==end-start and msg.name==hint)
               except Exception:
-                  ok=False
-              if not ok:
-                  lines.append(f'UNPARSED start=0x{start:x} wire_end=0x{end:x} hint={hint}')
                   continue
+              if consumed!=end-start or msg.name!=hint: continue
               parsed.append((start,end,msg))
-              lines.append(f'DESCRIPTOR start=0x{start:x} end=0x{end:x} name={msg.name} package={msg.package} messages={len(msg.message_type)} enums={len(msg.enum_type)}')
+              lines.append(f'DESCRIPTOR file_off=0x{start:x}-0x{end:x} name={msg.name} package={msg.package} messages={len(msg.message_type)}')
 
           targets={'GameserverMessageFullMap','GameserverMessageFieldData','GameserverMessageLeftColumn','GameserverMessageRightColumn','GameserverMessageTopRow','GameserverMessageBottomRow','GameserverMessageTopFloor','GameserverMessageBottomFloor','MapFieldData','MapArea','Coordinate','AppearanceInstance'}
           scalar={1:'double',2:'float',3:'int64',4:'uint64',5:'int32',6:'fixed64',7:'fixed32',8:'bool',9:'string',10:'group',11:'message',12:'bytes',13:'uint32',14:'enum',15:'sfixed32',16:'sfixed64',17:'sint32',18:'sint64'}
-          def tname(f): return f.type_name or scalar.get(f.type,str(f.type))
-          def label(f): return {1:'optional',2:'required',3:'repeated'}.get(f.label,str(f.label))
-
+          def tn(f): return f.type_name or scalar.get(f.type,str(f.type))
+          def lab(f): return {1:'optional',2:'required',3:'repeated'}.get(f.label,str(f.label))
           found=set(); lines += ['', 'TARGET_SCHEMAS']
           for start,end,fd in parsed:
-              for m in fd.message_type:
-                  if m.name not in targets: continue
-                  found.add(m.name)
-                  lines.append(f'MESSAGE {fd.package}.{m.name} source={fd.name} descriptor=0x{start:x}-0x{end:x}')
-                  for f in m.field:
-                      oneof=m.oneof_decl[f.oneof_index].name if f.HasField('oneof_index') and f.oneof_index<len(m.oneof_decl) else '-'
-                      lines.append(f'  field={f.number} name={f.name} label={label(f)} type={tname(f)} oneof={oneof}')
-                  for n in m.nested_type:
+              for msg in fd.message_type:
+                  if msg.name not in targets: continue
+                  found.add(msg.name)
+                  lines.append(f'MESSAGE {fd.package}.{msg.name} source={fd.name} file_off=0x{start:x}-0x{end:x}')
+                  for f in msg.field:
+                      oneof=msg.oneof_decl[f.oneof_index].name if f.HasField('oneof_index') and f.oneof_index<len(msg.oneof_decl) else '-'
+                      lines.append(f'  field={f.number} name={f.name} label={lab(f)} type={tn(f)} oneof={oneof}')
+                  for n in msg.nested_type:
                       lines.append(f'  NESTED {n.name}')
-                      for f in n.field: lines.append(f'    field={f.number} name={f.name} label={label(f)} type={tname(f)}')
-
+                      for f in n.field: lines.append(f'    field={f.number} name={f.name} label={lab(f)} type={tn(f)}')
           lines += ['', 'TARGET_STATUS']
           for n in sorted(targets): lines.append(f'{n}={"FOUND" if n in found else "NOT_FOUND"}')
-          lines += ['', 'DESCRIPTOR_INVENTORY']
+          lines += ['', 'PROTOCOL_RELATED_DESCRIPTORS']
           for start,end,fd in parsed:
-              lines.append(f'{fd.name} package={fd.package} messages=' + ','.join(m.name for m in fd.message_type))
+              names=','.join(m.name for m in fd.message_type)
+              if re.search(r'(game|server|protocol|map|appearance|shared)', fd.name+' '+fd.package+' '+names, re.I):
+                  lines.append(f'{fd.name} package={fd.package} file_off=0x{start:x} messages={names}')
           out.write_text('\n'.join(lines)+'\n')
           print(out.read_text())
           PY
-          docker exec "$CONTAINER_NAME" test -s /data/client-15.32.df7b29/map-protobuf-schemas.txt
 
-      - name: Persist sanitized schema evidence
+      - name: Recover Worldmap Qt ordinal and candidate metacall dispatch
         shell: bash
         run: |
           set -Eeuo pipefail
-          docker cp "$CONTAINER_NAME:/data/client-15.32.df7b29/map-protobuf-schemas.txt" /tmp/map-protobuf-schemas.txt
+          docker exec -i "$CONTAINER_NAME" python3 - <<'PY'
+          from pathlib import Path
+          import re, subprocess
+          root=Path('/data/client-15.32.df7b29'); client=str(root/'bin/client')
+          text=subprocess.check_output(['objdump','-d','-C','--start-address=14677800','--stop-address=14686000',client],text=True,errors='replace')
+          lines=text.splitlines()
+          class_ref='1cd8bb4'
+          world_idx=None
+          cast_refs=[]
+          for i,line in enumerate(lines):
+              if 'strcmp@plt' in line and i>0:
+                  prev='\n'.join(lines[max(0,i-4):i+1])
+                  m=re.search(r'#\s*([0-9a-f]+)',prev)
+                  if m:
+                      cast_refs.append((len(cast_refs)+1,int(m.group(1),16),lines[max(0,i-3):i+2]))
+                      if m.group(1).lower()==class_ref:
+                          world_idx=len(cast_refs)
+          metacalls=[]
+          for i,line in enumerate(lines):
+              if 'QObject::qt_metacall' in line and 'call' in line:
+                  addr=int(line.strip().split(':',1)[0],16)
+                  metacalls.append((addr,i))
+          out=[]
+          out.append(f'worldmap_class_string_va=0x{class_ref}')
+          out.append(f'qt_metacast_reference_count={len(cast_refs)}')
+          out.append(f'worldmap_qt_metacast_ordinal={world_idx}')
+          out.append(f'qt_metacall_call_count={len(metacalls)}')
+          if world_idx and world_idx<=len(metacalls):
+              addr,i=metacalls[world_idx-1]
+              out.append(f'worldmap_candidate_qt_metacall_base_call=0x{addr:x}')
+              lo=max(0,i-20); hi=min(len(lines),i+120)
+              out.append('CANDIDATE_QT_METACALL_NEIGHBORHOOD')
+              out.extend(lines[lo:hi])
+          else:
+              out.append('worldmap_candidate_qt_metacall=UNRESOLVED')
+          p=root/'worldmap-qt-dispatch-candidate.txt'; p.write_text('\n'.join(out)+'\n'); print(p.read_text())
+          PY
+
+      - name: Persist sanitized reverse evidence
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          docker cp "$CONTAINER_NAME:/data/client-15.32.df7b29/elf-protobuf-descriptor-scan.txt" /tmp/elf-protobuf.txt
+          docker cp "$CONTAINER_NAME:/data/client-15.32.df7b29/worldmap-qt-dispatch-candidate.txt" /tmp/worldmap-qt.txt
           python3 - <<'PY'
           from pathlib import Path
           import os
-          p=Path(os.environ['HANDOVER']); e=Path('/tmp/map-protobuf-schemas.txt').read_text(errors='replace')
-          begin='<!-- BEGIN GENERATED SCHEMA EVIDENCE -->'; end='<!-- END GENERATED SCHEMA EVIDENCE -->'
-          block=f'{begin}\n\n## Generated protobuf schema evidence\n\nSource: GitHub Actions run `{os.environ.get("GITHUB_RUN_ID","unknown")}` on `oteryn-synology-staging`. Sanitized descriptor metadata only.\n\n```text\n{e.rstrip()}\n```\n\n{end}'
+          p=Path(os.environ['HANDOVER'])
+          e1=Path('/tmp/elf-protobuf.txt').read_text(errors='replace'); e2=Path('/tmp/worldmap-qt.txt').read_text(errors='replace')
+          begin='<!-- BEGIN GENERATED DECODED MAP REVERSE -->'; end='<!-- END GENERATED DECODED MAP REVERSE -->'
+          block=f'{begin}\n\n## Generated decoded-map reverse evidence\n\nSource: GitHub Actions run `{os.environ.get("GITHUB_RUN_ID","unknown")}` on `oteryn-synology-staging`. Sanitized descriptors/disassembly only.\n\n```text\n{e1.rstrip()}\n\n{e2.rstrip()}\n```\n\n{end}'
           text=p.read_text()
-          if begin in text and end in text:
-              text=text.split(begin,1)[0].rstrip()+'\n\n'+block+'\n\n'+text.split(end,1)[1].lstrip()
+          if begin in text and end in text: text=text.split(begin,1)[0].rstrip()+'\n\n'+block+'\n\n'+text.split(end,1)[1].lstrip()
           else: text=text.rstrip()+'\n\n'+block+'\n'
           p.write_text(text)
           PY
@@ -163,7 +196,7 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add "$HANDOVER"
           if ! git diff --cached --quiet; then
-            git commit -m "docs(analysis): recover Tibia map protobuf schemas"
+            git commit -m "docs(analysis): record Tibia decoded-map reverse evidence"
             git push origin HEAD:ops/oteryn-tibia-client-analysis-20260811
           fi
 
