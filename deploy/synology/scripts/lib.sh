@@ -33,16 +33,6 @@ load_oteryn_env_file() {
         export "$key"
     done < "$env_file"
 
-    if [[ "$(basename -- "${0:-}")" == "deploy.sh" && -f "$DEPLOY_DIR/release-contract.env" ]]; then
-        # shellcheck disable=SC1090
-        source "$DEPLOY_DIR/release-contract.env"
-        export OTERYN_MIGRATION_POLICY OTERYN_SCHEMA_COMPATIBILITY_ID OTERYN_APP_ACCEPTS_SCHEMA_IDS
-        if [[ "$OTERYN_MIGRATION_POLICY" != "expand-contract" ]]; then
-            echo "Synology staging migration policy must remain expand-contract." >&2
-            return 1
-        fi
-    fi
-
     if [[ "${GITHUB_WORKFLOW:-}" == "Character Bazaar Staging Control" && "$(basename -- "$env_file")" == ".env" ]]; then
         case "${APP_URL:-}" in
             https://oteryn.molehill.cloud|http://127.0.0.1:8000) ;;
@@ -60,10 +50,11 @@ load_oteryn_env_file() {
 
 _oteryn_deploy_state_dir() { printf '%s\n' "${OTERYN_STATE_DIR:-/var/lib/oteryn-staging-state}"; }
 
-_oteryn_release_sha() {
-    local platform_revision gateway_revision explicit_sha="${OTERYN_RELEASE_SHA:-}"
-    platform_revision="$(command docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "$PLATFORM_IMAGE" 2>/dev/null || true)"
-    gateway_revision="$(command docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "$GATEWAY_IMAGE" 2>/dev/null || true)"
+_oteryn_release_sha_for_images() {
+    local platform_image="$1" gateway_image="$2"
+    local platform_revision gateway_revision
+    platform_revision="$(command docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "$platform_image" 2>/dev/null || true)"
+    gateway_revision="$(command docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "$gateway_image" 2>/dev/null || true)"
 
     [[ "$platform_revision" =~ ^[0-9a-f]{40}$ ]] || {
         echo "Cannot prove Platform OCI application revision; refusing migration-bearing deployment." >&2
@@ -77,16 +68,58 @@ _oteryn_release_sha() {
         echo "Platform/Gateway OCI application revisions disagree; refusing deployment." >&2
         return 1
     }
-    if [[ -n "$explicit_sha" && "$explicit_sha" != "$platform_revision" ]]; then
+    printf '%s\n' "$platform_revision"
+}
+
+_oteryn_release_sha() {
+    local explicit_sha="${OTERYN_RELEASE_SHA:-}" revision
+    revision="$(_oteryn_release_sha_for_images "$PLATFORM_IMAGE" "$GATEWAY_IMAGE")"
+    if [[ -n "$explicit_sha" && "$explicit_sha" != "$revision" ]]; then
         echo "OTERYN_RELEASE_SHA disagrees with runtime OCI application revision." >&2
         return 1
     fi
-    if [[ "${GATEWAY_VERSION:-}" =~ ^sha-([0-9a-f]{40})$ && "${BASH_REMATCH[1]}" != "$platform_revision" ]]; then
+    if [[ "${GATEWAY_VERSION:-}" =~ ^sha-([0-9a-f]{40})$ && "${BASH_REMATCH[1]}" != "$revision" ]]; then
         echo "GATEWAY_VERSION disagrees with runtime OCI application revision." >&2
         return 1
     fi
+    printf '%s\n' "$revision"
+}
 
-    printf '%s\n' "$platform_revision"
+_oteryn_contract_from_platform_image() {
+    local platform_image="$1" payload line key value
+    local policy='' schema='' accepts=''
+    payload="$(command docker run --rm --entrypoint cat "$platform_image" /var/www/html/deploy/synology/release-contract.env 2>/dev/null)" || {
+        echo "Cannot read release compatibility contract from Platform image; refusing migration-bearing deployment." >&2
+        return 1
+    }
+    while IFS= read -r line || [[ -n "$line" ]]; do
+        line="${line%$'\r'}"
+        [[ -z "$line" || "$line" =~ ^[[:space:]]*# ]] && continue
+        [[ "$line" == *=* ]] || { echo "Invalid release contract line in Platform image." >&2; return 1; }
+        key="${line%%=*}"
+        value="${line#*=}"
+        case "$key" in
+            OTERYN_MIGRATION_POLICY) policy="$value" ;;
+            OTERYN_SCHEMA_COMPATIBILITY_ID) schema="$value" ;;
+            OTERYN_APP_ACCEPTS_SCHEMA_IDS) accepts="$value" ;;
+            *) echo "Unexpected release contract key in Platform image: $key" >&2; return 1 ;;
+        esac
+    done <<<"$payload"
+
+    [[ "$policy" == expand-contract ]] || { echo "Platform image migration policy must be expand-contract." >&2; return 1; }
+    [[ "$schema" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$ ]] || { echo "Platform image schema compatibility identity is invalid." >&2; return 1; }
+    [[ "$accepts" =~ ^[A-Za-z0-9._-]+(,[A-Za-z0-9._-]+)*$ ]] || { echo "Platform image accepted schema identity list is invalid." >&2; return 1; }
+    printf '%s\t%s\t%s\n' "$policy" "$schema" "$accepts"
+}
+
+_oteryn_load_candidate_contract() {
+    IFS=$'\t' read -r OTERYN_MIGRATION_POLICY OTERYN_SCHEMA_COMPATIBILITY_ID OTERYN_APP_ACCEPTS_SCHEMA_IDS \
+        < <(_oteryn_contract_from_platform_image "$PLATFORM_IMAGE")
+    [[ -n "${OTERYN_MIGRATION_POLICY:-}" && -n "${OTERYN_SCHEMA_COMPATIBILITY_ID:-}" && -n "${OTERYN_APP_ACCEPTS_SCHEMA_IDS:-}" ]] || {
+        echo "Unable to load candidate release contract from Platform image." >&2
+        return 1
+    }
+    export OTERYN_MIGRATION_POLICY OTERYN_SCHEMA_COMPATIBILITY_ID OTERYN_APP_ACCEPTS_SCHEMA_IDS
 }
 
 _oteryn_read_state_key() {
@@ -96,12 +129,55 @@ _oteryn_read_state_key() {
     printf '%s\n' "$value"
 }
 
+_oteryn_bootstrap_legacy_current_release() {
+    local state_dir="$1" current_file="$state_dir/current-release.env" legacy_file="$state_dir/last-good.env"
+    local old_platform old_gateway old_canary old_sha observed_schema table_count
+    [[ ! -f "$current_file" ]] || return 0
+
+    if [[ ! -f "$legacy_file" ]]; then
+        table_count="$(command docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" exec -T \
+            -e MYSQL_PWD="$MARIADB_ROOT_PASSWORD" mariadb mariadb -uroot -N -e \
+            "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='$PLATFORM_DB_NAME';")"
+        [[ "$table_count" =~ ^[0-9]+$ ]] || { echo "Cannot determine whether Platform DB is fresh; refusing migration." >&2; return 1; }
+        if (( table_count > 0 )); then
+            echo "Existing Platform DB has no managed application baseline; refusing migration before backup-capable baseline is proven." >&2
+            return 1
+        fi
+        return 0
+    fi
+
+    # last-good.env is generated locally by deploy.sh using printf %q from the
+    # exact running containers before any pull can move mutable tags.
+    unset PLATFORM_IMAGE GATEWAY_IMAGE CANARY_IMAGE
+    # shellcheck disable=SC1090
+    source "$legacy_file"
+    old_platform="${PLATFORM_IMAGE:-}"
+    old_gateway="${GATEWAY_IMAGE:-}"
+    old_canary="${CANARY_IMAGE:-}"
+    [[ -n "$old_platform" && -n "$old_gateway" && -n "$old_canary" ]] || {
+        echo "Legacy running-release snapshot is incomplete; refusing migration." >&2
+        return 1
+    }
+    old_sha="$(_oteryn_release_sha_for_images "$old_platform" "$old_gateway")"
+
+    # This synthetic identity is not an unverified image contract. It names the
+    # exact pre-migration DB state that the observed old application is running
+    # against at bootstrap time. A backup of that exact state is created below
+    # before any migration, so recovery can truthfully return to this identity.
+    observed_schema="observed-${old_sha}"
+    bash "$SCRIPT_DIR/release-state.sh" write "$current_file" "$old_sha" \
+        "$observed_schema" "$observed_schema" "$old_platform" "$old_gateway" "$old_canary" 1
+}
+
 _oteryn_before_platform_migrate() {
     local state_dir release_sha backup_dir backup_file backup_meta current_file old_sha old_schema
     state_dir="$(_oteryn_deploy_state_dir)"
+    _oteryn_load_candidate_contract
     release_sha="$(_oteryn_release_sha)"
     mkdir -p "$state_dir/backups"
     chmod 700 "$state_dir" "$state_dir/backups"
+
+    _oteryn_bootstrap_legacy_current_release "$state_dir"
 
     bash "$SCRIPT_DIR/release-state.sh" write "$state_dir/candidate-release.env" "$release_sha" \
         "$OTERYN_SCHEMA_COMPATIBILITY_ID" "$OTERYN_APP_ACCEPTS_SCHEMA_IDS" \
