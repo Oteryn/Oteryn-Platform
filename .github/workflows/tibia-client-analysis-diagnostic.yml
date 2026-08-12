@@ -13,9 +13,9 @@ env:
 
 jobs:
   diagnose:
-    name: Diagnose failed Tibia world entry without secrets
+    name: Classify failed Tibia world entry without secrets
     runs-on: oteryn-staging
-    timeout-minutes: 5
+    timeout-minutes: 3
     steps:
       - name: Verify owned runtime and snapshot staging
         shell: bash
@@ -27,89 +27,63 @@ jobs:
           [[ "$(docker inspect --format '{{.State.Status}}' "$CONTAINER_NAME")" == "running" ]]
           docker ps -a --filter 'label=com.docker.compose.project=oteryn-staging' --format '{{.ID}}\t{{.Names}}' | sort >/tmp/oteryn-before.tsv
 
-      - name: Summarize transport and current GUI state safely
+      - name: Classify client failures and proxy configuration
         shell: bash
         run: |
           set -Eeuo pipefail
-          docker exec -i "$CONTAINER_NAME" bash <<'INNER'
-          set -Eeuo pipefail
-          export DISPLAY=:99 HOME=/data/home
-          pgrep -f '/wireproxy .*wireproxy.conf' >/dev/null
-          curl --socks5-hostname 127.0.0.1:25344 -fsS --max-time 10 https://www.cloudflare.com/cdn-cgi/trace \
-            | grep -E '^(loc|warp)='
-          pid=$(pgrep -f 'packages/Tibia/bin/client' | head -n1)
-          [[ -n "$pid" ]]
-          echo CLIENT_PROCESS_ALIVE=true
-          sockets=$(ss -ntp 2>/dev/null | grep "pid=$pid," || true)
-          direct=$(printf '%s\n' "$sockets" | awk '{print $5}' | grep -Ev '^(127\.0\.0\.1|\[::1\]):25344$' | grep -c . || true)
-          local_socks=$(printf '%s\n' "$sockets" | awk '{print $5}' | grep -Ec '^(127\.0\.0\.1|\[::1\]):25344$' || true)
-          echo CLIENT_DIRECT_REMOTE_TCP_COUNT=$direct
-          echo CLIENT_LOCAL_SOCKS_TCP_COUNT=$local_socks
-
-          python3 - <<'PY'
-          import re
+          docker exec -i "$CONTAINER_NAME" python3 - <<'PY'
+          import hashlib,re
           from pathlib import Path
-          p=Path('/data/runtime/client-userspace-warp.log')
-          if not p.exists():
-              print('PROXY_LOG_PRESENT=false')
-              raise SystemExit(0)
-          lines=p.read_text(errors='replace').splitlines()[-600:]
-          proxy=[line for line in lines if 'proxychains' in line.lower()]
-          cats={k:0 for k in ['ok','timeout','refused','denied','failed','error']}
-          ports=set()
-          for line in proxy:
+
+          log=Path('/data/runtime/client-userspace-warp.log')
+          lines=log.read_text(errors='replace').splitlines()[-200:] if log.exists() else []
+          failed=[line for line in lines if 'failed' in line.lower()]
+          categories=[
+              'audio','alsa','pulse','dbus','xcb','x11','opengl','egl','vulkan','shader','renderer','graphics','font',
+              'proxy','socket','network','tcp','tls','ssl','certificate','http','connection','connect','dns','host',
+              'qt','filesystem','file','permission','config','resource','locale','gpu','display'
+          ]
+          print(f'FAILED_LINE_COUNT={len(failed)}')
+          for i,line in enumerate(failed,1):
               lo=line.lower()
-              for k in cats:
-                  if k in lo:
-                      cats[k]+=1
-              for m in re.finditer(r':([0-9]{1,5})(?=\D|$)', line):
-                  n=int(m.group(1))
-                  if 1 <= n <= 65535:
-                      ports.add(n)
-          generic={k:0 for k in ['connect','disconnect','timeout','refused','failed','error']}
-          for line in lines:
-              lo=line.lower()
-              for k in generic:
-                  if k in lo:
-                      generic[k]+=1
-          print('PROXY_LOG_PRESENT=true')
-          print(f'PROXY_LOG_TAIL_LINES={len(lines)}')
-          print(f'PROXYCHAINS_LINES={len(proxy)}')
-          print('PROXY_DEST_PORTS=' + ','.join(map(str,sorted(ports))))
-          print('PROXY_STATUS_COUNTS=' + ','.join(f'{k}:{v}' for k,v in cats.items()))
-          print('CLIENT_LOG_KEYWORD_COUNTS=' + ','.join(f'{k}:{v}' for k,v in generic.items()))
+              found=sorted({c for c in categories if c in lo})
+              digest=hashlib.sha256(line.encode(errors='replace')).hexdigest()[:12]
+              print(f'FAILED_LINE_{i}_CATEGORIES=' + (','.join(found) if found else 'none'))
+              print(f'FAILED_LINE_{i}_SHA256_PREFIX={digest}')
+
+          cfg=Path('/tmp/proxychains-tibia.conf')
+          text=cfg.read_text(errors='replace') if cfg.exists() else ''
+          enabled=[]
+          for directive in ['strict_chain','dynamic_chain','random_chain','proxy_dns','proxy_dns_old','proxy_dns_daemon','quiet_mode']:
+              if re.search(rf'(?m)^\s*{re.escape(directive)}\b',text):
+                  enabled.append(directive)
+          print('PROXYCHAINS_DIRECTIVES=' + ','.join(enabled))
+          proxy_lines=[]
+          in_list=False
+          for raw in text.splitlines():
+              s=raw.strip()
+              if s.lower()=='[proxylist]':
+                  in_list=True
+                  continue
+              if not in_list or not s or s.startswith('#'):
+                  continue
+              parts=s.split()
+              if len(parts)>=4:
+                  typ,host,port=parts[:3]
+                  proxy_lines.append((typ,host,port))
+          print(f'PROXY_LIST_ENTRY_COUNT={len(proxy_lines)}')
+          for i,(typ,host,port) in enumerate(proxy_lines,1):
+              print(f'PROXY_LIST_{i}_TYPE={typ}')
+              print(f'PROXY_LIST_{i}_LOCAL={str(host in {"127.0.0.1","::1","localhost"}).lower()}')
+              print(f'PROXY_LIST_{i}_PORT={port if port.isdigit() else "non_numeric"}')
           PY
 
-          best=''; best_area=0
-          for w in $(xdotool search --onlyvisible --name '^Tibia$' 2>/dev/null || true); do
-            geom=$(xdotool getwindowgeometry --shell "$w" 2>/dev/null || true)
-            width=$(printf '%s\n' "$geom" | sed -n 's/^WIDTH=//p'); height=$(printf '%s\n' "$geom" | sed -n 's/^HEIGHT=//p')
-            [[ -n "$width" && -n "$height" ]] || continue
-            area=$((width*height)); if (( area > best_area )); then best=$w; best_area=$area; fi
-          done
-          [[ -n "$best" ]]
-          import -display :99 -window "$best" /tmp/diagnostic-current.png
-          convert /tmp/diagnostic-current.png -resize 200% -colorspace Gray -contrast-stretch 1%x1% /tmp/diagnostic-current-ocr.png
-          tesseract /tmp/diagnostic-current-ocr.png stdout --psm 11 2>/dev/null >/tmp/diagnostic-current.txt || true
-          python3 - <<'PY'
-          from pathlib import Path
-          t=Path('/tmp/diagnostic-current.txt').read_text(errors='replace').lower()
-          states={
-            'ACCOUNT_LOGIN_VISIBLE': ('account login' in t or ('email' in t and 'password' in t)),
-            'SELECT_CHARACTER_VISIBLE': ('select character' in t),
-            'CONNECTING_VISIBLE': ('connecting' in t),
-            'CONNECTION_ERROR_VISIBLE': ('connection' in t and ('error' in t or 'failed' in t or 'lost' in t)),
-          }
-          for k,v in states.items():
-              print(f'{k}={str(v).lower()}')
-          PY
-          INNER
-
-      - name: Verify canonical staging unchanged
+      - name: Verify live WARP and canonical staging unchanged
         if: always()
         shell: bash
         run: |
           set -Eeuo pipefail
+          docker exec "$CONTAINER_NAME" bash -lc "curl --socks5-hostname 127.0.0.1:25344 -fsS --max-time 10 https://www.cloudflare.com/cdn-cgi/trace | grep -E '^(loc|warp)='"
           docker ps -a --filter 'label=com.docker.compose.project=oteryn-staging' --format '{{.ID}}\t{{.Names}}' | sort >/tmp/oteryn-after.tsv
           diff -u /tmp/oteryn-before.tsv /tmp/oteryn-after.tsv
           docker inspect --format 'analysis_name={{.Name}} status={{.State.Status}} owner={{ index .Config.Labels "com.blakinio.owner" }} purpose={{ index .Config.Labels "com.blakinio.purpose" }}' "$CONTAINER_NAME"
