@@ -278,7 +278,10 @@ test('@portal-community complete rankings, privacy-aware profile, deaths, guild 
   await expect(page.getByRole('heading', { name: 'Account overview' })).toBeVisible();
   const heroCard = page.locator('article.card').filter({ hasText: 'Acceptance Hero' });
   await expect(heroCard.getByText('Default public profile settings')).toBeVisible();
-  await heroCard.getByRole('link', { name: 'Manage public profile' }).click();
+  const profileLink = heroCard.getByRole('link', { name: 'Manage public profile' });
+  const profileHref = await profileLink.getAttribute('href');
+  expect(profileHref).toBe('/account/characters/Acceptance%20Hero/profile');
+  await page.goto(profileHref);
 
   await expect(page.getByRole('heading', { name: 'Acceptance Hero' })).toBeVisible();
   await page.getByLabel('Public comment').fill('<script>acceptance-profile-xss</script> Platform owner comment');
