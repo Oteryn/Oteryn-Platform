@@ -13,9 +13,9 @@ env:
 
 jobs:
   trace:
-    name: Inspect Tibia login form safely
+    name: Verify isolated WARP egress before Tibia auth
     runs-on: oteryn-staging
-    timeout-minutes: 8
+    timeout-minutes: 12
     steps:
       - name: Verify owned runtime and snapshot staging
         shell: bash
@@ -26,60 +26,47 @@ jobs:
           [[ "$(docker inspect --format '{{ index .Config.Labels "com.blakinio.purpose" }}' "$CONTAINER_NAME")" == "tibia-client-analysis" ]]
           docker ps -a --filter 'label=com.docker.compose.project=oteryn-staging' --format '{{.ID}}\t{{.Names}}' | sort > /tmp/oteryn-before.tsv
 
-      - name: Open login form and OCR safe labels
+      - name: Establish Cloudflare WARP only inside owned analysis container
         shell: bash
         run: |
           set -Eeuo pipefail
           docker exec -i "$CONTAINER_NAME" bash <<'INNER'
           set -Eeuo pipefail
-          export DISPLAY=:99 HOME=/data/home
-          client="$HOME/.local/share/CipSoft GmbH/Tibia/packages/Tibia/bin/client"
-          pgrep -f "^$client" >/dev/null
-          best=''; best_area=0
-          for w in $(xdotool search --onlyvisible --name '^Tibia$' 2>/dev/null || true); do
-            geom=$(xdotool getwindowgeometry --shell "$w" 2>/dev/null || true)
-            width=$(printf '%s\n' "$geom" | sed -n 's/^WIDTH=//p')
-            height=$(printf '%s\n' "$geom" | sed -n 's/^HEIGHT=//p')
-            [[ -n "$width" && -n "$height" ]] || continue
-            area=$((width*height))
-            echo WINDOW_ID=$w WIDTH=$width HEIGHT=$height AREA=$area
-            if (( area > best_area )); then best=$w; best_area=$area; fi
+          export DEBIAN_FRONTEND=noninteractive
+          echo BASELINE_TRACE_BEGIN
+          curl -fsS --max-time 15 https://www.cloudflare.com/cdn-cgi/trace | grep -E '^(ip|loc|warp)=' || true
+          echo BASELINE_TRACE_END
+          if ! command -v warp-cli >/dev/null 2>&1; then
+            apt-get update -qq
+            apt-get install -y -qq curl gnupg lsb-release ca-certificates >/dev/null
+            curl -fsSL https://pkg.cloudflareclient.com/pubkey.gpg | gpg --yes --dearmor --output /usr/share/keyrings/cloudflare-warp-archive-keyring.gpg
+            codename=$(lsb_release -cs)
+            echo "deb [signed-by=/usr/share/keyrings/cloudflare-warp-archive-keyring.gpg] https://pkg.cloudflareclient.com/ $codename main" > /etc/apt/sources.list.d/cloudflare-client.list
+            apt-get update -qq
+            apt-get install -y -qq cloudflare-warp >/dev/null
+          fi
+          pkill -f '^/usr/bin/warp-svc' 2>/dev/null || true
+          nohup /usr/bin/warp-svc >/data/runtime/warp-svc.log 2>&1 </dev/null &
+          for n in $(seq 1 20); do warp-cli --accept-tos status >/dev/null 2>&1 && break; sleep 1; done
+          warp-cli --accept-tos registration new >/dev/null 2>&1 || true
+          warp-cli --accept-tos mode warp+doh >/dev/null
+          warp-cli --accept-tos tunnel protocol set MASQUE >/dev/null
+          warp-cli --accept-tos connect >/dev/null
+          ok=0
+          for n in $(seq 1 30); do
+            trace=$(curl -fsS --max-time 15 https://www.cloudflare.com/cdn-cgi/trace || true)
+            if printf '%s\n' "$trace" | grep -q '^warp=on$'; then
+              ok=1
+              echo WARP_TRACE_BEGIN
+              printf '%s\n' "$trace" | grep -E '^(ip|loc|warp)='
+              echo WARP_TRACE_END
+              break
+            fi
+            sleep 2
           done
-          [[ -n "$best" ]]
-          echo CLIENT_WINDOW_ID=$best CLIENT_WINDOW_AREA=$best_area
-          xdotool windowactivate --sync "$best" || true
-          xdotool mousemove --window "$best" 510 302 click 1
-          sleep 4
-          import -display :99 -window "$best" /tmp/login-form.png
-          test -s /tmp/login-form.png
-          convert /tmp/login-form.png -resize 200% -colorspace Gray -contrast-stretch 1%x1% /tmp/login-form-ocr.png
-          tesseract /tmp/login-form-ocr.png stdout --psm 11 tsv 2>/dev/null > /tmp/login.tsv || true
-          echo SAFE_LOGIN_LABELS_BEGIN
-          python3 - <<'PY'
-          import csv,re
-          allowed=re.compile(r'(login|account|email|password|authenticator|token|remember|cancel|ok|submit|two.factor|2fa|character)',re.I)
-          with open('/tmp/login.tsv',newline='',errors='replace') as f:
-              for r in csv.DictReader(f,delimiter='\t'):
-                  t=(r.get('text') or '').strip()
-                  if t and allowed.search(t):
-                      x=int(float(r.get('left') or 0))//2; y=int(float(r.get('top') or 0))//2
-                      w=int(float(r.get('width') or 0))//2; h=int(float(r.get('height') or 0))//2
-                      # labels only; never emit arbitrary field contents
-                      print(f'x={x} y={y} w={w} h={h} label={t}')
-          PY
-          echo SAFE_LOGIN_LABELS_END
+          echo WARP_VERIFIED=$ok
+          (( ok == 1 ))
           INNER
-          docker cp "$CONTAINER_NAME:/tmp/login-form.png" /tmp/login-form.png
-          test -s /tmp/login-form.png
-          echo LOGIN_SCREENSHOT_BYTES=$(stat -c %s /tmp/login-form.png)
-
-      - name: Upload login form screenshot
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
-        with:
-          name: tibia-login-form-screen
-          path: /tmp/login-form.png
-          if-no-files-found: error
-          retention-days: 7
 
       - name: Verify canonical staging unchanged
         if: always()
