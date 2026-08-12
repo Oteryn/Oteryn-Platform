@@ -1,0 +1,33 @@
+name: Tibia Worldmap Reconstruction Validation
+
+on:
+  push:
+    branches:
+      - ops/oteryn-tibia-client-analysis-20260811
+    paths:
+      - tools/tibia-worldmap-reconstruction/**
+      - .github/workflows/tibia-worldmap-reconstruction-validate.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Compile Python
+        run: python3 -m compileall -q tools/tibia-worldmap-reconstruction
+
+      - name: Run unit tests
+        env:
+          PYTHONPATH: tools/tibia-worldmap-reconstruction
+        run: python3 -m unittest discover -s tools/tibia-worldmap-reconstruction/tests -v
+
+      - name: Validate synthetic example
+        env:
+          PYTHONPATH: tools/tibia-worldmap-reconstruction
+        run: python3 tools/tibia-worldmap-reconstruction/run.py validate tools/tibia-worldmap-reconstruction/examples/synthetic-capture.json
