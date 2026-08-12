@@ -1,4 +1,4 @@
-name: Tibia Player Protocol Metaobject Fields
+name: Tibia Player Protocol Dispatch
 
 on:
   push:
@@ -13,25 +13,54 @@ env:
 
 jobs:
   attach:
-    name: Inspect player protocol metaobject fields
+    name: Decode player protocol method dispatch
     runs-on: oteryn-staging
     timeout-minutes: 3
     steps:
-      - name: Resolve exact QMetaObject field relocations and bounded disassembly
+      - name: Parse metadata and disassemble static metacall
         shell: bash
         run: |
           set -Eeuo pipefail
           docker exec -i "$CONTAINER_NAME" bash <<'INNER'
           set -Eeuo pipefail
           bin='/data/home/.local/share/CipSoft GmbH/Tibia/packages/Tibia/bin/client'
-          readelf -rW "$bin" >/tmp/player-rela
-          echo METAOBJECT_NEAR_30852E0_BEGIN
-          grep -Ei '^00000000030852(e[0-9a-f]|f[0-9a-f])|^000000000308530[0-9a-f]|^000000000308531[0-9a-f]' /tmp/player-rela || true
-          echo METAOBJECT_NEAR_30852E0_END
-          echo RAW_DATA_BEGIN
-          objdump -s --start-address=0x30852d0 --stop-address=0x3085330 "$bin" || true
-          echo RAW_DATA_END
-          rm -f /tmp/player-rela
+          echo STATIC_METACALL=0xdec960
+          echo DISASM_BEGIN
+          objdump -d -M intel --start-address=0xdec960 --stop-address=0xdecf80 "$bin"
+          echo DISASM_END
+          echo METADATA_PARSE_BEGIN
+          python3 - "$bin" <<'PY'
+import struct, subprocess, re, sys
+p=sys.argv[1]; data=open(p,'rb').read()
+sec=subprocess.check_output(['readelf','-WS',p],text=True,errors='replace')
+S=[]
+for line in sec.splitlines():
+ m=re.search(r'\[\s*\d+\]\s+(\S+)\s+\S+\s+([0-9a-fA-F]+)\s+([0-9a-fA-F]+)\s+([0-9a-fA-F]+)',line)
+ if m:S.append((m.group(1),int(m.group(2),16),int(m.group(3),16),int(m.group(4),16)))
+def vo(va):
+ for n,s,o,z in S:
+  if s<=va<s+z:return o+va-s
+ raise ValueError(hex(va))
+meta=0x1cb5620; string=0x1cb57fc
+mo=vo(meta); so=vo(string)
+vals=struct.unpack_from('<14I',data,mo)
+print('HEADER',vals)
+method_count=vals[4]; method_off=vals[5]
+print('METHOD_COUNT',method_count,'METHOD_OFF',method_off,'SIGNAL_COUNT',vals[13])
+# Qt6 method records are six uints each. Decode name string offset through QByteArrayData-like stringdata table: metadata name index points to entry pair at stringdata base.
+def qstr(index):
+ # moc stringdata format: first 8-byte entries {offset,size}, offset relative to entry address.
+ e=so+index*8
+ rel,l=struct.unpack_from('<II',data,e)
+ pos=e+rel
+ return data[pos:pos+l].decode('utf-8','replace')
+for i in range(method_count):
+ r=struct.unpack_from('<6I',data,mo+4*(method_off+i*6))
+ try:name=qstr(r[0])
+ except Exception as e:name='?'
+ print(f'METHOD {i} name={name} raw={r}')
+PY
+          echo METADATA_PARSE_END
           pid=$(pgrep -x client | head -n1 || true); [[ -n "$pid" ]]
           tcp_rows=$(ss -ntp 2>/dev/null | grep "pid=$pid," || true)
           local_count=$(printf '%s\n' "$tcp_rows" | awk '$5 ~ /127\.0\.0\.1:25344$/ || $5 ~ /\[::1\]:25344$/ {n++} END{print n+0}')
