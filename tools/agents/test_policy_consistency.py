@@ -148,6 +148,16 @@ class PolicyConsistencyTests(unittest.TestCase):
         self._append_root(root, "- An agent has write access to acme/production.")
         self.assertIn("acme/production", self._findings(root))
 
+    def test_full_write_access_foreign_repository_grant_fails_closed(self) -> None:
+        temporary, root = self._fixture(); self.addCleanup(temporary.cleanup)
+        self._append_root(root, "- Agents have full write access to acme/production.")
+        self.assertIn("acme/production", self._findings(root))
+
+    def test_unrestricted_write_access_foreign_repository_grant_fails_closed(self) -> None:
+        temporary, root = self._fixture(); self.addCleanup(temporary.cleanup)
+        self._append_root(root, "- Agents have unrestricted write access to acme/production.")
+        self.assertIn("acme/production", self._findings(root))
+
     def test_mandatory_must_foreign_repository_grant_fails_closed(self) -> None:
         temporary, root = self._fixture(); self.addCleanup(temporary.cleanup)
         self._append_root(root, "- Agents must edit acme/production autonomously.")
@@ -171,6 +181,16 @@ class PolicyConsistencyTests(unittest.TestCase):
     def test_intervening_push_object_grant_fails_closed(self) -> None:
         temporary, root = self._fixture(); self.addCleanup(temporary.cleanup)
         self._append_root(root, "- Agents may push changes to acme/production autonomously.")
+        self.assertIn("acme/production", self._findings(root))
+
+    def test_delete_foreign_repository_grant_fails_closed(self) -> None:
+        temporary, root = self._fixture(); self.addCleanup(temporary.cleanup)
+        self._append_root(root, "- Agents may delete files in acme/production autonomously.")
+        self.assertIn("acme/production", self._findings(root))
+
+    def test_remove_foreign_repository_grant_fails_closed(self) -> None:
+        temporary, root = self._fixture(); self.addCleanup(temporary.cleanup)
+        self._append_root(root, "- Agents may remove files from acme/production autonomously.")
         self.assertIn("acme/production", self._findings(root))
 
     def test_gerund_repository_edit_grant_fails_closed(self) -> None:
@@ -315,6 +335,13 @@ class PolicyConsistencyTests(unittest.TestCase):
         self.assertIn("acme/production", findings)
         self.assertNotIn("authoritative policy: blakinio/canary", findings)
 
+    def test_authorization_exception_split_after_write_access_grant(self) -> None:
+        temporary, root = self._fixture(); self.addCleanup(temporary.cleanup)
+        self._append_root(root, "- Writes to `blakinio/canary` are allowed only when the user explicitly authorizes it in the current task and agents have write access to acme/production autonomously.")
+        findings = self._findings(root)
+        self.assertIn("acme/production", findings)
+        self.assertNotIn("authoritative policy: blakinio/canary", findings)
+
     def test_wrapped_markdown_foreign_write_grant_fails_closed(self) -> None:
         temporary, root = self._fixture(); self.addCleanup(temporary.cleanup)
         self._append_root(root, "- Autonomous writes to acme/production\n  are explicitly allowed.")
@@ -367,6 +394,21 @@ class PolicyConsistencyTests(unittest.TestCase):
     def test_do_not_grant_write_access_is_not_a_grant(self) -> None:
         temporary, root = self._fixture(); self.addCleanup(temporary.cleanup)
         self._append_root(root, "- Do not grant write access to acme/production.")
+        self.assertEqual([], validate_policy(root))
+
+    def test_do_not_allow_foreign_repository_mutation_is_not_a_grant(self) -> None:
+        temporary, root = self._fixture(); self.addCleanup(temporary.cleanup)
+        self._append_root(root, "- Do not allow agents to edit acme/production autonomously.")
+        self.assertEqual([], validate_policy(root))
+
+    def test_never_authorize_foreign_repository_mutation_is_not_a_grant(self) -> None:
+        temporary, root = self._fixture(); self.addCleanup(temporary.cleanup)
+        self._append_root(root, "- Never authorize agents to edit acme/production autonomously.")
+        self.assertEqual([], validate_policy(root))
+
+    def test_never_permit_foreign_repository_mutation_is_not_a_grant(self) -> None:
+        temporary, root = self._fixture(); self.addCleanup(temporary.cleanup)
+        self._append_root(root, "- Never permit agents to edit acme/production autonomously.")
         self.assertEqual([], validate_policy(root))
 
     def test_unauthorized_foreign_repository_mutation_is_not_a_grant(self) -> None:
