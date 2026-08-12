@@ -1,0 +1,45 @@
+name: Tibia Action Meta Dump
+
+on:
+  push:
+    branches: [ops/oteryn-tibia-client-analysis-20260811]
+    paths: [.github/workflows/tibia-client-action-meta-dump.yml]
+
+permissions:
+  contents: read
+
+env:
+  CONTAINER_NAME: oteryn-tibia-client-analysis
+
+jobs:
+  dump:
+    runs-on: oteryn-staging
+    timeout-minutes: 3
+    steps:
+      - name: Dump bounded action metadata regions
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          docker exec -i "$CONTAINER_NAME" bash <<'INNER'
+          set -Eeuo pipefail
+          bin='/data/home/.local/share/CipSoft GmbH/Tibia/packages/Tibia/bin/client'
+          for range in \
+            '0x1cb4900 0x1cb5100 movement' \
+            '0x1cb0200 0x1cb0c00 generic' \
+            '0x1cb0e00 0x1cb1800 creatures' \
+            '0x1cb2500 0x1cb2d00 usewith' \
+            '0x1cb3300 0x1cb4000 chat' \
+            '0x1c8e100 0x1c8e850 router'; do
+            set -- $range; start=$1; stop=$2; label=$3
+            echo "=== $label STRINGS $start..$stop ==="
+            objdump -s --start-address=$start --stop-address=$stop "$bin" | head -n 300
+          done
+          pid=$(pgrep -x client | head -n1 || true); [[ -n "$pid" ]]
+          tcp_rows=$(ss -ntp 2>/dev/null | grep "pid=$pid," || true)
+          local_count=$(printf '%s\n' "$tcp_rows" | awk '$5 ~ /127\.0\.0\.1:25344$/ || $5 ~ /\[::1\]:25344$/ {n++} END{print n+0}')
+          total_count=$(printf '%s\n' "$tcp_rows" | grep -c . || true)
+          echo CLIENT_PID=$pid
+          echo ACTIVE_LOCAL_SOCKS_COUNT=$local_count
+          echo ACTIVE_DIRECT_TCP_COUNT=$((total_count-local_count))
+          (( local_count > 0 && total_count-local_count == 0 ))
+          INNER
