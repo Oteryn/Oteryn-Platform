@@ -30,7 +30,7 @@ Close Issue #1002 by making verification, E2E dependency installation, prompt/go
 - [x] Acceptance npm lockfile and npm Dependabot coverage exist.
 - [x] `composer verify` is the canonical full developer verification command.
 - [x] Integration tests are fail-closed registered to explicit proving workflows/commands.
-- [x] Game Catalog cross-repository staging is selected semantically, not by historical PR number.
+- [x] Game Catalog cross-repository staging is selected semantically/manual, not by historical PR number.
 - [x] Deterministic prompt-contract regression fixtures and executable validator exist.
 - [x] Workflow inventory/classification is machine enforced.
 - [x] Synology staging resolves exact source SHA images to immutable digests before deployment.
@@ -80,8 +80,8 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-12T14:47:00+02:00
-head: ea93f299c4a7b1f17bb5c5f105899c45f21e5bba
+updated_at: 2026-08-12T15:18:00+02:00
+head: live-pr-1003-authoritative
 branch: fix/engineering-excellence-hardening
 pr: 1003
 status: validating
@@ -107,31 +107,27 @@ owned_paths:
   - docs/agents/tasks/active/OTERYN-20260811-engineering-excellence-hardening.md
   - docs/agents/tasks/archive/OTERYN-20260811-engineering-excellence-hardening.md
 proven:
-  - PR #992 and Issue #991 are terminal; the policy-consistency task is archived and its Agent Governance/tools ownership is released.
-  - Protected main 25ca5180849996462dfcfd2a0914eb6d765a47d3 was incorporated by history-preserving merge commit 794c1f2a86a1d81de13aac49ccfc0d9c3acec788 with force=false; compare reported behind_by=0.
-  - No open PR for Issue #1008 was visible before the Agent Governance edit; PR #1013 for Issue #1007 was previously verified to avoid the deploy-synology-staging workflow owned by this task.
-  - Material head f1c04011018132c66b6005db9a10b280007e8ce9 extended landed Agent Governance with blocking prompt-eval unit/live steps and harness path triggers while preserving every #992 policy/checkpoint/liveness/Control Room gate.
-  - Final-checkpoint CI on 507bbec52839e6199e89061a2d85475ef37fb119 exposed a real restack regression: CI referenced `tools/validation/test_verify_integration_test_registration.py` and `tools/validation/test_workflow_inventory.py`, but both files were absent from the branch.
-  - Both missing test files existed in previously reviewed material commit 4229facd42de8b7ec2a2b5954d7358f734fe8a37 and were restored without redesign as commits a448e5b6fb75610d6cb407da3f07788427a17783 and ea93f299c4a7b1f17bb5c5f105899c45f21e5bba.
-  - CI run 31598034929 on ea93f299c4a7b1f17bb5c5f105899c45f21e5bba passed `classify-changes`, including routing contracts, Integration registry tests/live validator, deterministic prompt tests/live evaluator, workflow inventory tests/live validator, checkpoint validation and path classification; runtime-tests proceeded afterward.
-  - Agent Governance run 31598034956, job 94118258644, passed on ea93f299c4a7b1f17bb5c5f105899c45f21e5bba, including policy consistency, both prompt-contract steps, checkpoint validation, live ownership/liveness and Control Room.
-  - Deep System Validation retains acceptance dependency installation through committed lockfile via `npm ci`.
+  - PR #992 and Issue #991 are terminal and their Agent Governance/tools ownership is released.
+  - Protected main 25ca5180849996462dfcfd2a0914eb6d765a47d3 was incorporated by history-preserving merge commit 794c1f2a86a1d81de13aac49ccfc0d9c3acec788 with force=false and zero commits behind at synchronization.
+  - Exact PR head d9bde9362e9f2557e4c44cfeeb78f1f887b5c4d4 completed all 16 emitted pull-request workflows successfully before final Codex review.
+  - Post-ready Codex review PRR_kwDOTcsYjs8AAAABJQ6E5g reviewed d9bde9362e and reported one P1 and two P2 findings; merge was not attempted.
+  - P1 showed Integration registration markers could come from unrelated workflow paths; validator now binds a declared top-level event to a declared proving job, its condition, exact PHPUnit invocation and required environment in that same job.
+  - Game Catalog registry schema v2 now truthfully declares workflow_dispatch, job cross-repository-staging, semantic opt-in run_cross_repository_staging and the dispatch-only job condition, matching Issue #1002 manual-contract scope.
+  - P2 showed workflow event regex could mistake a job name for an event; workflow inventory now derives events only from direct children of the top-level on mapping and has regressions for job/nested-key masquerading.
+  - The checkpoint uses live-pr-1003-authoritative rather than pretending a commit can embed its own future SHA; concrete reviewed/material SHAs remain in evidence and live PR state is authoritative by AGENTS.md.
 derived:
-  - The only discovered final-checkpoint implementation failure was the two missing regression files, and focused validation now proves that repair; full exact-head gates and independent review remain.
+  - The three Codex findings are addressed in the current branch generation, but the new head requires a complete fresh exact-head workflow generation and fresh Codex review before merge.
 unknown:
-  - Terminal results of all repository-required workflows on the checkpoint-only final head created by this update.
-  - Fresh independent Codex review result for the checkpoint-only final head created by this update.
+  - Terminal result of every emitted workflow on the current live PR #1003 head after Codex repairs.
+  - Fresh independent Codex review result for the current live PR #1003 head after Codex repairs.
 conflicts: []
 first_failure:
-  marker: none-known-after-restored-validation-regressions
-  evidence: CI classify-changes 31598034929 and Agent Governance 31598034956 both passed the repaired validator surfaces on material head ea93f299c4a7b1f17bb5c5f105899c45f21e5bba.
+  marker: none-known-after-codex-repairs
+  evidence: All three findings from review PRR_kwDOTcsYjs8AAAABJQ6E5g have corresponding code/contract/checkpoint repairs; fresh exact-head validation is now required.
 rejected_hypotheses:
-  - Treat the missing validator-test error as runner infrastructure; exact CI log proved the file path was absent from the checked-out repository.
-  - Reimplement the missing tests from scratch; the exact intended tests already existed on previous reviewed commit 4229facd42de8b7ec2a2b5954d7358f734fe8a37 and were recoverable.
-  - Add tests/Integration directly to phpunit.xml; the existing cross-repository test requires an external generated snapshot environment.
-  - Treat deterministic prompt-contract checks as model-behavior proof; the harness explicitly limits itself to repository text contracts and requires repeated runtime/model trials when nondeterminism matters.
-  - Rebuild Agent Governance from the pre-#992 branch version; the final edit extends the landed fail-closed governance workflow instead.
-  - Force-push to synchronize main; current main was merged history-preservingly and the branch ref moved with force=false.
+  - Treat the Codex P1 as requiring automatic cross-repository execution on every PR; Issue #1002 explicitly requires an explicit semantic/manual Game Catalog contract, so the correct repair is truthful event/job binding rather than changing scope.
+  - Continue storing the parent SHA as an alleged exact checkpoint head; a task-record commit necessarily changes the branch SHA, so live PR state is the authoritative current-head source and immutable SHAs are retained as evidence.
+  - Keep workflow-wide event regex matching; it admits unsupported events when unrelated two-space job keys resemble supported events.
 changed_paths:
   - .github/dependabot.yml
   - .github/workflows/agent-governance.yml
@@ -154,24 +150,21 @@ changed_paths:
   - tools/validation/verify_integration_test_registration.py
   - tools/validation/workflow_inventory.py
 validation:
-  - command: history-preserving current-main synchronization
+  - command: exact-head pull-request workflows on d9bde9362e9f2557e4c44cfeeb78f1f887b5c4d4
     result: PASS
-    evidence: Merge commit 794c1f2a86a1d81de13aac49ccfc0d9c3acec788 has parents task head 9e3c01fa6cea7efb26409283e64affc1c138afa3 and protected main 25ca5180849996462dfcfd2a0914eb6d765a47d3; branch ref update used force=false and compare reported behind_by=0.
-  - command: CI classify-changes validation on material head ea93f299c4a7b1f17bb5c5f105899c45f21e5bba
-    result: PASS
-    evidence: Run 31598034929 job 94118258213 passed routing, Integration registry, deterministic prompt contracts, workflow inventory, task checkpoint and change classification.
-  - command: Agent Governance on material head ea93f299c4a7b1f17bb5c5f105899c45f21e5bba
-    result: PASS
-    evidence: Run 31598034956 job 94118258644 passed policy consistency, prompt evaluator tests/live suite, checkpoint, liveness, ownership and Control Room.
-  - command: final checkpoint-head required GitHub Actions
+    evidence: All 16 emitted runs completed success, including CI, Agent Governance, Deep System Validation, browser/E2E, Phase 7, Game Catalog and deployment-build contracts.
+  - command: post-ready Codex review on d9bde9362e9f2557e4c44cfeeb78f1f887b5c4d4
+    result: FAIL
+    evidence: Review PRR_kwDOTcsYjs8AAAABJQ6E5g reported P1 Integration trigger/job decoupling, P2 workflow-event scope, and P2 stale checkpoint head; all three are patched in the subsequent branch generation.
+  - command: current-head required GitHub Actions after Codex repairs
     result: NOT_RUN
-    evidence: This task-record-only update creates the final validation generation after restoring the intended validator regressions.
-  - command: final checkpoint-head fresh Codex review
+    evidence: This checkpoint update belongs to the new validation generation; live PR #1003 head is authoritative and must be checked after this commit.
+  - command: current-head fresh Codex review after repairs
     result: NOT_RUN
-    evidence: This task-record-only update creates the final review generation after restoring the intended validator regressions.
+    evidence: Fresh review must target the new live PR #1003 head after all repair commits.
 blockers:
   - none
-next_action: Validate the unchanged checkpoint-only final head with every emitted/applicable workflow and a fresh full-diff Codex review; resolve every material finding, then mark PR #1003 ready, squash-merge with expected-head protection, verify main, archive this task and close Issue #1002.
+next_action: Read live PR #1003 head, validate every emitted exact-head workflow, request a fresh Codex full-diff review, resolve every material finding, then squash-merge with expected-head protection and perform lifecycle closeout.
 ```
 
 ## Recovery checkpoint
@@ -179,26 +172,24 @@ next_action: Validate the unchanged checkpoint-only final head with every emitte
 ```yaml
 recovery:
   policy_version: 1
-  generation: 3
+  generation: 4
   session_id: coordinator-20260812-engineering-hardening-final
   session_started_at: 2026-08-12T14:25:00+02:00
-  checkpointed_at: 2026-08-12T14:47:00+02:00
-  last_progress_at: 2026-08-12T14:47:00+02:00
-  phase: final-exact-head-validation
-  exact_head: ea93f299c4a7b1f17bb5c5f105899c45f21e5bba
+  checkpointed_at: 2026-08-12T15:18:00+02:00
+  last_progress_at: 2026-08-12T15:18:00+02:00
+  phase: codex-repair-validation
+  exact_head: live-pr-1003-authoritative
   pull_request: 1003
-  active_operation: create final checkpoint generation after restored validator regressions passed focused validation
-  external_run_ids:
-    - 31598034929
-    - 31598034956
-  operation_started_at: 2026-08-12T14:47:00+02:00
-  wait_deadline_at: 2026-08-12T15:32:00+02:00
-  check_generation: final-checkpoint-after-restored-tests
+  active_operation: validate Codex P1/P2 repairs on the current live PR head
+  external_run_ids: []
+  operation_started_at: 2026-08-12T15:18:00+02:00
+  wait_deadline_at: 2026-08-12T16:03:00+02:00
+  check_generation: post-codex-repairs
   checks_used: 0
   status: active
   safe_to_resume: true
   resume_condition: exact-head required checks and fresh review are terminal and branch head remains unchanged
-  next_action: inspect exact-head CI and fresh review, repair only material findings, then squash-merge and lifecycle-close the task
+  next_action: inspect live PR head, exact-head CI and fresh review, repair only material findings, then squash-merge and lifecycle-close the task
 ```
 
 ## Notes
