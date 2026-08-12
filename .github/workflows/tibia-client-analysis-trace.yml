@@ -6,14 +6,15 @@ on:
     paths: [.github/workflows/tibia-client-analysis-trace.yml]
 
 permissions:
-  contents: read
+  contents: write
 
 env:
   CONTAINER_NAME: oteryn-tibia-client-analysis
+  SCREENSHOT_B64_PATH: docs/agents/reports/OTERYN-20260812-launcher-screen.b64
 
 jobs:
   trace:
-    name: Inspect official Tibia client package manifest
+    name: Persist Tibia launcher screenshot
     runs-on: oteryn-staging
     timeout-minutes: 8
     steps:
@@ -25,28 +26,44 @@ jobs:
           [[ "$(docker inspect --format '{{ index .Config.Labels "com.blakinio.owner" }}' "$CONTAINER_NAME")" == "oteryn" ]]
           [[ "$(docker inspect --format '{{ index .Config.Labels "com.blakinio.purpose" }}' "$CONTAINER_NAME")" == "tibia-client-analysis" ]]
           docker ps -a --filter 'label=com.docker.compose.project=oteryn-staging' --format '{{.ID}}\t{{.Names}}' | sort > /tmp/oteryn-before.tsv
-      - name: Fetch official package metadata
+      - name: Capture bounded pre-login launcher screenshot
         shell: bash
         run: |
           set -Eeuo pipefail
           docker exec "$CONTAINER_NAME" bash -lc '
             set -Eeuo pipefail
-            base=https://static.tibia.com/launcher/tibiaclient-linux-current
-            mkdir -p /data/runtime/manifest
-            curl -fsSL "$base/package.json.version" -o /data/runtime/manifest/package.json.version
-            echo PACKAGE_VERSION=$(cat /data/runtime/manifest/package.json.version)
-            for u in "$base/package.json" "$base/$(cat /data/runtime/manifest/package.json.version)/package.json"; do
-              echo TRY_URL=$u
-              if curl -fsSL "$u" -o /data/runtime/manifest/package.json; then
-                echo PACKAGE_JSON_URL=$u
-                break
-              fi
-            done
-            test -s /data/runtime/manifest/package.json
-            echo PACKAGE_JSON_BEGIN
-            python3 -m json.tool /data/runtime/manifest/package.json | sed -n "1,220p"
-            echo PACKAGE_JSON_END
+            export DISPLAY=:99
+            wid=$(xdotool search --onlyvisible --name "^Tibia$" | head -n1)
+            import -display :99 -window "$wid" /tmp/launcher-full.png
+            base64 -w0 /tmp/launcher-full.png > /data/runtime/launcher-screen.b64
+            test -s /data/runtime/launcher-screen.b64
+            echo SCREENSHOT_BYTES=$(stat -c %s /tmp/launcher-full.png)
           '
+          docker exec "$CONTAINER_NAME" cat /data/runtime/launcher-screen.b64 > /tmp/launcher-screen.b64
+      - name: Persist screenshot text to task branch
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HEAD_REF: ${{ github.head_ref }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY'
+          import base64,json,os,pathlib,urllib.request,urllib.error
+          repo=os.environ['REPOSITORY']; ref=os.environ['HEAD_REF']; path=os.environ['SCREENSHOT_B64_PATH']; token=os.environ['GH_TOKEN']
+          headers={'Authorization':f'Bearer {token}','Accept':'application/vnd.github+json','X-GitHub-Api-Version':'2022-11-28','User-Agent':'oteryn-launcher-screenshot-writer'}
+          content=pathlib.Path('/tmp/launcher-screen.b64').read_text().strip()+'\n'
+          api=f'https://api.github.com/repos/{repo}/contents/{path}?ref={ref}'
+          sha=None
+          try:
+            with urllib.request.urlopen(urllib.request.Request(api,headers=headers)) as r: sha=json.load(r)['sha']
+          except urllib.error.HTTPError as e:
+            if e.code != 404: raise
+          payload={'message':'docs: persist bounded launcher screenshot','content':base64.b64encode(content.encode()).decode(),'branch':ref}
+          if sha: payload['sha']=sha
+          req=urllib.request.Request(f'https://api.github.com/repos/{repo}/contents/{path}',data=json.dumps(payload).encode(),headers=headers,method='PUT')
+          with urllib.request.urlopen(req) as r: print('persisted_commit='+json.load(r)['commit']['sha'])
+          PY
       - name: Verify canonical staging unchanged
         if: always()
         shell: bash
