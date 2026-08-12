@@ -1,0 +1,241 @@
+name: Tibia Software Vulkan World Entry
+
+on:
+  push:
+    branches: [ops/oteryn-tibia-client-analysis-20260811]
+    paths: [.github/workflows/tibia-client-analysis-lavapipe-world-entry.yml]
+
+permissions:
+  contents: read
+
+env:
+  CONTAINER_NAME: oteryn-tibia-client-analysis
+
+jobs:
+  login:
+    name: Verify lavapipe, login character, and leave online
+    runs-on: oteryn-staging
+    timeout-minutes: 12
+    steps:
+      - name: Verify owned runtime and snapshot staging
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          [[ "$RUNNER_NAME" == "oteryn-synology-staging" ]]
+          [[ "$(docker inspect --format '{{ index .Config.Labels "com.blakinio.owner" }}' "$CONTAINER_NAME")" == "oteryn" ]]
+          [[ "$(docker inspect --format '{{ index .Config.Labels "com.blakinio.purpose" }}' "$CONTAINER_NAME")" == "tibia-client-analysis" ]]
+          [[ "$(docker inspect --format '{{.State.Status}}' "$CONTAINER_NAME")" == "running" ]]
+          docker ps -a --filter 'label=com.docker.compose.project=oteryn-staging' --format '{{.ID}}\t{{.Names}}' | sort >/tmp/oteryn-before.tsv
+
+      - name: Install software Vulkan in owned container and enter world
+        shell: bash
+        env:
+          TIBIA_TEST_EMAIL: ${{ secrets.TIBIA_TEST_EMAIL }}
+          TIBIA_TEST_PASSWORD: ${{ secrets.TIBIA_TEST_PASSWORD }}
+        run: |
+          set -Eeuo pipefail
+          [[ -n "$TIBIA_TEST_EMAIL" && -n "$TIBIA_TEST_PASSWORD" ]]
+          docker exec -e TIBIA_TEST_EMAIL -e TIBIA_TEST_PASSWORD -i "$CONTAINER_NAME" bash <<'INNER'
+          set -Eeuo pipefail
+          export DISPLAY=:99 HOME=/data/home
+          pkg="$HOME/.local/share/CipSoft GmbH/Tibia/packages/Tibia"
+          client="$pkg/bin/client"
+          cfg="$pkg/conf/clientoptions.json"
+          [[ -x "$client" && -f "$cfg" ]]
+
+          apt-get update -qq
+          DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends mesa-vulkan-drivers vulkan-tools >/dev/null
+          lvp=$(find /usr/share/vulkan/icd.d -maxdepth 1 -type f -name 'lvp_icd*.json' | head -n1)
+          [[ -n "$lvp" && -f "$lvp" ]]
+          echo LAVAPIPE_ICD_PRESENT=true
+          export VK_ICD_FILENAMES="$lvp"
+          export VK_DRIVER_FILES="$lvp"
+          export LIBGL_ALWAYS_SOFTWARE=1
+          if timeout 25s vulkaninfo --summary >/tmp/lvp-vulkaninfo.txt 2>/tmp/lvp-vulkaninfo.err; then
+            echo SOFTWARE_VULKANINFO_SUCCESS=true
+          else
+            echo SOFTWARE_VULKANINFO_SUCCESS=false
+            python3 - <<'PY'
+          from pathlib import Path
+          import re
+          raw=Path('/tmp/lvp-vulkaninfo.err').read_text(errors='replace').lower()
+          allow={'error','failed','failure','vulkan','instance','driver','device','loader','icd','surface','display','xlib','xcb','mesa','software','llvmpipe','lavapipe','initialize','initialization','cannot','not','found'}
+          safe=[]
+          for w in re.findall(r'[a-z]+',raw):
+              if w in allow and w not in safe: safe.append(w)
+          print('SOFTWARE_VULKAN_SAFE_ERROR=' + ','.join(safe))
+          PY
+            exit 3
+          fi
+          python3 - <<'PY'
+          from pathlib import Path
+          raw=Path('/tmp/lvp-vulkaninfo.txt').read_text(errors='replace').lower()
+          print('SOFTWARE_VULKAN_LAVAPIPE=' + str(('lavapipe' in raw or 'llvmpipe' in raw)).lower())
+          print('SOFTWARE_VULKAN_CPU_DEVICE=' + str(('cpu' in raw)).lower())
+          if not ('lavapipe' in raw or 'llvmpipe' in raw):
+              raise SystemExit('software Vulkan device not identified')
+          PY
+
+          pgrep -f '/wireproxy .*wireproxy.conf' >/dev/null
+          curl --socks5-hostname 127.0.0.1:25344 -fsS --max-time 10 https://www.cloudflare.com/cdn-cgi/trace >/tmp/lvp-warp.trace
+          grep -q '^warp=on$' /tmp/lvp-warp.trace
+          echo WARP_VERIFIED=true
+          cat >/tmp/proxychains-lvp.conf <<'EOF'
+          strict_chain
+          proxy_dns
+          quiet_mode
+          tcp_read_time_out 15000
+          tcp_connect_time_out 8000
+          [ProxyList]
+          socks5 127.0.0.1 25344
+          EOF
+
+          pkill -x client 2>/dev/null || true
+          pgrep -f '^Xvfb :99' >/dev/null || nohup Xvfb :99 -screen 0 1280x800x24 >/data/runtime/xvfb.log 2>&1 </dev/null &
+          : >/data/runtime/client-lavapipe-world-entry.log
+          cd "$pkg"
+          nohup env VK_ICD_FILENAMES="$lvp" VK_DRIVER_FILES="$lvp" LIBGL_ALWAYS_SOFTWARE=1 \
+            proxychains4 -f /tmp/proxychains-lvp.conf "$client" \
+            >/data/runtime/client-lavapipe-world-entry.log 2>&1 </dev/null &
+          for n in $(seq 1 40); do pgrep -x client >/dev/null && break; sleep 0.5; done
+          pid=$(pgrep -x client | head -n1)
+          [[ -n "$pid" ]]
+          sleep 12
+          if grep -Fqi 'failed vulkan instance' /data/runtime/client-lavapipe-world-entry.log; then
+            echo CLIENT_FAILED_VULKAN_INSTANCE=true
+            exit 4
+          fi
+          echo CLIENT_FAILED_VULKAN_INSTANCE=false
+
+          best=''; best_area=0; bw=0; bh=0
+          for w in $(xdotool search --onlyvisible --name '^Tibia$' 2>/dev/null || true); do
+            geom=$(xdotool getwindowgeometry --shell "$w" 2>/dev/null || true)
+            width=$(printf '%s\n' "$geom" | sed -n 's/^WIDTH=//p')
+            height=$(printf '%s\n' "$geom" | sed -n 's/^HEIGHT=//p')
+            [[ -n "$width" && -n "$height" ]] || continue
+            area=$((width*height))
+            if (( area > best_area )); then best=$w; best_area=$area; bw=$width; bh=$height; fi
+          done
+          [[ -n "$best" && "$bw" == 1020 && "$bh" == 650 ]]
+
+          import -display :99 -window "$best" /tmp/lvp-login.png
+          convert /tmp/lvp-login.png -crop 900x500+60+80 -resize 150% -colorspace Gray -contrast-stretch 1%x1% /tmp/lvp-login-ocr.png
+          tesseract /tmp/lvp-login-ocr.png stdout --psm 11 2>/dev/null >/tmp/lvp-login.txt || true
+          grep -qiE 'Account Login|E-?mail|Password' /tmp/lvp-login.txt
+          echo ACCOUNT_LOGIN_READY_WITH_SOFTWARE_VULKAN=true
+
+          xdotool mousemove --window "$best" 535 275 click 1
+          xdotool key --window "$best" ctrl+a
+          xdotool type --window "$best" --delay 3 -- "$TIBIA_TEST_EMAIL"
+          xdotool mousemove --window "$best" 535 304 click 1
+          xdotool key --window "$best" ctrl+a
+          xdotool type --window "$best" --delay 3 -- "$TIBIA_TEST_PASSWORD"
+          xdotool mousemove --window "$best" 590 388 click 1
+          unset TIBIA_TEST_EMAIL TIBIA_TEST_PASSWORD
+          sleep 25
+
+          import -display :99 -window "$best" /tmp/lvp-select.png
+          convert /tmp/lvp-select.png -resize 200% -colorspace Gray -contrast-stretch 1%x1% /tmp/lvp-select-ocr.png
+          tesseract /tmp/lvp-select-ocr.png stdout --psm 11 tsv 2>/dev/null >/tmp/lvp-select.tsv || true
+          python3 - <<'PY' >/tmp/lvp-target.env
+          import csv
+          anchors=[]; candidates=[]
+          with open('/tmp/lvp-select.tsv',newline='',errors='replace') as f:
+              for r in csv.DictReader(f,delimiter='\t'):
+                  token=(r.get('text') or '').strip().lower().strip(':,.!?()[]')
+                  try:
+                      conf=float(r.get('conf') or -1)
+                      left=int(r.get('left') or 0)//2; top=int(r.get('top') or 0)//2
+                      width=max(1,int(r.get('width') or 0)//2); height=max(1,int(r.get('height') or 0)//2)
+                  except ValueError:
+                      continue
+                  if conf < 20:
+                      continue
+                  x=left+width//2; y=top+height//2
+                  if token in {'select','character','status'}:
+                      anchors.append((token,x,y))
+                  if 180 <= x <= 390 and 185 <= y <= 200:
+                      candidates.append((left,x,y,width,conf))
+          title=any(t=='select' and 100<=y<=130 for t,x,y in anchors)
+          header=[(x,y) for t,x,y in anchors if t=='character' and 160<=y<=185]
+          status=[(x,y) for t,x,y in anchors if t=='status' and 160<=y<=190]
+          if not title or not header or not status or not candidates:
+              raise SystemExit('Select Character structure not proven')
+          candidates.sort()
+          _,x,y,_,conf=candidates[0]
+          if not (188 <= y <= 198 and x < status[0][0]-30):
+              raise SystemExit('unsafe exact-name target')
+          print(f'NAME_X={x}')
+          print(f'NAME_Y={y}')
+          print(f'NAME_CONF={int(conf)}')
+          PY
+          source /tmp/lvp-target.env
+          echo EXACT_CHARACTER_NAME_TARGET_VERIFIED=true
+          echo "CHARACTER_NAME_TARGET=$NAME_X,$NAME_Y"
+          xdotool mousemove --window "$best" "$NAME_X" "$NAME_Y" click --repeat 2 --delay 180 1
+
+          sleep 2
+          import -display :99 -window "$best" /tmp/lvp-t2.png
+          sleep 8
+          import -display :99 -window "$best" /tmp/lvp-t10.png
+          sleep 20
+          import -display :99 -window "$best" /tmp/lvp-t30.png
+          for n in 2 10 30; do
+            convert "/tmp/lvp-t${n}.png" -crop 900x500+60+80 -resize 150% -colorspace Gray -contrast-stretch 1%x1% "/tmp/lvp-t${n}-ocr.png"
+            tesseract "/tmp/lvp-t${n}-ocr.png" stdout --psm 11 2>/dev/null >"/tmp/lvp-t${n}.txt" || true
+          done
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          allow={'account','login','email','password','select','character','connecting','connection','failed','error','server','world','game','battle','skills','inventory','health','mana','capacity','experience','store','vip','prey','quest','online','already','logged','session','disconnected','queue','maintenance','vulkan','opengl','renderer'}
+          final=''
+          for n in ('2','10','30'):
+              raw=Path(f'/tmp/lvp-t{n}.txt').read_text(errors='replace').lower()
+              if n=='30': final=raw
+              safe=[]
+              for w in re.findall(r'[a-z]+',raw):
+                  if w in allow and w not in safe: safe.append(w)
+              print(f'T{n}_SAFE=' + ','.join(safe))
+          account=('account login' in final or ('email' in final and 'password' in final))
+          select=('select character' in final)
+          game=sum(x in final for x in ('battle','skills','inventory','health','mana','capacity','experience'))>=2
+          print(f'FINAL_ACCOUNT_LOGIN={str(account).lower()}')
+          print(f'FINAL_SELECT_CHARACTER={str(select).lower()}')
+          print(f'FINAL_GAME_MARKERS={str(game).lower()}')
+          if account or select or not game:
+              raise SystemExit(5)
+          PY
+
+          pid=$(pgrep -x client | head -n1)
+          [[ -n "$pid" ]]
+          direct_tcp=$(ss -ntp 2>/dev/null | grep "pid=$pid," | awk '{print $5}' | grep -Ev '^(127\.0\.0\.1|\[::1\]):25344$' | grep -c . || true)
+          udp_count=$(ss -nup 2>/dev/null | grep "pid=$pid," | grep -c . || true)
+          echo "FINAL_DIRECT_TCP_COUNT=$direct_tcp"
+          echo "FINAL_UDP_COUNT=$udp_count"
+          [[ "$direct_tcp" -eq 0 && "$udp_count" -eq 0 ]]
+
+          cp /tmp/lvp-t30.png /tmp/tibia-lavapipe-online-safe.png
+          convert /tmp/tibia-lavapipe-online-safe.png -fill '#202020' -draw 'rectangle 0,0 1020,70 rectangle 0,70 180,650 rectangle 840,70 1020,650 rectangle 0,520 1020,650' /tmp/tibia-lavapipe-online-safe.png
+          echo PHYSICAL_TIBIA_WORLD_LOGIN_PROVEN=true
+          echo TIBIA_CHARACTER_LEFT_ONLINE=true
+          INNER
+          docker cp "$CONTAINER_NAME:/tmp/tibia-lavapipe-online-safe.png" /tmp/tibia-lavapipe-online-safe.png
+
+      - name: Upload privacy-safe in-world proof
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: tibia-lavapipe-online-proof
+          path: /tmp/tibia-lavapipe-online-safe.png
+          retention-days: 7
+          if-no-files-found: warn
+
+      - name: Verify canonical staging unchanged and client remains running
+        if: always()
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          docker ps -a --filter 'label=com.docker.compose.project=oteryn-staging' --format '{{.ID}}\t{{.Names}}' | sort >/tmp/oteryn-after.tsv
+          diff -u /tmp/oteryn-before.tsv /tmp/oteryn-after.tsv
+          docker exec "$CONTAINER_NAME" pgrep -x client >/dev/null
+          docker inspect --format 'analysis_name={{.Name}} status={{.State.Status}} owner={{ index .Config.Labels "com.blakinio.owner" }} purpose={{ index .Config.Labels "com.blakinio.purpose" }}' "$CONTAINER_NAME"
