@@ -34,6 +34,7 @@ class IntegrationTestRegistrationTest(unittest.TestCase):
         workflow_invocation: str = TEST_PATH,
         workflow_trigger: str = TRIGGER,
         workflow_condition: str = CONDITION,
+        workflow_condition_comment: str | None = None,
         invocation_as_comment: bool = False,
         duplicate: bool = False,
         include_environment: bool = True,
@@ -56,9 +57,13 @@ class IntegrationTestRegistrationTest(unittest.TestCase):
             "jobs:",
             f"  {JOB}:",
             f"    if: {workflow_condition}",
+        ]
+        if workflow_condition_comment is not None:
+            workflow_lines.append(f"    # {workflow_condition_comment}")
+        workflow_lines.extend([
             "    runs-on: ubuntu-latest",
             "    env:",
-        ]
+        ])
         if include_environment:
             workflow_lines.extend(f"      {name}: fixture" for name in ENVIRONMENT)
         workflow_lines.extend(["    steps:"])
@@ -141,6 +146,23 @@ class IntegrationTestRegistrationTest(unittest.TestCase):
         root = self.make_repository(
             registration_event="pull_request",
             workflow_condition="github.event_name == 'workflow_dispatch'",
+            job_condition_marker="github.event_name == 'pull_request'",
+        )
+        self.assert_registration_error(root, "does not contain required condition marker")
+
+    def test_commented_condition_cannot_satisfy_proving_job_contract(self) -> None:
+        root = self.make_repository(
+            registration_event="pull_request",
+            workflow_condition="github.event_name == 'workflow_dispatch'",
+            workflow_condition_comment="github.event_name == 'pull_request'",
+            job_condition_marker="github.event_name == 'pull_request'",
+        )
+        self.assert_registration_error(root, "does not contain required condition marker")
+
+    def test_inline_commented_condition_cannot_satisfy_proving_job_contract(self) -> None:
+        root = self.make_repository(
+            registration_event="pull_request",
+            workflow_condition="github.event_name == 'workflow_dispatch' # github.event_name == 'pull_request'",
             job_condition_marker="github.event_name == 'pull_request'",
         )
         self.assert_registration_error(root, "does not contain required condition marker")
