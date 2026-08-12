@@ -1,0 +1,47 @@
+name: Tibia Action Static Metacalls
+
+on:
+  push:
+    branches: [ops/oteryn-tibia-client-analysis-20260811]
+    paths: [.github/workflows/tibia-client-action-static-metacalls.yml]
+
+permissions:
+  contents: read
+
+env:
+  CONTAINER_NAME: oteryn-tibia-client-analysis
+
+jobs:
+  metacalls:
+    runs-on: oteryn-staging
+    timeout-minutes: 3
+    steps:
+      - name: Resolve exact handler static metacalls
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          docker exec -i "$CONTAINER_NAME" bash <<'INNER'
+          set -Eeuo pipefail
+          bin='/data/home/.local/share/CipSoft GmbH/Tibia/packages/Tibia/bin/client'
+          rel=/tmp/rela.$$
+          readelf -rW "$bin" >"$rel"
+          for spec in \
+            '30852b8 movement' \
+            '3085078 generic' \
+            '30850b8 creatures' \
+            '3085178 usewith' \
+            '30851f8 chat'; do
+            set -- $spec; loc=$1; label=$2
+            echo "=== $label STATIC_METACALL_RELOC @0x$loc ==="
+            grep -Ei "^0*${loc}[[:space:]]" "$rel" || true
+          done
+          rm -f "$rel"
+          pid=$(pgrep -x client | head -n1 || true); [[ -n "$pid" ]]
+          tcp_rows=$(ss -ntp 2>/dev/null | grep "pid=$pid," || true)
+          local_count=$(printf '%s\n' "$tcp_rows" | awk '$5 ~ /127\.0\.0\.1:25344$/ || $5 ~ /\[::1\]:25344$/ {n++} END{print n+0}')
+          total_count=$(printf '%s\n' "$tcp_rows" | grep -c . || true)
+          echo CLIENT_PID=$pid
+          echo ACTIVE_LOCAL_SOCKS_COUNT=$local_count
+          echo ACTIVE_DIRECT_TCP_COUNT=$((total_count-local_count))
+          (( local_count > 0 && total_count-local_count == 0 ))
+          INNER
