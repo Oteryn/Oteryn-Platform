@@ -854,3 +854,194 @@ google/protobuf/cpp_features.proto package=pb messages=CppFeatures
 
 <!-- END GENERATED SCHEMA EVIDENCE -->
 
+<!-- BEGIN GENERATED DECODED MAP REVERSE -->
+
+## Generated decoded-map reverse evidence
+
+Source: GitHub Actions run `31578497058` on `oteryn-synology-staging`. Sanitized descriptors/disassembly only.
+
+```text
+candidate_descriptor_starts=7
+DESCRIPTOR file_off=0x2959c00-0x295a252 name=shared.proto package=tibia.protobuf.shared messages=1
+DESCRIPTOR file_off=0x295abe0-0x295c0a7 name=appearances.proto package=tibia.protobuf.appearances messages=28
+DESCRIPTOR file_off=0x295c240-0x295c65b name=map.proto package=tibia.protobuf.map messages=4
+DESCRIPTOR file_off=0x295c7a0-0x296057c name=sounds-common.proto package=tibia.protobuf.sound messages=5
+DESCRIPTOR file_off=0x2960760-0x2960c4d name=sounds.proto package=tibia.protobuf.sound messages=6
+DESCRIPTOR file_off=0x2960c60-0x2962f51 name=google/protobuf/descriptor.proto package=google.protobuf messages=22
+DESCRIPTOR file_off=0x2963a00-0x2963acc name=google/protobuf/cpp_features.proto package=pb messages=1
+
+TARGET_SCHEMAS
+MESSAGE tibia.protobuf.shared.Coordinate source=shared.proto file_off=0x2959c00-0x295a252
+  field=1 name=x label=optional type=uint32 oneof=-
+  field=2 name=y label=optional type=uint32 oneof=-
+  field=3 name=z label=optional type=uint32 oneof=-
+
+TARGET_STATUS
+AppearanceInstance=NOT_FOUND
+Coordinate=FOUND
+GameserverMessageBottomFloor=NOT_FOUND
+GameserverMessageBottomRow=NOT_FOUND
+GameserverMessageFieldData=NOT_FOUND
+GameserverMessageFullMap=NOT_FOUND
+GameserverMessageLeftColumn=NOT_FOUND
+GameserverMessageRightColumn=NOT_FOUND
+GameserverMessageTopFloor=NOT_FOUND
+GameserverMessageTopRow=NOT_FOUND
+MapArea=NOT_FOUND
+MapFieldData=NOT_FOUND
+
+PROTOCOL_RELATED_DESCRIPTORS
+shared.proto package=tibia.protobuf.shared file_off=0x2959c00 messages=Coordinate
+appearances.proto package=tibia.protobuf.appearances file_off=0x295abe0 messages=Appearances,SpritePhase,SpriteAnimation,Box,SpriteInfo,FrameGroup,Appearance,AppearanceFlags,AppearanceFlagImbueable,AppearanceFlagBank,AppearanceFlagWrite,AppearanceFlagWriteOnce,AppearanceFlagLight,AppearanceFlagHeight,AppearanceFlagShift,AppearanceFlagClothes,AppearanceFlagDefaultAction,AppearanceFlagMarket,AppearanceFlagNPC,AppearanceFlagAutomap,AppearanceFlagHook,AppearanceFlagLenshelp,AppearanceFlagChangedToExpire,AppearanceFlagCyclopedia,AppearanceFlagUpgradeClassification,AppearanceFlagSkillWheelGem,AppearanceFlagProficiency,SpecialMeaningAppearanceIds
+map.proto package=tibia.protobuf.map file_off=0x295c240 messages=Map,Area,Npc,MapFile
+sounds-common.proto package=tibia.protobuf.sound file_off=0x295c7a0 messages=SimpleSoundEffect,RandomSoundEffect,DelayedSoundEffect,AppearanceTypesCountSoundEffect,MinMaxFloat
+
+worldmap_class_string_va=0x1cd8bb4
+qt_metacast_reference_count=18
+worldmap_qt_metacast_ordinal=15
+qt_metacall_call_count=44
+worldmap_candidate_qt_metacall_base_call=0xe004e0
+CANDIDATE_QT_METACALL_NEIGHBORHOOD
+  e0049e:	e8 9d f5 fe ff       	call   defa40 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x251210>
+  e004a3:	8b 44 24 0c          	mov    0xc(%rsp),%eax
+  e004a7:	eb b9                	jmp    e00462 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x261c32>
+  e004a9:	0f 1f 80 00 00 00 00 	nopl   0x0(%rax)
+  e004b0:	48 8b 4d 08          	mov    0x8(%rbp),%rcx
+  e004b4:	8b 09                	mov    (%rcx),%ecx
+  e004b6:	85 c9                	test   %ecx,%ecx
+  e004b8:	75 c9                	jne    e00483 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x261c53>
+  e004ba:	48 8d 1d 1f 4b 33 02 	lea    0x2334b1f(%rip),%rbx        # 3134fe0 <typeinfo for QSGRectangleNode@@Base+0xcb58>
+  e004c1:	48 89 1a             	mov    %rbx,(%rdx)
+  e004c4:	eb 9c                	jmp    e00462 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x261c32>
+  e004c6:	66 2e 0f 1f 84 00 00 	cs nopw 0x0(%rax,%rax,1)
+  e004cd:	00 00 00 
+  e004d0:	41 54                	push   %r12
+  e004d2:	49 89 fc             	mov    %rdi,%r12
+  e004d5:	55                   	push   %rbp
+  e004d6:	48 89 cd             	mov    %rcx,%rbp
+  e004d9:	53                   	push   %rbx
+  e004da:	89 f3                	mov    %esi,%ebx
+  e004dc:	48 83 ec 10          	sub    $0x10,%rsp
+  e004e0:	e8 cb be 6d ff       	call   4dc3b0 <QObject::qt_metacall(QMetaObject::Call, int, void**)@plt>
+  e004e5:	85 c0                	test   %eax,%eax
+  e004e7:	78 0c                	js     e004f5 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x261cc5>
+  e004e9:	85 db                	test   %ebx,%ebx
+  e004eb:	75 13                	jne    e00500 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x261cd0>
+  e004ed:	83 f8 13             	cmp    $0x13,%eax
+  e004f0:	7e 2e                	jle    e00520 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x261cf0>
+  e004f2:	83 e8 14             	sub    $0x14,%eax
+  e004f5:	48 83 c4 10          	add    $0x10,%rsp
+  e004f9:	5b                   	pop    %rbx
+  e004fa:	5d                   	pop    %rbp
+  e004fb:	41 5c                	pop    %r12
+  e004fd:	c3                   	ret
+  e004fe:	66 90                	xchg   %ax,%ax
+  e00500:	83 fb 07             	cmp    $0x7,%ebx
+  e00503:	75 f0                	jne    e004f5 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x261cc5>
+  e00505:	83 f8 13             	cmp    $0x13,%eax
+  e00508:	7f e8                	jg     e004f2 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x261cc2>
+  e0050a:	48 8b 55 00          	mov    0x0(%rbp),%rdx
+  e0050e:	48 c7 02 00 00 00 00 	movq   $0x0,(%rdx)
+  e00515:	eb db                	jmp    e004f2 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x261cc2>
+  e00517:	66 0f 1f 84 00 00 00 	nopw   0x0(%rax,%rax,1)
+  e0051e:	00 00 
+  e00520:	89 c2                	mov    %eax,%edx
+  e00522:	48 89 e9             	mov    %rbp,%rcx
+  e00525:	31 f6                	xor    %esi,%esi
+  e00527:	4c 89 e7             	mov    %r12,%rdi
+  e0052a:	89 44 24 0c          	mov    %eax,0xc(%rsp)
+  e0052e:	e8 6d 97 fe ff       	call   de9ca0 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x24b470>
+  e00533:	8b 44 24 0c          	mov    0xc(%rsp),%eax
+  e00537:	eb b9                	jmp    e004f2 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x261cc2>
+  e00539:	90                   	nop
+  e0053a:	66 0f 1f 44 00 00    	nopw   0x0(%rax,%rax,1)
+  e00540:	41 54                	push   %r12
+  e00542:	49 89 fc             	mov    %rdi,%r12
+  e00545:	55                   	push   %rbp
+  e00546:	48 89 cd             	mov    %rcx,%rbp
+  e00549:	53                   	push   %rbx
+  e0054a:	89 f3                	mov    %esi,%ebx
+  e0054c:	48 83 ec 20          	sub    $0x20,%rsp
+  e00550:	e8 5b be 6d ff       	call   4dc3b0 <QObject::qt_metacall(QMetaObject::Call, int, void**)@plt>
+  e00555:	85 c0                	test   %eax,%eax
+  e00557:	78 12                	js     e0056b <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x261d3b>
+  e00559:	8d 53 ff             	lea    -0x1(%rbx),%edx
+  e0055c:	83 fa 02             	cmp    $0x2,%edx
+  e0055f:	76 17                	jbe    e00578 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x261d48>
+  e00561:	83 fb 08             	cmp    $0x8,%ebx
+  e00564:	74 12                	je     e00578 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x261d48>
+  e00566:	83 fb 06             	cmp    $0x6,%ebx
+  e00569:	74 12                	je     e0057d <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x261d4d>
+  e0056b:	48 83 c4 20          	add    $0x20,%rsp
+  e0056f:	5b                   	pop    %rbx
+  e00570:	5d                   	pop    %rbp
+  e00571:	41 5c                	pop    %r12
+  e00573:	c3                   	ret
+  e00574:	0f 1f 40 00          	nopl   0x0(%rax)
+  e00578:	83 fb 01             	cmp    $0x1,%ebx
+  e0057b:	74 13                	je     e00590 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x261d60>
+  e0057d:	48 83 c4 20          	add    $0x20,%rsp
+  e00581:	83 e8 03             	sub    $0x3,%eax
+  e00584:	5b                   	pop    %rbx
+  e00585:	5d                   	pop    %rbp
+  e00586:	41 5c                	pop    %r12
+  e00588:	c3                   	ret
+  e00589:	0f 1f 80 00 00 00 00 	nopl   0x0(%rax)
+  e00590:	48 8b 5d 00          	mov    0x0(%rbp),%rbx
+  e00594:	83 f8 01             	cmp    $0x1,%eax
+  e00597:	74 57                	je     e005f0 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x261dc0>
+  e00599:	83 f8 02             	cmp    $0x2,%eax
+  e0059c:	74 1a                	je     e005b8 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x261d88>
+  e0059e:	85 c0                	test   %eax,%eax
+  e005a0:	75 db                	jne    e0057d <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x261d4d>
+  e005a2:	41 80 7c 24 38 00    	cmpb   $0x0,0x38(%r12)
+  e005a8:	74 5c                	je     e00606 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x261dd6>
+  e005aa:	41 0f b7 54 24 1c    	movzwl 0x1c(%r12),%edx
+  e005b0:	89 13                	mov    %edx,(%rbx)
+  e005b2:	eb c9                	jmp    e0057d <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x261d4d>
+  e005b4:	0f 1f 40 00          	nopl   0x0(%rax)
+  e005b8:	48 8d 6c 24 18       	lea    0x18(%rsp),%rbp
+  e005bd:	4c 89 e6             	mov    %r12,%rsi
+  e005c0:	89 44 24 0c          	mov    %eax,0xc(%rsp)
+  e005c4:	48 89 ef             	mov    %rbp,%rdi
+  e005c7:	e8 f4 c6 e4 ff       	call   c4ccc0 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0xae490>
+  e005cc:	48 8b 4c 24 18       	mov    0x18(%rsp),%rcx
+  e005d1:	48 8b 13             	mov    (%rbx),%rdx
+  e005d4:	48 89 ef             	mov    %rbp,%rdi
+  e005d7:	48 89 0b             	mov    %rcx,(%rbx)
+  e005da:	48 89 54 24 18       	mov    %rdx,0x18(%rsp)
+  e005df:	e8 ac fc 6d ff       	call   4e0290 <QUrl::~QUrl()@plt>
+  e005e4:	8b 44 24 0c          	mov    0xc(%rsp),%eax
+  e005e8:	eb 93                	jmp    e0057d <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x261d4d>
+  e005ea:	66 0f 1f 44 00 00    	nopw   0x0(%rax,%rax,1)
+  e005f0:	48 8d 6c 24 18       	lea    0x18(%rsp),%rbp
+  e005f5:	4c 89 e6             	mov    %r12,%rsi
+  e005f8:	89 44 24 0c          	mov    %eax,0xc(%rsp)
+  e005fc:	48 89 ef             	mov    %rbp,%rdi
+  e005ff:	e8 6c c5 e4 ff       	call   c4cb70 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0xae340>
+  e00604:	eb c6                	jmp    e005cc <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x261d9c>
+  e00606:	83 ca ff             	or     $0xffffffff,%edx
+  e00609:	89 13                	mov    %edx,(%rbx)
+  e0060b:	e9 6d ff ff ff       	jmp    e0057d <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x261d4d>
+  e00610:	41 54                	push   %r12
+  e00612:	49 89 fc             	mov    %rdi,%r12
+  e00615:	55                   	push   %rbp
+  e00616:	48 89 cd             	mov    %rcx,%rbp
+  e00619:	53                   	push   %rbx
+  e0061a:	89 f3                	mov    %esi,%ebx
+  e0061c:	48 83 ec 10          	sub    $0x10,%rsp
+  e00620:	e8 8b bd 6d ff       	call   4dc3b0 <QObject::qt_metacall(QMetaObject::Call, int, void**)@plt>
+  e00625:	85 c0                	test   %eax,%eax
+  e00627:	78 0c                	js     e00635 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x261e05>
+  e00629:	85 db                	test   %ebx,%ebx
+  e0062b:	75 13                	jne    e00640 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x261e10>
+  e0062d:	83 f8 05             	cmp    $0x5,%eax
+  e00630:	7e 2e                	jle    e00660 <std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >::basic_string()@@Base+0x261e30>
+  e00632:	83 e8 06             	sub    $0x6,%eax
+  e00635:	48 83 c4 10          	add    $0x10,%rsp
+  e00639:	5b                   	pop    %rbx
+  e0063a:	5d                   	pop    %rbp
+  e0063b:	41 5c                	pop    %r12
+```
+
+<!-- END GENERATED DECODED MAP REVERSE -->
