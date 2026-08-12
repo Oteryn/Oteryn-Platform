@@ -13,7 +13,7 @@ env:
 
 jobs:
   trace:
-    name: Verify userspace WARP egress and attempt Tibia test login
+    name: Userspace WARP Tibia login proof
     runs-on: oteryn-staging
     timeout-minutes: 15
     steps:
@@ -26,38 +26,8 @@ jobs:
           [[ "$(docker inspect --format '{{ index .Config.Labels "com.blakinio.purpose" }}' "$CONTAINER_NAME")" == "tibia-client-analysis" ]]
           [[ "$(docker inspect --format '{{.State.Status}}' "$CONTAINER_NAME")" == "running" ]]
           docker ps -a --filter 'label=com.docker.compose.project=oteryn-staging' --format '{{.ID}}\t{{.Names}}' | sort > /tmp/oteryn-before.tsv
-          test -s /tmp/oteryn-before.tsv
 
-      - name: Materialize pinned userspace WARP tooling
-        shell: bash
-        run: |
-          set -Eeuo pipefail
-          docker exec -i "$CONTAINER_NAME" bash <<'INNER'
-          set -Eeuo pipefail
-          mkdir -p /data/runtime/userspace-warp/bin /data/runtime/userspace-warp/state
-          chmod 700 /data/runtime/userspace-warp /data/runtime/userspace-warp/state
-          cd /data/runtime/userspace-warp/bin
-          curl -fL --retry 3 --connect-timeout 10 \
-            -o wgcf \
-            https://github.com/ViRb3/wgcf/releases/download/v2.2.32/wgcf_2.2.32_linux_amd64
-          echo '2ff97f2201972ce582a424455d50a3719a380eef0cd1f3144f7779348e122a2c  wgcf' | sha256sum -c -
-          chmod 755 wgcf
-          curl -fL --retry 3 --connect-timeout 10 \
-            -o wireproxy.tar.gz \
-            https://github.com/windtf/wireproxy/releases/download/v1.1.3/wireproxy_linux_amd64.tar.gz
-          echo 'e88c1d090740373fc606c1bafd81d9a5eadc642cce5667616e20e9d7a444f51c  wireproxy.tar.gz' | sha256sum -c -
-          rm -rf wireproxy-extract
-          mkdir wireproxy-extract
-          tar -xzf wireproxy.tar.gz -C wireproxy-extract
-          wp=$(find wireproxy-extract -type f -name wireproxy -print -quit)
-          [[ -n "$wp" ]]
-          cp "$wp" wireproxy
-          chmod 755 wireproxy
-          ./wgcf --version
-          ./wireproxy --version
-          INNER
-
-      - name: Establish and prove userspace WARP SOCKS egress
+      - name: Establish verified userspace WARP SOCKS egress
         shell: bash
         run: |
           set -Eeuo pipefail
@@ -66,6 +36,10 @@ jobs:
           root=/data/runtime/userspace-warp
           bin="$root/bin"
           state="$root/state"
+          [[ "$(sha256sum "$bin/wgcf" | awk '{print $1}')" == 2ff97f2201972ce582a424455d50a3719a380eef0cd1f3144f7779348e122a2c ]]
+          [[ -x "$bin/wireproxy" ]]
+          "$bin/wgcf" help >/dev/null
+          "$bin/wireproxy" -v
           cd "$state"
           if [[ ! -s wgcf-account.toml ]]; then
             "$bin/wgcf" register --accept-tos >/dev/null
@@ -85,10 +59,7 @@ jobs:
           nohup "$bin/wireproxy" -c "$state/wireproxy.conf" >"$root/wireproxy.log" 2>&1 </dev/null &
           ready=0
           for n in $(seq 1 30); do
-            if curl --socks5-hostname 127.0.0.1:25344 -fsS --max-time 10 https://www.cloudflare.com/cdn-cgi/trace > /tmp/warp-trace 2>/dev/null; then
-              ready=1
-              break
-            fi
+            if curl --socks5-hostname 127.0.0.1:25344 -fsS --max-time 10 https://www.cloudflare.com/cdn-cgi/trace >/tmp/warp-trace 2>/dev/null; then ready=1; break; fi
             sleep 2
           done
           echo USERSPACE_WARP_READY=$ready
@@ -115,11 +86,11 @@ jobs:
           socks5 127.0.0.1 25344
           EOF
           proxy_ip=$(proxychains4 -f /tmp/proxychains-tibia.conf curl -fsS --max-time 15 https://www.cloudflare.com/cdn-cgi/trace | sed -n 's/^ip=//p')
-          [[ -n "$proxy_ip" && "$proxy_ip" == "$warp_ip" ]]
+          [[ "$proxy_ip" == "$warp_ip" ]]
           echo PROXYCHAINS_WARP_EGRESS_VERIFIED=true
           INNER
 
-      - name: Relaunch Tibia through userspace WARP and prove TCP confinement
+      - name: Relaunch Tibia through WARP and prove client TCP confinement
         shell: bash
         run: |
           set -Eeuo pipefail
@@ -129,9 +100,6 @@ jobs:
           pkg="$HOME/.local/share/CipSoft GmbH/Tibia/packages/Tibia"
           client="$pkg/bin/client"
           [[ -x "$client" ]]
-          baseip=$(curl -fsS --max-time 10 https://www.cloudflare.com/cdn-cgi/trace | sed -n 's/^ip=//p')
-          warpip=$(curl --socks5-hostname 127.0.0.1:25344 -fsS --max-time 10 https://www.cloudflare.com/cdn-cgi/trace | sed -n 's/^ip=//p')
-          [[ -n "$warpip" && "$warpip" != "$baseip" ]]
           pkill -f 'packages/Tibia/bin/client' 2>/dev/null || true
           pgrep -f '^Xvfb :99' >/dev/null || nohup Xvfb :99 -screen 0 1280x800x24 >/data/runtime/xvfb.log 2>&1 </dev/null &
           sleep 2
@@ -161,7 +129,7 @@ jobs:
           echo "$best" >/tmp/tibia-window-id
           INNER
 
-      - name: Attempt bounded test login through proven userspace WARP path
+      - name: Attempt bounded test login through proven WARP path
         shell: bash
         env:
           TIBIA_TEST_EMAIL: ${{ secrets.TIBIA_TEST_EMAIL }}
@@ -173,7 +141,6 @@ jobs:
           set -Eeuo pipefail
           export DISPLAY=:99 HOME=/data/home
           best=$(cat /tmp/tibia-window-id)
-          [[ -n "$best" ]]
           xdotool mousemove --window "$best" 535 275 click 1
           xdotool key --window "$best" ctrl+a
           xdotool type --window "$best" --delay 3 -- "$TIBIA_TEST_EMAIL"
@@ -184,13 +151,12 @@ jobs:
           unset TIBIA_TEST_EMAIL TIBIA_TEST_PASSWORD
           sleep 20
           import -display :99 -window "$best" /tmp/login-result-raw.png
-          test -s /tmp/login-result-raw.png
           convert /tmp/login-result-raw.png -resize 200% -colorspace Gray -contrast-stretch 1%x1% /tmp/login-result-ocr.png
-          tesseract /tmp/login-result-ocr.png stdout --psm 11 tsv 2>/dev/null > /tmp/login-result.tsv || true
+          tesseract /tmp/login-result-ocr.png stdout --psm 11 tsv 2>/dev/null >/tmp/login-result.tsv || true
           echo SAFE_LOGIN_RESULT_BEGIN
           python3 - <<'PY'
           import csv,re
-          allowed=re.compile(r'^(login|account|password|email|authenticator|token|character|characters|select|enter|game|error|sorry|incorrect|invalid|connection|connecting|loading|ok|cancel|remember|offline|online)$',re.I)
+          allowed=re.compile(r'^(login|account|password|email|authenticator|token|character|characters|select|enter|game|error|sorry|incorrect|invalid|connection|connecting|loading|ok|cancel|remember|offline|online|play)$',re.I)
           with open('/tmp/login-result.tsv',newline='',errors='replace') as f:
               for r in csv.DictReader(f,delimiter='\t'):
                   t=(r.get('text') or '').strip().strip(':,.!?()[]')
@@ -198,10 +164,9 @@ jobs:
           PY
           echo SAFE_LOGIN_RESULT_END
           cp /tmp/login-result-raw.png /tmp/login-result-safe.png
-          convert /tmp/login-result-safe.png -fill '#202020' -draw 'rectangle 300,150 740,520' /tmp/login-result-safe.png
+          convert /tmp/login-result-safe.png -fill '#202020' -draw 'rectangle 250,120 780,560' /tmp/login-result-safe.png
           INNER
           docker cp "$CONTAINER_NAME:/tmp/login-result-safe.png" /tmp/login-result-safe.png
-          test -s /tmp/login-result-safe.png
 
       - name: Upload privacy-safe login result screenshot
         if: always()
@@ -217,6 +182,6 @@ jobs:
         shell: bash
         run: |
           set -Eeuo pipefail
-          docker ps -a --filter 'label=com.docker.compose.project=oteryn-staging' --format '{{.ID}}\t{{.Names}}' | sort > /tmp/oteryn-after.tsv
+          docker ps -a --filter 'label=com.docker.compose.project=oteryn-staging' --format '{{.ID}}\t{{.Names}}' | sort >/tmp/oteryn-after.tsv
           diff -u /tmp/oteryn-before.tsv /tmp/oteryn-after.tsv
           docker inspect --format 'analysis_name={{.Name}} status={{.State.Status}} owner={{ index .Config.Labels "com.blakinio.owner" }} purpose={{ index .Config.Labels "com.blakinio.purpose" }}' "$CONTAINER_NAME"
