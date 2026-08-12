@@ -15,7 +15,7 @@ env:
 
 jobs:
   capture:
-    name: Trace live Tibia worldmap handlers
+    name: Inspect live Tibia common map data
     runs-on: oteryn-staging
     timeout-minutes: 6
     steps:
@@ -29,7 +29,7 @@ jobs:
           [[ "$(docker inspect --format '{{.State.Status}}' "$CONTAINER_NAME")" == "running" ]]
           docker ps -a --filter 'label=com.docker.compose.project=oteryn-staging' --format '{{.ID}}\t{{.Names}}' | sort >/tmp/oteryn-before.tsv
 
-      - name: Attach to authenticated client and trace worldmap dispatch
+      - name: Capture bounded common-map arguments from authenticated client
         shell: bash
         run: |
           set -Eeuo pipefail
@@ -45,12 +45,13 @@ jobs:
           echo ACTIVE_LOCAL_SOCKS_COUNT=$local_count
           echo ACTIVE_DIRECT_TCP_COUNT=$direct_count
           (( local_count > 0 && direct_count == 0 ))
-          command -v gdb >/dev/null
 
           base=$(awk '$NF ~ /\/packages\/Tibia\/bin\/client$/ && $3=="00000000" {split($1,a,"-"); print "0x" a[1]; exit}' /proc/$pid/maps)
           [[ -n "$base" ]]
+          common=$(printf '0x%x' $((base+0x19a8a80)))
           echo CLIENT_PID=$pid
           echo PIE_BASE=$base
+          echo COMMON_BP=$common
 
           win=''; best=0
           for w in $(xdotool search --onlyvisible --pid "$pid" --name '^Tibia$' 2>/dev/null || true); do
@@ -63,54 +64,23 @@ jobs:
           done
           [[ -n "$win" ]]
 
-          full=$(printf '0x%x' $((base+0xcec8d0)))
-          field=$(printf '0x%x' $((base+0xcd3190)))
-          create=$(printf '0x%x' $((base+0xcecc70)))
-          change=$(printf '0x%x' $((base+0xcecf40)))
-          delete=$(printf '0x%x' $((base+0xcd4e20)))
-          common=$(printf '0x%x' $((base+0x19a8a80)))
-
-          cat >/tmp/live-map-handlers.gdb <<GDB
+          cat >/tmp/live-common-map.gdb <<GDB
           set pagination off
           set confirm off
           set print thread-events off
-          set logging file /data/runtime/worldmap-handler-trace.log
+          set logging file /data/runtime/worldmap-common-args.log
           set logging overwrite on
           set logging enabled on
-          break *$full
-          commands
-          silent
-          printf "HIT FullMap rdi=%p rsi=%p rdx=%p\\n", \$rdi, \$rsi, \$rdx
-          continue
-          end
-          break *$field
-          commands
-          silent
-          printf "HIT FieldData rdi=%p rsi=%p rdx=%p\\n", \$rdi, \$rsi, \$rdx
-          continue
-          end
-          break *$create
-          commands
-          silent
-          printf "HIT CreateOnMap rdi=%p rsi=%p rdx=%p\\n", \$rdi, \$rsi, \$rdx
-          continue
-          end
-          break *$change
-          commands
-          silent
-          printf "HIT ChangeOnMap rdi=%p rsi=%p rdx=%p\\n", \$rdi, \$rsi, \$rdx
-          continue
-          end
-          break *$delete
-          commands
-          silent
-          printf "HIT DeleteOnMap rdi=%p rsi=%p rdx=%p\\n", \$rdi, \$rsi, \$rdx
-          continue
-          end
           break *$common
           commands
           silent
           printf "HIT CommonMapData rdi=%p rsi=%p rdx=%p rcx=%p\\n", \$rdi, \$rsi, \$rdx, \$rcx
+          printf "RSI_WORDS_BEGIN\\n"
+          x/24wx \$rsi
+          printf "RSI_WORDS_END\\n"
+          printf "RDX_WORDS_BEGIN\\n"
+          x/24wx \$rdx
+          printf "RDX_WORDS_END\\n"
           continue
           end
           continue
@@ -118,8 +88,8 @@ jobs:
           quit
           GDB
 
-          rm -f /data/runtime/worldmap-handler-trace.log /data/runtime/worldmap-handler-outer.log
-          gdb -q -nx -p "$pid" -x /tmp/live-map-handlers.gdb >/data/runtime/worldmap-handler-outer.log 2>&1 &
+          rm -f /data/runtime/worldmap-common-args.log /data/runtime/worldmap-common-outer.log
+          gdb -q -nx -p "$pid" -x /tmp/live-common-map.gdb >/data/runtime/worldmap-common-outer.log 2>&1 &
           gdbpid=$!
           sleep 3
           kill -0 "$gdbpid"
@@ -150,15 +120,14 @@ jobs:
           echo ACTIVE_LOCAL_SOCKS_COUNT_AFTER_ATTACH=$local_after
           echo ACTIVE_DIRECT_TCP_COUNT_AFTER_ATTACH=$direct_after
           (( local_after > 0 && direct_after == 0 ))
-          hits=$(grep -c '^HIT ' /data/runtime/worldmap-handler-trace.log 2>/dev/null || true)
-          echo WORLDMAP_HANDLER_HIT_COUNT=$hits
-          echo HANDLER_TRACE_BEGIN
-          grep '^HIT ' /data/runtime/worldmap-handler-trace.log | head -n 120 || true
-          echo HANDLER_TRACE_END
-          grep -E 'ptrace|Operation not permitted|Cannot attach|Breakpoint' /data/runtime/worldmap-handler-outer.log | tail -n 30 || true
+          hits=$(grep -c '^HIT CommonMapData' /data/runtime/worldmap-common-args.log 2>/dev/null || true)
+          echo COMMON_MAP_HIT_COUNT=$hits
+          echo COMMON_ARGS_BEGIN
+          sed -n '/^HIT CommonMapData/,$p' /data/runtime/worldmap-common-args.log | head -n 220 || true
+          echo COMMON_ARGS_END
           (( hits >= 1 ))
           echo LIVE_SESSION_RETAINED=true
-          echo LIVE_WORLDMAP_HANDLER_DISPATCH_PROVEN=true
+          echo LIVE_COMMON_MAP_ARGUMENTS_CAPTURED=true
           INNER
 
       - name: Verify canonical staging unchanged
