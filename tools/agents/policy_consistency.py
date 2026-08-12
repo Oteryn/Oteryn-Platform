@@ -27,25 +27,28 @@ NUMBER_WORDS = {
 
 REPO_TOKEN = re.compile(r"(?<![A-Za-z0-9_.-])([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)(?![A-Za-z0-9_.-])")
 QUOTED_REPO_TOKEN = re.compile(r"`([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)`")
-MUTATION_TERM = r"(?:writ(?:e|es|ing|ten)|writable|edit(?:s|ed|ing)?|modif(?:y|ies|ied|ying)|push(?:es|ed|ing)?|commit(?:s|ted|ting)?|merge(?:s|d|ing)?|mutat(?:e|es|ed|ing|ion|ions))"
+MUTATION_TERM = r"(?:writ(?:e|es|ing|ten)|writable|edit(?:s|ed|ing)?|modif(?:y|ies|ied|ying)|push(?:es|ed|ing)?|commit(?:s|ted|ting)?|merge(?:s|d|ing)?|delet(?:e|es|ed|ing)|remov(?:e|es|ed|ing)|mutat(?:e|es|ed|ing|ion|ions))"
 MUTATION_WORD = re.compile(rf"\b{MUTATION_TERM}\b", re.I)
 NEGATED_MUTATION = re.compile(
     rf"\b(?:(?:not|never)\s+{MUTATION_TERM}|refrain(?:s|ed|ing)?\s+from\s+{MUTATION_TERM})\b",
     re.I,
 )
 MODAL_ADVERB_TERM = r"(?:also|additionally|still|now|explicitly|autonomously)"
+WRITE_ACCESS_MODIFIER_TERM = r"(?:explicit|full|unrestricted|direct|autonomous)"
 MANDATORY_MUTATION = re.compile(
     rf"\b(?:(?:must|shall)\s+(?:{MODAL_ADVERB_TERM}\s+)*(?:be\s+)?{MUTATION_TERM}|"
     rf"(?:is|are)\s+(?:explicitly\s+)?required\s+to\s+(?:{MODAL_ADVERB_TERM}\s+)*(?:be\s+)?{MUTATION_TERM})\b",
     re.I,
 )
 POSITIVE_AUTH = re.compile(
-    r"\b(?:(?:have|has)\s+(?:explicit\s+)?(?:permission|write\s+access)|allow|allows|allowed|authorize|authorizes|authorized|permit|permits|permitted|may|can|grant|grants|granted)\b",
+    rf"\b(?:(?:have|has)\s+(?:{WRITE_ACCESS_MODIFIER_TERM}\s+)*(?:permission|write\s+access)|allow|allows|allowed|authorize|authorizes|authorized|permit|permits|permitted|may|can|grant|grants|granted)\b",
     re.I,
 )
 NEGATIVE_AUTH = re.compile(
     r"\b(?:not\s+allowed|not\s+authorized|not\s+permitted|may\s+not|must\s+not\s+grant|"
-    r"(?:do|does|did)\s+not\s+grant|never\s+grant(?:s|ed)?|not\s+grant(?:s|ed)?|"
+    r"(?:do|does|did)\s+not\s+(?:grant|allow|authorize|permit)|"
+    r"never\s+(?:grant(?:s|ed)?|allow(?:s|ed)?|authoriz(?:e|es|ed)|permit(?:s|ted)?)|"
+    r"not\s+(?:grant(?:s|ed)?|allow(?:s|ed)?|authoriz(?:e|es|ed)|permit(?:s|ted)?)|"
     r"cannot|can't|can’t|never\s+allowed|unauthorized)\b",
     re.I,
 )
@@ -351,7 +354,7 @@ def _policy_clauses(statement: str) -> list[str]:
         rf"(?:autonomous(?:ly)?\s+)?(?:{MUTATION_TERM}\b|"
         rf"(?:may|can|must|shall)\s+(?:{modal_adverb}\s+)*(?:be\s+)?{MUTATION_TERM}\b|"
         rf"(?:is|are)\s+(?:explicitly\s+)?(?:allowed|authorized|permitted|required)\s+to\s+(?:{modal_adverb}\s+)*(?:be\s+)?{MUTATION_TERM}\b|"
-        rf"(?:has|have)\s+(?:explicit\s+)?permission\s+to\s+(?:{modal_adverb}\s+)*(?:be\s+)?{MUTATION_TERM}\b)"
+        rf"(?:has|have)\s+(?:(?:{WRITE_ACCESS_MODIFIER_TERM})\s+)*(?:write\s+access\b|permission\s+to\s+(?:{modal_adverb}\s+)*(?:be\s+)?{MUTATION_TERM}\b))"
     )
     pattern = (
         rf"\s*;\s*|(?<=\.)\s+|\s*,?\s+(?:but|however|while)\s+|"
