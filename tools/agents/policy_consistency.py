@@ -413,8 +413,9 @@ def _repo_has_conditional_user_authorization(clause: str, repository: str) -> bo
         return False
 
     active_authorization = re.search(
-        r"\b(?:the\s+)?(?:user|project\s+owner|owner)\b.{0,100}?"
-        r"\bexplicitly\s+(?:authoriz(?:e|es|ed)|grant(?:s|ed)?|permit(?:s|ted)?|approve(?:s|d)?)\b",
+        rf"\b(?:the\s+)?(?:user|project\s+owner|owner)\b.{{0,100}}?"
+        rf"\bexplicitly\s+(?:authoriz(?:e|es|ed)|grant(?:s|ed)?|permit(?:s|ted)?|approve(?:s|d)?)\b"
+        rf".{{0,60}}?(?:\b{MUTATION_TERM}\b|\b(?:write\s+(?:access|task|permission|authorization)|separate\s+(?:write\s+)?permission)\b|\b(?:it|that\s+repository|this\s+repository)\b)",
         condition,
     )
     passive_authorization = re.search(
