@@ -236,7 +236,7 @@ def test_legacy_bootstrap_uses_immutable_running_image_snapshot() -> None:
 def test_legacy_bootstrap_does_not_replace_candidate_image_variables() -> None:
     lib = LIB.read_text()
     start = lib.index("_oteryn_bootstrap_legacy_current_release()")
-    end = lib.index("_oteryn_before_platform_migrate()", start)
+    end = lib.index("_oteryn_quiesce_platform_db_consumers()", start)
     bootstrap = lib[start:end]
     assert "mapfile -t legacy_images" in bootstrap
     assert "unset PLATFORM_IMAGE GATEWAY_IMAGE CANARY_IMAGE" not in bootstrap
@@ -249,6 +249,30 @@ def test_existing_database_without_baseline_fails_closed() -> None:
     bootstrap = lib.index("_oteryn_bootstrap_legacy_current_release")
     candidate = lib.index('release-state.sh\" write \"$state_dir/candidate-release.env', bootstrap)
     assert bootstrap < candidate
+
+
+def test_candidate_platform_is_not_started_before_migration_preparation() -> None:
+    lib = LIB.read_text()
+    wrapper = lib.index("docker()")
+    up_branch = lib.index('"$joined" == *" up -d platform "*', wrapper)
+    prepare = lib.index("_oteryn_before_platform_migrate", up_branch)
+    start_candidate = lib.index('command docker "${args[@]}"', prepare)
+    assert up_branch < prepare < start_candidate
+
+
+def test_pre_migration_backup_quiesces_db_consumers_and_restores_scheduler() -> None:
+    lib = LIB.read_text()
+    before = lib.index("_oteryn_before_platform_migrate()")
+    quiesce_call = lib.index("_oteryn_quiesce_platform_db_consumers", before)
+    dump = lib.index("mariadb-dump", quiesce_call)
+    unknown = lib.index("printf 'SCHEMA_STATE=unknown\\n'", dump)
+    assert before < quiesce_call < dump < unknown
+    quiesce = lib[lib.index("_oteryn_quiesce_platform_db_consumers()") : before]
+    assert 'stop platform gateway internal-proxy' in quiesce
+    assert "OTERYN_MARKETPLACE_SCHEDULER_WAS_RUNNING=1" in quiesce
+    after = lib[lib.index("_oteryn_after_platform_migrate()") : lib.index("_oteryn_finalize_release_on_exit()")]
+    assert "_oteryn_restore_quiesced_consumers_after_migrate" in after
+    assert 'up -d marketplace-scheduler' in lib
 
 
 def test_health_probe_helpers_are_repository_pinned_by_digest() -> None:
