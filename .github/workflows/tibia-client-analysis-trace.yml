@@ -13,9 +13,9 @@ env:
 
 jobs:
   trace:
-    name: Diagnose Tibia character-select blocker
+    name: Test Tibia world entry
     runs-on: oteryn-staging
-    timeout-minutes: 15
+    timeout-minutes: 10
     steps:
       - name: Verify owned runtime and snapshot staging
         shell: bash
@@ -27,73 +27,33 @@ jobs:
           [[ "$(docker inspect --format '{{.State.Status}}' "$CONTAINER_NAME")" == "running" ]]
           docker ps -a --filter 'label=com.docker.compose.project=oteryn-staging' --format '{{.ID}}\t{{.Names}}' | sort >/tmp/oteryn-before.tsv
 
-      - name: Re-establish verified userspace WARP
+      - name: Verify WARP and authenticated client remain active
         shell: bash
         run: |
           set -Eeuo pipefail
           docker exec -i "$CONTAINER_NAME" bash <<'INNER'
           set -Eeuo pipefail
-          root=/data/runtime/userspace-warp
-          bin="$root/bin"
-          state="$root/state"
-          [[ "$(sha256sum "$bin/wgcf" | awk '{print $1}')" == 2ff97f2201972ce582a424455d50a3719a380eef0cd1f3144f7779348e122a2c ]]
-          [[ -x "$bin/wireproxy" && -s "$state/wgcf-account.toml" ]]
-          cd "$state"
-          "$bin/wgcf" generate >/dev/null
-          cat >wireproxy.conf <<EOF
-          WGConfig = $state/wgcf-profile.conf
-
-          [Socks5]
-          BindAddress = 127.0.0.1:25344
-          EOF
-          chmod 600 wgcf-account.toml wgcf-profile.conf wireproxy.conf
-          pkill -f '/wireproxy .*wireproxy.conf' 2>/dev/null || true
-          nohup "$bin/wireproxy" -c "$state/wireproxy.conf" >"$root/wireproxy.log" 2>&1 </dev/null &
-          for n in $(seq 1 30); do
-            if curl --socks5-hostname 127.0.0.1:25344 -fsS --max-time 10 https://www.cloudflare.com/cdn-cgi/trace >/tmp/warp-trace 2>/dev/null; then break; fi
-            sleep 2
-          done
-          grep -q '^warp=on$' /tmp/warp-trace
-          cat >/tmp/proxychains-tibia.conf <<'EOF'
-          strict_chain
-          proxy_dns
-          quiet_mode
-          tcp_read_time_out 15000
-          tcp_connect_time_out 8000
-          [ProxyList]
-          socks5 127.0.0.1 25344
-          EOF
-          echo USERSPACE_WARP_EGRESS_VERIFIED=true
-          INNER
-
-      - name: Relaunch, login, and capture only system-message strip
-        shell: bash
-        env:
-          TIBIA_TEST_EMAIL: ${{ secrets.TIBIA_TEST_EMAIL }}
-          TIBIA_TEST_PASSWORD: ${{ secrets.TIBIA_TEST_PASSWORD }}
-        run: |
-          set -Eeuo pipefail
-          [[ -n "$TIBIA_TEST_EMAIL" && -n "$TIBIA_TEST_PASSWORD" ]]
-          docker exec -e TIBIA_TEST_EMAIL -e TIBIA_TEST_PASSWORD -i "$CONTAINER_NAME" bash <<'INNER'
-          set -Eeuo pipefail
           export DISPLAY=:99 HOME=/data/home
-          pkg="$HOME/.local/share/CipSoft GmbH/Tibia/packages/Tibia"
-          client="$pkg/bin/client"
-          pkill -f 'packages/Tibia/bin/client' 2>/dev/null || true
-          pgrep -f '^Xvfb :99' >/dev/null || nohup Xvfb :99 -screen 0 1280x800x24 >/data/runtime/xvfb.log 2>&1 </dev/null &
-          sleep 2
-          cd "$pkg"
-          nohup proxychains4 -f /tmp/proxychains-tibia.conf "$client" >/data/runtime/client-userspace-warp.log 2>&1 </dev/null &
-          for n in $(seq 1 30); do pgrep -f 'packages/Tibia/bin/client' >/dev/null && break; sleep 1; done
+          pgrep -f '/wireproxy .*wireproxy.conf' >/dev/null
+          curl --socks5-hostname 127.0.0.1:25344 -fsS --max-time 10 https://www.cloudflare.com/cdn-cgi/trace >/tmp/warp-trace
+          grep -q '^warp=on$' /tmp/warp-trace
           pid=$(pgrep -f 'packages/Tibia/bin/client' | head -n1)
           [[ -n "$pid" ]]
-          sleep 10
           sockets=$(ss -ntp 2>/dev/null | grep "pid=$pid," || true)
           if printf '%s\n' "$sockets" | awk '{print $5}' | grep -Ev '^(127\.0\.0\.1|\[::1\]):25344$' | grep -q .; then
             echo CLIENT_DIRECT_TCP_DETECTED=true >&2
             exit 1
           fi
-          printf '%s\n' "$sockets" | awk '{print $5}' | grep -Eq '^(127\.0\.0\.1|\[::1\]):25344$'
+          echo AUTHENTICATED_WARP_CLIENT_READY=true
+          INNER
+
+      - name: Select first character and attempt world entry
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          docker exec -i "$CONTAINER_NAME" bash <<'INNER'
+          set -Eeuo pipefail
+          export DISPLAY=:99 HOME=/data/home
           best=''; best_area=0
           for w in $(xdotool search --onlyvisible --name '^Tibia$' 2>/dev/null || true); do
             geom=$(xdotool getwindowgeometry --shell "$w" 2>/dev/null || true)
@@ -102,29 +62,38 @@ jobs:
             area=$((width*height)); if (( area > best_area )); then best=$w; best_area=$area; fi
           done
           [[ -n "$best" && "$best_area" -ge 600000 ]]
-          xdotool mousemove --window "$best" 510 302 click 1 || true
+          import -display :99 -window "$best" /tmp/pre-entry.png
+          xdotool mousemove --window "$best" 300 192 click 1
           sleep 1
-          xdotool mousemove --window "$best" 535 275 click 1
-          xdotool key --window "$best" ctrl+a
-          xdotool type --window "$best" --delay 3 -- "$TIBIA_TEST_EMAIL"
-          xdotool mousemove --window "$best" 535 304 click 1
-          xdotool key --window "$best" ctrl+a
-          xdotool type --window "$best" --delay 3 -- "$TIBIA_TEST_PASSWORD"
-          xdotool mousemove --window "$best" 590 388 click 1
-          unset TIBIA_TEST_EMAIL TIBIA_TEST_PASSWORD
-          sleep 25
-          import -display :99 -window "$best" /tmp/character-select-full.png
-          convert /tmp/character-select-full.png -crop 740x55+135+110 +repage /tmp/system-message-strip.png
-          convert /tmp/system-message-strip.png -resize 300% -colorspace Gray -contrast-stretch 1%x1% /tmp/system-message-ocr.png
-          tesseract /tmp/system-message-ocr.png stdout --psm 6 2>/dev/null | sed -E 's/[[:space:]]+/ /g' | head -n 5
+          xdotool mousemove --window "$best" 790 511 click 1
+          sleep 30
+          import -display :99 -window "$best" /tmp/post-entry.png
+          convert /tmp/post-entry.png -resize 200% -colorspace Gray -contrast-stretch 1%x1% /tmp/post-entry-ocr.png
+          tesseract /tmp/post-entry-ocr.png stdout --psm 11 tsv 2>/dev/null >/tmp/post-entry.tsv || true
+          echo SAFE_POST_ENTRY_RESULT_BEGIN
+          python3 - <<'PY'
+          import csv,re
+          allowed=re.compile(r'^(login|account|character|characters|select|enter|game|error|sorry|incorrect|invalid|connection|connecting|loading|ok|cancel|online|offline|recovery|setup|process|server|world|client|queue|premium|free)$',re.I)
+          with open('/tmp/post-entry.tsv',newline='',errors='replace') as f:
+              for r in csv.DictReader(f,delimiter='\t'):
+                  t=(r.get('text') or '').strip().strip(':,.!?()[]')
+                  if t and allowed.fullmatch(t): print(t)
+          PY
+          echo SAFE_POST_ENTRY_RESULT_END
+          # Export only non-sensitive diagnostic regions: title/status strip and lower-right action/error area.
+          convert /tmp/post-entry.png -crop 760x90+130+105 +repage /tmp/post-entry-top.png
+          convert /tmp/post-entry.png -crop 330x180+550+350 +repage /tmp/post-entry-action.png
           INNER
-          docker cp "$CONTAINER_NAME:/tmp/system-message-strip.png" /tmp/system-message-strip.png
+          docker cp "$CONTAINER_NAME:/tmp/post-entry-top.png" /tmp/post-entry-top.png
+          docker cp "$CONTAINER_NAME:/tmp/post-entry-action.png" /tmp/post-entry-action.png
 
-      - name: Upload system-message strip
+      - name: Upload safe world-entry diagnostics
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: tibia-system-message-strip
-          path: /tmp/system-message-strip.png
+          name: tibia-world-entry-safe
+          path: |
+            /tmp/post-entry-top.png
+            /tmp/post-entry-action.png
           retention-days: 7
 
       - name: Verify canonical staging unchanged
