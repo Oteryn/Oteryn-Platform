@@ -34,6 +34,39 @@ class WorkflowInventoryTest(unittest.TestCase):
         with self.assertRaisesRegex(WorkflowInventoryError, "unclassified workflow"):
             classify_workflow(Path("mystery.yml"), text)
 
+    def test_job_name_cannot_masquerade_as_supported_event(self) -> None:
+        text = """name: Test
+on:
+  repository_dispatch:
+permissions:
+  contents: read
+jobs:
+  pull_request:
+    runs-on: ubuntu-latest
+    steps:
+      - run: true
+"""
+        with self.assertRaisesRegex(WorkflowInventoryError, "unclassified workflow"):
+            classify_workflow(Path("mystery.yml"), text)
+
+    def test_nested_step_key_cannot_masquerade_as_supported_event(self) -> None:
+        text = """name: Test
+on:
+  repository_dispatch:
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: pull request text
+        env:
+          pull_request: yes
+        run: true
+"""
+        with self.assertRaisesRegex(WorkflowInventoryError, "unclassified workflow"):
+            classify_workflow(Path("mystery.yml"), text)
+
     def test_inventory_requires_top_level_permissions(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
