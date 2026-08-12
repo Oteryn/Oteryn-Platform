@@ -1,4 +1,4 @@
-name: Tibia Player Protocol Resolve
+name: Tibia Player Protocol Metaobject Fields
 
 on:
   push:
@@ -13,11 +13,11 @@ env:
 
 jobs:
   attach:
-    name: Resolve player protocol static metacall
+    name: Inspect player protocol metaobject fields
     runs-on: oteryn-staging
     timeout-minutes: 3
     steps:
-      - name: Resolve exact QMetaObject relocations
+      - name: Resolve exact QMetaObject field relocations and bounded disassembly
         shell: bash
         run: |
           set -Eeuo pipefail
@@ -25,16 +25,12 @@ jobs:
           set -Eeuo pipefail
           bin='/data/home/.local/share/CipSoft GmbH/Tibia/packages/Tibia/bin/client'
           readelf -rW "$bin" >/tmp/player-rela
-          echo PLAYER_PROTOCOL_RELOCS_BEGIN
-          grep -Ei '[ +]0*1cb4f40([[:space:]]|$)|[ +]0*1cb5620([[:space:]]|$)' /tmp/player-rela || true
-          echo PLAYER_PROTOCOL_RELOCS_END
-          # Also show relocation rows around likely staticMetaObject locations that reference either stringdata or metadata.
-          locs=$(grep -Ei '[ +]0*1cb4f40([[:space:]]|$)|[ +]0*1cb5620([[:space:]]|$)' /tmp/player-rela | awk '{print $1}' | sort -u)
-          for loc in $locs; do
-            dec=$((16#$loc)); start=$((dec-32)); stop=$((dec+64));
-            echo "AROUND_RELOC_LOCATION=0x$loc"
-            awk -v a=$(printf '%x' "$start") -v b=$(printf '%x' "$stop") 'BEGIN{IGNORECASE=1} $1 ~ /^[0-9a-f]+$/ {x=strtonum("0x"$1); if(x>=strtonum("0x"a)&&x<=strtonum("0x"b)) print}' /tmp/player-rela 2>/dev/null || true
-          done
+          echo METAOBJECT_NEAR_30852E0_BEGIN
+          grep -Ei '^00000000030852(e[0-9a-f]|f[0-9a-f])|^000000000308530[0-9a-f]|^000000000308531[0-9a-f]' /tmp/player-rela || true
+          echo METAOBJECT_NEAR_30852E0_END
+          echo RAW_DATA_BEGIN
+          objdump -s --start-address=0x30852d0 --stop-address=0x3085330 "$bin" || true
+          echo RAW_DATA_END
           rm -f /tmp/player-rela
           pid=$(pgrep -x client | head -n1 || true); [[ -n "$pid" ]]
           tcp_rows=$(ss -ntp 2>/dev/null | grep "pid=$pid," || true)
