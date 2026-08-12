@@ -14,8 +14,8 @@ env:
   CONTAINER_NAME: oteryn-tibia-client-analysis
 
 jobs:
-  diagnose:
-    name: Diagnose Tibia world-entry network failure
+  capture:
+    name: Capture live decoded Tibia worldmap
     runs-on: oteryn-staging
     timeout-minutes: 6
     steps:
@@ -29,64 +29,103 @@ jobs:
           [[ "$(docker inspect --format '{{.State.Status}}' "$CONTAINER_NAME")" == "running" ]]
           docker ps -a --filter 'label=com.docker.compose.project=oteryn-staging' --format '{{.ID}}\t{{.Names}}' | sort >/tmp/oteryn-before.tsv
 
-      - name: Inspect userspace WARP and sanitized failure state
+      - name: Attach to existing authenticated client and capture decoded map
         shell: bash
         run: |
           set -Eeuo pipefail
           docker exec -i "$CONTAINER_NAME" bash <<'INNER'
           set -Eeuo pipefail
           export HOME=/data/home DISPLAY=:99
-          pgrep -f '/wireproxy .*wireproxy.conf' >/dev/null
-          curl --socks5-hostname 127.0.0.1:25344 -fsS --max-time 10 https://www.cloudflare.com/cdn-cgi/trace >/tmp/warp-diagnostic-trace
-          grep -q '^warp=on$' /tmp/warp-diagnostic-trace
-          echo USERSPACE_WARP_ALIVE=true
-          cfg=/tmp/proxychains-tibia.conf
-          [[ -f "$cfg" ]]
-          grep -Eq '^[[:space:]]*(proxy_dns|proxy_dns_old)[[:space:]]*$' "$cfg" && echo PROXYCHAINS_REMOTE_DNS=true || echo PROXYCHAINS_REMOTE_DNS=false
-          grep -Eq '^[[:space:]]*strict_chain[[:space:]]*$' "$cfg" && echo PROXYCHAINS_STRICT_CHAIN=true || echo PROXYCHAINS_STRICT_CHAIN=false
-          grep -Eq '^[[:space:]]*dynamic_chain[[:space:]]*$' "$cfg" && echo PROXYCHAINS_DYNAMIC_CHAIN=true || echo PROXYCHAINS_DYNAMIC_CHAIN=false
-          grep -Eq '^[[:space:]]*socks5[[:space:]]+127\.0\.0\.1[[:space:]]+25344([[:space:]]|$)' "$cfg" && echo PROXYCHAINS_LOCAL_SOCKS=true || echo PROXYCHAINS_LOCAL_SOCKS=false
-
-          pid=$(pgrep -f 'packages/Tibia/bin/client' | head -n1 || true)
+          pid=$(pgrep -x client | head -n1)
           [[ -n "$pid" ]]
-          echo CLIENT_PROCESS_ALIVE=true
           tcp_rows=$(ss -ntp 2>/dev/null | grep "pid=$pid," || true)
-          udp_rows=$(ss -nup 2>/dev/null | grep "pid=$pid," || true)
-          tcp_count=$(printf '%s\n' "$tcp_rows" | grep -c . || true)
-          udp_count=$(printf '%s\n' "$udp_rows" | grep -c . || true)
-          local_socks_count=$(printf '%s\n' "$tcp_rows" | awk '$5 ~ /127\.0\.0\.1:25344$/ || $5 ~ /\[::1\]:25344$/ {n++} END{print n+0}')
-          direct_tcp_count=$((tcp_count-local_socks_count))
-          echo "client_tcp_socket_count=$tcp_count"
-          echo "client_tcp_local_socks_count=$local_socks_count"
-          echo "client_tcp_direct_count=$direct_tcp_count"
-          echo "client_udp_socket_count=$udp_count"
+          local_count=$(printf '%s\n' "$tcp_rows" | awk '$5 ~ /127\.0\.0\.1:25344$/ || $5 ~ /\[::1\]:25344$/ {n++} END{print n+0}')
+          total_count=$(printf '%s\n' "$tcp_rows" | grep -c . || true)
+          direct_count=$((total_count-local_count))
+          echo ACTIVE_LOCAL_SOCKS_COUNT=$local_count
+          echo ACTIVE_DIRECT_TCP_COUNT=$direct_count
+          (( local_count > 0 && direct_count == 0 ))
+          command -v gdb >/dev/null
 
-          log=/data/runtime/client-userspace-warp.log
-          [[ -f "$log" ]]
-          python3 - <<'PY'
-          from pathlib import Path
-          import re
-          p=Path('/data/runtime/client-userspace-warp.log')
-          lines=p.read_text(errors='replace').splitlines()
-          triggers={'failed','failure','error','timeout','timed','refused','denied','unreachable','closed','reset','proxy','connect','connection','socket','server','dns','resolve','resolution','handshake'}
-          safe={'proxychains','proxy','chain','strict','dynamic','socks','socks5','tcp','udp','dns','request','response','connect','connected','connecting','connection','socket','server','failed','failure','error','timeout','timed','out','refused','denied','unreachable','closed','reset','handshake','auth','authentication','remote','host','name','resolve','resolution','success','successful','ok','fatal','warning','warn','network','route','no','yes','true','false','read','write','send','receive','received','open','opening'}
-          emitted=[]
-          for line in lines[-400:]:
-              words=re.findall(r"[A-Za-z]+",line.lower())
-              if not any(w in triggers for w in words):
-                  continue
-              kept=[]
-              for w in words:
-                  if w in safe and w not in kept:
-                      kept.append(w)
-              if kept:
-                  sig=' '.join(kept)
-                  if sig not in emitted:
-                      emitted.append(sig)
-          print(f'sanitized_failure_signature_count={len(emitted)}')
-          for i,sig in enumerate(emitted[:20],1):
-              print(f'sanitized_failure_signature_{i}={sig}')
-          PY
+          base=$(awk '$NF ~ /\/packages\/Tibia\/bin\/client$/ && $3=="00000000" {split($1,a,"-"); print "0x" a[1]; exit}' /proc/$pid/maps)
+          [[ -n "$base" ]]
+          bp=$(printf '0x%x' $((base+0x19a8ea3)))
+          echo CLIENT_PID=$pid
+          echo PIE_BASE=$base
+          echo DECODED_BP=$bp
+
+          win=''; best=0
+          for w in $(xdotool search --onlyvisible --pid "$pid" --name '^Tibia$' 2>/dev/null || true); do
+            geom=$(xdotool getwindowgeometry --shell "$w" 2>/dev/null || true)
+            width=$(printf '%s\n' "$geom" | sed -n 's/^WIDTH=//p')
+            height=$(printf '%s\n' "$geom" | sed -n 's/^HEIGHT=//p')
+            [[ "$width" =~ ^[0-9]+$ && "$height" =~ ^[0-9]+$ ]] || continue
+            area=$((width*height))
+            if (( area > best )); then win=$w; best=$area; fi
+          done
+          [[ -n "$win" ]]
+
+          cat >/tmp/live-map.gdb <<GDB
+          set pagination off
+          set confirm off
+          set print thread-events off
+          set logging file /data/runtime/worldmap-live-dispatch-gdb.log
+          set logging overwrite on
+          set logging enabled on
+          break *$bp
+          commands
+          silent
+          set \$x = *(unsigned int*)(\$rsp+0x88)
+          set \$y = *(unsigned int*)(\$rsp+0x8c)
+          set \$z = *(unsigned int*)(\$rsp+0x90)
+          set \$ord = ((unsigned int)\$rbp)
+          set \$r28 = *(unsigned int*)(\$rbx+0x28)
+          set \$r30 = *(unsigned int*)(\$rbx+0x30)
+          printf "REC x=%u y=%u z=%u order=%u raw28=%u raw30=%u\\n", \$x, \$y, \$z, \$ord, \$r28, \$r30
+          continue
+          end
+          continue
+          detach
+          quit
+          GDB
+
+          rm -f /data/runtime/worldmap-live-dispatch-gdb.log /data/runtime/worldmap-live-dispatch-outer.log
+          gdb -q -nx -p "$pid" -x /tmp/live-map.gdb >/data/runtime/worldmap-live-dispatch-outer.log 2>&1 &
+          gdbpid=$!
+          sleep 3
+          kill -0 "$gdbpid"
+          xdotool key --window "$win" Right
+          sleep 2
+          xdotool key --window "$win" Left
+          sleep 5
+          kill -INT "$gdbpid" 2>/dev/null || true
+          for n in $(seq 1 10); do
+            kill -0 "$gdbpid" 2>/dev/null || break
+            sleep 1
+          done
+          if kill -0 "$gdbpid" 2>/dev/null; then
+            echo GDB_CLEAN_DETACH_TIMEOUT=true
+            exit 1
+          fi
+          wait "$gdbpid" 2>/dev/null || true
+
+          kill -0 "$pid"
+          tcp_rows=$(ss -ntp 2>/dev/null | grep "pid=$pid," || true)
+          local_after=$(printf '%s\n' "$tcp_rows" | awk '$5 ~ /127\.0\.0\.1:25344$/ || $5 ~ /\[::1\]:25344$/ {n++} END{print n+0}')
+          total_after=$(printf '%s\n' "$tcp_rows" | grep -c . || true)
+          direct_after=$((total_after-local_after))
+          echo ACTIVE_LOCAL_SOCKS_COUNT_AFTER_ATTACH=$local_after
+          echo ACTIVE_DIRECT_TCP_COUNT_AFTER_ATTACH=$direct_after
+          (( local_after > 0 && direct_after == 0 ))
+          records=$(grep -c '^REC ' /data/runtime/worldmap-live-dispatch-gdb.log 2>/dev/null || true)
+          echo DECODED_CAPTURE_RECORD_COUNT=$records
+          echo CAPTURE_BEGIN
+          grep '^REC ' /data/runtime/worldmap-live-dispatch-gdb.log | head -n 80 || true
+          echo CAPTURE_END
+          grep -E 'ptrace|Operation not permitted|Cannot attach|Breakpoint' /data/runtime/worldmap-live-dispatch-outer.log | tail -n 20 || true
+          (( records >= 1 ))
+          echo LIVE_SESSION_RETAINED=true
+          echo LIVE_DECODED_WORLDMAP_CAPTURE_PROVEN=true
           INNER
 
       - name: Verify canonical staging unchanged
