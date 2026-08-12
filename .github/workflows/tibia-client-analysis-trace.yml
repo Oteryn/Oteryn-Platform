@@ -58,15 +58,36 @@ jobs:
             echo VIRTUAL_DISPLAY_READY=true
           '
 
-      - name: Launch verified official client
+      - name: Launch verified official client with bundled runtime
         shell: bash
         run: |
           set -Eeuo pipefail
           docker exec "$CONTAINER_NAME" bash -lc '
             set -Eeuo pipefail
-            c=/data/client-15.32.df7b29/bin/client
+            root=/data/client-15.32.df7b29
+            c=$root/bin/client
             mkdir -p /data/runtime
             : > /data/runtime/client-launch.log
+
+            qt=$(find "$root" -type f -name libQt6WebEngineQuick.so.6 -print -quit)
+            if [[ -z "$qt" ]]; then
+              echo BUNDLED_QT_FOUND=false
+              exit 1
+            fi
+            libdir=$(dirname "$qt")
+            plugdir=""
+            for d in "$root/plugins" "$root/bin/plugins" "$(dirname "$libdir")/plugins"; do
+              [[ -d "$d" ]] && { plugdir=$d; break; }
+            done
+            qmldir=""
+            for d in "$root/qml" "$root/bin/qml" "$(dirname "$libdir")/qml"; do
+              [[ -d "$d" ]] && { qmldir=$d; break; }
+            done
+            echo BUNDLED_QT_FOUND=true
+            echo BUNDLED_QT_LIBDIR=$libdir
+            echo BUNDLED_QT_PLUGINS_FOUND=$( [[ -n "$plugdir" ]] && echo true || echo false )
+            echo BUNDLED_QT_QML_FOUND=$( [[ -n "$qmldir" ]] && echo true || echo false )
+
             existing=0
             for p in /proc/[0-9]*; do
               [[ -r "$p/exe" ]] || continue
@@ -75,9 +96,13 @@ jobs:
             done
             if (( existing == 0 )); then
               cd "$(dirname "$c")"
-              nohup env DISPLAY=:99 "$c" >/data/runtime/client-launch.log 2>&1 </dev/null &
+              args=(env DISPLAY=:99 LD_LIBRARY_PATH="$libdir")
+              [[ -n "$plugdir" ]] && args+=(QT_PLUGIN_PATH="$plugdir")
+              [[ -n "$qmldir" ]] && args+=(QML2_IMPORT_PATH="$qmldir")
+              args+=("$c")
+              nohup "${args[@]}" >/data/runtime/client-launch.log 2>&1 </dev/null &
             fi
-            sleep 12
+            sleep 15
             count=0
             for p in /proc/[0-9]*; do
               [[ -r "$p/exe" ]] || continue
@@ -88,11 +113,11 @@ jobs:
             echo X11_SOCKET_PRESENT=$( [[ -S /tmp/.X11-unix/X99 ]] && echo true || echo false )
             if (( count == 0 )); then
               echo CLIENT_LAUNCH_FAILED=true
-              echo MISSING_DYNAMIC_LIBRARIES_BEGIN
-              ldd "$c" 2>/dev/null | awk "/not found/{print \$1}" | head -40
-              echo MISSING_DYNAMIC_LIBRARIES_END
+              echo REMAINING_MISSING_DYNAMIC_LIBRARIES_BEGIN
+              LD_LIBRARY_PATH="$libdir" ldd "$c" 2>/dev/null | awk "/not found/{print \$1}" | head -40
+              echo REMAINING_MISSING_DYNAMIC_LIBRARIES_END
               echo SANITIZED_DIAGNOSTIC_BEGIN
-              sed -E "/(token|password|account|session|cookie|authorization|bearer)/Id" /data/runtime/client-launch.log | tail -40
+              sed -E "/(token|password|account|session|cookie|authorization|bearer)/Id" /data/runtime/client-launch.log | tail -50
               echo SANITIZED_DIAGNOSTIC_END
               exit 1
             fi
