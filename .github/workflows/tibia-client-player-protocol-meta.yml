@@ -1,4 +1,4 @@
-name: Tibia Creatures Handler Meta Map
+name: Tibia Creatures Handler Binutils Map
 
 on:
   push:
@@ -16,7 +16,7 @@ jobs:
     runs-on: oteryn-staging
     timeout-minutes: 4
     steps:
-      - name: Locate live creatures handler and decode Qt metaobject
+      - name: Recover creatures handler RTTI/metaobject without extra packages
         shell: bash
         run: |
           set -Eeuo pipefail
@@ -28,116 +28,103 @@ jobs:
           bin='/data/home/.local/share/CipSoft GmbH/Tibia/packages/Tibia/bin/client'
           pid=$(pgrep -x client | tail -n1 || true); [[ -n "$pid" ]]
           echo CLIENT_PID=$pid
+          command -v readelf >/dev/null
+          command -v objdump >/dev/null
+
+          echo RTTI_STRINGS_BEGIN
+          strings -a -t x "$bin" | grep -E 'TCreaturesGameActionHandler|TCreatureID|sendAttack|sendFollow' | sed -n '1,240p'
+          echo RTTI_STRINGS_END
+
+          echo RELOC_NEIGHBORHOOD_BEGIN
+          readelf -Wr "$bin" 2>/dev/null | grep -E '307d|3085|30c7|TCreatures|Creature' | sed -n '1,500p' || true
+          echo RELOC_NEIGHBORHOOD_END
+
+          echo STATIC_METAOBJECT_BYTES_BEGIN
+          objdump -s --start-address=0x3085160 --stop-address=0x30851c0 "$bin" 2>/dev/null || true
+          echo STATIC_METAOBJECT_BYTES_END
+
+          echo STATIC_METAOBJECT_REFERENCES_BEGIN
+          objdump -d "$bin" 2>/dev/null | grep -E -B8 -A16 '3085160' | sed -n '1,900p' || true
+          echo STATIC_METAOBJECT_REFERENCES_END
+
           python3 - "$pid" "$bin" <<'PY'
-          import sys,struct
+          import sys,struct,re,subprocess
           pid=int(sys.argv[1]); path=sys.argv[2]
-          try:
-              from elftools.elf.elffile import ELFFile
-          except Exception as e:
-              print('PYELFTOOLS_UNAVAILABLE',repr(e)); raise
-
-          with open(path,'rb') as f:
-              elf=ELFFile(f)
-              alloc=[]
-              for sec in elf.iter_sections():
-                  if sec['sh_flags'] & 2 and sec['sh_size']:
-                      alloc.append((sec,sec.data()))
-              needles=[b'N5tibia9creatures27TCreaturesGameActionHandlerE',b'tibia::creatures::TCreaturesGameActionHandler']
-              names=[]
-              for needle in needles:
-                  for sec,data in alloc:
-                      pos=0
-                      while True:
-                          i=data.find(needle,pos)
-                          if i<0: break
-                          va=sec['sh_addr']+i
-                          names.append((needle.decode(),va))
-                          print(f'NAME_VA {needle.decode()} 0x{va:x}')
-                          pos=i+1
-
-              rela=[]
-              for sec in elf.iter_sections():
-                  if sec['sh_type'] in ('SHT_RELA','SHT_REL'):
-                      for r in sec.iter_relocations():
-                          add=r['r_addend'] if 'r_addend' in r.entry else None
-                          rela.append((r['r_offset'],add,r['r_info_type']))
-              for name,va in names:
-                  hits=[x for x in rela if x[1]==va]
-                  for off,add,typ in hits:
-                      print(f'RELOC_TO_NAME name=0x{va:x} offset=0x{off:x} type={typ}')
-                      rtti=off-8
-                      print(f'RTTI_CANDIDATE=0x{rtti:x}')
-                      vhits=[x for x in rela if x[1]==rtti]
-                      for voff,vadd,vtyp in vhits:
-                          print(f'RELOC_TO_RTTI rtti=0x{rtti:x} offset=0x{voff:x} type={vtyp} OBJECT_VPTR_CANDIDATE=0x{voff+8:x}')
-
-              def va_read(va,n):
-                  for seg in elf.iter_segments():
-                      if seg['p_type']=='PT_LOAD' and seg['p_vaddr']<=va and va+n<=seg['p_vaddr']+seg['p_filesz']:
-                          f.seek(seg['p_offset']+(va-seg['p_vaddr']))
-                          return f.read(n)
-                  raise ValueError(hex(va))
-
-              meta=0x3085160
-              raw=va_read(meta,56)
-              qs=struct.unpack('<7Q',raw)
-              print('CREATURES_STATIC_METAOBJECT=0x3085160')
-              print('META_QWORDS='+' '.join(f'{x:016x}' for x in qs))
-              string_ptr=qs[1]; data_ptr=qs[2]
-              print(f'META_STRING_PTR=0x{string_ptr:x}')
-              print(f'META_DATA_PTR=0x{data_ptr:x}')
-              if data_ptr:
-                  d=va_read(data_ptr,256)
-                  us=struct.unpack('<64I',d)
-                  print('META_DATA_UINTS='+' '.join(str(x) for x in us))
-              if string_ptr:
-                  s=va_read(string_ptr,1024)
-                  print('META_STRING_HEX='+s[:512].hex())
-                  printable=''.join(chr(b) if 32<=b<127 else '.' for b in s[:1024])
-                  print('META_STRING_ASCII='+printable)
-
           maps=[]; base=None
           for line in open(f'/proc/{pid}/maps'):
-              p=line.rstrip('\n').split(maxsplit=5); lo,hi=[int(x,16) for x in p[0].split('-')]
+              p=line.rstrip('\n').split(maxsplit=5)
+              lo,hi=[int(x,16) for x in p[0].split('-')]
               perms=p[1]; off=int(p[2],16); mpath=p[5] if len(p)>5 else ''
               maps.append((lo,hi,perms,off,mpath))
               if mpath==path and base is None: base=lo-off
+          if base is None: raise SystemExit('NO_BASE')
           print(f'CLIENT_BASE=0x{base:x}')
-          # Known candidate object-vptr addresses are recovered above; rescan relocation chain here to avoid parsing stdout.
-          with open(path,'rb') as f:
-              elf=ELFFile(f); rel=[]
-              for sec in elf.iter_sections():
-                  if sec['sh_type'] in ('SHT_RELA','SHT_REL'):
-                      for r in sec.iter_relocations():
-                          rel.append((r['r_offset'],r['r_addend'] if 'r_addend' in r.entry else None))
-              target=None
-              for sec in elf.iter_sections():
-                  if not (sec['sh_flags'] & 2): continue
-                  data=sec.data(); needle=b'N5tibia9creatures27TCreaturesGameActionHandlerE'; i=data.find(needle)
-                  if i>=0: target=sec['sh_addr']+i; break
-              assert target is not None
-              name_refs=[o for o,a in rel if a==target]
-              candidates=[]
+
+          # Parse relocation output from binutils. RELATIVE entries expose addends directly.
+          txt=subprocess.check_output(['readelf','-Wr',path],text=True,errors='replace')
+          rel=[]
+          for line in txt.splitlines():
+              m=re.match(r'^\s*([0-9a-fA-F]+)\s+\S+\s+R_X86_64_RELATIVE\s+([0-9a-fA-F]+)\s*$',line)
+              if m: rel.append((int(m.group(1),16),int(m.group(2),16)))
+          print(f'RELATIVE_RELOC_COUNT={len(rel)}')
+
+          # Find exact file VA for the RTTI type-name string from strings output.
+          out=subprocess.check_output(['strings','-a','-t','x',path],text=True,errors='replace')
+          target=None
+          for line in out.splitlines():
+              if 'TCreaturesGameActionHandlerE' in line and line.strip().split(maxsplit=1)[1].startswith('N5tibia'):
+                  target=int(line.strip().split()[0],16); print(f'RTTI_NAME_VA=0x{target:x}'); break
+          if target is None:
+              print('RTTI_NAME_NOT_FOUND=true')
+          else:
+              # A class type_info object normally has a relocation to the name at +8.
+              name_refs=[off for off,add in rel if add==target]
+              print('RTTI_NAME_REFS='+' '.join(hex(x) for x in name_refs))
+              static_vptrs=[]
               for nr in name_refs:
                   rtti=nr-8
-                  for vo,a in rel:
-                      if a==rtti: candidates.append(vo+8)
-          print('STATIC_VPTR_CANDIDATES='+' '.join(hex(x) for x in candidates))
+                  print(f'RTTI_CANDIDATE=0x{rtti:x}')
+                  for vo,add in rel:
+                      if add==rtti:
+                          # Itanium object vptr points two qwords past vtable start; relocation to RTTI is second header qword.
+                          sv=vo+8
+                          static_vptrs.append(sv)
+                          print(f'VTABLE_RTTI_RELOC=0x{vo:x} STATIC_OBJECT_VPTR_CANDIDATE=0x{sv:x}')
+              static_vptrs=sorted(set(static_vptrs))
+              print('STATIC_VPTR_CANDIDATES='+' '.join(hex(x) for x in static_vptrs))
+              with open(f'/proc/{pid}/mem','rb',buffering=0) as mem:
+                  for sv in static_vptrs:
+                      rv=base+sv; needle=struct.pack('<Q',rv); found=[]
+                      for lo,hi,perms,off,mpath in maps:
+                          if 'r' not in perms or 'w' not in perms: continue
+                          size=hi-lo
+                          if size<=0 or size>256*1024*1024: continue
+                          try: mem.seek(lo); data=mem.read(size)
+                          except OSError: continue
+                          p=0
+                          while True:
+                              i=data.find(needle,p)
+                              if i<0: break
+                              found.append(lo+i); p=i+8
+                      print(f'VPTR_SCAN static=0x{sv:x} runtime=0x{rv:x} count={len(found)} objects='+' '.join(hex(x) for x in found))
+
+          # Read the live-relocated staticMetaObject directly from process memory.
+          meta=base+0x3085160
           with open(f'/proc/{pid}/mem','rb',buffering=0) as mem:
-              for sv in candidates:
-                  rv=base+sv; needle=struct.pack('<Q',rv); found=[]
-                  for lo,hi,perms,off,mpath in maps:
-                      if 'r' not in perms or 'w' not in perms: continue
-                      size=hi-lo
-                      if size<=0 or size>256*1024*1024: continue
-                      try: mem.seek(lo); data=mem.read(size)
-                      except OSError: continue
-                      pos=0
-                      while True:
-                          i=data.find(needle,pos)
-                          if i<0: break
-                          found.append(lo+i); pos=i+8
-                  print(f'VPTR_SCAN static=0x{sv:x} runtime=0x{rv:x} count={len(found)} objects='+' '.join(hex(x) for x in found))
+              mem.seek(meta); raw=mem.read(56)
+              q=struct.unpack('<7Q',raw)
+              print(f'CREATURES_META_RUNTIME=0x{meta:x}')
+              print('META_QWORDS='+' '.join(f'{x:016x}' for x in q))
+              for idx,val in enumerate(q):
+                  if val:
+                      for lo,hi,perms,off,mpath in maps:
+                          if lo<=val<hi and 'r' in perms:
+                              try:
+                                  mem.seek(val); b=mem.read(512)
+                                  printable=''.join(chr(x) if 32<=x<127 else '.' for x in b)
+                                  print(f'META_PTR_{idx}=0x{val:x} MAP={mpath or "[anon]"} ASCII={printable}')
+                              except OSError: pass
+                              break
           PY
 
           tcp_rows=$(ss -ntp 2>/dev/null | grep "pid=$pid," || true)
