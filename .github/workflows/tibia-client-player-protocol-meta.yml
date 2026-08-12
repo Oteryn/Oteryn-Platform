@@ -1,4 +1,4 @@
-name: Tibia Native Action Signature Map
+name: Tibia Attack Follow ABI Map
 
 on:
   push:
@@ -16,28 +16,30 @@ jobs:
     runs-on: oteryn-staging
     timeout-minutes: 4
     steps:
-      - name: Extract player protocol method metadata without GUI
+      - name: Map attack/follow signatures and wrappers without GUI
         shell: bash
         run: |
           set -Eeuo pipefail
           [[ "$RUNNER_NAME" == "oteryn-synology-staging" ]]
+          [[ "$(docker inspect --format '{{ index .Config.Labels "com.blakinio.owner" }}' "$CONTAINER_NAME")" == "oteryn" ]]
+          [[ "$(docker inspect --format '{{ index .Config.Labels "com.blakinio.purpose" }}' "$CONTAINER_NAME")" == "tibia-client-analysis" ]]
           docker exec -i "$CONTAINER_NAME" bash <<'INNER'
           set -Eeuo pipefail
           bin='/data/home/.local/share/CipSoft GmbH/Tibia/packages/Tibia/bin/client'
           pid=$(pgrep -x client | tail -n1 || true); [[ -n "$pid" ]]
           echo CLIENT_PID=$pid
 
-          echo PLAYER_PROTOCOL_STRING_REGION_BEGIN
-          strings -a -t x "$bin" | awk '$1 >= "1cb4f44" && $1 <= "1cb5903" {print}'
-          echo PLAYER_PROTOCOL_STRING_REGION_END
+          echo ATTACK_FOLLOW_STRINGS_BEGIN
+          strings -a -t x "$bin" | grep -E -B10 -A18 'sendAttack|sendFollow|GameclientMessageAttack|GameclientMessageFollow|TCreatureID|CreatureID' | sed -n '1,500p' || true
+          echo ATTACK_FOLLOW_STRINGS_END
 
-          echo ACTION_DISASSEMBLY_BEGIN
-          for range in 'ee2c00 ee3450' 'ee3500 ee3d00' 'd10000 d14000'; do
-            set -- $range
-            echo RANGE_0x$1_0x$2
-            objdump -d --start-address="0x$1" --stop-address="0x$2" "$bin" 2>/dev/null | grep -E -B3 -A12 'QMetaObject8activate|protobuf|prepare|enqueue' | sed -n '1,500p' || true
-          done
-          echo ACTION_DISASSEMBLY_END
+          echo QT_ACTIVATE_WRAPPERS_BEGIN
+          objdump -d --start-address=0xee3400 --stop-address=0xee4300 "$bin" 2>/dev/null | sed -n '1,2200p'
+          echo QT_ACTIVATE_WRAPPERS_END
+
+          echo GENERIC_HANDLER_REGION_BEGIN
+          objdump -d --start-address=0xedf000 --stop-address=0xee2c00 "$bin" 2>/dev/null | grep -E -B8 -A22 'QMetaObject8activate' | sed -n '1,1400p' || true
+          echo GENERIC_HANDLER_REGION_END
 
           tcp_rows=$(ss -ntp 2>/dev/null | grep "pid=$pid," || true)
           local_count=$(printf '%s\n' "$tcp_rows" | awk '$5 ~ /127\.0\.0\.1:25344$/ || $5 ~ /\[::1\]:25344$/ {n++} END{print n+0}')
