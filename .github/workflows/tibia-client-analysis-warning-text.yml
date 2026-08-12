@@ -1,0 +1,110 @@
+name: Tibia Select Character Warning Text
+
+on:
+  push:
+    branches: [ops/oteryn-tibia-client-analysis-20260811]
+    paths: [.github/workflows/tibia-client-analysis-warning-text.yml]
+
+permissions:
+  contents: read
+
+env:
+  CONTAINER_NAME: oteryn-tibia-client-analysis
+
+jobs:
+  inspect:
+    name: Read only non-private warning above character list
+    runs-on: oteryn-staging
+    timeout-minutes: 4
+    steps:
+      - name: Verify owned runtime and snapshot staging
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          [[ "$RUNNER_NAME" == "oteryn-synology-staging" ]]
+          [[ "$(docker inspect --format '{{ index .Config.Labels "com.blakinio.owner" }}' "$CONTAINER_NAME")" == "oteryn" ]]
+          [[ "$(docker inspect --format '{{ index .Config.Labels "com.blakinio.purpose" }}' "$CONTAINER_NAME")" == "tibia-client-analysis" ]]
+          [[ "$(docker inspect --format '{{.State.Status}}' "$CONTAINER_NAME")" == "running" ]]
+          docker ps -a --filter 'label=com.docker.compose.project=oteryn-staging' --format '{{.ID}}\t{{.Names}}' | sort >/tmp/oteryn-before.tsv
+
+      - name: Login and OCR only warning band
+        shell: bash
+        env:
+          TIBIA_TEST_EMAIL: ${{ secrets.TIBIA_TEST_EMAIL }}
+          TIBIA_TEST_PASSWORD: ${{ secrets.TIBIA_TEST_PASSWORD }}
+        run: |
+          set -Eeuo pipefail
+          [[ -n "$TIBIA_TEST_EMAIL" && -n "$TIBIA_TEST_PASSWORD" ]]
+          docker exec -e TIBIA_TEST_EMAIL -e TIBIA_TEST_PASSWORD -i "$CONTAINER_NAME" bash <<'INNER'
+          set -Eeuo pipefail
+          export DISPLAY=:99 HOME=/data/home
+          pkg="$HOME/.local/share/CipSoft GmbH/Tibia/packages/Tibia"
+          client="$pkg/bin/client"
+          pgrep -f '/wireproxy .*wireproxy.conf' >/dev/null
+          curl --socks5-hostname 127.0.0.1:25344 -fsS --max-time 10 https://www.cloudflare.com/cdn-cgi/trace >/tmp/warning-warp.trace
+          grep -q '^warp=on$' /tmp/warning-warp.trace
+          echo WARP_VERIFIED=true
+          cat >/tmp/proxychains-tibia.conf <<'EOF'
+          strict_chain
+          proxy_dns
+          quiet_mode
+          tcp_read_time_out 15000
+          tcp_connect_time_out 8000
+          [ProxyList]
+          socks5 127.0.0.1 25344
+          EOF
+          pkill -f 'packages/Tibia/bin/client' 2>/dev/null || true
+          pgrep -f '^Xvfb :99' >/dev/null || nohup Xvfb :99 -screen 0 1280x800x24 >/data/runtime/xvfb.log 2>&1 </dev/null &
+          cd "$pkg"
+          nohup proxychains4 -f /tmp/proxychains-tibia.conf "$client" >/data/runtime/client-warning-text.log 2>&1 </dev/null &
+          for n in $(seq 1 30); do pgrep -f 'packages/Tibia/bin/client' >/dev/null && break; sleep 1; done
+          sleep 10
+          best=''; best_area=0
+          for w in $(xdotool search --onlyvisible --name '^Tibia$' 2>/dev/null || true); do
+            geom=$(xdotool getwindowgeometry --shell "$w" 2>/dev/null || true)
+            width=$(printf '%s\n' "$geom" | sed -n 's/^WIDTH=//p'); height=$(printf '%s\n' "$geom" | sed -n 's/^HEIGHT=//p')
+            [[ -n "$width" && -n "$height" ]] || continue
+            area=$((width*height)); if (( area > best_area )); then best=$w; best_area=$area; fi
+          done
+          [[ -n "$best" && "$best_area" -ge 600000 ]]
+          xdotool mousemove --window "$best" 535 275 click 1
+          xdotool key --window "$best" ctrl+a
+          xdotool type --window "$best" --delay 3 -- "$TIBIA_TEST_EMAIL"
+          xdotool mousemove --window "$best" 535 304 click 1
+          xdotool key --window "$best" ctrl+a
+          xdotool type --window "$best" --delay 3 -- "$TIBIA_TEST_PASSWORD"
+          xdotool mousemove --window "$best" 590 388 click 1
+          unset TIBIA_TEST_EMAIL TIBIA_TEST_PASSWORD
+          sleep 25
+          import -display :99 -window "$best" /tmp/warning-select.png
+          # Proven header Character is at y~175 and first character row at y~190.
+          # This crop stops at y=160, therefore cannot include character names/rows.
+          convert /tmp/warning-select.png -crop 760x45+130+120 +repage -resize 250% -colorspace Gray -contrast-stretch 1%x1% /tmp/warning-band.png
+          tesseract /tmp/warning-band.png stdout --psm 6 2>/dev/null >/tmp/warning-band.txt || true
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          text=Path('/tmp/warning-band.txt').read_text(errors='replace')
+          text=' '.join(text.split())
+          # The crop is structurally above the character table; reject anything outside conservative generic UI vocabulary.
+          allowed={'you','need','to','complete','the','account','setup','before','can','create','a','character','manage','your','email','registration','verification','first','please','in','order','play','game','confirm','profile','select','characters'}
+          words=re.findall(r"[A-Za-z]+",text.lower())
+          unexpected=[w for w in words if w not in allowed]
+          if unexpected:
+              print('WARNING_TEXT_SAFE=false')
+              print('WARNING_UNEXPECTED_WORD_LENGTHS=' + ','.join(str(len(w)) for w in unexpected))
+          else:
+              print('WARNING_TEXT_SAFE=true')
+              print('WARNING_TEXT=' + ' '.join(words))
+          PY
+          INNER
+
+      - name: Verify canonical staging unchanged and client retained
+        if: always()
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          docker ps -a --filter 'label=com.docker.compose.project=oteryn-staging' --format '{{.ID}}\t{{.Names}}' | sort >/tmp/oteryn-after.tsv
+          diff -u /tmp/oteryn-before.tsv /tmp/oteryn-after.tsv
+          docker exec "$CONTAINER_NAME" pgrep -f 'packages/Tibia/bin/client' >/dev/null
+          docker inspect --format 'analysis_name={{.Name}} status={{.State.Status}} owner={{ index .Config.Labels "com.blakinio.owner" }} purpose={{ index .Config.Labels "com.blakinio.purpose" }}' "$CONTAINER_NAME"
