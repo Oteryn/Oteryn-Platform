@@ -1,4 +1,4 @@
-# exact Worldmap Qt metaobject scan
+# bounded Worldmap Qt dispatch decode
 name: Tibia Client Analysis Continue
 
 on:
@@ -18,7 +18,7 @@ env:
 
 jobs:
   continue:
-    name: Locate exact Worldmap Qt metaobject
+    name: Decode Worldmap Qt method dispatch
     runs-on: oteryn-staging
     timeout-minutes: 15
     steps:
@@ -40,102 +40,139 @@ jobs:
           test -s /tmp/oteryn-before.tsv
           docker exec "$CONTAINER_NAME" bash -lc '
             set -Eeuo pipefail
-            root=/data/client-15.32.df7b29
-            [[ "$(stat -c %s "$root/bin/client")" == "51965216" ]]
-            [[ "$(sha256sum "$root/bin/client" | awk "{print \$1}")" == "e6c244bd39fe2e0632f6f000efd3147164696efa8e901718668e0442325ff7fe" ]]
+            client=/data/client-15.32.df7b29/bin/client
+            [[ "$(stat -c %s "$client")" == "51965216" ]]
+            [[ "$(sha256sum "$client" | awk "{print \$1}")" == "e6c244bd39fe2e0632f6f000efd3147164696efa8e901718668e0442325ff7fe" ]]
           '
 
-      - name: Scan Qt6 static metaobjects for Worldmap stringdata
+      - name: Decode exact Qt method table and jump table
         shell: bash
         run: |
           set -Eeuo pipefail
           docker exec -i "$CONTAINER_NAME" /data/reverse-venv/bin/python - <<'PY'
           from pathlib import Path
           from elftools.elf.elffile import ELFFile
-          import struct, re, subprocess
+          import struct, subprocess, re
 
           root=Path('/data/client-15.32.df7b29')
           client=root/'bin/client'
           raw=client.read_bytes()
-          wanted=b'tibia::worldmap::TWorldmapProtocolMessageHandler'
-          handlers=(b'handleFullMapMessage',b'handleFieldDataMessage')
           with client.open('rb') as f:
               elf=ELFFile(f)
               secs={s.name:(int(s['sh_offset']),int(s['sh_size']),int(s['sh_addr'])) for s in elf.iter_sections()}
-          dro=secs['.data.rel.ro']
-          ro=secs['.rodata']
-          textsec=secs['.text']
+
           def va_to_off(va):
               for name,(off,size,sva) in secs.items():
                   if sva <= va < sva+size:
                       return off+(va-sva),name
-              return None,None
-          def q(off):
-              return struct.unpack_from('<Q',raw,off)[0] if 0<=off<=len(raw)-8 else 0
-          def u32(off):
-              return struct.unpack_from('<I',raw,off)[0] if 0<=off<=len(raw)-4 else 0
-          def is_text(va):
-              return textsec[2] <= va < textsec[2]+textsec[1]
-          def is_ro(va):
-              return ro[2] <= va < ro[2]+ro[1]
+              raise ValueError(f'VA 0x{va:x} not mapped')
+          def u32_off(off): return struct.unpack_from('<I',raw,off)[0]
+          def i32_off(off): return struct.unpack_from('<i',raw,off)[0]
+          def u32_va(va): return u32_off(va_to_off(va)[0])
 
-          matches=[]
-          for base in range(dro[0],dro[0]+dro[1]-56,8):
-              vals=[q(base+i*8) for i in range(7)]
-              superdata,strings,data,metacall,related,metatypes,extra=vals
-              if not (is_ro(strings) and is_ro(data) and is_text(metacall)):
-                  continue
-              soff,_=va_to_off(strings)
-              doff,_=va_to_off(data)
-              if soff is None or doff is None:
-                  continue
-              hdr=[u32(doff+i*4) for i in range(14)]
-              if not (1 <= hdr[0] <= 20 and hdr[4] <= 200 and hdr[5] < 10000):
-                  continue
-              sample=raw[soff:soff+8192]
-              score=0
-              if wanted in sample: score+=100
-              if handlers[0] in sample: score+=40
-              if handlers[1] in sample: score+=40
-              if score:
-                  bva=dro[2]+(base-dro[0])
-                  matches.append((score,bva,base,vals,hdr,soff,doff))
+          qmeta_va=0x3087800
+          string_va=0x1cd8a54
+          meta_va=0x1cd8820
+          static_metacall=0xdf2a60
+          jump_va=0x1d8bd10
+          expected_class='tibia::worldmap::TWorldmapProtocolMessageHandler'
 
-          lines=[f'worldmap_metaobject_matches={len(matches)}']
-          for idx,(score,bva,base,vals,hdr,soff,doff) in enumerate(sorted(matches,reverse=True)):
-              lines.append(f'MATCH index={idx} score={score} qmetaobject_va=0x{bva:x} file_off=0x{base:x}')
-              lines.append(f'  superdata=0x{vals[0]:x} stringdata=0x{vals[1]:x} metadata=0x{vals[2]:x} static_metacall=0x{vals[3]:x} related=0x{vals[4]:x} metatypes=0x{vals[5]:x} extra=0x{vals[6]:x}')
-              lines.append('  metadata_header='+' '.join(str(x) for x in hdr))
-              lines.append('  STRING_RUNS')
-              for m in re.finditer(rb'[ -~]{1,180}\x00',raw[soff:soff+8192]):
-                  s=m.group()[:-1]
-                  if s:
-                      lines.append('    +0x%x %s' % (m.start(),s.decode('ascii','replace')))
-              d=subprocess.check_output(['objdump','-d','-C',f'--start-address={vals[3]}',f'--stop-address={vals[3]+0x900}',str(client)],text=True,errors='replace')
-              lines.append('  STATIC_METACALL_DISASSEMBLY')
-              lines.extend('    '+x for x in d.splitlines()[:650])
-              if idx>=2:
-                  break
-          out=root/'worldmap-exact-qmetaobject.txt'
+          soff,_=va_to_off(string_va)
+          moff,_=va_to_off(meta_va)
+          joff,_=va_to_off(jump_va)
+          hdr=[u32_off(moff+i*4) for i in range(14)]
+          revision,class_name_idx,classinfo_count,classinfo_data,method_count,method_data,prop_count,prop_data,enum_count,enum_data,ctor_count,ctor_data,flags,signal_count=hdr
+
+          def qstr(idx):
+              entry=soff+idx*8
+              rel=u32_off(entry)
+              size=u32_off(entry+4)
+              if size > 4096 or rel > 65536:
+                  return f'<invalid idx={idx} rel={rel} size={size}>'
+              return raw[soff+rel:soff+rel+size].decode('utf-8','replace')
+
+          lines=[]
+          lines.append('WORLDMAP_QT_METHOD_DISPATCH')
+          lines.append(f'qmetaobject_va=0x{qmeta_va:x}')
+          lines.append(f'stringdata_va=0x{string_va:x}')
+          lines.append(f'metadata_va=0x{meta_va:x}')
+          lines.append(f'static_metacall=0x{static_metacall:x}')
+          lines.append(f'jump_table_va=0x{jump_va:x}')
+          lines.append('metadata_header='+' '.join(str(x) for x in hdr))
+          lines.append(f'class_name_index={class_name_idx} class_name={qstr(class_name_idx)!r}')
+          lines.append(f'method_count={method_count} method_data={method_data} signal_count={signal_count}')
+          if qstr(class_name_idx) != expected_class:
+              raise SystemExit(f'class mismatch: {qstr(class_name_idx)!r}')
+          if method_count != 14 or signal_count != 1:
+              raise SystemExit(f'unexpected method/signal count: {method_count}/{signal_count}')
+
+          methods=[]
+          method_base=moff+method_data*4
+          for idx in range(method_count):
+              row=[u32_off(method_base+(idx*6+k)*4) for k in range(6)]
+              name_idx,argc,param_off,tag_idx,mflags,meta_types=row
+              name=qstr(name_idx)
+              tag=qstr(tag_idx)
+              methods.append((idx,name,row))
+              lines.append(f'METHOD index={idx} name={name!r} argc={argc} parameters={param_off} tag={tag!r} flags=0x{mflags:x} metatype_offset={meta_types} raw={row}')
+
+          names=[m[1] for m in methods]
+          required=['publishGameAction','handleFullMapMessage','handleFieldDataMessage']
+          for n in required:
+              if n not in names:
+                  raise SystemExit(f'missing expected method {n}')
+          full_idx=names.index('handleFullMapMessage')
+          field_idx=names.index('handleFieldDataMessage')
+          lines.append(f'PROVEN_METHOD_INDEX handleFullMapMessage={full_idx}')
+          lines.append(f'PROVEN_METHOD_INDEX handleFieldDataMessage={field_idx}')
+
+          targets=[]
+          for idx in range(method_count):
+              rel=i32_off(joff+idx*4)
+              target=(jump_va+rel) & 0xffffffffffffffff
+              targets.append(target)
+              lines.append(f'JUMP index={idx} method={names[idx]!r} rel={rel:+#x} case_target=0x{target:x}')
+
+          def disasm(start,span=0x120):
+              return subprocess.check_output(['objdump','-d','-C',f'--start-address={start}',f'--stop-address={start+span}',str(client)],text=True,errors='replace')
+
+          lines.append('FULLMAP_CASE_DISASSEMBLY')
+          lines.extend('  '+x for x in disasm(targets[full_idx],0x180).splitlines())
+          lines.append('FIELDDATA_CASE_DISASSEMBLY')
+          lines.extend('  '+x for x in disasm(targets[field_idx],0x180).splitlines())
+
+          # Extract direct near call/jmp destinations from bounded case disassembly for follow-up.
+          for label,idx in [('FullMap',full_idx),('FieldData',field_idx)]:
+              text=disasm(targets[idx],0x180)
+              dest=[]
+              for line in text.splitlines():
+                  m=re.search(r'\b(?:call|jmp)\s+([0-9a-f]+)\b',line)
+                  if m:
+                      v=int(m.group(1),16)
+                      if v not in dest: dest.append(v)
+              lines.append(f'{label.upper()}_DIRECT_BRANCH_TARGETS=' + ','.join(f'0x{x:x}' for x in dest[:32]))
+              for d in dest[:12]:
+                  lines.append(f'{label.upper()}_BRANCH_TARGET 0x{d:x}')
+                  lines.extend('  '+x for x in disasm(d,0xc0).splitlines()[:80])
+
+          out=root/'worldmap-method-dispatch.txt'
           out.write_text('\n'.join(lines)+'\n')
           print(out.read_text())
-          if not matches:
-              raise SystemExit('no Worldmap QMetaObject candidate')
           PY
 
-      - name: Persist exact Worldmap metaobject evidence
+      - name: Persist Worldmap method dispatch evidence
         shell: bash
         run: |
           set -Eeuo pipefail
-          docker cp "$CONTAINER_NAME:/data/client-15.32.df7b29/worldmap-exact-qmetaobject.txt" /tmp/worldmap-exact-qmetaobject.txt
+          docker cp "$CONTAINER_NAME:/data/client-15.32.df7b29/worldmap-method-dispatch.txt" /tmp/worldmap-method-dispatch.txt
           python3 - <<'PY'
           from pathlib import Path
           import os
           p=Path(os.environ['HANDOVER'])
-          e=Path('/tmp/worldmap-exact-qmetaobject.txt').read_text(errors='replace')
-          begin='<!-- BEGIN EXACT WORLDMAP QMETAOBJECT -->'
-          end='<!-- END EXACT WORLDMAP QMETAOBJECT -->'
-          block=f'{begin}\n\n## Exact Worldmap QMetaObject evidence\n\nSource: GitHub Actions run `{os.environ.get("GITHUB_RUN_ID","unknown")}` on `oteryn-synology-staging`. Sanitized metadata/disassembly only.\n\n```text\n{e.rstrip()}\n```\n\n{end}'
+          e=Path('/tmp/worldmap-method-dispatch.txt').read_text(errors='replace')
+          begin='<!-- BEGIN WORLDMAP METHOD DISPATCH -->'
+          end='<!-- END WORLDMAP METHOD DISPATCH -->'
+          block=f'{begin}\n\n## Worldmap Qt method dispatch evidence\n\nSource: GitHub Actions run `{os.environ.get("GITHUB_RUN_ID","unknown")}` on `oteryn-synology-staging`. Bounded sanitized metadata/disassembly only.\n\n```text\n{e.rstrip()}\n```\n\n{end}'
           text=p.read_text()
           if begin in text and end in text:
               text=text.split(begin,1)[0].rstrip()+'\n\n'+block+'\n\n'+text.split(end,1)[1].lstrip()
@@ -147,7 +184,7 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add "$HANDOVER"
           if ! git diff --cached --quiet; then
-            git commit -m "docs(analysis): locate exact Worldmap Qt metaobject"
+            git commit -m "docs(analysis): decode Worldmap Qt method dispatch"
             git push origin HEAD:ops/oteryn-tibia-client-analysis-20260811
           fi
 
