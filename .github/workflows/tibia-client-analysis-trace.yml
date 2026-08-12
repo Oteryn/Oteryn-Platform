@@ -13,7 +13,7 @@ env:
 
 jobs:
   trace:
-    name: Refine Tibia launcher control OCR
+    name: Inspect official Tibia client package manifest
     runs-on: oteryn-staging
     timeout-minutes: 8
     steps:
@@ -25,22 +25,27 @@ jobs:
           [[ "$(docker inspect --format '{{ index .Config.Labels "com.blakinio.owner" }}' "$CONTAINER_NAME")" == "oteryn" ]]
           [[ "$(docker inspect --format '{{ index .Config.Labels "com.blakinio.purpose" }}' "$CONTAINER_NAME")" == "tibia-client-analysis" ]]
           docker ps -a --filter 'label=com.docker.compose.project=oteryn-staging' --format '{{.ID}}\t{{.Names}}' | sort > /tmp/oteryn-before.tsv
-      - name: OCR enhanced lower launcher area
+      - name: Fetch official package metadata
         shell: bash
         run: |
           set -Eeuo pipefail
           docker exec "$CONTAINER_NAME" bash -lc '
             set -Eeuo pipefail
-            export DISPLAY=:99
-            wid=$(xdotool search --onlyvisible --name "^Tibia$" | head -n1)
-            import -display :99 -window "$wid" /tmp/launcher-full.png
-            convert /tmp/launcher-full.png -crop 800x140+0+308 +repage -resize 400% -colorspace Gray -contrast-stretch 1%x1% -sharpen 0x1 /tmp/launcher-lower.png
-            echo OCR_PSM6_BEGIN
-            tesseract /tmp/launcher-lower.png stdout --psm 6 tsv 2>/dev/null | awk -F "\t" "NR==1 || (NF>=12 && \$12 != \"\" && \$12 !~ /^[[:space:]]*$/){print}"
-            echo OCR_PSM6_END
-            echo OCR_PSM11_BEGIN
-            tesseract /tmp/launcher-lower.png stdout --psm 11 tsv 2>/dev/null | awk -F "\t" "NR==1 || (NF>=12 && \$12 != \"\" && \$12 !~ /^[[:space:]]*$/){print}"
-            echo OCR_PSM11_END
+            base=https://static.tibia.com/launcher/tibiaclient-linux-current
+            mkdir -p /data/runtime/manifest
+            curl -fsSL "$base/package.json.version" -o /data/runtime/manifest/package.json.version
+            echo PACKAGE_VERSION=$(cat /data/runtime/manifest/package.json.version)
+            for u in "$base/package.json" "$base/$(cat /data/runtime/manifest/package.json.version)/package.json"; do
+              echo TRY_URL=$u
+              if curl -fsSL "$u" -o /data/runtime/manifest/package.json; then
+                echo PACKAGE_JSON_URL=$u
+                break
+              fi
+            done
+            test -s /data/runtime/manifest/package.json
+            echo PACKAGE_JSON_BEGIN
+            python3 -m json.tool /data/runtime/manifest/package.json | sed -n "1,220p"
+            echo PACKAGE_JSON_END
           '
       - name: Verify canonical staging unchanged
         if: always()
