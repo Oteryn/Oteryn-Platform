@@ -36,109 +36,70 @@ jobs:
             [[ "$(sha256sum "$c" | awk "{print \$1}")" == e6c244bd39fe2e0632f6f000efd3147164696efa8e901718668e0442325ff7fe ]]
           '
 
-      - name: Generate bounded trace evidence
+      - name: Generate bounded deep trace evidence
         shell: bash
         run: |
           set -Eeuo pipefail
-          docker exec -i "$CONTAINER_NAME" /data/reverse-venv/bin/python - > /tmp/worldmap-trace-evidence.md <<'PY'
+          docker exec -i "$CONTAINER_NAME" /data/reverse-venv/bin/python - > /tmp/worldmap-deep-trace-evidence.md <<'PY'
           from pathlib import Path
           import re, subprocess
 
           client=Path('/data/client-15.32.df7b29/bin/client')
           sha=subprocess.check_output(['sha256sum',str(client)],text=True).split()[0]
-          size=client.stat().st_size
 
           def dis(a,b):
               return subprocess.check_output(
                   ['objdump','-d','-C',f'--start-address={a}',f'--stop-address={b}',str(client)],
                   text=True,errors='replace')
 
-          def instructions(text):
+          def compact(a,b):
               out=[]
-              for ln in text.splitlines():
+              for ln in dis(a,b).splitlines():
                   m=re.match(r'^\s*([0-9a-f]+):\s+((?:[0-9a-f]{2}\s+)+)\s*(.*)$',ln)
-                  if m:
-                      out.append((int(m.group(1),16),m.group(3).strip()))
+                  if m: out.append(f'0x{int(m.group(1),16):x}: {m.group(3).strip()}')
               return out
 
-          common=dis(0x19a8a80,0x19a9700)
-          ins=instructions(common)
-          direct=[]
-          branches=[]
-          mem_offsets=[]
-          for addr,op in ins:
-              m=re.search(r'\bcall\s+([0-9a-f]+)\b',op)
-              if m:
-                  x=int(m.group(1),16)
-                  if x not in direct: direct.append(x)
-              m=re.search(r'\bj(?:mp|[a-z]{1,3})\s+([0-9a-f]+)\b',op)
-              if m:
-                  x=int(m.group(1),16)
-                  if 0x19a8a80 <= x < 0x19a9700:
-                      branches.append((addr,x,op.split()[0]))
-              for mm in re.finditer(r'0x([0-9a-f]+)\(%r(?:ax|bx|cx|dx|si|di|bp|sp|8|9|10|11|12|13|14|15)\)',op):
-                  off=int(mm.group(1),16)
-                  if off not in mem_offsets: mem_offsets.append(off)
+          proc_names=[]
+          for p in Path('/proc').iterdir():
+              if not p.name.isdigit(): continue
+              try: name=(p/'comm').read_text().strip()
+              except Exception: continue
+              if name in {'client','Tibia','tibia'}: proc_names.append(name)
+          x11=Path('/tmp/.X11-unix').is_dir() and any(Path('/tmp/.X11-unix').iterdir())
+          wayland=False
+          run_user=Path('/run/user')
+          if run_user.is_dir():
+              for p in run_user.glob('*/wayland-*'):
+                  if p.exists(): wayland=True; break
 
-          candidates=[0x313a820,0x313a860,0x314b480]
-          refs={c:[] for c in candidates}
-          proc=subprocess.Popen(['objdump','-d','-C',str(client)],stdout=subprocess.PIPE,text=True,errors='replace')
-          assert proc.stdout is not None
-          for ln in proc.stdout:
-              for c in candidates:
-                  if f'# {c:x} ' in ln or f'# {c:x}<' in ln or f'# {c:x}\n' in ln:
-                      refs[c].append(ln.rstrip())
-          rc=proc.wait()
-          if rc != 0:
-              raise SystemExit(rc)
+          windows=[
+              ('COMMON_TAIL',0x19a9170,0x19a9700),
+              ('MAP_CONTENT_BUILD',0xceca50,0xcecc70),
+              ('PROTO_MESSAGE_SELECT',0x1ab4e50,0x1ab50d0),
+              ('FIELD_ITEM_ADVANCE',0x1aab450,0x1aab650),
+              ('PROTO_COPY_HELPER',0x1b13c80,0x1b13ec0),
+          ]
 
-          callsites=[]
-          proc=subprocess.Popen(['objdump','-d','-C',str(client)],stdout=subprocess.PIPE,text=True,errors='replace')
-          assert proc.stdout is not None
-          for ln in proc.stdout:
-              if re.search(r'\bcall\s+19a8a80\b',ln):
-                  callsites.append(ln.rstrip())
-          rc=proc.wait()
-          if rc != 0:
-              raise SystemExit(rc)
-
-          print('<!-- BEGIN GENERATED TRACE 315-next -->')
-          print('## Generated bounded common-map-data trace')
+          print('## Generated bounded deep trace')
           print()
-          print(f'- Client size: `{size}`')
           print(f'- Client SHA-256: `{sha}`')
-          print('- Common routine: `0x19a8a80`')
-          print(f'- Decoded instructions in bounded window: `{len(ins)}`')
-          print('- Direct call targets: ' + (', '.join(f'`0x{x:x}`' for x in direct) or '`none`'))
-          print('- Observed positive register-relative offsets: ' + (', '.join(f'`0x{x:x}`' for x in sorted(mem_offsets)) or '`none`'))
+          print('- Central routine: `0x19a8a80`')
+          print(f'- Active Tibia client processes by `/proc/*/comm`: `{len(proc_names)}`')
+          print(f'- X11 socket present: `{str(x11).lower()}`')
+          print(f'- Wayland socket present: `{str(wayland).lower()}`')
+          print('- Session inspection intentionally records no environment values, account data, tokens, process arguments, or client state file contents.')
           print()
-          print('### Internal control-flow edges')
-          print('```text')
-          for a,b,k in branches[:120]: print(f'0x{a:x} {k} -> 0x{b:x}')
-          print('```')
-          print()
-          print('### Direct callsites of `0x19a8a80`')
-          print('```text')
-          for ln in callsites[:80]: print(ln)
-          print('```')
-          print()
-          print('### Default-instance candidate references')
-          for c in candidates:
-              print(f'#### `0x{c:x}`')
+          for label,a,b in windows:
+              print(f'### {label} `0x{a:x}..0x{b:x}`')
               print('```text')
-              for ln in refs[c][:120]: print(ln)
+              for ln in compact(a,b): print(ln)
               print('```')
-          print()
-          print('### Bounded disassembly `0x19a8a80..0x19a9700`')
-          print('```text')
-          for a,op in ins[:420]: print(f'0x{a:x}: {op}')
-          print('```')
-          print('<!-- END GENERATED TRACE 315-next -->')
+              print()
           PY
-          test -s /tmp/worldmap-trace-evidence.md
-          grep -F 'Common routine: `0x19a8a80`' /tmp/worldmap-trace-evidence.md >/dev/null
+          test -s /tmp/worldmap-deep-trace-evidence.md
+          grep -F 'Central routine: `0x19a8a80`' /tmp/worldmap-deep-trace-evidence.md >/dev/null
 
-      - name: Persist bounded evidence to task branch
+      - name: Persist bounded deep evidence to task branch
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
@@ -148,45 +109,18 @@ jobs:
           set -Eeuo pipefail
           python3 - <<'PY'
           import base64, json, os, pathlib, urllib.request
-
-          repo=os.environ['REPOSITORY']
-          ref=os.environ['HEAD_REF']
-          token=os.environ['GH_TOKEN']
-          path=os.environ['EVIDENCE_PATH']
+          repo=os.environ['REPOSITORY']; ref=os.environ['HEAD_REF']; token=os.environ['GH_TOKEN']; path=os.environ['EVIDENCE_PATH']
+          headers={'Authorization':f'Bearer {token}','Accept':'application/vnd.github+json','X-GitHub-Api-Version':'2022-11-28','User-Agent':'oteryn-bounded-evidence-writer'}
           api=f'https://api.github.com/repos/{repo}/contents/{path}?ref={ref}'
-          headers={
-              'Authorization':f'Bearer {token}',
-              'Accept':'application/vnd.github+json',
-              'X-GitHub-Api-Version':'2022-11-28',
-              'User-Agent':'oteryn-bounded-evidence-writer',
-          }
-          req=urllib.request.Request(api,headers=headers)
-          with urllib.request.urlopen(req) as r:
-              cur=json.load(r)
-          text=base64.b64decode(cur['content']).decode()
-          block=pathlib.Path('/tmp/worldmap-trace-evidence.md').read_text()
-          begin='<!-- BEGIN GENERATED TRACE EVIDENCE -->'
-          end='<!-- END GENERATED TRACE EVIDENCE -->'
-          wrapped=begin+'\n'+block.rstrip()+'\n'+end
+          with urllib.request.urlopen(urllib.request.Request(api,headers=headers)) as r: cur=json.load(r)
+          text=base64.b64decode(cur['content']).decode(); block=pathlib.Path('/tmp/worldmap-deep-trace-evidence.md').read_text()
+          begin='<!-- BEGIN GENERATED DEEP TRACE EVIDENCE -->'; end='<!-- END GENERATED DEEP TRACE EVIDENCE -->'; wrapped=begin+'\n'+block.rstrip()+'\n'+end
           if begin in text and end in text:
-              left=text.split(begin,1)[0].rstrip()
-              right=text.split(end,1)[1].lstrip()
-              new=left+'\n\n'+wrapped+'\n'
-              if right:
-                  new+='\n'+right
-          else:
-              new=text.rstrip()+'\n\n'+wrapped+'\n'
-          payload=json.dumps({
-              'message':'docs: persist bounded worldmap trace evidence',
-              'content':base64.b64encode(new.encode()).decode(),
-              'sha':cur['sha'],
-              'branch':ref,
-          }).encode()
-          put=urllib.request.Request(
-              f'https://api.github.com/repos/{repo}/contents/{path}',
-              data=payload,headers=headers,method='PUT')
-          with urllib.request.urlopen(put) as r:
-              result=json.load(r)
+              left=text.split(begin,1)[0].rstrip(); right=text.split(end,1)[1].lstrip(); new=left+'\n\n'+wrapped+'\n'+(('\n'+right) if right else '')
+          else: new=text.rstrip()+'\n\n'+wrapped+'\n'
+          payload=json.dumps({'message':'docs: persist bounded worldmap deep trace','content':base64.b64encode(new.encode()).decode(),'sha':cur['sha'],'branch':ref}).encode()
+          put=urllib.request.Request(f'https://api.github.com/repos/{repo}/contents/{path}',data=payload,headers=headers,method='PUT')
+          with urllib.request.urlopen(put) as r: result=json.load(r)
           print('persisted_commit='+result['commit']['sha'])
           PY
 
