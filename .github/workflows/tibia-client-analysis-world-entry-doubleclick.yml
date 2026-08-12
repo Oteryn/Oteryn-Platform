@@ -1,0 +1,221 @@
+name: Tibia Client World Entry Doubleclick
+
+on:
+  push:
+    branches: [ops/oteryn-tibia-client-analysis-20260811]
+    paths: [.github/workflows/tibia-client-analysis-world-entry-doubleclick.yml]
+
+permissions:
+  contents: read
+
+env:
+  CONTAINER_NAME: oteryn-tibia-client-analysis
+
+jobs:
+  enter:
+    name: Enter Tibia world by verified name-row doubleclick
+    runs-on: oteryn-staging
+    timeout-minutes: 8
+    steps:
+      - name: Verify owned runtime and snapshot staging
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          [[ "$RUNNER_NAME" == "oteryn-synology-staging" ]]
+          [[ "$(docker inspect --format '{{ index .Config.Labels "com.blakinio.owner" }}' "$CONTAINER_NAME")" == "oteryn" ]]
+          [[ "$(docker inspect --format '{{ index .Config.Labels "com.blakinio.purpose" }}' "$CONTAINER_NAME")" == "tibia-client-analysis" ]]
+          [[ "$(docker inspect --format '{{.State.Status}}' "$CONTAINER_NAME")" == "running" ]]
+          docker ps -a --filter 'label=com.docker.compose.project=oteryn-staging' --format '{{.ID}}\t{{.Names}}' | sort >/tmp/oteryn-before.tsv
+
+      - name: Login and double-click first verified character name
+        shell: bash
+        env:
+          TIBIA_TEST_EMAIL: ${{ secrets.TIBIA_TEST_EMAIL }}
+          TIBIA_TEST_PASSWORD: ${{ secrets.TIBIA_TEST_PASSWORD }}
+        run: |
+          set -Eeuo pipefail
+          [[ -n "$TIBIA_TEST_EMAIL" && -n "$TIBIA_TEST_PASSWORD" ]]
+          docker exec -e TIBIA_TEST_EMAIL -e TIBIA_TEST_PASSWORD -i "$CONTAINER_NAME" bash <<'INNER'
+          set -Eeuo pipefail
+          export DISPLAY=:99 HOME=/data/home
+          pkg="$HOME/.local/share/CipSoft GmbH/Tibia/packages/Tibia"
+          client="$pkg/bin/client"
+
+          pgrep -f '/wireproxy .*wireproxy.conf' >/dev/null
+          curl --socks5-hostname 127.0.0.1:25344 -fsS --max-time 10 https://www.cloudflare.com/cdn-cgi/trace >/tmp/warp-trace
+          grep -q '^warp=on$' /tmp/warp-trace
+          echo WARP_EGRESS_VERIFIED=true
+
+          sed '/^[[:space:]]*quiet_mode[[:space:]]*$/d' /tmp/proxychains-tibia.conf >/tmp/proxychains-tibia-doubleclick.conf
+          grep -q '^strict_chain' /tmp/proxychains-tibia-doubleclick.conf
+          grep -q '^proxy_dns' /tmp/proxychains-tibia-doubleclick.conf
+
+          pkill -f 'packages/Tibia/bin/client' 2>/dev/null || true
+          pgrep -f '^Xvfb :99' >/dev/null || nohup Xvfb :99 -screen 0 1280x800x24 >/data/runtime/xvfb.log 2>&1 </dev/null &
+          cd "$pkg"
+          : >/data/runtime/client-world-entry-doubleclick.log
+          nohup proxychains4 -f /tmp/proxychains-tibia-doubleclick.conf "$client" >/data/runtime/client-world-entry-doubleclick.log 2>&1 </dev/null &
+          for n in $(seq 1 30); do pgrep -f 'packages/Tibia/bin/client' >/dev/null && break; sleep 1; done
+          sleep 10
+
+          best=''; best_area=0; best_width=0; best_height=0
+          for w in $(xdotool search --onlyvisible --name '^Tibia$' 2>/dev/null || true); do
+            geom=$(xdotool getwindowgeometry --shell "$w" 2>/dev/null || true)
+            width=$(printf '%s\n' "$geom" | sed -n 's/^WIDTH=//p')
+            height=$(printf '%s\n' "$geom" | sed -n 's/^HEIGHT=//p')
+            [[ -n "$width" && -n "$height" ]] || continue
+            area=$((width*height))
+            if (( area > best_area )); then best=$w; best_area=$area; best_width=$width; best_height=$height; fi
+          done
+          [[ -n "$best" && "$best_width" == 1020 && "$best_height" == 650 ]]
+
+          xdotool mousemove --window "$best" 535 275 click 1
+          xdotool key --window "$best" ctrl+a
+          xdotool type --window "$best" --delay 3 -- "$TIBIA_TEST_EMAIL"
+          xdotool mousemove --window "$best" 535 304 click 1
+          xdotool key --window "$best" ctrl+a
+          xdotool type --window "$best" --delay 3 -- "$TIBIA_TEST_PASSWORD"
+          xdotool mousemove --window "$best" 590 388 click 1
+          unset TIBIA_TEST_EMAIL TIBIA_TEST_PASSWORD
+          sleep 25
+
+          import -display :99 -window "$best" /tmp/doubleclick-select.png
+          convert /tmp/doubleclick-select.png -resize 200% -colorspace Gray -contrast-stretch 1%x1% /tmp/doubleclick-select-ocr.png
+          tesseract /tmp/doubleclick-select-ocr.png stdout --psm 11 tsv 2>/dev/null >/tmp/doubleclick-select.tsv || true
+          python3 - <<'PY' >/tmp/doubleclick-row.env
+          import csv
+          safe=[]
+          opaque=[]
+          with open('/tmp/doubleclick-select.tsv',newline='',errors='replace') as f:
+              for r in csv.DictReader(f,delimiter='\t'):
+                  token=(r.get('text') or '').strip().lower().strip(':,.!?()[]')
+                  try:
+                      conf=float(r.get('conf') or -1)
+                      left=int(r.get('left') or 0)//2
+                      top=int(r.get('top') or 0)//2
+                      width=max(1,int(r.get('width') or 0)//2)
+                      height=max(1,int(r.get('height') or 0)//2)
+                  except ValueError:
+                      continue
+                  if conf < 20:
+                      continue
+                  x=left+width//2; y=top+height//2
+                  if token in {'select','character','status','ok','cancel'}:
+                      safe.append((token,x,y))
+                  elif 180 <= x <= 520 and 185 <= y <= 235:
+                      opaque.append((x,y))
+          title=any(t=='select' and 440<=x<=510 and 100<=y<=130 for t,x,y in safe)
+          header=any(t=='character' and 220<=x<=290 and 160<=y<=185 for t,x,y in safe)
+          ok=any(t=='ok' and 770<=x<=810 and 495<=y<=525 for t,x,y in safe)
+          if not (title and header and ok and opaque):
+              raise SystemExit('Character list geometry not verified')
+          # The first row text cluster is around y=196. Use only geometry; never emit OCR text.
+          candidates=[p for p in opaque if 188 <= p[1] <= 210]
+          if not candidates:
+              raise SystemExit('First character name row not resolved')
+          x=min(max(round(sum(p[0] for p in candidates)/len(candidates)),220),320)
+          y=round(sum(p[1] for p in candidates)/len(candidates))
+          if not (220 <= x <= 320 and 188 <= y <= 210):
+              raise SystemExit('Unsafe first-row geometry')
+          print(f'ROW_X={x}')
+          print(f'ROW_Y={y}')
+          PY
+          source /tmp/doubleclick-row.env
+          echo CHARACTER_NAME_GEOMETRY_VERIFIED=true
+          echo "character_name_geometry=$ROW_X,$ROW_Y"
+
+          xdotool mousemove --window "$best" "$ROW_X" "$ROW_Y" click --repeat 2 --delay 180 1
+          echo CHARACTER_NAME_DOUBLECLICKED=true
+
+          sleep 1
+          import -display :99 -window "$best" /tmp/doubleclick-t1.png
+          sleep 3
+          import -display :99 -window "$best" /tmp/doubleclick-t4.png
+          sleep 8
+          import -display :99 -window "$best" /tmp/doubleclick-t12.png
+
+          pid=$(pgrep -f 'packages/Tibia/bin/client' | head -n1)
+          [[ -n "$pid" ]]
+          sockets=$(ss -ntp 2>/dev/null | grep "pid=$pid," || true)
+          if printf '%s\n' "$sockets" | awk '{print $5}' | grep -Ev '^(127\.0\.0\.1|\[::1\]):25344$' | grep -q .; then
+            echo CLIENT_DIRECT_TCP_DETECTED=true >&2
+            exit 1
+          fi
+          echo CLIENT_DIRECT_TCP_DETECTED=false
+
+          python3 - <<'PY' >/tmp/doubleclick-proxy.env
+          import re
+          from pathlib import Path
+          lines=Path('/data/runtime/client-world-entry-doubleclick.log').read_text(errors='replace').splitlines()[-1600:]
+          chain=[line for line in lines if 'chain' in line.lower() or 'proxychains' in line.lower() or 'dns-' in line.lower()]
+          ports=set(); statuses={k:0 for k in ['ok','timeout','refused','denied','error','failed']}
+          for line in chain:
+              lo=line.lower()
+              for k in statuses:
+                  if k in lo: statuses[k]+=1
+              for m in re.finditer(r':([0-9]{1,5})(?=\D|$)',line):
+                  p=int(m.group(1))
+                  if 1 <= p <= 65535 and p != 25344: ports.add(p)
+          non_https=sorted(p for p in ports if p != 443)
+          print(f'PROXY_DEBUG_LINE_COUNT={len(chain)}')
+          print('PROXY_TARGET_PORTS=' + ','.join(map(str,sorted(ports))))
+          print('PROXY_STATUS_COUNTS=' + ','.join(f'{k}:{v}' for k,v in statuses.items()))
+          print(f'NON_HTTPS_TARGET_PRESENT={str(bool(non_https)).lower()}')
+          PY
+          cat /tmp/doubleclick-proxy.env
+
+          for sec in 1 4 12; do
+            shot="/tmp/doubleclick-t${sec}.png"
+            convert "$shot" -crop 900x500+60+80 -resize 150% -colorspace Gray -contrast-stretch 1%x1% "/tmp/doubleclick-t${sec}-ocr.png"
+            tesseract "/tmp/doubleclick-t${sec}-ocr.png" stdout --psm 11 2>/dev/null >"/tmp/doubleclick-t${sec}.txt" || true
+          done
+          python3 - <<'PY'
+          from pathlib import Path
+          allow={'already','logged','connection','failed','error','server','world','queue','maintenance','session','client','account','character','select','login','password','email','online','offline','connecting','please','try','again','could','not','timeout','battle','skills','inventory','health','mana'}
+          final=''
+          for sec in (1,4,12):
+              text=Path(f'/tmp/doubleclick-t{sec}.txt').read_text(errors='replace').lower()
+              if sec==12: final=text
+              normalized=''.join(ch if ch.isalnum() else ' ' for ch in text)
+              safe=[]
+              for token in normalized.split():
+                  if token in allow and token not in safe: safe.append(token)
+              print(f'T{sec}_SAFE_TOKENS=' + ','.join(safe))
+          account=('account login' in final or ('email' in final and 'password' in final))
+          select=('select character' in final)
+          game=any(x in final for x in ['battle','skills','inventory','health','mana'])
+          print(f'FINAL_ACCOUNT_LOGIN={str(account).lower()}')
+          print(f'FINAL_SELECT_CHARACTER={str(select).lower()}')
+          print(f'FINAL_GAME_MARKERS={str(game).lower()}')
+          if account or select:
+              raise SystemExit(2)
+          PY
+
+          cp /tmp/doubleclick-t12.png /tmp/doubleclick-world-safe.png
+          convert /tmp/doubleclick-world-safe.png -fill '#202020' -draw 'rectangle 0,0 1020,70 rectangle 0,70 180,650 rectangle 840,70 1020,650 rectangle 0,520 1020,650' /tmp/doubleclick-world-safe.png
+          echo WORLD_ENTRY_SCREEN_CAPTURED=true
+          INNER
+
+      - name: Export privacy-safe world screenshot
+        if: always()
+        shell: bash
+        run: docker cp "$CONTAINER_NAME:/tmp/doubleclick-world-safe.png" /tmp/doubleclick-world-safe.png 2>/dev/null || true
+
+      - name: Upload privacy-safe world screenshot
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: tibia-world-entry-doubleclick-safe
+          path: /tmp/doubleclick-world-safe.png
+          retention-days: 7
+          if-no-files-found: warn
+
+      - name: Verify canonical staging unchanged and client remains running
+        if: always()
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          docker ps -a --filter 'label=com.docker.compose.project=oteryn-staging' --format '{{.ID}}\t{{.Names}}' | sort >/tmp/oteryn-after.tsv
+          diff -u /tmp/oteryn-before.tsv /tmp/oteryn-after.tsv
+          docker exec "$CONTAINER_NAME" pgrep -f 'packages/Tibia/bin/client' >/dev/null
+          docker inspect --format 'analysis_name={{.Name}} status={{.State.Status}} owner={{ index .Config.Labels "com.blakinio.owner" }} purpose={{ index .Config.Labels "com.blakinio.purpose" }}' "$CONTAINER_NAME"
