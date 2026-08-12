@@ -13,9 +13,9 @@ env:
 
 jobs:
   trace:
-    name: Locate launcher action with multi-pass OCR
+    name: Trigger and verify Tibia client installation
     runs-on: oteryn-staging
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
       - name: Verify owned runtime and snapshot staging
         shell: bash
@@ -26,7 +26,7 @@ jobs:
           [[ "$(docker inspect --format '{{ index .Config.Labels "com.blakinio.purpose" }}' "$CONTAINER_NAME")" == "tibia-client-analysis" ]]
           docker ps -a --filter 'label=com.docker.compose.project=oteryn-staging' --format '{{.ID}}\t{{.Names}}' | sort > /tmp/oteryn-before.tsv
 
-      - name: Detect and activate Install or Play control
+      - name: Click verified download tile and wait for runtime
         shell: bash
         run: |
           set -Eeuo pipefail
@@ -35,72 +35,41 @@ jobs:
           export DISPLAY=:99
           wid=$(xdotool search --onlyvisible --name '^Tibia$' | head -n1)
           [[ -n "$wid" ]]
-          import -display :99 -window "$wid" /tmp/launcher.png
-          mkdir -p /tmp/ocr
-          convert /tmp/launcher.png -resize 300% /tmp/ocr/orig.png
-          convert /tmp/launcher.png -resize 300% -colorspace Gray -contrast-stretch 1%x1% /tmp/ocr/gray.png
-          convert /tmp/launcher.png -resize 300% -colorspace Gray -threshold 55% /tmp/ocr/th55.png
-          convert /tmp/launcher.png -resize 300% -colorspace Gray -negate -threshold 55% /tmp/ocr/inv55.png
-          rm -f /tmp/ocr_match.txt
-          for img in /tmp/ocr/*.png; do
-            for psm in 6 11 12; do
-              out="/tmp/ocr/$(basename "$img").$psm.tsv"
-              tesseract "$img" stdout --psm "$psm" tsv 2>/dev/null > "$out" || true
-              OUT="$out" IMG="$img" PSM="$psm" python3 - <<'PY'
-          import csv, os, re
-          target=re.compile(r'^(install|play|download|update|start)$', re.I)
-          with open(os.environ['OUT'], newline='', errors='replace') as f:
-              for r in csv.DictReader(f, delimiter='\t'):
-                  text=(r.get('text') or '').strip()
-                  if target.fullmatch(text):
-                      vals=[r.get('left','0'),r.get('top','0'),r.get('width','0'),r.get('height','0'),text,os.environ['IMG'],os.environ['PSM']]
-                      with open('/tmp/ocr_match.txt','w') as o: o.write(' '.join(vals)+'\n')
-                      break
-          PY
-              [[ -s /tmp/ocr_match.txt ]] && break 2
-            done
+          before=$(du -sb /data/home 2>/dev/null | awk '{print $1}' || echo 0)
+          echo HOME_BYTES_BEFORE=$before
+          xdotool mousemove --window "$wid" 400 193 click 1
+          echo DOWNLOAD_TILE_CLICK_SENT=true
+          installed=0
+          for n in $(seq 1 96); do
+            sleep 5
+            now=$(du -sb /data/home 2>/dev/null | awk '{print $1}' || echo 0)
+            qt=$(find /data -type f -name 'libQt6WebEngineQuick.so.6' -print -quit 2>/dev/null || true)
+            client=$(find /data/home -type f -name client -perm -111 -print -quit 2>/dev/null || true)
+            if (( n % 6 == 0 )); then
+              echo WAIT_TICK=$n HOME_BYTES=$now QT_FOUND=$( [[ -n "$qt" ]] && echo true || echo false ) CLIENT_FOUND=$( [[ -n "$client" ]] && echo true || echo false )
+              grep -E 'Changing local package status|Downloading|Installing|Installed|Finished downloading file for package.*Tibia' /data/runtime/launcher.log 2>/dev/null | tail -n 8 || true
+            fi
+            if [[ -n "$qt" ]] || [[ -n "$client" ]]; then
+              installed=1
+              echo INSTALLED_RUNTIME_HINT=$([[ -n "$client" ]] && echo "$client" || echo "$qt")
+              break
+            fi
           done
-          found=0
-          if [[ -s /tmp/ocr_match.txt ]]; then
-            read -r x y w h text img psm < /tmp/ocr_match.txt
-            cx=$(( (x + w/2) / 3 ))
-            cy=$(( (y + h/2) / 3 ))
-            echo "OCR_ACTION_TEXT=$text OCR_ACTION_X=$cx OCR_ACTION_Y=$cy SOURCE=$(basename "$img") PSM=$psm"
-            before=$(du -sb /data/home 2>/dev/null | awk '{print $1}' || echo 0)
-            xdotool mousemove --window "$wid" "$cx" "$cy" click 1
-            sleep 8
-            after=$(du -sb /data/home 2>/dev/null | awk '{print $1}' || echo 0)
-            echo "HOME_BYTES_BEFORE=$before HOME_BYTES_AFTER=$after"
-            found=1
-          fi
-          echo OCR_ACTION_FOUND=$found
-          if (( found == 0 )); then
-            echo OCR_CANDIDATES_BEGIN
-            python3 - <<'PY'
-          import csv
-          p='/tmp/ocr/gray.png.11.tsv'
-          with open(p,newline='',errors='replace') as f:
-              rows=csv.DictReader(f,delimiter='\t')
-              vals=[]
-              for r in rows:
-                  t=(r.get('text') or '').strip()
-                  if t:
-                      vals.append((int(float(r.get('left') or 0))//3,int(float(r.get('top') or 0))//3,int(float(r.get('width') or 0))//3,int(float(r.get('height') or 0))//3,t))
-          for x,y,w,h,t in vals[-140:]: print(f'x={x} y={y} w={w} h={h} text={t}')
-          PY
-            echo OCR_CANDIDATES_END
-          fi
+          echo INSTALL_RUNTIME_FOUND=$installed
+          after=$(du -sb /data/home 2>/dev/null | awk '{print $1}' || echo 0)
+          echo HOME_BYTES_AFTER=$after
+          import -display :99 -window "$wid" /tmp/launcher-after.png || true
+          (( installed == 1 ))
           INNER
-          docker cp "$CONTAINER_NAME:/tmp/launcher.png" /tmp/launcher.png
-          test -s /tmp/launcher.png
-          echo SCREENSHOT_BYTES=$(stat -c %s /tmp/launcher.png)
+          docker cp "$CONTAINER_NAME:/tmp/launcher-after.png" /tmp/launcher-after.png || true
 
-      - name: Upload launcher screenshot evidence
+      - name: Upload post-click launcher screenshot
+        if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: tibia-launcher-screen
-          path: /tmp/launcher.png
-          if-no-files-found: error
+          name: tibia-launcher-after-install-click
+          path: /tmp/launcher-after.png
+          if-no-files-found: warn
           retention-days: 7
 
       - name: Verify canonical staging unchanged
