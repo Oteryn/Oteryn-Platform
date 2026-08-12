@@ -61,8 +61,8 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-12T09:31:00+02:00
-head: 1c04f6328730c848231c1b54c54bb8df46b8a64e
+updated_at: 2026-08-12T09:53:00+02:00
+head: 639e7afcb807d09f3df4b6d9a55bbf7786c6bd00
 branch: test/agent-policy-consistency
 pr: 992
 status: validating
@@ -80,26 +80,27 @@ owned_paths:
   - docs/agents/tasks/archive/OTERYN-20260811-agent-policy-consistency.md
 proven:
   - Protected main ab43c4b47173e7208d34851c4091f79051379f7a is incorporated and the PR remains limited to the six declared task-owned paths.
-  - Earlier review generations exposed and drove regression coverage for repository-scope grants, authorization scoping and polarity, Markdown wrapping/emphasis/fences, slash-shaped prose, active/passive/mandatory mutation grammar, duplicate declarations, nested YAML examples and checkpoint freshness.
-  - Fresh Codex review on checkpoint head 3dc0c3429f8b96c913109b1dabfd494d0bbe23ed exposed two additional material findings: have/has write access to a foreign repository was not recognized as an affirmative mutation grant, and may refrain from editing a foreign repository was incorrectly treated as a positive mutation grant.
-  - Parser commit eaeab0c4ad59228ffcab30db09527194bf71e1fe recognizes have/has write access as positive mutation authority and treats refrain from a mutation as clause-local denial/non-grant semantics.
-  - Test head 1c04f6328730c848231c1b54c54bb8df46b8a64e adds focused regressions for have write access, has write access, refrain-from denial, and a later independent affirmative grant after a refrain clause.
-  - Compare 3dc0c3429f8b96c913109b1dabfd494d0bbe23ed...1c04f6328730c848231c1b54c54bb8df46b8a64e changes exactly tools/agents/policy_consistency.py (+5/-2) and tools/agents/test_policy_consistency.py (+22), with no unrelated path change.
-  - Agent Governance run 31574092122 passed on 1c04f6328730c848231c1b54c54bb8df46b8a64e. Job 94042199953 executed 69 of 69 policy-consistency regressions successfully, including all four new cases, then passed the live policy validator, 3 active checkpoint validations, live liveness validation for 3 active tasks with 0 advisory findings, and Control Room validation.
+  - Earlier review generations drove fail-closed coverage for repository-scope grants, authorization scoping and polarity, Markdown wrapping/emphasis/fences, slash-shaped prose, active/passive/mandatory mutation grammar, duplicate declarations, nested YAML examples and checkpoint freshness.
+  - Fresh Codex review on checkpoint head 5535311de640f91a6706a1b4583b63a6ed01e1bd exposed four material findings: write-access grants after conditional conjunctions were not split; delete/remove mutations were missing; full/unrestricted write-access modifiers bypassed positive authority; and do-not-allow / never-authorize / never-permit denials were false positives.
+  - Repair commits 5f9e472aa44bba7c8185d07fff5f4044fbd5882b and 639e7afcb807d09f3df4b6d9a55bbf7786c6bd00 close those findings by extending mutation vocabulary, write-access modifiers, grant splitting, negative authorization forms and removal association through the from preposition.
+  - Test head be7bec7d48ddb3d07a690fbd83a1112e35265548 added focused regressions for conditional write-access splitting, delete/remove, full/unrestricted write access, do-not-allow, never-authorize and never-permit; its first Agent Governance attempt correctly exposed one remaining remove-from association failure, which 639e7afcb807d09f3df4b6d9a55bbf7786c6bd00 repairs.
+  - Agent Governance run 31575678582 passed on 639e7afcb807d09f3df4b6d9a55bbf7786c6bd00. Job 94047133313 executed 77 of 77 policy-consistency regressions successfully, then passed the live policy validator, 3 active checkpoint validations, live liveness for 3 active tasks with 0 advisory findings, and Control Room validation.
+  - All four material review threads from 5535311de640f91a6706a1b4583b63a6ed01e1bd were replied to with exact-head regression evidence and resolved only after the 77-test proof.
 derived:
   - All currently known material parser findings have implementation repairs and explicit focused regressions; this task-record-only refresh creates a new final checkpoint generation without changing parser/runtime behavior.
-  - Recording 1c04f6328730c848231c1b54c54bb8df46b8a64e as the latest material implementation/test head avoids self-referential checkpoint SHA churn; live GitHub state remains authoritative for the actual branch head produced by this checkpoint commit.
+  - Recording 639e7afcb807d09f3df4b6d9a55bbf7786c6bd00 as the latest material implementation/test head avoids self-referential checkpoint SHA churn; live GitHub state remains authoritative for the actual branch head produced by this checkpoint commit.
 unknown:
   - Terminal repository-required CI result on the checkpoint-only final head created by this update.
   - Fresh Codex review result for the checkpoint-only final head created by this update.
 conflicts: []
 first_failure:
-  marker: codex-write-access-and-refrain-polarity
-  evidence: Fresh Codex review on 3dc0c3429f8b96c913109b1dabfd494d0bbe23ed identified have/has write access as a missed foreign-repository grant and may refrain from editing as a false-positive grant; material head 1c04f6328730c848231c1b54c54bb8df46b8a64e repairs both and Agent Governance 31574092122 proves 69 focused regressions plus the live validator pass.
+  marker: codex-final-grant-grammar-generation
+  evidence: Fresh Codex review on 5535311de640f91a6706a1b4583b63a6ed01e1bd identified four grant/denial bypasses. Initial repair head be7bec7d48ddb3d07a690fbd83a1112e35265548 passed 76/77 regressions and exposed only remove-files-from association; material head 639e7afcb807d09f3df4b6d9a55bbf7786c6bd00 repairs that final case and Agent Governance 31575678582 proves 77/77 focused regressions plus the live validator pass.
 rejected_hypotheses:
-  - Existing permission/may/can/allow vocabulary covers every affirmative write grant; direct have/has write access wording can also expand the effective write boundary.
-  - A modal may anywhere near a mutation makes the clause affirmative; refrain from editing is denial/non-grant language and must not be promoted to mutation authority.
-  - Treating refrain as a denial can suppress later grants in the same logical statement; regression coverage proves the denial remains clause-local while a later independent affirmative grant is still rejected.
+  - Direct have/has write-access support is sufficient without adding the same grammar to conjunction splitting; independent RHS write-access grants must be split from prior conditional authorization.
+  - Edit/push/commit/merge cover all meaningful repository mutation vocabulary; delete/remove are direct mutations and must fail closed on foreign repositories.
+  - Only explicit can modify write-access wording; common full/unrestricted/direct/autonomous modifiers also represent affirmative authority.
+  - Negating only grant is sufficient; allow/authorize/permit require corresponding do-not/never/not denial recognition to avoid false positives.
 changed_paths:
   - .github/workflows/agent-governance.yml
   - docs/agents/tasks/active/OTERYN-20260811-agent-policy-consistency.md
@@ -108,12 +109,12 @@ changed_paths:
   - tools/agents/policy_consistency.py
   - tools/agents/test_policy_consistency.py
 validation:
-  - command: Agent Governance run 31574092122 on implementation/test head 1c04f6328730c848231c1b54c54bb8df46b8a64e
+  - command: Agent Governance run 31575678582 on implementation/test head 639e7afcb807d09f3df4b6d9a55bbf7786c6bd00
     result: PASS
-    evidence: job 94042199953 completed 69 of 69 policy-consistency regressions, including the four final review regressions, live policy validation, 3 checkpoint validations, live liveness validation for 3 active tasks with 0 advisory findings and Control Room validation successfully.
-  - command: minimal final-review repair comparison
-    result: PASS
-    evidence: compare 3dc0c3429f8b96c913109b1dabfd494d0bbe23ed...1c04f6328730c848231c1b54c54bb8df46b8a64e contains exactly two intended files with +5/-2 parser and +22 test changes.
+    evidence: job 94047133313 completed 77 of 77 policy-consistency regressions, live policy validation, 3 checkpoint validations, live liveness validation for 3 active tasks with 0 advisory findings and Control Room validation successfully.
+  - command: first repair Agent Governance run 31575370050 on be7bec7d48ddb3d07a690fbd83a1112e35265548
+    result: FAIL
+    evidence: job 94046169494 ran 77 tests with exactly one failure, test_remove_foreign_repository_grant_fails_closed; the first actionable failure was the missing from preposition in mutation-to-repository association and is repaired on 639e7afcb807d09f3df4b6d9a55bbf7786c6bd00.
   - command: checkpoint-only final-head required CI, Agent Governance and fresh Codex review
     result: NOT_RUN
     evidence: this task-record-only update creates the final validation generation.
@@ -127,26 +128,26 @@ next_action: Validate the checkpoint-only final branch head created by this upda
 ```yaml
 recovery:
   policy_version: 1
-  generation: 22
-  session_id: agent-20260812-0931-final-grant-parser-checkpoint
-  session_started_at: 2026-08-12T09:31:00+02:00
-  checkpointed_at: 2026-08-12T09:31:00+02:00
-  last_progress_at: 2026-08-12T09:31:00+02:00
+  generation: 23
+  session_id: agent-20260812-0953-final-grant-grammar-checkpoint
+  session_started_at: 2026-08-12T09:40:00+02:00
+  checkpointed_at: 2026-08-12T09:53:00+02:00
+  last_progress_at: 2026-08-12T09:53:00+02:00
   phase: final-checkpoint-validation
-  exact_head: 1c04f6328730c848231c1b54c54bb8df46b8a64e
+  exact_head: 639e7afcb807d09f3df4b6d9a55bbf7786c6bd00
   pull_request: 992
-  active_operation: create refreshed final checkpoint after write-access and refrain-polarity repairs and 69-test Agent Governance proof
+  active_operation: create refreshed final checkpoint after final grant-grammar repairs and 77-test Agent Governance proof
   external_run_ids:
-    - 31574092122
-    - 31574092149
-    - 31574092118
-    - 31574092124
-    - 31574092125
-    - 31574092150
-    - 31574092175
-  operation_started_at: 2026-08-12T09:31:00+02:00
-  wait_deadline_at: 2026-08-12T10:16:00+02:00
-  check_generation: write-access-refrain-final-checkpoint
+    - 31575678582
+    - 31575678567
+    - 31575678595
+    - 31575678600
+    - 31575678639
+    - 31575678841
+    - 31575679149
+  operation_started_at: 2026-08-12T09:53:00+02:00
+  wait_deadline_at: 2026-08-12T10:38:00+02:00
+  check_generation: final-grant-grammar-checkpoint
   checks_used: 0
   status: active
   safe_to_resume: true
