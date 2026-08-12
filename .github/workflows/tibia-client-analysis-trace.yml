@@ -92,27 +92,29 @@ jobs:
                       words.append((token,conf,left+width//2,top+height//2))
 
           select_y=min((y for t,_,_,y in words if t=='select' and 80 <= y <= 160), default=None)
-          status_y=min((y for t,_,_,y in words if t=='status' and 250 <= y <= 450), default=None)
+          status_y=min((y for t,_,_,y in words if t=='status' and 280 <= y <= 370), default=None)
           if select_y is None or status_y is None:
               raise SystemExit('Select Character dialog anchors not detected')
-
-          headers=[(conf,x,y) for t,conf,x,y in words if t=='character' and select_y+20 <= y <= status_y-40]
+          headers=[(conf,x,y) for t,conf,x,y in words if t=='character' and 155 <= y <= 195]
           if not headers:
               raise SystemExit('Character list header not detected')
           _,header_x,header_y=max(headers)
-          row_y=header_y + max(32,min(46,(status_y-header_y)//4))
-          row_x=max(180,min(260,header_x-25))
-          if not (170 <= row_x <= 270 and header_y+25 <= row_y <= status_y-45):
-              raise SystemExit('Derived character row geometry is unsafe')
+
+          # The first visible row is bounded by the Character header and Account Status section.
+          # Anchor its centre from the stable Account Status band rather than from free-form row text.
+          row_x=500
+          row_y=status_y-110
+          if not (155 <= header_y <= 195 and 205 <= row_y <= 240 and row_y >= header_y+25):
+              raise SystemExit(f'Derived character row geometry is unsafe: header={header_y} status={status_y} row={row_y}')
 
           row_status='unknown'
           for token,_,_,y in words:
-              if token in {'online','offline'} and header_y+10 <= y <= status_y-45:
+              if token in {'online','offline'} and row_y-30 <= y <= row_y+30:
                   row_status=token
                   break
 
-          ok=[(conf,x,y) for t,conf,x,y in words if t=='ok' and y >= status_y+80]
-          cancel=[(conf,x,y) for t,conf,x,y in words if t=='cancel' and y >= status_y+80]
+          ok=[(conf,x,y) for t,conf,x,y in words if t=='ok' and 485 <= y <= 530]
+          cancel=[(conf,x,y) for t,conf,x,y in words if t=='cancel' and 485 <= y <= 530]
           if ok:
               _,ok_x,ok_y=max(ok)
           elif cancel:
@@ -121,8 +123,8 @@ jobs:
               ok_y=cancel_y
           else:
               raise SystemExit('OK/Cancel action row not detected')
-          if not (700 <= ok_x <= 830 and 470 <= ok_y <= 550):
-              raise SystemExit('Derived OK button geometry is unsafe')
+          if not (760 <= ok_x <= 820 and 490 <= ok_y <= 525):
+              raise SystemExit(f'Derived OK button geometry is unsafe: {ok_x},{ok_y}')
 
           print(f'ROW_X={row_x}')
           print(f'ROW_Y={row_y}')
@@ -135,30 +137,50 @@ jobs:
           echo "character_row_geometry=$ROW_X,$ROW_Y"
           echo "character_row_status=$ROW_STATUS"
           echo OK_BUTTON_ANCHORED=true
+
+          crop_y=$((ROW_Y-30))
+          convert /tmp/select.png -crop "700x60+153+${crop_y}" +repage /tmp/row-before.png
+          row_before=$(sha256sum /tmp/row-before.png | awk '{print $1}')
           xdotool mousemove --window "$best" "$ROW_X" "$ROW_Y" click 1
           sleep 1
+          import -display :99 -window "$best" /tmp/selected.png
+          convert /tmp/selected.png -crop "700x60+153+${crop_y}" +repage /tmp/row-after.png
+          row_after=$(sha256sum /tmp/row-after.png | awk '{print $1}')
+          if [[ "$row_before" == "$row_after" ]]; then echo CHARACTER_ROW_VISUAL_CHANGE=false; else echo CHARACTER_ROW_VISUAL_CHANGE=true; fi
           xdotool mousemove --window "$best" "$OK_X" "$OK_Y" click 1
-          sleep 8
-          import -display :99 -window "$best" /tmp/post-entry-early.png
+
+          sleep 1
+          import -display :99 -window "$best" /tmp/post-entry-1.png
+          sleep 2
+          import -display :99 -window "$best" /tmp/post-entry-3.png
+          sleep 5
+          import -display :99 -window "$best" /tmp/post-entry-8.png
           sleep 27
           import -display :99 -window "$best" /tmp/post-entry.png
-          for shot in /tmp/post-entry-early.png /tmp/post-entry.png; do
+          for shot in /tmp/post-entry-1.png /tmp/post-entry-3.png /tmp/post-entry-8.png /tmp/post-entry.png; do
             convert "$shot" -resize 200% -colorspace Gray -contrast-stretch 1%x1% "${shot%.png}-ocr.png"
             tesseract "${shot%.png}-ocr.png" stdout --psm 11 2>/dev/null >"${shot%.png}.txt" || true
           done
           python3 - <<'PY'
           from pathlib import Path
-          allow={'already','logged','connection','failed','error','server','world','queue','maintenance','session','client','account','character','select','login','password','email','online','offline','connecting','please','try','again'}
-          for label,path in [('early','/tmp/post-entry-early.txt'),('final','/tmp/post-entry.txt')]:
+          allow={'already','logged','connection','failed','error','server','world','queue','maintenance','session','client','account','character','select','login','password','email','online','offline','connecting','please','try','again','entering','game'}
+          for label,path in [('t1','/tmp/post-entry-1.txt'),('t3','/tmp/post-entry-3.txt'),('t8','/tmp/post-entry-8.txt'),('final','/tmp/post-entry.txt')]:
               text=Path(path).read_text(errors='replace').lower()
               normalized=''.join(ch if ch.isalnum() else ' ' for ch in text)
-              words=normalized.split()
               safe=[]
-              for token in words:
+              for token in normalized.split():
                   if token in allow and token not in safe:
                       safe.append(token)
               print(f'{label}_safe_state_tokens=' + ','.join(safe))
           PY
+          if [[ -f /data/runtime/client-userspace-warp.log ]]; then
+            for marker in 'already logged' 'connection failed' 'failed' 'connecting' 'game world' 'server'; do
+              if grep -Fqi "$marker" /data/runtime/client-userspace-warp.log; then
+                safe_marker=$(printf '%s' "$marker" | tr ' ' '_')
+                echo "client_log_marker_${safe_marker}=true"
+              fi
+            done
+          fi
           if grep -qi 'Select Character' /tmp/post-entry.txt; then
             echo STILL_ON_CHARACTER_SELECTION=true >&2
             exit 1
