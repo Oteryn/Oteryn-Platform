@@ -33,7 +33,6 @@ jobs:
           set -Eeuo pipefail
           docker exec -i "$CONTAINER_NAME" python3 - <<'PY'
           import csv,hashlib,re
-          from collections import defaultdict
           from pathlib import Path
 
           log=Path('/data/runtime/client-userspace-warp.log')
@@ -99,29 +98,24 @@ jobs:
                       y=top+height//2
                       if token in safe_tokens:
                           print(f'SAFE_UI_TOKEN={token};x={x};y={y};conf={int(conf)}')
-                      # Geometry-only use of arbitrary OCR tokens. Their text is never emitted.
-                      if 170 <= x <= 650 and 195 <= y <= 325:
+                      if 170 <= x <= 650 and 185 <= y <= 325:
                           row_points.append((x,y))
           else:
               print('SAFE_UI_TSV_PRESENT=false')
 
-          if row_points:
-              clusters=[]
-              for _,y in sorted(row_points,key=lambda p:p[1]):
-                  if not clusters or y-clusters[-1][-1] > 8:
-                      clusters.append([y])
-                  else:
-                      clusters[-1].append(y)
-              candidates=[c for c in clusters if len(c) >= 2]
-              if candidates:
-                  first=candidates[0]
-                  row_y=round(sum(first)/len(first))
-                  print(f'GEOMETRY_FIRST_ROW_Y={row_y}')
-                  print(f'GEOMETRY_FIRST_ROW_TOKEN_COUNT={len(first)}')
+          clusters=[]
+          for x,y in sorted(row_points,key=lambda p:p[1]):
+              if not clusters or y-clusters[-1]['ys'][-1] > 8:
+                  clusters.append({'ys':[y],'xs':[x]})
               else:
-                  print('GEOMETRY_FIRST_ROW_Y=unresolved')
-          else:
-              print('GEOMETRY_FIRST_ROW_Y=unresolved')
+                  clusters[-1]['ys'].append(y)
+                  clusters[-1]['xs'].append(x)
+          for i,c in enumerate(clusters,1):
+              y=round(sum(c['ys'])/len(c['ys']))
+              print(f'GEOMETRY_CLUSTER_{i}_Y={y}')
+              print(f'GEOMETRY_CLUSTER_{i}_TOKENS={len(c["ys"])}')
+              print(f'GEOMETRY_CLUSTER_{i}_XMIN={min(c["xs"])}')
+              print(f'GEOMETRY_CLUSTER_{i}_XMAX={max(c["xs"])}')
 
           def classify(label,path):
               p=Path(path)
@@ -145,8 +139,8 @@ jobs:
               for key,val in checks.items():
                   print(f'{label}_{key}={str(val).lower()}')
               print(f'{label}_LIKELY_ALREADY_LOGGED_IN={str(checks["ALREADY"] and (checks["LOGGED"] or checks["ONLINE"])).lower()}')
-          classify('EARLY','/tmp/post-entry-early.txt')
-          classify('FINAL','/tmp/post-entry.txt')
+          classify('EARLY','/tmp/post-entry-1.txt')
+          classify('FINAL','/tmp/post-entry-15.txt')
           PY
 
       - name: Verify live WARP and canonical staging unchanged
