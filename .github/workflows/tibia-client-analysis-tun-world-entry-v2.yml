@@ -1,0 +1,262 @@
+name: Tibia Transparent WARP World Entry V2
+
+on:
+  push:
+    branches: [ops/oteryn-tibia-client-analysis-20260811]
+    paths: [.github/workflows/tibia-client-analysis-tun-world-entry-v2.yml]
+
+permissions:
+  contents: read
+
+env:
+  CONTAINER_NAME: oteryn-tibia-client-analysis
+
+jobs:
+  enter:
+    name: Enter Tibia world through transparent WARP and leave online
+    runs-on: oteryn-staging
+    timeout-minutes: 10
+    steps:
+      - name: Verify owned runtime and snapshot staging
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          [[ "$RUNNER_NAME" == "oteryn-synology-staging" ]]
+          [[ "$(docker inspect --format '{{ index .Config.Labels "com.blakinio.owner" }}' "$CONTAINER_NAME")" == "oteryn" ]]
+          [[ "$(docker inspect --format '{{ index .Config.Labels "com.blakinio.purpose" }}' "$CONTAINER_NAME")" == "tibia-client-analysis" ]]
+          [[ "$(docker inspect --format '{{.State.Status}}' "$CONTAINER_NAME")" == "running" ]]
+          docker ps -a --filter 'label=com.docker.compose.project=oteryn-staging' --format '{{.ID}}\t{{.Names}}' | sort >/tmp/oteryn-before.tsv
+
+      - name: Establish transparent WARP and enter character
+        shell: bash
+        env:
+          TIBIA_TEST_EMAIL: ${{ secrets.TIBIA_TEST_EMAIL }}
+          TIBIA_TEST_PASSWORD: ${{ secrets.TIBIA_TEST_PASSWORD }}
+        run: |
+          set -Eeuo pipefail
+          [[ -n "$TIBIA_TEST_EMAIL" && -n "$TIBIA_TEST_PASSWORD" ]]
+          docker exec -e TIBIA_TEST_EMAIL -e TIBIA_TEST_PASSWORD -i "$CONTAINER_NAME" bash <<'INNER'
+          set -Eeuo pipefail
+          export DISPLAY=:99 HOME=/data/home
+          pkg="$HOME/.local/share/CipSoft GmbH/Tibia/packages/Tibia"
+          client="$pkg/bin/client"
+          tun=otrytun1
+          tun_ip=198.18.0.1
+          orig_default=$(ip -4 route show default | head -n1)
+          orig_gw=$(awk '{for(i=1;i<=NF;i++) if($i=="via") print $(i+1)}' <<<"$orig_default")
+          orig_dev=$(awk '{for(i=1;i<=NF;i++) if($i=="dev") print $(i+1)}' <<<"$orig_default")
+          [[ -n "$orig_gw" && -n "$orig_dev" ]]
+          [[ -c /dev/net/tun ]]
+          [[ ! -e "/sys/class/net/$tun" ]]
+          cp /etc/resolv.conf /tmp/oteryn-resolv-before-tun-v2
+          keep=false
+          routes=false
+          t2pid=''
+          endpoint_ip=''
+
+          cleanup() {
+            rc=$?
+            if [[ "$keep" != true ]]; then
+              pkill -f 'packages/Tibia/bin/client' 2>/dev/null || true
+              if [[ "$routes" == true ]]; then
+                cp /tmp/oteryn-resolv-before-tun-v2 /etc/resolv.conf 2>/dev/null || true
+                ip -4 route del default via "$tun_ip" dev "$tun" metric 1 2>/dev/null || true
+                ip -4 route del default via "$orig_gw" dev "$orig_dev" metric 100 2>/dev/null || true
+                ip -4 route replace default via "$orig_gw" dev "$orig_dev" 2>/dev/null || true
+                [[ -z "$endpoint_ip" ]] || ip -4 route del "$endpoint_ip/32" via "$orig_gw" dev "$orig_dev" 2>/dev/null || true
+              fi
+              [[ -z "$t2pid" ]] || kill "$t2pid" 2>/dev/null || true
+              ip link del "$tun" 2>/dev/null || true
+            fi
+            exit "$rc"
+          }
+          trap cleanup EXIT
+
+          wp_pid=$(pgrep -f '/wireproxy .*wireproxy.conf' | head -n1)
+          [[ -n "$wp_pid" ]]
+          wp_cfg=''
+          while IFS= read -r -d '' arg; do
+            if [[ -f "$arg" && "$arg" == *wireproxy*.conf ]]; then wp_cfg="$arg"; break; fi
+          done <"/proc/$wp_pid/cmdline" || true
+          [[ -n "$wp_cfg" ]]
+          wg_rel=$(awk -F= '/^[[:space:]]*WGConfig[[:space:]]*=/{sub(/^[^=]*=/,""); gsub(/^[[:space:]]+|[[:space:]]+$/,""); print; exit}' "$wp_cfg")
+          [[ -n "$wg_rel" ]]
+          if [[ "$wg_rel" = /* ]]; then wg_cfg="$wg_rel"; else wg_cfg="$(dirname "$wp_cfg")/$wg_rel"; fi
+          [[ -f "$wg_cfg" ]]
+          endpoint=$(awk -F= '/^[[:space:]]*Endpoint[[:space:]]*=/{sub(/^[^=]*=/,""); gsub(/^[[:space:]]+|[[:space:]]+$/,""); print; exit}' "$wg_cfg")
+          [[ -n "$endpoint" ]]
+          endpoint_host=${endpoint%:*}
+          endpoint_host=${endpoint_host#[}; endpoint_host=${endpoint_host%]}
+          if [[ "$endpoint_host" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]]; then
+            endpoint_ip="$endpoint_host"
+          else
+            endpoint_ip=$(getent ahostsv4 "$endpoint_host" | awk 'NR==1{print $1}')
+          fi
+          [[ "$endpoint_ip" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]]
+          echo WIREPROXY_WG_ENDPOINT_RESOLVED=true
+
+          curl --socks5-hostname 127.0.0.1:25344 -fsS --max-time 10 https://www.cloudflare.com/cdn-cgi/trace >/tmp/v2-socks.trace
+          grep -q '^warp=on$' /tmp/v2-socks.trace
+          echo EXISTING_SOCKS_WARP_VERIFIED=true
+
+          t2s=/data/runtime/tun2socks-v2.7.0
+          if [[ ! -x "$t2s" ]]; then
+            zip=/data/runtime/tun2socks-linux-amd64-v2.7.0.zip
+            curl -fL --retry 3 --connect-timeout 10 --max-time 90 -o "$zip" https://github.com/xjasonlyu/tun2socks/releases/download/v2.7.0/tun2socks-linux-amd64.zip
+            [[ "$(sha256sum "$zip" | awk '{print $1}')" == a612baa287a3b6de6221f74fd02b442a50888508227ecf51e1288a5ccbb77381 ]]
+            python3 - <<'PY'
+          import zipfile
+          from pathlib import Path
+          z=Path('/data/runtime/tun2socks-linux-amd64-v2.7.0.zip')
+          out=Path('/data/runtime/tun2socks-v2.7.0')
+          with zipfile.ZipFile(z) as a:
+              members=[n for n in a.namelist() if not n.endswith('/')]
+              if len(members)!=1: raise SystemExit('unexpected tun2socks archive')
+              out.write_bytes(a.read(members[0]))
+          out.chmod(0o755)
+          PY
+          fi
+
+          ip tuntap add mode tun dev "$tun"
+          ip addr add 198.18.0.1/15 dev "$tun"
+          ip link set "$tun" up
+          ip -4 route replace "$endpoint_ip/32" via "$orig_gw" dev "$orig_dev"
+          nohup "$t2s" --device "$tun" --proxy socks5://127.0.0.1:25344 >/data/runtime/tun2socks-v2.log 2>&1 </dev/null &
+          t2pid=$!
+          sleep 2
+          kill -0 "$t2pid"
+          sysctl -w net.ipv4.conf.all.rp_filter=0 >/dev/null 2>&1 || true
+          sysctl -w "net.ipv4.conf.$tun.rp_filter=0" >/dev/null 2>&1 || true
+          ip -4 route del default
+          ip -4 route add default via "$tun_ip" dev "$tun" metric 1
+          ip -4 route add default via "$orig_gw" dev "$orig_dev" metric 100
+          routes=true
+          printf 'nameserver 1.1.1.1\noptions timeout:2 attempts:2\n' >/etc/resolv.conf
+          ip -4 route get 1.1.1.1 | grep -q "dev $tun"
+
+          unset LD_PRELOAD http_proxy https_proxy HTTP_PROXY HTTPS_PROXY ALL_PROXY all_proxy
+          env -u LD_PRELOAD -u http_proxy -u https_proxy -u HTTP_PROXY -u HTTPS_PROXY -u ALL_PROXY -u all_proxy curl --noproxy '*' -fsS --max-time 20 https://www.cloudflare.com/cdn-cgi/trace >/tmp/v2-transparent.trace
+          grep -q '^warp=on$' /tmp/v2-transparent.trace
+          echo TRANSPARENT_WARP_VERIFIED=true
+
+          pkill -f 'packages/Tibia/bin/client' 2>/dev/null || true
+          pgrep -f '^Xvfb :99' >/dev/null || nohup Xvfb :99 -screen 0 1280x800x24 >/data/runtime/xvfb.log 2>&1 </dev/null &
+          cd "$pkg"
+          nohup env -u LD_PRELOAD -u http_proxy -u https_proxy -u HTTP_PROXY -u HTTPS_PROXY -u ALL_PROXY -u all_proxy "$client" >/data/runtime/client-transparent-warp-v2.log 2>&1 </dev/null &
+          for n in $(seq 1 30); do pgrep -f 'packages/Tibia/bin/client' >/dev/null && break; sleep 1; done
+          pid=$(pgrep -f 'packages/Tibia/bin/client' | head -n1)
+          [[ -n "$pid" ]]
+          if tr '\0' '\n' <"/proc/$pid/environ" | grep -q '^LD_PRELOAD='; then exit 1; fi
+          echo CLIENT_STARTED_WITHOUT_LD_PRELOAD=true
+          sleep 10
+
+          best=''; best_area=0
+          for w in $(xdotool search --onlyvisible --name '^Tibia$' 2>/dev/null || true); do
+            geom=$(xdotool getwindowgeometry --shell "$w" 2>/dev/null || true)
+            width=$(printf '%s\n' "$geom" | sed -n 's/^WIDTH=//p'); height=$(printf '%s\n' "$geom" | sed -n 's/^HEIGHT=//p')
+            [[ -n "$width" && -n "$height" ]] || continue
+            area=$((width*height)); if (( area > best_area )); then best=$w; best_area=$area; fi
+          done
+          [[ -n "$best" && "$best_area" -ge 600000 ]]
+
+          xdotool mousemove --window "$best" 535 275 click 1
+          xdotool key --window "$best" ctrl+a
+          xdotool type --window "$best" --delay 3 -- "$TIBIA_TEST_EMAIL"
+          xdotool mousemove --window "$best" 535 304 click 1
+          xdotool key --window "$best" ctrl+a
+          xdotool type --window "$best" --delay 3 -- "$TIBIA_TEST_PASSWORD"
+          xdotool mousemove --window "$best" 590 388 click 1
+          unset TIBIA_TEST_EMAIL TIBIA_TEST_PASSWORD
+          sleep 25
+
+          import -display :99 -window "$best" /tmp/v2-select.png
+          convert /tmp/v2-select.png -resize 200% -colorspace Gray -contrast-stretch 1%x1% /tmp/v2-select-ocr.png
+          tesseract /tmp/v2-select-ocr.png stdout --psm 11 tsv 2>/dev/null >/tmp/v2-select.tsv || true
+          python3 - <<'PY' >/tmp/v2-row.env
+          import csv
+          anchors=[]; opaque=[]
+          with open('/tmp/v2-select.tsv',newline='',errors='replace') as f:
+              for r in csv.DictReader(f,delimiter='\t'):
+                  token=(r.get('text') or '').strip().lower().strip(':,.!?()[]')
+                  try:
+                      conf=float(r.get('conf') or -1); left=int(r.get('left') or 0)//2; top=int(r.get('top') or 0)//2
+                      width=max(1,int(r.get('width') or 0)//2); height=max(1,int(r.get('height') or 0)//2)
+                  except ValueError: continue
+                  if conf<20: continue
+                  x=left+width//2; y=top+height//2
+                  if token in {'select','character','status','ok'}: anchors.append((token,x,y))
+                  elif 220<=x<=555 and 185<=y<=202: opaque.append((x,y))
+          if not any(t=='select' and 100<=y<=130 for t,x,y in anchors): raise SystemExit('no select dialog')
+          if not any(t=='character' and 160<=y<=185 for t,x,y in anchors): raise SystemExit('no header')
+          if len(opaque)<2: raise SystemExit('no character row')
+          y=round(sum(v for _,v in opaque)/len(opaque))
+          if not 188<=y<=198: raise SystemExit('unsafe row')
+          print('ROW_X=300'); print(f'ROW_Y={y}')
+          PY
+          source /tmp/v2-row.env
+          echo SELECT_CHARACTER_AND_ROW_VERIFIED=true
+          xdotool mousemove --window "$best" "$ROW_X" "$ROW_Y" click --repeat 2 --delay 180 1
+          echo CHARACTER_ROW_ACTIVATED=true
+
+          sleep 1; import -display :99 -window "$best" /tmp/v2-t1.png
+          sleep 4; import -display :99 -window "$best" /tmp/v2-t5.png
+          sleep 10; import -display :99 -window "$best" /tmp/v2-t15.png
+          sleep 30; import -display :99 -window "$best" /tmp/v2-t45.png
+
+          for n in 1 5 15 45; do
+            convert "/tmp/v2-t${n}.png" -crop 900x500+60+80 -resize 150% -colorspace Gray -contrast-stretch 1%x1% "/tmp/v2-t${n}-ocr.png"
+            tesseract "/tmp/v2-t${n}-ocr.png" stdout --psm 11 2>/dev/null >"/tmp/v2-t${n}.txt" || true
+          done
+          python3 - <<'PY'
+          from pathlib import Path
+          allow={'account','login','email','password','select','character','connecting','connection','failed','error','server','world','game','battle','skills','inventory','health','mana','capacity','experience','online','already','logged','session','disconnected','store','vip','prey'}
+          final=''
+          for n in (1,5,15,45):
+              raw=Path(f'/tmp/v2-t{n}.txt').read_text(errors='replace').lower()
+              if n==45: final=raw
+              words=''.join(c if c.isalnum() else ' ' for c in raw).split(); safe=[]
+              for w in words:
+                  if w in allow and w not in safe: safe.append(w)
+              print(f'T{n}_SAFE=' + ','.join(safe))
+          account=('account login' in final or ('email' in final and 'password' in final))
+          select=('select character' in final)
+          game=sum(x in final for x in ('battle','skills','inventory','health','mana','capacity','experience'))>=2
+          print(f'FINAL_ACCOUNT_LOGIN={str(account).lower()}')
+          print(f'FINAL_SELECT_CHARACTER={str(select).lower()}')
+          print(f'FINAL_GAME_MARKERS={str(game).lower()}')
+          if account or select or not game: raise SystemExit(2)
+          PY
+
+          kill -0 "$t2pid"
+          env -u LD_PRELOAD -u http_proxy -u https_proxy -u HTTP_PROXY -u HTTPS_PROXY -u ALL_PROXY -u all_proxy curl --noproxy '*' -fsS --max-time 20 https://www.cloudflare.com/cdn-cgi/trace >/tmp/v2-final.trace
+          grep -q '^warp=on$' /tmp/v2-final.trace
+          cp /tmp/v2-t45.png /tmp/tibia-online-v2-safe.png
+          convert /tmp/tibia-online-v2-safe.png -fill '#202020' -draw 'rectangle 0,0 1020,70 rectangle 0,70 180,650 rectangle 840,70 1020,650 rectangle 0,520 1020,650' /tmp/tibia-online-v2-safe.png
+          keep=true
+          echo PHYSICAL_TIBIA_WORLD_LOGIN_PROVEN=true
+          echo TIBIA_CHARACTER_LEFT_ONLINE=true
+          echo TRANSPARENT_WARP_LEFT_ACTIVE=true
+          INNER
+
+      - name: Export privacy-safe proof
+        if: always()
+        shell: bash
+        run: docker cp "$CONTAINER_NAME:/tmp/tibia-online-v2-safe.png" /tmp/tibia-online-v2-safe.png 2>/dev/null || true
+
+      - name: Upload privacy-safe proof
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: tibia-physical-online-proof-v2
+          path: /tmp/tibia-online-v2-safe.png
+          retention-days: 7
+          if-no-files-found: warn
+
+      - name: Verify canonical staging unchanged
+        if: always()
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          docker ps -a --filter 'label=com.docker.compose.project=oteryn-staging' --format '{{.ID}}\t{{.Names}}' | sort >/tmp/oteryn-after.tsv
+          diff -u /tmp/oteryn-before.tsv /tmp/oteryn-after.tsv
+          docker inspect --format 'analysis_name={{.Name}} status={{.State.Status}} owner={{ index .Config.Labels "com.blakinio.owner" }} purpose={{ index .Config.Labels "com.blakinio.purpose" }}' "$CONTAINER_NAME"
