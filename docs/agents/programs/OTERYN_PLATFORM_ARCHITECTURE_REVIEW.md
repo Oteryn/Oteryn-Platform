@@ -18,17 +18,17 @@ Continuously challenge Platform architecture, repository structure and CI/CD; id
 
 ```yaml
 programme_state_version: 2
-updated_at: 2026-08-13T21:40:00+02:00
-status: active
-current_review_domain: native-game-catalog-content-ownership
-active_task: OTERYN-20260813-native-game-catalog-ownership
-issue: 1033
-branch: docs/OTERYN-20260813-native-game-catalog-ownership
-pull_request: 1034
-last_completed_domain: native-support-moderation-game-enforcement
-last_completed_issue: 1029
-last_completed_pull_request: 1030
-last_completed_merge: f100334b40181b520a289cf81b28b7f68d26c4ef
+updated_at: 2026-08-13T21:48:00+02:00
+status: ready
+current_review_domain: next-risk-based-rotation
+active_task: null
+issue: null
+branch: null
+pull_request: null
+last_completed_domain: native-game-catalog-content-ownership
+last_completed_issue: 1033
+last_completed_pull_request: 1034
+last_completed_merge: 7a0664cfd7dadf27aef0a33e2308bf4975fb1405
 latest_review_finding_issue: 1033
 accepted_authority:
   authority_index: docs/architecture/ARCHITECTURE_AUTHORITY.md
@@ -86,6 +86,7 @@ proven:
   - PR 936 merged accepted ADR 0033 and the focused federated-search architecture; PR 947 later added restrictive publication-revocation fencing so stale search/index/cache state cannot outlive a newer restrictive publication decision.
   - PR 1030 merged the native support/moderation game-enforcement semantic boundary as f100334b40181b520a289cf81b28b7f68d26c4ef after the P1 review finding added explicit stable sanction-stream identity and all eight repaired exact-head workflows passed.
   - ADR 0034 selects native game-domain content authority, Platform immutable catalogue lifecycle ownership and explicit Legacy Canary Compatibility importers without authorizing external implementation.
+  - PR 1034 repaired checkpoint, authority-epoch replay and proposed-schema status findings; exact head a1d78af8bbb70e8ac9e75e947bbeeb133be4258b passed all eight workflows and squash-merged as 7a0664cfd7dadf27aef0a33e2308bf4975fb1405.
 derived:
   - The Platform core remains a sound Laravel modular monolith; native integration is explicitly separated from Legacy Canary Compatibility.
   - New native Platform consumers use canonical AccountId/CharacterId and explicit command/query/event/projection boundaries instead of inheriting Canary numeric IDs, table shapes, session semantics or gameplay protocol ownership.
@@ -101,7 +102,7 @@ unknown:
   - Native guild identity required by the PublicGameData guild projection remains dependent on an accepted game-owned stable identifier; Platform must not invent one.
 conflicts: []
 blockers: []
-next_action: Validate and merge the bounded native Game Catalog content ownership decision without modifying external repositories or draft PR 338.
+next_action: Select the next highest-risk unresolved and unowned Platform architecture question from current main.
 ```
 
 ## Programme rules

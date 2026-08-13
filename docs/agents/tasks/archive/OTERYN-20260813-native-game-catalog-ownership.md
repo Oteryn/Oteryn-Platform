@@ -2,7 +2,7 @@
 task_id: OTERYN-20260813-native-game-catalog-ownership
 mode: architecture
 issue: 1033
-status: validating
+status: completed
 programme: OTERYN_PLATFORM_ARCHITECTURE_REVIEW
 project_lane: oteryn-platform-content
 phase: implementation
@@ -21,7 +21,7 @@ Define native Game Catalog/content ownership versus Legacy Canary Compatibility 
 - [x] Native identity, provenance, completeness, absence and revision semantics fail closed.
 - [x] Canary import schemas remain explicit compatibility adapters.
 - [x] Activation, rollback, mixed-version and editorial supplementation invariants prevent dual authority.
-- [ ] Offline architecture validation and exact-head full-diff self-review pass.
+- [x] Offline architecture validation and exact-head full-diff self-review pass.
 
 ## Ownership
 
@@ -54,11 +54,11 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-13T21:40:00+02:00
-head: UNKNOWN
+updated_at: 2026-08-13T21:48:00+02:00
+head: 7a0664cfd7dadf27aef0a33e2308bf4975fb1405
 branch: docs/OTERYN-20260813-native-game-catalog-ownership
 pr: 1034
-status: validating
+status: completed
 context_routes:
   - architecture
   - game-catalog
@@ -80,6 +80,8 @@ proven:
   - Open programme 330 and draft PR 338 own current Canary compatibility evolution and are not modified.
   - Draft PR 1034 contains exactly the eleven declared documentation paths.
   - ADR 0031 already requires native integration to remain independent of Canary IDs, persistence and loader semantics.
+  - Exact PR head a1d78af8bbb70e8ac9e75e947bbeeb133be4258b passed all eight workflows; three review findings were repaired and resolved.
+  - PR 1034 squash-merged to main as 7a0664cfd7dadf27aef0a33e2308bf4975fb1405 and Issue 1033 closed.
 derived:
   - Platform can reuse immutable snapshot validation/activation machinery while the native game domain retains executable content authority.
 unknown:
@@ -103,7 +105,40 @@ changed_paths:
   - docs/architecture/adr/README.md
   - docs/contracts/GAME_CATALOG_IMPORT_CONTRACT.md
   - docs/contracts/OTERYN_V2_GAME_CATALOG_CONTENT_CONTRACT.md
-validation: []
+validation:
+  - command: checkpoint, ADR registry and architecture decision backlog validators/tests
+    result: PASS
+    evidence: checkpoint v1, 42 ADRs, 10 ADR tests, 10 backlog tests and the empty canonical backlog passed.
+  - command: git diff --check and full 11-path self-review
+    result: PASS
+    evidence: no whitespace errors or remaining material findings on exact PR head a1d78af8bbb70e8ac9e75e947bbeeb133be4258b.
+  - command: PR 1034 exact-head CI
+    result: PASS
+    evidence: all eight workflows completed successfully on a1d78af8bbb70e8ac9e75e947bbeeb133be4258b.
+  - command: real runtime/browser E2E
+    result: NOT_APPLICABLE
+    evidence: architecture-only documentation changed no executable user or integration journey.
 blockers: []
-next_action: Validate the architecture package, publish the task branch and complete exact-head review.
+next_action: Select the next highest-risk unresolved and unowned Platform architecture question from current main.
+```
+
+## Closeout review
+
+```yaml
+self_review:
+  result: PASS
+  exact_head: a1d78af8bbb70e8ac9e75e947bbeeb133be4258b
+  acceptance_checked: true
+  full_diff_checked: true
+  negative_paths_checked: true
+  rollback_checked: true
+  compatibility_checked: true
+  related_prs_checked: true
+  findings: []
+  evidence:
+    - PR comment 5285554018 records the exact-head self-review.
+    - All three review threads were repaired and resolved before merge.
+e2e:
+  result: NOT_APPLICABLE
+  evidence: Architecture-only documentation changed no executable user or integration journey.
 ```
