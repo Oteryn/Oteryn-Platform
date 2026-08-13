@@ -39,7 +39,7 @@ test.afterEach(async ({ page }, testInfo) => {
   await attachDiagnostics(testInfo, page.__acceptanceDiagnostics);
 });
 
-test('@portal-account Player Companion — private Hunt Session Analyzer create, history, responsive detail and delete', async ({ page }) => {
+test('@portal-account Player Companion — private Hunt Session Analyzer create, validation, owner isolation, responsive detail and delete', async ({ page, browser }) => {
   const email = uniqueEmail('player-companion-session');
 
   await register(page, email, password);
@@ -64,6 +64,21 @@ test('@portal-account Player Companion — private Hunt Session Analyzer create,
   await expect(page.getByTestId('session-analysis-settlements')).toContainText('Alice');
   await expect(page.getByTestId('session-analysis-settlements')).toContainText('Bob');
   await expect(page.locator('body')).not.toContainText(rawSentinel);
+  const privateAnalysisUrl = page.url();
+
+  const foreignContext = await browser.newContext();
+  try {
+    const foreignPage = await foreignContext.newPage();
+    const foreignEmail = uniqueEmail('player-companion-foreign');
+    await register(foreignPage, foreignEmail, password);
+    await login(foreignPage, foreignEmail, password);
+    const foreignResponse = await foreignPage.goto(privateAnalysisUrl);
+    expect(foreignResponse?.status()).toBe(404);
+    await expect(foreignPage.locator('body')).not.toContainText('Acceptance duo');
+  } finally {
+    await foreignContext.close();
+  }
+
   await assertAccessibilitySmoke(page);
   await evidenceScreenshot(page, 'player-companion-session-analyzer-detail-desktop');
 
@@ -83,4 +98,18 @@ test('@portal-account Player Companion — private Hunt Session Analyzer create,
   await expect(page).toHaveURL(/\/account\/tools\/session-analyzer$/u);
   await expect(page.getByRole('status')).toContainText('Session analysis deleted.');
   await expect(page.getByTestId('session-analysis-empty')).toBeVisible();
+
+  await page.getByLabel('Session log').fill('unsupported private input');
+  await page.getByRole('button', { name: 'Analyze and save privately' }).click();
+  await expect(page.getByRole('alert')).toContainText('supported Session duration');
+  await expect(page.getByLabel('Session log')).toHaveValue('');
+
+  await page.getByLabel('Session log').evaluate((element, value) => {
+    element.removeAttribute('maxlength');
+    element.value = value;
+    element.dispatchEvent(new Event('input', { bubbles: true }));
+  }, `Session: 01:00h\nLoot: ${'1'.repeat(65_536)}`);
+  await page.getByRole('button', { name: 'Analyze and save privately' }).click();
+  await expect(page.getByRole('alert')).toContainText('at most 65,535 bytes');
+  await expect(page.getByLabel('Session log')).toHaveValue('');
 });

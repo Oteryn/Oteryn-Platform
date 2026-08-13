@@ -11,7 +11,7 @@ final class SessionLogParserTest extends TestCase
 {
     public function test_parses_summary_participants_rates_and_equal_split_settlement(): void
     {
-        $result = (new SessionLogParser())->parse(<<<'LOG'
+        $result = (new SessionLogParser)->parse(<<<'LOG'
 Session data: From 2026-08-13 18:00 to 2026-08-13 19:00
 Session: 01:00h
 XP Gain: 3,600,000
@@ -48,7 +48,7 @@ LOG);
 
     public function test_derives_totals_only_when_all_participants_supply_the_metric(): void
     {
-        $result = (new SessionLogParser())->parse(<<<'LOG'
+        $result = (new SessionLogParser)->parse(<<<'LOG'
 Session: 00:30h
 Alice
 Loot: 200,000
@@ -80,7 +80,7 @@ LOG);
         $this->expectException(InvalidArgumentException::class);
         $this->expectExceptionMessage('invalid_numeric_metric');
 
-        (new SessionLogParser())->parse("Session: 01:00h\nLoot: {$value}");
+        (new SessionLogParser)->parse("Session: 01:00h\nLoot: {$value}");
     }
 
     public function test_rejects_duplicate_participant_names_case_insensitively(): void
@@ -88,7 +88,7 @@ LOG);
         $this->expectException(InvalidArgumentException::class);
         $this->expectExceptionMessage('duplicate_participant');
 
-        (new SessionLogParser())->parse(<<<'LOG'
+        (new SessionLogParser)->parse(<<<'LOG'
 Session: 01:00h
 Alice
 Loot: 100
@@ -111,7 +111,7 @@ LOG);
         $this->expectException(InvalidArgumentException::class);
         $this->expectExceptionMessage('too_many_participants');
 
-        (new SessionLogParser())->parse(implode("\n", $parts));
+        (new SessionLogParser)->parse(implode("\n", $parts));
     }
 
     public function test_rejects_log_without_supported_session_duration(): void
@@ -119,6 +119,6 @@ LOG);
         $this->expectException(InvalidArgumentException::class);
         $this->expectExceptionMessage('missing_session_duration');
 
-        (new SessionLogParser())->parse("Loot: 100,000\nBalance: 50,000");
+        (new SessionLogParser)->parse("Loot: 100,000\nBalance: 50,000");
     }
 }
