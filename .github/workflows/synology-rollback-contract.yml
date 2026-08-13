@@ -1,0 +1,57 @@
+name: Synology Rollback Contract
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - deploy/synology/**
+      - tests/ci/test_synology_rollback_contract.py
+      - tests/ci/test_synology_rollback_recovery_contract.py
+      - docs/agents/tasks/active/OTERYN-20260812-synology-rollback-schema-safety.md
+      - .github/workflows/recover-synology-staging-schema.yml
+      - .github/workflows/synology-rollback-contract.yml
+  push:
+    branches:
+      - main
+    paths:
+      - deploy/synology/**
+      - tests/ci/test_synology_rollback_contract.py
+      - tests/ci/test_synology_rollback_recovery_contract.py
+      - docs/agents/tasks/active/OTERYN-20260812-synology-rollback-schema-safety.md
+      - .github/workflows/recover-synology-staging-schema.yml
+      - .github/workflows/synology-rollback-contract.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: synology-rollback-contract-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout exact source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Validate shell syntax
+        run: |
+          set -euo pipefail
+          bash -n \
+            deploy/synology/scripts/lib.sh \
+            deploy/synology/scripts/deploy.sh \
+            deploy/synology/scripts/health-check.sh \
+            deploy/synology/scripts/prepare-fresh-schema-baseline.sh \
+            deploy/synology/scripts/recover-schema.sh \
+            deploy/synology/scripts/release-state.sh \
+            deploy/synology/scripts/rollback.sh
+
+      - name: Validate rollback and recovery contracts
+        run: |
+          set -euo pipefail
+          python3 tests/ci/test_synology_rollback_contract.py
+          python3 tests/ci/test_synology_rollback_recovery_contract.py
+          python3 deploy/synology/tests/test_fresh_baseline_contract.py

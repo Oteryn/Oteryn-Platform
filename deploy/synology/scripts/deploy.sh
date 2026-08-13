@@ -195,14 +195,15 @@ stage_bootstrap_files() {
 snapshot_current_images() {
     local tmp="$state_dir/last-good.env.tmp"
     local found=0
-    local service container_id image
+    local service container_id image_id image
     : > "$tmp"
     chmod 600 "$tmp"
 
     for service in platform gateway canary; do
         container_id="$("${compose[@]}" ps -q "$service" 2>/dev/null || true)"
         if [[ -n "$container_id" ]]; then
-            image="$(docker inspect --format '{{.Config.Image}}' "$container_id")"
+            image_id="$(docker inspect --format '{{.Image}}' "$container_id")"
+            image="$(bash "$SCRIPT_DIR/release-state.sh" resolve-image "$image_id")"
             case "$service" in
                 platform) printf 'PLATFORM_IMAGE=%q\n' "$image" >> "$tmp" ;;
                 gateway) printf 'GATEWAY_IMAGE=%q\n' "$image" >> "$tmp" ;;
@@ -319,6 +320,11 @@ apply_sql_template "$REPO_ROOT/database/provisioning/canary-character-create.sql
         print
     }'
 
+# The first managed migration of a truly empty Platform DB receives its own
+# verified pre-migration dump. This runs immediately before lib.sh's migration
+# preparation hook and before the candidate Platform container can start.
+OTERYN_ENV_FILE="$ENV_FILE" bash "$SCRIPT_DIR/prepare-fresh-schema-baseline.sh"
+
 "${compose[@]}" up -d platform
 "${compose[@]}" exec -T platform php artisan migrate --force --no-interaction
 if ! "${compose[@]}" exec -T platform sh -ec 'test -s storage/oauth-private.key && test -s storage/oauth-public.key'; then
@@ -343,5 +349,8 @@ OTERYN_ENV_FILE="$ENV_FILE" bash "$SCRIPT_DIR/health-check.sh"
     --port="$GAME_WORLD_PORT" \
     --status=online \
     --login-enabled=1
+
+rm -f "$state_dir/backups/fresh-empty-before-"*/evidence.env "$state_dir/backups/fresh-empty-before-"*/platform.sql 2>/dev/null || true
+rmdir "$state_dir/backups/fresh-empty-before-"* 2>/dev/null || true
 
 echo "Oteryn Synology staging deployment is healthy."
