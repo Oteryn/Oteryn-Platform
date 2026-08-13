@@ -66,8 +66,8 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-13T20:12:00+02:00
-head: 638df04f616c93d80e33e1abf3f2cf0198163e7a
+updated_at: 2026-08-13T20:18:00+02:00
+head: 05b2642b277530e2a5a79bc302af41496a52e603
 branch: feat/player-companion-session-analyzer-v1
 pr: none
 status: implementing
@@ -95,9 +95,11 @@ proven:
   - PlayerCompanion SessionAnalysis is accepted architecture and P0 priority 1.
   - No active task currently owns PlayerCompanion paths.
   - No repository search result showed an existing PlayerCompanion SessionAnalysis implementation to reuse.
+  - Initial implementation head 05b2642b277530e2a5a79bc302af41496a52e603 contains normalized persistence, parser, owner-private routes/controllers, EN/PL UI, unit tests and feature tests.
 derived:
   - A first v1 can remain Platform-only and avoid Canary/Oteryn-v2 access because session text is user-supplied and analysis is advisory.
 unknown:
+  - Focused and repository CI results for the implementation head.
   - Exact existing acceptance-test helper pattern to reuse for final browser E2E.
 conflicts: []
 first_failure:
@@ -106,14 +108,26 @@ first_failure:
 rejected_hypotheses:
   - Raw session logs must be persisted to provide history; normalized metrics are sufficient for v1 history.
 changed_paths:
+  - app/PlayerCompanion/Models/SessionAnalysis.php
+  - app/PlayerCompanion/SessionAnalysis/SessionLogParser.php
+  - app/Http/Controllers/PlayerCompanion/SessionAnalysisController.php
+  - app/Http/Requests/PlayerCompanion/StoreSessionAnalysisRequest.php
+  - database/migrations/2026_08_13_201500_create_player_companion_session_analyses_table.php
+  - routes/modules/player-companion.php
+  - resources/views/player-companion/session-analyses/index.blade.php
+  - resources/views/player-companion/session-analyses/show.blade.php
+  - lang/en/player_companion.php
+  - lang/pl/player_companion.php
+  - tests/Unit/PlayerCompanion/SessionLogParserTest.php
+  - tests/Feature/PlayerCompanion/SessionAnalysisFeatureTest.php
   - docs/agents/tasks/active/OTERYN-20260813-player-companion-session-analyzer-v1.md
 validation:
-  - command: not-run
+  - command: focused tests
     result: NOT_RUN
-    evidence: implementation is in progress
+    evidence: remote validation not started yet
 blockers:
   - none
-next_action: implement the parser, normalized persistence, authenticated routes/controllers/views and focused tests on the dedicated branch.
+next_action: open the draft PR, run focused/repository validation, then repair any exact failures before adding the real browser E2E.
 ```
 
 ## Notes
