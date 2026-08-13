@@ -20,6 +20,11 @@ final class SessionAnalysisFeatureTest extends TestCase
         $identity = $this->identity('owner@example.com');
         $this->actingAs($identity);
 
+        $this->get(route('account.overview'))
+            ->assertOk()
+            ->assertSeeText('Hunt Session Analyzer')
+            ->assertSee(route('player-companion.session-analyses.index'), false);
+
         $this->get(route('player-companion.session-analyses.index'))
             ->assertOk()
             ->assertHeader('Cache-Control', 'private, no-store')
@@ -41,6 +46,7 @@ final class SessionAnalysisFeatureTest extends TestCase
         $analysis = SessionAnalysis::query()->sole();
         $response->assertRedirect(route('player-companion.session-analyses.show', $analysis->id));
         self::assertSame($identity->id, $analysis->identity_id);
+        self::assertSame('1.1.0', $analysis->parser_version);
         self::assertSame(400_000, $analysis->balance_value);
         self::assertSame(2, $analysis->participant_count);
         self::assertSame('Alice', $analysis->settlements[0]['from']);
@@ -67,6 +73,24 @@ final class SessionAnalysisFeatureTest extends TestCase
         self::assertSame(0, SessionAnalysis::query()->count());
     }
 
+    public function test_form_validation_does_not_flash_oversized_raw_log(): void
+    {
+        $identity = $this->identity('oversized@example.com');
+        $this->actingAs($identity);
+        $raw = str_repeat('ą', 40_000);
+
+        $this->from(route('player-companion.session-analyses.index'))
+            ->post(route('player-companion.session-analyses.store'), [
+                'label' => 'Oversized',
+                'session_log' => $raw,
+            ])
+            ->assertRedirect(route('player-companion.session-analyses.index'))
+            ->assertSessionHasErrors('session_log')
+            ->assertSessionMissing('_old_input.session_log');
+
+        self::assertSame(0, SessionAnalysis::query()->count());
+    }
+
     public function test_analysis_is_owner_private_and_owner_can_delete_it(): void
     {
         $owner = $this->identity('owner-private@example.com');
@@ -75,7 +99,7 @@ final class SessionAnalysisFeatureTest extends TestCase
             'identity_id' => $owner->id,
             'label' => 'Private hunt',
             'source_format' => 'tibia-session-text-v1',
-            'parser_version' => '1.0.0',
+            'parser_version' => '1.1.0',
             'formula_version' => 'equal-split-v1',
             'session_seconds' => 3600,
             'experience_gain' => 100,

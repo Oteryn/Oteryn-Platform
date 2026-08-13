@@ -8,11 +8,13 @@ final class SessionLogParser
 {
     public const SOURCE_FORMAT = 'tibia-session-text-v1';
 
-    public const PARSER_VERSION = '1.0.0';
+    public const PARSER_VERSION = '1.1.0';
 
     public const FORMULA_VERSION = 'equal-split-v1';
 
     private const MAX_METRIC = 9_000_000_000_000_000;
+
+    private const MAX_PARTICIPANTS = 20;
 
     /**
      * Parse a bounded Tibia-style session/party-hunt text export into normalized private data.
@@ -45,6 +47,7 @@ final class SessionLogParser
         $lines = explode("\n", $text);
         $summary = [];
         $participants = [];
+        $participantNames = [];
         $participantIndex = null;
 
         foreach ($lines as $index => $line) {
@@ -54,6 +57,15 @@ final class SessionLogParser
             }
 
             if ($this->isParticipantHeading($lines, $index, $trimmed)) {
+                $normalizedName = mb_strtolower($trimmed);
+                if (isset($participantNames[$normalizedName])) {
+                    throw new InvalidArgumentException('duplicate_participant');
+                }
+                if (count($participants) >= self::MAX_PARTICIPANTS) {
+                    throw new InvalidArgumentException('too_many_participants');
+                }
+
+                $participantNames[$normalizedName] = true;
                 $participantIndex = count($participants);
                 $participants[] = [
                     'name' => $trimmed,
@@ -115,19 +127,19 @@ final class SessionLogParser
         }
         unset($participant);
 
-        $loot = $summary['loot_value'] ?? $this->sumParticipantMetric($participants, 'loot_value');
-        $supplies = $summary['supplies_value'] ?? $this->sumParticipantMetric($participants, 'supplies_value');
+        $loot = $summary['loot_value'] ?? $this->completeParticipantMetric($participants, 'loot_value');
+        $supplies = $summary['supplies_value'] ?? $this->completeParticipantMetric($participants, 'supplies_value');
         $balance = $summary['balance_value'] ?? null;
         if ($balance === null && $loot !== null && $supplies !== null) {
             $balance = $loot - $supplies;
         }
         if ($balance === null) {
-            $balance = $this->sumParticipantMetric($participants, 'balance_value');
+            $balance = $this->completeParticipantMetric($participants, 'balance_value');
         }
 
         $experience = $summary['experience_gain'] ?? null;
-        $damage = $summary['damage'] ?? $this->sumParticipantMetric($participants, 'damage');
-        $healing = $summary['healing'] ?? $this->sumParticipantMetric($participants, 'healing');
+        $damage = $summary['damage'] ?? $this->completeParticipantMetric($participants, 'damage');
+        $healing = $summary['healing'] ?? $this->completeParticipantMetric($participants, 'healing');
 
         if ($experience === null && $loot === null && $supplies === null && $balance === null && $participants === []) {
             throw new InvalidArgumentException('missing_session_metrics');
@@ -155,7 +167,13 @@ final class SessionLogParser
     /** @param list<string> $lines */
     private function isParticipantHeading(array $lines, int $index, string $candidate): bool
     {
-        if (str_contains($candidate, ':') || mb_strlen($candidate) > 40) {
+        $normalized = mb_strtolower($candidate);
+        if (
+            str_contains($candidate, ':')
+            || mb_strlen($candidate) > 40
+            || preg_match("/^\\p{L}[\\p{L} '\\-]{0,39}$/u", $candidate) !== 1
+            || in_array($normalized, ['party hunt analyzer', 'hunt analyzer', 'session', 'session data'], true)
+        ) {
             return false;
         }
 
@@ -197,8 +215,16 @@ final class SessionLogParser
 
     private function parseInteger(string $value): int
     {
-        $normalized = preg_replace('/[.,\s]/', '', trim($value));
-        if (! is_string($normalized) || preg_match('/^-?\d+$/', $normalized) !== 1) {
+        $value = trim($value);
+        if (preg_match('/^-?\d+$/', $value) === 1) {
+            $normalized = $value;
+        } elseif (
+            preg_match('/^-?\d{1,3}(?:,\d{3})+$/', $value) === 1
+            || preg_match('/^-?\d{1,3}(?:\.\d{3})+$/', $value) === 1
+            || preg_match('/^-?\d{1,3}(?: \d{3})+$/', $value) === 1
+        ) {
+            $normalized = str_replace([',', '.', ' '], '', $value);
+        } else {
             throw new InvalidArgumentException('invalid_numeric_metric');
         }
 
@@ -211,25 +237,27 @@ final class SessionLogParser
     }
 
     /**
+     * Return a participant-derived aggregate only when every participant supplied the metric.
+     * Partial values remain unknown instead of being presented as a complete total.
+     *
      * @param list<array{name:string,loot_value:int|null,supplies_value:int|null,balance_value:int|null,damage:int|null,healing:int|null}> $participants
      */
-    private function sumParticipantMetric(array $participants, string $field): ?int
+    private function completeParticipantMetric(array $participants, string $field): ?int
     {
         if ($participants === []) {
             return null;
         }
 
         $sum = 0;
-        $found = false;
         foreach ($participants as $participant) {
             $value = $participant[$field] ?? null;
-            if (is_int($value)) {
-                $sum += $value;
-                $found = true;
+            if (! is_int($value)) {
+                return null;
             }
+            $sum += $value;
         }
 
-        return $found ? $sum : null;
+        return $sum;
     }
 
     private function perHour(?int $value, int $seconds): ?int

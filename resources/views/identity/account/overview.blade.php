@@ -66,6 +66,15 @@
                 <a class="button button-secondary" href="{{ route('identity.password.change.create') }}">Change password</a>
             </div>
         </section>
+
+        <section class="card" aria-labelledby="player-tools-heading">
+            <p class="eyebrow">Player Companion</p>
+            <h2 id="player-tools-heading">{{ __('player_companion.account_tool_title') }}</h2>
+            <p>{{ __('player_companion.account_tool_description') }}</p>
+            <div class="action-row">
+                <a class="button" href="{{ route('player-companion.session-analyses.index') }}">{{ __('player_companion.open_tool') }}</a>
+            </div>
+        </section>
     </div>
 
     <section class="panel" aria-labelledby="account-characters-heading">
