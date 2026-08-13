@@ -1,5 +1,10 @@
 ---
 task_id: OTERYN-20260811-engineering-excellence-hardening
+status: completed
+completed_at: 2026-08-13T13:54:17+02:00
+issue: 1002
+pr: 1003
+merge_commit: 0bd2218be7b7cfa7bf77b74841a2b93fcc58aa56
 required_reads:
   - AGENTS.md
   - AGENTS.override.md
@@ -40,7 +45,7 @@ Close Issue #1002 by making verification, E2E dependency installation, prompt/go
 - [x] Full material diff self-review and negative-path audit pass with zero remaining material findings.
 - [x] All PR review threads are resolved.
 - [x] Exact-final-head applicable CI/E2E is terminal green.
-- [ ] Issue #1002 closes and this task archives after verified squash merge.
+- [x] Issue #1002 closes and this task archives after verified squash merge.
 
 ## Ownership
 
@@ -80,6 +85,8 @@ cross_repository_tasks:
 ```
 
 ## Context checkpoint
+
+The following checkpoint is the preserved pre-merge recovery record from the implementation PR. Its historical `status`, `head`, and `next_action` are retained intentionally for audit fidelity; the terminal closeout section below is authoritative for completed state.
 
 ```yaml
 checkpoint_version: 1
@@ -201,3 +208,63 @@ self_review:
 ## Notes
 
 Issue #1002. `feature_scope: internal_only`. No production/staging deployment, protected-environment approval, credential mutation, live data mutation, payment action, owner-funded AI use, or external-repository write is authorized or performed by this task.
+
+## Terminal closeout
+
+```yaml
+terminal:
+  status: completed
+  implementation_pr: 1003
+  implementation_head: a2e4292cec08b27f66280692243e47c3ccab093e
+  implementation_merge_sha: 0bd2218be7b7cfa7bf77b74841a2b93fcc58aa56
+  implementation_merged_at: 2026-08-13T13:54:16+02:00
+  issue: 1002
+  issue_state: closed
+  issue_state_reason: completed
+  issue_closed_at: 2026-08-13T13:54:17+02:00
+  closeout_pr: 1021
+  archive_path: docs/agents/tasks/archive/OTERYN-20260811-engineering-excellence-hardening.md
+  active_record_removed: true
+  ownership_released: true
+  unknown: []
+  blockers: []
+  next_action: none
+validation:
+  - exact_head: a2e4292cec08b27f66280692243e47c3ccab093e
+    result: PASS
+    evidence: all 17 emitted pull-request workflows completed successfully on the implementation head
+  - workflow: CI
+    run_id: 31679616700
+    result: PASS
+  - workflow: Agent Governance
+    run_id: 31679616701
+    result: PASS
+  - workflow: Deep System Validation
+    run_id: 31679616577
+    result: PASS
+  - workflow: Acceptance E2E and Visual UX
+    run_id: 31679616703
+    result: PASS
+    note: evidence-based rerun completed successfully
+  - workflow: Portal Exhaustive Acceptance E2E
+    run_id: 31679616913
+    result: PASS
+    note: evidence-based rerun completed successfully
+  - workflow: Portal Exhaustive Audit
+    run_id: 31679616643
+    result: PASS
+    note: evidence-based rerun completed successfully
+  - workflow: Synology Production Target Preflight
+    run_id: 31679616680
+    result: PASS
+  - workflow: Game Catalog Contract
+    run_id: 31679616611
+    result: PASS
+portability_disposition:
+  classification: browser-runner-runtime-flake
+  component: portability-webkit
+  evidence: WebKit page.goto internal runtime failure occurred before application assertion; an evidence-based same-head rerun and later exact-head generations passed the same coverage.
+  application_regression: false
+```
+
+The archive intentionally retains the complete pre-merge task checkpoint, self-review, exact E2E run IDs, changed-path inventory, and rejected failure hypotheses. The terminal block above supersedes the historical recovery `next_action` and records the verified squash merge, Issue completion, and ownership release without changing runtime behavior or performing a protected operation.
