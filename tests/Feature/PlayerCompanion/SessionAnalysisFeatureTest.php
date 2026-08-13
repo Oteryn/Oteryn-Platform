@@ -25,11 +25,14 @@ final class SessionAnalysisFeatureTest extends TestCase
             ->assertSeeText('Hunt Session Analyzer')
             ->assertSee(route('player-companion.session-analyses.index'), false);
 
-        $this->get(route('player-companion.session-analyses.index'))
+        $response = $this->get(route('player-companion.session-analyses.index'))
             ->assertOk()
-            ->assertHeader('Cache-Control', 'private, no-store')
             ->assertSeeText('Hunt Session Analyzer')
             ->assertSeeText('No saved session analyses yet.');
+        $cacheControl = $response->headers->get('Cache-Control');
+        self::assertNotNull($cacheControl);
+        self::assertStringContainsString('private', $cacheControl);
+        self::assertStringContainsString('no-store', $cacheControl);
     }
 
     public function test_valid_log_is_normalized_persisted_and_raw_text_is_not_stored(): void
@@ -120,10 +123,13 @@ final class SessionAnalysisFeatureTest extends TestCase
         $this->delete(route('player-companion.session-analyses.destroy', $analysis->id))->assertNotFound();
 
         $this->actingAs($owner);
-        $this->get(route('player-companion.session-analyses.show', $analysis->id))
+        $response = $this->get(route('player-companion.session-analyses.show', $analysis->id))
             ->assertOk()
-            ->assertHeader('Cache-Control', 'private, no-store')
             ->assertSeeText('Private hunt');
+        $cacheControl = $response->headers->get('Cache-Control');
+        self::assertNotNull($cacheControl);
+        self::assertStringContainsString('private', $cacheControl);
+        self::assertStringContainsString('no-store', $cacheControl);
         $this->delete(route('player-companion.session-analyses.destroy', $analysis->id))
             ->assertRedirect(route('player-companion.session-analyses.index'));
 

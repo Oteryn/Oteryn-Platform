@@ -103,7 +103,7 @@ LOG);
     {
         $parts = ['Session: 01:00h'];
         for ($index = 0; $index < 21; $index++) {
-            $parts[] = 'Player '.chr(ord('A') + $index);
+            $parts[] = 'Player '.chr(65 + $index);
             $parts[] = 'Loot: 100';
             $parts[] = 'Supplies: 50';
         }

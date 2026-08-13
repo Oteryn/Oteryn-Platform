@@ -31,19 +31,24 @@ final class SessionAnalysisController
     {
         $identity = $this->identity($request);
         $validated = $request->validated();
+        $raw = $request->string('session_log')->toString();
+        $label = $validated['label'] ?? null;
+        if (! is_string($label)) {
+            $label = null;
+        }
 
         try {
-            $parsed = $parser->parse($validated['session_log']);
+            $parsed = $parser->parse($raw);
         } catch (InvalidArgumentException $exception) {
             return redirect()
                 ->route('player-companion.session-analyses.index')
                 ->withErrors(['session_log' => __('player_companion.parser_errors.'.$exception->getMessage())])
-                ->withInput(['label' => $validated['label'] ?? null]);
+                ->withInput(['label' => $label]);
         }
 
         $analysis = SessionAnalysis::query()->create([
             'identity_id' => $identity->id,
-            'label' => $validated['label'] ?? null,
+            'label' => $label,
             ...$parsed,
         ]);
 

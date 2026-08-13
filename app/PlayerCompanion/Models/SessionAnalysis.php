@@ -8,6 +8,8 @@ use Illuminate\Database\Eloquent\Model;
  * Owner-private normalized Hunt Session Analyzer result.
  *
  * Raw submitted session text is intentionally never persisted by this model.
+ *
+ * @property list<array{from:string,to:string,amount:int}> $settlements
  */
 final class SessionAnalysis extends Model
 {

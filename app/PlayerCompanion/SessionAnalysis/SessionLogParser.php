@@ -45,7 +45,13 @@ final class SessionLogParser
         }
 
         $lines = explode("\n", $text);
-        $summary = [];
+        $sessionSeconds = null;
+        $experience = null;
+        $loot = null;
+        $supplies = null;
+        $balance = null;
+        $damage = null;
+        $healing = null;
         $participants = [];
         $participantNames = [];
         $participantIndex = null;
@@ -87,7 +93,7 @@ final class SessionLogParser
             $value = trim($matches[2]);
 
             if ($key === 'session') {
-                $summary['session_seconds'] ??= $this->parseDuration($value);
+                $sessionSeconds ??= $this->parseDuration($value);
                 $participantIndex = null;
 
                 continue;
@@ -110,28 +116,41 @@ final class SessionLogParser
             $number = $this->parseInteger($value);
 
             if ($participantIndex !== null && $field !== 'experience_gain') {
-                $participants[$participantIndex][$field] = $number;
+                $participants[$participantIndex] = $this->withParticipantMetric(
+                    $participants[$participantIndex],
+                    $field,
+                    $number,
+                );
 
                 continue;
             }
 
-            $summary[$field] ??= $number;
+            match ($field) {
+                'experience_gain' => $experience ??= $number,
+                'loot_value' => $loot ??= $number,
+                'supplies_value' => $supplies ??= $number,
+                'balance_value' => $balance ??= $number,
+                'damage' => $damage ??= $number,
+                'healing' => $healing ??= $number,
+            };
         }
 
-        $sessionSeconds = $summary['session_seconds'] ?? null;
         if (! is_int($sessionSeconds) || $sessionSeconds <= 0) {
             throw new InvalidArgumentException('missing_session_duration');
         }
 
         foreach ($participants as $index => $participant) {
             if ($participant['balance_value'] === null && $participant['loot_value'] !== null && $participant['supplies_value'] !== null) {
-                $participants[$index]['balance_value'] = $participant['loot_value'] - $participant['supplies_value'];
+                $participants[$index] = $this->withParticipantMetric(
+                    $participant,
+                    'balance_value',
+                    $participant['loot_value'] - $participant['supplies_value'],
+                );
             }
         }
 
-        $loot = $summary['loot_value'] ?? $this->completeParticipantMetric($participants, 'loot_value');
-        $supplies = $summary['supplies_value'] ?? $this->completeParticipantMetric($participants, 'supplies_value');
-        $balance = $summary['balance_value'] ?? null;
+        $loot ??= $this->completeParticipantMetric($participants, 'loot_value');
+        $supplies ??= $this->completeParticipantMetric($participants, 'supplies_value');
         if ($balance === null && $loot !== null && $supplies !== null) {
             $balance = $loot - $supplies;
         }
@@ -139,9 +158,8 @@ final class SessionLogParser
             $balance = $this->completeParticipantMetric($participants, 'balance_value');
         }
 
-        $experience = $summary['experience_gain'] ?? null;
-        $damage = $summary['damage'] ?? $this->completeParticipantMetric($participants, 'damage');
-        $healing = $summary['healing'] ?? $this->completeParticipantMetric($participants, 'healing');
+        $damage ??= $this->completeParticipantMetric($participants, 'damage');
+        $healing ??= $this->completeParticipantMetric($participants, 'healing');
 
         if ($experience === null && $loot === null && $supplies === null && $balance === null && $participants === []) {
             throw new InvalidArgumentException('missing_session_metrics');
@@ -204,7 +222,7 @@ final class SessionLogParser
 
         if (preg_match('/^(?:(\d{1,3})h\s*)?(?:(\d{1,2})m)?$/i', trim($value), $matches)) {
             $hours = isset($matches[1]) && $matches[1] !== '' ? (int) $matches[1] : 0;
-            $minutes = isset($matches[2]) && $matches[2] !== '' ? (int) $matches[2] : 0;
+            $minutes = ($matches[2] ?? '') !== '' ? (int) $matches[2] : 0;
             if ($minutes >= 60 || ($hours === 0 && $minutes === 0)) {
                 throw new InvalidArgumentException('invalid_session_duration');
             }
@@ -269,6 +287,22 @@ final class SessionLogParser
         }
 
         return (int) round(($value * 3600) / $seconds);
+    }
+
+    /**
+     * @param  array{name:string,loot_value:int|null,supplies_value:int|null,balance_value:int|null,damage:int|null,healing:int|null}  $participant
+     * @param  'loot_value'|'supplies_value'|'balance_value'|'damage'|'healing'  $field
+     * @return array{name:string,loot_value:int|null,supplies_value:int|null,balance_value:int|null,damage:int|null,healing:int|null}
+     */
+    private function withParticipantMetric(array $participant, string $field, int $value): array
+    {
+        return match ($field) {
+            'loot_value' => [...$participant, 'loot_value' => $value],
+            'supplies_value' => [...$participant, 'supplies_value' => $value],
+            'balance_value' => [...$participant, 'balance_value' => $value],
+            'damage' => [...$participant, 'damage' => $value],
+            'healing' => [...$participant, 'healing' => $value],
+        };
     }
 
     /**
