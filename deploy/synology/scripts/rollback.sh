@@ -41,7 +41,8 @@ for name in RELEASE_SHA PLATFORM_IMAGE GATEWAY_IMAGE CANARY_IMAGE GAME_WORLD_ID 
     [[ -n "${!name:-}" ]] || { echo "Rollback configuration is incomplete: $name" >&2; exit 1; }
 done
 
-export PLATFORM_IMAGE GATEWAY_IMAGE CANARY_IMAGE
+GATEWAY_VERSION="sha-$RELEASE_SHA"
+export PLATFORM_IMAGE GATEWAY_IMAGE CANARY_IMAGE GATEWAY_VERSION
 compose=(docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE")
 "${compose[@]}" pull platform gateway canary
 
