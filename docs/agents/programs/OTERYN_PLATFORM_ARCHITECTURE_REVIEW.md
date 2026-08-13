@@ -18,8 +18,8 @@ Continuously challenge Platform architecture, repository structure and CI/CD; id
 
 ```yaml
 programme_state_version: 2
-updated_at: 2026-08-13T22:56:00+02:00
-status: blocked
+updated_at: 2026-08-13T23:49:00+02:00
+status: active
 current_review_domain: client-distribution-updater-trust
 active_task: OTERYN-20260813-client-distribution-trust
 issue: 1037
@@ -43,6 +43,8 @@ accepted_authority:
   portal_composition_adr: docs/architecture/adr/0032-portal-composition-tracking-and-server-system-ownership.md
   federated_search_adr: docs/architecture/adr/0033-federated-content-search-and-discoverability.md
   native_game_catalog_content_adr: docs/architecture/adr/0034-native-game-catalog-content-ownership.md
+  client_distribution_adr: docs/architecture/adr/0035-first-party-client-distribution-and-updater-trust-boundary.md
+  client_distribution_architecture: docs/architecture/CLIENT_DISTRIBUTION_ARCHITECTURE.md
   native_v2_integration_architecture: docs/architecture/OTERYN_V2_INTEGRATION_ARCHITECTURE.md
   portal_completeness_architecture: docs/architecture/PORTAL_COMPLETENESS_ARCHITECTURE.md
   player_companion_architecture: docs/architecture/PLAYER_COMPANION_ARCHITECTURE.md
@@ -54,8 +56,10 @@ accepted_authority:
   native_entitlement_game_delivery_contract: docs/contracts/OTERYN_V2_ENTITLEMENT_GAME_DELIVERY_CONTRACT.md
   native_game_enforcement_command_contract: docs/contracts/OTERYN_V2_GAME_ENFORCEMENT_COMMAND_CONTRACT.md
   native_game_catalog_content_contract: docs/contracts/OTERYN_V2_GAME_CATALOG_CONTENT_CONTRACT.md
-implementation_handoffs: []
-active_architecture_decision_ids: ["ARCH-DEC-0004"]
+implementation_handoffs:
+  - issue: 1039
+    scope: Platform implementation of accepted TUF client distribution boundary
+active_architecture_decision_ids: []
 architecture_conflicts:
   - Historical duplicate ADR prefixes remain for 0008, 0010, 0011, 0015, 0016, 0017, 0018 and 0021; the accepted exact path sets remain machine-enforced.
 ci_architecture_findings:
@@ -63,19 +67,20 @@ ci_architecture_findings:
 proven:
   - Protected main for this rotation was 399a8fbed727a8cae2f35fc682bcb2f05bba297d.
   - The prior completed architecture domain was native-game-catalog-content-ownership through PR 1034 / merge 7a0664cfd7dadf27aef0a33e2308bf4975fb1405.
-  - Issue 1037 and draft PR 1038 now own the bounded client-distribution updater-trust decision.
-  - Proposed ADR 0035 preserves the current one-current-release-per-channel model and separates browser release presentation, updater trust and game admission authority.
-  - ARCH-DEC-0004 records Option A as recommended and Option B as the viable alternative; implementation remains unauthorized.
-  - Decision-ready PR 1038 head b279d4de8148206ba1f560d22b7261fb111fe518 passed all eight triggered workflows, exact-head governance/CI gate inspection and full five-path diff self-review with no outstanding review thread.
+  - Issue 1037 and PR 1038 own the bounded client-distribution updater-trust decision.
+  - Repository owner accepted ARCH-DEC-0004 Option A on 2026-08-13: TUF-based role-separated updater trust with private signing authority outside Laravel.
+  - ADR 0035 is now Accepted and CLIENT_DISTRIBUTION_ARCHITECTURE.md is the focused canonical Platform model for this concern.
+  - ARCH-DEC-0004 has been removed from the active architecture decision backlog after acceptance.
+  - Issue 1039 is the Platform implementation handoff; it grants no external-repository, private-signing-key, deployment or production authority.
+  - The pre-decision head b279d4de8148206ba1f560d22b7261fb111fe518 passed all eight triggered workflows and full five-path self-review with no outstanding review thread before the owner decision.
 derived:
-  - Canonical accepted architecture must remain unchanged until the repository owner selects the durable updater-trust option.
-  - The proposal can remain Platform-only; exact external updater implementation details are not needed to make the Platform architecture decision.
+  - The remaining work in this task is accepted-canonical reconciliation, exact-final-head validation and lifecycle closeout rather than another architecture decision.
+  - External updater/client implementation and protected signing infrastructure remain later separately authorized evidence gates.
 unknown:
-  - Exact updater implementation/library, trust bootstrap, release-publishing infrastructure and numerical metadata expiry values remain implementation details after architecture acceptance.
+  - Exact maintained TUF implementation/POUF, client trust-bootstrap implementation, protected signing infrastructure and numerical metadata expiry values remain implementation/operations decisions.
 conflicts: []
-blockers:
-  - ARCH-DEC-0004 requires repository-owner selection of Option A or Option B before ADR 0035 can become Accepted and canonical architecture can be reconciled.
-next_action: Repository owner selects ARCH-DEC-0004 Option A or Option B; then reconcile accepted architecture and implementation handoff in the same bounded package.
+blockers: []
+next_action: Complete canonical routing/release-scope reconciliation for accepted ADR 0035, validate the exact final PR head, then merge and archive the architecture task if all gates pass.
 ```
 
 ## Programme rules
