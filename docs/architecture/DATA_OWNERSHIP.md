@@ -231,7 +231,11 @@ Platform owns the additive support schema and lifecycle:
 
 Public ULIDs are routing references, not ownership proof. Identity relations and moderator permissions are resolved server-side. User reads exclude internal ticket notes, reporter identity outside the owner view, moderator notes and administrator audit metadata.
 
-Platform enforcement records are communication and workflow records only. They do not mutate or supersede Canary-owned bans, account status or game runtime enforcement. Any future synchronization requires an explicit cross-repository contract, rollout order, least-privilege credential and rollback plan.
+Platform enforcement records are communication, decision and orchestration records only. They do not mutate or supersede game-owned sanctions, Canary-owned bans/account status or game runtime enforcement, and a dispatched/pending Platform operation is not proof of game effect.
+
+For the native target, `OTERYN_V2_GAME_ENFORCEMENT_COMMAND_CONTRACT.md` defines the accepted semantic boundary: Platform owns the authorized decision, appeal/communication workflow and stable operation ledger; Oteryn-v2 owns authoritative target state, sanction applicability, mutation, expiry, active-session/runtime enforcement and results. Retries/reconciliation preserve one operation identity and monotonic decision revisions prevent stale apply/replace/revoke/expire commands from weakening newer state. Exact transport, persistence and activation remain deferred.
+
+Current Canary bans/account status remain Legacy Canary Compatibility authority. Any compatibility synchronization or native activation requires an explicit rollout order, least-privilege credential, mixed-version evidence and rollback plan; native and Canary sanctions must not be silently dual-written as co-authoritative state.
 
 Retention may delete old closed ticket/report records and anonymize expired enforcement reasons through the supported command. It never deletes Canary-owned data and must preserve the configured audit/privacy boundary.
 

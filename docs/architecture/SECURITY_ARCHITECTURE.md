@@ -112,7 +112,11 @@ The delivered Platform-only support boundary requires:
 - audit metadata limited to identifiers, categories, status, booleans and lock versions, never private bodies or complete network identifiers;
 - notification delivery failure recorded independently after the domain transaction;
 - configurable retention with supported pruning/anonymization rather than direct SQL;
-- no attachment upload and no Canary ban mutation without separate reviewed contracts.
+- no attachment upload and no compatibility-mode Canary ban mutation without separate reviewed contracts;
+- native game sanctions cross only the accepted game-enforcement command/result boundary: exact moderator authorization and confirmed MFA gate the Platform decision, while service identity separately authenticates the bounded game command;
+- free-form reports, appeal bodies, reporter identity, moderator-private notes, raw network/device values, credentials and secrets do not enter commands or ordinary cross-system telemetry;
+- dispatch, queue acceptance, Platform state and notification never prove game enforcement; ambiguous outcomes reconcile the same operation identity and user-visible state remains truthful;
+- monotonic decision revisions fence stale apply/replace/revoke/expire operations, and appeal submission cannot mutate game state before an authorized outcome.
 
 ## Browser security
 

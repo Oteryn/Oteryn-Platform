@@ -18,12 +18,12 @@ Continuously challenge Platform architecture, repository structure and CI/CD; id
 
 ```yaml
 programme_state_version: 2
-updated_at: 2026-08-13T16:12:00+02:00
-status: ready
-current_review_domain: next-risk-based-rotation
-active_task: null
-issue: null
-branch: null
+updated_at: 2026-08-13T20:42:00+02:00
+status: implementing
+current_review_domain: native-support-moderation-game-enforcement
+active_task: OTERYN-20260813-native-game-enforcement-contract
+issue: 1029
+branch: docs/OTERYN-20260813-native-game-enforcement-contract
 pull_request: null
 last_completed_domain: personalized-today-cache-isolation-boundary
 last_completed_issue: 941
@@ -51,6 +51,7 @@ accepted_authority:
   native_public_game_data_projection_contract: docs/contracts/OTERYN_V2_PUBLIC_GAME_DATA_PROJECTION_CONTRACT.md
   native_character_authority_command_contract: docs/contracts/OTERYN_V2_CHARACTER_AUTHORITY_COMMAND_CONTRACT.md
   native_entitlement_game_delivery_contract: docs/contracts/OTERYN_V2_ENTITLEMENT_GAME_DELIVERY_CONTRACT.md
+  native_game_enforcement_command_contract: docs/contracts/OTERYN_V2_GAME_ENFORCEMENT_COMMAND_CONTRACT.md
 implementation_handoffs: []
 active_architecture_decision_ids: []
 architecture_conflicts:
@@ -93,12 +94,12 @@ derived:
 unknown:
   - Exact deployed game-auth topology, alternate-path network isolation and production activation evidence.
   - Exact external/native producer and consumer transport, wire/IDL, runtime implementation, lease/fencing, replay stores, numerical freshness/TTL values and cutover evidence for accepted cross-boundary contracts remain outside this Platform architecture state record.
-  - Support/moderation to native game-enforcement command semantics remain a focused Platform architecture question.
+  - Support/moderation to native game-enforcement command semantics are being resolved by Issue 1029; Platform workflow truth must remain separate from authoritative game effect.
   - Native Game Catalog/content ownership versus Legacy Canary Compatibility importers remains a focused Platform architecture question.
   - Native guild identity required by the PublicGameData guild projection remains dependent on an accepted game-owned stable identifier; Platform must not invent one.
 conflicts: []
 blockers: []
-next_action: Select the highest-risk unresolved Platform-owned architecture, repository-structure or CI/CD question from current main after a fresh overlap search; prioritize support/moderation game-enforcement or native Game Catalog/content ownership when still unresolved and unowned, and do not broaden this programme into external-repository implementation.
+next_action: Complete Issue 1029 contract validation and closeout, then select native Game Catalog/content ownership when it remains unresolved and unowned; do not broaden into external-repository implementation.
 ```
 
 ## Programme rules
