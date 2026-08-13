@@ -10,6 +10,7 @@ Companion records:
 
 - review: `docs/agents/reports/OTERYN-20260810-portal-architecture-product-review.md`;
 - programme: `docs/agents/programs/OTERYN_PORTAL_COMPLETION.md`;
+- work allocation: `docs/agents/programs/OTERYN_PORTAL_COMPLETION_WORK_ALLOCATION.md`;
 - worker prompt: `docs/agents/prompts/OTERYN-PORTAL-COMPLETION-EXECUTION-PROMPT.md`;
 - short alias: `PORTAL-CLOSEOUT`.
 
@@ -27,6 +28,12 @@ Every slice must preserve:
 - real applicable frontend/integration/E2E for user-facing work;
 - structured observability and rollback/operational boundaries;
 - exact-head validation and terminal task/PR lifecycle.
+
+## Execution allocation
+
+The delivery order in this document answers **what should happen next**. `docs/agents/programs/OTERYN_PORTAL_COMPLETION_WORK_ALLOCATION.md` answers **who should own each type of work** through model-agnostic roles and whether a bounded implementation is technically suitable for optional Codex execution.
+
+The allocation is subordinate to this delivery order, the canonical programme's live selection, task/PR ownership and repository authorization. `IMPLEMENTATION_OWNER` is an ownership role, not a model choice. Codex suitability never grants permission to consume owner-funded Codex/OpenAI quota; `AGENTS.md` requires explicit owner permission for each exact use/task. Without that permission, the same bounded task uses another permitted execution mode.
 
 ## Programme priorities
 
