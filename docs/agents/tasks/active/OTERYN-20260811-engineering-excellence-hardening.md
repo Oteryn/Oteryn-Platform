@@ -39,7 +39,7 @@ Close Issue #1002 by making verification, E2E dependency installation, prompt/go
 - [x] Deep System Validation uses committed-lockfile `npm ci`.
 - [x] Full material diff self-review and negative-path audit pass with zero remaining material findings.
 - [x] All PR review threads are resolved.
-- [ ] Exact-final-head applicable CI/E2E is terminal green.
+- [x] Exact-final-head applicable CI/E2E is terminal green.
 - [ ] Issue #1002 closes and this task archives after verified squash merge.
 
 ## Ownership
@@ -74,8 +74,7 @@ modules:
   - synology-staging-deployment
 dependencies:
   - Issue #1002
-blockers:
-  - checkpoint-successor exact-head GitHub Actions must finish after repairing the invalid validation-result enum
+blockers: []
 cross_repository_tasks:
   - none
 ```
@@ -84,11 +83,11 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-13T09:23:00+02:00
-head: 621945909067435e6764b5d96801cbda498b32ce
+updated_at: 2026-08-13T09:51:00+02:00
+head: b7c4c0a4a11c113f591f8520bf7b9ad3e4f5ce38
 branch: fix/engineering-excellence-hardening
 pr: 1003
-status: validating
+status: ready
 context_routes:
   - testing
   - agent-governance
@@ -113,23 +112,22 @@ owned_paths:
 proven:
   - Protected main remains 9b9497ba9147f24e751f3632ba0fad8c8c4b220e; PR #1003 was synchronized history-preservingly at 85198c9b6308f1520f6b5dfb0208a126141f1452 and is not behind that base generation.
   - PR #1001 and PR #992 are merged/terminal; PR #1013 explicitly avoids .github/workflows/deploy-synology-staging.yml and does not overlap the final Integration-validator repair.
-  - Material head b747d139d353519c7fbc9a8b387d7c67910cce3d repairs the audit false-green paths: invocation text in comments/step names/echo output, directory-only invocation, commented dispatch input/condition spoofing, required-environment substring spoofing, step-scoped env leakage, same-step GITHUB_ENV misuse, lookalike GITHUB_ENV assignment, masked `|| true`, unreachable invocation and pipeline-without-pipefail.
-  - A pipeline-backed proving command is accepted only when pipefail is active; the current Game Catalog proving step satisfies that shape and receives its three required paths/SHA through earlier GITHUB_ENV exports.
+  - Material head b747d139d353519c7fbc9a8b387d7c67910cce3d repairs all known audit false-green paths for Integration invocation, event/job binding and executable environment provisioning.
   - Workflow inventory parses only direct on: children, recognizes bounded quoted keys and fails closed on unsupported events before filename classification.
   - Synology deployment resolves Platform/Gateway/Canary to immutable digest references; Platform/Gateway OCI revisions must match release_sha; production-target-preflight accepts those digest refs and recovers the matching release SHA from OCI metadata.
   - The complete PR diff and all acceptance criteria were re-audited after synchronization; no material P1/P2 finding remains in the material head.
-  - Every GitHub review thread on PR #1003 is resolved.
-  - Trusted-base AGENTS.override.md and REMEDIATION_AUDIT_RISK_GATE.md both declare external_repair_auditor_required: false. Issue #1002 requires exact-head self-review/CI, not a Codex review. Therefore historical PR/task narrative naming Codex as a merge gate is superseded by the controlling remediation policy; no owner-funded Codex use is required or authorized for this closeout.
-  - Agent Governance run 31677373605 on checkpoint-only head 621945909067435e6764b5d96801cbda498b32ce failed only at active-task checkpoint validation because validation item 4 used unsupported result PENDING; checkpoint tests, liveness tests, Control Room tests, policy consistency, prompt-eval tests/live suite, live ownership and Control Room rendering all passed.
+  - Every GitHub review thread on PR #1003 is resolved and no submitted review is in REQUEST_CHANGES state.
+  - Trusted-base AGENTS.override.md and REMEDIATION_AUDIT_RISK_GATE.md both declare external_repair_auditor_required: false; no owner-funded Codex review is required or authorized for closeout.
+  - Final exact PR head b7c4c0a4a11c113f591f8520bf7b9ad3e4f5ce38 differs from material head b747d139d353519c7fbc9a8b387d7c67910cce3d only in the active task record.
+  - All 17 emitted pull-request workflows on exact final head b7c4c0a4a11c113f591f8520bf7b9ad3e4f5ce38 completed with conclusion success, including CI, Agent Governance, Deep System Validation, both portal E2E workflows, Build Synology, Synology preflight, Game Catalog, security, outage and acceptance gates.
+  - Branch-protection required check runs `classify-changes` and `test` are completed success on exact final head b7c4c0a4a11c113f591f8520bf7b9ad3e4f5ce38.
 derived:
-  - The two user-facing audit findings are repaired and regression-hardened beyond the original substring checks.
-  - The Agent Governance failure on 621945909067435e6764b5d96801cbda498b32ce is checkpoint metadata schema drift, not an implementation or governance-code regression.
-unknown:
-  - Terminal result of the new checkpoint-successor exact-head workflow generation after replacing unsupported PENDING with a contract-supported validation state.
+  - PR #1003 satisfies implementation, exact-head CI/E2E, self-review, review-thread and branch-protection merge gates and is ready for squash merge.
+unknown: []
 conflicts: []
 first_failure:
-  marker: checkpoint-validation-result-enum
-  evidence: Agent Governance run 31677373605 job 94374803104 rejected validation item 4 result PENDING; allowed values are BLOCKED, FAIL, NOT_APPLICABLE, NOT_RUN and PASS
+  marker: none-current
+  evidence: previous checkpoint validation enum defect was repaired and successor Agent Governance is PASS
 rejected_hypotheses:
   - Any occurrence of the PHPUnit test path in a job proves execution.
   - A commented or inline-comment workflow_dispatch input/condition is executable configuration.
@@ -137,8 +135,8 @@ rejected_hypotheses:
   - Step-local env from an earlier step leaks into the proving step.
   - Writing GITHUB_ENV in the proving step makes the variable available retroactively to that same step.
   - `vendor/bin/phpunit ... || true` or a pipeline without pipefail is a proving command.
-  - A fresh Codex review is mandatory for this remediation despite the trusted-base one-owner self-review policy explicitly setting external_repair_auditor_required: false.
-  - The Agent Governance failure on 621945909067435e6764b5d96801cbda498b32ce indicates a product, validator or policy-consistency regression; the failed step and logs isolate it to an invalid checkpoint validation enum.
+  - A fresh Codex review is mandatory for this remediation despite trusted-base one-owner self-review policy.
+  - The prior Agent Governance failure represented an implementation regression; exact logs isolated it to unsupported task validation metadata and the repaired successor passed.
 changed_paths:
   - .github/dependabot.yml
   - .github/workflows/agent-governance.yml
@@ -165,63 +163,14 @@ validation:
   - command: full material diff self-review at b747d139d353519c7fbc9a8b387d7c67910cce3d
     result: PASS
     evidence: acceptance, negative paths, review findings, rollback/compatibility and related PR ownership were checked; no material finding remains
-  - command: focused Integration validator regression suite before hosted final generation
+  - command: exact-head GitHub Actions generation at b7c4c0a4a11c113f591f8520bf7b9ad3e4f5ce38
     result: PASS
-    evidence: original 23-case repair suite passed before the later self-review hardening; the final expanded suite is part of current hosted CI and must be terminal before merge
-  - command: Agent Governance run 31677042948 on b747d139d353519c7fbc9a8b387d7c67910cce3d
+    evidence: all 17 emitted pull-request workflows completed success; Deep System Validation run 31677705210 job 94375851985 completed success at 2026-08-13T07:50:00Z
+  - command: branch protection required checks on b7c4c0a4a11c113f591f8520bf7b9ad3e4f5ce38
     result: PASS
-    evidence: exact-head Agent Governance completed successfully
-  - command: aggregate applicable workflows on b747d139d353519c7fbc9a8b387d7c67910cce3d
-    result: BLOCKED
-    evidence: observations 1 and 2 found 17 emitted workflows; Agent Governance was PASS and remaining CI/E2E/build/validation runs were queued/in-progress with no observed failure, so terminal classification was blocked by running workflows
-  - command: Agent Governance run 31677373605 on checkpoint-only head 621945909067435e6764b5d96801cbda498b32ce
-    result: FAIL
-    evidence: active-task checkpoint validation rejected unsupported result PENDING; all preceding governance/policy/prompt tests and subsequent live-liveness checks passed
-blockers:
-  - new checkpoint-successor exact-head GitHub Actions generation must pass after this checkpoint schema repair
-next_action: Inspect the live PR #1003 successor head after this checkpoint repair, investigate any terminal failure, otherwise complete merge, Issue #1002 closure and task archival when repository gates are green.
-```
-
-## Recovery checkpoint
-
-```yaml
-recovery:
-  policy_version: 1
-  generation: 9
-  session_id: chatgpt-20260813-pr1003-closeout
-  session_started_at: 2026-08-13T09:23:00+02:00
-  checkpointed_at: 2026-08-13T09:23:00+02:00
-  last_progress_at: 2026-08-13T09:23:00+02:00
-  phase: checkpoint-schema-repair
-  exact_head: 621945909067435e6764b5d96801cbda498b32ce
-  pull_request: 1003
-  active_operation: repair unsupported checkpoint validation result and observe successor exact-head gates
-  external_run_ids:
-    - 31677373605
-    - 31677373407
-    - 31677376535
-    - 31677373841
-    - 31677373409
-    - 31677373992
-    - 31677373837
-    - 31677373570
-    - 31677374095
-    - 31677373593
-    - 31677373254
-    - 31677373884
-    - 31677373210
-    - 31677373121
-    - 31677373107
-    - 31677373179
-    - 31677373093
-  operation_started_at: 2026-08-13T09:23:00+02:00
-  wait_deadline_at: 2026-08-13T10:08:00+02:00
-  check_generation: checkpoint-schema-repair
-  checks_used: 1
-  status: active
-  safe_to_resume: true
-  resume_condition: successor exact head is stable and required checks can be classified
-  next_action: inspect successor exact-head workflows after checkpoint schema repair
+    evidence: classify-changes check 94375905851 and test check 94377429455 completed success
+blockers: []
+next_action: Squash-merge PR #1003 at exact head b7c4c0a4a11c113f591f8520bf7b9ad3e4f5ce38, then close Issue #1002 and archive this task through the repository lifecycle.
 ```
 
 ## Self-review
@@ -229,7 +178,7 @@ recovery:
 ```yaml
 self_review:
   result: PASS
-  exact_head: b747d139d353519c7fbc9a8b387d7c67910cce3d
+  exact_head: b7c4c0a4a11c113f591f8520bf7b9ad3e4f5ce38
   acceptance_checked: true
   full_diff_checked: true
   related_prs_checked: true
@@ -238,16 +187,16 @@ self_review:
   compatibility_checked: true
   findings: []
   evidence:
-    - all audit P1/P2 findings and follow-on negative-path bypasses were repaired in the material head
+    - material implementation diff at b747d139d353519c7fbc9a8b387d7c67910cce3d was fully audited with zero open material finding
+    - final delta from b747d139d353519c7fbc9a8b387d7c67910cce3d to b7c4c0a4a11c113f591f8520bf7b9ad3e4f5ce38 contains only this durable task record
     - all PR review threads are resolved
-    - current protected main generation was merged without history rewrite
-    - deployment/preflight producer-consumer identity semantics were checked together
-    - checkpoint-only successors after the material head change only durable lifecycle evidence and do not alter implementation behavior
+    - all 17 exact-head workflows are success
+    - branch protection required checks classify-changes and test are success
 ```
 
 ## E2E
 
-Applicable exact-head hosted E2E is emitted as part of the PR workflow generation. The checkpoint schema repair itself does not change product/runtime behavior; terminal successor checks remain required before merge.
+`PASS` on exact final head `b7c4c0a4a11c113f591f8520bf7b9ad3e4f5ce38`: `Acceptance E2E and Visual UX` run `31677705243`, `Portal Exhaustive Acceptance E2E` run `31677705425`, and `Deep System Validation` run `31677705210` completed successfully.
 
 ## Notes
 
