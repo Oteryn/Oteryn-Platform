@@ -33,18 +33,18 @@ modules:
 dependencies:
   - terminal PR #1003
 blockers:
-  - PR #1013 and successor PR #1024 currently overlap .github/workflows/build-synology-staging-images.yml; this task will not edit that shared path until both live PR ownership claims are terminal and current main is refreshed.
+  - PR #1024 currently owns .github/workflows/build-synology-staging-images.yml; this task will not edit that shared path until its live ownership is terminal and released.
 cross_repository_tasks: []
 ```
 
-PR #1003 is merged/terminal and its earlier workflow ownership is released. PRs #1013/#1024 are treated as hard path-level coordination locks for `build-synology-staging-images.yml` only.
+PR #1003 is merged/terminal and its earlier workflow ownership is released. PR #1024 is the only current live path lock for `build-synology-staging-images.yml`.
 
 ## Acceptance
 
 - [x] Inventory every external `uses:` under current-main `.github/workflows/**` and relevant reusable actions/workflows.
 - [x] Preserve local `./` references without SHA requirements.
 - [x] Resolve every observed mutable dependency from authoritative upstream GitHub tag state without changing its reviewed major version.
-- [ ] Pin every external action to a full immutable SHA with human-readable semantic-version comments; all non-overlapping workflow pins are prepared, one shared path waits on PRs #1013/#1024.
+- [ ] Pin every external action to a full immutable SHA with human-readable semantic-version comments; all non-overlapping workflow pins are present, one shared path waits on PR #1024.
 - [x] Keep Dependabot `github-actions` ecosystem enabled; `.github/dependabot.yml` remains unchanged.
 - [x] Add deterministic fail-closed validator for mutable tags/branches, short SHAs and malformed external references, including quoted-key and inline-flow bypass coverage.
 - [x] Cover valid SHA, tag, branch, short SHA, docker/local/reusable-workflow and malformed forms.
@@ -74,7 +74,8 @@ lukka/run-cmake: {version: v10.9, sha: 5d55ea7949e25f69f0ecb516d8d572297e03a956,
 ```yaml
 checkpoint_version: 1
 policy_version: 2
-updated_at: 2026-08-13T16:58:00+02:00
+updated_at: 2026-08-13T17:18:00+02:00
+head: 79d090ee8cbf57ccc92c518a570fd12cf9997c91
 branch: ci/immutable-actions-pinning-1008
 pr: 1022
 status: implementing
@@ -89,31 +90,70 @@ context_pressure: medium
 context_growth: stable
 decomposition_decision: phased
 validation_level: focused
+owned_paths:
+  - .github/workflows/** except the live-owned .github/workflows/build-synology-staging-images.yml
+  - .github/dependabot.yml
+  - tools/validation/github_actions_pinning.py
+  - tools/validation/test_github_actions_pinning.py
+  - tests/ci/fixtures/github-actions-pinning/**
+  - tests/operations/cloudflare-oteryn-endpoints/check-main-operation-workflow.py
+  - tests/operations/cloudflare-oteryn-endpoints/check-marker-workflow.py
+  - this task record
+blockers:
+  - PR #1024 remains live and owns .github/workflows/build-synology-staging-images.yml.
 proven:
   - PR #1003 is terminal and merged.
-  - Protected main is 38775e953bd9740df08620482240b483fde69ecc and is already integrated into this task lineage.
-  - Deterministic migration pinned 177 remaining mutable references across 47 workflow files after the first two workflow edits.
+  - Protected main was integrated into this task lineage before the current non-overlapping pin generation.
+  - Deterministic migration found and pinned 177 remaining mutable references across 47 workflow files after the first two workflow edits.
   - Dependabot github-actions configuration remains enabled at directory `/` and unchanged.
   - Current task lineage contains every non-overlapping workflow pin and temporary migration/helper/generated files are absent from the PR diff.
-  - Cloudflare Oteryn Endpoint Main Operation run 31712699790 passes after replacing its hard-coded mutable-tag assertion with an immutable full-SHA equality contract.
+  - Cloudflare Oteryn Endpoint Main Operation run 31712699790 passes with immutable checkout pin assertions.
   - tests/operations/cloudflare-oteryn-endpoints/check-marker-workflow.py now requires an immutable full-SHA checkout reference instead of the historical mutable tag literal.
+derived:
+  - Once PR #1024 releases its single overlapping workflow, only that landed workflow needs a mechanical pin-only edit before final repository-wide validation.
+  - The Edge Security Emulation failure on partial head 79d090ee was external Docker Hub infrastructure failure, not an Actions pinning regression, because checkout/setup/upload pinned actions executed successfully before Docker returned HTTP 502 for coredns/coredns:1.12.1.
+unknown:
+  - terminal exact-head result of the final candidate after the last shared workflow is pinned.
+  - final review result after the final candidate exists.
 conflicts:
-  - PR #1013 and successor PR #1024 both retain changed-path ownership of build-synology-staging-images.yml until terminal.
+  - live path ownership overlap with PR #1024 on .github/workflows/build-synology-staging-images.yml only.
+first_failure:
+  marker: pre-migration-mutable-actions
+  evidence: CI run 31707680824 correctly failed closed after the new validator detected the repository's pre-migration mutable external uses references.
+rejected_hypotheses:
+  - local `./` reusable workflow/action references require SHA pinning; they are repository-local and intentionally excluded.
+  - docker:// uses values are GitHub action repository references; they are a technically distinct runner form and are classified separately.
+  - pinning requires downgrading recent action majors; authoritative tag resolution preserved every reviewed major.
+  - Edge Security Emulation failure on partial head was caused by immutable action SHAs; the failure occurred later on a Docker Hub HTTP 502 while pulling CoreDNS.
+changed_paths:
+  - .github/workflows/** external uses references except live-owned build-synology-staging-images.yml
+  - tools/validation/github_actions_pinning.py
+  - tools/validation/test_github_actions_pinning.py
+  - tests/ci/fixtures/github-actions-pinning/cases.json
+  - tests/ci/fixtures/github-actions-pinning/valid-sha.yml
+  - tests/operations/cloudflare-oteryn-endpoints/check-main-operation-workflow.py
+  - tests/operations/cloudflare-oteryn-endpoints/check-marker-workflow.py
+  - this task record
 validation:
-  - run_id: 31707680824
-    result: EXPECTED_FAIL
-  - run_id: 31708212412
-    result: PARTIAL_PASS
-  - run_id: 31708649280
+  - command: CI run 31707680824 pre-migration fail-closed inventory
+    result: FAIL
+    evidence: fixture tests passed and validator rejected the mutable pre-migration repository inventory as designed.
+  - command: Immutable Actions Pin Migration run 31708212412
     result: PASS
-  - run_id: 31712025037
-    result: FOCUSED_FAILURE_REPAIRED
-  - run_id: 31712699790
+    evidence: deterministic transform pinned 177 references across 47 workflows and validated 193 uses references; subsequent branch push was separately rejected by GitHub workflow-write permission policy.
+  - command: read-only deterministic migration reproduction run 31708649280
     result: PASS
-  - run_id: 31712900975
-    result: CHECKPOINT_SCHEMA_REPAIRED
-    evidence: all governance tests and live task liveness passed; checkpoint enforcement rejected only the flow-style context_routes field, now rewritten as the required YAML list.
-next_action: Wait only on the live build-synology ownership lock, then refresh current main, pin that final workflow from its landed content, and run exact-final-head validation.
+    evidence: reproduced the same transformed workflow set and validator pass without repository mutation.
+  - command: Cloudflare Oteryn Endpoint Main Operation run 31712699790
+    result: PASS
+    evidence: pinned checkout action executed and the repaired immutable-SHA compatibility contract passed.
+  - command: Edge Security Emulation run 31713533471
+    result: FAIL
+    evidence: immutable checkout/setup-php/upload-artifact actions executed successfully; Docker Hub returned HTTP 502 while pulling coredns/coredns:1.12.1.
+  - command: final exact-head repository validation
+    result: NOT_RUN
+    evidence: final candidate does not exist until PR #1024 releases the one shared workflow path.
+next_action: after PR #1024 is terminal and ownership is released, refresh current main, pin only the landed build-synology-staging-images.yml external uses references, synchronize the final candidate, and run exact-final-head validation.
 ```
 
 ## Safety
