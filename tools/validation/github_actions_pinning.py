@@ -7,7 +7,7 @@ import argparse
 import json
 import re
 import sys
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass
 from pathlib import Path
 
 USES_RE = re.compile(r"^\s*(?:-\s*)?uses\s*:\s*(.*?)\s*$")
@@ -15,6 +15,7 @@ FULL_SHA_RE = re.compile(r"^[0-9a-fA-F]{40}$")
 EXTERNAL_TARGET_RE = re.compile(
     r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)*$"
 )
+EXCLUDED_ACTION_DIRS = {".git", "vendor", "node_modules"}
 
 
 @dataclass(frozen=True)
@@ -62,20 +63,15 @@ def classify_uses(value: str) -> tuple[str, str | None]:
 
 
 def iter_source_files(root: Path) -> list[Path]:
-    files: list[Path] = []
+    files: set[Path] = set()
     workflows = root / ".github" / "workflows"
     if workflows.is_dir():
-        files.extend(sorted(p for p in workflows.rglob("*") if p.suffix in {".yml", ".yaml"}))
-    actions = root / ".github" / "actions"
-    if actions.is_dir():
-        files.extend(
-            sorted(
-                p
-                for p in actions.rglob("*")
-                if p.name in {"action.yml", "action.yaml"}
-            )
-        )
-    return files
+        files.update(p for p in workflows.rglob("*") if p.suffix in {".yml", ".yaml"})
+    for name in ("action.yml", "action.yaml"):
+        for path in root.rglob(name):
+            if not EXCLUDED_ACTION_DIRS.intersection(path.relative_to(root).parts):
+                files.add(path)
+    return sorted(files)
 
 
 def scan_files(files: list[Path], display_root: Path | None = None) -> tuple[list[dict], list[Finding]]:
