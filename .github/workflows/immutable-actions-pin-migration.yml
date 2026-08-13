@@ -1,4 +1,5 @@
 name: Immutable Actions Pin Migration
+# One-shot retry after the previous push was rejected by a transient GitHub Internal Server Error.
 
 on:
   push:
