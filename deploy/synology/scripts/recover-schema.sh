@@ -111,7 +111,7 @@ if [[ "$baseline_kind" == release ]]; then
     # last-good application's primary schema identity may differ after a compatible
     # image-only rollback, so prove acceptance instead of equating primary IDs.
     bash "$SCRIPT_DIR/release-state.sh" compatible-schema \
-        "$BACKUP_SCHEMA_COMPATIBILITY_ID" "$last_good_file" "$candidate_sha"
+    "$BACKUP_SCHEMA_COMPATIBILITY_ID" "$last_good_file" "$candidate_sha"
 else
     [[ "$(basename -- "$backup_dir")" == "fresh-empty-before-${candidate_sha}" ]] || {
         echo "Fresh-empty recovery rejected: managed backup directory does not match the failed candidate." >&2
