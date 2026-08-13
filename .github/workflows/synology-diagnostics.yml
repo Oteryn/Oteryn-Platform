@@ -1,0 +1,88 @@
+name: Synology Diagnostics
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: synology-diagnostics
+  cancel-in-progress: false
+
+jobs:
+  diagnose:
+    name: Read-only Synology diagnostics
+    runs-on: oteryn-staging
+    timeout-minutes: 10
+
+    steps:
+      - name: Validate diagnostic access
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker version >/dev/null
+          docker info >/dev/null
+
+      - name: Collect read-only diagnostics
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          command_token="synology-diag-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          echo "::stop-commands::${command_token}"
+
+          echo "## Runner container"
+          printf 'UTC time: '
+          date -u +'%Y-%m-%dT%H:%M:%SZ'
+          printf 'Identity: '
+          id
+          printf 'Kernel: '
+          uname -a
+          echo
+
+          echo "## Synology Docker engine"
+          docker info --format 'Name: {{.Name}}'
+          docker info --format 'Server version: {{.ServerVersion}}'
+          docker info --format 'Operating system: {{.OperatingSystem}}'
+          docker info --format 'OS type: {{.OSType}}'
+          docker info --format 'Architecture: {{.Architecture}}'
+          docker info --format 'CPUs: {{.NCPU}}'
+          docker info --format 'Memory bytes: {{.MemTotal}}'
+          docker info --format 'Storage driver: {{.Driver}}'
+          docker info --format 'Docker root dir: {{.DockerRootDir}}'
+          echo
+
+          echo "## Containers"
+          docker ps -a --format 'table {{.Names}}\t{{.Image}}\t{{.Status}}\t{{.Ports}}'
+          echo
+
+          echo "## Docker disk usage"
+          docker system df
+          echo
+
+          echo "## Networks"
+          docker network ls --format 'table {{.Name}}\t{{.Driver}}\t{{.Scope}}'
+          echo
+
+          echo "## Volumes"
+          docker volume ls --format 'table {{.Name}}\t{{.Driver}}'
+          echo
+
+          echo "## Oteryn state mount filesystem"
+          df -h /var/lib/oteryn-staging-state || true
+
+          echo "::${command_token}::"
+
+      - name: Publish usage note
+        shell: bash
+        run: |
+          cat >> "$GITHUB_STEP_SUMMARY" <<'EOF'
+          ## Synology diagnostics
+
+          This workflow performs read-only Docker Engine and runner-container queries on the `oteryn-staging` self-hosted runner.
+
+          It does **not** print container environment variables, Docker inspect payloads, file contents, secrets, or application data. It does not create, stop, restart, remove, prune, or modify Docker resources.
+
+          Review the `Collect read-only diagnostics` step log for the diagnostic output.
+          EOF
