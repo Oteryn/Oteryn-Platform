@@ -8,7 +8,7 @@ on:
       - '.github/workflows/immutable-actions-pin-migration.yml'
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   migrate:
@@ -26,12 +26,13 @@ jobs:
           python tools/validation/apply_github_actions_pins.py
           python tools/validation/test_github_actions_pinning.py
           python tools/validation/github_actions_pinning.py
+          git diff --check
+          git diff -- .github/workflows > immutable-actions-pins.patch
 
-      - name: Commit bounded migration
-        run: |
-          git config user.name github-actions[bot]
-          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-          git add .github/workflows
-          git diff --cached --check
-          git commit -m 'ci: pin external GitHub Actions to immutable SHAs'
-          git push origin HEAD:ci/immutable-actions-pinning-1008
+      - name: Upload bounded migration patch
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: immutable-actions-pins-${{ github.sha }}
+          path: immutable-actions-pins.patch
+          if-no-files-found: error
+          retention-days: 3
