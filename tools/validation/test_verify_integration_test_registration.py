@@ -86,6 +86,13 @@ class IntegrationTestRegistrationTest(unittest.TestCase):
                 f"          echo \"{ENVIRONMENT[0]}=/tmp/base\" >> \"$GITHUB_ENV\"",
                 f"          echo \"{ENVIRONMENT[1]}=/tmp/candidate\" >> \"${{GITHUB_ENV}}\"",
             ])
+        elif environment_mode == "github_env_alias":
+            workflow_lines.extend([
+                "      - name: Write lookalike environment values",
+                "        run: |",
+                f"          echo \"OTHER={ENVIRONMENT[0]}=/tmp/base\" >> \"$GITHUB_ENV\"",
+                f"          echo \"ANOTHER={ENVIRONMENT[1]}=/tmp/candidate\" >> \"$GITHUB_ENV\"",
+            ])
         elif environment_mode == "comment":
             workflow_lines.extend([f"      # {ENVIRONMENT[0]}", f"      # {ENVIRONMENT[1]}"])
         elif environment_mode == "step_name":
@@ -128,6 +135,24 @@ class IntegrationTestRegistrationTest(unittest.TestCase):
             workflow_lines.append(f"      - run: echo vendor/bin/phpunit {TEST_PATH}")
         elif invocation_mode == "directory":
             workflow_lines.append("      - run: vendor/bin/phpunit tests/Integration/Example")
+        elif invocation_mode == "or_true":
+            workflow_lines.append(f"      - run: vendor/bin/phpunit {TEST_PATH} || true")
+        elif invocation_mode == "unreachable":
+            workflow_lines.extend([
+                "      - run: |",
+                "          exit 0",
+                f"          vendor/bin/phpunit {TEST_PATH}",
+            ])
+        elif invocation_mode == "pipeline_without_pipefail":
+            workflow_lines.append(
+                f"      - run: vendor/bin/phpunit {TEST_PATH} | tee /tmp/integration.log"
+            )
+        elif invocation_mode == "pipeline_with_pipefail":
+            workflow_lines.extend([
+                "      - run: |",
+                "          set -o pipefail",
+                f"          vendor/bin/phpunit {TEST_PATH} | tee /tmp/integration.log",
+            ])
         else:
             raise ValueError(f"unsupported invocation_mode: {invocation_mode}")
 
@@ -193,6 +218,10 @@ class IntegrationTestRegistrationTest(unittest.TestCase):
         path.write_text(text.replace(marker, replacement), encoding="utf-8")
         self.assertEqual([TEST_PATH], validate_repository(root))
 
+    def test_pipefail_pipeline_is_accepted(self) -> None:
+        root = self.make_repository(invocation_mode="pipeline_with_pipefail")
+        self.assertEqual([TEST_PATH], validate_repository(root))
+
     def test_prior_step_env_does_not_leak_into_proving_step(self) -> None:
         root = self.make_repository(environment_mode="none")
         path = root / WORKFLOW_PATH
@@ -220,6 +249,10 @@ class IntegrationTestRegistrationTest(unittest.TestCase):
             "          set -o pipefail\n"
         )
         path.write_text(text.replace(marker, replacement, 1), encoding="utf-8")
+        self.assert_registration_error(root, "missing executable required environment provisioning")
+
+    def test_lookalike_github_env_assignment_does_not_satisfy_contract(self) -> None:
+        root = self.make_repository(environment_mode="github_env_alias")
         self.assert_registration_error(root, "missing executable required environment provisioning")
 
     def test_unregistered_test_fails(self) -> None:
@@ -256,6 +289,18 @@ class IntegrationTestRegistrationTest(unittest.TestCase):
 
     def test_echo_does_not_count_as_executable_invocation(self) -> None:
         root = self.make_repository(invocation_mode="echo")
+        self.assert_registration_error(root, "does not executably invoke")
+
+    def test_masked_failure_does_not_count_as_proving_invocation(self) -> None:
+        root = self.make_repository(invocation_mode="or_true")
+        self.assert_registration_error(root, "does not executably invoke")
+
+    def test_unreachable_invocation_does_not_count_as_proving_invocation(self) -> None:
+        root = self.make_repository(invocation_mode="unreachable")
+        self.assert_registration_error(root, "does not executably invoke")
+
+    def test_pipeline_without_pipefail_does_not_count_as_proving_invocation(self) -> None:
+        root = self.make_repository(invocation_mode="pipeline_without_pipefail")
         self.assert_registration_error(root, "does not executably invoke")
 
     def test_trigger_marker_must_be_in_declared_top_level_event(self) -> None:
