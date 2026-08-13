@@ -31,9 +31,9 @@ Every slice must preserve:
 
 ## Execution allocation
 
-The delivery order in this document answers **what should happen next**. `docs/agents/programs/OTERYN_PORTAL_COMPLETION_WORK_ALLOCATION.md` answers **who should own each type of work** and whether a bounded implementation is technically suitable for a Codex worker.
+The delivery order in this document answers **what should happen next**. `docs/agents/programs/OTERYN_PORTAL_COMPLETION_WORK_ALLOCATION.md` answers **who should own each type of work** through model-agnostic roles and whether a bounded implementation is technically suitable for optional Codex execution.
 
-The allocation is subordinate to live task/PR ownership and repository authorization. A `CODEX_ELIGIBLE_WORKER` classification never grants permission to consume owner-funded Codex/OpenAI quota; `AGENTS.md` requires explicit owner permission for each exact use/task. If that permission is absent, the same bounded task may be executed directly by `CHATGPT_ARCHITECT` or another permitted worker.
+The allocation is subordinate to this delivery order, the canonical programme's live selection, task/PR ownership and repository authorization. `IMPLEMENTATION_OWNER` is an ownership role, not a model choice. Codex suitability never grants permission to consume owner-funded Codex/OpenAI quota; `AGENTS.md` requires explicit owner permission for each exact use/task. Without that permission, the same bounded task uses another permitted execution mode.
 
 ## Programme priorities
 
