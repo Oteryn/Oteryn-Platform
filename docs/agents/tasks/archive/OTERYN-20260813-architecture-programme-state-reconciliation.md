@@ -1,7 +1,7 @@
 ---
 task_id: OTERYN-20260813-architecture-programme-state-reconciliation
 repository: blakinio/Oteryn-Platform
-issue: 1023
+issue: null
 status: completed
 architecture_pr: 1023
 merge_sha: 38775e953bd9740df08620482240b483fde69ecc
@@ -25,7 +25,7 @@ No active task record for this reconciliation exists on protected `main`; this a
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-13T16:30:00+02:00
+updated_at: 2026-08-13T16:40:00+02:00
 status: completed
 phase: closeout
 architecture_pr: 1023
