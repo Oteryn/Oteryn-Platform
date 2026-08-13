@@ -9,12 +9,14 @@ owner_alias: PORTAL-CLOSEOUT
 status: READY_FOR_LIVE_SELECTION
 canonical_prompt: docs/agents/prompts/OTERYN-PORTAL-COMPLETION-EXECUTION-PROMPT.md
 delivery_plan: docs/architecture/PORTAL_COMPLETION_DELIVERY_PLAN.md
+work_allocation: docs/agents/programs/OTERYN_PORTAL_COMPLETION_WORK_ALLOCATION.md
 architecture_owner: docs/architecture/PORTAL_COMPLETENESS_ARCHITECTURE.md
 repair_programme: OTERYN_PLATFORM_REMEDIATION
 communication: terminal_only
 live_state_required: true
 production_authority: false
 external_repository_authority: false
+codex_standing_permission: false
 ```
 
 ## Mission
@@ -27,6 +29,12 @@ This programme is an orchestrator and delivery queue. It does not duplicate:
 - `OTERYN_PLATFORM_REMEDIATION`, which owns an implementation-authorized repair Issue end to end;
 - accepted architecture and operation-specific contracts;
 - production or cross-repository authorization.
+
+## Work allocation
+
+`docs/agents/programs/OTERYN_PORTAL_COMPLETION_WORK_ALLOCATION.md` is the canonical execution-allocation companion for this programme. It maps the accepted P0-P3 portal backlog to execution roles, Codex suitability, dependencies and terminal outcomes.
+
+Role assignment never overrides repository authority or live ownership. In particular, `CODEX_ELIGIBLE_WORKER` means only that a bounded task is technically suitable for Codex-style implementation. It is **not permission** to invoke Codex, OpenAI API or any owner-funded AI quota. `AGENTS.md` still requires explicit owner authorization for that exact use/task.
 
 ## Live-state rule
 
@@ -60,6 +68,8 @@ Select the first **safe, unowned, unblocked and implementation-authorized** item
 9. Deliver Player Companion P0 vertical slices.
 10. Deliver World Hub/community expansions only when authoritative inputs and product need exist.
 11. Activate commerce only after its independent security, legal, operational and owner-authorization gates.
+
+Use the work-allocation companion to choose the execution role after the live item has been selected. Do not select a Codex worker merely because a row is marked Codex-suitable; explicit owner authorization is still required for each owner-funded AI invocation.
 
 ## Eligibility
 
