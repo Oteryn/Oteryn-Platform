@@ -19,7 +19,7 @@ Continuously challenge Platform architecture, repository structure and CI/CD; id
 ```yaml
 programme_state_version: 2
 updated_at: 2026-08-13T20:42:00+02:00
-status: implementing
+status: validating
 current_review_domain: native-support-moderation-game-enforcement
 active_task: OTERYN-20260813-native-game-enforcement-contract
 issue: 1029

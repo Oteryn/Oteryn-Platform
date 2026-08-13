@@ -49,8 +49,8 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-13T20:45:00+02:00
-head: 7a7c88de1e11f6d99b4a620dfa2bc974c084bb46
+updated_at: 2026-08-13T20:49:00+02:00
+head: 8d623f850da88bfc814618bba84673738dc3c57e
 branch: docs/OTERYN-20260813-native-game-enforcement-contract
 pr: 1030
 status: validating
@@ -72,7 +72,7 @@ proven:
   - Current main is 638df04f616c93d80e33e1abf3f2cf0198163e7a and the architecture programme is ready with support/moderation game enforcement as its first P1 unresolved question.
   - Existing Platform enforcement_records are workflow and communication records only and do not mutate or prove game sanctions.
   - Issue 1029 owns this bounded architecture-only package and no open PR or active task overlaps its declared paths.
-  - Draft PR 1030 contains exactly eight declared documentation paths on head 7a7c88de1e11f6d99b4a620dfa2bc974c084bb46.
+  - Draft PR 1030 contains exactly eight declared documentation paths; semantic contract package head 8d623f850da88bfc814618bba84673738dc3c57e includes the validation checkpoint.
 derived:
   - The missing boundary can be resolved as a Platform consumer/orchestration contract subordinate to ADR 0031 without selecting external transport or implementation.
 unknown:
@@ -83,6 +83,8 @@ first_failure:
   evidence: OTERYN_V2_INTEGRATION_ARCHITECTURE.md deferred P1 item 1 and programme next_action.
 rejected_hypotheses:
   - Platform enforcement_records can serve as authoritative native game sanctions; DATA_OWNERSHIP.md explicitly limits them to communication and workflow truth.
+  - A dispatched command or accepted appeal can be presented as completed game enforcement; only an authoritative applicable game result proves effect.
+  - Timestamps can safely order apply/revoke/expire decisions; a stable sanction stream and monotonic decision revision are required.
 changed_paths:
   - docs/agents/programs/OTERYN_PLATFORM_ARCHITECTURE_REVIEW.md
   - docs/agents/tasks/active/OTERYN-20260813-native-game-enforcement-contract.md
