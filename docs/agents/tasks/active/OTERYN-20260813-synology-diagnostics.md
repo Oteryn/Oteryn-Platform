@@ -50,10 +50,10 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-13T06:37:00Z
-head: pending-first-commit
+updated_at: 2026-08-13T06:41:00Z
+head: 928cc8bf79dd149675613ce2f71c4259b70c89f7
 branch: chore/synology-diagnostics-20260813
-pr: none
+pr: 1017
 status: validating
 context_routes:
   - oteryn-platform-core
@@ -65,10 +65,11 @@ proven:
   - runner compose mounts /var/run/docker.sock and /volume1/docker/oteryn/state
   - open PR 1003 owns deploy-synology-staging.yml specifically; this task does not modify that path
   - open PR 1013 intentionally avoids deploy-synology-staging.yml; no overlap with this task-owned new workflow path was found
+  - PR 1017 contains only the new diagnostic workflow and this task record
 derived:
   - Docker Engine diagnostics can be executed through the existing runner without SSH
 unknown:
-  - exact-head CI result for this change
+  - exact-head CI result for the final task head
 conflicts: []
 first_failure:
   marker: none
@@ -78,13 +79,39 @@ changed_paths:
   - .github/workflows/synology-diagnostics.yml
   - docs/agents/tasks/active/OTERYN-20260813-synology-diagnostics.md
 validation:
+  - command: full PR diff self-review at 928cc8bf79dd149675613ce2f71c4259b70c89f7
+    result: PASS
+    evidence: workflow is manual-only, fixed-command, read-only, does not emit environment/inspect/file contents, and has no Docker mutation commands
   - command: repository exact-head CI
     result: NOT_RUN
-    evidence: workflow/task record prepared; PR not yet opened
+    evidence: PR workflows are running; final exact-head result not yet observed
 blockers:
   - none
-next_action: commit the coherent workflow and task record, then open the task PR and inspect exact-head CI
+next_action: inspect exact-head PR CI once it reaches a terminal state; repair only an evidenced task-owned failure
 ```
+
+## Self-review
+
+```yaml
+self_review:
+  result: PASS
+  exact_head: 928cc8bf79dd149675613ce2f71c4259b70c89f7
+  acceptance_checked: true
+  full_diff_checked: true
+  negative_paths_checked: true
+  rollback_checked: true
+  compatibility_checked: true
+  related_prs_checked: true
+  findings: []
+  evidence:
+    - workflow has no arbitrary command input and no full docker inspect output
+    - diagnostic commands are read-only Docker and filesystem queries
+    - no existing Synology deployment workflow is modified
+```
+
+## E2E
+
+`NOT_APPLICABLE` for this repository-only workflow addition: executing it would access the live Synology-hosted runner, while this task is authorized to add the diagnostic path but does not need to perform a live diagnostic run to prove the static repository change.
 
 ## Notes
 
