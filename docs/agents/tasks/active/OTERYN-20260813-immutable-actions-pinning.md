@@ -74,14 +74,16 @@ lukka/run-cmake: {version: v10.9, sha: 5d55ea7949e25f69f0ecb516d8d572297e03a956,
 ```yaml
 checkpoint_version: 1
 policy_version: 2
-updated_at: 2026-08-13T16:55:00+02:00
+updated_at: 2026-08-13T16:58:00+02:00
 branch: ci/immutable-actions-pinning-1008
 pr: 1022
 status: implementing
 phase: implement
 execution_mode: github_connector
 execution_reason: repository-wide workflow mutation and exact GitHub Actions validation without owner-funded AI
-context_routes: [testing, ci-repair]
+context_routes:
+  - testing
+  - ci-repair
 task_kind: implementation
 context_pressure: medium
 context_growth: stable
@@ -94,11 +96,9 @@ proven:
   - Dependabot github-actions configuration remains enabled at directory `/` and unchanged.
   - Current task lineage contains every non-overlapping workflow pin and temporary migration/helper/generated files are absent from the PR diff.
   - Cloudflare Oteryn Endpoint Main Operation run 31712699790 passes after replacing its hard-coded mutable-tag assertion with an immutable full-SHA equality contract.
+  - tests/operations/cloudflare-oteryn-endpoints/check-marker-workflow.py now requires an immutable full-SHA checkout reference instead of the historical mutable tag literal.
 conflicts:
   - PR #1013 and successor PR #1024 both retain changed-path ownership of build-synology-staging-images.yml until terminal.
-focused_compatibility:
-  - tests/operations/cloudflare-oteryn-endpoints/check-main-operation-workflow.py required repair because it asserted the historical actions/checkout@v7 literal.
-  - tests/operations/cloudflare-oteryn-endpoints/check-marker-workflow.py contains the same historical literal and is now explicitly claimed before repair.
 validation:
   - run_id: 31707680824
     result: EXPECTED_FAIL
@@ -110,7 +110,10 @@ validation:
     result: FOCUSED_FAILURE_REPAIRED
   - run_id: 31712699790
     result: PASS
-next_action: Repair the claimed marker-workflow compatibility assertion to require an immutable checkout SHA, then continue first-failure inspection while the Synology build workflow lock remains active.
+  - run_id: 31712900975
+    result: CHECKPOINT_SCHEMA_REPAIRED
+    evidence: all governance tests and live task liveness passed; checkpoint enforcement rejected only the flow-style context_routes field, now rewritten as the required YAML list.
+next_action: Wait only on the live build-synology ownership lock, then refresh current main, pin that final workflow from its landed content, and run exact-final-head validation.
 ```
 
 ## Safety
