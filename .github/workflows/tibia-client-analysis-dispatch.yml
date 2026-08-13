@@ -18,18 +18,17 @@ jobs:
     name: Build static CPUID probe
     runs-on: ubuntu-latest
     outputs:
-      payload: ${{ steps.probe.outputs.payload }}
       sha256: ${{ steps.probe.outputs.sha256 }}
     steps:
       - id: probe
-        name: Compile static probe and emit verified payload
+        name: Compile static probe and emit verified hash
         shell: bash
         run: |
           set -Eeuo pipefail
           src=/tmp/cpuid-readonly.c
           bin=/tmp/cpuid-readonly
-          gz=/tmp/cpuid-readonly.gz
-          trap 'rm -f "$src" "$bin" "$gz"' EXIT
+          gz="$RUNNER_TEMP/cpuid-readonly.gz"
+          trap 'rm -f "$src" "$bin"' EXIT
           printf '%s\n' \
             '#include <stdio.h>' \
             '#include <string.h>' \
@@ -40,11 +39,22 @@ jobs:
           ! readelf -l "$bin" | grep -q 'Requesting program interpreter'
           sha=$(sha256sum "$bin" | awk '{print $1}')
           gzip -9 -c "$bin" > "$gz"
-          payload=$(base64 -w0 "$gz")
           echo "sha256=$sha" >> "$GITHUB_OUTPUT"
-          echo "payload=$payload" >> "$GITHUB_OUTPUT"
           echo CPUID_READONLY_SHA256="$sha"
           echo STATIC_LINK_VERIFIED=true
+
+      - name: Upload verified probe
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: cpuid-readonly-probe
+          path: ${{ runner.temp }}/cpuid-readonly.gz
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Remove hosted-runner probe payload
+        if: always()
+        shell: bash
+        run: rm -f "$RUNNER_TEMP/cpuid-readonly.gz"
 
   inspect:
     name: Execute static read-only Tibia CPUID diagnostic
@@ -52,7 +62,6 @@ jobs:
     runs-on: oteryn-staging
     timeout-minutes: 5
     env:
-      PROBE_B64: ${{ needs.build.outputs.payload }}
       EXPECTED_SHA256: ${{ needs.build.outputs.sha256 }}
     steps:
       - name: Verify owned live runtime
@@ -65,18 +74,24 @@ jobs:
           [[ "$(docker inspect --format '{{.State.Status}}' "$CONTAINER_NAME")" == "running" ]]
           docker exec "$CONTAINER_NAME" pgrep -x client >/dev/null
 
+      - name: Download verified probe
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: cpuid-readonly-probe
+          path: ${{ runner.temp }}/cpuid-readonly-artifact
+
       - name: Verify hash, execute once in container, and remove
         shell: bash
         run: |
           set -Eeuo pipefail
-          host_gz=/tmp/cpuid-readonly.gz
+          host_gz="$RUNNER_TEMP/cpuid-readonly-artifact/cpuid-readonly.gz"
           host_bin=/tmp/cpuid-readonly
           cleanup() {
             docker exec "$CONTAINER_NAME" rm -f /tmp/cpuid-readonly 2>/dev/null || true
-            rm -f "$host_gz" "$host_bin"
+            rm -f "$host_bin"
+            rm -rf "$RUNNER_TEMP/cpuid-readonly-artifact"
           }
           trap cleanup EXIT
-          printf '%s' "$PROBE_B64" | base64 -d > "$host_gz"
           gzip -dc "$host_gz" > "$host_bin"
           chmod 755 "$host_bin"
           sha=$(sha256sum "$host_bin" | awk '{print $1}')
