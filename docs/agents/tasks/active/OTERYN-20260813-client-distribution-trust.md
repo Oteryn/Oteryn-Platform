@@ -2,7 +2,7 @@
 task_id: OTERYN-20260813-client-distribution-trust
 mode: architecture
 issue: 1037
-status: implementing
+status: blocked
 programme: OTERYN_PLATFORM_ARCHITECTURE_REVIEW
 project_lane: oteryn-platform-core
 phase: design
@@ -25,7 +25,7 @@ Define the first-party client distribution/updater trust boundary for Oteryn Pla
 - [x] Existing Issue 948 artifact-reference immutability and truthful supplied-checksum boundaries remain intact.
 - [x] Updater schema v1 preserves the proven one-current-release-per-channel Platform model while exact platform/architecture artifacts fail unavailable rather than creating an implicit second release timeline.
 - [ ] Repository owner selects the durable target architecture and the accepted canonical architecture sources are reconciled to that decision.
-- [ ] Offline architecture validation and exact-head full-diff self-review pass for the decision-ready proposal.
+- [x] Decision-ready proposal passed exact-head repository CI/governance checks and full-diff self-review found no remaining material finding.
 
 ## Ownership
 
@@ -48,7 +48,7 @@ dependencies:
   - Issue 948 / PR 966 immutable artifact-reference repair
   - current Downloads stable/beta and platform/architecture catalogue
 blockers:
-  - none
+  - Repository owner decision for ARCH-DEC-0004: accept Option A (TUF-based role-separated updater repository) or select Option B (custom single signed manifest envelope).
 cross_repository_tasks:
   - none
 ```
@@ -57,11 +57,11 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-13T23:04:00+02:00
-head: UNKNOWN
+updated_at: 2026-08-13T22:55:00+02:00
+head: b279d4de8148206ba1f560d22b7261fb111fe518
 branch: docs/OTERYN-20260813-client-distribution-trust
 pr: 1038
-status: implementing
+status: blocked
 context_routes:
   - architecture
   - security
@@ -87,6 +87,9 @@ proven:
   - Portal completeness and work allocation identify signed updater metadata, minimum-version, mandatory-update and withdrawal/revocation semantics as unresolved architecture work.
   - Proposed ADR 0035 preserves browser distribution, updater trust and game admission as separate authorities and preserves channel-level current-release coherence for schema v1.
   - ARCH-DEC-0004 records the unresolved owner decision with Option A recommended and Option B as the viable alternative.
+  - Exact decision-ready head b279d4de8148206ba1f560d22b7261fb111fe518 passed all eight triggered workflows: Agent Governance, Native protocol contract, Native protocol contract audits, CI, Phase 7 Production-Like Validation, Platform DB Outage Validation, Game Auth Ticket Concurrency and Edge Security Emulation.
+  - Exact-head Agent Governance validated checkpoint tests, policy consistency, prompt contracts, all active task checkpoints and live active-task ownership; exact-head CI classification and required aggregate test gate also passed.
+  - PR 1038 full-diff review at the decision-ready head contains exactly five documentation/governance paths and no runtime/workflow change; review-thread and submitted-review inspection found none.
 derived:
   - The security-sensitive architecture proposal can be completed inside Platform documentation without inspecting the external client repository.
   - Canonical accepted architecture must not be rewritten until the repository owner selects the durable option.
@@ -110,13 +113,23 @@ changed_paths:
   - docs/architecture/adr/0035-first-party-client-distribution-and-updater-trust-boundary.md
   - docs/architecture/adr/README.md
 validation:
-  - command: not-run
-    result: NOT_RUN
-    evidence: final decision-ready proposal head still requires exact-head CI and full-diff review
-blockers: []
-next_action: Validate the exact decision-ready PR head, then persist the repository-owner decision as the only remaining blocker before canonical acceptance updates.
+  - command: GitHub.fetch_commit_workflow_runs b279d4de8148206ba1f560d22b7261fb111fe518
+    result: PASS
+    evidence: all eight triggered exact-head workflows completed successfully
+  - command: GitHub.fetch_workflow_run_jobs 31742991047 and 31742991085
+    result: PASS
+    evidence: exact-head Agent Governance checkpoint/policy/live-ownership checks and CI classify/aggregate gate succeeded; runtime-tests were correctly NOT_APPLICABLE for the documentation-only change set
+  - command: direct incremental inspection against tools/validation/adr_registry.py and tools/validation/architecture_decision_backlog.py contracts
+    result: PASS
+    evidence: ADR 0035 uses a unique valid prefix/name and one Proposed lifecycle declaration; README adds the exact ADR entry without changing the preserved duplicate allowlist; ARCH-DEC-0004 has decision_required fields/options/recommendation/owner question, implementation_authorized=false, existing local paths and an exact programme projection
+  - command: GitHub PR 1038 changed-file, patch, review-thread and submitted-review inspection
+    result: PASS
+    evidence: exactly five documentation/governance paths, no remaining material self-review finding, zero review threads and zero submitted reviews
+blockers:
+  - Repository owner must decide ARCH-DEC-0004 before ADR 0035 can become Accepted or canonical architecture can be rewritten.
+next_action: Repository owner selects Option A or Option B; then reconcile accepted canonical architecture, implementation handoff and portal work allocation in the same bounded package.
 ```
 
 ## Notes
 
-The initial branch-creation call used an unsupported connector argument form; the branch was then created from the exact verified main SHA without changing scope. During self-review, an initial standalone contract draft was removed because it permitted an independent per-target release timeline inconsistent with the proven current channel-level `is_current` model; ADR 0035 now keeps schema-v1 release coherence explicit and defers any target-specific timeline to a future decision. No runtime code, migration, route, workflow, deployment, production system, protected signing material or external repository is owned by this task.
+The initial branch-creation call used an unsupported connector argument form; the branch was then created from the exact verified main SHA without changing scope. During self-review, an initial standalone contract draft was removed because it permitted an independent per-target release timeline inconsistent with the proven current channel-level `is_current` model; ADR 0035 now keeps schema-v1 release coherence explicit and defers any target-specific timeline to a future decision. No runtime code, migration, route, workflow, deployment, production system, protected signing material or external repository is owned by this task. The decision-ready content head is fully validated; this checkpoint/status commit only persists the owner-decision blocker and does not claim the proposed ADR is accepted.
