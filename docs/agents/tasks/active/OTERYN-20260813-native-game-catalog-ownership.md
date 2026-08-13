@@ -57,7 +57,7 @@ checkpoint_version: 1
 updated_at: 2026-08-13T21:40:00+02:00
 head: e4dab032387b9a4c3fa86fd52b1b74f2bd2529c5
 branch: docs/OTERYN-20260813-native-game-catalog-ownership
-pr: null
+pr: 1034
 status: validating
 context_routes:
   - architecture
@@ -78,6 +78,7 @@ owned_paths:
 proven:
   - Issue 1033 owns this bounded architecture-only package.
   - Open programme 330 and draft PR 338 own current Canary compatibility evolution and are not modified.
+  - Draft PR 1034 contains exactly the eleven declared documentation paths.
   - ADR 0031 already requires native integration to remain independent of Canary IDs, persistence and loader semantics.
 derived:
   - Platform can reuse immutable snapshot validation/activation machinery while the native game domain retains executable content authority.

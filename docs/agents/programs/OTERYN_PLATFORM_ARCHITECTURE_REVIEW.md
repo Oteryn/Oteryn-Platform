@@ -24,7 +24,7 @@ current_review_domain: native-game-catalog-content-ownership
 active_task: OTERYN-20260813-native-game-catalog-ownership
 issue: 1033
 branch: docs/OTERYN-20260813-native-game-catalog-ownership
-pull_request: null
+pull_request: 1034
 last_completed_domain: native-support-moderation-game-enforcement
 last_completed_issue: 1029
 last_completed_pull_request: 1030
