@@ -18,18 +18,18 @@ Continuously challenge Platform architecture, repository structure and CI/CD; id
 
 ```yaml
 programme_state_version: 2
-updated_at: 2026-08-13T21:48:00+02:00
-status: ready
-current_review_domain: next-risk-based-rotation
-active_task: null
-issue: null
-branch: null
+updated_at: 2026-08-13T22:37:00+02:00
+status: active
+current_review_domain: client-distribution-updater-trust
+active_task: OTERYN-20260813-client-distribution-trust
+issue: 1037
+branch: docs/OTERYN-20260813-client-distribution-trust
 pull_request: null
 last_completed_domain: native-game-catalog-content-ownership
 last_completed_issue: 1033
 last_completed_pull_request: 1034
 last_completed_merge: 7a0664cfd7dadf27aef0a33e2308bf4975fb1405
-latest_review_finding_issue: 1033
+latest_review_finding_issue: 1037
 accepted_authority:
   authority_index: docs/architecture/ARCHITECTURE_AUTHORITY.md
   authority_adr: docs/architecture/adr/0022-architecture-authority-index-and-focused-canonical-documents.md
@@ -102,7 +102,7 @@ unknown:
   - Native guild identity required by the PublicGameData guild projection remains dependent on an accepted game-owned stable identifier; Platform must not invent one.
 conflicts: []
 blockers: []
-next_action: Select the next highest-risk unresolved and unowned Platform architecture question from current main.
+next_action: Define ADR 0035 and the Platform-side signed client-distribution contract, then reconcile canonical architecture records without external-repository access.
 ```
 
 ## Programme rules
