@@ -47,17 +47,9 @@ jobs:
           [[ -n "$win" ]]
           echo TARGET_WINDOW=$win
 
-          # Requested displacement from verified approximate position 32544,32514,7
-          # toward target 32572,32498,7: +28 east, -16 north.
-          for i in $(seq 1 28); do
-            xdotool key --clearmodifiers --window "$win" Right
-            sleep 0.35
-          done
+          for i in $(seq 1 28); do xdotool key --clearmodifiers --window "$win" Right; sleep 0.35; done
           echo EAST_INPUTS_SENT=28
-          for i in $(seq 1 16); do
-            xdotool key --clearmodifiers --window "$win" Up
-            sleep 0.35
-          done
+          for i in $(seq 1 16); do xdotool key --clearmodifiers --window "$win" Up; sleep 0.35; done
           echo NORTH_INPUTS_SENT=16
           sleep 2
 
