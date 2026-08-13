@@ -1,5 +1,8 @@
 ---
 task_id: OTERYN-20260813-portal-program-work-allocation
+project_lane: oteryn-platform-core
+task_kind: implementation
+implementation_authorized: true
 required_reads:
   - AGENTS.md
   - docs/agents/CONTEXT_HANDOFF.md
@@ -10,23 +13,29 @@ search_first:
   - active portal completion tasks and PRs
 optional_reads:
   - docs/architecture/PLAYER_COMPANION_ARCHITECTURE.md
+  - docs/agents/programs/GAME_CATALOG_PRODUCTION_COMPLETION_PROGRAM.md
 ---
 
 # OTERYN-20260813-portal-program-work-allocation
 
 ## Goal
 
-Turn the current portal-completion backlog and the accepted Tibia/RubinOT/TibiaPal-derived product decisions into one durable execution project with explicit ownership, ordering, delegation rules, dependencies and terminal completion criteria.
+Turn the current portal-completion backlog and the accepted Tibia/RubinOT/TibiaPal-derived product decisions into one durable execution-allocation companion with explicit ownership, dependency routing and terminal completion criteria, while keeping `OTERYN_PORTAL_COMPLETION` as the only work-selection authority.
 
 ## Acceptance criteria
 
-- [x] The existing `OTERYN_PORTAL_COMPLETION` programme remains the single orchestration authority; no duplicate programme is created.
-- [x] A canonical work-allocation record classifies every discussed P0-P2/P3 portal area as DONE, ARCHITECTURE_READY, OPEN, BLOCKED, IN_PROGRESS, DEFERRED or DECISION_REQUIRED.
-- [x] Each open workstream names the primary execution role: `CHATGPT_ARCHITECT`, `CODEX_ELIGIBLE_WORKER`, `OWNER_DECISION`, or `PROTECTED_ENV_OPERATOR`.
-- [x] Codex eligibility never constitutes permission to consume owner-funded Codex/OpenAI quota; every Codex invocation still requires explicit owner approval for that exact task/use.
-- [x] Dependencies and recommended sequencing are explicit, including current PlayerCompanion work and open Issues #489/#490.
+- [x] The existing `OTERYN_PORTAL_COMPLETION` programme remains the single orchestration and selection authority; no duplicate scheduler/programme is created.
+- [x] A canonical work-allocation record classifies the discussed P0-P3 portal areas as `DONE`, `ARCHITECTURE_READY`, `OPEN`, `BLOCKED`, `IN_PROGRESS`, `DEFERRED`, `DECISION_REQUIRED` or `REJECTED`.
+- [x] Core Account Center/Character Portfolio and PublicPortal Today are explicitly allocated and cannot disappear from completion accounting.
+- [x] Execution roles are model-agnostic: `ARCHITECTURE_COORDINATOR`, `IMPLEMENTATION_OWNER`, `OWNER_DECISION` and `PROTECTED_ENV_OPERATOR`; Codex suitability is a separate non-authorizing attribute.
+- [x] Codex suitability never constitutes permission to consume owner-funded Codex/OpenAI quota; every such invocation still requires explicit owner approval for that exact task/use.
+- [x] The companion does not define a competing fallback sequence; detailed next-task selection remains in `OTERYN_PORTAL_COMPLETION.md`.
+- [x] PlayerCompanion follow-up ordering matches `PLAYER_COMPANION_ARCHITECTURE.md`.
+- [x] Game Catalog work reuses `GAME_CATALOG_PRODUCTION_COMPLETION_PROGRAM.md` and keeps Platform-only work separate from server/game work requiring separate authorization.
+- [x] Issue #489 and #490 are split by their actual concern/authority boundaries rather than treated as one simplified workstream each.
+- [x] `project_lane: oteryn-platform-core` prevents broad programme text from being misclassified into the Bazaar lane.
 - [x] Existing architecture authority, module boundaries and live-state-first programme rules are preserved.
-- [ ] Documentation changes pass repository governance/CI and are merged through a dedicated PR.
+- [ ] Documentation changes pass exact-head repository governance/CI and are merged through PR #1031.
 
 ## Ownership
 
@@ -39,6 +48,8 @@ owned_paths:
   - docs/agents/tasks/archive/OTERYN-20260813-portal-program-work-allocation.md
 modules:
   - PublicPortal
+  - Accounts
+  - Characters
   - Wiki
   - GameCatalog
   - PublicGameData
@@ -50,7 +61,8 @@ modules:
   - PublicEdge
 dependencies:
   - OTERYN_PORTAL_COMPLETION
-  - PR #1028 is independent active implementation and must not be modified by this documentation task
+  - GAME_CATALOG_PRODUCTION_COMPLETION_PROGRAM for detailed Game Catalog decomposition
+  - PR #1028 is independent active PlayerCompanion implementation and must not be modified by this documentation task
 blockers:
   - none
 cross_repository_tasks:
@@ -61,11 +73,26 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-13T20:52:00+02:00
-head: 4cfbeda928d28afee283ea96d7e61890ad3fb2a7
+policy_version: 2
+updated_at: 2026-08-13T21:30:00+02:00
+head: 1404bd282c8dff78d82c3e20eb6137ce3a7bd91a
 branch: docs/portal-program-allocation-final
 pr: 1031
-status: validating
+status: implementing
+phase: implement
+project_lane: oteryn-platform-core
+task_kind: implementation
+implementation_authorized: true
+execution_mode: chat-github
+execution_reason: narrow documentation/programme corrections are safely executable through the GitHub connector without owner-funded AI invocation
+context_pressure: medium
+context_growth: stable
+decomposition_decision: single
+validation_level: focused
+session_rotation_count: 0
+heavy_validation_runs: 0
+stale_takeover_count: 0
+human_interruptions: 0
 context_routes:
   - architecture
   - agent-governance
@@ -76,46 +103,47 @@ owned_paths:
   - docs/agents/tasks/active/OTERYN-20260813-portal-program-work-allocation.md
   - docs/agents/tasks/archive/OTERYN-20260813-portal-program-work-allocation.md
 proven:
-  - main at task start is 638df04f616c93d80e33e1abf3f2cf0198163e7a.
-  - OTERYN_PORTAL_COMPLETION already exists and remains the single programme orchestrator.
-  - Issue #488 and Issue #365 are closed completed; Issue #489 and #490 remain open.
-  - MODULE_CATALOG already contains PublicPortal, Announcements, Events, Downloads, LiveOps, PlayerCompanion, OperationsObservability, PublicEdge and PlatformAPI boundaries.
+  - main was synchronized into the task branch at f100334b40181b520a289cf81b28b7f68d26c4ef before review repair continued.
+  - OTERYN_PORTAL_COMPLETION exists and remains the single programme selector.
+  - Issue #488 and Issue #365 are closed completed; Issue #489 and #490 remain open and span multiple concerns.
   - PR #1028 is an independent active PlayerCompanion Session Analyzer implementation and this task does not modify it.
-  - AGENTS.md forbids owner-funded Codex/OpenAI quota use without explicit per-use owner permission.
-  - The new work-allocation project maps all discussed portal workstreams to roles, dependencies, current status and completion gates.
-  - OTERYN_PORTAL_COMPLETION and PORTAL_COMPLETION_DELIVERY_PLAN now link to the work-allocation project.
-  - Draft PR #1031 contains only four intended documentation/programme files and no runtime changes.
+  - GAME_CATALOG_PRODUCTION_COMPLETION_PROGRAM already owns detailed Game Catalog producer/consumer completion sequencing.
+  - AGENTS.override.md forbids Platform-invocation server/game repository access without separate owner authorization.
+  - PR #1031 review identified three material findings: missing project lane, missing Account Center/Character Portfolio and Today rows, and a competing selection sequence.
+  - The work-allocation repair adds the missing workstreams, removes the competing scheduler, restores accepted PlayerCompanion order, separates #489/#490 concerns and adds model-agnostic ownership.
 derived:
-  - The project can be executed by ChatGPT directly or selectively delegated to Codex-eligible workers only after explicit per-task owner approval.
+  - The allocation can remain useful as a role/dependency companion without becoming a second source of task priority.
 unknown:
-  - Exact final CI results for the current PR head after this checkpoint update.
+  - Exact final CI results and final review-thread state after the repaired documentation head is committed.
 conflicts: []
 first_failure:
-  marker: none
-  evidence: none
+  marker: review-allocation-authority-drift
+  evidence: PR #1031 review threads PRRT_kwDOTcsYjs6ZDWm5, PRRT_kwDOTcsYjs6ZDWm- and PRRT_kwDOTcsYjs6ZDWnC identify the missing lane, incomplete board and competing scheduler.
 rejected_hypotheses:
   - Create a second independent portal-completion programme.
-  - Treat Codex-eligible classification as standing permission to invoke Codex.
+  - Let the allocation board choose a later workstream before the canonical programme selects it.
+  - Treat Codex suitability as standing permission to invoke Codex.
+  - Treat Issue #489 as only Game Catalog or Issue #490 as only public-edge work.
 changed_paths:
   - docs/agents/programs/OTERYN_PORTAL_COMPLETION_WORK_ALLOCATION.md
   - docs/agents/programs/OTERYN_PORTAL_COMPLETION.md
   - docs/architecture/PORTAL_COMPLETION_DELIVERY_PLAN.md
   - docs/agents/tasks/active/OTERYN-20260813-portal-program-work-allocation.md
 validation:
-  - command: exact branch diff versus main
+  - command: synchronization with current main
     result: PASS
-    evidence: compare main...docs/portal-program-allocation-final reports four intended documentation files only and no runtime changes.
-  - command: full PR diff self-review
-    result: PASS
-    evidence: PR #1031 patch contains only the project allocation, programme linkage, delivery-plan linkage and task record; no architecture invariant or runtime behavior is changed.
-  - command: repository governance/CI on PR final head
+    evidence: branch contains merge parent f100334b40181b520a289cf81b28b7f68d26c4ef via sync commit 9a88e393fa574471eb6fda05d04cdb66ec063d71.
+  - command: PR review findings reconciliation
+    result: IN_PROGRESS
+    evidence: all three material review findings are addressed in content; exact final diff/thread validation remains.
+  - command: repository governance/CI on repaired final head
     result: NOT_RUN
-    evidence: exact-head checks must restart after this checkpoint commit.
+    evidence: repaired coherent documentation commit is not final yet.
 blockers:
   - none
-next_action: inspect exact-head PR #1031 checks; if all required checks pass, mark ready and merge, then archive this task.
+next_action: commit the coherent programme/task reconciliation, inspect the exact PR diff and review threads, resolve repaired findings, then run exact-head required checks.
 ```
 
 ## Notes
 
-This task changes documentation/programme routing only. It does not invoke Codex, deploy production, mutate protected environments, or modify the active PR #1028 implementation.
+This task changes documentation/programme routing only. It does not invoke Codex, deploy production, mutate protected environments, access or modify a server/game repository, or modify the active PR #1028 implementation.
