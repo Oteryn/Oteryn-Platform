@@ -74,7 +74,7 @@ Adopt The Update Framework security model for the first-party updater repository
 - keep Root private keys offline with a threshold that does not reduce root trust to one private key;
 - keep release/Targets/Snapshot signing inside a protected release-publishing boundary and Timestamp signing in a narrowly scoped online freshness service; the Laravel web process receives no private signing key;
 - represent Oteryn application policy as a versioned channel-policy target authenticated by TUF metadata rather than inventing a second unsigned manifest protocol;
-- let TUF target metadata authenticate target length/hash while the Oteryn policy target carries the application semantics defined in the companion contract.
+- let TUF target metadata authenticate target length/hash while the Oteryn policy target carries the application semantics defined below.
 
 Security properties: reuses a mature role/freshness/version/delegation model for rollback, freeze and mix-and-match resistance; separates root recovery from frequently used release metadata; supports key rotation without treating HTTPS as publisher identity.
 
@@ -149,7 +149,7 @@ Security-relevant release ordering uses monotonically assigned channel-scoped re
 
 For one channel-policy generation, every supported platform/architecture artifact entry belongs to the same selected `current_release_id` and `current_release_sequence`. The client selects exactly one artifact entry matching its configured platform/architecture. Missing or revoked target entries fail unavailable; they never imply an older release, other architecture or other channel.
 
-The policy references TUF target paths/release identity; target length and cryptographic hashes come from trusted TUF target metadata rather than being redefined as a second authority inside the application policy.
+TUF target metadata supplies trusted target length and cryptographic hashes. Oteryn policy references exact logical target paths and does not redefine artifact-integrity authority.
 
 ## Proposed decision semantics
 
@@ -173,13 +173,14 @@ The policy references TUF target paths/release identity; target length and crypt
 - A beta artifact may be authorized in stable only through new stable-authorized metadata that references the exact immutable bytes/hash; promotion never mutates beta authority or history.
 - A release/target may not be removed in a way that breaks already-issued consistent metadata before the retention/rollback window is satisfied.
 
+The rollback marker is authenticated by the ordinary trusted channel publication authority; it is not a second independent approval. A stronger rollback approval threshold may be selected by the future TUF POUF/key policy.
+
 ## Signing and compromise boundary
 
 - Root trust is bootstrapped into the first-party updater and Root private-key custody is offline/threshold-controlled.
 - Stable and beta delegated target authority is cryptographically separable. A beta channel publishing credential must not authorize stable targets, while compromise of a higher delegating Targets authority remains a correspondingly larger security incident.
 - The Platform web runtime stores no private updater-signing key and cannot mint trusted updater metadata merely because an administrator can publish Download Center records.
-- The protected release-publishing system may consume an approved Platform release-policy snapshot, but generated metadata becomes updater-authoritative only after the required signatures and repository consistency checks exist.
-- Platform may store/serve public keys, signatures, metadata references and verified projections; those are not private-key custody.
+- The protected release-publishing system may consume an approved Platform release-policy snapshot, but generated metadata becomes updater-authoritative only after required signatures and repository consistency checks exist.
 - A compromised top-level non-Root role is recovered by Root-authorized role-key rotation. A compromised delegated channel role is recovered by newer metadata from its trusted delegating Targets authority. Threshold Root compromise is an out-of-band trust-recovery/security-incident condition, not an ordinary web-admin action.
 
 ## Publication/activation model
@@ -200,15 +201,15 @@ A release may remain visible as browser-only metadata without becoming updater-p
 
 A separately implementation-authorized task should own, in order:
 
-1. a TUF adoption POUF/profile, selected maintained client/repository implementation and threat-model validation;
-2. persistence for opaque channel-scoped release identity/sequence and signed updater-policy generations without reinterpreting historical browser-only versions;
-3. protected release-signing/repository publication integration outside the Laravel private-key boundary;
+1. a TUF adoption POUF/profile, maintained implementation selection and threat-model validation;
+2. persistence for opaque channel-scoped release identity/sequence, exact artifact identity and signed updater-policy generations without reinterpreting historical browser-only versions;
+3. protected release-signing/repository publication integration outside the Laravel signing-key boundary;
 4. Platform verification/import/activation of the exact signed generation;
 5. updater-facing immutable metadata distribution and browser/admin presentation of signed/unsigned state;
-6. first-party client bootstrap, persistent trusted metadata, failure UX and channel switching in its separately authorized repository;
+6. first-party client bootstrap, trusted local update state, failure UX and channel switching in its separately authorized repository;
 7. game-admission compatibility enforcement under the game-owned contract rather than trusting updater state as admission authority;
 8. key rotation, compromise, rollback, disaster-recovery and release-withdrawal runbooks;
-9. exact test/E2E evidence before any production activation claim.
+9. exact tests and E2E evidence before any production activation claim.
 
 ## Acceptance evidence required after decision
 
@@ -230,4 +231,3 @@ Repository owner: accept **Option A (TUF-based role-separated update repository)
 - `docs/architecture/MODULE_CATALOG.md`
 - `docs/architecture/PORTAL_COMPLETENESS_ARCHITECTURE.md`
 - `docs/architecture/SECURITY_ARCHITECTURE.md`
-- `docs/contracts/CLIENT_DISTRIBUTION_UPDATE_CONTRACT.md`
