@@ -67,8 +67,8 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-13T20:24:00+02:00
-head: 1ef8c3fef639033a4f1ce764c1b5c0e074bc62c4
+updated_at: 2026-08-13T20:18:00+02:00
+head: 05b2642b277530e2a5a79bc302af41496a52e603
 branch: feat/player-companion-session-analyzer-v1
 pr: 1028
 status: validating
@@ -106,8 +106,8 @@ unknown:
   - Exact-head CI and browser E2E result for the latest implementation generation.
 conflicts: []
 first_failure:
-  marker: none
-  evidence: none
+  marker: checkpoint-validation
+  evidence: The first workflow generation rejected an invalid checkpoint validation result before runtime tests.
 rejected_hypotheses:
   - Raw session logs must be persisted to provide history; normalized metrics are sufficient for v1 history.
   - A route reachable only by manually entering its URL is sufficient product discoverability; the Account Center now links to the analyzer.
@@ -129,11 +129,11 @@ changed_paths:
   - docs/agents/tasks/active/OTERYN-20260813-player-companion-session-analyzer-v1.md
 validation:
   - command: repository-selected PR workflows
-    result: RUNNING
-    evidence: PR 1028 exact-head generation is pending after implementation hardening
+    result: NOT_RUN
+    evidence: The first generation stopped at checkpoint validation; a corrected generation is required.
 blockers:
   - none
-next_action: inspect exact-head workflow results, repair only proven failures, then perform full-diff self-review and merge only when every required gate is green.
+next_action: validate the corrected exact head, repair only proven failures, then perform full-diff self-review and merge only when every required gate is green.
 ```
 
 ## Notes
