@@ -44,6 +44,7 @@ owned_paths:
   - app/Http/Requests/PlayerCompanion/**
   - database/migrations/2026_08_13_*player_companion_session_analyses*.php
   - resources/views/player-companion/**
+  - resources/views/identity/account/overview.blade.php
   - routes/modules/player-companion.php
   - tests/Unit/PlayerCompanion/**
   - tests/Feature/PlayerCompanion/**
@@ -66,11 +67,11 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-13T20:18:00+02:00
-head: 05b2642b277530e2a5a79bc302af41496a52e603
+updated_at: 2026-08-13T20:24:00+02:00
+head: 1ef8c3fef639033a4f1ce764c1b5c0e074bc62c4
 branch: feat/player-companion-session-analyzer-v1
-pr: none
-status: implementing
+pr: 1028
+status: validating
 context_routes:
   - architecture
   - web-cms
@@ -82,6 +83,7 @@ owned_paths:
   - app/Http/Requests/PlayerCompanion/**
   - database/migrations/2026_08_13_*player_companion_session_analyses*.php
   - resources/views/player-companion/**
+  - resources/views/identity/account/overview.blade.php
   - routes/modules/player-companion.php
   - tests/Unit/PlayerCompanion/**
   - tests/Feature/PlayerCompanion/**
@@ -93,20 +95,22 @@ owned_paths:
 proven:
   - main at task start is 638df04f616c93d80e33e1abf3f2cf0198163e7a.
   - PlayerCompanion SessionAnalysis is accepted architecture and P0 priority 1.
-  - No active task currently owns PlayerCompanion paths.
+  - No active task at claim time owned PlayerCompanion paths.
   - No repository search result showed an existing PlayerCompanion SessionAnalysis implementation to reuse.
-  - Initial implementation head 05b2642b277530e2a5a79bc302af41496a52e603 contains normalized persistence, parser, owner-private routes/controllers, EN/PL UI, unit tests and feature tests.
+  - PR 1028 is the sole delivery path for this task.
+  - Implementation includes normalized persistence, parser/formula versioning, private owner-scoped routes, raw-log non-retention, EN/PL UI, Account Center discoverability, bounded validation, focused tests and a zero-retry browser journey.
+  - Parser hardening rejects duplicate participants, more than 20 participants, decimal/ambiguous metrics and partial participant aggregates presented as complete totals.
 derived:
-  - A first v1 can remain Platform-only and avoid Canary/Oteryn-v2 access because session text is user-supplied and analysis is advisory.
+  - V1 remains Platform-only and avoids Canary/Oteryn-v2 access because session text is user-supplied and analysis is advisory.
 unknown:
-  - Focused and repository CI results for the implementation head.
-  - Exact existing acceptance-test helper pattern to reuse for final browser E2E.
+  - Exact-head CI and browser E2E result for the latest implementation generation.
 conflicts: []
 first_failure:
   marker: none
   evidence: none
 rejected_hypotheses:
   - Raw session logs must be persisted to provide history; normalized metrics are sufficient for v1 history.
+  - A route reachable only by manually entering its URL is sufficient product discoverability; the Account Center now links to the analyzer.
 changed_paths:
   - app/PlayerCompanion/Models/SessionAnalysis.php
   - app/PlayerCompanion/SessionAnalysis/SessionLogParser.php
@@ -116,18 +120,20 @@ changed_paths:
   - routes/modules/player-companion.php
   - resources/views/player-companion/session-analyses/index.blade.php
   - resources/views/player-companion/session-analyses/show.blade.php
+  - resources/views/identity/account/overview.blade.php
   - lang/en/player_companion.php
   - lang/pl/player_companion.php
   - tests/Unit/PlayerCompanion/SessionLogParserTest.php
   - tests/Feature/PlayerCompanion/SessionAnalysisFeatureTest.php
+  - scripts/acceptance/tests/player-companion-session-analyzer.spec.mjs
   - docs/agents/tasks/active/OTERYN-20260813-player-companion-session-analyzer-v1.md
 validation:
-  - command: focused tests
-    result: NOT_RUN
-    evidence: remote validation not started yet
+  - command: repository-selected PR workflows
+    result: RUNNING
+    evidence: PR 1028 exact-head generation is pending after implementation hardening
 blockers:
   - none
-next_action: open the draft PR, run focused/repository validation, then repair any exact failures before adding the real browser E2E.
+next_action: inspect exact-head workflow results, repair only proven failures, then perform full-diff self-review and merge only when every required gate is green.
 ```
 
 ## Notes
