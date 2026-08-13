@@ -120,12 +120,11 @@ final class SessionLogParser
             throw new InvalidArgumentException('missing_session_duration');
         }
 
-        foreach ($participants as &$participant) {
+        foreach ($participants as $index => $participant) {
             if ($participant['balance_value'] === null && $participant['loot_value'] !== null && $participant['supplies_value'] !== null) {
-                $participant['balance_value'] = $participant['loot_value'] - $participant['supplies_value'];
+                $participants[$index]['balance_value'] = $participant['loot_value'] - $participant['supplies_value'];
             }
         }
-        unset($participant);
 
         $loot = $summary['loot_value'] ?? $this->completeParticipantMetric($participants, 'loot_value');
         $supplies = $summary['supplies_value'] ?? $this->completeParticipantMetric($participants, 'supplies_value');
