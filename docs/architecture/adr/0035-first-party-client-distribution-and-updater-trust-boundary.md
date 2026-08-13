@@ -101,6 +101,20 @@ Benefits: operationally simple publication path.
 
 Costs: expands a web-application compromise into software-update signing compromise, couples ordinary administration to key custody and conflicts with least privilege. Rejected.
 
+### Trade-off matrix
+
+| Criterion | Option A — TUF | Option B — custom signed envelope | Option C — HTTPS/checksum | Option D — web signing |
+|---|---|---|---|---|
+| Publisher-authenticated metadata | Strong, role-separated | Strong only if the custom protocol is designed correctly | Insufficient | Strong cryptographically, weak trust placement |
+| Rollback/freeze/mix-and-match resistance | Native framework semantics | Must be designed and proven by Oteryn | Missing | Must be designed and proven by Oteryn |
+| Channel isolation | Delegated non-overlapping authority | Custom key/scope policy required | Application convention only | Application convention/key policy |
+| Web-compromise blast radius | Web runtime has no signing authority | Web runtime can remain outside signing | Mutable web policy remains authoritative | Web compromise reaches updater signing authority |
+| Key rotation/recovery | Role/threshold model | Custom protocol/runbooks | Not an updater signing model | Custom protocol/runbooks |
+| Initial implementation complexity | Highest | Medium | Lowest | Medium |
+| Long-term protocol maintenance | Reuse maintained security model | Oteryn owns security-protocol evolution | Low code cost but unacceptable security gap | Oteryn owns protocol plus larger compromise surface |
+| Reversibility/migration | Requires client TUF bootstrap but supports later role/key evolution | Easier first bootstrap; later migration may be disruptive | Easy to start, expensive to secure later | Key-custody migration required to reduce web authority |
+| Recommendation | **Preferred** | Fallback only if TUF feasibility is disproven | Reject | Reject |
+
 ## Recommendation
 
 Choose **Option A**.
