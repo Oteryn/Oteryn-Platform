@@ -52,6 +52,8 @@ owned_paths:
   - scripts/acceptance/coverage/portal-coverage-manifest.json
   - scripts/acceptance/coverage/portal-evidence-dimensions/identity.json
   - docs/testing/PORTAL_MEDIA_STATE_EVIDENCE.json
+  - docs/testing/PORTAL_CONTENT_SCALE_EVIDENCE.json
+  - scripts/acceptance/coverage/test-portal-content-scale-evidence.mjs
   - lang/en/player_companion.php
   - lang/pl/player_companion.php
   - docs/agents/tasks/active/OTERYN-20260813-player-companion-session-analyzer-v1.md
@@ -94,6 +96,8 @@ owned_paths:
   - scripts/acceptance/coverage/portal-coverage-manifest.json
   - scripts/acceptance/coverage/portal-evidence-dimensions/identity.json
   - docs/testing/PORTAL_MEDIA_STATE_EVIDENCE.json
+  - docs/testing/PORTAL_CONTENT_SCALE_EVIDENCE.json
+  - scripts/acceptance/coverage/test-portal-content-scale-evidence.mjs
   - lang/en/player_companion.php
   - lang/pl/player_companion.php
   - docs/agents/tasks/active/OTERYN-20260813-player-companion-session-analyzer-v1.md
@@ -135,6 +139,8 @@ changed_paths:
   - scripts/acceptance/coverage/portal-coverage-manifest.json
   - scripts/acceptance/coverage/portal-evidence-dimensions/identity.json
   - docs/testing/PORTAL_MEDIA_STATE_EVIDENCE.json
+  - docs/testing/PORTAL_CONTENT_SCALE_EVIDENCE.json
+  - scripts/acceptance/coverage/test-portal-content-scale-evidence.mjs
   - docs/agents/tasks/active/OTERYN-20260813-player-companion-session-analyzer-v1.md
 validation:
   - command: repository-selected PR workflows
