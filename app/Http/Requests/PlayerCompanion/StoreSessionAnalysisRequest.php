@@ -2,8 +2,8 @@
 
 namespace App\Http\Requests\PlayerCompanion;
 
+use Illuminate\Contracts\Validation\Validator;
 use Illuminate\Foundation\Http\FormRequest;
-use Illuminate\Validation\Validator;
 
 final class StoreSessionAnalysisRequest extends FormRequest
 {
@@ -39,13 +39,5 @@ final class StoreSessionAnalysisRequest extends FormRequest
         return [
             'session_log.max' => __('player_companion.payload_too_large'),
         ];
-    }
-
-    protected function failedValidation(Validator $validator): void
-    {
-        // Raw pasted session text is private input. Never flash it into the session on validation failure.
-        $this->request->remove('session_log');
-
-        parent::failedValidation($validator);
     }
 }

@@ -75,6 +75,7 @@ final class SessionLogParser
                     'damage' => null,
                     'healing' => null,
                 ];
+
                 continue;
             }
 
@@ -88,6 +89,7 @@ final class SessionLogParser
             if ($key === 'session') {
                 $summary['session_seconds'] ??= $this->parseDuration($value);
                 $participantIndex = null;
+
                 continue;
             }
 
@@ -109,6 +111,7 @@ final class SessionLogParser
 
             if ($participantIndex !== null && $field !== 'experience_gain') {
                 $participants[$participantIndex][$field] = $number;
+
                 continue;
             }
 
@@ -239,7 +242,7 @@ final class SessionLogParser
      * Return a participant-derived aggregate only when every participant supplied the metric.
      * Partial values remain unknown instead of being presented as a complete total.
      *
-     * @param list<array{name:string,loot_value:int|null,supplies_value:int|null,balance_value:int|null,damage:int|null,healing:int|null}> $participants
+     * @param  list<array{name:string,loot_value:int|null,supplies_value:int|null,balance_value:int|null,damage:int|null,healing:int|null}>  $participants
      */
     private function completeParticipantMetric(array $participants, string $field): ?int
     {
@@ -269,7 +272,7 @@ final class SessionLogParser
     }
 
     /**
-     * @param list<array{name:string,loot_value:int|null,supplies_value:int|null,balance_value:int|null,damage:int|null,healing:int|null}> $participants
+     * @param  list<array{name:string,loot_value:int|null,supplies_value:int|null,balance_value:int|null,damage:int|null,healing:int|null}>  $participants
      * @return list<array{from:string,to:string,amount:int}>
      */
     private function settlements(array $participants): array
