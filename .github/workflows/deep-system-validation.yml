@@ -177,7 +177,7 @@ jobs:
             storage/framework/sessions \
             storage/framework/views
           composer install --no-interaction --prefer-dist --no-progress
-          npm --prefix scripts/acceptance install --no-audit --no-fund
+          npm --prefix scripts/acceptance ci --no-audit --no-fund
           cd scripts/acceptance
           npx playwright install --with-deps chromium firefox webkit
           echo "APP_KEY=$(php -r 'echo "base64:".base64_encode(random_bytes(32));')" >> "$GITHUB_ENV"

@@ -7,6 +7,8 @@ on:
       - AGENTS.override.md
       - docs/agents/**
       - tools/agents/**
+      - tools/validation/prompt_eval.py
+      - tools/validation/test_prompt_eval.py
       - .github/workflows/agent-governance.yml
   push:
     branches:
@@ -16,6 +18,8 @@ on:
       - AGENTS.override.md
       - docs/agents/**
       - tools/agents/**
+      - tools/validation/prompt_eval.py
+      - tools/validation/test_prompt_eval.py
       - .github/workflows/agent-governance.yml
   workflow_dispatch:
 
@@ -53,6 +57,12 @@ jobs:
 
       - name: Validate cross-document policy consistency
         run: python tools/agents/policy_consistency.py
+
+      - name: Run prompt contract evaluator tests
+        run: python tools/validation/test_prompt_eval.py
+
+      - name: Validate prompt contract suite
+        run: python tools/validation/prompt_eval.py
 
       - name: Validate active task checkpoints
         shell: bash

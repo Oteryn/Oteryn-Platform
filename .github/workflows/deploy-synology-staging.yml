@@ -11,13 +11,12 @@ on:
           - deploy
           - rollback
         default: deploy
-      release_tag:
-        description: Platform/Gateway GHCR tag (prefer sha-<full-commit-sha>)
-        required: true
+      release_sha:
+        description: Full 40-character Platform commit SHA; required for deploy and resolved through sha-<SHA> GHCR tags
+        required: false
         type: string
-        default: main
       canary_image:
-        description: Full compatible prebuilt Canary image reference; required for deploy
+        description: Full compatible prebuilt Canary image reference; required for deploy and resolved to an immutable digest
         required: false
         type: string
       canary_game_bind_address:
@@ -105,7 +104,7 @@ jobs:
       - name: Validate deployment configuration
         env:
           DEPLOY_ACTION: ${{ inputs.action }}
-          RELEASE_TAG: ${{ inputs.release_tag }}
+          RELEASE_SHA: ${{ inputs.release_sha }}
           CANARY_IMAGE_INPUT: ${{ inputs.canary_image }}
           CANARY_GAME_BIND_ADDRESS_INPUT: ${{ inputs.canary_game_bind_address }}
           GAME_WORLD_ID_INPUT: ${{ inputs.game_world_id }}
@@ -117,8 +116,12 @@ jobs:
         run: |
           set -euo pipefail
 
-          if [[ ! "$RELEASE_TAG" =~ ^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$ ]]; then
-            echo "release_tag is not a valid bounded Docker tag." >&2
+          if [[ "$DEPLOY_ACTION" == "deploy" && ! "$RELEASE_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "release_sha is required for deploy and must be an exact lower-case 40-character Git commit SHA." >&2
+            exit 1
+          fi
+          if [[ -n "$RELEASE_SHA" && ! "$RELEASE_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "release_sha must be empty or an exact lower-case 40-character Git commit SHA." >&2
             exit 1
           fi
           if [[ "$DEPLOY_ACTION" == "deploy" ]] && { [[ -z "$CANARY_IMAGE_INPUT" ]] || [[ ! "$CANARY_IMAGE_INPUT" =~ ^[A-Za-z0-9./:@_-]+$ ]]; }; then
@@ -235,10 +238,89 @@ jobs:
             fi
           done
 
+      - name: Resolve immutable runtime image digests
+        id: release_images
+        if: inputs.action == 'deploy'
+        env:
+          RELEASE_SHA: ${{ inputs.release_sha }}
+          CANARY_IMAGE_INPUT: ${{ inputs.canary_image }}
+        run: |
+          set -euo pipefail
+          release_tag="sha-${RELEASE_SHA}"
+          platform_tag="ghcr.io/blakinio/oteryn-platform:${release_tag}"
+          gateway_tag="ghcr.io/blakinio/oteryn-game-gateway:${release_tag}"
+
+          docker pull "$platform_tag" >/dev/null
+          docker pull "$gateway_tag" >/dev/null
+          docker pull "$CANARY_IMAGE_INPUT" >/dev/null
+
+          resolve_expected_digest_ref() {
+            local tag_ref="$1"
+            local expected_repo="$2"
+            local candidate digest
+            while IFS= read -r candidate; do
+              [[ -n "$candidate" ]] || continue
+              if [[ "$candidate" == "$expected_repo"@sha256:* ]]; then
+                digest="${candidate#*@sha256:}"
+                if [[ "$digest" =~ ^[0-9a-f]{64}$ ]]; then
+                  printf '%s\n' "$candidate"
+                  return 0
+                fi
+              fi
+            done < <(docker image inspect --format '{{range .RepoDigests}}{{println .}}{{end}}' "$tag_ref")
+            echo "Unable to resolve immutable digest for $tag_ref." >&2
+            return 1
+          }
+
+          resolve_any_digest_ref() {
+            local tag_ref="$1"
+            local candidate digest
+            while IFS= read -r candidate; do
+              [[ -n "$candidate" ]] || continue
+              if [[ "$candidate" == *@sha256:* ]]; then
+                digest="${candidate#*@sha256:}"
+                if [[ "$digest" =~ ^[0-9a-f]{64}$ ]]; then
+                  printf '%s\n' "$candidate"
+                  return 0
+                fi
+              fi
+            done < <(docker image inspect --format '{{range .RepoDigests}}{{println .}}{{end}}' "$tag_ref")
+            echo "Unable to resolve immutable digest for $tag_ref." >&2
+            return 1
+          }
+
+          platform_revision="$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "$platform_tag")"
+          gateway_revision="$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "$gateway_tag")"
+          if [[ "$platform_revision" != "$RELEASE_SHA" || "$gateway_revision" != "$RELEASE_SHA" ]]; then
+            echo "Platform/Gateway OCI revision labels must exactly match release_sha before deployment." >&2
+            exit 1
+          fi
+
+          platform_ref="$(resolve_expected_digest_ref "$platform_tag" 'ghcr.io/blakinio/oteryn-platform')"
+          gateway_ref="$(resolve_expected_digest_ref "$gateway_tag" 'ghcr.io/blakinio/oteryn-game-gateway')"
+          canary_ref="$(resolve_any_digest_ref "$CANARY_IMAGE_INPUT")"
+
+          {
+            printf 'platform_ref=%s\n' "$platform_ref"
+            printf 'gateway_ref=%s\n' "$gateway_ref"
+            printf 'canary_ref=%s\n' "$canary_ref"
+          } >> "$GITHUB_OUTPUT"
+
+          {
+            echo '### Immutable staging release identity'
+            echo
+            echo "- source commit: \`$RELEASE_SHA\`"
+            echo "- Platform: \`$platform_ref\`"
+            echo "- Gateway: \`$gateway_ref\`"
+            echo "- Canary: \`$canary_ref\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
       - name: Write ephemeral staging environment
         env:
-          RELEASE_TAG: ${{ inputs.release_tag }}
-          CANARY_IMAGE_INPUT: ${{ inputs.canary_image }}
+          RELEASE_SHA: ${{ inputs.release_sha }}
+          PLATFORM_IMAGE_REF: ${{ steps.release_images.outputs.platform_ref }}
+          GATEWAY_IMAGE_REF: ${{ steps.release_images.outputs.gateway_ref }}
+          CANARY_IMAGE_REF: ${{ steps.release_images.outputs.canary_ref }}
           CANARY_GAME_BIND_ADDRESS_INPUT: ${{ inputs.canary_game_bind_address }}
           GAME_WORLD_ID_INPUT: ${{ inputs.game_world_id }}
           GAME_WORLD_SLUG_INPUT: ${{ inputs.game_world_slug }}
@@ -251,7 +333,11 @@ jobs:
           umask 077
           state_dir="${OTERYN_STATE_DIR_INPUT:-/var/lib/oteryn-staging-state}"
           app_url="${APP_URL_INPUT:-$CANONICAL_PUBLIC_APP_URL}"
-          canary_image="${CANARY_IMAGE_INPUT:-rollback-placeholder}"
+          platform_image="${PLATFORM_IMAGE_REF:-rollback-placeholder}"
+          gateway_image="${GATEWAY_IMAGE_REF:-rollback-placeholder}"
+          canary_image="${CANARY_IMAGE_REF:-rollback-placeholder}"
+          release_version="${RELEASE_SHA:+sha-$RELEASE_SHA}"
+          release_version="${release_version:-rollback}"
 
           cat > deploy/synology/.env <<EOF
           COMPOSE_PROJECT_NAME=oteryn-staging
@@ -269,8 +355,8 @@ jobs:
           GAME_WORLD_REGION=$GAME_WORLD_REGION_INPUT
           GAME_WORLD_HOST=$CANARY_GAME_BIND_ADDRESS_INPUT
           GAME_WORLD_PORT=7172
-          PLATFORM_IMAGE=ghcr.io/blakinio/oteryn-platform:$RELEASE_TAG
-          GATEWAY_IMAGE=ghcr.io/blakinio/oteryn-game-gateway:$RELEASE_TAG
+          PLATFORM_IMAGE=$platform_image
+          GATEWAY_IMAGE=$gateway_image
           CANARY_IMAGE=$canary_image
           APP_NAME=Oteryn Platform Staging
           APP_ENV=staging
@@ -306,7 +392,7 @@ jobs:
           CANARY_TEST_ACCOUNTS=false
           CANARY_DATA_PACK=data-otservbr-global
           CANARY_MAP_URL=https://github.com/opentibiabr/canary/releases/download/v3.6.1/otservbr.otbm
-          GATEWAY_VERSION=$RELEASE_TAG
+          GATEWAY_VERSION=$release_version
           OTERYN_STATE_DIR=$state_dir
           EOF
           chmod 600 deploy/synology/.env

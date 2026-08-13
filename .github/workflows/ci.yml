@@ -39,6 +39,24 @@ jobs:
           python tests/ci/test_push_change_routing.py
           python tests/ci/test_required_test_gate.py
           python tests/ci/test_workflow_trigger_economy.py
+          python tests/ci/test_acceptance_lockfile_contract.py
+          python tests/ci/test_game_catalog_cross_repo_trigger.py
+          python tests/ci/test_synology_deploy_release_identity.py
+
+      - name: Validate Integration execution registry
+        run: |
+          python tools/validation/test_verify_integration_test_registration.py
+          python tools/validation/verify_integration_test_registration.py
+
+      - name: Validate deterministic prompt contracts
+        run: |
+          python tools/validation/test_prompt_eval.py
+          python tools/validation/prompt_eval.py
+
+      - name: Validate workflow inventory
+        run: |
+          python tools/validation/test_workflow_inventory.py
+          python tools/validation/workflow_inventory.py
 
       - name: Validate active task checkpoint contract
         shell: bash

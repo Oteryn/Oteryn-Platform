@@ -1,6 +1,13 @@
 name: Game Catalog Contract
 
 on:
+  workflow_dispatch:
+    inputs:
+      run_cross_repository_staging:
+        description: Run the pinned Canary cross-repository staging import/activate/rollback proof
+        required: true
+        type: boolean
+        default: false
   push:
     branches:
       - main
@@ -146,7 +153,7 @@ jobs:
 
   cross-repository-staging:
     name: Canary staging import activation rollback
-    if: github.event_name == 'pull_request' && github.event.pull_request.number == 272
+    if: github.event_name == 'workflow_dispatch' && inputs.run_cross_repository_staging
     needs: [validate-contract, static-analysis]
     runs-on: ubuntu-latest
     timeout-minutes: 45
