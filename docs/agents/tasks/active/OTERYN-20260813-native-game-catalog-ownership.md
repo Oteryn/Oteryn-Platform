@@ -55,7 +55,7 @@ cross_repository_tasks:
 ```yaml
 checkpoint_version: 1
 updated_at: 2026-08-13T21:40:00+02:00
-head: e4dab032387b9a4c3fa86fd52b1b74f2bd2529c5
+head: UNKNOWN
 branch: docs/OTERYN-20260813-native-game-catalog-ownership
 pr: 1034
 status: validating
@@ -86,13 +86,23 @@ unknown:
   - Exact external native identity forms, capability taxonomy, transport, serialization and producer implementation remain deferred.
 conflicts: []
 first_failure:
-  marker: none
-  evidence: no validation failure after task-record normalization
+  marker: stale-checkpoint-head
+  evidence: PR review on df5127d9012f9f21eec01afbe7da10c02a003fbd found that the checkpoint retained the pre-change main SHA and pending path inventory.
 rejected_hypotheses:
   - Platform snapshot persistence transfers executable game-content authority.
   - Canary canonical keys and schemas can define the native domain model.
 changed_paths:
-  - pending exact diff
+  - docs/agents/programs/OTERYN_PLATFORM_ARCHITECTURE_REVIEW.md
+  - docs/agents/tasks/active/OTERYN-20260813-native-game-catalog-ownership.md
+  - docs/architecture/ARCHITECTURE_AUTHORITY.md
+  - docs/architecture/DATA_OWNERSHIP.md
+  - docs/architecture/GAME_CATALOG_ARCHITECTURE.md
+  - docs/architecture/MODULE_CATALOG.md
+  - docs/architecture/OTERYN_V2_INTEGRATION_ARCHITECTURE.md
+  - docs/architecture/adr/0034-native-game-catalog-content-ownership.md
+  - docs/architecture/adr/README.md
+  - docs/contracts/GAME_CATALOG_IMPORT_CONTRACT.md
+  - docs/contracts/OTERYN_V2_GAME_CATALOG_CONTENT_CONTRACT.md
 validation: []
 blockers: []
 next_action: Validate the architecture package, publish the task branch and complete exact-head review.

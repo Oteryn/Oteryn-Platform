@@ -67,7 +67,7 @@ Missing data is not a tombstone. An incomplete capability cannot prove absence. 
 6. Rebuild projections from the activated snapshot and preserve its identity/revision.
 7. Roll back atomically to a retained validated snapshot when its authority epoch remains applicable.
 
-Automatic import never means automatic activation. A restore, replay or delayed artifact cannot lower the active high-water authority revision within the same epoch without an explicit disaster-recovery decision and audit.
+Automatic import never means automatic activation. Platform requires authoritative proof that an epoch is current before activation. After accepting a transition to a newer epoch, it permanently fences the retired epoch and rejects its snapshots regardless of their revision. A restore, replay or delayed artifact cannot lower the active high-water revision within the current epoch. Re-entering a retired epoch is permitted only through an explicit audited disaster-recovery transition that names the target epoch/snapshot, authority evidence, scope and rollback plan; ordinary import or rollback cannot perform it.
 
 ## Multiple sources and editorial metadata
 
@@ -77,7 +77,7 @@ Reviewed Platform metadata may supplement only allowlisted presentation fields. 
 
 ## Legacy Canary Compatibility
 
-`GAME_CATALOG_IMPORT_CONTRACT.md`, schemas `1.0.0`–`1.3.0`, programme #330 and draft PR #338 remain current Canary compatibility artifacts. Their final-registry assumptions and canonical keys remain correct only for that source profile.
+`GAME_CATALOG_IMPORT_CONTRACT.md` and supported schemas `1.0.0`–`1.2.0` remain current Canary compatibility artifacts. Programme #330 and draft PR #338 carry proposed schema `1.3.0`; it remains inactive and non-authoritative until its separate consumer/producer compatibility gate is terminal. Final-registry assumptions and canonical keys are valid only for the exact supported Canary source profile/schema.
 
 Compatibility adapters must:
 
@@ -114,5 +114,5 @@ The external producer owner must separately select exact identity forms, capabil
 3. One profile never exposes records from two co-authoritative content sources.
 4. Partial/stale/unavailable evidence never becomes authoritative absence.
 5. Activation and rollback are exact-snapshot, transactional and auditable.
-6. Delayed/replayed evidence cannot silently lower accepted authority revision.
+6. Delayed/replayed evidence cannot silently lower accepted authority revision or reactivate a retired authority epoch.
 7. Compatibility remains explicit and removable without changing the native contract.
