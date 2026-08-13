@@ -1,7 +1,11 @@
 name: Immutable Actions Pin Migration
 
 on:
-  workflow_dispatch:
+  push:
+    branches:
+      - ci/immutable-actions-pinning-1008
+    paths:
+      - '.github/workflows/immutable-actions-pin-migration.yml'
 
 permissions:
   contents: write
