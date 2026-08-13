@@ -75,7 +75,7 @@ modules:
 dependencies:
   - Issue #1002
 blockers:
-  - exact-head applicable GitHub Actions generation is still running
+  - checkpoint-successor exact-head GitHub Actions must finish after repairing the invalid validation-result enum
 cross_repository_tasks:
   - none
 ```
@@ -84,11 +84,11 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-13T09:19:00+02:00
-head: b747d139d353519c7fbc9a8b387d7c67910cce3d
+updated_at: 2026-08-13T09:23:00+02:00
+head: 621945909067435e6764b5d96801cbda498b32ce
 branch: fix/engineering-excellence-hardening
 pr: 1003
-status: waiting
+status: validating
 context_routes:
   - testing
   - agent-governance
@@ -120,15 +120,16 @@ proven:
   - The complete PR diff and all acceptance criteria were re-audited after synchronization; no material P1/P2 finding remains in the material head.
   - Every GitHub review thread on PR #1003 is resolved.
   - Trusted-base AGENTS.override.md and REMEDIATION_AUDIT_RISK_GATE.md both declare external_repair_auditor_required: false. Issue #1002 requires exact-head self-review/CI, not a Codex review. Therefore historical PR/task narrative naming Codex as a merge gate is superseded by the controlling remediation policy; no owner-funded Codex use is required or authorized for this closeout.
+  - Agent Governance run 31677373605 on checkpoint-only head 621945909067435e6764b5d96801cbda498b32ce failed only at active-task checkpoint validation because validation item 4 used unsupported result PENDING; checkpoint tests, liveness tests, Control Room tests, policy consistency, prompt-eval tests/live suite, live ownership and Control Room rendering all passed.
 derived:
   - The two user-facing audit findings are repaired and regression-hardened beyond the original substring checks.
-  - The remaining stop condition is hosted exact-head validation, not implementation or review remediation.
+  - The Agent Governance failure on 621945909067435e6764b5d96801cbda498b32ce is checkpoint metadata schema drift, not an implementation or governance-code regression.
 unknown:
-  - Terminal result of the still-running applicable workflow generation on material head b747d139d353519c7fbc9a8b387d7c67910cce3d and of the checkpoint-only successor generation selected by repository path routing.
+  - Terminal result of the new checkpoint-successor exact-head workflow generation after replacing unsupported PENDING with a contract-supported validation state.
 conflicts: []
 first_failure:
-  marker: none-current
-  evidence: all material audit findings were repaired before this checkpoint; hosted validation is pending rather than failed
+  marker: checkpoint-validation-result-enum
+  evidence: Agent Governance run 31677373605 job 94374803104 rejected validation item 4 result PENDING; allowed values are BLOCKED, FAIL, NOT_APPLICABLE, NOT_RUN and PASS
 rejected_hypotheses:
   - Any occurrence of the PHPUnit test path in a job proves execution.
   - A commented or inline-comment workflow_dispatch input/condition is executable configuration.
@@ -137,6 +138,7 @@ rejected_hypotheses:
   - Writing GITHUB_ENV in the proving step makes the variable available retroactively to that same step.
   - `vendor/bin/phpunit ... || true` or a pipeline without pipefail is a proving command.
   - A fresh Codex review is mandatory for this remediation despite the trusted-base one-owner self-review policy explicitly setting external_repair_auditor_required: false.
+  - The Agent Governance failure on 621945909067435e6764b5d96801cbda498b32ce indicates a product, validator or policy-consistency regression; the failed step and logs isolate it to an invalid checkpoint validation enum.
 changed_paths:
   - .github/dependabot.yml
   - .github/workflows/agent-governance.yml
@@ -170,11 +172,14 @@ validation:
     result: PASS
     evidence: exact-head Agent Governance completed successfully
   - command: aggregate applicable workflows on b747d139d353519c7fbc9a8b387d7c67910cce3d
-    result: PENDING
-    evidence: observations 1 and 2 found 17 emitted workflows; Agent Governance was PASS and remaining CI/E2E/build/validation runs were queued/in-progress with no observed failure
+    result: BLOCKED
+    evidence: observations 1 and 2 found 17 emitted workflows; Agent Governance was PASS and remaining CI/E2E/build/validation runs were queued/in-progress with no observed failure, so terminal classification was blocked by running workflows
+  - command: Agent Governance run 31677373605 on checkpoint-only head 621945909067435e6764b5d96801cbda498b32ce
+    result: FAIL
+    evidence: active-task checkpoint validation rejected unsupported result PENDING; all preceding governance/policy/prompt tests and subsequent live-liveness checks passed
 blockers:
-  - ordinary exact-head CI observation budget is exhausted while workflows remain non-terminal
-next_action: On continuation, inspect the live checkpoint-successor PR head and its applicable exact-head generation; investigate any terminal failure, otherwise complete merge/Issue/archive closeout when repository gates are green.
+  - new checkpoint-successor exact-head GitHub Actions generation must pass after this checkpoint schema repair
+next_action: Inspect the live PR #1003 successor head after this checkpoint repair, investigate any terminal failure, otherwise complete merge, Issue #1002 closure and task archival when repository gates are green.
 ```
 
 ## Recovery checkpoint
@@ -182,41 +187,41 @@ next_action: On continuation, inspect the live checkpoint-successor PR head and 
 ```yaml
 recovery:
   policy_version: 1
-  generation: 8
-  session_id: chatgpt-20260813-pr1003-repair
-  session_started_at: 2026-08-13T08:55:00+02:00
-  checkpointed_at: 2026-08-13T09:19:00+02:00
-  last_progress_at: 2026-08-13T09:19:00+02:00
-  phase: final-exact-head-validation
-  exact_head: b747d139d353519c7fbc9a8b387d7c67910cce3d
+  generation: 9
+  session_id: chatgpt-20260813-pr1003-closeout
+  session_started_at: 2026-08-13T09:23:00+02:00
+  checkpointed_at: 2026-08-13T09:23:00+02:00
+  last_progress_at: 2026-08-13T09:23:00+02:00
+  phase: checkpoint-schema-repair
+  exact_head: 621945909067435e6764b5d96801cbda498b32ce
   pull_request: 1003
-  active_operation: applicable GitHub Actions generation running for the material head
+  active_operation: repair unsupported checkpoint validation result and observe successor exact-head gates
   external_run_ids:
-    - 31677042915
-    - 31677042973
-    - 31677042946
-    - 31677042951
-    - 31677042916
-    - 31677042939
-    - 31677042947
-    - 31677043003
-    - 31677042972
-    - 31677042975
-    - 31677042919
-    - 31677042917
-    - 31677042952
-    - 31677043134
-    - 31677042948
-    - 31677042933
-    - 31677042914
-  operation_started_at: 2026-08-13T09:15:40+02:00
-  wait_deadline_at: 2026-08-13T10:00:40+02:00
-  check_generation: final-material-b747d139
-  checks_used: 2
-  status: waiting
+    - 31677373605
+    - 31677373407
+    - 31677376535
+    - 31677373841
+    - 31677373409
+    - 31677373992
+    - 31677373837
+    - 31677373570
+    - 31677374095
+    - 31677373593
+    - 31677373254
+    - 31677373884
+    - 31677373210
+    - 31677373121
+    - 31677373107
+    - 31677373179
+    - 31677373093
+  operation_started_at: 2026-08-13T09:23:00+02:00
+  wait_deadline_at: 2026-08-13T10:08:00+02:00
+  check_generation: checkpoint-schema-repair
+  checks_used: 1
+  status: active
   safe_to_resume: true
-  resume_condition: live PR successor exact head and applicable workflow generation are terminal enough to classify
-  next_action: inspect the live PR #1003 successor head and reconcile its exact-head workflow generation before merge
+  resume_condition: successor exact head is stable and required checks can be classified
+  next_action: inspect successor exact-head workflows after checkpoint schema repair
 ```
 
 ## Self-review
@@ -237,11 +242,12 @@ self_review:
     - all PR review threads are resolved
     - current protected main generation was merged without history rewrite
     - deployment/preflight producer-consumer identity semantics were checked together
+    - checkpoint-only successors after the material head change only durable lifecycle evidence and do not alter implementation behavior
 ```
 
 ## E2E
 
-Applicable exact-head hosted E2E is emitted as part of the current PR workflow generation and remains pending at this checkpoint. Repository/static checks do not substitute for its terminal result.
+Applicable exact-head hosted E2E is emitted as part of the PR workflow generation. The checkpoint schema repair itself does not change product/runtime behavior; terminal successor checks remain required before merge.
 
 ## Notes
 
