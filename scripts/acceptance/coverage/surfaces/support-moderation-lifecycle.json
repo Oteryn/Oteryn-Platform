@@ -76,7 +76,9 @@
         "mobile-390x844"
       ],
       "browsers": [
-        "chromium-primary"
+        "chromium-primary",
+        "firefox-bounded",
+        "webkit-bounded"
       ],
       "evidence_layers": [
         "feature",
