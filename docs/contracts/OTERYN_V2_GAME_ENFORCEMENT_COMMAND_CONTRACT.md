@@ -37,6 +37,7 @@ The semantic envelope preserves:
 ```text
 GameEnforcementCommand
   operation_id
+  sanction_stream_id
   command_family
   command_semantic_version
   policy_revision
@@ -83,10 +84,13 @@ Unsupported family/version/profile/scope fails closed before a privileged effect
 
 `operation_id` identifies one semantic attempt. The producer records a semantic fingerprint on first acceptance.
 
+`sanction_stream_id` is the stable identity of one authoritative sanction lineage for one target and independently ordered restriction. It remains unchanged across later replace, revoke, expire and reconcile operations for that lineage. A target may have multiple independent streams; operation identity, target identity, profile name, scope and timestamps cannot substitute for the stream identity. The exact creator/derivation is deferred to the producer contract, but it must be deterministic or authoritatively allocated, collision-resistant within the target authority and returned with every result.
+
 - exact retries use the same operation identity and converge on the same state/result;
 - a materially different payload under the same identity fails closed;
 - timeout or response loss never causes Platform to mint a replacement operation while the first may still apply;
 - a new moderator decision uses a new operation identity and a strictly newer `decision_revision` for the same authoritative sanction stream;
+- a command cannot replace, revoke or expire a different stream, and ambiguous/missing stream identity fails closed;
 - appeal submission alone is not a revoke command; only an authorized appeal outcome creates a newer decision.
 
 At-least-once delivery is assumed. Exactly-once network delivery is not.
