@@ -29,10 +29,13 @@ jobs:
           git diff --check
           git diff -- .github/workflows > immutable-actions-pins.patch
 
-      - name: Upload bounded migration patch
+      - name: Upload bounded transformed workflows
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: immutable-actions-pins-${{ github.sha }}
-          path: immutable-actions-pins.patch
+          name: immutable-actions-workflows-${{ github.sha }}
+          path: |
+            immutable-actions-pins.patch
+            .github/workflows
           if-no-files-found: error
+          include-hidden-files: true
           retention-days: 3
