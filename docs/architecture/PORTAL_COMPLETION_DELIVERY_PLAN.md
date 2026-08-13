@@ -10,6 +10,7 @@ Companion records:
 
 - review: `docs/agents/reports/OTERYN-20260810-portal-architecture-product-review.md`;
 - programme: `docs/agents/programs/OTERYN_PORTAL_COMPLETION.md`;
+- work allocation: `docs/agents/programs/OTERYN_PORTAL_COMPLETION_WORK_ALLOCATION.md`;
 - worker prompt: `docs/agents/prompts/OTERYN-PORTAL-COMPLETION-EXECUTION-PROMPT.md`;
 - short alias: `PORTAL-CLOSEOUT`.
 
@@ -27,6 +28,12 @@ Every slice must preserve:
 - real applicable frontend/integration/E2E for user-facing work;
 - structured observability and rollback/operational boundaries;
 - exact-head validation and terminal task/PR lifecycle.
+
+## Execution allocation
+
+The delivery order in this document answers **what should happen next**. `docs/agents/programs/OTERYN_PORTAL_COMPLETION_WORK_ALLOCATION.md` answers **who should own each type of work** and whether a bounded implementation is technically suitable for a Codex worker.
+
+The allocation is subordinate to live task/PR ownership and repository authorization. A `CODEX_ELIGIBLE_WORKER` classification never grants permission to consume owner-funded Codex/OpenAI quota; `AGENTS.md` requires explicit owner permission for each exact use/task. If that permission is absent, the same bounded task may be executed directly by `CHATGPT_ARCHITECT` or another permitted worker.
 
 ## Programme priorities
 
