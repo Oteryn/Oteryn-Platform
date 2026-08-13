@@ -9,12 +9,14 @@ owner_alias: PORTAL-CLOSEOUT
 status: READY_FOR_LIVE_SELECTION
 canonical_prompt: docs/agents/prompts/OTERYN-PORTAL-COMPLETION-EXECUTION-PROMPT.md
 delivery_plan: docs/architecture/PORTAL_COMPLETION_DELIVERY_PLAN.md
+work_allocation: docs/agents/programs/OTERYN_PORTAL_COMPLETION_WORK_ALLOCATION.md
 architecture_owner: docs/architecture/PORTAL_COMPLETENESS_ARCHITECTURE.md
 repair_programme: OTERYN_PLATFORM_REMEDIATION
 communication: terminal_only
 live_state_required: true
 production_authority: false
 external_repository_authority: false
+codex_standing_permission: false
 ```
 
 ## Mission
@@ -27,6 +29,12 @@ This programme is an orchestrator and delivery queue. It does not duplicate:
 - `OTERYN_PLATFORM_REMEDIATION`, which owns an implementation-authorized repair Issue end to end;
 - accepted architecture and operation-specific contracts;
 - production or cross-repository authorization.
+
+## Work allocation
+
+`docs/agents/programs/OTERYN_PORTAL_COMPLETION_WORK_ALLOCATION.md` is the canonical execution-allocation companion for this programme. It maps accepted portal workstreams to model-agnostic execution roles, optional Codex suitability, dependencies and terminal outcomes **after this programme has selected the live work item**.
+
+The companion is not a second scheduler and must not reorder this programme. Role assignment never overrides repository authority or live ownership. `IMPLEMENTATION_OWNER` describes bounded responsibility, not a model choice; execution mode is selected separately. A row marked Codex-suitable is **not permission** to invoke Codex, OpenAI API or any owner-funded AI quota. `AGENTS.md` still requires explicit owner authorization for that exact use/task.
 
 ## Live-state rule
 
@@ -61,6 +69,8 @@ Select the first **safe, unowned, unblocked and implementation-authorized** item
 10. Deliver World Hub/community expansions only when authoritative inputs and product need exist.
 11. Activate commerce only after its independent security, legal, operational and owner-authorization gates.
 
+Use the work-allocation companion only after the live item has been selected. The companion may choose the execution role and permitted execution mode for that selected item, but it must not select a later board row merely because it is easier, Codex-suitable or already decomposed.
+
 ## Eligibility
 
 An item is `READY` only when:
@@ -82,6 +92,7 @@ An item is `READY` only when:
 - Superseded/duplicate/obsolete PR: close only with concrete proof and preserve unique work/evidence.
 - Server/game dependency: mark `CROSS-REPOSITORY ARCHITECTURE DECISION REQUIRED`; do not inspect an external repository without separate owner permission.
 - Production dependency: perform only repository-safe work, persist the exact operator gate and select another independent safe item when possible.
+- Specialized programme dependency: route detailed decomposition through that programme without changing this selection order; for Game Catalog this includes `GAME_CATALOG_PRODUCTION_COMPLETION_PROGRAM.md`.
 
 ## Completion state
 
