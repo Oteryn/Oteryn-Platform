@@ -178,6 +178,50 @@ class IntegrationTestRegistrationTest(unittest.TestCase):
         root = self.make_repository(environment_mode="github_env")
         self.assertEqual([TEST_PATH], validate_repository(root))
 
+    def test_proving_step_env_is_accepted(self) -> None:
+        root = self.make_repository(environment_mode="none")
+        path = root / WORKFLOW_PATH
+        text = path.read_text(encoding="utf-8")
+        marker = "      - name: Execute integration test\n        run: |"
+        replacement = (
+            "      - name: Execute integration test\n"
+            "        env:\n"
+            f"          {ENVIRONMENT[0]}: fixture\n"
+            f"          {ENVIRONMENT[1]}: fixture\n"
+            "        run: |"
+        )
+        path.write_text(text.replace(marker, replacement), encoding="utf-8")
+        self.assertEqual([TEST_PATH], validate_repository(root))
+
+    def test_prior_step_env_does_not_leak_into_proving_step(self) -> None:
+        root = self.make_repository(environment_mode="none")
+        path = root / WORKFLOW_PATH
+        text = path.read_text(encoding="utf-8")
+        marker = "    steps:\n"
+        replacement = (
+            "    steps:\n"
+            "      - name: Prior scoped env\n"
+            "        env:\n"
+            f"          {ENVIRONMENT[0]}: fixture\n"
+            f"          {ENVIRONMENT[1]}: fixture\n"
+            "        run: true\n"
+        )
+        path.write_text(text.replace(marker, replacement, 1), encoding="utf-8")
+        self.assert_registration_error(root, "missing executable required environment provisioning")
+
+    def test_same_step_github_env_export_does_not_retroactively_apply(self) -> None:
+        root = self.make_repository(environment_mode="none")
+        path = root / WORKFLOW_PATH
+        text = path.read_text(encoding="utf-8")
+        marker = "          set -o pipefail\n"
+        replacement = (
+            f"          echo \"{ENVIRONMENT[0]}=/tmp/base\" >> \"$GITHUB_ENV\"\n"
+            f"          echo \"{ENVIRONMENT[1]}=/tmp/candidate\" >> \"$GITHUB_ENV\"\n"
+            "          set -o pipefail\n"
+        )
+        path.write_text(text.replace(marker, replacement, 1), encoding="utf-8")
+        self.assert_registration_error(root, "missing executable required environment provisioning")
+
     def test_unregistered_test_fails(self) -> None:
         root = self.make_repository(registration_path="tests/Integration/Example/OtherTest.php")
         self.assert_registration_error(root, "unregistered Integration test")
