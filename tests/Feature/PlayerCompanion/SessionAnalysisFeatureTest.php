@@ -50,7 +50,7 @@ final class SessionAnalysisFeatureTest extends TestCase
         self::assertSame(400_000, $analysis->balance_value);
         self::assertSame(2, $analysis->participant_count);
         self::assertSame('Alice', $analysis->settlements[0]['from']);
-        self::assertNotContains($raw, array_values($analysis->getAttributes()), true);
+        self::assertNotContains($raw, array_values($analysis->getAttributes()));
         self::assertArrayNotHasKey('session_log', $analysis->getAttributes());
         self::assertArrayNotHasKey('raw_log', $analysis->getAttributes());
     }
