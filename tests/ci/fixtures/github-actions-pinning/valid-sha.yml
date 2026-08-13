@@ -1,0 +1,9 @@
+name: valid
+on: workflow_dispatch
+jobs:
+  local:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@0123456789abcdef0123456789abcdef01234567 # v7.0.1
+  reusable:
+    uses: octo-org/example/.github/workflows/reusable.yml@89abcdef0123456789abcdef0123456789abcdef

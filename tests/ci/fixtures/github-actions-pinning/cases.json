@@ -1,0 +1,10 @@
+[
+  {"name":"mutable-semantic-tag","uses_b64":"YWN0aW9ucy9jaGVja291dEB2Nw==","expected":"mutable"},
+  {"name":"mutable-branch","uses_b64":"YWN0aW9ucy9jaGVja291dEBtYWlu","expected":"mutable"},
+  {"name":"short-sha","uses_b64":"YWN0aW9ucy9jaGVja291dEBkZWFkYmVlZg==","expected":"mutable"},
+  {"name":"docker-reference","uses_b64":"ZG9ja2VyOi8vYWxwaW5lOjMuMjA=","expected":"docker"},
+  {"name":"local-action","uses_b64":"Li8uZ2l0aHViL2FjdGlvbnMvZXhhbXBsZQ==","expected":"local"},
+  {"name":"external-reusable-workflow","uses_b64":"b2N0by1vcmcvZXhhbXBsZS8uZ2l0aHViL3dvcmtmbG93cy9yZXVzYWJsZS55bWxAODlhYmNkZWYwMTIzNDU2Nzg5YWJjZGVmMDEyMzQ1Njc4OWFiY2RlZg==","expected":"external_sha"},
+  {"name":"malformed-no-ref","uses_b64":"YWN0aW9ucy9jaGVja291dA==","expected":"malformed"},
+  {"name":"malformed-target","uses_b64":"YWN0aW9uc0BAZGVhZGJlZWY=","expected":"malformed"}
+]
