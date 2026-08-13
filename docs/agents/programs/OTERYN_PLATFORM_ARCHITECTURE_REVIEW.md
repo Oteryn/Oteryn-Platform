@@ -24,7 +24,7 @@ current_review_domain: native-support-moderation-game-enforcement
 active_task: OTERYN-20260813-native-game-enforcement-contract
 issue: 1029
 branch: docs/OTERYN-20260813-native-game-enforcement-contract
-pull_request: null
+pull_request: 1030
 last_completed_domain: personalized-today-cache-isolation-boundary
 last_completed_issue: 941
 last_completed_pull_request: 970
