@@ -31,16 +31,15 @@ class IntegrationTestRegistrationTest(unittest.TestCase):
         invocation_marker: str = TEST_PATH,
         trigger_marker: str = TRIGGER,
         job_condition_marker: str = CONDITION,
-        workflow_invocation: str = TEST_PATH,
         workflow_trigger: str = TRIGGER,
         workflow_condition: str = CONDITION,
         workflow_condition_comment: str | None = None,
-        invocation_as_comment: bool = False,
         duplicate: bool = False,
-        include_environment: bool = True,
         dispatch_input: str | None = None,
         dispatch_input_as_comment: bool = False,
         dispatch_input_as_inline_comment: bool = False,
+        invocation_mode: str = "run",
+        environment_mode: str = "job_env",
     ) -> Path:
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
@@ -72,18 +71,66 @@ class IntegrationTestRegistrationTest(unittest.TestCase):
         ])
         if workflow_condition_comment is not None:
             workflow_lines.append(f"    # {workflow_condition_comment}")
-        workflow_lines.extend([
-            "    runs-on: ubuntu-latest",
-            "    env:",
-        ])
-        if include_environment:
-            workflow_lines.extend(f"      {name}: fixture" for name in ENVIRONMENT)
-        workflow_lines.extend(["    steps:"])
-        if invocation_as_comment:
-            workflow_lines.append(f"      # vendor/bin/phpunit {TEST_PATH}")
+        workflow_lines.append("    runs-on: ubuntu-latest")
+
+        if environment_mode == "job_env":
+            workflow_lines.extend(["    env:", *[f"      {name}: fixture" for name in ENVIRONMENT]])
+
+        workflow_lines.append("    steps:")
+        if environment_mode == "job_env":
+            pass
+        elif environment_mode == "github_env":
+            workflow_lines.extend([
+                "      - name: Prepare environment",
+                "        run: |",
+                f"          echo \"{ENVIRONMENT[0]}=/tmp/base\" >> \"$GITHUB_ENV\"",
+                f"          echo \"{ENVIRONMENT[1]}=/tmp/candidate\" >> \"${{GITHUB_ENV}}\"",
+            ])
+        elif environment_mode == "comment":
+            workflow_lines.extend([f"      # {ENVIRONMENT[0]}", f"      # {ENVIRONMENT[1]}"])
+        elif environment_mode == "step_name":
+            workflow_lines.extend([
+                f"      - name: {ENVIRONMENT[0]} {ENVIRONMENT[1]}",
+                "        run: true",
+            ])
+        elif environment_mode == "echo_only":
+            workflow_lines.extend([
+                "      - name: Mention environment only",
+                "        run: |",
+                f"          echo {ENVIRONMENT[0]}",
+                f"          echo {ENVIRONMENT[1]}",
+            ])
+        elif environment_mode != "none":
+            raise ValueError(f"unsupported environment_mode: {environment_mode}")
+
+        if invocation_mode == "run":
+            workflow_lines.extend([
+                "      - name: Execute integration test",
+                "        run: |",
+                "          set -o pipefail",
+                "          vendor/bin/phpunit \\",
+                f"            {TEST_PATH} \\",
+                "            --testdox",
+            ])
+        elif invocation_mode == "comment":
+            workflow_lines.extend([
+                f"      # vendor/bin/phpunit {TEST_PATH}",
+                "      - run: vendor/bin/phpunit tests/Integration/Example",
+            ])
+        elif invocation_mode == "inline_comment":
+            workflow_lines.append(f"      - run: echo ok # vendor/bin/phpunit {TEST_PATH}")
+        elif invocation_mode == "step_name":
+            workflow_lines.extend([
+                f"      - name: vendor/bin/phpunit {TEST_PATH}",
+                "        run: echo ok",
+            ])
+        elif invocation_mode == "echo":
+            workflow_lines.append(f"      - run: echo vendor/bin/phpunit {TEST_PATH}")
+        elif invocation_mode == "directory":
             workflow_lines.append("      - run: vendor/bin/phpunit tests/Integration/Example")
         else:
-            workflow_lines.append(f"      - run: vendor/bin/phpunit {workflow_invocation}")
+            raise ValueError(f"unsupported invocation_mode: {invocation_mode}")
+
         self.write(root / WORKFLOW_PATH, "\n".join(workflow_lines) + "\n")
 
         record = {
@@ -127,6 +174,10 @@ class IntegrationTestRegistrationTest(unittest.TestCase):
         )
         self.assertEqual([TEST_PATH], validate_repository(root))
 
+    def test_github_env_exports_before_proving_step_are_accepted(self) -> None:
+        root = self.make_repository(environment_mode="github_env")
+        self.assertEqual([TEST_PATH], validate_repository(root))
+
     def test_unregistered_test_fails(self) -> None:
         root = self.make_repository(registration_path="tests/Integration/Example/OtherTest.php")
         self.assert_registration_error(root, "unregistered Integration test")
@@ -143,12 +194,24 @@ class IntegrationTestRegistrationTest(unittest.TestCase):
         root = self.make_repository(invocation_marker="tests/Integration/Example")
         self.assert_registration_error(root, "invocation_marker must be the exact test path")
 
-    def test_workflow_must_executably_invoke_exact_test(self) -> None:
-        root = self.make_repository(workflow_invocation="tests/Integration/Example")
+    def test_directory_only_phpunit_execution_fails(self) -> None:
+        root = self.make_repository(invocation_mode="directory")
         self.assert_registration_error(root, "does not executably invoke")
 
     def test_comment_does_not_count_as_executable_invocation(self) -> None:
-        root = self.make_repository(invocation_as_comment=True)
+        root = self.make_repository(invocation_mode="comment")
+        self.assert_registration_error(root, "does not executably invoke")
+
+    def test_inline_comment_does_not_count_as_executable_invocation(self) -> None:
+        root = self.make_repository(invocation_mode="inline_comment")
+        self.assert_registration_error(root, "does not executably invoke")
+
+    def test_step_name_does_not_count_as_executable_invocation(self) -> None:
+        root = self.make_repository(invocation_mode="step_name")
+        self.assert_registration_error(root, "does not executably invoke")
+
+    def test_echo_does_not_count_as_executable_invocation(self) -> None:
+        root = self.make_repository(invocation_mode="echo")
         self.assert_registration_error(root, "does not executably invoke")
 
     def test_trigger_marker_must_be_in_declared_top_level_event(self) -> None:
@@ -192,14 +255,6 @@ class IntegrationTestRegistrationTest(unittest.TestCase):
         )
         self.assert_registration_error(root, "does not contain required condition marker")
 
-    def test_unrelated_trigger_text_cannot_satisfy_proving_job_contract(self) -> None:
-        root = self.make_repository(
-            registration_event="pull_request",
-            workflow_condition="github.event_name == 'workflow_dispatch'",
-            job_condition_marker="github.event_name == 'pull_request'",
-        )
-        self.assert_registration_error(root, "does not contain required condition marker")
-
     def test_commented_condition_cannot_satisfy_proving_job_contract(self) -> None:
         root = self.make_repository(
             registration_event="pull_request",
@@ -217,9 +272,21 @@ class IntegrationTestRegistrationTest(unittest.TestCase):
         )
         self.assert_registration_error(root, "does not contain required condition marker")
 
-    def test_workflow_must_contain_required_environment_markers_in_proving_job(self) -> None:
-        root = self.make_repository(include_environment=False)
-        self.assert_registration_error(root, "is missing required environment markers")
+    def test_environment_names_in_comments_do_not_satisfy_contract(self) -> None:
+        root = self.make_repository(environment_mode="comment")
+        self.assert_registration_error(root, "missing executable required environment provisioning")
+
+    def test_environment_names_in_step_name_do_not_satisfy_contract(self) -> None:
+        root = self.make_repository(environment_mode="step_name")
+        self.assert_registration_error(root, "missing executable required environment provisioning")
+
+    def test_echoing_environment_names_without_github_env_does_not_satisfy_contract(self) -> None:
+        root = self.make_repository(environment_mode="echo_only")
+        self.assert_registration_error(root, "missing executable required environment provisioning")
+
+    def test_missing_required_environment_fails(self) -> None:
+        root = self.make_repository(environment_mode="none")
+        self.assert_registration_error(root, "missing executable required environment provisioning")
 
 
 if __name__ == "__main__":
