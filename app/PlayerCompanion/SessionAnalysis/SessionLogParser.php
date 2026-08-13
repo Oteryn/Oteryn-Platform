@@ -312,7 +312,7 @@ final class SessionLogParser
         $receiverIndex = 0;
 
         while (isset($payers[$payerIndex], $receivers[$receiverIndex])) {
-            $amount = min(-$payers[$payerIndex]['delta'], $receivers[$receiverIndex]['delta']);
+            $amount = min(abs($payers[$payerIndex]['delta']), $receivers[$receiverIndex]['delta']);
             if ($amount > 0) {
                 $settlements[] = [
                     'from' => $payers[$payerIndex]['name'],
