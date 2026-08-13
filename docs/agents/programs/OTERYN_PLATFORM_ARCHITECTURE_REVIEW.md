@@ -18,18 +18,18 @@ Continuously challenge Platform architecture, repository structure and CI/CD; id
 
 ```yaml
 programme_state_version: 2
-updated_at: 2026-08-13T20:42:00+02:00
-status: validating
-current_review_domain: native-support-moderation-game-enforcement
-active_task: OTERYN-20260813-native-game-enforcement-contract
-issue: 1029
-branch: docs/OTERYN-20260813-native-game-enforcement-contract
-pull_request: 1030
-last_completed_domain: personalized-today-cache-isolation-boundary
-last_completed_issue: 941
-last_completed_pull_request: 970
-last_completed_merge: c5229194c56198421d13333901cc8953723603a6
-latest_review_finding_issue: 941
+updated_at: 2026-08-13T21:04:00+02:00
+status: ready
+current_review_domain: next-risk-based-rotation
+active_task: null
+issue: null
+branch: null
+pull_request: null
+last_completed_domain: native-support-moderation-game-enforcement
+last_completed_issue: 1029
+last_completed_pull_request: 1030
+last_completed_merge: f100334b40181b520a289cf81b28b7f68d26c4ef
+latest_review_finding_issue: 1029
 accepted_authority:
   authority_index: docs/architecture/ARCHITECTURE_AUTHORITY.md
   authority_adr: docs/architecture/adr/0022-architecture-authority-index-and-focused-canonical-documents.md
@@ -82,6 +82,7 @@ proven:
   - PR 925 established the accepted entitlement/game-delivery authority split; PR 968 later bounded Profile-B stale authority with explicit validity/revision fencing.
   - PR 933 merged accepted ADR 0032 for portal composition, private tracking and server-specific system ownership; PR 970 later hardened Today composition so private-influenced representations are PRIVATE_PERSONALIZED and never shared-cache/public-cache authority. PR 970 squash-merged as c5229194c56198421d13333901cc8953723603a6 and closed Issue 941.
   - PR 936 merged accepted ADR 0033 and the focused federated-search architecture; PR 947 later added restrictive publication-revocation fencing so stale search/index/cache state cannot outlive a newer restrictive publication decision.
+  - PR 1030 merged the native support/moderation game-enforcement semantic boundary as f100334b40181b520a289cf81b28b7f68d26c4ef after the P1 review finding added explicit stable sanction-stream identity and all eight repaired exact-head workflows passed.
   - Current ADR inventory ends at accepted ADR 0033 and the active architecture decision backlog is empty.
 derived:
   - The Platform core remains a sound Laravel modular monolith; native integration is explicitly separated from Legacy Canary Compatibility.
@@ -94,12 +95,12 @@ derived:
 unknown:
   - Exact deployed game-auth topology, alternate-path network isolation and production activation evidence.
   - Exact external/native producer and consumer transport, wire/IDL, runtime implementation, lease/fencing, replay stores, numerical freshness/TTL values and cutover evidence for accepted cross-boundary contracts remain outside this Platform architecture state record.
-  - Support/moderation to native game-enforcement command semantics are being resolved by Issue 1029; Platform workflow truth must remain separate from authoritative game effect.
+  - Exact Oteryn-v2 sanction profiles, transport/IDL, persistence/runtime enforcement implementation and production activation remain outside the accepted Platform game-enforcement contract.
   - Native Game Catalog/content ownership versus Legacy Canary Compatibility importers remains a focused Platform architecture question.
   - Native guild identity required by the PublicGameData guild projection remains dependent on an accepted game-owned stable identifier; Platform must not invent one.
 conflicts: []
 blockers: []
-next_action: Complete Issue 1029 contract validation and closeout, then select native Game Catalog/content ownership when it remains unresolved and unowned; do not broaden into external-repository implementation.
+next_action: Select native Game Catalog/content ownership versus Legacy Canary Compatibility importers when it remains unresolved and unowned; do not broaden into external-repository implementation.
 ```
 
 ## Programme rules

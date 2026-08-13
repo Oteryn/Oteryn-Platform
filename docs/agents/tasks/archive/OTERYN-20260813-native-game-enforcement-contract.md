@@ -2,7 +2,7 @@
 task_id: OTERYN-20260813-native-game-enforcement-contract
 mode: architecture
 issue: 1029
-status: validating
+status: completed
 programme: OTERYN_PLATFORM_ARCHITECTURE_REVIEW
 ---
 
@@ -19,7 +19,7 @@ Define the Platform-side semantic boundary for support/moderation requests that 
 - [x] Typed target, scope, result, revoke/expire/appeal and privacy/audit semantics are defined.
 - [x] Legacy Canary Compatibility, rollout and rollback remain explicit and fail closed.
 - [x] Focused architecture, module/data/security ownership and programme state are reconciled.
-- [ ] Offline architecture validation and exact-head full-diff self-review pass.
+- [x] Offline architecture validation and exact-head full-diff self-review pass.
 
 ## Ownership
 
@@ -49,11 +49,11 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-13T20:55:00+02:00
-head: 8d892e74a55bf1d5b9975e6d6bc1625851fc9b00
+updated_at: 2026-08-13T21:04:00+02:00
+head: f100334b40181b520a289cf81b28b7f68d26c4ef
 branch: docs/OTERYN-20260813-native-game-enforcement-contract
 pr: 1030
-status: validating
+status: completed
 context_routes:
   - architecture
   - support-moderation
@@ -73,6 +73,8 @@ proven:
   - Existing Platform enforcement_records are workflow and communication records only and do not mutate or prove game sanctions.
   - Issue 1029 owns this bounded architecture-only package and no open PR or active task overlaps its declared paths.
   - Draft PR 1030 contains exactly eight declared documentation paths; semantic contract package head 8d623f850da88bfc814618bba84673738dc3c57e includes the validation checkpoint.
+  - Final repaired head f3fc0b5629d06d171a30976de31d5f5df0620dae passed all eight exact-head workflows and exact-head full-diff self-review with zero remaining material findings.
+  - PR 1030 squash-merged to protected main as f100334b40181b520a289cf81b28b7f68d26c4ef; Issue 1029 closed automatically.
 derived:
   - The missing boundary can be resolved as a Platform consumer/orchestration contract subordinate to ADR 0031 without selecting external transport or implementation.
 unknown:
@@ -111,6 +113,34 @@ validation:
   - command: PR 1030 exact-head CI generation for 8d892e74a55bf1d5b9975e6d6bc1625851fc9b00
     result: PASS
     evidence: all eight returned workflows completed successfully; subsequent review finding requires a new repaired exact-head generation.
+  - command: PR 1030 exact-head CI generation for f3fc0b5629d06d171a30976de31d5f5df0620dae
+    result: PASS
+    evidence: Agent Governance, CI, Native protocol contract and audits, Game Auth Ticket Concurrency, Platform DB Outage, Phase 7 and Edge Security all completed successfully.
+  - command: exact-head full-diff self-review and review-thread inventory
+    result: PASS
+    evidence: PR comment 5284984591 records PASS; P1 sanction-stream finding was repaired and thread PRRT_kwDOTcsYjs6ZC-FJ resolved before merge.
 blockers: []
-next_action: Validate the sanction_stream_id repair on a new exact head, resolve the review thread, rerun full-diff self-review and required CI, then merge and archive when every gate passes.
+next_action: Select the next highest-risk unresolved and unowned Platform architecture question from current main.
+```
+
+## Closeout review
+
+```yaml
+self_review:
+  result: PASS
+  exact_head: f3fc0b5629d06d171a30976de31d5f5df0620dae
+  acceptance_checked: true
+  full_diff_checked: true
+  negative_paths_checked: true
+  rollback_checked: true
+  compatibility_checked: true
+  related_prs_checked: true
+  findings: []
+  evidence:
+    - PR comment 5284984591 records the final repaired exact-head review.
+    - The full compare contained exactly eight declared documentation paths and was behind current main by zero commits.
+    - The P1 sanction-stream identity finding was repaired and its only review thread resolved before merge.
+e2e:
+  result: NOT_APPLICABLE
+  evidence: Architecture-only documentation changed no executable user or integration journey.
 ```
