@@ -11,6 +11,7 @@ import {
 
 const password = 'AcceptancePlayerCompanion!234';
 const desktopViewport = { width: 1440, height: 1000 };
+const tabletViewport = { width: 820, height: 1180 };
 const mobileViewport = { width: 390, height: 844 };
 const rawSentinel = 'PRIVATE RAW SENTINEL MUST NOT SURVIVE';
 const sessionLog = `Session: 01:00h
@@ -81,6 +82,12 @@ test('@portal-account Player Companion — private Hunt Session Analyzer create,
 
   await assertAccessibilitySmoke(page);
   await evidenceScreenshot(page, 'player-companion-session-analyzer-detail-desktop');
+
+  await page.setViewportSize(tabletViewport);
+  await page.reload();
+  await expect(page.getByRole('heading', { name: 'Acceptance duo', level: 1 })).toBeVisible();
+  await assertAccessibilitySmoke(page);
+  await evidenceScreenshot(page, 'player-companion-session-analyzer-detail-tablet');
 
   await page.setViewportSize(mobileViewport);
   await page.reload();

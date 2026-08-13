@@ -32,6 +32,11 @@
       "rationale": "Account overview and provisioning states render textual status, controls and identifiers without repository-managed media consumption."
     },
     {
+      "id": "player-companion.session-analysis",
+      "classification": "not_applicable",
+      "rationale": "The Hunt Session Analyzer renders owner-private textual metrics, tables and controls without repository-managed editorial media."
+    },
+    {
       "id": "account.character-creation-and-visibility",
       "classification": "not_applicable",
       "rationale": "Character creation and public visibility preferences render forms and textual state without repository-managed media."

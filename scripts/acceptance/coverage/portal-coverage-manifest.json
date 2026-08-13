@@ -271,6 +271,56 @@
       "gaps": []
     },
     {
+      "id": "player-companion.session-analysis",
+      "owner": "PlayerCompanion",
+      "status": "covered",
+      "route_names": [
+        "player-companion.session-analyses.index",
+        "player-companion.session-analyses.store",
+        "player-companion.session-analyses.show",
+        "player-companion.session-analyses.destroy"
+      ],
+      "roles": [
+        "guest",
+        "authenticated-owner",
+        "authenticated-non-owner"
+      ],
+      "states": [
+        "empty-history",
+        "valid-analysis",
+        "invalid-input",
+        "oversized-input",
+        "private-history-detail",
+        "cross-owner-not-found",
+        "deleted"
+      ],
+      "viewports": [
+        "desktop-1440x1000",
+        "tablet-820x1180",
+        "mobile-390x844"
+      ],
+      "browsers": [
+        "chromium-primary"
+      ],
+      "evidence_layers": [
+        "unit",
+        "feature",
+        "database-integration",
+        "playwright",
+        "responsive",
+        "security"
+      ],
+      "evidence": [
+        {
+          "file": "scripts/acceptance/tests/player-companion-session-analyzer.spec.mjs",
+          "markers": [
+            "@portal-account Player Companion — private Hunt Session Analyzer create, validation, owner isolation, responsive detail and delete"
+          ]
+        }
+      ],
+      "gaps": []
+    },
+    {
       "id": "account.character-creation-and-visibility",
       "owner": "Accounts / Characters",
       "status": "covered",
