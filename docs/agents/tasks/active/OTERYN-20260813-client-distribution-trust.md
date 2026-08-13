@@ -60,7 +60,7 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-13T23:56:00+02:00
+updated_at: 2026-08-13T23:57:00+02:00
 head: UNKNOWN
 branch: docs/OTERYN-20260813-client-distribution-trust
 pr: 1038
@@ -128,11 +128,36 @@ validation:
   - command: runtime/browser E2E
     result: NOT_APPLICABLE
     evidence: architecture-only documentation changes no executable user or integration journey
-  - command: metadata-only exact-final-head CI
+  - command: terminal metadata exact-head CI
     result: NOT_RUN
-    evidence: this checkpoint update creates the final metadata head and requires exact-head validation before merge
+    evidence: recovery checkpoint commit creates the terminal CI head and must itself pass before merge
 blockers: []
-next_action: Validate the metadata-only exact final head; if all required checks and review hygiene pass, squash-merge PR 1038 and perform lifecycle archival.
+next_action: Resolve the current PR head created by this recovery checkpoint, wait under the bounded terminal-CI contract for all required checks, then squash-merge and archive if review/merge gates remain clean.
+```
+
+## Recovery checkpoint
+
+```yaml
+recovery:
+  policy_version: 1
+  generation: 1
+  session_id: architecture-20260813-2343
+  session_started_at: 2026-08-13T23:43:00+02:00
+  checkpointed_at: 2026-08-13T23:57:00+02:00
+  last_progress_at: 2026-08-13T23:57:00+02:00
+  phase: terminal_exact_head_ci_and_merge
+  exact_head: 275dd6ef8a5f3a8fe7a042f18283f237a593cb52
+  pull_request: 1038
+  active_operation: resolve the new recovery-checkpoint head, then observe its required exact-head CI
+  external_run_ids: [31747814872, 31747814851, 31747814896, 31747814886, 31747814845, 31747814926, 31747814925, 31747814892]
+  operation_started_at: 2026-08-13T23:57:00+02:00
+  wait_deadline_at: 2026-08-14T00:42:00+02:00
+  check_generation: ready
+  checks_used: 0
+  status: active
+  safe_to_resume: true
+  resume_condition: current PR head has all repository-required checks successful, no unresolved review thread/requested change, remains current-base and mergeable
+  next_action: Resolve the PR head produced by this checkpoint commit and begin bounded aggregate terminal-CI observation for that exact head.
 ```
 
 ## Notes
