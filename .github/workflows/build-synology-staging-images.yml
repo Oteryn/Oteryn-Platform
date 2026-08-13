@@ -122,9 +122,10 @@ jobs:
               'platform': {'8000': ('127.0.0.1', '8000')},
               'gateway': {'8080': ('127.0.0.1', '8080')},
               'canary': {
-                  '7171': ('127.0.0.1', '7171')},
+                  '7171': ('127.0.0.1', '7171'),
+                  '7172': ('127.0.0.1', '7172'),
+              },
           }
-          expected['canary']['7172'] = ('127.0.0.1', '7172')
           for service, service_expected in expected.items():
               actual = bindings(service)
               if actual != service_expected:
