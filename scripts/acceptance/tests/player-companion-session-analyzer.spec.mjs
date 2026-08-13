@@ -43,6 +43,8 @@ test.afterEach(async ({ page }, testInfo) => {
 test('@portal-account Player Companion — private Hunt Session Analyzer create, validation, owner isolation, responsive detail and delete', async ({ page, browser }) => {
   const email = uniqueEmail('player-companion-session');
 
+  await page.goto('/account');
+  await expect(page).toHaveURL(/\/login$/u);
   await register(page, email, password);
   await login(page, email, password);
   await expect(page).toHaveURL(/\/account$/u);
