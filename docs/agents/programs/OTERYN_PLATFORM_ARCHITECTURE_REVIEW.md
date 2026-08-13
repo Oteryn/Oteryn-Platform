@@ -18,18 +18,18 @@ Continuously challenge Platform architecture, repository structure and CI/CD; id
 
 ```yaml
 programme_state_version: 2
-updated_at: 2026-08-13T21:48:00+02:00
-status: ready
-current_review_domain: next-risk-based-rotation
-active_task: null
-issue: null
-branch: null
-pull_request: null
+updated_at: 2026-08-13T23:53:00+02:00
+status: active
+current_review_domain: client-distribution-updater-trust
+active_task: OTERYN-20260813-client-distribution-trust
+issue: 1037
+branch: docs/OTERYN-20260813-client-distribution-trust
+pull_request: 1038
 last_completed_domain: native-game-catalog-content-ownership
 last_completed_issue: 1033
 last_completed_pull_request: 1034
 last_completed_merge: 7a0664cfd7dadf27aef0a33e2308bf4975fb1405
-latest_review_finding_issue: 1033
+latest_review_finding_issue: 1037
 accepted_authority:
   authority_index: docs/architecture/ARCHITECTURE_AUTHORITY.md
   authority_adr: docs/architecture/adr/0022-architecture-authority-index-and-focused-canonical-documents.md
@@ -43,6 +43,8 @@ accepted_authority:
   portal_composition_adr: docs/architecture/adr/0032-portal-composition-tracking-and-server-system-ownership.md
   federated_search_adr: docs/architecture/adr/0033-federated-content-search-and-discoverability.md
   native_game_catalog_content_adr: docs/architecture/adr/0034-native-game-catalog-content-ownership.md
+  client_distribution_adr: docs/architecture/adr/0035-first-party-client-distribution-and-updater-trust-boundary.md
+  client_distribution_architecture: docs/architecture/CLIENT_DISTRIBUTION_ARCHITECTURE.md
   native_v2_integration_architecture: docs/architecture/OTERYN_V2_INTEGRATION_ARCHITECTURE.md
   portal_completeness_architecture: docs/architecture/PORTAL_COMPLETENESS_ARCHITECTURE.md
   player_companion_architecture: docs/architecture/PLAYER_COMPANION_ARCHITECTURE.md
@@ -54,7 +56,9 @@ accepted_authority:
   native_entitlement_game_delivery_contract: docs/contracts/OTERYN_V2_ENTITLEMENT_GAME_DELIVERY_CONTRACT.md
   native_game_enforcement_command_contract: docs/contracts/OTERYN_V2_GAME_ENFORCEMENT_COMMAND_CONTRACT.md
   native_game_catalog_content_contract: docs/contracts/OTERYN_V2_GAME_CATALOG_CONTENT_CONTRACT.md
-implementation_handoffs: []
+implementation_handoffs:
+  - issue: 1039
+    scope: Platform implementation of accepted TUF client distribution boundary
 active_architecture_decision_ids: []
 architecture_conflicts:
   - Historical duplicate ADR prefixes remain for 0008, 0010, 0011, 0015, 0016, 0017, 0018 and 0021, but the exact accepted path sets are machine-enforced and cannot expand silently.
@@ -87,6 +91,9 @@ proven:
   - PR 1030 merged the native support/moderation game-enforcement semantic boundary as f100334b40181b520a289cf81b28b7f68d26c4ef after the P1 review finding added explicit stable sanction-stream identity and all eight repaired exact-head workflows passed.
   - ADR 0034 selects native game-domain content authority, Platform immutable catalogue lifecycle ownership and explicit Legacy Canary Compatibility importers without authorizing external implementation.
   - PR 1034 repaired checkpoint, authority-epoch replay and proposed-schema status findings; exact head a1d78af8bbb70e8ac9e75e947bbeeb133be4258b passed all eight workflows and squash-merged as 7a0664cfd7dadf27aef0a33e2308bf4975fb1405.
+  - Repository owner accepted ARCH-DEC-0004 Option A on 2026-08-13; ADR 0035 now selects TUF-based role-separated updater trust with private signing authority outside Laravel.
+  - CLIENT_DISTRIBUTION_ARCHITECTURE.md is the focused canonical Platform model for first-party updater trust and preserves one current release per channel in schema v1 with fail-closed exact target selection.
+  - ARCH-DEC-0004 was removed from the active decision backlog after acceptance, and Issue 1039 is the Platform implementation handoff with no external-repository or protected-operation authority.
 derived:
   - The Platform core remains a sound Laravel modular monolith; native integration is explicitly separated from Legacy Canary Compatibility.
   - New native Platform consumers use canonical AccountId/CharacterId and explicit command/query/event/projection boundaries instead of inheriting Canary numeric IDs, table shapes, session semantics or gameplay protocol ownership.
@@ -95,14 +102,16 @@ derived:
   - Native runtime admission readiness on the Platform side is an intersection of configured Platform policy and fresh applicable current-owner runtime evidence; stale/unavailable evidence fails closed for new admission but cannot be fabricated as authoritative public offline/zero state.
   - PublicPortal Today remains composition rather than a new source-of-truth module; any representation influenced by owner-private state is private/non-shareable and must not inherit public cacheability.
   - Federated public content search belongs to PublicPortal orchestration over source-owned public queries; source publication/privacy decisions remain authoritative and restrictive revisions fence derived index/cache state.
+  - First-party client distribution now has an accepted trust boundary; runtime implementation and protected signer/client evidence remain separate delivery facts.
 unknown:
   - Exact deployed game-auth topology, alternate-path network isolation and production activation evidence.
   - Exact external/native producer and consumer transport, wire/IDL, runtime implementation, lease/fencing, replay stores, numerical freshness/TTL values and cutover evidence for accepted cross-boundary contracts remain outside this Platform architecture state record.
   - Exact Oteryn-v2 sanction profiles, transport/IDL, persistence/runtime enforcement implementation and production activation remain outside the accepted Platform game-enforcement contract.
   - Native guild identity required by the PublicGameData guild projection remains dependent on an accepted game-owned stable identifier; Platform must not invent one.
+  - Exact maintained TUF implementation/POUF, client trust-bootstrap implementation, protected signing infrastructure and numerical metadata expiry values remain implementation/operations decisions.
 conflicts: []
 blockers: []
-next_action: Select the next highest-risk unresolved and unowned Platform architecture question from current main.
+next_action: Validate the accepted ADR 0035 package on the exact final PR head, merge it if all gates pass, then archive the task and return the architecture programme to risk-based rotation.
 ```
 
 ## Programme rules
