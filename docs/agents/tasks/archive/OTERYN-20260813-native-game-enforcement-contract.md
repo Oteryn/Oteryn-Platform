@@ -119,6 +119,23 @@ validation:
   - command: exact-head full-diff self-review and review-thread inventory
     result: PASS
     evidence: PR comment 5284984591 records PASS; P1 sanction-stream finding was repaired and thread PRRT_kwDOTcsYjs6ZC-FJ resolved before merge.
+self_review:
+  result: PASS
+  exact_head: f3fc0b5629d06d171a30976de31d5f5df0620dae
+  acceptance_checked: true
+  full_diff_checked: true
+  negative_paths_checked: true
+  rollback_checked: true
+  compatibility_checked: true
+  related_prs_checked: true
+  findings: []
+  evidence:
+    - PR comment 5284984591 records the final repaired exact-head review.
+    - The full compare contained exactly eight declared documentation paths and was behind current main by zero commits.
+    - The P1 sanction-stream identity finding was repaired and its only review thread resolved before merge.
+e2e:
+  result: NOT_APPLICABLE
+  evidence: Architecture-only documentation changed no executable user or integration journey.
 blockers: []
 next_action: Select the next highest-risk unresolved and unowned Platform architecture question from current main.
 ```
