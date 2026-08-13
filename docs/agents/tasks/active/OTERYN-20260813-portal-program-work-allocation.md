@@ -61,10 +61,10 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-08-13T20:50:00+02:00
-head: f38425cd1c6a251c064b59f4ad05814d542ed931
+updated_at: 2026-08-13T20:52:00+02:00
+head: 4cfbeda928d28afee283ea96d7e61890ad3fb2a7
 branch: docs/portal-program-allocation-final
-pr: none
+pr: 1031
 status: validating
 context_routes:
   - architecture
@@ -84,10 +84,11 @@ proven:
   - AGENTS.md forbids owner-funded Codex/OpenAI quota use without explicit per-use owner permission.
   - The new work-allocation project maps all discussed portal workstreams to roles, dependencies, current status and completion gates.
   - OTERYN_PORTAL_COMPLETION and PORTAL_COMPLETION_DELIVERY_PLAN now link to the work-allocation project.
+  - Draft PR #1031 contains only four intended documentation/programme files and no runtime changes.
 derived:
   - The project can be executed by ChatGPT directly or selectively delegated to Codex-eligible workers only after explicit per-task owner approval.
 unknown:
-  - Exact final CI results for the documentation PR head.
+  - Exact final CI results for the current PR head after this checkpoint update.
 conflicts: []
 first_failure:
   marker: none
@@ -104,12 +105,15 @@ validation:
   - command: exact branch diff versus main
     result: PASS
     evidence: compare main...docs/portal-program-allocation-final reports four intended documentation files only and no runtime changes.
+  - command: full PR diff self-review
+    result: PASS
+    evidence: PR #1031 patch contains only the project allocation, programme linkage, delivery-plan linkage and task record; no architecture invariant or runtime behavior is changed.
   - command: repository governance/CI on PR final head
     result: NOT_RUN
-    evidence: PR has not yet been opened on the updated task-record head.
+    evidence: exact-head checks must restart after this checkpoint commit.
 blockers:
   - none
-next_action: open the dedicated draft PR, inspect exact-head governance/CI, and close out only after required checks pass.
+next_action: inspect exact-head PR #1031 checks; if all required checks pass, mark ready and merge, then archive this task.
 ```
 
 ## Notes
