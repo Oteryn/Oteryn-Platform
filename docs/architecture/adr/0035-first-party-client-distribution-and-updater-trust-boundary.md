@@ -2,22 +2,22 @@
 
 ## Status
 
-Proposed — 2026-08-13
+Accepted — 2026-08-13
 
 - Decision owner: repository owner
 - Decision Issue: #1037
-- Recommendation: Option A — TUF-based signed update repository with channel-scoped target authority and a protected signing boundary outside the web application
+- Decision: Option A — TUF-based signed update repository with channel-scoped target authority and a protected signing boundary outside the web application
 - Applies to: first-party Oteryn client release distribution, updater trust, stable/beta channel policy, minimum-supported-release policy and release withdrawal/revocation/rollback semantics
 - Does not authorize: runtime implementation, database migration, route/API implementation, external client changes, private signing-key operations, deployment, production activation or protected-environment access
 
-## Current state
+## Current state at decision time
 
 ### PROVEN
 
 - `Downloads` stores `stable` and `beta` release records plus platform/architecture artifact variants for Windows, Linux and macOS across the repository-defined architectures.
 - `PublishClientRelease` serializes publication inside one channel and, when a release is made current, clears `is_current` from every other current release in that channel. Current browser publication therefore has one current release per channel rather than an independent current release per platform/architecture target.
 - Published artifacts require an approved machine-testable immutable-reference contract after Issue #948 / PR #966; the web application still does not fetch artifacts and administrator-supplied SHA-256 is not represented as independent publisher verification.
-- `MODULE_CATALOG.md` and `PORTAL_COMPLETENESS_ARCHITECTURE.md` leave minimum-version, mandatory-update, updater-manifest and publisher-provenance policy unresolved.
+- Before this decision, `MODULE_CATALOG.md` and `PORTAL_COMPLETENESS_ARCHITECTURE.md` left minimum-version, mandatory-update, updater-manifest and publisher-provenance policy unresolved.
 - The current Download Center is browser presentation and administration metadata. It is not a cryptographic updater trust root and has no signing-key authority.
 - No open architecture PR or active architecture task owned this exact decision when Issue #1037 was created.
 
@@ -31,7 +31,7 @@ Proposed — 2026-08-13
 
 - The exact first-party updater implementation, serialization/library choice, bootstrap packaging, secure local state and release-signing infrastructure are outside this Platform-only review and were not inspected.
 - Exact numerical metadata expiry intervals, release operational staffing and key-custody ceremony are deployment decisions requiring implementation evidence.
-- A future need for staggered current releases or minimum-version policy by platform/architecture is not proven. Introducing it would require an explicit compatible schema/architecture decision rather than implicit divergence from current channel semantics.
+- A future need for staggered current releases or minimum-version policy by platform/architecture is not proven. Introducing it requires an explicit compatible schema/architecture decision rather than implicit divergence from current channel semantics.
 
 ## Problem
 
@@ -61,9 +61,9 @@ If these semantics are invented ad hoc inside the web application or launcher, c
 9. Withdrawal and revocation preserve history. Rollback selects an already immutable artifact through newer trusted policy; it never rewrites old metadata or artifact bytes.
 10. The existing no-upload/no-proxy/no-fetch boundary and truthful supplied-checksum wording remain valid until separately changed by an authorized implementation task.
 
-## Options
+## Options considered
 
-### Option A — TUF-based repository with protected role separation — RECOMMENDED
+### Option A — TUF-based repository with protected role separation — ACCEPTED
 
 Adopt The Update Framework security model for the first-party updater repository:
 
@@ -80,29 +80,29 @@ Security properties: reuses a mature role/freshness/version/delegation model for
 
 Costs: more metadata roles, key operations, bootstrap/rotation procedures and client integration work than a single signature envelope. The project must document an implementation POUF/profile and prove the selected client library/format before activation.
 
-### Option B — Oteryn-specific single signed manifest envelope
+### Option B — Oteryn-specific single signed manifest envelope — REJECTED
 
 Define one canonical signed JSON/CBOR envelope containing artifact digests, current/minimum release, mandatory-update, revocation, generation and expiry fields. Pin one or more publisher trust anchors in the client and keep private keys outside Laravel.
 
 Benefits: smaller implementation surface and simpler release operations.
 
-Costs: Oteryn becomes responsible for designing and validating its own replay, rollback, freeze, mix-and-match, key-rotation, threshold/recovery and metadata-consistency protocol. A future move to role-separated trust would require migration of both release operations and clients. This option is acceptable only if TUF implementation feasibility is disproven by concrete client/release constraints.
+Costs: Oteryn becomes responsible for designing and validating its own replay, rollback, freeze, mix-and-match, key-rotation, threshold/recovery and metadata-consistency protocol. A future move to role-separated trust would require migration of both release operations and clients. The repository owner selected Option A instead.
 
-### Option C — HTTPS + checksum + mutable current/latest policy
+### Option C — HTTPS + checksum + mutable current/latest policy — REJECTED
 
 Continue using the browser-oriented Download Center as the updater source and rely on HTTPS, immutable artifact URLs and the displayed SHA-256.
 
 Benefits: least implementation effort.
 
-Costs: does not establish publisher origin from the administrator-supplied digest, does not provide a signed freshness/replay model and makes mutable Platform state an updater security authority. Rejected as the target architecture.
+Costs: does not establish publisher origin from the administrator-supplied digest, does not provide a signed freshness/replay model and makes mutable Platform state an updater security authority.
 
-### Option D — Give the Laravel application online signing authority
+### Option D — Give the Laravel application online signing authority — REJECTED
 
 Store or make a release-signing key available to the web application so it can sign manifests dynamically.
 
 Benefits: operationally simple publication path.
 
-Costs: expands a web-application compromise into software-update signing compromise, couples ordinary administration to key custody and conflicts with least privilege. Rejected.
+Costs: expands a web-application compromise into software-update signing compromise, couples ordinary administration to key custody and conflicts with least privilege.
 
 ### Trade-off matrix
 
@@ -116,17 +116,17 @@ Costs: expands a web-application compromise into software-update signing comprom
 | Initial implementation complexity | Highest | Medium | Lowest | Medium |
 | Long-term protocol maintenance | Reuse maintained security model | Oteryn owns security-protocol evolution | Low code cost but unacceptable security gap | Oteryn owns protocol plus larger compromise surface |
 | Reversibility/migration | Requires client TUF bootstrap but supports later role/key evolution | Easier first bootstrap; later migration may be disruptive | Easy to start, expensive to secure later | Key-custody migration required to reduce web authority |
-| Recommendation | **Preferred** | Fallback only if TUF feasibility is disproven | Reject | Reject |
+| Decision | **Accepted** | Rejected | Rejected | Rejected |
 
-## Recommendation
+## Decision
 
-Choose **Option A**.
+The repository owner selected **Option A** on 2026-08-13.
 
-The Update Framework separates Root, Targets, Snapshot and Timestamp authority and uses signed versioned/expiring metadata. Oteryn should reuse those security semantics rather than create a custom updater trust protocol. The Platform-specific decision remains narrow: `Downloads` owns release policy/activation presentation, a protected release-publishing boundary materializes signed updater metadata, and the updater trusts only verified TUF repository state plus the authenticated Oteryn channel-policy target.
+Oteryn will use TUF role, version, expiry and delegation semantics instead of creating a custom updater trust protocol. The Platform-specific boundary remains narrow: `Downloads` owns release policy/activation presentation, a protected release-publishing boundary materializes signed updater metadata, and the updater trusts only verified TUF repository state plus the authenticated Oteryn channel-policy target.
 
-This recommendation does not select an external client library or authorize implementation. Acceptance of this ADR is required before canonical module/portal architecture is rewritten from “future decision” to “accepted implementation handoff.”
+This decision does not select an external client library, grant external-repository write authority, place private signing keys in Laravel or authorize production activation.
 
-## Proposed Oteryn updater policy semantics
+## Oteryn updater policy semantics
 
 For each `stable` or `beta` channel, the authenticated policy target has a versioned application schema and carries at least:
 
@@ -151,7 +151,7 @@ For one channel-policy generation, every supported platform/architecture artifac
 
 TUF target metadata supplies trusted target length and cryptographic hashes. Oteryn policy references exact logical target paths and does not redefine artifact-integrity authority.
 
-## Proposed decision semantics
+## Decision semantics
 
 - `minimum_supported_release_sequence` defines the oldest still-supported installed release for the channel.
 - A revoked release is unsupported regardless of its sequence.
@@ -169,7 +169,7 @@ TUF target metadata supplies trusted target length and cryptographic hashes. Ote
 - **Withdrawal** removes a release from new recommendation/current selection but preserves signed historical metadata and immutable artifact identity.
 - **Release revocation** is a newer signed policy decision that marks an exact release identity unusable across its channel targets.
 - **Artifact-target revocation** marks one immutable platform/architecture target unusable without claiming that byte-distinct sibling targets are compromised.
-- **Rollback** in schema v1 is a newer channel-policy revision selecting an older immutable release and must carry explicit rollback authorization. TUF metadata versions and `policy_revision` still advance. Platform/architecture-specific rollback would require a future schema/architecture decision.
+- **Rollback** in schema v1 is a newer channel-policy revision selecting an older immutable release and must carry explicit rollback authorization. TUF metadata versions and `policy_revision` still advance. Platform/architecture-specific rollback requires a future schema/architecture decision.
 - A beta artifact may be authorized in stable only through new stable-authorized metadata that references the exact immutable bytes/hash; promotion never mutates beta authority or history.
 - A release/target may not be removed in a way that breaks already-issued consistent metadata before the retention/rollback window is satisfied.
 
@@ -185,7 +185,7 @@ The rollback marker is authenticated by the ordinary trusted channel publication
 
 ## Publication/activation model
 
-Proposed effective state:
+Effective target state:
 
 ```text
 operator-approved Platform channel release policy
@@ -197,9 +197,11 @@ operator-approved Platform channel release policy
 
 A release may remain visible as browser-only metadata without becoming updater-publishable. Conversely, an updater generation cannot be claimed production-active solely because signed files exist; deployment, origin, availability and real client evidence remain separate gates.
 
-## Implementation handoff after acceptance
+## Implementation handoff
 
-A separately implementation-authorized task should own, in order:
+Issue #1039 owns the Platform-side implementation handoff after this architecture package becomes terminal.
+
+The implementation programme must establish, in bounded stages:
 
 1. a TUF adoption POUF/profile, maintained implementation selection and threat-model validation;
 2. persistence for opaque channel-scoped release identity/sequence, exact artifact identity and signed updater-policy generations without reinterpreting historical browser-only versions;
@@ -211,23 +213,20 @@ A separately implementation-authorized task should own, in order:
 8. key rotation, compromise, rollback, disaster-recovery and release-withdrawal runbooks;
 9. exact tests and E2E evidence before any production activation claim.
 
-## Acceptance evidence required after decision
+## Validation expectations
 
-- canonical architecture documents are reconciled only after Option A (or another named option) is explicitly accepted;
-- repository validators prove ADR numbering/lifecycle and decision-backlog consistency;
-- full-diff review checks channel coherence, target isolation, rollback/revocation, expiry/failure, key compromise and browser/updater/admission separation;
-- runtime/browser E2E remains NOT_APPLICABLE for this architecture-only decision package;
-- implementation later requires real updater negative-path tests for tampered/expired/replayed/mixed metadata, wrong channel/target, revoked releases/targets, unauthorized downgrade, key rotation and unavailable metadata.
-
-## Decision required
-
-Repository owner: accept **Option A (TUF-based role-separated update repository)** as the target first-party updater architecture, or select Option B. Options C and D are rejected by the security invariants above.
+- repository validators prove ADR numbering/lifecycle and architecture decision backlog consistency;
+- implementation later requires real updater negative-path tests for tampered/expired/replayed/mixed metadata, wrong channel/target, revoked releases/targets, unauthorized downgrade, key rotation and unavailable metadata;
+- client-side updater implementation and real updater E2E are separate cross-repository evidence and are not proved by this Platform-only ADR;
+- production activation requires exact signing infrastructure, distribution origin/TLS/availability and recovery evidence.
 
 ## Related records
 
-- Issue #1037
-- Issue #948 / PR #966
+- Issue #1037 — owner architecture decision
+- Issue #1039 — Platform implementation handoff
+- Issue #948 / PR #966 — immutable artifact-reference enforcement
 - `app/Downloads/Actions/PublishClientRelease.php`
+- `docs/architecture/CLIENT_DISTRIBUTION_ARCHITECTURE.md`
 - `docs/architecture/MODULE_CATALOG.md`
 - `docs/architecture/PORTAL_COMPLETENESS_ARCHITECTURE.md`
 - `docs/architecture/SECURITY_ARCHITECTURE.md`
