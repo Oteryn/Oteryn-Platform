@@ -74,12 +74,12 @@ cross_repository_tasks:
 ```yaml
 checkpoint_version: 1
 policy_version: 2
-updated_at: 2026-08-13T21:30:00+02:00
-head: 1404bd282c8dff78d82c3e20eb6137ce3a7bd91a
+updated_at: 2026-08-13T21:36:00+02:00
+head: fa77b73f66467b6c8ff5305917d8b129e3b9927c
 branch: docs/portal-program-allocation-final
 pr: 1031
-status: implementing
-phase: implement
+status: validating
+phase: validate
 project_lane: oteryn-platform-core
 task_kind: implementation
 implementation_authorized: true
@@ -90,7 +90,7 @@ context_growth: stable
 decomposition_decision: single
 validation_level: focused
 session_rotation_count: 0
-heavy_validation_runs: 0
+heavy_validation_runs: 1
 stale_takeover_count: 0
 human_interruptions: 0
 context_routes:
@@ -110,15 +110,16 @@ proven:
   - GAME_CATALOG_PRODUCTION_COMPLETION_PROGRAM already owns detailed Game Catalog producer/consumer completion sequencing.
   - AGENTS.override.md forbids Platform-invocation server/game repository access without separate owner authorization.
   - PR #1031 review identified three material findings: missing project lane, missing Account Center/Character Portfolio and Today rows, and a competing selection sequence.
-  - The work-allocation repair adds the missing workstreams, removes the competing scheduler, restores accepted PlayerCompanion order, separates #489/#490 concerns and adds model-agnostic ownership.
+  - The repaired allocation adds the missing workstreams, removes the competing scheduler, restores accepted PlayerCompanion order, separates #489/#490 concerns and adds model-agnostic ownership.
+  - Exact PR diff at fa77b73f66467b6c8ff5305917d8b129e3b9927c contains only the four declared documentation/programme paths and no runtime changes.
 derived:
   - The allocation can remain useful as a role/dependency companion without becoming a second source of task priority.
 unknown:
-  - Exact final CI results and final review-thread state after the repaired documentation head is committed.
+  - Exact required-check results on the next repaired checkpoint head.
 conflicts: []
 first_failure:
-  marker: review-allocation-authority-drift
-  evidence: PR #1031 review threads PRRT_kwDOTcsYjs6ZDWm5, PRRT_kwDOTcsYjs6ZDWm- and PRRT_kwDOTcsYjs6ZDWnC identify the missing lane, incomplete board and competing scheduler.
+  marker: checkpoint-validation-result-enum
+  evidence: CI run 31736230255 job 94568413227 failed because validation item 2 used unsupported result IN_PROGRESS; allowed results are BLOCKED, FAIL, NOT_APPLICABLE, NOT_RUN or PASS.
 rejected_hypotheses:
   - Create a second independent portal-completion programme.
   - Let the allocation board choose a later workstream before the canonical programme selects it.
@@ -133,15 +134,24 @@ validation:
   - command: synchronization with current main
     result: PASS
     evidence: branch contains merge parent f100334b40181b520a289cf81b28b7f68d26c4ef via sync commit 9a88e393fa574471eb6fda05d04cdb66ec063d71.
-  - command: PR review findings reconciliation
-    result: IN_PROGRESS
-    evidence: all three material review findings are addressed in content; exact final diff/thread validation remains.
-  - command: repository governance/CI on repaired final head
-    result: NOT_RUN
-    evidence: repaired coherent documentation commit is not final yet.
+  - command: PR review findings content reconciliation
+    result: PASS
+    evidence: exact diff addresses all three material findings by declaring oteryn-platform-core, adding Account Center/Character Portfolio and Today, and removing the competing scheduler.
+  - command: exact PR full-diff self-review
+    result: PASS
+    evidence: PR #1031 at fa77b73f66467b6c8ff5305917d8b129e3b9927c changes only four intended documentation/programme files; no runtime or external-repository behavior is changed.
+  - command: executable runtime/browser E2E
+    result: NOT_APPLICABLE
+    evidence: this task changes documentation/programme routing only and introduces no executable user or integration journey.
+  - command: PR review-thread hygiene
+    result: FAIL
+    evidence: three repaired review threads are outdated but still reported unresolved; two have repair replies and thread-resolution remains required before merge.
+  - command: repository governance/CI on fa77b73f66467b6c8ff5305917d8b129e3b9927c
+    result: FAIL
+    evidence: CI and Agent Governance failed because of the invalid IN_PROGRESS validation enum; six other returned workflows passed and this checkpoint repair removes that root cause.
 blockers:
   - none
-next_action: commit the coherent programme/task reconciliation, inspect the exact PR diff and review threads, resolve repaired findings, then run exact-head required checks.
+next_action: inspect the new exact-head required checks, resolve the three outdated repaired review threads, then merge only when every required gate passes.
 ```
 
 ## Notes
