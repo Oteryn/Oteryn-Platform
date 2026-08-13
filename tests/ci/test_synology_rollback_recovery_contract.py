@@ -8,6 +8,7 @@ SCRIPTS = ROOT / "deploy" / "synology" / "scripts"
 LIB = SCRIPTS / "lib.sh"
 RECOVERY = SCRIPTS / "recover-schema.sh"
 ROLLBACK = SCRIPTS / "rollback.sh"
+FRESH_BASELINE = SCRIPTS / "prepare-fresh-schema-baseline.sh"
 RECOVERY_WORKFLOW = ROOT / ".github" / "workflows" / "recover-synology-staging-schema.yml"
 CONTRACT_WORKFLOW = ROOT / ".github" / "workflows" / "synology-rollback-contract.yml"
 
@@ -40,7 +41,7 @@ def test_recovery_workflow_reconstructs_ephemeral_environment() -> None:
     assert "environment: synology-staging" in workflow
     assert "group: synology-staging-deployment" in workflow
     assert "backup_evidence:" in workflow
-    assert "backup_evidence must be exactly <old-sha>-before-<candidate-sha>/evidence.env." in workflow
+    assert "backup_evidence must be exactly (<old-40-sha>|fresh-empty)-before-<candidate-40-sha>/evidence.env." in workflow
     assert "cat > deploy/synology/.env <<EOF" in workflow
     assert "bash deploy/synology/scripts/recover-schema.sh" in workflow
     assert '"$state_dir/backups/$BACKUP_EVIDENCE_INPUT"' in workflow
@@ -96,6 +97,21 @@ def test_same_release_redeploy_preserves_distinct_last_good() -> None:
     assert skip_block < actual_migrate
 
 
+def test_pending_candidate_blocks_retry_before_candidate_or_backup_rewrite() -> None:
+    baseline = FRESH_BASELINE.read_text()
+    guard = baseline.index('if [[ -f "$candidate_file" ]]')
+    managed_baseline_return = baseline.index('if [[ -f "$current_file" || -f "$legacy_file" || -f "$last_good_file" ]]')
+    dump = baseline.index("mariadb-dump")
+    assert guard < managed_baseline_return < dump
+    assert "unresolved candidate release" in baseline
+    assert 'release-state.sh" validate "$candidate_file"' in baseline
+
+    deploy = (SCRIPTS / "deploy.sh").read_text()
+    helper = deploy.index('bash "$SCRIPT_DIR/prepare-fresh-schema-baseline.sh"')
+    platform_start = deploy.index('"${compose[@]}" up -d platform')
+    assert helper < platform_start
+
+
 def test_health_probe_helper_pins_are_full_immutable_digests() -> None:
     lib = LIB.read_text()
     alpine = re.search(r"^OTERYN_HEALTH_ALPINE_IMAGE='([^']+)'$", lib, re.MULTILINE)
@@ -116,6 +132,26 @@ def test_rollback_revalidates_last_good_image_revision_before_start() -> None:
     start = rollback.index('"${compose[@]}" up -d canary platform internal-proxy gateway')
     assert pull < revision < compare < start
     assert "last-good runtime image revision does not match persisted release identity" in rollback
+
+
+def test_rollback_gateway_version_is_derived_from_last_good_release() -> None:
+    rollback = ROLLBACK.read_text()
+    source = rollback.index('source "$last_good_file"')
+    derive = rollback.index('GATEWAY_VERSION="sha-$RELEASE_SHA"', source)
+    start = rollback.index('"${compose[@]}" up -d canary platform internal-proxy gateway', derive)
+    assert source < derive < start
+    assert "export PLATFORM_IMAGE GATEWAY_IMAGE CANARY_IMAGE GATEWAY_VERSION" in rollback
+
+
+def test_rollback_rejects_canary_bind_identity_mismatch() -> None:
+    rollback = ROLLBACK.read_text()
+    bind = rollback.index('[[ "${CANARY_GAME_BIND_ADDRESS:-}" == "$GAME_WORLD_HOST" ]]')
+    server = rollback.index('[[ "${CANARY_SERVER_IP:-}" == "$GAME_WORLD_HOST" ]]')
+    start = rollback.index('"${compose[@]}" up -d canary platform internal-proxy gateway')
+    assert bind < start
+    assert server < start
+    assert "configured Canary bind address does not match persisted last-good world host" in rollback
+    assert "configured Canary server IP does not match persisted last-good world host" in rollback
 
 
 def main() -> None:
