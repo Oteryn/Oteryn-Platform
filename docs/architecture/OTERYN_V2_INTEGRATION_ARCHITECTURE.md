@@ -405,7 +405,11 @@ Exact payment-provider choice, game transport/IDL, game-side entitlement storage
 
 ### Support / moderation
 
-Platform owns case/report/enforcement workflow and communication records. A native game sanction or runtime enforcement action requires a separately accepted game-domain command contract. Admin UI never bypasses that boundary.
+The accepted Platform-side semantic boundary is defined by `docs/contracts/OTERYN_V2_GAME_ENFORCEMENT_COMMAND_CONTRACT.md`.
+
+Platform owns case/report/enforcement workflow, moderator authorization, appeal/communication state and stable operation orchestration. Oteryn-v2 owns authoritative sanction applicability, game-domain mutation, active-session/runtime enforcement and the authoritative result. Dispatch, queue acceptance, Platform workflow state and user notification never prove game enforcement; ambiguous outcomes reconcile under the same operation identity.
+
+Newer decision revisions fence delayed apply/replace/revoke/expire operations so an older command cannot weaken a newer restriction. Exact sanction profiles, transport/IDL, game persistence/runtime hooks, Platform worker/schema implementation and activation remain separately deferred. Admin UI never bypasses this boundary.
 
 ## Cross-repository contract baseline
 
@@ -436,6 +440,8 @@ The PublicGameData projection contract freezes Platform consumer/read-model sema
 
 The entitlement/game-delivery contract freezes the separation of commercial, entitlement and game-enforcement truth plus Platform delivery-operation semantics while leaving game transport/enforcement implementation and provider-specific payment behavior separately owned.
 
+The game-enforcement command contract freezes the separation of Platform moderation/workflow truth and authoritative game-sanction truth, stable operation/revision semantics, ambiguous-result reconciliation and privacy-safe audit while leaving sanction policy, transport and game-runtime implementation separately owned.
+
 ## Migration principles
 
 Migration from Canary compatibility to native v2 is additive and reversible until final cutover.
@@ -464,6 +470,7 @@ Migration from Canary compatibility to native v2 is additive and reversible unti
 | World/runtime status | persisted compatibility status + bounded Canary runtime readers where implemented | configured Platform policy intersected with fresh canonical Oteryn-v2 runtime observations → Gateway/LiveOps projections |
 | Game session | Canary-compatible Game Session path / transitional v2 producer | Platform bounded pre-admission authorization + game-owned final admission, lease/fencing and canonical `GameSessionId` |
 | Game-affecting entitlements | compatibility/business-specific delivery paths | Platform entitlement/delivery workflow → versioned accepted game delivery/enforcement boundary + authoritative receipt/reconciliation |
+| Support/moderation sanctions | Platform workflow/communication records; Canary bans remain compatibility-owned | Platform authorized decision/orchestration → versioned game enforcement command + authoritative receipt/reconciliation |
 | Gameplay protocol | Canary adapter + transitional Platform native contract | game/native-owner `protocol-oteryn`; Canary only compatibility/reference |
 | Game persistence | shared/Canary-compatible DB access | separate v2 persistence behind contracts |
 | Analytics | bounded existing projections / future GameAnalytics | game-runtime source facts → approved Platform analytics projections |
@@ -480,6 +487,7 @@ Migration from Canary compatibility to native v2 is additive and reversible unti
 - **Runtime configuration/observation collapse** — control by `OTERYN_V2_RUNTIME_STATUS_PROJECTION_CONTRACT.md`; configured online/login policy never substitutes for fresh runtime readiness, and stale/unavailable evidence is never fabricated as offline.
 - **Projection/source/privacy collapse** — control by `OTERYN_V2_PUBLIC_GAME_DATA_PROJECTION_CONTRACT.md`; derived Platform read models never become game authority and restrictive privacy revisions fence stale projections/cache/index state.
 - **Payment/entitlement/game-delivery collapse** — control by `OTERYN_V2_ENTITLEMENT_GAME_DELIVERY_CONTRACT.md`; settlement, entitlement lifecycle and game enforcement remain distinct truths with explicit reconciliation.
+- **Moderation-decision/game-enforcement collapse** — control by `OTERYN_V2_GAME_ENFORCEMENT_COMMAND_CONTRACT.md`; Platform workflow state or dispatch never proves game effect, and stale operations cannot weaken newer restrictive decisions.
 - **Canary ID leakage** — new native modules use canonical IDs; compatibility mappings stay in adapters.
 - **Shared-database shortcut** — new native mutations/reads require explicit contracts.
 - **Synchronous web dependency on game runtime** — public surfaces prefer resilient projections/read models.
@@ -502,15 +510,12 @@ The following focused architecture questions are now semantically resolved but s
 - **Platform Characters → native Character Authority mutations/results** — resolved by `docs/contracts/OTERYN_V2_CHARACTER_AUTHORITY_COMMAND_CONTRACT.md`: Platform owns authorization/orchestration and stable semantic operation identity while the game domain owns current character authority, mutation execution and authoritative result. Retries and ambiguous outcomes reconcile under one operation identity; exact transport/IDL/runtime execution remains external/deferred.
 - **Native game facts → PublicGameData projections** — resolved by `docs/contracts/OTERYN_V2_PUBLIC_GAME_DATA_PROJECTION_CONTRACT.md`: game-domain facts remain authoritative, Platform projections are rebuildable read models with explicit revision/freshness/degraded/rebuild/privacy semantics, and a newer restrictive privacy decision fences stale public material. Producer/worker/storage implementation and required game-owned guild identity remain separately deferred.
 - **Platform entitlement truth → gameplay-affecting delivery/enforcement** — resolved by `docs/contracts/OTERYN_V2_ENTITLEMENT_GAME_DELIVERY_CONTRACT.md`: payment/order truth, Platform entitlement truth and game enforcement truth remain distinct; Platform owns entitlement/delivery orchestration and stable delivery-operation identity while game application/enforcement is reconciled from authoritative results. Exact provider/transport/game enforcement/runtime implementation remains deferred.
+- **Support/moderation → native game enforcement** — resolved by `docs/contracts/OTERYN_V2_GAME_ENFORCEMENT_COMMAND_CONTRACT.md`: Platform owns authorized moderation/workflow decisions and stable operation orchestration while Oteryn-v2 owns sanction applicability, game mutation, active-session effect and authoritative receipts. Exact sanction catalogue, transport/IDL, storage/runtime hooks and activation remain deferred.
+- **Native content authority → Platform GameCatalog** — resolved by ADR 0034 and `docs/contracts/OTERYN_V2_GAME_CATALOG_CONTENT_CONTRACT.md`: Oteryn-v2 owns native canonical content identity, executable definitions/applicability and authoritative revision/removal semantics; Platform owns validated immutable intake, profiles, projections, activation/rollback and presentation. Canary import schemas remain Legacy Canary Compatibility adapters and cannot define native identity or silently become fallback authority. Exact native producer bytes, transport and runtime implementation remain external/deferred.
 
 ## Deferred architecture backlog
 
 The following are intentionally not solved in this baseline and should be addressed in focused Platform decisions rather than assumptions.
-
-### P1
-
-1. Support/moderation → game enforcement command contract.
-2. Native Game Catalog/content ownership versus Legacy Canary Compatibility importers.
 
 ### P2
 

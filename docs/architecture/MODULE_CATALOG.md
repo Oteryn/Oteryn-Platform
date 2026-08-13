@@ -33,10 +33,10 @@ The frozen PR #453 production-completion baseline and later exact merged PRs pro
 | PublicGameData | AVAILABLE | Read models/queries for characters, guilds, highscores, online/status | Privileged mutations |
 | LiveOps | PLANNED | Authoritative time-sensitive world/service status, maintenance, server save, raid schedules, runtime events/boost freshness and service history | Free-form editorial content, gameplay mutation or fabricated offline/zero state |
 | CMS | AVAILABLE | Public content reads and permission-scoped Platform content management | Identity policy, game state, unreviewed rich/upload surfaces |
-| Support | AVAILABLE | Platform tickets, reports, enforcement records, notifications, retention and privacy-safe user/moderator presentation | Canary ban mutation, file attachments, disclosure of reporter identity or private moderator notes |
+| Support | AVAILABLE | Platform tickets, reports, moderation decisions, enforcement orchestration/records, appeals, notifications, retention and privacy-safe user/moderator presentation | Authoritative game sanction state/effect, direct game-ban mutation, file attachments, disclosure of reporter identity or private moderator notes |
 | EditorialMedia | AVAILABLE | Private normalized raster-image objects, integrity metadata, bounded consumer references and administrator lifecycle | Generic public file hosting, executable uploads, arbitrary documents, consumer-specific publication rules |
 | Wiki | AVAILABLE | Localized Wiki public reads/search, categories, lifecycle, trusted administration, revisions and approved media references | Generic CMS pages, arbitrary HTML, player editing, claims of complete authoritative game content |
-| GameCatalog | AVAILABLE | Versioned deterministic game-catalogue snapshots/projections and, where authoritative, stable typed server-specific system definitions with version/profile/ruleset/season applicability | Inventing missing content, editorial strategy, current runtime/rotation truth, silent producer assumptions, or production activation without a gate |
+| GameCatalog | AVAILABLE | Versioned deterministic game-catalogue snapshots/projections, exact authority provenance and, where authoritative, stable typed server-specific system definitions with version/profile/ruleset/season applicability | Executable native game-content authority, inventing missing content, editorial strategy, current runtime/rotation truth, silent producer assumptions, or production activation without a gate |
 | PlayerCompanion | PLANNED | Versioned calculators, build plans, hunt guidance, session analysis, progression goals, owner-private tracking/routines/change signals, shareable plans and explained recommendations | Canonical game/source facts, raw Canary access, notification transport, public follower graphs, game mutation, payment settlement or hidden balance policy |
 | Admin | AVAILABLE | Admin UI, explicit RBAC/policies, privileged Platform use cases | Bypassing domain/application invariants or granting implicit wildcard authority |
 | Audit | AVAILABLE | Security/admin audit primitives, privileged-action audit and bounded admin audit visibility | Secrets, raw credentials, business-rule authorization decisions |
@@ -441,6 +441,8 @@ Player editing, comments, arbitrary HTML and a complete authoritative game-conte
 
 ## Game Catalog
 
+ADR 0034 and `OTERYN_V2_GAME_CATALOG_CONTENT_CONTRACT.md` define the native target: the game domain owns canonical native content identity, executable definitions/applicability and authority revisions; `GameCatalog` owns validated immutable imported persistence, profiles, projections, presentation and transactional activation/rollback. Current Canary schemas/importers remain Legacy Canary Compatibility and do not define the native domain model. One profile cannot blend native, Canary and editorial fields into an apparently co-authoritative record.
+
 ### Responsibilities
 
 - validate versioned deterministic Canary catalogue snapshots against pinned byte-identical schemas;
@@ -532,7 +534,7 @@ The focused architecture is `docs/architecture/PLAYER_COMPANION_ARCHITECTURE.md`
 
 The delivered lifecycle provides server-generated public identifiers, idempotent request keys, owner-scoped reads, optimistic locking, explicit report transitions, exact `support.tickets.manage`, `support.reports.manage` and `support.enforcement.manage` permissions behind confirmed MFA, EN/PL desktop/tablet/mobile UI and isolated mail-delivery failure state.
 
-Support attachments are disabled. Canary remains authoritative for native game bans and account status; no support action writes Canary data.
+Support attachments are disabled. Current Canary bans/account status remain Legacy Canary Compatibility authority and no delivered support action writes game data. For the native target, `OTERYN_V2_GAME_ENFORCEMENT_COMMAND_CONTRACT.md` makes Support an authorized decision/orchestration consumer while Oteryn-v2 owns sanction applicability, game mutation, active-session/runtime effect and authoritative receipts; that accepted semantic boundary is not runtime implementation or activation proof.
 
 ### Invariants
 
@@ -542,7 +544,10 @@ Support attachments are disabled. Canary remains authoritative for native game b
 - notification failure never rolls back a committed support transition;
 - raw ticket bodies, report evidence, appeal bodies and moderator notes do not enter audit metadata;
 - pruning/anonymization follows configured Platform retention and never deletes Canary-owned data;
-- file attachments and Canary ban mutation require separate reviewed contracts.
+- native game-effect claims require an authoritative current game result; dispatch, Platform workflow state and notification are insufficient;
+- retries and ambiguous outcomes preserve one stable operation identity, while newer decision revisions fence stale apply/revoke/expire commands;
+- appeal submission alone never mutates game state; an authorized appeal outcome creates a newer bounded decision;
+- file attachments and any compatibility-mode Canary ban mutation require separate reviewed contracts.
 
 ## Admin
 

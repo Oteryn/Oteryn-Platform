@@ -231,9 +231,21 @@ Platform owns the additive support schema and lifecycle:
 
 Public ULIDs are routing references, not ownership proof. Identity relations and moderator permissions are resolved server-side. User reads exclude internal ticket notes, reporter identity outside the owner view, moderator notes and administrator audit metadata.
 
-Platform enforcement records are communication and workflow records only. They do not mutate or supersede Canary-owned bans, account status or game runtime enforcement. Any future synchronization requires an explicit cross-repository contract, rollout order, least-privilege credential and rollback plan.
+Platform enforcement records are communication, decision and orchestration records only. They do not mutate or supersede game-owned sanctions, Canary-owned bans/account status or game runtime enforcement, and a dispatched/pending Platform operation is not proof of game effect.
+
+For the native target, `OTERYN_V2_GAME_ENFORCEMENT_COMMAND_CONTRACT.md` defines the accepted semantic boundary: Platform owns the authorized decision, appeal/communication workflow and stable operation ledger; Oteryn-v2 owns authoritative target state, sanction applicability, mutation, expiry, active-session/runtime enforcement and results. Retries/reconciliation preserve one operation identity and monotonic decision revisions prevent stale apply/replace/revoke/expire commands from weakening newer state. Exact transport, persistence and activation remain deferred.
+
+Current Canary bans/account status remain Legacy Canary Compatibility authority. Any compatibility synchronization or native activation requires an explicit rollout order, least-privilege credential, mixed-version evidence and rollback plan; native and Canary sanctions must not be silently dual-written as co-authoritative state.
 
 Retention may delete old closed ticket/report records and anonymize expired enforcement reasons through the supported command. It never deletes Canary-owned data and must preserve the configured audit/privacy boundary.
+
+## Game Catalog content data
+
+ADR 0034 separates source authority from catalogue persistence. Oteryn-v2 owns native canonical content identities, executable gameplay definitions/relations, ruleset applicability, authority revisions/epochs and authoritative removal semantics. Platform `GameCatalog` owns immutable imported snapshots, validation findings, profiles, activation/rollback, rebuildable projections, presentation metadata and administration; those rows remain evidence from their declared source and do not transfer gameplay authority.
+
+Current `oteryn.game-catalog` Canary snapshots remain Legacy Canary Compatibility data. Canary identifiers and final-registry assumptions stay namespaced to that authority profile and cannot become native canonical identity. One active profile has one declared gameplay-content authority: Platform must not merge native, Canary and editorial fields into a co-authoritative row or silently fall back to Canary when native evidence is stale/unavailable.
+
+Native intake uses a separately versioned immutable producer contract with explicit authority epoch/revision, capability/completeness evidence, stable typed identity, deterministic digest and tombstones. Imports are inactive by default; activation/rollback are exact-snapshot, transactional and audited. Direct native game-table access is not an accepted steady-state integration.
 
 ## Future financial data
 
