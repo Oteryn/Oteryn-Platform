@@ -16,6 +16,7 @@ on:
       - routes/**
       - services/game-gateway/**
       - deploy/synology/**
+      - tests/ci/test_synology_rollback_contract.py
       - .github/workflows/build-synology-staging-images.yml
       - .github/workflows/deploy-synology-staging.yml
   push:
@@ -33,6 +34,7 @@ on:
       - routes/**
       - services/game-gateway/**
       - deploy/synology/**
+      - tests/ci/test_synology_rollback_contract.py
       - .github/workflows/build-synology-staging-images.yml
       - .github/workflows/deploy-synology-staging.yml
   workflow_dispatch:
@@ -51,7 +53,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout exact source
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Validate shell syntax
         run: |
@@ -60,11 +62,16 @@ jobs:
             deploy/synology/scripts/lib.sh \
             deploy/synology/scripts/deploy.sh \
             deploy/synology/scripts/health-check.sh \
+            deploy/synology/scripts/recover-schema.sh \
+            deploy/synology/scripts/release-state.sh \
             deploy/synology/scripts/rollback.sh \
             deploy/synology/runner/entrypoint.sh
           sh -n \
             deploy/synology/tls/init.sh \
             deploy/synology/mariadb/init/10-platform-database.sh
+
+      - name: Validate schema-safe rollback contract
+        run: python3 tests/ci/test_synology_rollback_contract.py
 
       - name: Validate Compose manifests and LAN isolation
         run: |
@@ -115,10 +122,9 @@ jobs:
               'platform': {'8000': ('127.0.0.1', '8000')},
               'gateway': {'8080': ('127.0.0.1', '8080')},
               'canary': {
-                  '7171': ('127.0.0.1', '7171'),
-                  '7172': ('127.0.0.1', '7172'),
-              },
+                  '7171': ('127.0.0.1', '7171')},
           }
+          expected['canary']['7172'] = ('127.0.0.1', '7172')
           for service, service_expected in expected.items():
               actual = bindings(service)
               if actual != service_expected:
@@ -215,14 +221,14 @@ jobs:
 
     steps:
       - name: Checkout exact source
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v4
+        uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
 
       - name: Compute image tags
         id: meta
-        uses: docker/metadata-action@v6
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
         with:
           images: ${{ matrix.image }}
           tags: |
@@ -231,14 +237,14 @@ jobs:
 
       - name: Log in to GHCR
         if: github.event_name != 'pull_request'
-        uses: docker/login-action@v4
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build and optionally publish
-        uses: docker/build-push-action@v7
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
         with:
           context: .
           file: ${{ matrix.dockerfile }}
