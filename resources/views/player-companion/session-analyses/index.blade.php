@@ -58,7 +58,7 @@
                 <strong>{{ __('player_companion.history_empty') }}</strong>
             </div>
         @else
-            <div class="table-wrap">
+            <div class="table-region">
                 <table>
                     <thead>
                         <tr>

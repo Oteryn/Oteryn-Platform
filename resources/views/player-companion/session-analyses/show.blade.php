@@ -56,7 +56,7 @@
         @if ($analysis->participant_count === 0)
             <div class="empty-state"><strong>—</strong></div>
         @else
-            <div class="table-wrap">
+            <div class="table-region">
                 <table>
                     <thead><tr><th>{{ __('player_companion.participants') }}</th><th>{{ __('player_companion.loot') }}</th><th>{{ __('player_companion.supplies') }}</th><th>{{ __('player_companion.balance') }}</th><th>{{ __('player_companion.damage') }}</th><th>{{ __('player_companion.healing') }}</th></tr></thead>
                     <tbody>
@@ -84,7 +84,7 @@
         @if ($analysis->settlements === [])
             <div class="empty-state"><strong>{{ __('player_companion.settlements_empty') }}</strong></div>
         @else
-            <div class="table-wrap">
+            <div class="table-region">
                 <table data-testid="session-analysis-settlements">
                     <thead><tr><th>{{ __('player_companion.from') }}</th><th>{{ __('player_companion.to') }}</th><th>{{ __('player_companion.amount') }}</th></tr></thead>
                     <tbody>
