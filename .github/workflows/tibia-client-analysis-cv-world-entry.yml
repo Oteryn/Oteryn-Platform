@@ -1,6 +1,6 @@
 name: Tibia CV World Entry
 
-# Recovery trigger: 2026-08-12 23:54 CEST explicit verified world-login retry.
+# Recovery trigger: 2026-08-13 fresh verified world-login retry requested by owner.
 on:
   push:
     branches: [ops/oteryn-tibia-client-analysis-20260811]
